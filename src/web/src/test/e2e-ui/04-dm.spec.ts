@@ -79,7 +79,7 @@ test.describe.serial("direct messages", () => {
     }
   })
 
-  test("a canonical DM skips authority and keeps known chrome while read-state and messages load", async ({ asUser }) => {
+  test("a canonical DM keeps its title while history permission gates body and composer", async ({ asUser }) => {
     const dmId = await seedDm("alice", userId("bob"))
     const body = `held DM message ${Date.now()}`
     const messageId = await seedDmMessage("bob", dmId, body)
@@ -100,11 +100,14 @@ test.describe.serial("direct messages", () => {
     })
 
     let releaseRead!: () => void
+    let readStarted!: () => void
     let readFinished!: () => void
     const readGate = new Promise<void>((resolve) => { releaseRead = resolve })
+    const readRequest = new Promise<void>((resolve) => { readStarted = resolve })
     const readSettled = new Promise<void>((resolve) => { readFinished = resolve })
     const readPattern = `**/api/community/channels/${dmId}/read-state`
     await alice.page.route(readPattern, async (route) => {
+      readStarted()
       try {
         await readGate
         await route.continue()
@@ -146,7 +149,10 @@ test.describe.serial("direct messages", () => {
       const dmTitle = alice.page.getByTestId(tid.dmHeaderTitle)
       await expect(dmHeader).toHaveCount(1, { timeout: 20_000 })
       await expect(dmTitle).toContainText(userName("bob"))
-      await expect(alice.page.getByTestId(tid.composerInput)).toBeVisible()
+      await readRequest
+      await expect(alice.page.locator('[data-onboarding-target="dm-composer"] [data-slot="skeleton"]').first()).toBeVisible()
+      await expect(alice.page.getByTestId(tid.composerInput)).toHaveCount(0)
+      await expect(alice.page.getByTestId(tid.message(messageId))).toHaveCount(0)
       await expect(alice.page.getByTestId(tid.messageScroller).locator('[data-slot="skeleton"]')).not.toHaveCount(0)
 
       releaseRead()
@@ -162,6 +168,7 @@ test.describe.serial("direct messages", () => {
 
       releaseMessages()
       await messagesSettled
+      await expect(alice.page.getByTestId(tid.composerInput)).toBeVisible()
       await expect(alice.page.getByTestId(tid.message(messageId))).toHaveCount(1)
       await expect(alice.page.getByText(body, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
     } finally {

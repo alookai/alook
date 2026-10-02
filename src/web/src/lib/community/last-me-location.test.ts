@@ -47,6 +47,7 @@ describe("last-me-location", () => {
     "/c/me/bots#owned",
     "/c/me/",
     "/c/me",
+    "/c/me/%E0%A4%A",
   ])("rejects %s", (pathname) => {
     expect(isRememberableMeLocation(pathname)).toBe(false)
   })
@@ -54,6 +55,12 @@ describe("last-me-location", () => {
   it("does not overwrite a valid value with a query-bearing URL", () => {
     setLastMeLocation("/c/me/bots")
     setLastMeLocation("/c/me/dm_1?seq=42")
+    expect(getLastMeLeaf()).toBe("bots")
+  })
+
+  it("retains a valid destination when decoding a damaged URI fails", () => {
+    setLastMeLocation("/c/me/bots")
+    expect(() => setLastMeLocation("/c/me/%")).not.toThrow()
     expect(getLastMeLeaf()).toBe("bots")
   })
 

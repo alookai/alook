@@ -52,12 +52,13 @@ export default function MeLayout({ children }: { children: ReactNode }) {
   const machinesActive = pathname === "/c/me/machines"
   const botsActive = pathname === "/c/me/bots"
   const friendsActive = pathname === "/c/me/friends"
+  const staticModuleActive = machinesActive || botsActive || friendsActive
 
   useEffect(() => {
-    if (params.dmId || !isRememberableMeLocation(pathname)) return
+    if (params.dmId || !staticModuleActive || !isRememberableMeLocation(pathname)) return
     setLastMeLocation(pathname)
     commitLastCommunityRoute(currentUser.id, pathname)
-  }, [currentUser.id, params.dmId, pathname])
+  }, [currentUser.id, params.dmId, pathname, staticModuleActive])
 
   // Navigation is intentionally read-neutral. The visible-row observer owns
   // both optimistic clearing and the durable cursor write.

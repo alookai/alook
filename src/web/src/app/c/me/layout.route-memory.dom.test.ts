@@ -172,6 +172,15 @@ describe("MeLayout route memory", () => {
     client.clear()
   })
 
+  it("does not commit a DM pathname while its layout params are still unresolved", () => {
+    mocks.pathname = "/c/me/dm-pending"
+    mocks.dmId = undefined
+    mocks.locationStatus = "remember"
+    renderLayout()
+    expect(mocks.setLastMeLocation).not.toHaveBeenCalled()
+    expect(mocks.commitLastCommunityRoute).not.toHaveBeenCalled()
+  })
+
   it("keeps the Friends shortcut count on the shared terminal projection through failed refreshes", async () => {
     const request = {
       id: "friendship-a",

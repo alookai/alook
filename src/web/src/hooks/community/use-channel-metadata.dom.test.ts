@@ -52,6 +52,33 @@ afterEach(async () => {
 })
 
 describe("shared Channel resource and canonical DM publication", () => {
+  it("leaves an absent target disabled without starting a metadata request", async () => {
+    const { client, wrapper } = await fixture()
+    const route = renderHook(() => useChannelMetadata(null, undefined), { wrapper })
+    expect(route.result.current.isVerified).toBe(false)
+    expect(route.result.current.fetchStatus).toBe("idle")
+    expect(client.getQueryState(communityKeys.channelMeta(null, "__none__"))?.fetchStatus).toBe("idle")
+    expect(apiFetch).not.toHaveBeenCalled()
+    route.unmount()
+  })
+
+  it("invalidates expired qualification and waits for a current metadata receipt", async () => {
+    const { registry, wrapper } = await fixture()
+    publishDms(registry)
+    const request = deferred<typeof metadata>()
+    apiFetch.mockReturnValue(request.promise)
+    const route = renderHook(() => useChannelMetadata(null, metadata.id), { wrapper })
+    expect(route.result.current.isVerified).toBe(true)
+    expect(apiFetch).not.toHaveBeenCalled()
+    act(() => useCommunityWsStore.setState((state) => ({ accessEpoch: state.accessEpoch + 1 })))
+    expect(route.result.current.isVerified).toBe(false)
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
+    await act(async () => request.resolve(metadata))
+    await waitFor(() => expect(route.result.current.isVerified).toBe(true))
+    expect(isChannelMetadataTokenCurrent(route.result.current.data!.verification!)).toBe(true)
+    route.unmount()
+  })
+
   it("publishes a real nullable DM response without losing peer closure or granting a server scope", async () => {
     const { client, registry, wrapper } = await fixture()
     ingestDms(registry, dms)
@@ -98,6 +125,26 @@ describe("shared Channel resource and canonical DM publication", () => {
 })
 
 describe("DM history permission stays separate from metadata identity", () => {
+  it("keeps a transient read error local and grants history after explicit Retry succeeds", async () => {
+    const { registry, wrapper } = await fixture(new QueryClient({
+      defaultOptions: { queries: { retryDelay: 0, gcTime: Infinity } },
+    }))
+    publishDms(registry)
+    apiFetch.mockRejectedValue(new Error("offline"))
+    const route = renderHook(() => ({ metadata: useChannelMetadata(null, metadata.id), read: useDmReadStateSnapshot(metadata.id) }), { wrapper })
+    await waitFor(() => expect(route.result.current.read.error?.message).toBe("offline"))
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+    expect(route.result.current.metadata.isVerified).toBe(true)
+    expect(route.result.current.metadata.data?.historyVerification).toBeUndefined()
+    apiFetch.mockResolvedValue(readState)
+    act(() => route.result.current.read.retry())
+    await waitFor(() => expect(route.result.current.read.snapshot).toEqual(readState))
+    expect(route.result.current.read.error).toBeNull()
+    expect(isChannelMetadataTokenCurrent(route.result.current.metadata.data!.historyVerification!)).toBe(true)
+    expect(apiFetch).toHaveBeenCalledTimes(3)
+    route.unmount()
+  })
+
   it("records only a current read permission receipt on the existing Channel resource", async () => {
     const { client, registry, wrapper } = await fixture()
     publishDms(registry)

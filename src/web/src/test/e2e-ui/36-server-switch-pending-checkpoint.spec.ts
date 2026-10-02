@@ -400,13 +400,11 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
       [channelA, channelB],
     )
     const navigationEvents = await historyEvents(page)
-    expect(navigationEvents).toHaveLength(2)
+    expect(navigationEvents).toHaveLength(1)
     expect(navigationEvents[0]).toEqual({
       kind: "pushState",
-      pathname: `/c/channels/${serverC}`,
+      pathname: `/c/channels/${serverC}/${channelC}`,
     })
-    expect(navigationEvents[1]).toMatchObject({ kind: "replaceState" })
-    expect(navigationEvents[1]?.pathname.startsWith(`/c/channels/${serverC}/`)).toBe(true)
   } finally {
     targetRsc.stop()
   }

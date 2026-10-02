@@ -146,7 +146,9 @@ async function clearQueryPersistence(page: Page) {
 
 async function expectCacheFirstReload(
   page: Page,
+  assertUnqualifiedShell: () => Promise<void>,
   assertCachedContent: () => Promise<void>,
+  assertReconciledContent: () => Promise<void>,
 ): Promise<ReloadCapture> {
   await page.addInitScript((loadingSelectors) => {
     const state = {
@@ -182,14 +184,25 @@ async function expectCacheFirstReload(
 
   let releaseReads!: () => void
   const readsGate = new Promise<void>((resolve) => { releaseReads = resolve })
+  let releaseMessages!: () => void
+  const messagesGate = new Promise<void>((resolve) => { releaseMessages = resolve })
   let heldReads = 0
+  let heldMessages = 0
+  let forwardedMessages = 0
   await page.route("**/api/community/**", async (route) => {
     if (route.request().method() !== "GET") {
       await route.continue()
       return
     }
-    heldReads += 1
-    await readsGate
+    const path = new URL(route.request().url()).pathname
+    if (/\/(messages|pins|threads)(\/|$)/.test(path)) {
+      heldMessages += 1
+      await messagesGate
+      forwardedMessages += 1
+    } else {
+      heldReads += 1
+      await readsGate
+    }
     await route.continue().catch(() => {})
   })
   let wsAttempts = 0
@@ -200,7 +213,7 @@ async function expectCacheFirstReload(
 
   try {
     await page.reload({ waitUntil: "commit" })
-    await assertCachedContent()
+    await assertUnqualifiedShell()
     await expect.poll(() => heldReads).toBeGreaterThan(0)
     await expect.poll(() => wsAttempts).toBeGreaterThan(0)
     const readCapture = () => page.evaluate((): ReloadCapture | null => {
@@ -236,14 +249,21 @@ async function expectCacheFirstReload(
     expect(capture.marks.complete).toBeGreaterThanOrEqual(capture.marks.start)
     expect(capture.marks.cached).toBeGreaterThanOrEqual(capture.marks.complete)
     expect(capture.marks.stable).toBeGreaterThanOrEqual(capture.marks.cached)
+    releaseReads()
+    await assertCachedContent()
+    await expect.poll(() => heldMessages).toBeGreaterThan(0)
+    expect(forwardedMessages).toBe(0)
+    releaseMessages()
+    await assertReconciledContent()
     return capture
   } finally {
     releaseReads()
+    releaseMessages()
     await page.unroute("**/api/community/**")
   }
 }
 
-test("a warm channel reload replaces regional skeletons with cached shell and messages", async ({ asUser }) => {
+test("a warm channel reload qualifies its cached shell before showing persisted messages", async ({ asUser }) => {
   test.setTimeout(120_000)
   const suffix = Date.now().toString(36)
   const serverId = await seedServer("alice", `Warm channel ${suffix}`)
@@ -263,11 +283,21 @@ test("a warm channel reload replaces regional skeletons with cached shell and me
   await expectCacheFirstReload(page, async () => {
     await expect(page.getByTestId(tid.serverIcon(serverId))).toBeVisible({ timeout: 10_000 })
     await expect(page.getByTestId(tid.channelRow(channelId))).toBeVisible()
-    await expect(page.getByText(body, { exact: false }).first()).toBeVisible()
+    const main = page.locator('[data-community-conversation-subtype="text"]')
+    await expect(main).toBeVisible()
+    await expect(main.locator("[data-message-list-skeleton]")).toBeVisible()
+    await expect(page.getByTestId(tid.composerInput)).toHaveCount(0)
+    await expect(page.getByTestId(tid.message(messageId))).toHaveCount(0)
+  }, async () => {
+    await expect(page.getByTestId(tid.message(messageId))).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByTestId(tid.message(messageId)).getByText(body, { exact: false })).toBeVisible()
+  }, async () => {
+    await expect(page.getByTestId(tid.message(messageId))).toBeVisible()
+    await expect(page.getByTestId(tid.composerInput)).toBeVisible()
   })
 })
 
-test("a warm DM reload replaces regional skeletons with cached identity and messages", async ({ asUser }) => {
+test("a warm DM reload qualifies cached identity and history before showing persisted messages", async ({ asUser }) => {
   test.setTimeout(120_000)
   const dmId = await seedDm("alice", userId("bob"))
   const body = `cached dm ${Date.now()}`
@@ -286,11 +316,21 @@ test("a warm DM reload replaces regional skeletons with cached identity and mess
 
   await expectCacheFirstReload(page, async () => {
     await expect(page.getByTestId(tid.dmRow(dmId))).toBeVisible({ timeout: 10_000 })
-    await expect(page.getByText(body, { exact: false }).first()).toBeVisible()
+    await expect(page.getByRole("main", { name: "Loading direct message" })).toBeVisible()
+    await expect(page.getByTestId(tid.messageScroller).locator("[data-message-list-skeleton]")).toBeVisible()
+    await expect(page.getByTestId(tid.composerInput)).toHaveCount(0)
+    await expect(page.getByTestId(tid.message(messageId))).toHaveCount(0)
+  }, async () => {
+    await expect(page.getByTestId(tid.dmHeader)).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByTestId(tid.message(messageId))).toBeVisible()
+    await expect(page.getByTestId(tid.message(messageId)).getByText(body, { exact: false })).toBeVisible()
+  }, async () => {
+    await expect(page.getByTestId(tid.message(messageId))).toBeVisible()
+    await expect(page.getByTestId(tid.composerInput)).toBeVisible()
   })
 })
 
-test("a warm desktop split reload replaces regional skeletons in both cached panes", async ({ asUser }) => {
+test("a warm desktop thread reload qualifies its type before restoring cached split panes", async ({ asUser }) => {
   test.setTimeout(120_000)
   const suffix = Date.now().toString(36)
   const serverId = await seedServer("alice", `Warm split ${suffix}`)
@@ -315,13 +355,33 @@ test("a warm desktop split reload replaces regional skeletons in both cached pan
   ])
 
   await expectCacheFirstReload(page, async () => {
+    await expect(page.getByTestId(tid.serverIcon(serverId))).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByTestId(tid.channelRow(channelId))).toBeVisible()
+    await expect(page.getByTestId(tid.threadSplit)).toHaveAttribute("data-community-conversation-subtype", "thread")
+    await expect(page.getByTestId(tid.threadSplitPanel).locator("[data-message-list-skeleton]")).toBeVisible()
+    await expect(page.getByTestId(tid.composerInput)).toHaveCount(0)
+    await expect(page.getByTestId(tid.message(openerId))).toHaveCount(0)
+    await expect(page.getByTestId(tid.message(threadMessageId))).toHaveCount(0)
+  }, async () => {
     await expect(page.getByTestId(tid.threadSplit)).toHaveAttribute("data-layout", "split", {
       timeout: 10_000,
     })
+    await expect(page.getByTestId(tid.threadSplitParent).getByTestId(tid.message(openerId)))
+      .toBeVisible()
+    await expect(page.getByTestId(tid.threadSplitParent).getByText(parentBody, { exact: false }))
+      .toBeVisible()
+    await expect(page.getByTestId(tid.threadSplitPanel).getByTestId(tid.message(threadMessageId)))
+      .toBeVisible()
+    await expect(page.getByTestId(tid.threadSplitPanel).getByText(threadBody, { exact: false }))
+      .toBeVisible()
+  }, async () => {
+    await expect(page.getByTestId(tid.threadSplit)).toHaveAttribute("data-layout", "split")
     await expect(page.getByTestId(tid.threadSplitParent).getByText(parentBody, { exact: false }))
       .toBeVisible()
     await expect(page.getByTestId(tid.threadSplitPanel).getByText(threadBody, { exact: false }))
       .toBeVisible()
+    await expect(page.getByTestId(tid.threadSplitParent).getByTestId(tid.composerInput)).toBeVisible()
+    await expect(page.getByTestId(tid.threadSplitPanel).getByTestId(tid.composerInput)).toBeVisible()
   })
 })
 

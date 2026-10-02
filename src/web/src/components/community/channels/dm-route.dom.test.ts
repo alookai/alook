@@ -20,7 +20,12 @@ vi.mock("@/lib/community-db/sync", () => ({ purgeCommunityChannel: mocks.purge }
 vi.mock("@/lib/community/last-me-location", () => ({ ME_ROOT: "/c/me", getLastMeLeaf: () => mocks.last, clearLastMeLocation: mocks.clear }))
 vi.mock("@/lib/community/last-community-route", () => ({
   COMMUNITY_COLD_ENTRY_FALLBACK: "/c/me/machines",
-  consumeCommunityColdEntryFailure: (...args: unknown[]) => { mocks.consume(...args); return mocks.cold },
+  consumeCommunityColdEntryFailure: (...args: unknown[]) => {
+    mocks.consume(...args)
+    const cold = mocks.cold
+    mocks.cold = false
+    return cold
+  },
 }))
 vi.mock("./dm-view", () => ({ DmView: ({ dmId }: { dmId: string }) => React.createElement("main", { "data-channel-id": dmId }, dmId) }))
 vi.mock("./dm-loading-frame", () => ({ DmLoadingFrame: ({ reserveBackSlot }: { reserveBackSlot: boolean }) => React.createElement("div", { "data-testid": "dm-pending", "data-back": String(reserveBackSlot) }) }))
@@ -73,5 +78,14 @@ describe("DM target main owns identity, retry and fallback", () => {
     mocks.last = "dm-b"
     render(React.createElement(DmRoute, { dmId: "dm-a" }))
     expect(mocks.clear).not.toHaveBeenCalled()
+  })
+
+  it("keeps a consumed cold fallback through Strict Mode effect replay", () => {
+    mocks.verification.status = "missing"
+    mocks.cold = true
+    render(React.createElement(React.StrictMode, null, React.createElement(DmRoute, { dmId: "dm-a" })))
+    expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/me/machines")
+    expect(mocks.consume).toHaveBeenCalledOnce()
+    expect(mocks.purge).toHaveBeenCalledOnce()
   })
 })
