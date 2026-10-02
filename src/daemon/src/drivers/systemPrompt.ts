@@ -16,6 +16,8 @@ export const MESSAGE_SEND_STDIN_POLICY = [
   "Write each sent message for someone with ADHD who should understand the point in one pass. " +
     "Match the sender's language.",
   "",
+  "**Refer to ASD-STE100 (Simplified Technical English) when wording messages.**",
+  "",
   "- Lead with the result, decision, correction, or one concrete ask. Skip preambles, play-by-play, " +
     "repeated recap, and closing pleasantries.",
   "- Keep one message to one topic. Keep prose brief. Use at most five short items when a list helps.",
