@@ -1,554 +1,146 @@
 import React from "react"
 import { onlineManager, QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, render } from "@/test/react-dom-harness"
+import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
-import type { DM } from "@/lib/community/models/people"
 import { useCommunityWsStore } from "@/stores/community/ws"
-import {
-  classifyDmRouteAuthorityError,
-  DM_ROUTE_VERIFICATION_HEADER,
-  startDmRouteVerification,
-  useDmRouteVerification,
-  type DmRouteVerificationResult,
-  type DmRouteVerificationStatus,
-} from "./use-dm-route-verification"
+import { channelMetadataOptions } from "./channel-metadata"
+import { startDmRouteVerification, useDmRouteVerification } from "./use-dm-route-verification"
 
-const apiFetchMock = vi.hoisted(() => vi.fn())
+const apiFetch = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }))
 
-vi.mock("@/lib/api/client", () => ({
-  apiFetch: (...args: unknown[]) => apiFetchMock(...args),
-}))
-
-function client() {
-  return new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-  })
-}
-
+const dm = { id: "dm-a", userId: "peer", name: "Peer", discriminator: "0001", avatar: "P", status: "offline" as const, preview: "" }
+const metadata = { id: dm.id, serverId: null, type: "dm", name: null, parentChannelId: null,
+  parentMessageId: null, creatorId: null, archived: false, lastMessageAt: null, createdAt: "2026-10-02T00:00:00Z" }
+const denied = () => Object.assign(new Error("missing"), { status: 404 })
 function deferred<T>() {
   let resolve!: (value: T) => void
-  let reject!: (reason: unknown) => void
-  const promise = new Promise<T>((done, fail) => {
-    resolve = done
-    reject = fail
-  })
-  return { promise, reject, resolve }
+  const promise = new Promise<T>((done) => { resolve = done })
+  return { promise, resolve }
+}
+function fixture(strict = false) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: Infinity } } })
+  const wrapper = ({ children }: React.PropsWithChildren) => React.createElement(QueryClientProvider,
+    { client }, strict ? React.createElement(React.StrictMode, null, children) : children)
+  return { client, wrapper }
 }
 
-function Capture({
-  dmId,
-  dms,
-  canonicalUnsettled = false,
-  onRender,
-  onResult,
-}: {
-  dmId: string | undefined
-  dms: readonly DM[]
-  canonicalUnsettled?: boolean
-  onRender: (status: DmRouteVerificationStatus) => void
-  onResult?: (result: DmRouteVerificationResult) => void
-}) {
-  const result = useDmRouteVerification(dmId, dms, canonicalUnsettled)
-  onRender(result.status)
-  onResult?.(result)
-  return null
-}
+beforeEach(() => {
+  apiFetch.mockReset()
+  useCommunityWsStore.getState().reset()
+  useCommunityWsStore.getState().activateProfileAccount("viewer")
+})
+afterEach(() => onlineManager.setOnline(true))
 
-async function renderHook(
-  queryClient: QueryClient,
-  props: React.ComponentProps<typeof Capture>,
-) {
-  return render(React.createElement(
-    React.StrictMode,
-    null,
-    React.createElement(
-      QueryClientProvider,
-      { client: queryClient },
-      React.createElement(Capture, props),
-    ),
-  ))
-}
-
-async function waitFor(predicate: () => boolean, tries = 80) {
-  for (let attempt = 0; attempt < tries; attempt += 1) {
-    if (predicate()) return
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 5))
-    })
-  }
-  expect(predicate()).toBe(true)
-}
-
-describe("DM route verification", () => {
-  beforeEach(() => {
-    apiFetchMock.mockReset()
-    useCommunityWsStore.getState().reset()
-    useCommunityWsStore.getState().activateProfileAccount("viewer")
-  })
-  afterEach(() => onlineManager.setOnline(true))
-
-  it("bypasses a fresh cached miss, updates the canonical list, and dedupes callers", async () => {
-    const queryClient = client()
-    queryClient.setQueryData(communityKeys.dms(), { conversations: [] })
-    const authoritative = {
-      conversations: [{
-        id: "dm-new",
-        userId: "u-new",
-        name: "New peer",
-        discriminator: "2222",
-        avatar: "N",
-        status: "offline" as const,
-        preview: "",
-      }],
-    }
-    apiFetchMock.mockResolvedValue(authoritative)
-
-    const [first, second] = await Promise.all([
-      startDmRouteVerification(queryClient, "dm-new"),
-      startDmRouteVerification(queryClient, "dm-new"),
-    ])
-
-    expect(first).toBe("present")
-    expect(second).toBe("present")
-    expect(apiFetchMock).toHaveBeenCalledTimes(1)
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/me/dms", {
-      headers: { [DM_ROUTE_VERIFICATION_HEADER]: "1" },
-      signal: expect.any(AbortSignal),
-    })
-    expect(queryClient.getQueryData(communityKeys.dms())).toEqual(authoritative)
+describe("DM route uses the shared Channel metadata owner", () => {
+  it("shares one exact Channel request between imperative and route consumers without another DM-list request", async () => {
+    const { client, wrapper } = fixture(true)
+    client.setQueryData(communityKeys.dms(), { conversations: [] })
+    const request = deferred<typeof metadata>()
+    apiFetch.mockReturnValue(request.promise)
+    const first = startDmRouteVerification(client, dm.id)
+    const second = startDmRouteVerification(client, dm.id)
+    const route = renderHook(() => useDmRouteVerification(dm.id), { wrapper })
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
+    expect(route.result.current.status).toBe("pending")
+    await act(async () => request.resolve(metadata))
+    await expect(first).resolves.toBe("present")
+    await expect(second).resolves.toBe("present")
+    await waitFor(() => expect(route.result.current.status).toBe("present"))
+    expect(apiFetch).toHaveBeenCalledWith(`/api/community/channels/${dm.id}`, { signal: expect.any(AbortSignal) })
+    expect(client.getQueryData(communityKeys.channelMeta(null, dm.id))).toMatchObject({ ...metadata, name: "" })
+    expect(client.getQueryData(communityKeys.dms())).toEqual({ conversations: [] })
+    expect(useCommunityWsStore.getState().channelAccessScopes.size).toBe(0)
+    route.unmount()
+    client.clear()
   })
 
-  it("confirms a fresh missing target with one authority request", async () => {
-    const queryClient = client()
-    queryClient.setQueryData(communityKeys.dms(), { conversations: [] })
-    apiFetchMock.mockResolvedValue({ conversations: [] })
-
-    await expect(startDmRouteVerification(queryClient, "dm-missing")).resolves.toBe("missing")
-    expect(apiFetchMock).toHaveBeenCalledTimes(1)
+  it("reuses the same metadata Query when another Channel consumer has already fetched it", async () => {
+    const { client, wrapper } = fixture()
+    apiFetch.mockResolvedValue(metadata)
+    await client.fetchQuery(channelMetadataOptions(client, null, dm.id))
+    const route = renderHook(() => useDmRouteVerification(dm.id), { wrapper })
+    expect(route.result.current.status).toBe("present")
+    await expect(startDmRouteVerification(client, dm.id)).resolves.toBe("present")
+    expect(apiFetch).toHaveBeenCalledOnce()
+    route.unmount()
+    client.clear()
   })
 
-  it.each(["cancel", "account", "access"] as const)(
-    "rejects a %s-superseded route authority response before canonical cache publication",
-    async (race) => {
-      const queryClient = client()
-      const current: DM = {
-        id: "dm-current",
-        userId: "u-current",
-        name: "Current peer",
-        discriminator: "0001",
-        avatar: "C",
-        status: "offline",
-        preview: "",
-      }
-      queryClient.setQueryData(communityKeys.dms(), { conversations: [current] })
-      const request = deferred<{ conversations: DM[] }>()
-      apiFetchMock.mockReturnValueOnce(request.promise)
-
-      const pending = startDmRouteVerification(queryClient, "dm-stale-target")
-      const rejected = expect(pending).rejects.toMatchObject(
-        race === "cancel" ? {} : { name: "AbortError" },
-      )
-      await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(1))
-      if (race === "cancel") {
-        await queryClient.cancelQueries({
-          queryKey: communityKeys.dmRouteVerification("dm-stale-target"),
-          exact: true,
-        })
-      } else if (race === "account") {
-        useCommunityWsStore.getState().activateProfileAccount("other")
-      } else {
-        useCommunityWsStore.setState((state) => ({ accessEpoch: state.accessEpoch + 1 }))
-      }
-      request.resolve({ conversations: [] })
-
-      await rejected
-      expect(queryClient.getQueryData(communityKeys.dms())).toEqual({
-        conversations: [current],
-      })
-    },
-  )
-
-  it("trusts a provisional canonical cache row without starting authority", async () => {
-    const queryClient = client()
-    const provisional: DM = {
-      id: "dm-provisional",
-      userId: "u-provisional",
-      name: "Provisional peer",
-      discriminator: "4444",
-      avatar: "P",
-      status: "offline",
-      preview: "",
-    }
-    queryClient.setQueryData(communityKeys.dms(), { conversations: [provisional] })
-
-    await expect(startDmRouteVerification(queryClient, provisional.id)).resolves.toBe("present")
-    expect(apiFetchMock).not.toHaveBeenCalled()
+  it("a manually cached peer list cannot qualify the target Channel", async () => {
+    const { client, wrapper } = fixture()
+    client.setQueryData(communityKeys.dms(), { conversations: [dm] })
+    const request = deferred<typeof metadata>()
+    apiFetch.mockReturnValue(request.promise)
+    const route = renderHook(() => useDmRouteVerification(dm.id), { wrapper })
+    expect(route.result.current.status).toBe("pending")
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
+    await act(async () => request.resolve(metadata))
+    await waitFor(() => expect(route.result.current.status).toBe("present"))
+    route.unmount()
+    client.clear()
   })
 
-  it("trusts a projected canonical row while the layout observer snapshot lags", async () => {
-    const queryClient = client()
-    const projected: DM = {
-      id: "dm-projected",
-      userId: "u-projected",
-      name: "Projected peer",
-      discriminator: "5555",
-      avatar: "P",
-      status: "offline",
-      preview: "",
-    }
-    queryClient.setQueryData(communityKeys.dms(), { conversations: [projected] })
-    apiFetchMock.mockResolvedValue({ conversations: [] })
-    const statuses: DmRouteVerificationStatus[] = []
-    const renderer = await renderHook(queryClient, {
-      dmId: projected.id,
-      dms: [],
-      onRender: (status) => statuses.push(status),
-    })
-
-    expect(statuses.at(-1)).toBe("present")
-    expect(apiFetchMock).not.toHaveBeenCalled()
-    renderer.unmount()
+  it.each([403, 404])("keeps explicit %s terminal and rejects scope mismatches", async (status) => {
+    const { client } = fixture()
+    apiFetch.mockRejectedValueOnce(Object.assign(new Error("denied"), { status }))
+    await expect(startDmRouteVerification(client, dm.id)).resolves.toBe("denied")
+    apiFetch.mockResolvedValueOnce({ ...metadata, serverId: "server", type: "text" })
+    await expect(startDmRouteVerification(client, "other")).rejects.toThrow("scope mismatch")
+    expect(client.getQueryData(communityKeys.dms())).toBeUndefined()
+    client.clear()
   })
 
-  it.each([403, 404])("classifies explicit %s as denied", async (status) => {
-    expect(classifyDmRouteAuthorityError({ status })).toBe("denied")
-  })
-
-  it("returns denied for an explicit authority rejection", async () => {
-    const queryClient = client()
-    apiFetchMock.mockRejectedValueOnce(Object.assign(new Error("denied"), { status: 403 }))
-
-    await expect(startDmRouteVerification(queryClient, "dm-denied")).resolves.toBe("denied")
-    expect(queryClient.getQueryData(communityKeys.dms())).toBeUndefined()
-  })
-
-  it("does not classify a transient failure as denied", () => {
-    expect(classifyDmRouteAuthorityError({ status: 0 })).toBe("error")
-    expect(classifyDmRouteAuthorityError(new Error("offline"))).toBe("error")
-  })
-
-  it("fetches and settles a cold missing route under Strict Mode", async () => {
-    const queryClient = client()
-    const request = deferred<{ conversations: DM[] }>()
-    apiFetchMock.mockReturnValue(request.promise)
-    const statuses: DmRouteVerificationStatus[] = []
-    const renderer = await renderHook(queryClient, {
-      dmId: "dm-missing",
-      dms: [],
-      onRender: (status) => statuses.push(status),
-    })
-
-    await waitFor(() => apiFetchMock.mock.calls.length === 1)
-    expect(statuses).toContain("pending")
-    await act(async () => request.resolve({ conversations: [] }))
-    await waitFor(() => statuses.at(-1) === "missing")
-
-    expect(apiFetchMock).toHaveBeenCalledTimes(1)
-    renderer.unmount()
-  })
-
-  it("waits for the canonical DMs query before verifying an absent route", async () => {
-    const queryClient = client()
-    apiFetchMock.mockResolvedValue({ conversations: [] })
-    const statuses: DmRouteVerificationStatus[] = []
-    const props = {
-      dmId: "dm-missing",
-      dms: [],
-      canonicalUnsettled: true,
-      onRender: (status: DmRouteVerificationStatus) => statuses.push(status),
-    }
-    const renderer = await renderHook(queryClient, props)
-
-    expect(statuses.at(-1)).toBe("pending")
-    expect(apiFetchMock).not.toHaveBeenCalled()
-
-    await act(async () => {
-      renderer.rerender(
-        React.createElement(
-          React.StrictMode,
-          null,
-          React.createElement(
-            QueryClientProvider,
-            { client: queryClient },
-            React.createElement(Capture, { ...props, canonicalUnsettled: false }),
-          ),
-        ),
-      )
-    })
-    await waitFor(() => statuses.at(-1) === "missing")
-    expect(apiFetchMock).toHaveBeenCalledTimes(1)
-    renderer.unmount()
-  })
-
-  it("waits for a stale canonical refetch that eventually contains the route", async () => {
-    const queryClient = client()
-    const canonical: DM = {
-      id: "dm-refetched",
-      userId: "u-refetched",
-      name: "Refetched peer",
-      discriminator: "3333",
-      avatar: "R",
-      status: "offline",
-      preview: "",
-    }
-    const statuses: DmRouteVerificationStatus[] = []
-    const props = {
-      dmId: canonical.id,
-      dms: [],
-      canonicalUnsettled: true,
-      onRender: (status: DmRouteVerificationStatus) => statuses.push(status),
-    }
-    const renderer = await renderHook(queryClient, props)
-
-    expect(statuses.at(-1)).toBe("pending")
-    expect(apiFetchMock).not.toHaveBeenCalled()
-
-    await act(async () => {
-      renderer.rerender(
-        React.createElement(
-          React.StrictMode,
-          null,
-          React.createElement(
-            QueryClientProvider,
-            { client: queryClient },
-            React.createElement(Capture, {
-              ...props,
-              dms: [canonical],
-              canonicalUnsettled: false,
-            }),
-          ),
-        ),
-      )
-    })
-
-    expect(statuses.at(-1)).toBe("present")
-    expect(apiFetchMock).not.toHaveBeenCalled()
-    renderer.unmount()
-  })
-
-  it("starts one authority request after a stale canonical refetch remains absent", async () => {
-    const queryClient = client()
-    apiFetchMock.mockResolvedValue({ conversations: [] })
-    const statuses: DmRouteVerificationStatus[] = []
-    const props = {
-      dmId: "dm-still-missing",
-      dms: [],
-      canonicalUnsettled: true,
-      onRender: (status: DmRouteVerificationStatus) => statuses.push(status),
-    }
-    const renderer = await renderHook(queryClient, props)
-
-    expect(statuses.at(-1)).toBe("pending")
-    expect(apiFetchMock).not.toHaveBeenCalled()
-
-    await act(async () => {
-      renderer.rerender(
-        React.createElement(
-          React.StrictMode,
-          null,
-          React.createElement(
-            QueryClientProvider,
-            { client: queryClient },
-            React.createElement(Capture, { ...props, canonicalUnsettled: false }),
-          ),
-        ),
-      )
-    })
-    await waitFor(() => statuses.at(-1) === "missing")
-
-    expect(apiFetchMock).toHaveBeenCalledTimes(1)
-    renderer.unmount()
-  })
-
-  it("shares a click-started request with the route observer", async () => {
-    const queryClient = client()
-    const request = deferred<{ conversations: DM[] }>()
-    const provisional: DM = {
-      id: "dm-new",
-      userId: "u-new",
-      name: "New peer",
-      discriminator: "2222",
-      avatar: "N",
-      status: "offline",
-      preview: "",
-    }
-    apiFetchMock.mockReturnValue(request.promise)
-    const started = startDmRouteVerification(queryClient, provisional.id)
-    const statuses: DmRouteVerificationStatus[] = []
-    const renderer = await renderHook(queryClient, {
-      dmId: provisional.id,
-      dms: [provisional],
-      onRender: (status) => statuses.push(status),
-    })
-
-    await waitFor(() => apiFetchMock.mock.calls.length === 1)
-    expect(statuses.at(-1)).toBe("present")
-    await act(async () => request.resolve({ conversations: [provisional] }))
-    await expect(started).resolves.toBe("present")
-    await waitFor(() => statuses.at(-1) === "present")
-
-    expect(apiFetchMock).toHaveBeenCalledTimes(1)
-    renderer.unmount()
-  })
-
-  it("surfaces a transient failure and retries only the current verification", async () => {
-    const queryClient = client()
-    const statuses: DmRouteVerificationStatus[] = []
-    let latest!: DmRouteVerificationResult
-    apiFetchMock.mockRejectedValueOnce(Object.assign(new Error("offline"), { status: 0 }))
-    const renderer = await renderHook(queryClient, {
-      dmId: "dm-offline",
-      dms: [],
-      onRender: (status) => statuses.push(status),
-      onResult: (result) => { latest = result },
-    })
-
-    await waitFor(() => statuses.at(-1) === "error")
-    expect(statuses).not.toContain("missing")
-    expect(apiFetchMock).toHaveBeenCalledTimes(1)
-
-    apiFetchMock.mockResolvedValueOnce({ conversations: [] })
+  it("keeps a transient error local across a remount/reconnect and retries only its Channel resource", async () => {
+    const { client, wrapper } = fixture()
+    apiFetch.mockRejectedValueOnce(new Error("offline"))
+    const hook = ({ key }: { key: string }) => React.createElement(Capture, { key })
+    let latest!: ReturnType<typeof useDmRouteVerification>
+    function Capture() { latest = useDmRouteVerification(dm.id); return null }
+    const { render } = await import("@/test/react-dom-harness")
+    const route = render(hook({ key: "first" }), { wrapper })
+    await waitFor(() => expect(latest.status).toBe("error"))
+    route.rerender(hook({ key: "second" }))
+    await act(async () => { onlineManager.setOnline(false); onlineManager.setOnline(true) })
+    expect(latest.status).toBe("error")
+    expect(apiFetch).toHaveBeenCalledOnce()
+    apiFetch.mockResolvedValueOnce(metadata)
     await act(async () => latest.retry())
-    await waitFor(() => statuses.at(-1) === "missing")
-    expect(apiFetchMock).toHaveBeenCalledTimes(2)
-    renderer.unmount()
+    await waitFor(() => expect(latest.status).toBe("present"))
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+    route.unmount()
+    client.clear()
   })
 
-  it("keeps a transient failure local across remount and network reconnect", async () => {
-    const queryClient = client()
-    const statuses: DmRouteVerificationStatus[] = []
-    apiFetchMock.mockRejectedValueOnce(Object.assign(new Error("offline"), { status: 0 }))
-    apiFetchMock.mockResolvedValue({ conversations: [] })
-    const props = {
-      dmId: "dm-offline-remount",
-      dms: [],
-      onRender: (status: DmRouteVerificationStatus) => statuses.push(status),
-    }
-    const renderer = await renderHook(queryClient, props)
-
-    await waitFor(() => statuses.at(-1) === "error")
-    expect(apiFetchMock).toHaveBeenCalledTimes(1)
-
-    await act(async () => {
-      renderer.rerender(
-        React.createElement(
-          React.StrictMode,
-          null,
-          React.createElement(
-            QueryClientProvider,
-            { client: queryClient },
-            React.createElement(Capture, { ...props, key: "remounted" }),
-          ),
-        ),
-      )
-      await new Promise((resolve) => setTimeout(resolve, 20))
-    })
-
-    expect(statuses.at(-1)).toBe("error")
-    expect(apiFetchMock).toHaveBeenCalledTimes(1)
-
-    await act(async () => {
-      onlineManager.setOnline(false)
-      onlineManager.setOnline(true)
-      await new Promise((resolve) => setTimeout(resolve, 20))
-    })
-
-    expect(statuses.at(-1)).toBe("error")
-    expect(apiFetchMock).toHaveBeenCalledTimes(1)
-    renderer.unmount()
+  it.each(["cancel", "account", "access"] as const)("rejects an old successful metadata response after %s", async (race) => {
+    const { client } = fixture()
+    const request = deferred<typeof metadata>()
+    apiFetch.mockReturnValue(request.promise)
+    const started = startDmRouteVerification(client, dm.id)
+    const rejection = expect(started).rejects.toBeDefined()
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
+    if (race === "cancel") await client.cancelQueries({ queryKey: communityKeys.channelMeta(null, dm.id), exact: true })
+    else if (race === "account") useCommunityWsStore.getState().activateProfileAccount("other")
+    else useCommunityWsStore.setState((state) => ({ accessEpoch: state.accessEpoch + 1 }))
+    request.resolve(metadata)
+    await rejection
+    expect(client.getQueryData(communityKeys.channelMeta(null, dm.id))).toBeUndefined()
+    expect(useCommunityWsStore.getState().channelAccessScopes.size).toBe(0)
+    client.clear()
   })
 
-  it("keeps a transient failure local across a canonical background refetch", async () => {
-    const queryClient = client()
-    const statuses: DmRouteVerificationStatus[] = []
-    apiFetchMock.mockRejectedValueOnce(Object.assign(new Error("offline"), { status: 0 }))
-    apiFetchMock.mockResolvedValue({ conversations: [] })
-    const props = {
-      dmId: "dm-offline-canonical-refetch",
-      dms: [],
-      onRender: (status: DmRouteVerificationStatus) => statuses.push(status),
-    }
-    const renderer = await renderHook(queryClient, props)
-
-    await waitFor(() => statuses.at(-1) === "error")
-    expect(apiFetchMock).toHaveBeenCalledTimes(1)
-
-    await act(async () => {
-      renderer.rerender(
-        React.createElement(
-          React.StrictMode,
-          null,
-          React.createElement(
-            QueryClientProvider,
-            { client: queryClient },
-            React.createElement(Capture, { ...props, canonicalUnsettled: true }),
-          ),
-        ),
-      )
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    })
-    expect(statuses.at(-1)).toBe("error")
-
-    await act(async () => {
-      renderer.rerender(
-        React.createElement(
-          React.StrictMode,
-          null,
-          React.createElement(
-            QueryClientProvider,
-            { client: queryClient },
-            React.createElement(Capture, { ...props, canonicalUnsettled: false }),
-          ),
-        ),
-      )
-      await new Promise((resolve) => setTimeout(resolve, 20))
-    })
-
-    expect(statuses.at(-1)).toBe("error")
-    expect(apiFetchMock).toHaveBeenCalledTimes(1)
-    renderer.unmount()
-  })
-
-  it("stays idle without a route and trusts an existing canonical row", async () => {
-    const queryClient = client()
-    const canonical: DM = {
-      id: "dm-existing",
-      userId: "u-existing",
-      name: "Existing peer",
-      discriminator: "1111",
-      avatar: "E",
-      status: "online",
-      preview: "hello",
-    }
-    const statuses: DmRouteVerificationStatus[] = []
-    const renderer = await renderHook(queryClient, {
-      dmId: undefined,
-      dms: [],
-      onRender: (status) => statuses.push(status),
-    })
-
-    expect(statuses.at(-1)).toBe("idle")
-    await act(async () => {
-      renderer.rerender(
-        React.createElement(
-          React.StrictMode,
-          null,
-          React.createElement(
-            QueryClientProvider,
-            { client: queryClient },
-            React.createElement(Capture, {
-              dmId: canonical.id,
-              dms: [canonical],
-              onRender: (status) => statuses.push(status),
-            }),
-          ),
-        ),
-      )
-    })
-
-    expect(statuses.at(-1)).toBe("present")
-    expect(apiFetchMock).not.toHaveBeenCalled()
-    renderer.unmount()
+  it("releases the last route observer and aborts its metadata request", async () => {
+    const { client, wrapper } = fixture()
+    const request = deferred<typeof metadata>()
+    apiFetch.mockReturnValue(request.promise)
+    const route = renderHook(() => useDmRouteVerification(dm.id), { wrapper })
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
+    const signal = apiFetch.mock.calls[0][1].signal as AbortSignal
+    route.unmount()
+    expect(signal.aborted).toBe(true)
+    await act(async () => request.resolve(metadata))
+    expect(client.getQueryData(communityKeys.channelMeta(null, dm.id))).toBeUndefined()
+    client.clear()
   })
 })

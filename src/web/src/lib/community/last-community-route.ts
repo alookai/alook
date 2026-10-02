@@ -1,4 +1,5 @@
 import { resolveCommunityModulePlan } from "./community-route"
+import { setLastChannel } from "./last-channel"
 import {
   clearNavigationMemory,
   readNavigationMemory,
@@ -49,6 +50,15 @@ export function commitLastCommunityRoute(accountId: string, href: string): strin
   if (!accountId || !canonical) return null
   writeNavigationMemory(lastCommunityRouteKey(accountId), canonical)
   activeRestoreByAccount.delete(accountId)
+  return canonical
+}
+
+export function commitCommunityChannelRoute(accountId: string, serverId: string | null, channelId: string) {
+  const href = serverId === null
+    ? `/c/me/${encodeURIComponent(channelId)}`
+    : `/c/channels/${encodeURIComponent(serverId)}/${encodeURIComponent(channelId)}`
+  const canonical = commitLastCommunityRoute(accountId, href)
+  if (canonical) setLastChannel(serverId ?? "me", channelId)
   return canonical
 }
 

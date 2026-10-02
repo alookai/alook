@@ -16,7 +16,8 @@ import {
   consumeCommunityColdEntryFailure,
 } from "@/lib/community/last-community-route"
 import { communityWsSubscribe, communityWsUnsubscribe } from "./use-community-ws"
-import { useChildChannelMeta } from "./use-child-channel-meta"
+import { useChannelMetadata } from "./use-channel-metadata"
+import type { ChildChannelMeta } from "./use-forum-sidebar-threads"
 import {
   removeForumSidebarThreadExact,
   removeForumSidebarUnreadChild,
@@ -26,7 +27,7 @@ import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
 import { purgeCommunityChannel } from "@/lib/community-db/sync"
 
 type Server = ReturnType<typeof useServer>["server"]
-type ChannelMeta = NonNullable<ReturnType<typeof useChildChannelMeta>["data"]> | null
+type ChannelMeta = ChildChannelMeta | null
 
 export function buildChannelRouteModel(
   server: Server,
@@ -77,24 +78,14 @@ export function useChannelRouteModel(
     ?.flatMap((category) => category.channels)
     .some((candidate) => candidate.id === channelId)
   const isChild = !!server?.categories && !topLevelChannel
-  const cachedChildMeta = useMemo(() => dbChannel?.type === "thread"
-    && dbChannel.parentChannelId
-    && dbChannel.parentMessageId ? {
-    id: dbChannel.id,
-    serverId,
-    name: dbChannel.name,
-    type: dbChannel.type,
-    parentChannelId: dbChannel.parentChannelId,
-    parentMessageId: dbChannel.parentMessageId,
-    creatorId: dbChannel.creatorId ?? null,
-    archived: dbChannel.archived,
-    activityAt: dbChannel.lastMessageAt ?? "",
-    verifiedEpoch: accessEpoch,
-  } : undefined, [accessEpoch, dbChannel, serverId])
-  const metaQuery = useChildChannelMeta(serverId, channelId, isChild, cachedChildMeta)
-  const renderableChannelMeta = isChild && metaQuery.isVerified
-    ? (metaQuery.data ?? null)
-    : cachedChildMeta ?? null
+  const metaQuery = useChannelMetadata(serverId, channelId)
+  const renderableChannelMeta: ChannelMeta = useMemo(() => isChild && metaQuery.isVerified
+    && metaQuery.data?.serverId === serverId && metaQuery.data.parentChannelId && metaQuery.data.parentMessageId
+    ? { ...metaQuery.data, serverId,
+        parentChannelId: metaQuery.data.parentChannelId,
+        parentMessageId: metaQuery.data.parentMessageId,
+        activityAt: metaQuery.data.lastMessageAt ?? metaQuery.data.createdAt }
+    : null, [isChild, metaQuery.data, metaQuery.isVerified, serverId])
   const retryScope = JSON.stringify([accountId, serverId, channelId, accessEpoch])
   const retryAttemptRef = useRef<{ scope: string } | null>(null)
   const [retryAttempt, setRetryAttempt] = useState<{ scope: string } | null>(null)
@@ -102,7 +93,7 @@ export function useChannelRouteModel(
   const metadataExit = isDefinitiveChildMetaFailure(metaQuery.error)
     || (metaQuery.error instanceof ApiError && metaQuery.error.status === 401)
     || !!metaQuery.data?.archived
-  const metadataError = isChild && !metaQuery.isVerified && !metadataExit
+  const metadataError = !metaQuery.isVerified && !metadataExit
     && (metaQuery.isError || retryingMetadata)
   const retryMetadata = useCallback(async () => {
     if (!metadataError || metaQuery.isFetching || retryAttemptRef.current?.scope === retryScope) return
@@ -129,11 +120,11 @@ export function useChannelRouteModel(
   )
   const routeLifecycle = !server?.categories
     ? "pending" as const
-    : !isChild
+    : !isChild && metaQuery.isVerified
       ? "ready" as const
-      : metadataExit || (metaQuery.isError && !model.routeHydrated)
+      : metadataExit || (metaQuery.isError && !metaQuery.isVerified)
         ? "terminal-error" as const
-        : model.routeHydrated
+        : model.routeHydrated && metaQuery.isVerified
           ? "ready" as const
           : "pending" as const
   const skeletonSubtype = routeLifecycle === "ready"
@@ -158,11 +149,11 @@ export function useChannelRouteModel(
     return () => communityWsUnsubscribe()
   }, [channelId])
   useEffect(() => {
-    if (!isChild) {
+    const denied = isDefinitiveChildMetaFailure(metaQuery.error)
+    if (!isChild && !denied && !metaQuery.data?.archived) {
       useCommunityStore.getState().setCurrentChannelMeta(null)
       return
     }
-    const denied = isDefinitiveChildMetaFailure(metaQuery.error)
     if (denied || metaQuery.data?.archived) {
       const store = useCommunityStore.getState()
       const routeStillCurrent = store.currentChannelId === channelId
@@ -185,15 +176,16 @@ export function useChannelRouteModel(
         ? COMMUNITY_COLD_ENTRY_FALLBACK
         : `/c/channels/${serverParam}`
       router.replace(destination)
-    } else if (metaQuery.data && metaQuery.isVerified) {
-      useCommunityStore.getState().setCurrentChannelMeta(metaQuery.data)
+    } else if (renderableChannelMeta) {
+      useCommunityStore.getState().setCurrentChannelMeta(renderableChannelMeta)
     } else if (metaQuery.error) {
       useCommunityStore.getState().setCurrentChannelMeta(null)
-      toastApiError(metaQuery.error, "Failed to load thread")
+      toastApiError(metaQuery.error, "Failed to load channel")
     }
-  }, [accountId, channelId, communityDb, isChild, metaQuery.data, metaQuery.error, metaQuery.isVerified, queryClient, router, serverId, serverParam])
+  }, [accountId, channelId, communityDb, isChild, metaQuery.data, metaQuery.error, metaQuery.isVerified, queryClient, renderableChannelMeta, router, serverId, serverParam])
   return {
     ...model,
+    routeHydrated: model.routeHydrated && metaQuery.isVerified,
     routeLifecycle,
     skeletonSubtype,
     metadataError,

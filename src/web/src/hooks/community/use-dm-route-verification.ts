@@ -1,149 +1,74 @@
 "use client"
 
-import { useCallback, useEffect } from "react"
-import {
-  useQuery,
-  useQueryClient,
-  QueryObserver,
-  type QueryClient,
-  type QueryFunctionContext,
-} from "@tanstack/react-query"
-import { apiFetch } from "@/lib/api/client"
-import { communityKeys } from "@/lib/query-keys"
-import type { DM } from "@/lib/community/models/people"
-import type { DmsResponse } from "./use-dms"
+import { QueryObserver, type QueryClient } from "@tanstack/react-query"
+import { useCallback } from "react"
+import { channelMetadataOptions, captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "./channel-metadata"
+import { useChannelMetadata } from "./use-channel-metadata"
 import {
   assertCommunityLiveSnapshotTokenCurrent,
   captureCommunityLiveSnapshotToken,
-  publishCommunityLiveSnapshot,
 } from "@/lib/community-db/sync"
 
-export const DM_ROUTE_VERIFICATION_HEADER = "X-Alook-DM-Route-Verification"
-
-const dmRouteAuthorityQueryFn = (signal: AbortSignal | undefined) => apiFetch<DmsResponse>(
-  "/api/community/users/me/dms",
-  { headers: { [DM_ROUTE_VERIFICATION_HEADER]: "1" }, signal },
-)
-
 export type DmRouteVerification = "present" | "missing" | "denied"
-export type DmRouteVerificationStatus = "idle" | "pending" | "present" | "missing" | "error"
+type DmRouteVerificationStatus = "idle" | "pending" | "present" | "missing" | "error"
 export type DmRouteVerificationResult = {
   status: DmRouteVerificationStatus
   retry: () => void
   retrying: boolean
 }
 
-export function classifyDmRouteAuthorityError(error: unknown): "denied" | "error" {
+function classifyDmRouteAuthorityError(error: unknown): "denied" | "error" {
   const status = typeof error === "object" && error !== null && "status" in error
     ? error.status
     : undefined
   return status === 403 || status === 404 ? "denied" : "error"
 }
 
-async function verifyDmRoute(
-  queryClient: QueryClient,
-  dmId: string,
-  signal: AbortSignal | undefined,
-): Promise<DmRouteVerification> {
-  const token = captureCommunityLiveSnapshotToken(queryClient)
-  try {
-    const response = await dmRouteAuthorityQueryFn(signal)
-    publishCommunityLiveSnapshot(queryClient, {
-      snapshot: { kind: "dms", data: response },
-      proof: { kind: "structural", token, signal },
-    })
-    assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
-    queryClient.setQueryData(communityKeys.dms(), response)
-    return response.conversations.some((dm) => dm.id === dmId) ? "present" : "missing"
-  } catch (error) {
-    if (classifyDmRouteAuthorityError(error) === "denied") return "denied"
-    throw error
-  }
-}
-
 function verificationOptions(queryClient: QueryClient, dmId: string) {
-  const queryKey = communityKeys.dmRouteVerification(dmId)
   return {
-    queryKey,
-    queryFn: async ({ signal }: QueryFunctionContext) => {
-      const owner = new QueryObserver(queryClient, { queryKey, enabled: false })
-      const release = owner.subscribe(() => release())
-      return verifyDmRoute(queryClient, dmId, signal)
-    },
+    ...channelMetadataOptions(queryClient, null, dmId),
     retry: false,
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,
-    // The error frame owns retry UX. Route/layout remounts must preserve a
-    // transient failure instead of silently issuing another authority check.
     retryOnMount: false,
   } as const
 }
 
-export function startDmRouteVerification(
+export async function startDmRouteVerification(
   queryClient: QueryClient,
   dmId: string,
 ): Promise<DmRouteVerification> {
-  const canonical = queryClient.getQueryData<DmsResponse>(communityKeys.dms())
-  if (canonical?.conversations.some((dm) => dm.id === dmId)) {
-    return Promise.resolve("present")
+  const options = verificationOptions(queryClient, dmId)
+  const owner = new QueryObserver(queryClient, { ...options, enabled: false })
+  const release = owner.subscribe(() => {})
+  const token = captureCommunityLiveSnapshotToken(queryClient)
+  try {
+    const cached = queryClient.getQueryData<{ verification?: ReturnType<typeof captureChannelMetadataToken> }>(options.queryKey)
+    await queryClient.fetchQuery({ ...options,
+      staleTime: cached?.verification && isChannelMetadataTokenCurrent(cached.verification) ? Infinity : 0 })
+    return "present"
+  } catch (error) {
+    assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)
+    if (classifyDmRouteAuthorityError(error) === "denied") return "denied"
+    throw error
+  } finally {
+    release()
   }
-  return queryClient.fetchQuery({
-    ...verificationOptions(queryClient, dmId),
-    staleTime: 0,
-  })
 }
 
 export function useDmRouteVerification(
   dmId: string | undefined,
-  dms: readonly DM[],
-  canonicalUnsettled: boolean,
 ): DmRouteVerificationResult {
-  const queryClient = useQueryClient()
-  const canonical = queryClient.getQueryData<DmsResponse>(communityKeys.dms())
-  // Inbox navigation writes the destination into the canonical cache before
-  // routing. The layout's observer snapshot can trail that synchronous write
-  // by one render, so consult the cache directly before starting authority.
-  const present = !!dmId && (
-    dms.some((dm) => dm.id === dmId)
-    || canonical?.conversations.some((dm) => dm.id === dmId) === true
-  )
-  const options = verificationOptions(queryClient, dmId ?? "__none__")
-  const retainedVerification = queryClient.getQueryState(options.queryKey)
-  const attemptStarted = retainedVerification !== undefined && (
-    retainedVerification.fetchStatus === "fetching"
-    || retainedVerification.dataUpdatedAt > 0
-    || retainedVerification.errorUpdatedAt > 0
-  )
-  const verification = useQuery({
-    ...options,
-    enabled: !!dmId && !present && (!canonicalUnsettled || attemptStarted),
-    staleTime: Infinity,
-  })
+  const verification = useChannelMetadata(null, dmId)
   const retry = useCallback(() => {
     if (!dmId || verification.fetchStatus === "fetching") return
-    void verification.refetch()
+    void verification.refetch({ cancelRefetch: false })
   }, [dmId, verification])
-  useEffect(() => {
-    if (!dmId) return
-    return () => {
-      const queryKey = communityKeys.dmRouteVerification(dmId)
-      queueMicrotask(() => {
-        const query = queryClient.getQueryCache().find({ queryKey, exact: true })
-        if (query?.getObserversCount() !== 0) return
-        queryClient.removeQueries({ queryKey, exact: true })
-      })
-    }
-  }, [dmId, queryClient])
-
   let status: DmRouteVerificationStatus = "pending"
   if (!dmId) status = "idle"
-  else if (present || verification.data === "present") status = "present"
-  else if (verification.data === "missing" || verification.data === "denied") status = "missing"
+  else if (classifyDmRouteAuthorityError(verification.error) === "denied" || verification.data?.archived || verification.canonical?.archived) status = "missing"
+  else if (verification.isVerified && verification.data?.type === "dm") status = "present"
   else if (verification.isError) status = "error"
 
-  return {
-    status,
-    retry,
-    retrying: verification.fetchStatus === "fetching",
-  }
+  return { status, retry, retrying: verification.fetchStatus === "fetching" }
 }

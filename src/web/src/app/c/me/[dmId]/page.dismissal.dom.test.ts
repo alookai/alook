@@ -1,15 +1,19 @@
 import React from "react"
 import { render } from "@/test/react-dom-harness"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import DmPage from "./page"
+import { DmView } from "@/components/community/channels/dm-view"
 
 const {
   mockDismissConversation,
+  mockCommitRoute,
   mockDmMessages,
   mockDms,
   mockStore,
+  mockHistory,
 } = vi.hoisted(() => ({
   mockDismissConversation: vi.fn(),
+  mockCommitRoute: vi.fn(),
+  mockHistory: { allowed: true, error: null as Error | null, retry: vi.fn() },
   mockDms: {
     dms: [] as Array<{
       id: string
@@ -38,12 +42,26 @@ vi.mock("@/components/community/channels/dm-header", () => ({ DmHeader: () => nu
 vi.mock("@/components/community/channels/dm-loading-frame", () => ({
   DmLoadingFrame: () => React.createElement("div", { "data-testid": "dm-loading" }),
 }))
+vi.mock("@/components/community/channels/dm-route-error-frame", () => ({
+  DmRouteErrorFrame: () => React.createElement("div", { "data-testid": "dm-error" }),
+}))
+vi.mock("@/components/community/channels/conversation-resolution-error-frame", () => ({
+  ConversationResolutionErrorFrame: ({ onRetry }: { onRetry: () => void }) => React.createElement("button", { onClick: onRetry, "data-testid": "history-error" }, "Retry"),
+}))
+vi.mock("@/hooks/community/use-channel-metadata", () => ({
+  useChannelMetadata: () => ({ isVerified: true, data: { historyVerification: mockHistory.allowed ? {} : undefined } }),
+}))
+vi.mock("@/hooks/community/channel-metadata", () => ({ isChannelMetadataTokenCurrent: () => true }))
+vi.mock("@/lib/community/last-community-route", () => ({ commitCommunityChannelRoute: mockCommitRoute }))
 vi.mock("@/components/community/avatar", () => ({ Avatar: () => null }))
-vi.mock("@/components/community/messages/message-list", () => ({ MessageList: () => null }))
+vi.mock("@/components/community/messages/message-list", () => ({ MessageList: () => React.createElement("div", { "data-testid": "history-body" }) }))
 vi.mock("@/components/community/messages/message-context-sheet", () => ({
   MessageContextSheet: () => null,
 }))
-vi.mock("@/components/community/messages/composer", () => ({ Composer: () => null }))
+vi.mock("@/components/community/messages/composer", () => ({
+  Composer: () => React.createElement("div", { "data-testid": "composer" }),
+  ComposerSkeleton: () => React.createElement("div", { "data-testid": "composer-pending" }),
+}))
 vi.mock("@/components/community/messages/conversation-footer-shell", () => ({
   ConversationFooterShell: ({ children }: { children: React.ReactNode }) => children,
   ConversationFooterSlotProvider: ({ children }: { children: React.ReactNode }) => children,
@@ -84,7 +102,7 @@ vi.mock("@/hooks/community/use-messages", () => ({
   }),
 }))
 vi.mock("@/hooks/community/use-dm-read-state", () => ({
-  useDmReadStateSnapshot: () => ({ snapshot: null, isFetching: false }),
+  useDmReadStateSnapshot: () => ({ snapshot: null, isFetching: false, error: mockHistory.error, retry: mockHistory.retry, retrying: false }),
 }))
 vi.mock("@/lib/community/message-read-projection", () => ({
   resolveMessageReadProjection: () => ({ newDividerBefore: undefined, anchorFound: false }),
@@ -143,7 +161,11 @@ vi.mock("@/hooks/community/use-native-system-notifications", () => ({
 describe("DM notification dismissal readiness", () => {
   beforeEach(() => {
     mockDismissConversation.mockClear()
+    mockCommitRoute.mockClear()
     mockDmMessages.navigationBlocked = false
+    mockHistory.allowed = true
+    mockHistory.error = null
+    mockHistory.retry.mockClear()
     mockDms.dms = []
     mockDms.isLoading = false
   })
@@ -164,12 +186,32 @@ describe("DM notification dismissal readiness", () => {
     mockDms.isLoading = isLoading
     mockDmMessages.navigationBlocked = navigationBlocked
 
-    render(React.createElement(DmPage))
+    render(React.createElement(DmView, { dmId: "dm_1" }))
 
     expect(mockDismissConversation).toHaveBeenCalledExactlyOnceWith(
       "viewer_1",
       { kind: "dm", channelId: "dm_1" },
       expectedReady,
     )
+    if (expectedReady) expect(mockCommitRoute).toHaveBeenCalledExactlyOnceWith("viewer_1", null, "dm_1")
+    else expect(mockCommitRoute).not.toHaveBeenCalled()
+  })
+
+  it("withholds history/composer and last while read access fails, then permits the same target after retry", () => {
+    mockDms.dms = [{ id: "dm_1", userId: "peer_1", name: "Peer", avatar: "P" }]
+    mockHistory.allowed = false
+    mockHistory.error = Object.assign(new Error("denied"), { status: 403 })
+    const view = render(React.createElement(DmView, { dmId: "dm_1" }))
+    expect(view.container.querySelector('[data-testid="history-error"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-testid="history-body"]')).toBeNull()
+    expect(view.container.querySelector('[data-testid="composer"]')).toBeNull()
+    expect(mockCommitRoute).not.toHaveBeenCalled()
+    view.container.querySelector<HTMLButtonElement>('[data-testid="history-error"]')!.click()
+    expect(mockHistory.retry).toHaveBeenCalledOnce()
+    mockHistory.allowed = true
+    mockHistory.error = null
+    view.rerender(React.createElement(DmView, { dmId: "dm_1" }))
+    expect(view.container.querySelector('[data-testid="composer"]')).not.toBeNull()
+    expect(mockCommitRoute).toHaveBeenCalledExactlyOnceWith("viewer_1", null, "dm_1")
   })
 })

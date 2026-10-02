@@ -78,7 +78,7 @@ describe("MessageList facade contract", () => {
 
   it("keeps all production consumers on the original path", () => {
     const importers = [
-      "src/app/c/me/[dmId]/page.tsx",
+      "src/components/community/channels/dm-view.tsx",
       "src/components/community/channels/thread-channel-surface.tsx",
       "src/components/community/channels/text-channel-surface.tsx",
     ]

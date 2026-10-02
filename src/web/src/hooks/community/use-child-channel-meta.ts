@@ -2,28 +2,23 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
-import { fetchChannelMetadata, type ChannelMetadata } from "@/hooks/community/channel-metadata"
-import { communityKeys } from "@/lib/query-keys"
+import { channelMetadataOptions, type ChannelMetadata } from "@/hooks/community/channel-metadata"
 import type { ChildChannelMeta } from "@/hooks/community/use-forum-sidebar-threads"
 import { useCommunityWsStore } from "@/stores/community/ws"
-import { ApiError } from "@/lib/errors"
+import { captureChannelMetadataToken } from "./channel-metadata"
 import {
   useOptionalCommunityDbRegistry,
   useRouteChannelProjection,
 } from "@/lib/community-db/projections"
-import {
-  captureCommunityLiveSnapshotToken,
-  publishCommunityChannelMetadata,
-} from "@/lib/community-db/sync"
 
 function projectChildMeta(payload: ChannelMetadata, verifiedEpoch: number): ChildChannelMeta {
-  if (!payload.parentChannelId || !payload.parentMessageId) {
+  if (!payload.serverId || !payload.parentChannelId || !payload.parentMessageId) {
     throw new Error("invalid child channel metadata")
   }
   return {
     id: payload.id,
     serverId: payload.serverId,
-    name: payload.name,
+    name: payload.name ?? "",
     type: payload.type,
     parentChannelId: payload.parentChannelId,
     parentMessageId: payload.parentMessageId,
@@ -99,24 +94,18 @@ export function useChildChannelMeta(
         verifiedEpoch: accessEpoch,
       }
     : undefined
-  const query = useQuery<ChildChannelMeta>({
-    queryKey: communityKeys.channelMeta(serverId, channelId),
-    queryFn: async ({ signal }) => {
-      const token = captureCommunityLiveSnapshotToken(queryClient)
-      const meta = await fetchChannelMetadata(serverId, channelId, signal)
-      publishCommunityChannelMetadata(queryClient, {
-        metadata: meta,
-        proof: { token, signal },
-      })
-      return projectChildMeta(meta, meta.verifiedEpoch)
-    },
+  const query = useQuery({
+    ...channelMetadataOptions(queryClient, serverId, channelId),
+    select: (meta) => projectChildMeta(meta, meta.verifiedEpoch),
     enabled,
-    placeholderData: registry ? undefined : placeholderData,
-    staleTime: Infinity,
-    gcTime: 5 * 60 * 1000,
-    retry: (failureCount, error) =>
-      !(error instanceof ApiError && [401, 403, 404].includes(error.status))
-      && failureCount < 1,
+    placeholderData: registry || !placeholderData ? undefined : {
+      ...placeholderData,
+      creatorId: placeholderData.creatorId ?? null,
+      lastMessageAt: placeholderData.activityAt,
+      createdAt: placeholderData.activityAt,
+      verification: captureChannelMetadataToken(channelId),
+      historyVerification: undefined,
+    },
   })
   const [trusted, setTrusted] = useState<TrustedChildMeta>(null)
   useEffect(() => {

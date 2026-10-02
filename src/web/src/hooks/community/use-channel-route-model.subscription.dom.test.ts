@@ -35,15 +35,8 @@ vi.mock("@tanstack/react-query", async () => {
 vi.mock("./use-servers", () => ({
   useServer: () => ({ server: mocks.server }),
 }))
-vi.mock("./use-child-channel-meta", () => ({
-  useChildChannelMeta: (
-    _serverId: string,
-    _channelId: string,
-    _enabled: boolean,
-    placeholderData?: Record<string, unknown>,
-  ) => placeholderData && !mocks.metaQuery.isVerified
-    ? { ...mocks.metaQuery, data: placeholderData, isVerified: true }
-    : mocks.metaQuery,
+vi.mock("./use-channel-metadata", () => ({
+  useChannelMetadata: () => mocks.metaQuery,
 }))
 vi.mock("./use-community-ws", () => ({
   communityWsSubscribe: (...args: unknown[]) => mocks.subscribe(...args),
@@ -129,8 +122,10 @@ describe("useChannelRouteModel subscription ownership", () => {
       renderer!.rerender(React.createElement(Harness, { channelId: "forum-1" }))
     })
 
+    expect(lifecycle(renderer!)).toBe("pending")
+    mocks.metaQuery.isVerified = true
+    act(() => renderer!.rerender(React.createElement(Harness, { channelId: "forum-1" })))
     expect(lifecycle(renderer!)).toBe("ready")
-    expect(mocks.metaQuery.isVerified).toBe(false)
     act(() => renderer!.unmount())
   })
 
@@ -143,6 +138,7 @@ describe("useChannelRouteModel subscription ownership", () => {
       }],
     }
 
+    mocks.metaQuery.isVerified = true
     const renderer = render(React.createElement(Harness, { channelId: "text-1" }))
 
     const node = renderer.container.querySelector("span")
@@ -165,7 +161,7 @@ describe("useChannelRouteModel subscription ownership", () => {
     },
   )
 
-  it("hydrates a canonical thread placeholder with nullable child fields", () => {
+  it("keeps a restored structural thread pending until its Channel resource is qualified", () => {
     mocks.dbChannel = {
       id: "post-1",
       serverId: "server-1",
@@ -180,11 +176,13 @@ describe("useChannelRouteModel subscription ownership", () => {
 
     const renderer = render(React.createElement(Harness))
 
+    expect(renderer.container.querySelector("span")).toHaveAttribute("data-lifecycle", "pending")
+    expect(useCommunityStore.getState().currentChannelMeta).toBeNull()
+    mocks.metaQuery = { data: { ...mocks.dbChannel, creatorId: null, lastMessageAt: null, createdAt: "", archived: false },
+      error: null, isVerified: true, isError: false }
+    act(() => renderer.rerender(React.createElement(Harness)))
     expect(renderer.container.querySelector("span")).toHaveAttribute("data-lifecycle", "ready")
-    expect(useCommunityStore.getState().currentChannelMeta).toMatchObject({
-      creatorId: null,
-      activityAt: "",
-    })
+    expect(useCommunityStore.getState().currentChannelMeta).toMatchObject({ creatorId: null, activityAt: "" })
     act(() => renderer.unmount())
   })
 

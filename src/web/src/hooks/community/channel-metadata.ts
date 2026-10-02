@@ -1,10 +1,20 @@
 import { apiFetch } from "@/lib/api/client"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import type { QueryClient } from "@tanstack/react-query"
+import { queryOptions } from "@tanstack/react-query"
+import { communityKeys } from "@/lib/query-keys"
+import { ApiError } from "@/lib/errors"
+import {
+  assertCommunityLiveSnapshotTokenCurrent,
+  captureCommunityLiveSnapshotToken,
+  publishCommunityChannelMetadata,
+} from "@/lib/community-db/sync"
 
 export type ChannelMetadata = {
+  historyVerification?: ReturnType<typeof captureChannelMetadataToken>
   id: string
-  serverId: string
-  name: string
+  serverId: string | null
+  name: string | null
   type: string
   parentChannelId: string | null
   parentMessageId: string | null
@@ -34,16 +44,57 @@ export function isChannelMetadataTokenCurrent(token: ReturnType<typeof captureCh
 }
 
 export async function fetchChannelMetadata(
-  serverId: string,
+  serverId: string | null,
+  channelId: string,
+  signal?: AbortSignal,
+  validatePublication?: () => void,
+) {
+  const token = captureChannelMetadataToken(channelId)
+  const meta = await apiFetch<ChannelMetadata>(`/api/community/channels/${encodeURIComponent(channelId)}`, { signal })
+  if (!isChannelMetadataTokenCurrent(token) || signal?.aborted) throw new DOMException("Stale channel metadata", "AbortError")
+  validatePublication?.()
+  if (meta.id !== channelId || meta.serverId !== serverId
+    || !(serverId === null ? meta.type === "dm" : ["text", "forum", "thread"].includes(meta.type))
+    || !(typeof meta.name === "string" || (serverId === null && meta.name === null))) {
+    throw new Error("Channel metadata scope mismatch")
+  }
+  if (serverId !== null) {
+    useCommunityWsStore.getState().grantServerAccess(serverId)
+    useCommunityWsStore.getState().rememberChannelAccess(serverId, channelId, meta.parentChannelId)
+  }
+  return { ...meta, name: meta.name ?? "", archived: meta.archived === true || meta.archived === 1,
+    activityAt: meta.lastMessageAt ?? meta.createdAt, verifiedEpoch: token.accessEpoch, verification: token }
+}
+
+async function fetchAndPublishChannelMetadata(
+  queryClient: QueryClient,
+  serverId: string | null,
   channelId: string,
   signal?: AbortSignal,
 ) {
-  const token = captureChannelMetadataToken(channelId)
-  const meta = await apiFetch<ChannelMetadata>(`/api/community/channels/${channelId}`, { signal })
-  if (!isChannelMetadataTokenCurrent(token) || signal?.aborted) throw new DOMException("Stale channel metadata", "AbortError")
-  if (meta.id !== channelId || meta.serverId !== serverId || !["text", "forum", "thread"].includes(meta.type)) throw new Error("Channel metadata scope mismatch")
-  useCommunityWsStore.getState().grantServerAccess(serverId)
-  useCommunityWsStore.getState().rememberChannelAccess(serverId, channelId, meta.parentChannelId)
-  return { ...meta, archived: meta.archived === true || meta.archived === 1,
-    activityAt: meta.lastMessageAt ?? meta.createdAt, verifiedEpoch: token.accessEpoch }
+  const token = captureCommunityLiveSnapshotToken(queryClient)
+  const validate = () => assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
+  try {
+    const metadata = await fetchChannelMetadata(serverId, channelId, signal, validate)
+    publishCommunityChannelMetadata(queryClient, { metadata, proof: { token, signal } })
+    return metadata
+  } catch (error) {
+    validate()
+    throw error
+  }
+}
+
+export function channelMetadataOptions(queryClient: QueryClient, serverId: string | null, channelId: string) {
+  return queryOptions({
+    queryKey: communityKeys.channelMeta(serverId, channelId),
+    queryFn: async ({ signal }) => {
+      const metadata = await fetchAndPublishChannelMetadata(queryClient, serverId, channelId, signal)
+      const previous = queryClient.getQueryData<ChannelMetadata>(communityKeys.channelMeta(serverId, channelId))
+      return { ...metadata, historyVerification: previous?.historyVerification }
+    },
+    staleTime: Infinity,
+    gcTime: 5 * 60 * 1000,
+    retry: (failureCount, error) =>
+      !(error instanceof ApiError && [401, 403, 404].includes(error.status)) && failureCount < 1,
+  })
 }

@@ -5,7 +5,6 @@ import { sendMessage } from "./_fixtures/actions"
 import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { seedDm, seedBlock, seedDmMessage } from "./_fixtures/seed"
 import { captureNotificationRequests, gotoAfterNotificationStartup, notificationPaths, notificationResponsesFinished } from "./_fixtures/community-notification-requests"
-import { DM_ROUTE_VERIFICATION_HEADER } from "@/hooks/community/use-dm-route-verification"
 import { lastMeLocationKey } from "@/lib/community/last-me-location"
 
 // Journey 4 — DMs. human↔human needs only not-blocked (no friendship). Covers
@@ -183,24 +182,17 @@ test.describe.serial("direct messages", () => {
     await alice.page.addInitScript((storageKey) => localStorage.removeItem(storageKey), lastMeLocationKey())
     const missingDmId = `dm-missing-${Date.now()}`
     let canonicalDmsGets = 0
-    let authorityDmsGets = 0
+    let metadataGets = 0
     const dmsPattern = "**/api/community/users/me/dms"
+    const metadataPattern = `**/api/community/channels/${missingDmId}`
     await alice.page.route(dmsPattern, async (route) => {
-      if (route.request().method() !== "GET") {
-        await route.continue()
-        return
-      }
-      if (route.request().headers()[DM_ROUTE_VERIFICATION_HEADER.toLowerCase()] !== "1") {
-        canonicalDmsGets += 1
-        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ conversations: [] }) })
-        return
-      }
-      authorityDmsGets += 1
-      if (authorityDmsGets === 1) {
-        await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "temporary" }) })
-        return
-      }
+      canonicalDmsGets += 1
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ conversations: [] }) })
+    })
+    await alice.page.route(metadataPattern, async (route) => {
+      metadataGets += 1
+      await route.fulfill({ status: metadataGets === 1 ? 503 : 404,
+        contentType: "application/json", body: JSON.stringify({ error: metadataGets === 1 ? "temporary" : "missing" }) })
     })
 
     try {
@@ -217,15 +209,16 @@ test.describe.serial("direct messages", () => {
       await expect.poll(() => canonicalDmsGets).toBe(1)
       await expect(verificationAlert).toBeVisible()
       await expect(alice.page).toHaveURL(new RegExp(`/c/me/${missingDmId}$`))
-      expect(authorityDmsGets).toBe(1)
+      expect(metadataGets).toBe(1)
 
       await verificationAlert.getByRole("button", { name: "Retry" }).click()
-      await expect.poll(() => authorityDmsGets).toBe(2)
+      await expect.poll(() => metadataGets).toBe(2)
       expect(canonicalDmsGets).toBe(1)
       await expect.poll(() => new URL(alice.page.url()).pathname).toBe("/c/me/friends")
     } finally {
       wsProxy.releaseHeldConnections()
       await alice.page.unroute(dmsPattern)
+      await alice.page.unroute(metadataPattern)
     }
   })
 

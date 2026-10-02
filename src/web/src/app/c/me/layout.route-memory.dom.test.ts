@@ -73,8 +73,8 @@ vi.mock("@/stores/community", () => {
 vi.mock("@/hooks/community/use-dms", () => ({
   useDms: () => ({ dms: [], isLoading: false, isPending: false }),
 }))
-vi.mock("@/hooks/community/use-dm-route-verification", () => ({
-  useDmRouteVerification: () => ({ status: mocks.dmStatus, retry: vi.fn(), retrying: false }),
+vi.mock("@/components/community/channels/dm-route", () => ({
+  DmRoute: ({ dmId }: { dmId: string }) => createElement("main", { "data-testid": "target-dm", "data-channel-id": dmId }, dmId),
 }))
 vi.mock("@/hooks/community/use-friends", () => ({
   useFriends: () => ({ blocked: [], pending: mocks.pending }),
@@ -95,7 +95,7 @@ vi.mock("@/lib/community/profile-read", () => ({
 }))
 vi.mock("@/lib/community/last-me-location", () => ({
   ME_ROOT: "/c/me",
-  resolveMeLocationStatus: () => mocks.locationStatus,
+  isRememberableMeLocation: () => mocks.locationStatus === "remember",
   setLastMeLocation: (...args: unknown[]) => mocks.setLastMeLocation(...args),
   getLastMeLeaf: () => mocks.dmId,
   meLeafFromPathname: () => mocks.dmId,
@@ -151,29 +151,25 @@ describe("MeLayout route memory", () => {
     expect(mocks.replace).not.toHaveBeenCalled()
   })
 
-  it("clears a matching failed cold-entry DM and falls back to Machines", () => {
-    mocks.pathname = "/c/me/dm-missing"
-    mocks.dmId = "dm-missing"
-    mocks.dmStatus = "missing"
-    mocks.locationStatus = "stale"
-    mocks.consumeColdEntryFailure.mockReturnValue(true)
-    renderLayout()
-    expect(mocks.clearLastMeLocation).toHaveBeenCalledTimes(1)
-    expect(mocks.cancelPendingNavigation).toHaveBeenCalledTimes(1)
-    expect(mocks.consumeColdEntryFailure).toHaveBeenCalledWith(
-      "viewer-1",
-      "/c/me/dm-missing",
-    )
-    expect(mocks.replace).toHaveBeenCalledWith("/c/me/machines")
-  })
-
-  it("keeps the existing Me-root fallback for an ordinary invalid deep link", () => {
-    mocks.pathname = "/c/me/dm-missing"
-    mocks.dmId = "dm-missing"
-    mocks.dmStatus = "missing"
-    mocks.locationStatus = "stale"
-    renderLayout()
-    expect(mocks.replace).toHaveBeenCalledWith("/c/me")
+  it("mounts each target DM while Next children stay on the neutral root, without saving last in layout", () => {
+    mocks.pathname = "/c/me/dm-a"
+    mocks.dmId = "dm-a"
+    const client = new QueryClient()
+    const tree = () => createElement(QueryClientProvider, { client },
+      createElement(MeLayout, null, createElement("div", { "data-testid": "neutral-leaf" }, "Loading your space")))
+    const rendered = render(tree())
+    expect(rendered.getByTestId("target-dm").getAttribute("data-channel-id")).toBe("dm-a")
+    expect(rendered.queryByTestId("neutral-leaf")).toBeNull()
+    mocks.pathname = "/c/me/dm-b"
+    mocks.dmId = "dm-b"
+    rendered.rerender(tree())
+    expect(rendered.getByTestId("target-dm").getAttribute("data-channel-id")).toBe("dm-b")
+    expect(rendered.queryByText("dm-a")).toBeNull()
+    expect(rendered.queryByTestId("neutral-leaf")).toBeNull()
+    expect(mocks.setLastMeLocation).not.toHaveBeenCalled()
+    expect(mocks.commitLastCommunityRoute).not.toHaveBeenCalled()
+    rendered.unmount()
+    client.clear()
   })
 
   it("keeps the Friends shortcut count on the shared terminal projection through failed refreshes", async () => {

@@ -13,8 +13,8 @@ import {
   useLeaveServer,
   useUploadServerIcon,
 } from "@/hooks/community/mutations"
-import { getLastChannel, pickServerLandingHref } from "@/lib/community/last-channel"
-import { getLastMeLeaf, ME_ROOT, pickMeLandingLocation } from "@/lib/community/last-me-location"
+import { getLastChannel, resolveCommunityLandingHref } from "@/lib/community/last-channel"
+import { getLastMeLeaf } from "@/lib/community/last-me-location"
 import type { Breakpoint } from "@/hooks/use-mobile"
 import { useCommunityStore } from "@/stores/community"
 import { resolveServerRailOverlayAction } from "./server-rail-actions"
@@ -80,16 +80,14 @@ export function useShellRailController({
           .map((channel) => channel.id)
         : undefined)
       ?? []
-    return pickServerLandingHref(id, channelIds, getLastChannel(id))
-  }, [communityDb, queryClient])
+    return resolveCommunityLandingHref({ serverId: id, channelIds, last: getLastChannel(id), breakpoint })
+  }, [breakpoint, communityDb, queryClient])
   const onServerNavigate = useCallback((id: string) => {
     markSwitch("server", id)
-    navigation.push(`/c/channels/${id}`)
-  }, [navigation])
+    navigation.push(serverDestination(id))
+  }, [navigation, serverDestination])
   const homeDestination = useCallback(
-    () => breakpoint === "desktop"
-      ? pickMeLandingLocation(getLastMeLeaf())
-      : ME_ROOT,
+    () => resolveCommunityLandingHref({ serverId: null, last: getLastMeLeaf(), breakpoint }),
     [breakpoint],
   )
   const onHome = useCallback(() => {

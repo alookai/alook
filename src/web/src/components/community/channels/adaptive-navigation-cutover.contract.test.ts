@@ -39,7 +39,7 @@ describe("adaptive navigation cutover contracts", () => {
   })
 
   it("autofocuses message composers only after desktop is known", () => {
-    const dmPage = readSource("../../../app/c/me/[dmId]/page.tsx")
+    const dmPage = readSource("./dm-view.tsx")
     const textSurface = readSource("./text-channel-surface.tsx")
     const threadSurface = readSource("./thread-channel-surface.tsx")
 

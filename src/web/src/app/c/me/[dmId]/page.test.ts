@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest"
 
 describe("DM page loading ownership", () => {
   it("keeps full-frame and message-body ownership separate", () => {
-    const source = readFileSync(new URL("./page.tsx", import.meta.url), "utf8")
+    const source = readFileSync(new URL("../../../../components/community/channels/dm-view.tsx", import.meta.url), "utf8")
     expect(source).toContain("fullFramePending: !hasDm && dmsLoading")
-    expect(source).toContain("notFound: !hasDm && !dmsLoading")
+    expect(source).toContain("missingPeer: !hasDm && !dmsLoading")
     expect(source).toContain("messageBodyLoading: hasDm && messagesLoading")
     expect(source).not.toContain("currentChannelMatches")
     expect(source).not.toContain("readSnapshotFetching ||\n      messagesLoading")
@@ -26,20 +26,20 @@ describe("DM page loading ownership", () => {
     const messageListProps = source.split("<MessageList\n")[1]?.split("/>")[0]
     expect(messageListProps).toContain("typingUsers")
     expect(source).not.toContain('data-onboarding-name={dm.name} className="shrink-0"')
-    expect(source).toContain("loading={loadingOwnership.messageBodyLoading}")
-    expect(source).not.toContain("<ComposerSkeleton")
+    expect(source).toContain("loading={!historyAllowed || loadingOwnership.messageBodyLoading}")
+    expect(source).toContain("!historyAllowed ? <ComposerSkeleton")
     expect(source).not.toContain("<DmHeaderSkeleton")
   })
 
   it("uses the cache-first DM projection as the header and composer identity", () => {
-    const source = readFileSync(new URL("./page.tsx", import.meta.url), "utf8")
+    const source = readFileSync(new URL("../../../../components/community/channels/dm-view.tsx", import.meta.url), "utf8")
     expect(source).toContain("dms.find((candidate) => candidate.id === dmId) ?? null")
     expect(source).not.toContain("profilesByUserId.get(raw.userId)")
   })
 
   it("owns lazy channel-directory state and retry inside the keyed DM view", () => {
-    const source = readFileSync(new URL("./page.tsx", import.meta.url), "utf8")
-    expect(source).toContain("return <DmView key={params.dmId} />")
+    const source = readFileSync(new URL("../../../../components/community/channels/dm-view.tsx", import.meta.url), "utf8")
+    expect(source).toContain("export function DmView({ dmId }")
     expect(source).toContain("useChannelRefDirectory(channelRefDirectoryEnabled)")
     expect(source).toContain("loading: !channelRefDirectoryResolved")
     expect(source).toContain("failed: channelRefDirectoryError")
@@ -50,7 +50,7 @@ describe("DM page loading ownership", () => {
   })
 
   it("keeps chip toggle and picker add on separate reaction intents", () => {
-    const source = readFileSync(new URL("./page.tsx", import.meta.url), "utf8")
+    const source = readFileSync(new URL("../../../../components/community/channels/dm-view.tsx", import.meta.url), "utf8")
     expect(source).toContain("const toggleReaction = useToggleReactionApi()")
     expect(source).toContain("const addReaction = useAddReactionApi()")
     expect(source).toContain("onToggleReaction: (id: string, emoji: string) =>\n      toggleReaction(")

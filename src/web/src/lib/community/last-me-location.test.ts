@@ -5,7 +5,6 @@ import {
   isRememberableMeLocation,
   lastMeLocationKey,
   pickMeLandingLocation,
-  resolveMeLocationStatus,
   setLastMeLocation,
 } from "./last-me-location"
 
@@ -63,49 +62,5 @@ describe("last-me-location", () => {
     expect(pickMeLandingLocation("dm_1/messages")).toBe("/c/me/friends")
     expect(pickMeLandingLocation("friends")).toBe("/c/me/friends")
     expect(pickMeLandingLocation("dm_1")).toBe("/c/me/dm_1")
-  })
-})
-
-describe("resolveMeLocationStatus", () => {
-  it("remembers static surfaces without waiting for DMs", () => {
-    expect(resolveMeLocationStatus({
-      pathname: "/c/me/machines",
-      dmId: undefined,
-      dmRouteStatus: "idle",
-    })).toBe("remember")
-  })
-
-  it("waits for an unresolved DM list", () => {
-    expect(resolveMeLocationStatus({
-      pathname: "/c/me/dm_1",
-      dmId: "dm_1",
-      dmRouteStatus: "pending",
-    })).toBe("wait")
-    expect(resolveMeLocationStatus({
-      pathname: "/c/me/dm_1",
-      dmId: "dm_1",
-      dmRouteStatus: "error",
-    })).toBe("wait")
-  })
-
-  it("remembers a confirmed DM and marks a missing DM stale", () => {
-    expect(resolveMeLocationStatus({
-      pathname: "/c/me/dm_1",
-      dmId: "dm_1",
-      dmRouteStatus: "present",
-    })).toBe("remember")
-    expect(resolveMeLocationStatus({
-      pathname: "/c/me/dm_missing",
-      dmId: "dm_missing",
-      dmRouteStatus: "missing",
-    })).toBe("stale")
-  })
-
-  it("ignores paths outside the supported me route shape", () => {
-    expect(resolveMeLocationStatus({
-      pathname: "/c/me/dm_1/messages",
-      dmId: "dm_1",
-      dmRouteStatus: "present",
-    })).toBe("ignore")
   })
 })

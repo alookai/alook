@@ -19,7 +19,7 @@ describe("Community attachment download surface contract", () => {
 
   it("does not restore a direct anchor fallback in DM, channel, thread, context, or preview", () => {
     for (const path of [
-      "src/app/c/me/[dmId]/page.tsx",
+      "src/components/community/channels/dm-view.tsx",
       "src/components/community/channels/thread-channel-surface.tsx",
       "src/components/community/messages/message-channel-controller-actions.ts",
       "src/components/community/messages/message-context-sheet.tsx",

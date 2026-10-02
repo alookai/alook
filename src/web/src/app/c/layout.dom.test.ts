@@ -120,10 +120,9 @@ describe("CommunityLayout session boundary", () => {
       process.cwd().endsWith("/src/web") ? "" : "src/web",
       "src/app/c/me/layout.tsx",
     ), "utf8")
-    expect(source).toMatch(/isPending:\s*dmsPending/)
+    expect(source).not.toContain("useDmRouteVerification")
+    expect(source).toContain('<DmRoute key={`${currentUser.id}/${params.dmId}`} dmId={params.dmId} />')
     expect(source).not.toMatch(/isFetching:\s*dmsFetching/)
-    expect(source).toContain("const canonicalDmsUnsettled = dmsPending")
-    expect(source).toContain("useDmRouteVerification(params.dmId, dms, canonicalDmsUnsettled)")
   })
 
   it("keeps the daemon update controller inside the authenticated Community query cache", () => {
