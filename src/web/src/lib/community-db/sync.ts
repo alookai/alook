@@ -2225,6 +2225,7 @@ export function publishCommunityForumSidebar(
         )
       }
     }
+    qualifyCanonicalChannelMetadata(registry, channels.map((channel) => channel.id), publication.proof.token)
   })
     return "published" as const
   })

@@ -317,7 +317,7 @@ test("a warm DM reload qualifies cached identity and history before showing pers
   await expectCacheFirstReload(page, async () => {
     await expect(page.getByTestId(tid.dmRow(dmId))).toBeVisible({ timeout: 10_000 })
     await expect(page.getByRole("main", { name: "Loading direct message" })).toBeVisible()
-    await expect(page.getByTestId(tid.messageScroller).locator("[data-message-list-skeleton]")).toBeVisible()
+    await expect(page.getByTestId(tid.messageScroller).locator('[data-slot="skeleton"]').first()).toBeVisible()
     await expect(page.getByTestId(tid.composerInput)).toHaveCount(0)
     await expect(page.getByTestId(tid.message(messageId))).toHaveCount(0)
   }, async () => {

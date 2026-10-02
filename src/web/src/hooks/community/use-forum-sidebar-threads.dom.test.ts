@@ -18,6 +18,9 @@ import {
   setCanonicalCommunityChannelMembership,
 } from "@/lib/community-db/sync"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import { useChannelMetadata } from "./use-channel-metadata"
+import { useForumOpenerHint } from "./use-forum-opener-hint"
+import { isChannelMetadataTokenCurrent } from "./channel-metadata"
 import { communityKeys } from "@/lib/query-keys"
 import {
   deriveForumSidebarProjection,
@@ -178,6 +181,61 @@ function publish(queryClient: QueryClient, data = envelope()) {
 }
 
 describe("forum sidebar canonical projection", () => {
+  it("hands a fresh sidebar child and opener to the shared qualified route without another GET", async () => {
+    useCommunityWsStore.getState().activateProfileAccount("viewer")
+    const { queryClient, wrapper } = await setup()
+    apiFetchMock.mockResolvedValueOnce(envelope())
+    let retainId: string | null = null
+    const sidebar = renderHook(() => useForumSidebarThreads("server-1", retainId), { wrapper })
+    await waitFor(() => expect(sidebar.result.current.threads[0]?.title).toBe("Canonical title"))
+    let releaseRetained!: (value: SidebarThreadEnvelope) => void
+    const retained = new Promise<SidebarThreadEnvelope>((resolve) => { releaseRetained = resolve })
+    apiFetchMock.mockReturnValue(retained)
+    retainId = "post-1"
+    sidebar.rerender()
+    const route = renderHook(() => {
+      const metadata = useChannelMetadata("server-1", "post-1")
+      const opener = useForumOpenerHint("server-1", metadata.data?.parentMessageId, metadata.isVerified)
+      return { metadata, opener }
+    }, { wrapper })
+    try {
+      expect(route.result.current.metadata.isVerified).toBe(true)
+      expect(route.result.current.opener.data?.content).toBe("Canonical title")
+      await waitFor(() => expect(apiFetchMock.mock.calls.some(([url]) => new URL(url, "http://localhost").searchParams.get("retainId") === "post-1")).toBe(true))
+      expect(apiFetchMock.mock.calls.some(([url]) => url === "/api/community/channels/post-1")).toBe(false)
+      expect(isChannelMetadataTokenCurrent(queryClient.getQueryData<{ verification: Parameters<typeof isChannelMetadataTokenCurrent>[0] }>(communityKeys.channelMeta("server-1", "post-1"))!.verification)).toBe(true)
+    } finally {
+      route.unmount()
+      sidebar.unmount()
+      await act(async () => releaseRetained(envelope()))
+      await invalidateForumSidebarBaseExact(queryClient, "server-1")
+    }
+  })
+
+  it.each(["account", "access"] as const)("cannot qualify a sidebar response from before %s changed", async (race) => {
+    useCommunityWsStore.getState().activateProfileAccount("viewer")
+    const { queryClient } = await setup()
+    const token = captureCommunityLiveSnapshotToken(queryClient)
+    if (race === "account") useCommunityWsStore.getState().activateProfileAccount("other")
+    else useCommunityWsStore.getState().revokeChannelAccess("server-1", "post-1")
+    expect(() => publishCommunityForumSidebar(queryClient, {
+      serverId: "server-1", channels: envelope().channels, openers: envelope().included.parentMessages,
+      proof: { token, signal: undefined },
+    })).toThrow()
+    expect(queryClient.getQueryData(communityKeys.channelMeta("server-1", "post-1"))).toBeUndefined()
+    expect(getCanonicalCommunityChannels(queryClient).some(({ id }) => id === "post-1")).toBe(false)
+  })
+
+  it("does not qualify an archived child carried in a sidebar response", async () => {
+    useCommunityWsStore.getState().activateProfileAccount("viewer")
+    const { queryClient, registry } = await setup()
+    const response = envelope()
+    response.channels[0]!.archived = true
+    publish(queryClient, response)
+    expect(registry.collections.channels.get("post-1")?.archived).toBe(true)
+    expect(queryClient.getQueryData(communityKeys.channelMeta("server-1", "post-1"))).toBeUndefined()
+  })
+
   it("classifies retained route candidates and bounded active extras", () => {
     expect(resolveForumSidebarRouteCandidate(null, ["forum-1"], true)).toBeNull()
     expect(resolveForumSidebarRouteCandidate("forum-1", ["forum-1"], true)).toBeNull()
@@ -883,6 +941,7 @@ describe("forum sidebar canonical projection", () => {
     expect(restored).toBeDefined()
     const restoredClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     hydrate(restoredClient, restored!.clientState)
+    useCommunityWsStore.getState().activateProfileAccount("viewer")
     const restoredRegistry = createCommunityDbRegistry(restoredClient, "viewer")
     restoredRegistry.captureRestoredCollections()
     await restoredRegistry.preload()
@@ -904,6 +963,10 @@ describe("forum sidebar canonical projection", () => {
     )
     await waitFor(() => expect(rendered.result.current.threads[0]?.id).toBe("post-1"))
     expect(rendered.result.current.fetchStatus).toBe("fetching")
+    const route = renderHook(() => useChannelMetadata("server-1", "post-1"), { wrapper })
+    expect(route.result.current.isVerified).toBe(false)
+    expect(route.result.current.canonical?.type).toBe("thread")
+    route.unmount()
     rendered.unmount()
     await invalidateForumSidebarBaseExact(restoredClient, "server-1")
   })
