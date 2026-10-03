@@ -371,6 +371,7 @@ export function useServer(
     enabled,
     staleTime: Infinity,
     refetchOnReconnect: true,
+    retryOnMount: false,
     retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey: communityKeys.server(serverId ?? "__none__") }).retry),
     networkMode: "always",
   })

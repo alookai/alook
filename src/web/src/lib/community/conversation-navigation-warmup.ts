@@ -3,12 +3,12 @@ import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { getCommunityRuntime } from "@/stores/community/runtime"
 
 
-import { QueryObserver, type QueryClient } from "@tanstack/react-query"
+import { InfiniteQueryObserver, QueryObserver, type InfiniteData, type QueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { conversationReadRetryPolicy, withConversationReadDeadline } from "./conversation-read"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
-import type { MessagesPageParam } from "@/lib/community/models/message"
+import type { MessagesPage, MessagesPageParam } from "@/lib/community/models/message"
 import { channelMessagesQueryFn, dmMessagesQueryFn } from "@/hooks/community/use-messages"
 import { serverProjectedQueryFn } from "@/hooks/community/use-servers"
 import {
@@ -89,16 +89,26 @@ export function startConversationNavigationWarmup(
       })
 
   void queryClient.cancelQueries({ queryKey: messagesKey, exact: true })
-  void queryClient.fetchInfiniteQuery({
+  queryClient.setQueryData<InfiniteData<MessagesPage, MessagesPageParam>>(messagesKey, (current) => current
+    ? { ...current, pageParams: [pageParam, ...current.pageParams.slice(1)] }
+    : current)
+  const messagesOptions = {
     queryKey: messagesKey,
     queryFn,
     initialPageParam: pageParam,
+    pages: 1,
+    getNextPageParam: () => undefined,
     retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey: messagesKey }).retry),
-    networkMode: "always",
+    networkMode: "always" as const,
     // A persisted/memory-warm page is only a hint. Force this click-owned
     // query through the canonical door so a fresh receipt is always emitted.
     staleTime: 0,
+  }
+  const messagesObserver = new InfiniteQueryObserver(queryClient, {
+    ...messagesOptions, enabled: false,
   })
+  const releaseMessages = messagesObserver.subscribe(() => undefined)
+  void queryClient.fetchInfiniteQuery(messagesOptions)
     .then(() => {
       if (!isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) return
       commitConversationNavigationProof(queryClient, target.channelId, accessEpoch)
@@ -112,6 +122,7 @@ export function startConversationNavigationWarmup(
       if (definitive) clearDeniedTarget(queryClient, target)
       failConversationNavigationProof(queryClient, epoch, accessEpoch, definitive, true)
     })
+    .finally(releaseMessages)
 
   const readKey = target.scopeKind === "dm"
     ? communityKeys.dmReadStateSnapshot(target.channelId)

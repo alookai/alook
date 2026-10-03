@@ -232,6 +232,45 @@ describe("useServers / serversQueryFn", () => {
 })
 
 describe("useServer / projected canonical detail", () => {
+  it("retains a current server deadline failure across another native consumer and recovers on explicit retry", async () => {
+    seedList()
+    const key = communityKeys.server(identity.id)
+    client.setQueryDefaults(key, { retry: 1, retryDelay: 0 })
+    let categorySignal!: AbortSignal
+    apiFetchMock.mockImplementation((url: string, options: { signal: AbortSignal }) => url.endsWith("/categories")
+      ? new Promise(() => { categorySignal = options.signal }) : Promise.resolve(detailApi(url)))
+    vi.useFakeTimers()
+    const first = renderHook(() => useServer(identity.id), { wrapper: Owner })
+    let second: ReturnType<typeof renderHook> | undefined
+    try {
+      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+      expect(categorySignal).toBeDefined()
+      const originalQuery = client.getQueryCache().find({ queryKey: key, exact: true })!
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_100) })
+      expect(first.result.current.isError).toBe(true)
+      expect(first.result.current.fetchStatus).toBe("idle")
+      expect(categorySignal.aborted).toBe(true)
+      expect(originalQuery.state.fetchFailureCount).toBe(1)
+      second = renderHook(() => useServer(identity.id), { wrapper: Owner })
+      await act(async () => { await vi.advanceTimersByTimeAsync(100) })
+      expect(first.result.current.isError).toBe(true)
+      expect(first.result.current.fetchStatus).toBe("idle")
+      expect(client.getQueryCache().find({ queryKey: key, exact: true })).toBe(originalQuery)
+      expect(apiFetchMock.mock.calls.filter(([path]) => String(path).endsWith("/categories"))).toHaveLength(1)
+      apiFetchMock.mockImplementation((url: string) => Promise.resolve(detailApi(url)))
+      await act(async () => { await first.result.current.refetch() })
+      await act(async () => { await vi.advanceTimersByTimeAsync(100) })
+      expect(first.result.current.server?.id).toBe(identity.id)
+      expect(first.result.current.isError).toBe(false)
+      expect(client.getQueryCache().find({ queryKey: key, exact: true })).toBe(originalQuery)
+      expect(apiFetchMock.mock.calls.filter(([path]) => String(path).endsWith("/categories"))).toHaveLength(2)
+    } finally {
+      second?.unmount()
+      first.unmount()
+      vi.useRealTimers()
+    }
+  })
+
   it.each([403, 404])("hides retained server detail after a definitive %s", async (status) => {
     seedDetail()
     const rendered = renderHook(() => useServer(identity.id), { wrapper: Owner })

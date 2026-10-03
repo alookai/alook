@@ -194,7 +194,9 @@ describe("conversation navigation warmup", () => {
 
   it("clears target caches and overlays on definitive denial", async () => {
     const queryClient = createClient()
-    queryClient.setQueryData(communityKeys.channelMessages("denied"), { stale: true })
+    queryClient.setQueryData(communityKeys.channelMessages("denied"), {
+      pages: [{ messages: [], hasMore: false }], pageParams: [{ mode: "newest" }],
+    })
     queryClient.setQueryData(communityKeys.channelReadStateSnapshot("denied"), { stale: true })
     queryClient.setQueryData(communityKeys.channelMeta("s1", "denied"), { stale: true })
     startConversationNavigationWarmup(queryClient, target("denied"), 9)
@@ -232,7 +234,9 @@ describe("conversation navigation warmup", () => {
       scopeKind: "dm" as const,
       expectedSurfaceKind: "dm" as const,
     }
-    queryClient.setQueryData(communityKeys.dmMessages("d1"), { stale: true })
+    queryClient.setQueryData(communityKeys.dmMessages("d1"), {
+      pages: [{ messages: [], hasMore: false }], pageParams: [{ mode: "newest" }],
+    })
     queryClient.setQueryData(communityKeys.dmReadStateSnapshot("d1"), { stale: true })
     queryClient.setQueryData(communityKeys.channelMeta(null, "d1"), "present")
     startConversationNavigationWarmup(queryClient, dmTarget, 2)

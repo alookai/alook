@@ -4,6 +4,7 @@ import {
   type InvalidateQueryFilters,
   type FetchQueryOptions,
   type QueryClient,
+  type Query,
 } from "@tanstack/react-query"
 
 const projectionFlushErrors = new WeakMap<object, unknown>()
@@ -19,13 +20,15 @@ export function getCommunityWsProjectionFlushError(error: unknown) {
 export type CommunityWsProjectionTransaction = {
   project: <T>(effect: () => T) => T
   invalidate: (owner: string, filters: InvalidateQueryFilters) => void
-  fence: (owner: string, filters: InvalidateQueryFilters) => void
+  fence: (owner: string, filters: InvalidateQueryFilters, isCurrent?: () => boolean) => void
 }
 
 type PendingInvalidation = {
   filters: InvalidateQueryFilters
   cancellation?: Promise<void>
-  replacementOptions?: FetchQueryOptions[]
+  originalQueries?: ReadonlySet<Query>
+  replacements?: Array<{ query: Query; options: FetchQueryOptions }>
+  isCurrent?: () => boolean
 }
 
 function createProjectionTransaction(
@@ -41,40 +44,48 @@ function createProjectionTransaction(
       const identity = hashKey([owner, filters])
       if (!pending.has(identity)) pending.set(identity, { filters })
     },
-    fence: (owner, filters) => {
+    fence: (owner, filters, isCurrent) => {
       if (flushed) throw new Error("community WS projection transaction already flushed")
       const identity = hashKey([owner, filters])
       const current = pending.get(identity)
-      if (current?.cancellation) return
-      const replacementOptions = queryClient.getQueryCache().findAll(filters)
+      if (current?.cancellation) {
+        current.isCurrent = isCurrent
+        return
+      }
+      const queries = queryClient.getQueryCache().findAll(filters)
+      const originalQueries = new Set(queries)
+      const replacements = queries
         .filter((query) => query.isActive() && query.options.queryFn)
-        .map((query) => ({ ...query.options, staleTime: 0 } as FetchQueryOptions))
+        .map((query) => ({ query, options: { ...query.options, staleTime: 0 } as FetchQueryOptions }))
       const cancellation = queryClient.cancelQueries(filters)
       if (current) {
         current.cancellation = cancellation
-        current.replacementOptions = replacementOptions
+        current.originalQueries = originalQueries
+        current.replacements = replacements
+        current.isCurrent = isCurrent
       } else {
-        pending.set(identity, { filters, cancellation, replacementOptions })
+        pending.set(identity, { filters, cancellation, originalQueries, replacements, isCurrent })
       }
     },
     flushInvalidations: () => {
       if (flushed) return
       flushed = true
-      for (const { filters, cancellation, replacementOptions } of pending.values()) {
+      for (const { filters, cancellation, originalQueries, replacements, isCurrent } of pending.values()) {
         if (cancellation) {
           void cancellation.then(async () => {
+            if (isCurrent && !isCurrent()) return
+            const registered = new Set([...(originalQueries ?? [])].filter((query) => (
+              queryClient.getQueryCache().get(query.queryHash) === query
+            )))
             await queryClient.invalidateQueries({
               ...filters,
+              predicate: (query) => registered.has(query) && (!filters.predicate || filters.predicate(query)),
               refetchType: "none",
             })
-            if (replacementOptions?.length) {
-              await Promise.all(replacementOptions.map((options) => queryClient.fetchQuery(options)))
-            } else {
-              await queryClient.refetchQueries({
-                ...filters,
-                type: "active",
-              })
-            }
+            if (isCurrent && !isCurrent()) return
+            await Promise.all((replacements ?? [])
+              .filter(({ query }) => queryClient.getQueryCache().get(query.queryHash) === query && query.isActive())
+              .map(({ options }) => queryClient.fetchQuery(options)))
           }).catch(() => {})
         } else {
           void queryClient.invalidateQueries(filters)
