@@ -49,6 +49,41 @@ afterEach(() => {
 })
 
 describe("AnalyticsConsent", () => {
+  it("preserves page layout while the floating banner is open and dismissed", async () => {
+    vi.stubGlobal("fetch", successfulFetch("denied"))
+    const layoutStyle = document.createElement("style")
+    layoutStyle.textContent = `
+      body { padding-bottom: 0px; }
+      .hero-section, .workspace-shell { height: 100dvh; }
+    `
+    document.head.appendChild(layoutStyle)
+    try {
+      render(
+        <>
+          <main className="hero-section" data-testid="consent-hero" />
+          <main className="workspace-shell" data-testid="consent-workspace" />
+          <AnalyticsConsent />
+        </>,
+      )
+      const banner = await screen.findByTestId(tid.analyticsConsentBanner)
+      const expectPageLayout = () => {
+        expect(getComputedStyle(document.body).paddingBottom).toBe("0px")
+        expect(getComputedStyle(screen.getByTestId("consent-hero")).height).toBe("100dvh")
+        expect(getComputedStyle(screen.getByTestId("consent-workspace")).height).toBe("100dvh")
+      }
+      expectPageLayout()
+      fireEvent(window, new Event("resize"))
+      expectPageLayout()
+      fireEvent.click(within(banner).getByRole("button", { name: "Only necessary" }))
+      await waitFor(() => {
+        expect(screen.queryByTestId(tid.analyticsConsentBanner)).not.toBeInTheDocument()
+      })
+      expectPageLayout()
+    } finally {
+      layoutStyle.remove()
+    }
+  })
+
   it("shows a first-visit banner without loading GTM", async () => {
     render(<AnalyticsConsent />)
     const banner = await screen.findByTestId(tid.analyticsConsentBanner)

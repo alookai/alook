@@ -126,46 +126,12 @@ function ConsentButtons({
 export function AnalyticsConsent() {
   const { ready, decision, nativeMobile } = useStoredAnalyticsConsent(true)
   const { choose, saving, error } = useAnalyticsConsentChoice()
-  const bannerRef = useRef<HTMLElement>(null)
-
-  useEffect(() => {
-    if (!ready || decision !== null || !bannerRef.current) return
-    const root = document.documentElement
-    const banner = bannerRef.current
-    const updateInset = () => {
-      root.style.setProperty(
-        "--analytics-consent-inset",
-        `${Math.ceil(banner.getBoundingClientRect().height) + 32}px`,
-      )
-    }
-    root.dataset.analyticsConsentPending = "true"
-    updateInset()
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateInset)
-    observer?.observe(banner)
-    window.addEventListener("resize", updateInset)
-    return () => {
-      observer?.disconnect()
-      window.removeEventListener("resize", updateInset)
-      delete root.dataset.analyticsConsentPending
-      root.style.removeProperty("--analytics-consent-inset")
-    }
-  }, [decision, ready])
 
   return (
     <>
-      <style>{`
-        html[data-analytics-consent-pending="true"] body {
-          padding-bottom: var(--analytics-consent-inset);
-        }
-        html[data-analytics-consent-pending="true"] .hero-section,
-        html[data-analytics-consent-pending="true"] .workspace-shell {
-          height: calc(100dvh - var(--analytics-consent-inset));
-        }
-      `}</style>
       {ready && decision === "granted" ? <GoogleTagManager gtmId={GTM_ID} /> : null}
       {ready && !nativeMobile && decision === null ? (
         <section
-          ref={bannerRef}
           aria-label="Analytics choices"
           className={styles.banner}
           data-testid={tid.analyticsConsentBanner}
