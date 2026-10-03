@@ -1682,7 +1682,7 @@ export function publishCommunityMembersSnapshot(queryClient: QueryClient, server
   })
 }
 
-export function publishCommunityChannelMembersSnapshot(queryClient: QueryClient, serverId: string, channelId: string, relation: "access" | "notify", members: readonly { id: string; userId: string; role: string; source: "explicit" | "inherited" | "admin"; isCreator: boolean }[], proof: CommunityFreshQueryProof) {
+export function publishCommunityChannelMembersSnapshot(queryClient: QueryClient, serverId: string, channelId: string, relation: "access" | "notify", members: readonly { id: string; userId: string; role: string; source: NonNullable<ChannelMembershipRow["source"]>; isCreator: boolean }[], proof: CommunityFreshQueryProof) {
   assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
   publishCommunityMembersSnapshot(queryClient, serverId, members, proof)
   const registry = proof.token.registry!

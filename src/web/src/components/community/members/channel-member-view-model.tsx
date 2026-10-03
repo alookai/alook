@@ -211,7 +211,7 @@ export function useChannelMemberViewModel({
       userId: string
       sub: string
       isCreator?: boolean
-      source?: "explicit" | "inherited" | "admin"
+      source?: Member["source"]
     }): Member => {
       const profile = readCommunityProfile(
         profilesByUserId.get(member.userId),

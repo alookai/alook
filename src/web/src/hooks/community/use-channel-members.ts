@@ -12,7 +12,7 @@ import { fetchAllServerMembers } from "./fetch-all-server-members"
 
 import { useCanonicalProfilesByUserId,useServerMemberRows,useChannelRosterRows } from "@/lib/community-db/projections"
 import { captureCommunityLiveSnapshotToken,assertCommunityLiveSnapshotTokenCurrent,publishCommunityChannelMembersSnapshot,setCanonicalCommunityChannelMember } from "@/lib/community-db/sync"
-import { channelMembershipKey } from "@/lib/community-db/schema"
+import { channelMembershipKey, type ChannelMembershipRow } from "@/lib/community-db/schema"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { beginCommunityProfileSeed,writeCommunityProfilePatches,communityUserProfilePatch } from "@/lib/community/profile-seed"
 import { readCommunityProfile } from "@/lib/community/profile-read"
@@ -27,7 +27,7 @@ export type ChannelMember = CommunityUserCore & {
   status: "online" | "offline"
   statusEmoji: string | null
   statusText: string
-  source: "explicit" | "inherited" | "admin"
+  source: NonNullable<ChannelMembershipRow["source"]>
   isCreator: boolean
 }
 export type AddableMember = { userId: string; name: string | null; discriminator: string | null; avatar: string; avatarVersion: number }

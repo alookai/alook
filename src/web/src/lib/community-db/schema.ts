@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { PARTICIPANT_SOURCE } from "@alook/shared/constants/community"
 
 const nullableString = z.string().nullable()
 const optionalNullableString = nullableString.optional()
@@ -74,7 +75,14 @@ export const channelMembershipSchema = z.object({
   userId: z.string().min(1),
   relation: z.enum(["access", "notify"]),
   memberId: z.string().optional(),
-  source: z.enum(["explicit", "inherited", "admin"]).optional(),
+  source: z.enum([
+    "explicit",
+    "inherited",
+    "admin",
+    PARTICIPANT_SOURCE.MENTION,
+    PARTICIPANT_SOURCE.SPOKE,
+    PARTICIPANT_SOURCE.ADDED,
+  ]).optional(),
   isCreator: z.boolean().optional(),
 })
 
