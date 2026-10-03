@@ -111,7 +111,7 @@ export function AddMembersDialog({
   const client = useQueryClient()
   const source = useCommunityViewSource("add-members:" + scopeId)
   const key = ["community", "member-picker", scopeId]
-  type Intent = { userId: string; assert: ReturnType<typeof source.capture> }
+  type Intent = { userId: string; candidate: AddableCandidate; assert: ReturnType<typeof source.capture> }
   const command = useMutation({
     mutationKey: key,
     gcTime: 0,
@@ -123,27 +123,38 @@ export function AddMembersDialog({
   // multiple people in a row doesn't disable the others.
   const attempts = useMutationState({ filters: { mutationKey: key }, select: (mutation) => ({ intent: mutation.state.variables as Intent | undefined, status: mutation.state.status }) })
   const addingIds = new Set(attempts.filter((attempt) => attempt.intent?.assert.signal === source.signal && (attempt.status === "pending" || attempt.status === "success")).map((attempt) => attempt.intent!.userId))
+  const visibleCandidates = useMemo(() => {
+    const rows = new Map(candidates.map((candidate) => [candidate.userId, candidate]))
+    for (const { intent, status } of attempts) {
+      if (status === "pending" && intent?.assert.signal === source.signal && intent.candidate && !rows.has(intent.userId)) {
+        rows.set(intent.userId, intent.candidate)
+      }
+    }
+    return [...rows.values()]
+  }, [candidates, attempts, source.signal])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return candidates
-    return candidates.filter((m) => (m.name ?? "").toLowerCase().includes(q))
-  }, [candidates, query])
+    if (!q) return visibleCandidates
+    return visibleCandidates.filter((m) => (m.name ?? "").toLowerCase().includes(q))
+  }, [visibleCandidates, query])
 
   const pickerState = resolvePeoplePickerViewState({
     resolved: queryState.resolved,
     loading: queryState.loading,
     error: queryState.error,
-    sourceCount: candidates.length,
+    sourceCount: visibleCandidates.length,
     visibleCount: filtered.length,
     query,
   })
 
   const add = (userId: string) => {
+    const candidate = candidates.find((row) => row.userId === userId)
+    if (!candidate) return
     const assert = source.capture()
     const attempts = client.getMutationCache().findAll({ mutationKey: key })
     if (attempts.some((mutation) => { const intent = mutation.state.variables as Intent | undefined; return intent?.userId === userId && intent.assert.signal === assert.signal && (mutation.state.status === "pending" || mutation.state.status === "success") })) return
-    command.mutate({ userId, assert })
+    command.mutate({ userId, candidate: { ...candidate }, assert })
   }
 
   return (

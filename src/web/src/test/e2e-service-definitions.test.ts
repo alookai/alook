@@ -57,11 +57,16 @@ describe("UI E2E service definitions", () => {
     }])
   })
 
-  it("keeps the fast two-process topology for local iteration", () => {
+  it("requires the real queue consumer alongside web and ws-do locally", () => {
     expect(serviceDefinitions(false).map(({ name, command }) => ({ name, command }))).toEqual([
       { name: "web", command: "pnpm" },
       { name: "ws-do", command: "pnpm" },
+      { name: "queue-worker", command: "pnpm" },
     ])
+    expect(serviceDefinitions(false).find(({ name }) => name === "queue-worker")).toEqual({
+      name: "queue-worker", command: "pnpm", args: ["--filter", "@alook/queue-worker", "dev"],
+      healthUrl: "http://localhost:8790/health", expectedStatus: 200, expectedBody: { status: "ok" },
+    })
   })
 
   it("skips both builds only when both prebuilt worker entrypoints exist", () => {
@@ -195,12 +200,13 @@ describe("UI E2E service definitions", () => {
     const services = [
       { name: "web", proc: {} as never, healthUrl: "http://localhost:3000/api/health" },
       { name: "ws-do", proc: {} as never, healthUrl: "http://localhost:8789/health" },
+      { name: "queue-worker", proc: {} as never, healthUrl: "http://localhost:8790/health" },
     ]
 
     await waitForServicesReady(services, async (_service, timeoutMs) => {
       observedTimeouts.push(timeoutMs)
     })
 
-    expect(observedTimeouts).toEqual([undefined, undefined])
+    expect(observedTimeouts).toEqual([undefined, undefined, undefined])
   })
 })

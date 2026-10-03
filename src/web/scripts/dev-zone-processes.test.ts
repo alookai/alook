@@ -36,10 +36,10 @@ describe("development zone Worker processes", () => {
     ])
   })
 
-  it("keeps main and ws-do in one exact Wrangler runtime for E2E", () => {
+  it("keeps main, ws-do and queue consumer in one exact Wrangler runtime for E2E", () => {
     expect(exactWorkerDevArgs(
       "/wrangler/bin/wrangler.js",
-      ["wrangler.toml", "../ws-do/wrangler.toml"],
+      ["wrangler.toml", "../ws-do/wrangler.toml", "../queue-worker/wrangler.toml"],
       LOCAL_WORKER_ENDPOINTS.main,
     )).toEqual([
       "/wrangler/bin/wrangler.js",
@@ -48,6 +48,8 @@ describe("development zone Worker processes", () => {
       "wrangler.toml",
       "--config",
       "../ws-do/wrangler.toml",
+      "--config",
+      "../queue-worker/wrangler.toml",
       "--local",
       "--persist-to",
       ".wrangler/state",

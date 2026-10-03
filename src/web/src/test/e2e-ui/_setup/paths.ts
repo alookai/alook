@@ -12,6 +12,7 @@ export const SERVICE_STATE_PATH = resolve(AUTH_DIR, "service-state.json")
 export const SERVICE_FAILURE_CLAIM_PATH = resolve(AUTH_DIR, "service-failure-claimed")
 
 export const WEB_URL = process.env.ALOOK_SERVER_URL || "http://localhost:3000"
+export const QUEUE_URL = "http://localhost:8790"
 
 export function resolveWsUrl({
   webUrl,
