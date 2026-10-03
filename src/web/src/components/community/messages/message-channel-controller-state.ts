@@ -188,8 +188,6 @@ export function useMessageChannelController({
     pinnedIds: new Set<string>(),
     channelName: "",
     uiHandlers: {},
-    onOpenThread: () => undefined,
-    onOpenPinned: () => undefined,
   }) }), [communityRuntime, channelId]).store
   useLayoutEffect(() => {
     actionContext.setState(() => ({

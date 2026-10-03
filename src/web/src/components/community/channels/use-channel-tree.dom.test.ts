@@ -181,6 +181,44 @@ describe("useChannelTree opaque category drag callbacks", () => {
     category("9qsh2k", [ch("b1"), ch("b2")]),
   ]
 
+  it("previews a same-privacy category move and settles the destination order", async () => {
+    const moving = { ...ch("a1"), name: "Canonical channel", unread: true }
+    const hook = await renderTreeHook([
+      category("5vg7bs", [moving, ch("a2")]),
+      category("9qsh2k", [ch("b1"), ch("b2")]),
+    ])
+
+    await hook.drag((tree) => tree.onDragOver(dragEvent("a1", "b2")))
+
+    expect(hook.current.order["5vg7bs"].map((channel) => channel.id)).toEqual(["a2"])
+    expect(hook.current.order["9qsh2k"].map((channel) => channel.id)).toEqual(["b1", "a1", "b2"])
+    expect(hook.current.order["9qsh2k"][1]).toEqual(moving)
+    const preview = hook.current.order
+    await hook.drag((tree) => tree.onDragOver(dragEvent("a1", "b2")))
+    expect(hook.current.order).toBe(preview)
+
+    await hook.drag((tree) => tree.onDragEnd(dragEvent("a1", "b2")))
+
+    expect(hook.current.order["5vg7bs"].map((channel) => channel.id)).toEqual(["a2"])
+    expect(hook.current.order["9qsh2k"].map((channel) => channel.id)).toEqual(["b1", "b2", "a1"])
+    expect(hook.current.order["9qsh2k"][2]).toEqual(moving)
+    expect(hook.current.catOrder).toEqual(["5vg7bs", "9qsh2k"])
+  })
+
+  it("rejects a category move across the privacy boundary", async () => {
+    const hook = await renderTreeHook([
+      { ...category("5vg7bs", [ch("a1")]), private: true },
+      category("9qsh2k", [ch("b1")]),
+    ])
+    const before = hook.current.order
+
+    await hook.drag((tree) => tree.onDragOver(dragEvent("a1", "b1")))
+
+    expect(hook.current.order).toBe(before)
+    expect(hook.current.order["5vg7bs"].map((channel) => channel.id)).toEqual(["a1"])
+    expect(hook.current.order["9qsh2k"].map((channel) => channel.id)).toEqual(["b1"])
+  })
+
   it("ignores category drag-over instead of moving a channel", async () => {
     const hook = await renderTreeHook(categories)
     const before = hook.current.order

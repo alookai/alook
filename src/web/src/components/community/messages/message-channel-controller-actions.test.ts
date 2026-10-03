@@ -247,6 +247,54 @@ describe("createMessageActions", () => {
     expect(harness.editMessage).toHaveBeenCalledOnce()
   })
 
+  it("reports clipboard denial once with the original view qualification", async () => {
+    const harness = setup()
+    const failure = new DOMException("Clipboard access denied", "NotAllowedError")
+    vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(failure)
+
+    await harness.actions.onCopy("m1")
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledExactlyOnceWith("hello")
+    expect(mocks.toast).not.toHaveBeenCalled()
+    expect(mocks.toastApiError).toHaveBeenCalledExactlyOnceWith(failure, "Failed to copy message", expect.any(Function))
+    const original = mocks.toastApiError.mock.calls[0][2] as (() => void) & { signal: AbortSignal }
+    expect(original.signal.aborted).toBe(false)
+    expect(() => original()).not.toThrow()
+  })
+
+  it("keeps an aborted clipboard write silent", async () => {
+    const harness = setup()
+    vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new DOMException("Cancelled", "AbortError"))
+
+    await harness.actions.onCopy("m1")
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledExactlyOnceWith("hello")
+    expect(mocks.toast).not.toHaveBeenCalled()
+    expect(mocks.toastApiError).not.toHaveBeenCalled()
+  })
+
+  it("accepts pin and thread completion before navigation handlers are registered", async () => {
+    const harness = setup()
+    harness.actionContext.setState((state) => ({ ...state, onOpenThread: undefined, onOpenPinned: undefined }))
+
+    harness.actions.onPin("m1")
+    expect(() => harness.pinMessageMutate.mock.calls[0][1].onSuccess()).not.toThrow()
+    await harness.actions.onCreateThread("m1")
+
+    expect(mocks.toast).toHaveBeenCalledExactlyOnceWith("Message pinned")
+    expect(mocks.toastApiError).not.toHaveBeenCalled()
+    expect(harness.onOpenThread).not.toHaveBeenCalled()
+    expect(harness.onOpenPinned).not.toHaveBeenCalled()
+
+    harness.actionContext.setState((state) => ({ ...state, onOpenThread: harness.onOpenThread, onOpenPinned: harness.onOpenPinned }))
+    harness.actions.onPin("m1")
+    harness.pinMessageMutate.mock.calls[1][1].onSuccess()
+    await harness.actions.onCreateThread("m1")
+
+    expect(harness.onOpenPinned).toHaveBeenCalledOnce()
+    expect(harness.onOpenThread).toHaveBeenCalledExactlyOnceWith("thread_1")
+  })
+
   it("reads latest context through one stable action object and has no delete action", () => {
     const harness = setup()
     const latestReply = vi.fn()

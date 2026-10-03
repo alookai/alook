@@ -28,8 +28,8 @@ export type MessageActionContext = {
   pinnedIds: Set<string>
   channelName: string
   uiHandlers: MessageUiHandlers
-  onOpenThread: (threadId: string) => void
-  onOpenPinned: () => void
+  onOpenThread?: (threadId: string) => void
+  onOpenPinned?: () => void
 }
 
 export function createMessageActions({
@@ -128,7 +128,7 @@ export function createMessageActions({
         onSuccess: () => {
           if (!current(original)) return
           toast("Message pinned")
-          context.onOpenPinned()
+          context.onOpenPinned?.()
         },
         onError: (error) => toastApiError(error, "Failed to pin message", original),
       })
@@ -145,7 +145,7 @@ export function createMessageActions({
       try {
         const data = await createThreadAsync({ serverId, channelId, messageId: id, name, assertActive: original })
         original()
-        actionContext.get().onOpenThread(data.id)
+        actionContext.get().onOpenThread?.(data.id)
       } catch (error) {
         toastApiError(error, "Failed to create thread", original)
       }
