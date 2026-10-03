@@ -109,7 +109,7 @@ export function useChannelRouteModel(
   const retryingMetadata = retryAttempt?.scope === retryScope
   const metadataExit = metadataExited || isDefinitiveChildMetaFailure(metaQuery.error)
     || (metaQuery.error instanceof ApiError && metaQuery.error.status === 401)
-    || !!metaQuery.data?.archived
+    || metaQuery.isArchived
   const metadataError = !metaQuery.isVerified && !metadataExit
     && (metaQuery.isError || retryingMetadata)
   const { refetch: refetchMetadata, isFetching: fetchingMetadata } = metaQuery
@@ -168,10 +168,10 @@ export function useChannelRouteModel(
   }, [channelId, runtime])
   useEffect(() => {
     const denied = isDefinitiveChildMetaFailure(metaQuery.error)
-    if (!isChild && !denied && !metaQuery.data?.archived) {
+    if (!isChild && !denied && !metaQuery.isArchived) {
       return
     }
-    if (denied || metaQuery.data?.archived) {
+    if (denied || metaQuery.isArchived) {
       if (metadataExited) return
       setExitedMetadata({ owner: communityDb, scope: exitScope })
       const store = runtime.ui.get()
@@ -198,7 +198,7 @@ export function useChannelRouteModel(
     } else if (metaQuery.error) {
       toastApiError(metaQuery.error, "Failed to load channel")
     }
-  }, [accountId, channelId, communityDb, isChild, metaQuery.data, metaQuery.error, metaQuery.isVerified, queryClient, renderableChannelMeta, router, runtime.ui, runtime.ws.actions, serverId, serverParam, metadataExited, exitScope, setExitedMetadata])
+  }, [accountId, channelId, communityDb, isChild, metaQuery.data, metaQuery.error, metaQuery.isVerified, metaQuery.isArchived, queryClient, renderableChannelMeta, router, runtime.ui, runtime.ws.actions, serverId, serverParam, metadataExited, exitScope, setExitedMetadata])
   return {
     ...model,
     routeHydrated: model.routeHydrated && metaQuery.isVerified,

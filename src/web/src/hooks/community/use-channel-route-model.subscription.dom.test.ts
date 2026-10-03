@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
   metaQuery: {
     data: undefined as undefined | Record<string, unknown>,
     error: null as unknown,
-    isVerified: false,
+    isVerified: false, isArchived: false,
     isError: false,
   },
   dbChannel: undefined as undefined | Record<string, unknown>,
@@ -96,7 +96,7 @@ beforeEach(async () => {
       channels: [{ id: "forum-1", name: "Forum", type: "forum" }],
     }],
   }
-  mocks.metaQuery = { data: undefined, error: null, isVerified: false, isError: false }
+  mocks.metaQuery = { data: undefined, error: null, isVerified: false, isArchived: false, isError: false }
   mocks.dbChannel = undefined
 })
 
@@ -178,7 +178,7 @@ describe("useChannelRouteModel subscription ownership", () => {
     expect(renderer.container.querySelector("span")).toHaveAttribute("data-lifecycle", "pending")
     expect(renderer.container.querySelector("span")).toHaveAttribute("data-parent-channel", "")
     mocks.metaQuery = { data: { ...mocks.dbChannel, creatorId: null, lastMessageAt: null, createdAt: "", archived: false },
-      error: null, isVerified: true, isError: false }
+      error: null, isVerified: true, isArchived: false, isError: false }
     act(() => renderer.rerender(React.createElement(Harness)))
     expect(renderer.container.querySelector("span")).toHaveAttribute("data-lifecycle", "ready")
     expect(renderer.container.querySelector("span")).toHaveAttribute("data-creator-id", "")
@@ -231,7 +231,7 @@ describe("useChannelRouteModel subscription ownership", () => {
         verifiedEpoch: 0,
       },
       error: null,
-      isVerified: true,
+      isVerified: true, isArchived: false,
       isError: false,
     }
     act(() => {
@@ -260,7 +260,7 @@ describe("useChannelRouteModel subscription ownership", () => {
       activityAt: "2026-08-09T00:00:00.000Z",
       verifiedEpoch: 0,
     }
-    mocks.metaQuery = { data: meta, error: null, isVerified: true, isError: false }
+    mocks.metaQuery = { data: meta, error: null, isVerified: true, isArchived: false, isError: false }
     const storeListener = vi.fn()
     const subscription = getCommunityRuntime(queryClient).ui.subscribe(storeListener)
     const renderer = render(React.createElement(Harness))
@@ -269,7 +269,7 @@ describe("useChannelRouteModel subscription ownership", () => {
     mocks.metaQuery = {
       data: { ...meta },
       error: null,
-      isVerified: true,
+      isVerified: true, isArchived: false,
       isError: false,
     }
     act(() => renderer.rerender(React.createElement(Harness)))
@@ -283,7 +283,7 @@ describe("useChannelRouteModel subscription ownership", () => {
     mocks.metaQuery = {
       data: undefined,
       error: new Error("metadata unavailable"),
-      isVerified: false,
+      isVerified: false, isArchived: false,
       isError: true,
     }
     let renderer: ReturnType<typeof render>
@@ -310,7 +310,7 @@ describe("useChannelRouteModel subscription ownership", () => {
         verifiedEpoch: 0,
       },
       error: null,
-      isVerified: true,
+      isVerified: false, isArchived: true,
       isError: false,
     }
     let renderer: ReturnType<typeof render>
@@ -345,7 +345,7 @@ describe("useChannelRouteModel subscription ownership", () => {
         verifiedEpoch: 0,
       },
       error: null,
-      isVerified: true,
+      isVerified: false, isArchived: true,
       isError: false,
     }
 

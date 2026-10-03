@@ -109,6 +109,7 @@ describe("notification setting read-state isolation contract", () => {
         added_at TEXT NOT NULL
       );
       CREATE TABLE community_server_member (
+        id TEXT PRIMARY KEY,
         server_id TEXT NOT NULL,
         user_id TEXT NOT NULL,
         joined_at TEXT NOT NULL,
@@ -146,8 +147,8 @@ describe("notification setting read-state isolation contract", () => {
         ('child-3', 'child', '2026-01-01T00:00:03Z', 3),
         ('sibling-4', 'sibling', '2026-01-01T00:00:04Z', 4),
         ('dm-5', 'dm', '2026-01-01T00:00:05Z', 5);
-      INSERT INTO community_server_member (server_id, user_id, joined_at)
-      VALUES ('server', 'u', '2025-01-01T00:00:00Z');
+      INSERT INTO community_server_member (id, server_id, user_id, joined_at)
+      VALUES ('membership-u', 'server', 'u', '2025-01-01T00:00:00Z');
       INSERT INTO community_channel_member (channel_id, user_id, relation, added_at)
       VALUES ('dm', 'u', 'access', '2025-01-01T00:00:00Z');
     `);
@@ -174,6 +175,14 @@ describe("notification setting read-state isolation contract", () => {
     WHERE user_id = 'u'
     ORDER BY channel_id
   `).all();
+
+  it("returns the viewer's membership identity and current role without another member's role", async () => {
+    sqlite.prepare("UPDATE community_server_member SET role = 'admin' WHERE user_id = 'u'").run();
+    sqlite.prepare("INSERT INTO community_server_member (id, server_id, user_id, joined_at, role) VALUES ('membership-peer', 'server', 'peer', '2025-01-01T00:00:00Z', 'owner')").run();
+    const servers = await listUserServers(db, "u");
+    expect(servers).toHaveLength(1);
+    expect(servers[0]).toMatchObject({ id: "server", memberId: "membership-u", role: "admin" });
+  });
 
   it("sets a server policy without manufacturing or advancing channel cursors", async () => {
     sqlite.exec(`

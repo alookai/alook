@@ -1,4 +1,4 @@
-import type { ChannelType } from "@alook/shared"
+import type { ChannelType, CommunityRole } from "@alook/shared"
 
 export type EntityKind = "text" | "forum" | "thread"
 
@@ -19,6 +19,8 @@ export type Server = {
   mentionSources?: Array<{ channelId: string; count: number; lastSeq: number }>
   official?: boolean
   isOwner?: boolean
+  role?: CommunityRole
+  memberId?: string
   icon?: string | null
 }
 
