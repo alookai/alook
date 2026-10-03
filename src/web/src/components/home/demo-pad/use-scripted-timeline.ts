@@ -23,16 +23,16 @@ export function useScriptedTimeline({
   const [isResetting, setIsResetting] = useAtom(useCreateAtom(false));
   const [isActive, setIsActive] = useAtom(useCreateAtom(false));
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reducedMotionRef = useRef(false);
+  const [reducedMotion, setReducedMotion] = useAtom(useCreateAtom(false));
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    reducedMotionRef.current = mq.matches;
+    setReducedMotion(mq.matches);
     if (mq.matches) {
       setVisibleCount(steps.length);
     }
     const handler = (e: MediaQueryListEvent) => {
-      reducedMotionRef.current = e.matches;
+      setReducedMotion(e.matches);
       if (e.matches) {
         setVisibleCount(steps.length);
         setIsResetting(false);
@@ -40,7 +40,7 @@ export function useScriptedTimeline({
     };
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
-  }, [setIsResetting, setVisibleCount, steps.length]);
+  }, [setIsResetting, setVisibleCount, setReducedMotion, steps.length]);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {
@@ -50,7 +50,7 @@ export function useScriptedTimeline({
   }, []);
 
   useEffect(() => {
-    if (!isActive || reducedMotionRef.current) {
+    if (!isActive || reducedMotion) {
       clearTimer();
       return;
     }
@@ -84,7 +84,7 @@ export function useScriptedTimeline({
     timerRef.current = setTimeout(() => showNext(0), 500);
 
     return clearTimer;
-  }, [isActive, steps, holdAfterComplete, resetDuration, clearTimer, setVisibleCount, setIsResetting]);
+  }, [isActive, reducedMotion, steps, holdAfterComplete, resetDuration, clearTimer, setVisibleCount, setIsResetting]);
 
   const containerRef = useRef<HTMLDivElement>(null);
 

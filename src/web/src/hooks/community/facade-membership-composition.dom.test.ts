@@ -1,6 +1,6 @@
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { beforeEach, afterEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
 import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
@@ -19,7 +19,7 @@ beforeEach(async () => {
   registry = createCommunityDbRegistry(client, "viewer")
   await registry.preload()
 })
-afterEach(async () => {
+beforeEach(() => async () => {
   await act(async () => {
     await client.cancelQueries(); await registry.cleanup(); client.clear()
   })

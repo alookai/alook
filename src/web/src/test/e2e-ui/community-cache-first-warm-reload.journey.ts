@@ -70,7 +70,7 @@ async function persistedQueries(page: Page, viewerId: string): Promise<Persisted
         )))
       }
     }
-  }), `alook:qc:v2:${viewerId}:client`)
+  }), `alook:qc:v3:${viewerId}:client`)
 }
 
 function containsPersistedId(value: unknown, id: string): boolean {

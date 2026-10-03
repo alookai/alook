@@ -356,7 +356,7 @@ describe("native workspace ownership", () => {
   })
 
   it("polls counts while idle and details while tasks are active, with one polling observer", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] })
     focusManager.setFocused(true)
     const renderer = await mount()
     await act(async () => { await vi.advanceTimersByTimeAsync(15_001) })

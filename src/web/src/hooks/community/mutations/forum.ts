@@ -206,7 +206,6 @@ export function useDeleteForumThread() {
     mutationFn: async (args) => {
       const registry = origin.registry, unit = toPostUnit(args)
       const assert = () => { origin.assert(args.original); args.view(); args.assertActive?.() }
-      const signal = args.assertActive?.signal ? AbortSignal.any([args.view.signal, args.assertActive.signal]) : args.view.signal
       assert()
       await registry?.ready
       assert()
@@ -217,15 +216,23 @@ export function useDeleteForumThread() {
       const token = beginCommunityCommandRevision(queryClient, args.original)
       const removed = collectChannelScopeIds(queryClient, unit.serverId, unit.childChannelId)
       const persist = async () => {
+        assert()
+        const controller = new AbortController()
+        const assertOwner = () => origin.assertOwner(args.original)
+        const subscription = registry!.runtime.lifecycle.subscribe(() => {
+          try { assertOwner() } catch { controller.abort() }
+        })
         try {
           await apiFetch(`/api/community/messages/${unit.openerMessageId}`, {
             method: "DELETE",
-            ...communityRequestOptions(queryClient, token, signal, assert),
+            ...communityRequestOptions(queryClient, token, controller.signal, assertOwner),
           })
-          assert()
-          if (publishCommunityDeletedForumPost(queryClient, unit, { token, signal })) applyForumPostUnitClientEffects(queryClient, unit, { queries: new Set(args.resources), assertView: assert, canonical: false })
+          assertOwner()
+          try { origin.assert(token) } catch { return }
+          if (publishCommunityDeletedForumPost(queryClient, unit, { token, signal: controller.signal })) applyForumPostUnitClientEffects(queryClient, unit, { queries: new Set(args.resources), assertView: assert, canonical: false })
           for (const query of args.resources) if (queryClient.getQueryCache().find({ queryKey: query.queryKey, exact: true }) === query && [communityKeys.channelMessages(args.forumChannelId), communityKeys.threads(args.forumChannelId), communityKeys.forumTags(args.forumChannelId), communityKeys.server(args.serverId)].some((key) => startsWithQueryKey(query.queryKey, key))) void queryClient.invalidateQueries({ queryKey: query.queryKey, exact: true }, { cancelRefetch: false }).catch(() => undefined)
-        } catch (error) { assert(); throw error }
+        } catch (error) { assertOwner(); throw error }
+        finally { subscription.unsubscribe() }
       }
       const transaction = registry!.dbClient.createTransaction({ autoCommit: false, mutationFn: persist })
       transaction.mutate(() => {
@@ -238,7 +245,7 @@ export function useDeleteForumThread() {
         for (const row of c.attentionItems.values()) if (row.messageId === unit.openerMessageId || row.childChannelId === unit.childChannelId || row.scopeId && removed.has(row.scopeId)) c.attentionItems.delete(row.id)
         for (const row of c.notificationSettings.values()) if (row.channelId && removed.has(row.channelId)) c.notificationSettings.delete(row.id)
       })
-      try { if (transaction.mutations.length) await transaction.commit(); else await persist() } catch (error) { assert(); throw error }
+      try { if (transaction.mutations.length) await transaction.commit(); else await persist() } catch (error) { origin.assertOwner(args.original); throw error }
     },
   })
   const capture = useCallback((input: DeleteForumThreadArgs): Intent => { input.assertActive?.(); const view = source.capture(); view(); return { ...input, view, original: origin.begin().token, resources: queryClient.getQueryCache().findAll() } }, [origin, queryClient, source])

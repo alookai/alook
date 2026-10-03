@@ -1,7 +1,8 @@
-import { createElement } from "react"
+import { createElement, useEffect } from "react"
 import { QueryClient } from "@tanstack/react-query"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityDbRegistry } from "@/lib/community-db/collections"
+import { useCommunityRuntime } from "@/stores/community/runtime"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { render, screen } from "@/test/react-dom-harness"
 
@@ -31,11 +32,21 @@ vi.mock("@/components/community/shell/community-pending-frame", () => ({
 
 import MeListPage from "./page"
 
-function renderPage() {
+function StartOnboarding() {
+  const runtime = useCommunityRuntime()
+  useEffect(() => {
+    runtime.ui.setState((state) => ({ ...state, onboardingState: { status: "active", stage: "harness" } }))
+  }, [runtime])
+  return null
+}
+
+function renderPage(startOnboarding = false) {
   const client = new QueryClient()
   const registry = createCommunityDbRegistry(client, "viewer")
   registry.runtime.serverEject.setState((state) => ({ ...state, meRootLanding: mocks.ownerDeleteRootLanding }))
-  return render(createElement(CommunityTestProvider, { client }, createElement(MeListPage)))
+  return render(createElement(CommunityTestProvider, { client },
+    startOnboarding ? createElement(StartOnboarding) : null,
+    createElement(MeListPage)))
 }
 
 describe("MeListPage", () => {
@@ -84,5 +95,10 @@ describe("MeListPage", () => {
     const rendered = renderPage()
     expect(mocks.replace).not.toHaveBeenCalled()
     expect(rendered.container).toBeEmptyDOMElement()
+  })
+  it("does not overwrite onboarding started by an earlier sibling effect", () => {
+    mocks.breakpoint = "desktop"
+    renderPage(true)
+    expect(mocks.replace).not.toHaveBeenCalled()
   })
 })

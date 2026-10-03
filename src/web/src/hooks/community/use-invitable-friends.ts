@@ -30,7 +30,7 @@ async function invitableFriendsQueryFn(serverId: string, context: QueryFunctionC
 
 export function useInvitableFriends(serverId: string, enabled = true): UseQueryResult<InvitableFriendsResponse> & { friends: Friend[] } {
   const active = enabled && !!serverId
-  const query = useQuery({ queryKey: communityKeys.invitableFriends(serverId), queryFn: (context) => invitableFriendsQueryFn(serverId, context), enabled: active, subscribed: active })
+  const query = useQuery({ queryKey: communityKeys.invitableFriends(serverId), queryFn: (context) => invitableFriendsQueryFn(serverId, context), enabled: active, subscribed: active, retry: false })
   const rows = useFriendshipRows(query.data?.friendIds ?? [])
   const profiles = useCanonicalProfilesByUserId(rows.map((row) => row.userId))
   const members = useServerMemberRows(serverId, rows.map((row) => row.userId))

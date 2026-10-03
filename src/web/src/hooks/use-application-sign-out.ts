@@ -18,7 +18,9 @@ export function useApplicationSignOut() {
       if (result?.error) { assertApplicationOwner(token); throw new Error(result.error.message || "Failed to log out") }
       if (owner.lifecycle.get().active && owner.lifecycle.get().generation === token.generation) retireApplicationOwner(owner)
       owner.queryClient.clear()
-      await owner.retireDisk()
+      await owner.retireDisk().catch((error: unknown) => {
+        console.error("Application disk cache retirement failed", error)
+      })
       const state = owner.lifecycle.get(), viewer = owner.sessionViewer()
       return !state.active && state.generation === token.generation + 1 && (viewer === undefined || viewer === null || viewer === owner.userId)
     } catch (error) {

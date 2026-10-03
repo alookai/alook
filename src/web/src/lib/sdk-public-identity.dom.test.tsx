@@ -5,7 +5,7 @@ import { beforeAll, afterAll, describe, expect, it, vi } from "vitest"
 import { act, render, waitFor } from "@/test/react-dom-harness"
 import { createIdbPersister, clearAllPersistedCaches } from "./query-persister"
 import { get, set } from "idb-keyval"
-import { useQueryClient } from "@tanstack/react-query"
+import { useQueryClient, useIsRestoring } from "@tanstack/react-query"
 import { getCommunityDbRegistry, type CommunityDbRegistry } from "./community-db/collections"
 const fetchFixture = vi.hoisted(() => {
   const transport = vi.fn()
@@ -23,6 +23,7 @@ let Application: typeof import("./application-owner")
 let Community: typeof import("@/app/c/QueryProvider")
 let registry: CommunityDbRegistry
 const owners: Record<string, import("./application-owner").ApplicationOwner> = {}
+const restoring: Record<string, boolean> = {}
 beforeAll(async () => {
   await act(async () => { await clearAllPersistedCaches() })
   fetchFixture.mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
@@ -37,12 +38,13 @@ beforeAll(async () => {
   Community = await import("@/app/c/QueryProvider")
 })
 afterAll(() => { vi.unstubAllGlobals(); for (const owner of Object.values(owners)) owner.queryClient.clear() })
-function Probe({ kind }: { kind: string }) { const owner = Application.useApplicationOwner(); useLayoutEffect(() => { owners[kind] = owner }); return <output>{owner.userId}</output> }
+function Probe({ kind }: { kind: string }) { const owner = Application.useApplicationOwner(); const pending = useIsRestoring(); useLayoutEffect(() => { owners[kind] = owner; restoring[kind] = pending }); return <output>{owner.userId}</output> }
 function CommunityProbe() { const current = getCommunityDbRegistry(useQueryClient())!; useLayoutEffect(() => { registry = current }); return <output>Community</output> }
 function Root({ id }: { id: string }) { return <Application.ApplicationQueryProvider userId={id}><Probe kind={id} /></Application.ApplicationQueryProvider> }
 describe("real BetterAuth public session input", () => {
   it("public signIn.email updates real useSession and retires original account before B root mounts", async () => {
     const view = render(<Root id="A" />)
+    await waitFor(() => expect(restoring.A).toBe(false))
     await waitFor(() => expect(auth.authClient.$store.atoms.session.get()).toMatchObject({ isPending: false, error: null, data: { user: { id: "A" } } }))
     const a = createIdbPersister("A"), b = createIdbPersister("B")
     await act(async () => { await a.restoreClient(); }) ; await act(async () => { await b.restoreClient(); }) ; await act(async () => { await set("alook:qc:v2:A:client", "old A"); }) ; await act(async () => { await set("alook:qc:v2:B:client", "old B") })
@@ -51,6 +53,7 @@ describe("real BetterAuth public session input", () => {
     await waitFor(async () => expect(await a.isCurrent()).toBe(false))
     expect(await get("alook:qc:v2:A:client")).toBeUndefined(); expect(await get("alook:qc:v2:B:client")).toBe("old B")
     await act(async () => view.rerender(<Root id="B" />))
+    await waitFor(() => expect(restoring.B).toBe(false))
     await waitFor(() => expect(owners.B?.sessionViewer()).toBe("B")); expect(owners.B.lifecycle.get().active).toBe(true); expect(await b.isCurrent()).toBe(true)
   })
   it("public signOut updates the real community useSession and clears only B's disk", async () => {

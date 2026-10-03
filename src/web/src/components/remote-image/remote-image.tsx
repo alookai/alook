@@ -35,7 +35,15 @@ function IdentityImageAttempt({
   timeoutMs,
   "data-testid": testId,
 }: IdentityImageProps) {
-  const [status, attempt, , imageRef, onLoad, onError] = useRemoteImageAttempt({ timeoutMs })
+  const [status, attempt, , imageRef, onLoad, onError, retry] = useRemoteImageAttempt({ timeoutMs })
+  const retryAfterReconnect = useEffectEvent(() => {
+    if (status !== "ready") retry()
+  })
+  useEffect(() => {
+    const onOnline = () => retryAfterReconnect()
+    window.addEventListener("online", onOnline)
+    return () => window.removeEventListener("online", onOnline)
+  }, [])
   const legacyStatus = status === "error" ? "failed" : status
 
   return (

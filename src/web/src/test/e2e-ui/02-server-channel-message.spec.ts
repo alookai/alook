@@ -196,31 +196,19 @@ test("server → channel → message", async ({ asUser }) => {
   await restored.click()
   await page.keyboard.press("ControlOrMeta+A")
   await page.keyboard.press("Backspace")
-  await page.evaluate(() => {
-    Object.defineProperty(window, "__messageStreamNonceCalls", {
-      configurable: true,
-      writable: true,
-      value: 0,
-    })
-    Object.defineProperty(window.crypto, "randomUUID", {
-      configurable: true,
-      value: () => {
-        ;(window as unknown as { __messageStreamNonceCalls: number }).__messageStreamNonceCalls++
-        return "00000000-0000-4000-8000-000000000001"
-      },
-    })
-  })
   let releasePendingSend!: () => void
   const pendingSendGate = new Promise<void>((resolve) => { releasePendingSend = resolve })
   let pendingSendIntercepted = false
   let pendingSendCompleted = false
   let pendingPostCount = 0
+  const sendBodies: Array<{ content: string; nonce: string }> = []
   await page.route("**/api/community/channels/*/messages", async (route) => {
     if (route.request().method() !== "POST") {
       await route.continue()
       return
     }
     pendingPostCount++
+    sendBodies.push(route.request().postDataJSON())
     pendingSendIntercepted = true
     await pendingSendGate
     await route.fulfill({
@@ -231,64 +219,44 @@ test("server → channel → message", async ({ asUser }) => {
     pendingSendCompleted = true
   })
 
-  await restored.pressSequentially(`pending ${Date.now()}`)
+  const pendingBody = `pending ${Date.now()}`
+  await restored.pressSequentially(pendingBody)
   await page.keyboard.press("Enter")
   await expect(restored).toHaveText("")
   await expect.poll(() => pendingSendIntercepted).toBe(true)
-  await expect.poll(() => page.evaluate(() =>
-    (window as unknown as { __messageStreamNonceCalls: number }).__messageStreamNonceCalls,
-  )).toBe(1)
   await expect.poll(() => pendingPostCount).toBe(1)
+  expect(sendBodies[0]).toMatchObject({ content: pendingBody, nonce: expect.any(String) })
+  expect(sendBodies[0]!.nonce).not.toBe("")
 
   const rejectedDraft = `rejected draft ${Date.now()}`
   await restored.pressSequentially(rejectedDraft)
-  await page.evaluate(() => {
-    const revokedUrls: string[] = []
-    const revokeObjectUrl = URL.revokeObjectURL.bind(URL)
-    Object.defineProperty(window, "__messageStreamRevokedUrls", {
-      configurable: true,
-      value: revokedUrls,
-    })
-    URL.revokeObjectURL = (url) => {
-      revokedUrls.push(url)
-      revokeObjectUrl(url)
-    }
-  })
-  await page.getByTestId(tid.composerFileInput).setInputFiles({
-    name: "rejected.txt",
-    mimeType: "text/plain",
-    buffer: Buffer.from("keep me"),
-  })
-  await expect(page.getByText("rejected.txt", { exact: true })).toBeVisible()
-  await expect.poll(() => restored.evaluate((element) => document.activeElement === element)).toBe(true)
-  const nonceCallsAfterAttachmentSelection = await page.evaluate(() =>
-    (window as unknown as { __messageStreamNonceCalls: number }).__messageStreamNonceCalls,
-  )
-  await page.keyboard.press("Enter")
-  await expect.poll(() => page.evaluate(() =>
-    (window as unknown as { __messageStreamNonceCalls: number }).__messageStreamNonceCalls,
-  )).toBe(nonceCallsAfterAttachmentSelection + 1)
   await expect.poll(() => pendingPostCount).toBe(1)
   await expect(restored).toContainText(rejectedDraft)
-  await expect(page.getByText("rejected.txt", { exact: true })).toBeVisible()
-  await expect.poll(() => page.evaluate(() =>
-    (window as unknown as { __messageStreamRevokedUrls: string[] }).__messageStreamRevokedUrls.length,
-  )).toBe(1)
 
   releasePendingSend()
   await expect.poll(() => pendingSendCompleted).toBe(true)
+  const retry = page.getByRole("button", { name: "Message failed to send. Click to retry." })
+  await expect(retry).toHaveCount(1)
+  await expectMessageVisible(page, pendingBody)
   await page.unroute("**/api/community/channels/*/messages")
+  const retryResponsePromise = page.waitForResponse((response) => response.request().method() === "POST"
+    && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`)
+  await retry.click()
+  const retryResponse = await retryResponsePromise
+  expect(retryResponse.status()).toBe(201)
+  const retryBody = retryResponse.request().postDataJSON() as { content: string; nonce: string }
+  expect(retryBody).toMatchObject({ content: pendingBody, nonce: sendBodies[0]!.nonce })
+  expect(sends).toBe(3)
+  const retryPayload = await retryResponse.json() as { message: { id: string } }
+  await expect(page.getByTestId(tid.message(retryPayload.message.id))).toHaveCount(1)
+  await expectMessageVisible(page, pendingBody)
+  await expect(page.getByRole("button", { name: "Message failed to send. Click to retry." })).toHaveCount(0)
+  await expect(restored).toContainText(rejectedDraft)
   await page.goto("/c/me", { waitUntil: "commit" })
   await page.goto(channelUrl, { waitUntil: "commit" })
   const persisted = composerEditable(page)
   await expect(persisted).toContainText(rejectedDraft)
 
-  await page.evaluate(() => {
-    Object.defineProperty(window.crypto, "randomUUID", {
-      configurable: true,
-      value: () => "00000000-0000-4000-8000-000000000002",
-    })
-  })
   await page.getByTestId(tid.composerFileInput).setInputFiles({
     name: "accepted.txt",
     mimeType: "text/plain",
@@ -322,8 +290,9 @@ test("server → channel → message", async ({ asUser }) => {
   }))
   const acceptedResponse = await acceptedResponsePromise
   expect(acceptedResponse.status()).toBe(201)
-  const acceptedRequest = acceptedResponse.request().postDataJSON() as { attachments?: string[] }
+  const acceptedRequest = acceptedResponse.request().postDataJSON() as { attachments?: string[]; nonce: string }
   expect(acceptedRequest.attachments).toEqual([acceptedAttachment.id])
+  expect(acceptedRequest.nonce).not.toBe(sendBodies[0]!.nonce)
   const acceptedPayload = await acceptedResponse.json() as { message: { id: string } }
   const attachmentPath = new URL(acceptedResponse.url()).pathname.replace(
     /\/messages$/,

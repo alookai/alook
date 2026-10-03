@@ -2,10 +2,9 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback, useRef, type ComponentProps } from "react"
-import { communityKeys } from "@/lib/query-keys"
 import { channelHref } from "@/lib/community/community-route"
 import type { Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
-import { dmSummaryFromInbox, upsertDmSummary, type DmCache } from "@/lib/community/dm-cache"
+import { dmSummaryFromInbox } from "@/lib/community/dm-cache"
 import { useInboxAttention, useInboxMarked } from "@/hooks/community/use-inbox"
 import { startDmRouteVerification } from "@/hooks/community/use-dm-route-verification"
 import { useInboxAutoCollapse } from "@/hooks/community/use-inbox-auto-collapse"
@@ -253,12 +252,6 @@ export function useShellInboxController({
       },
       () => {
         const summary = dmSummaryFromInbox(dm)
-        queryClient.setQueryData(
-          communityKeys.dms(),
-          (previous: DmCache | undefined) => (
-            upsertDmSummary(previous, summary)
-          ),
-        )
         publishCommunityDmSummary(queryClient, summary)
       },
       () => {

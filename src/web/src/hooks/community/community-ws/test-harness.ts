@@ -65,7 +65,7 @@ export let useUserWsCallCount = 0
 vi.mock("@/lib/use-user-ws", () => ({
   useUserWs: (onMessage: (msg: unknown) => void, options?: UseUserWsOptions) => {
     useUserWsCallCount += 1
-    capturedOnMessage = (message) => act(() => onMessage(message))
+    capturedOnMessage = (message) => { act(() => { onMessage(message) }) }
     capturedOnReconnect = options?.onReconnect ?? null
     capturedConnectionStateChange = options?.onConnectionStateChange ?? null
     capturedUseUserWsOptions = options
@@ -405,7 +405,7 @@ export function seedCanonicalFocusedChannel(metadata: { name: string; parentChan
     const channelId = state.currentChannelId ?? state.subscription.channelId
     if (!channelId) throw new Error("Focused test channel missing")
     publishCommunityChannelMetadata(capturedQueryClient, {
-      metadata: { creatorId: null, archived: false, lastMessageAt: null, parentMessageId: null, parentChannelId: null, ...canonicalRegistry.collections.channels.get(channelId), id: channelId, serverId: state.currentServerId ?? "s1", type: metadata.parentChannelId ? "thread" : "text", ...metadata },
+      metadata: { creatorId: null, archived: false, lastMessageAt: null, parentMessageId: null, parentChannelId: null, ...canonicalRegistry.collections.channels.get(channelId), id: channelId, serverId: canonicalRegistry.collections.channels.get(channelId)?.serverId ?? state.currentServerId ?? "s1", type: metadata.parentChannelId ? "thread" : "text", ...metadata },
       proof: { token: captureCommunityLiveSnapshotToken(capturedQueryClient), signal: undefined },
     })
   })

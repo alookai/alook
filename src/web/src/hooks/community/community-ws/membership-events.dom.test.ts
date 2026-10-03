@@ -12,7 +12,9 @@ import { getAccountUnreadProjection } from "@/hooks/community/account-unread-pro
 import {
   getCanonicalCommunityChannels,
   patchCanonicalCommunityChannel,
+  setCanonicalCommunityChannelMember,
 } from "@/lib/community-db/sync"
+import { useChannelMetadata } from "@/hooks/community/use-channel-metadata"
 import { useServerMembers } from "@/hooks/community/use-server-members"
 import {
   capturedOnMessage,
@@ -416,8 +418,7 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
   it("retires notification arrivals on participant removal without retiring access", async () => {
     await mountHook({ viewerUserId: "u_me" })
     const { useCommunityWsStore } = await import("@/stores/community/ws")
-    const epoch = getCapturedRuntime().ws.get().accessEpoch
-    capturedQueryClient.setQueryData(communityKeys.channelMeta("srv_1", "private"), { type: "thread", verifiedEpoch: epoch })
+    seedCanonicalThread("srv_1", "private_parent", "forum", "private")
     const projection = getAccountUnreadProjection(capturedQueryClient, "u_me")
     projection.recordArrival({ channelId: "private", serverId: "srv_1", seq: 1 })
     capturedOnMessage!({ type: "community:channel.member_remove", serverId: "srv_1", channelId: "private", userId: "u_me" })
@@ -523,9 +524,6 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
     }) })
 
     const { useCommunityWsStore } = await import("@/stores/community/ws")
-    for (const id of ["post_1", "post_2"]) await act(async () => { capturedQueryClient.setQueryData(
-      communityKeys.channelMeta("srv_1", id), { type: "thread", verifiedEpoch: getCapturedRuntime().ws.get().accessEpoch },
-    ) })
     await act(async () => { capturedOnMessage!({
       type: "community:channel.member_remove",
       serverId: "srv_1",
@@ -564,13 +562,6 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
     })
     capturedQueryClient.setQueryData(baseKey, forumSidebarFixture())
     capturedQueryClient.setQueryData(retainedKey, { id: "forum_post" })
-    capturedQueryClient.setQueryData(metaKey, {
-      id: "text_thread",
-      serverId: "srv_1",
-      parentChannelId: "text_parent",
-      parentMessageId: "text_opener",
-      type: "thread",
-    })
     capturedQueryClient.setQueryData(hintKey, { id: "forum_opener", content: "Forum title" })
     const before = {
       base: capturedQueryClient.getQueryData(baseKey),
@@ -607,13 +598,41 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
     expect(capturedQueryClient.getQueryData(baseKey)).toBe(before.base)
     expect(capturedQueryClient.getQueryState(baseKey)?.isInvalidated).toBe(false)
     expect(capturedQueryClient.getQueryData(retainedKey)).toBe(before.retained)
-    expect(capturedQueryClient.getQueryState(metaKey)).toBeUndefined()
+    expect(capturedQueryClient.getQueryData(metaKey)).toBe(before.meta)
     expect(capturedQueryClient.getQueryData(hintKey)).toBe(before.hint)
-    expect(readCurrentCommunityChannelMeta(capturedQueryClient)).toBeNull()
+    expect(readCurrentCommunityChannelMeta(capturedQueryClient)?.name).toBe("Private title")
+    expect(hasCanonicalChannelAccess("text_thread", "u_me")).toBe(true)
+    expect(hasCanonicalChannelNotify("text_thread", "u_me")).toBe(false)
   })
 })
 
 describe("membership metadata and access lifetime", () => {
+  it.each(["text", "forum"] as const)("keeps %s child content after notify removal with ID-only metadata", async (parentType) => {
+    await mountHook({ viewerUserId: "u_me" })
+    seedCanonicalThread("server", "parent", parentType, "child")
+    act(() => { setCanonicalCommunityChannelMember(capturedQueryClient, "child", "u_me", "notify", true) })
+    getCommunityApiFetchMock().mockResolvedValue({
+      id: "child", serverId: "server", type: "thread", parentChannelId: "parent",
+      parentMessageId: "opener", creatorId: "u_me", name: "Child", archived: false,
+      lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z",
+    })
+    const metadata = await mountCanonicalHook(() => useChannelMetadata("server", "child"))
+    await vi.waitFor(() => expect(metadata.result.current.isVerified).toBe(true))
+    const key = communityKeys.channelMessages("child")
+    const metaKey = communityKeys.channelMeta("server", "child")
+    expect(capturedQueryClient.getQueryData(metaKey)).not.toHaveProperty("type")
+    const content = { pages: [{ messages: [{ id: "m1" }] }] }
+    act(() => { capturedQueryClient.setQueryData(key, content) })
+    capturedOnMessage!({ type: "community:channel.member_remove", channelId: "child", serverId: "server", userId: "u_me" })
+    await vi.waitFor(() => expect(metadata.result.current.isVerified).toBe(true))
+    expect(metadata.result.current.data).toMatchObject({ id: "child", type: "thread" })
+    expect(hasCanonicalChannelAccess("child", "u_me")).toBe(true)
+    expect(hasCanonicalChannel("child")).toBe(true)
+    expect(hasCanonicalChannelNotify("child", "u_me")).toBe(false)
+    expect(capturedQueryClient.getQueryData(key)).toEqual(content)
+    expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child")).toBe(false)
+  })
+
   it("resolves a cold notify removal without evicting readable content", async () => {
     await mountHook({ viewerUserId: "u_me" })
     const api = getCommunityApiFetchMock()
@@ -622,7 +641,10 @@ describe("membership metadata and access lifetime", () => {
     const content = { pages: [{ messages: [{ id: "m1", content: "readable" }] }] }
     capturedQueryClient.setQueryData(key, content)
     capturedOnMessage!({ type: "community:channel.member_remove", channelId: "child", serverId: "server", userId: "u_me" })
-    await vi.waitFor(() => expect(capturedQueryClient.getQueryData(communityKeys.channelMeta("server", "child"))).toMatchObject({ type: "thread" }))
+    await vi.waitFor(() => expect(capturedQueryClient.getQueryData(communityKeys.channelMeta("server", "child"))).toMatchObject({ id: "child", verification: expect.any(Object) }))
+    expect(capturedQueryClient.getQueryData(communityKeys.channelMeta("server", "child"))).not.toHaveProperty("type")
+    const metadata = await mountCanonicalHook(() => useChannelMetadata("server", "child"))
+    await vi.waitFor(() => expect(metadata.result.current.isVerified).toBe(true))
     expect(capturedQueryClient.getQueryData(key)).toEqual(content)
   })
 
@@ -655,11 +677,11 @@ describe("membership metadata and access lifetime", () => {
     }
     api.mockResolvedValue(meta)
     capturedOnMessage!({ type: "community:channel.member_add", channelId: "child", serverId: "server", userId: "u_me" })
-    await vi.waitFor(() => expect(capturedQueryClient.getQueryData(communityKeys.channelMeta("server", "child"))).toMatchObject({ type: "thread" }))
+    await vi.waitFor(() => expect(capturedQueryClient.getQueryData(communityKeys.channelMeta("server", "child"))).toMatchObject({ id: "child", verification: expect.any(Object) }))
     release({ ...meta, type: "text", parentChannelId: null })
     await Promise.resolve()
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child")).toBe(false)
-    expect(capturedQueryClient.getQueryData(communityKeys.channelMeta("server", "child"))).toMatchObject({ type: "thread" })
+    expect(getCanonicalCommunityChannels(capturedQueryClient).find(({ id }) => id === "child")).toMatchObject({ type: "thread" })
 
     let releaseAfterLeave!: (value: unknown) => void
     api.mockImplementationOnce(() => new Promise((resolve) => { releaseAfterLeave = resolve }))
@@ -676,11 +698,9 @@ describe("membership metadata and access lifetime", () => {
     await mountHook({ viewerUserId: "u_me" })
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     const { useCommunityStore } = await import("@/stores/community")
-    const ws = getCapturedRuntime().ws.get()
+    seedCanonicalThread("server", "parent", "forum", "child")
     getCapturedRuntime().ws.actions.rememberChannelAccess("server", "parent")
     getCapturedRuntime().ws.actions.rememberChannelAccess("server", "child", "parent")
-    capturedQueryClient.setQueryData(communityKeys.channelMeta("server", "parent"), { id: "parent", type: "forum", verifiedEpoch: ws.accessEpoch })
-    capturedQueryClient.setQueryData(communityKeys.channelMeta("server", "child"), { id: "child", type: "thread", parentChannelId: "parent" })
     capturedQueryClient.setQueryData(communityKeys.pins("child"), { pins: [{ id: "m1" }] })
     getCapturedRuntime().ui.actions.setCurrentServerId("server")
     getCapturedRuntime().ui.actions.setCurrentChannelId("child")

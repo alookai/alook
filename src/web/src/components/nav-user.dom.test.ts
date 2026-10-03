@@ -111,6 +111,49 @@ describe("actual NavUser native logout", () => {
     fireEvent.click(screen.getByRole("button", { name: "Log out" })); await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("Cannot log out"))
     expect(owner.lifecycle.get().active).toBe(true); expect(owner.queryClient.getQueryData(["original"])).toEqual({ private: "A" }); expect(mocks.routerPush).not.toHaveBeenCalled()
   })
+  it("confirmed SDK sign-out still navigates when original disk retirement rejects", async () => {
+    const failure = new DOMException("IDB unavailable", "UnknownError")
+    const diagnostic = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    try {
+      mocks.signOut.mockImplementation(async (options) => { options.fetchOptions.onRequest(); options.fetchOptions.onSuccess(); return { data: { success: true } } })
+      render(createElement(App))
+      await waitFor(() => expect(screen.getByRole("button", { name: "Log out" })).toBeTruthy())
+      const original = owner
+      vi.spyOn(original, "retireDisk").mockRejectedValueOnce(failure)
+      act(() => original.queryClient.setQueryData(["original"], { private: "A" }))
+      fireEvent.click(screen.getByRole("button", { name: "Log out" }))
+      await waitFor(() => expect(mocks.routerPush).toHaveBeenCalledWith("/sign-in"))
+      expect(mocks.routerPush).toHaveBeenCalledTimes(1)
+      expect(original.lifecycle.get().active).toBe(false)
+      expect(original.queryClient.getQueryData(["original"])).toBeUndefined()
+      expect(diagnostic).toHaveBeenCalledWith("Application disk cache retirement failed", failure)
+      expect(mocks.toastError).not.toHaveBeenCalled()
+    } finally { diagnostic.mockRestore() }
+  })
+  it("a held original disk rejection after switching viewer leaves B quiet", async () => {
+    const failure = new DOMException("Original IDB unavailable", "UnknownError")
+    const diagnostic = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    try {
+      mocks.signOut.mockImplementation(async (options) => { options.fetchOptions.onRequest(); options.fetchOptions.onSuccess(); return { data: { success: true } } })
+      const mounted = render(createElement(App))
+      await waitFor(() => expect(screen.getByRole("button", { name: "Log out" })).toBeTruthy())
+      const original = owner
+      let reject!: (reason: unknown) => void
+      vi.spyOn(original, "retireDisk").mockImplementationOnce(() => new Promise((_, fail) => { reject = fail }))
+      fireEvent.click(screen.getByRole("button", { name: "Log out" }))
+      await waitFor(() => expect(reject).toBeTypeOf("function"))
+      mocks.session.data.user.id = "B"
+      act(() => mounted.rerender(createElement(App, { userId: "B" })))
+      await waitFor(() => expect(owner.userId).toBe("B"))
+      act(() => owner.queryClient.setQueryData(["current"], { private: "B" }))
+      await act(async () => reject(failure))
+      expect(diagnostic).toHaveBeenCalledWith("Application disk cache retirement failed", failure)
+      expect(owner.lifecycle.get().active).toBe(true)
+      expect(owner.queryClient.getQueryData(["current"])).toEqual({ private: "B" })
+      expect(mocks.routerPush).not.toHaveBeenCalled()
+      expect(mocks.toastError).not.toHaveBeenCalled()
+    } finally { diagnostic.mockRestore() }
+  })
   it.each(["success", "failure"])("held old SDK %s after account switch leaves B quiet", async (kind) => {
     let settle!: (result: unknown) => void; let signal!: AbortSignal
     mocks.signOut.mockImplementation((options) => {

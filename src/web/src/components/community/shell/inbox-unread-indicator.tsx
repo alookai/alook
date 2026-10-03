@@ -1,5 +1,6 @@
 "use client"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useLayoutEffect } from "react"
 
 
 import { Inbox } from "lucide-react"
@@ -12,8 +13,10 @@ export function InboxUnreadIndicator({ count, partial = false, open, description
   open: boolean
   descriptionId?: string
 }) {
-const [lastCount, setLastCount] = useAtom(useCreateAtom(count))
-  if (count > 0 && count !== lastCount) setLastCount(count)
+  const [lastCount, setLastCount] = useAtom(useCreateAtom(count))
+  useLayoutEffect(() => {
+    if (count > 0) setLastCount(count)
+  }, [count, setLastCount])
   const displayCount = count > 0 ? count : lastCount
   const overflow = displayCount > 99 || partial
   return (

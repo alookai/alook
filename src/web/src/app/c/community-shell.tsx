@@ -1,6 +1,7 @@
 "use client"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { communityKeys } from "@/lib/query-keys"
 
 import { useCommunityRuntime } from "@/stores/community/runtime"
@@ -68,14 +69,16 @@ function ProfileAccountBoundary({
   viewerId: string
 }) {
   const communityRuntime = useCommunityRuntime()
+  const [hydrated, setHydrated] = useAtom(useCreateAtom(false))
   const activeViewerId = useCommunityWsStore((state) => state.profileViewerId)
   const pathname = usePathname()
   useLayoutEffect(() => {
     if (activeViewerId !== viewerId) {
       communityRuntime.ws.actions.activateProfileAccount(viewerId)
     }
-  }, [activeViewerId, communityRuntime.ws.actions, viewerId])
-  return activeViewerId === viewerId
+    setHydrated(true)
+  }, [activeViewerId, communityRuntime.ws.actions, setHydrated, viewerId])
+  return hydrated && activeViewerId === viewerId
     ? children
     : <CommunitySessionPendingFrame pathname={pathname} />
 }

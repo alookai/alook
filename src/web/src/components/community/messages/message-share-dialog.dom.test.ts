@@ -714,6 +714,11 @@ describe("MessageShareDialog exports", () => {
     const write = installWebClipboard(vi.fn()
       .mockRejectedValueOnce(new Error("clipboard denied"))
       .mockResolvedValueOnce(undefined))
+    const download = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {})
+    vi.stubGlobal("URL", Object.assign(URL, {
+      createObjectURL: vi.fn(() => "blob:share-card"),
+      revokeObjectURL: vi.fn(),
+    }))
     const renderer = await renderReady()
 
     await act(async () => buttonWithText(renderer.container, "Copy image").click())
@@ -725,6 +730,13 @@ describe("MessageShareDialog exports", () => {
 
     expect(sessionMocks.capture).toHaveBeenCalledTimes(1)
     expect(write).toHaveBeenCalledTimes(2)
+    const copy = renderer.container.querySelector<HTMLButtonElement>(`[data-testid="${tid.messageShareCopy}"]`)!
+    const save = buttonWithText(renderer.container, "Download")
+    await waitFor(() => { expect(copy).toBeEnabled(); expect(save).toBeEnabled() })
+    act(() => { save.click(); copy.click() })
+    await waitFor(() => expect(download).toHaveBeenCalledOnce())
+    expect(write).toHaveBeenCalledTimes(2)
+    expect(sessionMocks.capture).toHaveBeenCalledTimes(1)
   })
 
   it("suppresses a late raster result after unmount", async () => {

@@ -15,7 +15,8 @@ export default function MeListPage() {
   const breakpoint = useBreakpoint()
   const onboarding = useCommunityOnboarding()
   const queryClient = useQueryClient()
-  const ownerDeleteRootLanding = useSelector(getCommunityRuntime(queryClient).serverEject, (state) => state.meRootLanding)
+  const runtime = getCommunityRuntime(queryClient)
+  const ownerDeleteRootLanding = useSelector(runtime.serverEject, (state) => state.meRootLanding)
   const destination = breakpoint === "desktop"
     && !onboarding
     && !ownerDeleteRootLanding
@@ -24,8 +25,9 @@ export default function MeListPage() {
 
   useEffect(() => {
     if (!destination) return
+    if (runtime.ui.get().onboardingState || runtime.serverEject.get().meRootLanding) return
     router.replace(destination)
-  }, [destination, router])
+  }, [destination, router, runtime])
 
   return destination ? <CommunityPendingFrame href={destination} /> : null
 }

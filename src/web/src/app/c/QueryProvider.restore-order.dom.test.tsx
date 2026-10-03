@@ -7,10 +7,10 @@ import {
   QueryClient,
   useQueryClient,
 } from "@tanstack/react-query"
-import type { PersistedClient, Persister } from "@tanstack/react-query-persist-client"
+import type { PersistedClient } from "@tanstack/react-query-persist-client"
 import { act, render, screen, waitFor } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
-import { PERSIST_BUSTER } from "@/lib/query-persister"
+import { PERSIST_BUSTER, type QualifiedPersister } from "@/lib/query-persister"
 import { CurrentUserProvider } from "@/contexts/community/current-user"
 import {
   useCanonicalMessagesById,
@@ -23,6 +23,13 @@ const persister = vi.hoisted(() => ({
   persistClient: vi.fn(() => Promise.resolve()),
   restoreClient: vi.fn(),
   removeClient: vi.fn(() => Promise.resolve()),
+  isCurrent: vi.fn(async () => true),
+  retireAccount: vi.fn(async () => {}),
+}))
+const session = vi.hoisted(() => ({ viewer: "restore-order-viewer" }))
+vi.mock("@/lib/auth-client", () => ({
+  useSession: () => ({ data: { user: { id: session.viewer } }, isPending: false, error: null }),
+  currentSessionViewer: () => session.viewer,
 }))
 
 vi.mock("@tanstack/react-query-devtools", () => ({ ReactQueryDevtools: () => null }))
@@ -30,7 +37,7 @@ vi.mock("@/lib/query-persister", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/query-persister")>()
   return {
     ...actual,
-    createIdbPersister: vi.fn(() => persister as Persister),
+    createIdbPersister: vi.fn(() => persister satisfies QualifiedPersister),
   }
 })
 
@@ -53,9 +60,12 @@ vi.mock("@/hooks/community/use-child-channel-meta", () => ({
 afterEach(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
 
 beforeEach(() => {
+  session.viewer = "restore-order-viewer"
   persister.persistClient.mockClear()
   persister.restoreClient.mockReset()
   persister.removeClient.mockClear()
+  persister.isCurrent.mockClear()
+  persister.retireAccount.mockClear()
 })
 
 describe("QueryProvider persistence ordering", () => {
@@ -196,6 +206,7 @@ describe("QueryProvider persistence ordering", () => {
 
 describe("QueryProvider real DbClient Strict Mode ownership", () => {
   it("receives foreign-realm preload cancellation through the actual provider", async () => {
+    session.viewer = "foreign-cancel"
     persister.restoreClient.mockResolvedValue(undefined)
     const cancellation: unknown = runInNewContext('Object.assign(new Error("cancelled"), { name: "AbortError" })')
     expect(cancellation).not.toBeInstanceOf(Error)
@@ -221,6 +232,7 @@ describe("QueryProvider real DbClient Strict Mode ownership", () => {
   })
 
   it("receives cancellation and cleanup promises while reporting ordinary preload and cleanup failures", async () => {
+    session.viewer = "failure-receiver"
     persister.restoreClient.mockResolvedValue(undefined)
     const cancellation: unknown = runInNewContext('Object.assign(new Error("cancelled"), { name: "AbortError" })')
     const preloadFailure = new Error("ordinary preload failure")
@@ -256,6 +268,7 @@ describe("QueryProvider real DbClient Strict Mode ownership", () => {
   })
 
   it("keeps child layout on the retained registry and cleans captured resources on final exit", async () => {
+    session.viewer = "strict-viewer"
     persister.restoreClient.mockResolvedValue(undefined)
     const seen: Array<{ same: boolean; runtimeSame: boolean }> = []
     const cleanupReads: boolean[] = []

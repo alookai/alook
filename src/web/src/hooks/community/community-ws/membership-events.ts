@@ -18,7 +18,7 @@ import {
 } from "@/hooks/community/use-forum-sidebar-threads"
 import { ApiError } from "@/lib/errors"
 
-import { fetchChannelMetadata, captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
+import { channelMetadataOptions, captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
 import { runCommunityWsProjectionTransaction } from "./projection-transaction"
 import type { MembershipEventContext } from "@/hooks/community/community-ws/handler-context"
 import { projectChannelScopeEviction } from "./channel-scope-projection"
@@ -40,10 +40,8 @@ import {
 } from "./reaction-details-invalidation"
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import {
-  captureCommunityLiveSnapshotToken,
-  assertCommunityLiveSnapshotTokenCurrent,
-  publishCommunityChannelMetadata,
   setCanonicalCommunityChannelMember,
+  getCanonicalCommunityChannels,
 } from "@/lib/community-db/sync"
 
 type ChannelMemberEvent = Extract<
@@ -63,14 +61,15 @@ export function handleChannelMemberEvent(
   if (viewerChange) {
     invalidateInbox(projection)
     invalidateServersList(projection)
-    void invalidateForumSidebarBaseExact(queryClient, event.serverId).catch(() => undefined)
+    if (!isKnownNonForumSidebarChannel(queryClient, event.serverId, event.channelId)) {
+      void invalidateForumSidebarBaseExact(queryClient, event.serverId).catch(() => undefined)
+    }
   }
-  const store = getCommunityRuntime(context.queryClient).ws.get()
   if (viewerChange) getCommunityRuntime(context.queryClient).ws.actions.beginChannelMembershipChange(event.serverId, event.channelId)
   const token = captureChannelMetadataToken(queryClient, event.channelId)
-  const originalLiveToken = captureCommunityLiveSnapshotToken(queryClient)
   const key = communityKeys.channelMeta(event.serverId, event.channelId)
-  const cached = queryClient.getQueryData<{ type: string; verifiedEpoch: number }>(key)
+  const canonicalType = () => getCanonicalCommunityChannels(queryClient)
+    .find((channel) => channel.id === event.channelId && channel.serverId === event.serverId)?.type
   const apply = (type: string, activeProjection = projection) => {
     setCanonicalCommunityChannelMember(queryClient, event.channelId, event.userId, type === "thread" ? "notify" : "access", event.type === "community:channel.member_add", { event: true })
     if (!viewerChange) return
@@ -79,9 +78,13 @@ export function handleChannelMemberEvent(
         getAccountUnreadProjection(queryClient, event.userId).retireNotificationScope({
           kind: "channel", channelId: event.channelId,
         })
-        removeForumSidebarProjectionExact(queryClient, event.serverId, event.channelId)
+        if (!isKnownNonForumSidebarChannel(queryClient, event.serverId, event.channelId)) {
+          removeForumSidebarProjectionExact(queryClient, event.serverId, event.channelId)
+        }
       }
-      void invalidateForumSidebarBaseExact(queryClient, event.serverId).catch(() => undefined)
+      if (!isKnownNonForumSidebarChannel(queryClient, event.serverId, event.channelId)) {
+        void invalidateForumSidebarBaseExact(queryClient, event.serverId).catch(() => undefined)
+      }
       invalidateInbox(activeProjection)
       invalidateServersList(activeProjection)
       return
@@ -98,33 +101,23 @@ export function handleChannelMemberEvent(
       })
     }
   }
-  if (cached?.verifiedEpoch === store.accessEpoch) {
-    apply(cached.type)
-    return
-  }
-  if (isKnownNonForumSidebarChannel(queryClient, event.serverId, event.channelId)) {
-    apply("text")
+  const knownType = canonicalType()
+  if (knownType) {
+    apply(knownType)
     return
   }
   void (async () => {
     await queryClient.cancelQueries({ queryKey: key, exact: true })
     if (!isChannelMetadataTokenCurrent(token)) return
     try {
-      const meta = await queryClient.fetchQuery({
-        queryKey: key,
-        queryFn: async ({ signal }) => {
-          assertCommunityLiveSnapshotTokenCurrent(queryClient, originalLiveToken, signal)
-          const metadata = await fetchChannelMetadata(queryClient, event.serverId, event.channelId, signal, token)
-          publishCommunityChannelMetadata(queryClient, {
-            metadata,
-            proof: { token: originalLiveToken, signal },
-          })
-          return { id: metadata.id, serverId: metadata.serverId, type: metadata.type, verifiedEpoch: metadata.verifiedEpoch }
-        },
+      await queryClient.fetchQuery({
+        ...channelMetadataOptions(queryClient, event.serverId, event.channelId),
         staleTime: 0,
+        retry: false,
       })
       if (!isChannelMetadataTokenCurrent(token)) return
-      runCommunityWsProjectionTransaction(queryClient, (current) => apply(meta.type, current))
+      const type = canonicalType()
+      if (type) runCommunityWsProjectionTransaction(queryClient, (current) => apply(type, current))
     } catch (error) {
       if (!isChannelMetadataTokenCurrent(token)) return
       if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {

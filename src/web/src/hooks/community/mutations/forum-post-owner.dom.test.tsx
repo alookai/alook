@@ -21,7 +21,7 @@ vi.mock("@tanstack/react-query-devtools", () => ({ ReactQueryDevtools: () => nul
 let client: QueryClient, remove: ReturnType<typeof useDeleteForumThread>
 const navigate = vi.fn()
 function Probe() { const currentClient = useQueryClient(), command = useDeleteForumThread(); useLayoutEffect(() => { client = currentClient; remove = command }); const channels = useCanonicalChannelsById(), messages = useCanonicalMessagesById(); return <><output data-testid="child">{channels.get("child")?.name ?? "missing"}</output><output data-testid="opener">{messages?.get("opener")?.content ?? "missing"}</output></> }
-function Root({ id = sdk.id }: { id?: string }) { return <QueryProvider userId={id}><Probe /></QueryProvider> }
+function Root({ id = sdk.id, show = true }: { id?: string; show?: boolean }) { return <QueryProvider userId={id}>{show ? <Probe /> : null}</QueryProvider> }
 async function seed(qc: QueryClient) {
   const registry = getCommunityDbRegistry(qc)!
   await act(async () => { await registry.ready; await registry.preload() })
@@ -35,7 +35,21 @@ async function seed(qc: QueryClient) {
 async function mount() {
   let resolve!: (value: unknown) => void, reject!: (error: Error) => void
   const held = new Promise<unknown>((done, fail) => { resolve = done; reject = fail })
-  api.mockImplementation(() => held)
+  api.mockImplementation(async (_path, options) => {
+    const signal = options.signal as AbortSignal | undefined
+    options.assertActive?.()
+    if (signal?.aborted) throw new DOMException("Cancelled DELETE", "AbortError")
+    let abort!: () => void
+    const cancelled = new Promise<never>((_, fail) => {
+      abort = () => fail(new DOMException("Cancelled DELETE", "AbortError"))
+      signal?.addEventListener("abort", abort, { once: true })
+    })
+    try {
+      const result = await Promise.race([held, cancelled])
+      options.assertActive?.()
+      return result
+    } finally { signal?.removeEventListener("abort", abort) }
+  })
   const view = render(<Root />); await waitFor(() => expect(client).toBeDefined()); await seed(client)
   return { view, resolve, reject, original: client }
 }
@@ -62,6 +76,45 @@ describe("actual native forum post-unit deletion", () => {
     await act(async () => { reject(new Error("denied")); await result })
     expect(screen.getByTestId("child").textContent).toBe("missing"); expect(screen.getByTestId("opener").textContent).toBe("missing")
     expect(navigate).toHaveBeenCalledTimes(1)
+  })
+  it("finishes an issued DELETE after self WS and view retirement without repeating navigation", async () => {
+    const { view, resolve, original } = await mount()
+    let result!: Promise<unknown>
+    act(() => { result = command() })
+    await pending()
+    const mutation = original.getMutationCache().find({ mutationKey: ["community", "forum-post-delete"], exact: true })!
+    const options = api.mock.calls.find(([, value]) => value.method === "DELETE")![1] as { signal: AbortSignal; assertActive: () => void }
+    act(() => wsDelete(original))
+    act(() => view.rerender(<Root show={false} />))
+    expect(options.signal.aborted).toBe(false)
+    expect(() => options.assertActive()).not.toThrow()
+    await act(async () => { resolve(undefined); expect(await result).toBeUndefined() })
+    expect(mutation.state.status).toBe("success")
+    act(() => view.rerender(<Root />))
+    expect(screen.getByTestId("child").textContent).toBe("missing")
+    expect(screen.getByTestId("opener").textContent).toBe("missing")
+    expect(navigate).toHaveBeenCalledTimes(1)
+    expect(getCommunityDbRegistry(original)!.runtime.lifecycle.get().active).toBe(true)
+  })
+  it("physically cancels the original DELETE through A to B to A without deleting the new A's facts", async () => {
+    const { view, resolve, original } = await mount()
+    let result!: Promise<unknown>
+    act(() => { result = command() })
+    await pending()
+    const signal = api.mock.calls.find(([, value]) => value.method === "DELETE")![1].signal as AbortSignal
+    act(() => { sdk.id = "B"; view.rerender(<Root id="B" />) })
+    await waitFor(() => expect(client).not.toBe(original))
+    const accountB = client
+    act(() => { sdk.id = "A"; view.rerender(<Root id="A" />) })
+    await waitFor(() => { expect(client).not.toBe(original); expect(client).not.toBe(accountB) })
+    await seed(client)
+    navigate.mockClear()
+    expect(signal.aborted).toBe(true)
+    await act(async () => { resolve(undefined); expect(await result).toMatchObject({ name: "AbortError" }) })
+    expect(original.getQueryCache().getAll()).toHaveLength(0)
+    expect(screen.getByTestId("child").textContent).toBe("Original")
+    expect(screen.getByTestId("opener").textContent).toBe("Original opener")
+    expect(navigate).not.toHaveBeenCalled()
   })
   it("commits both identities and ejects the active child once without self WS", async () => {
     const { resolve, original } = await mount(); let result!: Promise<unknown>; act(() => { result = command() }); await pending()

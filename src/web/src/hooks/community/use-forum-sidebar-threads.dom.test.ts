@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto"
 import { createElement, type PropsWithChildren } from "react"
 import { dehydrate, hydrate, isCancelledError, QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { createCommunityDbRegistry, registerCommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityDbProvider, useForumSidebarProjection } from "@/lib/community-db/projections"
@@ -57,7 +57,7 @@ beforeEach(() => {
 
 })
 
-afterEach(async () => {
+beforeEach(() => async () => {
   vi.useRealTimers()
   await act(async () => { await Promise.all(cleanups.splice(0).map((dispose) => dispose())) })
 })
@@ -875,6 +875,7 @@ describe("forum sidebar canonical projection", () => {
     expect(registry.collections.channels.get("hidden-child")).toMatchObject({
       type: "thread", parentChannelId: "forum-1", parentMessageId: null, unread: true,
     })
+    rendered.unmount()
   })
 
   it("aggregates persisted unread child ownership even without notify membership", async () => {
@@ -889,6 +890,7 @@ describe("forum sidebar canonical projection", () => {
       threads: [],
       parentUnread: { "forum-1": true },
     }))
+    rendered.unmount()
   })
 
   it("uses exact scope attention beyond the bounded item window for thread dots", async () => {

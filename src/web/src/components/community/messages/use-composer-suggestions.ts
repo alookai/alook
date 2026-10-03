@@ -99,7 +99,9 @@ export function useComposerSuggestions({
         : 0,
     }
   }, [channelRefCandidates, channelRefPopupState])
-  if (channelRefPopup !== channelRefPopupState) setChannelRefPopup(channelRefPopup)
+  useLayoutEffect(() => {
+    if (channelRefPopup !== channelRefPopupState) setChannelRefPopup(channelRefPopup)
+  }, [channelRefPopup, channelRefPopupState, setChannelRefPopup])
   const channelRefPopupRef = useRef(channelRefPopup)
   useLayoutEffect(() => {
     channelRefPopupRef.current = channelRefPopup

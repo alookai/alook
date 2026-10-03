@@ -1,5 +1,5 @@
 import "fake-indexeddb/auto"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import React from "react"
 import { act, render, waitFor } from "@/test/react-dom-harness"
 import { useQueryClient } from "@tanstack/react-query"
@@ -44,12 +44,28 @@ function Probe() {
 }
 const tree = () => React.createElement(CommunityShell, { currentUser: fixtures.user }, React.createElement(Probe))
 beforeEach(async () => {
+  vi.stubGlobal("ResizeObserver", class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  })
+  vi.stubGlobal("IntersectionObserver", class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  })
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: false, media: query, onchange: null,
+    addEventListener() {}, removeEventListener() {},
+    addListener() {}, removeListener() {}, dispatchEvent: () => true,
+  }))
   await clearAllPersistedCaches()
   fixtures.user = { id: "user-a", name: "A", email: "a@example.test", avatar: "A" }
   fixtures.fetch.mockReset().mockImplementation(() => Promise.resolve(self(fixtures.user.id)))
   fixtures.notifications.mockClear()
   registries.clear(); seen.length = 0
 })
+afterEach(() => { vi.unstubAllGlobals() })
 
 describe("CommunityShell actual identity and bootstrap boundary", () => {
   it("remounts the native query boundary when the signed-in user changes", async () => {
