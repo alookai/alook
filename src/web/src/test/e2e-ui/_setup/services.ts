@@ -515,7 +515,12 @@ export async function startServices(): Promise<ManagedService[]> {
   rmSync(SERVICE_LOG_DIR, { recursive: true, force: true })
   mkdirSync(SERVICE_LOG_DIR, { recursive: true })
 
-  const services = definitions.map(startService)
+  const services: ManagedService[] = []
+  for (const definition of definitions) {
+    const service = startService(definition)
+    services.push(service)
+    await waitForHealth(service)
+  }
 
   await waitForServicesReady(services)
   const state = readLifecycleState(SERVICE_STATE_PATH)
