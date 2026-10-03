@@ -6,6 +6,7 @@ import { DbProvider, collectionOptions, getLiveQueryHash, liveQueryCollectionOpt
 import { createStore, useSelector } from "@tanstack/react-store"
 import { CommunityRuntimeProvider } from "@/stores/community/runtime"
 import { notifLevelDisplay } from "@alook/shared"
+import { FORUM_ARCHIVE_TAG } from "@alook/shared/constants/community"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { DM } from "@/lib/community/models/people"
 import { sortDmsByActivity } from "@/lib/community/dm-order"
@@ -673,6 +674,7 @@ export function useForumSidebarProjection(
         channel.serverId === serverId
         && channel.type === "thread"
         && !channel.archived
+        && !channel.tags.includes(FORUM_ARCHIVE_TAG)
         && participating.has(channel.id)
         && channel.parentChannelId
         && forumParentIds.has(channel.parentChannelId)

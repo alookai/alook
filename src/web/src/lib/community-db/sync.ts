@@ -1929,7 +1929,24 @@ export function publishCommunityChannelMetadata(
     kind: "query",
     requestRevision: publication.proof.token.canonicalRevision, profileSnapshot: publication.proof.token.profileSnapshot,
   }, () => {
-    ingestChannelMetadata(registry, publication.metadata)
+    const metadata = publication.metadata
+    const existing = collectionRows(registry, "channels", channelSchema)
+      .find((row) => row.id === metadata.id)
+    if (existing) {
+      publishConfirmedFields<ChannelRow>(queryClient, "channels", channelSchema, metadata.id, {
+        serverId: metadata.serverId,
+        name: metadata.name ?? "",
+        type: metadata.type as ChannelRow["type"],
+        parentChannelId: metadata.parentChannelId,
+        parentMessageId: metadata.parentMessageId,
+        creatorId: metadata.creatorId,
+        archived: metadata.archived === true || metadata.archived === 1,
+        lastMessageAt: metadata.lastMessageAt,
+        pending: false,
+      }, publication.proof)
+    } else {
+      ingestChannelMetadata(registry, metadata)
+    }
     const viewerId = registry.accountId
     if (viewerId) {
       upsertRows(
@@ -2127,6 +2144,16 @@ export function publishCommunityForumSidebar(
   const viewerId = registry.accountId
   notifyManager.batch(() => {
     upsertRows(registry, "channels", channelSchema, (row) => row.id, channels)
+    for (const channel of publication.channels) {
+      if (channel.participating === false || channel.archived === true || channel.archived === 1) continue
+      const current = collectionRows(registry, "channels", channelSchema)
+        .find((row) => row.id === channel.id && row.serverId === publication.serverId && row.type === "thread")
+      if (current?.tags.includes(FORUM_ARCHIVE_TAG)) {
+        publishConfirmedFields<ChannelRow>(queryClient, "channels", channelSchema, channel.id, {
+          tags: current.tags.filter((tag) => tag !== FORUM_ARCHIVE_TAG),
+        }, publication.proof)
+      }
+    }
     if (viewerId) {
       upsertRows(
         registry,
@@ -2169,6 +2196,36 @@ export function publishCommunityForumSidebar(
     }
     if (publication.negativeRetain) {
       const { id, disposition } = publication.negativeRetain
+      if (disposition === "opener-archived") {
+        const current = collectionRows(registry, "channels", channelSchema)
+          .find((row) => row.id === id)
+        if (!current) {
+          upsertRows(registry, "channels", channelSchema, (row) => row.id, [{
+            id,
+            serverId: publication.serverId,
+            categoryId: null,
+            name: "",
+            type: "thread",
+            parentChannelId: null,
+            parentMessageId: null,
+            creatorId: null,
+            position: 0,
+            archived: false,
+            muted: false,
+            unread: false,
+            tags: [],
+            pending: true,
+            lastMessageAt: null,
+          }])
+        }
+        const target = collectionRows(registry, "channels", channelSchema)
+          .find((row) => row.id === id && row.serverId === publication.serverId && row.type === "thread")
+        if (target && !target.tags.includes(FORUM_ARCHIVE_TAG)) {
+          publishConfirmedFields<ChannelRow>(queryClient, "channels", channelSchema, id, {
+            tags: [...target.tags, FORUM_ARCHIVE_TAG],
+          }, publication.proof)
+        }
+      }
       deleteRows(
         registry,
         "channelMemberships",

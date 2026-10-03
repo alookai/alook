@@ -7,6 +7,7 @@ import { getCommunityRuntime } from "@/stores/community/runtime"
 import { useEffect,useMemo,useRef } from "react"
 import { QueryObserver,useQuery,useQueryClient,type QueryClient } from "@tanstack/react-query"
 import { compareAsciiSqliteBinary } from "@alook/shared"
+import { FORUM_ARCHIVE_TAG } from "@alook/shared/constants/community"
 import { apiFetch } from "@/lib/api/client"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { communityKeys } from "@/lib/query-keys"
@@ -366,6 +367,7 @@ function canonicalSidebarBase(queryClient: QueryClient, serverId: string) {
         channel.serverId === serverId
         && channel.type === "thread"
         && !channel.archived
+        && !channel.tags.includes(FORUM_ARCHIVE_TAG)
         && participating.has(channel.id)
         && channel.parentChannelId
         && forumParentIds.has(channel.parentChannelId)
