@@ -1,6 +1,6 @@
 import { createElement } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { act, render as rtlRender } from "@/test/react-dom-harness"
+import { act, waitFor, render as rtlRender } from "@/test/react-dom-harness"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { DmCache } from "@/lib/community/dm-cache"
 import type { Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
@@ -107,13 +107,20 @@ vi.mock("@/hooks/community/use-inbox-auto-collapse", () => ({
     isLatestProjection: (epoch: number) => epoch === mocks.latestEpoch,
   }),
 }))
-vi.mock("@/hooks/community/mutations", () => ({
+vi.mock("@/hooks/community/mutations", async () => {
+  const { useMutation } = await vi.importActual<typeof import("@tanstack/react-query")>("@tanstack/react-query")
+  function useRequest(action: "accept" | "reject") {
+    const command = useMutation({ mutationKey: ["community", "friend-request", action], gcTime: Infinity, mutationFn: (input: { friendshipId: string }) => mocks[action](input) })
+    return command
+  }
+  return {
   useMarkAllInboxRead: () => ({ mutate: mocks.markAll }),
   useDeleteMention: () => ({ mutate: mocks.deleteMention }),
   useUnmarkMessage: () => ({ mutate: mocks.unmark }),
-  useAcceptFriendRequest: () => ({ mutateAsync: mocks.accept }),
-  useRejectFriendRequest: () => ({ mutateAsync: mocks.reject }),
-}))
+  useAcceptFriendRequest: () => useRequest("accept"),
+  useRejectFriendRequest: () => useRequest("reject"),
+  }
+})
 vi.mock("@/hooks/community/use-dm-route-verification", () => ({
   startDmRouteVerification: (...args: unknown[]) => mocks.verifyDm(...args),
 }))
@@ -271,6 +278,7 @@ describe("useShellInboxController", () => {
     expect(item).toBeDefined()
 
     await act(async () => hook.current.popoverProps.onRejectFriendRequest?.(item!))
+    await waitFor(() => expect(hook.current.popoverProps.friendRequests?.[0]).toMatchObject({ action: "reject", status: "error" }))
     const failed = hook.current.popoverProps.friendRequests?.[0]
     expect(failed).toMatchObject({ action: "reject", status: "error" })
     await act(async () => hook.current.popoverProps.onRetryFriendRequest?.(failed!))

@@ -1,23 +1,26 @@
+import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
+import { createStore } from "@tanstack/react-store"
 import type {
   CommunityProfilePatch,
   CommunityUserCore,
 } from "@/lib/community/models/people"
 import type { Msg } from "@/lib/community/models/message"
 import type { FriendApprovalPayload } from "@alook/shared"
-import { apiFetch } from "@/lib/api/client"
+import { apiFetch, type ApiRequestOptions } from "@/lib/api/client"
 import { avatarInitial } from "@/lib/community/avatar"
 import { communityKeys } from "@/lib/query-keys"
 import {
-  getActiveCommunityDbRegistry,
   type CommunityDbRegistry,
 } from "@/lib/community-db/collections"
 import { profileSchema, type ProfileRow } from "@/lib/community-db/schema"
-import { useCommunityWsStore } from "@/stores/community/ws"
+import { writeCommunityCollectionRows } from "@/lib/community-db/write"
+import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
 
 type ProfileFieldRevisions = {
   identityAbout: number
   avatar: number
   status: number
+  card: number
 }
 
 type ProfileRevisionState = {
@@ -30,21 +33,22 @@ export type CommunityProfileSeedSnapshot = {
   revision: number
 }
 
-const profileRevisionState = new WeakMap<CommunityDbRegistry, ProfileRevisionState>()
+const createProfileRevisions = () => createStore<ProfileRevisionState>({ revision: 0, fieldsByUserId: new Map() })
+const profileRevisionState = new WeakMap<CommunityDbRegistry, ReturnType<typeof createProfileRevisions>>()
 
 function revisionState(registry: CommunityDbRegistry) {
   let state = profileRevisionState.get(registry)
   if (!state) {
-    state = { revision: 0, fieldsByUserId: new Map() }
+    state = createProfileRevisions()
     profileRevisionState.set(registry, state)
   }
   return state
 }
 
 export function beginCommunityProfileSeed(
-  registry = getActiveCommunityDbRegistry(),
+  registry: CommunityDbRegistry | null,
 ): CommunityProfileSeedSnapshot {
-  return { registry, revision: registry ? revisionState(registry).revision : 0 }
+  return { registry, revision: registry ? revisionState(registry).get().revision : 0 }
 }
 
 type CommunityUserProfileSeed = CommunityUserCore & {
@@ -131,8 +135,8 @@ export function approvalProfilePatches(
 
 export function writeCommunityProfilePatches(
   patches: readonly CommunityProfilePatch[],
-  registry = getActiveCommunityDbRegistry(),
-  options?: { snapshot?: CommunityProfileSeedSnapshot; event?: boolean },
+  registry: CommunityDbRegistry | null,
+  options?: { snapshot?: CommunityProfileSeedSnapshot; event?: boolean; command?: boolean },
 ) {
   if (!registry || patches.length === 0) return
   if (options?.snapshot && options.snapshot.registry !== registry) return
@@ -140,9 +144,11 @@ export function writeCommunityProfilePatches(
   const cached = registry.queryClient.getQueryData<ProfileRow[]>(queryKey)
     ?? Array.from(registry.collections.profiles.values())
   const profiles = new Map(cached.map((profile) => [profile.userId, profile]))
-  const revisions = revisionState(registry)
+  const revisionStore = revisionState(registry)
+  const previous = revisionStore.get()
+  const revisions = { ...previous, fieldsByUserId: new Map(previous.fieldsByUserId) }
   const guardedRevision = options?.snapshot?.revision
-  const writeRevision = guardedRevision === undefined ? revisions.revision + 1 : null
+  const writeRevision = guardedRevision === undefined || options?.command ? revisions.revision + 1 : null
   let advanced = false
   for (const patch of patches) {
     const current = profiles.get(patch.id)
@@ -150,6 +156,7 @@ export function writeCommunityProfilePatches(
       identityAbout: 0,
       avatar: 0,
       status: 0,
+      card: 0,
     }
     const accepts = (field: keyof ProfileFieldRevisions) => (
       guardedRevision === undefined || fieldRevisions[field] <= guardedRevision
@@ -158,6 +165,7 @@ export function writeCommunityProfilePatches(
       ? patch.identityAbout
       : undefined
     const status = patch.status && accepts("status") ? patch.status : undefined
+    const card = patch.card && accepts("card") ? patch.card : undefined
     const incomingAvatar = patch.avatar && accepts("avatar") && (
       current === undefined
       || patch.avatar.avatarVersion > current.avatarVersion
@@ -178,6 +186,9 @@ export function writeCommunityProfilePatches(
       ownerUserId: identityAbout?.ownerUserId === undefined
         ? current?.ownerUserId
         : identityAbout.ownerUserId,
+      ownerHandle: card?.ownerHandle === undefined ? current?.ownerHandle : card.ownerHandle,
+      mutualServers: card?.mutualServers ?? current?.mutualServers,
+      ownedByViewer: card?.ownedByViewer ?? current?.ownedByViewer,
       statusEmoji: status?.statusEmoji === undefined
         ? current?.statusEmoji
         : status.statusEmoji,
@@ -191,28 +202,43 @@ export function writeCommunityProfilePatches(
       if (identityAbout) nextRevisions.identityAbout = writeRevision
       if (incomingAvatar) nextRevisions.avatar = writeRevision
       if (status) nextRevisions.status = writeRevision
-      if (identityAbout || incomingAvatar || status) {
+      if (card) nextRevisions.card = writeRevision
+      if (identityAbout || incomingAvatar || status || card) {
         revisions.fieldsByUserId.set(patch.id, nextRevisions)
         advanced = true
       }
     }
   }
   if (advanced && writeRevision !== null) revisions.revision = writeRevision
+  if (advanced) revisionStore.setState(() => revisions)
   const rows = [...profiles.values()]
-  if (registry.collections.profiles.status === "ready") {
-    registry.collections.profiles.utils.writeUpsert(rows)
-  }
-  registry.queryClient.setQueryData(queryKey, rows)
+  writeCommunityCollectionRows(registry, "profiles", rows, (row) => row.userId)
 }
 
 export async function loadAndSeedProfiles<T>(
-  load: () => Promise<T>,
+  load: (options: ApiRequestOptions) => Promise<T>,
   patches: (data: T) => readonly CommunityProfilePatch[],
+  registry: CommunityDbRegistry | null,
+  signal?: AbortSignal,
 ): Promise<T> {
-  const overlay = useCommunityWsStore.getState()
+  if (!registry) throw new DOMException("Missing community profile owner", "AbortError")
+  const token = captureCommunityLiveSnapshotToken(registry.queryClient)
+  const assertActive = () => assertCommunityLiveSnapshotTokenCurrent(registry.queryClient, token, signal)
+  const overlay = registry.runtime.ws.actions
   const overlaySnapshot = overlay.beginPresenceSnapshot()
-  const profileSnapshot = beginCommunityProfileSeed()
-  const data = await load()
+  const profileSnapshot = beginCommunityProfileSeed(registry)
+  await registry.ready
+  assertActive()
+  await registry.collections.profiles.preload()
+  assertActive()
+  let data: T
+  try {
+    data = await load(communityRequestOptions(registry.queryClient, token, signal, assertActive))
+    assertActive()
+  } catch (error) {
+    assertActive()
+    throw error
+  }
   const projected = patches(data)
   writeCommunityProfilePatches(projected, profileSnapshot.registry, {
     snapshot: profileSnapshot,
@@ -234,10 +260,18 @@ export async function loadAndSeedProfiles<T>(
 export function apiFetchProfiles<T>(
   path: string,
   patches: (data: T) => readonly CommunityProfilePatch[],
-  options?: RequestInit,
+  options: ApiRequestOptions | undefined,
+  registry: CommunityDbRegistry | null,
 ): Promise<T> {
   return loadAndSeedProfiles(
-    () => options ? apiFetch<T>(path, options) : apiFetch<T>(path),
+    (origin) => apiFetch<T>(path, {
+      ...options,
+      ...origin,
+      signal: options?.signal,
+      assertActive: () => { origin.assertActive?.(); options?.assertActive?.() },
+    }),
     patches,
+    registry,
+    options?.signal ?? undefined,
   )
 }

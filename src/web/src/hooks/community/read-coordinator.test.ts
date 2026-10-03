@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import {
+  getCommunityDbRegistry,
   createCommunityDbRegistry,
   registerCommunityDbRegistry,
 } from "@/lib/community-db/collections"
@@ -58,6 +59,18 @@ import {
 } from "./inbox-read-reservation"
 import { getAccountUnreadProjection } from "./account-unread-projection"
 
+const ownedClients = new Set<QueryClient>()
+function createOwnedClient() {
+  const client = new QueryClient()
+  registerCommunityDbRegistry(createCommunityDbRegistry(client, "user-1"))
+  ownedClients.add(client)
+  return client
+}
+afterEach(async () => {
+  for (const client of ownedClients) { await getCommunityDbRegistry(client)?.cleanup(); client.clear() }
+  ownedClients.clear()
+})
+
 function timelineLease(queryClient: QueryClient, confirmedSeq = 0) {
   return registerReadSurface(
     queryClient,
@@ -93,7 +106,7 @@ describe("read coordinator", () => {
   })
 
   it("is an account-owned singleton and returns an unconsumed flush before and after disposal", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     expect(getReadCoordinator(queryClient, "user-1"))
       .toBe(getReadCoordinator(queryClient, "user-1"))
     expect(() => getReadCoordinator(queryClient, "user-2"))
@@ -113,7 +126,7 @@ describe("read coordinator", () => {
   })
 
   it("coalesces a visible timeline burst to its maximum target and hands off the returned revision", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = timelineLease(queryClient)
     apiFetch.mockResolvedValue({ changed: false, revision: 9, targetSeq: 7 })
 
@@ -140,7 +153,7 @@ describe("read coordinator", () => {
   })
 
   it("settles a queued optimistic generation when a higher target supersedes it", () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = timelineLease(queryClient)
     const projection = getAccountUnreadProjection(queryClient, "user-1")
     projection.recordArrival({ channelId: "channel-1", serverId: "server-1", seq: 4 })
@@ -164,7 +177,7 @@ describe("read coordinator", () => {
   })
 
   it("rejects hidden submissions without accepting a target", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = timelineLease(queryClient)
     vi.stubGlobal("document", { visibilityState: "hidden" })
 
@@ -174,7 +187,7 @@ describe("read coordinator", () => {
   })
 
   it("does not automatically retry terminal responses", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = timelineLease(queryClient)
     apiFetch.mockRejectedValue(new ApiError("forbidden", 403))
 
@@ -184,7 +197,7 @@ describe("read coordinator", () => {
   })
 
   it("rolls back the matching optimistic projection on a terminal PUT failure", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = timelineLease(queryClient)
     const projection = getAccountUnreadProjection(queryClient, "user-1")
     projection.recordArrival({ channelId: "channel-1", serverId: "server-1", seq: 4 })
@@ -203,7 +216,7 @@ describe("read coordinator", () => {
   })
 
   it("clears canonical attention while the read PUT is pending and restores it on failure", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
@@ -268,7 +281,7 @@ describe("read coordinator", () => {
   })
 
   it("advances a coalesced attention fence and restores every cleared target on failure", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
@@ -329,7 +342,7 @@ describe("read coordinator", () => {
   })
 
   it("reconciles canonical attention when a retry succeeds after its fence rolled back", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
@@ -381,8 +394,8 @@ describe("read coordinator", () => {
     }
   })
 
-  it("reconciles instead of restoring stale attention across an intervening canonical fact", async () => {
-    const queryClient = new QueryClient()
+  it("restores its attention transaction without replacing an intervening unrelated canonical fact", async () => {
+    const queryClient = createOwnedClient()
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
@@ -419,8 +432,9 @@ describe("read coordinator", () => {
       })
 
       rejectPut(new ApiError("forbidden", 403))
-      await vi.waitFor(() => expect(reconcileAccountAttention).toHaveBeenCalledWith(registry))
-      expect(registry.collections.attentionScopes.get("channel-1")).toBeUndefined()
+      await vi.waitFor(() => expect(registry.collections.attentionScopes.get("channel-1")?.lastUnreadSeq).toBe(4))
+      expect(registry.collections.messages.get("event")?.content).toBe("new")
+      expect(reconcileAccountAttention).not.toHaveBeenCalled()
     } finally {
       disposeReadCoordinator(queryClient)
       unregister()
@@ -429,7 +443,7 @@ describe("read coordinator", () => {
   })
 
   it("keeps canonical attention cleared when a failed request has a newer generation", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
@@ -473,7 +487,7 @@ describe("read coordinator", () => {
   })
 
   it("reconciles canonical attention after a committed read", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
@@ -510,7 +524,7 @@ describe("read coordinator", () => {
   })
 
   it("lets an activated Inbox ticket own the pre-observer canonical clear", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
@@ -575,7 +589,7 @@ describe("read coordinator", () => {
       promoteInboxReadReservation(reservation, generation)
       publishInboxProjectionGenerationTerminal(queryClient, generation, "success")
 
-      expect(receipt).toHaveBeenCalledWith(expect.objectContaining({ terminal: "success" }))
+      await vi.waitFor(() => expect(receipt).toHaveBeenCalledWith(expect.objectContaining({ terminal: "success" })))
       expect(registry.collections.attentionScopes.get("channel-1")).toBeUndefined()
     } finally {
       disposeReadCoordinator(queryClient)
@@ -586,7 +600,7 @@ describe("read coordinator", () => {
 
   it("restores a canceled Inbox ticket and reconciles a conflicted cancellation", async () => {
     const run = async (conflict: boolean) => {
-      const queryClient = new QueryClient()
+      const queryClient = createOwnedClient()
       const registry = createCommunityDbRegistry(queryClient, "user-1")
       await registry.preload()
       const unregister = registerCommunityDbRegistry(registry)
@@ -628,12 +642,9 @@ describe("read coordinator", () => {
 
       try {
         expect(cancelInboxProjectionTicket(ticket)).toBe(true)
-        if (conflict) {
-          expect(registry.collections.attentionScopes.get("channel-1")).toBeUndefined()
-          expect(reconcileAccountAttention).toHaveBeenCalledWith(registry)
-        } else {
-          expect(registry.collections.attentionScopes.get("channel-1")?.lastUnreadSeq).toBe(4)
-        }
+        expect(registry.collections.attentionScopes.get("channel-1")?.lastUnreadSeq).toBe(4)
+        expect(reconcileAccountAttention).not.toHaveBeenCalled()
+        if (conflict) expect(registry.collections.messages.get("event")?.content).toBe("new")
       } finally {
         disposeInboxReadReservation(queryClient)
         unregister()
@@ -647,7 +658,7 @@ describe("read coordinator", () => {
   })
 
   it("commits an active Inbox attention fence on reservation disposal", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
@@ -682,7 +693,7 @@ describe("read coordinator", () => {
     ))
 
     disposeInboxReadReservation(queryClient)
-    expect(registry.collections.attentionScopes.get("channel-1")).toBeUndefined()
+    await vi.waitFor(() => expect(registry.collections.attentionScopes.get("channel-1")).toBeUndefined())
     unregister()
     await registry.cleanup()
   })
@@ -690,7 +701,7 @@ describe("read coordinator", () => {
   it.each(["commit", "rollback"] as const)(
     "%s settles a focused WS attention fence at its exact sequence",
     async (terminal) => {
-      const queryClient = new QueryClient()
+      const queryClient = createOwnedClient()
       const registry = createCommunityDbRegistry(queryClient, "user-1")
       await registry.preload()
       const unregister = registerCommunityDbRegistry(registry)
@@ -740,7 +751,7 @@ describe("read coordinator", () => {
   )
 
   it("does not duplicate a focused WS fence already owned by an Inbox ticket", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
@@ -788,7 +799,7 @@ describe("read coordinator", () => {
   })
 
   it("rolls back the matching optimistic projection while a transient retry waits", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = timelineLease(queryClient)
     const projection = getAccountUnreadProjection(queryClient, "user-1")
     projection.recordArrival({ channelId: "channel-1", serverId: "server-1", seq: 4 })
@@ -808,7 +819,7 @@ describe("read coordinator", () => {
   })
 
   it("keeps canonical attention restored while a transient retry waits", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const registry = createCommunityDbRegistry(queryClient, "user-1")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
@@ -848,7 +859,7 @@ describe("read coordinator", () => {
   })
 
   it("bounds transient retries, retains dirty intent, and resumes it later", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = timelineLease(queryClient)
     apiFetch
       .mockRejectedValueOnce(new ApiError("offline", 0))
@@ -874,7 +885,7 @@ describe("read coordinator", () => {
   })
 
   it("lets an authoritative snapshot cancel scheduled and in-flight work", async () => {
-    const scheduledClient = new QueryClient()
+    const scheduledClient = createOwnedClient()
     const scheduledLease = timelineLease(scheduledClient)
     submitTimeline(scheduledLease, 6)
     projectReadCoordinatorSnapshot(scheduledClient, {
@@ -883,7 +894,7 @@ describe("read coordinator", () => {
     await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
     expect(apiFetch).not.toHaveBeenCalled()
 
-    const inFlightClient = new QueryClient()
+    const inFlightClient = createOwnedClient()
     const inFlightLease = timelineLease(inFlightClient)
     let resolveRequest!: (value: unknown) => void
     apiFetch.mockReturnValueOnce(new Promise((resolve) => {
@@ -902,7 +913,7 @@ describe("read coordinator", () => {
   })
 
   it("preserves accepted work across a deferred StrictMode-style release and remount", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const firstLease = timelineLease(queryClient)
     apiFetch.mockResolvedValue({ changed: true, revision: 4, targetSeq: 2 })
     submitTimeline(firstLease, 2)
@@ -916,7 +927,7 @@ describe("read coordinator", () => {
   })
 
   it("flushes one accepted target on a real route release and rejects the stale lease", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = timelineLease(queryClient)
     apiFetch.mockResolvedValue({ changed: true, revision: 4, targetSeq: 3 })
 
@@ -933,7 +944,7 @@ describe("read coordinator", () => {
   })
 
   it("cancels an uncommitted navigation-owned opener without flushing it", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = registerReadSurface(
       queryClient,
       "user-1",
@@ -960,7 +971,7 @@ describe("read coordinator", () => {
   })
 
   it("uses default registration semantics and confirms monotonically through the public adapter", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = registerReadSurface(queryClient, "user-1", {
       kind: "timeline",
       channelId: "channel-1",
@@ -974,7 +985,7 @@ describe("read coordinator", () => {
   })
 
   it("aborts and fences an active navigation-owned mutation on release", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = registerReadSurface(
       queryClient,
       "user-1",
@@ -999,7 +1010,7 @@ describe("read coordinator", () => {
   })
 
   it("cancels a navigation-owned retry timer and dirty generation on release", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = registerReadSurface(
       queryClient,
       "user-1",
@@ -1024,10 +1035,12 @@ describe("read coordinator", () => {
   })
 
   it.each(["snapshot", "surface"] as const)("sends a queued newer target when %s confirmation retires the active request after debounce", async (confirmation) => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = timelineLease(queryClient)
     apiFetch
-      .mockReturnValueOnce(new Promise(() => {}))
+      .mockImplementationOnce((_path: string, options: { signal: AbortSignal }) => new Promise((_resolve, reject) => {
+        options.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true })
+      }))
       .mockResolvedValueOnce({ changed: true, revision: 6, targetSeq: 8 })
 
     submitTimeline(lease, 3)
@@ -1052,7 +1065,7 @@ describe("read coordinator", () => {
   })
 
   it("serializes a newer visible target behind the active request", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = timelineLease(queryClient)
     let resolveFirst!: (value: unknown) => void
     apiFetch
@@ -1081,7 +1094,7 @@ describe("read coordinator", () => {
   })
 
   it("aborts and fences an in-flight completion on account disposal", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = timelineLease(queryClient)
     let resolveRequest!: (value: unknown) => void
     apiFetch.mockReturnValue(new Promise((resolve) => {
@@ -1101,7 +1114,7 @@ describe("read coordinator", () => {
   })
 
   it("coalesces visible forum cards through the ordinary channel transport", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = registerReadSurface(queryClient, "user-1", {
       kind: "timeline",
       channelId: "forum-1",
@@ -1143,7 +1156,7 @@ describe("read coordinator", () => {
   })
 
   it("treats the ordinary forum channel cursor as card confirmation", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = registerReadSurface(queryClient, "user-1", {
       kind: "timeline",
       channelId: "forum-1",
@@ -1162,7 +1175,7 @@ describe("read coordinator", () => {
   })
 
   it("absorbs reconciliation failures after a committed read response", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = timelineLease(queryClient)
     apiFetch.mockResolvedValue({ changed: true, revision: 14, targetSeq: 4 })
     reconcileAccountReadState.mockRejectedValue(new Error("snapshot unavailable"))
@@ -1180,7 +1193,7 @@ describe("read coordinator", () => {
   })
 
   it("cancels a queued transient retry when a snapshot confirms its target", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = timelineLease(queryClient)
     apiFetch.mockRejectedValue(new ApiError("busy", 503))
 
@@ -1196,14 +1209,14 @@ describe("read coordinator", () => {
   })
 
   it("flushes accepted work before its debounce and consumes only after reconciliation", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = timelineLease(queryClient)
     apiFetch.mockResolvedValue({ changed: true, revision: 15, targetSeq: 4 })
 
     submitTimeline(lease, 4)
     const work = flushPendingReadIntents(queryClient)
-    expect(apiFetch).toHaveBeenCalledOnce()
     await expect(work).resolves.toEqual({ consumed: true, cutoff: 1 })
+    expect(apiFetch).toHaveBeenCalledOnce()
     expect(reconcileAccountReadState).toHaveBeenCalledWith(queryClient, {
       awaitSurfaceMode: "inbox-dms",
       surfaceMode: "all",
@@ -1212,7 +1225,7 @@ describe("read coordinator", () => {
   })
 
   it("joins an active attempt and drains only work accepted by its cutoff", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = timelineLease(queryClient)
     let resolveFirst!: (value: unknown) => void
     apiFetch
@@ -1233,7 +1246,7 @@ describe("read coordinator", () => {
   })
 
   it("freezes the cutoff and preserves a later intent's original debounce", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = timelineLease(queryClient)
     let resolvePut!: (value: unknown) => void
     let resolveReconcile!: () => void
@@ -1274,7 +1287,7 @@ describe("read coordinator", () => {
   })
 
   it("defers Inbox/DM when the owner already queued a later generation", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = timelineLease(queryClient)
     apiFetch.mockResolvedValue({ changed: true, revision: 20, targetSeq: 4 })
 
@@ -1296,7 +1309,7 @@ describe("read coordinator", () => {
   })
 
   it("returns an unconsumed result without waiting through retry backoff", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = timelineLease(queryClient)
     apiFetch.mockRejectedValue(new ApiError("busy", 503))
 
@@ -1309,7 +1322,7 @@ describe("read coordinator", () => {
   })
 
   it("returns unconsumed when a joined active attempt fails", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = timelineLease(queryClient)
     let rejectRequest!: (error: unknown) => void
     apiFetch.mockReturnValue(new Promise((_resolve, reject) => {
@@ -1326,7 +1339,7 @@ describe("read coordinator", () => {
   })
 
   it("fences a rejected mutation completion after disposal", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = timelineLease(queryClient)
     let rejectRequest!: (error: unknown) => void
     apiFetch.mockReturnValue(new Promise((_resolve, reject) => {
@@ -1341,7 +1354,7 @@ describe("read coordinator", () => {
   })
 
   it("fences a committed mutation whose Inbox settlement loses ownership", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const data = {
       servers: [{
         serverId: "s1",
@@ -1388,7 +1401,7 @@ describe("read coordinator", () => {
   })
 
   it("does not consume a committed read whose authoritative refresh fails", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const lease = timelineLease(queryClient)
     apiFetch.mockResolvedValue({ changed: true, revision: 20, targetSeq: 4 })
     reconcileAccountReadState.mockRejectedValue(new Error("surface refresh failed"))
@@ -1401,7 +1414,7 @@ describe("read coordinator", () => {
   })
 
   it("publishes success only after the owned Inbox reconciliation settles", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createOwnedClient()
     const data = {
       servers: [{
         serverId: "s1",
@@ -1470,7 +1483,7 @@ describe("read coordinator", () => {
 
   it("publishes deferred and reconciliation-error receipts as deterministic rollback", async () => {
     const run = async (mode: "deferred" | "error") => {
-      const queryClient = new QueryClient()
+      const queryClient = createOwnedClient()
       const data = {
         servers: [{
           serverId: "s1",

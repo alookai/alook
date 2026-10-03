@@ -1,6 +1,7 @@
 "use client"
 
-import { useRef, useState, type MouseEvent } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useRef, type MouseEvent } from "react"
 import { flushSync } from "react-dom"
 import { CircleCheck, Download, FileAudio, FileVideo, LoaderCircle, Pause, Play, RefreshCw, Square } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -21,10 +22,10 @@ export function MediaAttachmentBlock({
   attachment: FileAttachment
   mediaKind: MediaKind
 }) {
-  const [mounted, setMounted] = useState(false)
-  const [status, setStatus] = useState<MediaStatus>("idle")
-  const [isPlaying, setIsPlaying] = useState(false)
-  const [playerKey, setPlayerKey] = useState(0)
+  const [mounted, setMounted] = useAtom(useCreateAtom(false))
+  const [status, setStatus] = useAtom(useCreateAtom<MediaStatus>("idle"))
+  const [isPlaying, setIsPlaying] = useAtom(useCreateAtom(false))
+  const [playerKey, setPlayerKey] = useAtom(useCreateAtom(0))
   const playerRef = useRef<HTMLMediaElement>(null)
   const playOnMountRef = useRef(false)
   const playbackAttemptRef = useRef(0)

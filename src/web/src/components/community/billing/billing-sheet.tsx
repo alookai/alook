@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+
+import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { FounderPlanChangeDialog } from "./founder-plan-change-dialog"
 import { ExternalLink, RefreshCw } from "lucide-react"
 import type { BillingSummary } from "@alook/shared"
@@ -26,8 +27,10 @@ function dateLabel(value: string) {
 }
 
 export function BillingContent({ billing }: { billing: BillingController }) {
-  const [founderOffer, setFounderOffer] = useState<BillingSummary["offers"][number] | null>(null)
+  const [founderOfferId, setFounderOfferId] = useAtom(useCreateAtom<string | null>(null))
+  const setFounderOffer = (offer: BillingSummary["offers"][number] | null) => setFounderOfferId(offer?.priceId ?? null)
   const summary = billing.data
+  const founderOffer = summary?.offers.find((offer) => offer.priceId === founderOfferId) ?? null
   const subscription = summary?.isFounder ? null : summary?.subscription
   const currentOffer = summary?.offers.find((offer) => offer.plan.id === summary.plan.id)
   const checkoutPending = billing.returnFrom === "checkout" && (summary?.isFounder || !subscription || subscription.plan.id !== summary?.plan.id)

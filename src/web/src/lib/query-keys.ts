@@ -15,6 +15,7 @@
  */
 export const communityKeys = {
   all: ["community"] as const,
+  selfProfile: () => [...communityKeys.all, "self-profile"] as const,
   communityDb: (accountId: string) =>
     [...communityKeys.all, "db", accountId] as const,
   communityDbCollection: (accountId: string, collection: string) =>

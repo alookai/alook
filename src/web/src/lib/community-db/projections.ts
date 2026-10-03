@@ -1,15 +1,10 @@
 "use client"
 
-import {
-  createContext,
-  createElement,
-  useContext,
-  useMemo,
-  useSyncExternalStore,
-  type Context,
-  type ReactNode,
-} from "react"
-import { DbProvider, useLiveQuery } from "@tanstack/react-db"
+import { createContext, createElement, useContext, useMemo, useLayoutEffect, type Context, type ReactNode } from "react"
+import { ApplicationOwnerProvider, createApplicationOwner } from "@/lib/application-owner"
+import { DbProvider, collectionOptions, getLiveQueryHash, liveQueryCollectionOptions, prepareLiveQueryValue, eq, inArray, useLiveQuery as useNativeLiveQuery, type Context as QueryContext, type LiveQueryCollectionConfig } from "@tanstack/react-db"
+import { createStore, useSelector } from "@tanstack/react-store"
+import { CommunityRuntimeProvider } from "@/stores/community/runtime"
 import { notifLevelDisplay } from "@alook/shared"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { DM } from "@/lib/community/models/people"
@@ -20,7 +15,8 @@ import type { Msg } from "@/lib/community/models/message"
 import type { ChannelRefDirectory } from "@/lib/community/channel-ref"
 import type { CommunityDbRegistry } from "./collections"
 import { useCommunityPreviewProfiles } from "@/stores/community/profile-preview"
-import { useCommunityWsStore } from "@/stores/community/ws"
+import { MAX_PERSISTED_MESSAGES_PER_SCOPE } from "@/lib/query-persister"
+
 import type {
   AttentionItemRow,
   AttentionScopeRow,
@@ -30,6 +26,7 @@ import type {
   FolderItemRow,
   FolderRow,
   MessageRow,
+  FriendshipRow,
   NotificationSettingRow,
   ProfileRow,
   ReadStateRow,
@@ -48,19 +45,27 @@ export function useOptionalCommunityDbRegistry() {
   return useContext(getCommunityDbContext())
 }
 
-const subscribeToNoRestoredCollections = () => () => {}
-const noRestoredPrimary = () => false
+const useLiveQuery = ((options: unknown) => {
+  const registry = useOptionalCommunityDbRegistry()
+  const prepared = prepareLiveQueryValue(options, registry?.dbClient, new Set())
+  const identity = getLiveQueryHash(prepared)
+  const collection = useMemo(() => registry && prepared
+    ? registry.dbClient.collection(collectionOptions(`community-live:${identity}`, () => liveQueryCollectionOptions({ ...(prepared as LiveQueryCollectionConfig<QueryContext, Record<string, unknown>>), id: `community-live:${identity}` })))
+    : undefined, [registry, prepared, identity])
+  return useNativeLiveQuery(() => collection)
+}) as typeof useNativeLiveQuery
+
+const absentPresence = createStore({ presenceByUserId: new Map<string, "online" | "offline">() })
+const absentRestoration = createStore({ captured: false, names: new Set<string>(), hasData: false })
 
 export function useTrustedRestoredPrimary() {
   const registry = useOptionalCommunityDbRegistry()
-  return useSyncExternalStore(
-    registry?.subscribeRestoredCollections ?? subscribeToNoRestoredCollections,
-    () => Boolean(
-      registry?.hasRestoredCollection("categories")
-      && registry.hasRestoredCollection("channels"),
-    ),
-    noRestoredPrimary,
-  )
+  return useSelector(registry?.restoration ?? absentRestoration, (state) => state.names.has("categories") && state.names.has("channels"))
+}
+
+export function useTrustedRestoredForumProjection() {
+  const registry = useOptionalCommunityDbRegistry()
+  return useSelector(registry?.restoration ?? absentRestoration, (state) => ["channels", "channelMemberships", "messages"].every((name) => state.names.has(name)))
 }
 
 export function CommunityDbProvider({
@@ -68,90 +73,122 @@ export function CommunityDbProvider({
   children,
 }: {
   registry: CommunityDbRegistry
-  children: ReactNode
+  children?: ReactNode
 }) {
+  const application = useMemo(() => {
+    const owner = createApplicationOwner(registry.accountId ?? "__guest__", registry.queryClient)
+    owner.lifecycle = registry.runtime.lifecycle
+    owner.bindAuthentication(() => registry.sessionViewer(), () => registry.retireDisk())
+    return owner
+  }, [registry])
+  useLayoutEffect(() => {
+    const subscription = registry.runtime.lifecycle.subscribe(() => {
+      if (!registry.runtime.lifecycle.get().active) application.preferences.setState((state) => ({ ...state, localValues: new Map() }))
+    })
+    return () => subscription.unsubscribe()
+  }, [application, registry])
   return createElement(
-    DbProvider,
-    { client: registry.dbClient },
-    createElement(getCommunityDbContext().Provider, { value: registry }, children),
+    ApplicationOwnerProvider, { owner: application },
+    createElement(DbProvider, { client: registry.dbClient },
+      createElement(getCommunityDbContext().Provider, { value: registry },
+        createElement(CommunityRuntimeProvider, { value: { runtime: registry.runtime } }, children))),
   )
 }
 
-function useCollectionRows() {
+function useServerRows(serverId?: string) {
   const registry = useOptionalCommunityDbRegistry()
-  const servers = useLiveQuery({
+  return useLiveQuery({
     query: (q) => registry
-      ? q.from({ server: registry.collections.servers })
+      ? q.from({ server: registry.collections.servers }).where(({ server }) => serverId === undefined ? eq(1, 1) : eq(server.id, serverId))
       : undefined,
   }).data as ServerRow[] | undefined
-  const categories = useLiveQuery({
+}
+
+function useCategoryRows(serverId?: string) {
+  const registry = useOptionalCommunityDbRegistry()
+  return useLiveQuery({
     query: (q) => registry
-      ? q.from({ category: registry.collections.categories })
+      ? q.from({ category: registry.collections.categories }).where(({ category }) => serverId === undefined ? eq(1, 1) : eq(category.serverId, serverId))
       : undefined,
   }).data as CategoryRow[] | undefined
-  const channels = useLiveQuery({
-    query: (q) => registry
-      ? q.from({ channel: registry.collections.channels })
-      : undefined,
-  }).data as ChannelRow[] | undefined
-  const serverMemberships = useLiveQuery({
+}
+
+function useServerMembershipRows() {
+  const registry = useOptionalCommunityDbRegistry()
+  return useLiveQuery({
     query: (q) => registry
       ? q.from({ membership: registry.collections.serverMemberships })
       : undefined,
   }).data as ServerMembershipRow[] | undefined
-  const channelMemberships = useLiveQuery({
-    query: (q) => registry
-      ? q.from({ membership: registry.collections.channelMemberships })
-      : undefined,
-  }).data as ChannelMembershipRow[] | undefined
-  const profiles = useLiveQuery({
-    query: (q) => registry
-      ? q.from({ profile: registry.collections.profiles })
-      : undefined,
-  }).data as ProfileRow[] | undefined
-  const messages = useLiveQuery({
-    query: (q) => registry
-      ? q.from({ message: registry.collections.messages })
-      : undefined,
-  }).data as MessageRow[] | undefined
-  const readStates = useLiveQuery({
-    query: (q) => registry
-      ? q.from({ readState: registry.collections.readStates })
-      : undefined,
-  }).data as ReadStateRow[] | undefined
-  const folders = useLiveQuery({
+}
+
+function useFolderRows() {
+  const registry = useOptionalCommunityDbRegistry()
+  return useLiveQuery({
     query: (q) => registry
       ? q.from({ folder: registry.collections.folders })
       : undefined,
   }).data as FolderRow[] | undefined
-  const folderItems = useLiveQuery({
+}
+
+function useFolderItemRows() {
+  const registry = useOptionalCommunityDbRegistry()
+  return useLiveQuery({
     query: (q) => registry
       ? q.from({ item: registry.collections.folderItems })
       : undefined,
   }).data as FolderItemRow[] | undefined
-  const notificationSettings = useLiveQuery({
+}
+
+function useNotificationSettingRows() {
+  const registry = useOptionalCommunityDbRegistry()
+  return useLiveQuery({
     query: (q) => registry
       ? q.from({ setting: registry.collections.notificationSettings })
       : undefined,
   }).data as NotificationSettingRow[] | undefined
-  return {
-    registry,
-    servers,
-    categories,
-    channels,
-    serverMemberships,
-    channelMemberships,
-    profiles,
-    messages,
-    readStates,
-    folders,
-    folderItems,
-    notificationSettings,
-  }
+}
+
+function useChannelRows(serverId?: string, type?: ChannelRow["type"]) {
+  const registry = useOptionalCommunityDbRegistry()
+  return useLiveQuery({
+    query: (q) => {
+      if (!registry) return undefined
+      let query = q.from({ channel: registry.collections.channels })
+      if (serverId !== undefined) query = query.where(({ channel }) => eq(channel.serverId, serverId))
+      if (type !== undefined) query = query.where(({ channel }) => eq(channel.type, type))
+      return query
+    },
+  }).data as ChannelRow[] | undefined
+}
+
+function useChannelMembershipRows(channelIds?: string[]) {
+  const registry = useOptionalCommunityDbRegistry()
+  return useLiveQuery({
+    query: (q) => registry
+      ? q.from({ membership: registry.collections.channelMemberships })
+        .where(({ membership }) => channelIds === undefined ? eq(1, 1) : inArray(membership.channelId, channelIds))
+      : undefined,
+  }).data as ChannelMembershipRow[] | undefined
+}
+
+function useMessageRowsById(messageIds: string[]) {
+  const registry = useOptionalCommunityDbRegistry()
+  return useLiveQuery({
+    query: (q) => registry
+      ? q.from({ message: registry.collections.messages }).where(({ message }) => inArray(message.id, messageIds))
+      : undefined,
+  }).data as MessageRow[] | undefined
 }
 
 export function useServerRailProjection() {
-  const rows = useCollectionRows()
+  const rows = {
+    registry: useOptionalCommunityDbRegistry(),
+    servers: useServerRows(),
+    serverMemberships: useServerMembershipRows(),
+    folders: useFolderRows(),
+    folderItems: useFolderItemRows(),
+  }
   return useMemo(() => {
     if (!rows.registry || !rows.servers || !rows.serverMemberships) return undefined
     const viewerId = rows.registry.accountId
@@ -209,11 +246,15 @@ export function useServerRailProjection() {
           }),
       }))
     return { servers, folders }
-  }, [rows])
+  }, [rows.registry, rows.servers, rows.serverMemberships, rows.folders, rows.folderItems])
 }
 
 export function useServerTreeProjection(serverId: string | null) {
-  const rows = useCollectionRows()
+  const rows = {
+    servers: useServerRows(serverId ?? ""),
+    categories: useCategoryRows(serverId ?? ""),
+    channels: useChannelRows(serverId ?? ""),
+  }
   return useMemo(() => {
     if (!serverId || !rows.servers || !rows.categories || !rows.channels) return undefined
     const server = rows.servers.find((candidate) => candidate.id === serverId)
@@ -272,11 +313,28 @@ export function useServerTreeProjection(serverId: string | null) {
       ownerId: server.ownerId,
       categories,
     }
-  }, [rows, serverId])
+  }, [rows.servers, rows.categories, rows.channels, serverId])
 }
 
 export function useDmProjection() {
-  const rows = useCollectionRows()
+  const registry = useOptionalCommunityDbRegistry()
+  const channels = useChannelRows(undefined, "dm")
+  const channelIds = useMemo(() => (channels ?? []).map((channel) => channel.id), [channels])
+  const channelMemberships = useChannelMembershipRows(channelIds)
+  const userIds = useMemo(() => (channelMemberships ?? []).filter((membership) => (
+    membership.relation === "access" && membership.userId !== registry?.accountId
+  )).map((membership) => membership.userId), [channelMemberships, registry?.accountId])
+  const profiles = useLiveQuery({
+    query: (q) => registry
+      ? q.from({ profile: registry.collections.profiles }).where(({ profile }) => inArray(profile.userId, userIds))
+      : undefined,
+  }).data as ProfileRow[] | undefined
+  const readStates = useLiveQuery({
+    query: (q) => registry
+      ? q.from({ readState: registry.collections.readStates }).where(({ readState }) => inArray(readState.channelId, channelIds))
+      : undefined,
+  }).data as ReadStateRow[] | undefined
+  const rows = { registry, channels, channelMemberships, profiles, readStates }
   return useMemo(() => {
     const viewerId = rows.registry?.accountId
     if (!viewerId || !rows.channels || !rows.channelMemberships || !rows.profiles) return undefined
@@ -311,14 +369,14 @@ export function useDmProjection() {
             : { lastUnreadSeq: channel.lastUnreadSeq ?? readState?.lastReadSeq }),
         }]
       }))
-  }, [rows])
+  }, [rows.registry?.accountId, rows.channels, rows.channelMemberships, rows.profiles, rows.readStates])
 }
 
 export function useRouteChannelProjection(channelId: string | null) {
   const registry = useOptionalCommunityDbRegistry()
   const result = useLiveQuery({
     query: (q) => registry
-      ? q.from({ channel: registry.collections.channels })
+      ? q.from({ channel: registry.collections.channels }).where(({ channel }) => eq(channel.id, channelId ?? ""))
       : undefined,
   })
   return useMemo(() => {
@@ -331,7 +389,7 @@ export function useReadStateProjection(channelId: string | null | undefined) {
   const registry = useOptionalCommunityDbRegistry()
   const result = useLiveQuery({
     query: (q) => registry
-      ? q.from({ readState: registry.collections.readStates })
+      ? q.from({ readState: registry.collections.readStates }).where(({ readState }) => eq(readState.channelId, channelId ?? ""))
       : undefined,
   })
   return useMemo(() => {
@@ -347,38 +405,54 @@ export function useReadStateProjection(channelId: string | null | undefined) {
   }, [channelId, result.data])
 }
 
-export function useMessageProjection(channelId: string | null) {
+export function useMessageProjection(channelId: string | null, ids?: readonly string[]) {
   const registry = useOptionalCommunityDbRegistry()
   const result = useLiveQuery({
-    query: (q) => registry
-      ? q.from({ message: registry.collections.messages })
+    query: (q) => registry && channelId
+      ? q.from({ message: registry.collections.messages }).where(({ message }) => eq(message.channelId, channelId))
+        .where(({ message }) => ids === undefined ? eq(1, 1) : inArray(message.id, [...ids]))
+        .leftJoin({ child: registry.collections.channels }, ({ message, child }) => eq(message.id, child.parentMessageId))
+        .select(({ message, child }) => ({ message, child }))
       : undefined,
   })
   return useMemo(() => {
     if (!channelId || !result.data) return undefined
-    return (result.data as MessageRow[])
-      .filter((message) => message.channelId === channelId)
-      .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
-      .map((message) => {
+    return (result.data as Array<{ message: MessageRow; child?: ChannelRow }>)
+      .sort((a, b) => (a.message.seq ?? 0) - (b.message.seq ?? 0))
+      .map(({ message, child }) => {
         const { channelId: _channelId, replyToId: _replyToId, ...model } = message
-        return model as Msg
+        return { ...model, ...(child ? { thread: { id: child.id, name: child.name, messageCount: child.messageCount ?? 0, lastReplyAt: child.lastMessageAt ?? undefined, tags: child.tags, preview: child.preview, participantCount: child.participantCount } } : {}) } as Msg
       })
   }, [channelId, result.data])
 }
 
-export function useCanonicalMessagesById(): ReadonlyMap<string, Msg> | undefined {
+export function useCanonicalMessagesById(ids?: readonly string[]): ReadonlyMap<string, Msg> | undefined {
   const registry = useOptionalCommunityDbRegistry()
   const result = useLiveQuery({
     query: (q) => registry
       ? q.from({ message: registry.collections.messages })
+        .where(({ message }) => ids === undefined ? eq(1, 1) : inArray(message.id, [...ids]))
+        .leftJoin({ child: registry.collections.channels }, ({ message, child }) => eq(message.id, child.parentMessageId))
+        .select(({ message, child }) => ({ message, child }))
       : undefined,
   })
   return useMemo(() => !registry ? undefined : new Map(
-    ((result.data ?? []) as MessageRow[]).map((message) => {
+    ((result.data ?? []) as Array<{ message: MessageRow; child?: ChannelRow }>).map(({ message, child }) => {
       const { channelId: _channelId, replyToId: _replyToId, ...model } = message
-      return [message.id, model as Msg]
+      return [message.id, { ...model, ...(child ? { thread: { id: child.id, name: child.name, messageCount: child.messageCount ?? 0, lastReplyAt: child.lastMessageAt ?? undefined, tags: child.tags, preview: child.preview, participantCount: child.participantCount } } : {}) } as Msg]
     }),
   ), [registry, result.data])
+}
+
+export function useMessageWindowProjection(channelId: string | null, ids?: readonly string[]) {
+  const registry = useOptionalCommunityDbRegistry()
+  const warm = useLiveQuery({ query: (q) => registry && channelId && ids === undefined
+    ? q.from({ message: registry.collections.messages }).where(({ message }) => eq(message.channelId, channelId))
+      .orderBy(({ message }) => message.seq, "desc").orderBy(({ message }) => message.id, "desc")
+      .limit(MAX_PERSISTED_MESSAGES_PER_SCOPE).select(({ message }) => ({ id: message.id }))
+    : undefined }).data as Array<{ id: string }> | undefined
+  const selected = useMemo(() => ids ?? warm?.map((message) => message.id) ?? [], [ids, warm])
+  return useMessageProjection(channelId, selected)
 }
 
 export function useCanonicalChannelsById(): ReadonlyMap<string, ChannelRow> {
@@ -393,6 +467,11 @@ export function useCanonicalChannelsById(): ReadonlyMap<string, ChannelRow> {
   ), [result.data])
 }
 
+export function useFriendshipRows(ids?: readonly string[]) {
+  const registry = useOptionalCommunityDbRegistry()
+  return (useLiveQuery({ query: (q) => registry ? q.from({ friendship: registry.collections.friendships }).where(({ friendship }) => ids === undefined ? eq(1, 1) : inArray(friendship.id, [...ids])) : undefined }).data ?? []) as FriendshipRow[]
+}
+
 export function useCanonicalServersById(): ReadonlyMap<string, ServerRow> {
   const registry = useOptionalCommunityDbRegistry()
   const result = useLiveQuery({
@@ -405,19 +484,23 @@ export function useCanonicalServersById(): ReadonlyMap<string, ServerRow> {
   ), [result.data])
 }
 
+export function useCanonicalCommunityServer(serverId: string | null | undefined) {
+  return useServerRows(serverId ?? "__inactive__")?.[0]
+}
+
 export function materializeCanonicalMessage(
-  transport: Msg,
+  transport: Pick<Msg, "id">,
   canonical: ReadonlyMap<string, Msg> | undefined,
 ): Msg | undefined {
-  return canonical === undefined ? transport : canonical.get(transport.id)
+  return canonical === undefined ? transport as Msg : canonical.get(transport.id)
 }
 
 export function materializeCanonicalMessages(
-  transport: readonly Msg[],
+  transport: readonly Pick<Msg, "id">[],
   canonical: ReadonlyMap<string, Msg> | undefined,
 ): Msg[] {
   return canonical === undefined
-    ? [...transport]
+    ? [...transport] as Msg[]
     : transport.flatMap((message) => {
         const row = canonical.get(message.id)
         return row ? [row] : []
@@ -425,7 +508,7 @@ export function materializeCanonicalMessages(
 }
 
 export function useNotificationSettingsProjection() {
-  const rows = useCollectionRows()
+  const rows = { notificationSettings: useNotificationSettingRows() }
   return useMemo(() => {
     if (!rows.notificationSettings) return undefined
     const server: Record<string, string> = {}
@@ -447,11 +530,11 @@ export function useNotificationSettingsProjection() {
   }, [rows.notificationSettings])
 }
 
-function useProfileProjectionMap() {
+function useProfileProjectionMap(userIds?: readonly string[]) {
   const registry = useOptionalCommunityDbRegistry()
   const result = useLiveQuery({
     query: (q) => registry
-      ? q.from({ profile: registry.collections.profiles })
+      ? q.from({ profile: registry.collections.profiles }).where(({ profile }) => userIds === undefined ? eq(1, 1) : inArray(profile.userId, [...userIds]))
       : undefined,
   })
   return useMemo(() => new Map(
@@ -459,12 +542,11 @@ function useProfileProjectionMap() {
   ), [result.data])
 }
 
-export function useCanonicalProfilesByUserId(): ReadonlyMap<string, CommunityProfile> {
+export function useCanonicalProfilesByUserId(userIds?: readonly string[]): ReadonlyMap<string, CommunityProfile> {
   const previewProfiles = useCommunityPreviewProfiles()
-  const canonicalProfiles = useProfileProjectionMap()
-  const livePresence = useCommunityWsStore((state) => (
-    previewProfiles ? null : state.presenceByUserId
-  ))
+  const canonicalProfiles = useProfileProjectionMap(userIds)
+  const registry = useOptionalCommunityDbRegistry()
+  const livePresence = useSelector(registry?.runtime.ws ?? absentPresence, (state) => previewProfiles ? null : userIds === undefined ? [...state.presenceByUserId] : userIds.map((id) => [id, state.presenceByUserId.get(id)] as const), { compare: (left, right) => left === right || (!!left && !!right && left.length === right.length && left.every(([id, presence], index) => id === right[index]?.[0] && presence === right[index]?.[1])) })
   return useMemo(() => {
     if (previewProfiles) return previewProfiles
     const merged = new Map<string, CommunityProfile>()
@@ -472,15 +554,33 @@ export function useCanonicalProfilesByUserId(): ReadonlyMap<string, CommunityPro
       merged.set(userId, { ...profile, id: userId })
     }
     for (const [userId, presence] of livePresence ?? []) {
+      if (presence === undefined) continue
       merged.set(userId, { ...merged.get(userId), id: userId, presence })
     }
     return merged
   }, [canonicalProfiles, livePresence, previewProfiles])
 }
 
+export function useServerMemberRows(serverId: string | null, userIds: readonly string[]) {
+  const registry = useOptionalCommunityDbRegistry()
+  return (useLiveQuery({ query: (q) => registry && serverId ? q.from({ membership: registry.collections.serverMemberships }).where(({ membership }) => eq(membership.serverId, serverId)).where(({ membership }) => inArray(membership.userId, [...userIds])) : undefined }).data ?? []) as ServerMembershipRow[]
+}
+
+export function useChannelRosterRows(channelId: string, relation: "access" | "notify") {
+  const registry = useOptionalCommunityDbRegistry()
+  return (useLiveQuery({ query: (q) => registry && channelId ? q.from({ membership: registry.collections.channelMemberships }).where(({ membership }) => eq(membership.channelId, channelId)).where(({ membership }) => eq(membership.relation, relation)) : undefined }).data ?? []) as ChannelMembershipRow[]
+}
+
 export function useCanonicalCommunityProfile(userId: string | null | undefined) {
-  const profiles = useCanonicalProfilesByUserId()
-  return userId ? profiles.get(userId) : undefined
+  const registry = useOptionalCommunityDbRegistry()
+  const preview = useCommunityPreviewProfiles()
+  const profile = useLiveQuery({ query: (q) => registry && userId ? q.from({ profile: registry.collections.profiles }).where(({ profile }) => eq(profile.userId, userId)) : undefined }).data?.[0] as ProfileRow | undefined
+  const presence = useSelector(registry?.runtime.ws ?? absentPresence, (state) => userId ? state.presenceByUserId.get(userId) : undefined)
+  return useMemo(() => {
+    if (!userId) return undefined
+    if (preview) return preview.get(userId)
+    return profile || presence ? { ...profile, id: userId, ...(presence ? { presence } : {}) } : undefined
+  }, [userId, preview, profile, presence])
 }
 
 export function useAttentionScopes(): readonly AttentionScopeRow[] {
@@ -504,7 +604,7 @@ export function useAttentionItems(): readonly AttentionItemRow[] {
 }
 
 export function useChannelRefDirectoryProjection(): ChannelRefDirectory | undefined {
-  const rows = useCollectionRows()
+  const rows = { servers: useServerRows(), channels: useChannelRows() }
   return useMemo(() => {
     if (!rows.servers || !rows.channels) return undefined
     const channels = rows.channels
@@ -540,7 +640,15 @@ export function useForumSidebarProjection(
   retainId: string | null,
   serverNowMs: number | null,
 ) {
-  const rows = useCollectionRows()
+  const registry = useOptionalCommunityDbRegistry()
+  const channels = useChannelRows(serverId)
+  const channelIds = useMemo(() => (channels ?? []).map((channel) => channel.id), [channels])
+  const channelMemberships = useChannelMembershipRows(channelIds)
+  const openerIds = useMemo(() => (channels ?? []).flatMap((channel) => (
+    channel.parentMessageId ? [channel.parentMessageId] : []
+  )), [channels])
+  const messages = useMessageRowsById(openerIds)
+  const rows = { registry, channels, channelMemberships, messages }
   return useMemo(() => {
     if (
       serverNowMs === null
@@ -630,5 +738,5 @@ export function useForumSidebarProjection(
       }
     }
     return { threads, parentUnread }
-  }, [retainId, rows, serverId, serverNowMs])
+  }, [serverNowMs, rows.registry, rows.channels, rows.channelMemberships, rows.messages, serverId, retainId])
 }

@@ -1,10 +1,11 @@
 "use client"
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useIsRestoring, type QueryClient } from "@tanstack/react-query"
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client"
 import { createQueryClient } from "@/lib/query-client"
+import { isAbortError } from "@/lib/errors"
 import {
   createIdbPersister,
   PERSIST_BUSTER,
@@ -13,7 +14,6 @@ import {
 } from "@/lib/query-persister"
 import { disposeAccountReadStateReconciliation } from "@/hooks/community/community-ws/read-state-reconciliation"
 import { disposeReadCoordinator } from "@/hooks/community/read-coordinator"
-import { useCommunityWsStore } from "@/stores/community/ws"
 import {
   disposeAccountUnreadProjection,
   getAccountUnreadProjection,
@@ -27,8 +27,15 @@ import {
   registerCommunityDbRegistry,
   type CommunityDbRegistry,
 } from "@/lib/community-db/collections"
+import { useSelector } from "@tanstack/react-store"
+import { useSession, currentSessionViewer } from "@/lib/auth-client"
+import { useRouter } from "next/navigation"
+import { usePersistedAccountLifecycle } from "@/lib/use-persisted-account-lifecycle"
+import { retireCommunityAccount } from "@/lib/community/account-cache-lifecycle"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { installCommunityDbSync } from "@/lib/community-db/sync"
+import { profileSchema } from "@/lib/community-db/schema"
+import type { CurrentUser } from "@/contexts/community/current-user"
 
 function createRestoreGate() {
   let release!: () => void
@@ -57,12 +64,18 @@ function CommunityDbRuntime({
     }
     const unregisterCommunityDb = registerCommunityDbRegistry(registry)
     return () => {
-      unregisterCommunityDb()
       disposeTimer.current = setTimeout(() => {
         disposeTimer.current = null
+        unregisterCommunityDb()
+        void queryClient.cancelQueries().catch((error: unknown) => {
+          if (!isAbortError(error)) console.error("Community query cancellation failed", error)
+        })
         disposeReadCoordinator(queryClient)
         disposeAccountReadStateReconciliation(queryClient)
         disposeAccountUnreadProjection(queryClient)
+        void registry.cleanup().finally(() => queryClient.clear()).catch((error: unknown) => {
+          if (!isAbortError(error)) console.error("Community collection cleanup failed", error)
+        })
       }, 0)
     }
   }, [queryClient, registry])
@@ -85,22 +98,42 @@ function CommunityDbRuntime({
  * The client is held in `useState(() => createQueryClient())` so React
  * strict-mode double-invoke in dev doesn't discard queries between mounts and
  * so each SSR request gets its own instance rather than sharing a
- * module-scoped singleton across users. Coexists with `<CommunityProvider>`
- * during the God-context migration — later steps move state into TanStack
- * Query and Zustand, then delete the old provider.
+ * module-scoped singleton across users. Collections remain alive with this
+ * account owner and are cleaned up after its descendants release.
  *
  * `userId` scopes the IndexedDB namespace so account switches never surface
  * the previous session's cached message list. Passing `null` (pre-auth) hits
  * an "anon" namespace that never carries real content.
  */
-export function QueryProvider({
+export function QueryProvider(props: { children: ReactNode; userId: string | null; initialUser?: CurrentUser }) {
+  const session = useSession()
+  return <ScopedQueryProvider key={props.userId ?? "anon"} {...props} session={session} sessionViewer={currentSessionViewer} />
+}
+
+function ScopedQueryProvider({
   children,
   userId,
+  initialUser,
+  session,
+  sessionViewer,
 }: {
   children: ReactNode
   userId: string | null
+  initialUser?: CurrentUser
+  session: ReturnType<typeof useSession>
+  sessionViewer: () => string | null | undefined
 }) {
-  const [queryClient] = useState(() => createQueryClient())
+  const [queryClient] = useState(() => {
+    const client = createQueryClient()
+    if (initialUser && initialUser.id === userId) {
+      client.setQueryData(communityKeys.communityDbCollection(userId, "profiles"), [profileSchema.parse({
+        userId, name: initialUser.name, discriminator: initialUser.discriminator ?? "",
+        avatar: initialUser.avatar, avatarVersion: initialUser.avatarVersion ?? 0,
+        aboutMe: initialUser.aboutMe, statusEmoji: initialUser.statusEmoji, statusText: initialUser.statusText,
+      })], { updatedAt: 0 })
+    }
+    return client
+  })
   const [restoreGate] = useState(createRestoreGate)
   const [communityDb] = useState(() => createCommunityDbRegistry(queryClient, userId, {
     waitForRestore: restoreGate.ready,
@@ -132,12 +165,46 @@ export function QueryProvider({
   // whole community subtree unmounts and the shell re-renders with the new
   // id, so we don't need to reactively rebuild the persister mid-session.
   const [persister] = useState(() => createIdbPersister(userId))
+  const active = useSelector(communityDb.runtime.lifecycle, (state) => state.active)
+  const router = useRouter()
+  useLayoutEffect(() => { communityDb.bindAuthentication(sessionViewer, persister.retireAccount) }, [communityDb, sessionViewer, persister])
+  const identityRetired = useRef(false)
+  const identityChanged = !session.isPending && !session.error && session.data?.user.id !== userId
+  useLayoutEffect(() => {
+    communityDb.authenticationView.setState((state) => ({ ...state, active: true }))
+    return () => {
+      communityDb.authenticationView.setState((state) => ({ active: false, generation: state.generation + 1 }))
+      const viewer = communityDb.sessionViewer()
+      if (viewer !== undefined && viewer !== communityDb.accountId) {
+        retireCommunityAccount(communityDb)
+        restoreGate.release()
+        void communityDb.retireDisk().catch(() => undefined)
+      }
+    }
+  }, [communityDb, restoreGate])
+  useLayoutEffect(() => {
+    if (!identityChanged || identityRetired.current) return
+    identityRetired.current = true
+    restoreGate.release()
+    retireCommunityAccount(communityDb)
+    void communityDb.retireDisk().catch(() => undefined)
+    if (session.data?.user.id) router.refresh()
+    else router.replace("/sign-in")
+  }, [communityDb, identityChanged, restoreGate, router, session.data?.user.id, userId])
+  const onRetired = useCallback(() => {
+    if (!communityDb.runtime.lifecycle.get().active) return
+    retireCommunityAccount(communityDb)
+    window.location.reload()
+  }, [communityDb])
+  usePersistedAccountLifecycle(persister, onRetired)
   const isDev = process.env.NODE_ENV !== "production"
   const settleRestoredAccount = () => {
+    restoreGate.release()
+    if (!communityDb.runtime.lifecycle.get().active) { queryClient.clear(); return }
     communityDb.captureRestoredCollections()
-    const profiles = useCommunityWsStore.getState()
+    const profiles = communityDb.runtime.ws.get()
     if (profiles.profileViewerId !== userId) {
-      profiles.activateProfileAccount(userId)
+      communityDb.runtime.ws.actions.activateProfileAccount(userId)
     }
   }
 
@@ -149,6 +216,7 @@ export function QueryProvider({
         // false. Freeze which canonical collections came from that restore so
         // later network results can never be misclassified as persisted.
         settleRestoredAccount()
+        if (!communityDb.runtime.lifecycle.get().active) return
         void Promise.all([
           queryClient.invalidateQueries({
             queryKey: communityKeys.servers(),
@@ -196,14 +264,14 @@ export function QueryProvider({
         },
       }}
     >
-      <CommunityDbRuntime
+      {active && !identityChanged ? <CommunityDbRuntime
         onRestoreComplete={restoreGate.release}
         queryClient={queryClient}
         registry={communityDb}
       >
         {children}
         {isDev ? <ReactQueryDevtools initialIsOpen={false} /> : null}
-      </CommunityDbRuntime>
+      </CommunityDbRuntime> : null}
     </PersistQueryClientProvider>
   )
 }

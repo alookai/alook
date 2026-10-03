@@ -1,6 +1,7 @@
 "use client"
 
-import { memo, useRef, useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { memo, useRef } from "react"
 import { useMessageMarked } from "@/hooks/community/use-inbox"
 import type React from "react"
 import {
@@ -229,16 +230,16 @@ function MessageImpl({
     : (m.replyTo?.authorName ?? "Deleted user")
   const visibleContent = displayReplyContent(m.content ?? "", m.replyTo)
   // keep the hover toolbar pinned open while its ⋯ dropdown is open
-  const [toolbarOpen, setToolbarOpen] = useState(false)
+  const [toolbarOpen, setToolbarOpen] = useAtom(useCreateAtom(false))
   // Right-click context-menu open state — tracked so the Mark/Unmark label's
   // lazy read fires for the context menu too, not just the ⋯ dropdown.
-  const [contextOpen, setContextOpen] = useState(false)
+  const [contextOpen, setContextOpen] = useAtom(useCreateAtom(false))
   // Touch devices use a normal tap-triggered dropdown. Long-press is left to
   // the browser so message text keeps native selection/copy behavior.
-  const [touchMenuOpen, setTouchMenuOpen] = useState(false)
-  const [touchMenuAnchor, setTouchMenuAnchor] = useState<ReturnType<typeof createMessageMenuPointAnchor> | null>(null)
-  const [linkTarget, setLinkTarget] = useState<MessageExternalLinkTarget | null>(null)
-  const [menuInputModality, setMenuInputModality] = useState<"desktop" | "touch" | null>(null)
+  const [touchMenuOpen, setTouchMenuOpen] = useAtom(useCreateAtom(false))
+  const [touchMenuAnchor, setTouchMenuAnchor] = useAtom(useCreateAtom<ReturnType<typeof createMessageMenuPointAnchor> | null>(null))
+  const [linkTarget, setLinkTarget] = useAtom(useCreateAtom<MessageExternalLinkTarget | null>(null))
+  const [menuInputModality, setMenuInputModality] = useAtom(useCreateAtom<"desktop" | "touch" | null>(null))
   const linkPointerRef = useRef<{
     href: string
     pointerType: string | null
@@ -247,7 +248,7 @@ function MessageImpl({
   const touchStartedAt = useRef<number | null>(null)
   const suppressLongPressClick = useRef(false)
   const swipeGestureRef = useRef<MobileReplyGesture | null>(null)
-  const [swipeVisual, setSwipeVisual] = useState({ offset: 0, active: false, crossed: false })
+  const [swipeVisual, setSwipeVisual] = useAtom(useCreateAtom({ offset: 0, active: false, crossed: false }))
   const avatarMention = useMobileAvatarMention({
     onMention: onMentionAuthor,
     onProfileClick: (event) => {
@@ -267,7 +268,7 @@ function MessageImpl({
   // Activate on the first
   // hover OR focus OR keydown/contextmenu — focus/keydown are required for a11y
   // (keyboard context menu / Tab-to-row have no pointerenter).
-  const [activated, setActivated] = useState(false)
+  const [activated, setActivated] = useAtom(useCreateAtom(false))
 
   if (m.type === "system") {
     const Icon = m.systemKind === "thread" ? MessagesSquare : UserPlus

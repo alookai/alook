@@ -1,11 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useQuery, useMutation, skipToken, type QueryKey } from "@tanstack/react-query";
+import { useWorkspaceViewSource } from "@/hooks/workspace/use-workspace-view-source";
+import { captureApplicationOwner, assertApplicationOwner } from "@/lib/application-owner";
+import { isAbortError } from "@/lib/errors";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useAgentContext } from "@/contexts/agent-context";
-import { useWorkspace } from "@/contexts/workspace-context";
+import { useWorkspaceOwner } from "@/contexts/workspace-context";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 
@@ -68,8 +73,9 @@ function gridRangeIso(year: number, month: number) {
 }
 
 export default function CalendarPage() {
-  const { workspaceId } = useWorkspace();
-  const { agents } = useAgentContext();
+  const owner = useWorkspaceOwner();
+  const { workspaceId } = owner;
+  const { agents, subscribeWs } = useAgentContext();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -82,39 +88,34 @@ export default function CalendarPage() {
     : now.getMonth();
   const initialView = parseCalendarView(searchParams.get("view"));
 
-  const [year, setYear] = useState(initialYear);
-  const [month, setMonth] = useState(initialMonth);
-  const [view, setView] = useState<CalendarView>(initialView);
-  const [selectedAgents, setSelectedAgents] = useState<Set<string>>(() => {
+  const [year, setYear] = useAtom(useCreateAtom(initialYear));
+  const [month, setMonth] = useAtom(useCreateAtom(initialMonth));
+  const [view, setView] = useAtom(useCreateAtom<CalendarView>(initialView));
+  const [selectedAgents, setSelectedAgents] = useAtom(useCreateAtom<Set<string>>(useMemo<Set<string>>(() => {
     const param = searchParams.get("agents");
     if (!param) return new Set();
     return new Set(param.split(",").filter(Boolean));
-  });
+  }, [searchParams])));
   // Default focus to today when the current view contains today, otherwise the
   // 1st of the viewed month — keeps at least one day cell in the tab order.
-  const [focusedDate, setFocusedDate] = useState<Date>(() => {
+  const [focusedDate, setFocusedDate] = useAtom(useCreateAtom<Date>(useMemo<Date>(() => {
     const t = new Date();
     if (t.getFullYear() === initialYear && t.getMonth() === initialMonth) return t;
     return new Date(initialYear, initialMonth, 1);
-  });
-  const [weekAnchor, setWeekAnchor] = useState<Date>(() => {
+  }, [initialMonth, initialYear])));
+  const [weekAnchor, setWeekAnchor] = useAtom(useCreateAtom<Date>(useMemo<Date>(() => {
     if (initialView === "week" && searchParams.has("d")) {
       const d = Number(searchParams.get("d"));
       return getWeekStart(new Date(initialYear, initialMonth, d));
     }
     return getWeekStart(new Date());
-  });
-  const [openPopoverKey, setOpenPopoverKey] = useState<string | null>(null);
+  }, [initialMonth, initialView, initialYear, searchParams])));
+  const [openPopoverKey, setOpenPopoverKey] = useAtom(useCreateAtom<string | null>(null));
 
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [createDefault, setCreateDefault] = useState<Date | undefined>();
-  const [detail, setDetail] = useState<CalendarEvent | null>(null);
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [submittingEdit, setSubmittingEdit] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useAtom(useCreateAtom(false));
+  const [createDefault, setCreateDefault] = useAtom(useCreateAtom<Date | undefined>(undefined));
+  const [detailSelection, setDetailSelection] = useAtom(useCreateAtom<{ key: QueryKey; id: string; occurrence: string | null } | null>(null));
+  const [detailOpen, setDetailOpen] = useAtom(useCreateAtom(false));
 
   const syncUrl = useCallback(
     (
@@ -137,25 +138,39 @@ export default function CalendarPage() {
     [pathname, router]
   );
 
-  const fetchEvents = useCallback(async () => {
-    const { from, to } =
-      view === "week"
-        ? weekRangeIso(weekAnchor)
-        : gridRangeIso(year, month);
-    setLoading(true);
-    try {
-      const list = await listCalendarEvents(workspaceId, { from, to });
-      setEvents(list);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load events");
-    } finally {
-      setLoading(false);
-    }
-  }, [workspaceId, year, month, view, weekAnchor]);
-
+  const range = useMemo(() => view === "week" ? weekRangeIso(weekAnchor) : gridRangeIso(year, month), [view, weekAnchor, year, month]);
+  const source = useWorkspaceViewSource(owner, `calendar:${range.from}:${range.to}:${detailSelection?.id ?? ""}:${detailSelection?.occurrence ?? ""}:${detailOpen}:${createOpen}`, true);
+  const eventsKey = useMemo(() => owner.key("calendar", "range", range.from, range.to), [owner, range.from, range.to]);
+  const eventsQuery = useQuery({ queryKey: eventsKey, queryFn: ({ signal }) => listCalendarEvents(workspaceId, range, source.request(signal)) });
+  const events = eventsQuery.data ?? EMPTY_EVENTS;
+  const loading = eventsQuery.isPending;
+  const detail = useQuery({ queryKey: detailSelection?.key ?? owner.key("calendar", "range", "__none__"), queryFn: detailSelection ? ({ signal, queryKey }) => listCalendarEvents(workspaceId, { from: String(queryKey[6]), to: String(queryKey[7]) }, source.request(signal)) : skipToken, enabled: false,
+    select: (rows: CalendarEvent[]) => rows.find((row) => row.id === detailSelection?.id && (row.occurrence_at ?? null) === detailSelection?.occurrence) ?? null,
+  }).data ?? null;
+  const fetchEvents = useCallback(() => owner.queryClient.invalidateQueries({ queryKey: eventsKey, exact: true }), [owner, eventsKey]);
   useEffect(() => {
-    fetchEvents();
-  }, [fetchEvents]);
+    if (!eventsQuery.error || eventsQuery.isFetching || isAbortError(eventsQuery.error)) return;
+    try { source.assertActive(); } catch { return; }
+    toast.error(eventsQuery.error instanceof Error ? eventsQuery.error.message : "Failed to load events");
+  }, [eventsQuery.error, eventsQuery.isFetching, source, source.assertActive]);
+  useEffect(() => subscribeWs((message) => {
+    try { source.assertActive(); } catch { return; }
+    if (message.type.startsWith("calendar.")) void owner.queryClient.invalidateQueries({ queryKey: owner.key("calendar") });
+  }), [owner, subscribeWs, source.assertActive, source]);
+  const calendarMutation = useMutation({ mutationFn: ({ operation }: { operation: () => Promise<unknown>; kind: "create" | "update" | "delete"; id?: string; assertActive: () => void }) => operation() });
+  const currentMutation = calendarMutation.isPending && calendarMutation.variables.assertActive === source.assertActive;
+  const submitting = currentMutation && calendarMutation.variables.kind === "create";
+  const submittingEdit = currentMutation && calendarMutation.variables.kind === "update";
+  const deletingId = currentMutation && calendarMutation.variables.kind === "delete" ? calendarMutation.variables.id : null;
+  const mutateCalendar = calendarMutation.mutateAsync;
+  const settleFacts = () => {
+    const token = captureApplicationOwner(owner.application);
+    const resource = owner.queryClient.getQueryCache().find({ queryKey: eventsKey, exact: true });
+    return () => {
+      try { assertApplicationOwner(token); } catch { return; }
+      if (resource && owner.queryClient.getQueryCache().find({ queryKey: eventsKey, exact: true }) === resource) void owner.queryClient.invalidateQueries({ queryKey: eventsKey, exact: true, refetchType: "none" });
+    };
+  };
 
   const visibleEvents = useMemo(() => {
     if (selectedAgents.size === 0) return events;
@@ -169,7 +184,7 @@ export default function CalendarPage() {
     setYear(ny);
     setFocusedDate(new Date(ny, nm, 1));
     syncUrl(ny, nm, selectedAgents, view);
-  }, [month, year, selectedAgents, view, syncUrl]);
+  }, [month, year, setMonth, setYear, setFocusedDate, syncUrl, selectedAgents, view]);
 
   const handleNext = useCallback(() => {
     const nm = month === 11 ? 0 : month + 1;
@@ -178,7 +193,7 @@ export default function CalendarPage() {
     setYear(ny);
     setFocusedDate(new Date(ny, nm, 1));
     syncUrl(ny, nm, selectedAgents, view);
-  }, [month, year, selectedAgents, view, syncUrl]);
+  }, [month, year, setMonth, setYear, setFocusedDate, syncUrl, selectedAgents, view]);
 
   const handlePrevWeek = useCallback(() => {
     const prev = new Date(weekAnchor);
@@ -186,7 +201,7 @@ export default function CalendarPage() {
     setWeekAnchor(prev);
     setFocusedDate(prev);
     syncUrl(prev.getFullYear(), prev.getMonth(), selectedAgents, "week", prev);
-  }, [weekAnchor, selectedAgents, syncUrl]);
+  }, [weekAnchor, setWeekAnchor, setFocusedDate, syncUrl, selectedAgents]);
 
   const handleNextWeek = useCallback(() => {
     const next = new Date(weekAnchor);
@@ -194,7 +209,7 @@ export default function CalendarPage() {
     setWeekAnchor(next);
     setFocusedDate(next);
     syncUrl(next.getFullYear(), next.getMonth(), selectedAgents, "week", next);
-  }, [weekAnchor, selectedAgents, syncUrl]);
+  }, [weekAnchor, setWeekAnchor, setFocusedDate, syncUrl, selectedAgents]);
 
   const handleToggleAgent = (agentId: string) => {
     const next = new Set(selectedAgents);
@@ -211,7 +226,7 @@ export default function CalendarPage() {
   };
 
   const handleSelectEvent = (ev: CalendarEvent) => {
-    setDetail(ev);
+    setDetailSelection({ key: eventsKey, id: ev.id, occurrence: ev.occurrence_at ?? null });
     setDetailOpen(true);
   };
 
@@ -230,7 +245,7 @@ export default function CalendarPage() {
         syncUrl(ny, nm, selectedAgents, view);
       }
     },
-    [selectedAgents, view, syncUrl]
+    [setYear, setMonth, setFocusedDate, view, setWeekAnchor, syncUrl, selectedAgents]
   );
 
   const handleJumpToToday = useCallback(() => {
@@ -243,7 +258,7 @@ export default function CalendarPage() {
     } else {
       jumpToDate(today);
     }
-  }, [jumpToDate, view, selectedAgents, syncUrl]);
+  }, [view, setWeekAnchor, setFocusedDate, syncUrl, selectedAgents, jumpToDate]);
 
   const handleViewChange = useCallback(
     (v: CalendarView) => {
@@ -262,7 +277,7 @@ export default function CalendarPage() {
         syncUrl(year, month, selectedAgents, v);
       }
     },
-    [year, month, selectedAgents, syncUrl, focusedDate, view, weekAnchor]
+    [setView, view, focusedDate, setWeekAnchor, syncUrl, year, month, selectedAgents, weekAnchor, setYear, setMonth]
   );
 
   const handleCreate = async (values: {
@@ -273,9 +288,11 @@ export default function CalendarPage() {
     repeat_interval?: string;
     repeat_stop_date?: string;
   }) => {
-    setSubmitting(true);
+    const assertActive = source.assertActive; const settle = settleFacts();
+    assertActive();
     try {
-      const created = await createCalendarEvent(values, workspaceId);
+      const created = await mutateCalendar({ kind: "create", assertActive, operation: async () => { await owner.queryClient.cancelQueries({ queryKey: owner.key("calendar", "range") }); assertActive(); return createCalendarEvent(values, workspaceId, { assertActive }); } }) as CalendarEvent;
+      assertActive();
       trackCalendarEventCreated({
         agent_id: values.agent_id,
         is_recurring: !!values.repeat_interval,
@@ -289,16 +306,18 @@ export default function CalendarPage() {
         createdAt >= new Date(from).getTime() &&
         createdAt <= new Date(to).getTime()
       ) {
-        setEvents((prev) => [...prev, created]);
+        owner.queryClient.setQueryData<CalendarEvent[]>(eventsKey, (prev) => [...prev ?? [], created]);
       }
       setCreateOpen(false);
       toast.success("Event created");
     } catch (err) {
+      if (isAbortError(err)) return;
+      try { assertActive(); } catch { return; }
       toast.error(
         err instanceof Error ? err.message : "Failed to create event"
       );
     } finally {
-      setSubmitting(false);
+      settle();
     }
   };
 
@@ -306,21 +325,26 @@ export default function CalendarPage() {
     event: CalendarEvent,
     patch: UpdateCalendarEventRequest
   ) => {
-    setSubmittingEdit(true);
+    const assertActive = source.assertActive; const settle = settleFacts();
+    assertActive();
     try {
-      await updateCalendarEvent(event.id, patch, workspaceId);
+      await mutateCalendar({ kind: "update", id: event.id, assertActive, operation: async () => { await owner.queryClient.cancelQueries({ queryKey: owner.key("calendar", "range") }); assertActive(); return updateCalendarEvent(event.id, patch, workspaceId, { assertActive }); } });
+      assertActive();
       // Recurring split may have created a detached row and advanced the
       // parent — simplest to re-fetch the visible range rather than merge.
       await fetchEvents();
+      assertActive();
       setDetailOpen(false);
-      setDetail(null);
+      setDetailSelection(null);
       toast.success("Event updated");
     } catch (err) {
+      if (isAbortError(err)) return;
+      try { assertActive(); } catch { return; }
       toast.error(
         err instanceof Error ? err.message : "Failed to update event"
       );
     } finally {
-      setSubmittingEdit(false);
+      settle();
     }
   };
 
@@ -328,26 +352,31 @@ export default function CalendarPage() {
     event: CalendarEvent,
     args?: { scope?: "this" | "following"; occurrence_at?: string }
   ) => {
-    setDeletingId(event.id);
+    const assertActive = source.assertActive; const settle = settleFacts();
+    assertActive();
     try {
-      await deleteCalendarEvent(event.id, workspaceId, args);
+      await mutateCalendar({ kind: "delete", id: event.id, assertActive, operation: async () => { await owner.queryClient.cancelQueries({ queryKey: owner.key("calendar", "range") }); assertActive(); return deleteCalendarEvent(event.id, workspaceId, args, { assertActive }); } });
+      assertActive();
       if (args?.scope) {
         // Scoped deletes may keep the parent row alive (advance scheduled_at,
         // append exception, clip repeat_stop_at) — refetch so the grid shows
         // the new series state instead of optimistically removing the row.
         await fetchEvents();
+      assertActive();
       } else {
-        setEvents((prev) => prev.filter((e) => e.id !== event.id));
+        owner.queryClient.setQueryData<CalendarEvent[]>(eventsKey, (prev) => prev?.filter((e) => e.id !== event.id));
       }
       setDetailOpen(false);
-      setDetail(null);
+      setDetailSelection(null);
       toast.success("Event deleted");
     } catch (err) {
+      if (isAbortError(err)) return;
+      try { assertActive(); } catch { return; }
       toast.error(
         err instanceof Error ? err.message : "Failed to delete event"
       );
     } finally {
-      setDeletingId(null);
+      settle();
     }
   };
 
@@ -487,7 +516,7 @@ export default function CalendarPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [view, year, month, focusedDate, jumpToDate, hiddenCountForDate, weekAnchor, selectedAgents, syncUrl]);
+  }, [view, year, month, focusedDate, jumpToDate, hiddenCountForDate, weekAnchor, selectedAgents, syncUrl, setWeekAnchor, setFocusedDate, setCreateDefault, setCreateOpen, setOpenPopoverKey]);
 
   // When focusedDate changes, move DOM focus onto that cell — but only if
   // focus is already inside the grid (don't steal focus on page load).
@@ -618,3 +647,5 @@ export default function CalendarPage() {
     </>
   );
 }
+
+const EMPTY_EVENTS: CalendarEvent[] = [];

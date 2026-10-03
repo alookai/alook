@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { toast } from "sonner"
+import { useAtom, useCreateAtom, useCreateStore } from "@tanstack/react-store";
+import { useEffect, useLayoutEffect } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toastApiError } from "@/lib/api/client"
 import { User, LogOut, Palette, Sun, Moon, Monitor, Database, Camera, Shield, CreditCard } from "lucide-react"
 import { useTheme } from "next-themes"
@@ -44,8 +45,8 @@ const USER_SETTINGS_TABS: SettingsShellTab<UserSettingsTab>[] = [
 
 function AppearanceSettings() {
   const { theme, setTheme } = useTheme()
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
+  const [mounted, setMounted] = useAtom(useCreateAtom(false))
+  useEffect(() => setMounted(true), [setMounted])
   const active = mounted ? theme ?? "system" : undefined
 
   return (
@@ -77,22 +78,23 @@ function AppearanceSettings() {
   )
 }
 
-type CacheSizeState = number | "loading" | "unavailable"
+const CACHE_SIZE_QUERY_KEY = ["device", "cache", "size"] as const
 
 export function AdvancedSettings() {
-  const [confirmOpen, setConfirmOpen] = useState(false)
-  const [clearing, setClearing] = useState(false)
-  const [cacheSize, setCacheSize] = useState<CacheSizeState>("loading")
+  const [confirmOpen, setConfirmOpen] = useAtom(useCreateAtom(false))
+  const [clearError, setClearError] = useAtom(useCreateAtom<string | null>(null))
+  const queryClient = useQueryClient()
+  const size = useQuery({ queryKey: CACHE_SIZE_QUERY_KEY, queryFn: ({ signal }) => getPersistedCacheSizeBytes(signal), retry: false, staleTime: 0 })
+  const clear = useMutation({ mutationFn: clearAllPersistedCaches })
+  const clearing = clear.isPending
+  const cacheSize = size.isPending ? "loading" : size.isError ? "unavailable" : size.data
+  const view = useCreateStore({ active: true, generation: 0 })
   const webVersion = process.env.NEXT_PUBLIC_APP_VERSION
 
-  useEffect(() => {
-    let active = true
-    void getPersistedCacheSizeBytes().then(
-      (bytes) => { if (active) setCacheSize(bytes) },
-      () => { if (active) setCacheSize("unavailable") },
-    )
-    return () => { active = false }
-  }, [])
+  useLayoutEffect(() => {
+    view.setState((state) => ({ ...state, active: true }))
+    return () => view.setState((state) => ({ active: false, generation: state.generation + 1 }))
+  }, [view])
 
   return (
     <>
@@ -105,22 +107,25 @@ export function AdvancedSettings() {
         loadingLabel="Clearing..."
         loading={clearing}
         onConfirm={async () => {
-          setClearing(true)
+          setClearError(null)
+          const generation = view.get().generation
+          const query = queryClient.getQueryCache().find({ queryKey: CACHE_SIZE_QUERY_KEY, exact: true })
+          const assertActive = () => {
+            const state = view.get()
+            if (!state.active || state.generation !== generation) throw new DOMException("Retired cache settings view", "AbortError")
+          }
           try {
-            await clearAllPersistedCaches()
-            setCacheSize(0)
-            setClearing(false)
+            await queryClient.cancelQueries({ queryKey: CACHE_SIZE_QUERY_KEY, exact: true })
+            assertActive()
+            await clear.mutateAsync()
+            assertActive()
+            if (query && queryClient.getQueryCache().find({ queryKey: CACHE_SIZE_QUERY_KEY, exact: true }) === query) await queryClient.refetchQueries({ queryKey: CACHE_SIZE_QUERY_KEY, exact: true })
+            assertActive()
             setConfirmOpen(false)
-            toast("Local cache cleared — reloading")
-            await new Promise<void>((resolve) => {
-              window.requestAnimationFrame(() => {
-                window.requestAnimationFrame(() => resolve())
-              })
-            })
-            window.location.reload()
-          } catch (e) {
-            toastApiError(e, "Failed to clear cache")
-            setClearing(false)
+          } catch (error) {
+            try { assertActive() } catch { return }
+            setClearError(error instanceof Error ? error.message : "Device cache has not been fully cleared. Please try again.")
+            toastApiError(error, "Failed to clear cache", assertActive)
             setConfirmOpen(false)
           }
         }}
@@ -128,6 +133,7 @@ export function AdvancedSettings() {
       <div className="mx-auto flex min-h-full w-full max-w-md flex-col">
         <section className="space-y-2">
           <h2 className="text-base font-medium tracking-tight">Clear local cache</h2>
+          {clearError && <p role="alert" className="text-sm text-destructive">{clearError}</p>}
           <p className="flex items-baseline justify-between gap-4 text-sm">
             <span className="text-muted-foreground">Cached messages</span>
             <span
@@ -187,19 +193,19 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
   // Draft + saved baseline are mount-only on purpose — a WS-driven prop change
   // (e.g. status fan-out echo) must not clobber an in-progress edit. The
   // baseline advances only on a successful save.
-  const [name, setName] = useState(userName)
-  const [value, setValue] = useState(aboutMe)
-  const [status, setStatus] = useState({ emoji: statusEmoji ?? null, text: statusText ?? null })
-  const [baseline, setBaseline] = useState({
+  const [name, setName] = useAtom(useCreateAtom(userName))
+  const [value, setValue] = useAtom(useCreateAtom(aboutMe))
+  const [status, setStatus] = useAtom(useCreateAtom({ emoji: statusEmoji ?? null, text: statusText ?? null }))
+  const [baseline, setBaseline] = useAtom(useCreateAtom({
     name: userName,
     aboutMe,
     emoji: statusEmoji ?? null,
     text: statusText ?? null,
-  })
-  const [tab, setTab] = useState<UserSettingsTab>(initialTab)
-  useEffect(() => { setTab(initialTab) }, [initialTab])
+  }))
+  const [tab, setTab] = useAtom(useCreateAtom<UserSettingsTab>(initialTab))
+  useEffect(() => { setTab(initialTab) }, [initialTab, setTab])
   const billing = useBilling(billingReturn, tab === "billing")
-  const [deletionOpen, setDeletionOpen] = useState(false)
+  const [deletionOpen, setDeletionOpen] = useAtom(useCreateAtom(false))
 
   const dirty =
     name !== baseline.name ||

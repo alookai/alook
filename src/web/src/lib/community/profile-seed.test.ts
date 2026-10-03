@@ -198,10 +198,12 @@ describe("profile seeding boundaries", () => {
         id: data.member.id,
         identityAbout: { name: data.member.name },
       }],
+      undefined,
+      registry,
     )
 
     expect(result).toBe(raw)
-    expect(apiFetch).toHaveBeenCalledWith("/profiles")
+    expect(apiFetch).toHaveBeenCalledWith("/profiles", expect.objectContaining({ authenticationAccount: "viewer", assertActive: expect.any(Function) }))
     expect(registry.collections.profiles.get("u2")?.name).toBe("API Alice")
   })
 

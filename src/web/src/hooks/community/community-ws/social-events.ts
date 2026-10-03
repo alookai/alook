@@ -22,7 +22,6 @@ import {
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import { removeDmReactionDetails } from "./reaction-details-invalidation"
 import { reconcileNotificationSettings } from "@/hooks/community/use-notification-settings"
-import { getFriendRequestActionController } from "@/hooks/community/use-friend-request-action-state"
 import { communityKeys } from "@/lib/query-keys"
 import {
   resolveDesktopSystemNotificationCandidate,
@@ -127,14 +126,6 @@ export function handleFriendEvent(
   if (event.type === "community:friend.request") {
     invalidateFriends(projection)
   } else {
-    projection.project(() => {
-      const controller = getFriendRequestActionController(queryClient)
-      if (event.type === "community:friend.block") {
-        controller.publishTerminalForUser(event.userId)
-      } else {
-        controller.publishTerminal(event.friendshipId)
-      }
-    })
     projection.fence("friends", {
       queryKey: communityKeys.friends(),
       exact: true,

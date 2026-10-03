@@ -1,6 +1,7 @@
 import React from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { act, render } from "@/test/react-dom-harness"
+import { act } from "@/test/react-dom-harness"
+import { renderCommunity as render } from "@/test/community-owner-harness"
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
@@ -22,7 +23,7 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({ serverId: "server_1" }),
   useRouter: () => ({ push: mocks.push }),
 }))
-vi.mock("@tanstack/react-query", () => ({
+vi.mock("@tanstack/react-query", async (importOriginal) => ({ ...await importOriginal<typeof import("@tanstack/react-query")>(),
   useQuery: () => ({
     data: {
       notFound: false,
@@ -93,7 +94,7 @@ vi.mock("../dividers", () => ({ DateDivider: () => null }))
 vi.mock("@/contexts/community/current-user", () => ({
   useCurrentUser: () => ({ id: "viewer_1" }),
 }))
-vi.mock("@/stores/community", () => ({ useUiHandlers: () => ({ cancelPendingNavigation: mocks.cancel }) }))
+vi.mock("@/stores/community", async (importOriginal) => ({ ...await importOriginal<typeof import("@/stores/community")>(), useUiHandlers: () => ({ cancelPendingNavigation: mocks.cancel }) }))
 vi.mock("@/hooks/use-hover-capable", () => ({ useHoverCapable: () => true }))
 vi.mock("@/hooks/community/mutations", () => ({
   usePinMessage: () => ({ mutate: mocks.pinMutate }),
@@ -178,21 +179,19 @@ describe("MessageContextSheet thread navigation", () => {
       messageId: "message_1",
       emoji: "👍",
       currentMe: false,
-      skipDefaultCache: true,
-      syncReactionState: expect.any(Function),
+      userId: "viewer_1",
+      onError: expect.any(Function),
     }))
     expect(mocks.addReactionApi).toHaveBeenCalledWith(expect.objectContaining({
       channelId: "parent_1",
       messageId: "message_1",
       emoji: "🔥",
       currentMe: false,
-      skipDefaultCache: true,
-      syncReactionState: expect.any(Function),
+      userId: "viewer_1",
+      onError: expect.any(Function),
     }))
 
-    const syncReactionState = mocks.addReactionApi.mock.calls[0]?.[0].syncReactionState
-    act(() => syncReactionState(true))
-    expect(mocks.setQueryData).toHaveBeenCalledWith(expect.anything(), expect.any(Function))
+    expect(mocks.setQueryData).not.toHaveBeenCalled()
   })
 
   it("exposes preview Pin only to managers and opens pinned only after success", () => {

@@ -1,59 +1,39 @@
 "use client"
 
 import { useEffect } from "react"
-import { usePathname, useRouter } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
+import { useSelector } from "@tanstack/react-store"
+import { getCommunityRuntime } from "@/stores/community/runtime"
+import { usePathname, useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { useCurrentUser } from "@/contexts/community/current-user"
-import type { ServersResponse } from "@/hooks/community/use-servers"
+import { useServers } from "@/hooks/community/use-servers"
 import { communityServerId } from "@/lib/community/community-route"
 import {
   consumeVoluntaryLeave,
-  isOwnerServerDeleteCompleted,
   runAuthoritativeServerEject,
 } from "@/lib/community/eject-server"
 import { clearLastChannel } from "@/lib/community/last-channel"
-import { communityKeys } from "@/lib/query-keys"
 
 /** Rechecks cached deleted-server history entries from the persistent `/c` tree. */
 export function OwnerServerDeleteRouteGuard() {
   const pathname = usePathname()
   const router = useRouter()
-  const queryClient = useQueryClient()
   const currentUser = useCurrentUser()
+  const queryClient = useQueryClient()
+  const list = useServers()
+  const serverId = communityServerId(pathname)
+  const completed = useSelector(getCommunityRuntime(queryClient).serverEject, (state) => !!serverId && state.flushedServerIds.has(serverId))
 
   useEffect(() => {
-    const serverId = communityServerId(pathname)
-    if (!serverId || !isOwnerServerDeleteCompleted(serverId)) return
+    if (!serverId || !completed) return
 
-    const eject = () => {
-      const key = communityKeys.servers()
-      const state = queryClient.getQueryState(key)
-      const servers = queryClient.getQueryData<ServersResponse>(key)?.servers ?? []
-      return runAuthoritativeServerEject({
-        serverId,
-        servers,
-        isSuccess: state?.status === "success",
-        isFetching: state?.fetchStatus === "fetching",
-        consumeVoluntaryLeave,
-        clearLastChannel,
-        toast,
-        accountId: currentUser.id,
-        routeHref: pathname,
-        replace: (destination) => router.replace(destination),
-      })
-    }
-
-    if (eject()) return
-    const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
-      if (event.query.queryHash !== queryClient.getQueryCache().find({
-        queryKey: communityKeys.servers(),
-        exact: true,
-      })?.queryHash) return
-      if (eject()) unsubscribe()
+    runAuthoritativeServerEject({
+      serverId, servers: list.servers, isSuccess: list.isSuccess, isFetching: list.isFetching,
+      consumeVoluntaryLeave: (id) => consumeVoluntaryLeave(queryClient, id), clearLastChannel, toast, accountId: currentUser.id, routeHref: pathname,
+      replace: (destination) => router.replace(destination),
     })
-    return unsubscribe
-  }, [currentUser.id, pathname, queryClient, router])
+  }, [completed, currentUser.id, pathname, queryClient, router, serverId, list.servers, list.isSuccess, list.isFetching])
 
   return null
 }

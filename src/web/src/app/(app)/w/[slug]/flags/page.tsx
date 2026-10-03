@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useCallback, useRef } from "react";
 import { useWorkspace } from "@/contexts/workspace-context";
-import { listFlaggedItems, unflagMessage as apiUnflagMessage, type FlaggedItem } from "@/lib/api";
-import { useFlagCount } from "@/contexts/flag-count-context";
+import { type FlaggedItem } from "@/lib/api";
+import { useUnflagWorkspaceMessage, useWorkspaceFlags } from "@/hooks/workspace/use-inbox";
 import { useAgentChatSheet } from "@/contexts/agent-chat-sheet-context";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,6 @@ import { AgentAvatar } from "@/components/avatar";
 import { relativeTime } from "@/lib/time";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
-const FLAG_LIMIT = 30;
 
 function FlagRow({
   item,
@@ -99,80 +98,17 @@ function SkeletonRow({ promptWidth }: { promptWidth: string }) {
 }
 
 export default function FlagsPage() {
-  const { slug, workspaceId } = useWorkspace();
-  const { decrement, increment } = useFlagCount();
+  const { slug } = useWorkspace();
   const { openAgentChat } = useAgentChatSheet();
 
-  const [items, setItems] = useState<FlaggedItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [hasMore, setHasMore] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-
+  const { items, isPending: loading, hasNextPage: hasMore, isFetchingNextPage: loadingMore, fetchNextPage } = useWorkspaceFlags();
+  const remove = useUnflagWorkspaceMessage();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const isFetchingRef = useRef(false);
-
-  const loadInitial = useCallback(async () => {
-    setLoading(true);
-    try {
-      const result = await listFlaggedItems(workspaceId, { limit: FLAG_LIMIT });
-      setItems(result.items);
-      setHasMore(result.has_more);
-    } catch {
-      // silently fail
-    } finally {
-      setLoading(false);
-    }
-  }, [workspaceId]);
-
-  useEffect(() => {
-    loadInitial();
-  }, [loadInitial]);
-
-  const loadMore = useCallback(async () => {
-    if (isFetchingRef.current || !hasMore || items.length === 0) return;
-    isFetchingRef.current = true;
-    setLoadingMore(true);
-    try {
-      const oldest = items[items.length - 1];
-      const result = await listFlaggedItems(workspaceId, {
-        limit: FLAG_LIMIT,
-        before: oldest.flagged_at,
-      });
-      if (result.items.length === 0) {
-        setHasMore(false);
-        return;
-      }
-      setHasMore(result.has_more);
-      setItems((prev) => {
-        const existingIds = new Set(prev.map((i) => i.id));
-        const unique = result.items.filter((i) => !existingIds.has(i.id));
-        return [...prev, ...unique];
-      });
-    } finally {
-      isFetchingRef.current = false;
-      setLoadingMore(false);
-    }
-  }, [workspaceId, items, hasMore]);
-
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
-    if (!el) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
-    if (!loadingMore && hasMore && nearBottom) {
-      loadMore();
-    }
-  }, [loadMore, loadingMore, hasMore]);
-
-  const handleUnflag = useCallback(async (item: FlaggedItem) => {
-    setItems((prev) => prev.filter((i) => i.id !== item.id));
-    decrement();
-    try {
-      await apiUnflagMessage(workspaceId, item.message_id);
-    } catch {
-      setItems((prev) => [...prev, item].sort((a, b) => b.flagged_at.localeCompare(a.flagged_at)));
-      increment();
-    }
-  }, [workspaceId, decrement, increment]);
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 200 && !loadingMore && hasMore) void fetchNextPage();
+  }, [fetchNextPage, loadingMore, hasMore]);
+  const handleUnflag = (item: FlaggedItem) => remove.mutate(item.message_id);
 
   return (
     <div className="flex flex-col h-full">

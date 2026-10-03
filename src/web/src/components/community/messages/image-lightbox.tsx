@@ -1,6 +1,8 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
+import { useEffect, useMemo } from "react"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import type { ImagePreview } from "@/lib/community/models/message"
 import { tid } from "@/lib/community/testids"
@@ -16,8 +18,8 @@ function PreviewFrame({ image }: { image: ImagePreview }) {
     () => validImageDimensions(image.width, image.height),
     [image.height, image.width],
   )
-  const [dimensions, setDimensions] = useState<ImageDimensions | undefined>(knownDimensions)
-  const [revealedAttempt, setRevealedAttempt] = useState<number | null>(null)
+  const [dimensions, setDimensions] = useAtom(useCreateAtom<ImageDimensions | undefined>(knownDimensions))
+  const [revealedAttempt, setRevealedAttempt] = useAtom(useCreateAtom<number | null>(null))
   const [
     thumbnailStatus,
     thumbnailAttempt,
@@ -55,7 +57,7 @@ function PreviewFrame({ image }: { image: ImagePreview }) {
     }
     const frameId = requestAnimationFrame(reveal)
     return () => cancelAnimationFrame(frameId)
-  }, [knownDimensions, originalAttempt, originalImage, originalStatus, thumbnailSettled])
+  }, [knownDimensions, originalAttempt, originalImage, originalStatus, setDimensions, setRevealedAttempt, thumbnailSettled])
 
   return (
     <div className="relative w-fit">

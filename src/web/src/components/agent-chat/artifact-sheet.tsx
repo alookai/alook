@@ -1,7 +1,8 @@
 "use client";
 
 import { FileDownloadButton } from "@/components/file-download-button"
-import React, { useState, useEffect } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect, useRef } from "react";
 import { useSheetResize, SheetResizeHandle } from "@/components/ui/sheet-resize-handle";
 import {
   Sheet,
@@ -37,7 +38,9 @@ const MAX_WIDTH_RATIO = 0.8;
 const DEFAULT_WIDTH = 448;
 
 export function ArtifactSheet({ open, onOpenChange, artifacts, workspaceId, initialArtifact = null, versionMap, duplicateFilenames }: ArtifactSheetProps) {
-  const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
+  const [selectedId, setSelectedId] = useAtom(useCreateAtom<string | null>(null));
+  const selectedArtifact = artifacts.find((row) => row.id === selectedId) ?? (initialArtifact?.id === selectedId ? initialArtifact : null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { width, onPointerDown, onPointerMove, onPointerUp } = useSheetResize({
     defaultWidth: DEFAULT_WIDTH,
     minWidth: MIN_WIDTH,
@@ -45,16 +48,17 @@ export function ArtifactSheet({ open, onOpenChange, artifacts, workspaceId, init
   });
 
   useEffect(() => {
-    if (open && initialArtifact) {
-      setSelectedArtifact(initialArtifact);
-    }
-  }, [open, initialArtifact]);
+    if (open && closeTimer.current !== null) { clearTimeout(closeTimer.current); closeTimer.current = null; }
+    if (open && initialArtifact) setSelectedId(initialArtifact.id);
+  }, [open, initialArtifact, setSelectedId]);
+
+  useEffect(() => () => { if (closeTimer.current !== null) clearTimeout(closeTimer.current); }, []);
 
   const handleOpenChange = (v: boolean) => {
     onOpenChange(v);
     if (!v) {
       // Defer clearing selected artifact until sheet closing animation completes
-      setTimeout(() => setSelectedArtifact(null), 300);
+      closeTimer.current = setTimeout(() => { closeTimer.current = null; setSelectedId(null); }, 300);
     }
   };
 
@@ -129,7 +133,7 @@ export function ArtifactSheet({ open, onOpenChange, artifacts, workspaceId, init
                   {artifacts.map((a) => (
                     <button
                       key={a.id}
-                      onClick={() => setSelectedArtifact(a)}
+                      onClick={() => setSelectedId(a.id)}
                       className="flex items-center gap-3 w-full rounded-lg px-3 py-2 text-left hover:bg-muted/50 transition-colors"
                     >
                       <FileText className="size-4 shrink-0 text-muted-foreground" />

@@ -1,3 +1,4 @@
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import * as React from "react";
 
 // True when the primary input is a precise pointer that can hover (mouse /
@@ -12,7 +13,7 @@ import * as React from "react";
 const QUERY = "(hover: hover) and (pointer: fine)";
 
 export function useHoverCapable(): boolean {
-  const [hoverCapable, setHoverCapable] = React.useState(true);
+  const [hoverCapable, setHoverCapable] = useAtom(useCreateAtom(true));
 
   React.useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) return;
@@ -21,7 +22,7 @@ export function useHoverCapable(): boolean {
     onChange();
     mql.addEventListener("change", onChange);
     return () => mql.removeEventListener("change", onChange);
-  }, []);
+  }, [setHoverCapable]);
 
   return hoverCapable;
 }

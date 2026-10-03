@@ -16,7 +16,7 @@ const command = {
 };
 
 describe("pushDiagnosticReportToMachine", () => {
-  beforeEach(() => wsDoFetch.mockReset());
+  beforeEach(() => { wsDoFetch.mockReset() });
 
   it("uses only the purpose-built diagnostics route and narrow body", async () => {
     wsDoFetch.mockResolvedValue(Response.json({ attempted: 1, sent: 1 }));

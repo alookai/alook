@@ -1,5 +1,6 @@
 import React from "react"
-import { act, render } from "@/test/react-dom-harness"
+import { act } from "@/test/react-dom-harness"
+import { renderCommunity as render } from "@/test/community-owner-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ChannelHeader } from "./channel-header"
 import { CommunityPanel } from "../shell/community-panel"
@@ -144,6 +145,7 @@ describe("ForumChannelSurface ownership", () => {
       forumProps.onDeletePost?.(ownPost)
     })
     expect(mocks.updatePostTags).toHaveBeenCalledWith({
+      assertActive: expect.any(Function),
       serverId: "srv_1",
       forumChannelId: "forum_1",
       threadId: "post_1",
@@ -152,6 +154,7 @@ describe("ForumChannelSurface ownership", () => {
       tags: ["shipped"],
     }, expect.any(Object))
     expect(mocks.deleteForumThread).toHaveBeenCalledWith({
+      assertActive: expect.any(Function),
       forumChannelId: "forum_1",
       serverId: "srv_1",
       threadId: "post_1",

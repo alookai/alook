@@ -1,8 +1,9 @@
 "use client"
 
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { GoogleTagManager } from "@next/third-parties/google"
 import { isMobile, isTauri } from "@alook/shared"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef } from "react"
 import { GeneratedAvatar } from "@/components/avatar"
 import {
   ANALYTICS_CONSENT_CHANGE_EVENT,
@@ -18,9 +19,9 @@ import styles from "./analytics-consent.module.css"
 const GTM_ID = "GTM-56VHCCQZ"
 
 function useStoredAnalyticsConsent(syncGoogleConsent = false) {
-  const [ready, setReady] = useState(false)
-  const [decision, setDecision] = useState<AnalyticsConsentDecision | null>(null)
-  const [nativeMobile, setNativeMobile] = useState(false)
+  const [ready, setReady] = useAtom(useCreateAtom(false))
+  const [decision, setDecision] = useAtom(useCreateAtom<AnalyticsConsentDecision | null>(null))
+  const [nativeMobile, setNativeMobile] = useAtom(useCreateAtom(false))
   const decisionRef = useRef<AnalyticsConsentDecision | null>(null)
 
   useEffect(() => {
@@ -42,14 +43,14 @@ function useStoredAnalyticsConsent(syncGoogleConsent = false) {
     }
     window.addEventListener(ANALYTICS_CONSENT_CHANGE_EVENT, onChange)
     return () => window.removeEventListener(ANALYTICS_CONSENT_CHANGE_EVENT, onChange)
-  }, [syncGoogleConsent])
+  }, [setDecision, setNativeMobile, setReady, syncGoogleConsent])
 
   return { ready, decision, nativeMobile }
 }
 
 function useAnalyticsConsentChoice() {
-  const [saving, setSaving] = useState<AnalyticsConsentDecision | null>(null)
-  const [error, setError] = useState(false)
+  const [saving, setSaving] = useAtom(useCreateAtom<AnalyticsConsentDecision | null>(null))
+  const [error, setError] = useAtom(useCreateAtom(false))
 
   const choose = useCallback(async (decision: AnalyticsConsentDecision) => {
     setSaving(decision)
@@ -62,7 +63,7 @@ function useAnalyticsConsentChoice() {
     } finally {
       setSaving(null)
     }
-  }, [])
+  }, [setError, setSaving])
 
   return { choose, saving, error }
 }
@@ -74,17 +75,17 @@ function ConsentButtons({
   saving: AnalyticsConsentDecision | null
   onChoose: (decision: AnalyticsConsentDecision) => void
 }) {
-  const [avatarSeeds, setAvatarSeeds] = useState([
+  const [avatarSeeds, setAvatarSeeds] = useAtom(useCreateAtom([
     "analytics-consent-lantern",
     "analytics-consent-pocket",
     "analytics-consent-orbit",
-  ])
+  ]))
 
   useEffect(() => {
     setAvatarSeeds(Array.from({ length: 3 }, (_, index) => (
       globalThis.crypto?.randomUUID?.() ?? `analytics-consent-${Date.now()}-${index}`
     )))
-  }, [])
+  }, [setAvatarSeeds])
 
   return (
     <div className={styles.actions}>

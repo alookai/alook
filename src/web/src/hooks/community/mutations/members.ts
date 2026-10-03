@@ -1,101 +1,82 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { apiFetch } from "@/lib/api/client"
-import { communityKeys } from "@/lib/query-keys"
+import { useMutation, useQueryClient, type Query, type MutateOptions } from "@tanstack/react-query"
+import { useCallback } from "react"
 import type { CommunityRole } from "@alook/shared"
-import {
-  dispatchMemberOverlayEvent,
-  patchCacheKick,
-  patchCacheRole,
-  type MembersEnvelope,
-} from "@/hooks/community/use-server-members"
-import type { InfiniteData } from "@tanstack/react-query"
+import { useCommunityMutationOrigin } from "../community-origin"
+import { communityKeys } from "@/lib/query-keys"
+import { beginCommunityCommandRevision, publishCommunityMemberRole, publishCommunityMemberRemoval } from "@/lib/community-db/sync"
+import { serverMembershipSchema } from "@/lib/community-db/schema"
+import { patchMemberKickWindows } from "../use-server-members"
 
-/**
- * Member-scoped mutations. Both mutations pipe through the
- * `communityKeys.members(serverId)` infinite-cache and reuse the pure patch
- * helpers exported from `use-server-members.ts`. The WS layer patches the
- * same cache on `member.update` / `member.leave`, so success-path
- * invalidation is unnecessary.
- */
+type MemberView = (() => void) & { signal: AbortSignal }
+export type SetMemberRoleArgs = { serverId: string; memberId: string; role: CommunityRole; assertActive?: MemberView }
+export type KickMemberArgs = { serverId: string; memberId: string; assertActive?: MemberView }
 
-type MembersPageCache = InfiniteData<MembersEnvelope>
-
-// ── Set member role ────────────────────────────────────────────────────────
-
-export type SetMemberRoleArgs = {
-  serverId: string
-  memberId: string
-  role: CommunityRole
-}
-
-export function useSetMemberRole() {
-  const queryClient = useQueryClient()
-  return useMutation<void, Error, SetMemberRoleArgs, { snapshot: MembersPageCache | undefined }>({
-    mutationFn: async ({ serverId, memberId, role }) => {
-      await apiFetch(`/api/community/servers/${serverId}/members/${memberId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ role }),
-      })
-    },
-    onMutate: async (args) => {
-      const key = communityKeys.members(args.serverId)
-      await queryClient.cancelQueries({ queryKey: key })
-      const snapshot = queryClient.getQueryData<MembersPageCache>(key)
-      queryClient.setQueryData<MembersPageCache | undefined>(key, (cache) =>
-        patchCacheRole(cache, args.memberId, args.role),
-      )
-      // Mirror the role change onto any active search overlay so a member
-      // shown in the search results reflects the new role while the request
-      // is in flight (and after — the server won't fan out a MEMBER_UPDATE
-      // to the acting client, so this is the only source of truth for the
-      // overlay).
-      dispatchMemberOverlayEvent({
-        type: "role",
-        serverId: args.serverId,
-        memberId: args.memberId,
-        role: args.role,
-      })
-      return { snapshot }
-    },
-    onError: (_err, args, ctx) => {
-      if (ctx?.snapshot) queryClient.setQueryData(communityKeys.members(args.serverId), ctx.snapshot)
-      dispatchMemberOverlayEvent({ type: "refresh", serverId: args.serverId })
-    },
-  })
-}
-
-// ── Kick member ────────────────────────────────────────────────────────────
-
-export type KickMemberArgs = { serverId: string; memberId: string }
-
-export function useKickMember() {
-  const queryClient = useQueryClient()
-  return useMutation<void, Error, KickMemberArgs, { snapshot: MembersPageCache | undefined }>({
-    mutationFn: async ({ serverId, memberId }) => {
-      await apiFetch(`/api/community/servers/${serverId}/members/${memberId}`, {
-        method: "DELETE",
-      })
-    },
-    onMutate: async (args) => {
-      const key = communityKeys.members(args.serverId)
-      await queryClient.cancelQueries({ queryKey: key })
-      const snapshot = queryClient.getQueryData<MembersPageCache>(key)
-      queryClient.setQueryData<MembersPageCache | undefined>(key, (cache) =>
-        patchCacheKick(cache, args.memberId),
-      )
-      // Mirror the removal onto any active search overlay.
-      dispatchMemberOverlayEvent({
-        type: "kick",
-        serverId: args.serverId,
-        memberId: args.memberId,
-      })
-      return { snapshot }
-    },
-    onError: (_err, args, ctx) => {
-      if (ctx?.snapshot) queryClient.setQueryData(communityKeys.members(args.serverId), ctx.snapshot)
-      dispatchMemberOverlayEvent({ type: "refresh", serverId: args.serverId })
+function useMemberCommand<TInput extends KickMemberArgs>(kind: "role" | "kick") {
+  const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
+  type Intent = { kind: typeof kind; input: SetMemberRoleArgs | KickMemberArgs; original: ReturnType<typeof origin.begin>["token"]; resources: Query[] }
+  const native = useMutation({
+    mutationKey: ["community", "member-command"], scope: { id: "community-member-command" }, gcTime: 0,
+    mutationFn: async ({ kind, input, original, resources }: Intent) => {
+      origin.assert(original)
+      input.assertActive?.()
+      const registry = origin.registry!
+      await registry.ready
+      origin.assert(original)
+      await registry.collections.serverMemberships.preload()
+      origin.assert(original)
+      const root = communityKeys.members(input.serverId)
+      await queryClient.cancelQueries({ queryKey: root, predicate: (query) => resources.includes(query) })
+      origin.assert(original)
+      input.assertActive?.()
+      const proof = beginCommunityCommandRevision(queryClient, original)
+      const committed = () => queryClient.getQueryData<ReturnType<typeof serverMembershipSchema.parse>[]>(communityKeys.communityDbCollection(registry.scopeId, "serverMemberships")) ?? [...registry.collections.serverMemberships.values()]
+      const row = committed().find((row) => row.serverId === input.serverId && row.memberId === input.memberId)
+      const memberKey = row?.id
+      const persist = async () => {
+        await origin.request(original, "/api/community/servers/" + input.serverId + "/members/" + input.memberId, { method: kind === "role" ? "PATCH" : "DELETE", signal: input.assertActive?.signal, assertActive: input.assertActive, ...(kind === "role" ? { body: JSON.stringify({ role: (input as SetMemberRoleArgs).role }) } : {}) })
+        origin.assert(original)
+        if (kind === "role") {
+          if (memberKey) publishCommunityMemberRole(queryClient, memberKey, input.memberId, (input as SetMemberRoleArgs).role, { token: proof, signal: input.assertActive?.signal })
+        } else {
+          const current = memberKey ? committed().find((row) => row.id === memberKey) : undefined
+          if (!memberKey || current?.memberId === input.memberId) {
+            if (memberKey) publishCommunityMemberRemoval(queryClient, memberKey, input.memberId, { token: proof, signal: input.assertActive?.signal })
+            patchMemberKickWindows(queryClient, resources, input.memberId)
+          }
+        }
+      }
+      const invalidateOriginal = () => {
+        try { origin.assert(original) } catch { return }
+        for (const resource of resources) {
+          if (queryClient.getQueryCache().find({ queryKey: resource.queryKey, exact: true }) === resource) void queryClient.invalidateQueries({ queryKey: resource.queryKey, exact: true }, { cancelRefetch: false })
+        }
+      }
+      try {
+      if (memberKey && registry.collections.serverMemberships.get(memberKey)?.memberId === input.memberId) {
+        const transaction = registry.dbClient.createTransaction({ mutationFn: persist })
+        transaction.mutate(() => {
+          if (kind === "role") registry.collections.serverMemberships.update(memberKey, (row) => { row.role = (input as SetMemberRoleArgs).role })
+          else registry.collections.serverMemberships.delete(memberKey)
+        })
+        try { await transaction.isPersisted.promise } catch (error) { origin.assert(original); throw error }
+      } else await persist()
+      origin.assert(original)
+      } finally { invalidateOriginal() }
     },
   })
+  const capture = useCallback((input: TInput): Intent => { input.assertActive?.(); return { kind, input, original: origin.begin().token, resources: queryClient.getQueryCache().findAll({ queryKey: communityKeys.members(input.serverId) }) } }, [kind, origin, queryClient])
+  const qualify = useCallback((callbacks?: MutateOptions<void, Error, TInput, unknown>): MutateOptions<void, Error, Intent, unknown> | undefined => callbacks && ({
+    onSuccess: (data, args, result, context) => { try { origin.assert(args.original); args.input.assertActive?.() } catch { return } callbacks.onSuccess?.(data, args.input as TInput, result, context) },
+    onError: (error, args, result, context) => { try { origin.assert(args.original); args.input.assertActive?.() } catch { return } callbacks.onError?.(error, args.input as TInput, result, context) },
+    onSettled: (data, error, args, result, context) => { try { origin.assert(args.original); args.input.assertActive?.() } catch { return } callbacks.onSettled?.(data, error, args.input as TInput, result, context) },
+  }), [origin])
+  const nativeMutate = native.mutate, nativeMutateAsync = native.mutateAsync
+  const mutate = useCallback((input: TInput, callbacks?: MutateOptions<void, Error, TInput, unknown>) => nativeMutate(capture(input), qualify(callbacks)), [nativeMutate, capture, qualify])
+  const mutateAsync = useCallback((input: TInput, callbacks?: MutateOptions<void, Error, TInput, unknown>) => nativeMutateAsync(capture(input), qualify(callbacks)), [nativeMutateAsync, capture, qualify])
+  return { ...native, mutate, mutateAsync }
 }
+
+export const useSetMemberRole = () => useMemberCommand<SetMemberRoleArgs>("role")
+export const useKickMember = () => useMemberCommand<KickMemberArgs>("kick")

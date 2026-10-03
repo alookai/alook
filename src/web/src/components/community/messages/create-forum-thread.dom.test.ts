@@ -6,7 +6,9 @@
 import { beforeEach, describe, it, expect, vi } from "vitest"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { act, fireEvent, render as renderDom } from "@/test/react-dom-harness"
+import { act, fireEvent, render as renderDom, waitFor } from "@/test/react-dom-harness"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
 
 const uploadMock = vi.hoisted(() => vi.fn())
 const composerCapture = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }))
@@ -22,32 +24,29 @@ vi.mock("./composer", () => ({
       "data-hide-emoji": String(!!props.hideEmoji),
       "data-placeholder": (props.placeholder as string) ?? "",
       onSubmit: props.onDeferredSubmit,
-      onDirty: props.onDirty,
     })
   },
 }))
 
-vi.mock("@/hooks/community/mutations/uploads", () => ({
-  useUploadFile: () => ({ mutateAsync: uploadMock }),
-  zipUploadResultsWithDimensions: (results: unknown[]) => results,
-}))
+vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => uploadMock(...args), toastApiError: vi.fn() }))
 
 import { CreateForumThread } from "./create-forum-thread"
+let owner: Awaited<ReturnType<typeof createCommunityQueryOwner>>
+beforeEach(async () => { uploadMock.mockReset(); owner = await createCommunityQueryOwner() })
 
 function render(over: Partial<Parameters<typeof CreateForumThread>[0]> = {}) {
   return renderToStaticMarkup(
-    createElement(CreateForumThread, {
+    createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, retainOwner: true }, createElement(CreateForumThread, {
       forumChannelId: "cha_forum",
       members: [],
       onCancel: () => {},
       onCreatePost: async () => {},
       ...over,
-    }),
+    })),
   )
 }
 
 describe("CreateForumThread — copy + structure", () => {
-  beforeEach(() => uploadMock.mockReset())
   it("renders the region role + label so keyboard/SR users land in a named region", () => {
     const html = render()
     expect(html).toContain('role="region"')
@@ -121,12 +120,12 @@ describe("CreateForumThread — copy + structure", () => {
     })
     const file = new File(["original"], "photo.png", { type: "image/png" })
     const thumbnailBlob = new Blob(["thumbnail"], { type: "image/jpeg" })
-    const renderer = renderDom(createElement(CreateForumThread, {
+    const renderer = renderDom(createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, retainOwner: true }, createElement(CreateForumThread, {
       forumChannelId: "cha_forum",
       members: [],
       onCancel: () => {},
       onCreatePost,
-    }))
+    })))
     fireEvent.change(renderer.getByPlaceholderText("New post"), { target: { value: "Post" } })
     act(() => (composerCapture.current?.onDirty as (dirty: boolean) => void)(true))
     const attachments = [{ file, thumbnailBlob, width: 640, height: 480 }]
@@ -139,12 +138,18 @@ describe("CreateForumThread — copy + structure", () => {
     await act(async () => {
       await submit("photo", attachments, undefined)
     })
+    await waitFor(() => {
+      expect(onCreatePost).toHaveBeenCalledOnce()
+      expect(owner.client.getMutationCache().findAll({ mutationKey: ["community", "forum-compose"], status: "pending" })).toHaveLength(0)
+    })
     await act(async () => {
       await submit("photo", attachments, undefined)
     })
+    await waitFor(() => expect(onCreatePost).toHaveBeenCalledTimes(2))
 
     expect(uploadMock).toHaveBeenCalledTimes(1)
-    expect(uploadMock).toHaveBeenCalledWith(expect.objectContaining({ thumbnailBlob }))
+    expect(uploadMock).toHaveBeenCalledWith("/api/community/channels/cha_forum/attachments", expect.objectContaining({ body: expect.any(FormData), authenticationAccount: "viewer", signal: expect.any(AbortSignal) }))
+    expect(uploadMock.mock.calls[0][1].body.get("thumbnail")).toMatchObject({ size: thumbnailBlob.size, type: "image/jpeg" })
     expect(onCreatePost).toHaveBeenCalledTimes(2)
     for (const [post] of onCreatePost.mock.calls) {
       expect(post.attachments).toEqual([expect.objectContaining({ hasThumbnail: true })])

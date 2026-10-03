@@ -1,5 +1,6 @@
+import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import React from "react"
-import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { focusManager, QueryClient } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
@@ -155,7 +156,7 @@ describe("billing queries and redirects", () => {
       void view.result.current.checkout("price_studio", true, "billing_sheet")
     })
     expect(mocks.api.mock.calls.filter(([url]) => url.endsWith("/checkout"))).toHaveLength(1)
-    expect(mocks.api).toHaveBeenCalledWith("/api/community/billing/checkout", { method: "POST", body: '{"priceId":"price_house","founderAcknowledged":true}' })
+    expect(mocks.api).toHaveBeenCalledWith("/api/community/billing/checkout", expect.objectContaining({ method: "POST", body: '{"priceId":"price_house","founderAcknowledged":true}' }))
     await act(async () => { reject(new Error("cancel")); await request })
     expect(view.result.current.data?.isFounder).toBe(true)
     view.unmount()
@@ -174,7 +175,7 @@ describe("billing queries and redirects", () => {
       void view.result.current.checkout("price_two", false, "billing_sheet")
     })
     expect(mocks.api.mock.calls.filter(([url]) => url.endsWith("/checkout"))).toHaveLength(1)
-    expect(mocks.api).toHaveBeenCalledWith("/api/community/billing/checkout", { method: "POST", body: '{"priceId":"price_one"}' })
+    expect(mocks.api).toHaveBeenCalledWith("/api/community/billing/checkout", expect.objectContaining({ method: "POST", body: '{"priceId":"price_one"}' }))
     await act(async () => { reject(new Error("timeout")); await request })
     expect(view.result.current.isBusy).toBe(false)
     expect(view.result.current.actionError).toContain("resume your purchase")
@@ -205,7 +206,7 @@ describe("billing queries and redirects", () => {
     mocks.api.mockImplementation((url: string) => Promise.resolve(url.endsWith("/portal") ? { url: "https://billing.stripe.com/p/session" } : free))
     vi.stubGlobal("window", mockWindow)
     await act(async () => { await view.result.current.portal("price_target") })
-    expect(mocks.api).toHaveBeenCalledWith("/api/community/billing/portal", { method: "POST", body: '{"priceId":"price_target"}' })
+    expect(mocks.api).toHaveBeenCalledWith("/api/community/billing/portal", expect.objectContaining({ method: "POST", body: '{"priceId":"price_target"}' }))
     expect(assign).toHaveBeenCalledWith("https://billing.stripe.com/p/session")
     expect(view.result.current.isBusy).toBe(true)
     vi.stubGlobal("window", originalWindow)
@@ -213,7 +214,7 @@ describe("billing queries and redirects", () => {
     Object.defineProperty(restored, "persisted", { value: true })
     await act(async () => { originalWindow.dispatchEvent(restored) })
     expect(view.result.current.isBusy).toBe(false)
-    expect(view.invalidate).toHaveBeenCalledWith({ queryKey: communityKeys.billing() })
+    expect(view.invalidate).toHaveBeenCalledWith({ queryKey: communityKeys.billing(), exact: true })
     view.unmount()
   })
 
@@ -273,7 +274,7 @@ describe("billing queries and redirects", () => {
     await waitFor(() => expect(view.result.current.data?.subscription?.scheduledChange).toBeTruthy())
     const response = { ...scheduled, plan: crossedPeriod ? free.plan : house, subscription: { ...scheduled.subscription, scheduledChange: null } }
     let finish!: (value: unknown) => void
-    mocks.api.mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+    mocks.api.mockImplementation((url: string) => url.endsWith("/cancel-change") ? new Promise((resolve) => { finish = resolve }) : Promise.resolve(response))
     let request!: Promise<void>
     await act(async () => {
       request = view.result.current.cancelChange()
@@ -281,7 +282,7 @@ describe("billing queries and redirects", () => {
       void view.result.current.portal()
     })
     expect(mocks.api.mock.calls.filter(([url]) => url.endsWith("/cancel-change"))).toHaveLength(1)
-    expect(mocks.api).toHaveBeenLastCalledWith("/api/community/billing/cancel-change", { method: "POST" })
+    expect(mocks.api).toHaveBeenLastCalledWith("/api/community/billing/cancel-change", expect.objectContaining({ method: "POST", authenticationAccount: "viewer", assertActive: expect.any(Function), onUnauthorized: expect.any(Function) }))
     await waitFor(() => expect(view.result.current.isCancelingChange).toBe(true))
     await act(async () => { finish(response); await request })
     await waitFor(() => expect(view.result.current.data).toEqual(response))

@@ -1,6 +1,8 @@
+import { useLayoutEffect } from "react"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import React from "react"
-import { act, renderHook } from "@/test/react-dom-harness"
+import { act, renderHook as renderHookLeaf, render as renderLeaf, waitFor } from "@/test/react-dom-harness"
 import { useFileAttachments, type PendingFile } from "./use-file-attachments"
 import {
   readComposerAttachmentSession,
@@ -33,6 +35,13 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+function NativeFiles({ children }: { children: React.ReactNode }) {
+  const [client] = React.useState(() => new QueryClient())
+  React.useEffect(() => () => client.clear(), [client])
+  return React.createElement(QueryClientProvider, { client }, children)
+}
+const render: typeof renderLeaf = (node, options) => renderLeaf(node, { ...options, wrapper: NativeFiles })
+const renderHook: typeof renderHookLeaf = (hook, options) => renderHookLeaf(hook, { ...options, wrapper: NativeFiles })
 async function renderCapture(options?: Parameters<typeof useFileAttachments>[0]) {
   const rendered = renderHook(
     ({ currentOptions }: { currentOptions?: Parameters<typeof useFileAttachments>[0] }) =>
@@ -367,6 +376,7 @@ describe("useFileAttachments — PendingFile width/height", () => {
       stalePreparation = hook.current.addPendingFiles([restored])
     })
     const [{ draftId }] = readComposerAttachmentSession("scope-a")
+    await waitFor(() => expect(prepareCommunityImageMock).toHaveBeenCalledTimes(1))
 
     await hook.rerender({ ...options, draftSessionScope: "scope-b" })
     await hook.rerender(options)
@@ -377,7 +387,7 @@ describe("useFileAttachments — PendingFile width/height", () => {
       await stalePreparation
       await Promise.resolve()
     })
-    expect(prepareCommunityImageMock).toHaveBeenCalledTimes(2)
+    await waitFor(() => expect(prepareCommunityImageMock).toHaveBeenCalledTimes(2))
 
     const tenFiles = Array.from({ length: 10 }, (_, index) =>
       new File([String(index)], `${index}.txt`, { type: "text/plain" }))
@@ -410,5 +420,45 @@ describe("useFileAttachments — PendingFile width/height", () => {
     const generic = await renderCapture()
     await generic.addFiles(files)
     expect(generic.current.pendingFiles).toHaveLength(11)
+  })
+})
+
+
+describe("attachment view retirement", () => {
+  it("releases and recreates thumbnail handles when the same Activity becomes visible", async () => {
+    generateThumbnailMock.mockResolvedValue({ blob: new Blob(["thumbnail"]), width: 10, height: 10 })
+    let current!: ReturnType<typeof useFileAttachments>
+    function Capture() { const value = useFileAttachments(); React.useLayoutEffect(() => { current = value }); return null }
+    function App({ hidden }: { hidden: boolean }) { return React.createElement(React.Activity, { mode: hidden ? "hidden" : "visible" }, React.createElement(Capture)) }
+    const mounted = render(React.createElement(App, { hidden: false }))
+    const file = new File(["file"], "photo.png", { type: "image/png" })
+    await act(async () => current.addPendingFiles([file]))
+    expect(current.pendingFiles[0].thumbnailUrl).toBe("blob:fake")
+    act(() => mounted.rerender(React.createElement(App, { hidden: true })))
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:fake")
+    act(() => mounted.rerender(React.createElement(App, { hidden: false })))
+    await waitFor(() => expect(current.pendingFiles[0].thumbnailUrl).toBe("blob:fake"))
+    expect(current.pendingFiles[0].file).toBe(file)
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(2)
+  })
+  it("held preparation from a retired Activity cannot publish after reactivation", async () => {
+    let finish!: (value: unknown) => void
+    generateThumbnailMock.mockReturnValueOnce(new Promise((resolve) => { finish = resolve }))
+    let current!: ReturnType<typeof useFileAttachments>
+    function Capture() { const value = useFileAttachments(); React.useLayoutEffect(() => { current = value }); return null }
+    function App({ hidden }: { hidden: boolean }) { return React.createElement(React.Activity, { mode: hidden ? "hidden" : "visible" }, React.createElement(Capture)) }
+    const mounted = render(React.createElement(App, { hidden: false }))
+    let preparation!: Promise<void>
+    act(() => { preparation = current.addPendingFiles([new File(["old"], "old.png", { type: "image/png" })]) })
+    await waitFor(() => expect(generateThumbnailMock).toHaveBeenCalledTimes(1))
+    act(() => mounted.rerender(React.createElement(App, { hidden: true })))
+    act(() => mounted.rerender(React.createElement(App, { hidden: false })))
+    await act(async () => { finish({ blob: new Blob(["old"]), width: 10, height: 10 }); await preparation })
+    expect(current.pendingFiles).toEqual([])
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+    generateThumbnailMock.mockResolvedValueOnce(null)
+    await act(async () => current.addPendingFiles([new File(["new"], "new.txt")]))
+    expect(current.pendingFiles.map((row) => row.file.name)).toEqual(["new.txt"])
   })
 })

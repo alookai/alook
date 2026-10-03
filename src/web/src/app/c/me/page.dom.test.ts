@@ -1,4 +1,7 @@
 import { createElement } from "react"
+import { QueryClient } from "@tanstack/react-query"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { createCommunityDbRegistry } from "@/lib/community-db/collections"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { render, screen } from "@/test/react-dom-harness"
 
@@ -19,9 +22,6 @@ vi.mock("@/lib/community/last-me-location", () => ({
   getLastMeLeaf: () => mocks.lastLeaf,
   pickMeLandingLocation: (leaf: string | null) => `/c/me/${leaf ?? "friends"}`,
 }))
-vi.mock("@/lib/community/eject-server", () => ({
-  isOwnerServerDeleteMeRootLanding: () => mocks.ownerDeleteRootLanding,
-}))
 vi.mock("@/components/community/shell/community-pending-frame", () => ({
   CommunityPendingFrame: ({ href }: { href: string }) => createElement("div", {
     "data-testid": "pending-frame",
@@ -30,6 +30,13 @@ vi.mock("@/components/community/shell/community-pending-frame", () => ({
 }))
 
 import MeListPage from "./page"
+
+function renderPage() {
+  const client = new QueryClient()
+  const registry = createCommunityDbRegistry(client, "viewer")
+  registry.runtime.serverEject.setState((state) => ({ ...state, meRootLanding: mocks.ownerDeleteRootLanding }))
+  return render(createElement(CommunityTestProvider, { client }, createElement(MeListPage)))
+}
 
 describe("MeListPage", () => {
   beforeEach(() => {
@@ -42,7 +49,7 @@ describe("MeListPage", () => {
 
   it.each(["unknown", "mobile"] as const)("keeps %s on the canonical list root", (breakpoint) => {
     mocks.breakpoint = breakpoint
-    const rendered = render(createElement(MeListPage))
+    const rendered = renderPage()
     expect(mocks.replace).not.toHaveBeenCalled()
     expect(rendered.container).toBeEmptyDOMElement()
   })
@@ -50,7 +57,7 @@ describe("MeListPage", () => {
   it("replaces desktop with remembered leaf while keeping its pending module mounted", () => {
     mocks.breakpoint = "desktop"
     mocks.lastLeaf = "dm-last"
-    render(createElement(MeListPage))
+    renderPage()
     expect(mocks.replace).toHaveBeenCalledTimes(1)
     expect(mocks.replace).toHaveBeenCalledWith("/c/me/dm-last")
     expect(screen.getByTestId("pending-frame")).toHaveAttribute("data-href", "/c/me/dm-last")
@@ -58,7 +65,7 @@ describe("MeListPage", () => {
 
   it("defaults desktop to Friends", () => {
     mocks.breakpoint = "desktop"
-    render(createElement(MeListPage))
+    renderPage()
     expect(mocks.replace).toHaveBeenCalledWith("/c/me/friends")
     expect(screen.getByTestId("pending-frame")).toHaveAttribute("data-href", "/c/me/friends")
   })
@@ -66,7 +73,7 @@ describe("MeListPage", () => {
   it("keeps an explicit owner-delete landing on the canonical root", () => {
     mocks.breakpoint = "desktop"
     mocks.ownerDeleteRootLanding = true
-    const rendered = render(createElement(MeListPage))
+    const rendered = renderPage()
     expect(mocks.replace).not.toHaveBeenCalled()
     expect(rendered.container).toBeEmptyDOMElement()
   })
@@ -74,7 +81,7 @@ describe("MeListPage", () => {
   it("keeps desktop on the canonical root while onboarding is active", () => {
     mocks.breakpoint = "desktop"
     mocks.onboarding = { status: "active", stage: "harness" }
-    const rendered = render(createElement(MeListPage))
+    const rendered = renderPage()
     expect(mocks.replace).not.toHaveBeenCalled()
     expect(rendered.container).toBeEmptyDOMElement()
   })

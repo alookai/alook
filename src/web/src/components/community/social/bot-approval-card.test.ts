@@ -8,7 +8,7 @@ import { BotApprovalCard } from "./bot-approval-card"
 import { avatarInitial } from "@/lib/community/avatar"
 
 const profileState = vi.hoisted(() => ({ map: new Map<string, Record<string, unknown>>() }))
-vi.mock("@/lib/community-db/projections", () => ({
+vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
   useCanonicalCommunityProfile: (id?: string) => id ? profileState.map.get(id) : undefined,
 }))
 

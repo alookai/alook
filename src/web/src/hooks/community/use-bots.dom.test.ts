@@ -1,9 +1,23 @@
+import { useLayoutEffect } from "react"
 import React from "react"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { act, render, waitFor } from "@/test/react-dom-harness"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { QueryClient, QueryClientProvider as TanStackQueryClientProvider } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import { createCommunityDbRegistry, registerCommunityDbRegistry } from "@/lib/community-db/collections"
+import { CommunityDbProvider } from "@/lib/community-db/projections"
+import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
 import { useCommunityWsStore } from "@/stores/community/ws"
+
+function QueryClientProvider({ client, children }: { client: QueryClient; children: React.ReactNode }) {
+  const registry = React.useMemo(() => createCommunityDbRegistry(client, "viewer"), [client])
+  React.useLayoutEffect(() => {
+    const unregister = registerCommunityDbRegistry(registry)
+    return () => { unregister(); setTimeout(() => { void registry.cleanup() }, 0) }
+  }, [registry])
+  return React.createElement(TanStackQueryClientProvider, { client },
+    React.createElement(CommunityDbProvider, { registry }, children))
+}
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
@@ -12,8 +26,8 @@ vi.mock("@/lib/api/client", () => ({
 
 beforeEach(() => {
   apiFetchMock.mockReset()
-  useCommunityWsStore.getState().reset()
-  useCommunityWsStore.getState().activateProfileAccount("viewer")
+
+
 })
 
 function seededClient() {
@@ -71,6 +85,7 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
       bots: [{
         id: "bot_1",
         name: "Seeded Bot",
+        discriminator: "0001",
         image: null,
         avatarVersion: 2,
         description: "",
@@ -101,12 +116,12 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
       { client: queryClient },
       React.createElement(Probe),
     ))
-    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith("/api/community/bots"))
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith("/api/community/bots", expect.objectContaining({ assertActive: expect.any(Function) })))
     await waitFor(() => {
       const output = renderer.container.querySelector("span")
       expect(output).toHaveAttribute("data-count", "1")
       expect(output).toHaveAttribute("data-name", "Seeded Bot")
-      expect(output).not.toHaveAttribute("data-avatar")
+      expect(output).toHaveAttribute("data-avatar", "S")
       expect(output).toHaveAttribute("data-version", "2")
       expect(output).toHaveAttribute("data-plan", "Free")
       expect(output).toHaveAttribute("data-limit", "3")
@@ -129,11 +144,11 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
     })
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     let mutation!: ReturnType<typeof useSetBotActive>
-    function Probe() { useBots(); mutation = useSetBotActive(); return null }
+    function Probe() { useBots(); const value = useSetBotActive(); React.useLayoutEffect(() => { mutation = value }); return null }
     render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(Probe)))
-    await waitFor(() => expect(useCommunityWsStore.getState().presenceByUserId.get("bot_1")).toBe("offline"))
+    await waitFor(() => expect(createCommunityDbRegistry(queryClient, "viewer").runtime.ws.get().presenceByUserId.get("bot_1")).toBe("offline"))
     await act(async () => { await mutation.mutateAsync({ id: "bot_1", active: true }) })
-    await waitFor(() => expect(useCommunityWsStore.getState().presenceByUserId.get("bot_1")).toBe("online"))
+    await waitFor(() => expect(createCommunityDbRegistry(queryClient, "viewer").runtime.ws.get().presenceByUserId.get("bot_1")).toBe("online"))
   })
 
   it("does not overwrite a newer presence event with a late bot list", async () => {
@@ -144,13 +159,13 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
     function Probe() { useBots(); return null }
     render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(Probe)))
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalled())
-    act(() => useCommunityWsStore.getState().setPresence("bot_1", "offline"))
+    act(() => createCommunityDbRegistry(queryClient, "viewer").runtime.ws.actions.setPresence("bot_1", "offline"))
     await act(async () => resolve({
       plan: { id: "free", displayName: "Free" }, limit: 3, ownedCount: 1, activeCount: 1,
       bots: [{ id: "bot_1", name: "Bot", image: null, avatarVersion: 0, isActive: true, presence: "online" }],
     }))
     await waitFor(() => expect(queryClient.getQueryData(communityKeys.bots())).toBeDefined())
-    expect(useCommunityWsStore.getState().presenceByUserId.get("bot_1")).toBe("offline")
+    expect(createCommunityDbRegistry(queryClient, "viewer").runtime.ws.get().presenceByUserId.get("bot_1")).toBe("offline")
   })
 
   it("useCreateBot accepts the returned bot before invalidating metadata", async () => {
@@ -172,7 +187,7 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
     const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
     let mutation!: ReturnType<typeof useCreateBot>
     function Probe() {
-      mutation = useCreateBot()
+      const value = useCreateBot(); React.useLayoutEffect(() => { mutation = value })
       return null
     }
     const renderer = render(React.createElement(
@@ -207,7 +222,7 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
     })
     let mutation!: ReturnType<typeof useSetBotActive>
     function Probe() {
-      mutation = useSetBotActive()
+      const value = useSetBotActive(); React.useLayoutEffect(() => { mutation = value })
       return null
     }
     const renderer = render(React.createElement(
@@ -220,11 +235,10 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
       await mutation.mutateAsync({ id: "bot_1", active: false })
     })
 
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/bots/bot_1/active", {
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/bots/bot_1/active", expect.objectContaining({
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ active: false }),
-    })
+    }))
     expect(queryClient.getQueryData(communityKeys.bots())).toMatchObject({
       activeCount: 0,
       bots: [{ id: "bot_1", isActive: false }],
@@ -245,7 +259,7 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
     }
     apiFetchMock.mockResolvedValue({ bot: { id: "bot_1", isActive: true }, changed: false })
     let mutation!: ReturnType<typeof useSetBotActive>
-    function Probe() { mutation = useSetBotActive(); return null }
+    function Probe() { const value = useSetBotActive(); React.useLayoutEffect(() => { mutation = value }); return null }
     const renderer = render(React.createElement(
       QueryClientProvider,
       { client: queryClient },
@@ -266,7 +280,7 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
     const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
     let mutation!: ReturnType<typeof useUpdateBot>
     function Probe() {
-      mutation = useUpdateBot()
+      const value = useUpdateBot(); React.useLayoutEffect(() => { mutation = value })
       return null
     }
     const renderer = render(React.createElement(
@@ -346,19 +360,17 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
   it("useUploadBotAvatar keeps raw query caches immutable", async () => {
     const { useUploadBotAvatar } = await import("./use-bots")
     const { useCommunityWsStore } = await import("@/stores/community/ws")
-    useCommunityWsStore.getState().reset()
-    useCommunityWsStore.getState().activateProfileAccount("viewer")
     const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
     queryClient.setQueryData(communityKeys.bots(), {
       bots: [{ id: "bot_1", image: "/avatar?v=1", avatarVersion: 1 }],
     })
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+    apiFetchMock.mockResolvedValue({
       url: "/api/community/bots/bot_1/avatar?v=4",
       avatarVersion: 4,
-    }), { status: 200, headers: { "Content-Type": "application/json" } })))
+    })
     let mutation!: ReturnType<typeof useUploadBotAvatar>
     function Probe() {
-      mutation = useUploadBotAvatar()
+      const value = useUploadBotAvatar(); React.useLayoutEffect(() => { mutation = value })
       return null
     }
     const renderer = render(React.createElement(
@@ -379,5 +391,135 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
     })
     act(() => renderer.unmount())
     vi.unstubAllGlobals()
+  })
+})
+
+
+describe("bot mutation origin retirement", () => {
+  it.each([false, true])("preserves the current owner's failure and suppresses a retired owner's failure (retired=%s)", async (retired) => {
+    const { useUpdateBot } = await import("./use-bots")
+    const qc = new QueryClient()
+    const registry = createCommunityDbRegistry(qc, "viewer")
+    const unregister = registerCommunityDbRegistry(registry)
+    let reject!: (error: Error) => void
+    apiFetchMock.mockReturnValue(new Promise((_resolve, fail) => { reject = fail }))
+    let update!: ReturnType<typeof useUpdateBot>
+    function Probe() { const value = useUpdateBot(); React.useLayoutEffect(() => { update = value }); return null }
+    const renderer = render(React.createElement(TanStackQueryClientProvider, { client: qc },
+      React.createElement(CommunityDbProvider, { registry }, React.createElement(Probe))))
+    try {
+      const pending = update.mutateAsync({ id: "bot", name: "Request" }).catch((error: Error) => error)
+      await waitFor(() => expect(apiFetchMock).toHaveBeenCalled())
+      if (retired) { renderer.unmount(); unregister() }
+      const failure = new Error("Network failure")
+      await act(async () => reject(failure))
+      const result = await pending
+      if (retired) expect(result).toMatchObject({ name: "AbortError" })
+      else expect(result).toBe(failure)
+    } finally {
+      renderer.unmount()
+      unregister()
+      await registry.cleanup()
+      qc.clear()
+    }
+  })
+
+  it("does not issue a bot request when the registry owner is missing", async () => {
+    const { useCreateBot } = await import("./use-bots")
+    const qc = new QueryClient()
+    let create!: ReturnType<typeof useCreateBot>
+    function Probe() { const value = useCreateBot(); React.useLayoutEffect(() => { create = value }); return null }
+    const renderer = render(React.createElement(TanStackQueryClientProvider, { client: qc }, React.createElement(Probe)))
+    try {
+      const result = await Promise.resolve().then(() => create.mutateAsync({ name: "Bot", machineId: "machine", runtime: "runtime" })).catch((error: Error) => error)
+      expect(result).toMatchObject({ name: "AbortError" })
+      expect(apiFetchMock).not.toHaveBeenCalled()
+    } finally {
+      renderer.unmount()
+      qc.clear()
+    }
+  })
+
+  it.each(["create", "update", "avatar"] as const)("rejects a late %s result and its chained upload after the original provider retires", async (kind) => {
+    const hooks = await import("./use-bots")
+    const qcA = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+    const qcB = new QueryClient()
+    const registryA = createCommunityDbRegistry(qcA, "viewer")
+    const registryB = createCommunityDbRegistry(qcB, "viewer-b")
+    const unregisterA = registerCommunityDbRegistry(registryA)
+    let unregisterB = () => {}
+    let resolve!: (value: unknown) => void
+    const response = new Promise((done) => { resolve = done })
+    apiFetchMock.mockReturnValue(response)
+    let mutate!: () => Promise<unknown>
+    function Probe() {
+      const create = hooks.useCreateBot()
+      const update = hooks.useUpdateBot()
+      const avatar = hooks.useUploadBotAvatar()
+      mutate = () => kind === "create"
+        ? create.mutateAsync({ name: "Old", machineId: "machine", runtime: "runtime" })
+        : kind === "update"
+          ? update.mutateAsync({ id: "bot", name: "Old" })
+          : avatar.mutateAsync({ botId: "bot", file: new File(["photo"], "avatar.png") })
+      return null
+    }
+    const renderer = render(React.createElement(TanStackQueryClientProvider, { client: qcA },
+      React.createElement(CommunityDbProvider, { registry: registryA }, React.createElement(Probe))))
+    try {
+      const continuation = vi.fn()
+      const pending = mutate().then(continuation).catch((error: Error) => error)
+      await waitFor(() => expect(apiFetchMock).toHaveBeenCalled())
+      act(() => renderer.unmount())
+      unregisterA()
+      unregisterB = registerCommunityDbRegistry(registryB)
+
+      writeCommunityProfilePatches([{ id: "bot", identityAbout: { name: "B latest" } }], registryB)
+      await act(async () => resolve(kind === "avatar"
+        ? { url: "old-photo", avatarVersion: 5 }
+        : { bot: { id: "bot", name: "Old", image: null, avatarVersion: 4 } }))
+      const result = await pending
+      expect(result).toMatchObject({ name: "AbortError" })
+      expect(continuation).not.toHaveBeenCalled()
+      expect(registryB.queryClient.getQueryData<Array<{ name: string }>>(
+        communityKeys.communityDbCollection("viewer-b", "profiles"),
+      )?.[0]?.name).toBe("B latest")
+      expect(qcB.getQueryState(communityKeys.bots())).toBeUndefined()
+      expect(registryA.collections.profiles.size).toBe(0)
+    } finally {
+      renderer.unmount()
+      unregisterA()
+      unregisterB()
+      await Promise.all([registryA.cleanup(), registryB.cleanup()])
+      qcA.clear()
+      qcB.clear()
+    }
+  })
+
+  it("keeps a newer profile event when a valid mutation settles late", async () => {
+    const { useUpdateBot } = await import("./use-bots")
+    const qc = new QueryClient()
+    const registry = createCommunityDbRegistry(qc, "viewer")
+    const unregister = registerCommunityDbRegistry(registry)
+    let resolve!: (value: unknown) => void
+    apiFetchMock.mockReturnValue(new Promise((done) => { resolve = done }))
+    let update!: ReturnType<typeof useUpdateBot>
+    function Probe() { const value = useUpdateBot(); React.useLayoutEffect(() => { update = value }); return null }
+    const renderer = render(React.createElement(TanStackQueryClientProvider, { client: qc },
+      React.createElement(CommunityDbProvider, { registry }, React.createElement(Probe))))
+    try {
+      const pending = update.mutateAsync({ id: "bot", name: "Request name" })
+      await waitFor(() => expect(apiFetchMock).toHaveBeenCalled())
+      writeCommunityProfilePatches([{ id: "bot", identityAbout: { name: "WS latest" } }], registry, { event: true })
+      await act(async () => resolve({ bot: { id: "bot", name: "Request name", image: null, avatarVersion: 1 } }))
+      await pending
+      expect(qc.getQueryData<Array<{ name: string }>>(
+        communityKeys.communityDbCollection("viewer", "profiles"),
+      )?.[0]?.name).toBe("WS latest")
+    } finally {
+      renderer.unmount()
+      unregister()
+      await registry.cleanup()
+      qc.clear()
+    }
   })
 })

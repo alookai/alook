@@ -355,9 +355,15 @@ importers:
       '@tanstack/react-query-persist-client':
         specifier: 5.103.2
         version: 5.103.2(@tanstack/react-query@5.103.2(react@19.3.0))(react@19.3.0)
+      '@tanstack/react-store':
+        specifier: 0.11.2
+        version: 0.11.2(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@tanstack/react-virtual':
         specifier: ^3.14.13
         version: 3.14.13(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@tanstack/store':
+        specifier: 0.11.2
+        version: 0.11.2
       '@tauri-apps/plugin-clipboard-manager':
         specifier: ^2.3.3
         version: 2.3.3
@@ -544,9 +550,6 @@ importers:
       zod:
         specifier: ^4.6.5
         version: 4.6.5
-      zustand:
-        specifier: ^4.5.7
-        version: 4.5.7(@types/react@19.3.0)(react@19.3.0)
     devDependencies:
       '@alook/test-utils':
         specifier: workspace:*
@@ -3723,11 +3726,20 @@ packages:
     peerDependencies:
       react: ^18 || ^19
 
+  '@tanstack/react-store@0.11.2':
+    resolution: {integrity: sha512-oj5O5DmiMWE+ih+SioX2ayC1kbK7d3fpLx0B75fPJr9nY3zU+hoW010yr64qXsY/9fyiLVE2bn5mGNV3owm8RQ==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+      react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
   '@tanstack/react-virtual@3.14.13':
     resolution: {integrity: sha512-JbDTAwtzZ99aOeCrAfW5EsE5KSq5RWh6Af2dtFwyLIIk48Ja7vm6n4axu/43T3vfjFnEGJalxJ1wyYjSQD6bSg==}
     peerDependencies:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
       react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
+  '@tanstack/store@0.11.2':
+    resolution: {integrity: sha512-sJ4mjol8uQsHV0gOJzzjwXfh2Fwm+Sz0+8deqiTm4jGbMdjzNSW+xZCFm0kUa870uhd8yi+DpKnZb5Kc4apa0Q==}
 
   '@tanstack/virtual-core@3.17.11':
     resolution: {integrity: sha512-+ILjvtHup6Y2hzQ6YzwMgX1Q+oQpxEGOXCEsCNaPoIP0VxMbizIBTmYTDtkerkIQS8/CbP1BRuyt8V/8BCsy1g==}
@@ -12813,11 +12825,20 @@ snapshots:
       '@tanstack/query-core': 5.103.2
       react: 19.3.0
 
+  '@tanstack/react-store@0.11.2(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@tanstack/store': 0.11.2
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+      use-sync-external-store: 1.6.0(react@19.3.0)
+
   '@tanstack/react-virtual@3.14.13(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@tanstack/virtual-core': 3.17.11
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
+
+  '@tanstack/store@0.11.2': {}
 
   '@tanstack/virtual-core@3.17.11': {}
 

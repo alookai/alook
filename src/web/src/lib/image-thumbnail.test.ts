@@ -65,6 +65,26 @@ describe("generateThumbnail", () => {
     FakeImage.nextShouldError = false
   })
 
+  it.each([generateThumbnail, prepareCommunityImage])("cancels an unfinished decode and releases its source URL", async (prepare) => {
+    const canvases = stubBrowserImageApis()
+    const images: Array<{ src: string; onload: (() => void) | null; onerror: (() => void) | null }> = []
+    vi.stubGlobal("Image", class {
+      src = ""
+      onload = null
+      onerror = null
+      constructor() { images.push(this) }
+    })
+    const controller = new AbortController()
+    const pending = prepare(new File(["image"], "photo.png", { type: "image/png" }), controller.signal)
+    const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" })
+    expect(images[0].src).toBe("blob:fake")
+    controller.abort()
+    await rejected
+    expect(images[0]).toMatchObject({ src: "", onload: null, onerror: null })
+    expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:fake")
+    expect(canvases).toHaveLength(0)
+  })
+
   it("returns the source image's natural width/height alongside the thumbnail blob", async () => {
     stubBrowserImageApis()
     FakeImage.nextWidth = 1920

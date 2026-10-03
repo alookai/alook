@@ -1,11 +1,13 @@
 import React from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { Artifact } from "@alook/shared"
-import { act, render } from "@/test/react-dom-harness"
+import { act, render as renderLeaf } from "@/test/react-dom-harness"
 import { ArtifactCard } from "./agent-chat/chat-view-parts"
 import { IssueAttachmentList } from "./issues/issue-attachment-list"
 import { useArtifactClick } from "./use-artifact-click"
-import { resetFileDownloadsForTest } from "@/lib/file-download"
+import { QueryClient } from "@tanstack/react-query"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { WorkspaceProvider } from "@/contexts/workspace-context"
 
 const service = vi.hoisted(() => ({ download: vi.fn(), loading: vi.fn<(text: string, options: { action: { label: string; onClick: () => void } }) => number>(() => 1), dismiss: vi.fn(), success: vi.fn(), error: vi.fn() }))
 vi.mock("@/lib/file-save", async importOriginal => ({ ...await importOriginal<object>(), downloadUrl: service.download }))
@@ -15,14 +17,18 @@ function Card({ artifact = binary, preview = vi.fn(), image }: { artifact?: Arti
   const click = useArtifactClick("workspace", preview, image)
   return <ArtifactCard artifact={artifact} workspaceId="workspace" version={1} hasDuplicates={false} onClick={click} />
 }
-afterEach(() => { resetFileDownloadsForTest(); vi.clearAllMocks() })
+function render(node: React.ReactNode) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return renderLeaf(<CommunityTestProvider client={client}><WorkspaceProvider workspaceId="workspace" slug="workspace">{node}</WorkspaceProvider></CommunityTestProvider>)
+}
+afterEach(() => { vi.clearAllMocks() })
 describe("artifact card click controller", () => {
   it("routes the actual binary card through authenticated file-save and exposes retry", async () => {
     service.download.mockResolvedValueOnce({ status: "error", message: "network" }).mockResolvedValueOnce({ status: "started" })
     const preview = vi.fn()
     const view = render(<Card preview={preview} />)
     await act(async () => { view.getByRole("button").click() })
-    expect(service.download).toHaveBeenCalledWith("/api/artifacts/binary/content?workspace_id=workspace&download=1", "报告.bin", { signal: expect.any(AbortSignal) })
+    expect(service.download).toHaveBeenCalledWith("/api/artifacts/binary/content?workspace_id=workspace&download=1", "报告.bin", expect.objectContaining({ signal: expect.any(AbortSignal), assertActive: expect.any(Function) }))
     expect(preview).not.toHaveBeenCalled()
     expect(service.error).toHaveBeenCalledWith("Couldn’t save — retry", expect.objectContaining({ action: expect.objectContaining({ label: "Retry" }) }))
     await act(async () => { service.error.mock.calls[0][1].action.onClick() })
@@ -82,8 +88,9 @@ describe("issue attachment list click", () => {
     const preview = vi.fn()
     const view = render(<IssueAttachmentList artifacts={[binary]} workspaceId="workspace" onArtifactClick={preview} />)
     await act(async () => { view.getByRole("button").click() })
-    expect(service.download).toHaveBeenCalledWith("/api/artifacts/binary/content?workspace_id=workspace&download=1", "报告.bin", { signal: expect.any(AbortSignal) })
+    expect(service.download).toHaveBeenCalledWith("/api/artifacts/binary/content?workspace_id=workspace&download=1", "报告.bin", expect.objectContaining({ signal: expect.any(AbortSignal), assertActive: expect.any(Function) }))
     expect(preview).not.toHaveBeenCalled()
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
     expect(view.getByRole("status")).toHaveTextContent("Download started")
     expect(view.queryByRole("link")).toBeNull()
   })

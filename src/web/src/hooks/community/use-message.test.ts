@@ -1,171 +1,83 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
-import { QueryClient } from "@tanstack/react-query"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { communityKeys } from "@/lib/query-keys"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { ingestMessages } from "@/lib/community-db/sync"
+import { findCachedMessage, messageQueryFn } from "./use-message"
 
 const apiFetchMock = vi.fn()
-const {
-  liveSnapshotToken,
-  captureCommunityLiveSnapshotTokenMock,
-  publishCommunityMessagesMock,
-} = vi.hoisted(() => {
-  const token = { canonicalRevision: 0 }
-  return {
-    liveSnapshotToken: token,
-    captureCommunityLiveSnapshotTokenMock: vi.fn(() => token),
-    publishCommunityMessagesMock: vi.fn(),
-  }
-})
-vi.mock("@/lib/api/client", () => ({
-  apiFetch: (...args: unknown[]) => apiFetchMock(...args),
-}))
-vi.mock("@/lib/community-db/sync", () => ({
-  captureCommunityLiveSnapshotToken: (...args: unknown[]) => (
-    captureCommunityLiveSnapshotTokenMock(...args)
-  ),
-  publishCommunityMessages: (...args: unknown[]) => publishCommunityMessagesMock(...args),
-}))
+vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetchMock(...args) }))
+beforeEach(() => { apiFetchMock.mockReset() })
 
-beforeEach(() => {
-  apiFetchMock.mockReset()
-  captureCommunityLiveSnapshotTokenMock.mockClear()
-  publishCommunityMessagesMock.mockReset()
-})
+const payload = {
+  id: "m_1", channelId: "channel-1", type: "chat" as const, authorId: "u_1",
+  authorName: "Alice", authorAvatar: "", authorAvatarVersion: 0, content: "hi there",
+  createdAt: "2026-07-03T00:00:00.000Z",
+}
 
 describe("useMessage / messageQueryFn", () => {
-  it("fetches from /messages/:id and returns the hydrated payload", async () => {
-    const payload = {
-      id: "m_1",
-      authorId: "u_1",
-      authorName: "Alice",
-      authorAvatar: "",
-      content: "hi there",
-      createdAt: "2026-07-03T00:00:00.000Z",
-    }
+  it("fetches from /messages/:id and publishes the hydrated payload into canonical DB", async () => {
+    const { client, registry } = await createCommunityQueryOwner()
     apiFetchMock.mockResolvedValueOnce(payload)
-    const { messageQueryFn } = await import("./use-message")
-    const data = await messageQueryFn("m_1")()
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/messages/m_1")
-    expect(data).toEqual(payload)
+    const data = await client.fetchQuery({ queryKey: communityKeys.message(payload.id), queryFn: messageQueryFn(payload.id, client) })
+    expect(data).toBe(payload.id)
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/messages/m_1", expect.objectContaining({ signal: expect.any(AbortSignal), assertActive: expect.any(Function) }))
+    expect(registry.collections.messages.get(payload.id)).toMatchObject(payload)
+    expect(registry.collections.profiles.get(payload.authorId)).toMatchObject({ name: "Alice" })
   })
 
-  it("populates queryClient at communityKeys.message(messageId)", async () => {
-    apiFetchMock.mockResolvedValueOnce({
-      id: "m_1",
-      authorId: "u_1",
-      authorName: "Alice",
-      authorAvatar: "",
-      content: "hi",
-      createdAt: "2026-07-03T00:00:00.000Z",
-    })
-    const { messageQueryFn } = await import("./use-message")
-    const qc = new QueryClient()
-    const key = communityKeys.message("m_1")
-    await qc.fetchQuery({ queryKey: key, queryFn: messageQueryFn("m_1") })
-    expect(qc.getQueryData(key)).toBeDefined()
+  it("populates queryClient at communityKeys.message(messageId) with only the ID", async () => {
+    const { client } = await createCommunityQueryOwner()
+    apiFetchMock.mockResolvedValueOnce(payload)
+    const key = communityKeys.message(payload.id)
+    await client.fetchQuery({ queryKey: key, queryFn: messageQueryFn(payload.id, client) })
+    expect(client.getQueryData(key)).toBe(payload.id)
   })
 
   it("publishes an exact opener through the channel id carried by its response", async () => {
-    const payload = {
-      id: "m_1",
-      channelId: "archived-post-1",
-      type: "chat" as const,
-      authorId: "u_1",
-      authorName: "Alice",
-      authorAvatar: "",
-      authorAvatarVersion: 0,
-      content: "archived opener",
-      createdAt: "2026-07-03T00:00:00.000Z",
-    }
-    apiFetchMock.mockResolvedValueOnce(payload)
-    const { messageQueryFn } = await import("./use-message")
-    const queryClient = new QueryClient()
-
-    await messageQueryFn("m_1", queryClient)()
-
-    expect(publishCommunityMessagesMock).toHaveBeenCalledWith(queryClient, {
-      channelId: "archived-post-1",
-      messages: [payload],
-      proof: { token: liveSnapshotToken, signal: undefined },
-    })
+    const { client, registry } = await createCommunityQueryOwner()
+    apiFetchMock.mockResolvedValueOnce({ ...payload, channelId: "archived-post-1", content: "archived opener" })
+    await client.fetchQuery({ queryKey: communityKeys.message(payload.id), queryFn: messageQueryFn(payload.id, client, "route-hint") })
+    expect(registry.collections.messages.get(payload.id)).toMatchObject({ channelId: "archived-post-1", content: "archived opener" })
   })
 
-  it("derives an opener placeholder from a persisted message window", async () => {
-    const qc = new QueryClient()
-    qc.setQueryData(communityKeys.members("server-1"), {
-      pages: [{ members: [{ id: "u_1" }] }],
-      pageParams: [null],
-    })
-    qc.setQueryData(communityKeys.channelMessages("channel-1"), {
-      pages: [{
-        messages: [{
-          id: "m_1",
-          type: "chat",
-          authorId: "u_1",
-          authorName: "Alice",
-          content: "cached opener",
-          createdAt: "2026-07-03T00:00:00.000Z",
-          replyTo: { id: "m_0", authorName: "Bob", text: "parent" },
-          attachments: [{ kind: "file", name: "notes.txt", url: "/notes.txt", size: "1 KB" }],
-          embeds: [{ title: "Reference" }],
-          reactions: [{ emoji: "👍", count: 1, me: true, userIds: ["u_1"] }],
-        }],
-        hasMoreOlder: false,
-        hasMoreNewer: false,
-      }],
-      pageParams: [{ mode: "newest" }],
-    })
-    const { findCachedMessage } = await import("./use-message")
-
-    expect(findCachedMessage(qc, "m_1")).toMatchObject({
-      id: "m_1",
-      authorId: "u_1",
-      authorName: "Alice",
-      content: "cached opener",
+  it("derives an opener placeholder from a persisted canonical message window", async () => {
+    const { client, registry } = await createCommunityQueryOwner()
+    const message = {
+      ...payload, content: "cached opener",
       replyTo: { id: "m_0", authorName: "Bob", text: "parent" },
-      attachments: [{ kind: "file", name: "notes.txt", url: "/notes.txt", size: "1 KB" }],
+      attachments: [{ kind: "file" as const, name: "notes.txt", url: "/notes.txt", size: "1 KB" }],
       embeds: [{ title: "Reference" }],
       reactions: [{ emoji: "👍", count: 1, me: true, userIds: ["u_1"] }],
-    })
-    expect(findCachedMessage(qc, "missing")).toBeUndefined()
+    }
+    ingestMessages(registry, "channel-1", [message])
+    client.setQueryData(communityKeys.channelMessages("channel-1"), { pages: [{ ids: [message.id], hasMoreOlder: false, hasMoreNewer: false }], pageParams: [{ mode: "newest" }] })
+    expect(findCachedMessage(client, message.id)).toMatchObject(message)
+    expect(findCachedMessage(client, "missing")).toBeUndefined()
   })
 
-  // ── Invalidation contract guard ──────────────────────────────────────────
-  // The whole point of moving ThreadOpener onto useQuery: an edit/reaction on
-  // the parent message can invalidate `communityKeys.message(id)` and the
-  // opener refetches. If the key nesting ever drifts (e.g. someone re-scopes
-  // it under a channel), this guard catches it before the "live opener"
-  // contract silently breaks.
-  it("invalidating communityKeys.message(id) marks the cached entry invalidated", async () => {
-    apiFetchMock.mockResolvedValueOnce({
-      id: "m_1",
-      authorId: "u_1",
-      authorName: "Alice",
-      authorAvatar: "",
-      content: "hi",
-      createdAt: "2026-07-03T00:00:00.000Z",
-    })
-    const { messageQueryFn } = await import("./use-message")
-    const qc = new QueryClient()
-    const key = communityKeys.message("m_1")
-    await qc.fetchQuery({ queryKey: key, queryFn: messageQueryFn("m_1") })
-    await qc.invalidateQueries({ queryKey: communityKeys.message("m_1") })
-    expect(qc.getQueryState(key)?.isInvalidated).toBe(true)
+  it.each([
+    ["communityKeys.message(id)", communityKeys.message(payload.id)],
+    ["communityKeys.all", communityKeys.all],
+  ])("invalidation via %s marks the exact message resource invalidated", async (_label, queryKey) => {
+    const { client } = await createCommunityQueryOwner()
+    apiFetchMock.mockResolvedValueOnce(payload)
+    const key = communityKeys.message(payload.id)
+    await client.fetchQuery({ queryKey: key, queryFn: messageQueryFn(payload.id, client) })
+    await client.invalidateQueries({ queryKey })
+    expect(client.getQueryState(key)?.isInvalidated).toBe(true)
   })
 
-  it("prefix invalidation via communityKeys.all also marks message(id) invalidated", async () => {
-    apiFetchMock.mockResolvedValueOnce({
-      id: "m_1",
-      authorId: "u_1",
-      authorName: "Alice",
-      authorAvatar: "",
-      content: "hi",
-      createdAt: "2026-07-03T00:00:00.000Z",
-    })
-    const { messageQueryFn } = await import("./use-message")
-    const qc = new QueryClient()
-    const key = communityKeys.message("m_1")
-    await qc.fetchQuery({ queryKey: key, queryFn: messageQueryFn("m_1") })
-    await qc.invalidateQueries({ queryKey: communityKeys.all })
-    expect(qc.getQueryState(key)?.isInvalidated).toBe(true)
+  it("does not publish an exact opener after its original owner retires", async () => {
+    const a = await createCommunityQueryOwner("A"), b = await createCommunityQueryOwner("B")
+    let release!: (data: typeof payload) => void
+    apiFetchMock.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
+    const result = a.client.fetchQuery({ queryKey: communityKeys.message(payload.id), queryFn: messageQueryFn(payload.id, a.client) }).then(() => null, (error) => error)
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(1))
+    a.runtime.lifecycle.setState((state) => ({ active: false, generation: state.generation + 1 }))
+    release(payload)
+    expect(await result).toMatchObject({ name: "AbortError" })
+    expect(a.registry.collections.messages.get(payload.id)).toBeUndefined()
+    expect(b.registry.collections.messages.get(payload.id)).toBeUndefined()
+    expect(b.registry.collections.profiles.get(payload.authorId)).toBeUndefined()
   })
 })

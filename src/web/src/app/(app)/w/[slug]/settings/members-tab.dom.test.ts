@@ -1,14 +1,20 @@
+import "fake-indexeddb/auto"
 import React from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { render, waitFor } from "@/test/react-dom-harness"
+import { render as renderLeaf, waitFor } from "@/test/react-dom-harness"
+import { ApplicationQueryProvider } from "@/lib/application-owner"
+import { WorkspaceProvider } from "@/contexts/workspace-context"
 import { serializeBeamSeed } from "@/lib/avatar/seed-url"
 import { MembersTab } from "./members-tab"
+
+const render: typeof renderLeaf = (node, options) => renderLeaf(node, { ...options, wrapper: ({ children }) => React.createElement(ApplicationQueryProvider, { userId: "user_beam" }, React.createElement(WorkspaceProvider, { workspaceId: "workspace_1", slug: "workspace" }, children)) })
 
 const mocks = vi.hoisted(() => ({
   listMembers: vi.fn(),
   listInvites: vi.fn(),
   avatars: [] as Array<{ src?: string | null; seed?: string | null; size?: number }>,
 }))
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }))
 
 vi.mock("@/components/avatar", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/components/avatar")>()
@@ -21,13 +27,13 @@ vi.mock("@/components/avatar", async (importOriginal) => {
   }
 })
 
-vi.mock("@/contexts/workspace-context", () => ({
+vi.mock("@/contexts/workspace-context", async (importOriginal) => ({ ...await importOriginal<typeof import("@/contexts/workspace-context")>(),
   useWorkspace: () => ({ workspaceId: "workspace_1" }),
 }))
 
-vi.mock("@/lib/auth-client", () => ({
+vi.mock("@/lib/auth-client", () => { const sessionSDK = {
   useSession: () => ({ data: { user: { id: "user_beam" } } }),
-}))
+}; return { ...sessionSDK, currentSessionViewer: () => { const value = sessionSDK.useSession(); return !value || value.isPending || value.error ? undefined : value.data?.user.id ?? null } } })
 
 vi.mock("@/lib/api", () => ({
   listMembers: mocks.listMembers,

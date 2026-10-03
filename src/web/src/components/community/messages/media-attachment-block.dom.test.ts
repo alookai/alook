@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { tid } from "@/lib/community/testids"
 import type { FileAttachment } from "@/lib/community/models/message"
 import { MediaAttachmentBlock } from "./media-attachment-block"
-import { resetAttachmentDownloadsForTest } from "@/lib/community/attachment-download"
-import { act, fireEvent, render, type RenderResult } from "@/test/react-dom-harness"
+import { act, fireEvent, type RenderResult } from "@/test/react-dom-harness"
+import { renderCommunity as render } from "@/test/community-owner-harness"
 
 vi.mock("@/components/ui/button", () => ({
   Button: ({ children, ...props }: React.ComponentProps<"button">) => React.createElement("button", props, children),
@@ -68,9 +68,8 @@ async function clickAndFlush(element: HTMLElement) {
 }
 
 describe("MediaAttachmentBlock", () => {
-  beforeEach(() => resetAttachmentDownloadsForTest())
+  beforeEach(() => {})
   afterEach(() => {
-    resetAttachmentDownloadsForTest()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })

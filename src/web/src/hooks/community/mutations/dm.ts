@@ -1,10 +1,15 @@
 "use client"
 
+import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
+
+import { useCallback } from "react"
+
+import { useCommunityMutationOrigin } from "../community-origin"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { apiFetch } from "@/lib/api/client"
+
 import { communityKeys } from "@/lib/query-keys"
 
-export type CreateOrGetDmArgs = { userId: string }
+export type CreateOrGetDmArgs = { userId: string; assertActive?: (() => void) & { signal: AbortSignal } }
 export type CreateOrGetDmResult = { conversation: { id: string } }
 
 /**
@@ -13,18 +18,29 @@ export type CreateOrGetDmResult = { conversation: { id: string } }
  * DM appears there without a manual refetch.
  */
 export function useCreateOrGetDm() {
+  const origin = useCommunityMutationOrigin()
   const queryClient = useQueryClient()
-  return useMutation<CreateOrGetDmResult, Error, CreateOrGetDmArgs>({
-    mutationFn: async ({ userId }) => {
+  type Intent = CreateOrGetDmArgs & { original: ReturnType<typeof origin.begin>["token"] }
+  const native = useMutation<CreateOrGetDmResult, Error, Intent>({
+    mutationFn: async ({ userId, original, assertActive }) => {
       // Unified create door (route/disc create-door step): POST /channels with
       // {type:"dm", userId} → get-or-create DM by peer identity.
-      return apiFetch<CreateOrGetDmResult>("/api/community/channels", {
+      origin.assert(original); assertActive?.()
+      const resources = queryClient.getQueryCache().findAll({ queryKey: communityKeys.dms() })
+      const result = await origin.request<CreateOrGetDmResult>(original, "/api/community/channels", {
         method: "POST",
         body: JSON.stringify({ type: "dm", userId }),
+        signal: assertActive?.signal,
+        assertActive,
       })
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.dms() })
+      origin.assert(original)
+      for (const resource of resources) if (queryClient.getQueryCache().find({ queryKey: resource.queryKey, exact: true }) === resource) await queryClient.invalidateQueries({ queryKey: resource.queryKey, exact: true }, { cancelRefetch: false })
+      origin.assert(original)
+      assertActive?.()
+      return result
     },
   })
+  const capture = useCallback((input: CreateOrGetDmArgs): Intent => { input.assertActive?.(); return { ...input, original: origin.begin().token } }, [origin])
+  const assertCurrent = useCallback((args: Intent) => { origin.assert(args.original); args.assertActive?.() }, [origin])
+  return useNativeMutationFacade(native, capture, assertCurrent)
 }

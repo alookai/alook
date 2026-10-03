@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect, useRef } from "react";
 import { TYPEWRITER_CITY_ART } from "./typewriter-city-art-data";
 import styles from "./typewriter-city-art.module.css";
 
 export function TypewriterCityArt() {
   const frameRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useAtom(useCreateAtom(false));
 
   useEffect(() => {
     const frame = frameRef.current;
@@ -66,7 +67,7 @@ export function TypewriterCityArt() {
       cancelAnimationFrame(animationFrame);
       window.removeEventListener("resize", scheduleDraw);
     };
-  }, []);
+  }, [setReady]);
 
   return (
     <div ref={frameRef} className={styles.frame} role="img" aria-label="A giant Alook sculpture in an ASCII city, surrounded by buildings, a park, and streets.">

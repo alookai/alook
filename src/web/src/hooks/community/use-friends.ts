@@ -1,4 +1,6 @@
 "use client"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import type { QueryFunctionContext } from "@tanstack/react-query"
 
 import { useQuery, keepPreviousData, type UseQueryResult } from "@tanstack/react-query"
 import { useMemo } from "react"
@@ -10,7 +12,8 @@ import {
 } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import type { Friend, PendingRequest, BlockedUser } from "@/lib/community/models/people"
-import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
+import { useCanonicalProfilesByUserId, useFriendshipRows } from "@/lib/community-db/projections"
+import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent, publishCommunityFriendships } from "@/lib/community-db/sync"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 
 /**
@@ -44,11 +47,12 @@ export type FriendsResponse = {
 }
 
 // Frozen empty fallbacks — see `use-servers.ts` for the rationale.
-const EMPTY_FRIENDS: readonly Friend[] = Object.freeze([])
-const EMPTY_PENDING: readonly PendingRequest[] = Object.freeze([])
-const EMPTY_BLOCKED: readonly BlockedUser[] = Object.freeze([])
-
-export const friendsQueryFn = async (): Promise<FriendsResponse> => {
+export const friendsQueryFn = async (context: QueryFunctionContext) => {
+  const token = captureCommunityLiveSnapshotToken(context.client), registry = getCommunityDbRegistry(context.client)
+  await registry?.ready
+  assertCommunityLiveSnapshotTokenCurrent(context.client, token, context.signal)
+  await registry!.collections.friendships.preload()
+  assertCommunityLiveSnapshotTokenCurrent(context.client, token, context.signal)
   // The legacy aggregate GET /friends ({friends,blocked}) is retired — read each
   // bucket from its own sub-resource endpoint (friends/accepted · friends/blocked
   // · friends/pending) and compose the same triad. Same query key / cache grain
@@ -58,25 +62,22 @@ export const friendsQueryFn = async (): Promise<FriendsResponse> => {
       "/api/community/friends/accepted",
       (data) => {
         throwIfStale(data)
-        return data.friends.flatMap((friend) =>
-          friend.userId ? [communityUserProfilePatch(friend.userId, friend)] : [])
-      },
+        return data.friends.map((friend) => communityUserProfilePatch(friend.userId ?? friend.id, friend))
+      }, { signal: context.signal }, getCommunityDbRegistry(context.client),
     ),
     apiFetchProfiles<{ blocked: BlockedUser[]; stale?: boolean }>(
       "/api/community/friends/blocked",
       (data) => {
         throwIfStale(data)
-        return data.blocked.flatMap((blocked) => blocked.userId
-          ? [{
-              id: blocked.userId,
+        return data.blocked.map((blocked) => ({
+              id: blocked.userId ?? blocked.id,
               identityAbout: { name: blocked.name },
               avatar: {
                 avatar: blocked.avatar,
                 avatarVersion: blocked.avatarVersion,
               },
-            }]
-          : [])
-      },
+            }))
+      }, { signal: context.signal }, getCommunityDbRegistry(context.client),
     ),
     apiFetchProfiles<{ pending: PendingRequest[]; stale?: boolean }>(
       "/api/community/friends/pending",
@@ -90,17 +91,18 @@ export const friendsQueryFn = async (): Promise<FriendsResponse> => {
             avatarVersion: pending.avatarVersion,
           },
         }))
-      },
+      }, { signal: context.signal }, getCommunityDbRegistry(context.client),
     ),
   ])
-  return {
-    friends: acceptedData.friends,
-    blocked: blockedData.blocked,
-    pending: pendingData.pending,
-  }
+  publishCommunityFriendships(context.client, [
+    ...acceptedData.friends.map((friend) => ({ id: friend.id, userId: friend.userId ?? friend.id, kind: "accepted" as const, sub: friend.sub })),
+    ...pendingData.pending.map((pending) => ({ id: pending.id, userId: pending.userId, kind: pending.kind, needsOwnerApproval: pending.needsOwnerApproval })),
+    ...blockedData.blocked.map((blocked) => ({ id: `blocked:${blocked.userId ?? blocked.id}`, userId: blocked.userId ?? blocked.id, kind: "blocked" as const })),
+  ], { token, signal: context.signal })
+  return { ids: [...acceptedData.friends.map((friend) => friend.id), ...pendingData.pending.map((pending) => pending.id), ...blockedData.blocked.map((blocked) => `blocked:${blocked.userId ?? blocked.id}`)] }
 }
 
-export function useFriends(): UseQueryResult<FriendsResponse> & {
+export function useFriends(): UseQueryResult<{ ids: string[] }> & {
   friends: Friend[]
   pending: PendingRequest[]
   blocked: BlockedUser[]
@@ -111,54 +113,18 @@ export function useFriends(): UseQueryResult<FriendsResponse> & {
     placeholderData: keepPreviousData,
   })
   const profilesByUserId = useCanonicalProfilesByUserId()
-  const friends = useMemo(
-    () => (query.data?.friends ?? EMPTY_FRIENDS).map((friend) => {
-      if (!friend.userId) return friend
-      const canonical = profilesByUserId.get(friend.userId)
-      if (!canonical) return friend
-      const profile = readCommunityProfile(canonical, friend.userId)
-      return {
-        ...friend,
-        name: profile.name,
-        discriminator: profile.discriminator,
-        avatar: profile.avatar,
-        avatarVersion: profile.avatarVersion,
-        status: profile.presence,
-        statusEmoji: profile.statusEmoji,
-        statusText: profile.statusText,
-      }
-    }),
-    [profilesByUserId, query.data?.friends],
-  )
-  const pending = useMemo(
-    () => (query.data?.pending ?? EMPTY_PENDING).map((request) => {
-      const canonical = profilesByUserId.get(request.userId)
-      if (!canonical) return request
-      const profile = readCommunityProfile(canonical, request.userId)
-      return {
-        ...request,
-        name: profile.name,
-        avatar: profile.avatar,
-        avatarVersion: profile.avatarVersion,
-      }
-    }),
-    [profilesByUserId, query.data?.pending],
-  )
-  const blocked = useMemo(
-    () => (query.data?.blocked ?? EMPTY_BLOCKED).map((entry) => {
-      if (!entry.userId) return entry
-      const canonical = profilesByUserId.get(entry.userId)
-      if (!canonical) return entry
-      const profile = readCommunityProfile(canonical, entry.userId)
-      return {
-        ...entry,
-        name: profile.name,
-        avatar: profile.avatar,
-        avatarVersion: profile.avatarVersion,
-      }
-    }),
-    [profilesByUserId, query.data?.blocked],
-  )
+  const rows = useFriendshipRows()
+  const { friends, pending, blocked } = useMemo(() => {
+    const friends: Friend[] = [], pending: PendingRequest[] = [], blocked: BlockedUser[] = []
+    const rank = new Map(query.data?.ids.map((id, index) => [id, index]))
+    for (const row of [...rows].sort((left, right) => (rank.get(left.id) ?? Infinity) - (rank.get(right.id) ?? Infinity))) {
+      const profile = readCommunityProfile(profilesByUserId.get(row.userId), row.userId)
+      if (row.kind === "accepted") friends.push({ id: row.id, userId: row.userId, name: profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, status: profile.presence, statusEmoji: profile.statusEmoji, statusText: profile.statusText, sub: row.sub ?? "" })
+      else if (row.kind === "blocked") blocked.push({ id: row.id, userId: row.userId, name: profile.name, avatar: profile.avatar, avatarVersion: profile.avatarVersion })
+      else pending.push({ id: row.id, userId: row.userId, kind: row.kind, name: profile.name, avatar: profile.avatar, avatarVersion: profile.avatarVersion, needsOwnerApproval: row.needsOwnerApproval })
+    }
+    return { friends, pending, blocked }
+  }, [rows, profilesByUserId, query.data?.ids])
   return {
     ...query,
     friends,
@@ -178,12 +144,15 @@ export function useFriends(): UseQueryResult<FriendsResponse> & {
  */
 export type FriendsPresenceResponse = { online: string[] }
 
-export const friendsPresenceQueryFn = () =>
+export const friendsPresenceQueryFn = (context: QueryFunctionContext) =>
   loadAndSeedProfiles(
-    () => apiFetch<FriendsPresenceResponse & { stale?: boolean }>(
+    (origin) => apiFetch<FriendsPresenceResponse & { stale?: boolean }>(
       "/api/community/friends/presence",
+      origin,
     ).then(throwIfStale),
     (data) => data.online.map((id) => ({ id, presence: "online" })),
+    getCommunityDbRegistry(context.client),
+    context.signal,
   )
 
 const EMPTY_ONLINE: readonly string[] = Object.freeze([])
@@ -196,6 +165,7 @@ export function useFriendsPresence(enabled = true): UseQueryResult<FriendsPresen
     queryFn: friendsPresenceQueryFn,
     placeholderData: keepPreviousData,
     enabled,
+    subscribed: enabled,
   })
   return {
     ...query,

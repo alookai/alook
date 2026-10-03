@@ -1,12 +1,14 @@
 "use client"
 
-import { useEffect, useRef, useState, type MutableRefObject } from "react"
+import { useEffect, useRef, type MutableRefObject } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query"
+import { useQuery } from "@tanstack/react-query"
 import { PublicPricingSchema, type PublicPricing, type BillingOffer } from "@alook/shared"
 import { useSession } from "@/lib/auth-client"
 import { apiFetch } from "@/lib/api/client"
 import { useBilling } from "@/hooks/community/use-billing"
+import { PublicQueryProvider, useApplicationOwner } from "@/lib/application-owner"
+import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { FounderPlanChangeDialog } from "@/components/community/billing/founder-plan-change-dialog"
 import { toAnalyticsCurrentPlan, toAnalyticsPlanId, trackPricingCtaClick, trackPricingView, type PricingCtaAction } from "@/lib/analytics"
 import { PricingView } from "./pricing-view"
@@ -25,9 +27,12 @@ function PricingContent({ signedIn, sessionPending, sessionError, viewTrackedRef
     staleTime: 30_000,
     retry: false,
   })
-  const billing = useBilling(null, signedIn)
+  const owner = useApplicationOwner()
+  const billing = useBilling(null, signedIn, owner)
   const summary = signedIn ? billing.data : undefined
-  const [founderOffer, setFounderOffer] = useState<BillingOffer | null>(null)
+  const [founderOfferId, setFounderOfferId] = useAtom(useCreateAtom<string | null>(null))
+  const founderOffer = summary?.offers.find((offer) => offer.priceId === founderOfferId) ?? null
+  const setFounderOffer = (offer: BillingOffer | null) => setFounderOfferId(offer?.priceId ?? null)
   const paymentOffer = (plan: string) => summary?.offers.find((item) => item.plan.id === plan)
   const offer = (plan: string) => paymentOffer(plan) ?? catalog.data?.offers.find((item) => item.plan.id === plan)
   const selected = offer(search.get("plan") ?? "")
@@ -121,8 +126,7 @@ function PricingSession({ signedIn, sessionPending, sessionError, viewTrackedRef
   sessionError: boolean
   viewTrackedRef: MutableRefObject<boolean>
 }) {
-  const [client] = useState(() => new QueryClient())
-  return <QueryClientProvider client={client}><PricingContent signedIn={signedIn} sessionPending={sessionPending} sessionError={sessionError} viewTrackedRef={viewTrackedRef} /></QueryClientProvider>
+  return <PublicQueryProvider><PricingContent signedIn={signedIn} sessionPending={sessionPending} sessionError={sessionError} viewTrackedRef={viewTrackedRef} /></PublicQueryProvider>
 }
 
 export default function PricingClient() {

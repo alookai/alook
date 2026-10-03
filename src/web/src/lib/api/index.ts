@@ -1,61 +1,8 @@
-export { apiFetch, wsQuery } from "./client";
-export { getMe } from "./me";
-export { fetchModelOptions, getMinCliVersion, fetchLatestCliVersion, fetchLatestDaemonVersion } from "./config";
-export {
-  listAgents,
-  createAgent,
-  getAgent,
-  updateAgent,
-  deleteAgent,
-  listRuntimes,
-  deleteMachine,
-  triggerRuntimeUpdate,
-  triggerRuntimeRescan,
-  listAgentActiveTaskCounts,
-  listAgentActiveTasks,
-  listWorkspaceActiveTasks,
-  listAgentActivity,
-  listWhitelist,
-  addWhitelistEmail,
-  removeWhitelistEmail,
-  listAgentLinks,
-  createAgentLink,
-  updateAgentLink,
-  deleteAgentLink,
-  listEmailAccounts,
-  createEmailAccount,
-  updateEmailAccount,
-  deleteEmailAccount,
-  testEmailConnection,
-  syncEmailAccount,
-  listAgentAccess,
-  grantAgentAccess,
-  revokeAgentAccess,
-  listAgentPins,
-  pinAgent,
-  unpinAgent,
-  reorderAgentPins,
-  reorderUnpinnedAgents,
-  requestWorkspaceBrowse,
-  getAgentSkills,
-  listMeetings,
-  getMeeting,
-  createMeeting,
-  stopMeeting,
-  approveMeeting,
-  deleteMeeting,
-  createMachineToken,
-  getMachineTokenStatus,
-} from "./agents";
-export type {
-  ActiveTask,
-  WorkspaceActiveTask,
-  ActivityTask,
-  WhitelistEntry,
-  AgentAccessEntry,
-  AgentPin,
-  SidebarOrder,
-} from "./agents";
+
+
+export { fetchModelOptions, getMinCliVersion, fetchLatestCliVersion } from "./config";
+export { listAgents, createAgent, getAgent, updateAgent, deleteAgent, listRuntimes, deleteMachine, triggerRuntimeUpdate, triggerRuntimeRescan, listAgentActiveTaskCounts, listWorkspaceActiveTasks, listAgentActivity, listWhitelist, addWhitelistEmail, removeWhitelistEmail, listAgentLinks, createAgentLink, updateAgentLink, deleteAgentLink, listEmailAccounts, createEmailAccount, deleteEmailAccount, syncEmailAccount, listAgentAccess, grantAgentAccess, revokeAgentAccess, listAgentPins, pinAgent, unpinAgent, reorderAgentPins, reorderUnpinnedAgents, requestWorkspaceBrowse, getAgentSkills, listMeetings, createMeeting, stopMeeting, approveMeeting, deleteMeeting, createMachineToken } from "./agents";
+export type { WorkspaceActiveTask, ActivityTask, WhitelistEntry, AgentAccessEntry } from "./agents";
 export {
   listChannels,
   createChannelApi,
@@ -63,34 +10,8 @@ export {
   deleteChannelApi,
   reorderChannelsApi,
 } from "./channels";
-export {
-  listConversations,
-  createConversation,
-  getConversation,
-  listAgentConversations,
-  getOrCreateAgentConversation,
-  listPreviousConversations,
-  chatInit,
-  conversationInit,
-  checkFreshness,
-  deleteConversation,
-  listMessages,
-  listMessagesAroundTask,
-  sendMessage,
-  getActiveTask,
-  cancelActiveTask,
-  createThread,
-  getThreadSummaries,
-  listAgentThreads,
-} from "./conversations";
-export type {
-  PreviousConversation,
-  ChatInitResponse,
-  ConversationInitResponse,
-  FreshnessCheckResponse,
-  ThreadSummary,
-  ThreadListItem,
-} from "./conversations";
+export { createConversation, listPreviousConversations, chatInit, conversationInit, checkFreshness, listMessages, listMessagesAroundTask, sendMessage, getActiveTask, cancelActiveTask, createThread, getThreadSummaries } from "./conversations";
+export type { PreviousConversation } from "./conversations";
 export {
   listCalendarEvents,
   getCalendarEvent,
@@ -110,44 +31,10 @@ export {
   sendEmail,
 } from "./emails";
 export { getTask, getTaskMessages, retryTask } from "./tasks";
-export {
-  listIssues,
-  createIssue,
-  getIssue,
-  updateIssue,
-  commentIssue,
-  deleteIssue,
-} from "./issues";
+export { listIssues, createIssue, getIssue, updateIssue, createIssueComment, deleteIssue } from "./issues";
 export type { IssueListItem, IssueDetailResponse } from "./issues";
-export {
-  listWorkspaces,
-  createWorkspace,
-  updateWorkspace,
-  deleteWorkspace,
-  listMembers,
-  removeMember,
-  getMemberMe,
-  updateMemberMe,
-  listInvites,
-  createInvite,
-  revokeInvite,
-  getInviteInfo,
-  acceptInvite,
-  getWorkspaceOverview,
-  signOut,
-  verifyCode,
-} from "./workspaces";
-export type {
-  MemberEntry,
-  InviteEntry,
-  InviteInfo,
-  InviteAcceptResult,
-  OverviewEmailAccount,
-  OverviewRecentTask,
-  OverviewCalendarEvent,
-  OverviewMember,
-  WorkspaceOverview,
-} from "./workspaces";
+export { listWorkspaces, updateWorkspace, deleteWorkspace, listMembers, removeMember, getMemberMe, updateMemberMe, listInvites, createInvite, revokeInvite, getInviteInfo, acceptInvite, getWorkspaceOverview } from "./workspaces";
+export type { MemberEntry, InviteEntry, WorkspaceOverview } from "./workspaces";
 export {
   listInboxItems,
   getInboxCount,

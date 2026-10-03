@@ -1,48 +1,63 @@
 "use client"
 
-import { useState } from "react"
+import { useMutation, useQuery, type Query } from "@tanstack/react-query"
+import type { Workspace } from "@alook/shared"
+import { applicationWorkspacesOptions } from "@/hooks/workspace/settings-query-options"
+import { useApplicationViewSource } from "@/hooks/use-application-view-source"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { GradientBackground } from "@/components/gradient-background"
 import { Logo } from "@/components/logo"
 import { Plus, ArrowRight, LogOut, Loader2 } from "lucide-react"
-import { signOut } from "@/lib/auth-client"
-import { clearAllCache } from "@/lib/chat-cache"
-import { toast } from "sonner"
-
-interface WorkspaceItem {
-  id: string
-  name: string
-  slug: string
-}
+import { useApplicationSignOut } from "@/hooks/use-application-sign-out"
+import { useApplicationOwner } from "@/lib/application-owner";
+import { assertApplicationOwner, captureApplicationOwner, invalidateApplicationAuthentication } from "@/lib/application-owner"
+import { apiFetch, toastApiError } from "@/lib/api/client"
 
 export function WorkspaceListClient({
-  workspaces,
+  workspaces: initialWorkspaces,
 }: {
-  workspaces: WorkspaceItem[]
+  workspaces: Workspace[]
 }) {
+  const applicationOwner = useApplicationOwner();
+  const logout = useApplicationSignOut();
   const router = useRouter()
-  const [creating, setCreating] = useState(false)
-
-  const handleNewWorkspace = async () => {
-    setCreating(true)
-    try {
-      const res = await fetch("/api/workspaces", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "Personal", slug: "" }),
+  const source = useApplicationViewSource("workspace-list")
+  const options = applicationWorkspacesOptions(applicationOwner)
+  const resource = useQuery({ ...options, initialData: initialWorkspaces, initialDataUpdatedAt: 0 })
+  const workspaces = resource.data
+  type Intent = { original: ReturnType<typeof source.capture>; resource: Query | undefined }
+  const command = useMutation({ mutationKey: [...options.queryKey, "create"], gcTime: 0,
+    mutationFn: async ({ original, resource }: Intent) => {
+      original.assert()
+      const current = () => resource && applicationOwner.queryClient.getQueryCache().find({ queryKey: options.queryKey, exact: true }) === resource
+      if (current()) await applicationOwner.queryClient.cancelQueries({ queryKey: options.queryKey, exact: true })
+      original.assert()
+      const result = await apiFetch<Workspace>("/api/workspaces", {
+        method: "POST", body: JSON.stringify({ name: "Personal", slug: "" }),
+        authenticationAccount: applicationOwner.userId, signal: original.signal, assertActive: original.assert,
+        onUnauthorized: () => { original.assert(); return invalidateApplicationAuthentication(original.token, original.signal) },
       })
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({}))) as { error?: string }
-        throw new Error(err.error || "Failed to create workspace")
+      original.assert()
+      if (current()) {
+        await applicationOwner.queryClient.cancelQueries({ queryKey: options.queryKey, exact: true })
+        original.assert()
+        if (current()) applicationOwner.queryClient.setQueryData<Workspace[]>(options.queryKey, (rows) => rows ? [...rows.filter((row) => row.id !== result.id), result] : rows)
       }
-      const data = (await res.json()) as { id: string; slug: string }
+      return result
+    },
+  })
+  const creating = command.isPending
+  const handleNewWorkspace = async () => {
+    const original = source.capture()
+    original.assert()
+    if (applicationOwner.queryClient.getMutationCache().findAll({ mutationKey: [...options.queryKey, "create"], status: "pending" }).length) return
+    try {
+      const data = await command.mutateAsync({ original, resource: applicationOwner.queryClient.getQueryCache().find({ queryKey: options.queryKey, exact: true }) })
+      original.assert()
       router.push(`/studio/new?workspace_id=${data.id}`)
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to create workspace")
-      setCreating(false)
-    }
+    } catch (error) { toastApiError(error, "Failed to create workspace", original.assert) }
   }
 
   return (
@@ -54,9 +69,9 @@ export function WorkspaceListClient({
         size="sm"
         className="absolute top-4 right-4 text-muted-foreground"
         onClick={async () => {
-          await clearAllCache()
-          await signOut()
-          router.push("/sign-in")
+          const token = captureApplicationOwner(applicationOwner)
+          try { if (await logout.mutateAsync()) router.push("/sign-in") }
+          catch (error) { toastApiError(error, "Failed to log out", () => assertApplicationOwner(token)) }
         }}
       >
         <LogOut className="size-4" />

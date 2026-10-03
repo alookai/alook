@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect, useMemo } from "react"
 import {
   modelSelectState,
   modelNameFromSelect,
@@ -50,9 +51,9 @@ export function ModelField({
   const modelIds = useMemo(() => models.map((model) => model.id), [models])
   const seed = useMemo(() => modelSelectState(modelIds, value), [modelIds, value])
 
-  const [selectValue, setSelectValue] = useState(seed.selectValue)
-  const [customName, setCustomName] = useState(seed.customName)
-  const [filterQuery, setFilterQuery] = useState("")
+  const [selectValue, setSelectValue] = useAtom(useCreateAtom(seed.selectValue))
+  const [customName, setCustomName] = useAtom(useCreateAtom(seed.customName))
+  const [filterQuery, setFilterQuery] = useAtom(useCreateAtom(""))
 
   // Re-seed whenever the selected machine/runtime snapshot or stored value
   // changes. This is required even when the stored string is unchanged: a
@@ -61,7 +62,7 @@ export function ModelField({
     setSelectValue(seed.selectValue)
     setCustomName(seed.customName)
     setFilterQuery("")
-  }, [seed])
+  }, [seed, setCustomName, setFilterQuery, setSelectValue])
 
   const isCustom = selectValue === MODEL_SELECT_CUSTOM
   const defaultLabel = runtime ? `Default (${runtime.id}'s own default)` : "Default"

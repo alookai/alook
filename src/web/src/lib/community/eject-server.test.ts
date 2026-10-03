@@ -1,3 +1,5 @@
+import { QueryClient } from "@tanstack/react-query"
+import { createCommunityDbRegistry } from "@/lib/community-db/collections"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   beginOwnerServerDelete,
@@ -27,6 +29,9 @@ import {
   resolveCommunityColdEntryDestination,
 } from "./last-community-route"
 
+let queryClient: QueryClient
+beforeEach(() => { queryClient = new QueryClient(); createCommunityDbRegistry(queryClient, "viewer") })
+
 function makeServer(id: string): Server {
   return {
     id,
@@ -40,21 +45,21 @@ function makeServer(id: string): Server {
 }
 
 function terminalize(serverId: string): void {
-  expect(claimOwnerServerDeleteScopeFlush(serverId)).toBe(true)
-  expect(completeOwnerServerDeleteScopeFlush(serverId)).toBe(true)
+  expect(claimOwnerServerDeleteScopeFlush(queryClient, serverId)).toBe(true)
+  expect(completeOwnerServerDeleteScopeFlush(queryClient, serverId)).toBe(true)
 }
 
 describe("voluntary-leave marker", () => {
   it("marked id consumes as true, then false on the second read", () => {
-    markVoluntaryLeave("srv_a")
-    expect(consumeVoluntaryLeave("srv_a")).toBe(true)
-    expect(consumeVoluntaryLeave("srv_a")).toBe(false)
+    markVoluntaryLeave(queryClient, "srv_a")
+    expect(consumeVoluntaryLeave(queryClient, "srv_a")).toBe(true)
+    expect(consumeVoluntaryLeave(queryClient, "srv_a")).toBe(false)
   })
 
   it("unrelated ids consume as false", () => {
-    markVoluntaryLeave("srv_b")
-    expect(consumeVoluntaryLeave("srv_other")).toBe(false)
-    expect(consumeVoluntaryLeave("srv_b")).toBe(true)
+    markVoluntaryLeave(queryClient, "srv_b")
+    expect(consumeVoluntaryLeave(queryClient, "srv_other")).toBe(false)
+    expect(consumeVoluntaryLeave(queryClient, "srv_b")).toBe(true)
   })
 })
 
@@ -62,90 +67,90 @@ describe("owner-delete single-navigation lifecycle", () => {
   const serverId = "srv_deleted"
 
   beforeEach(() => {
-    cancelOwnerServerDelete(serverId)
-    observeOwnerServerDeleteRouteCommit("/c/me/friends")
+    cancelOwnerServerDelete(queryClient, serverId)
+    observeOwnerServerDeleteRouteCommit(queryClient, "/c/me/friends")
   })
 
   it("keeps an explicit root landing terminal until a different route commits", () => {
-    const origin = createOwnerServerDeleteRouteToken()
-    beginOwnerServerDelete(serverId, origin)
-    expect(commitOwnerServerDelete(serverId, origin)).toBe(false)
-    expect(claimOwnerServerDeleteNavigation(serverId, origin, "/c/me")).toBe(true)
-    expect(isOwnerServerDeleteMeRootLanding()).toBe(true)
+    const origin = createOwnerServerDeleteRouteToken(queryClient)
+    beginOwnerServerDelete(queryClient, serverId, origin)
+    expect(commitOwnerServerDelete(queryClient, serverId, origin)).toBe(false)
+    expect(claimOwnerServerDeleteNavigation(queryClient, serverId, origin, "/c/me")).toBe(true)
+    expect(isOwnerServerDeleteMeRootLanding(queryClient)).toBe(true)
 
-    expect(observeOwnerServerDeleteRouteCommit("/c/me")).toEqual([serverId])
-    expect(isOwnerServerDeleteMeRootLanding()).toBe(true)
-    observeOwnerServerDeleteRouteCommit("/c/me/friends")
-    expect(isOwnerServerDeleteMeRootLanding()).toBe(false)
+    expect(observeOwnerServerDeleteRouteCommit(queryClient, "/c/me")).toEqual([serverId])
+    expect(isOwnerServerDeleteMeRootLanding(queryClient)).toBe(true)
+    observeOwnerServerDeleteRouteCommit(queryClient, "/c/me/friends")
+    expect(isOwnerServerDeleteMeRootLanding(queryClient)).toBe(false)
   })
 
   it("claims exactly one survivor navigation while the deleted route is committed", () => {
-    const origin = createOwnerServerDeleteRouteToken()
-    beginOwnerServerDelete(serverId, origin)
+    const origin = createOwnerServerDeleteRouteToken(queryClient)
+    beginOwnerServerDelete(queryClient, serverId, origin)
 
-    expect(commitOwnerServerDelete(serverId, origin)).toBe(false)
-    expect(claimOwnerServerDeleteNavigation(
+    expect(commitOwnerServerDelete(queryClient, serverId, origin)).toBe(false)
+    expect(claimOwnerServerDeleteNavigation(queryClient,
       serverId,
       origin,
       "/c/channels/srv_next/channel_remembered",
     )).toBe(true)
-    expect(claimOwnerServerDeleteNavigation(serverId, origin, "/c/me")).toBe(false)
-    expect(isOwnerServerDeleteRouteProtected(serverId, origin)).toBe(true)
+    expect(claimOwnerServerDeleteNavigation(queryClient, serverId, origin, "/c/me")).toBe(false)
+    expect(isOwnerServerDeleteRouteProtected(queryClient, serverId, origin)).toBe(true)
 
-    expect(observeOwnerServerDeleteRouteCommit(
+    expect(observeOwnerServerDeleteRouteCommit(queryClient,
       "/c/channels/srv_next/channel_remembered",
     )).toEqual([serverId])
     terminalize(serverId)
-    expect(isOwnerServerDeleteCompleted(serverId)).toBe(true)
-    expect(isOwnerServerDeleteRouteProtected(serverId)).toBe(false)
-    expect(isOwnerServerDeleteRouteProtected(serverId, origin)).toBe(true)
-    expect(isOwnerServerDeleteScopeEvictionBlocked(serverId)).toBe(true)
+    expect(isOwnerServerDeleteCompleted(queryClient, serverId)).toBe(true)
+    expect(isOwnerServerDeleteRouteProtected(queryClient, serverId)).toBe(false)
+    expect(isOwnerServerDeleteRouteProtected(queryClient, serverId, origin)).toBe(true)
+    expect(isOwnerServerDeleteScopeEvictionBlocked(queryClient, serverId)).toBe(true)
   })
 
   it("keeps duplicate begin as a participant without transferring origin ownership", () => {
-    const origin = createOwnerServerDeleteRouteToken()
-    const duplicate = createOwnerServerDeleteRouteToken()
-    beginOwnerServerDelete(serverId, origin)
-    beginOwnerServerDelete(serverId, duplicate)
+    const origin = createOwnerServerDeleteRouteToken(queryClient)
+    const duplicate = createOwnerServerDeleteRouteToken(queryClient)
+    beginOwnerServerDelete(queryClient, serverId, origin)
+    beginOwnerServerDelete(queryClient, serverId, duplicate)
 
-    expect(commitOwnerServerDelete(serverId, duplicate)).toBe(false)
-    cancelOwnerServerDelete(serverId, duplicate)
-    expect(claimOwnerServerDeleteNavigation(serverId, duplicate, "/c/me")).toBe(false)
+    expect(commitOwnerServerDelete(queryClient, serverId, duplicate)).toBe(false)
+    cancelOwnerServerDelete(queryClient, serverId, duplicate)
+    expect(claimOwnerServerDeleteNavigation(queryClient, serverId, duplicate, "/c/me")).toBe(false)
 
-    expect(commitOwnerServerDelete(serverId, origin)).toBe(false)
-    expect(claimOwnerServerDeleteNavigation(serverId, origin, "/c/me")).toBe(true)
-    expect(observeOwnerServerDeleteRouteCommit("/c/me")).toEqual([serverId])
+    expect(commitOwnerServerDelete(queryClient, serverId, origin)).toBe(false)
+    expect(claimOwnerServerDeleteNavigation(queryClient, serverId, origin, "/c/me")).toBe(true)
+    expect(observeOwnerServerDeleteRouteCommit(queryClient, "/c/me")).toEqual([serverId])
     terminalize(serverId)
 
-    expect(isOwnerServerDeleteRouteProtected(serverId, origin)).toBe(true)
-    expect(isOwnerServerDeleteRouteProtected(serverId, duplicate)).toBe(true)
+    expect(isOwnerServerDeleteRouteProtected(queryClient, serverId, origin)).toBe(true)
+    expect(isOwnerServerDeleteRouteProtected(queryClient, serverId, duplicate)).toBe(true)
   })
 
   it.each([
     "/c/channels/srv_next/channel_remembered",
     "/c/me/friends",
   ])("keeps an already committed safe route and issues no navigation: %s", (safeHref) => {
-    const origin = createOwnerServerDeleteRouteToken()
-    beginOwnerServerDelete(serverId, origin)
-    expect(observeOwnerServerDeleteRouteCommit(safeHref)).toEqual([])
+    const origin = createOwnerServerDeleteRouteToken(queryClient)
+    beginOwnerServerDelete(queryClient, serverId, origin)
+    expect(observeOwnerServerDeleteRouteCommit(queryClient, safeHref)).toEqual([])
 
-    expect(commitOwnerServerDelete(serverId, origin)).toBe(true)
-    expect(claimOwnerServerDeleteNavigation(
+    expect(commitOwnerServerDelete(queryClient, serverId, origin)).toBe(true)
+    expect(claimOwnerServerDeleteNavigation(queryClient,
       serverId,
       origin,
       "/c/channels/srv_next/channel_remembered",
     )).toBe(false)
     terminalize(serverId)
-    expect(isOwnerServerDeleteRouteProtected(serverId)).toBe(false)
+    expect(isOwnerServerDeleteRouteProtected(queryClient, serverId)).toBe(false)
   })
 
   it("turns a resolver result into a no-op when a safe route commits first", () => {
-    const origin = createOwnerServerDeleteRouteToken()
-    beginOwnerServerDelete(serverId, origin)
-    expect(commitOwnerServerDelete(serverId, origin)).toBe(false)
+    const origin = createOwnerServerDeleteRouteToken(queryClient)
+    beginOwnerServerDelete(queryClient, serverId, origin)
+    expect(commitOwnerServerDelete(queryClient, serverId, origin)).toBe(false)
 
-    expect(observeOwnerServerDeleteRouteCommit("/c/me")).toEqual([serverId])
-    expect(claimOwnerServerDeleteNavigation(
+    expect(observeOwnerServerDeleteRouteCommit(queryClient, "/c/me")).toEqual([serverId])
+    expect(claimOwnerServerDeleteNavigation(queryClient,
       serverId,
       origin,
       "/c/channels/srv_next/channel_default",
@@ -158,61 +163,61 @@ describe("owner-delete single-navigation lifecycle", () => {
       "/c/channels/srv_next/channel_default",
       "/c/me/machines",
     ]) {
-      const origin = createOwnerServerDeleteRouteToken()
-      beginOwnerServerDelete(serverId, origin)
-      expect(commitOwnerServerDelete(serverId, origin)).toBe(false)
-      expect(claimOwnerServerDeleteNavigation(
+      const origin = createOwnerServerDeleteRouteToken(queryClient)
+      beginOwnerServerDelete(queryClient, serverId, origin)
+      expect(commitOwnerServerDelete(queryClient, serverId, origin)).toBe(false)
+      expect(claimOwnerServerDeleteNavigation(queryClient,
         serverId,
         origin,
         "/c/channels/srv_next/channel_default",
       )).toBe(true)
-      expect(observeOwnerServerDeleteRouteCommit(safeHref)).toEqual([serverId])
+      expect(observeOwnerServerDeleteRouteCommit(queryClient, safeHref)).toEqual([serverId])
       terminalize(serverId)
-      expect(isOwnerServerDeleteRouteProtected(serverId)).toBe(false)
+      expect(isOwnerServerDeleteRouteProtected(queryClient, serverId)).toBe(false)
     }
   })
 
   it("tombstones only route instances committed before the terminal boundary", () => {
-    const origin = createOwnerServerDeleteRouteToken()
-    const preTerminal = createOwnerServerDeleteRouteToken()
-    const postTerminal = createOwnerServerDeleteRouteToken()
-    beginOwnerServerDelete(serverId, origin)
-    expect(registerOwnerServerDeleteRoute(serverId, preTerminal)).toBe("participant")
-    expect(commitOwnerServerDelete(serverId, origin)).toBe(false)
-    observeOwnerServerDeleteRouteCommit("/c/me")
+    const origin = createOwnerServerDeleteRouteToken(queryClient)
+    const preTerminal = createOwnerServerDeleteRouteToken(queryClient)
+    const postTerminal = createOwnerServerDeleteRouteToken(queryClient)
+    beginOwnerServerDelete(queryClient, serverId, origin)
+    expect(registerOwnerServerDeleteRoute(queryClient, serverId, preTerminal)).toBe("participant")
+    expect(commitOwnerServerDelete(queryClient, serverId, origin)).toBe(false)
+    observeOwnerServerDeleteRouteCommit(queryClient, "/c/me")
     terminalize(serverId)
 
-    expect(isOwnerServerDeleteRouteProtected(serverId, origin)).toBe(true)
-    expect(isOwnerServerDeleteRouteProtected(serverId, preTerminal)).toBe(true)
-    expect(registerOwnerServerDeleteRoute(serverId, postTerminal)).toBe("ordinary")
-    expect(isOwnerServerDeleteRouteProtected(serverId, postTerminal)).toBe(false)
-    expect(registerOwnerServerDeleteRoute(serverId, origin)).toBe("ordinary")
-    expect(isOwnerServerDeleteRouteProtected(serverId, origin)).toBe(false)
-    expect(isOwnerServerDeleteRouteProtected(serverId, preTerminal)).toBe(true)
+    expect(isOwnerServerDeleteRouteProtected(queryClient, serverId, origin)).toBe(true)
+    expect(isOwnerServerDeleteRouteProtected(queryClient, serverId, preTerminal)).toBe(true)
+    expect(registerOwnerServerDeleteRoute(queryClient, serverId, postTerminal)).toBe("ordinary")
+    expect(isOwnerServerDeleteRouteProtected(queryClient, serverId, postTerminal)).toBe(false)
+    expect(registerOwnerServerDeleteRoute(queryClient, serverId, origin)).toBe("ordinary")
+    expect(isOwnerServerDeleteRouteProtected(queryClient, serverId, origin)).toBe(false)
+    expect(isOwnerServerDeleteRouteProtected(queryClient, serverId, preTerminal)).toBe(true)
   })
 
   it("classifies registration after the terminal claim as ordinary", () => {
-    const origin = createOwnerServerDeleteRouteToken()
-    const lateCommit = createOwnerServerDeleteRouteToken()
-    beginOwnerServerDelete(serverId, origin)
-    commitOwnerServerDelete(serverId, origin)
-    observeOwnerServerDeleteRouteCommit("/c/me")
+    const origin = createOwnerServerDeleteRouteToken(queryClient)
+    const lateCommit = createOwnerServerDeleteRouteToken(queryClient)
+    beginOwnerServerDelete(queryClient, serverId, origin)
+    commitOwnerServerDelete(queryClient, serverId, origin)
+    observeOwnerServerDeleteRouteCommit(queryClient, "/c/me")
 
-    expect(claimOwnerServerDeleteScopeFlush(serverId)).toBe(true)
-    expect(registerOwnerServerDeleteRoute(serverId, lateCommit)).toBe("ordinary")
-    expect(completeOwnerServerDeleteScopeFlush(serverId)).toBe(true)
-    expect(isOwnerServerDeleteRouteProtected(serverId, lateCommit)).toBe(false)
+    expect(claimOwnerServerDeleteScopeFlush(queryClient, serverId)).toBe(true)
+    expect(registerOwnerServerDeleteRoute(queryClient, serverId, lateCommit)).toBe("ordinary")
+    expect(completeOwnerServerDeleteScopeFlush(queryClient, serverId)).toBe(true)
+    expect(isOwnerServerDeleteRouteProtected(queryClient, serverId, lateCommit)).toBe(false)
   })
 
   it("cancels a failed request without navigation, flush, or tombstone", () => {
-    const origin = createOwnerServerDeleteRouteToken()
-    beginOwnerServerDelete(serverId, origin)
-    cancelOwnerServerDelete(serverId, origin)
+    const origin = createOwnerServerDeleteRouteToken(queryClient)
+    beginOwnerServerDelete(queryClient, serverId, origin)
+    cancelOwnerServerDelete(queryClient, serverId, origin)
 
-    expect(claimOwnerServerDeleteNavigation(serverId, origin, "/c/me")).toBe(false)
-    expect(claimOwnerServerDeleteScopeFlush(serverId)).toBe(false)
-    expect(isOwnerServerDeleteRouteProtected(serverId, origin)).toBe(false)
-    expect(isOwnerServerDeleteScopeEvictionBlocked(serverId)).toBe(false)
+    expect(claimOwnerServerDeleteNavigation(queryClient, serverId, origin, "/c/me")).toBe(false)
+    expect(claimOwnerServerDeleteScopeFlush(queryClient, serverId)).toBe(false)
+    expect(isOwnerServerDeleteRouteProtected(queryClient, serverId, origin)).toBe(false)
+    expect(isOwnerServerDeleteScopeEvictionBlocked(queryClient, serverId)).toBe(false)
   })
 })
 
@@ -226,7 +231,7 @@ describe("runAuthoritativeServerEject", () => {
   })
 
   beforeEach(() => {
-    cancelOwnerServerDelete(target.id)
+    cancelOwnerServerDelete(queryClient, target.id)
   })
 
   it("keeps the URL through failures, refetches, and snapshots containing the target", () => {

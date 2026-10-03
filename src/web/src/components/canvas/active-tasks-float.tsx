@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useAtom, useCreateAtom, useCreateStore } from "@tanstack/react-store";
+import { useEffect, useCallback } from "react";
 import Link from "next/link";
 import { X } from "lucide-react";
 import { useAgentContext } from "@/contexts/agent-context";
@@ -71,24 +72,24 @@ export function ActiveTasksFloat() {
   const { slug } = useWorkspace();
   const isMobile = useIsMobile();
   const { openAgentChat } = useAgentChatSheet();
-  const [expanded, setExpanded] = useState(false);
-  const prevTaskIdsRef = useRef<Set<string>>(new Set());
+  const [expanded, setExpanded] = useAtom(useCreateAtom(false));
+  const seen = useCreateStore<ReadonlySet<string>>(new Set<string>());
 
   const tasks = activeTaskDetails;
   const taskCount = tasks.length;
 
   useEffect(() => {
     if (taskCount === 0) {
-      prevTaskIdsRef.current = new Set();
+      seen.setState(() => new Set<string>());
       return;
     }
     const currentIds = new Set(tasks.map((t) => t.id));
-    const hasNewTask = tasks.some((t) => !prevTaskIdsRef.current.has(t.id));
+    const hasNewTask = tasks.some((t) => !seen.get().has(t.id));
     if (hasNewTask && !expanded) {
       setExpanded(true);
     }
-    prevTaskIdsRef.current = currentIds;
-  }, [tasks, taskCount, expanded]);
+    seen.setState(() => currentIds);
+  }, [tasks, taskCount, expanded, seen, setExpanded]);
 
   if (isMobile || taskCount === 0) return null;
 

@@ -1,4 +1,6 @@
-import { useCommunityWsStore } from "@/stores/community/ws"
+
+import { getCommunityRuntime } from "@/stores/community/runtime"
+
 import type { CommunityWsEvent } from "@alook/shared"
 import type { CommunityWsReconcilePolicy } from "@/lib/analytics"
 import type {
@@ -105,7 +107,7 @@ export const communityWsRegistry = {
   "community:machine.status": { handler: handleMachineStatus, reconnectPolicies: ["machines"] },
   "community:machine.updated": { handler: handleMachineUpdated, reconnectPolicies: ["machines"] },
   "community:machine.removed": { handler: handleMachineRemoved, reconnectPolicies: ["machines"] },
-  "community:bot.audit_event": { handler: (event) => handleBotAuditEvent(event), reconnectPolicies: ["bot-audits"] },
+  "community:bot.audit_event": { handler: handleBotAuditEvent, reconnectPolicies: ["bot-audits"] },
 } satisfies CommunityWsRegistry
 
 export function dispatchCommunityWsEvent(
@@ -176,8 +178,8 @@ export function dispatchCommunityWsEvents(
       const parentChannelId = "parentChannelId" in event ? event.parentChannelId : undefined
       if (channelId
         && !["community:channel.member_add", "community:channel.member_remove", "community:channel.delete"].includes(event.type)
-        && useCommunityWsStore.getState().isChannelAccessRevoked(channelId, serverId, parentChannelId ?? undefined)) continue
-      if (channelId && serverId) useCommunityWsStore.getState().observeChannelScope(serverId, channelId, parentChannelId)
+        && getCommunityRuntime(context.queryClient).ws.actions.isChannelAccessRevoked(channelId, serverId, parentChannelId ?? undefined)) continue
+      if (channelId && serverId) getCommunityRuntime(context.queryClient).ws.actions.observeChannelScope(serverId, channelId, parentChannelId)
       const entry = communityWsRegistry[event.type] as RegistryEntry<typeof event.type>
       entry.handler(event, handlerContext)
       projectCommunityWsEventToDb(context.queryClient, event)

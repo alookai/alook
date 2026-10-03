@@ -1,5 +1,6 @@
 import { createElement, type PropsWithChildren } from "react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { renderHook, waitFor } from "@/test/react-dom-harness"
 
@@ -33,17 +34,18 @@ describe("useChannelMembers", () => {
       }],
     })
     const { useChannelMembers } = await import("./use-channel-members")
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryClient = (await createCommunityQueryOwner()).client
     const wrapper = ({ children }: PropsWithChildren) => createElement(
       QueryClientProvider,
       { client: queryClient },
       children,
     )
-    const rendered = renderHook(() => useChannelMembers("private/channel"), { wrapper })
+    const rendered = renderHook(() => useChannelMembers("private/channel", true, "server_1"), { wrapper })
 
     await waitFor(() => {
       expect(apiFetchMock).toHaveBeenCalledWith(
         "/api/community/channels/private%2Fchannel/members",
+        expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
       )
     })
     await waitFor(() => expect(rendered.result.current.members).toHaveLength(1))

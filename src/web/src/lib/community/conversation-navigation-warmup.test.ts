@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
+import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import {
@@ -81,7 +82,8 @@ vi.mock("@/hooks/community/use-servers", () => ({
   ),
 }))
 vi.mock("@/lib/api/client", () => ({
-  apiFetch: (url: string, options?: { signal?: AbortSignal }) => {
+  apiFetch: (url: string, options?: { signal?: AbortSignal; assertActive?: () => void }) => {
+    options?.assertActive?.()
     mocks.apiFetch(url, options)
     return new Promise((resolve, reject) => {
       mocks.reads.push({
@@ -94,12 +96,20 @@ vi.mock("@/lib/api/client", () => ({
         }) => void,
         reject,
       })
-    })
+    }).then((value) => { options?.assertActive?.(); return value })
   },
 }))
-vi.mock("@/stores/community/message-stream", () => ({
-  useMessageStreamStore: { getState: () => ({ removeScope: mocks.removeScope }) },
-}))
+const owners: CommunityDbRegistry[] = []
+function createClient() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const owner = createCommunityDbRegistry(client, "viewer")
+  owners.push(owner)
+  vi.spyOn(owner.runtime.messageStream.actions, "removeScope").mockImplementation(mocks.removeScope)
+  return client
+}
+afterEach(async () => {
+  for (const owner of owners.splice(0)) { await owner.cleanup(); owner.queryClient.clear() }
+})
 
 const target = (channelId: string) => ({
   href: `/c/channels/s1/${channelId}`,
@@ -119,15 +129,16 @@ describe("conversation navigation warmup", () => {
   })
 
   it("starts canonical work in parallel and prevents superseded A from seeding", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryClient = createClient()
     startConversationNavigationWarmup(queryClient, target("a"), 4)
     startConversationNavigationWarmup(queryClient, target("b"), 4)
+    await vi.waitFor(() => expect(mocks.reads).toHaveLength(1))
     expect(mocks.requests.map((request) => request.channelId)).toEqual(["a", "b"])
-    expect(mocks.apiFetch).toHaveBeenCalledTimes(2)
-    expect(mocks.servers).toHaveLength(2)
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(1)
+    expect(mocks.servers).toHaveLength(1)
     expect(mocks.requests[0]!.signal?.aborted).toBe(true)
-    expect(mocks.reads[0]!.signal?.aborted).toBe(true)
-    expect(mocks.servers[0]!.signal?.aborted).toBe(true)
+    expect(mocks.reads[0]!.signal?.aborted).toBe(false)
+    expect(mocks.servers[0]!.signal?.aborted).toBe(false)
 
     mocks.requests[0]!.receipt({ channelId: "a", surfaceKind: "channel" })
     mocks.requests[0]!.resolve({ messages: [], hasMore: false })
@@ -145,11 +156,12 @@ describe("conversation navigation warmup", () => {
   })
 
   it("clears target caches and overlays on definitive denial", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryClient = createClient()
     queryClient.setQueryData(communityKeys.channelMessages("denied"), { stale: true })
     queryClient.setQueryData(communityKeys.channelReadStateSnapshot("denied"), { stale: true })
     queryClient.setQueryData(communityKeys.channelMeta("s1", "denied"), { stale: true })
     startConversationNavigationWarmup(queryClient, target("denied"), 9)
+    await vi.waitFor(() => expect(mocks.reads).toHaveLength(1))
     mocks.requests[0]!.reject(new ApiError("not found", 404))
     await vi.waitFor(() => {
       expect(getConversationNavigationProof(queryClient)?.status).toBe("denied")
@@ -165,7 +177,7 @@ describe("conversation navigation warmup", () => {
     })
     expect(getConversationNavigationProof(queryClient)?.status).toBe("denied")
     expect(mocks.reads[0]!.signal?.aborted).toBe(true)
-    expect(mocks.servers[0]!.signal?.aborted).toBe(true)
+    expect(mocks.servers[0]!.signal?.aborted).toBe(false)
 
     mocks.reads[0]!.resolve({ lastReadMessageId: "late", lastReadAt: null, lastReadSeq: 1 })
     mocks.servers[0]!.resolve({ id: "late" })
@@ -175,7 +187,7 @@ describe("conversation navigation warmup", () => {
   })
 
   it("clears DM caches and overlay without starting server detail on denial", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryClient = createClient()
     const dmTarget = {
       href: "/c/me/d1",
       viewerId: "viewer",
@@ -189,6 +201,7 @@ describe("conversation navigation warmup", () => {
     startConversationNavigationWarmup(queryClient, dmTarget, 2)
     expect(mocks.requests[0]).toMatchObject({ kind: "dm", pageParam: { mode: "newest" } })
     expect(mocks.servers).toHaveLength(0)
+    await vi.waitFor(() => expect(mocks.reads).toHaveLength(1))
     mocks.requests[0]!.reject(new ApiError("forbidden", 403))
     await vi.waitFor(() => {
       expect(getConversationNavigationProof(queryClient)?.status).toBe("denied")
@@ -205,7 +218,7 @@ describe("conversation navigation warmup", () => {
   })
 
   it("commits a successful DM receipt", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryClient = createClient()
     startConversationNavigationWarmup(queryClient, {
       href: "/c/me/d2",
       viewerId: "viewer",
@@ -221,7 +234,7 @@ describe("conversation navigation warmup", () => {
   })
 
   it("restarts canonical messages after transient failure without exposing stale cache", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryClient = createClient()
     const key = communityKeys.channelMessages("retry")
     queryClient.setQueryData(key, { pages: [{ messages: [{ id: "stale" }] }], pageParams: [] })
     const epoch = startConversationNavigationWarmup(queryClient, target("retry"), 5)
@@ -245,7 +258,7 @@ describe("conversation navigation warmup", () => {
   })
 
   it("restarts response-to-commit access drift and accepts only the new proof", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryClient = createClient()
     const firstEpoch = startConversationNavigationWarmup(queryClient, target("epoch"), 7)
     mocks.requests[0]!.receipt({ channelId: "epoch", surfaceKind: "channel" })
     expect(getConversationNavigationProof(queryClient)?.status).toBe("verified")
@@ -265,11 +278,12 @@ describe("conversation navigation warmup", () => {
   })
 
   it("uses the exact anchor and seeds current read and server results", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryClient = createClient()
     startConversationNavigationWarmup(queryClient, {
       ...target("anchor"),
       anchorMessageId: "m1",
     }, 3)
+    await vi.waitFor(() => expect(mocks.reads).toHaveLength(1))
     expect(mocks.requests[0]!.pageParam).toEqual({ mode: "anchor", anchor: "m1" })
     mocks.requests[0]!.receipt({ channelId: "anchor", surfaceKind: "thread" })
     mocks.requests[0]!.resolve({ messages: [], hasMore: false })
@@ -284,8 +298,9 @@ describe("conversation navigation warmup", () => {
   })
 
   it("ignores auxiliary failures while canonical proof succeeds", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryClient = createClient()
     startConversationNavigationWarmup(queryClient, target("aux"), 4)
+    await vi.waitFor(() => expect(mocks.reads).toHaveLength(1))
     mocks.reads[0]!.reject(new Error("read transient"))
     mocks.servers[0]!.reject(new Error("detail transient"))
     mocks.requests[0]!.receipt({ channelId: "aux", surfaceKind: "channel" })

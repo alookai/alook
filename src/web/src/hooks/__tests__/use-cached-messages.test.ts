@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import "fake-indexeddb/auto";
+import { createApplicationOwner } from "@/lib/application-owner";
+import { createWorkspaceOwner, type WorkspaceOwner } from "@/contexts/workspace-context";
 import type { Message } from "@alook/shared";
 import {
-  openCacheDB,
   clearAllCache,
   getCachedMessages,
   mergeCachedMessages,
@@ -23,10 +24,8 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
   };
 }
 
-beforeEach(async () => {
-  await clearAllCache();
-  openCacheDB(WORKSPACE_ID);
-});
+let cacheOwner: WorkspaceOwner;
+beforeEach(async () => { cacheOwner = createWorkspaceOwner(createApplicationOwner("cache-user"), WORKSPACE_ID, "test"); });
 
 describe("use-cached-messages (functional tests)", () => {
   it("getCachedMessages returns cached messages immediately after write", async () => {
@@ -34,9 +33,9 @@ describe("use-cached-messages (functional tests)", () => {
       makeMessage({ id: "m1", conversation_id: "conv_1", created_at: "2024-01-01T00:00:00Z" }),
       makeMessage({ id: "m2", conversation_id: "conv_1", created_at: "2024-01-01T00:01:00Z" }),
     ];
-    await mergeCachedMessages("conv_1", msgs, false, WORKSPACE_ID);
+    await mergeCachedMessages("conv_1", msgs, false, cacheOwner);
 
-    const cached = await getCachedMessages("conv_1", WORKSPACE_ID);
+    const cached = await getCachedMessages("conv_1", cacheOwner);
     expect(cached).not.toBeNull();
     expect(cached).toHaveLength(2);
     expect(cached![0].id).toBe("m1");
@@ -44,7 +43,7 @@ describe("use-cached-messages (functional tests)", () => {
   });
 
   it("returns null when no cache exists", async () => {
-    const cached = await getCachedMessages("conv_nonexistent", WORKSPACE_ID);
+    const cached = await getCachedMessages("conv_nonexistent", cacheOwner);
     expect(cached).toBeNull();
   });
 
@@ -52,9 +51,9 @@ describe("use-cached-messages (functional tests)", () => {
     const msgs = [
       makeMessage({ id: "m1", conversation_id: "conv_1", created_at: "2024-01-01T00:00:00Z" }),
     ];
-    await mergeCachedMessages("conv_1", msgs, false, WORKSPACE_ID);
+    await mergeCachedMessages("conv_1", msgs, false, cacheOwner);
 
-    const cached = await getCachedMessages("conv_1", WORKSPACE_ID);
+    const cached = await getCachedMessages("conv_1", cacheOwner);
     expect(cached).toHaveLength(1);
     expect(cached![0].id).toBe("m1");
   });
@@ -64,17 +63,17 @@ describe("use-cached-messages (functional tests)", () => {
       "conv_1",
       [makeMessage({ id: "m1", conversation_id: "conv_1" })],
       false,
-      WORKSPACE_ID
+      cacheOwner
     );
     await mergeCachedMessages(
       "conv_2",
       [makeMessage({ id: "m2", conversation_id: "conv_2" })],
       false,
-      WORKSPACE_ID
+      cacheOwner
     );
 
-    const cached1 = await getCachedMessages("conv_1", WORKSPACE_ID);
-    const cached2 = await getCachedMessages("conv_2", WORKSPACE_ID);
+    const cached1 = await getCachedMessages("conv_1", cacheOwner);
+    const cached2 = await getCachedMessages("conv_2", cacheOwner);
 
     expect(cached1).toHaveLength(1);
     expect(cached1![0].id).toBe("m1");

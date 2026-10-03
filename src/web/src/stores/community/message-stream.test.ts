@@ -1,6 +1,10 @@
+
+import { createMessageStreamStore } from "./message-stream"
+const nativeStore = createMessageStreamStore()
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { MessageScope } from "@/lib/community/message-stream"
-import { getMessageOverlay, useMessageStreamStore } from "./message-stream"
+import { emptyMessageOverlay } from "@/lib/community/message-stream"
+const getMessageOverlay = (scope: MessageScope) => nativeStore.get().entries.get(`${scope.kind}:${scope.id}`)?.state ?? emptyMessageOverlay()
 
 const channel = (id: string, serverId = "s1"): MessageScope => ({ kind: "channel", id, serverId })
 
@@ -18,44 +22,44 @@ function acceptedIntent(nonce: string, previewObjectUrl?: string) {
 describe("message stream store", () => {
   beforeEach(() => {
     vi.stubGlobal("URL", { revokeObjectURL: vi.fn() })
-    useMessageStreamStore.getState().resetAll()
+    nativeStore.actions.resetAll()
   })
 
   it("allocates ordinals atomically and rejects a duplicate nonce", () => {
-    const store = useMessageStreamStore.getState()
-    expect(store.accept(channel("c1"), acceptedIntent("n1"))).toBe(true)
-    expect(useMessageStreamStore.getState().accept(channel("c1"), acceptedIntent("n1"))).toBe(false)
-    expect(useMessageStreamStore.getState().accept(channel("c1"), acceptedIntent("n2"))).toBe(true)
+    const store = nativeStore.get()
+    expect(nativeStore.actions.accept(channel("c1"), acceptedIntent("n1"))).toBe(true)
+    expect(nativeStore.actions.accept(channel("c1"), acceptedIntent("n1"))).toBe(false)
+    expect(nativeStore.actions.accept(channel("c1"), acceptedIntent("n2"))).toBe(true)
     expect([...getMessageOverlay(channel("c1")).outboxByNonce.values()].map((intent) => intent.localOrdinal)).toEqual([1, 2])
   })
 
   it("cleans one scope, every server scope, and all scopes with one revoke per owned URL", () => {
-    const store = useMessageStreamStore.getState()
-    store.accept(channel("c1"), acceptedIntent("n1", "blob:1"))
-    store.accept(channel("c2"), acceptedIntent("n2", "blob:2"))
-    store.accept(channel("c3", "s2"), acceptedIntent("n3", "blob:3"))
-    store.removeScope(channel("c1"))
+    const store = nativeStore.get()
+    nativeStore.actions.accept(channel("c1"), acceptedIntent("n1", "blob:1"))
+    nativeStore.actions.accept(channel("c2"), acceptedIntent("n2", "blob:2"))
+    nativeStore.actions.accept(channel("c3", "s2"), acceptedIntent("n3", "blob:3"))
+    nativeStore.actions.removeScope(channel("c1"))
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:1")
     expect(getMessageOverlay(channel("c2")).outboxByNonce.size).toBe(1)
-    useMessageStreamStore.getState().removeServer("s1")
+    nativeStore.actions.removeServer("s1")
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:2")
     expect(getMessageOverlay(channel("c3", "s2")).outboxByNonce.size).toBe(1)
-    useMessageStreamStore.getState().resetAll()
+    nativeStore.actions.resetAll()
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:3")
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(3)
   })
 
   it("dismisses one failed attachment row by nonce and revokes its owned preview once", () => {
-    const store = useMessageStreamStore.getState()
+    const store = nativeStore.get()
     const messageScope = channel("c1")
-    store.accept(messageScope, acceptedIntent("failed", "blob:failed"))
-    store.dispatch(messageScope, {
+    nativeStore.actions.accept(messageScope, acceptedIntent("failed", "blob:failed"))
+    nativeStore.actions.dispatch(messageScope, {
       type: "postFail",
       nonce: "failed",
     })
 
     expect(getMessageOverlay(messageScope).outboxByNonce.has("failed")).toBe(true)
-    store.dispatch(messageScope, { type: "dismissFailed", nonce: "failed" })
+    nativeStore.actions.dispatch(messageScope, { type: "dismissFailed", nonce: "failed" })
 
     expect(getMessageOverlay(messageScope).outboxByNonce.has("failed")).toBe(false)
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:failed")

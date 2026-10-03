@@ -1,6 +1,12 @@
 "use client"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { communityKeys } from "@/lib/query-keys"
 
-import { useEffect, useLayoutEffect, type ReactNode } from "react"
+import { useCommunityRuntime } from "@/stores/community/runtime"
+
+
+import { useLayoutEffect, type ReactNode } from "react"
 import { usePathname } from "next/navigation"
 import { apiFetchProfiles } from "@/lib/community/profile-seed"
 import { QueryProvider } from "./QueryProvider"
@@ -42,7 +48,7 @@ export function CommunityShell({
   children: ReactNode
 }) {
   return (
-    <QueryProvider key={currentUser.id} userId={currentUser.id}>
+    <QueryProvider userId={currentUser.id} initialUser={currentUser}>
       <CommunityRestoreBoundary>
         <ProfileAccountBoundary viewerId={currentUser.id}>
           <CurrentUserProvider initialUser={currentUser}>
@@ -61,13 +67,14 @@ function ProfileAccountBoundary({
   children: ReactNode
   viewerId: string
 }) {
+  const communityRuntime = useCommunityRuntime()
   const activeViewerId = useCommunityWsStore((state) => state.profileViewerId)
   const pathname = usePathname()
   useLayoutEffect(() => {
     if (activeViewerId !== viewerId) {
-      useCommunityWsStore.getState().activateProfileAccount(viewerId)
+      communityRuntime.ws.actions.activateProfileAccount(viewerId)
     }
-  }, [activeViewerId, viewerId])
+  }, [activeViewerId, communityRuntime.ws.actions, viewerId])
   return activeViewerId === viewerId
     ? children
     : <CommunitySessionPendingFrame pathname={pathname} />
@@ -82,6 +89,7 @@ function ProfileAccountBoundary({
  *   effect — needed so the "Edit profile" dialog opens with the current value.
  */
 function CommunityBootstrap({ children }: { children: ReactNode }) {
+  const profileQueryClient = useQueryClient()
   const currentUser = useCurrentUser()
 
   useNotificationSettings()
@@ -95,9 +103,11 @@ function CommunityBootstrap({ children }: { children: ReactNode }) {
   // Hydrate the live public profile. The auth session can retain a stale image
   // after an avatar upload, while this self endpoint reads the canonical user
   // row alongside the community profile fields.
-  const currentUserId = currentUser.id
-  useEffect(() => {
-    apiFetchProfiles<{ id: string; aboutMe: string; avatar: string; avatarVersion: number; discriminator: string; name: string; statusEmoji: string | null; statusText: string }>(
+  const registry = getCommunityDbRegistry(profileQueryClient)
+  useQuery({
+    queryKey: communityKeys.selfProfile(),
+    queryFn: async ({ signal }) => {
+      const profile = await apiFetchProfiles<{ id: string; aboutMe: string; avatar: string; avatarVersion: number; discriminator: string; name: string; statusEmoji: string | null; statusText: string }>(
       "/api/community/users/me/profile",
       (profile) => [{
         id: profile.id,
@@ -114,10 +124,13 @@ function CommunityBootstrap({ children }: { children: ReactNode }) {
           statusEmoji: profile.statusEmoji,
           statusText: profile.statusText,
         },
-      }],
-    )
-      .catch(() => { })
-  }, [currentUserId])
+      }], { signal }, registry,
+      )
+      return { id: profile.id }
+    },
+    enabled: registry?.accountId === currentUser.id,
+    staleTime: 5 * 60_000,
+  })
 
   return (
     <>

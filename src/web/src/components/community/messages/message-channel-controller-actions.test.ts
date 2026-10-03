@@ -1,4 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { createStore } from "@tanstack/react-store"
+import { QueryClient } from "@tanstack/react-query"
+import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
+import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
+import type { Msg } from "@/lib/community/models/message"
 import { createMessageActions, type MessageActionContext } from "./message-channel-controller-actions"
 
 const mocks = vi.hoisted(() => ({
@@ -8,14 +13,22 @@ const mocks = vi.hoisted(() => ({
   deriveThreadName: vi.fn(() => "derived thread"),
 }))
 
-vi.mock("@/stores/community/message-stream", () => ({
-  useMessageStreamStore: { getState: () => ({ dispatch: mocks.dispatch }) },
-}))
 vi.mock("sonner", () => ({ toast: mocks.toast }))
 vi.mock("@/lib/api/client", () => ({ toastApiError: mocks.toastApiError }))
-vi.mock("@alook/shared", () => ({ deriveThreadName: mocks.deriveThreadName }))
+vi.mock("@alook/shared", async (load) => ({ ...await load<typeof import("@alook/shared")>(), deriveThreadName: mocks.deriveThreadName }))
 
+const owners: CommunityDbRegistry[] = []
+afterEach(async () => {
+  for (const owner of owners.splice(0)) { await owner.cleanup(); owner.queryClient.clear() }
+})
 function setup() {
+  const client = new QueryClient(), registry = createCommunityDbRegistry(client, "viewer_1")
+  owners.push(registry)
+  vi.spyOn(registry.runtime.messageStream.actions, "dispatch").mockImplementation(mocks.dispatch)
+  const captureView = () => {
+    const token = captureCommunityLiveSnapshotToken(client)
+    return Object.assign(() => assertCommunityLiveSnapshotTokenCurrent(client, token, undefined), { signal: new AbortController().signal })
+  }
   const setReplyTo = vi.fn()
   const toggleReactionApi = vi.fn()
   const addReactionApi = vi.fn()
@@ -29,8 +42,7 @@ function setup() {
   const onOpenPinned = vi.fn()
   const previewImage = vi.fn()
   const previewAttachment = vi.fn()
-  const actionContext = { current: {
-    messages: [{
+  const messages = createStore<Msg[]>([{
       id: "m1",
       seq: 4,
       type: "chat" as const,
@@ -39,15 +51,20 @@ function setup() {
       content: "hello",
       createdAt: new Date(0).toISOString(),
       clientNonce: "nonce_1",
-    }],
+    }])
+  const actionContext = createStore<MessageActionContext>({
+    messageIds: ["m1"],
     pinnedIds: new Set<string>(),
     channelName: "general",
     uiHandlers: { previewImage, previewAttachment },
     onOpenThread,
     onOpenPinned,
-  } } as { current: MessageActionContext }
+  })
   const actions = createMessageActions({
     actionContext,
+    runtime: registry.runtime,
+    getMessage: (id) => messages.get().find((message) => message.id === id),
+    captureView,
     serverId: "server_1",
     channelId: "channel_1",
     viewerUserId: "viewer_1",
@@ -65,6 +82,7 @@ function setup() {
   return {
     actions,
     actionContext,
+    messages,
     setReplyTo,
     toggleReactionApi,
     addReactionApi,
@@ -95,14 +113,14 @@ describe("createMessageActions", () => {
     harness.actions.onToggleReaction("m1", "👍")
     harness.actions.onReact("m1", "🔥")
     expect(harness.toggleReactionApi).toHaveBeenNthCalledWith(1, {
-      serverId: "server_1", channelId: "channel_1", messageId: "m1", emoji: "👍", userId: "viewer_1",
+      serverId: "server_1", channelId: "channel_1", messageId: "m1", emoji: "👍", userId: "viewer_1", assertActive: expect.any(Function),
     })
     expect(harness.addReactionApi).toHaveBeenCalledWith({
-      serverId: "server_1", channelId: "channel_1", messageId: "m1", emoji: "🔥", userId: "viewer_1",
+      serverId: "server_1", channelId: "channel_1", messageId: "m1", emoji: "🔥", userId: "viewer_1", assertActive: expect.any(Function),
     })
     expect(harness.toggleReactionApi).toHaveBeenCalledOnce()
     harness.actions.onMark("m1")
-    expect(harness.toggleMark).toHaveBeenCalledWith("channel_1", "m1")
+    expect(harness.toggleMark).toHaveBeenCalledWith("channel_1", "m1", expect.any(Function))
     harness.actions.onPreviewImage({ url: "image" })
     harness.actions.onPreviewAttachment({ id: "a1" } as never)
     expect(harness.previewImage).toHaveBeenCalledWith({ url: "image" })
@@ -121,10 +139,10 @@ describe("createMessageActions", () => {
     const dispatchCount = mocks.dispatch.mock.calls.length
     harness.actions.onRetry("missing")
     harness.actions.onDismiss("missing")
-    harness.actionContext.current.messages = [{
-      ...harness.actionContext.current.messages[0],
+    harness.messages.setState(() => [{
+      ...harness.messages.get()[0],
       clientNonce: undefined,
-    }]
+    }])
     harness.actions.onRetry("m1")
     harness.actions.onDismiss("m1")
     expect(mocks.dispatch).toHaveBeenCalledTimes(dispatchCount)
@@ -142,10 +160,10 @@ describe("createMessageActions", () => {
     expect(harness.onOpenPinned).toHaveBeenCalledOnce()
     const pinFailure = new Error("pin failed")
     pinOptions.onError(pinFailure)
-    expect(mocks.toastApiError).toHaveBeenCalledWith(pinFailure, "Failed to pin message")
+    expect(mocks.toastApiError).toHaveBeenCalledWith(pinFailure, "Failed to pin message", expect.any(Function))
     expect(harness.onOpenPinned).toHaveBeenCalledOnce()
 
-    harness.actionContext.current.pinnedIds = new Set(["m1"])
+    harness.actionContext.setState((state) => ({ ...state, pinnedIds: new Set(["m1"]) }))
     harness.actions.onPin("m1")
     expect(harness.unpinMessageMutate).toHaveBeenCalled()
     expect(harness.onOpenPinned).toHaveBeenCalledOnce()
@@ -155,7 +173,7 @@ describe("createMessageActions", () => {
     expect(harness.onOpenPinned).toHaveBeenCalledOnce()
     const unpinFailure = new Error("unpin failed")
     unpinOptions.onError(unpinFailure)
-    expect(mocks.toastApiError).toHaveBeenCalledWith(unpinFailure, "Failed to unpin message")
+    expect(mocks.toastApiError).toHaveBeenCalledWith(unpinFailure, "Failed to unpin message", expect.any(Function))
     expect(harness.onOpenPinned).toHaveBeenCalledOnce()
 
     let resolveThread: (value: { id: string }) => void = () => {}
@@ -165,10 +183,10 @@ describe("createMessageActions", () => {
     const pendingThread = harness.actions.onCreateThread("m1")
     expect(mocks.deriveThreadName).toHaveBeenCalledWith("hello", "general")
     expect(harness.createThreadAsync).toHaveBeenCalledWith({
-      serverId: "server_1", channelId: "channel_1", messageId: "m1", name: "derived thread",
+      serverId: "server_1", channelId: "channel_1", messageId: "m1", name: "derived thread", assertActive: expect.any(Function),
     })
     const latestOpenThread = vi.fn()
-    harness.actionContext.current.onOpenThread = latestOpenThread
+    harness.actionContext.setState((state) => ({ ...state, onOpenThread: latestOpenThread }))
     resolveThread({ id: "thread_1" })
     await pendingThread
     expect(harness.onOpenThread).not.toHaveBeenCalled()
@@ -176,33 +194,33 @@ describe("createMessageActions", () => {
     const threadFailure = new Error("thread failed")
     harness.createThreadAsync.mockRejectedValueOnce(threadFailure)
     await harness.actions.onCreateThread("m1")
-    expect(mocks.toastApiError).toHaveBeenCalledWith(threadFailure, "Failed to create thread")
+    expect(mocks.toastApiError).toHaveBeenCalledWith(threadFailure, "Failed to create thread", expect.any(Function))
     expect(latestOpenThread).toHaveBeenCalledOnce()
 
-    harness.actions.onCopy("m1")
+    await harness.actions.onCopy("m1")
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("hello")
     expect(mocks.toast).toHaveBeenCalledWith("Copied to clipboard")
     const copyCount = vi.mocked(navigator.clipboard.writeText).mock.calls.length
-    harness.actions.onCopy("missing")
-    harness.actionContext.current.messages = [{
-      ...harness.actionContext.current.messages[0], content: "",
-    }]
-    harness.actions.onCopy("m1")
+    await harness.actions.onCopy("missing")
+    harness.messages.setState(() => [{
+      ...harness.messages.get()[0], content: "",
+    }])
+    await harness.actions.onCopy("m1")
     expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(copyCount)
 
-    harness.actionContext.current.messages = [{
-      ...harness.actionContext.current.messages[0], content: "hello",
-    }]
+    harness.messages.setState(() => [{
+      ...harness.messages.get()[0], content: "hello",
+    }])
 
     vi.stubGlobal("window", { prompt: vi.fn(() => "edited") })
     harness.actions.onEdit("m1")
     expect(harness.editMessage).toHaveBeenCalledWith({
-      serverId: "server_1", channelId: "channel_1", messageId: "m1", content: "edited",
+      serverId: "server_1", channelId: "channel_1", messageId: "m1", content: "edited", assertActive: expect.any(Function),
     }, expect.objectContaining({ onError: expect.any(Function) }))
     const editOptions = harness.editMessage.mock.calls[0][1]
     const editFailure = new Error("edit failed")
     editOptions.onError(editFailure)
-    expect(mocks.toastApiError).toHaveBeenCalledWith(editFailure, "Failed to edit message")
+    expect(mocks.toastApiError).toHaveBeenCalledWith(editFailure, "Failed to edit message", expect.any(Function))
 
     const prompt = vi.mocked(window.prompt)
     prompt.mockReturnValueOnce(null)
@@ -214,17 +232,17 @@ describe("createMessageActions", () => {
     expect(harness.editMessage).toHaveBeenCalledOnce()
 
     harness.actions.onEdit("missing")
-    harness.actionContext.current.messages = [{
-      ...harness.actionContext.current.messages[0], authorId: "peer_1",
-    }]
+    harness.messages.setState(() => [{
+      ...harness.messages.get()[0], authorId: "peer_1",
+    }])
     harness.actions.onEdit("m1")
-    harness.actionContext.current.messages = [{
-      ...harness.actionContext.current.messages[0], authorId: "viewer_1", seq: undefined,
-    }]
+    harness.messages.setState(() => [{
+      ...harness.messages.get()[0], authorId: "viewer_1", seq: undefined,
+    }])
     harness.actions.onEdit("m1")
-    harness.actionContext.current.messages = [{
-      ...harness.actionContext.current.messages[0], seq: 4, content: "",
-    }]
+    harness.messages.setState(() => [{
+      ...harness.messages.get()[0], seq: 4, content: "",
+    }])
     harness.actions.onEdit("m1")
     expect(harness.editMessage).toHaveBeenCalledOnce()
   })
@@ -232,14 +250,14 @@ describe("createMessageActions", () => {
   it("reads latest context through one stable action object and has no delete action", () => {
     const harness = setup()
     const latestReply = vi.fn()
-    harness.actionContext.current.messages = [{
+    harness.messages.setState(() => [{
       id: "m2",
       type: "chat",
       authorName: "Latest",
       content: "new",
       createdAt: new Date(1).toISOString(),
-    }]
-    harness.actionContext.current.onOpenThread = latestReply
+    }])
+    harness.actionContext.setState((state) => ({ ...state, onOpenThread: latestReply }))
     harness.actions.onReply("m2")
     expect(harness.setReplyTo).toHaveBeenCalledWith({ id: "m2", authorName: "Latest", text: "new" })
     expect("onDelete" in harness.actions).toBe(false)
@@ -247,7 +265,7 @@ describe("createMessageActions", () => {
 
   it("selects the exact reply content for two messages by the same author", () => {
     const harness = setup()
-    harness.actionContext.current.messages = [
+    harness.messages.setState(() => [
       {
         id: "same_author_a",
         type: "chat",
@@ -262,7 +280,7 @@ describe("createMessageActions", () => {
         content: "Target B",
         createdAt: new Date(2).toISOString(),
       },
-    ]
+    ])
 
     harness.actions.onReply("same_author_a")
     harness.actions.onReply("same_author_b")
@@ -281,11 +299,11 @@ describe("createMessageActions", () => {
 
   it("uses projected reply text for actions and restores one canonical prefix on edit", async () => {
     const harness = setup()
-    harness.actionContext.current.messages = [{
-      ...harness.actionContext.current.messages[0],
+    harness.messages.setState(() => [{
+      ...harness.messages.get()[0],
       content: "@Alice Smith\n> quote\n\nbody",
       replyTo: { id: "prior", authorName: "Alice Smith", text: "original" },
-    }]
+    }])
 
     harness.actions.onReply("m1")
     expect(harness.setReplyTo).toHaveBeenCalledWith({
@@ -294,7 +312,7 @@ describe("createMessageActions", () => {
       text: "> quote\n\nbody",
     })
 
-    harness.actions.onCopy("m1")
+    await harness.actions.onCopy("m1")
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("> quote\n\nbody")
 
     await harness.actions.onCreateThread("m1")
@@ -308,6 +326,7 @@ describe("createMessageActions", () => {
       channelId: "channel_1",
       messageId: "m1",
       content: "@Alice Smith\nedited",
+      assertActive: expect.any(Function),
     }, expect.objectContaining({ onError: expect.any(Function) }))
   })
 })

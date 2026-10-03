@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect, useRef } from "react";
 import { Clock } from "lucide-react";
 import {
   Popover,
@@ -48,7 +49,7 @@ export function CalendarTimePicker({
   step = 30,
   iconOnly = false,
 }: CalendarTimePickerProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useAtom(useCreateAtom(false));
   const listRef = useRef<HTMLDivElement | null>(null);
   const slots = buildSlots(step);
 

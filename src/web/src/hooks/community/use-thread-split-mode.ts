@@ -1,4 +1,6 @@
 "use client"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useCommunityRuntime } from "@/stores/community/runtime"
 
 import { useCallback, useLayoutEffect, useState, type RefCallback } from "react"
 import { useBreakpoint, type Breakpoint } from "@/hooks/use-mobile"
@@ -32,11 +34,12 @@ export function useThreadSplitMode({
   containerRef: RefCallback<HTMLElement>
   mode: "split" | "full"
 } {
+  const runtime = useCommunityRuntime()
   const breakpoint = useBreakpoint()
   const [subscriptionOwner] = useState(() => Symbol("thread-split-secondary"))
-  const [container, setContainer] = useState<HTMLElement | null>(null)
-  const [contentWidth, setContentWidth] = useState(0)
-  const containerRef = useCallback((node: HTMLElement | null) => setContainer(node), [])
+  const [container, setContainer] = useAtom(useCreateAtom<HTMLElement | null>(null))
+  const [contentWidth, setContentWidth] = useAtom(useCreateAtom(0))
+  const containerRef = useCallback((node: HTMLElement | null) => setContainer(node), [setContainer])
 
   useLayoutEffect(() => {
     if (!container) return
@@ -51,17 +54,17 @@ export function useThreadSplitMode({
     })
     observer.observe(container)
     return () => observer.disconnect()
-  }, [container])
+  }, [container, setContentWidth])
 
   const mode = resolveThreadSplitMode({ breakpoint, contentWidth, forceFullscreen })
   useLayoutEffect(() => {
     if (mode === "split" && parentChannelId) {
-      communityWsClaimSecondaryChannel(subscriptionOwner, parentChannelId)
+      communityWsClaimSecondaryChannel(runtime, subscriptionOwner, parentChannelId)
     } else {
-      communityWsReleaseSecondaryChannel(subscriptionOwner)
+      communityWsReleaseSecondaryChannel(runtime, subscriptionOwner)
     }
-    return () => communityWsReleaseSecondaryChannel(subscriptionOwner)
-  }, [mode, parentChannelId, subscriptionOwner])
+    return () => communityWsReleaseSecondaryChannel(runtime, subscriptionOwner)
+  }, [mode, parentChannelId, subscriptionOwner, runtime])
 
   return { containerRef, mode }
 }

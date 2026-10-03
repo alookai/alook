@@ -1,55 +1,23 @@
 import React from "react"
-import { act, render } from "@/test/react-dom-harness"
+import { act } from "@/test/react-dom-harness"
+import { render } from "@/test/react-dom-harness"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { publishCommunityMessages, captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
+import { communityKeys } from "@/lib/query-keys"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-const mocks = vi.hoisted(() => {
-  const state = {
-    cache: undefined as undefined | {
-      notFound: boolean
-      anchorId: string
-      messages: Array<Record<string, unknown>>
-    },
-    renderSnapshot: undefined as undefined | {
-      notFound: boolean
-      anchorId: string
-      messages: Array<Record<string, unknown>>
-    },
-  }
-  const queryClient = {
-    getQueryData: vi.fn(() => state.cache),
-    setQueryData: vi.fn((_key: unknown, updater: unknown) => {
-      state.cache = typeof updater === "function"
-        ? updater(state.cache)
-        : updater as typeof state.cache
-      return state.cache
-    }),
-  }
-  return {
-    state,
-    queryClient,
-    apiFetch: vi.fn(),
-    toastApiError: vi.fn(),
-    onToggle: undefined as undefined | ((messageId: string, emoji: string) => void),
-    onAdd: undefined as undefined | ((messageId: string, emoji: string) => void),
-  }
-})
+const mocks = vi.hoisted(() => ({
+  apiFetch: vi.fn(), toastApiError: vi.fn(),
+  onToggle: undefined as undefined | ((messageId: string, emoji: string) => void),
+  onAdd: undefined as undefined | ((messageId: string, emoji: string) => void),
+}))
+let owner: Awaited<ReturnType<typeof createCommunityQueryOwner>>
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ serverId: "server_1" }),
   useRouter: () => ({ push: vi.fn() }),
 }))
-vi.mock("@tanstack/react-query", async () => {
-  const actual = await vi.importActual<typeof import("@tanstack/react-query")>("@tanstack/react-query")
-  return {
-    ...actual,
-    useQuery: () => ({
-      data: mocks.state.renderSnapshot,
-      isLoading: false,
-      isError: false,
-    }),
-    useQueryClient: () => mocks.queryClient,
-  }
-})
 vi.mock("@/components/community/shell/community-sheet", () => ({
   CommunitySheet: ({ children }: { children: React.ReactNode }) => children,
 }))
@@ -97,7 +65,6 @@ vi.mock("@/lib/api/client", () => ({
   toastApiError: (...args: unknown[]) => mocks.toastApiError(...args),
 }))
 
-import { useCommunityStore } from "@/stores/community"
 import { MessageContextSheet } from "./message-context-sheet"
 
 function sheetCache(me: boolean) {
@@ -119,84 +86,91 @@ function sheetCache(me: boolean) {
   }
 }
 
-function renderSheet(me: boolean) {
+async function renderSheet(me: boolean) {
   const initial = sheetCache(me)
-  mocks.state.cache = initial
-  mocks.state.renderSnapshot = initial
-  return render(React.createElement(MessageContextSheet, {
-    open: true,
-    onOpenChange: vi.fn(),
-    channelId: "channel_1",
-    targetSeq: 1,
-  }))
+  publishCommunityMessages(owner.client, { channelId: "channel_1", messages: initial.messages, proof: { token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined } })
+  owner.client.setQueryData(communityKeys.messageContext("channel", "channel_1", 1), { ...initial, messages: initial.messages.map(({ id }) => ({ id })) })
+  const rendered = render(React.createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "viewer_1", retainOwner: true }, React.createElement(MessageContextSheet, {
+    open: true, onOpenChange: vi.fn(), channelId: "channel_1", targetSeq: 1,
+  })))
+  await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+  expect(mocks.onAdd).toEqual(expect.any(Function))
+  return rendered
 }
 
 function currentMe() {
-  const reactions = mocks.state.cache?.messages[0]?.reactions as Array<{ emoji: string; me: boolean }>
-  return reactions.find((reaction) => reaction.emoji === "👍")?.me ?? false
+  return owner.registry.collections.messages.get("message_1")?.reactions?.find((reaction) => reaction.emoji === "👍")?.me ?? false
 }
 
 describe("MessageContextSheet reaction coordinator", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    owner = await createCommunityQueryOwner("viewer_1")
     vi.useFakeTimers()
-    vi.clearAllMocks()
+    mocks.apiFetch.mockReset()
+    mocks.toastApiError.mockReset()
     mocks.onToggle = undefined
     mocks.onAdd = undefined
-    const timers = useCommunityStore.getState().reactionTimers
-    for (const { timer } of timers.values()) clearTimeout(timer)
-    timers.clear()
   })
 
-  afterEach(() => {
-    const timers = useCommunityStore.getState().reactionTimers
-    for (const { timer } of timers.values()) clearTimeout(timer)
-    timers.clear()
-    vi.useRealTimers()
+  afterEach(async () => {
+    await act(async () => {
+      owner.registry.runtime.lifecycle.setState((state) => ({ ...state, active: false, generation: state.generation + 1 }))
+      await vi.advanceTimersByTimeAsync(500)
+      vi.useRealTimers()
+      await owner.client.cancelQueries()
+      await owner.registry.cleanup()
+      owner.client.clear()
+    })
   })
 
   it("repeats picker add without a rerender and preserves the first timer deadline", async () => {
     mocks.apiFetch.mockResolvedValue(undefined)
-    renderSheet(false)
+    await renderSheet(false)
+    const add = mocks.onAdd!
 
-    act(() => mocks.onAdd?.("message_1", "👍"))
-    const timerKey = "message_1:👍"
-    const firstPending = useCommunityStore.getState().reactionTimers.get(timerKey)
-    const firstWriteCount = mocks.queryClient.setQueryData.mock.calls.length
+    act(() => add("message_1", "👍"))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    const firstPending = owner.client.getMutationCache().findAll({ status: "pending" })[0]
+    const firstRow = owner.registry.collections.messages.get("message_1")
     expect(currentMe()).toBe(true)
     expect(firstPending).toBeDefined()
 
     await act(async () => { await vi.advanceTimersByTimeAsync(150) })
-    act(() => mocks.onAdd?.("message_1", "👍"))
-    expect(mocks.queryClient.setQueryData).toHaveBeenCalledTimes(firstWriteCount)
-    expect(useCommunityStore.getState().reactionTimers.get(timerKey)).toBe(firstPending)
+    act(() => add("message_1", "👍"))
+    expect(owner.registry.collections.messages.get("message_1")).toBe(firstRow)
+    expect(owner.client.getMutationCache().findAll({ status: "pending" })).toEqual([firstPending])
 
     await act(async () => { await vi.advanceTimersByTimeAsync(150) })
     expect(mocks.apiFetch).toHaveBeenCalledTimes(1)
     expect(mocks.apiFetch).toHaveBeenCalledWith(
       expect.stringContaining("/api/community/messages/message_1/reactions/"),
-      { method: "PUT" },
+      expect.objectContaining({ method: "PUT", signal: expect.any(AbortSignal), assertActive: expect.any(Function) }),
     )
   })
 
   it("coalesces chip remove then picker add without a rerender to zero requests", async () => {
-    renderSheet(true)
+    await renderSheet(true)
+    const toggle = mocks.onToggle!, add = mocks.onAdd!
 
-    act(() => mocks.onToggle?.("message_1", "👍"))
+    act(() => toggle("message_1", "👍"))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(currentMe()).toBe(false)
-    act(() => mocks.onAdd?.("message_1", "👍"))
+    act(() => add("message_1", "👍"))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
 
     expect(currentMe()).toBe(true)
-    expect(useCommunityStore.getState().reactionTimers.size).toBe(0)
     await act(async () => { await vi.advanceTimersByTimeAsync(500) })
+    expect(owner.client.getMutationCache().findAll({ status: "pending" })).toHaveLength(0)
     expect(mocks.apiFetch).not.toHaveBeenCalled()
   })
 
   it("rolls a failed add back and emits one error toast", async () => {
     const error = new Error("boom")
     mocks.apiFetch.mockRejectedValueOnce(error)
-    renderSheet(false)
+    await renderSheet(false)
 
     act(() => mocks.onAdd?.("message_1", "👍"))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(currentMe()).toBe(true)
     await act(async () => {
       await vi.advanceTimersByTimeAsync(300)

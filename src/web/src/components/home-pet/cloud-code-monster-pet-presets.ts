@@ -1,5 +1,6 @@
+import { useEffect } from "react";
+import { createStore, useSelector } from "@tanstack/react-store";
 import {
-  CLOUD_CODE_MONSTER_PRESET_CHANGED_EVENT,
   CLOUD_CODE_MONSTER_PRESET_STORAGE_KEY,
 } from "./cloud-code-monster-pet-constants";
 import type { CloudCodeMonsterPetPreset } from "./cloud-code-monster-pet-types";
@@ -557,36 +558,35 @@ export function getCloudCodeMonsterPreset(presetId?: string | null) {
   );
 }
 
-export function readCloudCodeMonsterPetPresetId() {
-  if (typeof localStorage === "undefined") {
-    return CLOUD_CODE_MONSTER_PET_PRESETS[0]!.id;
-  }
+const presetSettings = createStore(CLOUD_CODE_MONSTER_PET_PRESETS[0]!.id);
 
+export function readCloudCodeMonsterPetPresetId() {
+  if (typeof localStorage === "undefined") return presetSettings.get();
   try {
-    return getCloudCodeMonsterPreset(
-      localStorage.getItem(CLOUD_CODE_MONSTER_PRESET_STORAGE_KEY)
-    ).id;
-  } catch {
-    return CLOUD_CODE_MONSTER_PET_PRESETS[0]!.id;
-  }
+    const next = getCloudCodeMonsterPreset(localStorage.getItem(CLOUD_CODE_MONSTER_PRESET_STORAGE_KEY)).id;
+    presetSettings.setState(() => next);
+  } catch {}
+  return presetSettings.get();
 }
 
 export function writeCloudCodeMonsterPetPresetId(presetId: string) {
   const nextPreset = getCloudCodeMonsterPreset(presetId);
-
+  presetSettings.setState(() => nextPreset.id);
   if (typeof localStorage !== "undefined") {
-    try {
-      localStorage.setItem(CLOUD_CODE_MONSTER_PRESET_STORAGE_KEY, nextPreset.id);
-    } catch {}
+    try { localStorage.setItem(CLOUD_CODE_MONSTER_PRESET_STORAGE_KEY, nextPreset.id); } catch {}
   }
-
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(
-      new CustomEvent(CLOUD_CODE_MONSTER_PRESET_CHANGED_EVENT, {
-        detail: { presetId: nextPreset.id },
-      })
-    );
-  }
-
   return nextPreset.id;
+}
+
+export function useCloudCodeMonsterPetPresetId() {
+  const presetId = useSelector(presetSettings, (state) => state);
+  useEffect(() => {
+    readCloudCodeMonsterPetPresetId();
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === CLOUD_CODE_MONSTER_PRESET_STORAGE_KEY || event.key === null) readCloudCodeMonsterPetPresetId();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+  return presetId;
 }

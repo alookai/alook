@@ -1,3 +1,4 @@
+import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { notifyManager, type QueryClient, type QueryKey } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import {
@@ -6,11 +7,7 @@ import {
 } from "@/lib/query-keys"
 import { projectReadCoordinatorSnapshot } from "@/hooks/community/read-coordinator-snapshot-projection"
 import { acceptAccountUnreadPrimarySnapshot } from "@/hooks/community/account-unread-projection"
-import {
-  captureCommunityLiveSnapshotToken,
-  publishCommunityLiveSnapshot,
-  type CommunityLiveSnapshotToken,
-} from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken, publishCommunityLiveSnapshot, type CommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 
 type AccountReadState = {
   channelId: string
@@ -524,7 +521,7 @@ function startAccountReadStateRequest(
   state.requestController = controller
   return apiFetch<AccountReadStateSnapshot>(
     "/api/community/users/me/read-state",
-    { signal: controller.signal },
+    communityRequestOptions(queryClient, token, controller.signal),
   ).then((snapshot) => ({ snapshot, token, signal: controller.signal })).finally(() => {
     if (state.requestController === controller) state.requestController = null
   })

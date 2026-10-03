@@ -1,5 +1,6 @@
 import React from "react"
-import { render } from "@/test/react-dom-harness"
+import {  } from "@/test/react-dom-harness"
+import { renderCommunity as render } from "@/test/community-owner-harness"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { DmView } from "@/components/community/channels/dm-view"
 
@@ -66,7 +67,7 @@ vi.mock("@/components/community/messages/conversation-footer-shell", () => ({
   ConversationFooterShell: ({ children }: { children: React.ReactNode }) => children,
   ConversationFooterSlotProvider: ({ children }: { children: React.ReactNode }) => children,
 }))
-vi.mock("@/stores/community", () => ({
+vi.mock("@/stores/community", async (importOriginal) => ({ ...await importOriginal<typeof import("@/stores/community")>(),
   useCommunityStore: { getState: () => mockStore },
   useUiHandlers: () => ({}),
   useTypingUsersForScope: () => [],
@@ -127,7 +128,7 @@ vi.mock("@/hooks/community/mutations", () => ({
 vi.mock("@/hooks/community/use-dm-message-sender", () => ({
   useDmMessageSender: () => ({ accept: vi.fn(), retry: vi.fn() }),
 }))
-vi.mock("@/stores/community/message-stream", () => ({
+vi.mock("@/stores/community/message-stream", async (importOriginal) => ({ ...await importOriginal<typeof import("@/stores/community/message-stream")>(),
   useMessageStreamStore: { getState: () => ({ dispatch: vi.fn() }) },
 }))
 vi.mock("@/contexts/community/current-user", () => ({
@@ -149,7 +150,7 @@ vi.mock("@/hooks/community/use-notification-settings", () => ({
 }))
 vi.mock("@/lib/api/client", () => ({ toastApiError: vi.fn() }))
 vi.mock("@/lib/community/reply-content", () => ({ displayReplyContent: () => "" }))
-vi.mock("@/lib/community-db/projections", () => ({
+vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
   useCanonicalProfilesByUserId: () => new Map(),
   useReadStateProjection: () => null,
 }))

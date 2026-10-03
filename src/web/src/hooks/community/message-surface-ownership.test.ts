@@ -12,11 +12,14 @@ import {
 import {
   captureCommunityLiveSnapshotToken,
   getCanonicalCommunityMessages,
+  getCanonicalCommunityChannels,
   projectCommunityWsEventToDb,
   publishCommunityEmbeddedMessages,
+  publishCommunityCreatedChannel,
 } from "@/lib/community-db/sync"
 import type { Msg } from "@/lib/community/models/message"
-import { mapForumFeedPages, type ForumFeedPage } from "./use-forum-feed"
+import { mapForumFeedPages } from "./use-forum-feed"
+import { forumFeedWindow, type ForumFeedTransportPage } from "./forum-feed-window"
 import { materializeThreadsResponse, type ThreadsResponse } from "./use-channel-panels"
 
 let registry: CommunityDbRegistry | undefined
@@ -50,7 +53,7 @@ describe("embedded message surface ownership", () => {
       pins: [transport],
       context: [transport],
     }
-    const forumPage: ForumFeedPage = {
+    const forumPage: ForumFeedTransportPage = {
       serverId: "s1",
       parentType: "forum",
       threads: [{
@@ -84,10 +87,6 @@ describe("embedded message surface ownership", () => {
     const threads: ThreadsResponse = {
       threads: [{
         id: "post-1",
-        name: "transport",
-        messageCount: 1,
-        lastMessageAt: transport.createdAt!,
-        parent: { authorName: "transport", text: "transport" },
         openerMessageId: "m1",
       }],
       serverId: "s1",
@@ -97,16 +96,21 @@ describe("embedded message surface ownership", () => {
     const canonical = () => new Map(
       getCanonicalCommunityMessages(queryClient).map((message) => [message.id, message as Msg]),
     )
+    const channels = () => new Map(getCanonicalCommunityChannels(queryClient).map((row) => [row.id, row]))
     const projectEverySurface = () => ({
       rows: Object.fromEntries(Object.entries(transportSurfaces).map(([surface, messages]) => [
         surface,
         materializeCanonicalMessages(messages, canonical()).map((message) => message.content),
       ])),
-      forum: mapForumFeedPages([forumPage], canonical()).map((post) => post.name),
-      threads: materializeThreadsResponse(threads, canonical()).map((thread) => thread.name),
+      forum: mapForumFeedPages([forumFeedWindow(forumPage)], canonical(), channels(), new Map()).map((post) => post.name),
+      threads: materializeThreadsResponse(threads, canonical(), channels()).map((thread) => thread.name),
     })
 
     expect(getCanonicalCommunityMessages(queryClient)).toEqual([])
+    publishCommunityCreatedChannel(queryClient, {
+      id: "post-1", serverId: "s1", parentChannelId: "c1", parentMessageId: "m1", name: "transport", type: "thread", position: 0,
+      archived: false, muted: false, unread: false, tags: [], pending: false, createdAt: transport.createdAt,
+    }, { token: captureCommunityLiveSnapshotToken(queryClient), signal: undefined })
     publishCommunityEmbeddedMessages(queryClient, {
       entries: [{ channelId: "c1", message: transport }],
       proof: {

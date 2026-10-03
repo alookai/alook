@@ -6,9 +6,10 @@ import {
   type CommunityWsEvent,
 } from "@alook/shared"
 import type { QueryClient } from "@tanstack/react-query"
-import { fetchChannelMetadata, type ChannelMetadata } from "@/hooks/community/channel-metadata"
-import { communityKeys } from "@/lib/query-keys"
-import type { ChannelRow, ServerRow } from "@/lib/community-db/schema"
+import { channelMetadataOptions } from "@/hooks/community/channel-metadata"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
+import type { ChannelRow } from "@/lib/community-db/schema"
 import {
   parseDesktopSystemNotificationActivation,
   type DesktopSystemNotificationActivation,
@@ -37,16 +38,12 @@ function collectionConversation(
   queryClient: QueryClient,
 ): DesktopSystemNotificationConversation | null {
   if (!create.serverId) return null
-  const servers = queryClient.getQueryData<ServerRow[]>(
-    communityKeys.communityDbCollection(viewerUserId, "servers"),
-  ) ?? []
-  const channels = queryClient.getQueryData<ChannelRow[]>(
-    communityKeys.communityDbCollection(viewerUserId, "channels"),
-  ) ?? []
-  const server = servers.find((entry) => entry.id === create.serverId)
-  const channel = channels.find((entry) => entry.id === create.channelId)
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry || registry.accountId !== viewerUserId) return null
+  const server = registry.collections.servers.get(create.serverId)
+  const channel = registry.collections.channels.get(create.channelId)
   const parent = channel?.parentChannelId
-    ? channels.find((entry) => entry.id === channel.parentChannelId)
+    ? registry.collections.channels.get(channel.parentChannelId)
     : undefined
   return {
     conversationKind: channel?.type === "thread" ? "thread" : "channel",
@@ -114,19 +111,18 @@ export async function resolveDesktopSystemNotificationCandidate(
     && (cached.conversationKind !== "thread" || cached.parentChannelName)
   ) return fallback
 
+  const token = captureCommunityLiveSnapshotToken(queryClient)
   try {
-    const channel = await queryClient.fetchQuery({
-      queryKey: communityKeys.channelMeta(create.serverId, create.channelId),
-      queryFn: () => fetchChannelMetadata(create.serverId!, create.channelId),
-      staleTime: Infinity,
-    }) as ChannelMetadata
-    const parent = channel.parentChannelId
-      ? await queryClient.fetchQuery({
-        queryKey: communityKeys.channelMeta(create.serverId, channel.parentChannelId),
-        queryFn: () => fetchChannelMetadata(create.serverId!, channel.parentChannelId!),
-        staleTime: Infinity,
-      }) as ChannelMetadata
-      : null
+    await queryClient.fetchQuery(channelMetadataOptions(queryClient, create.serverId, create.channelId))
+    assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)
+    const channel = getCommunityDbRegistry(queryClient)?.collections.channels.get(create.channelId)
+    if (!channel) return fallback
+    let parent: ChannelRow | undefined
+    if (channel.parentChannelId) {
+      await queryClient.fetchQuery(channelMetadataOptions(queryClient, create.serverId, channel.parentChannelId))
+      assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)
+      parent = getCommunityDbRegistry(queryClient)?.collections.channels.get(channel.parentChannelId)
+    }
 
     return buildDesktopSystemNotificationCandidate(create, bump, viewerUserId, {
       conversationKind: channel.parentChannelId ? "thread" : "channel",

@@ -49,7 +49,7 @@ vi.mock("./use-channel-panels", () => ({
   useThreads: () => ({ threads: [], isLoading: false }),
   usePins: () => ({ pins: [], isLoading: false }),
 }))
-vi.mock("@/lib/community-db/projections", () => ({
+vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
   useReadStateProjection: () => mocks.canonicalReadSnapshot,
 }))
 

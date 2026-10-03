@@ -1,10 +1,11 @@
+import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { createElement, type PropsWithChildren } from "react"
-import { QueryClient, QueryClientProvider, type InfiniteData } from "@tanstack/react-query"
+import { type InfiniteData } from "@tanstack/react-query"
 import { renderHook, waitFor } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
 import type { Msg } from "@/lib/community/models/message"
-import { useCommunityWsStore } from "@/stores/community/ws"
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
@@ -13,7 +14,7 @@ vi.mock("@/lib/api/client", () => ({
 
 beforeEach(() => {
   apiFetchMock.mockReset()
-  useCommunityWsStore.getState().reset()
+
 })
 
 // Load *after* the mock is set up so the queryFn resolves the mocked import.
@@ -29,51 +30,68 @@ describe("channelMessagesQueryFn — url per mode", () => {
   it("newest → no query params", async () => {
     const { channelMessagesQueryFn } = await loadHook()
     apiFetchMock.mockResolvedValueOnce({ messages: [], hasMore: false, latestSeq: 0 })
-    await channelMessagesQueryFn("ch_1")({ pageParam: { mode: "newest" } })
-    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/community/channels/ch_1/messages")
+    const { client } = await createCommunityQueryOwner()
+    await channelMessagesQueryFn("ch_1")({ client, signal: new AbortController().signal, pageParam: { mode: "newest" } })
+    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/community/channels/ch_1/messages", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
   })
 
   it("older → ?cursor=<c>", async () => {
     const { channelMessagesQueryFn } = await loadHook()
     apiFetchMock.mockResolvedValueOnce({ messages: [], hasMore: false, latestSeq: 0 })
+    const { client } = await createCommunityQueryOwner()
     await channelMessagesQueryFn("ch_1")({
+      client,
+      signal: new AbortController().signal,
       pageParam: { mode: "older", cursor: "2026-07-03T00:00:00.000Z|abc" },
     })
     expect(apiFetchMock).toHaveBeenLastCalledWith(
       "/api/community/channels/ch_1/messages?cursor=2026-07-03T00%3A00%3A00.000Z%7Cabc",
+      expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
   })
 
   it("newer → ?since=<c>", async () => {
     const { channelMessagesQueryFn } = await loadHook()
     apiFetchMock.mockResolvedValueOnce({ messages: [], hasMoreNewer: false, latestSeq: 0 })
+    const { client } = await createCommunityQueryOwner()
     await channelMessagesQueryFn("ch_1")({
+      client,
+      signal: new AbortController().signal,
       pageParam: { mode: "newer", cursor: "cur_new" },
     })
     expect(apiFetchMock).toHaveBeenLastCalledWith(
       "/api/community/channels/ch_1/messages?since=cur_new",
+      expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
   })
 
   it("anchor → ?anchor=<id>", async () => {
     const { channelMessagesQueryFn } = await loadHook()
     apiFetchMock.mockResolvedValueOnce({ messages: [], hasMoreOlder: false, hasMoreNewer: false, latestSeq: 0 })
+    const { client } = await createCommunityQueryOwner()
     await channelMessagesQueryFn("ch_1")({
+      client,
+      signal: new AbortController().signal,
       pageParam: { mode: "anchor", anchor: "m_42" },
     })
     expect(apiFetchMock).toHaveBeenLastCalledWith(
       "/api/community/channels/ch_1/messages?anchor=m_42",
+      expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
   })
 
   it("since → ?since=<c>", async () => {
     const { channelMessagesQueryFn } = await loadHook()
     apiFetchMock.mockResolvedValueOnce({ messages: [], hasMoreNewer: false, latestSeq: 0 })
+    const { client } = await createCommunityQueryOwner()
     await channelMessagesQueryFn("ch_1")({
+      client,
+      signal: new AbortController().signal,
       pageParam: { mode: "since", since: "cur_since" },
     })
     expect(apiFetchMock).toHaveBeenLastCalledWith(
       "/api/community/channels/ch_1/messages?since=cur_since",
+      expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
   })
 })
@@ -83,8 +101,7 @@ describe("channelMessagesQueryFn — queryClient integration", () => {
     "rejects a signal-free cold result after the active %s epoch changes",
     async (epoch) => {
       const { channelMessagesQueryFn } = await loadHook()
-      const queryClient = new QueryClient()
-      useCommunityWsStore.getState().activateProfileAccount("viewer-a")
+      const { client: queryClient, runtime } = await createCommunityQueryOwner("viewer-a")
       let resolveTransport!: (value: { messages: Msg[]; hasMore: boolean }) => void
       apiFetchMock.mockReturnValue(new Promise((resolve) => { resolveTransport = resolve }))
       const request = channelMessagesQueryFn("ch_1", null, { queryClient })({
@@ -92,14 +109,16 @@ describe("channelMessagesQueryFn — queryClient integration", () => {
         signal: undefined,
       })
 
+      const rejection = expect(request).rejects.toMatchObject({ name: "AbortError" })
+      await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
       if (epoch === "account") {
-        useCommunityWsStore.getState().activateProfileAccount("viewer-b")
+        runtime.ws.actions.activateProfileAccount("viewer-b")
       } else {
-        useCommunityWsStore.getState().revokeChannelAccess("server-1", "ch_1")
+        runtime.ws.actions.revokeChannelAccess("server-1", "ch_1")
       }
       resolveTransport({ messages: [], hasMore: false })
 
-      await expect(request).rejects.toMatchObject({ name: "AbortError" })
+      await rejection
     },
   )
 
@@ -112,7 +131,9 @@ describe("channelMessagesQueryFn — queryClient integration", () => {
       surfaceReceipt: { channelId: "ch_1", surfaceKind: "channel" },
     })
 
+    const { client } = await createCommunityQueryOwner()
     const page = await channelMessagesQueryFn("ch_1", null, { onSurfaceReceipt })({
+      client,
       pageParam: { mode: "newest" },
     })
 
@@ -128,21 +149,25 @@ describe("channelMessagesQueryFn — queryClient integration", () => {
     const controller = new AbortController()
     apiFetchMock.mockResolvedValueOnce({ messages: [], hasMore: false, latestSeq: 0 })
 
+    const { client } = await createCommunityQueryOwner()
     await channelMessagesQueryFn("ch_abort")({
+      client,
       pageParam: { mode: "newest" },
       signal: controller.signal,
     })
 
+    controller.abort()
+    expect(apiFetchMock.mock.calls.at(-1)?.[1].signal.aborted).toBe(true)
     expect(apiFetchMock).toHaveBeenLastCalledWith(
       "/api/community/channels/ch_abort/messages",
-      { signal: controller.signal },
+      expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
   })
 
   it("populates queryClient at communityKeys.channelMessages(channelId)", async () => {
     const { channelMessagesQueryFn } = await loadHook()
     apiFetchMock.mockResolvedValueOnce({ messages: [{ id: "m_1" }], hasMore: false })
-    const qc = new QueryClient()
+    const { client: qc } = await createCommunityQueryOwner()
     const key = communityKeys.channelMessages("ch_1")
     await qc.fetchInfiniteQuery({
       queryKey: key,
@@ -157,7 +182,7 @@ describe("channelMessagesQueryFn — queryClient integration", () => {
   it("prefix invalidation via channelMessages(id) marks channelMessagesPage(id, cursor) invalidated", async () => {
     const { channelMessagesQueryFn } = await loadHook()
     apiFetchMock.mockResolvedValueOnce({ messages: [], hasMore: false })
-    const qc = new QueryClient()
+    const { client: qc } = await createCommunityQueryOwner()
     const cursorKey = communityKeys.channelMessagesPage("ch_1", "cur|abc")
     await qc.fetchQuery({ queryKey: cursorKey, queryFn: () => apiFetchMock() })
     expect(qc.getQueryData(cursorKey)).toBeDefined()
@@ -175,7 +200,7 @@ describe("dmMessagesQueryFn", () => {
       hasMore: false,
       surfaceReceipt: { channelId: "dm_1", surfaceKind: "dm" },
     })
-    const qc = new QueryClient()
+    const { client: qc } = await createCommunityQueryOwner()
     const key = communityKeys.dmMessages("dm_1")
 
     await qc.fetchInfiniteQuery({
@@ -193,32 +218,41 @@ describe("dmMessagesQueryFn", () => {
     const controller = new AbortController()
     apiFetchMock.mockResolvedValueOnce({ messages: [], hasMore: false, latestSeq: 0 })
 
+    const { client } = await createCommunityQueryOwner()
     await dmMessagesQueryFn("dm_abort")({
+      client,
       pageParam: { mode: "newest" },
       signal: controller.signal,
     })
 
+    controller.abort()
+    expect(apiFetchMock.mock.calls.at(-1)?.[1].signal.aborted).toBe(true)
     expect(apiFetchMock).toHaveBeenLastCalledWith(
       "/api/community/channels/dm_abort/messages",
-      { signal: controller.signal },
+      expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
   })
 
   it("newest → no query params", async () => {
     const { dmMessagesQueryFn } = await loadHook()
     apiFetchMock.mockResolvedValueOnce({ messages: [], hasMore: false, latestSeq: 0 })
-    await dmMessagesQueryFn("dm_1")({ pageParam: { mode: "newest" } })
-    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/community/channels/dm_1/messages")
+    const { client } = await createCommunityQueryOwner()
+    await dmMessagesQueryFn("dm_1")({ client, signal: new AbortController().signal, pageParam: { mode: "newest" } })
+    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/community/channels/dm_1/messages", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
   })
 
   it("older cursor → ?cursor", async () => {
     const { dmMessagesQueryFn } = await loadHook()
     apiFetchMock.mockResolvedValueOnce({ messages: [], hasMore: false, latestSeq: 0 })
+    const { client } = await createCommunityQueryOwner()
     await dmMessagesQueryFn("dm_1")({
+      client,
+      signal: new AbortController().signal,
       pageParam: { mode: "older", cursor: "cur_1" },
     })
     expect(apiFetchMock).toHaveBeenLastCalledWith(
       "/api/community/channels/dm_1/messages?cursor=cur_1",
+      expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
   })
 
@@ -227,7 +261,7 @@ describe("dmMessagesQueryFn", () => {
     apiFetchMock
       .mockResolvedValueOnce({ messages: [{ id: "m_1" }], hasMore: true, cursor: "cur_1", latestSeq: 1 })
       .mockResolvedValueOnce({ messages: [{ id: "m_2" }], hasMore: false, latestSeq: 1 })
-    const qc = new QueryClient()
+    const { client: qc } = await createCommunityQueryOwner()
     const key = communityKeys.dmMessages("dm_1")
     await qc.fetchInfiniteQuery({
       queryKey: key,
@@ -245,9 +279,7 @@ describe("dmMessagesQueryFn", () => {
 describe("message hooks — canonical receipt forwarding", () => {
   it("records transport receipts for mounted Channel and DM queries", async () => {
     const { useDmMessages, useMessages } = await loadHook()
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    })
+    const { client: queryClient } = await createCommunityQueryOwner()
     apiFetchMock.mockImplementation(async (url: string) => ({
       messages: [],
       hasMore: false,

@@ -6,7 +6,7 @@ import { communityKeys } from "@/lib/query-keys"
 import { usePins, useThreads } from "./use-channel-panels"
 
 describe("usePins", () => {
-  it("exposes a stable empty list while the query is disabled", () => {
+  it("exposes a stable empty list while the query is disabled", async () => {
     const queryClient = new QueryClient()
     const wrapper = ({ children }: PropsWithChildren) => createElement(
       QueryClientProvider,
@@ -25,8 +25,8 @@ describe("usePins", () => {
     })?.options.queryFn
     expect(disabledPins).toBeTypeOf("function")
     expect(disabledThreads).toBeTypeOf("function")
-    expect(disabledPins!({} as never)).rejects.toThrow("disabled")
-    expect(disabledThreads!({} as never)).rejects.toThrow("disabled")
+    await expect(disabledPins!({} as never)).rejects.toThrow("disabled")
+    await expect(disabledThreads!({} as never)).rejects.toThrow("disabled")
     rendered.unmount()
   })
 })

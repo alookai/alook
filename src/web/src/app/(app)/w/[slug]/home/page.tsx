@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import {
   ReactFlow,
@@ -33,7 +35,8 @@ import {
 import type { Agent, AgentLink } from "@alook/shared";
 import { cn } from "@/lib/utils";
 import { useAgentContext } from "@/contexts/agent-context";
-import { useWorkspace } from "@/contexts/workspace-context";
+import { useWorkspace, useWorkspaceOwner, captureWorkspaceOwner, assertWorkspaceOwner, workspaceRequestOptions, runWorkspaceRequest } from "@/contexts/workspace-context";
+import { useWorkspaceViewSource } from "@/hooks/workspace/use-workspace-view-source";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAgentChatSheet } from "@/contexts/agent-chat-sheet-context";
 import { Button } from "@/components/ui/button";
@@ -53,7 +56,7 @@ import {
 } from "@/lib/api";
 import { toast } from "sonner";
 import { cliCmd } from "@/lib/utils";
-import { ApiError } from "@/lib/errors";
+import { ApiError, isAbortError } from "@/lib/errors";
 import { trackAgentLinkCreated, trackCanvasLayoutChanged } from "@/lib/analytics";
 import { AgentNode, type AgentNodeData } from "@/components/canvas/agent-node";
 import { LinkEdge } from "@/components/canvas/link-edge";
@@ -109,34 +112,56 @@ function savePositions(workspaceId: string, nodes: Node[]) {
 function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }) {
   const router = useRouter();
   const { agents, runtimes, loading, activeTaskCounts, agentLinks, pendingNewAgent, clearPendingNewAgent } = useAgentContext();
-  const { slug, workspaceId } = useWorkspace();
+  const owner = useWorkspaceOwner();
+  const { slug, workspaceId } = owner;
+  const source = useWorkspaceViewSource(owner, "canvas", true);
   const { zoomIn, zoomOut, fitView } = useReactFlow();
   const canvasRef = useRef<HTMLDivElement>(null);
+  const canvasScope = `${owner.application.userId}:${workspaceId}`;
+  const layoutTimers = useRef(new Set<ReturnType<typeof setTimeout>>());
+  const laterLayout = useCallback((callback: () => void, delay: number) => {
+    const assertView = source.assertActive;
+    const timer = setTimeout(() => {
+      layoutTimers.current.delete(timer);
+      try { assertView(); } catch { return; }
+      callback();
+    }, delay);
+    layoutTimers.current.add(timer);
+  }, [source.assertActive]);
+  useEffect(() => {
+    const timers = layoutTimers.current;
+    return () => { for (const timer of timers) clearTimeout(timer); timers.clear(); };
+  }, []);
 
-  const [nodes, setNodes] = useState<Node[]>([]);
-  const [edges, setEdges] = useState<Edge[]>([]);
-  const [links, setLinks] = useState<AgentLink[]>([]);
+  const geometry = useCreateAtom<Node[]>([]);
+  const [nodeGeometry, setGeometry] = useAtom(geometry);
+  const nodes = useMemo<Node[]>(() => nodeGeometry.flatMap((node, index) => {
+    const agent = agents.find((row) => row.id === node.id);
+    return agent ? [{ ...node, data: { agent, runtimes, activeTaskCount: activeTaskCounts[node.id] ?? 0, slug, index } satisfies AgentNodeData }] : [];
+  }), [nodeGeometry, agents, runtimes, activeTaskCounts, slug]);
+  const setNodes = useCallback((update: Node[] | ((nodes: Node[]) => Node[])) => setGeometry((current) => {
+    const next = typeof update === "function" ? update(current) : update;
+    return next.map(({ data: _data, ...node }) => ({ ...node, data: {} }));
+  }), [setGeometry]);
+  const links = agentLinks;
   const linksLoaded = !loading;
-  const [sidecarLink, setSidecarLink] = useState<AgentLink | null>(null);
-  const [sidecarOpen, setSidecarOpen] = useState(false);
-  const [showHint, setShowHint] = useState(false);
-  const [layoutType, setLayoutType] = useState<LayoutType>(() => loadLayoutType(workspaceId));
+  const [sidecarLinkId, setSidecarLinkId] = useAtom(useCreateAtom<string | null>(null));
+  const sidecarLink = links.find((link) => link.id === sidecarLinkId) ?? null;
+  const [sidecarOpen, setSidecarOpen] = useAtom(useCreateAtom(false));
+  const showHint = linksLoaded && links.length === 0;
+  const [layoutType, setLayoutType] = useAtom(useCreateAtom<LayoutType>("tree"));
   const initialLayoutDone = useRef(false);
-  const handleMap = useRef<Record<string, { sourceHandle: string; targetHandle: string }>>({});
+  const [handles, setHandles] = useAtom(useCreateAtom<Record<string, { sourceHandle: string; targetHandle: string }>>({}));
+  const [edgeView, setEdgeView] = useAtom(useCreateAtom<Record<string, { selected?: boolean; hidden?: boolean }>>({}));
+  useEffect(() => { setLayoutType(loadLayoutType(`${owner.application.userId}:${workspaceId}`)); }, [owner, workspaceId, setLayoutType]);
 
-  // Sync links from context
-  useEffect(() => {
-    if (!loading) setLinks(agentLinks);
-  }, [agentLinks, loading]);
-
-  // Build edges from links
-  useEffect(() => {
-    if (!linksLoaded) return;
+  const edges = useMemo<Edge[]>(() => {
+    if (!linksLoaded) return [];
 
     const nodeMap = new Map(nodes.map((n) => [n.id, n.position]));
 
     const newEdges: Edge[] = links.map((link) => {
-      const stored = handleMap.current[link.id];
+      const stored = handles[link.id];
       let sourceHandle = stored?.sourceHandle;
       let targetHandle = stored?.targetHandle;
 
@@ -171,23 +196,23 @@ function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }
           onEdgeClick: (edgeId: string) => {
             const l = links.find((lk) => lk.id === edgeId);
             if (l) {
-              setSidecarLink(l);
+              setSidecarLinkId(l.id);
               setSidecarOpen(true);
             }
           },
         },
         selected: sidecarLink?.id === link.id && sidecarOpen,
+        ...edgeView[link.id],
       };
     });
-    setEdges(newEdges);
-    setShowHint(newEdges.length === 0);
-  }, [links, linksLoaded, sidecarLink, sidecarOpen, nodes]);
+    return newEdges;
+  }, [links, linksLoaded, sidecarLink, sidecarOpen, nodes, handles, edgeView, setSidecarLinkId, setSidecarOpen]);
 
   // Build nodes from agents
   useEffect(() => {
     if (loading || agents.length === 0) return;
 
-    const saved = loadPositions(workspaceId);
+    const saved = { ...loadPositions(canvasScope), ...Object.fromEntries(geometry.get().map((node) => [node.id, node.position])) };
     // Filter out stale positions
     const agentIds = new Set(agents.map((a) => a.id));
     const validPositions: Record<string, { x: number; y: number }> = {};
@@ -230,7 +255,7 @@ function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }
         newNodes = getAutoLayout(newNodes, currentEdges, layoutType);
         if (!initialLayoutDone.current) {
           initialLayoutDone.current = true;
-          setTimeout(() => fitView({ padding: 0.4, duration: 400 }), 50);
+          laterLayout(() => fitView({ padding: 0.4, duration: 400 }), 50);
         }
         if (pendingNewAgent) clearPendingNewAgent();
       }
@@ -281,96 +306,110 @@ function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }
         return { ...n, position: { x: cx + 350 + siblingIndex * 300, y: cy } };
       });
 
-      savePositions(workspaceId, newNodes);
-      setTimeout(() => fitView({ padding: 0.4, duration: 400, includeHiddenNodes: false }), 50);
+      savePositions(canvasScope, newNodes);
+      laterLayout(() => fitView({ padding: 0.4, duration: 400, includeHiddenNodes: false }), 50);
       if (pendingNewAgent) clearPendingNewAgent();
     }
 
     setNodes(newNodes);
-  }, [agents, runtimes, activeTaskCounts, slug, loading, workspaceId, linksLoaded, links, fitView, layoutType, pendingNewAgent, clearPendingNewAgent]);
+  }, [agents, runtimes, activeTaskCounts, slug, loading, canvasScope, linksLoaded, links, fitView, layoutType, pendingNewAgent, clearPendingNewAgent, geometry, setNodes, laterLayout]);
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     setNodes((nds) => applyNodeChanges(changes, nds));
-  }, []);
+  }, [setNodes]);
 
   const onEdgesChange = useCallback((changes: EdgeChange[]) => {
-    setEdges((eds) => applyEdgeChanges(changes, eds));
-  }, []);
+    const updated = applyEdgeChanges(changes, edges);
+    setEdgeView(Object.fromEntries(updated.map((edge) => [edge.id, { selected: edge.selected, hidden: edge.hidden }])));
+  }, [edges, setEdgeView]);
 
   const onNodeDragStop = useCallback(() => {
     setNodes((nds) => {
-      savePositions(workspaceId, nds);
+      savePositions(canvasScope, nds);
       return nds;
     });
-  }, [workspaceId]);
+  }, [canvasScope, setNodes]);
 
-  const onConnect: OnConnect = useCallback(
-    async (connection: Connection) => {
-      if (!connection.source || !connection.target) return;
+  const linkKey = owner.key("agent-links");
+  const linkCommand = useMutation({ mutationKey: owner.key("agent-link-command"), scope: { id: JSON.stringify(owner.key("agent-link-command")) },
+    mutationFn: async ({ action, token }: { action: { kind: "create"; source: string; target: string } | { kind: "update"; id: string; instruction: string } | { kind: "delete"; id: string }; token: ReturnType<typeof captureWorkspaceOwner> }) => {
+      const assert = () => assertWorkspaceOwner(token), qc = owner.queryClient;
+      assert();
+      await qc.cancelQueries({ queryKey: linkKey, exact: true });
+      assert();
+      const resource = qc.getQueryCache().find({ queryKey: linkKey, exact: true }), baseline = resource?.state.data as AgentLink[] | undefined;
+      const original = () => resource && qc.getQueryCache().find({ queryKey: linkKey, exact: true }) === resource;
+      const options = workspaceRequestOptions(token);
+      let id: string;
       try {
-        const created = await createAgentLink(
-          {
-            source_agent_id: connection.source,
-            target_agent_id: connection.target,
-          },
-          workspaceId,
-        );
-        trackAgentLinkCreated({
-          source_agent: connection.source,
-          target_agent: connection.target,
-        });
-        if (connection.sourceHandle || connection.targetHandle) {
-          handleMap.current[created.id] = {
-            sourceHandle: connection.sourceHandle ?? "right",
-            targetHandle: connection.targetHandle ?? "target-left",
-          };
-        }
-        setLinks((prev) => [...prev, created]);
-        setShowHint(false);
-      } catch (e) {
-        if (e instanceof ApiError) {
-          if (e.status === 409) toast.error("Link already exists");
-          else if (e.status === 400) toast.error("Can't link an agent to itself");
-          else toast.error("Failed to create link");
+        if (action.kind === "create") {
+          const confirmed = await createAgentLink({ source_agent_id: action.source, target_agent_id: action.target }, workspaceId, options);
+          assert();
+          id = confirmed.id;
+          if (original() && resource!.state.data === baseline) qc.setQueryData<AgentLink[]>(linkKey, (rows) => [...(rows ?? []).filter((row) => row.id !== confirmed.id), confirmed]);
+        } else if (action.kind === "update") {
+          const confirmed = await updateAgentLink(action.id, { instruction: action.instruction }, workspaceId, options);
+          assert();
+          id = action.id;
+          const old = baseline?.find((row) => row.id === action.id);
+          if (original()) qc.setQueryData<AgentLink[]>(linkKey, (rows) => rows?.map((row) => row.id === action.id && row.instruction === old?.instruction ? { ...row, instruction: confirmed.instruction } : row));
         } else {
-          toast.error("Failed to create link");
+          await deleteAgentLink(action.id, workspaceId, options);
+          assert();
+          id = action.id;
+          if (original() && resource!.state.data === baseline) qc.setQueryData<AgentLink[]>(linkKey, (rows) => rows?.filter((row) => row.id !== action.id));
         }
-      }
+        await qc.invalidateQueries({ queryKey: linkKey, exact: true });
+        assert();
+        return { id };
+      } catch (error) { assert(); throw error; }
     },
-    [workspaceId],
-  );
+  });
+  const onConnect: OnConnect = useCallback(async (connection: Connection) => {
+    if (!connection.source || !connection.target) return;
+    const assertView = source.assertActive;
+    try {
+      const created = await linkCommand.mutateAsync({ action: { kind: "create", source: connection.source, target: connection.target }, token: captureWorkspaceOwner(owner) });
+      assertView();
+      trackAgentLinkCreated({ source_agent: connection.source, target_agent: connection.target });
+      if (connection.sourceHandle || connection.targetHandle) setHandles((current) => ({ ...current, [created.id]: { sourceHandle: connection.sourceHandle ?? "right", targetHandle: connection.targetHandle ?? "target-left" } }));
+    } catch (error) {
+      try { assertView(); } catch { return; }
+      if (isAbortError(error)) return;
+      if (error instanceof ApiError && error.status === 409) toast.error("Link already exists");
+      else if (error instanceof ApiError && error.status === 400) toast.error("Can't link an agent to itself");
+      else toast.error("Failed to create link");
+    }
+  }, [source.assertActive, linkCommand, owner, setHandles]);
+  const handleSidecarSave = useCallback(async (id: string, instruction: string) => {
+    const assertView = source.assertActive;
+    try {
+      await linkCommand.mutateAsync({ action: { kind: "update", id, instruction }, token: captureWorkspaceOwner(owner) });
+      assertView();
+    } catch (error) {
+      try { assertView(); } catch { return; }
+      if (!isAbortError(error)) toast.error("Failed to update link");
+    }
+  }, [source.assertActive, linkCommand, owner]);
+  const handleSidecarDelete = useCallback(async (id: string) => {
+    const assertView = source.assertActive;
+    try {
+      await linkCommand.mutateAsync({ action: { kind: "delete", id }, token: captureWorkspaceOwner(owner) });
+      assertView();
+      setSidecarOpen(false);
+    } catch (error) {
+      try { assertView(); } catch { return; }
+      if (!isAbortError(error)) toast.error("Failed to delete link");
+    }
+  }, [source.assertActive, linkCommand, owner, setSidecarOpen]);
 
-  const handleSidecarSave = useCallback(
-    async (id: string, instruction: string) => {
-      try {
-        const updated = await updateAgentLink(id, { instruction }, workspaceId);
-        setLinks((prev) => prev.map((l) => (l.id === id ? updated : l)));
-      } catch {
-        toast.error("Failed to update link");
-      }
-    },
-    [workspaceId],
-  );
-
-  const handleSidecarDelete = useCallback(
-    async (id: string) => {
-      try {
-        await deleteAgentLink(id, workspaceId);
-        setLinks((prev) => prev.filter((l) => l.id !== id));
-        setSidecarOpen(false);
-      } catch {
-        toast.error("Failed to delete link");
-      }
-    },
-    [workspaceId],
-  );
 
   const handleLayoutChange = useCallback((newLayout: LayoutType) => {
     trackCanvasLayoutChanged({ layout_type: newLayout });
     setLayoutType(newLayout);
-    saveLayoutType(workspaceId, newLayout);
+    saveLayoutType(canvasScope, newLayout);
     try {
-      localStorage.removeItem(storageKey(workspaceId));
+      localStorage.removeItem(storageKey(canvasScope));
     } catch {}
     const currentEdges: Edge[] = links.map((link) => ({
       id: link.id,
@@ -383,20 +422,20 @@ function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }
         ...n,
         style: { ...n.style, transition: "transform 300ms ease-out" },
       }));
-      setTimeout(() => {
+      laterLayout(() => {
         setNodes((nds) => {
           const final = nds.map((n) => ({
             ...n,
             style: { ...n.style, transition: undefined },
           }));
-          savePositions(workspaceId, final);
+          savePositions(canvasScope, final);
           return final;
         });
         fitView({ padding: 0.4, duration: 400 });
       }, 350);
       return animated;
     });
-  }, [links, workspaceId, fitView]);
+  }, [links, canvasScope, fitView, setNodes, setLayoutType, laterLayout]);
 
   const onNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
@@ -408,7 +447,7 @@ function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }
         router.push(`/w/${slug}/agents/${nodeData.agent.id}`);
       }
     },
-    [router, slug, onAgentClick],
+    [setSidecarOpen, onAgentClick, router, slug],
   );
 
   const connectionLineStyle = useMemo(
@@ -633,21 +672,24 @@ function MobileAgentList({ onAgentClick }: { onAgentClick?: (agent: Agent) => vo
 }
 
 function ConnectComputerCard({ workspaceId }: { workspaceId: string }) {
-  const [token, setToken] = useState("");
-  const [loading, setLoading] = useState(true);
+  const owner = useWorkspaceOwner();
+  const source = useWorkspaceViewSource(owner, "connect-computer", true);
+  const pairing = useQuery({ queryKey: owner.key("machine-pairing", "cli"), gcTime: 0, staleTime: Infinity, retry: false,
+    queryFn: ({ signal }) => runWorkspaceRequest(owner, (options) => createMachineToken("cli", workspaceId, options), signal),
+  });
+  const command = `${cliCmd()} register --token ${pairing.data?.token ?? ""}`;
 
-  useEffect(() => {
-    createMachineToken("cli", workspaceId)
-      .then((res) => setToken(res.token))
-      .catch(() => toast.error("Failed to generate token"))
-      .finally(() => setLoading(false));
-  }, [workspaceId]);
-
-  const command = `${cliCmd()} register --token ${token}`;
-
-  const copy = () => {
-    navigator.clipboard.writeText(command);
-    toast.success("Copied to clipboard");
+  const copy = async () => {
+    const assertView = source.assertActive;
+    try {
+      assertView();
+      await navigator.clipboard.writeText(command);
+      assertView();
+      toast.success("Copied to clipboard");
+    } catch (error) {
+      try { assertView(); } catch { return; }
+      if (!isAbortError(error)) toast.error("Failed to copy command");
+    }
   };
 
   return (
@@ -656,10 +698,12 @@ function ConnectComputerCard({ workspaceId }: { workspaceId: string }) {
       <p className="text-xs text-muted-foreground">
         Run this command in your terminal to link your machine.
       </p>
-      {loading ? (
+      {pairing.isPending ? (
         <div className="rounded-md bg-muted p-2 font-mono text-xs text-muted-foreground animate-pulse">
           Generating token...
         </div>
+      ) : pairing.isError ? (
+        <Button size="sm" onClick={() => void pairing.refetch()}>Retry generating token</Button>
       ) : (
         <>
           <div

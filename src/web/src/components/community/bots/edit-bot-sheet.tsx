@@ -1,6 +1,12 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { createStore, useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useQueryClient } from "@tanstack/react-query"
+import { communityKeys } from "@/lib/query-keys"
+import { isAbortError } from "@/lib/errors"
+
+import { useEffect, useMemo } from "react"
+import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
@@ -50,18 +56,18 @@ export function EditBotSheet({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const [name, setName] = useState(bot?.name ?? "")
-  const [description, setDescription] = useState(bot?.description ?? "")
-  const [model, setModel] = useState<string | null>(bot?.modelName ?? null)
-  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | null>(
-    bot?.reasoningEffort ?? null,
-  )
-  const [runtime, setRuntime] = useState(bot?.runtime ?? "")
-  const [confirmProviderSwitch, setConfirmProviderSwitch] = useState(false)
-  const [nameError, setNameError] = useState<string | undefined>(undefined)
-  const [avatarDraft, setAvatarDraft] = useState<AvatarDraft>(() =>
-    bot ? draftFromBot(bot) : { kind: "procedural", image: serializeBeamSeed("initial") },
-  )
+  const source = useCommunityViewSource("edit-bot:" + (bot?.id ?? "none"), open && !!bot)
+  const client = useQueryClient()
+  const handleOpenChange = (next: boolean) => { if (!next) source.retire(); onOpenChange(next) }
+  const [name, setName] = useAtom(useCreateAtom(bot?.name ?? ""))
+  const [description, setDescription] = useAtom(useCreateAtom(bot?.description ?? ""))
+  const [model, setModel] = useAtom(useCreateAtom<string | null>(bot?.modelName ?? null))
+  const [reasoningEffort, setReasoningEffort] = useAtom(useCreateAtom<ReasoningEffort | null>(bot?.reasoningEffort ?? null))
+  const [runtime, setRuntime] = useAtom(useCreateAtom(bot?.runtime ?? ""))
+  const [confirmProviderSwitch, setConfirmProviderSwitch] = useAtom(useCreateAtom(false))
+  const [nameError, setNameError] = useAtom(useCreateAtom<string | undefined>(undefined))
+const [avatarDraft, setAvatarDraft] = useAtom(useCreateAtom<AvatarDraft>(((): AvatarDraft =>
+    bot ? draftFromBot(bot) : { kind: "procedural", image: serializeBeamSeed("initial") })()))
   const update = useUpdateBot()
   const uploadBotAvatar = useUploadBotAvatar()
   const { machines } = useMachines()
@@ -78,11 +84,11 @@ export function EditBotSheet({
   // (keyed by id, not by every `bot` reference change — the parent's
   // `editingBot` never resets to null, so this only re-fires when the user
   // actually picks a different bot to edit).
-  const syncedForRef = useRef<string | null>(null)
+  const initialization = useMemo(() => ({ scope: [source.signal], store: createStore(false) }), [source.signal]).store
   useEffect(() => {
     if (!open || !bot) return
-    if (syncedForRef.current === bot.id) return
-    syncedForRef.current = bot.id
+    if (initialization.get()) return
+    initialization.setState(() => true)
     setName(bot.name)
     setDescription(bot.description ?? "")
     setModel(bot.modelName ?? null)
@@ -91,7 +97,7 @@ export function EditBotSheet({
     setAvatarDraft(draftFromBot(bot))
     setNameError(undefined)
     setConfirmProviderSwitch(false)
-  }, [open, bot])
+  }, [open, bot, initialization, setName, setDescription, setModel, setReasoningEffort, setRuntime, setAvatarDraft, setNameError, setConfirmProviderSwitch])
 
   function updateName(value: string) {
     setName(value)
@@ -104,7 +110,9 @@ export function EditBotSheet({
   }
 
   async function performSubmit() {
-    if (!bot) return
+    if (!bot || ["update-command", "avatar-command"].some((kind) => client.isMutating({ mutationKey: [...communityKeys.bots(), kind], exact: true, predicate: (mutation) => (mutation.state.variables as { input?: { assertActive?: { signal: AbortSignal } } }).input?.assertActive?.signal === source.signal }) > 0)) return
+    const assert = source.capture()
+    assert()
     if (!name.trim()) {
       setNameError("Name is required")
       return
@@ -122,9 +130,10 @@ export function EditBotSheet({
       // name/description update resolves, inside the same try block, so a
       // failed field update never triggers an upload.
       const result = await update.mutateAsync({
+        assertActive: assert,
         id: bot.id,
         name: name.trim(),
-        description: description.trim() || undefined,
+        description: description.trim(),
         image: avatarDraft.kind === "procedural" ? avatarDraft.image : undefined,
         // Only send `model` when it actually changed, so an unrelated edit
         // never triggers a stop-and-rewake.
@@ -132,13 +141,17 @@ export function EditBotSheet({
         ...(runtimeChanged ? { runtime } : {}),
         ...(reasoningEffortChanged ? { reasoningEffort } : {}),
       })
+      assert()
       let avatarFailed = false
       if (avatarDraft.kind === "photo" && avatarDraft.file) {
         try {
-          await uploadBotAvatar.mutateAsync({ botId: bot.id, file: avatarDraft.file })
+          await uploadBotAvatar.mutateAsync({ botId: bot.id, file: avatarDraft.file, assertActive: assert })
+          assert()
         } catch (e) {
+          try { assert() } catch { return }
+          if (isAbortError(e)) return
           avatarFailed = true
-          toastApiError(e, "Bot updated, but the avatar photo failed to upload")
+          toastApiError(e, "Bot updated, but the avatar photo failed to upload", assert)
         }
       }
       if (!avatarFailed) {
@@ -159,9 +172,11 @@ export function EditBotSheet({
           toast.success("Bot updated")
         }
       }
-      onOpenChange(false)
+      assert()
+      handleOpenChange(false)
     } catch (e) {
-      toastApiError(e, "Update failed")
+      if (isAbortError(e)) return
+      toastApiError(e, "Update failed", assert)
     }
   }
 
@@ -182,7 +197,7 @@ export function EditBotSheet({
     <>
       <CommunitySheet
         open={open}
-        onOpenChange={onOpenChange}
+        onOpenChange={handleOpenChange}
         title={`Edit ${bot?.name ?? "bot"}`}
         description="Name and description edits take effect on the next wake. Reasoning effort applies on the next turn when online, or the next start when offline. Provider and model switches require the bot to be online."
         bodyClassName="flex flex-col gap-6"
@@ -191,7 +206,7 @@ export function EditBotSheet({
             <Button variant="outline" onClick={requestClose}>
               Cancel
             </Button>
-            <Button onClick={submit} disabled={update.isPending || !bot}>
+            <Button onClick={submit} disabled={update.isPending || uploadBotAvatar.isPending || !bot}>
               {update.isPending ? "Saving…" : "Save"}
             </Button>
           </>

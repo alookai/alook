@@ -3,7 +3,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
-import { useCommunityWsStore } from "@/stores/community/ws"
 import { createCommunityDbRegistry, registerCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityDbProvider, useDmProjection } from "@/lib/community-db/projections"
 import { captureCommunityLiveSnapshotToken, ingestDms, publishCommunityLiveSnapshot } from "@/lib/community-db/sync"
@@ -43,12 +42,12 @@ function publishDms(registry: CommunityDbRegistry) {
 }
 beforeEach(() => {
   apiFetch.mockReset()
-  useCommunityWsStore.getState().reset()
-  useCommunityWsStore.getState().activateProfileAccount("viewer")
 })
 afterEach(async () => {
-  unregisters.splice(0).forEach((unregister) => unregister())
-  for (const registry of registries.splice(0)) { await registry["cleanup"](); registry.queryClient.clear() }
+  await act(async () => {
+    unregisters.splice(0).forEach((unregister) => unregister())
+    for (const registry of registries.splice(0)) { await registry["cleanup"](); registry.queryClient.clear() }
+  })
 })
 
 describe("shared Channel resource and canonical DM publication", () => {
@@ -70,7 +69,7 @@ describe("shared Channel resource and canonical DM publication", () => {
     const route = renderHook(() => useChannelMetadata(null, metadata.id), { wrapper })
     expect(route.result.current.isVerified).toBe(true)
     expect(apiFetch).not.toHaveBeenCalled()
-    act(() => useCommunityWsStore.setState((state) => ({ accessEpoch: state.accessEpoch + 1 })))
+    act(() => registry.runtime.ws.setState((state) => ({ ...state, accessEpoch: state.accessEpoch + 1 })))
     expect(route.result.current.isVerified).toBe(false)
     await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
     await act(async () => request.resolve(metadata))
@@ -88,8 +87,8 @@ describe("shared Channel resource and canonical DM publication", () => {
     await waitFor(() => expect(route.result.current.route.status).toBe("present"))
     await waitFor(() => expect(route.result.current.peers?.[0]).toMatchObject({ id: metadata.id, name: "Peer", preview: "canonical preview" }))
     expect(registry.collections.channels.get(metadata.id)).toMatchObject({ name: "", serverId: null, type: "dm" })
-    expect(useCommunityWsStore.getState().channelAccessScopes.size).toBe(0)
-    expect(useCommunityWsStore.getState().revokedServerIds.size).toBe(0)
+    expect(registry.runtime.ws.get().channelAccessScopes.size).toBe(0)
+    expect(registry.runtime.ws.get().revokedServerIds.size).toBe(0)
     expect(apiFetch).toHaveBeenCalledOnce()
     route.unmount()
   })
@@ -157,15 +156,16 @@ describe("DM history permission stays separate from metadata identity", () => {
     await act(async () => request.resolve(readState))
     await waitFor(() => expect(route.result.current.metadata.data?.historyVerification).toBeDefined())
     expect(isChannelMetadataTokenCurrent(route.result.current.metadata.data!.historyVerification!)).toBe(true)
-    expect(apiFetch).toHaveBeenCalledWith(`/api/community/channels/${metadata.id}/read-state`, { signal: expect.any(AbortSignal) })
-    expect(client.getQueryData(metadataKey)).toMatchObject({ type: "dm" })
+    expect(apiFetch).toHaveBeenCalledWith(`/api/community/channels/${metadata.id}/read-state`, expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
+    expect(client.getQueryData(metadataKey)).toMatchObject({ id: metadata.id })
+    expect(client.getQueryData(metadataKey)).not.toHaveProperty("type")
     route.unmount()
   })
 
   it("removes a prior history receipt after an explicit read denial without retrying it", async () => {
     const { client, registry, wrapper } = await fixture()
     publishDms(registry)
-    client.setQueryData(metadataKey, (previous: object | undefined) => ({ ...previous, historyVerification: captureChannelMetadataToken(metadata.id) }))
+    client.setQueryData(metadataKey, (previous: object | undefined) => ({ ...previous, historyVerification: captureChannelMetadataToken(client, metadata.id) }))
     apiFetch.mockRejectedValue(Object.assign(new Error("blocked"), { status: 403 }))
     const route = renderHook(() => ({ metadata: useChannelMetadata(null, metadata.id), read: useDmReadStateSnapshot(metadata.id) }), { wrapper })
     await waitFor(() => expect(route.result.current.read.error).toMatchObject({ status: 403 }))
@@ -183,7 +183,7 @@ describe("DM history permission stays separate from metadata identity", () => {
     const route = renderHook(() => useDmReadStateSnapshot(metadata.id), { wrapper })
     await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
     if (race === "account") {
-      act(() => { useCommunityWsStore.getState().activateProfileAccount("other"); useCommunityWsStore.getState().activateProfileAccount("viewer") })
+      act(() => { registry.runtime.ws.actions.activateProfileAccount("other"); registry.runtime.ws.actions.activateProfileAccount("viewer") })
     } else {
       client.removeQueries({ queryKey: metadataKey, exact: true })
       publishDms(registry)
@@ -191,7 +191,7 @@ describe("DM history permission stays separate from metadata identity", () => {
     await act(async () => request.resolve(readState))
     if (race === "account") await waitFor(() => expect(route.result.current.error?.name).toBe("AbortError"))
     else await waitFor(() => expect(route.result.current.snapshot).toEqual(readState))
-    expect(client.getQueryData(metadataKey)).not.toHaveProperty("historyVerification")
+    expect(client.getQueryData<{ historyVerification?: unknown }>(metadataKey)?.historyVerification).toBeUndefined()
     route.unmount()
   })
 })

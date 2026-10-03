@@ -1,13 +1,13 @@
-import { apiFetch } from "./client";
+import { apiFetch, type ApiRequestOptions } from "./client";
 
-export const fetchModelOptions = () =>
-  apiFetch<Record<string, string[]>>("/api/config/model-options");
+export const fetchModelOptions = (options?: RequestInit) =>
+  apiFetch<Record<string, string[]>>("/api/config/model-options", options);
 
-export const getMinCliVersion = () =>
-  apiFetch<{ min_cli_version: string | null }>("/api/config/min-version");
+export const getMinCliVersion = (options?: ApiRequestOptions) =>
+  apiFetch<{ min_cli_version: string | null }>("/api/config/min-version", options);
 
-export const fetchLatestCliVersion = () =>
-  apiFetch<{ version: string; package: string }>("/api/cli/latest-version");
+export const fetchLatestCliVersion = (options?: ApiRequestOptions) =>
+  apiFetch<{ version: string; package: string }>("/api/cli/latest-version", options);
 
-export const fetchLatestDaemonVersion = () =>
-  apiFetch<{ version: string; package: string }>("/api/daemon/latest-version");
+export const fetchLatestDaemonVersion = (options?: ApiRequestOptions) =>
+  apiFetch<{ version: string; package: string }>("/api/daemon/latest-version", options);

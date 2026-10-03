@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useLayoutEffect, useRef, useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useCallback, useLayoutEffect, useRef } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "@/hooks/community/virtualizer-react-options"
 import { Archive, ArchiveRestore, MessagesSquare, ListChevronsUpDown, Plus, Tag, Trash2 } from "lucide-react"
@@ -98,7 +99,7 @@ function ForumPostTitle({ name, postId, seq }: { name: string; postId: string; s
   const hostRef = useRef<HTMLHeadingElement>(null)
   const measureRef = useRef<HTMLSpanElement>(null)
   const measureNameRef = useRef<HTMLSpanElement>(null)
-  const [rendered, setRendered] = useState({ name, truncated: false })
+const [rendered, setRendered] = useAtom(useCreateAtom({ name, truncated: false }))
 
   useLayoutEffect(() => {
     const host = hostRef.current
@@ -143,7 +144,7 @@ function ForumPostTitle({ name, postId, seq }: { name: string; postId: string; s
     const observer = new ResizeObserver(recompute)
     observer.observe(host)
     return () => observer.disconnect()
-  }, [name, seq])
+  }, [name, seq, setRendered])
 
   const renderSequence = (measurement = false) => seq === undefined ? null : (
     <span
@@ -222,8 +223,10 @@ export function ForumView({
   onScrollRoot?: (node: HTMLDivElement | null) => void
 }) {
   const profilesByUserId = useCanonicalProfilesByUserId()
-  const [composing, setComposing] = useState(false)
-  const [deletingFor, setDeletingFor] = useState<ForumThread | null>(null)
+  const [composing, setComposing] = useAtom(useCreateAtom(false))
+  const [deletingForId, setDeletingForId] = useAtom(useCreateAtom<string | null>(null))
+  const deletingFor = posts.find((post) => post.id === deletingForId) ?? null
+  const setDeletingFor = (post: ForumThread | null) => setDeletingForId(post?.id ?? null)
   const newPostTriggerRef = useRef<HTMLButtonElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const bindScrollRoot = useCallback((node: HTMLDivElement | null) => {
@@ -294,6 +297,7 @@ export function ForumView({
           onCreatePost={async (post) => {
             if (!onCreatePost) return
             await onCreatePost(post)
+            try { post.assertActive?.() } catch { return }
             closeCompose()
           }}
         />

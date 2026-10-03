@@ -1,6 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
+import { useEffect } from "react"
 import type { Category } from "@/lib/community/models/navigation"
 import {
   ChannelSidebar,
@@ -42,13 +44,13 @@ export function ChannelSidebarRevealBoundary({
   trustedRestoredPrimary,
   ...scopeProps
 }: ChannelSidebarRevealBoundaryProps) {
-  const [revealed, setRevealed] = useState(primaryReady && trustedRestoredPrimary)
+  const [revealed, setRevealed] = useAtom(useCreateAtom(primaryReady && trustedRestoredPrimary))
 
   useEffect(() => {
     if (primaryReady && (trustedRestoredPrimary || !forumProjectionMissing)) {
       setRevealed(true)
     }
-  }, [forumProjectionMissing, primaryReady, trustedRestoredPrimary])
+  }, [forumProjectionMissing, primaryReady, setRevealed, trustedRestoredPrimary])
 
   return (
     <ChannelSidebarScope

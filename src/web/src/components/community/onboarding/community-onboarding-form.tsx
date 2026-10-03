@@ -1,29 +1,25 @@
 "use client"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useCommunityRuntime } from "@/stores/community/runtime"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+
+import { useCallback, useEffect } from "react"
+import { QueryObserver, useMutation, useMutationState, useQueryClient } from "@tanstack/react-query"
+import { useCommunityMutationOrigin } from "@/hooks/community/community-origin"
+import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
+import { serverProjectedQueryFn } from "@/hooks/community/use-servers"
+import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
+import { communityKeys } from "@/lib/query-keys"
 import { usePathname } from "next/navigation"
 
-import {
-  advanceCommunityOnboarding,
-  completeCommunityOnboarding,
-  consumeQueuedCommunityOnboarding,
-  recoverCommunityOnboardingHarness,
-  skipCommunityOnboarding,
-  startCommunityOnboarding,
-  useCommunityOnboarding,
-} from "@/lib/community-onboarding"
-import { useCommunityStore } from "@/stores/community"
+import { advanceCommunityOnboarding, completeCommunityOnboarding, recoverCommunityOnboardingHarness, skipCommunityOnboarding, useCommunityOnboarding, readCommunityOnboardingState, updateCommunityOnboardingInitialization } from "@/lib/community-onboarding"
+
 import { OnboardingMachineDialog } from "./onboarding-machine-dialog"
 import {
   ONBOARDING_HARNESSES,
   ONBOARDING_IDENTITIES,
 } from "./onboarding-form-options"
-import {
-  initializeCommunityOnboarding,
-  type OnboardingInitializationCheckpoint,
-  type OnboardingInitializationResult,
-  type OnboardingInitializationStep,
-} from "./initialize-community-onboarding"
+import { initializeCommunityOnboarding } from "./initialize-community-onboarding"
 import { tid } from "@/lib/community/testids"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { OnboardingSelectDialog } from "./onboarding-select-dialog"
@@ -34,83 +30,106 @@ function harnessLabel(value?: string) {
 }
 
 export function CommunityOnboardingForm() {
+  const communityRuntime = useCommunityRuntime()
   const pathname = usePathname()
   const currentUser = useCurrentUser()
   const state = useCommunityOnboarding()
-  const [harness, setHarness] = useState("")
-  const [identity, setIdentity] = useState("")
-  const [customIdentity, setCustomIdentity] = useState("")
-  const [initializationStatus, setInitializationStatus] = useState<
-    "idle" | "loading" | "error" | "success"
-  >("idle")
-  const [initializationStep, setInitializationStep] = useState<OnboardingInitializationStep>(
-    "creating-bots",
-  )
-  const [initializationError, setInitializationError] = useState("")
-  const [initializationResult, setInitializationResult] =
-    useState<OnboardingInitializationResult | null>(null)
-  const [initializationCheckpoint, setInitializationCheckpoint] =
-    useState<OnboardingInitializationCheckpoint>({})
-  const checkpointRef = useRef<OnboardingInitializationCheckpoint>({})
-  const runningRef = useRef(false)
-  const pendingCompletionDestinationRef = useRef<string | null>(null)
+  const queryClient = useQueryClient(), origin = useCommunityMutationOrigin()
+  const journeyIdentity = JSON.stringify([state?.machineId, state?.harness, state?.identity])
+  const source = useCommunityViewSource(`onboarding:${journeyIdentity}`, state?.stage === "initializing")
+  const [harness, setHarness] = useAtom(useCreateAtom(""))
+  const [identity, setIdentity] = useAtom(useCreateAtom(""))
+  const [customIdentity, setCustomIdentity] = useAtom(useCreateAtom(""))
+  const commandKey = ["community", "onboarding-initialization", journeyIdentity] as const
+  const pending = useMutationState({ filters: { mutationKey: commandKey, status: "pending" }, select: (mutation) => mutation.mutationId })
+  const initialization = useMutation({
+    mutationKey: commandKey,
+    scope: { id: JSON.stringify(commandKey) },
+    mutationFn: async ({ token, profileSnapshot, assert, input }: ReturnType<typeof origin.begin> & {
+      assert: ReturnType<typeof source.capture>
+      input: { machineId: string; runtime: string; identity: string; userName: string; userDiscriminator?: string }
+    }) => {
+      assert()
+      const original = readCommunityOnboardingState(communityRuntime)
+      const result = await initializeCommunityOnboarding({
+        ...input,
+        checkpoint: original?.initialization?.checkpoint,
+        onCheckpoint: (checkpoint) => { assert(); updateCommunityOnboardingInitialization(communityRuntime, (current) => ({ ...current, checkpoint })) },
+        onProgress: (step) => { assert(); updateCommunityOnboardingInitialization(communityRuntime, (current) => ({ ...current, step })) },
+        services: {
+          assert,
+          request: (path, options) => origin.request(token, path, { ...options, signal: assert.signal, assertActive: assert }),
+          publishBot: (bot, requested) => {
+            assert()
+            writeCommunityProfilePatches([{
+              id: bot.id,
+              identityAbout: { name: bot.name ?? requested.name, discriminator: bot.discriminator, kind: "bot" },
+              avatar: { avatar: bot.image ?? requested.image, avatarVersion: bot.avatarVersion },
+            }], origin.registry, { snapshot: profileSnapshot })
+          },
+          resolveBot: (id) => origin.registry?.collections.profiles.get(id),
+          readChannels: async (serverId) => {
+            assert()
+            await queryClient.invalidateQueries({ queryKey: communityKeys.servers(), exact: true })
+            assert()
+            const options = { queryKey: communityKeys.server(serverId), queryFn: ({ signal }: { signal: AbortSignal }) => serverProjectedQueryFn(queryClient, serverId, signal)(), staleTime: 0 }
+            const observer = new QueryObserver(queryClient, { ...options, enabled: false })
+            const unsubscribe = observer.subscribe(() => undefined)
+            assert.signal.addEventListener("abort", unsubscribe, { once: true })
+            try {
+              assert()
+              await queryClient.fetchQuery(options)
+              assert()
+              return [...origin.registry!.collections.channels.values()].filter((channel) => channel.serverId === serverId && !channel.parentChannelId).map(({ id, name }) => ({ id, name }))
+            } finally { assert.signal.removeEventListener("abort", unsubscribe); unsubscribe() }
+          },
+        },
+      })
+      assert()
+      updateCommunityOnboardingInitialization(communityRuntime, (current) => ({ ...current, result }))
+      await queryClient.invalidateQueries({ queryKey: communityKeys.bots(), exact: true })
+      origin.assert(token)
+      return result
+    },
+  })
+  const protocol = state?.initialization
+  const initializationCheckpoint = protocol?.checkpoint ?? {}
+  const initializationStep = protocol?.step ?? "creating-bots"
+  const initializationResult = protocol?.result ?? null
+  const currentError = initialization.variables?.assert.signal === source.signal ? initialization.error : null
+  const initializationError = currentError instanceof Error ? currentError.message : "We couldn’t finish setting up your room."
+  const initializationStatus = initializationResult ? "success" : pending.length ? "loading" : currentError && !(currentError instanceof DOMException && currentError.name === "AbortError") ? "error" : "idle"
   useEffect(() => {
-    const queued = consumeQueuedCommunityOnboarding()
-    if (!state && queued) startCommunityOnboarding()
-  }, [state])
-
-  useEffect(() => {
-    const pendingDestination = pendingCompletionDestinationRef.current
+    const pendingDestination = protocol?.pendingDestination
     if (!pendingDestination || pathname !== pendingDestination) return
-    pendingCompletionDestinationRef.current = null
-    completeCommunityOnboarding()
-  }, [pathname])
+    completeCommunityOnboarding(communityRuntime)
+  }, [pathname, protocol?.pendingDestination, communityRuntime])
 
+  const mutateInitialization = initialization.mutateAsync
   const runInitialization = useCallback(async () => {
     if (
-      runningRef.current ||
+      pending.length ||
       state?.stage !== "initializing" ||
       !state.machineId ||
       !state.harness ||
       !state.identity
     ) return
 
-    runningRef.current = true
-    setInitializationStatus("loading")
-    setInitializationError("")
+    const original = origin.begin(), assert = source.capture()
+    assert()
     try {
-      const result = await initializeCommunityOnboarding({
-        machineId: state.machineId,
-        runtime: state.harness,
-        identity: state.identity,
-        userName: currentUser.name,
-        userDiscriminator: currentUser.discriminator,
-        checkpoint: checkpointRef.current,
-        onCheckpoint: (checkpoint) => {
-          checkpointRef.current = checkpoint
-          setInitializationCheckpoint(checkpoint)
-        },
-        onProgress: setInitializationStep,
+      await mutateInitialization({
+        ...original, assert,
+        input: { machineId: state.machineId, runtime: state.harness, identity: state.identity, userName: currentUser.name, userDiscriminator: currentUser.discriminator },
       })
-      setInitializationResult(result)
-      setInitializationStatus("success")
-    } catch (error) {
-      setInitializationError(
-        error instanceof Error && error.message
-          ? error.message
-          : "We couldn’t finish setting up your room.",
-      )
-      setInitializationStatus("error")
-    } finally {
-      runningRef.current = false
-    }
-  }, [currentUser.discriminator, currentUser.name, state])
+    } catch {}
+  }, [pending.length, state, origin, source, mutateInitialization, currentUser.name, currentUser.discriminator])
 
   useEffect(() => {
     if (state?.stage === "initializing" && initializationStatus === "idle") {
       void runInitialization()
     }
-  }, [initializationStatus, runInitialization, state?.stage])
+  }, [initializationStatus, journeyIdentity, state?.stage, source.signal, runInitialization])
 
   if (!state) return null
 
@@ -128,7 +147,7 @@ export function CommunityOnboardingForm() {
         onValueChange={setHarness}
         submitLabel="Continue"
         onSubmit={(value) => {
-          advanceCommunityOnboarding("harness", "machine", { harness: value })
+          advanceCommunityOnboarding(communityRuntime, "harness", "machine", { harness: value })
         }}
         testId={tid.onboardingHarnessDialog}
         optionTestId={tid.onboardingHarnessOption}
@@ -143,14 +162,14 @@ export function CommunityOnboardingForm() {
         harness={state.harness ?? ""}
         harnessLabel={harnessLabel(state.harness)}
         onConnected={(machineId) => {
-          advanceCommunityOnboarding("machine", "identity", { machineId })
+          advanceCommunityOnboarding(communityRuntime, "machine", "identity", { machineId })
         }}
         onChooseAnotherHarness={() => {
           setHarness("")
-          recoverCommunityOnboardingHarness()
+          recoverCommunityOnboardingHarness(communityRuntime)
         }}
         onManageMachines={() => {
-          skipCommunityOnboarding()
+          skipCommunityOnboarding(communityRuntime)
         }}
       />
     )
@@ -177,7 +196,7 @@ export function CommunityOnboardingForm() {
         onCustomValueChange={setCustomIdentity}
         submitLabel="Finish setup"
         onSubmit={(value) => {
-          advanceCommunityOnboarding("identity", "initializing", {
+          advanceCommunityOnboarding(communityRuntime, "identity", "initializing", {
             identity: value,
           })
         }}
@@ -204,9 +223,11 @@ export function CommunityOnboardingForm() {
         onContinue={() => {
           if (!initializationResult) return
           const destination = `/c/channels/${initializationResult.serverId}/${initializationResult.publicChannelId}`
-          const navigate = useCommunityStore.getState().uiHandlers.navigate
+          const navigate = communityRuntime.ui.get().uiHandlers.navigate
           if (!navigate) return
-          pendingCompletionDestinationRef.current = destination
+          const assert = source.capture()
+          assert()
+          updateCommunityOnboardingInitialization(communityRuntime, (current) => ({ ...current, pendingDestination: destination }))
           navigate(initializationResult.serverId, initializationResult.publicChannelId)
         }}
       />

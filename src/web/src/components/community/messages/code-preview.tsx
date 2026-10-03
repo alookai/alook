@@ -1,6 +1,9 @@
 "use client"
 
-import { useEffect, useRef, useState, type CSSProperties } from "react"
+import { useQuery } from "@tanstack/react-query"
+import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect, useRef, type CSSProperties } from "react"
 import { Check, Copy, WrapText } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -83,41 +86,38 @@ export function CodePreview({
   content: string
   language: ShikiLanguage | null
 }) {
-  const [highlight, setHighlight] = useState<CodeHighlightResult>({ kind: "plain", lines: null, reason: null })
-  const [highlighting, setHighlighting] = useState(false)
-  const [wrap, setWrap] = useState(false)
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle")
+  const source = useCommunityViewSource(`code-preview:${language ?? "plain"}:${content}`)
+  const query = useQuery({ queryKey: ["community", "code-highlight", language, content], gcTime: 0, staleTime: Infinity, retry: false,
+    queryFn: async ({ signal }) => {
+      const result = await highlightCode(content, language)
+      if (signal.aborted) throw new DOMException("Retired code preview", "AbortError")
+      return result
+    },
+  })
+  const highlight: CodeHighlightResult = query.data ?? { kind: "plain", lines: null, reason: null }
+  const highlighting = query.isFetching
+  const [wrap, setWrap] = useAtom(useCreateAtom(false))
+  const [copyState, setCopyState] = useAtom(useCreateAtom<"idle" | "copied" | "failed">("idle"))
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    let active = true
-    setHighlight({ kind: "plain", lines: null, reason: null })
-    setHighlighting(language !== null)
     setCopyState("idle")
-    if (copyTimer.current) clearTimeout(copyTimer.current)
-    void highlightCode(content, language).then((result) => {
-      if (!active) return
-      setHighlight(result)
-      setHighlighting(false)
-    })
-    return () => {
-      active = false
-    }
-  }, [content, language])
-
-  useEffect(() => () => {
-    if (copyTimer.current) clearTimeout(copyTimer.current)
-  }, [])
+    return () => { if (copyTimer.current) { clearTimeout(copyTimer.current); copyTimer.current = null } }
+  }, [content, language, setCopyState])
 
   async function copyContent(): Promise<void> {
+    const original = source.capture()
+    original()
     try {
       await navigator.clipboard.writeText(content)
+      original()
       setCopyState("copied")
     } catch {
+      try { original() } catch { return }
       setCopyState("failed")
     }
     if (copyTimer.current) clearTimeout(copyTimer.current)
-    copyTimer.current = setTimeout(() => setCopyState("idle"), 2_000)
+    copyTimer.current = setTimeout(() => { try { original(); setCopyState("idle") } catch {} }, 2_000)
   }
 
   const fallbackLines = sourceLines(content)

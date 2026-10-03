@@ -1,13 +1,18 @@
 "use client";
 
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { FileDownloadButton } from "@/components/file-download-button"
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useCallback, useMemo } from "react";
+import { useQuery, useMutation, type Query } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
-import { useWorkspace } from "@/contexts/workspace-context";
+import { useWorkspaceOwner, captureWorkspaceOwner, assertWorkspaceOwner, workspaceRequestOptions, runWorkspaceRequest } from "@/contexts/workspace-context";
+import { useWorkspaceViewSource } from "@/hooks/workspace/use-workspace-view-source";
+import { emailListOptions, emailThreadOptions, emailBodyOptions, emailEntityKey, useEmailRows } from "@/hooks/workspace/email-query-options";
+import { isAbortError } from "@/lib/errors";
 import { useAgentContext } from "@/contexts/agent-context";
-import { listEmails, getEmailBody, getEmailThread, deleteEmail, sendEmail, listEmailAccounts, updateEmailStatus, trustEmail } from "@/lib/api";
+import { deleteEmail, sendEmail, listEmailAccounts, updateEmailStatus, trustEmail } from "@/lib/api";
 import { toAlookAddress } from "@alook/shared";
-import type { Email, EmailAttachment, AgentEmailAccount } from "@alook/shared";
+import type { Email, EmailAttachment } from "@alook/shared";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmailCompose } from "@/components/email-compose";
@@ -39,179 +44,164 @@ function relativeTime(dateStr: string): string {
 
 export default function AgentEmailPage() {
   const params = useParams();
-  const agentId = params.id as string;
-  const { workspaceId } = useWorkspace();
+  return <AgentEmailSurface key={params.id as string} agentId={params.id as string} />;
+}
+
+function AgentEmailSurface({ agentId }: { agentId: string }) {
+  const owner = useWorkspaceOwner();
+  const { workspaceId } = owner;
   const { agents, subscribeWs } = useAgentContext();
-
-  const agent = agents.find((a) => a.id === agentId);
+  const agent = agents.find((row) => row.id === agentId);
   const isMobile = useIsMobile();
-
-  const [folder, _setFolder] = useState<Folder>("inbox");
-  const [emails, setEmails] = useState<Email[]>([]);
-  const unreadCount = useMemo(() => emails.filter(e => e.status === "unread").length, [emails]);
-  const [loading, setLoading] = useState(true);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [body, setBody] = useState<{ content: string; isHtml: boolean } | null>(null);
-  const [bodyLoading, setBodyLoading] = useState(false);
-  const [composing, setComposing] = useState(false);
-  const [composeInitial, setComposeInitial] = useState<{
+  const [folder, _setFolder] = useAtom(useCreateAtom<Folder>("inbox"));
+  const [selectedId, setSelectedId] = useAtom(useCreateAtom<string | null>(null));
+  const [composing, setComposing] = useAtom(useCreateAtom(false));
+  const [composeInitial, setComposeInitial] = useAtom(useCreateAtom<{
     to?: string; subject?: string; body?: string; attachments?: EmailAttachment[];
     inReplyTo?: string; references?: string;
-  }>({});
-
-  const [thread, setThread] = useState<Email[]>([]);
-  const [expandedThreadId, setExpandedThreadId] = useState<string | null>(null);
-  const [threadBodies, setThreadBodies] = useState<Record<string, { content: string; isHtml: boolean }>>({});
-
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [trusting, setTrusting] = useState(false);
-
-  const [emailAccounts, setEmailAccounts] = useState<AgentEmailAccount[]>([]);
-  const [mailboxOpen, setMailboxOpen] = useState(false);
-
-  const switchFolder = useCallback((f: Folder) => {
-    _setFolder(f);
-    setEmails([]);
-    setSelectedId(null);
-    setBody(null);
-    setComposing(false);
-  }, []);
-
+  }>({}));
+  const [expandedThreadId, setExpandedThreadId] = useAtom(useCreateAtom<string | null>(null));
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useAtom(useCreateAtom(false));
+  const [deleteTarget, setDeleteTarget] = useAtom(useCreateAtom<string | null>(null));
+  const [mailboxOpen, setMailboxOpen] = useAtom(useCreateAtom(false));
+  const accountsQuery = useQuery({ queryKey: owner.key("email-accounts", agentId), queryFn: ({ signal }) => runWorkspaceRequest(owner, (options) => listEmailAccounts(agentId, workspaceId, options), signal) });
+  const emailAccounts = accountsQuery.data ?? [];
   type Mailbox = { type: "alook"; address: string } | { type: "custom"; address: string; accountId: string };
   const alookAddress = agent?.email_handle ? toAlookAddress(agent.email_handle) : "";
   const mailboxes: Mailbox[] = [
     ...(alookAddress ? [{ type: "alook" as const, address: alookAddress }] : []),
-    ...emailAccounts.map((a) => ({ type: "custom" as const, address: a.email_address, accountId: a.id })),
+    ...emailAccounts.map((row) => ({ type: "custom" as const, address: row.email_address, accountId: row.id })),
   ];
-  const [activeMailboxIdx, setActiveMailboxIdx] = useState(0);
+  const [activeMailboxIdx, setActiveMailboxIdx] = useAtom(useCreateAtom(0));
   const activeMailbox = mailboxes[activeMailboxIdx] ?? mailboxes[0] ?? null;
   const activeAddress = activeMailbox?.address ?? "";
   const activeAccountId = activeMailbox?.type === "custom" ? activeMailbox.accountId : undefined;
-
-  const selected = emails.find((e) => e.id === selectedId) ?? null;
-
-  const loadEmails = useCallback(async (dir: string, address?: string) => {
-    setLoading(true);
-    try {
-      const data = await listEmails(agentId, workspaceId, dir, address);
-      setEmails(data);
-    } catch {
-      toast.error("Failed to load emails");
-    } finally {
-      setLoading(false);
-    }
-  }, [agentId, workspaceId]);
-
-  useEffect(() => {
-    listEmailAccounts(agentId, workspaceId).then(setEmailAccounts).catch(() => {});
-  }, [agentId, workspaceId]);
-
-  useEffect(() => {
-    loadEmails(folder, activeAddress);
-  }, [folder, activeAddress, loadEmails]);
-
-  useEffect(() => {
-    return subscribeWs((msg) => {
-      if (msg.type === "email.received" && msg.agentId === agentId) {
-        trackEmailReceived({
-          agent_id: agentId,
-          mailbox_type: activeMailbox?.type === "custom" ? "imap" : "alook",
-        });
-        loadEmails(folder, activeAddress);
-      } else if (msg.type === "email.sent" && msg.agentId === agentId) {
-        loadEmails(folder, activeAddress);
-      }
-    });
-  }, [subscribeWs, agentId, folder, activeAddress, loadEmails, activeMailbox?.type]);
-
-  const handleSelect = async (emailId: string) => {
-    setComposing(false);
-    setSelectedId(emailId);
-    setBody(null);
-    setBodyLoading(true);
-    setThread([]);
+  const source = useWorkspaceViewSource(owner, JSON.stringify(["email", agentId, folder, activeAddress, selectedId, composing, deleteConfirmOpen, deleteTarget]), true);
+  const list = useQuery(emailListOptions(owner, agentId, folder, activeAddress));
+  const emails = useEmailRows(owner, list.data?.ids ?? []);
+  const unreadCount = useMemo(() => emails.filter((email) => email.status === "unread").length, [emails]);
+  const selected = emails.find((email) => email.id === selectedId) ?? null;
+  const bodyQuery = useQuery({ ...emailBodyOptions(owner, selectedId ?? ""), enabled: !!selectedId, subscribed: !!selectedId });
+  const threadQuery = useQuery({ ...emailThreadOptions(owner, selectedId ?? ""), enabled: !!selectedId, subscribed: !!selectedId });
+  const thread = useEmailRows(owner, threadQuery.data?.ids ?? []);
+  const expandedBody = useQuery({ ...emailBodyOptions(owner, expandedThreadId ?? ""), enabled: !!expandedThreadId, subscribed: !!expandedThreadId });
+  const body = bodyQuery.data ?? (bodyQuery.isError ? { content: "(body not available)", isHtml: false } : null);
+  const threadBodies = expandedThreadId && expandedBody.data ? { [expandedThreadId]: expandedBody.data } : {};
+  const loading = list.isPending;
+  const bodyLoading = !!selectedId && bodyQuery.isPending;
+  const switchFolder = useCallback((next: Folder) => {
+    _setFolder(next);
+    setSelectedId(null);
     setExpandedThreadId(null);
-    setThreadBodies({});
-    try {
-      const [result, threadData] = await Promise.all([
-        getEmailBody(emailId, workspaceId),
-        getEmailThread(emailId, workspaceId).catch(() => [] as Email[]),
-      ]);
-      setBody(result);
-      setThread(threadData);
-
-      const email = emails.find(e => e.id === emailId);
-      if (email && email.status === "unread") {
-        updateEmailStatus(emailId, workspaceId, "read")
-          .then(() => {
-            setEmails(prev => prev.map(e =>
-              e.id === emailId ? { ...e, status: "read" } : e
-            ));
-          })
-          .catch(() => {
-            setEmails(prev => prev.map(e =>
-              e.id === emailId ? { ...e, status: "unread" } : e
-            ));
-          });
-      }
-    } catch {
-      setBody({ content: "(body not available)", isHtml: false });
-    } finally {
-      setBodyLoading(false);
-    }
+    setComposing(false);
+  }, [_setFolder, setSelectedId, setExpandedThreadId, setComposing]);
+  const commandKey = owner.key("email-command", agentId);
+  type Action = { kind: "delete" | "read" | "trust"; id: string } | {
+    kind: "send"; to: string; subject: string; htmlBody: string; attachments: EmailAttachment[];
+    threading?: { inReplyTo?: string; references?: string }; accountId?: string;
   };
-
-  const handleExpandThread = async (emailId: string) => {
-    if (expandedThreadId === emailId) {
-      setExpandedThreadId(null);
-      return;
-    }
-    setExpandedThreadId(emailId);
-    if (!threadBodies[emailId]) {
+  type Input = { action: Action; token: ReturnType<typeof captureWorkspaceOwner> };
+  type Intent = Input & { view: ReturnType<typeof source.capture>; resources: Query[] };
+  const native = useMutation({ gcTime: 0, mutationKey: commandKey, scope: { id: JSON.stringify(commandKey) },
+    mutationFn: async ({ action, token, view, resources }: Intent) => {
+      const assert = () => { assertWorkspaceOwner(token, view.signal); view.assert(); };
+      assert();
+      const allowed = (query: Query) => resources.includes(query);
+      await owner.queryClient.cancelQueries({ queryKey: owner.key("email", "windows"), predicate: allowed });
+      assert();
+      const options = workspaceRequestOptions(token, view.signal, assert);
+      const entityKey = action.kind === "send" ? null : emailEntityKey(owner, action.id);
+      const entity = entityKey ? resources.find((query) => JSON.stringify(query.queryKey) === JSON.stringify(entityKey)) : undefined;
+      const baseline = entity?.state.data as Email | null | undefined;
+      const writes = entity?.state.dataUpdateCount;
+      const originalEntity = () => entity && owner.queryClient.getQueryCache().find({ queryKey: entity.queryKey, exact: true }) === entity && entity.state.dataUpdateCount === writes;
       try {
-        const result = await getEmailBody(emailId, workspaceId);
-        setThreadBodies((prev) => ({ ...prev, [emailId]: result }));
-      } catch {
-        setThreadBodies((prev) => ({ ...prev, [emailId]: { content: "(body not available)", isHtml: false } }));
-      }
-    }
-  };
-
+        if (action.kind === "delete") {
+          await deleteEmail(action.id, workspaceId, options);
+          assert();
+          if (originalEntity() && entity!.state.data === baseline) owner.queryClient.setQueryData<Email | null>(emailEntityKey(owner, action.id), null);
+          owner.queryClient.removeQueries({ queryKey: emailBodyOptions(owner, action.id).queryKey, exact: true, predicate: allowed });
+        } else if (action.kind === "read") {
+          const before = baseline;
+          const confirmed = await updateEmailStatus(action.id, workspaceId, "read", options);
+          assert();
+          if (originalEntity()) owner.queryClient.setQueryData<Email | null>(emailEntityKey(owner, action.id), (current) => current && current.status === before?.status ? { ...current, status: confirmed.status } : current);
+        } else if (action.kind === "trust") {
+          const result = await trustEmail(action.id, workspaceId, options);
+          assert();
+          if (originalEntity()) owner.queryClient.setQueryData<Email | null>(emailEntityKey(owner, action.id), (current) => current ? { ...current, ...Object.fromEntries(Object.entries(result.email).filter(([key]) => key !== "html_body" && current[key as keyof Email] === baseline?.[key as keyof Email])) } : current);
+        } else if (action.kind === "send") {
+          const result = await sendEmail(agentId, action.to, action.subject, action.htmlBody, workspaceId, action.attachments.length ? action.attachments : undefined, action.threading, action.accountId, options);
+          assert();
+          const canonical: Email = { ...result, html_body: "" };
+          if (!owner.queryClient.getQueryData<Email | null>(emailEntityKey(owner, result.id))) owner.queryClient.setQueryData<Email | null>(emailEntityKey(owner, result.id), canonical);
+        }
+        assert();
+        await owner.queryClient.invalidateQueries({ queryKey: owner.key("email", "windows"), predicate: allowed }, { cancelRefetch: false });
+        assert();
+      } catch (error) { assert(); throw error; }
+    },
+  });
+  const capture = (input: Input): Intent => { const view = source.capture(); view.assert(); assertWorkspaceOwner(input.token, view.signal); return { ...input, view, resources: owner.queryClient.getQueryCache().findAll({ queryKey: owner.key("email") }) }; };
+  const command = { ...native, mutate: (input: Input) => native.mutate(capture(input)), mutateAsync: (input: Input) => native.mutateAsync(capture(input)) };
+  const deleting = command.isPending && command.variables?.action.kind === "delete";
+  const trusting = command.isPending && command.variables?.action.kind === "trust";
+  useEffect(() => {
+    if (!list.error || isAbortError(list.error)) return;
+    try { source.assertActive(); } catch { return; }
+    toast.error("Failed to load emails");
+  }, [list.error, source, source.assertActive]);
+  useEffect(() => subscribeWs((message) => {
+    if ((message.type !== "email.received" && message.type !== "email.sent") || message.agentId !== agentId) return;
+    const token = captureWorkspaceOwner(owner);
+    try { assertWorkspaceOwner(token); } catch { return; }
+    if (message.type === "email.received") trackEmailReceived({ agent_id: agentId, mailbox_type: activeMailbox?.type === "custom" ? "imap" : "alook" });
+    void owner.queryClient.cancelQueries({ queryKey: owner.key("email", "windows") }).then(() => {
+      assertWorkspaceOwner(token);
+      return owner.queryClient.invalidateQueries({ queryKey: owner.key("email", "windows") });
+    }).catch(() => undefined);
+  }), [owner, subscribeWs, agentId, activeMailbox?.type]);
+  const mutateEmail = command.mutate;
+  useEffect(() => {
+    if (!selected || selected.status !== "unread" || !bodyQuery.data) return;
+    mutateEmail({ action: { kind: "read", id: selected.id }, token: captureWorkspaceOwner(owner) });
+  }, [selected, bodyQuery.data, owner, mutateEmail]);
+  const handleSelect = (id: string) => { setComposing(false); setSelectedId(id); setExpandedThreadId(null); };
+  const handleExpandThread = (id: string) => setExpandedThreadId((current) => current === id ? null : id);
   const handleDelete = async () => {
     if (!deleteTarget) return;
-    setDeleting(true);
+    const id = deleteTarget, assertView = source.capture().assert;
+    assertView();
     try {
-      await deleteEmail(deleteTarget, workspaceId);
-      setEmails((prev) => prev.filter((e) => e.id !== deleteTarget));
-      if (selectedId === deleteTarget) {
-        setSelectedId(null);
-        setBody(null);
-      }
+      await command.mutateAsync({ action: { kind: "delete", id }, token: captureWorkspaceOwner(owner) });
+      assertView();
+      if (selectedId === id) setSelectedId(null);
       toast.success("Email deleted");
-    } catch {
-      toast.error("Failed to delete email");
+    } catch (error) {
+      try { assertView(); } catch { return; }
+      if (!isAbortError(error)) toast.error("Failed to delete email");
     } finally {
-      setDeleting(false);
-      setDeleteConfirmOpen(false);
-      setDeleteTarget(null);
+      try { assertView(); setDeleteConfirmOpen(false); setDeleteTarget(null); } catch {}
     }
   };
-
   const handleSend = async (to: string, subject: string, htmlBody: string, attachments: EmailAttachment[], threading?: { inReplyTo?: string; references?: string }): Promise<boolean> => {
+    if (owner.queryClient.isMutating({ mutationKey: commandKey, exact: true, predicate: (mutation) => (mutation.state.variables as Intent).action.kind === "send" })) return false;
+    const assertView = source.capture().assert;
+    assertView();
     try {
-      await sendEmail(agentId, to, subject, htmlBody, workspaceId, attachments.length > 0 ? attachments : undefined, threading, activeAccountId);
+      await command.mutateAsync({ action: { kind: "send", to, subject, htmlBody, attachments, threading, accountId: activeAccountId }, token: captureWorkspaceOwner(owner) });
+      assertView();
       trackEmailComposed({ agent_id: agentId, has_attachments: attachments.length > 0 });
       toast.success("Email sent");
-      setComposing(false);
       switchFolder("sent");
       return true;
-    } catch {
-      toast.error("Failed to send email");
+    } catch (error) {
+      try { assertView(); } catch { return false; }
+      if (!isAbortError(error)) toast.error("Failed to send email");
       return false;
     }
   };
+
 
   const buildQuotedBody = (email: Email) => [
     `<br/><br/>`,
@@ -255,20 +245,21 @@ export default function AgentEmailPage() {
   };
 
   const handleTrust = async (email: Email) => {
-    setTrusting(true);
+    const assertView = source.capture().assert;
+    assertView();
     try {
-      await trustEmail(email.id, workspaceId);
+      await command.mutateAsync({ action: { kind: "trust", id: email.id }, token: captureWorkspaceOwner(owner) });
+      assertView();
       toast.success("Email trusted and sent to agent");
-      setEmails((prev) => prev.filter((e) => e.id !== email.id));
       setSelectedId(null);
-    } catch {
-      toast.error("Failed to trust email");
-    } finally {
-      setTrusting(false);
+    } catch (error) {
+      try { assertView(); } catch { return; }
+      if (!isAbortError(error)) toast.error("Failed to trust email");
     }
   };
 
-  const [copied, setCopied] = useState(false);
+
+  const [copied, setCopied] = useAtom(useCreateAtom(false));
 
   const handleCopyAddress = async () => {
     if (!activeAddress) return;
@@ -718,7 +709,7 @@ export default function AgentEmailPage() {
             <Button
               variant="ghost"
               size="icon-sm"
-              onClick={() => { setSelectedId(null); setBody(null); }}
+              onClick={() => setSelectedId(null)}
             >
               <ArrowLeft className="size-4" />
             </Button>

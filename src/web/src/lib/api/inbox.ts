@@ -1,3 +1,4 @@
+import type { ApiRequestOptions } from "./client";
 import { apiFetch, wsQuery } from "./client";
 
 // Inbox
@@ -17,31 +18,34 @@ export interface InboxItem {
 
 export const listInboxItems = (
   workspaceId: string,
-  opts?: { limit?: number; before?: string; types?: string[] }
+  opts?: { limit?: number; before?: string; types?: string[] },
+  options?: RequestInit
 ) => {
   const extra: Record<string, string> = {};
   if (opts?.limit) extra.limit = String(opts.limit);
   if (opts?.before) extra.before = opts.before;
   if (opts?.types?.length) extra.types = opts.types.join(",");
   return apiFetch<{ items: InboxItem[]; has_more: boolean }>(
-    `/api/inbox${wsQuery(workspaceId, extra)}`
+    `/api/inbox${wsQuery(workspaceId, extra)}`, options
   );
 };
 
-export const getInboxCount = (workspaceId: string, opts?: { types?: string[] }) => {
+export const getInboxCount = (workspaceId: string, opts?: { types?: string[] }, options?: RequestInit) => {
   const extra: Record<string, string> = {};
   if (opts?.types?.length) extra.types = opts.types.join(",");
-  return apiFetch<{ count: number }>(`/api/inbox/count${wsQuery(workspaceId, extra)}`);
+  return apiFetch<{ count: number }>(`/api/inbox/count${wsQuery(workspaceId, extra)}`, options);
 };
 
-export const markInboxRead = (conversationId: string, workspaceId: string) =>
+export const markInboxRead = (conversationId: string, workspaceId: string, options?: ApiRequestOptions) =>
   apiFetch<void>(`/api/inbox/read${wsQuery(workspaceId)}`, {
+    ...options,
     method: "POST",
     body: JSON.stringify({ conversationId }),
   });
 
-export const markAllInboxRead = (workspaceId: string) =>
+export const markAllInboxRead = (workspaceId: string, options?: RequestInit) =>
   apiFetch<void>(`/api/inbox/read-all${wsQuery(workspaceId)}`, {
+    ...options,
     method: "POST",
   });
 
@@ -62,31 +66,34 @@ export interface FlaggedItem {
 
 export const listFlaggedItems = (
   workspaceId: string,
-  opts?: { limit?: number; before?: string }
+  opts?: { limit?: number; before?: string },
+  options?: RequestInit
 ) => {
   const extra: Record<string, string> = {};
   if (opts?.limit) extra.limit = String(opts.limit);
   if (opts?.before) extra.before = opts.before;
   return apiFetch<{ items: FlaggedItem[]; has_more: boolean }>(
-    `/api/flags${wsQuery(workspaceId, extra)}`
+    `/api/flags${wsQuery(workspaceId, extra)}`, options
   );
 };
 
-export const getFlaggedCount = (workspaceId: string) =>
-  apiFetch<{ count: number }>(`/api/flags/count${wsQuery(workspaceId)}`);
+export const getFlaggedCount = (workspaceId: string, options?: RequestInit) =>
+  apiFetch<{ count: number }>(`/api/flags/count${wsQuery(workspaceId)}`, options);
 
-export const flagMessage = (workspaceId: string, messageId: string) =>
+export const flagMessage = (workspaceId: string, messageId: string, options?: ApiRequestOptions) =>
   apiFetch<{ flagged: boolean }>(`/api/flags${wsQuery(workspaceId)}`, {
+    ...options,
     method: "POST",
     body: JSON.stringify({ messageId }),
   });
 
-export const unflagMessage = (workspaceId: string, messageId: string) =>
+export const unflagMessage = (workspaceId: string, messageId: string, options?: ApiRequestOptions) =>
   apiFetch<void>(`/api/flags/${messageId}${wsQuery(workspaceId)}`, {
+    ...options,
     method: "DELETE",
   });
 
-export const listFlaggedMessageIds = (workspaceId: string, conversationId: string) =>
+export const listFlaggedMessageIds = (workspaceId: string, conversationId: string, options?: ApiRequestOptions) =>
   apiFetch<{ message_ids: string[] }>(
-    `/api/flags${wsQuery(workspaceId, { conversation_id: conversationId, ids_only: "true" })}`
+    `/api/flags${wsQuery(workspaceId, { conversation_id: conversationId, ids_only: "true" })}`, options,
   );

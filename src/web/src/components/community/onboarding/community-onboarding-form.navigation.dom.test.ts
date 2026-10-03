@@ -1,6 +1,16 @@
 import { createElement } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { fireEvent, render, screen, waitFor } from "@/test/react-dom-harness"
+import { act, fireEvent, screen, waitFor  } from "@/test/react-dom-harness"
+import { render as renderDom } from "@/test/react-dom-harness"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import type { CommunityOnboardingState } from "@/lib/community-onboarding"
+let owner: Awaited<ReturnType<typeof createCommunityQueryOwner>>
+function render(node: React.ReactNode) {
+  owner.runtime.ui.setState((state) => ({ ...state, onboardingState: mocks.state as CommunityOnboardingState }))
+  owner.runtime.ui.actions.registerUiHandlers({ navigate: mocks.navigate })
+  return renderDom(node, { wrapper: ({ children }) => createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "user-1", retainOwner: true }, children) })
+}
 
 const mocks = vi.hoisted(() => ({
   pathname: "/c/me/machines",
@@ -20,16 +30,15 @@ const mocks = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({
   usePathname: () => mocks.pathname,
 }))
-vi.mock("@/lib/community-onboarding", () => ({
-  advanceCommunityOnboarding: vi.fn(),
-  completeCommunityOnboarding: (...args: unknown[]) => mocks.complete(...args),
-  consumeQueuedCommunityOnboarding: () => false,
-  recoverCommunityOnboardingHarness: (...args: unknown[]) => mocks.recoverHarness(...args),
-  skipCommunityOnboarding: vi.fn(),
-  startCommunityOnboarding: vi.fn(),
-  useCommunityOnboarding: () => mocks.state,
-}))
-vi.mock("@/stores/community", () => ({
+vi.mock("@/lib/community-onboarding", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/community-onboarding")>()
+  return {
+    ...actual,
+    completeCommunityOnboarding: (...args: Parameters<typeof actual.completeCommunityOnboarding>) => { mocks.complete(...args); return actual.completeCommunityOnboarding(...args) },
+    recoverCommunityOnboardingHarness: (...args: Parameters<typeof actual.recoverCommunityOnboardingHarness>) => { mocks.recoverHarness(...args); return actual.recoverCommunityOnboardingHarness(...args) },
+  }
+})
+vi.mock("@/stores/community", async (importOriginal) => ({ ...await importOriginal<typeof import("@/stores/community")>(),
   useCommunityStore: {
     getState: () => ({ uiHandlers: { navigate: mocks.navigate } }),
   },
@@ -72,7 +81,8 @@ vi.mock("./onboarding-status-dialog", () => ({
 import { CommunityOnboardingForm } from "./community-onboarding-form"
 
 describe("CommunityOnboardingForm room navigation", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    owner = await createCommunityQueryOwner("user-1")
     mocks.pathname = "/c/me/machines"
     mocks.state = {
       status: "active",
@@ -115,7 +125,7 @@ describe("CommunityOnboardingForm room navigation", () => {
     expect(mocks.complete).toHaveBeenCalledTimes(1)
   })
 
-  it("clears the local harness choice when recovering from the machine limit", () => {
+  it("clears the local harness choice when recovering from the machine limit", async () => {
     mocks.state = { status: "active", stage: "harness" }
     const rendered = render(createElement(CommunityOnboardingForm))
 
@@ -123,6 +133,7 @@ describe("CommunityOnboardingForm room navigation", () => {
     expect(screen.getByTestId("select-harness")).toHaveAttribute("data-value", "codex")
 
     mocks.state = { status: "active", stage: "machine", harness: "codex" }
+    await act(async () => { owner.runtime.ui.setState((state) => ({ ...state, onboardingState: mocks.state as CommunityOnboardingState })) })
     rendered.rerender(createElement(CommunityOnboardingForm))
     fireEvent.click(screen.getByTestId("recover-harness"))
     expect(mocks.recoverHarness).toHaveBeenCalledOnce()

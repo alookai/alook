@@ -1,18 +1,24 @@
 "use client"
 
-import { useQuery, useMutation, useQueryClient, type UseQueryResult } from "@tanstack/react-query"
-import { apiFetch, readUploadError } from "@/lib/api/client"
+import { useQuery,useMutation,useQueryClient,type UseQueryResult,type Query,type QueryKey,type MutateOptions } from "@tanstack/react-query"
+import type { ApiRequestOptions } from "@/lib/api/client"
 import {
-  apiFetchProfiles,
-  writeCommunityProfilePatches,
+apiFetchProfiles,
+beginCommunityProfileSeed,
+writeCommunityProfilePatches,
 } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
-import type { BotActivityDay, CommunityProfilePatch } from "@/lib/community/models/people"
+import type { BotActivityDay,CommunityProfilePatch } from "@/lib/community/models/people"
 import { avatarInitial } from "@/lib/community/avatar"
-import type { DailyUsageMetric, ReasoningEffort } from "@alook/shared"
-import { useMemo } from "react"
+import type { DailyUsageMetric,ReasoningEffort } from "@alook/shared"
+import { useCallback,useMemo } from "react"
+import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+
+
+import { useCommunityMutationOrigin as useBotMutationOrigin } from "./community-origin"
 
 export type BotUsageDay = {
   day: string
@@ -66,54 +72,89 @@ export type BotPlanSummary = {
   ownedCount: number
   activeCount: number
 }
-export type BotsResponse = BotPlanSummary & { bots: BotSummary[] }
+type BotsResponse = BotPlanSummary & { bots: BotSummary[] }
+type BotResource = Omit<BotSummary, "name" | "description" | "image" | "avatarVersion" | "presence">
+export type BotsResourceResponse = BotPlanSummary & { bots: BotResource[] }
 
-const EMPTY_BOTS: readonly BotSummary[] = Object.freeze([])
+type OriginalBotView = (() => void) & { signal: AbortSignal }
+type BotViewInput = { assertActive?: OriginalBotView }
 
-function botProfilePatch(bot: Pick<
-  BotSummary,
-  "id" | "name" | "image" | "avatarVersion"
->): CommunityProfilePatch {
-  return {
-    id: bot.id,
-    identityAbout: {
-      name: bot.name,
-      kind: "bot",
-    },
-    avatar: {
-      avatar: bot.image ?? avatarInitial(bot.name),
-      avatarVersion: bot.avatarVersion,
-    },
-  }
+function botProfilePatch(bot: Pick<BotSummary, "id" | "name" | "image" | "avatarVersion"> & { description?: string }): CommunityProfilePatch {
+  return { id: bot.id, identityAbout: { name: bot.name, kind: "bot", ...("discriminator" in bot && typeof bot.discriminator === "string" ? { discriminator: bot.discriminator } : {}), ...(bot.description === undefined ? {} : { aboutMe: bot.description }) }, avatar: { avatar: bot.image ?? avatarInitial(bot.name), avatarVersion: bot.avatarVersion } }
 }
 
-export function useBots(): UseQueryResult<BotsResponse> & { bots: BotSummary[] } {
+export function useBots(): UseQueryResult<BotsResourceResponse> & { bots: BotSummary[] } {
   const query = useQuery({
     queryKey: communityKeys.bots(),
-    queryFn: () => apiFetchProfiles<BotsResponse>(
-      "/api/community/bots",
-      (data) => data.bots.map((bot) => ({ ...botProfilePatch(bot), presence: bot.presence })),
-    ),
+    queryFn: async ({ client, signal }): Promise<BotsResourceResponse> => {
+      const data = await apiFetchProfiles<BotsResponse>("/api/community/bots", (data) => data.bots.map((bot) => ({ ...botProfilePatch(bot), presence: bot.presence })), { signal }, getCommunityDbRegistry(client))
+      return { ...data, bots: data.bots.map(({ name: _name, description: _description, image: _image, avatarVersion: _avatarVersion, presence: _presence, ...resource }) => resource) }
+    },
   })
-  const profilesByUserId = useCanonicalProfilesByUserId()
-  const bots = useMemo(
-    () => (query.data?.bots ?? EMPTY_BOTS).map((bot) => {
-      const canonical = profilesByUserId.get(bot.id)
-      if (!canonical) return bot
-      const profile = readCommunityProfile(canonical, bot.id)
-      return {
-        ...bot,
-        name: profile.name,
-        image: profile.avatar,
-        avatarVersion: profile.avatarVersion,
-      }
-    }),
-    [profilesByUserId, query.data?.bots],
-  )
+  const profiles = useCanonicalProfilesByUserId(query.data?.bots.map((bot) => bot.id) ?? [])
+  const bots = useMemo(() => (query.data?.bots ?? []).map((bot) => {
+    const profile = readCommunityProfile(profiles.get(bot.id), bot.id)
+    return { ...bot, name: profile.name, description: profile.aboutMe, image: profile.avatar, avatarVersion: profile.avatarVersion, presence: profile.presence }
+  }), [profiles, query.data?.bots])
   return { ...query, bots }
 }
 
-export type CreateBotInput = {
+type BotCommandContext = {
+  client: ReturnType<typeof useQueryClient>
+  resources: Query[]
+  assert: () => void
+  request: <T>(path: string, options?: ApiRequestOptions) => Promise<T>
+  publishProfile: (patch: CommunityProfilePatch) => void
+}
+const botSurfaceKeys = (id?: string) => [communityKeys.bots(), communityKeys.friends(), communityKeys.dms(), ...(id ? [communityKeys.profile(id)] : [])]
+
+const allBotSurfaceKeys = () => botSurfaceKeys()
+const botIdSurfaceKeys = ({ id }: { id: string }) => botSurfaceKeys(id)
+const botAvatarSurfaceKeys = ({ botId }: { botId: string }) => botSurfaceKeys(botId)
+const botAuditKeys = ({ id }: { id: string }) => [communityKeys.botAuditLog(id)]
+const noBotKeys = () => []
+
+function useBotCommand<TInput extends BotViewInput, TResult>(kind: string, execute: (input: TInput, context: BotCommandContext) => Promise<TResult>, keys: (input: TInput) => QueryKey[]) {
+  const client = useQueryClient(), origin = useBotMutationOrigin()
+  type Intent = { input: TInput; original: ReturnType<typeof origin.begin>["token"]; resources: Query[] }
+  const native = useMutation<TResult, Error, Intent>({
+    mutationKey: [...communityKeys.bots(), kind],
+    scope: { id: "community-bot-command" },
+    gcTime: 0,
+    mutationFn: async ({ input, original, resources }) => {
+      const assert = () => { origin.assert(original); input.assertActive?.() }
+      assert()
+      const snapshot = beginCommunityProfileSeed(origin.registry)
+      const context: BotCommandContext = {
+        client, resources, assert,
+        request: (path, options) => origin.request(original, path, { ...options, signal: input.assertActive?.signal, assertActive: assert }),
+        publishProfile: (patch) => { assert(); writeCommunityProfilePatches([patch], origin.registry, { snapshot, command: true }) },
+      }
+      try {
+        for (const resource of resources) if (client.getQueryCache().find({ queryKey: resource.queryKey, exact: true }) === resource) await client.cancelQueries({ queryKey: resource.queryKey, exact: true })
+        assert()
+        await origin.registry!.collections.profiles.preload()
+        assert()
+        const result = await execute(input, context)
+        assert()
+        return result
+      } finally {
+        try {
+          origin.assert(original)
+          for (const resource of resources) if (client.getQueryCache().find({ queryKey: resource.queryKey, exact: true }) === resource) void client.invalidateQueries({ queryKey: resource.queryKey, exact: true }).catch(() => undefined)
+        } catch {}
+      }
+    },
+  })
+  const capture = useCallback((input: TInput): Intent => {
+    input.assertActive?.()
+    return { input, original: origin.begin().token, resources: [...new Set(keys(input).flatMap((queryKey) => client.getQueryCache().findAll({ queryKey })))] }
+  }, [origin, client, keys])
+  const assertCurrent = useCallback((args: Intent) => { origin.assert(args.original); args.input.assertActive?.() }, [origin])
+  return useNativeMutationFacade<TResult, Error, TInput, Intent, unknown>(native, capture, assertCurrent)
+}
+
+export type CreateBotInput = BotViewInput & {
   name: string
   description?: string
   machineId: string
@@ -123,78 +164,41 @@ export type CreateBotInput = {
   reasoningEffort?: ReasoningEffort | null
 }
 
-// Bot identity (name, image) is read from the global profile map. These query
-// invalidations refresh the remaining bot/friend/DM relationship metadata.
-//
-// The profile card fetches/caches a bot's aboutMe separately under
-// communityKeys.profile(botId) with its own 5-minute staleTime
-// (use-user-profile.ts) — invalidate that too whenever the bot's id is
-// known, otherwise an already-opened profile card keeps showing the
-// pre-edit description until the cache naturally expires.
-export function invalidateBotSurfaces(qc: ReturnType<typeof useQueryClient>, botUserId?: string) {
-  qc.invalidateQueries({ queryKey: communityKeys.bots() })
-  qc.invalidateQueries({ queryKey: communityKeys.friends() })
-  qc.invalidateQueries({ queryKey: communityKeys.dms() })
-  if (botUserId) {
-    qc.invalidateQueries({ queryKey: communityKeys.profile(botUserId) })
-  }
+export function invalidateBotSurfaces(client: ReturnType<typeof useQueryClient>, id?: string, originalResources?: Query[]) {
+  const resources = originalResources ?? [...new Set(botSurfaceKeys(id).flatMap((queryKey) => client.getQueryCache().findAll({ queryKey })))]
+  for (const resource of resources) if (client.getQueryCache().find({ queryKey: resource.queryKey, exact: true }) === resource) void client.invalidateQueries({ queryKey: resource.queryKey, exact: true }).catch(() => undefined)
 }
 
 export function useCreateBot() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (input: CreateBotInput) =>
-      apiFetch<{ bot: BotSummary }>("/api/community/bots", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      }),
-    onSuccess: (data) => {
-      writeCommunityProfilePatches([botProfilePatch(data.bot)])
-      invalidateBotSurfaces(qc, data.bot.id)
-    },
-  })
+  return useBotCommand<CreateBotInput, { bot: BotSummary }>("create-command", async ({ assertActive: _assertActive, ...input }, context) => {
+    const data = await context.request<{ bot: BotSummary }>("/api/community/bots", { method: "POST", body: JSON.stringify(input) })
+    context.publishProfile(botProfilePatch(data.bot))
+    return data
+  }, allBotSurfaceKeys)
 }
 
-export type SetBotActiveInput = {
-  id: string
-  active: boolean
-}
-
-export type SetBotActiveResponse = {
-  bot: Pick<BotSummary, "id" | "isActive">
-  changed: boolean
-}
+export type SetBotActiveInput = BotViewInput & { id: string; active: boolean }
+export type SetBotActiveResponse = { bot: Pick<BotSummary, "id" | "isActive">; changed: boolean }
 
 export function useSetBotActive() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ id, active }: SetBotActiveInput) =>
-      apiFetch<SetBotActiveResponse>(`/api/community/bots/${id}/active`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ active }),
-      }),
-    onSuccess: (data) => {
-      qc.setQueryData<BotsResponse>(communityKeys.bots(), (current) => {
-        if (!current) return current
-        const previous = current.bots.find((bot) => bot.id === data.bot.id)
-        if (!previous || previous.isActive === data.bot.isActive) return current
-        return {
-          ...current,
-          activeCount: Math.max(0, current.activeCount + (data.bot.isActive ? 1 : -1)),
-          bots: current.bots.map((bot) => (
-            bot.id === data.bot.id ? { ...bot, isActive: data.bot.isActive } : bot
-          )),
-        }
-      })
-      qc.invalidateQueries({ queryKey: communityKeys.bots() })
-    },
-  })
+  return useBotCommand<SetBotActiveInput, SetBotActiveResponse>("active-command", async ({ id, active }, context) => {
+    const key = communityKeys.bots(), resource = context.resources.find((resource) => resource.queryHash === context.client.getQueryCache().find({ queryKey: key, exact: true })?.queryHash)
+    const before = resource?.state.dataUpdateCount
+    const data = await context.request<SetBotActiveResponse>("/api/community/bots/" + id + "/active", { method: "PATCH", body: JSON.stringify({ active }) })
+    context.assert()
+    if (resource && context.client.getQueryCache().find({ queryKey: key, exact: true }) === resource && resource.state.dataUpdateCount === before) context.client.setQueryData<BotsResourceResponse>(key, (current) => {
+      if (!current) return current
+      const previous = current.bots.find((bot) => bot.id === data.bot.id)
+      if (!previous || previous.isActive === data.bot.isActive) return current
+      return { ...current, activeCount: Math.max(0, current.activeCount + (data.bot.isActive ? 1 : -1)), bots: current.bots.map((bot) => bot.id === data.bot.id ? { ...bot, isActive: data.bot.isActive } : bot) }
+    })
+    return data
+  }, botIdSurfaceKeys)
 }
 
 export type UpdateBotInput = {
   id: string
+  assertActive?: OriginalBotView
   name?: string
   description?: string
   image?: string | null
@@ -222,96 +226,54 @@ export type UpdateBotResponse = {
 }
 
 export function useUpdateBot() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (input: UpdateBotInput) =>
-      apiFetch<UpdateBotResponse>(`/api/community/bots/${input.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: input.name,
-          description: input.description,
-          image: input.image,
-          // Omit `model` entirely when undefined so the PATCH doesn't send an
-          // explicit key the server would read as "clear to default".
-          ...("model" in input ? { model: input.model } : {}),
-          ...("runtime" in input ? { runtime: input.runtime } : {}),
-          ...("reasoningEffort" in input
-            ? { reasoningEffort: input.reasoningEffort }
-            : {}),
-        }),
-      }),
-    onSuccess: (data) => {
-      writeCommunityProfilePatches([botProfilePatch(data.bot)])
-      invalidateBotSurfaces(qc, data.bot.id)
-    },
-  })
+  return useBotCommand<UpdateBotInput, UpdateBotResponse>("update-command", async ({ id, assertActive: _assertActive, ...input }, context) => {
+    const data = await context.request<UpdateBotResponse>("/api/community/bots/" + id, { method: "PATCH", body: JSON.stringify(input) })
+    context.publishProfile(botProfilePatch(data.bot))
+    const key = communityKeys.bots(), resource = context.resources.find((resource) => context.client.getQueryCache().find({ queryKey: key, exact: true }) === resource)
+    if (resource) context.client.setQueryData<BotsResourceResponse>(key, (current) => current ? { ...current, bots: current.bots.map((bot) => bot.id === id && bot.runtimeConfigRevision <= data.bot.runtimeConfigRevision ? { ...bot, runtime: data.bot.runtime, modelName: data.bot.modelName, reasoningEffort: data.bot.reasoningEffort, runtimeConfigRevision: data.bot.runtimeConfigRevision } : bot) } : current)
+    return data
+  }, botIdSurfaceKeys)
 }
 
+type BotIdInput = BotViewInput & { id: string }
+const botIdInput = (input: string | BotIdInput) => typeof input === "string" ? { id: input } : input
+function useBotIdFacade<TResult>(native: ReturnType<typeof useBotCommand<BotIdInput, TResult>>) {
+  type Input = string | BotIdInput
+  const qualify = useCallback((input: Input, callbacks?: MutateOptions<TResult, Error, Input, unknown>): MutateOptions<TResult, Error, BotIdInput, unknown> | undefined => callbacks && ({
+    onSuccess: (data, _intent, result, context) => callbacks.onSuccess?.(data, input, result, context),
+    onError: (error, _intent, result, context) => callbacks.onError?.(error, input, result, context),
+    onSettled: (data, error, _intent, result, context) => callbacks.onSettled?.(data, error, input, result, context),
+  }), [])
+  const nativeMutate = native.mutate, nativeMutateAsync = native.mutateAsync
+  const mutate = useCallback((input: Input, callbacks?: MutateOptions<TResult, Error, Input, unknown>) => nativeMutate(botIdInput(input), qualify(input, callbacks)), [nativeMutate, qualify])
+  const mutateAsync = useCallback((input: Input, callbacks?: MutateOptions<TResult, Error, Input, unknown>) => nativeMutateAsync(botIdInput(input), qualify(input, callbacks)), [nativeMutateAsync, qualify])
+  return { ...native, mutate, mutateAsync }
+}
 export function useDeleteBot() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (id: string) =>
-      apiFetch<void>(`/api/community/bots/${id}`, { method: "DELETE" }),
-    onSuccess: (_data, id) => invalidateBotSurfaces(qc, id),
-  })
+  const native = useBotCommand<BotIdInput, void>("delete-command", async ({ id }, context) => { await context.request<void>("/api/community/bots/" + id, { method: "DELETE" }) }, botIdSurfaceKeys)
+  return useBotIdFacade<void>(native)
 }
 
 export type ResetBotSessionResult = { ok: true }
-
 export function useResetBotSession() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (id: string) =>
-      apiFetch<ResetBotSessionResult>(
-        `/api/community/bots/${id}/reset-session`,
-        { method: "POST" },
-      ),
-    onSuccess: (_data, id) => {
-      qc.invalidateQueries({ queryKey: communityKeys.botAuditLog(id) })
-    },
-  })
+  const native = useBotCommand<BotIdInput, ResetBotSessionResult>("reset-command", ({ id }, context) => context.request<ResetBotSessionResult>("/api/community/bots/" + id + "/reset-session", { method: "POST" }), botAuditKeys)
+  return useBotIdFacade<ResetBotSessionResult>(native)
 }
 
-// Batch reset every agent bound to a machine, in one control-plane command
-// (not a fan-out of single resets). v1 is dispatch-level: the response reports
-// how many agents the reset was dispatched to — it does NOT track per-agent
-// success (Gus's call). A machine with no live daemon → 409.
 export type ResetMachineAgentsResult = { dispatched: number }
-
 export function useResetMachineAgents() {
-  return useMutation({
-    mutationFn: (machineId: string) =>
-      apiFetch<ResetMachineAgentsResult>(
-        `/api/community/machines/${machineId}/reset-agents`,
-        { method: "POST" },
-      ),
-  })
+  const native = useBotCommand<BotIdInput, ResetMachineAgentsResult>("machine-reset-command", ({ id }, context) => context.request<ResetMachineAgentsResult>("/api/community/machines/" + id + "/reset-agents", { method: "POST" }), noBotKeys)
+  return useBotIdFacade<ResetMachineAgentsResult>(native)
 }
 
-export type UploadBotAvatarArgs = { botId: string; file: File }
+export type UploadBotAvatarArgs = BotViewInput & { botId: string; file: File }
 export type UploadBotAvatarResult = { url: string; avatarVersion: number }
-
 export function useUploadBotAvatar() {
-  const qc = useQueryClient()
-  return useMutation<UploadBotAvatarResult, Error, UploadBotAvatarArgs>({
-    mutationFn: async ({ botId, file }) => {
-      const formData = new FormData()
-      formData.append("file", file)
-      const res = await fetch(`/api/community/bots/${botId}/avatar`, {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      })
-      if (!res.ok) throw await readUploadError(res, "Upload failed")
-      return (await res.json()) as UploadBotAvatarResult
-    },
-    onSuccess: (data, variables) => {
-      writeCommunityProfilePatches([{
-        id: variables.botId,
-        avatar: { avatar: data.url, avatarVersion: data.avatarVersion },
-      }])
-      invalidateBotSurfaces(qc, variables.botId)
-    },
-  })
+  return useBotCommand<UploadBotAvatarArgs, UploadBotAvatarResult>("avatar-command", async ({ botId, file }, context) => {
+    const body = new FormData()
+    body.append("file", file)
+    const data = await context.request<UploadBotAvatarResult>("/api/community/bots/" + botId + "/avatar", { method: "POST", body })
+    context.publishProfile({ id: botId, avatar: { avatar: data.url, avatarVersion: data.avatarVersion } })
+    return data
+  }, botAvatarSurfaceKeys)
 }

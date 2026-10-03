@@ -1,10 +1,11 @@
+import { createCommunityQueryOwner, seedCommunityMessageWindow } from "@/test/community-query-owner"
+import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { createElement, type PropsWithChildren } from "react"
-import { focusManager, onlineManager, QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { focusManager, onlineManager, type QueryClient } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
-import { useCommunityWsStore } from "@/stores/community/ws"
-import { useMessageStreamStore } from "@/stores/community/message-stream"
+import { getCommunityRuntime } from "@/stores/community/runtime"
 import { useInitialPositionTransition } from "@/components/community/messages/initial-position-transition"
 import { useDmMessages, useMessages } from "./use-messages"
 
@@ -18,15 +19,17 @@ const page = { messages: [{ id: "anchor", seq: 1 }, { id: "cached", seq: 2 }], h
 beforeEach(() => {
   vi.useFakeTimers()
   apiFetchMock.mockReset()
-  useCommunityWsStore.getState().reset()
-  useMessageStreamStore.getState().resetAll()
+
+
   focusManager.setFocused(true)
   onlineManager.setOnline(true)
   renders.length = 0
 })
-afterEach(() => {
-  for (const client of clients.splice(0)) client.clear()
-  vi.useRealTimers()
+afterEach(async () => {
+  await act(async () => {
+    for (const client of clients.splice(0)) client.clear()
+    vi.useRealTimers()
+  })
 })
 
 async function advance(ms = 0) {
@@ -34,11 +37,11 @@ async function advance(ms = 0) {
   await act(async () => { await vi.advanceTimersByTimeAsync(1) })
 }
 
-function mount(kind: "channel" | "dm" = "channel", stale = false) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
+async function mount(kind: "channel" | "dm" = "channel", stale = false) {
+  const { client: client } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
   clients.push(client)
   const key = kind === "channel" ? communityKeys.channelMessages("scope") : communityKeys.dmMessages("scope")
-  client.setQueryData(key, {
+  seedCommunityMessageWindow(client, key, {
     pages: [{ messages: [{ id: "cached", seq: 2 }], hasMoreOlder: true, hasMoreNewer: false }],
     pageParams: [{ mode: "newest" }],
   }, { updatedAt: Date.now() - (stale ? 120_000 : 0) })
@@ -64,7 +67,7 @@ describe("anchor repair retains the message window", () => {
     let fail!: (error: Error) => void
     apiFetchMock.mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject }))
       .mockResolvedValue(page)
-    const { rendered } = mount(kind)
+    const { rendered } = await mount(kind)
     await advance(900)
     expect(renders.at(-1)?.phase).toBe("positioning")
     await act(async () => { fail(new Error("offline")) })
@@ -82,7 +85,7 @@ describe("anchor repair retains the message window", () => {
 
   it.each(["focus", "online"])("bounds failed retries and allows recovery on %s", async (event) => {
     apiFetchMock.mockRejectedValue(new Error("offline"))
-    const { rendered } = mount()
+    const { rendered } = await mount()
     await advance()
     await advance(1000)
     await advance(2000)
@@ -103,11 +106,11 @@ describe("anchor repair retains the message window", () => {
 
   it("does not restart backoff when ordinary messages update the cached window", async () => {
     apiFetchMock.mockRejectedValue(new Error("offline"))
-    const { client, key, rendered } = mount()
+    const { client, key, rendered } = await mount()
     await advance()
     for (let index = 0; index < 5; index++) {
       act(() => {
-        client.setQueryData(key, {
+        seedCommunityMessageWindow(client, key, {
           pages: [{ messages: [{ id: "cached", seq: 2 }, { id: `new-${index}`, seq: index + 3 }], hasMoreOlder: true, hasMoreNewer: false }],
           pageParams: [{ mode: "newest" }],
         })
@@ -127,13 +130,13 @@ describe("anchor repair retains the message window", () => {
 
   it.each(["unmount", "evict", "revoke"])("stops scheduled retries after %s", async (change) => {
     apiFetchMock.mockRejectedValue(new Error("offline"))
-    const { client, key, rendered } = mount()
+    const { client, key, rendered } = await mount()
     await advance()
     act(() => {
       if (change === "unmount") rendered.unmount()
       if (change === "evict") client.removeQueries({ queryKey: key, exact: true })
       if (change === "revoke") {
-        useCommunityWsStore.getState().revokeChannelAccess("server", "scope")
+        getCommunityRuntime(client).ws.actions.revokeChannelAccess("server", "scope")
         rendered.unmount()
       }
     })
@@ -149,9 +152,9 @@ describe("anchor repair retains the message window", () => {
     let resolveOld!: (value: typeof page) => void
     apiFetchMock.mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve }))
       .mockResolvedValue(page)
-    const { rendered } = mount()
+    const { client, rendered } = await mount()
     await advance()
-    act(() => { useCommunityWsStore.setState((state) => ({ accessEpoch: state.accessEpoch + 1 })) })
+    act(() => { getCommunityRuntime(client).ws.setState((state) => ({ ...state, accessEpoch: state.accessEpoch + 1 })) })
     await advance()
     expect(apiFetchMock).toHaveBeenCalledTimes(2)
     expect(rendered.result.current.messages.map((message) => message.id)).toEqual(["anchor", "cached"])
@@ -164,7 +167,7 @@ describe("anchor repair retains the message window", () => {
   it("replaces a stale window only after a retry succeeds", async () => {
     apiFetchMock.mockRejectedValueOnce(new Error("offline"))
       .mockResolvedValue({ ...page, messages: [{ id: "anchor", seq: 1 }] })
-    const { rendered } = mount("channel", true)
+    const { rendered } = await mount("channel", true)
     await advance()
     expect(rendered.result.current.messages.map((message) => message.id)).toEqual(["cached"])
     await advance(1000)
@@ -179,7 +182,7 @@ describe("anchor repair retains the message window", () => {
     apiFetchMock.mockResolvedValueOnce(remainingPage)
       .mockImplementationOnce(() => new Promise((resolve) => { resolveRefresh = resolve }))
       .mockResolvedValue(remainingPage)
-    const { rendered } = mount()
+    const { rendered } = await mount()
     await advance()
     act(() => { void rendered.result.current.refetch() })
     await advance()
@@ -195,7 +198,7 @@ describe("anchor repair retains the message window", () => {
     let resolveOld!: (value: typeof page) => void
     apiFetchMock.mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve }))
       .mockImplementation(() => new Promise(() => undefined))
-    const { client, key, rendered } = mount()
+    const { client, key, rendered } = await mount()
     await advance()
     await act(async () => {
       void client.resetQueries({ queryKey: key, exact: true })
@@ -211,7 +214,7 @@ describe("anchor repair retains the message window", () => {
     let resolveOld!: (value: typeof page) => void
     apiFetchMock.mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve }))
       .mockResolvedValue({ ...page, messages: [{ id: "new-anchor", seq: 3 }] })
-    const { rendered } = mount()
+    const { rendered } = await mount()
     await advance()
     rendered.rerender({ anchor: "new-anchor" })
     await advance()

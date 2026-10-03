@@ -1,60 +1,65 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSelector } from "@tanstack/react-store";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { applicationKey, useApplicationOwner } from "@/lib/application-owner";
+import { useApplicationViewSource } from "@/hooks/use-application-view-source";
 import { toast } from "sonner";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
-import {
-  isNotificationSupported,
-  getNotificationEnabled,
-  setNotificationEnabled,
-  getNotificationEvents,
-  setNotificationEvents,
-  requestNotificationPermission,
-  NOTIFICATION_EVENTS,
-  NOTIFICATION_EVENT_LABELS,
-  type NotificationEvent,
-} from "@/lib/browser-notification";
+import { isNotificationSupported, setNotificationEnabled, setNotificationEvents, requestNotificationPermission, NOTIFICATION_EVENTS, NOTIFICATION_EVENT_LABELS, type NotificationEvent } from "@/lib/browser-notification";
 
 export function NotificationTab() {
-  const [notifEnabled, setNotifEnabled] = useState(false);
-  const [notifEvents, setNotifEvents] = useState<NotificationEvent[]>([...NOTIFICATION_EVENTS]);
-  const [notifSupported, setNotifSupported] = useState(true);
-  const [notifDenied, setNotifDenied] = useState(false);
-
-  useEffect(() => {
-    setNotifSupported(isNotificationSupported());
-    setNotifEnabled(getNotificationEnabled());
-    setNotifEvents(getNotificationEvents());
-    if (isNotificationSupported()) {
-      setNotifDenied(Notification.permission === "denied");
-    }
-  }, []);
+  const owner = useApplicationOwner();
+  const source = useApplicationViewSource("workspace-notifications");
+  const preferences = useSelector(owner.preferences, (state) => state.browserNotifications);
+  const notifEnabled = preferences.enabled;
+  const notifEvents = preferences.events;
+  const permission = useQuery({
+    queryKey: applicationKey(owner, "browser-notification-permission"),
+    queryFn: () => ({ supported: isNotificationSupported(), denied: isNotificationSupported() && Notification.permission === "denied" }),
+    staleTime: 0,
+  });
+  const notifSupported = permission.data?.supported ?? true;
+  const notifDenied = permission.data?.denied ?? false;
+  const command = useMutation({ mutationKey: applicationKey(owner, "browser-notification-permission", "request"),
+    mutationFn: async (original: ReturnType<typeof source.capture>) => {
+      original.assert();
+      const granted = await requestNotificationPermission();
+      original.assert();
+      owner.queryClient.setQueryData(applicationKey(owner, "browser-notification-permission"), { supported: isNotificationSupported(), denied: !granted });
+      if (granted) {
+        setNotificationEnabled(true, owner.userId);
+        owner.preferences.setState((state) => ({ ...state, browserNotifications: { ...state.browserNotifications, enabled: true } }));
+      }
+      return granted;
+    },
+  });
 
   const handleToggleNotification = async (checked: boolean) => {
+    const original = source.capture();
+    original.assert();
     if (!checked) {
-      setNotifEnabled(false);
-      setNotificationEnabled(false);
+      setNotificationEnabled(false, owner.userId);
+      owner.preferences.setState((state) => ({ ...state, browserNotifications: { ...state.browserNotifications, enabled: false } }));
       return;
     }
-    const granted = await requestNotificationPermission();
-    if (granted) {
-      setNotifEnabled(true);
-      setNotificationEnabled(true);
-    } else {
-      setNotifDenied(true);
-      toast.error("Notification permission denied. Please enable it in browser settings.");
+    try {
+      const granted = await command.mutateAsync(original);
+      original.assert();
+      if (!granted) toast.error("Notification permission denied. Please enable it in browser settings.");
+    } catch (error) {
+      try { original.assert(); } catch { return; }
+      if (!(error instanceof DOMException && error.name === "AbortError")) toast.error(error instanceof Error ? error.message : "Failed to enable notifications");
     }
   };
 
   const handleToggleEvent = (event: NotificationEvent) => {
-    setNotifEvents((prev) => {
-      const next = prev.includes(event)
-        ? prev.filter((e) => e !== event)
-        : [...prev, event];
-      setNotificationEvents(next);
-      return next;
-    });
+    source.capture().assert();
+    const current = owner.preferences.get().browserNotifications;
+    const events = current.events.includes(event) ? current.events.filter((value) => value !== event) : [...current.events, event];
+    setNotificationEvents(events, owner.userId);
+    owner.preferences.setState((state) => ({ ...state, browserNotifications: { ...state.browserNotifications, events } }));
   };
 
   if (!notifSupported) {
@@ -80,7 +85,7 @@ export function NotificationTab() {
             <Switch
               checked={notifEnabled}
               onCheckedChange={handleToggleNotification}
-              disabled={notifDenied && !notifEnabled}
+              disabled={command.isPending || (notifDenied && !notifEnabled)}
             />
           </div>
           {notifDenied && !notifEnabled && (

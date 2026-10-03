@@ -1,11 +1,20 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useCommunityCommandMutation, type CommunityCommandArgs } from "../use-community-command-mutation"
+import { beginCommunityCommandRevision } from "@/lib/community-db/sync"
+import { useCommunityMutationOrigin } from "../community-origin"
+import { useQueryClient } from "@tanstack/react-query"
 import { nanoid } from "nanoid"
 import { apiFetch } from "@/lib/api/client"
+import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
+import {
+  publishCommunityChannelPatch, publishCommunityChannelFields, publishCommunityCategoryFields,
+  publishCommunityCreatedChannel, publishCommunityCreatedCategory, publishCommunityDeletedCategory,
+  type CommunityFreshQueryProof,
+} from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
-import type { ChannelRefDirectory } from "@/lib/community/channel-ref"
-import type { ServerDetail } from "@/hooks/community/use-servers"
+import { isAbortError } from "@/lib/errors"
+import type { ChannelRow, CategoryRow } from "@/lib/community-db/schema"
 import { UNCATEGORIZED_CATEGORY_ID, type ChannelType } from "@alook/shared"
 import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import { runCommunityWsProjectionTransaction } from "@/hooks/community/community-ws/projection-transaction"
@@ -21,10 +30,10 @@ const tempChannelId = () => `tmp_ch_${nanoid()}`
 const isUncategorizedTarget = (categoryId: string | null) =>
   !categoryId || categoryId === UNCATEGORIZED_CATEGORY_ID
 
-function invalidateChannelRefDirectory(queryClient: ReturnType<typeof useQueryClient>) {
+function invalidateChannelRefDirectory(queryClient: ReturnType<typeof useQueryClient>, args: CommunityCommandArgs<object>) {
   void queryClient.invalidateQueries({
     queryKey: communityKeys.channelRefDirectory(),
-    exact: true,
+    exact: true, predicate: (query) => args.resources.includes(query),
   })
 }
 
@@ -44,104 +53,68 @@ export type CreateChannelArgs = {
   name: string
   type: ChannelType
 }
-export type CreateChannelResult = { channel: { id: string } }
+export type CreateChannelResult = { channel: { id: string; name?: string; position?: number } }
 
-type CreateChannelCtx = { snapshot?: ServerDetail; tempId: string }
+async function persistTreeChange<T>(
+  origin: ReturnType<typeof useCommunityMutationOrigin>,
+  queryClient: ReturnType<typeof useQueryClient>,
+  args: CommunityCommandArgs<{ serverId: string }>,
+  optimistic: (registry: NonNullable<typeof origin.registry>) => void,
+  persist: (proof: CommunityFreshQueryProof, options: ReturnType<typeof communityRequestOptions>) => Promise<T>,
+): Promise<T> {
+  const original = args.original, registry = origin.registry
+  origin.assert(original)
+  const serverId = args.serverId
+  await registry?.ready
+  origin.assert(original)
+  await registry!.preload()
+  origin.assert(original)
+  await Promise.all([
+    queryClient.cancelQueries({ queryKey: communityKeys.server(serverId), exact: true, predicate: (query) => args.resources.includes(query) }),
+    queryClient.cancelQueries({ queryKey: communityKeys.channelRefDirectory(), exact: true, predicate: (query) => args.resources.includes(query) }),
+  ])
+  origin.assert(original)
+  const token = beginCommunityCommandRevision(queryClient, original)
+  let result!: T
+  const transaction = registry!.dbClient.createTransaction({ mutationFn: async () => {
+    try {
+      result = await persist({ token, signal: undefined }, communityRequestOptions(queryClient, token, undefined, () => origin.assert(original)))
+    } catch (error) { origin.assert(original); throw error }
+  } })
+  transaction.mutate(() => optimistic(registry!))
+  try { await transaction.isPersisted.promise } catch (error) { origin.assert(original); throw error }
+  return result
+}
 
-/**
- * Optimistically inserts a pending channel row into the target category so the
- * sidebar shows immediate feedback, then reconciles on settle. `onMutate`
- * writes a `tmp_ch_…` row; `onSuccess` swaps its id for the real one (so
- * auto-navigation highlights the active row before the refetch lands);
- * `onError` rolls back; `onSettled` invalidates so the tree resettles to server
- * truth (real ids, positions, slug-normalized name). The WS `channel.create`
- * broadcast also invalidates `server(serverId)` — TanStack de-dupes the
- * concurrent refetch, so no duplicate row.
- */
+function settleTree(origin: ReturnType<typeof useCommunityMutationOrigin>, queryClient: ReturnType<typeof useQueryClient>, args: CommunityCommandArgs<{ serverId: string }>, error: unknown) {
+  if (isAbortError(error) || !origin.registry?.runtime.lifecycle.get().active) return
+  void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true, predicate: (query) => args.resources.includes(query) })
+  invalidateChannelRefDirectory(queryClient, args)
+}
+
 export function useCreateChannel() {
-  const queryClient = useQueryClient()
-  return useMutation<CreateChannelResult, Error, CreateChannelArgs, CreateChannelCtx>({
-    mutationFn: async ({ serverId, categoryId, name, type }) => {
-      // The uncategorized bucket is a synthetic id, not a real category row —
-      // send `null` so the server doesn't 404 on `getCategory`. onMutate still
-      // uses the bucket to place the optimistic row in the cache.
-      const apiCategoryId = isUncategorizedTarget(categoryId) ? null : categoryId
-      // Unified create door (route/disc create-door step): POST /channels with a
-      // type-discriminated descriptor. text/forum carries serverId + name.
-      return apiFetch<CreateChannelResult>(
-        `/api/community/channels`,
-        { method: "POST", body: JSON.stringify({ type, serverId, categoryId: apiCategoryId, name }) },
-      )
-    },
-    onMutate: async (args) => {
-      const key = communityKeys.server(args.serverId)
-      await queryClient.cancelQueries({ queryKey: key })
-      const snapshot = queryClient.getQueryData<ServerDetail>(key)
-      const tempId = tempChannelId()
-      const pending = {
-        id: tempId,
-        name: args.name.trim(),
-        active: false,
-        unread: false,
-        type: args.type,
-        creatorId: null,
-        pending: true,
-      }
-      queryClient.setQueryData<ServerDetail>(key, (prev) => {
-        if (!prev) return prev
-        const uncategorized = isUncategorizedTarget(args.categoryId)
-        // Resolve which cache category to attach to: the named one, or the
-        // synthetic uncategorized bucket (matched by id OR the empty-name
-        // convention the server-detail response uses).
-        const target = prev.categories.find((c) =>
-          uncategorized ? (c.id === UNCATEGORIZED_CATEGORY_ID || c.name === "") : c.id === args.categoryId,
-        )
-        if (target) {
-          return {
-            ...prev,
-            categories: prev.categories.map((c) =>
-              c === target ? { ...c, channels: [...c.channels, pending] } : c,
-            ),
-          }
-        }
-        // First top-level channel: no synthetic bucket exists yet. Synthesize
-        // one so the pending row shows immediately; the settle refetch replaces
-        // it with the server's real uncategorized bucket.
-        if (uncategorized) {
-          return {
-            ...prev,
-            categories: [
-              ...prev.categories,
-              { id: UNCATEGORIZED_CATEGORY_ID, name: "", channels: [pending] } as ServerDetail["categories"][number],
-            ],
-          }
-        }
-        return prev
-      })
-      return { snapshot, tempId }
-    },
-    onSuccess: (data, args, ctx) => {
-      const key = communityKeys.server(args.serverId)
-      queryClient.setQueryData<ServerDetail>(key, (prev) => {
-        if (!prev) return prev
-        return {
-          ...prev,
-          categories: prev.categories.map((c) => ({
-            ...c,
-            channels: c.channels.map((ch) =>
-              ch.id === ctx.tempId ? { ...ch, id: data.channel.id, pending: false } : ch,
-            ),
-          })),
-        }
+  const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
+  return useCommunityCommandMutation<CreateChannelResult, Error, CreateChannelArgs>(origin, {
+    scope: { id: "community-tree-commands" },
+    mutationFn: async (args) => {
+      const id = tempChannelId()
+      const categoryId = isUncategorizedTarget(args.categoryId) ? null : args.categoryId
+      let pending!: ChannelRow
+      return persistTreeChange(origin, queryClient, args, (db) => {
+        const rows = [...db.collections.channels.values()].filter((row) => row.serverId === args.serverId && row.categoryId === categoryId)
+        const position = Math.max(-1, ...rows.map((row) => row.position)) + 1
+        pending = { id, serverId: args.serverId, categoryId, name: args.name.trim(), type: args.type,
+          parentChannelId: null, parentMessageId: null, creatorId: db.accountId,
+          position, archived: false, muted: false, unread: false, tags: [], pending: true, lastMessageAt: null }
+        db.collections.channels.insert(pending)
+      }, async (proof, options) => {
+        const result = await apiFetch<CreateChannelResult>("/api/community/channels", { method: "POST", body: JSON.stringify({ type: args.type, serverId: args.serverId, categoryId, name: args.name }), ...options })
+        origin.assert(proof.token)
+        publishCommunityCreatedChannel(queryClient, { ...pending, id: result.channel.id, name: result.channel.name ?? pending.name, position: result.channel.position ?? pending.position, pending: false }, proof)
+        return result
       })
     },
-    onError: (_err, args, ctx) => {
-      if (ctx?.snapshot) queryClient.setQueryData(communityKeys.server(args.serverId), ctx.snapshot)
-    },
-    onSettled: (_data, _err, args) => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
-      invalidateChannelRefDirectory(queryClient)
-    },
+    onSettled: (_data, error, args) => settleTree(origin, queryClient, args, error),
   })
 }
 
@@ -158,102 +131,55 @@ export type RenameChannelArgs = {
 }
 export type RenameChannelResult = { id: string; name: string }
 
-type RenameChannelCtx = {
-  serverSnapshot?: ServerDetail
-  directorySnapshot?: ChannelRefDirectory
-}
-
-function renameServerDetailChannel(
-  detail: ServerDetail | undefined,
-  channelId: string,
-  name: string,
-): ServerDetail | undefined {
-  if (!detail) return detail
-  let changed = false
-  const categories = detail.categories.map((category) => {
-    let categoryChanged = false
-    const channels = category.channels.map((channel) => {
-      if (channel.id !== channelId || channel.name === name) return channel
-      categoryChanged = true
-      changed = true
-      return { ...channel, name }
-    })
-    return categoryChanged ? { ...category, channels } : category
-  })
-  return changed ? { ...detail, categories } : detail
-}
-
-function renameDirectoryChannel(
-  directory: ChannelRefDirectory | undefined,
-  serverId: string,
-  channelId: string,
-  name: string,
-): ChannelRefDirectory | undefined {
-  if (!directory) return directory
-  let changed = false
-  const next = directory.map((server) => {
-    if (server.id !== serverId) return server
-    let serverChanged = false
-    const channels = server.channels.map((channel) => {
-      if (channel.id !== channelId || channel.name === name) return channel
-      serverChanged = true
-      changed = true
-      return { ...channel, name }
-    })
-    return serverChanged ? { ...server, channels } : server
-  })
-  return changed ? next : directory
-}
-
 export function useRenameChannel() {
+  const origin = useCommunityMutationOrigin()
   const queryClient = useQueryClient()
-  return useMutation<RenameChannelResult, Error, RenameChannelArgs, RenameChannelCtx>({
-    mutationFn: async ({ channelId, name }) => {
-      return apiFetch<RenameChannelResult>(`/api/community/channels/${channelId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ name }),
-      })
-    },
-    onMutate: async (args) => {
-      const serverKey = communityKeys.server(args.serverId)
-      const directoryKey = communityKeys.channelRefDirectory()
+  return useCommunityCommandMutation<RenameChannelResult, Error, RenameChannelArgs>(origin, {
+    scope: { id: "community-tree-commands" },
+    mutationFn: async (args) => {
+      const original = args.original
+      origin.assert(original)
+      const registry = origin.registry
+      await registry?.ready
+      origin.assert(original)
       await Promise.all([
-        queryClient.cancelQueries({ queryKey: serverKey, exact: true }),
-        queryClient.cancelQueries({ queryKey: directoryKey, exact: true }),
+        queryClient.cancelQueries({ queryKey: communityKeys.server(args.serverId), exact: true, predicate: (query) => args.resources.includes(query) }),
+        queryClient.cancelQueries({ queryKey: communityKeys.channelRefDirectory(), exact: true, predicate: (query) => args.resources.includes(query) }),
       ])
-      const serverSnapshot = queryClient.getQueryData<ServerDetail>(serverKey)
-      const directorySnapshot = queryClient.getQueryData<ChannelRefDirectory>(directoryKey)
-      const optimisticName = args.name.trim()
-      queryClient.setQueryData<ServerDetail>(serverKey, (prev) =>
-        renameServerDetailChannel(prev, args.channelId, optimisticName),
-      )
-      queryClient.setQueryData<ChannelRefDirectory>(directoryKey, (prev) =>
-        renameDirectoryChannel(prev, args.serverId, args.channelId, optimisticName),
-      )
-      return { serverSnapshot, directorySnapshot }
-    },
-    onSuccess: (data, args) => {
-      queryClient.setQueryData<ServerDetail>(communityKeys.server(args.serverId), (prev) =>
-        renameServerDetailChannel(prev, args.channelId, data.name),
-      )
-      queryClient.setQueryData<ChannelRefDirectory>(communityKeys.channelRefDirectory(), (prev) =>
-        renameDirectoryChannel(prev, args.serverId, args.channelId, data.name),
-      )
-    },
-    onError: (_err, args, ctx) => {
-      if (ctx?.serverSnapshot) {
-        queryClient.setQueryData(communityKeys.server(args.serverId), ctx.serverSnapshot)
+      origin.assert(original)
+      const token = beginCommunityCommandRevision(queryClient, original)
+      const persist = async () => {
+        try {
+          const result = await apiFetch<RenameChannelResult>(`/api/community/channels/${args.channelId}`, {
+            method: "PATCH",
+            body: JSON.stringify({ name: args.name }),
+            ...communityRequestOptions(queryClient, token, undefined, () => origin.assert(original)),
+          })
+          origin.assert(original)
+          publishCommunityChannelPatch(queryClient, args.channelId, (row) => ({ ...row, name: result.name }), { token, signal: undefined })
+          return result
+        } catch (error) {
+          origin.assert(original)
+          throw error
+        }
       }
-      if (ctx?.directorySnapshot) {
-        queryClient.setQueryData(communityKeys.channelRefDirectory(), ctx.directorySnapshot)
+      if (!registry!.collections.channels.has(args.channelId)) return persist()
+      let result: RenameChannelResult | undefined
+      const transaction = registry!.dbClient.createTransaction({ mutationFn: async () => { result = await persist() } })
+      transaction.mutate(() => registry!.collections.channels.update(args.channelId, (row) => { row.name = args.name.trim() }))
+      if (transaction.mutations.length === 0) return persist()
+      try {
+        await transaction.isPersisted.promise
+      } catch (error) {
+        origin.assert(original)
+        throw error
       }
+      return result!
     },
-    onSettled: (_data, _err, args) => {
-      void queryClient.invalidateQueries({
-        queryKey: communityKeys.server(args.serverId),
-        exact: true,
-      })
-      invalidateChannelRefDirectory(queryClient)
+    onSettled: (_data, error, args) => {
+      if (isAbortError(error) || !origin.registry?.runtime.lifecycle.get().active) return
+      void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true, predicate: (query) => args.resources.includes(query) })
+      invalidateChannelRefDirectory(queryClient, args)
     },
   })
 }
@@ -266,47 +192,35 @@ export function useRenameChannel() {
  * positions/category resettle from the server.
  */
 export function useMoveChannel() {
-  const queryClient = useQueryClient()
-  return useMutation<void, Error, MoveChannelArgs>({
-    mutationFn: async ({ channelId, categoryId }) => {
-      await apiFetch(`/api/community/channels/${channelId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ categoryId }),
-      })
-    },
-    onSuccess: (_data, args) => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
-      invalidateChannelRefDirectory(queryClient)
-    },
+  const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
+  return useCommunityCommandMutation<void, Error, MoveChannelArgs>(origin, {
+    scope: { id: "community-tree-commands" },
+    mutationFn: (args) => persistTreeChange(origin, queryClient, args, (db) => {
+      if (db.collections.channels.has(args.channelId)) db.collections.channels.update(args.channelId, (row) => { row.categoryId = args.categoryId })
+    }, async (proof, options) => {
+      await apiFetch(`/api/community/channels/${args.channelId}`, { method: "PATCH", body: JSON.stringify({ categoryId: args.categoryId }), ...options })
+      origin.assert(proof.token)
+      publishCommunityChannelFields(queryClient, args.channelId, { categoryId: args.categoryId }, proof)
+    }),
+    onSettled: (_data, error, args) => settleTree(origin, queryClient, args, error),
   })
 }
 
 export type DeleteChannelArgs = { serverId: string; channelId: string }
 
 export function useDeleteChannel() {
-  const queryClient = useQueryClient()
-  return useMutation<void, Error, DeleteChannelArgs>({
-    mutationFn: async ({ channelId }) => {
-      await apiFetch(`/api/community/channels/${channelId}`, { method: "DELETE" })
-    },
-    onSuccess: (_data, args) => {
-      getActiveAccountUnreadProjection(queryClient).retireAccessScope({
-        kind: "channel",
-        channelId: args.channelId,
-      })
-      if (args.serverId) {
-        runCommunityWsProjectionTransaction(queryClient, (projection) => {
-          projectChannelScopeEviction(
-            projection,
-            queryClient,
-            args.serverId,
-            args.channelId,
-          )
-        })
-        void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
-      }
-      invalidateChannelRefDirectory(queryClient)
-    },
+  const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
+  return useCommunityCommandMutation<void, Error, DeleteChannelArgs>(origin, {
+    scope: { id: "community-tree-commands" },
+    mutationFn: (args) => persistTreeChange(origin, queryClient, args, (db) => {
+      if (db.collections.channels.has(args.channelId)) db.collections.channels.delete(args.channelId)
+    }, async (proof, options) => {
+      await apiFetch(`/api/community/channels/${args.channelId}`, { method: "DELETE", ...options })
+      origin.assert(proof.token)
+      getActiveAccountUnreadProjection(queryClient).retireAccessScope({ kind: "channel", channelId: args.channelId })
+      runCommunityWsProjectionTransaction(queryClient, (projection) => projectChannelScopeEviction(projection, queryClient, args.serverId, args.channelId))
+    }),
+    onSettled: (_data, error, args) => settleTree(origin, queryClient, args, error),
   })
 }
 
@@ -317,68 +231,30 @@ export type CreateCategoryArgs = {
   name: string
   private?: boolean
 }
-export type CreateCategoryResult = { category: { id: string } }
+export type CreateCategoryResult = { category: { id: string; name?: string; position?: number; private?: boolean } }
 
 const tempCategoryId = () => `tmp_cat_${nanoid()}`
 
-type CreateCategoryCtx = { snapshot?: ServerDetail; tempId: string }
-
-/**
- * Optimistically appends a pending category so the sidebar shows it
- * immediately, then reconciles on settle — mirrors `useCreateChannel`.
- * `onSuccess` swaps the temp id for the real one; `onError` rolls back;
- * `onSettled` invalidates so the tree resettles to server truth.
- */
 export function useCreateCategory() {
-  const queryClient = useQueryClient()
-  return useMutation<CreateCategoryResult, Error, CreateCategoryArgs, CreateCategoryCtx>({
-    mutationFn: async ({ serverId, name, private: isPrivate }) => {
-      return apiFetch<CreateCategoryResult>(
-        `/api/community/servers/${serverId}/categories`,
-        { method: "POST", body: JSON.stringify({ name, private: isPrivate }) },
-      )
-    },
-    onMutate: async (args) => {
-      const key = communityKeys.server(args.serverId)
-      await queryClient.cancelQueries({ queryKey: key })
-      const snapshot = queryClient.getQueryData<ServerDetail>(key)
-      const tempId = tempCategoryId()
-      queryClient.setQueryData<ServerDetail>(key, (prev) => {
-        if (!prev) return prev
-        return {
-          ...prev,
-          categories: [
-            ...prev.categories,
-            {
-              id: tempId,
-              name: args.name.trim(),
-              private: args.private ? 1 : 0,
-              channels: [],
-              pending: true,
-            } as ServerDetail["categories"][number],
-          ],
-        }
-      })
-      return { snapshot, tempId }
-    },
-    onSuccess: (data, args, ctx) => {
-      queryClient.setQueryData<ServerDetail>(communityKeys.server(args.serverId), (prev) => {
-        if (!prev) return prev
-        return {
-          ...prev,
-          categories: prev.categories.map((c) =>
-            c.id === ctx.tempId ? { ...c, id: data.category.id, pending: false } : c,
-          ),
-        }
+  const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
+  return useCommunityCommandMutation<CreateCategoryResult, Error, CreateCategoryArgs>(origin, {
+    scope: { id: "community-tree-commands" },
+    mutationFn: async (args) => {
+      const id = tempCategoryId()
+      let pending!: CategoryRow
+      return persistTreeChange(origin, queryClient, args, (db) => {
+        const rows = [...db.collections.categories.values()].filter((row) => row.serverId === args.serverId)
+        const position = Math.max(-1, ...rows.map((row) => row.position)) + 1
+        pending = { id, serverId: args.serverId, name: args.name.trim(), position, private: args.private === true, creatorId: db.accountId, pending: true }
+        db.collections.categories.insert(pending)
+      }, async (proof, options) => {
+        const result = await apiFetch<CreateCategoryResult>(`/api/community/servers/${args.serverId}/categories`, { method: "POST", body: JSON.stringify({ name: args.name, private: args.private }), ...options })
+        origin.assert(proof.token)
+        publishCommunityCreatedCategory(queryClient, { ...pending, id: result.category.id, name: result.category.name ?? pending.name, position: result.category.position ?? pending.position, private: result.category.private ?? pending.private, pending: false }, proof)
+        return result
       })
     },
-    onError: (_err, args, ctx) => {
-      if (ctx?.snapshot) queryClient.setQueryData(communityKeys.server(args.serverId), ctx.snapshot)
-    },
-    onSettled: (_data, _err, args) => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
-      invalidateChannelRefDirectory(queryClient)
-    },
+    onSettled: (_data, error, args) => settleTree(origin, queryClient, args, error),
   })
 }
 
@@ -390,91 +266,67 @@ export type UpdateCategoryArgs = {
 }
 
 export function useUpdateCategory() {
-  const queryClient = useQueryClient()
-  return useMutation<void, Error, UpdateCategoryArgs>({
-    mutationFn: async ({ serverId, categoryId, name }) => {
-      await apiFetch(`/api/community/servers/${serverId}/categories/${categoryId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ name }),
-      })
-    },
-    onSuccess: (_data, args) => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
-      invalidateChannelRefDirectory(queryClient)
-    },
+  const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
+  return useCommunityCommandMutation<void, Error, UpdateCategoryArgs>(origin, {
+    scope: { id: "community-tree-commands" },
+    mutationFn: (args) => persistTreeChange(origin, queryClient, args, (db) => {
+      if (args.name !== undefined && db.collections.categories.has(args.categoryId)) db.collections.categories.update(args.categoryId, (row) => { row.name = args.name!.trim() })
+    }, async (proof, options) => {
+      const result = await apiFetch<{ name?: string }>(`/api/community/servers/${args.serverId}/categories/${args.categoryId}`, { method: "PATCH", body: JSON.stringify({ name: args.name }), ...options })
+      origin.assert(proof.token)
+      if (args.name !== undefined) publishCommunityCategoryFields(queryClient, args.categoryId, { name: result?.name ?? args.name.trim() }, proof)
+    }),
+    onSettled: (_data, error, args) => settleTree(origin, queryClient, args, error),
   })
 }
 
 export type DeleteCategoryArgs = { serverId: string; categoryId: string }
 
-/**
- * Optimistically drops the category from the cache, then reconciles on settle.
- * Rollback on error is essential here: the server rejects deleting a non-empty
- * category (409 "Move or delete its channels first"), and without a rollback
- * the still-existing category would vanish from the sidebar until an unrelated
- * refetch. The tree is cache-derived, so the cache removal IS the optimistic UI
- * — the sidebar no longer mutates local tree state for a delete.
- */
 export function useDeleteCategory() {
-  const queryClient = useQueryClient()
-  return useMutation<void, Error, DeleteCategoryArgs, { snapshot?: ServerDetail }>({
-    mutationFn: async ({ serverId, categoryId }) => {
-      await apiFetch(`/api/community/servers/${serverId}/categories/${categoryId}`, {
-        method: "DELETE",
-      })
-    },
-    onMutate: async (args) => {
-      const key = communityKeys.server(args.serverId)
-      await queryClient.cancelQueries({ queryKey: key })
-      const snapshot = queryClient.getQueryData<ServerDetail>(key)
-      queryClient.setQueryData<ServerDetail>(key, (prev) => {
-        if (!prev) return prev
-        return { ...prev, categories: prev.categories.filter((c) => c.id !== args.categoryId) }
-      })
-      return { snapshot }
-    },
-    onError: (_err, args, ctx) => {
-      if (ctx?.snapshot) queryClient.setQueryData(communityKeys.server(args.serverId), ctx.snapshot)
-    },
-    onSettled: (_data, _err, args) => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
-      invalidateChannelRefDirectory(queryClient)
-    },
+  const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
+  return useCommunityCommandMutation<void, Error, DeleteCategoryArgs>(origin, {
+    scope: { id: "community-tree-commands" },
+    mutationFn: (args) => persistTreeChange(origin, queryClient, args, (db) => {
+      if (db.collections.categories.has(args.categoryId)) db.collections.categories.delete(args.categoryId)
+    }, async (proof, options) => {
+      await apiFetch(`/api/community/servers/${args.serverId}/categories/${args.categoryId}`, { method: "DELETE", ...options })
+      origin.assert(proof.token)
+      publishCommunityDeletedCategory(queryClient, args.categoryId, proof)
+    }),
+    onSettled: (_data, error, args) => settleTree(origin, queryClient, args, error),
   })
 }
 
 export type ReorderCategoriesArgs = { serverId: string; categoryIds: string[] }
 
 export function useReorderCategories() {
-  const queryClient = useQueryClient()
-  return useMutation<void, Error, ReorderCategoriesArgs>({
-    mutationFn: async ({ serverId, categoryIds }) => {
-      await apiFetch(`/api/community/servers/${serverId}/categories/reorder`, {
-        method: "PATCH",
-        body: JSON.stringify({ categoryIds }),
-      })
-    },
-    onSuccess: (_data, args) => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
-      invalidateChannelRefDirectory(queryClient)
-    },
+  const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
+  return useCommunityCommandMutation<void, Error, ReorderCategoriesArgs>(origin, {
+    scope: { id: "community-tree-commands" },
+    mutationFn: (args) => persistTreeChange(origin, queryClient, args, (db) => {
+      args.categoryIds.forEach((id, position) => { if (db.collections.categories.get(id)?.serverId === args.serverId) db.collections.categories.update(id, (row) => { row.position = position }) })
+    }, async (proof, options) => {
+      await apiFetch(`/api/community/servers/${args.serverId}/categories/reorder`, { method: "PATCH", body: JSON.stringify({ categoryIds: args.categoryIds }), ...options })
+      origin.assert(proof.token)
+      args.categoryIds.forEach((id, position) => publishCommunityCategoryFields(queryClient, id, { position }, proof))
+    }),
+    onSettled: (_data, error, args) => settleTree(origin, queryClient, args, error),
   })
 }
 
 export type ReorderChannelsArgs = { serverId: string; channelIds: string[] }
 
 export function useReorderChannels() {
-  const queryClient = useQueryClient()
-  return useMutation<void, Error, ReorderChannelsArgs>({
-    mutationFn: async ({ serverId, channelIds }) => {
-      await apiFetch(`/api/community/servers/${serverId}/channels/reorder`, {
-        method: "PATCH",
-        body: JSON.stringify({ channelIds }),
-      })
-    },
-    onSuccess: (_data, args) => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
-      invalidateChannelRefDirectory(queryClient)
-    },
+  const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
+  return useCommunityCommandMutation<void, Error, ReorderChannelsArgs>(origin, {
+    scope: { id: "community-tree-commands" },
+    mutationFn: (args) => persistTreeChange(origin, queryClient, args, (db) => {
+      args.channelIds.forEach((id, position) => { if (db.collections.channels.get(id)?.serverId === args.serverId) db.collections.channels.update(id, (row) => { row.position = position }) })
+    }, async (proof, options) => {
+      await apiFetch(`/api/community/servers/${args.serverId}/channels/reorder`, { method: "PATCH", body: JSON.stringify({ channelIds: args.channelIds }), ...options })
+      origin.assert(proof.token)
+      args.channelIds.forEach((id, position) => publishCommunityChannelFields(queryClient, id, { position }, proof))
+    }),
+    onSettled: (_data, error, args) => settleTree(origin, queryClient, args, error),
   })
 }

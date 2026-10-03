@@ -16,6 +16,8 @@ import {
 } from "@/components/ui/dialog"
 import { tid } from "@/lib/community/testids"
 import { avatarInitial } from "@/lib/community/avatar"
+import { useCanonicalCommunityProfile, useCanonicalCommunityServer } from "@/lib/community-db/projections"
+import { readCommunityProfile } from "@/lib/community/profile-read"
 import {
   ONBOARDING_INITIALIZATION_LABEL,
   ONBOARDING_INITIALIZATION_STEPS,
@@ -39,6 +41,8 @@ export function OnboardingStatusDialog({
   onContinue: () => void
 }) {
   const currentStepIndex = ONBOARDING_INITIALIZATION_STEPS.indexOf(currentStep)
+  const server = useCanonicalCommunityServer(checkpoint.serverId)
+  const serverName = server?.name ?? checkpoint.requestedServerName ?? "Your server"
   const visibleSteps = ONBOARDING_INITIALIZATION_STEPS.slice(
     0,
     status === "success" ? ONBOARDING_INITIALIZATION_STEPS.length : currentStepIndex + 1,
@@ -125,13 +129,9 @@ export function OnboardingStatusDialog({
                     {isComplete && step === "creating-bots" && checkpoint.bots?.length ? (
                       <span className="flex shrink-0 -space-x-1" aria-label="Bots created">
                         {checkpoint.bots.map((bot) => (
-                          <ProfileAvatar
+                          <OnboardingBotAvatar
                             key={bot.id}
-                            label={bot.name}
-                            seed={bot.id}
-                            src={bot.image}
-                            size={20}
-                            className="ring-2 ring-popover"
+                            id={bot.id}
                           />
                         ))}
                       </span>
@@ -140,8 +140,8 @@ export function OnboardingStatusDialog({
                       <span className="shrink-0" aria-label="Server created">
                         <ServerIcon
                           id={checkpoint.serverId}
-                          name={checkpoint.serverName ?? "Your server"}
-                          initial={avatarInitial(checkpoint.serverName ?? "Your server")}
+                          name={serverName}
+                          initial={avatarInitial(serverName)}
                           size={20}
                           className="rounded-md"
                         />
@@ -176,4 +176,9 @@ export function OnboardingStatusDialog({
       </DialogContent>
     </Dialog>
   )
+}
+
+function OnboardingBotAvatar({ id }: { id: string }) {
+  const profile = readCommunityProfile(useCanonicalCommunityProfile(id), id)
+  return <ProfileAvatar label={profile.name} seed={id} src={profile.avatar} size={20} className="ring-2 ring-popover" />
 }

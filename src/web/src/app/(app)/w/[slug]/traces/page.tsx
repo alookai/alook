@@ -1,12 +1,15 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useCallback, useRef } from "react";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { useAgentContext } from "@/contexts/agent-context";
+import { useWorkspaceViewSource } from "@/hooks/workspace/use-workspace-view-source";
+import { workspaceTracesOptions } from "@/hooks/workspace/trace-query-options";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { useWorkspace } from "@/contexts/workspace-context";
+import { useWorkspaceOwner } from "@/contexts/workspace-context";
 import { useChannel } from "@/contexts/channel-context";
-import { listTraces, listAgents, type TraceListItem } from "@/lib/api";
-import type { Agent } from "@alook/shared";
+import type { TraceListItem } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
@@ -19,8 +22,6 @@ import { GitBranch, RefreshCw } from "lucide-react";
 import { AgentAvatar } from "@/components/avatar";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-
-const TRACE_LIMIT = 30;
 
 const STATUS_OPTIONS = [
   { label: "All", value: "all" },
@@ -150,97 +151,34 @@ function SkeletonRow({ promptWidth }: { promptWidth: string }) {
 export default function TracesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { slug, workspaceId } = useWorkspace();
+  const owner = useWorkspaceOwner();
+  const { slug } = owner;
   const { channels } = useChannel();
-
-  const [traces, setTraces] = useState<TraceListItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [hasMore, setHasMore] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [agents, setAgents] = useState<Agent[]>([]);
-
+  const { agents } = useAgentContext();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const isFetchingRef = useRef(false);
-
   const statusFilter = searchParams.get("status") ?? "active";
   const agentFilter = searchParams.get("agentId") ?? "";
   const channelFilter = searchParams.get("channel") ?? "";
-
-  useEffect(() => {
-    listAgents(workspaceId).then(setAgents).catch(() => {});
-  }, [workspaceId]);
-
-  const loadInitial = useCallback(async () => {
-    setLoading(true);
-    try {
-      const result = await listTraces(workspaceId, {
-        limit: TRACE_LIMIT,
-        status: statusFilter === "all" ? undefined : statusFilter || undefined,
-        multiAgent: true,
-        agentId: agentFilter || undefined,
-        channel: channelFilter || undefined,
-      });
-      const seen = new Set<string>();
-      const deduped = result.traces.filter((t) => {
-        if (seen.has(t.trace_id)) return false;
-        seen.add(t.trace_id);
-        return true;
-      });
-      setTraces(deduped);
-      setHasMore(result.has_more);
-    } catch {
-      // silently fail
-    } finally {
-      setLoading(false);
-    }
-  }, [workspaceId, statusFilter, agentFilter, channelFilter]);
-
-  useEffect(() => {
-    loadInitial();
-  }, [loadInitial]);
-
-  const loadOlderTraces = useCallback(async () => {
-    if (isFetchingRef.current || !hasMore || traces.length === 0) return;
-    isFetchingRef.current = true;
-    setLoadingMore(true);
-    try {
-      const oldest = traces[traces.length - 1];
-      const result = await listTraces(workspaceId, {
-        limit: TRACE_LIMIT,
-        before: oldest.started_at,
-        status: statusFilter === "all" ? undefined : statusFilter || undefined,
-        multiAgent: true,
-        agentId: agentFilter || undefined,
-        channel: channelFilter || undefined,
-      });
-      if (result.traces.length === 0) {
-        setHasMore(false);
-        return;
-      }
-      setHasMore(result.has_more);
-      setTraces((prev) => {
-        const existingIds = new Set(prev.map((t) => t.trace_id));
-        const unique = result.traces.filter((t) => {
-          if (existingIds.has(t.trace_id)) return false;
-          existingIds.add(t.trace_id);
-          return true;
-        });
-        return [...prev, ...unique];
-      });
-    } finally {
-      isFetchingRef.current = false;
-      setLoadingMore(false);
-    }
-  }, [workspaceId, traces, hasMore, statusFilter, agentFilter, channelFilter]);
-
-  const handleScroll = useCallback(() => {
+  const source = useWorkspaceViewSource(owner, JSON.stringify([statusFilter, agentFilter, channelFilter]), true);
+  const resource = useInfiniteQuery(workspaceTracesOptions(owner, { status: statusFilter, agentId: agentFilter, channel: channelFilter }));
+  const seen = new Set<string>();
+  const traces = (resource.data?.pages ?? []).flatMap((page) => page.traces).filter((trace) => {
+    if (seen.has(trace.trace_id)) return false;
+    seen.add(trace.trace_id); return true;
+  });
+  const loading = resource.isPending;
+  const hasMore = resource.hasNextPage;
+  const loadingMore = resource.isFetchingNextPage;
+  const loadInitial = async () => {
+    try { source.assertActive(); await resource.refetch(); } catch {}
+  };
+  const loadOlderTraces = async () => {
+    try { source.assertActive(); await resource.fetchNextPage({ cancelRefetch: false }); } catch {}
+  };
+  const handleScroll = () => {
     const el = scrollRef.current;
-    if (!el) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
-    if (!loadingMore && hasMore && nearBottom) {
-      loadOlderTraces();
-    }
-  }, [loadOlderTraces, loadingMore, hasMore]);
+    if (el && !loadingMore && hasMore && el.scrollHeight - el.scrollTop - el.clientHeight < 200) void loadOlderTraces();
+  };
 
   const updateFilter = useCallback(
     (key: string, value: string) => {

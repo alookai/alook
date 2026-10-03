@@ -1,8 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useWorkspaceOwner, captureWorkspaceOwner } from "@/contexts/workspace-context";
+import { useWorkspaceViewSource } from "@/hooks/workspace/use-workspace-view-source";
+import { minCliVersionOptions } from "@/hooks/workspace/settings-query-options";
+import { useRuntimeCommand, usePendingRuntimeCommands } from "@/hooks/workspace/use-runtime-command";
 import { useAgentContext } from "@/contexts/agent-context";
-import { getMinCliVersion, triggerRuntimeUpdate } from "@/lib/api";
 import { semverGte } from "@alook/shared";
 import { getAppMode, updateCmd } from "@/lib/utils";
 import {
@@ -20,18 +25,17 @@ import { toast } from "sonner";
 import type { AgentRuntime } from "@alook/shared";
 
 export function RuntimeVersionGate() {
-  const { runtimes, workspaceId } = useAgentContext();
-  const [minVersion, setMinVersion] = useState<string | null>(null);
-  const [updating, setUpdating] = useState<Set<string>>(new Set());
-  const [showManualHint, setShowManualHint] = useState(false);
+  const { runtimes } = useAgentContext();
+  const owner = useWorkspaceOwner();
+  const source = useWorkspaceViewSource(owner, "runtime-version-gate", true);
+  const minVersion = useQuery(minCliVersionOptions(owner)).data?.min_cli_version;
+  const command = useRuntimeCommand(owner);
+  const pending = usePendingRuntimeCommands(owner);
+  const [showManualHint, setShowManualHint] = useAtom(useCreateAtom(false));
   const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const mode = getAppMode();
   const MANUAL_UPDATE_CMD = updateCmd();
-
-  useEffect(() => {
-    getMinCliVersion().then((res) => setMinVersion(res.min_cli_version)).catch(() => {});
-  }, []);
 
   useEffect(() => {
     return () => {
@@ -63,21 +67,18 @@ export function RuntimeVersionGate() {
       setShowManualHint(true);
       return;
     }
-    setUpdating((prev) => new Set(prev).add(rt.id));
+    const assertView = source.assertActive;
     if (!hintTimer.current) {
       hintTimer.current = setTimeout(() => {
+        hintTimer.current = null;
+        try { assertView(); } catch { return; }
         setShowManualHint(true);
       }, 5000);
     }
     try {
-      await triggerRuntimeUpdate(rt.id, workspaceId);
-    } catch {
-      setUpdating((prev) => {
-        const next = new Set(prev);
-        next.delete(rt.id);
-        return next;
-      });
-    }
+      await command.mutateAsync({ kind: "update", id: rt.id, token: captureWorkspaceOwner(owner) });
+      assertView();
+    } catch { }
   };
 
   return (
@@ -103,7 +104,7 @@ export function RuntimeVersionGate() {
         <div className="space-y-3 mt-2">
           {[...outdatedMachines.entries()].map(([daemonId, rt]) => {
             const cliVersion = rt.metadata?.cli_version as string | undefined;
-            const isUpdating = updating.has(rt.id);
+            const isUpdating = !!rt.pending_update_version || pending.some((intent) => intent.id === rt.id && intent.kind === "update");
 
             return (
               <div

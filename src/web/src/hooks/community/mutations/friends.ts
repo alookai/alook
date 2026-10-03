@@ -1,294 +1,79 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { apiFetch } from "@/lib/api/client"
+import { useQueryClient } from "@tanstack/react-query"
+import { useCommunityCommandMutation } from "../use-community-command-mutation"
+import { beginCommunityCommandRevision, captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
+import { reconcileAccountAttention } from "../use-account-attention"
+import { useCommunityMutationOrigin } from "../community-origin"
 import { communityKeys } from "@/lib/query-keys"
-import type { FriendsResponse } from "@/hooks/community/use-friends"
-import type { PendingRequest } from "@/lib/community/models/people"
-import {
-  getFriendRequestActionController,
-  type FriendRequestAction,
-} from "@/hooks/community/use-friend-request-action-state"
-import { getCommunityDbRegistry } from "@/lib/community-db/collections"
-import {
-  commitAttentionItemsOptimisticSnapshot,
-  removeAttentionItemsOptimistically,
-  restoreAttentionItemsOptimisticSnapshot,
-  type AttentionItemsOptimisticSnapshot,
-} from "@/lib/community-db/sync"
-import { reconcileAccountAttention } from "@/hooks/community/use-account-attention"
-
-/**
- * Friend-scoped mutations. All six live on one query key
- * (`communityKeys.friends()`), so success handlers just invalidate that key
- * — server WS `community:friend.*` also invalidates it, but the same-tab UX
- * still needs the mutating tab to react before the WS round-trip.
- *
- * Optimistic paths are limited to the three that visibly disappear from the
- * pending list (accept/reject) or list (remove/block/unblock). Send-request
- * doesn't get an optimistic outgoing entry because the response includes the
- * canonical id we'd need to reconcile.
- */
-
-// ── Send friend request ────────────────────────────────────────────────────
+import { publishCommunityFriendBlock, publishCommunityFriendDecision, removeSettledCommunityFriendCommands } from "@/lib/community-db/sync"
+import { isAbortError } from "@/lib/errors"
 
 export type SendFriendRequestArgs = { username?: string; userId?: string }
-
-export function useSendFriendRequest() {
-  const queryClient = useQueryClient()
-  return useMutation<void, Error, SendFriendRequestArgs>({
-    mutationFn: async ({ username, userId }) => {
-      await apiFetch("/api/community/friends/request", {
-        method: "POST",
-        body: JSON.stringify({ userId, username }),
-      })
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.friends() })
-    },
-  })
-}
-
-// ── Accept / reject ────────────────────────────────────────────────────────
-
 export type FriendActionArgs = { friendshipId: string }
-
-type CapturedRow<T> = { row: T; index: number }
-type FriendRequestMutationContext = {
-  friends?: CapturedRow<PendingRequest>
-  generation: number
-  attention?: AttentionItemsOptimisticSnapshot
-}
-
-function captureRow<T extends { id: string }>(
-  rows: readonly T[],
-  id: string,
-): CapturedRow<T> | undefined {
-  const index = rows.findIndex((row) => row.id === id)
-  return index < 0 ? undefined : { row: rows[index]!, index }
-}
-
-function reinsertRow<T extends { id: string }>(
-  rows: readonly T[],
-  captured: CapturedRow<T> | undefined,
-): T[] {
-  if (!captured || rows.some((row) => row.id === captured.row.id)) return [...rows]
-  const next = [...rows]
-  next.splice(Math.min(captured.index, next.length), 0, captured.row)
-  return next
-}
-
-function useFriendRequestMutation(
-  action: FriendRequestAction,
-  buildFetch: (id: string) => Promise<unknown>,
-) {
-  const queryClient = useQueryClient()
-  const controller = getFriendRequestActionController(queryClient)
-  return useMutation<void, Error, FriendActionArgs, FriendRequestMutationContext>({
-    mutationFn: async ({ friendshipId }) => {
-      await buildFetch(friendshipId)
-    },
-    onMutate: async ({ friendshipId }) => {
-      const generation = controller.claimMutation(friendshipId, action)
-      const friendsKey = communityKeys.friends()
-      await queryClient.cancelQueries({ queryKey: friendsKey, exact: true })
-      const friends = queryClient.getQueryData<FriendsResponse>(friendsKey)
-      const context = {
-        friends: captureRow(friends?.pending ?? [], friendshipId),
-        generation,
-        attention: (() => {
-          const registry = getCommunityDbRegistry(queryClient)
-          return registry
-            ? removeAttentionItemsOptimistically(
-                registry,
-                (item) => item.kind === "friend_request" && item.sourceId === friendshipId,
-              )
-            : undefined
-        })(),
-      }
-      queryClient.setQueryData<FriendsResponse | undefined>(friendsKey, (current) =>
-        current
-          ? { ...current, pending: current.pending.filter((row) => row.id !== friendshipId) }
-          : current,
-      )
-      return context
-    },
-    onSuccess: async (_data, { friendshipId }, context) => {
-      if (!context) return
-      const registry = getCommunityDbRegistry(queryClient)
-      if (registry && context.attention) {
-        commitAttentionItemsOptimisticSnapshot(registry, context.attention)
-        void reconcileAccountAttention(registry).catch(() => undefined)
-      }
-      await controller.publishTerminalAndFence(friendshipId, context.generation)
-    },
-    onError: (_error, { friendshipId }, context) => {
-      if (!context) return
-      const registry = getCommunityDbRegistry(queryClient)
-      if (!controller.isCompensatable(friendshipId, context.generation)) {
-        if (registry && context.attention) {
-          commitAttentionItemsOptimisticSnapshot(registry, context.attention)
-        }
-        return
-      }
-      if (registry && context.attention) {
-        if (!restoreAttentionItemsOptimisticSnapshot(registry, context.attention)) {
-          void reconcileAccountAttention(registry).catch(() => undefined)
-        }
-      }
-      queryClient.setQueryData<FriendsResponse | undefined>(communityKeys.friends(), (current) =>
-        current
-          ? { ...current, pending: reinsertRow(current.pending, context?.friends) }
-          : current,
-      )
-      controller.publishError(friendshipId, context.generation)
-    },
-    onSettled: async (_data, _error, { friendshipId }, context) => {
-      try {
-        await queryClient.invalidateQueries({ queryKey: communityKeys.friends(), exact: true })
-      } finally {
-        if (context) controller.settleGeneration(friendshipId, context.generation)
-      }
-    },
-  })
-}
-
-export function useAcceptFriendRequest() {
-  return useFriendRequestMutation(
-    "accept",
-    (id) => apiFetch(`/api/community/friends/${id}/accept`, { method: "POST" }),
-  )
-}
-
-export function useRejectFriendRequest() {
-  return useFriendRequestMutation(
-    "reject",
-    (id) => apiFetch(`/api/community/friends/${id}/reject`, { method: "POST" }),
-  )
-}
-
-// ── Remove friend ──────────────────────────────────────────────────────────
-
-export function useRemoveFriend() {
-  const queryClient = useQueryClient()
-  return useMutation<void, Error, FriendActionArgs, { snapshot: FriendsResponse | undefined }>({
-    mutationFn: async ({ friendshipId }) => {
-      await apiFetch(`/api/community/friends/${friendshipId}`, { method: "DELETE" })
-    },
-    onMutate: async ({ friendshipId }) => {
-      const key = communityKeys.friends()
-      await queryClient.cancelQueries({ queryKey: key })
-      const snapshot = queryClient.getQueryData<FriendsResponse>(key)
-      queryClient.setQueryData<FriendsResponse | undefined>(key, (current) =>
-        current
-          ? { ...current, friends: current.friends.filter((friend) => friend.id !== friendshipId) }
-          : current,
-      )
-      return { snapshot }
-    },
-    onError: (_error, _args, context) => {
-      if (context?.snapshot) queryClient.setQueryData(communityKeys.friends(), context.snapshot)
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.friends() })
-    },
-  })
-}
-
-// ── Cancel outgoing pending (unified) ──────────────────────────────────────
-//
-// After the friendship-unification migration (0065) bot friend-requests are
-// real community_friendship rows, so cancelling one is the same DELETE the
-// requester (or the bot's owner) uses for any pending outgoing row.
-
 export type CancelBotFriendRequestArgs = { requestId: string }
-
-export function useCancelBotFriendRequest() {
-  const queryClient = useQueryClient()
-  return useMutation<void, Error, CancelBotFriendRequestArgs, { snapshot: FriendsResponse | undefined }>({
-    mutationFn: async ({ requestId }) => {
-      await apiFetch(`/api/community/friends/${requestId}`, { method: "DELETE" })
-    },
-    onMutate: async ({ requestId }) => {
-      const key = communityKeys.friends()
-      await queryClient.cancelQueries({ queryKey: key })
-      const snapshot = queryClient.getQueryData<FriendsResponse>(key)
-      queryClient.setQueryData<FriendsResponse | undefined>(key, (prev) =>
-        prev ? { ...prev, pending: prev.pending.filter((p) => p.id !== requestId) } : prev,
-      )
-      return { snapshot }
-    },
-    onError: (_err, _args, ctx) => {
-      if (ctx?.snapshot) queryClient.setQueryData(communityKeys.friends(), ctx.snapshot)
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.friends() })
-    },
-  })
-}
-
-// ── Owner decision (approve / deny a gated friend row from a DM card) ────────
-
 export type OwnerDecisionArgs = { friendshipId: string; decision: "approve" | "deny" }
-
-export function useOwnerDecision() {
-  const queryClient = useQueryClient()
-  return useMutation<void, Error, OwnerDecisionArgs>({
-    mutationFn: async ({ friendshipId, decision }) => {
-      await apiFetch(`/api/community/friends/${friendshipId}/owner-decision`, {
-        method: "POST",
-        body: JSON.stringify({ decision }),
-      })
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.friends() })
-    },
-  })
-}
-
-// ── Block / unblock ────────────────────────────────────────────────────────
-
 export type BlockUserArgs = { userId: string }
+type Command = { path: string; method: "POST" | "DELETE"; body?: string; friendshipId?: string; decision?: "accept" | "reject" | "remove"; userId?: string; blocked?: boolean; removeOptimistically?: boolean }
 
-export function useBlockUser() {
-  const queryClient = useQueryClient()
-  return useMutation<void, Error, BlockUserArgs>({
-    mutationFn: async ({ userId }) => {
-      await apiFetch(`/api/community/users/${userId}/block`, { method: "POST" })
+function useFriendCommand<Args extends object>(action: string, build: (args: Args) => Command) {
+  const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
+  return useCommunityCommandMutation<void, Error, Args>(origin, {
+    mutationKey: action === "accept" || action === "reject" ? ["community", "friend-request", action] : ["community", "friends", action],
+    gcTime: action === "accept" || action === "reject" ? Infinity : 0,
+    onMutate: (args) => {
+      origin.assert(args.original)
+      const id = build(args).friendshipId
+      if (id) removeSettledCommunityFriendCommands(queryClient, [id])
     },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.friends() })
+    mutationFn: async (args) => {
+      const command = build(args), original = args.original, registry = origin.registry
+      origin.assert(original)
+      await registry?.ready
+      origin.assert(original)
+      await Promise.all([registry!.collections.friendships.preload(), registry!.collections.attentionItems.preload()])
+      await Promise.all([queryClient.cancelQueries({ queryKey: communityKeys.friends(), exact: true, predicate: (query) => args.resources.includes(query) }), queryClient.cancelQueries({ queryKey: communityKeys.accountAttention(), exact: true, predicate: (query) => args.resources.includes(query) })])
+      origin.assert(original)
+      const token = beginCommunityCommandRevision(queryClient, original)
+      const persist = async () => {
+        await origin.request(token, command.path, { method: command.method, ...(command.body ? { body: command.body } : {}) })
+        if (command.friendshipId && command.decision) publishCommunityFriendDecision(queryClient, command.friendshipId, command.decision, { token })
+        if (command.userId && command.blocked !== undefined) publishCommunityFriendBlock(queryClient, command.userId, command.blocked, { token })
+      }
+      const transaction = registry!.dbClient.createTransaction({ autoCommit: false, mutationFn: persist })
+      transaction.mutate(() => {
+        const removeIds = Array.from(registry!.collections.friendships.values()).filter((row) => command.userId ? row.userId === command.userId && (command.blocked === true || row.kind === "blocked") : command.removeOptimistically && row.id === command.friendshipId).map((row) => row.id)
+        if (removeIds.length) registry!.collections.friendships.delete(removeIds)
+        const attentionIds = Array.from(registry!.collections.attentionItems.values()).filter((row) => row.kind === "friend_request" && (command.userId ? command.blocked === true && row.actorUserId === command.userId : command.removeOptimistically && row.sourceId === command.friendshipId)).map((row) => row.id)
+        if (attentionIds.length) registry!.collections.attentionItems.delete(attentionIds)
+      })
+      try { if (transaction.mutations.length) await transaction.commit(); else await persist() } catch (error) { origin.assert(original); throw error }
+      origin.assert(original)
+    },
+    onSuccess: (_data, args) => {
+      if (action === "accept" || action === "reject") void reconcileAccountAttention(origin.registry!).catch(() => undefined)
+      else void queryClient.invalidateQueries({ queryKey: communityKeys.accountAttention(), exact: true, predicate: (query) => args.resources.includes(query) }, { cancelRefetch: false }).catch(() => undefined)
+    },
+    onError: (_error, args) => {
+      if ((action === "accept" || action === "reject") && captureCommunityLiveSnapshotToken(queryClient).canonicalRevision > args.original.canonicalRevision) void reconcileAccountAttention(origin.registry!).catch(() => undefined)
+    },
+    onSettled: async (_data, error, args) => {
+      await queryClient.invalidateQueries({ queryKey: communityKeys.friends(), exact: true, predicate: (query) => args.resources.includes(query) }, { cancelRefetch: false })
+      origin.assert(args.original)
+      const id = build(args).friendshipId
+      const row = id ? origin.registry!.collections.friendships.get(id) : undefined
+      if (!error || isAbortError(error) || (row?.kind !== "incoming" && row?.kind !== "outgoing")) {
+        for (const mutation of queryClient.getMutationCache().findAll({ mutationKey: ["community", "friend-request"], predicate: (entry) => entry.state.variables === args })) queryClient.getMutationCache().remove(mutation)
+      }
     },
   })
 }
 
-export function useUnblockUser() {
-  const queryClient = useQueryClient()
-  return useMutation<void, Error, BlockUserArgs, { snapshot: FriendsResponse | undefined }>({
-    mutationFn: async ({ userId }) => {
-      await apiFetch(`/api/community/users/${userId}/unblock`, { method: "POST" })
-    },
-    onMutate: async (args) => {
-      const key = communityKeys.friends()
-      await queryClient.cancelQueries({ queryKey: key })
-      const snapshot = queryClient.getQueryData<FriendsResponse>(key)
-      queryClient.setQueryData<FriendsResponse | undefined>(key, (prev) =>
-        prev
-          ? {
-              ...prev,
-              blocked: prev.blocked.filter(
-                (b) => (b.userId ?? b.id) !== args.userId,
-              ),
-            }
-          : prev,
-      )
-      return { snapshot }
-    },
-    onError: (_err, _args, ctx) => {
-      if (ctx?.snapshot) queryClient.setQueryData(communityKeys.friends(), ctx.snapshot)
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: communityKeys.friends() })
-    },
-  })
-}
+export function useSendFriendRequest() { return useFriendCommand<SendFriendRequestArgs>("send", ({ username, userId }) => ({ path: "/api/community/friends/request", method: "POST", body: JSON.stringify({ username, userId }) })) }
+export function useAcceptFriendRequest() { return useFriendCommand<FriendActionArgs>("accept", ({ friendshipId }) => ({ path: `/api/community/friends/${friendshipId}/accept`, method: "POST", friendshipId, decision: "accept" })) }
+export function useRejectFriendRequest() { return useFriendCommand<FriendActionArgs>("reject", ({ friendshipId }) => ({ path: `/api/community/friends/${friendshipId}/reject`, method: "POST", friendshipId, decision: "reject" })) }
+export function useRemoveFriend() { return useFriendCommand<FriendActionArgs>("remove", ({ friendshipId }) => ({ path: `/api/community/friends/${friendshipId}`, method: "DELETE", friendshipId, decision: "remove", removeOptimistically: true })) }
+export function useCancelBotFriendRequest() { return useFriendCommand<CancelBotFriendRequestArgs>("cancel", ({ requestId }) => ({ path: `/api/community/friends/${requestId}`, method: "DELETE", friendshipId: requestId, decision: "remove", removeOptimistically: true })) }
+export function useOwnerDecision() { return useFriendCommand<OwnerDecisionArgs>("owner-decision", ({ friendshipId, decision }) => ({ path: `/api/community/friends/${friendshipId}/owner-decision`, method: "POST", body: JSON.stringify({ decision }), friendshipId, ...(decision === "deny" ? { decision: "reject" as const } : {}) })) }
+export function useBlockUser() { return useFriendCommand<BlockUserArgs>("block", ({ userId }) => ({ path: `/api/community/users/${userId}/block`, method: "POST", userId, blocked: true })) }
+export function useUnblockUser() { return useFriendCommand<BlockUserArgs>("unblock", ({ userId }) => ({ path: `/api/community/users/${userId}/unblock`, method: "POST", userId, blocked: false })) }

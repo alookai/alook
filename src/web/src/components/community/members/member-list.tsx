@@ -1,6 +1,9 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { createStore, useSelector } from "@tanstack/react-store"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
+import { useCallback, useEffect, useMemo, useRef } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { Shield, UserMinus, Check, Search, UserPlus, LogOut } from "lucide-react"
 import {
@@ -16,7 +19,7 @@ import { hasStatus } from "../social/status-presets"
 import { tid } from "@/lib/community/testids"
 import type { Member } from "@/lib/community/models/people"
 import type { OpenProfile } from "@/components/community/social/profile-types"
-import type { MemberManageContext } from "@/components/community/members/member-management-types"
+import type { MemberManageContext, MemberOriginalView } from "@/components/community/members/member-management-types"
 import {
   canManageServer,
   isPresenceOffline,
@@ -28,7 +31,7 @@ import {
 import { MemberIdentityRow } from "./member-identity-row"
 
 // The Leave/Remove confirm flow the row menu opens (private channel/post/thread).
-type ManageConfirm = { kind: "leave" | "remove"; member: Member }
+type ManageConfirm = { kind: "leave" | "remove"; memberId: string }
 
 const SETTABLE_ROLES: Role[] = ["admin", "member"]
 
@@ -96,6 +99,7 @@ function flattenGroups(members: Member[]): FlatItem[] {
 }
 
 export function MemberList({
+  scopeId = "members",
   members,
   loading,
   hasMore,
@@ -109,6 +113,7 @@ export function MemberList({
   onSetRole,
   onKick,
 }: {
+  scopeId?: string
   members: Member[]
   loading?: boolean
   hasMore?: boolean
@@ -124,27 +129,53 @@ export function MemberList({
   myRole?: Role
   onOpenProfile?: OpenProfile
   onSetRole?: (memberId: string, role: Role) => void
-  onKick?: (memberId: string) => Promise<unknown> | void
+  onKick?: (memberId: string, assert?: MemberOriginalView) => Promise<unknown> | void
 }) {
-  // Kick target stores BOTH the display name (for the confirm title) and the
-  // member row id (what the DELETE route keys on — passing the name here was a
-  // latent 404 bug on the community right-panel kick path).
-  const [kickTarget, setKickTarget] = useState<{ name: string; memberId: string } | null>(null)
-  const [kicking, setKicking] = useState(false)
-  // Leave/Remove confirm (private channel/post/thread roster).
-  const [manageConfirm, setManageConfirm] = useState<ManageConfirm | null>(null)
-  const [actioning, setActioning] = useState(false)
-  const [query, setQuery] = useState("")
+  const source = useCommunityViewSource("member-list:" + scopeId)
+  const client = useQueryClient()
+  const commandKey = ["community", "member-list-command", scopeId]
+  const ui = useMemo(() => ({ scope: [scopeId, source.signal], store: createStore({ kickTargetId: null as string | null, manageConfirm: null as ManageConfirm | null, query: "" }) }), [scopeId, source.signal]).store
+  const kickTargetId = useSelector(ui, (state) => state.kickTargetId)
+  const manageConfirm = useSelector(ui, (state) => state.manageConfirm)
+  const query = useSelector(ui, (state) => state.query)
+  const setKickTargetId = useCallback((kickTargetId: string | null) => ui.setState((state) => ({ ...state, kickTargetId })), [ui])
+  const setManageConfirm = useCallback((manageConfirm: ManageConfirm | null) => ui.setState((state) => ({ ...state, manageConfirm })), [ui])
+  const setQuery = (query: string) => ui.setState((state) => ({ ...state, query }))
+  const kickTarget = members.find((member) => member.id === kickTargetId)
+  const manageTarget = members.find((member) => member.id === manageConfirm?.memberId)
+  type Intent = { kind: "kick" | "leave" | "remove"; memberId: string; userId: string; work: (id: string, assert?: MemberOriginalView) => Promise<unknown> | void; assert: ReturnType<typeof source.capture> }
+  const command = useMutation({
+    mutationKey: commandKey,
+    gcTime: 0,
+    mutationFn: async (intent: Intent) => {
+      intent.assert()
+      await intent.work(intent.kind === "kick" ? intent.memberId : intent.userId, intent.assert)
+      intent.assert()
+      ui.setState((state) => intent.kind === "kick"
+        ? state.kickTargetId === intent.memberId ? { ...state, kickTargetId: null } : state
+        : state.manageConfirm?.memberId === intent.memberId && state.manageConfirm.kind === intent.kind ? { ...state, manageConfirm: null } : state)
+    },
+    onError: (error, intent) => toastApiError(error, intent.kind === "kick" ? "Failed to kick member" : intent.kind === "leave" ? "Failed to leave" : "Failed to remove", intent.assert),
+  })
+  const kicking = command.isPending && command.variables?.kind === "kick" && command.variables.assert.signal === source.signal
+  const actioning = command.isPending && command.variables?.kind !== "kick" && command.variables?.assert.signal === source.signal
   const canManage = canManageServer(myRole)
+  const pending = useCallback(() => client.getMutationCache().findAll({ mutationKey: ["community", "member-list-command", scopeId], exact: true, status: "pending" }).some((mutation) => (mutation.state.variables as Intent).assert.signal === source.signal), [client, scopeId, source.signal])
+  useEffect(() => {
+    if (pending()) return
+    if (kickTargetId && !kickTarget) setKickTargetId(null)
+    if (manageConfirm && !manageTarget) setManageConfirm(null)
+  }, [kickTargetId, kickTarget, manageConfirm, manageTarget, command.status, pending, setKickTargetId, setManageConfirm])
 
   // Debounced search — 200ms mirrors the hook's own debounce for consistency
   // (the hook debounces the network call; this debounces the callback fire
   // so we don't spam the hook on every keystroke).
   useEffect(() => {
     if (!onSearch) return
-    const t = setTimeout(() => onSearch(query), 200)
+    const assert = source.capture()
+    const t = setTimeout(() => { try { assert(); onSearch(query) } catch {} }, 200)
     return () => clearTimeout(t)
-  }, [query, onSearch])
+  }, [query, onSearch, source.signal, source])
 
   const items = useMemo(() => flattenGroups(members), [members])
   const duplicateNames = useMemo(() => computeDuplicateNames(members), [members])
@@ -193,25 +224,17 @@ export function MemberList({
   return (
     <>
       <ConfirmDialog
-        open={!!kickTarget}
-        onOpenChange={(o) => { if (!o && !kicking) setKickTarget(null) }}
-        title={`Kick ${kickTarget?.name}?`}
+        open={!!kickTargetId}
+        onOpenChange={(o) => { if (!o && !kicking) setKickTargetId(null) }}
+        title={`Kick ${kickTarget?.name ?? "this member"}?`}
         description="They will be removed from this server but can rejoin with an invite."
         confirmLabel="Kick"
         loadingLabel="Kicking…"
         loading={kicking}
         confirmVariant="destructive"
-        onConfirm={async () => {
-          if (!kickTarget) return
-          setKicking(true)
-          try {
-            await onKick?.(kickTarget.memberId)
-            setKickTarget(null)
-          } catch (e) {
-            toastApiError(e, "Failed to kick member")
-          } finally {
-            setKicking(false)
-          }
+        onConfirm={() => {
+          if (!kickTarget || !onKick || pending()) return
+          command.mutate({ kind: "kick", memberId: kickTarget.id, userId: kickTarget.userId, work: onKick, assert: source.capture() })
         }}
       />
       {manageConfirm && (
@@ -221,7 +244,7 @@ export function MemberList({
           title={
             manageConfirm.kind === "leave"
               ? `Leave /${manageContext?.unitLabel ?? ""}?`
-              : `Remove ${manageConfirm.member.name}?`
+              : `Remove ${manageTarget?.name ?? "this member"}?`
           }
           description={
             manageConfirm.kind === "leave"
@@ -232,18 +255,10 @@ export function MemberList({
           loadingLabel={manageConfirm.kind === "leave" ? "Leaving…" : "Removing…"}
           loading={actioning}
           confirmVariant="destructive"
-          onConfirm={async () => {
-            if (!manageContext) return
-            setActioning(true)
-            try {
-              const fn = manageConfirm.kind === "leave" ? manageContext.onLeave : manageContext.onRemove
-              await fn(manageConfirm.member.userId)
-              setManageConfirm(null)
-            } catch (e) {
-              toastApiError(e, manageConfirm.kind === "leave" ? "Failed to leave" : "Failed to remove")
-            } finally {
-              setActioning(false)
-            }
+          onConfirm={() => {
+            if (!manageContext || !manageTarget || pending()) return
+            const work = manageConfirm.kind === "leave" ? manageContext.onLeave : manageContext.onRemove
+            command.mutate({ kind: manageConfirm.kind, memberId: manageTarget.id, userId: manageTarget.userId, work, assert: source.capture() })
           }}
         />
       )}
@@ -306,8 +321,8 @@ export function MemberList({
                         showDiscriminator={duplicateNames.has(item.member.name.toLowerCase())}
                         onOpenProfile={onOpenProfile}
                         onSetRole={onSetRole}
-                        onKick={(mem) => setKickTarget({ name: mem.name, memberId: mem.id })}
-                        onRequestManage={(kind, mem) => setManageConfirm({ kind, member: mem })}
+                        onKick={(mem) => setKickTargetId(mem.id)}
+                        onRequestManage={(kind, mem) => setManageConfirm({ kind, memberId: mem.id })}
                         manageContext={manageContext}
                       />
                     )}

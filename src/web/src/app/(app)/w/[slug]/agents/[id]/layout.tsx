@@ -1,10 +1,13 @@
 "use client";
 
-import { useState, useEffect, type ReactNode } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { modelCatalogOptions } from "@/hooks/workspace/settings-query-options";
 import { useParams, useRouter, usePathname, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAgentContext } from "@/contexts/agent-context";
-import { useWorkspace } from "@/contexts/workspace-context";
+import { useWorkspaceOwner } from "@/contexts/workspace-context";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { AgentEditForm } from "@/components/agent-edit-form";
@@ -20,13 +23,14 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { fetchModelOptions } from "@/lib/api";
+
 
 export default function AgentDetailLayout({ children }: { children: ReactNode }) {
   const params = useParams();
   const router = useRouter();
   const pathname = usePathname();
-  const { slug } = useWorkspace();
+  const owner = useWorkspaceOwner();
+  const { slug } = owner;
   const searchParams = useSearchParams();
   const agentId = params.id as string;
   const isActivityView = !!searchParams.get("conv");
@@ -48,15 +52,11 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
   const { activeTaskCounts } = useAgentContext();
   const taskCount = activeTaskCounts[agentId] ?? 0;
 
-  const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [agentConfirmOpen, setAgentConfirmOpen] = useState(false);
-  const [agentDeleting, setAgentDeleting] = useState(false);
-  const [modelOptions, setModelOptions] = useState<Record<string, string[]>>({});
-
-  useEffect(() => {
-    fetchModelOptions().then(setModelOptions).catch(() => {});
-  }, []);
+  const [editing, setEditing] = useAtom(useCreateAtom(false));
+  const [saving, setSaving] = useAtom(useCreateAtom(false));
+  const [agentConfirmOpen, setAgentConfirmOpen] = useAtom(useCreateAtom(false));
+  const [agentDeleting, setAgentDeleting] = useAtom(useCreateAtom(false));
+  const modelOptions = useQuery(modelCatalogOptions(owner)).data ?? {};
 
   return (
     <>

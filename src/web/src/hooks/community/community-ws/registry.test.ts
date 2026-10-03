@@ -1,3 +1,4 @@
+import { createCommunityDbRegistry } from "@/lib/community-db/collections"
 import { describe, expect, it, vi } from "vitest"
 import { notifyManager, QueryClient } from "@tanstack/react-query"
 import { WS_EVENTS } from "@alook/shared"
@@ -68,11 +69,12 @@ vi.mock("./identity-events", () => ({
 }))
 
 function dispatchContext(queryClient = new QueryClient()): CommunityWsDispatchContext {
+  const runtime = createCommunityDbRegistry(queryClient, "u1").runtime
   return {
     deliveryMode: "single",
     queryClient,
-    communityStore: {} as CommunityWsDispatchContext["communityStore"],
-    wsStore: {} as CommunityWsDispatchContext["wsStore"],
+    communityStore: runtime.ui,
+    wsStore: runtime.ws,
     sub: {},
     viewerUserIdRef: { current: null },
     matchesFocus: () => false,

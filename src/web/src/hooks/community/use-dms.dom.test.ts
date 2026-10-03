@@ -1,7 +1,11 @@
 import React from "react"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { QueryClient, QueryClientProvider as BareQueryClientProvider } from "@tanstack/react-query"
+import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { getActiveAccountUnreadProjection } from "./account-unread-projection"
+import { dmsProjectedQueryFn } from "./use-dms"
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import type { DM } from "@/lib/community/models/people"
@@ -9,9 +13,15 @@ import { inboxDmRowTarget } from "./inbox-read-reservation"
 import {
   createCommunityDbRegistry,
   registerCommunityDbRegistry,
+  getCommunityDbRegistry,
 } from "@/lib/community-db/collections"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { ingestDms } from "@/lib/community-db/sync"
+
+function seedDms(client: QueryClient, data: { conversations: DM[] }) {
+  ingestDms(getCommunityDbRegistry(client)!, data)
+  client.setQueryData(communityKeys.dms(), { ids: data.conversations.map((dm) => dm.id) })
+}
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
@@ -38,8 +48,8 @@ function dm(id: string): DM {
 
 beforeEach(() => {
   apiFetchMock.mockReset()
-  useCommunityWsStore.getState().reset()
-  useCommunityWsStore.getState().activateProfileAccount("viewer")
+
+
 })
 
 describe("useDms / dmsQueryFn", () => {
@@ -48,23 +58,24 @@ describe("useDms / dmsQueryFn", () => {
       { id: "dm_1", userId: "u_1", name: "Alice", discriminator: "0000", avatar: "A", status: "offline", preview: "" },
     ]
     apiFetchMock.mockResolvedValueOnce({ conversations })
-    const { dmsQueryFn } = await import("./use-dms")
-    const data = await dmsQueryFn()
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/me/dms")
-    expect(data.conversations).toEqual(conversations)
+    const { client: qc, registry } = await createCommunityQueryOwner()
+    const data = await qc.fetchQuery({ queryKey: communityKeys.dms(), queryFn: dmsProjectedQueryFn(getActiveAccountUnreadProjection(qc), qc) })
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/me/dms", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
+    expect(data).toEqual({ ids: ["dm_1"] })
+    expect(registry.collections.channels.get("dm_1")?.type).toBe("dm")
+    expect(registry.collections.profiles.get("u_1")?.name).toBe("Alice")
   })
 
   it("populates queryClient at communityKeys.dms()", async () => {
     apiFetchMock.mockResolvedValueOnce({ conversations: [] })
-    const { dmsQueryFn } = await import("./use-dms")
-    const qc = new QueryClient()
+    const { client: qc } = await createCommunityQueryOwner()
     const key = communityKeys.dms()
-    await qc.fetchQuery({ queryKey: key, queryFn: dmsQueryFn })
+    await qc.fetchQuery({ queryKey: key, queryFn: dmsProjectedQueryFn(getActiveAccountUnreadProjection(qc), qc) })
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/community/users/me/dms",
-      { signal: expect.any(AbortSignal) },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     )
-    expect(qc.getQueryData(key)).toEqual({ conversations: [] })
+    expect(qc.getQueryData(key)).toEqual({ ids: [] })
   })
 
   it("uses a complete DM list as authoritative negative evidence", async () => {
@@ -74,9 +85,9 @@ describe("useDms / dmsQueryFn", () => {
     const projection = new AccountUnreadProjection("u1")
     projection.setNotificationPolicy({})
     projection.recordArrival({ channelId: "dm_1", seq: 3 })
-    const queryClient = new QueryClient()
+    const { client: queryClient } = await createCommunityQueryOwner()
 
-    await dmsProjectedQueryFn(projection, queryClient)()
+    await queryClient.fetchQuery({ queryKey: communityKeys.dms(), queryFn: dmsProjectedQueryFn(projection, queryClient) })
 
     expect(projection.projectUnread("dms", "dm_1", false)).toBe(false)
   })
@@ -84,7 +95,7 @@ describe("useDms / dmsQueryFn", () => {
   it.each(["cancel", "account", "access"] as const)(
     "rejects a %s-superseded DM list before destructive publication",
     async (race) => {
-      const queryClient = new QueryClient()
+      const { client: queryClient } = await createCommunityQueryOwner()
       const registry = createCommunityDbRegistry(queryClient, "viewer")
       await registry.preload()
       const unregister = registerCommunityDbRegistry(registry)
@@ -98,15 +109,15 @@ describe("useDms / dmsQueryFn", () => {
       const controller = new AbortController()
 
       const pending = dmsProjectedQueryFn(projection, queryClient)({
-        signal: controller.signal,
+        client: queryClient, signal: controller.signal,
       } as never)
-      expect(apiFetchMock).toHaveBeenCalledWith(
+      await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith(
         "/api/community/users/me/dms",
-        { signal: controller.signal },
-      )
+        expect.objectContaining({ signal: controller.signal }),
+      ))
       if (race === "cancel") controller.abort()
-      else if (race === "account") useCommunityWsStore.getState().activateProfileAccount("other")
-      else useCommunityWsStore.setState((state) => ({ accessEpoch: state.accessEpoch + 1 }))
+      else if (race === "account") registry.runtime.ws.actions.activateProfileAccount("other")
+      else registry.runtime.ws.setState((state) => ({ ...state,  accessEpoch: state.accessEpoch + 1 }))
       request.resolve({ conversations: [] })
 
       await expect(pending).rejects.toMatchObject({ name: "AbortError" })
@@ -118,7 +129,7 @@ describe("useDms / dmsQueryFn", () => {
   )
 
   it("lets a current DM-list generation replace canonical rows", async () => {
-    const queryClient = new QueryClient()
+    const { client: queryClient } = await createCommunityQueryOwner()
     const registry = createCommunityDbRegistry(queryClient, "viewer")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
@@ -128,10 +139,7 @@ describe("useDms / dmsQueryFn", () => {
     const { dmsProjectedQueryFn } = await import("./use-dms")
     const { AccountUnreadProjection } = await import("./account-unread-projection")
 
-    await dmsProjectedQueryFn(
-      new AccountUnreadProjection("viewer"),
-      queryClient,
-    )()
+    await queryClient.fetchQuery({ queryKey: communityKeys.dms(), queryFn: dmsProjectedQueryFn(new AccountUnreadProjection("viewer"), queryClient) })
 
     expect(registry.collections.channels.get("dm-current")).toBeUndefined()
     unregister()
@@ -144,7 +152,8 @@ describe("useDms / dmsQueryFn", () => {
     const { AccountUnreadProjection } = await import("./account-unread-projection")
     const projection = new AccountUnreadProjection("u1")
 
-    await expect(dmsProjectedQueryFn(projection)()).rejects.toThrow("offline")
+    const { client: qc } = await createCommunityQueryOwner()
+    await expect(qc.fetchQuery({ queryKey: communityKeys.dms(), queryFn: dmsProjectedQueryFn(projection, qc) })).rejects.toThrow("offline")
 
     expect(projection.inspectForTests().pendingSnapshots).toBe(0)
   })
@@ -161,8 +170,8 @@ describe("useDms / dmsQueryFn", () => {
     }]
     apiFetchMock.mockResolvedValue({ conversations })
     const { useDms } = await import("./use-dms")
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    qc.setQueryData(communityKeys.dms(), { conversations })
+    const { client: qc } = await createCommunityQueryOwner()
+    seedDms(qc, { conversations })
 
     function Probe() {
       useDms()
@@ -179,7 +188,7 @@ describe("useDms / dmsQueryFn", () => {
     await act(async () => renderer.unmount())
   })
 
-  it("uses transport conversations without a canonical registry", async () => {
+  it("ignores legacy transport conversations without a canonical provider", async () => {
     const conversations = [dm("dm-providerless")]
     const { useDms } = await import("./use-dms")
     const qc = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } })
@@ -192,17 +201,17 @@ describe("useDms / dmsQueryFn", () => {
     }
 
     const renderer = render(React.createElement(
-      QueryClientProvider,
+      BareQueryClientProvider,
       { client: qc },
       React.createElement(Probe),
     ))
-    expect(latest?.dms.map(({ id }) => id)).toEqual(["dm-providerless"])
+    expect(latest?.dms).toEqual([])
     await act(async () => renderer.unmount())
   })
 
   it("uses canonical conversations while a registry is active", async () => {
     const { useDms } = await import("./use-dms")
-    const qc = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } })
+    const { client: qc } = await createCommunityQueryOwner()
     const registry = createCommunityDbRegistry(qc, "viewer")
     await registry.preload()
     const unregister = registerCommunityDbRegistry(registry)
@@ -227,7 +236,7 @@ describe("useDms / dmsQueryFn", () => {
 
   it("uses transient presence without rewriting the raw canonical DM identity", async () => {
     const { useDms } = await import("./use-dms")
-    const qc = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } })
+    const { client: qc } = await createCommunityQueryOwner()
     const raw = {
       conversations: [{
         id: "dm_1",
@@ -240,8 +249,8 @@ describe("useDms / dmsQueryFn", () => {
         preview: "hello",
       }],
     }
-    qc.setQueryData(communityKeys.dms(), raw)
-    useCommunityWsStore.getState().setPresence("u_1", "online")
+    seedDms(qc, raw)
+    createCommunityDbRegistry(qc, "viewer").runtime.ws.actions.setPresence("u_1", "online")
     let projected!: ReturnType<typeof useDms>
     function Probe() {
       projected = useDms()
@@ -261,14 +270,14 @@ describe("useDms / dmsQueryFn", () => {
       status: "online",
       preview: "hello",
     })
-    expect(qc.getQueryData(communityKeys.dms())).toBe(raw)
+    expect(qc.getQueryData(communityKeys.dms())).toEqual({ ids: raw.conversations.map((dm) => dm.id) })
     await act(async () => renderer.unmount())
   })
 
   it("renders persisted DM identity without a live profile seed", async () => {
     const { useDms } = await import("./use-dms")
-    const qc = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } })
-    qc.setQueryData(communityKeys.dms(), {
+    const { client: qc } = await createCommunityQueryOwner()
+    seedDms(qc, {
       conversations: [{
         id: "dm_cached",
         userId: "u_cached",
@@ -321,8 +330,8 @@ describe("useDms / dmsQueryFn", () => {
     apiFetchMock.mockResolvedValue({ conversations })
     const { useDms } = await import("./use-dms")
     const { getActiveAccountUnreadProjection } = await import("./account-unread-projection")
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    qc.setQueryData(communityKeys.dms(), { conversations })
+    const { client: qc } = await createCommunityQueryOwner()
+    seedDms(qc, { conversations })
     getActiveAccountUnreadProjection(qc).recordArrival({ channelId: "dm_1", seq: 2 })
     let latest: ReturnType<typeof useDms> | undefined
 
@@ -339,7 +348,7 @@ describe("useDms / dmsQueryFn", () => {
     expect(latest?.dms[0]?.unread).toBe(false)
     expect(latest?.dms[1]?.unread).toBe(false)
     expect(latest?.dms[2]?.unread).toBe(false)
-    expect(qc.getQueryData(communityKeys.dms())).toEqual({ conversations })
+    expect(qc.getQueryData(communityKeys.dms())).toEqual({ ids: conversations.map((dm) => dm.id) })
     await act(async () => renderer.unmount())
   })
 
@@ -368,8 +377,8 @@ describe("useDms / dmsQueryFn", () => {
     }
     const { useDms } = await import("./use-dms")
     const { useInboxAutoCollapse } = await import("./use-inbox-auto-collapse")
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    qc.setQueryData(communityKeys.dms(), { conversations })
+    const { client: qc } = await createCommunityQueryOwner()
+    seedDms(qc, { conversations })
     let latest: ReturnType<typeof useDms> | undefined
     let collapse: ReturnType<typeof useInboxAutoCollapse> | undefined
     function Harness() {
@@ -404,7 +413,7 @@ describe("useDms / dmsQueryFn", () => {
   it("returns a stable empty projection while the query has no data", async () => {
     apiFetchMock.mockReturnValue(new Promise(() => undefined))
     const { useDms } = await import("./use-dms")
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: qc } = await createCommunityQueryOwner()
     let latest: ReturnType<typeof useDms> | undefined
     function Harness() {
       latest = useDms()

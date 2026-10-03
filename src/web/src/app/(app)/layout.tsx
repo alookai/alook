@@ -1,3 +1,4 @@
+import { ApplicationQueryProvider } from "@/lib/application-owner";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
@@ -20,6 +21,7 @@ export default async function AppLayout({
   if (!session) redirect("/sign-in");
 
   return (
+    <ApplicationQueryProvider userId={session.user.id}>
     <AuthenticatedContextMenuBoundary>
       <AuthenticatedNativeOauthCleanup />
       <SignupTracker />
@@ -27,5 +29,6 @@ export default async function AppLayout({
       <DaemonUpdateNotice userId={session.user.id} />
       {children}
     </AuthenticatedContextMenuBoundary>
+    </ApplicationQueryProvider>
   );
 }

@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
 import { ChevronDown } from "lucide-react"
 import type { QuotaLimit } from "@alook/shared"
 import { ProviderLogo } from "@/components/provider-logo"
@@ -186,7 +187,7 @@ export function MachineQuotaSummary({
   machineId: string
   entries?: MachineBackendQuota[]
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useAtom(useCreateAtom(false))
   const placeholder = quotaPlaceholder(entries)
   if (placeholder || !entries) {
     return (

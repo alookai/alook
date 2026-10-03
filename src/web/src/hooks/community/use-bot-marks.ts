@@ -1,6 +1,7 @@
 "use client"
 
 import { useQuery } from "@tanstack/react-query"
+import { communityRequestOptions } from "@/lib/community-db/sync"
 import { apiFetch } from "@/lib/api/client"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
@@ -14,7 +15,7 @@ export function useBotMarks(botId: string | null | undefined) {
   const query = useQuery<BotMarksResponse>({
     enabled,
     queryKey: botId ? communityKeys.botMarks(botId) : ["disabled-bot-marks"],
-    queryFn: () => apiFetch<BotMarksResponse>(`/api/community/bots/${botId}/marks`),
+    queryFn: ({ client, signal }) => apiFetch<BotMarksResponse>(`/api/community/bots/${botId}/marks`, communityRequestOptions(client, signal)),
     retry: (failureCount, error) =>
       !(error instanceof ApiError && error.status === 404) && failureCount < 1,
     refetchOnMount: "always",

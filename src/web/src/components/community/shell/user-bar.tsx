@@ -1,9 +1,9 @@
 "use client"
 
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import {
   useId,
   useRef,
-  useState,
   type MutableRefObject,
   type ReactNode,
   type RefObject,
@@ -59,7 +59,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
   const inboxTriggerRef = useRef<HTMLButtonElement>(null)
   const updateBadgeRef = useRef<HTMLButtonElement>(null)
   const baseRef = useRef<HTMLDivElement>(null)
-  const [pendingExtensionFocus, setPendingExtensionFocus] = useState<UserBarExtensionKind>("none")
+  const [pendingExtensionFocus, setPendingExtensionFocus] = useAtom(useCreateAtom<UserBarExtensionKind>("none"))
   const mobile = breakpoint === "mobile"
   const joinedMobileExtension = mobile && (
     inboxOpen

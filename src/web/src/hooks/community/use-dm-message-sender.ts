@@ -1,11 +1,14 @@
 "use client"
+import { useCommunityRuntime } from "@/stores/community/runtime"
+
 
 import { useCallback } from "react"
+import { useCommunityViewSource } from "./use-community-view-source"
+import { useCommunityMutationOrigin } from "./community-origin"
 import type { Msg } from "@/lib/community/models/message"
 import type { SendAttachment } from "@/lib/community/models/message"
 import { toastApiError } from "@/lib/api/client"
 import { toOptimisticReplyPreview } from "@/lib/community/reply-preview"
-import { useMessageStreamStore } from "@/stores/community/message-stream"
 import { canonicalizeReplyContent } from "@/lib/community/reply-content"
 import {
   sendNonce,
@@ -26,6 +29,7 @@ export type DmSendReceipt =
   | { accepted: true; nonce: string; committed: Promise<DmSendCommit> }
 
 export type AcceptDmMessageArgs = {
+  assertActive?: (() => void) & { signal: AbortSignal }
   dmId: string
   content: string
   replyTo?: Msg["replyTo"]
@@ -39,16 +43,22 @@ function asError(error: unknown): Error {
 }
 
 export function useDmMessageSender() {
+  const communityRuntime = useCommunityRuntime()
+  const source = useCommunityViewSource("dm-message-sender")
+  const origin = useCommunityMutationOrigin()
   const { mutateAsync: uploadFileAsync } = useUploadFile()
   const { mutateAsync: sendDmMessageAsync } = useSendDmMessage()
 
   const runAcceptedIntent = useCallback(async (
     dmId: string,
     nonce: string,
+    assertActive?: AcceptDmMessageArgs["assertActive"],
   ): Promise<DmSendCommit> => {
+    const original = origin.begin().token
+    const assert = () => { origin.assert(original); assertActive?.() }
+    try { assert() } catch (error) { return { ok: false, error: asError(error) } }
     const scope = { kind: "dm" as const, id: dmId }
-    const streamStore = useMessageStreamStore.getState()
-    const payload = streamStore.getRetryPayload(scope, nonce)
+    const payload = communityRuntime.messageStream.actions.getRetryPayload(scope, nonce)
     if (!payload) {
       return { ok: false, error: new Error("Message intent is no longer available") }
     }
@@ -78,23 +88,29 @@ export function useDmMessageSender() {
       const results = await Promise.all(
         payload.localUploads.map((upload) =>
           uploadFileAsync({
+            assertActive,
             target: { dmId },
             file: upload.file,
             thumbnailBlob: upload.thumbnailBlob,
             width: upload.width,
             height: upload.height,
           }).catch((error) => {
-            toastApiError(error, "Failed to attach file")
+            toastApiError(error, "Failed to attach file", assert)
             return null
           }),
         ),
       )
       if (results.some((result) => result === null)) {
-        streamStore.dispatch(scope, { type: "uploadFailed", nonce })
+        try { origin.assert(original) } catch (error) { return { ok: false, error: asError(error) } }
+        communityRuntime.messageStream.actions.dispatch(scope, { type: "uploadFailed", nonce })
         return { ok: false, error: new Error("Failed to attach file") }
       }
       uploadedAttachments = zipUploadResultsWithDimensions(results, [...payload.localUploads])
-      streamStore.dispatch(scope, {
+      try { assert() } catch (error) {
+        try { origin.assert(original); communityRuntime.messageStream.actions.dispatch(scope, { type: "uploadFailed", nonce }) } catch {}
+        return { ok: false, error: asError(error) }
+      }
+      communityRuntime.messageStream.actions.dispatch(scope, {
         type: "uploadSettled",
         nonce,
         attachments: uploadedAttachments.map((attachment) =>
@@ -103,25 +119,29 @@ export function useDmMessageSender() {
     }
 
     try {
+      assert()
       const result = await sendDmMessageAsync({
         dmId,
         content: payload.message.content ?? "",
         replyToId: payload.message.replyTo?.id,
         attachments: uploadedAttachments,
         nonce,
+        assertActive,
       })
       return { ok: true, message: result.message }
     } catch (error) {
       return { ok: false, error: asError(error) }
     }
-  }, [sendDmMessageAsync, uploadFileAsync])
+  }, [communityRuntime, origin, sendDmMessageAsync, uploadFileAsync])
 
   const accept = useCallback((args: AcceptDmMessageArgs): DmSendReceipt => {
+    const assertActive = args.assertActive ?? source.capture()
+    assertActive()
     if (!args.content && !args.attachments?.length) return { accepted: false }
     const content = canonicalizeReplyContent(args.content, args.replyTo)
     const nonce = args.nonce ?? sendNonce()
     const createdPreviewUrls: string[] = []
-    const accepted = useMessageStreamStore.getState().accept(
+    const accepted = communityRuntime.messageStream.actions.accept(
       { kind: "dm", id: args.dmId },
       {
         nonce,
@@ -155,17 +175,19 @@ export function useDmMessageSender() {
     return {
       accepted: true,
       nonce,
-      committed: runAcceptedIntent(args.dmId, nonce),
+      committed: runAcceptedIntent(args.dmId, nonce, assertActive),
     }
-  }, [runAcceptedIntent])
+  }, [communityRuntime.messageStream.actions, runAcceptedIntent, source])
 
   const retry = useCallback((dmId: string, nonce: string): Promise<DmSendCommit> => {
-    useMessageStreamStore.getState().dispatch(
+    const assertActive = source.capture()
+    assertActive()
+    communityRuntime.messageStream.actions.dispatch(
       { kind: "dm", id: dmId },
       { type: "retry", nonce },
     )
-    return runAcceptedIntent(dmId, nonce)
-  }, [runAcceptedIntent])
+    return runAcceptedIntent(dmId, nonce, assertActive)
+  }, [communityRuntime.messageStream.actions, runAcceptedIntent, source])
 
   return { accept, retry }
 }

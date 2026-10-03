@@ -1,9 +1,14 @@
 "use client"
 
+import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
+import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
+
 import {
   useMutation,
   useQuery,
   useQueryClient,
+  QueryObserver,
+  type Query,
   type QueryClient,
   type QueryFunctionContext,
   type UseQueryResult,
@@ -11,17 +16,21 @@ import {
 import { notifLevelDisplay } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import { useEffect, useMemo } from "react"
+import { useCallback, useEffect, useMemo } from "react"
+import { useCommunityMutationOrigin } from "./community-origin"
+import { useCommunityViewSource } from "./use-community-view-source"
+
+import { notificationSettingKey } from "@/lib/community-db/schema"
 import {
   getActiveAccountUnreadProjection,
   type AccountUnreadProjection,
 } from "./account-unread-projection"
 import {
   useNotificationSettingsProjection,
-  useOptionalCommunityDbRegistry,
-} from "@/lib/community-db/projections"
+  } from "@/lib/community-db/projections"
 import {
   captureCommunityLiveSnapshotToken,
+  assertCommunityLiveSnapshotTokenCurrent,
   publishCommunityLiveSnapshot,
 } from "@/lib/community-db/sync"
 
@@ -62,18 +71,18 @@ export function resolveServerNotificationDisplayLevel(level?: string): string {
 
 export const notificationSettingsQueryFn = async (
   context: QueryFunctionContext = {} as QueryFunctionContext,
-): Promise<NotificationSettings> => {
-  const publicationToken = context.client
-    ? captureCommunityLiveSnapshotToken(context.client)
-    : null
-  const rows = context.signal
-    ? await apiFetch<NotificationSettingRow[]>(
-        "/api/community/users/me/notifications",
-        { signal: context.signal },
-      )
-    : await apiFetch<NotificationSettingRow[]>(
-        "/api/community/users/me/notifications",
-      )
+): Promise<{ ids: string[] }> => {
+  const publicationToken = captureCommunityLiveSnapshotToken(context.client)
+  const registry = publicationToken.registry
+  if (!registry) throw new DOMException("Missing notification owner", "AbortError")
+  await registry.ready
+  assertCommunityLiveSnapshotTokenCurrent(context.client, publicationToken, context.signal)
+  await registry.collections.notificationSettings.preload()
+  assertCommunityLiveSnapshotTokenCurrent(context.client, publicationToken, context.signal)
+  const rows = await apiFetch<NotificationSettingRow[]>(
+    "/api/community/users/me/notifications",
+    communityRequestOptions(context.client, publicationToken, context.signal),
+  )
   const server: Record<string, string> = {}
   const channel: Record<string, string> = {}
   for (const s of rows) {
@@ -88,7 +97,7 @@ export const notificationSettingsQueryFn = async (
       proof: { kind: "structural", token: publicationToken, signal: context.signal },
     })
   }
-  return data
+  return { ids: rows.filter((row) => Boolean(row.serverId) !== Boolean(row.channelId)).map((row) => notificationSettingKey(row)) }
 }
 
 function projectNotificationSettings(
@@ -102,16 +111,20 @@ function projectNotificationSettings(
 }
 
 export async function reconcileNotificationSettings(queryClient: QueryClient) {
+  const token = captureCommunityLiveSnapshotToken(queryClient)
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)
   const queryKey = communityKeys.notificationSettings()
   // A policy WS event is newer than any transport already in flight. Cancel
   // that generation first so TanStack cannot dedupe this repair onto the old
   // request and install its stale response after the event.
   await queryClient.cancelQueries({ queryKey, exact: true })
-  const settings = await queryClient.fetchQuery({
-    queryKey,
-    queryFn: notificationSettingsQueryFn,
-    staleTime: 0,
-  })
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)
+  const options = { queryKey, queryFn: notificationSettingsQueryFn, staleTime: 0 }
+  const lease = new QueryObserver(queryClient, { ...options, enabled: false }).subscribe(() => undefined)
+  try { await queryClient.fetchQuery(options) } finally { lease() }
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)
+  const settings: NotificationSettings = { raw: [...token.registry!.collections.notificationSettings.values()], server: {}, channel: {} }
+  for (const row of settings.raw) { if (row.channelId) settings.channel[row.channelId] = displayNotifLevel(row.level); else if (row.serverId) settings.server[row.serverId] = displayNotifLevel(row.level) }
   projectNotificationSettings(getActiveAccountUnreadProjection(queryClient), settings)
   return settings
 }
@@ -120,7 +133,6 @@ export function useNotificationSettings(): UseQueryResult<NotificationSettings> 
   server: Record<string, string>
   channel: Record<string, string>
 } {
-  const registry = useOptionalCommunityDbRegistry()
   const dbSettings = useNotificationSettingsProjection()
   const queryClient = useQueryClient()
   const projection = useMemo(
@@ -131,19 +143,16 @@ export function useNotificationSettings(): UseQueryResult<NotificationSettings> 
     queryKey: communityKeys.notificationSettings(),
     queryFn: notificationSettingsQueryFn,
   })
-  const projectedSettings = registry ? dbSettings : query.data
+  const projectedSettings = dbSettings
   useEffect(() => {
     if (projectedSettings) projectNotificationSettings(projection, projectedSettings)
   }, [projectedSettings, projection])
   return {
     ...query,
-    server: registry
-      ? dbSettings?.server ?? (EMPTY_NOTIF_SERVER as Record<string, string>)
-      : query.data?.server ?? (EMPTY_NOTIF_SERVER as Record<string, string>),
-    channel: registry
-      ? dbSettings?.channel ?? (EMPTY_NOTIF_CHANNEL as Record<string, string>)
-      : query.data?.channel ?? (EMPTY_NOTIF_CHANNEL as Record<string, string>),
-  }
+    data: dbSettings,
+    server: dbSettings?.server ?? (EMPTY_NOTIF_SERVER as Record<string, string>),
+    channel: dbSettings?.channel ?? (EMPTY_NOTIF_CHANNEL as Record<string, string>),
+  } as UseQueryResult<NotificationSettings> & { server: Record<string, string>; channel: Record<string, string> }
 }
 
 export type BotNotificationScope = { kind: "server" | "channel"; id: string }
@@ -156,39 +165,32 @@ export function useBotNotificationSetting(
 ) {
   return useQuery({
     queryKey: communityKeys.botNotificationSetting(botId ?? "", scope.kind, scope.id),
-    queryFn: () => apiFetch<BotNotificationSetting>(
+    queryFn: ({ client, signal }) => apiFetch<BotNotificationSetting>(
       `/api/community/bots/${botId}/notifications/${scope.kind}/${scope.id}`,
+      communityRequestOptions(client, captureCommunityLiveSnapshotToken(client), signal),
     ),
     enabled: Boolean(botId),
+    subscribed: Boolean(botId),
   })
 }
 
 export function useSetBotNotificationSetting() {
   const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: async ({ botId, scope, level }: {
-      botId: string
-      scope: BotNotificationScope
-      level: string | null
-    }) => {
+  const origin = useCommunityMutationOrigin(), source = useCommunityViewSource("bot-notification-setting")
+  type Input = { botId: string; scope: BotNotificationScope; level: string | null; assertActive?: (() => void) & { signal: AbortSignal } }
+  type Intent = Input & { original: ReturnType<typeof origin.begin>["token"]; view: ReturnType<typeof source.capture>; resources: Query[] }
+  const native = useMutation({
+    mutationKey: ["community", "bot-notification-setting-command"], scope: { id: "community-bot-notification-setting-commands" }, gcTime: 0,
+    mutationFn: async ({ botId, scope, level, original, view, resources, assertActive }: Intent) => {
+      const assert = () => { origin.assert(original); view(); assertActive?.() }
+      assert()
       const url = `/api/community/bots/${botId}/notifications/${scope.kind}/${scope.id}`
-      if (level === null) {
-        await apiFetch(url, { method: "DELETE" })
-      } else {
-        await apiFetch(url, {
-          method: "PUT",
-          body: JSON.stringify({ level }),
-        })
-      }
-    },
-    onSuccess: (_data, args) => {
-      queryClient.invalidateQueries({
-        queryKey: communityKeys.botNotificationSetting(args.botId, args.scope.kind, args.scope.id),
-      })
-      queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
-      queryClient.invalidateQueries({
-        predicate: ({ queryKey }) => queryKey.includes("read-state-snapshot"),
-      })
+      await origin.request(original, url, { method: level === null ? "DELETE" : "PUT", signal: assertActive?.signal ? AbortSignal.any([assertActive.signal, view.signal]) : view.signal, assertActive: assert, ...(level === null ? {} : { body: JSON.stringify({ level }) }) })
+      assert()
+      for (const query of resources) if (queryClient.getQueryCache().find({ queryKey: query.queryKey, exact: true }) === query) void queryClient.invalidateQueries({ queryKey: query.queryKey, exact: true }, { cancelRefetch: false }).catch(() => undefined)
     },
   })
+  const capture = useCallback((input: Input): Intent => { input.assertActive?.(); const view = source.capture(); view(); return { ...input, view, original: origin.begin().token, resources: queryClient.getQueryCache().findAll({ predicate: (query) => [communityKeys.botNotificationSetting(input.botId, input.scope.kind, input.scope.id), communityKeys.inbox()].some((key) => key.length <= query.queryKey.length && key.every((part, i) => Object.is(part, query.queryKey[i]))) || query.queryKey.includes("read-state-snapshot") }) } }, [origin, source, queryClient])
+  const assertCurrent = useCallback((args: Intent) => { origin.assert(args.original); args.view(); args.assertActive?.() }, [origin])
+  return useNativeMutationFacade(native, capture, assertCurrent)
 }

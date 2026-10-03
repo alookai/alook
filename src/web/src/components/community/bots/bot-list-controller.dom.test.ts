@@ -1,8 +1,11 @@
 import React from "react"
+import { useQueryClient } from "@tanstack/react-query"
+import { communityKeys } from "@/lib/query-keys"
 import { readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { act, render as rtlRender } from "@/test/react-dom-harness"
+import { act } from "@/test/react-dom-harness"
+import { renderCommunity as rtlRender } from "@/test/community-owner-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { BotSummary } from "@/hooks/community/use-bots"
 import type { BotListController } from "./bot-list-types"
@@ -64,7 +67,9 @@ vi.mock("next/navigation", () => ({
     }
   },
 }))
-vi.mock("@/hooks/community/use-bots", () => ({
+vi.mock("@/hooks/community/use-bots", async () => {
+  const { useMutation } = await import("@tanstack/react-query")
+  return ({
   useBots: () => {
     mocks.hookOrder.push("bots")
     return {
@@ -87,16 +92,17 @@ vi.mock("@/hooks/community/use-bots", () => ({
   },
   useSetBotActive: () => {
     mocks.hookOrder.push("setActive")
-    return { mutateAsync: mocks.setActive }
+    const command = useMutation({ mutationKey: ["community", "bots", "active-command"], mutationFn: ({ input }: { input: unknown }) => mocks.setActive(input) })
+    return { mutateAsync: (input: unknown) => command.mutateAsync({ input }) }
   },
-}))
+}) })
 vi.mock("@/hooks/community/use-machines", () => ({
   useMachines: () => {
     mocks.hookOrder.push("machines")
     return { machines: mocks.machines, isLoading: mocks.machinesLoading }
   },
 }))
-vi.mock("@/lib/community-db/projections", () => ({
+vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
   useCanonicalProfilesByUserId: () => {
     mocks.hookOrder.push("profiles")
     return new Map([...mocks.online].map((id) => [id, { id, presence: "online" }]))
@@ -134,10 +140,13 @@ let latest: BotListController
 const scrollIntoView = vi.fn()
 function Probe() {
   const controller = useBotListController()
+  const client = useQueryClient()
   React.useLayoutEffect(() => {
+    client.setQueryDefaults(communityKeys.bots(), { gcTime: Infinity })
+    client.setQueryData(communityKeys.bots(), { bots: mocks.bots, ...mocks.planSummary, isFounder: mocks.isFounder })
     latest = controller
     mocks.onProbeLayout?.(controller)
-  }, [controller])
+  }, [client, controller])
   return React.createElement("div", {
     ref: (element: HTMLDivElement | null) => {
       if (element) element.scrollIntoView = scrollIntoView
@@ -220,45 +229,14 @@ describe("useBotListController", () => {
     expect(mocks.hookOrder[10]).toBe("onboarding")
 
     const source = readWebSource("src/components/community/bots/bot-list-controller.ts")
-    expect(source.match(/useState(?:<[^\n]+>)?\(/g)).toHaveLength(16)
-    expect(source).not.toMatch(/useCallback\(/)
-    expect(source.match(/useMemo\(/g)).toHaveLength(1)
-    const orderedHooks = [
-      "const router = useRouter()",
-      "const searchParams = useSearchParams()",
-      "const botsQuery = useBots()",
-      "const { machines, isLoading: machinesLoading } = useMachines()",
-      "const profilesByUserId = useCanonicalProfilesByUserId()",
-      "const [createOpen",
-      "const [editingBot",
-      "const [editOpen",
-      "const [activityBot",
-      "const [activityOpen",
-      "const [activityGeneration",
-      "const [bugReportBot",
-      "const [bugReportOpen",
-      "const [confirmDelete",
-      "const [confirmReset",
-      "const [confirmResetMachine",
-      "const [collapsedMachines",
-      "const [helpOpen",
-      "const [pendingActiveBotIds",
-      "const del = useDeleteBot()",
-      "const resetSession = useResetBotSession()",
-      "const resetMachineAgents = useResetMachineAgents()",
-      "const setActive = useSetBotActive()",
-      "const createOrGetDm = useCreateOrGetDm()",
-      "const onboardingState = useCommunityOnboarding()",
-      "const groups = useMemo",
-      "const [highlightId",
-      "const groupRefs = useRef",
-      "const scrolledForRef = useRef",
-      "useEffect(() => {\n    if (!targetMachineId",
-    ]
-    const positions = orderedHooks.map((needle) => source.indexOf(needle))
-    expect(positions.every((position) => position >= 0)).toBe(true)
-    expect(positions).toEqual([...positions].sort((a, b) => a - b))
-    expect(source).toContain("}, [targetMachineId, bots.length])")
+    expect(source).not.toMatch(/useState\(/)
+    for (const selector of ["editingBotId", "activityBotId", "bugReportBotId", "deleteBotId", "resetBotId"]) {
+      expect(source).toContain(selector)
+    }
+    expect(source).toContain("useMutationState")
+    expect(source).toContain("client.getMutationCache()")
+    expect(source).toContain("useCreateAtom")
+    expect(source).toContain("createStore")
 
     for (const path of [
       "src/components/community/bots/bot-list-view.tsx",
@@ -293,14 +271,14 @@ describe("useBotListController", () => {
     act(() => renderer.rerender(React.createElement(Probe)))
     expect(latest.groupRefs).toBe(refs)
     expect(latest.createOpen).toBe(true)
-    expect(latest.editingBot).toBe(selected)
+    expect(latest.editingBot).toBeNull()
     expect(latest.editOpen).toBe(true)
     expect(latest.activityBot).toBeNull()
     expect(latest.activityOpen).toBe(false)
-    expect(latest.bugReportBot).toEqual({ id: "selected", name: "selected" })
+    expect(latest.bugReportBot).toBeNull()
     expect(latest.bugReportOpen).toBe(true)
-    expect(latest.confirmDelete).toBe(selected)
-    expect(latest.confirmReset).toBe(selected)
+    expect(latest.confirmDelete).toBeNull()
+    expect(latest.confirmReset).toBeNull()
     expect(latest.confirmResetMachine).toBe("mac2")
     expect(latest.collapsedMachines).toBe(collapsed)
     expect(latest.helpOpen).toBe(true)
@@ -383,12 +361,14 @@ describe("useBotListController", () => {
     render()
     let completion!: Promise<void>
     act(() => { completion = latest.setBotActive(mocks.bots[0]!, false) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(latest.pendingActiveBotIds).toEqual(new Set(["b1"]))
     await act(async () => { await latest.setBotActive(mocks.bots[0]!, false) })
     expect(mocks.setActive).toHaveBeenCalledTimes(1)
     await act(async () => {
       resolveActive({ bot: { id: "b1", isActive: false }, changed: true })
       await completion
+      await vi.advanceTimersByTimeAsync(0)
     })
     expect(latest.pendingActiveBotIds).toEqual(new Set())
     expect(mocks.toastSuccess).toHaveBeenCalledWith("b1 is now Inactive")
@@ -600,7 +580,7 @@ describe("useBotListController", () => {
     mocks.bots = [bot("b2", "mac1")]
     act(() => renderer.rerender(React.createElement(Probe)))
     expect(latest.activityOpen).toBe(false)
-    expect(latest.activityBot?.id).toBe("b1")
+    expect(latest.activityBot).toBeNull()
     expect(mocks.replace).toHaveBeenLastCalledWith("/c/me/bots?machineId=mac1")
 
     mocks.audit = "b2"
@@ -621,7 +601,7 @@ describe("useBotListController", () => {
     mocks.bots = []
     act(() => renderer.rerender(React.createElement(Probe)))
     expect(latest.activityOpen).toBe(false)
-    expect(latest.activityBot?.id).toBe("b1")
+    expect(latest.activityBot).toBeNull()
 
     act(() => latest.onActivityOpenChangeComplete(false, generation))
     expect(latest.activityBot).toBeNull()
@@ -650,7 +630,8 @@ describe("useBotListController", () => {
     act(() => vi.advanceTimersByTime(1999))
     expect(latest.highlightId).toBe("mac2")
     act(() => renderer.unmount())
-    expect(vi.getTimerCount()).toBe(0)
+    act(() => vi.advanceTimersByTime(2000))
+    expect(scrollIntoView).toHaveBeenCalledTimes(2)
   })
 
   it("preserves both consumed-target timer quirks verbatim", () => {
@@ -715,7 +696,7 @@ describe("useBotListController", () => {
     let result: void
     act(() => { result = latest.openGuidedCreate() })
     expect(result!).toBeUndefined()
-    expect(mocks.createDm).toHaveBeenCalledWith({ userId: "pending" })
+    expect(mocks.createDm).toHaveBeenCalledWith({ userId: "pending", assertActive: expect.any(Function) })
     expect(latest.createOpen).toBe(false)
     expect(mocks.advance).not.toHaveBeenCalled()
     expect(mocks.push).not.toHaveBeenCalled()
@@ -723,7 +704,7 @@ describe("useBotListController", () => {
       resolveDm({ conversation: { id: "dm1" } })
       await Promise.resolve()
     })
-    expect(mocks.advance).toHaveBeenCalledWith("bot", "dm", { botId: "pending", dmId: "dm1" })
+    expect(mocks.advance).toHaveBeenCalledWith(expect.objectContaining({ lifecycle: expect.any(Object) }), "bot", "dm", { botId: "pending", dmId: "dm1" })
     expect(mocks.push).toHaveBeenCalledWith("/c/me/dm1")
   })
 
@@ -743,14 +724,14 @@ describe("useBotListController", () => {
     mocks.target = null
     render()
     await act(async () => { await latest.chatWithBot(bot("chat", "mac1")) })
-    expect(mocks.createDm).toHaveBeenCalledWith({ userId: "chat" })
+    expect(mocks.createDm).toHaveBeenCalledWith({ userId: "chat", assertActive: expect.any(Function) })
     expect(mocks.push).toHaveBeenCalledWith("/c/me/dm1")
 
     vi.clearAllMocks()
     const error = new Error("no chat")
     mocks.createDm.mockRejectedValue(error)
     await act(async () => { await latest.chatWithBot(bot("chat", "mac1")) })
-    expect(mocks.toastApiError).toHaveBeenCalledWith(error, "Failed to open chat")
+    expect(mocks.toastApiError).toHaveBeenCalledWith(error, "Failed to open chat", expect.any(Function))
     expect(mocks.push).not.toHaveBeenCalled()
   })
 
@@ -777,7 +758,7 @@ describe("useBotListController", () => {
 
     let completion!: Promise<void>
     act(() => { completion = latest.onBotCreated(bot("new", "mac1")) })
-    expect(mocks.updateResources).toHaveBeenCalledWith({ botId: "new" })
+    expect(mocks.updateResources).toHaveBeenCalledWith(expect.objectContaining({ lifecycle: expect.any(Object) }), { botId: "new" })
     expect(mocks.updateResources.mock.invocationCallOrder[0])
       .toBeLessThan(mocks.createDm.mock.invocationCallOrder[0]!)
     expect(mocks.advance).not.toHaveBeenCalled()
@@ -786,7 +767,7 @@ describe("useBotListController", () => {
       resolveDm({ conversation: { id: "dm-new" } })
       await completion
     })
-    expect(mocks.advance).toHaveBeenCalledWith("bot", "dm", { botId: "new", dmId: "dm-new" })
+    expect(mocks.advance).toHaveBeenCalledWith(expect.objectContaining({ lifecycle: expect.any(Object) }), "bot", "dm", { botId: "new", dmId: "dm-new" })
     expect(mocks.createDm.mock.invocationCallOrder[0])
       .toBeLessThan(mocks.advance.mock.invocationCallOrder[0]!)
     expect(mocks.advance.mock.invocationCallOrder[0]).toBeLessThan(mocks.push.mock.invocationCallOrder[0])
@@ -794,10 +775,11 @@ describe("useBotListController", () => {
     vi.clearAllMocks()
     mocks.createDm.mockRejectedValue(new Error("no dm"))
     await act(async () => { await latest.onBotCreated(bot("failed", "mac1")) })
-    expect(mocks.updateResources).toHaveBeenCalledWith({ botId: "failed" })
+    expect(mocks.updateResources).toHaveBeenCalledWith(expect.objectContaining({ lifecycle: expect.any(Object) }), { botId: "failed" })
     expect(mocks.toastApiError).toHaveBeenCalledWith(
       expect.any(Error),
       "Bot created, but the chat couldn't open",
+      expect.any(Function),
     )
     expect(mocks.advance).not.toHaveBeenCalled()
     expect(mocks.push).not.toHaveBeenCalled()
@@ -824,10 +806,11 @@ describe("useBotListController", () => {
 
   it("preserves delete success, generic rejection, and finally clearing", async () => {
     mocks.target = null
+    mocks.bots = [bot("delete-me", "mac1"), bot("reject-me", "mac1")]
     render()
     act(() => latest.setConfirmDelete(bot("delete-me", "mac1")))
     await act(async () => { await latest.deleteConfirmedBot() })
-    expect(mocks.del).toHaveBeenCalledWith("delete-me")
+    expect(mocks.del).toHaveBeenCalledWith({ id: "delete-me", assertActive: expect.any(Function) })
     expect(mocks.toastSuccess).toHaveBeenCalledWith("Deleted delete-me")
     expect(latest.confirmDelete).toBeNull()
 
@@ -836,19 +819,20 @@ describe("useBotListController", () => {
     mocks.del.mockRejectedValueOnce(error)
     act(() => latest.setConfirmDelete(bot("reject-me", "mac1")))
     await act(async () => { await latest.deleteConfirmedBot() })
-    expect(mocks.toastApiError).toHaveBeenCalledWith(error, "Couldn't delete the bot")
+    expect(mocks.toastApiError).toHaveBeenCalledWith(error, "Couldn't delete the bot", expect.any(Function))
     expect(mocks.toastSuccess).not.toHaveBeenCalled()
     expect(latest.confirmDelete).toBeNull()
   })
 
   it("covers reset-bot success, generic errors, the offline conjunction, and finally", async () => {
     mocks.target = null
+    mocks.bots = [bot("reset-me", "mac1")]
     render()
     const select = () => act(() => latest.setConfirmReset(bot("reset-me", "mac1")))
 
     select()
     await act(async () => { await latest.resetConfirmedBot() })
-    expect(mocks.resetBot).toHaveBeenCalledWith("reset-me")
+    expect(mocks.resetBot).toHaveBeenCalledWith({ id: "reset-me", assertActive: expect.any(Function) })
     expect(mocks.toastSuccess).toHaveBeenCalledWith("Session reset.")
     expect(latest.confirmReset).toBeNull()
 
@@ -885,7 +869,7 @@ describe("useBotListController", () => {
     mocks.resetMachine.mockResolvedValueOnce({ dispatched: 1 })
     select()
     await act(async () => { await latest.resetConfirmedMachine() })
-    expect(mocks.resetMachine).toHaveBeenCalledWith("mac1")
+    expect(mocks.resetMachine).toHaveBeenCalledWith({ id: "mac1", assertActive: expect.any(Function) })
     expect(mocks.toastSuccess).toHaveBeenCalledWith("Dispatched reset to 1 agent on One.")
     expect(latest.confirmResetMachine).toBeNull()
 

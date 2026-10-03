@@ -1,46 +1,27 @@
-"use client";
+"use client"
 
+import { isAbortError } from "@/lib/errors"
+import { publishWorkspaceChatEvent } from "@/lib/workspace-chat-events"
+import { captureQueryReceipt, withQueryReceipt, reconcileQueryReceipt } from "@/lib/query-receipt"
+import { publishWorkspaceIssueEvent } from "@/lib/workspace-issue-events"
+
+import { useMemo, type ReactNode } from "react"
+import { createStore, createStoreContext, useSelector } from "@tanstack/react-store"
+import { queryOptions, useMutation, useQueries, useQuery } from "@tanstack/react-query"
 import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  useCallback,
-  useRef,
-  type ReactNode,
-} from "react";
-import {
-  listAgents,
-  listRuntimes,
-  createAgent,
-  updateAgent,
-  deleteAgent,
-  createMachineToken,
-  deleteMachine,
-  listAgentActiveTaskCounts,
-  listWorkspaceActiveTasks,
-  listAgentPins,
-  listAgentLinks,
-  pinAgent as pinAgentApi,
-  unpinAgent as unpinAgentApi,
-  reorderAgentPins,
-  reorderUnpinnedAgents,
-  type WorkspaceActiveTask,
-} from "@/lib/api";
-import type { AgentRuntime as Runtime } from "@alook/shared";
-import { toast } from "sonner";
-import type {
-  Agent,
-  AgentLink,
-  CreateAgentRequest,
-  UpdateAgentRequest,
-  WsMessage,
-} from "@alook/shared";
-import { useUserWs } from "@/lib/use-user-ws";
+  listAgents, listRuntimes, createAgent, updateAgent, deleteAgent,
+  createMachineToken, deleteMachine, listWorkspaceActiveTasks,
+  listAgentActiveTaskCounts, listAgentPins, listAgentLinks, pinAgent as pinAgentApi, unpinAgent as unpinAgentApi,
+  reorderAgentPins, reorderUnpinnedAgents, type WorkspaceActiveTask,
+} from "@/lib/api"
+import type { AgentRuntime as Runtime, Agent, AgentLink, CreateAgentRequest, UpdateAgentRequest, WsMessage } from "@alook/shared"
+import { useUserWs } from "@/lib/use-user-ws"
+import { toast } from "sonner"
+import { assertWorkspaceOwner, captureWorkspaceOwner, workspaceRequestOptions, useWorkspaceOwner, runWorkspaceRequest, type WorkspaceOwner } from "./workspace-context"
 
+import type { ApiRequestOptions } from "@/lib/api/client"
 
-type WsSubscriber = (msg: WsMessage) => void;
-
+type WsSubscriber = (message: WsMessage) => void
 interface AgentContextValue {
   workspaceId: string;
   agents: Agent[];
@@ -69,393 +50,257 @@ interface AgentContextValue {
   patchAgent: (id: string, fields: Partial<Agent>) => void;
 }
 
-const AgentContext = createContext<AgentContextValue | null>(null);
 
-export function useAgentContext() {
-  const ctx = useContext(AgentContext);
-  if (!ctx) throw new Error("useAgentContext must be used within AgentProvider");
-  return ctx;
+function agentQueries(workspace: WorkspaceOwner) {
+  const options = <T,>(resource: string, load: (options: ApiRequestOptions) => Promise<T>, extra = {}) => queryOptions({
+    queryKey: workspace.key(resource),
+    structuralSharing: reconcileQueryReceipt,
+    queryFn: async ({ signal }) => { const receipt = captureQueryReceipt(workspace.queryClient, workspace.key(resource)); const data = await runWorkspaceRequest(workspace, load, signal); return data && typeof data === "object" ? withQueryReceipt(data, receipt) : data },
+    ...extra,
+  })
+  return {
+    agents: options("agents", (options) => listAgents(workspace.workspaceId, options)),
+    runtimes: options("runtimes", (options) => listRuntimes(workspace.workspaceId, options), {
+      refetchInterval: 30_000, refetchIntervalInBackground: false, refetchOnWindowFocus: true,
+    }),
+    pins: options("agent-pins", (options) => listAgentPins(workspace.workspaceId, options)),
+    links: options("agent-links", (options) => listAgentLinks(workspace.workspaceId, options)),
+    counts: options("active-task-counts", (options) => listAgentActiveTaskCounts(workspace.workspaceId, options)),
+    tasks: options("active-tasks", (options) => listWorkspaceActiveTasks(workspace.workspaceId, options), {
+      refetchInterval: 15_000, refetchIntervalInBackground: false,
+    }),
+  }
 }
-
-export function useAgentContextSafe() {
-  return useContext(AgentContext);
+function createAgentOwner(workspace: WorkspaceOwner) {
+  const queries = agentQueries(workspace)
+  const subscribers = new Set<WsSubscriber>()
+  const reconnectSubscribers = new Set<() => void>()
+  return {
+    workspace, queries,
+    ui: createStore({ pendingNewAgent: null as AgentContextValue["pendingNewAgent"] }),
+    subscribeWs: (fn: WsSubscriber) => { subscribers.add(fn); return () => { subscribers.delete(fn) } },
+    subscribeReconnect: (fn: () => void) => { reconnectSubscribers.add(fn); return () => { reconnectSubscribers.delete(fn) } },
+    dispatch: (message: WsMessage) => { for (const subscriber of subscribers) subscriber(message) },
+    reconnect: () => { for (const subscriber of reconnectSubscribers) subscriber() },
+    reload: async () => {
+      const token = captureWorkspaceOwner(workspace)
+      assertWorkspaceOwner(token)
+      await Promise.all([queries.agents, queries.runtimes, queries.pins, queries.links].map(({ queryKey }) =>
+        workspace.queryClient.cancelQueries({ queryKey, exact: true }).then(() => {
+          assertWorkspaceOwner(token)
+          return workspace.queryClient.invalidateQueries({ queryKey, exact: true })
+        })))
+      assertWorkspaceOwner(token)
+    },
+  }
 }
+type AgentOwner = ReturnType<typeof createAgentOwner>
+const { StoreProvider, useStoreContext } = createStoreContext<{ owner: AgentOwner }>()
+const EMPTY_AGENTS: Agent[] = []
+const EMPTY_RUNTIMES: Runtime[] = []
+const EMPTY_LINKS: AgentLink[] = []
+const EMPTY_TASKS: WorkspaceActiveTask[] = []
 
-export function AgentProvider({
-  workspaceId,
-  children,
-}: {
-  workspaceId: string;
-  children: ReactNode;
-}) {
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [runtimes, setRuntimes] = useState<Runtime[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [activeTaskCounts, setActiveTaskCounts] = useState<Record<string, number>>({});
-  const [activeTaskDetails, setActiveTaskDetails] = useState<WorkspaceActiveTask[]>([]);
-  const hasActiveTasksRef = useRef(false);
-  const [agentLinks, setAgentLinks] = useState<AgentLink[]>([]);
-  const [pendingNewAgent, setPendingNewAgent] = useState<{ agentId: string; parentAgentId: string } | null>(null);
-  const clearPendingNewAgent = useCallback(() => setPendingNewAgent(null), []);
-  const [pins, setPins] = useState<Map<string, { created_at: string; position: number }>>(new Map());
-  const [unpinnedOrder, setUnpinnedOrder] = useState<Map<string, number>>(new Map());
-  const loadedRef = useRef(false);
-  const subscribersRef = useRef(new Set<WsSubscriber>());
-  const reconnectSubscribersRef = useRef(new Set<() => void>());
-  const taskCountsMountedRef = useRef(true);
-  const isReloadingRuntimesRef = useRef(false);
-  const runtimesDirtyRef = useRef(false);
-  const runtimesRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const subscribeWs = useCallback((fn: WsSubscriber) => {
-    subscribersRef.current.add(fn);
-    return () => { subscribersRef.current.delete(fn); };
-  }, []);
-
-  const subscribeReconnect = useCallback((fn: () => void) => {
-    reconnectSubscribersRef.current.add(fn);
-    return () => { reconnectSubscribersRef.current.delete(fn); };
-  }, []);
-
-  const isFetchingRef = useRef(false);
-
-  const fetchTaskCounts = useCallback(async () => {
-    if (isFetchingRef.current) return;
-    isFetchingRef.current = true;
-    try {
-      if (hasActiveTasksRef.current) {
-        const res = await listWorkspaceActiveTasks(workspaceId);
-        if (!taskCountsMountedRef.current) return;
-        setActiveTaskDetails(res.tasks);
-        const counts: Record<string, number> = {};
-        for (const t of res.tasks) {
-          counts[t.agent_id] = (counts[t.agent_id] ?? 0) + 1;
+export function useAgentContext({ poll = false }: { poll?: boolean } = {}): AgentContextValue {
+  const { owner } = useStoreContext()
+  const results = useQueries({ queries: [
+    owner.queries.agents, { ...owner.queries.runtimes, refetchInterval: poll ? 30_000 : false }, owner.queries.pins,
+    owner.queries.links, { ...owner.queries.counts, refetchInterval: () => {
+      if (!poll) return false
+      const details = owner.workspace.queryClient.getQueryState<Awaited<ReturnType<typeof listWorkspaceActiveTasks>>>(owner.queries.tasks.queryKey)
+      const counts = owner.workspace.queryClient.getQueryState(owner.queries.counts.queryKey)
+      return details && details.dataUpdatedAt >= (counts?.dataUpdatedAt ?? 0) && details.data?.tasks.length ? false : 15_000
+    } },
+  ] })
+  const cachedDetails = owner.workspace.queryClient.getQueryState<Awaited<ReturnType<typeof listWorkspaceActiveTasks>>>(owner.queries.tasks.queryKey)
+  const detailsAreLatest = (cachedDetails?.dataUpdatedAt ?? 0) >= results[4].dataUpdatedAt
+  const hasActiveTasks = detailsAreLatest
+    ? (cachedDetails?.data?.tasks.length ?? 0) > 0
+    : Object.values(results[4].data?.counts ?? {}).some((count) => count > 0)
+  const detailsQuery = useQuery({ ...owner.queries.tasks, enabled: hasActiveTasks, subscribed: hasActiveTasks, refetchInterval: poll && hasActiveTasks ? 15_000 : false })
+  const pendingNewAgent = useSelector(owner.ui, (state) => state.pendingNewAgent)
+  const workspace = owner.workspace
+  const mutation = useMutation({
+    mutationFn: async ({ operation, token }: { operation: (options: ApiRequestOptions) => Promise<unknown>; token: ReturnType<typeof captureWorkspaceOwner> }) => {
+      assertWorkspaceOwner(token)
+      try {
+        const result = await operation(workspaceRequestOptions(token))
+        assertWorkspaceOwner(token)
+        return result
+      } catch (error) { assertWorkspaceOwner(token); throw error }
+    },
+  })
+  const pinMutationKey = [...owner.queries.pins.queryKey, "change"]
+  type PinChange = { kind: "pin" | "unpin" | "reorder-pins" | "reorder-unpinned"; ids: string[]; token: ReturnType<typeof captureWorkspaceOwner> }
+  const pinMutation = useMutation({
+    mutationKey: pinMutationKey,
+    scope: { id: JSON.stringify(pinMutationKey) },
+    mutationFn: async (action: PinChange) => {
+      assertWorkspaceOwner(action.token)
+      const options = workspaceRequestOptions(action.token)
+      try {
+      if (action.kind === "pin") await pinAgentApi(workspace.workspaceId, action.ids[0], options)
+      else if (action.kind === "unpin") await unpinAgentApi(workspace.workspaceId, action.ids[0], options)
+      else if (action.kind === "reorder-pins") await reorderAgentPins(workspace.workspaceId, action.ids, options)
+      else await reorderUnpinnedAgents(workspace.workspaceId, action.ids, options)
+        assertWorkspaceOwner(action.token)
+      } catch (error) { assertWorkspaceOwner(action.token); throw error }
+    },
+    onMutate: async (action) => {
+      const token = action.token
+      const qc = workspace.queryClient
+      const key = owner.queries.pins.queryKey
+      await qc.cancelQueries({ queryKey: key, exact: true })
+      assertWorkspaceOwner(token)
+      const previous = qc.getQueryData(key)
+      qc.setQueryData(key, (data) => {
+        const current = data ?? { pins: [], sidebar_order: [] }
+        if (action.kind === "pin") {
+          if (current.pins.some((pin) => pin.agent_id === action.ids[0])) return current
+          const position = Math.max(-1, ...current.pins.map((pin) => pin.position)) + 1
+          return { ...current, pins: [...current.pins, { id: `pending:${action.ids[0]}`, agent_id: action.ids[0], created_at: new Date().toISOString(), position }] }
         }
-        setActiveTaskCounts(counts);
-        hasActiveTasksRef.current = res.tasks.length > 0;
-      } else {
-        const res = await listAgentActiveTaskCounts(workspaceId);
-        if (!taskCountsMountedRef.current) return;
-        setActiveTaskCounts(res.counts);
-        const hasAny = Object.values(res.counts).some((n) => n > 0);
-        if (hasAny) {
-          hasActiveTasksRef.current = true;
-          const detailed = await listWorkspaceActiveTasks(workspaceId);
-          if (taskCountsMountedRef.current) setActiveTaskDetails(detailed.tasks);
-        } else {
-          setActiveTaskDetails([]);
+        if (action.kind === "unpin") return { ...current, pins: current.pins.filter((pin) => pin.agent_id !== action.ids[0]) }
+        if (action.kind === "reorder-pins") return { ...current, pins: current.pins.map((pin) => action.ids.includes(pin.agent_id) ? { ...pin, position: action.ids.indexOf(pin.agent_id) } : pin) }
+        return { ...current, sidebar_order: action.ids.map((agent_id, position) => ({ agent_id, position })) }
+      })
+      return { token, previous, optimistic: qc.getQueryData(key), query: qc.getQueryCache().find({ queryKey: key, exact: true }) }
+    },
+    onError: (error, _action, context) => {
+      if (!context || isAbortError(error)) return
+      try { assertWorkspaceOwner(context.token) } catch { return }
+      if (context.query && workspace.queryClient.getQueryCache().find({ queryKey: owner.queries.pins.queryKey, exact: true }) === context.query && workspace.queryClient.getQueryData(owner.queries.pins.queryKey) === context.optimistic) {
+        workspace.queryClient.setQueryData(owner.queries.pins.queryKey, context.previous)
+      }
+    },
+    onSettled: (_data, _error, _action, context) => {
+      if (!context) return
+      try { assertWorkspaceOwner(context.token) } catch { return }
+      if (workspace.queryClient.isMutating({ mutationKey: pinMutationKey, exact: true }) === 1) {
+        return workspace.queryClient.invalidateQueries({ queryKey: owner.queries.pins.queryKey, exact: true })
+      }
+    },
+  })
+  const mutateOperation = mutation.mutateAsync, mutatePins = pinMutation.mutateAsync
+  const operations = useMemo(() => {
+    const { workspace: source, queries } = owner
+    const qc = source.queryClient
+    const invoke = async <T,>(operation: (options: ApiRequestOptions) => Promise<T>, fallback: string): Promise<T | null> => {
+      const token = captureWorkspaceOwner(source)
+      try {
+        assertWorkspaceOwner(token)
+        const result = await mutateOperation({ operation, token }) as T
+        assertWorkspaceOwner(token)
+        return result
+      }
+      catch (error) {
+        try { assertWorkspaceOwner(token) } catch { return null }
+        if (!(isAbortError(error))) {
+          toast.error(error instanceof Error ? error.message : fallback)
         }
+        return null
       }
-    } catch {
-      // ignore
-    } finally {
-      isFetchingRef.current = false;
     }
-  }, [workspaceId]);
-
-  useEffect(() => {
-    taskCountsMountedRef.current = true;
-    fetchTaskCounts();
-    const id = setInterval(fetchTaskCounts, 15000);
-    return () => {
-      taskCountsMountedRef.current = false;
-      clearInterval(id);
-    };
-  }, [fetchTaskCounts]);
-
-  const reload = useCallback(async () => {
-    try {
-      const [a, r, pinsData, links] = await Promise.all([
-        listAgents(workspaceId),
-        listRuntimes(workspaceId),
-        listAgentPins(workspaceId),
-        listAgentLinks(workspaceId),
-      ]);
-      setAgents(a);
-      setRuntimes(r);
-      setAgentLinks(links);
-      setPins(new Map(pinsData.pins.map((pin) => [pin.agent_id, { created_at: pin.created_at, position: pin.position }])));
-      setUnpinnedOrder(new Map(pinsData.sidebar_order.map((o) => [o.agent_id, o.position])));
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load data");
-    } finally {
-      setLoading(false);
-      loadedRef.current = true;
-    }
-  }, [workspaceId]);
-
-  const reloadRuntimes = useCallback(async () => {
-    if (isReloadingRuntimesRef.current) {
-      runtimesDirtyRef.current = true;
-      return;
-    }
-    isReloadingRuntimesRef.current = true;
-    try {
-      // Coalesce concurrent requests, but cap the passes so a storm of
-      // runtime.status frames can't hold the lock and re-fetch indefinitely.
-      let passes = 0;
-      do {
-        runtimesDirtyRef.current = false;
-        const r = await listRuntimes(workspaceId);
-        setRuntimes(r);
-      } while (runtimesDirtyRef.current && ++passes < 3);
-    } catch {
-      // Fetch failed; the triggering event would otherwise be dropped until the
-      // 30s poll. Schedule a short retry so the event isn't lost.
-      if (!runtimesRetryTimerRef.current) {
-        runtimesRetryTimerRef.current = setTimeout(() => {
-          runtimesRetryTimerRef.current = null;
-          reloadRuntimesRef.current();
-        }, 2000);
-      }
-    } finally {
-      isReloadingRuntimesRef.current = false;
-    }
-  }, [workspaceId]);
-
-  const reloadRuntimesRef = useRef(reloadRuntimes);
-  useEffect(() => {
-    /* eslint-disable-next-line react-hooks/immutability -- latest-ref for the retry timer */
-    reloadRuntimesRef.current = reloadRuntimes;
-  }, [reloadRuntimes]);
-
-  useEffect(() => {
-    reload();
-  }, [reload]);
-
-  // Periodic runtime polling (30s, visibility-aware)
-  useEffect(() => {
-    let jitterTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const intervalId = setInterval(() => {
-      if (document.visibilityState === "visible") {
-        reloadRuntimes();
-      }
-    }, 30_000);
-
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") {
-        const jitter = Math.random() * 2000;
-        jitterTimer = setTimeout(() => reloadRuntimes(), jitter);
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-
-    return () => {
-      clearInterval(intervalId);
-      if (jitterTimer) clearTimeout(jitterTimer);
-      if (runtimesRetryTimerRef.current) clearTimeout(runtimesRetryTimerRef.current);
-      document.removeEventListener("visibilitychange", handleVisibility);
-    };
-  }, [reloadRuntimes]);
-
-
-  // Listen for real-time WS events
-  const handleWsMessage = useCallback(
-    (msg: WsMessage) => {
-      // Dispatch to all subscribers so child components can react
-      for (const fn of subscribersRef.current) fn(msg);
-
-      // AgentProvider only reloads agents/runtimes for runtime events
-      switch (msg.type) {
-        case "runtime.registered":
-          if (msg.workspaceId !== workspaceId) break;
-          reload();
-          break;
-        case "runtime.deleted":
-          reload();
-          break;
-        case "runtime.status":
-          if (msg.workspaceId && msg.workspaceId !== workspaceId) break;
-          reloadRuntimes();
-          break;
-        case "agent.created":
-          if (msg.workspaceId !== workspaceId) break;
-          setPendingNewAgent({ agentId: msg.agentId, parentAgentId: msg.parentAgentId });
-          reload();
-          break;
-        case "task.updated":
-          fetchTaskCounts();
-          break;
-      }
-    },
-    [reload, reloadRuntimes, fetchTaskCounts, workspaceId]
-  );
-  const handleReconnect = useCallback(() => {
-    reloadRuntimes();
-    for (const fn of reconnectSubscribersRef.current) fn();
-  }, [reloadRuntimes]);
-  useUserWs(handleWsMessage, { onReconnect: handleReconnect });
-
-  const handleCreateAgent = useCallback(
-    async (req: CreateAgentRequest): Promise<Agent | null> => {
+    const change = async (operation: (options: ApiRequestOptions) => Promise<unknown>, fallback: string) => {
+      const token = captureWorkspaceOwner(source)
+      const result = await invoke(operation, fallback)
+      if (result === null) return false
       try {
-        const agent = await createAgent(req, workspaceId);
-        await reload();
-        return agent;
-      } catch (err) {
-        toast.error(
-          err instanceof Error ? err.message : "Failed to create agent"
-        );
-        return null;
+        assertWorkspaceOwner(token)
+        await owner.reload()
+        assertWorkspaceOwner(token)
+      } catch (error) { if (isAbortError(error)) return false; throw error }
+      return true
+    }
+    const changePins = async (kind: PinChange["kind"], ids: string[], fallback: string) => {
+      const token = captureWorkspaceOwner(source)
+      try { assertWorkspaceOwner(token); await mutatePins({ kind, ids, token }); assertWorkspaceOwner(token) }
+      catch (error) {
+        try { assertWorkspaceOwner(token) } catch { return }
+        if (!(isAbortError(error))) toast.error(fallback)
       }
-    },
-    [reload, workspaceId]
-  );
-
-  const handleUpdateAgent = useCallback(
-    async (id: string, req: UpdateAgentRequest): Promise<boolean> => {
-      try {
-        await updateAgent(id, req, workspaceId);
-        await reload();
-        return true;
-      } catch (err) {
-        toast.error(
-          err instanceof Error ? err.message : "Failed to update agent"
-        );
-        return false;
-      }
-    },
-    [reload, workspaceId]
-  );
-
-  const handleDeleteAgent = useCallback(
-    async (id: string): Promise<boolean> => {
-      try {
-        await deleteAgent(id, workspaceId);
-        await reload();
-        return true;
-      } catch (err) {
-        toast.error(
-          err instanceof Error ? err.message : "Failed to remove agent"
-        );
-        return false;
-      }
-    },
-    [reload, workspaceId]
-  );
-
-  const handlePinAgent = useCallback(async (agentId: string) => {
-    setPins((prev) => {
-      const maxPos = Math.max(-1, ...[...prev.values()].map((v) => v.position));
-      return new Map(prev).set(agentId, { created_at: new Date().toISOString(), position: maxPos + 1 });
-    });
-    try {
-      await pinAgentApi(workspaceId, agentId);
-    } catch {
-      setPins((prev) => { const next = new Map(prev); next.delete(agentId); return next; });
-      toast.error("Failed to pin agent");
     }
-  }, [workspaceId]);
-
-  const handleUnpinAgent = useCallback(async (agentId: string) => {
-    let savedValue: { created_at: string; position: number } | undefined;
-    setPins((prev) => { savedValue = prev.get(agentId); const next = new Map(prev); next.delete(agentId); return next; });
-    try {
-      await unpinAgentApi(workspaceId, agentId);
-    } catch {
-      if (savedValue !== undefined) setPins((prev) => new Map(prev).set(agentId, savedValue!));
-      toast.error("Failed to unpin agent");
+    return {
+      clearPendingNewAgent: () => owner.ui.setState((state) => state.pendingNewAgent ? { pendingNewAgent: null } : state),
+      reload: owner.reload,
+      subscribeWs: owner.subscribeWs,
+      subscribeReconnect: owner.subscribeReconnect,
+      handleCreateAgent: async (request: CreateAgentRequest) => {
+        const token = captureWorkspaceOwner(source)
+        const agent = await invoke((options) => createAgent(request, source.workspaceId, options), "Failed to create agent")
+        if (agent) {
+          try { assertWorkspaceOwner(token); await owner.reload(); assertWorkspaceOwner(token) }
+          catch (error) { if (isAbortError(error)) return null; throw error }
+        }
+        return agent
+      },
+      handleUpdateAgent: (id: string, request: UpdateAgentRequest) =>
+        change((options) => updateAgent(id, request, source.workspaceId, options), "Failed to update agent"),
+      handleDeleteAgent: (id: string) =>
+        change(async (options) => { await deleteAgent(id, source.workspaceId, options); return true }, "Failed to remove agent"),
+      handleDeleteMachine: (id: string) =>
+        change(async (options) => { await deleteMachine(id, source.workspaceId, options); return true }, "Failed to remove machine"),
+      handleGenerateToken: () => invoke((options) => createMachineToken("cli", source.workspaceId, options).then((data) => data.token), "Failed to generate token"),
+      handlePinAgent: (id: string) => changePins("pin", [id], "Failed to pin agent"),
+      handleUnpinAgent: (id: string) => changePins("unpin", [id], "Failed to unpin agent"),
+      handleReorderPins: (ids: string[]) => changePins("reorder-pins", ids, "Failed to reorder pins"),
+      handleReorderUnpinned: (ids: string[]) => changePins("reorder-unpinned", ids, "Failed to reorder agents"),
+      getFirstOnlineRuntimeId: () => qc.getQueryData(queries.runtimes.queryKey)?.find((runtime) => runtime.status === "online")?.id ?? "",
+      patchAgent: (id: string, fields: Partial<Agent>) => {
+        if (!source.lifecycle.get().active || !source.application.lifecycle.get().active) return
+        void qc.cancelQueries({ queryKey: queries.agents.queryKey, exact: true })
+        qc.setQueryData(queries.agents.queryKey, (current) => current?.map((agent) => agent.id === id ? { ...agent, ...fields } : agent))
+      },
     }
-  }, [workspaceId]);
-
-  const handleReorderPins = useCallback(async (orderedAgentIds: string[]) => {
-    const prev = new Map(pins);
-    setPins((current) => {
-      const next = new Map(current);
-      orderedAgentIds.forEach((id, i) => {
-        const existing = next.get(id);
-        if (existing) next.set(id, { ...existing, position: i });
-      });
-      return next;
-    });
-    try {
-      await reorderAgentPins(workspaceId, orderedAgentIds);
-    } catch {
-      setPins(prev);
-      toast.error("Failed to reorder pins");
+  }, [owner, mutateOperation, mutatePins])
+  const agents = (results[0]?.data as Agent[] | undefined) ?? EMPTY_AGENTS
+    const runtimes = (results[1]?.data as Runtime[] | undefined) ?? EMPTY_RUNTIMES
+    const pinData = results[2]?.data as Awaited<ReturnType<typeof listAgentPins>> | undefined
+    const agentLinks = (results[3]?.data as AgentLink[] | undefined) ?? EMPTY_LINKS
+    const tasks = detailsQuery.data
+    const activeTaskDetails = tasks?.tasks ?? EMPTY_TASKS
+    const activeTaskCounts = useMemo(() => {
+      if (results[4].dataUpdatedAt > detailsQuery.dataUpdatedAt) return results[4].data?.counts ?? {}
+      const counts: Record<string, number> = {}
+      for (const task of activeTaskDetails) counts[task.agent_id] = (counts[task.agent_id] ?? 0) + 1
+      return counts
+    }, [activeTaskDetails, detailsQuery.dataUpdatedAt, results])
+    const pins = useMemo(() => new Map(pinData?.pins.map((pin) => [pin.agent_id, { created_at: pin.created_at, position: pin.position }])), [pinData])
+    const unpinnedOrder = useMemo(() => new Map(pinData?.sidebar_order.map((entry) => [entry.agent_id, entry.position])), [pinData])
+    const loading = results.slice(0, 4).some((result) => result.isPending)
+    return useMemo(() => ({
+      ...operations, workspaceId: owner.workspace.workspaceId, agents, runtimes,
+      agentLinks, activeTaskCounts, activeTaskDetails, pendingNewAgent,
+      loading, pins, unpinnedOrder,
+    }), [owner, operations, agents, runtimes, agentLinks, activeTaskCounts, activeTaskDetails, pendingNewAgent, loading, pins, unpinnedOrder])
+}
+function AgentBootstrap({ owner }: { owner: AgentOwner }) {
+  useAgentContext({ poll: true })
+  useUserWs((message) => {
+    const { workspace } = owner
+    if (!workspace.lifecycle.get().active || !workspace.application.lifecycle.get().active) return
+    if ("workspaceId" in message && message.workspaceId && message.workspaceId !== workspace.workspaceId) return
+    publishWorkspaceChatEvent(workspace, message)
+    publishWorkspaceIssueEvent(workspace, message)
+    owner.dispatch(message)
+    switch (message.type) {
+      case "runtime.registered": case "runtime.deleted": void owner.reload(); break
+      case "runtime.status":
+        void workspace.queryClient.cancelQueries({ queryKey: owner.queries.runtimes.queryKey, exact: true }).then(() => workspace.queryClient.invalidateQueries({ queryKey: owner.queries.runtimes.queryKey, exact: true })); break
+      case "agent.created":
+        owner.ui.setState(() => ({ pendingNewAgent: { agentId: message.agentId, parentAgentId: message.parentAgentId } }))
+        void owner.reload(); break
+      case "task.updated":
+        const details = workspace.queryClient.getQueryData(owner.queries.tasks.queryKey)
+        void workspace.queryClient.invalidateQueries({ queryKey: details?.tasks.length ? owner.queries.tasks.queryKey : owner.queries.counts.queryKey, exact: true }); break
     }
-  }, [workspaceId, pins]);
-
-  const handleReorderUnpinned = useCallback(async (orderedAgentIds: string[]) => {
-    const prev = new Map(unpinnedOrder);
-    setUnpinnedOrder(new Map(orderedAgentIds.map((id, i) => [id, i])));
-    try {
-      await reorderUnpinnedAgents(workspaceId, orderedAgentIds);
-    } catch {
-      setUnpinnedOrder(prev);
-      toast.error("Failed to reorder agents");
-    }
-  }, [workspaceId, unpinnedOrder]);
-
-  const getFirstOnlineRuntimeId = useCallback(() => {
-    const first = runtimes.find((r) => r.status === "online");
-    return first?.id ?? "";
-  }, [runtimes]);
-
-  const handleGenerateToken = useCallback(async (): Promise<string | null> => {
-    try {
-      const res = await createMachineToken("cli", workspaceId);
-      return res.token;
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to generate token"
-      );
-      return null;
-    }
-  }, [workspaceId]);
-
-  const handleDeleteMachine = useCallback(
-    async (daemonId: string): Promise<boolean> => {
-      try {
-        await deleteMachine(daemonId, workspaceId);
-        await reload();
-        return true;
-      } catch (err) {
-        toast.error(
-          err instanceof Error ? err.message : "Failed to remove machine"
-        );
-        return false;
-      }
-    },
-    [reload, workspaceId]
-  );
-
-  const patchAgent = useCallback((id: string, fields: Partial<Agent>) => {
-    setAgents((prev) => prev.map((a) => (a.id === id ? { ...a, ...fields } : a)));
-  }, []);
-
-  return (
-    <AgentContext.Provider
-      value={{
-        workspaceId,
-        agents,
-        agentLinks,
-        runtimes,
-        loading,
-        activeTaskCounts,
-        activeTaskDetails,
-        pendingNewAgent,
-        clearPendingNewAgent,
-        pins,
-        reload,
-        subscribeWs,
-        subscribeReconnect,
-        handleCreateAgent,
-        handleUpdateAgent,
-        handleDeleteAgent,
-        handlePinAgent,
-        handleUnpinAgent,
-        handleReorderPins,
-        unpinnedOrder,
-        handleReorderUnpinned,
-        getFirstOnlineRuntimeId,
-        handleGenerateToken,
-        handleDeleteMachine,
-        patchAgent,
-      }}
-    >
-      {children}
-    </AgentContext.Provider>
-  );
+  }, { onReconnect: () => { void owner.reload(); owner.reconnect() } })
+  return null
+}
+export function AgentProvider({ workspaceId, children }: { workspaceId: string; children: ReactNode }) {
+  const workspace = useWorkspaceOwner()
+  const owner = useMemo(() => createAgentOwner(workspace), [workspace])
+  const handles = useMemo(() => ({ owner }), [owner])
+  if (workspace.workspaceId !== workspaceId) throw new Error("Agent workspace owner mismatch")
+  return <StoreProvider value={handles}><AgentBootstrap owner={owner} />{children}</StoreProvider>
 }

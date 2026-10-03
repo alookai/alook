@@ -1,11 +1,15 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useCommunityRuntime } from "@/stores/community/runtime"
+
+
+import { useCallback, useEffect, useMemo, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { isForum as isForumType } from "@alook/shared"
 import { useServer } from "./use-servers"
-import { useCommunityStore } from "@/stores/community"
+
 import { toastApiError } from "@/lib/api/client"
 import { ApiError } from "@/lib/errors"
 import { useCommunityWsStore } from "@/stores/community/ws"
@@ -70,6 +74,7 @@ export function useChannelRouteModel(
 ) {
   const router = useRouter()
   const queryClient = useQueryClient()
+  const runtime = useCommunityRuntime()
   const communityDb = useOptionalCommunityDbRegistry()
   const { server } = useServer(serverId)
   const dbChannel = useRouteChannelProjection(channelId)
@@ -87,26 +92,39 @@ export function useChannelRouteModel(
         activityAt: metaQuery.data.lastMessageAt ?? metaQuery.data.createdAt }
     : null, [isChild, metaQuery.data, metaQuery.isVerified, serverId])
   const retryScope = JSON.stringify([accountId, serverId, channelId, accessEpoch])
+  const exitScope = JSON.stringify([accountId, serverId, channelId])
+  const [exitedMetadata, setExitedMetadata] = useAtom(useCreateAtom<{ owner: typeof communityDb; scope: string } | null>(null))
+  const freshMetadata = metaQuery.isVerified && !metaQuery.data?.archived
+    && !isDefinitiveChildMetaFailure(metaQuery.error)
+    && !(metaQuery.error instanceof ApiError && metaQuery.error.status === 401)
+  const metadataExited = exitedMetadata?.owner === communityDb && exitedMetadata?.scope === exitScope
+    && !freshMetadata
+  useEffect(() => {
+    if (freshMetadata && exitedMetadata?.owner === communityDb && exitedMetadata.scope === exitScope) {
+      setExitedMetadata(null)
+    }
+  }, [communityDb, exitScope, exitedMetadata, freshMetadata, setExitedMetadata])
   const retryAttemptRef = useRef<{ scope: string } | null>(null)
-  const [retryAttempt, setRetryAttempt] = useState<{ scope: string } | null>(null)
+  const [retryAttempt, setRetryAttempt] = useAtom(useCreateAtom<{ scope: string } | null>(null))
   const retryingMetadata = retryAttempt?.scope === retryScope
-  const metadataExit = isDefinitiveChildMetaFailure(metaQuery.error)
+  const metadataExit = metadataExited || isDefinitiveChildMetaFailure(metaQuery.error)
     || (metaQuery.error instanceof ApiError && metaQuery.error.status === 401)
     || !!metaQuery.data?.archived
   const metadataError = !metaQuery.isVerified && !metadataExit
     && (metaQuery.isError || retryingMetadata)
+  const { refetch: refetchMetadata, isFetching: fetchingMetadata } = metaQuery
   const retryMetadata = useCallback(async () => {
-    if (!metadataError || metaQuery.isFetching || retryAttemptRef.current?.scope === retryScope) return
+    if (!metadataError || fetchingMetadata || retryAttemptRef.current?.scope === retryScope) return
     const attempt = { scope: retryScope }
     retryAttemptRef.current = attempt
     setRetryAttempt(attempt)
     try {
-      await metaQuery.refetch({ cancelRefetch: false })
+      await refetchMetadata({ cancelRefetch: false })
     } finally {
       if (retryAttemptRef.current === attempt) retryAttemptRef.current = null
       setRetryAttempt((current) => current === attempt ? null : current)
     }
-  }, [metadataError, metaQuery, retryScope])
+  }, [metadataError, fetchingMetadata, refetchMetadata, retryScope, setRetryAttempt])
   const model = useMemo(
     () => buildChannelRouteModel(
       server,
@@ -141,26 +159,27 @@ export function useChannelRouteModel(
           ? "thread" as const
           : "unknown" as const
   useEffect(() => {
-    useCommunityStore.getState().setCurrentChannelId(channelId)
-    return () => { useCommunityStore.getState().setCurrentChannelId(null) }
-  }, [channelId])
+    runtime.ui.actions.setCurrentChannelId(channelId)
+    return () => { runtime.ui.actions.setCurrentChannelId(null) }
+  }, [channelId, runtime])
   useEffect(() => {
-    communityWsSubscribe({ channelId })
-    return () => communityWsUnsubscribe()
-  }, [channelId])
+    communityWsSubscribe(runtime, { channelId })
+    return () => communityWsUnsubscribe(runtime)
+  }, [channelId, runtime])
   useEffect(() => {
     const denied = isDefinitiveChildMetaFailure(metaQuery.error)
     if (!isChild && !denied && !metaQuery.data?.archived) {
-      useCommunityStore.getState().setCurrentChannelMeta(null)
       return
     }
     if (denied || metaQuery.data?.archived) {
-      const store = useCommunityStore.getState()
+      if (metadataExited) return
+      setExitedMetadata({ owner: communityDb, scope: exitScope })
+      const store = runtime.ui.get()
       const routeStillCurrent = store.currentChannelId === channelId
-      store.setCurrentChannelMeta(null)
+      if (communityDb) purgeCommunityChannel(communityDb, channelId)
+      if (!runtime.ws.actions.isChannelAccessRevoked(channelId, serverId)) runtime.ws.actions.revokeChannelAccess(serverId, channelId)
       removeForumSidebarUnreadChild(queryClient, serverId, channelId)
       removeForumSidebarThreadExact(queryClient, serverId, channelId)
-      if (communityDb) purgeCommunityChannel(communityDb, channelId)
       const lastChannel = getLastChannel(serverId)
       if (lastChannel === channelId) {
         clearLastChannel(serverId)
@@ -176,13 +195,10 @@ export function useChannelRouteModel(
         ? COMMUNITY_COLD_ENTRY_FALLBACK
         : `/c/channels/${serverParam}`
       router.replace(destination)
-    } else if (renderableChannelMeta) {
-      useCommunityStore.getState().setCurrentChannelMeta(renderableChannelMeta)
     } else if (metaQuery.error) {
-      useCommunityStore.getState().setCurrentChannelMeta(null)
       toastApiError(metaQuery.error, "Failed to load channel")
     }
-  }, [accountId, channelId, communityDb, isChild, metaQuery.data, metaQuery.error, metaQuery.isVerified, queryClient, renderableChannelMeta, router, serverId, serverParam])
+  }, [accountId, channelId, communityDb, isChild, metaQuery.data, metaQuery.error, metaQuery.isVerified, queryClient, renderableChannelMeta, router, runtime.ui, runtime.ws.actions, serverId, serverParam, metadataExited, exitScope, setExitedMetadata])
   return {
     ...model,
     routeHydrated: model.routeHydrated && metaQuery.isVerified,

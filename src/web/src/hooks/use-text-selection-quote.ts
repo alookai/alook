@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useCallback, useEffect } from "react";
 
 export type SelectionPopup = {
   text: string;
@@ -19,7 +20,7 @@ export type SelectionPopup = {
  * composer draft + focuses the editor) stays byte-identical.
  */
 export function useTextSelectionQuote() {
-  const [selectionPopup, setSelectionPopup] = useState<SelectionPopup>(null);
+  const [selectionPopup, setSelectionPopup] = useAtom(useCreateAtom<SelectionPopup>(null));
 
   const handleTextSelect = useCallback(() => {
     const selection = window.getSelection();
@@ -48,7 +49,7 @@ export function useTextSelectionQuote() {
     const rects = range.getClientRects();
     const lastRect = rects[rects.length - 1] || range.getBoundingClientRect();
     setSelectionPopup({ text, messageId, x: lastRect.right, y: lastRect.top - 4 });
-  }, []);
+  }, [setSelectionPopup]);
 
   useEffect(() => {
     document.addEventListener("selectionchange", handleTextSelect);

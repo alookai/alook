@@ -22,13 +22,13 @@ vi.mock("lucide-react", () => ({
 vi.mock("@/components/avatar", () => ({
   AgentAvatar: (props: unknown) => {
     mocks.avatar(props)
-    return React.createElement("avatar")
+    return React.createElement("mock-avatar")
   },
 }))
 vi.mock("@/components/provider-logo", () => ({
   ProviderLogo: (props: unknown) => {
     mocks.provider(props)
-    return React.createElement("provider")
+    return React.createElement("mock-provider")
   },
 }))
 vi.mock("./bot-token-usage-chart", () => ({
@@ -45,7 +45,7 @@ vi.mock("./bot-quota-summary", () => ({
 }))
 vi.mock("@/components/ui/card", () => ({
   Card: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>
-    React.createElement("card", props, children),
+    React.createElement("mock-card", props, children),
 }))
 vi.mock("@/components/ui/button", () => ({
   Button: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>
@@ -136,7 +136,7 @@ describe("renderBotMachineGroup", () => {
     )
     expect(withExactClass(renderer.container, "flex flex-col gap-1 px-1")).toHaveLength(1)
     expect(withExactClass(renderer.container, "flex flex-col gap-3")).toHaveLength(1)
-    expect(renderer.container.querySelector("card")).toHaveClass("flex", "flex-col", "gap-3", "p-4")
+    expect(renderer.container.querySelector("mock-card")).toHaveClass("flex", "flex-col", "gap-3", "p-4")
     expect(withExactClass(renderer.container,
       "flex items-start justify-between gap-3")).toHaveLength(1)
     expect(withExactClass(renderer.container,
@@ -367,7 +367,7 @@ describe("renderBotMachineGroup", () => {
     const expand = renderer.getByRole("button", { name: "Expand My Mac" })
     expect(expand).toHaveAttribute("aria-expanded", "false")
     expect(renderer.container.querySelectorAll("[hidden]")).toHaveLength(1)
-    expect(renderer.container.querySelectorAll("card")).toHaveLength(1)
+    expect(renderer.container.querySelectorAll("mock-card")).toHaveLength(1)
     fireEvent.click(expand)
     expect(expandedSet).toEqual(new Set())
     expect(expandedSet).not.toBe(collapsed)

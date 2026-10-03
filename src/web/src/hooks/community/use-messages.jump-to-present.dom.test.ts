@@ -1,10 +1,11 @@
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import React from "react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { QueryClient } from "@tanstack/react-query"
 import { act, render as renderDom } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
 import { useDmMessages, useMessages, type MessagesPage } from "./use-messages"
-import { useMessageStreamStore } from "@/stores/community/message-stream"
 import {
   createCommunityDbRegistry,
   registerCommunityDbRegistry,
@@ -117,15 +118,10 @@ function DmWindowCommitCapture({
   return null
 }
 
-function createClient(): QueryClient {
-  return new QueryClient({
-    defaultOptions: {
-      queries: {
-        refetchOnMount: false,
-        retry: false,
-      },
-    },
-  })
+async function createClient(): Promise<QueryClient> {
+  const { client } = await createCommunityQueryOwner()
+  client.setDefaultOptions({ queries: { refetchOnMount: false, retry: false } })
+  return client
 }
 
 function seedAnchor(
@@ -133,9 +129,12 @@ function seedAnchor(
   queryKey: readonly unknown[],
   anchorId: string,
 ): void {
+  ingestMessages(createCommunityDbRegistry(queryClient, "viewer"), String(queryKey.at(-2)), [
+    { id: anchorId, seq: 1, createdAt: "2026-08-09T00:00:00.000Z" },
+  ])
   queryClient.setQueryData(queryKey, {
     pages: [{
-      messages: [{ id: anchorId, seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
+      messages: [{ id: anchorId }],
       hasMoreOlder: false,
       hasMoreNewer: true,
       newerCursor: anchorId,
@@ -157,7 +156,7 @@ function render(
   queryClient: QueryClient,
   element: React.ReactElement,
 ): ReturnType<typeof renderDom> {
-  return renderDom(React.createElement(QueryClientProvider, { client: queryClient }, element))
+  return renderDom(React.createElement(QueryClientProvider, { client: queryClient, retainOwner: true }, element))
 }
 
 function update(
@@ -167,7 +166,7 @@ function update(
 ): void {
   act(() => {
     renderer.rerender(
-      React.createElement(QueryClientProvider, { client: queryClient }, element),
+      React.createElement(QueryClientProvider, { client: queryClient, retainOwner: true }, element),
     )
   })
 }
@@ -190,12 +189,12 @@ function deferred<T>() {
 
 beforeEach(() => {
   apiFetchMock.mockReset()
-  useMessageStreamStore.getState().resetAll()
+
 })
 
 describe("useMessages jumpToPresent", () => {
   it("uses canonical content only for the active transport window", async () => {
-    const queryClient = createClient()
+    const queryClient = await createClient()
     const registry = createCommunityDbRegistry(queryClient, "viewer")
     const disposeRegistry = registry.cleanup.bind(registry)
     await registry.preload()
@@ -215,7 +214,7 @@ describe("useMessages jumpToPresent", () => {
     ])
     queryClient.setQueryData(communityKeys.channelMessages("channel_window"), {
       pages: [{
-        messages: [message("m40", 40), message("m60", 60)],
+        messages: [{ id: "m40" }, { id: "m60" }],
         hasMoreOlder: false,
         hasMoreNewer: true,
         newerCursor: "m60",
@@ -245,7 +244,7 @@ describe("useMessages jumpToPresent", () => {
     const renderer = renderDom(
       React.createElement(
         QueryClientProvider,
-        { client: queryClient },
+        { client: queryClient, retainOwner: true },
         React.createElement(
           CommunityDbProvider,
           { registry },
@@ -274,7 +273,7 @@ describe("useMessages jumpToPresent", () => {
   it.each(["channel", "dm"] as const)(
     "does not let an aborted %s key switch rewrite committed transport-window ownership",
     async (kind) => {
-      const queryClient = createClient()
+      const queryClient = await createClient()
       const registry = createCommunityDbRegistry(queryClient, "viewer")
       const disposeRegistry = registry.cleanup.bind(registry)
       await registry.preload()
@@ -295,7 +294,7 @@ describe("useMessages jumpToPresent", () => {
         : communityKeys.dmMessages(scopeA)
       queryClient.setQueryData(queryKey, {
         pages: [{
-          messages: [visible],
+          messages: [{ id: visible.id }],
           hasMoreOlder: false,
           hasMoreNewer: false,
           latestSeq: 2,
@@ -307,7 +306,7 @@ describe("useMessages jumpToPresent", () => {
       const onCommit = (ids: string[]) => { committedIds = ids }
       const tree = (scopeId: string, suspend: boolean) => React.createElement(
         QueryClientProvider,
-        { client: queryClient },
+        { client: queryClient, retainOwner: true },
         React.createElement(
           CommunityDbProvider,
           { registry },
@@ -350,7 +349,7 @@ describe("useMessages jumpToPresent", () => {
   )
 
   it("resets once, fetches newest once, and keeps the old last-read anchor suppressed", async () => {
-    const queryClient = createClient()
+    const queryClient = await createClient()
     const queryKey = communityKeys.channelMessages("channel_1")
     seedAnchor(queryClient, queryKey, "anchor_1")
     apiFetchMock.mockResolvedValue(newestPage("latest_1"))
@@ -374,7 +373,7 @@ describe("useMessages jumpToPresent", () => {
     expect(apiFetchMock).toHaveBeenCalledTimes(1)
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/community/channels/channel_1/messages",
-      { signal: expect.any(AbortSignal) },
+      expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
     expect(latest.hasMoreNewer).toBe(false)
 
@@ -398,7 +397,7 @@ describe("useMessages jumpToPresent", () => {
   })
 
   it("gives resetQueries sole request ownership after a revalidated mount jumps to present", async () => {
-    const queryClient = createClient()
+    const queryClient = await createClient()
     const queryKey = communityKeys.channelMessages("channel_revalidated")
     seedAnchor(queryClient, queryKey, "anchor_revalidated")
     apiFetchMock.mockImplementation((url: string) => {
@@ -437,13 +436,13 @@ describe("useMessages jumpToPresent", () => {
     expect(apiFetchMock).toHaveBeenCalledTimes(1)
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/community/channels/channel_revalidated/messages",
-      { signal: expect.any(AbortSignal) },
+      expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
     renderer.unmount()
   })
 
   it("treats repeated clicks during one pending attempt as idempotent", async () => {
-    const queryClient = createClient()
+    const queryClient = await createClient()
     const queryKey = communityKeys.channelMessages("channel_pending")
     seedAnchor(queryClient, queryKey, "anchor_pending")
     const response = deferred<MessagesPage>()
@@ -472,7 +471,7 @@ describe("useMessages jumpToPresent", () => {
   })
 
   it("clears the override across A to B to A navigation", async () => {
-    const queryClient = createClient()
+    const queryClient = await createClient()
     seedAnchor(queryClient, communityKeys.channelMessages("channel_a"), "anchor_a")
     seedAnchor(queryClient, communityKeys.channelMessages("channel_b"), "anchor_b")
     apiFetchMock.mockImplementation((url: string) => {
@@ -533,7 +532,7 @@ describe("useMessages jumpToPresent", () => {
   })
 
   it("re-arms when the explicit jump target changes", async () => {
-    const queryClient = createClient()
+    const queryClient = await createClient()
     const queryKey = communityKeys.channelMessages("channel_target")
     seedAnchor(queryClient, queryKey, "target_a")
     apiFetchMock.mockImplementation((url: string) => {
@@ -578,12 +577,13 @@ describe("useMessages jumpToPresent", () => {
     await waitFor(() => latest.ids[0] === "target_b")
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/community/channels/channel_target/messages?anchor=target_b",
+      expect.objectContaining({ authenticationAccount: "viewer", signal: expect.any(AbortSignal) }),
     )
     renderer.unmount()
   })
 
   it("restores the anchored window after failure and lets the user retry", async () => {
-    const queryClient = createClient()
+    const queryClient = await createClient()
     const queryKey = communityKeys.channelMessages("channel_retry")
     seedAnchor(queryClient, queryKey, "anchor_retry")
     apiFetchMock
@@ -614,7 +614,7 @@ describe("useMessages jumpToPresent", () => {
 
 describe("useDmMessages jumpToPresent", () => {
   it("uses the same one-reset present override for DMs", async () => {
-    const queryClient = createClient()
+    const queryClient = await createClient()
     const queryKey = communityKeys.dmMessages("dm_1")
     seedAnchor(queryClient, queryKey, "dm_anchor")
     apiFetchMock.mockResolvedValue(newestPage("dm_latest"))
@@ -637,7 +637,7 @@ describe("useDmMessages jumpToPresent", () => {
     expect(apiFetchMock).toHaveBeenCalledTimes(1)
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/community/channels/dm_1/messages",
-      { signal: expect.any(AbortSignal) },
+      expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
 
     update(

@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useCallback } from "react";
 import { toAlookAddress } from "@alook/shared";
 import type { Agent } from "@alook/shared";
 import { Check, Copy } from "lucide-react";
@@ -24,7 +25,7 @@ export function AgentPreviewCard({
   variant = "default",
   isHovered,
 }: AgentPreviewCardProps) {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useAtom(useCreateAtom(false));
   const email = agent.email_handle ? toAlookAddress(agent.email_handle) : null;
   const isCompact = variant === "compact";
 
@@ -38,7 +39,7 @@ export function AgentPreviewCard({
     } catch {
       toast.error("Failed to copy email");
     }
-  }, [email]);
+  }, [email, setCopied]);
 
   if (isCompact) {
     return (

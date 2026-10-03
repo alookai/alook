@@ -157,6 +157,13 @@ export type MessagesPage = {
   cursor?: string
 }
 
+export type MessagesWindowPage = Omit<MessagesPage, "messages"> & { messages: Array<{ id: string; seq?: number }>; newestCursor?: string }
+
+export function messageWindowPage(page: MessagesPage): MessagesWindowPage {
+  const newest = [...page.messages].filter((message) => message.createdAt).sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? "") || a.id.localeCompare(b.id)).at(-1)
+  return { ...page, messages: page.messages.map((message) => ({ id: message.id, ...(message.seq === undefined ? {} : { seq: message.seq }) })), ...(newest?.createdAt ? { newestCursor: `${newest.createdAt}|${newest.id}` } : {}) }
+}
+
 // Discriminated pageParam. The queryFn dispatches on `mode` — the URL param
 // map is: newest → no param, older → cursor, newer/since → since, anchor →
 // anchor. Since also powers bounded reconnect catch-up without refetching

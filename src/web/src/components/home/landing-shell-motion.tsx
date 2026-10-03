@@ -1,5 +1,6 @@
 "use client"
 
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import {
   useEffect,
   useLayoutEffect,
@@ -10,6 +11,8 @@ import {
   type RefObject,
 } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { createCommunityDbRegistry } from "@/lib/community-db/collections"
+import { CommunityDbProvider } from "@/lib/community-db/projections"
 import {
   Activity,
   Check,
@@ -537,14 +540,14 @@ const PAIR_COMMAND =
   "npx --yes @alook/daemon@latest daemon start --machine-key cmk_demo"
 
 function useReducedMotion() {
-  const [reduced, setReduced] = useState(false)
+  const [reduced, setReduced] = useAtom(useCreateAtom(false))
   useEffect(() => {
     const query = window.matchMedia("(prefers-reduced-motion: reduce)")
     const sync = () => setReduced(query.matches)
     sync()
     query.addEventListener("change", sync)
     return () => query.removeEventListener("change", sync)
-  }, [])
+  }, [setReduced])
   return reduced
 }
 
@@ -553,12 +556,12 @@ function useTargetCursor(
   targetId: string | null,
   stageScale: number,
 ) {
-  const [cursor, setCursor] = useState({
+  const [cursor, setCursor] = useAtom(useCreateAtom({
     x: 0,
     y: 0,
     visible: false,
     targetId: null as string | null,
-  })
+  }))
 
   useLayoutEffect(() => {
     const camera = cameraRef.current
@@ -613,18 +616,18 @@ function useTargetCursor(
       observer.disconnect()
       camera.removeEventListener("scroll", sync, true)
     }
-  }, [cameraRef, stageScale, targetId])
+  }, [cameraRef, setCursor, stageScale, targetId])
 
   return cursor
 }
 
 function useVisualFocus(scene: LandingScene, focus: string | null) {
-  const [visualFocus, setVisualFocus] = useState<string | null>(null)
+  const [visualFocus, setVisualFocus] = useAtom(useCreateAtom<string | null>(null))
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => setVisualFocus(focus))
     return () => window.cancelAnimationFrame(frame)
-  }, [focus, scene])
+  }, [focus, scene, setVisualFocus])
 
   return visualFocus
 }
@@ -640,7 +643,7 @@ export function LandingShellMotion({
   overviewDetails?: boolean
   beat?: number
 }) {
-  const [localBeat, setLocalBeat] = useState(0)
+  const [localBeat, setLocalBeat] = useAtom(useCreateAtom(0))
   const {
     targetRef: playbackRef,
     isPlaying,
@@ -648,11 +651,13 @@ export function LandingShellMotion({
   } = useLandingMotionPlayback<HTMLDivElement>()
   const stageRef = useRef<HTMLDivElement>(null)
   const cameraRef = useRef<HTMLDivElement>(null)
-  const [stageScale, setStageScale] = useState(1)
+  const [stageScale, setStageScale] = useAtom(useCreateAtom(1))
   const reducedMotion = useReducedMotion()
   const [queryClient] = useState(
     () => new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } }),
   )
+  const [registry] = useState(() => createCommunityDbRegistry(queryClient, null))
+  useEffect(() => () => { void registry.cleanup().finally(() => queryClient.clear()) }, [registry, queryClient])
   const maxBeat = SCENE_MAX_BEAT[scene]
   const beat = controlledBeat ?? localBeat
 
@@ -660,13 +665,13 @@ export function LandingShellMotion({
     if (controlledBeat === undefined) {
       setLocalBeat(reducedMotion ? maxBeat : 0)
     }
-  }, [controlledBeat, scene, maxBeat, reducedMotion])
+  }, [controlledBeat, scene, maxBeat, reducedMotion, setLocalBeat])
 
   useEffect(() => {
     if (controlledBeat === undefined && !reducedMotion && shouldReset) {
       setLocalBeat(0)
     }
-  }, [controlledBeat, reducedMotion, shouldReset])
+  }, [controlledBeat, reducedMotion, setLocalBeat, shouldReset])
 
   useEffect(() => {
     if (controlledBeat !== undefined || reducedMotion || !isPlaying) return
@@ -675,7 +680,7 @@ export function LandingShellMotion({
       setLocalBeat((current) => (current >= maxBeat ? 0 : current + 1))
     }, delay)
     return () => window.clearTimeout(timer)
-  }, [beat, controlledBeat, isPlaying, maxBeat, reducedMotion])
+  }, [beat, controlledBeat, isPlaying, maxBeat, reducedMotion, setLocalBeat])
 
   useEffect(() => {
     const stage = stageRef.current
@@ -685,7 +690,7 @@ export function LandingShellMotion({
     const observer = new ResizeObserver(sync)
     observer.observe(stage)
     return () => observer.disconnect()
-  }, [])
+  }, [setStageScale])
 
   const snapshot = sceneSnapshot(scene, beat)
   const visualFocus = useVisualFocus(scene, snapshot.focus)
@@ -730,12 +735,14 @@ export function LandingShellMotion({
           >
             <CommunityPreviewProfileOwner profiles={LANDING_PREVIEW_PROFILES}>
               <QueryClientProvider client={queryClient}>
+                <CommunityDbProvider registry={registry}>
                 <PrototypeShell
                   scene={scene}
                   snapshot={visualSnapshot}
                   machineIntroDescription={machineIntroDescription}
                   overviewDetails={overviewDetails}
                 />
+                </CommunityDbProvider>
               </QueryClientProvider>
             </CommunityPreviewProfileOwner>
             <MousePointer2
@@ -757,10 +764,12 @@ export function LandingShellMotion({
 export function LandingMobileChatMotion({ beat }: { beat: number }) {
   const snapshot = sceneSnapshot("server", beat)
   const stageRef = useRef<HTMLDivElement>(null)
-  const [stageScale, setStageScale] = useState(1)
+  const [stageScale, setStageScale] = useAtom(useCreateAtom(1))
   const [queryClient] = useState(
     () => new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } }),
   )
+  const [registry] = useState(() => createCommunityDbRegistry(queryClient, null))
+  useEffect(() => () => { void registry.cleanup().finally(() => queryClient.clear()) }, [registry, queryClient])
 
   useEffect(() => {
     const stage = stageRef.current
@@ -770,7 +779,7 @@ export function LandingMobileChatMotion({ beat }: { beat: number }) {
     const observer = new ResizeObserver(sync)
     observer.observe(stage)
     return () => observer.disconnect()
-  }, [])
+  }, [setStageScale])
 
   return (
     <div
@@ -790,6 +799,7 @@ export function LandingMobileChatMotion({ beat }: { beat: number }) {
         </div>
         <CommunityPreviewProfileOwner profiles={LANDING_PREVIEW_PROFILES}>
           <QueryClientProvider client={queryClient}>
+            <CommunityDbProvider registry={registry}>
             <div className={styles.mobileSurface}>
               <ChannelHeader
                 channel="general"
@@ -823,6 +833,7 @@ export function LandingMobileChatMotion({ beat }: { beat: number }) {
                 />
               </div>
             </div>
+            </CommunityDbProvider>
           </QueryClientProvider>
         </CommunityPreviewProfileOwner>
       </div>

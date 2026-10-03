@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect, useRef } from "react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
@@ -253,7 +254,7 @@ function FeaturePanel({ feature, reversed }: { feature: Feature; reversed: boole
 }
 
 function FlipCard({ feature }: { feature: Feature }) {
-  const [flipped, setFlipped] = useState(false);
+  const [flipped, setFlipped] = useAtom(useCreateAtom(false));
 
   return (
     <div

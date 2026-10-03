@@ -1,4 +1,8 @@
 import userEvent from "@testing-library/user-event"
+import { act as notifyAct } from "@testing-library/react"
+import { notifyManager } from "@tanstack/react-query"
+
+notifyManager.setNotifyFunction((notify) => { notifyAct(() => { notify() }) })
 
 export {
   act,

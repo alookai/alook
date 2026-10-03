@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import React from "react"
-import { act, fireEvent, render } from "@/test/react-dom-harness"
+import { act, fireEvent } from "@/test/react-dom-harness"
+import { renderCommunity as render } from "@/test/community-owner-harness"
 
 const useMessageMock = vi.fn()
 vi.mock("@/hooks/community/use-message", () => ({
   useMessage: (...args: unknown[]) => useMessageMock(...args),
 }))
-vi.mock("@/lib/community-db/projections", () => ({
+vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
   useCanonicalCommunityProfile: (userId?: string) => userId
     ? { id: userId, name: "Alice", avatar: "A" }
     : undefined,
@@ -245,7 +246,7 @@ describe("ThreadOpener image attachment layout", () => {
     expect(renderer!.container.querySelectorAll("video")).toHaveLength(0)
   })
 
-  it("uses the shared mobile avatar long press without leaking cancelled clicks to profile", () => {
+  it("uses the shared mobile avatar long press without leaking cancelled clicks to profile", async () => {
     vi.useFakeTimers()
     vi.stubGlobal("navigator", { vibrate: vi.fn() })
     useMessageMock.mockReturnValue({
@@ -293,6 +294,7 @@ describe("ThreadOpener image attachment layout", () => {
     fireEvent.click(avatar)
     expect(onOpenProfile).toHaveBeenCalledOnce()
     act(() => renderer!.unmount())
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(vi.getTimerCount()).toBe(0)
   })
 })

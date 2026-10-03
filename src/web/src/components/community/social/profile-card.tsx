@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect } from "react"
 import { Bot, MessagesSquare, Shield, UserRound } from "lucide-react"
 import { BOT_ACTIVITY_PRESETS } from "@alook/shared"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
@@ -15,7 +16,7 @@ import type {
   Profile,
 } from "@/components/community/social/profile-types"
 import type { Breakpoint } from "@/hooks/use-mobile"
-import { useCanonicalCommunityProfile } from "@/lib/community-db/projections"
+import { useOptionalCommunityDbRegistry, useCanonicalCommunityProfile } from "@/lib/community-db/projections"
 import { avatarInitial } from "@/lib/community/avatar"
 import { tid } from "@/lib/community/testids"
 import { communityWsInterruptAgent } from "@/hooks/community/use-community-ws"
@@ -105,9 +106,10 @@ function SelfProfileCard(props: ProfileCardProps) {
 function ProfileCardContent({ data, x, y, bp, onClose, onMessage, isSelf, onUpdateStatus, onOpenOwnerProfile, onOpenBotAudit, initialStatusEmoji, initialStatusText, activityStatusEmoji, activityStatusText, embedded, extension, hasSelfRunningBots }: ProfileCardProps & {
   hasSelfRunningBots: boolean
 }) {
-  const [msg, setMsg] = useState("")
-  const [open, setOpen] = useState(true)
-  const [interruptPending, setInterruptPending] = useState(false)
+  const registry = useOptionalCommunityDbRegistry()
+  const [msg, setMsg] = useAtom(useCreateAtom(""))
+  const [open, setOpen] = useAtom(useCreateAtom(true))
+  const [interruptPending, setInterruptPending] = useAtom(useCreateAtom(false))
   const mobile = bp === "mobile"
   const globalProfile = useCanonicalCommunityProfile(data.userId)
   const liveStatus = data.userId
@@ -128,7 +130,7 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
     }
     const timer = globalThis.setTimeout(() => setInterruptPending(false), 10_000)
     return () => globalThis.clearTimeout(timer)
-  }, [activityIdle, interruptPending])
+  }, [activityIdle, interruptPending, setInterruptPending])
   const name = data.userId
     ? (globalProfile?.name ?? data.name ?? "Deleted user")
     : (data.name ?? "Deleted user")
@@ -166,9 +168,9 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
     else close()
   }
   const interruptAgent = () => {
-    if (!data.userId || interruptPending) return
+    if (!registry?.runtime.lifecycle.get().active || !data.userId || interruptPending) return
     setInterruptPending(true)
-    communityWsInterruptAgent(data.userId)
+    communityWsInterruptAgent(registry.runtime, data.userId)
   }
   const card = (
     <>

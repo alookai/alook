@@ -164,7 +164,7 @@ function validServerDetail(id = "srv_1") {
 
 async function readPersistedBlob(userId: string | null): Promise<PersistedClient> {
   const raw = await get<string>(
-    `alook:qc:v2:${userId ?? "anon"}:client`,
+    `alook:qc:v3:${userId ?? "anon"}:client`,
   )
   if (!raw) throw new Error("no persisted blob")
   return JSON.parse(raw) as PersistedClient
@@ -544,7 +544,7 @@ describe("createIdbPersister — serialize filter", () => {
         })),
       },
     }
-    await set("alook:qc:v2:u_1:client", JSON.stringify(injected))
+    await set("alook:qc:v3:u_1:client", JSON.stringify(injected))
     expect((await createIdbPersister("u_1").restoreClient())?.clientState.queries).toEqual([])
   })
 
@@ -603,7 +603,7 @@ describe("createIdbPersister — serialize filter", () => {
         }],
       },
     }
-    await set("alook:qc:v2:u_1:client", JSON.stringify(injected))
+    await set("alook:qc:v3:u_1:client", JSON.stringify(injected))
 
     expect((await createIdbPersister("u_1").restoreClient())?.clientState.queries).toEqual([])
   })
@@ -674,7 +674,7 @@ describe("createIdbPersister — user scoping", () => {
     await clearPersistedCache("u_alice")
 
     // Alice's blob is gone but Bob's is untouched.
-    expect(await get(`alook:qc:v2:u_alice:client`)).toBeUndefined()
+    expect(await get(`alook:qc:v3:u_alice:client`)).toBeUndefined()
     const bobBlob = await readPersistedBlob("u_bob")
     expect(bobBlob.timestamp).toBe(2)
   })
@@ -689,7 +689,7 @@ describe("createIdbPersister — user scoping", () => {
 
     await persister.removeClient()
 
-    expect(await get("alook:qc:v2:u_remove:client")).toBeUndefined()
+    expect(await get("alook:qc:v3:u_remove:client")).toBeUndefined()
   })
 
   it("blocks a delayed writer created before clear", async () => {
@@ -700,7 +700,7 @@ describe("createIdbPersister — user scoping", () => {
       buster: "v1",
       clientState: { mutations: [], queries: [] },
     })
-    expect(await get(`alook:qc:v2:u_alice:client`)).toBeUndefined()
+    expect(await get(`alook:qc:v3:u_alice:client`)).toBeUndefined()
   })
 })
 
@@ -708,24 +708,24 @@ describe("all-account persisted cache management", () => {
   beforeEach(async () => {
     await clearAllPersistedCaches()
     await del("unrelated")
-    await del("alook:qc:v2:u_alice:metadata")
-    await del("alook:qc:v2:extra:segment:client")
+    await del("alook:qc:v3:u_alice:metadata")
+    await del("alook:qc:v3:extra:segment:client")
   })
 
   it("sums serialized UTF-8 bytes across account and cache versions", async () => {
     await set("alook:qc:v1:u_alice:client", "abc")
-    await set("alook:qc:v2:u_bob:client", "你好")
+    await set("alook:qc:v3:u_bob:client", "你好")
     await set("alook:qc:v99:u_future:client", "!")
 
     expect(await getPersistedCacheSizeBytes()).toBe(10)
   })
 
   it("ignores unrelated shapes and non-string values", async () => {
-    await set("alook:qc:v2:u_alice:client", "cache")
+    await set("alook:qc:v3:u_alice:client", "cache")
     await set("unrelated", "outside")
-    await set("alook:qc:v2:u_alice:metadata", "outside")
-    await set("alook:qc:v2:extra:segment:client", "outside")
-    await set("alook:qc:v2:u_binary:client", new Uint8Array([1, 2, 3]))
+    await set("alook:qc:v3:u_alice:metadata", "outside")
+    await set("alook:qc:v3:extra:segment:client", "outside")
+    await set("alook:qc:v3:u_binary:client", new Uint8Array([1, 2, 3]))
 
     expect(await getPersistedCacheSizeBytes()).toBe(5)
   })
@@ -733,11 +733,11 @@ describe("all-account persisted cache management", () => {
   it("clears every current account blob and preserves unrelated keys", async () => {
     const stale = createIdbPersister("u_alice")
     await set("alook:qc:v1:u_legacy:client", "legacy")
-    await set("alook:qc:v2:u_alice:client", "alice")
-    await set("alook:qc:v2:u_bob:client", "bob")
+    await set("alook:qc:v3:u_alice:client", "alice")
+    await set("alook:qc:v3:u_bob:client", "bob")
     await set("alook:qc:v99:u_future:client", "future")
     await set("unrelated", "keep")
-    await set("alook:qc:v2:extra:segment:client", "keep")
+    await set("alook:qc:v3:extra:segment:client", "keep")
 
     await clearAllPersistedCaches()
     await stale.persistClient({
@@ -747,11 +747,11 @@ describe("all-account persisted cache management", () => {
     })
 
     expect(await get("alook:qc:v1:u_legacy:client")).toBeUndefined()
-    expect(await get("alook:qc:v2:u_alice:client")).toBeUndefined()
-    expect(await get("alook:qc:v2:u_bob:client")).toBeUndefined()
+    expect(await get("alook:qc:v3:u_alice:client")).toBeUndefined()
+    expect(await get("alook:qc:v3:u_bob:client")).toBeUndefined()
     expect(await get("alook:qc:v99:u_future:client")).toBeUndefined()
     expect(await get("unrelated")).toBe("keep")
-    expect(await get("alook:qc:v2:extra:segment:client")).toBe("keep")
+    expect(await get("alook:qc:v3:extra:segment:client")).toBe("keep")
   })
 
   it("reports an empty cache as zero bytes", async () => {

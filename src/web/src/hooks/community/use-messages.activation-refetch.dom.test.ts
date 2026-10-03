@@ -1,17 +1,20 @@
+import { createCommunityQueryOwner, seedCommunityMessageWindow } from "@/test/community-query-owner"
+import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import React from "react"
-import {
-  dehydrate,
-  IsRestoringProvider,
-  QueryClient,
-  QueryClientProvider,
-} from "@tanstack/react-query"
-import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client"
+import React, { type ComponentProps } from "react"
+import { createCommunityDbRegistry } from "@/lib/community-db/collections"
+import { ingestMessages } from "@/lib/community-db/sync"
+import { dehydrate, IsRestoringProvider, type QueryClient } from "@tanstack/react-query"
+import { PersistQueryClientProvider as NativePersistQueryClientProvider } from "@tanstack/react-query-persist-client"
 import { act, render } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
 import { useDmMessages, useMessages, type MessagesPage } from "./use-messages"
 import { useDmReadStateSnapshot } from "./use-dm-read-state"
-import { useMessageStreamStore } from "@/stores/community/message-stream"
+
+function PersistQueryClientProvider(props: ComponentProps<typeof NativePersistQueryClientProvider>) {
+  return React.createElement(QueryClientProvider, { client: props.client, retainOwner: true },
+    React.createElement(NativePersistQueryClientProvider, props))
+}
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
@@ -294,7 +297,7 @@ function renderCapture(
   queryClient: QueryClient,
   element: React.ReactElement,
 ): ReturnType<typeof render> {
-  return render(React.createElement(QueryClientProvider, { client: queryClient }, element))
+  return render(React.createElement(QueryClientProvider, { client: queryClient, retainOwner: true }, element))
 }
 
 function updateCapture(
@@ -304,19 +307,19 @@ function updateCapture(
 ): void {
   act(() => {
     renderer.rerender(
-      React.createElement(QueryClientProvider, { client: queryClient }, element),
+      React.createElement(QueryClientProvider, { client: queryClient, retainOwner: true }, element),
     )
   })
 }
 
 beforeEach(() => {
   apiFetchMock.mockReset()
-  useMessageStreamStore.getState().resetAll()
+
 })
 
 describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
   it("reuses one cold initial anchor request across a StrictMode-style remount", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
     const transport = deferred<MessagesPage>()
     apiFetchMock.mockImplementation((_url: string, init?: { signal?: AbortSignal }) => (
       new Promise<MessagesPage>((resolve, reject) => {
@@ -357,7 +360,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
   })
 
   it("keeps the real transport installed while the anchor gate is disabled", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
     apiFetchMock.mockResolvedValue({
       messages: [],
       hasMoreOlder: false,
@@ -377,7 +380,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
   })
 
   it("uses the refreshed anchor when retained DM messages and read-state mount together", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
     const queryKey = communityKeys.dmMessages("dm_activation")
     const cachedPage = {
       messages: [
@@ -388,9 +391,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
       hasMoreNewer: false,
       latestSeq: 2,
     } satisfies MessagesPage
-    queryClient.setQueryData(
-      queryKey,
-      {
+    seedCommunityMessageWindow(queryClient, queryKey, {
         pages: [cachedPage],
         pageParams: [{ mode: "anchor", anchor: "m_retained" }],
       },
@@ -446,7 +447,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
 
     expect(apiFetchMock).toHaveBeenLastCalledWith(
       "/api/community/channels/dm_activation/messages?anchor=m_fresh",
-      { signal: expect.any(AbortSignal) },
+      expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
     expect(invalidateQueries).not.toHaveBeenCalled()
     expect(snapshots.every((snapshot) => snapshot.ids.length > 0)).toBe(true)
@@ -454,7 +455,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
   })
 
   it("revalidates a restored DM cache after read-state becomes ready", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
     const queryKey = communityKeys.dmMessages("dm_activation")
     const cachedPage = {
       messages: [{ id: "m_anchor", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
@@ -462,9 +463,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
       hasMoreNewer: false,
       latestSeq: 1,
     } satisfies MessagesPage
-    queryClient.setQueryData(
-      queryKey,
-      {
+    seedCommunityMessageWindow(queryClient, queryKey, {
         pages: [cachedPage],
         pageParams: [{ mode: "anchor", anchor: "m_anchor" }],
       },
@@ -495,7 +494,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     const view = (isRestoring: boolean) => (
       React.createElement(
         QueryClientProvider,
-        { client: queryClient },
+        { client: queryClient, retainOwner: true },
         React.createElement(
           IsRestoringProvider,
           { value: isRestoring },
@@ -528,7 +527,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     )).toEqual([
       [
         "/api/community/channels/dm_activation/messages?anchor=m_anchor",
-        { signal: expect.any(AbortSignal) },
+        expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
       ],
     ])
     expect(invalidateQueries).not.toHaveBeenCalled()
@@ -537,7 +536,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
   })
 
   it("guarantees cached revalidation when restore and anchor resolution finish before mount", async () => {
-    const queryClient = new QueryClient({
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", {
       defaultOptions: { queries: { refetchOnMount: false, retry: false } },
     })
     const queryKey = communityKeys.dmMessages("dm_activation")
@@ -547,7 +546,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
       hasMoreNewer: false,
       latestSeq: 1,
     } satisfies MessagesPage
-    queryClient.setQueryData(queryKey, {
+    seedCommunityMessageWindow(queryClient, queryKey, {
       pages: [cachedPage],
       pageParams: [{ mode: "anchor", anchor: "m_anchor" }],
     })
@@ -557,7 +556,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     const view = (isRestoring: boolean) => (
       React.createElement(
         QueryClientProvider,
-        { client: queryClient },
+        { client: queryClient, retainOwner: true },
         React.createElement(
           IsRestoringProvider,
           { value: isRestoring },
@@ -580,7 +579,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
   })
 
   it("retries an aborted first activation refresh until a network success receipt", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
     const queryKey = communityKeys.dmMessages("dm_activation")
     const cachedPage = {
       messages: [{ id: "m_anchor", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
@@ -588,7 +587,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
       hasMoreNewer: false,
       latestSeq: 1,
     } satisfies MessagesPage
-    queryClient.setQueryData(queryKey, {
+    seedCommunityMessageWindow(queryClient, queryKey, {
       pages: [cachedPage],
       pageParams: [{ mode: "anchor", anchor: "m_anchor" }],
     })
@@ -626,9 +625,9 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
   })
 
   it("does not let a previous view's late success satisfy the current activation", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
     for (const channelId of ["ch_a", "ch_b"]) {
-      queryClient.setQueryData(communityKeys.channelMessages(channelId), {
+      seedCommunityMessageWindow(queryClient, communityKeys.channelMessages(channelId), {
         pages: [{
           messages: [{
             id: `m_anchor_${channelId}`,
@@ -691,9 +690,9 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
   })
 
   it("does not treat older pagination success as an initial-window receipt", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
     const queryKey = communityKeys.channelMessages("ch_activation")
-    queryClient.setQueryData(queryKey, {
+    seedCommunityMessageWindow(queryClient, queryKey, {
       pages: [{
         messages: [{ id: "m_anchor_ch_activation", seq: 2, createdAt: "2026-08-09T00:00:01.000Z" }],
         hasMoreOlder: true,
@@ -748,7 +747,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
   })
 
   it("retries when a later page in the activation refetch is aborted", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
     const queryKey = communityKeys.dmMessages("dm_activation")
     const anchorPage = {
       messages: [{ id: "m_anchor", seq: 2, createdAt: "2026-08-09T00:00:01.000Z" }],
@@ -763,7 +762,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
       hasMoreNewer: false,
       latestSeq: 2,
     } satisfies MessagesPage
-    queryClient.setQueryData(queryKey, {
+    seedCommunityMessageWindow(queryClient, queryKey, {
       pages: [anchorPage, olderPage],
       pageParams: [
         { mode: "anchor", anchor: "m_anchor" },
@@ -806,14 +805,14 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
   })
 
   it("does not fabricate cache data if normalization observes a vanished entry", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
     const cachedPage = {
       messages: [{ id: "m_anchor", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
       hasMoreOlder: false,
       hasMoreNewer: false,
       latestSeq: 1,
     } satisfies MessagesPage
-    queryClient.setQueryData(communityKeys.dmMessages("dm_activation"), {
+    seedCommunityMessageWindow(queryClient, communityKeys.dmMessages("dm_activation"), {
       pages: [cachedPage],
       pageParams: [{ mode: "anchor", anchor: "m_anchor" }],
     })
@@ -839,28 +838,29 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     await waitFor(() => apiFetchMock.mock.calls.length === 1)
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/community/channels/dm_activation/messages?anchor=m_anchor",
-      { signal: expect.any(AbortSignal) },
+      expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
     expect(snapshots.every((snapshot) => snapshot.ids.length > 0)).toBe(true)
     renderer.unmount()
   })
 
   it("refetches the mounted observer after persisted messages hydrate before read-state", async () => {
-    const restoredClient = new QueryClient()
+    const { client: restoredClient } = await createCommunityQueryOwner("viewer")
     const cachedPage = {
       messages: [{ id: "m_anchor", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
       hasMoreOlder: false,
       hasMoreNewer: false,
       latestSeq: 1,
     } satisfies MessagesPage
-    restoredClient.setQueryData(communityKeys.dmMessages("dm_activation"), {
+    seedCommunityMessageWindow(restoredClient, communityKeys.dmMessages("dm_activation"), {
       pages: [cachedPage],
       pageParams: [{ mode: "anchor", anchor: "m_anchor" }],
     })
 
-    const queryClient = new QueryClient({
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", {
       defaultOptions: { queries: { refetchOnMount: false, retry: false } },
     })
+    ingestMessages(createCommunityDbRegistry(queryClient, "viewer"), "dm_activation", cachedPage.messages)
     const restore = deferred<{
       buster: string
       clientState: ReturnType<typeof dehydrate>
@@ -917,9 +917,9 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     ).length === 1)
 
     expect(apiFetchMock.mock.calls.filter(([url]) => url.includes("/messages"))).toEqual([
-      ["/api/community/channels/dm_activation/messages?anchor=m_anchor", {
-        signal: expect.any(AbortSignal),
-      }],
+      ["/api/community/channels/dm_activation/messages?anchor=m_anchor", expect.objectContaining({
+        signal: expect.any(AbortSignal), authenticationAccount: "viewer",
+      })],
     ])
     expect(invalidateQueries).not.toHaveBeenCalled()
     const hydratedAt = snapshots.findIndex((snapshot) => snapshot.ids.length > 0)
@@ -929,7 +929,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
   })
 
   it("revalidates a warm DM again after an unmount and same-client remount", async () => {
-    const queryClient = new QueryClient({
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", {
       defaultOptions: { queries: { refetchOnMount: false, retry: false } },
     })
     const cachedPage = {
@@ -938,7 +938,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
       hasMoreNewer: false,
       latestSeq: 1,
     } satisfies MessagesPage
-    queryClient.setQueryData(communityKeys.dmMessages("dm_activation"), {
+    seedCommunityMessageWindow(queryClient, communityKeys.dmMessages("dm_activation"), {
       pages: [cachedPage],
       pageParams: [{ mode: "anchor", anchor: "m_anchor" }],
     })
@@ -974,15 +974,16 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     ).length === 1)
     expect(apiFetchMock.mock.calls.filter(
       ([url]) => url.includes("/messages"),
-    )).toEqual([["/api/community/channels/dm_activation/messages?anchor=m_anchor", {
+    )).toEqual([["/api/community/channels/dm_activation/messages?anchor=m_anchor", expect.objectContaining({
       signal: expect.any(AbortSignal),
-    }]])
+      authenticationAccount: "viewer",
+    })]])
     expect(snapshots.every((snapshot) => snapshot.ids.length > 0)).toBe(true)
     second.unmount()
   })
 
   it("does not duplicate a messages request that actually fetched after mount", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
     const queryKey = communityKeys.dmMessages("dm_activation")
     const cachedPage = {
       messages: [{ id: "m_anchor", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
@@ -990,7 +991,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
       hasMoreNewer: false,
       latestSeq: 1,
     } satisfies MessagesPage
-    queryClient.setQueryData(queryKey, {
+    seedCommunityMessageWindow(queryClient, queryKey, {
       pages: [cachedPage],
       pageParams: [{ mode: "anchor", anchor: "m_anchor" }],
     })
@@ -1039,7 +1040,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
   })
 
   it("revalidates after an anchor-gated retained-cache write advances dataUpdatedAt", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
     const queryKey = communityKeys.dmMessages("dm_activation")
     const cachedPage = {
       messages: [{ id: "m_anchor", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
@@ -1047,7 +1048,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
       hasMoreNewer: false,
       latestSeq: 1,
     } satisfies MessagesPage
-    queryClient.setQueryData(queryKey, {
+    seedCommunityMessageWindow(queryClient, queryKey, {
       pages: [cachedPage],
       pageParams: [{ mode: "anchor", anchor: "m_anchor" }],
     })
@@ -1091,7 +1092,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
   })
 
   it("starts newest messages without waiting for read-state, then repairs a late anchor", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
     const newest = deferred<MessagesPage>()
     apiFetchMock.mockImplementation((url: string) => {
       if (url.endsWith("?anchor=m_read")) {
@@ -1118,6 +1119,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     await waitFor(() => apiFetchMock.mock.calls.length === 1)
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/community/channels/ch_activation/messages",
+      expect.objectContaining({ authenticationAccount: "viewer", signal: expect.any(AbortSignal) }),
     )
 
     newest.resolve({
@@ -1144,7 +1146,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
   })
 
   it("reconciles a late anchor already present in the newest page without replacing painted rows", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
     apiFetchMock.mockImplementation((url: string) => {
       if (url.endsWith("?anchor=m_read")) {
         return Promise.resolve({
@@ -1198,7 +1200,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
   })
 
   it("warm return keeps its WS-live cache without StrictMode mount refetch when the read pointer is already cached", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
     const key = communityKeys.channelMessages("ch_activation")
     const page = {
       messages: [
@@ -1208,7 +1210,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
       hasMore: false,
       latestSeq: 2,
     } satisfies MessagesPage
-    queryClient.setQueryData(key, {
+    seedCommunityMessageWindow(queryClient, key, {
       pages: [page],
       pageParams: [{ mode: "newest" }],
     })
@@ -1230,9 +1232,9 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
   })
 
   it("warm return performs one anchor repair when the read pointer is genuinely absent", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
     const key = communityKeys.channelMessages("ch_activation")
-    queryClient.setQueryData(key, {
+    seedCommunityMessageWindow(queryClient, key, {
       pages: [{
         messages: [{ id: "m_new", seq: 2, createdAt: "2026-08-09T00:00:02.000Z" }],
         hasMore: true,
@@ -1263,9 +1265,9 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     renderer.unmount()
   })
 
-  it("leaves browser network reconnect reconciliation to the bounded WS path", () => {
-    const queryClient = new QueryClient()
-    queryClient.setQueryData(communityKeys.dmMessages("dm_activation"), {
+  it("leaves browser network reconnect reconciliation to the bounded WS path", async () => {
+    const { client: queryClient } = await createCommunityQueryOwner("viewer")
+    seedCommunityMessageWindow(queryClient, communityKeys.dmMessages("dm_activation"), {
       pages: [{
         messages: [{ id: "m_cached", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
         hasMore: false,
@@ -1292,8 +1294,8 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
   })
 
   it("refetches a fresh persisted empty DM on activation and converges to server truth", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 5_000 } } })
-    queryClient.setQueryData(communityKeys.dmMessages("dm_activation"), {
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { staleTime: 5_000 } } })
+    seedCommunityMessageWindow(queryClient, communityKeys.dmMessages("dm_activation"), {
       pages: [{ messages: [], hasMore: false, latestSeq: 0 }],
       pageParams: [{ mode: "newest" }],
     })
@@ -1317,7 +1319,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     await waitFor(() => apiFetchMock.mock.calls.length === 1)
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/community/channels/dm_activation/messages",
-      { signal: expect.any(AbortSignal) },
+      expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
 
     response.resolve({
@@ -1331,8 +1333,8 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
   })
 
   it("keeps a fresh nonempty DM cache painted while activation refetches in the background", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 5_000 } } })
-    queryClient.setQueryData(communityKeys.dmMessages("dm_activation"), {
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { staleTime: 5_000 } } })
+    seedCommunityMessageWindow(queryClient, communityKeys.dmMessages("dm_activation"), {
       pages: [{
         messages: [{ id: "m_cached", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
         hasMore: false,
@@ -1357,7 +1359,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
       queryClient,
       React.createElement(DmCapture, { lastReadMessageId: null, onRender }),
     )
-    await waitFor(() => snapshots.some((snapshot) => snapshot.isFetching))
+    await waitFor(() => snapshots.some((snapshot) => snapshot.isFetching) && apiFetchMock.mock.calls.length === 1)
     expect(apiFetchMock).toHaveBeenCalledTimes(1)
     for (const snapshot of snapshots) expect(snapshot.ids.length).toBeGreaterThan(0)
 
@@ -1373,9 +1375,9 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
   })
 
   it("revalidates the shared channel path without clearing or losing anchor pagination", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 5_000 } } })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { staleTime: 5_000 } } })
     const key = communityKeys.channelMessages("ch_activation")
-    queryClient.setQueryData(key, {
+    seedCommunityMessageWindow(queryClient, key, {
       pages: [
         {
           messages: [{ id: "m_anchor", seq: 2, createdAt: "2026-08-09T00:00:01.000Z" }],
@@ -1420,7 +1422,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       1,
       "/api/community/channels/ch_activation/messages?anchor=m_anchor",
-      { signal: expect.any(AbortSignal) },
+      expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
     for (const snapshot of snapshots) expect(snapshot.ids.length).toBeGreaterThan(0)
 
@@ -1435,7 +1437,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       2,
       "/api/community/channels/ch_activation/messages?cursor=fresh-cursor",
-      { signal: expect.any(AbortSignal) },
+      expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
     for (const snapshot of snapshots) expect(snapshot.ids.length).toBeGreaterThan(0)
 
@@ -1459,9 +1461,9 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
   })
 
   it("keeps the resolved anchor ahead of pagination on a retained mount", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
     const key = communityKeys.channelMessages("ch_activation")
-    queryClient.setQueryData(key, {
+    seedCommunityMessageWindow(queryClient, key, {
       pages: [{
         messages: [{ id: "m_anchor", seq: 2, createdAt: "2026-08-09T00:00:01.000Z" }],
         hasMoreOlder: true,
@@ -1521,9 +1523,9 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     renderer.unmount()
   })
 
-  it("ignores older pagination while the anchor gate is disabled", () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    queryClient.setQueryData(communityKeys.channelMessages("ch_activation"), {
+  it("ignores older pagination while the anchor gate is disabled", async () => {
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
+    seedCommunityMessageWindow(queryClient, communityKeys.channelMessages("ch_activation"), {
       pages: [{
         messages: [{ id: "m_cached", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }],
         hasMore: true,
@@ -1547,8 +1549,8 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
   })
 
   it("queues older pagination behind a generic in-flight refetch", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    queryClient.setQueryData(communityKeys.channelMessages("ch_activation"), {
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
+    seedCommunityMessageWindow(queryClient, communityKeys.channelMessages("ch_activation"), {
       pages: [{
         messages: [{ id: "m_anchor", seq: 2, createdAt: "2026-08-09T00:00:01.000Z" }],
         hasMoreOlder: true,
@@ -1610,9 +1612,9 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     renderer.unmount()
   })
 
-  it("ignores an old view's pagination callback after the conversation changes", () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    queryClient.setQueryData(communityKeys.channelMessages("ch_a"), {
+  it("ignores an old view's pagination callback after the conversation changes", async () => {
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
+    seedCommunityMessageWindow(queryClient, communityKeys.channelMessages("ch_a"), {
       pages: [{
         messages: [{ id: "m_anchor_ch_a", seq: 2, createdAt: "2026-08-09T00:00:01.000Z" }],
         hasMoreOlder: true,
@@ -1650,9 +1652,9 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
   })
 
   it("keeps cold-restore pagination behind a missing-anchor revalidation", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
     const key = communityKeys.channelMessages("ch_activation")
-    queryClient.setQueryData(key, {
+    seedCommunityMessageWindow(queryClient, key, {
       pages: [{
         messages: [{ id: "m_newest", seq: 3, createdAt: "2026-08-09T00:00:02.000Z" }],
         hasMore: true,
@@ -1708,8 +1710,8 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
   })
 
   it("drops queued pagination when the conversation changes during revalidation", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    queryClient.setQueryData(communityKeys.channelMessages("ch_a"), {
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
+    seedCommunityMessageWindow(queryClient, communityKeys.channelMessages("ch_a"), {
       pages: [{
         messages: [{ id: "m_newest_a", seq: 3, createdAt: "2026-08-09T00:00:02.000Z" }],
         hasMore: true,
@@ -1718,7 +1720,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
       }],
       pageParams: [{ mode: "newest" }],
     })
-    queryClient.setQueryData(communityKeys.channelMessages("ch_b"), {
+    seedCommunityMessageWindow(queryClient, communityKeys.channelMessages("ch_b"), {
       pages: [{
         messages: [{ id: "m_anchor_ch_b", seq: 4, createdAt: "2026-08-09T00:00:03.000Z" }],
         hasMoreOlder: false,

@@ -1,7 +1,10 @@
 "use client"
 
-import { useCallback, useEffect, useState, type ReactNode } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
+import { useCallback, useEffect, type ReactNode } from "react"
 import { toastApiError } from "@/lib/api/client"
+import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { canManageServer, type CommunityRole as Role } from "@alook/shared"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { RightPanel } from "@/components/community/shell/panel-types"
@@ -52,10 +55,11 @@ export function ForumChannelSurface({
   onOpenProfile: OpenProfile
   embedded?: boolean
 }) {
-  const [panelState, setPanelState] = useState<{ channelId: string; panel: RightPanel }>({
+  const source = useCommunityViewSource(`forum-surface:${serverId}:${channelId}`)
+  const [panelState, setPanelState] = useAtom(useCreateAtom<{ channelId: string; panel: RightPanel }>({
     channelId,
     panel: null,
-  })
+  }))
   const rightPanel = panelState.channelId === channelId ? panelState.panel : null
   const createForumThreadMut = useCreateForumThread()
   const updatePostTagsMut = useUpdatePostTags()
@@ -67,23 +71,26 @@ export function ForumChannelSurface({
         ? current
         : { channelId, panel: null },
     )
-  }, [channelId])
+  }, [channelId, setPanelState])
 
   const togglePanel = useCallback((panel: Exclude<RightPanel, null>) => {
     setPanelState((current) => ({
       channelId,
       panel: current.channelId === channelId && current.panel === panel ? null : panel,
     }))
-  }, [channelId])
+  }, [channelId, setPanelState])
   const createForumThread = useCallback(async (post: NewForumThread) => {
+    post.assertActive?.()
     const data = await createForumThreadMut.mutateAsync({
       nonce: post.nonce,
+      assertActive: post.assertActive,
       channelId,
       name: post.name,
       content: post.content,
       attachments: post.attachments,
       mentionType: post.mentionType,
     })
+    post.assertActive?.()
     onOpenPost(data.threadId)
   }, [channelId, createForumThreadMut, onOpenPost])
   const canManage = canManageServer(viewerRole)
@@ -115,8 +122,10 @@ export function ForumChannelSurface({
             canEditPostTags={(post) => canManage || post.authorId === viewer.id}
             savingTagsFor={updatePostTagsMut.isPending ? updatePostTagsMut.variables?.threadId ?? null : null}
             onEditPostTags={async (post, tags) => {
+              const assertActive = source.capture()
               await updatePostTagsMut.mutateAsync(
                 {
+                  assertActive,
                   serverId,
                   forumChannelId: channelId,
                   threadId: post.id,
@@ -124,20 +133,22 @@ export function ForumChannelSurface({
                   previousTags: post.tags ?? [],
                   tags,
                 },
-                { onError: (error) => toastApiError(error, "Failed to update tags") },
+                { onError: (error) => toastApiError(error, "Failed to update tags", assertActive) },
               )
             }}
             canDeletePost={(post) => canManage || post.authorId === viewer.id}
             deletingPost={deleteForumThreadMut.isPending ? deleteForumThreadMut.variables?.threadId ?? null : null}
             onDeletePost={(post) => {
+              const assertActive = source.capture()
               deleteForumThreadMut.mutate(
                 {
+                  assertActive,
                   serverId,
                   forumChannelId: channelId,
                   threadId: post.id,
                   openerMessageId: post.openerMessageId,
                 },
-                { onError: (error) => toastApiError(error, "Failed to delete post") },
+                { onError: (error) => toastApiError(error, "Failed to delete post", assertActive) },
               )
             }}
           />

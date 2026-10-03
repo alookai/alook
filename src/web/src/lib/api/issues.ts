@@ -1,14 +1,13 @@
 import type {
-  Artifact,
-  Issue,
-  IssueComment,
-  Message,
-  CreateIssueRequest,
-  TaskApi,
-  UpdateIssueRequest,
+Artifact,
+Issue,
+IssueComment,
+Message,
+CreateIssueRequest,
+TaskApi,
+UpdateIssueRequest,
 } from "@alook/shared";
-import { ApiError } from "@/lib/errors";
-import { apiFetch, redirectToSignIn, wsQuery } from "./client";
+import { apiFetch,apiFetchResponse,wsQuery,type ApiRequestOptions } from "./client";
 
 export type IssueListItem = Issue & { thread_agent_ids?: string[] };
 
@@ -21,21 +20,24 @@ export interface IssueDetailResponse {
 
 export const listIssues = (
   workspaceId: string,
-  opts?: { agentId?: string; status?: string; terminal?: boolean }
+  opts?: { agentId?: string; status?: string; terminal?: boolean },
+  options?: ApiRequestOptions
 ) => {
   const extra: Record<string, string> = {};
   if (opts?.agentId) extra.agentId = opts.agentId;
   if (opts?.status) extra.status = opts.status;
   if (opts?.terminal !== undefined) extra.terminal = String(opts.terminal);
-  return apiFetch<IssueListItem[]>(`/api/issues${wsQuery(workspaceId, extra)}`);
+  return apiFetch<IssueListItem[]>(`/api/issues${wsQuery(workspaceId, extra)}`, options);
 };
 
 export const createIssue = async (
   workspaceId: string,
   req: CreateIssueRequest & { files?: File[] },
+  options?: ApiRequestOptions,
 ): Promise<{ issue: Issue; message?: Message; task?: TaskApi }> => {
   if (!req.files || req.files.length === 0) {
     return apiFetch<{ issue: Issue; message?: Message; task?: TaskApi }>(`/api/issues${wsQuery(workspaceId)}`, {
+      ...options,
       method: "POST",
       body: JSON.stringify({
         agent_id: req.agent_id,
@@ -53,57 +55,29 @@ export const createIssue = async (
     fd.append("file", file);
   }
 
-  let res: Response;
-  try {
-    res = await fetch(`/api/issues${wsQuery(workspaceId)}`, {
-      method: "POST",
-      credentials: "include",
-      body: fd,
-    });
-  } catch (err) {
-    if (err instanceof TypeError) {
-      throw new ApiError("Unable to connect — check your network", 0);
-    }
-    throw err;
-  }
-
-  if (res.status === 401) {
-    redirectToSignIn();
-    throw new ApiError("Unauthorized", 401);
-  }
-
-  if (!res.ok) {
-    let serverError: string | undefined;
-    let details: string[] | undefined;
-    try {
-      const body = (await res.json()) as { error?: string; details?: string[] };
-      serverError = body.error;
-      details = body.details;
-    } catch {
-      // non-JSON body
-    }
-    if (res.status === 429) throw new ApiError("Please wait a moment before trying again", 429);
-    if (res.status >= 500) throw new ApiError(serverError || "Something went wrong — please try again", res.status, details);
-    throw new ApiError(serverError || "Something went wrong", res.status, details);
-  }
-
-  return res.json() as Promise<{ issue: Issue; message?: Message; task?: TaskApi }>;
+  const res = await apiFetchResponse(`/api/issues${wsQuery(workspaceId)}`, { ...options, method: "POST", body: fd });
+  const data = await res.json() as { issue: Issue; message?: Message; task?: TaskApi };
+  options?.assertActive?.();
+  if (options?.signal?.aborted) throw new DOMException("Cancelled issue upload", "AbortError");
+  return data;
 };
 
-export const getIssue = (workspaceId: string, issueId: string) =>
-  apiFetch<IssueDetailResponse>(`/api/issues/${issueId}${wsQuery(workspaceId)}`);
+export const getIssue = (workspaceId: string, issueId: string, options?: ApiRequestOptions) =>
+  apiFetch<IssueDetailResponse>(`/api/issues/${issueId}${wsQuery(workspaceId)}`, options);
 
-export const updateIssue = (workspaceId: string, issueId: string, patch: UpdateIssueRequest) =>
+export const updateIssue = (workspaceId: string, issueId: string, patch: UpdateIssueRequest, options?: ApiRequestOptions) =>
   apiFetch<Issue>(`/api/issues/${issueId}${wsQuery(workspaceId)}`, {
+    ...options,
     method: "PATCH",
     body: JSON.stringify(patch),
   });
 
-export const commentIssue = (workspaceId: string, issueId: string, content: string) =>
-  apiFetch<{ message: Message }>(`/api/issues/${issueId}${wsQuery(workspaceId)}`, {
+export const createIssueComment = (workspaceId: string, issueId: string, content: string, options?: ApiRequestOptions) =>
+  apiFetch<{ comment: IssueComment }>(`/api/issues/${issueId}/comments${wsQuery(workspaceId)}`, {
+    ...options,
     method: "POST",
     body: JSON.stringify({ content }),
   });
 
-export const deleteIssue = (workspaceId: string, issueId: string) =>
-  apiFetch<void>(`/api/issues/${issueId}${wsQuery(workspaceId)}`, { method: "DELETE" });
+export const deleteIssue = (workspaceId: string, issueId: string, options?: ApiRequestOptions) =>
+  apiFetch<void>(`/api/issues/${issueId}${wsQuery(workspaceId)}`, { ...options, method: "DELETE" });

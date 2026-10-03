@@ -1,6 +1,14 @@
+import { createStore } from "@tanstack/store";
+import { QueryClient } from "@tanstack/react-query";
+const owner = {
+  userId: "viewer", queryClient: new QueryClient(),
+  lifecycle: createStore({ active: true, generation: 0 }),
+  preferences: createStore({ inboxFilterTypes: ["user_dm_message"] as import("./inbox-filter").InboxFilterType[], hydrated: true, lastWorkspaceSlug: null as string | null }),
+};
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   getInboxFilterTypes,
+  readStoredInboxFilterTypes,
   setInboxFilterTypes,
   INBOX_FILTER_TYPES,
   INBOX_FILTER_LABELS,
@@ -46,39 +54,39 @@ describe("getInboxFilterTypes", () => {
   });
 
   it("returns default types when no localStorage value", () => {
-    expect(getInboxFilterTypes()).toEqual(DEFAULT_INBOX_TYPES);
+    expect(readStoredInboxFilterTypes("viewer")).toEqual(DEFAULT_INBOX_TYPES);
   });
 
   it("returns parsed types from localStorage", () => {
-    storage["inbox-filter-types"] = JSON.stringify(["user_dm_message", "calendar_event"]);
-    expect(getInboxFilterTypes()).toEqual(["user_dm_message", "calendar_event"]);
+    storage["alook:viewer:inbox-filter-types"] = JSON.stringify(["user_dm_message", "calendar_event"]);
+    expect(readStoredInboxFilterTypes("viewer")).toEqual(["user_dm_message", "calendar_event"]);
   });
 
   it("filters out invalid types", () => {
-    storage["inbox-filter-types"] = JSON.stringify(["user_dm_message", "invalid_type"]);
-    expect(getInboxFilterTypes()).toEqual(["user_dm_message"]);
+    storage["alook:viewer:inbox-filter-types"] = JSON.stringify(["user_dm_message", "invalid_type"]);
+    expect(readStoredInboxFilterTypes("viewer")).toEqual(["user_dm_message"]);
   });
 
   it("returns default when all types invalid", () => {
-    storage["inbox-filter-types"] = JSON.stringify(["invalid1", "invalid2"]);
-    expect(getInboxFilterTypes()).toEqual(DEFAULT_INBOX_TYPES);
+    storage["alook:viewer:inbox-filter-types"] = JSON.stringify(["invalid1", "invalid2"]);
+    expect(readStoredInboxFilterTypes("viewer")).toEqual(DEFAULT_INBOX_TYPES);
   });
 
   it("ensures mandatory types are included", () => {
-    storage["inbox-filter-types"] = JSON.stringify(["calendar_event"]);
-    const result = getInboxFilterTypes();
+    storage["alook:viewer:inbox-filter-types"] = JSON.stringify(["calendar_event"]);
+    const result = readStoredInboxFilterTypes("viewer");
     expect(result).toContain("user_dm_message");
     expect(result).toContain("calendar_event");
   });
 
   it("returns default on JSON parse error", () => {
-    storage["inbox-filter-types"] = "not-json{{{";
-    expect(getInboxFilterTypes()).toEqual(DEFAULT_INBOX_TYPES);
+    storage["alook:viewer:inbox-filter-types"] = "not-json{{{";
+    expect(readStoredInboxFilterTypes("viewer")).toEqual(DEFAULT_INBOX_TYPES);
   });
 
   it("returns default when window is undefined", () => {
     vi.stubGlobal("window", undefined);
-    expect(getInboxFilterTypes()).toEqual(DEFAULT_INBOX_TYPES);
+    expect(readStoredInboxFilterTypes("viewer")).toEqual(DEFAULT_INBOX_TYPES);
   });
 });
 
@@ -97,16 +105,31 @@ describe("setInboxFilterTypes", () => {
   });
 
   it("saves types to localStorage", () => {
-    setInboxFilterTypes(["user_dm_message", "calendar_event"]);
-    const saved = JSON.parse(storage["inbox-filter-types"]);
+    setInboxFilterTypes(owner, ["user_dm_message", "calendar_event"]);
+    const saved = JSON.parse(storage["alook:viewer:inbox-filter-types"]);
     expect(saved).toContain("user_dm_message");
     expect(saved).toContain("calendar_event");
   });
 
   it("adds mandatory types if not included", () => {
-    setInboxFilterTypes(["calendar_event"]);
-    const saved = JSON.parse(storage["inbox-filter-types"]);
+    setInboxFilterTypes(owner, ["calendar_event"]);
+    const saved = JSON.parse(storage["alook:viewer:inbox-filter-types"]);
     expect(saved).toContain("user_dm_message");
     expect(saved).toContain("calendar_event");
+  });
+});
+
+describe("scoped preference Store", () => {
+  it("publishes to the owner Store and does not read another account's selection", () => {
+    setInboxFilterTypes(owner, ["calendar_event"]);
+    expect(getInboxFilterTypes(owner)).toEqual(["user_dm_message", "calendar_event"]);
+    const other = { ...owner, userId: "other", preferences: createStore({ inboxFilterTypes: [...DEFAULT_INBOX_TYPES], hydrated: true, lastWorkspaceSlug: null as string | null }) };
+    expect(getInboxFilterTypes(other)).toEqual(DEFAULT_INBOX_TYPES);
+  });
+  it("does not write after owner retirement", () => {
+    const previous = getInboxFilterTypes(owner);
+    owner.lifecycle.setState((state) => ({ ...state, active: false }));
+    setInboxFilterTypes(owner, ["email_notification"]);
+    expect(getInboxFilterTypes(owner)).toBe(previous);
   });
 });

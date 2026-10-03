@@ -1,92 +1,52 @@
 "use client";
 
-import {
-  createContext,
-  useContext,
-  useState,
-  useCallback,
-  useEffect,
-  useRef,
-  type ReactNode,
-} from "react";
+import { useMemo, type ReactNode } from "react";
+import { createStore, createStoreContext, useSelector } from "@tanstack/react-store";
 import { useRouter } from "next/navigation";
+import type { Agent } from "@alook/shared";
 import { useAgentContext } from "@/contexts/agent-context";
-import { useWorkspace } from "@/contexts/workspace-context";
+import { useWorkspaceOwner } from "@/contexts/workspace-context";
 import { AgentChatSheet } from "@/components/canvas/agent-chat-sheet";
 
-interface AgentChatSheetContextValue {
-  openAgentChat: (
-    agentId: string,
-    opts?: { conversationId?: string; taskId?: string; messageId?: string },
-  ) => void;
+type ChatTarget = { conversationId?: string; taskId?: string; messageId?: string };
+function createSheetStore() {
+  return createStore({ open: false, agentId: null as string | null, targetConvId: null as string | null, scrollToTaskId: null as string | null, scrollToMessageId: null as string | null });
 }
-
-const AgentChatSheetContext = createContext<AgentChatSheetContextValue | null>(
-  null,
-);
-
+const { StoreProvider, useStoreContext } = createStoreContext<{
+  ui: ReturnType<typeof createSheetStore>;
+  openAgentChat: (agentId: string, options?: ChatTarget) => void;
+}>();
 export function useAgentChatSheet() {
-  const ctx = useContext(AgentChatSheetContext);
-  if (!ctx)
-    throw new Error(
-      "useAgentChatSheet must be used within AgentChatSheetProvider",
-    );
-  return ctx;
+  const { openAgentChat } = useStoreContext();
+  return useMemo(() => ({ openAgentChat }), [openAgentChat]);
 }
-
 export function AgentChatSheetProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
+  const workspace = useWorkspaceOwner();
   const { agents } = useAgentContext();
-  const { slug } = useWorkspace();
-
-  const [open, setOpen] = useState(false);
-  const [agentId, setAgentId] = useState<string | null>(null);
-  const [targetConvId, setTargetConvId] = useState<string | null>(null);
-  const [scrollToTaskId, setScrollToTaskId] = useState<string | null>(null);
-  const [scrollToMessageId, setScrollToMessageId] = useState<string | null>(null);
-
-  const agent = agentId ? agents.find((a) => a.id === agentId) ?? null : null;
-
-  const agentsRef = useRef(agents);
-  useEffect(() => { agentsRef.current = agents; });
-
-  const openAgentChat = useCallback(
-    (id: string, opts?: { conversationId?: string; taskId?: string; messageId?: string }) => {
-      const found = agentsRef.current.find((a) => a.id === id);
-      if (!found) {
-        router.push(`/w/${slug}/agents/${id}`);
-        return;
-      }
-      setAgentId(id);
-      setTargetConvId(opts?.conversationId ?? null);
-      setScrollToTaskId(opts?.taskId ?? null);
-      setScrollToMessageId(opts?.messageId ?? null);
-      setOpen(true);
-    },
-    [router, slug],
-  );
-
-  const handleOpenChange = useCallback((nextOpen: boolean) => {
-    setOpen(nextOpen);
-    if (!nextOpen) {
-      setTargetConvId(null);
-      setScrollToTaskId(null);
-      setScrollToMessageId(null);
-    }
-  }, []);
-
-  return (
-    <AgentChatSheetContext.Provider value={{ openAgentChat }}>
-      {children}
-      <AgentChatSheet
-        open={open}
-        onOpenChange={handleOpenChange}
-        agentId={agentId}
-        agent={agent}
-        targetConvId={targetConvId}
-        scrollToTaskId={scrollToTaskId}
-        scrollToMessageId={scrollToMessageId}
-      />
-    </AgentChatSheetContext.Provider>
-  );
+  const handles = useMemo(() => {
+    const ui = createSheetStore();
+    return {
+      ui,
+      openAgentChat: (agentId: string, options?: ChatTarget) => {
+        if (!workspace.lifecycle.get().active || !workspace.application.lifecycle.get().active) return;
+        const found = workspace.queryClient.getQueryData<Agent[]>(workspace.key("agents"))?.some((agent) => agent.id === agentId);
+        if (!found) { router.push(`/w/${workspace.slug}/agents/${agentId}`); return; }
+        ui.setState(() => ({ open: true, agentId, targetConvId: options?.conversationId ?? null, scrollToTaskId: options?.taskId ?? null, scrollToMessageId: options?.messageId ?? null }));
+      },
+    };
+  }, [workspace, router]);
+  const state = useSelector(handles.ui, (value) => value);
+  const agent = agents.find((value) => value.id === state.agentId) ?? null;
+  return <StoreProvider value={handles}>
+    {children}
+    <AgentChatSheet
+      {...state}
+      onOpenChange={(open) => {
+        if (!workspace.lifecycle.get().active || !workspace.application.lifecycle.get().active) return;
+        handles.ui.setState((previous) => ({ ...previous, open, ...(open ? {} : { targetConvId: null, scrollToTaskId: null, scrollToMessageId: null }) }));
+      }}
+      agent={agent}
+    />
+  </StoreProvider>;
 }

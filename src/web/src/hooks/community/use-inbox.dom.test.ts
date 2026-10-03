@@ -18,6 +18,8 @@ import {
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { CommunityPreviewProfileOwner } from "@/stores/community/profile-preview"
 import { communityKeys } from "@/lib/query-keys"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { useAccountAttention } from "./use-account-attention"
 import { useInboxAttention, useInboxMarked, useMessageMarked } from "./use-inbox"
 
@@ -332,8 +334,8 @@ async function createHarness({
   const registry = createCommunityDbRegistry(queryClient, "viewer")
   await registry.preload()
   const unregister = registerCommunityDbRegistry(registry)
-  useCommunityWsStore.getState().reset()
-  useCommunityWsStore.getState().activateProfileAccount("viewer")
+  registry.runtime.ws.actions.reset()
+  registry.runtime.ws.actions.activateProfileAccount("viewer")
   let latest: ReturnType<typeof useInboxAttention> | undefined
   const paints: Array<{ count: number; children: string[] }> = []
   function Probe() {
@@ -392,12 +394,13 @@ describe("useInboxAttention", () => {
     const wrapperFor = (queryClient: QueryClient) => function Wrapper({
       children,
     }: React.PropsWithChildren) {
-      return React.createElement(QueryClientProvider, { client: queryClient }, children)
+      return React.createElement(CommunityTestProvider, { client: queryClient, retainOwner: true }, children)
     }
 
     apiFetchMock.mockResolvedValueOnce({ marked: [], stale: true })
+    const markedOwner = await createCommunityQueryOwner()
     const marked = renderHook(() => useInboxMarked(true), {
-      wrapper: wrapperFor(new QueryClient({ defaultOptions: { queries: { retry: false } } })),
+      wrapper: wrapperFor(markedOwner.client),
     })
     await waitFor(() => expect(marked.result.current.error).toMatchObject({
       name: "StaleReadError",
@@ -406,8 +409,9 @@ describe("useInboxAttention", () => {
     marked.unmount()
 
     apiFetchMock.mockResolvedValueOnce({ marked: false, stale: true })
+    const messageOwner = await createCommunityQueryOwner()
     const messageMarked = renderHook(() => useMessageMarked("message", true), {
-      wrapper: wrapperFor(new QueryClient({ defaultOptions: { queries: { retry: false } } })),
+      wrapper: wrapperFor(messageOwner.client),
     })
     await waitFor(() => expect(messageMarked.result.current.error).toMatchObject({
       name: "StaleReadError",

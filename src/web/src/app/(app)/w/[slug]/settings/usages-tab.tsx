@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useAgentContext } from "@/contexts/agent-context";
-import { useWorkspace } from "@/contexts/workspace-context";
+import { useWorkspaceOwner, runWorkspaceRequest } from "@/contexts/workspace-context";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getWorkspaceOverview, type WorkspaceOverview } from "@/lib/api";
+import { getWorkspaceOverview } from "@/lib/api";
 import { QuickStatsRow } from "../home/_components/quick-stats";
 import { TaskHealth } from "../home/_components/task-health";
 import { EmailSummary } from "../home/_components/email-summary";
@@ -13,24 +13,12 @@ import { TeamAccess } from "../home/_components/team-access";
 
 export function UsagesTab() {
   const { agents, runtimes, loading, activeTaskCounts } = useAgentContext();
-  const { workspaceId } = useWorkspace();
-  const [overview, setOverview] = useState<WorkspaceOverview | null>(null);
-  const [overviewLoading, setOverviewLoading] = useState(false);
-
-  useEffect(() => {
-    if (loading) return;
-    let cancelled = false;
-    setOverviewLoading(true);
-    getWorkspaceOverview(workspaceId)
-      .then((data) => {
-        if (!cancelled) setOverview(data);
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setOverviewLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [loading, workspaceId]);
+  const owner = useWorkspaceOwner();
+  const overviewQuery = useQuery({ queryKey: owner.key("overview"), enabled: !loading,
+    queryFn: ({ signal }) => runWorkspaceRequest(owner, (options) => getWorkspaceOverview(owner.workspaceId, options), signal),
+  });
+  const overview = overviewQuery.data;
+  const overviewLoading = overviewQuery.isPending;
 
   if (overviewLoading || !overview) {
     return (

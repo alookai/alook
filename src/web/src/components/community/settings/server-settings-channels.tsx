@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { ChevronDown, Lock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { EntityIcon } from "../entity-icon"
@@ -20,7 +20,7 @@ function groupChannels(channels: AdminChannel[]) {
 }
 
 export function ServerSettingsChannels({ serverId }: { serverId: string }) {
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
+  const [collapsed, setCollapsed] = useAtom(useCreateAtom<Set<string>>(new Set<string>()))
   const { channels, isError, isFetching, refetch, forbidden } = useServerAdminChannels(serverId, true)
   const retry = () => { void refetch() }
   if (forbidden) return <p role="alert" className="text-sm text-muted-foreground">Only server administrators can view channels.</p>

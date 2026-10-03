@@ -1,12 +1,14 @@
 "use client"
 
-import { useCallback, useMemo } from "react"
+import { useCallback, useMemo, useLayoutEffect } from "react"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
-import { communityKeys } from "@/lib/query-keys"
+import { useCreateAtom } from "@tanstack/react-store"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { communityServerId } from "@/lib/community/community-route"
 import { markSwitch } from "@/lib/perf/switch-mark"
 import { markVoluntaryLeave, pickPostEjectDestination } from "@/lib/community/eject-server"
-import { useServers, type ServerDetail } from "@/hooks/community/use-servers"
+import { useServers } from "@/hooks/community/use-servers"
 import { useFolders } from "@/hooks/community/use-folders"
 import {
   useCreateServer,
@@ -16,7 +18,6 @@ import {
 import { getLastChannel, resolveCommunityLandingHref } from "@/lib/community/last-channel"
 import { getLastMeLeaf } from "@/lib/community/last-me-location"
 import type { Breakpoint } from "@/hooks/use-mobile"
-import { useCommunityStore } from "@/stores/community"
 import { resolveServerRailOverlayAction } from "./server-rail-actions"
 import type { ShellFrameProps } from "./shell-frame-types"
 import type { View } from "./shell-types"
@@ -57,7 +58,14 @@ export function useShellRailController({
   const servers = serversQuery.servers
   const folders = foldersQuery.folders
   const hasLiveServers = servers.length > 0 || serversQuery.data !== undefined || !accountId
-  const currentServerId = useCommunityStore((state) => state.currentServerId)
+  const viewOwner = useCreateAtom({ active: false, generation: 0, navigation: null as CommunityNavigationController | null })
+  useLayoutEffect(() => {
+    viewOwner.set((state) => ({ ...state, active: true, generation: state.generation + 1 }))
+    return () => viewOwner.set((state) => ({ ...state, active: false, generation: state.generation + 1 }))
+  }, [communityDb, viewOwner])
+  useLayoutEffect(() => { viewOwner.set((state) => ({ ...state, navigation })) }, [navigation, viewOwner])
+  const viewCurrent = useCallback((generation: number) => viewOwner.get().active && viewOwner.get().generation === generation
+    && !!communityDb?.runtime.lifecycle.get().active && getCommunityDbRegistry(queryClient) === communityDb, [communityDb, queryClient, viewOwner])
   const { mutateAsync: createServerAsync } = useCreateServer()
   const { mutate: leaveServerMutate } = useLeaveServer()
   const { mutate: uploadServerIconMutate } = useUploadServerIcon()
@@ -68,20 +76,12 @@ export function useShellRailController({
   )
 
   const serverDestination = useCallback((id: string) => {
-    const detail = queryClient.getQueryData<ServerDetail>(communityKeys.server(id))
-    const liveChannelIds = detail?.categories.flatMap((category) =>
-      category.channels.filter((channel) => !channel.pending).map((channel) => channel.id)
-    )
-    const canonicalDetailComplete = communityDb?.collections.servers.get(id)?.detailComplete === true
-    const channelIds = liveChannelIds
-      ?? (communityDb && canonicalDetailComplete
-        ? Array.from(communityDb.collections.channels.values())
-          .filter((channel) => channel.serverId === id && channel.type !== "thread" && !channel.pending)
-          .map((channel) => channel.id)
-        : undefined)
-      ?? []
+    const complete = communityDb?.collections.servers.get(id)?.detailComplete === true
+    const channelIds = communityDb && complete
+      ? Array.from(communityDb.collections.channels.values()).filter((channel) => channel.serverId === id && channel.type !== "thread" && !channel.pending).map((channel) => channel.id)
+      : []
     return resolveCommunityLandingHref({ serverId: id, channelIds, last: getLastChannel(id), breakpoint })
-  }, [breakpoint, communityDb, queryClient])
+  }, [breakpoint, communityDb])
   const onServerNavigate = useCallback((id: string) => {
     markSwitch("server", id)
     navigation.push(serverDestination(id))
@@ -94,36 +94,45 @@ export function useShellRailController({
     navigation.push(homeDestination())
   }, [homeDestination, navigation])
   const onCreateServer = useCallback(async (name: string, icon?: File) => {
+    const generation = viewOwner.get().generation
+    if (!viewCurrent(generation)) return
     try {
       const data = await createServerAsync({ name })
+      if (!viewCurrent(generation)) return
       const newId = data.server.id
       toast(`Server "${name}" created`)
       if (icon) {
         uploadServerIconMutate(
           { serverId: newId, file: icon },
-          { onError: (error) => toastApiError(error, "Server created, but the icon failed to upload") },
+          { onError: (error) => { if (viewCurrent(generation)) toastApiError(error, "Server created, but the icon failed to upload") } },
         )
       }
       navigation.push(`/c/channels/${newId}`)
     } catch (error) {
-      toastApiError(error, "Failed to create server")
+      if (viewCurrent(generation)) toastApiError(error, "Failed to create server")
     }
-  }, [createServerAsync, navigation, uploadServerIconMutate])
+  }, [createServerAsync, navigation, uploadServerIconMutate, viewOwner, viewCurrent])
   const onLeaveServer = useCallback((id: string) => {
-    markVoluntaryLeave(id)
+    const generation = viewOwner.get().generation
+    if (!viewCurrent(generation)) return
+    markVoluntaryLeave(queryClient, id)
     leaveServerMutate(
       { serverId: id },
       {
         onSuccess: () => {
+          if (!viewCurrent(generation)) return
           toast("Left server")
-          if (currentServerId === id) {
-            navigation.replace(pickPostEjectDestination(servers, id))
+          const currentNavigation = viewOwner.get().navigation
+          if (currentNavigation && communityServerId(currentNavigation.pendingHref ?? currentNavigation.publishedHref) === id) {
+            const allowed = new Set([...communityDb!.collections.serverMemberships.values()].filter((row) => row.viewer && row.userId === communityDb!.accountId).map((row) => row.serverId))
+            const remaining = [...communityDb!.collections.servers.values()].filter((row) => allowed.has(row.id)).sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+            currentNavigation.replace(pickPostEjectDestination(remaining, id))
           }
         },
-        onError: (error) => toastApiError(error, "Failed to leave server"),
+        onError: (error) => { if (viewCurrent(generation)) toastApiError(error, "Failed to leave server") },
       },
     )
-  }, [currentServerId, leaveServerMutate, navigation, servers])
+  }, [communityDb, leaveServerMutate, queryClient, viewCurrent, viewOwner])
   const onOpenSettings = useCallback((id?: string) => {
     if (!id) return
     const action = resolveServerRailOverlayAction({

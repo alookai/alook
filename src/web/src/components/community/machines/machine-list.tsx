@@ -1,10 +1,15 @@
 "use client"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { getCommunityRuntime, useCommunityRuntime } from "@/stores/community/runtime"
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+
+import { useCallback, useEffect, useRef, type ReactNode } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { ChevronLeft } from "lucide-react"
-import { useQueryClient } from "@tanstack/react-query"
+import { useQueryClient, useQuery, useMutation } from "@tanstack/react-query"
+import { useCommunityMutationOrigin } from "@/hooks/community/community-origin"
+import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import type { AlookMode, CommunityMachineSummary } from "@alook/shared"
 import {
   isPresenceOnline,
@@ -32,7 +37,7 @@ import { PairMachineSheet, type PairMachineSheetMode } from "./pair-machine-shee
 import { ConnectTile } from "@/components/community/onboarding-tiles/connect-tile"
 import { useMachines, machinesQueryFn, replaceMachines, type MachinesResponse } from "@/hooks/community/use-machines"
 import { useBots } from "@/hooks/community/use-bots"
-import { useCommunityStore, usePendingMachineTokenId } from "@/stores/community"
+import { usePendingMachineTokenId } from "@/stores/community"
 import { communityKeys } from "@/lib/query-keys"
 import { tid } from "@/lib/community/testids"
 import {
@@ -204,10 +209,13 @@ export function MachineUpdateDialog({
 export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const communityRuntime = useCommunityRuntime()
   const queryClient = useQueryClient()
+  const origin = useCommunityMutationOrigin()
+  const source = useCommunityViewSource("machine-list")
   const { machines, data: machinesData, isLoading: machinesLoading } = useMachines()
   const capacity = machinesData?.machineCapacity ?? null
-  const [limitOpen, setLimitOpen] = useState(false)
+  const [limitOpen, setLimitOpen] = useAtom(useCreateAtom(false))
   const viewPlan = useCallback(() => {
     const next = new URL(window.location.href)
     next.searchParams.delete("billing")
@@ -216,37 +224,42 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   }, [])
   const { bots } = useBots()
   const pendingMachineTokenId = usePendingMachineTokenId()
-  const [pairOpen, setPairOpen] = useState(false)
-  const [pairMode, setPairMode] = useState<PairMachineSheetMode>({ kind: "pair" })
-  const [pendingTokenId, setPendingTokenId] = useState<string | null>(null)
-  const [connectedHostname, setConnectedHostname] = useState<string | null>(null)
-  const [confirmDelete, setConfirmDelete] = useState<CommunityMachineSummary | null>(null)
-  const [confirmUpdate, setConfirmUpdate] = useState<CommunityMachineSummary | null>(null)
-  const [latestVersion, setLatestVersion] = useState<string | null>(null)
-  const [guideAvatarSeed, setGuideAvatarSeed] = useState("alook-guide")
-  const [guideIntroActive, setGuideIntroActive] = useState(true)
+  const [pairOpen, setPairOpen] = useAtom(useCreateAtom(false))
+  const [pairMode, setPairMode] = useAtom(useCreateAtom<PairMachineSheetMode>({ kind: "pair" }))
+  const [pendingTokenId, setPendingTokenId] = useAtom(useCreateAtom<string | null>(null))
+  const [connectedHostname, setConnectedHostname] = useAtom(useCreateAtom<string | null>(null))
+  const [deleteMachineId, setDeleteMachineId] = useAtom(useCreateAtom<string | null>(null))
+  const [updateMachineId, setUpdateMachineId] = useAtom(useCreateAtom<string | null>(null))
+  const confirmDelete = machines.find((machine) => machine.id === deleteMachineId) ?? null
+  const confirmUpdate = machines.find((machine) => machine.id === updateMachineId) ?? null
+  const setConfirmDelete = (machine: CommunityMachineSummary | null) => setDeleteMachineId(machine?.id ?? null)
+  const setConfirmUpdate = (machine: CommunityMachineSummary | null) => setUpdateMachineId(machine?.id ?? null)
+  const [guideAvatarSeed, setGuideAvatarSeed] = useAtom(useCreateAtom("alook-guide"))
+  const [guideIntroActive, setGuideIntroActive] = useAtom(useCreateAtom(true))
   const emptyStageRef = useRef<HTMLDivElement>(null)
   const onboardingState = useCommunityOnboarding()
   const controllerMode = getAppMode()
+  const versionQuery = useQuery({ queryKey: ["community", "latest-daemon-version"], enabled: controllerMode !== "dev",
+    staleTime: 300_000, queryFn: ({ signal }) => origin.run((options) => fetchLatestDaemonVersion({ ...options, signal })),
+  })
+  const latestVersion = versionQuery.data?.version ?? null
+  const machineCommand = useMutation({ mutationKey: ["community", "machine-command"], scope: { id: "community-machine-command" },
+    mutationFn: async ({ kind, id, token, assert }: { kind: "delete" | "update"; id: string; token: ReturnType<typeof origin.begin>["token"]; assert: ReturnType<typeof source.capture> }) => {
+      origin.assert(token)
+      const key = communityKeys.machines()
+      const original = queryClient.getQueryCache().find({ queryKey: key, exact: true })
+      await origin.request(token, `/api/community/machines/${id}${kind === "update" ? "/update" : ""}`, { method: kind === "delete" ? "DELETE" : "POST", assertActive: assert })
+      origin.assert(token)
+      if (kind === "delete" && original && queryClient.getQueryCache().find({ queryKey: key, exact: true }) === original) queryClient.setQueryData<MachinesResponse>(key, (current) => current ? replaceMachines(current, current.machines.filter((row) => row.id !== id)) : current)
+      await queryClient.invalidateQueries({ queryKey: key, exact: true })
+      origin.assert(token)
+    },
+  })
 
   useEffect(() => {
     setGuideAvatarSeed(`alook-guide-${crypto.randomUUID()}`)
-  }, [])
+  }, [setGuideAvatarSeed])
 
-  useEffect(() => {
-    if (controllerMode === "dev") return
-    let active = true
-    void fetchLatestDaemonVersion()
-      .then(({ version }) => {
-        if (active) setLatestVersion(version)
-      })
-      .catch(() => {
-        if (active) setLatestVersion(null)
-      })
-    return () => {
-      active = false
-    }
-  }, [controllerMode])
 
   // When the WS layer announces a machine for our pending token, flip the sheet.
   useEffect(() => {
@@ -260,7 +273,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     if (justConnected && !connectedHostname) {
       setConnectedHostname(justConnected.hostname || "machine")
     }
-  }, [machines, pendingMachineTokenId, pendingTokenId, connectedHostname])
+  }, [machines, pendingMachineTokenId, pendingTokenId, connectedHostname, setConnectedHostname])
 
   const openPair = useCallback(() => {
     setPairMode({ kind: "pair" })
@@ -275,9 +288,9 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     }
     setPendingTokenId(null)
     setConnectedHostname(null)
-    useCommunityStore.getState().setPendingMachineTokenId(null)
+    getCommunityRuntime(queryClient).ui.actions.setPendingMachineTokenId(null)
     setPairOpen(true)
-  }, [capacity, queryClient])
+  }, [capacity, queryClient, setConnectedHostname, setLimitOpen, setPairMode, setPairOpen, setPendingTokenId])
 
   const openReconnect = useCallback((machine: CommunityMachineSummary) => {
     setPairMode({
@@ -287,9 +300,9 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     })
     setPendingTokenId(null)
     setConnectedHostname(null)
-    useCommunityStore.getState().setPendingMachineTokenId(null)
+    getCommunityRuntime(queryClient).ui.actions.setPendingMachineTokenId(null)
     setPairOpen(true)
-  }, [])
+  }, [queryClient, setConnectedHostname, setPairMode, setPairOpen, setPendingTokenId])
 
   // Deep-link from BotList's "Bring online" button (`?reconnect=<machineId>`)
   // — auto-open the same reconnect Sheet MachineCard's "Reconnect…" opens.
@@ -313,56 +326,46 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     if (!open) {
       setPendingTokenId(null)
       setConnectedHostname(null)
-      useCommunityStore.getState().setPendingMachineTokenId(null)
+      getCommunityRuntime(queryClient).ui.actions.setPendingMachineTokenId(null)
     }
-  }, [])
+  }, [queryClient, setConnectedHostname, setPairOpen, setPendingTokenId])
 
-  const onConfirmDelete = useCallback(async () => {
+  const onConfirmDelete = async () => {
     if (!confirmDelete) return
-    const id = confirmDelete.id
+    const id = confirmDelete.id, assert = source.capture(), token = origin.begin().token
+    assert()
     setConfirmDelete(null)
-    try {
-      // Never sends `cascade: true` — deleting a machine with live bots on
-      // it is blocked (see the dialog below, which swaps the destructive
-      // action out for "Manage bots" whenever `botsToDelete` is non-empty).
-      // This call only fires for a machine we already know has zero bots.
-      await apiFetch(`/api/community/machines/${id}`, { method: "DELETE" })
-      // Optimistically drop the row from the machines cache. WS
-      // `machine.removed` fans out and reconciles, but the same-tab actor
-      // should see it disappear immediately.
-      queryClient.setQueryData<MachinesResponse | undefined>(
-        communityKeys.machines(),
-        (prev) =>
-          prev ? replaceMachines(prev, prev.machines.filter((m) => m.id !== id)) : prev,
-      )
-      void queryClient.invalidateQueries({ queryKey: communityKeys.machines() })
-    } catch (err) {
-      // MACHINE_HAS_BOTS can still happen here despite the client-side
-      // guard above — e.g. a bot was created on this machine from another
-      // tab between opening the dialog and confirming.
-      const message =
-        err instanceof Error && err.message === "MACHINE_HAS_BOTS"
-          ? "This machine now has bots on it — delete or move them first"
-          : err instanceof Error && err.message
-            ? err.message
-            : "Couldn't delete the machine"
-      toast.error(message)
+    try { await machineCommand.mutateAsync({ kind: "delete", id, token, assert }) }
+    catch (error) {
+      try { assert() } catch { return }
+      if (error instanceof DOMException && error.name === "AbortError") return
+      toast.error(error instanceof Error && error.message === "MACHINE_HAS_BOTS"
+        ? "This machine now has bots on it — delete or move them first" : getErrorMessage(error, "Couldn't delete the machine"))
     }
-  }, [confirmDelete, queryClient])
+  }
 
   const handleSetPendingTokenId = useCallback((tokenId: string | null) => {
     setPendingTokenId(tokenId)
-    useCommunityStore.getState().setPendingMachineTokenId(tokenId)
-  }, [])
+    getCommunityRuntime(queryClient).ui.actions.setPendingMachineTokenId(tokenId)
+  }, [queryClient, setPendingTokenId])
 
-  const onConfirmUpdate = useCallback((machine: CommunityMachineSummary) => {
+  const onConfirmUpdate = async (machine: CommunityMachineSummary) => {
+    const assert = source.capture(), token = origin.begin().token
+    assert()
     setConfirmUpdate(null)
-    void requestMachineUpdate(machine.id)
-  }, [])
+    try {
+      await machineCommand.mutateAsync({ kind: "update", id: machine.id, token, assert })
+      assert()
+      toast.success("Update requested — the machine will restart and reconnect")
+    } catch (error) {
+      try { assert() } catch { return }
+      if (!(error instanceof DOMException && error.name === "AbortError")) toast.error(getErrorMessage(error, "Couldn't request the daemon update"))
+    }
+  }
 
   const finishGuideIntro = useCallback(() => {
     setGuideIntroActive(false)
-  }, [])
+  }, [setGuideIntroActive])
 
   const botsToDelete = confirmDelete
     ? bots.filter((b) => b.machineId === confirmDelete.id)
@@ -372,14 +375,18 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   const limitDialog = <MachineLimitDialog open={limitOpen} onOpenChange={setLimitOpen} onViewPlan={viewPlan} limit={capacity?.limit ?? 0} reconnect={pairMode.kind === "reconnect"} />
   const usage = <MachineCapacityUsage summary={capacity} onViewPlan={viewPlan} />
   const onLimitReached = useCallback(async () => {
+    const assert = source.capture()
+    assert()
     closePair(false)
     try {
       await queryClient.fetchQuery({ queryKey: communityKeys.machines(), queryFn: machinesQueryFn, staleTime: 0 })
+      assert()
       setLimitOpen(true)
     } catch {
+      try { assert() } catch { return }
       toast.error("Couldn’t refresh your machine allowance. Refresh and try again.")
     }
-  }, [closePair, queryClient])
+  }, [closePair, queryClient, setLimitOpen, source])
 
   if (machinesLoading) {
     return <MachineListSkeleton onBack={onBack} />
@@ -422,7 +429,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
               <Button
                 data-testid={tid.onboardingStart}
                 variant="ghost"
-                onClick={() => startCommunityOnboarding({ guideAvatarSeed })}
+                onClick={() => startCommunityOnboarding(communityRuntime, { guideAvatarSeed })}
               >
                 Guide me
               </Button>
@@ -538,7 +545,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
                   onClick={() => {
                     const machineId = confirmDelete?.id
                     setConfirmDelete(null)
-                    useCommunityStore.getState().uiHandlers.navigatePath?.(
+                    getCommunityRuntime(queryClient).ui.get().uiHandlers.navigatePath?.(
                       machineId
                         ? `/c/me/bots?machineId=${machineId}`
                         : "/c/me/bots"

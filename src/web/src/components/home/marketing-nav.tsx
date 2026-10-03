@@ -1,8 +1,9 @@
 "use client";
 
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { GithubOutboundLink } from "@/components/github-outbound-link";
 import {
   MARKETING_SITE_LINK_CLASS_NAME,
@@ -31,7 +32,7 @@ export function MarketingNav({
   containerClassName?: string;
   containerTestId?: string;
 }) {
-  const [revealed, setRevealed] = useState(false);
+  const [revealed, setRevealed] = useAtom(useCreateAtom(false));
 
   useEffect(() => {
     if (!revealAfterHero) return;
@@ -44,7 +45,7 @@ export function MarketingNav({
     update();
     window.addEventListener("scroll", update, { passive: true });
     return () => window.removeEventListener("scroll", update);
-  }, [revealAfterHero]);
+  }, [revealAfterHero, setRevealed]);
 
   return (
     <nav

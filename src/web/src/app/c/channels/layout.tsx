@@ -1,6 +1,9 @@
 "use client"
+import { useAtom, useCreateAtom, useSelector } from "@tanstack/react-store";
+import { getCommunityRuntime } from "@/stores/community/runtime"
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react"
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
@@ -24,18 +27,12 @@ import { validateIconSourceFile } from "@/lib/community/image-crop"
 import type { SettingsSection } from "@/components/community/settings/settings-types"
 import { canManageServer, isForum, notifLevelDisplay, type ChannelType } from "@alook/shared"
 import { readCommunityProfile } from "@/lib/community/profile-read"
-import {
-  useCommunityStore,
-  useCurrentChannelId,
-  useCurrentChannelMeta,
-} from "@/stores/community"
+import { useCurrentChannelId, useCurrentChannelMeta } from "@/stores/community"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import {
   useServer,
   useServers,
   serverProjectedQueryFn,
-  type ServerDetail,
-  type ServersResponse,
 } from "@/hooks/community/use-servers"
 import { useServerMembers } from "@/hooks/community/use-server-members"
 import {
@@ -52,6 +49,7 @@ import {
 } from "@/lib/community/last-channel"
 import { communityKeys } from "@/lib/query-keys"
 import { usePresence } from "@/hooks/community/use-server-panels"
+import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import {
   resolveForumSidebarRouteCandidate,
   useForumSidebarThreads,
@@ -92,28 +90,25 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const serverId = decodeURIComponent(params.serverId)
   const routeChannelId = params.channelId ? decodeURIComponent(params.channelId) : null
+  const queryClient = useQueryClient()
   const ownerDeleteRouteIdentity = useMemo(
     () => ({
       serverId,
-      token: createOwnerServerDeleteRouteToken(),
+      token: createOwnerServerDeleteRouteToken(queryClient),
     }),
-    [serverId],
+    [queryClient, serverId],
   )
   const ownerDeleteRouteToken = ownerDeleteRouteIdentity.token
-  const ownerDeleteRouteProtected = isOwnerServerDeleteRouteProtected(
-    serverId,
-    ownerDeleteRouteToken,
-  )
+  const ownerDeleteRouteProtected = useSelector(getCommunityRuntime(queryClient).serverEject, (state) => state.transactions.has(serverId) || state.tombstones.get(ownerDeleteRouteToken) === serverId)
   const hasChannel = !!routeChannelId
   const breakpoint = useBreakpoint()
 
   const router = useRouter()
-  const queryClient = useQueryClient()
   const communityDb = useOptionalCommunityDbRegistry()
   const trustedRestoredPrimary = useTrustedRestoredPrimary()
   const cancelPendingNavigation = useCallback(() => {
-    useCommunityStore.getState().uiHandlers.cancelPendingNavigation?.()
-  }, [])
+    getCommunityRuntime(queryClient).ui.get().uiHandlers.cancelPendingNavigation?.()
+  }, [queryClient])
   const currentUser = useCurrentUser()
   const serverAccessRevoked = useCommunityWsStore(
     (state) => state.revokedServerIds.has(serverId),
@@ -197,29 +192,13 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const serversList = useServers()
   const serverDestination = useCallback(async (id: string) => {
     const lastChannel = getLastChannel(id)
-    let detail = queryClient.getQueryData<ServerDetail>(communityKeys.server(id))
-    const canonicalChannelIds = communityDb
-      ? Array.from(communityDb.collections.channels.values())
-        .filter((channel) => channel.serverId === id && channel.type !== "thread" && !channel.pending)
-        .map((channel) => channel.id)
-      : []
-    if (!detail && !lastChannel && canonicalChannelIds.length === 0) {
+    const read = () => communityDb ? Array.from(communityDb.collections.channels.values()).filter((channel) => channel.serverId === id && channel.type !== "thread" && !channel.pending).map((channel) => channel.id) : []
+    if (!communityDb?.collections.servers.get(id)?.detailComplete && !lastChannel && read().length === 0) {
       try {
-        detail = await queryClient.fetchQuery({
-          queryKey: communityKeys.server(id),
-          queryFn: serverProjectedQueryFn(queryClient, id),
-          staleTime: Infinity,
-        })
-      } catch {
-        // The server landing route remains the safe fallback if its detail
-        // cannot be resolved. Its ordinary loader owns retry/error handling.
-      }
+        await queryClient.fetchQuery({ queryKey: communityKeys.server(id), queryFn: ({ signal }) => serverProjectedQueryFn(queryClient, id, signal)(), staleTime: Infinity })
+      } catch {}
     }
-    const channelIds = detail?.categories.flatMap((category) =>
-      category.channels
-        .filter((channel) => !channel.pending)
-        .map((channel) => channel.id),
-    ) ?? canonicalChannelIds
+    const channelIds = read()
     return pickServerLandingHref(id, channelIds, lastChannel)
   }, [communityDb, queryClient])
 
@@ -240,14 +219,12 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       clearLastChannel(deletedServerId)
       if (!needsNavigation) return
       void (async () => {
-        const servers = queryClient.getQueryData<ServersResponse>(
-          communityKeys.servers(),
-        )?.servers ?? []
-        const survivor = servers.find((server) => server.id !== deletedServerId)
+        const allowed = new Set([...communityDb!.collections.serverMemberships.values()].filter((row) => row.viewer && row.userId === currentUser.id).map((row) => row.serverId))
+        const survivor = [...communityDb!.collections.servers.values()].filter((server) => allowed.has(server.id)).sort((a, b) => (a.position ?? 0) - (b.position ?? 0)).find((server) => server.id !== deletedServerId)
         const destination = survivor
           ? await serverDestination(survivor.id)
           : "/c/me"
-        if (!claimOwnerServerDeleteNavigation(
+        if (!claimOwnerServerDeleteNavigation(queryClient,
           deletedServerId,
           ownerDeleteRouteToken,
           destination,
@@ -266,8 +243,8 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const revokeInviteMut = useRevokeInvite()
 
   useEffect(() => {
-    useCommunityStore.getState().setCurrentServerId(serverId)
-  }, [serverId])
+    getCommunityRuntime(queryClient).ui.actions.setCurrentServerId(serverId)
+  }, [queryClient, serverId])
 
   // Eject when the URL is scoped to a server the viewer isn't in. Covers
   // four triggers with one effect:
@@ -299,8 +276,8 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       isSuccess: serverAccessRevoked
         || (serversList.isSuccess && serversList.isLiveAuthoritative),
       isFetching: serverAccessRevoked ? false : serversList.isFetching,
-      ownerDeleteRouteProtected: isOwnerServerDeleteRouteProtected(serverId),
-      consumeVoluntaryLeave,
+      ownerDeleteRouteProtected: isOwnerServerDeleteRouteProtected(queryClient, serverId),
+      consumeVoluntaryLeave: (id) => consumeVoluntaryLeave(queryClient, id),
       clearLastChannel,
       toast,
       accountId: currentUser.id,
@@ -310,7 +287,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         router.replace(destination)
       },
     })
-  }, [cancelPendingNavigation, currentUser.id, pathname, serverAccessRevoked, serverId, serversList.isLiveAuthoritative, serversList.isSuccess, serversList.isFetching, serversList.servers, router, searchParams])
+  }, [cancelPendingNavigation, currentUser.id, pathname, serverAccessRevoked, serverId, serversList.isLiveAuthoritative, serversList.isSuccess, serversList.isFetching, serversList.servers, router, searchParams, queryClient])
   // Reset the guard when the URL changes to a NEW server id — otherwise
   // navigating server → dangling-server → server would leave the ref
   // latched and skip the eject.
@@ -318,10 +295,11 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     ejectedRef.current = false
   }, [serverId])
 
-  const [serverSettingsOpen, setServerSettingsOpen] = useState(false)
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>("overview")
-  const [invitePopoverOpen, setInvitePopoverOpen] = useState(false)
-  const [pendingIconCrop, setPendingIconCrop] = useState<{ src: string; fileName: string } | null>(null)
+  const [serverSettingsOpen, setServerSettingsOpen] = useAtom(useCreateAtom(false))
+  const settingsView = useCommunityViewSource("server-settings:" + serverId, serverSettingsOpen)
+  const [settingsSection, setSettingsSection] = useAtom(useCreateAtom<SettingsSection>("overview"))
+  const [invitePopoverOpen, setInvitePopoverOpen] = useAtom(useCreateAtom(false))
+  const [pendingIconCrop, setPendingIconCrop] = useAtom(useCreateAtom<{ src: string; fileName: string } | null>(null))
 
   // Close server-scoped dialogs when the user navigates to another server —
   // without this, settings for server A would remain open after switching
@@ -330,7 +308,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     setServerSettingsOpen(false)
     setSettingsSection("overview")
     setInvitePopoverOpen(false)
-  }, [serverId])
+  }, [serverId, setInvitePopoverOpen, setServerSettingsOpen, setSettingsSection])
 
   // Open the dialog the instant we see the flag — this only touches local
   // state, so it can't race with the sibling default-channel page's own
@@ -341,7 +319,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (searchParams.get("settings") === "1") setServerSettingsOpen(true)
     if (searchParams.get("invite") === "1") setInvitePopoverOpen(true)
-  }, [searchParams])
+  }, [searchParams, setInvitePopoverOpen, setServerSettingsOpen])
 
   useEffect(() => {
     // These flags land on the bare `/c/channels/:serverId` URL
@@ -400,25 +378,25 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     // itself must leave account unread state untouched.
     markSwitch("channel", id)
     cancelPendingNavigation()
-    useCommunityStore.getState().uiHandlers.navigatePath?.(channelHref(serverId, id))
-  }, [cancelPendingNavigation, serverId])
+    getCommunityRuntime(queryClient).ui.get().uiHandlers.navigatePath?.(channelHref(serverId, id))
+  }, [cancelPendingNavigation, queryClient, serverId])
 
   const setActiveForumThread = useCallback((_parentId: string, id: string) => {
     markSwitch("channel", id)
     cancelPendingNavigation()
-    useCommunityStore.getState().uiHandlers.navigatePath?.(
+    getCommunityRuntime(queryClient).ui.get().uiHandlers.navigatePath?.(
       channelHref(serverId, id),
     )
-  }, [cancelPendingNavigation, serverId])
+  }, [cancelPendingNavigation, queryClient, serverId])
 
   const onSidebarOpenSettings = useCallback((section?: SettingsSection) => {
     if (section) setSettingsSection(section)
     setServerSettingsOpen(true)
-  }, [])
+  }, [setServerSettingsOpen, setSettingsSection])
 
   const onRailOpenActiveInvite = useCallback(() => {
     setInvitePopoverOpen(true)
-  }, [])
+  }, [setInvitePopoverOpen])
 
   const onBlockedCreate = useCallback(() => {
     toast("Only admins can create channels in a private category")
@@ -501,25 +479,14 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     serverId,
     invitePopoverOpen,
     onInvitePopoverOpenChange: sidebarHintOnly ? undefined : setInvitePopoverOpen,
-  }), [
-    currentServer, sidebarHintOnly,
-    currentChannelMeta?.parentChannelId,
-    currentChannelId, isAdmin, currentUser.id, setActiveChannel,
-    forumThreadsByParent, activeForumThreadId, setActiveForumThread,
-    onSidebarOpenSettings, onBlockedCreate, mutedChannels,
-    onCreateChannelInSidebar, onCreateCategoryInSidebar, onRenameChannel,
-    onDeleteChannelInSidebar, onDeleteCategoryInSidebar, onUpdateCategoryInSidebar,
-    onReorderCategoriesInSidebar, onReorderChannelsInSidebar,
-    onMoveChannelInSidebar, onBlockedMove,
-    serverId, invitePopoverOpen,
-  ])
+  }), [currentServer?.name, currentServer?.icon, currentServer?.official, currentChannelMeta?.parentChannelId, currentChannelId, isAdmin, currentUser.id, setActiveChannel, forumThreadsByParent, activeForumThreadId, setActiveForumThread, sidebarHintOnly, onSidebarOpenSettings, onBlockedCreate, mutedChannels, onCreateChannelInSidebar, onCreateCategoryInSidebar, onRenameChannel, onDeleteChannelInSidebar, onDeleteCategoryInSidebar, onUpdateCategoryInSidebar, onReorderCategoriesInSidebar, onReorderChannelsInSidebar, onMoveChannelInSidebar, onBlockedMove, serverId, invitePopoverOpen, setInvitePopoverOpen])
 
   const openProfile = (name: string, e: React.MouseEvent, discriminator?: string, userId?: string) => {
     // Delegate to the shell's registered openProfile via the community store.
-    useCommunityStore.getState().uiHandlers.openProfile?.(name, e, discriminator, userId)
+    getCommunityRuntime(queryClient).ui.get().uiHandlers.openProfile?.(name, e, discriminator, userId)
   }
 
-  const closeSettings = () => { setServerSettingsOpen(false); setSettingsSection("overview") }
+  const closeSettings = () => { settingsView.retire(); setServerSettingsOpen(false); setSettingsSection("overview") }
 
   const sidebar = useCallback((opts: { noHeader?: boolean } = {}) => (
     <ChannelSidebarRevealBoundary
@@ -563,22 +530,31 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
           onLoadMoreMembers={membersHook.loadMore}
           onSearchMembers={membersHook.searchMembers}
           onKickMember={(memberId) => {
-            kickMemberMut.mutate({ serverId, memberId }, {
-              onSuccess: () => toast("Member kicked"),
-              onError: (e) => toastApiError(e, "Failed to kick member"),
+            const assert = settingsView.capture()
+            kickMemberMut.mutate({ serverId, memberId, assertActive: assert }, {
+              onSuccess: () => { try { assert(); toast("Member kicked") } catch {} },
+              onError: (e) => toastApiError(e, "Failed to kick member", assert),
             })
           }}
           onSetRole={(memberId, role) => {
-            setMemberRoleMut.mutate({ serverId, memberId, role }, {
-              onSuccess: () => toast("Role updated"),
-              onError: (e) => toastApiError(e, "Failed to update role"),
+            const assert = settingsView.capture()
+            setMemberRoleMut.mutate({ serverId, memberId, role, assertActive: assert }, {
+              onSuccess: () => { try { assert(); toast("Role updated") } catch {} },
+              onError: (e) => toastApiError(e, "Failed to update role", assert),
             })
           }}
-          onRevokeInvite={(code) => revokeInviteMut.mutate({ serverId, code }, {
-            onSuccess: () => toast("Invite revoked"),
-            onError: (e) => toastApiError(e, "Failed to revoke invite"),
-          })}
-          onCopyInvite={(code) => { navigator.clipboard?.writeText(`${window.location.origin}/c/invite/${code}`); toast("Invite copied") }}
+          onRevokeInvite={(code) => {
+            const assert = settingsView.capture()
+            revokeInviteMut.mutate({ serverId, code, assertActive: assert }, {
+              onSuccess: () => { try { assert(); toast("Invite revoked") } catch {} },
+              onError: (e) => toastApiError(e, "Failed to revoke invite", assert),
+            })
+          }}
+          onCopyInvite={(code) => {
+            const assert = settingsView.capture()
+            assert()
+            void navigator.clipboard.writeText(`${window.location.origin}/c/invite/${code}`).then(() => { try { assert(); toast("Invite copied") } catch {} }, (error) => toastApiError(error, "Couldn't copy invite", assert))
+          }}
           onDeleteServer={async () => {
             closeSettings()
             deleteServerMut.mutate({ serverId })

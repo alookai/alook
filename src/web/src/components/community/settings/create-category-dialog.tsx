@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
 import { Button } from "@/components/ui/button"
 import { onEnterSubmit } from "@/lib/ime"
 import { CreateDialogShell } from "./create-dialog-shell"
@@ -15,8 +16,8 @@ export function CreateCategoryDialog({ onClose, onCreate, canTogglePrivate = tru
   onCreate: (name: string, opts: { private: boolean }) => void
   canTogglePrivate?: boolean
 }) {
-  const [name, setName] = useState("")
-  const [isPrivate, setIsPrivate] = useState(false)
+  const [name, setName] = useAtom(useCreateAtom(""))
+  const [isPrivate, setIsPrivate] = useAtom(useCreateAtom(false))
   const submit = () => {
     const trimmed = name.trim()
     if (!trimmed) return

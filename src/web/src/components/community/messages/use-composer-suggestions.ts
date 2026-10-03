@@ -1,3 +1,4 @@
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import {
   buildCommunityMentionExtension,
@@ -78,16 +79,14 @@ export function useComposerSuggestions({
   channelRefCandidateSource,
   onChannelRefIntent,
 }: ComposerSuggestionsOptions) {
-  const [mentionPopup, setMentionPopup] = useState<MentionPopupState>(
-    EMPTY_MENTION_STATE,
-  )
+  const [mentionPopup, setMentionPopup] = useAtom(useCreateAtom<MentionPopupState>(EMPTY_MENTION_STATE))
   const mentionPopupRef = useRef(mentionPopup)
   useEffect(() => {
     mentionPopupRef.current = mentionPopup
   }, [mentionPopup])
 
   const [channelRefPopupState, setChannelRefPopup] =
-    useState<ChannelRefPopupState>(EMPTY_CHANNEL_REF_STATE)
+    useAtom(useCreateAtom<ChannelRefPopupState>(EMPTY_CHANNEL_REF_STATE))
   const channelRefPopup = useMemo(() => {
     if (!channelRefPopupState.command) return channelRefPopupState
     const items = rankChannelRefItems(channelRefCandidates, channelRefPopupState.query ?? "")
@@ -128,7 +127,7 @@ export function useComposerSuggestions({
     mentionQueryRef.current = ""
     mentionPopupRef.current = EMPTY_MENTION_STATE
     setMentionPopup(EMPTY_MENTION_STATE)
-  }, [context])
+  }, [context, setMentionPopup])
 
   // eslint-disable-next-line react-hooks/refs -- runtime suggestion callbacks read these refs
   const [mentionExtension] = useState(() =>
@@ -136,7 +135,7 @@ export function useComposerSuggestions({
       membersRef,
       contextRef,
       popupRef: mentionPopupRef,
-      setPopup: setMentionPopup,
+      setPopup: (next) => setMentionPopup((current) => typeof next === "function" ? next(current) : next),
       onSearchMembersRef,
       queryRef: mentionQueryRef,
     }),
@@ -171,7 +170,7 @@ export function useComposerSuggestions({
       candidatesRef: channelRefCandidatesRef,
       popupRef: channelRefPopupRef,
       onIntentRef: onChannelRefIntentRef,
-      setPopup: setChannelRefPopup,
+      setPopup: (next) => setChannelRefPopup((current) => typeof next === "function" ? next(current) : next),
       queryRef: channelRefQueryRef,
     }),
   )
@@ -198,11 +197,7 @@ export function useComposerSuggestions({
       selectedIndex:
         current.selectedIndex < items.length ? current.selectedIndex : 0,
     })
-  }, [
-    context,
-    members,
-    mentionCandidates,
-  ])
+  }, [context, members, mentionCandidates, setMentionPopup])
 
   useEffect(() => {
     const current = mentionPopupRef.current

@@ -1,7 +1,10 @@
 import { createElement, type PropsWithChildren } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { QueryClient } from "@tanstack/react-query"
+import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { renderHook, waitFor } from "@/test/react-dom-harness"
+import { useNotificationSettings } from "./use-notification-settings"
 import { communityKeys } from "@/lib/query-keys"
 import {
   createCommunityDbRegistry,
@@ -30,34 +33,41 @@ describe("useNotificationSettings / notificationSettingsQueryFn", () => {
   })
 
   it("groups rows into server/channel maps with display strings", async () => {
-    apiFetchMock.mockResolvedValueOnce([
+    apiFetchMock.mockResolvedValue([
       { serverId: "srv_1", channelId: null, level: "all" },
       { serverId: null, channelId: "ch_1", level: "mentions" },
       { serverId: null, channelId: "ch_2", level: "nothing" },
     ])
     const { notificationSettingsQueryFn } = await import("./use-notification-settings")
-    const data = await notificationSettingsQueryFn()
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/me/notifications")
-    expect(data.server).toEqual({ srv_1: "All Messages" })
-    expect(data.channel).toEqual({ ch_1: "Only @mentions", ch_2: "Nothing" })
-    expect(data.raw).toHaveLength(3)
+    const { client, registry } = await createCommunityQueryOwner()
+    const data = await client.fetchQuery({ queryKey: communityKeys.notificationSettings(), queryFn: notificationSettingsQueryFn })
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/me/notifications", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
+    expect(data.ids).toEqual(["server:srv_1", "channel:ch_1", "channel:ch_2"])
+    expect([...registry.collections.notificationSettings.values()].map(({ id, level }) => ({ id, level })).sort((a, b) => a.id.localeCompare(b.id))).toEqual([
+      { id: "channel:ch_1", level: "mentions" }, { id: "channel:ch_2", level: "nothing" }, { id: "server:srv_1", level: "all" },
+    ])
+    const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client }, children)
+    const rendered = renderHook(() => useNotificationSettings(), { wrapper })
+    await waitFor(() => expect(rendered.result.current.server).toEqual({ srv_1: "All Messages" }))
+    expect(rendered.result.current.channel).toEqual({ ch_1: "Only @mentions", ch_2: "Nothing" })
+
   })
 
   it("populates queryClient at communityKeys.notificationSettings()", async () => {
-    apiFetchMock.mockResolvedValueOnce([])
+    apiFetchMock.mockResolvedValue([])
     const { notificationSettingsQueryFn } = await import("./use-notification-settings")
-    const queryClient = new QueryClient()
+    const queryClient = (await createCommunityQueryOwner()).client
     const key = communityKeys.notificationSettings()
     await queryClient.fetchQuery({ queryKey: key, queryFn: notificationSettingsQueryFn })
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/community/users/me/notifications",
-      { signal: expect.any(AbortSignal) },
+      expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
     expect(queryClient.getQueryData(key)).toBeDefined()
   })
 
   it("projects fetched settings into the active account unread owner", async () => {
-    apiFetchMock.mockResolvedValueOnce([
+    apiFetchMock.mockResolvedValue([
       { serverId: "srv_1", channelId: null, level: "nothing" },
     ])
     const { useNotificationSettings } = await import("./use-notification-settings")
@@ -65,12 +75,12 @@ describe("useNotificationSettings / notificationSettingsQueryFn", () => {
       disposeAccountUnreadProjection,
       getAccountUnreadProjection,
     } = await import("./account-unread-projection")
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryClient = (await createCommunityQueryOwner("viewer_1")).client
     const projection = getAccountUnreadProjection(queryClient, "viewer_1")
     projection.recordArrival({ channelId: "channel_1", serverId: "srv_1", seq: 1 })
     const wrapper = ({ children }: PropsWithChildren) => createElement(
       QueryClientProvider,
-      { client: queryClient },
+      { client: queryClient, userId: "viewer_1" },
       children,
     )
     const rendered = renderHook(() => useNotificationSettings(), { wrapper })
@@ -114,7 +124,7 @@ describe("useNotificationSettings / notificationSettingsQueryFn", () => {
     projection.recordArrival({ channelId: "channel_1", serverId: "srv_1", seq: 1 })
     const wrapper = ({ children }: PropsWithChildren) => createElement(
       QueryClientProvider,
-      { client: queryClient },
+      { client: queryClient, registry, userId: "viewer_1" },
       createElement(CommunityDbProvider, { registry }, children),
     )
     const rendered = renderHook(() => useNotificationSettings(), { wrapper })

@@ -1,9 +1,18 @@
+import { clearPersistedCache } from "@/lib/query-persister"
 import {
   DbClient,
+  BasicIndex,
   collectionOptions,
 } from "@tanstack/react-db"
 import { queryCollectionOptions } from "@tanstack/query-db-collection"
-import type { QueryClient } from "@tanstack/react-query"
+import type { QueryClient, QueryFunctionContext } from "@tanstack/react-query"
+import { createStore } from "@tanstack/store"
+import { createCommunityStore } from "@/stores/community/ui-store"
+import { createCommunityWsStore } from "@/stores/community/ws-store"
+import { createMessageStreamStore } from "@/stores/community/message-stream-store"
+import { createOwnerServerDeleteStore, emptyOwnerServerDeleteState } from "@/lib/community/eject-server"
+import { cancelActiveConversationNavigationProof } from "@/lib/community/conversation-navigation-proof"
+import type { CanonicalMessage } from "@/lib/community/message-stream"
 import { communityKeys } from "@/lib/query-keys"
 import {
   categorySchema,
@@ -14,6 +23,7 @@ import {
   folderItemSchema,
   folderSchema,
   messageSchema,
+  friendshipSchema,
   notificationSettingSchema,
   profileSchema,
   readStateClockSchema,
@@ -28,6 +38,7 @@ import {
   type FolderItemRow,
   type FolderRow,
   type MessageRow,
+  type FriendshipRow,
   type NotificationSettingRow,
   type ProfileRow,
   type ReadStateClockRow,
@@ -36,7 +47,7 @@ import {
   type ServerRow,
 } from "./schema"
 
-const COLLECTION_GC_TIME = 24 * 60 * 60 * 1000
+const QUERY_CACHE_GC_TIME = 24 * 60 * 60 * 1000
 
 function collectionQueryKey(accountId: string, name: string) {
   return communityKeys.communityDbCollection(accountId, name)
@@ -60,7 +71,7 @@ function migrateLegacyServerPositions(queryClient: QueryClient, accountId: strin
   })))
 }
 
-export function createCommunityDbRegistry(
+function buildCommunityDbRegistry(
   queryClient: QueryClient,
   accountId: string | null,
   options: { waitForRestore?: Promise<void> } = {},
@@ -68,13 +79,16 @@ export function createCommunityDbRegistry(
   const scopeId = accountId ?? "anon"
   const dbClient = new DbClient({ queryClient })
   const waitForRestore = options.waitForRestore ?? Promise.resolve()
-  const queryFnFor = <T extends object>(name: string) => async () => {
+  const queryFnFor = <T extends object>(name: string) => async ({ signal }: QueryFunctionContext) => {
+    const generation = runtime.lifecycle.get().generation
     await waitForRestore
+    const state = runtime.lifecycle.get()
+    if (!state.active || state.generation !== generation || signal.aborted) throw new DOMException("Retired collection restore", "AbortError")
     return restoredRows<T>(queryClient, scopeId, name)
   }
 
-  const servers = dbClient.collection(collectionOptions("community-db-servers", () => (
-    queryCollectionOptions({
+  const servers = dbClient.collection(collectionOptions("community-db-servers", () => ({
+    ...queryCollectionOptions({
       id: "community-db-servers",
       queryClient,
       queryKey: collectionQueryKey(scopeId, "servers"),
@@ -82,12 +96,13 @@ export function createCommunityDbRegistry(
       schema: serverSchema,
       getKey: (row) => row.id,
       staleTime: Infinity,
-      gcTime: COLLECTION_GC_TIME,
-      persistedGcTime: COLLECTION_GC_TIME,
-    })
-  )))
-  const categories = dbClient.collection(collectionOptions("community-db-categories", () => (
-    queryCollectionOptions({
+      gcTime: QUERY_CACHE_GC_TIME,
+      persistedGcTime: QUERY_CACHE_GC_TIME,
+    }),
+    gcTime: 0,
+  })))
+  const categories = dbClient.collection(collectionOptions("community-db-categories", () => ({
+    ...queryCollectionOptions({
       id: "community-db-categories",
       queryClient,
       queryKey: collectionQueryKey(scopeId, "categories"),
@@ -95,12 +110,13 @@ export function createCommunityDbRegistry(
       schema: categorySchema,
       getKey: (row) => row.id,
       staleTime: Infinity,
-      gcTime: COLLECTION_GC_TIME,
-      persistedGcTime: COLLECTION_GC_TIME,
-    })
-  )))
-  const channels = dbClient.collection(collectionOptions("community-db-channels", () => (
-    queryCollectionOptions({
+      gcTime: QUERY_CACHE_GC_TIME,
+      persistedGcTime: QUERY_CACHE_GC_TIME,
+    }),
+    gcTime: 0,
+  })))
+  const channels = dbClient.collection(collectionOptions("community-db-channels", () => ({
+    ...queryCollectionOptions({
       id: "community-db-channels",
       queryClient,
       queryKey: collectionQueryKey(scopeId, "channels"),
@@ -108,12 +124,13 @@ export function createCommunityDbRegistry(
       schema: channelSchema,
       getKey: (row) => row.id,
       staleTime: Infinity,
-      gcTime: COLLECTION_GC_TIME,
-      persistedGcTime: COLLECTION_GC_TIME,
-    })
-  )))
-  const serverMemberships = dbClient.collection(collectionOptions("community-db-server-memberships", () => (
-    queryCollectionOptions({
+      gcTime: QUERY_CACHE_GC_TIME,
+      persistedGcTime: QUERY_CACHE_GC_TIME,
+    }),
+    gcTime: 0,
+  })))
+  const serverMemberships = dbClient.collection(collectionOptions("community-db-server-memberships", () => ({
+    ...queryCollectionOptions({
       id: "community-db-server-memberships",
       queryClient,
       queryKey: collectionQueryKey(scopeId, "serverMemberships"),
@@ -121,12 +138,13 @@ export function createCommunityDbRegistry(
       schema: serverMembershipSchema,
       getKey: (row) => row.id,
       staleTime: Infinity,
-      gcTime: COLLECTION_GC_TIME,
-      persistedGcTime: COLLECTION_GC_TIME,
-    })
-  )))
-  const channelMemberships = dbClient.collection(collectionOptions("community-db-channel-memberships", () => (
-    queryCollectionOptions({
+      gcTime: QUERY_CACHE_GC_TIME,
+      persistedGcTime: QUERY_CACHE_GC_TIME,
+    }),
+    gcTime: 0,
+  })))
+  const channelMemberships = dbClient.collection(collectionOptions("community-db-channel-memberships", () => ({
+    ...queryCollectionOptions({
       id: "community-db-channel-memberships",
       queryClient,
       queryKey: collectionQueryKey(scopeId, "channelMemberships"),
@@ -134,12 +152,13 @@ export function createCommunityDbRegistry(
       schema: channelMembershipSchema,
       getKey: (row) => row.id,
       staleTime: Infinity,
-      gcTime: COLLECTION_GC_TIME,
-      persistedGcTime: COLLECTION_GC_TIME,
-    })
-  )))
-  const profiles = dbClient.collection(collectionOptions("community-db-profiles", () => (
-    queryCollectionOptions({
+      gcTime: QUERY_CACHE_GC_TIME,
+      persistedGcTime: QUERY_CACHE_GC_TIME,
+    }),
+    gcTime: 0,
+  })))
+  const profiles = dbClient.collection(collectionOptions("community-db-profiles", () => ({
+    ...queryCollectionOptions({
       id: "community-db-profiles",
       queryClient,
       queryKey: collectionQueryKey(scopeId, "profiles"),
@@ -147,12 +166,13 @@ export function createCommunityDbRegistry(
       schema: profileSchema,
       getKey: (row) => row.userId,
       staleTime: Infinity,
-      gcTime: COLLECTION_GC_TIME,
-      persistedGcTime: COLLECTION_GC_TIME,
-    })
-  )))
-  const messages = dbClient.collection(collectionOptions("community-db-messages", () => (
-    queryCollectionOptions({
+      gcTime: QUERY_CACHE_GC_TIME,
+      persistedGcTime: QUERY_CACHE_GC_TIME,
+    }),
+    gcTime: 0,
+  })))
+  const messages = dbClient.collection(collectionOptions("community-db-messages", () => ({
+    ...queryCollectionOptions({
       id: "community-db-messages",
       queryClient,
       queryKey: collectionQueryKey(scopeId, "messages"),
@@ -160,12 +180,13 @@ export function createCommunityDbRegistry(
       schema: messageSchema,
       getKey: (row) => row.id,
       staleTime: Infinity,
-      gcTime: COLLECTION_GC_TIME,
-      persistedGcTime: COLLECTION_GC_TIME,
-    })
-  )))
-  const readStates = dbClient.collection(collectionOptions("community-db-read-states", () => (
-    queryCollectionOptions({
+      gcTime: QUERY_CACHE_GC_TIME,
+      persistedGcTime: QUERY_CACHE_GC_TIME,
+    }),
+    gcTime: 0,
+  })))
+  const readStates = dbClient.collection(collectionOptions("community-db-read-states", () => ({
+    ...queryCollectionOptions({
       id: "community-db-read-states",
       queryClient,
       queryKey: collectionQueryKey(scopeId, "readStates"),
@@ -173,12 +194,13 @@ export function createCommunityDbRegistry(
       schema: readStateSchema,
       getKey: (row) => row.channelId,
       staleTime: Infinity,
-      gcTime: COLLECTION_GC_TIME,
-      persistedGcTime: COLLECTION_GC_TIME,
-    })
-  )))
-  const readStateClock = dbClient.collection(collectionOptions("community-db-read-state-clock", () => (
-    queryCollectionOptions({
+      gcTime: QUERY_CACHE_GC_TIME,
+      persistedGcTime: QUERY_CACHE_GC_TIME,
+    }),
+    gcTime: 0,
+  })))
+  const readStateClock = dbClient.collection(collectionOptions("community-db-read-state-clock", () => ({
+    ...queryCollectionOptions({
       id: "community-db-read-state-clock",
       queryClient,
       queryKey: collectionQueryKey(scopeId, "readStateClock"),
@@ -186,12 +208,13 @@ export function createCommunityDbRegistry(
       schema: readStateClockSchema,
       getKey: (row) => row.id,
       staleTime: Infinity,
-      gcTime: COLLECTION_GC_TIME,
-      persistedGcTime: COLLECTION_GC_TIME,
-    })
-  )))
-  const attentionScopes = dbClient.collection(collectionOptions("community-db-attention-scopes", () => (
-    queryCollectionOptions({
+      gcTime: QUERY_CACHE_GC_TIME,
+      persistedGcTime: QUERY_CACHE_GC_TIME,
+    }),
+    gcTime: 0,
+  })))
+  const attentionScopes = dbClient.collection(collectionOptions("community-db-attention-scopes", () => ({
+    ...queryCollectionOptions({
       id: "community-db-attention-scopes",
       queryClient,
       queryKey: collectionQueryKey(scopeId, "attentionScopes"),
@@ -199,12 +222,13 @@ export function createCommunityDbRegistry(
       schema: attentionScopeSchema,
       getKey: (row) => row.scopeId,
       staleTime: Infinity,
-      gcTime: COLLECTION_GC_TIME,
-      persistedGcTime: COLLECTION_GC_TIME,
-    })
-  )))
-  const attentionItems = dbClient.collection(collectionOptions("community-db-attention-items", () => (
-    queryCollectionOptions({
+      gcTime: QUERY_CACHE_GC_TIME,
+      persistedGcTime: QUERY_CACHE_GC_TIME,
+    }),
+    gcTime: 0,
+  })))
+  const attentionItems = dbClient.collection(collectionOptions("community-db-attention-items", () => ({
+    ...queryCollectionOptions({
       id: "community-db-attention-items",
       queryClient,
       queryKey: collectionQueryKey(scopeId, "attentionItems"),
@@ -212,12 +236,13 @@ export function createCommunityDbRegistry(
       schema: attentionItemSchema,
       getKey: (row) => row.id,
       staleTime: Infinity,
-      gcTime: COLLECTION_GC_TIME,
-      persistedGcTime: COLLECTION_GC_TIME,
-    })
-  )))
-  const folders = dbClient.collection(collectionOptions("community-db-folders", () => (
-    queryCollectionOptions({
+      gcTime: QUERY_CACHE_GC_TIME,
+      persistedGcTime: QUERY_CACHE_GC_TIME,
+    }),
+    gcTime: 0,
+  })))
+  const folders = dbClient.collection(collectionOptions("community-db-folders", () => ({
+    ...queryCollectionOptions({
       id: "community-db-folders",
       queryClient,
       queryKey: collectionQueryKey(scopeId, "folders"),
@@ -225,12 +250,13 @@ export function createCommunityDbRegistry(
       schema: folderSchema,
       getKey: (row) => row.id,
       staleTime: Infinity,
-      gcTime: COLLECTION_GC_TIME,
-      persistedGcTime: COLLECTION_GC_TIME,
-    })
-  )))
-  const folderItems = dbClient.collection(collectionOptions("community-db-folder-items", () => (
-    queryCollectionOptions({
+      gcTime: QUERY_CACHE_GC_TIME,
+      persistedGcTime: QUERY_CACHE_GC_TIME,
+    }),
+    gcTime: 0,
+  })))
+  const folderItems = dbClient.collection(collectionOptions("community-db-folder-items", () => ({
+    ...queryCollectionOptions({
       id: "community-db-folder-items",
       queryClient,
       queryKey: collectionQueryKey(scopeId, "folderItems"),
@@ -238,12 +264,13 @@ export function createCommunityDbRegistry(
       schema: folderItemSchema,
       getKey: (row) => row.id,
       staleTime: Infinity,
-      gcTime: COLLECTION_GC_TIME,
-      persistedGcTime: COLLECTION_GC_TIME,
-    })
-  )))
-  const notificationSettings = dbClient.collection(collectionOptions("community-db-notification-settings", () => (
-    queryCollectionOptions({
+      gcTime: QUERY_CACHE_GC_TIME,
+      persistedGcTime: QUERY_CACHE_GC_TIME,
+    }),
+    gcTime: 0,
+  })))
+  const notificationSettings = dbClient.collection(collectionOptions("community-db-notification-settings", () => ({
+    ...queryCollectionOptions({
       id: "community-db-notification-settings",
       queryClient,
       queryKey: collectionQueryKey(scopeId, "notificationSettings"),
@@ -251,10 +278,15 @@ export function createCommunityDbRegistry(
       schema: notificationSettingSchema,
       getKey: (row) => row.id,
       staleTime: Infinity,
-      gcTime: COLLECTION_GC_TIME,
-      persistedGcTime: COLLECTION_GC_TIME,
-    })
-  )))
+      gcTime: QUERY_CACHE_GC_TIME,
+      persistedGcTime: QUERY_CACHE_GC_TIME,
+    }),
+    gcTime: 0,
+  })))
+
+  const friendships = dbClient.collection(collectionOptions("community-db-friendships", () => ({
+    ...queryCollectionOptions({ id: "community-db-friendships", queryClient, queryKey: collectionQueryKey(scopeId, "friendships"), queryFn: queryFnFor<FriendshipRow>("friendships"), schema: friendshipSchema, getKey: (row) => row.id, staleTime: Infinity, gcTime: QUERY_CACHE_GC_TIME, persistedGcTime: QUERY_CACHE_GC_TIME }), gcTime: 0,
+  })))
 
   const collections = {
     servers,
@@ -264,6 +296,7 @@ export function createCommunityDbRegistry(
     channelMemberships,
     profiles,
     messages,
+    friendships,
     readStates,
     readStateClock,
     attentionScopes,
@@ -272,62 +305,94 @@ export function createCommunityDbRegistry(
     folderItems,
     notificationSettings,
   } as const
+  channels.createIndex((row) => row.parentMessageId, { indexType: BasicIndex })
+  messages.createIndex((row) => row.seq, { indexType: BasicIndex })
   type CollectionName = keyof typeof collections
-  const restoredCollectionNames = new Set<CollectionName>()
-  const restoredCollectionListeners = new Set<() => void>()
-  let restoredSnapshotCaptured = false
-  let restoredDataExists = false
+  const restoration = createStore({ captured: false, names: new Set<string>(), hasData: false })
+  const runtime = {
+    ui: createCommunityStore(), ws: createCommunityWsStore(accountId), messageStream: createMessageStreamStore(() => new Map(Array.from(messages.values()).flatMap((message) => typeof message.seq === "number" ? [[message.id, message as CanonicalMessage] as const] : []))),
+    serverEject: createOwnerServerDeleteStore(),
+    lifecycle: createStore({ active: true, generation: 0 }), transport: { send: null as ((message: object) => void) | null },
+  }
 
-  return {
+  const authenticationBindings = createStore({ retireDisk: () => clearPersistedCache(accountId), sessionViewer: () => accountId as string | null | undefined })
+  const registry = {
     accountId,
+    authenticationView: createStore({ active: false, generation: 0 }),
+    retireDisk: () => authenticationBindings.get().retireDisk(),
+    sessionViewer: () => authenticationBindings.get().sessionViewer(),
+    bindAuthentication: (sessionViewer: () => string | null | undefined, retireDisk: () => Promise<void>) => authenticationBindings.setState(() => ({ sessionViewer, retireDisk })),
     scopeId,
     queryClient,
     dbClient,
+    ready: waitForRestore,
     collections,
+    runtime,
+    restoration,
+    serverListAuthority: createStore<{
+      viewerId: string | null; accountEpoch: number; accessEpoch: number; ownerGeneration: number; serverIdsSignature: string
+    } | null>(null),
     captureRestoredCollections: () => {
-      if (restoredSnapshotCaptured) return
-      restoredSnapshotCaptured = true
+      if (restoration.get().captured) return
+      const names = new Set<string>()
+      let hasData = false
       migrateLegacyServerPositions(queryClient, scopeId)
       for (const name of Object.keys(collections) as CollectionName[]) {
         const data = queryClient.getQueryData(collectionQueryKey(scopeId, name))
         if (data !== undefined) {
-          restoredCollectionNames.add(name)
-          if (Array.isArray(data) && data.length > 0) restoredDataExists = true
+          names.add(name)
+          if (Array.isArray(data) && data.length > 0) hasData = true
         }
       }
-      for (const listener of restoredCollectionListeners) listener()
+      restoration.setState(() => ({ captured: true, names, hasData }))
     },
-    hasRestoredCollection: (name: CollectionName) => restoredCollectionNames.has(name),
-    hasRestoredData: () => restoredDataExists,
-    subscribeRestoredCollections: (listener: () => void) => {
-      restoredCollectionListeners.add(listener)
-      return () => restoredCollectionListeners.delete(listener)
-    },
+    hasRestoredCollection: (name: CollectionName) => restoration.get().names.has(name),
+    hasRestoredData: () => restoration.get().hasData,
     preload: () => Promise.all(Object.values(collections).map((collection) => collection.preload())),
-    cleanup: () => dbClient.cleanup(),
+    cleanup: () => {
+      cancelActiveConversationNavigationProof(queryClient)
+      if (registryByQueryClient.get(queryClient) === registry) registryByQueryClient.delete(queryClient)
+      runtime.lifecycle.setState((state) => ({ active: false, generation: state.generation + 1 }))
+      runtime.transport.send = null
+      runtime.serverEject.setState(emptyOwnerServerDeleteState)
+      registry.serverListAuthority.setState(() => null)
+      runtime.ui.actions.reset()
+      runtime.ws.actions.reset()
+      runtime.messageStream.actions.resetAll()
+      return dbClient.cleanup()
+    },
   }
+  return registry
 }
 
-export type CommunityDbRegistry = ReturnType<typeof createCommunityDbRegistry>
+export type CommunityDbRegistry = ReturnType<typeof buildCommunityDbRegistry>
+
+export function createCommunityDbRegistry(
+  queryClient: QueryClient,
+  accountId: string | null,
+  options: { waitForRestore?: Promise<void> } = {},
+): CommunityDbRegistry {
+  const existing = registryByQueryClient.get(queryClient)
+  if (existing) {
+    if (existing.accountId !== accountId) throw new Error("A community QueryClient belongs to one account")
+    return existing
+  }
+  const registry = buildCommunityDbRegistry(queryClient, accountId, options)
+  registryByQueryClient.set(queryClient, registry)
+  return registry
+}
 
 const registryByQueryClient = new WeakMap<QueryClient, CommunityDbRegistry>()
-let activeRegistry: CommunityDbRegistry | null = null
 
 export function registerCommunityDbRegistry(registry: CommunityDbRegistry) {
   registryByQueryClient.set(registry.queryClient, registry)
-  activeRegistry = registry
+  registry.runtime.lifecycle.setState((state) => ({ ...state, active: true }))
   return () => {
-    if (registryByQueryClient.get(registry.queryClient) === registry) {
-      registryByQueryClient.delete(registry.queryClient)
-    }
-    if (activeRegistry === registry) activeRegistry = null
+    cancelActiveConversationNavigationProof(registry.queryClient)
+    registry.runtime.lifecycle.setState((state) => ({ active: false, generation: state.generation + 1 }))
   }
 }
 
 export function getCommunityDbRegistry(queryClient: QueryClient) {
   return registryByQueryClient.get(queryClient) ?? null
-}
-
-export function getActiveCommunityDbRegistry() {
-  return activeRegistry
 }

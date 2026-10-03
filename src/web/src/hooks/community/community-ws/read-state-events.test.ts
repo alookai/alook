@@ -1,3 +1,5 @@
+import { createCommunityDbRegistry } from "@/lib/community-db/collections"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
@@ -17,11 +19,12 @@ function context(
   queryClient: QueryClient,
   scheduleInboxInvalidate = vi.fn(),
 ): CommunityWsDispatchContext {
+  const runtime = createCommunityDbRegistry(queryClient, "u1").runtime
   return {
     deliveryMode: "single",
     queryClient,
-    communityStore: {} as CommunityWsDispatchContext["communityStore"],
-    wsStore: {} as CommunityWsDispatchContext["wsStore"],
+    communityStore: runtime.ui,
+    wsStore: runtime.ws,
     sub: {},
     viewerUserIdRef: { current: "u1" },
     matchesFocus: () => false,
@@ -32,8 +35,8 @@ function context(
 describe("same-account read-state WS events", () => {
   let queryClient: QueryClient
 
-  beforeEach(() => {
-    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  beforeEach(async () => {
+    queryClient = (await createCommunityQueryOwner("u1")).client
     apiFetch.mockReset()
   })
 
@@ -74,7 +77,7 @@ describe("same-account read-state WS events", () => {
       lastReadMessageId: "m4",
       lastReadSeq: 4,
     }))
-    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(apiFetch.mock.calls.filter(([path]) => path === "/api/community/users/me/read-state")).toHaveLength(1)
   })
 
   it("repairs a revision gap from the authoritative snapshot", async () => {
@@ -101,7 +104,7 @@ describe("same-account read-state WS events", () => {
     await vi.waitFor(() => expect(queryClient.getQueryData(
       communityKeys.accountReadStateSnapshot(),
     )).toMatchObject({ revision: 5 }))
-    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(apiFetch.mock.calls.filter(([path]) => path === "/api/community/users/me/read-state")).toHaveLength(1)
   })
 
   it("pulls one full read-all replacement and ignores its stale replay", async () => {
@@ -133,10 +136,10 @@ describe("same-account read-state WS events", () => {
     )).toMatchObject({
       lastReadSeq: 8,
     }))
-    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(apiFetch.mock.calls.filter(([path]) => path === "/api/community/users/me/read-state")).toHaveLength(1)
 
     dispatchCommunityWsEvent(event, context(queryClient))
-    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(apiFetch.mock.calls.filter(([path]) => path === "/api/community/users/me/read-state")).toHaveLength(1)
   })
 
   it("absorbs an authoritative repair failure after receiving a newer hint", async () => {
@@ -152,7 +155,7 @@ describe("same-account read-state WS events", () => {
       inboxChanged: true,
     }, context(queryClient))
 
-    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(apiFetch.mock.calls.filter(([path]) => path === "/api/community/users/me/read-state")).toHaveLength(1))
     await vi.waitFor(() => expect(queryClient.getQueryState(
       communityKeys.accountReadStateSnapshot(),
     )?.fetchStatus).toBe("idle"))
@@ -210,8 +213,8 @@ describe("same-account read-state WS events", () => {
     settings,
     expected,
   ) => {
-    const sourceClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    const peerClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const sourceClient = (await createCommunityQueryOwner("u1")).client
+    const peerClient = (await createCommunityQueryOwner("u1")).client
     const source = getAccountUnreadProjection(sourceClient, "u1")
     const peer = getAccountUnreadProjection(peerClient, "u1")
     source.setNotificationPolicy({ server: { s1: expected ? "all" : "nothing" } })
@@ -281,10 +284,9 @@ describe("same-account read-state WS events", () => {
     await oldRequest
     await vi.waitFor(() => expect(projection.getPolicyGeneration()).toBeGreaterThan(1))
     expect(queryClient.getQueryData(communityKeys.notificationSettings())).toMatchObject({
-      raw: [],
-      server: {},
-      channel: {},
+      ids: [],
     })
+    expect(createCommunityDbRegistry(queryClient, "u1").collections.notificationSettings.size).toBe(0)
 
     projection.absorbSnapshot(stalePolicySnapshot, [], { truncated: false })
     expect(projection.projectUnread("servers", "c1", false)).toBe(true)

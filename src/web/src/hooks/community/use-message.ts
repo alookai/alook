@@ -1,6 +1,9 @@
 "use client"
+import { useSelector } from "@tanstack/react-store"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 
-import { useEffect, useMemo, useSyncExternalStore } from "react"
+
+import { useEffect, useMemo } from "react"
 import {
   useQuery,
   useQueryClient,
@@ -10,7 +13,7 @@ import {
 } from "@tanstack/react-query"
 import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
-import type { MessagesPage, Msg } from "@/lib/community/models/message"
+import type { Msg } from "@/lib/community/models/message"
 import {
   useCanonicalMessagesById,
   useOptionalCommunityDbRegistry,
@@ -19,10 +22,11 @@ import {
   rememberMessageAccessScope,
   type MessageAccessScope,
 } from "@/lib/community-db/message-access-scope"
-import { getActiveAccountUnreadProjection } from "./account-unread-projection"
+import { accountUnreadAllowsAccess, getActiveAccountUnreadProjection } from "./account-unread-projection"
 import {
   captureCommunityLiveSnapshotToken,
   publishCommunityMessages,
+  getCanonicalCommunityMessages,
 } from "@/lib/community-db/sync"
 
 /**
@@ -61,61 +65,49 @@ export type OpenerPayload = {
 
 export const messageQueryFn = (
   messageId: string,
-  queryClient?: QueryClient,
+  queryClient: QueryClient,
   channelId?: string,
-) => async (context: QueryFunctionContext = {} as QueryFunctionContext) => {
-  const token = queryClient ? captureCommunityLiveSnapshotToken(queryClient) : null
+) => async (context: QueryFunctionContext) => {
+  if (context.client !== queryClient) throw new DOMException("Mismatched message query owner", "AbortError")
+  const token = captureCommunityLiveSnapshotToken(queryClient)
   const message = await apiFetchProfiles<OpenerPayload>(
     `/api/community/messages/${messageId}`,
     (message) => messageProfilePatches([message]),
-    context.signal ? { signal: context.signal } : undefined,
+    context.signal ? { signal: context.signal } : undefined, getCommunityDbRegistry(context.client),
   )
   const publishChannelId = message.channelId ?? channelId
-  if (queryClient && publishChannelId && token) {
+  if (publishChannelId) {
     publishCommunityMessages(queryClient, {
       channelId: publishChannelId,
       messages: [message],
       proof: { token, signal: context.signal },
     })
   }
-  return message
+  return message.id
 }
 
 export function findCachedMessage(
   queryClient: QueryClient,
   messageId: string,
 ): OpenerPayload | undefined {
-  for (const [, data] of queryClient.getQueriesData<{ pages?: MessagesPage[] }>({
-    queryKey: communityKeys.all,
-  })) {
-    if (!Array.isArray(data?.pages)) continue
-    for (const page of data.pages) {
-      if (!Array.isArray(page.messages)) continue
-      const message = page.messages.find((candidate) => candidate.id === messageId)
-      if (!message?.authorId || !message.createdAt) continue
-      return {
-        id: message.id,
-        authorId: message.authorId,
-        authorName: message.authorName ?? "Deleted user",
-        authorAvatar: message.authorAvatar ?? "",
-        authorAvatarVersion: message.authorAvatarVersion ?? 0,
-        content: message.content ?? "",
-        type: message.type,
-        createdAt: message.createdAt,
-        ...(message.replyTo ? { replyTo: message.replyTo } : {}),
-        ...(message.attachments ? { attachments: message.attachments } : {}),
-        ...(message.embeds ? { embeds: message.embeds } : {}),
-        ...(message.reactions ? { reactions: message.reactions } : {}),
-      }
-    }
+  const message = getCanonicalCommunityMessages(queryClient).find((row) => row.id === messageId)
+  if (!message?.authorId || !message.createdAt) return undefined
+  return {
+    ...message,
+    authorId: message.authorId,
+    authorName: message.authorName ?? "Deleted user",
+    authorAvatar: message.authorAvatar ?? "",
+    authorAvatarVersion: message.authorAvatarVersion ?? 0,
+    content: message.content ?? "",
+    createdAt: message.createdAt,
   }
-  return undefined
+
 }
 
 export function useMessage(
   messageId: string | null | undefined,
   accessScope?: MessageAccessScope,
-): UseQueryResult<OpenerPayload> & { message: OpenerPayload | null } {
+): UseQueryResult<string> & { message: OpenerPayload | null } {
   const registry = useOptionalCommunityDbRegistry()
   const canonicalMessages = useCanonicalMessagesById()
   const queryClient = useQueryClient()
@@ -123,20 +115,14 @@ export function useMessage(
     () => getActiveAccountUnreadProjection(queryClient),
     [queryClient],
   )
-  const accessVersion = useSyncExternalStore(
-    accessProjection.subscribe,
-    accessProjection.getSnapshot,
-    accessProjection.getSnapshot,
-  )
-  void accessVersion
-  const accessAllowed = !accessScope || accessProjection.allowsAccess(accessScope)
+  const accessAllowed = useSelector(accessProjection.state, (state) => !accessScope || accountUnreadAllowsAccess(state, accessScope))
   const enabled = !!messageId && accessAllowed
   useEffect(() => {
     if (!messageId || !accessScope || !accessAllowed) return
     rememberMessageAccessScope(queryClient, messageId, accessScope)
   }, [accessAllowed, accessScope, messageId, queryClient])
   const placeholderData = useMemo(
-    () => messageId && accessAllowed ? findCachedMessage(queryClient, messageId) : undefined,
+    () => messageId && accessAllowed ? findCachedMessage(queryClient, messageId)?.id : undefined,
     [accessAllowed, messageId, queryClient],
   )
   const query = useQuery({
@@ -156,7 +142,7 @@ export function useMessage(
     message: accessAllowed
       ? registry
         ? (canonical as OpenerPayload | undefined) ?? null
-        : query.data ?? null
+        : null
       : null,
   }
 }

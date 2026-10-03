@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useAtom, useCreateAtom, useCreateStore } from "@tanstack/react-store";
+import { useEffect, useLayoutEffect, useRef } from "react"
 import { MailWarning, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp"
@@ -8,7 +9,14 @@ import {
   ACCOUNT_DELETED_SIGN_IN_PATH,
   beginAccountDeletionAuthTransition,
   cancelAccountDeletionAuthTransition,
+  redirectToSignIn,
 } from "@/lib/api/client"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
+import { communityRequestOptions, retireCommunityAccount } from "@/lib/community/account-cache-lifecycle"
+import { clearPersistedCache } from "@/lib/query-persister"
+import { isAbortError } from "@/lib/errors"
 import { parseRetryAfterSeconds } from "@/lib/retry-after"
 import { tid } from "@/lib/community/testids"
 
@@ -36,12 +44,10 @@ async function responseError(response: Response): Promise<string> {
 }
 
 export function AccountDeletionFlow({ email, onCancel, onDeleted }: Props) {
-  const [step, setStep] = useState<Step>("notice")
-  const [otp, setOtp] = useState("")
-  const [sending, setSending] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const [resendAfter, setResendAfter] = useState(0)
-  const [error, setError] = useState("")
+  const [step, setStep] = useAtom(useCreateAtom<Step>("notice"))
+  const [otp, setOtp] = useAtom(useCreateAtom(""))
+  const [resendAfter, setResendAfter] = useAtom(useCreateAtom(0))
+  const [error, setError] = useAtom(useCreateAtom(""))
   const titleRef = useRef<HTMLHeadingElement>(null)
   const otpRef = useRef<HTMLInputElement>(null)
   const errorRef = useRef<HTMLParagraphElement>(null)
@@ -63,69 +69,92 @@ export function AccountDeletionFlow({ email, onCancel, onDeleted }: Props) {
       setResendAfter((seconds) => Math.max(0, seconds - 1))
     }, 1000)
     return () => window.clearTimeout(timer)
-  }, [resendAfter])
+  }, [resendAfter, setResendAfter])
 
+  const queryClient = useQueryClient()
+  const registry = getCommunityDbRegistry(queryClient)
+  const view = useCreateStore({ active: true, generation: 0 })
+  const completed = useRef(false)
+  const transition = useRef<ReturnType<typeof beginAccountDeletionAuthTransition> | undefined>(undefined)
+  useLayoutEffect(() => {
+    view.setState((state) => ({ ...state, active: true }))
+    return () => {
+      view.setState((state) => ({ active: false, generation: state.generation + 1 }))
+      if (!completed.current && transition.current) cancelAccountDeletionAuthTransition(transition.current)
+    }
+  }, [view])
+  const capture = () => {
+    if (!registry) throw new DOMException("Missing deletion account", "AbortError")
+    const token = captureCommunityLiveSnapshotToken(queryClient), generation = view.get().generation
+    const controller = new AbortController()
+    const assertActive = () => {
+      assertCommunityLiveSnapshotTokenCurrent(queryClient, token, controller.signal)
+      const state = view.get()
+      if (!state.active || state.generation !== generation) throw new DOMException("Retired deletion view", "AbortError")
+    }
+    assertActive()
+    const abort = () => { try { assertActive() } catch { controller.abort() } }
+    const viewSubscription = view.subscribe(abort), accountSubscription = registry.runtime.lifecycle.subscribe(abort)
+    return { registry, generation, controller, assertActive, options: communityRequestOptions(queryClient, token, controller.signal, assertActive), release: () => { viewSubscription.unsubscribe(); accountSubscription.unsubscribe() } }
+  }
+  const request = useMutation({ mutationFn: async ({ action, body, source }: { action: "code" | "delete"; body: string; source: ReturnType<typeof capture> }) => {
+    source.assertActive()
+    const response = await fetch(`/api/community/users/me/account-deletion${action === "code" ? "/code" : ""}`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body, signal: source.controller.signal })
+    if (action === "code" || !response.ok) source.assertActive()
+    return response
+  } })
+  const sending = request.isPending && request.variables?.action === "code"
+  const deleting = request.isPending && request.variables?.action === "delete"
   const sendCode = async () => {
-    setSending(true)
+    const source = capture()
     setError("")
     try {
-      const response = await fetch("/api/community/users/me/account-deletion/code", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-      })
+      const response = await request.mutateAsync({ action: "code", body: "{}", source })
+      source.assertActive()
+      if (response.status === 401) { if (await source.options.onUnauthorized?.()) redirectToSignIn(source.registry.accountId); return }
       if (!response.ok) {
-        const retryAfter = response.status === 429
-          ? parseRetryAfterSeconds(response.headers)
-          : null
+        const retryAfter = response.status === 429 ? parseRetryAfterSeconds(response.headers) : null
+        const message = await responseError(response); source.assertActive()
         if (retryAfter) setResendAfter(retryAfter)
-        setError(await responseError(response))
-        return
+        setError(message); return
       }
-      const body = await response.json() as { resend_after: number }
-      setOtp("")
-      setResendAfter(body.resend_after)
-      setStep("code")
-    } catch {
+      const body = await response.json() as { resend_after: number }; source.assertActive()
+      setOtp(""); setResendAfter(body.resend_after); setStep("code")
+    } catch (error) {
+      if (isAbortError(error)) return
+      try { source.assertActive() } catch { return }
       setError("We couldn’t send the code. Check your connection and try again.")
-    } finally {
-      setSending(false)
-    }
+    } finally { source.release() }
   }
-
   const deleteAccount = async () => {
     if (!/^\d{6}$/u.test(otp)) return
-    setDeleting(true)
+    const source = capture(), authGeneration = source.registry.authenticationView.get().generation
+    const rootEligible = () => {
+      const viewer = source.registry.sessionViewer()
+      return source.registry.authenticationView.get().active && source.registry.authenticationView.get().generation === authGeneration && (viewer === undefined || viewer === null || viewer === source.registry.accountId)
+    }
     setError("")
-    beginAccountDeletionAuthTransition()
-    let response: Response
+    const lease = beginAccountDeletionAuthTransition(source.registry.accountId); transition.current = lease
     try {
-      response = await fetch("/api/community/users/me/account-deletion", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ otp }),
-      })
-    } catch {
-      cancelAccountDeletionAuthTransition()
-      setOtp("")
-      setError("Your account wasn’t deleted. Check your connection and try again.")
-      setDeleting(false)
-      return
-    }
-    if (!response.ok) {
-      cancelAccountDeletionAuthTransition()
-      setOtp("")
-      setError(await responseError(response))
-      setDeleting(false)
-      return
-    }
-    try {
-      await onDeleted()
-    } catch {
-      globalThis.location.replace(ACCOUNT_DELETED_SIGN_IN_PATH)
-    }
+      const response = await request.mutateAsync({ action: "delete", body: JSON.stringify({ otp }), source })
+      if (!response.ok) {
+        const message = await responseError(response); source.assertActive()
+        cancelAccountDeletionAuthTransition(lease); transition.current = undefined
+        setOtp(""); setError(message); return
+      }
+      let visible = true; try { source.assertActive() } catch { visible = false }
+      completed.current = true
+      retireCommunityAccount(source.registry)
+      await clearPersistedCache(source.registry.accountId).catch(() => undefined)
+      if (!visible || !rootEligible()) { cancelAccountDeletionAuthTransition(lease); transition.current = undefined; return }
+      try { await onDeleted() } catch {}
+      if (rootEligible()) globalThis.location.replace(ACCOUNT_DELETED_SIGN_IN_PATH)
+    } catch (error) {
+      cancelAccountDeletionAuthTransition(lease); transition.current = undefined
+      if (isAbortError(error)) return
+      try { source.assertActive() } catch { return }
+      setOtp(""); setError("Your account wasn’t deleted. Check your connection and try again.")
+    } finally { source.release() }
   }
 
   return (

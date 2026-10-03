@@ -1,5 +1,6 @@
 import { TYPING_INDICATOR_TIMEOUT_MS } from "@alook/shared"
-import { useCommunityStore } from "@/stores/community"
+import type { QueryClient } from "@tanstack/react-query"
+import { getCommunityRuntime } from "@/stores/community/runtime"
 
 /**
  * The conversation scope key an event belongs to. Every event carries a single
@@ -26,13 +27,14 @@ const timerKey = (scopeKey: string, userId: string) => `${scopeKey}|${userId}`
  * No-ops the set write when the user is already typing in the scope (rule 2 —
  * typing.start re-fires every ~3s).
  */
-export function applyTypingIndicator(scopeKey: string, userId: string, name: string | null) {
-  useCommunityStore.setState((state) => {
+export function applyTypingIndicator(queryClient: QueryClient, scopeKey: string, userId: string, name: string | null) {
+  const ui = getCommunityRuntime(queryClient).ui
+  ui.setState((state) => {
     const tKey = timerKey(scopeKey, userId)
     const existing = state.typingTimers.get(tKey)
     if (existing) clearTimeout(existing)
     const timer = setTimeout(() => {
-      useCommunityStore.setState((s) => removeTypingUser(s, scopeKey, userId))
+      ui.setState((state) => ({ ...state, ...removeTypingUser(state, scopeKey, userId) }))
     }, TYPING_INDICATOR_TIMEOUT_MS)
     const nextTimers = new Map(state.typingTimers)
     nextTimers.set(tKey, timer)
@@ -42,11 +44,11 @@ export function applyTypingIndicator(scopeKey: string, userId: string, name: str
     // leave the name map alone (avoids a needless re-render). Otherwise (new
     // typer, or a name we didn't have before) write the entry.
     if (current?.has(userId) && current.get(userId) === name) {
-      return { typingTimers: nextTimers }
+      return { ...state, typingTimers: nextTimers }
     }
     const nextByScope = new Map(state.typingByScope)
     nextByScope.set(scopeKey, new Map(current ?? []).set(userId, name))
-    return { typingByScope: nextByScope, typingTimers: nextTimers }
+    return { ...state, typingByScope: nextByScope, typingTimers: nextTimers }
   })
 }
 
@@ -56,23 +58,26 @@ export function applyTypingIndicator(scopeKey: string, userId: string, name: str
  * typing.stop, and waiting for the 8s timeout leaves a ghost indicator hanging
  * under the message that just arrived.
  */
-export function clearTypingIndicator(scopeKey: string, userId: string) {
-  useCommunityStore.setState((state) => {
+export function clearTypingIndicator(queryClient: QueryClient, scopeKey: string, userId: string) {
+  const ui = getCommunityRuntime(queryClient).ui
+  ui.setState((state) => {
     const tKey = timerKey(scopeKey, userId)
     const existing = state.typingTimers.get(tKey)
-    if (!existing && !state.typingByScope.get(scopeKey)?.has(userId)) return {}
+    if (!existing && !state.typingByScope.get(scopeKey)?.has(userId)) return state
     if (existing) clearTimeout(existing)
-    return removeTypingUser(state, scopeKey, userId)
+    return { ...state, ...removeTypingUser(state, scopeKey, userId) }
   })
 }
 
-export function clearAllTypingIndicators() {
-  const state = useCommunityStore.getState()
+export function clearAllTypingIndicators(queryClient: QueryClient) {
+  const ui = getCommunityRuntime(queryClient).ui
+  const state = ui.get()
   state.typingTimers.forEach((timer) => clearTimeout(timer))
-  useCommunityStore.setState({
+  ui.setState((state) => ({
+    ...state,
     typingByScope: new Map(),
     typingTimers: new Map(),
-  })
+  }))
 }
 
 /**

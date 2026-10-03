@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect, useCallback, useRef } from "react";
 import type { Agent, AgentLink } from "@alook/shared";
 import {
   Sheet,
@@ -34,8 +35,8 @@ export function LinkSidecar({
   onSave,
   onDelete,
 }: LinkSidecarProps) {
-  const [instruction, setInstruction] = useState("");
-  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [instruction, setInstruction] = useAtom(useCreateAtom(""));
+  const [confirmOpen, setConfirmOpen] = useAtom(useCreateAtom(false));
 
   const instructionRef = useRef(instruction);
   useEffect(() => {
@@ -56,7 +57,7 @@ export function LinkSidecar({
       setInstruction(link.instruction);
       savedInstructionRef.current = link.instruction;
     }
-  }, [link]);
+  }, [link, setInstruction]);
 
   const flushSave = useCallback(() => {
     const current = instructionRef.current;
@@ -76,7 +77,7 @@ export function LinkSidecar({
       setInstruction(next);
       scheduleSave();
     },
-    [scheduleSave],
+    [scheduleSave, setInstruction],
   );
 
   useEffect(() => {
@@ -101,7 +102,7 @@ export function LinkSidecar({
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (link) onDelete(link.id);
     setConfirmOpen(false);
-  }, [link, onDelete]);
+  }, [link, onDelete, setConfirmOpen]);
 
   const renderAvatar = (agent: Agent | undefined) => {
     if (!agent) return null;

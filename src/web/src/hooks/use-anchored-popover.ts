@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState, type CSSProperties } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect, type CSSProperties } from "react"
 
 export interface AnchorRect {
   top: number
@@ -113,10 +114,10 @@ export function useAnchoredPopover(
   getRect: AnchorRectResolver | null,
   active: boolean,
 ): AnchoredPopoverGeometry | null {
-  const [snapshot, setSnapshot] = useState<{
+  const [snapshot, setSnapshot] = useAtom(useCreateAtom<{
     getRect: AnchorRectResolver
     geometry: AnchoredPopoverGeometry | null
-  } | null>(null)
+  } | null>(null))
 
   useEffect(() => {
     if (!active || !getRect) return
@@ -129,7 +130,7 @@ export function useAnchoredPopover(
     }
     refresh()
     return subscribeAnchoredPopoverChanges(refresh)
-  }, [active, getRect])
+  }, [active, getRect, setSnapshot])
 
   return active && snapshot?.getRect === getRect ? snapshot.geometry : null
 }

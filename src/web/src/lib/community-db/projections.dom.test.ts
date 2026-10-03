@@ -21,9 +21,76 @@ import {
   useServerTreeProjection,
   useTrustedRestoredPrimary,
 } from "./projections"
-import { ingestServerDetail, ingestServers } from "./sync"
+import { ingestMessages, ingestServerDetail, ingestServers } from "./sync"
 
 describe("community DB projections", () => {
+  it("keeps a surviving StrictMode consumer live and cleans derived queries before their owner facts", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const registry = createCommunityDbRegistry(client, "viewer")
+    await registry.preload()
+    const seed = (name: string) => ingestServers(registry, { servers: [{ id: "s1", name, initial: "S", active: false, unread: false, mentions: 0, ownerId: "viewer" }] })
+    seed("Before")
+    const wrapper = ({ children }: { children: ReactNode }) => React.createElement(React.StrictMode, null,
+      React.createElement(QueryClientProvider, { client }, React.createElement(CommunityDbProvider, { registry }, children)))
+    const first = renderHook(useServerRailProjection, { wrapper })
+    const survivor = renderHook(useServerRailProjection, { wrapper })
+    const errors = vi.spyOn(console, "error")
+    try {
+      await waitFor(() => expect(survivor.result.current?.servers[0]?.name).toBe("Before"))
+      first.unmount()
+      act(() => seed("After"))
+      await waitFor(() => expect(survivor.result.current?.servers[0]?.name).toBe("After"))
+      survivor.unmount()
+      await registry.cleanup()
+      expect(registry.collections.servers.size).toBe(0)
+      expect(errors.mock.calls.filter(([message]) => String(message).includes("Live Query Error"))).toEqual([])
+    } finally {
+      first.unmount()
+      survivor.unmount()
+      await registry.cleanup()
+      client.clear()
+      errors.mockRestore()
+    }
+  })
+  it("does not subscribe the server rail to message bodies but still observes server changes", async () => {
+    const queryClient = new QueryClient()
+    const registry = createCommunityDbRegistry(queryClient, "viewer")
+    await registry.preload()
+    const servers = (name: string) => ({ servers: [{
+      id: "s1", name, initial: "S", active: false, unread: false,
+      mentions: 0, ownerId: "viewer",
+    }] })
+    ingestServers(registry, servers("Server"))
+    const wrapper = ({ children }: { children: ReactNode }) => React.createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      React.createElement(CommunityDbProvider, { registry }, children),
+    )
+    let renders = 0
+    const rendered = renderHook(() => {
+      renders += 1
+      return useServerRailProjection()
+    }, { wrapper })
+    try {
+      await waitFor(() => expect(rendered.result.current?.servers[0]?.name).toBe("Server"))
+      const before = rendered.result.current
+      const beforeRenders = renders
+      await act(async () => {
+        ingestMessages(registry, "unrelated-channel", [{ id: "m1", type: "chat", content: "First" }])
+        ingestMessages(registry, "unrelated-channel", [{ id: "m1", type: "chat", content: "Changed" }])
+      })
+      expect(registry.collections.messages.get("m1")?.content).toBe("Changed")
+      expect(rendered.result.current).toBe(before)
+      expect(renders).toBe(beforeRenders)
+
+      await act(async () => ingestServers(registry, servers("Renamed")))
+      await waitFor(() => expect(rendered.result.current?.servers[0]?.name).toBe("Renamed"))
+    } finally {
+      rendered.unmount()
+      await registry.cleanup()
+    }
+  })
+
   it("keeps every projection unresolved without a registry owner", () => {
     const rendered = renderHook(() => ({
       restored: useTrustedRestoredPrimary(),
@@ -278,13 +345,13 @@ describe("community DB projections", () => {
     ])
     const registry = createCommunityDbRegistry(queryClient, "viewer")
     await registry.preload()
-    useCommunityWsStore.setState({ presenceByUserId: new Map([["peer", "online"]]) })
+    registry.runtime.ws.setState((state) => ({ ...state, ...{ presenceByUserId: new Map([["peer", "online"]]) } }))
     const restoredListener = vi.fn()
-    const unsubscribeRestored = registry.subscribeRestoredCollections(restoredListener)
+    const restoredSubscription = registry.restoration.subscribe(restoredListener)
     registry.captureRestoredCollections()
     registry.captureRestoredCollections()
     expect(restoredListener).toHaveBeenCalledOnce()
-    unsubscribeRestored()
+    restoredSubscription.unsubscribe()
     const wrapper = ({ children }: { children: ReactNode }) => React.createElement(
       QueryClientProvider,
       { client: queryClient },
@@ -354,7 +421,7 @@ describe("community DB projections", () => {
     ])
 
     rendered.unmount()
-    useCommunityWsStore.getState().reset()
+    registry.runtime.ws.actions.reset()
     expect(registry.hasRestoredCollection("channels")).toBe(true)
     await registry["cleanup"]()
   })

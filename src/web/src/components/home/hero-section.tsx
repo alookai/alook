@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
 import { TypewriterVisual } from "@/components/typewriter-visual";
 import { trackLandingCtaClicked } from "@/lib/analytics";
@@ -51,7 +52,7 @@ export function HeroSection({
   desktopSplit?: boolean;
   nextSectionId?: string;
 }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useAtom(useCreateAtom(false));
   const ctaSizingClassName = largeCtas
     ? "px-3 py-3 text-[clamp(0.6875rem,3vw,1rem)] whitespace-nowrap sm:px-8"
     : "px-6 py-2 text-sm";

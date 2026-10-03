@@ -1,6 +1,7 @@
+import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { createElement, useEffect, type MutableRefObject } from "react"
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
-import { QueryClient, QueryClientProvider, type InfiniteData } from "@tanstack/react-query"
+import { type InfiniteData } from "@tanstack/react-query"
 import { act, render } from "@/test/react-dom-harness"
 
 const apiFetchMock = vi.fn()
@@ -30,13 +31,13 @@ import {
   patchCacheRole,
   membersPageQueryFn,
   SEARCH_DEBOUNCE_MS,
-  dispatchMemberOverlayEvent,
-  subscribeMemberOverlayEvents,
   mergeMemberSearchPage,
   useServerMembers,
   type MembersEnvelope,
-  type MemberOverlayEvent,
 } from "./use-server-members"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { serverMembershipKey, serverMembershipSchema } from "@/lib/community-db/schema"
+import { captureCommunityLiveSnapshotToken, publishCommunityMemberRemoval } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
 import type { Member } from "@/lib/community/models/people"
 import type {
@@ -44,12 +45,6 @@ import type {
   CommunityMemberLeave,
   CommunityMemberUpdate,
 } from "@alook/shared"
-
-// This suite exercises the pure WS-event reducers pulled out of the hook.
-// The React harness for the hook itself isn't available in the repo (no
-// jsdom / testing-library setup); the reducers hold every non-side-effect
-// piece of the plan's insertion strategy, so testing them here pins the
-// behaviour the plan calls for in one place.
 
 function m(id: string, userId = id, role: Member["role"] = "member"): Member {
   return { id, userId, name: `n_${id}`, discriminator: "0000", avatar: `A`, status: "offline", sub: "", role }
@@ -93,11 +88,11 @@ function HookProbe({ serverId, resultRef }: {
 }
 
 async function mountServerMembers(serverId = "srv_1") {
-  const queryClient = new QueryClient({
+  const queryClient = (await createCommunityQueryOwner("viewer", {
     defaultOptions: {
       queries: { retry: false, gcTime: Infinity },
     },
-  })
+  })).client
   const resultRef = { current: null } as MutableRefObject<ServerMembersResult | null>
   const renderer = render(createElement(
     QueryClientProvider,
@@ -112,6 +107,7 @@ async function flushEffects() {
   await act(async () => {
     await Promise.resolve()
     await Promise.resolve()
+    if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(1)
   })
 }
 
@@ -354,20 +350,22 @@ describe("patchCacheRole", () => {
 describe("membersPageQueryFn", () => {
   it("hits /members with no query string on page 1 and appends cursor on later pages", async () => {
     apiFetchMock.mockResolvedValueOnce({ members: [], hasMore: false, limit: 50, total: 0 })
+    const { client } = await createCommunityQueryOwner()
     const fn = membersPageQueryFn("srv_1")
-    await fn({ pageParam: null })
-    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/community/servers/srv_1/members")
+    await fn({ pageParam: null, client })
+    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/community/servers/srv_1/members", expect.objectContaining({ authenticationAccount: "viewer" }))
 
     apiFetchMock.mockResolvedValueOnce({ members: [], hasMore: false, limit: 50, total: 0 })
-    await fn({ pageParam: "cur_1|abc" })
+    await fn({ pageParam: "cur_1|abc", client })
     expect(apiFetchMock).toHaveBeenLastCalledWith(
       "/api/community/servers/srv_1/members?cursor=cur_1%7Cabc",
+      expect.objectContaining({ authenticationAccount: "viewer" }),
     )
   })
 
   it("populates queryClient at communityKeys.members(serverId)", async () => {
     apiFetchMock.mockResolvedValueOnce({ members: [], hasMore: false, limit: 50, total: 0 })
-    const qc = new QueryClient()
+    const qc = (await createCommunityQueryOwner()).client
     const key = communityKeys.members("srv_1")
     await qc.fetchInfiniteQuery({
       queryKey: key,
@@ -383,7 +381,7 @@ describe("membersPageQueryFn", () => {
     apiFetchMock
       .mockResolvedValueOnce({ members: [m("a")], hasMore: true, cursor: "cur_1|a", limit: 50, total: 2 })
       .mockResolvedValueOnce({ members: [m("b")], hasMore: false, limit: 50, total: 2 })
-    const qc = new QueryClient()
+    const qc = (await createCommunityQueryOwner()).client
     const key = communityKeys.members("srv_1")
     await qc.fetchInfiniteQuery({
       queryKey: key,
@@ -400,34 +398,32 @@ describe("membersPageQueryFn", () => {
   })
 })
 
-describe("member overlay bus", () => {
-  it("delivers dispatched events to subscribers, and unsubscribe stops delivery", () => {
-    const received: MemberOverlayEvent[] = []
-    const unsub = subscribeMemberOverlayEvents((ev) => received.push(ev))
-    dispatchMemberOverlayEvent({ type: "kick", serverId: "srv_1", memberId: "mem_1" })
-    dispatchMemberOverlayEvent({ type: "role", serverId: "srv_1", memberId: "mem_1", role: "admin" })
-    expect(received).toHaveLength(2)
-    expect(received[0]).toEqual({ type: "kick", serverId: "srv_1", memberId: "mem_1" })
-    expect(received[1]).toEqual({ type: "role", serverId: "srv_1", memberId: "mem_1", role: "admin" })
-    unsub()
-    dispatchMemberOverlayEvent({ type: "kick", serverId: "srv_1", memberId: "mem_2" })
-    expect(received).toHaveLength(2)
+describe("native member subscriptions", () => {
+  it("publishes canonical role and removal changes, and unsubscribe stops delivery", async () => {
+    const { registry } = await createCommunityQueryOwner()
+    const collection = registry.collections.serverMemberships
+    const row = serverMembershipSchema.parse({ id: serverMembershipKey("srv_1", "user_1"), serverId: "srv_1", userId: "user_1", memberId: "mem_1", role: "member", viewer: false })
+    collection.utils.writeUpsert(row)
+    const changed = vi.fn()
+    const subscription = collection.subscribeChanges(changed)
+    await act(async () => collection.utils.writeUpsert({ ...row, role: "admin" }))
+    expect(collection.get(row.id)?.role).toBe("admin")
+    await act(async () => collection.utils.writeDelete(row.id))
+    expect(collection.get(row.id)).toBeUndefined()
+    expect(changed).toHaveBeenCalledTimes(2)
+    subscription.unsubscribe()
+    await act(async () => collection.utils.writeUpsert(row))
+    expect(changed).toHaveBeenCalledTimes(2)
   })
-
-  it("mirror-patch shape: a kick overlay event filters the memberId out of a search list", () => {
-    // Mirrors the reducer logic the hook uses inside its bus subscription:
-    // when a kick event fires, the local search overlay must drop the row.
-    const searchResults: Member[] = [m("mem_1"), m("mem_2"), m("mem_3")]
-    let overlay: Member[] | null = searchResults
-    const unsub = subscribeMemberOverlayEvents((ev) => {
-      if (overlay === null) return
-      if (ev.type === "kick") {
-        overlay = overlay.filter((x) => x.id !== ev.memberId)
-      }
-    })
-    dispatchMemberOverlayEvent({ type: "kick", serverId: "srv_1", memberId: "mem_2" })
-    expect(overlay?.map((x) => x.id)).toEqual(["mem_1", "mem_3"])
-    unsub()
+  it("canonical member removal drops the exact row from an active search window", async () => {
+    vi.useFakeTimers()
+    apiFetchMock.mockResolvedValue(makeEnvelope([m("mem_1"), m("mem_2"), m("mem_3")], false))
+    const harness = await mountServerMembers()
+    await act(async () => harness.resultRef.current!.searchMembers("mem"))
+    await act(async () => vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS + 1))
+    await vi.waitFor(() => expect(harness.resultRef.current?.members.map((member) => member.id)).toEqual(["mem_1", "mem_2", "mem_3"]))
+    await act(async () => { publishCommunityMemberRemoval(harness.queryClient, serverMembershipKey("srv_1", "mem_2"), "mem_2", { token: captureCommunityLiveSnapshotToken(harness.queryClient) }) })
+    await vi.waitFor(() => expect(harness.resultRef.current?.members.map((member) => member.id)).toEqual(["mem_1", "mem_3"]))
   })
 })
 
@@ -460,7 +456,7 @@ describe("useServerMembers search lifecycle", () => {
       await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS)
     })
     expect(apiFetchMock.mock.calls.filter(([url]) => isSearchUrl(url))).toEqual([
-      ["/api/community/servers/srv_1/members/search?q=ad"],
+      ["/api/community/servers/srv_1/members/search?q=ad", expect.objectContaining({ authenticationAccount: "viewer", signal: expect.any(AbortSignal) })],
     ])
 
     first.resolve({ members: [m("a"), m("b")], hasMore: true, cursor: "cur_2", limit: 50 })
@@ -470,8 +466,8 @@ describe("useServerMembers search lifecycle", () => {
       searchStatus: "loading-more",
     })
     expect(apiFetchMock.mock.calls.filter(([url]) => isSearchUrl(url))).toEqual([
-      ["/api/community/servers/srv_1/members/search?q=ad"],
-      ["/api/community/servers/srv_1/members/search?q=ad&cursor=cur_2"],
+      ["/api/community/servers/srv_1/members/search?q=ad", expect.objectContaining({ authenticationAccount: "viewer", signal: expect.any(AbortSignal) })],
+      ["/api/community/servers/srv_1/members/search?cursor=cur_2&q=ad", expect.objectContaining({ authenticationAccount: "viewer", signal: expect.any(AbortSignal) })],
     ])
 
     second.resolve({ members: [m("b"), m("c")], hasMore: false, limit: 50 })
@@ -576,6 +572,8 @@ describe("useServerMembers search lifecycle", () => {
     })
     first.resolve({ members: [m("a")], hasMore: true, cursor: "next", limit: 50 })
     await flushEffects()
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    expect(searchCall).toBe(2)
     continuation.reject(new Error("current failure"))
     await flushEffects()
     expect(harness.resultRef.current).toMatchObject({
@@ -583,11 +581,12 @@ describe("useServerMembers search lifecycle", () => {
       searchStatus: "error",
     })
     expect(toastApiErrorMock).toHaveBeenCalledOnce()
-    expect(toastApiErrorMock).toHaveBeenCalledWith(expect.any(Error), "Search failed")
+    expect(toastApiErrorMock).toHaveBeenCalledWith(expect.any(Error), "Search failed", expect.any(Function))
 
     await act(async () => {
-      dispatchMemberOverlayEvent({ type: "refresh", serverId: "srv_1" })
+      harness.resultRef.current!.refresh()
     })
+    await flushEffects()
     expect(harness.resultRef.current).toMatchObject({
       members: [],
       searchStatus: "loading",
@@ -602,7 +601,7 @@ describe("useServerMembers search lifecycle", () => {
 
     await act(async () => {
       harness.resultRef.current!.searchMembers("")
-      dispatchMemberOverlayEvent({ type: "refresh", serverId: "srv_1" })
+      harness.resultRef.current!.refresh()
     })
     expect(searchCall).toBe(3)
     expect(harness.resultRef.current).toMatchObject({ isSearching: false, searchStatus: "idle" })

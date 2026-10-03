@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect } from "react"
 import {
   Tooltip,
   TooltipContent,
@@ -173,17 +174,17 @@ export function BotTokenUsageHeatmap({
 }) {
   const breakpoint = useBreakpoint()
   const newestDay = usage?.capability === "supported" ? usage.days.at(-1) : undefined
-  const [open, setOpen] = useState(false)
-  const [selectedDayKey, setSelectedDayKey] = useState(newestDay?.day ?? "")
+  const [open, setOpen] = useAtom(useCreateAtom(false))
+  const [selectedDayKey, setSelectedDayKey] = useAtom(useCreateAtom(newestDay?.day ?? ""))
 
   useEffect(() => {
     if (!newestDay || usage?.days.some((day) => day.day === selectedDayKey)) return
     setSelectedDayKey(newestDay.day)
-  }, [newestDay, selectedDayKey, usage])
+  }, [newestDay, selectedDayKey, setSelectedDayKey, usage])
 
   useEffect(() => {
     if (breakpoint !== "mobile") setOpen(false)
-  }, [breakpoint])
+  }, [breakpoint, setOpen])
 
   if (!usage || usage.capability !== "supported") return null
 

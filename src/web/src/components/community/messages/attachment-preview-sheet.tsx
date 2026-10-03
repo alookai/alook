@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useQuery } from "@tanstack/react-query"
+import { applicationKey, assertApplicationOwner, captureApplicationOwner, useApplicationOwner } from "@/lib/application-owner"
 import dynamic from "next/dynamic"
 import { CircleCheck, Download, Loader2, RefreshCw } from "lucide-react"
 import { buttonVariants } from "@/components/ui/button"
@@ -111,6 +112,7 @@ export async function readAttachmentBytes(
   }
   if (!response.body) {
     const bytes = new Uint8Array(await response.arrayBuffer())
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
     if (bytes.byteLength > maxBytes) throw new Error("This file is too large to preview")
     return bytes
   }
@@ -122,6 +124,7 @@ export async function readAttachmentBytes(
     while (true) {
       if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
       const { done, value } = await reader.read()
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
       if (done) break
       byteLength += value.byteLength
       if (byteLength > maxBytes) {
@@ -138,6 +141,7 @@ export async function readAttachmentBytes(
     }
     return bytes
   } finally {
+    if (signal?.aborted) await reader.cancel().catch(() => undefined)
     reader.releaseLock()
   }
 }
@@ -151,67 +155,36 @@ export function AttachmentPreviewSheet({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const [selected, setSelected] = useState<FileAttachment | null>(attachment)
-  const [preview, setPreview] = useState<PreviewState>(IDLE_STATE)
-  useEffect(() => {
-    if (attachment) setSelected(attachment)
-  }, [attachment])
+  const owner = useApplicationOwner()
+  const selected = attachment
+  const presentation = selected ? resolveAttachmentPresentation(selected.name, selected.contentType) : null
+  const maxBytes = presentation?.previewKind === "pdf" ? MAX_PDF_ATTACHMENT_PREVIEW_BYTES : MAX_TEXT_ATTACHMENT_PREVIEW_BYTES
+  const unavailable = !presentation?.previewKind ? "This file type can’t be previewed"
+    : selected?.sizeBytes !== undefined && selected.sizeBytes > maxBytes ? "This file is too large to preview" : null
+  const content = useQuery({
+    queryKey: applicationKey(owner, "attachment-preview", open ? selected?.url ?? null : null, presentation?.previewKind ?? null, maxBytes),
+    enabled: open && selected !== null && unavailable === null, gcTime: 0, staleTime: Infinity, retry: false,
+    queryFn: async ({ signal }) => {
+      const token = captureApplicationOwner(owner)
+      const assert = () => assertApplicationOwner(token, signal)
+      assert()
+      if (!selected || !presentation?.previewKind) throw new Error("No attachment selected")
+      try {
+        const response = await fetch(selected.url, { credentials: "same-origin", signal })
+        assert()
+        const result = presentation.previewKind === "pdf"
+          ? { status: "ready" as const, kind: "pdf" as const, content: await readAttachmentBytes(response, maxBytes, signal), error: null }
+          : { status: "ready" as const, kind: "text" as const, content: await readAttachmentText(response, maxBytes, signal), error: null }
+        assert()
+        return result
+      } catch (error) { assert(); throw error }
+    },
+  }, owner.queryClient)
+  const preview: PreviewState = !open || !selected ? IDLE_STATE
+    : unavailable ? { status: "error", content: null, error: unavailable }
+    : content.isError ? { status: "error", content: null, error: content.error instanceof Error ? content.error.message : "Couldn’t load this attachment" }
+    : content.data ?? { status: "loading", content: null, error: null }
 
-  useEffect(() => {
-    if (!open || !selected) {
-      setPreview(IDLE_STATE)
-      return
-    }
-    const presentation = resolveAttachmentPresentation(selected.name, selected.contentType)
-    if (!presentation.previewKind) {
-      setPreview({ status: "error", content: null, error: "This file type can’t be previewed" })
-      return
-    }
-    const maxBytes = presentation.previewKind === "pdf"
-      ? MAX_PDF_ATTACHMENT_PREVIEW_BYTES
-      : MAX_TEXT_ATTACHMENT_PREVIEW_BYTES
-    if (selected.sizeBytes !== undefined && selected.sizeBytes > maxBytes) {
-      setPreview({ status: "error", content: null, error: "This file is too large to preview" })
-      return
-    }
-
-    const controller = new AbortController()
-    let active = true
-    setPreview({ status: "loading", content: null, error: null })
-    fetch(selected.url, { credentials: "same-origin", signal: controller.signal })
-      .then(async (response): Promise<PreviewState> => presentation.previewKind === "pdf"
-        ? {
-            status: "ready",
-            kind: "pdf",
-            content: await readAttachmentBytes(response, maxBytes, controller.signal),
-            error: null,
-          }
-        : {
-            status: "ready",
-            kind: "text",
-            content: await readAttachmentText(response, maxBytes, controller.signal),
-            error: null,
-          })
-      .then((content) => {
-        if (active) setPreview(content)
-      })
-      .catch((error: unknown) => {
-        if (!active || controller.signal.aborted) return
-        setPreview({
-          status: "error",
-          content: null,
-          error: error instanceof Error ? error.message : "Couldn’t load this attachment",
-        })
-      })
-    return () => {
-      active = false
-      controller.abort()
-    }
-  }, [open, selected])
-
-  const presentation = selected
-    ? resolveAttachmentPresentation(selected.name, selected.contentType)
-    : null
   const size = selected
     ? formatAttachmentSize(selected.sizeBytes) || selected.size
     : ""

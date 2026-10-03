@@ -1,20 +1,11 @@
-import { apiFetch } from "@/lib/api/client"
+import type { ApiRequestOptions } from "@/lib/api/client"
+import type { OnboardingInitializedBot, OnboardingInitializationStep, OnboardingInitializationCheckpoint, OnboardingInitializationResult } from "@/lib/community/models/onboarding"
+export type { OnboardingInitializationStep, OnboardingInitializationCheckpoint, OnboardingInitializationResult } from "@/lib/community/models/onboarding"
 import { randomBeamAvatar } from "@/lib/avatar/seed-url"
 import { randomBotName } from "@/lib/community/bot-random-name"
 import { formatHandle, MAX_SERVER_NAME_LENGTH, slugify } from "@alook/shared"
 
-import {
-  resolveStarterPack,
-  starterPackWakePrompt,
-  type StarterPackBotIdentity,
-  type StarterPackBotKey,
-} from "./starter-packs"
-
-export type OnboardingInitializationStep =
-  | "creating-bots"
-  | "creating-room"
-  | "inviting-bots"
-  | "preparing-welcome"
+import { resolveStarterPack, starterPackWakePrompt, type StarterPackBotIdentity } from "./starter-packs"
 
 export const ONBOARDING_INITIALIZATION_STEPS = [
   "creating-bots",
@@ -30,43 +21,17 @@ export const ONBOARDING_INITIALIZATION_LABEL: Record<OnboardingInitializationSte
   "preparing-welcome": "Preparing your first conversation",
 }
 
-type BotCreateResponse = {
+export type OnboardingBotCreateResponse = {
   bot: {
     id: string
     name?: string
     discriminator?: string
     image?: string | null
+    avatarVersion: number
   }
 }
 type ServerCreateResponse = { server: { id: string; name?: string } }
 type ChannelRow = { id: string; name: string }
-
-type OnboardingInitializedBot = {
-  key: StarterPackBotKey
-  id: string
-  name: string
-  discriminator?: string
-  image?: string | null
-}
-
-export type OnboardingInitializationResult = {
-  serverId: string
-  publicChannelId: string
-  privateChannelId: string
-  leadBotId: string
-  bots: OnboardingInitializedBot[]
-}
-
-export type OnboardingInitializationCheckpoint = {
-  bots?: OnboardingInitializedBot[]
-  serverId?: string
-  publicChannelId?: string
-  privateChannelId?: string
-  serverName?: string
-  onboardedBotIds?: string[]
-  botsOnboarded?: boolean
-  leadAddedToPrivate?: boolean
-}
 
 const ROOM_NAMES: Record<string, string> = {
   office: "work-room",
@@ -100,6 +65,7 @@ export async function initializeCommunityOnboarding({
   checkpoint = {},
   onCheckpoint,
   onProgress,
+  services,
 }: {
   machineId: string
   runtime: string
@@ -109,9 +75,18 @@ export async function initializeCommunityOnboarding({
   checkpoint?: OnboardingInitializationCheckpoint
   onCheckpoint?: (checkpoint: OnboardingInitializationCheckpoint) => void
   onProgress?: (step: OnboardingInitializationStep) => void
+  services: {
+    request: <T>(path: string, options?: ApiRequestOptions) => Promise<T>
+    readChannels: (serverId: string) => Promise<ChannelRow[]>
+    publishBot: (bot: OnboardingBotCreateResponse["bot"], requested: { name: string; image: string }) => void
+    resolveBot: (id: string) => { name: string; discriminator?: string } | undefined
+    assert: () => void
+  }
 }): Promise<OnboardingInitializationResult> {
+  services.assert()
   let progress = checkpoint
   const save = (next: OnboardingInitializationCheckpoint) => {
+    services.assert()
     progress = { ...progress, ...next }
     onCheckpoint?.(progress)
   }
@@ -123,7 +98,7 @@ export async function initializeCommunityOnboarding({
     if (createdByKey.has(template.key)) continue
     const name = template.name ?? randomBotName()
     const image = randomBeamAvatar()
-    const created = await apiFetch<BotCreateResponse>("/api/community/bots", {
+    const created = await services.request<OnboardingBotCreateResponse>("/api/community/bots", {
       method: "POST",
       body: JSON.stringify({
         name,
@@ -133,12 +108,12 @@ export async function initializeCommunityOnboarding({
         image,
       }),
     })
+    services.assert()
+    if (!created.bot.id) throw new Error("Setup progress could not be restored")
+    services.publishBot(created.bot, { name, image })
     const bot: OnboardingInitializedBot = {
       key: template.key,
       id: created.bot.id,
-      name: created.bot.name ?? name,
-      discriminator: created.bot.discriminator,
-      image: created.bot.image ?? image,
     }
     createdByKey.set(template.key, bot)
     save({ bots: [...createdByKey.values()] })
@@ -151,13 +126,13 @@ export async function initializeCommunityOnboarding({
   onProgress?.("creating-room")
   if (!progress.serverId) {
     const serverName = onboardingRoomName(userName, identity)
-    const createdServer = await apiFetch<ServerCreateResponse>("/api/community/servers", {
+    const createdServer = await services.request<ServerCreateResponse>("/api/community/servers", {
       method: "POST",
       body: JSON.stringify({ name: serverName }),
     })
     save({
       serverId: createdServer.server.id,
-      serverName: createdServer.server.name ?? serverName,
+      requestedServerName: serverName,
     })
   }
 
@@ -166,11 +141,10 @@ export async function initializeCommunityOnboarding({
 
   onProgress?.("inviting-bots")
   if (!progress.publicChannelId || !progress.privateChannelId) {
-    const channelData = await apiFetch<{ channels: ChannelRow[] }>(
-      `/api/community/servers/${serverId}/channels`,
-    )
-    const publicChannel = channelData.channels.find((channel) => channel.name === "all")
-    const privateChannel = channelData.channels.find((channel) => channel.name === "room")
+    const channels = await services.readChannels(serverId)
+    services.assert()
+    const publicChannel = channels.find((channel) => channel.name === "all")
+    const privateChannel = channels.find((channel) => channel.name === "room")
     if (!publicChannel || !privateChannel) {
       throw new Error("The new room is missing its default channels")
     }
@@ -182,7 +156,9 @@ export async function initializeCommunityOnboarding({
 
   const team: StarterPackBotIdentity[] = bots.map((created) => {
     const template = pack.bots.find((candidate) => candidate.key === created.key)!
-    return { ...template, ...created }
+    const profile = services.resolveBot(created.id)
+    if (!profile?.name) throw new Error("Bot identity could not be restored")
+    return { ...template, ...created, ...profile }
   })
   const lead = team.find((bot) => bot.key === "lead")!
   const onboardingBots = team.map((bot) => ({
@@ -202,7 +178,7 @@ export async function initializeCommunityOnboarding({
   )
   for (const bot of team) {
     if (onboardedBotIds.has(bot.id)) continue
-    await apiFetch(`/api/community/servers/${serverId}/onboard`, {
+    await services.request(`/api/community/servers/${serverId}/onboard`, {
       method: "POST",
       body: JSON.stringify({
         bots: onboardingBots,
@@ -215,7 +191,7 @@ export async function initializeCommunityOnboarding({
   }
 
   if (!progress.botsOnboarded) {
-    await apiFetch(`/api/community/servers/${serverId}/onboard`, {
+    await services.request(`/api/community/servers/${serverId}/onboard`, {
       method: "POST",
       body: JSON.stringify({
         bots: onboardingBots,
@@ -227,13 +203,14 @@ export async function initializeCommunityOnboarding({
   }
 
   if (!progress.leadAddedToPrivate) {
-    await apiFetch(`/api/community/channels/${privateChannelId}/members`, {
+    await services.request(`/api/community/channels/${privateChannelId}/members`, {
       method: "POST",
       body: JSON.stringify({ userId: lead.id }),
     })
     save({ leadAddedToPrivate: true })
   }
 
+  services.assert()
   return {
     serverId,
     publicChannelId,

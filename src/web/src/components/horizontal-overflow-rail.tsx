@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useLayoutEffect, useRef, useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useCallback, useLayoutEffect, useRef } from "react"
 import type React from "react"
 
 export type HorizontalOverflowFades = { left: boolean; right: boolean }
@@ -64,14 +65,14 @@ export function useHorizontalOverflowRail<
 }) {
   const scrollerRef = useRef<TScroller>(null)
   const selectedRef = useRef<TSelected>(null)
-  const [fades, setFades] = useState<HorizontalOverflowFades>({ left: false, right: false })
+  const [fades, setFades] = useAtom(useCreateAtom<HorizontalOverflowFades>({ left: false, right: false }))
 
   const syncFades = useCallback(() => {
     const scroller = scrollerRef.current
     if (!scroller) return
     const next = horizontalOverflowFades(scroller)
     setFades((current) => current.left === next.left && current.right === next.right ? current : next)
-  }, [])
+  }, [setFades])
 
   useLayoutEffect(() => {
     const scroller = scrollerRef.current

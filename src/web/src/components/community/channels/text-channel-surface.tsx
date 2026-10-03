@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState, type ComponentProps, type ReactNode } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect, type ComponentProps, type ReactNode } from "react"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
@@ -72,7 +73,7 @@ export function TextChannelSurface({
   embedded?: boolean
 }) {
   const breakpoint = useBreakpoint()
-  const [rightPanel, setRightPanel] = useState<RightPanel>(null)
+  const [rightPanel, setRightPanel] = useAtom(useCreateAtom<RightPanel>(null))
   const mentionInsertion = useAuthorMentionInsertion({
     members: composerMembers,
     viewerUserId: viewer.id,
@@ -88,7 +89,7 @@ export function TextChannelSurface({
   })
   useEffect(() => {
     setRightPanel(null)
-  }, [channelId])
+  }, [channelId, setRightPanel])
 
   const togglePanel = (panel: Exclude<RightPanel, null>) => {
     setRightPanel((current) => current === panel ? null : panel)
@@ -197,6 +198,8 @@ export function TextChannelSurface({
               pinned={feed.pinned}
               pinnedLoading={feed.pinnedLoading}
               searchResults={controller.searchResults}
+              searchError={controller.searchError}
+              searchLoading={controller.searchLoading}
               searchQuery={controller.searchQuery}
               threads={feed.threads}
               threadsLoading={feed.threadsLoading}

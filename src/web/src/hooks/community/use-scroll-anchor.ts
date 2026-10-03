@@ -1,4 +1,5 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useCallback, useLayoutEffect, useRef } from "react"
 import { useVirtualizer, type ReactVirtualizer, type VirtualItem } from "@tanstack/react-virtual"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "./virtualizer-react-options"
 import { estimateRowHeight, computeBelowCount, type FlatItem } from "@/lib/community/message-list-items"
@@ -538,7 +539,7 @@ export function useScrollAnchor({
   const newerPageFetchActiveRef = useRef(false)
   const paginationAnchorFrameRef = useRef<number | null>(null)
   const acceptedScrollHeightRef = useRef(0)
-  const [paginationDirection, setPaginationDirection] = useState<"older" | "newer" | null>(null)
+  const [paginationDirection, setPaginationDirection] = useAtom(useCreateAtom<"older" | "newer" | null>(null))
   const isOlderPageAnchorSettling = paginationDirection === "older"
   const isNewerPageAnchorSettling = paginationDirection === "newer"
   const previousTailId = stateRef.current.lastTailId
@@ -712,7 +713,7 @@ export function useScrollAnchor({
     paginationFetchObservedRef.current = false
     newerPageFetchActiveRef.current = direction === "newer"
     setPaginationDirection(direction)
-  }, [])
+  }, [setPaginationDirection])
   const captureOlderPageAnchor = useCallback(
     () => capturePageAnchor("older"),
     [capturePageAnchor],
@@ -797,7 +798,7 @@ export function useScrollAnchor({
         paginationAnchorFrameRef.current = null
       }
     }
-  }, [isFetchingNewer, isFetchingOlder, items, virtualizer])
+  }, [isFetchingNewer, isFetchingOlder, items, setPaginationDirection, virtualizer])
 
   useLayoutEffect(() => () => {
     if (paginationAnchorFrameRef.current !== null) {

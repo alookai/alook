@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useCallback, useRef, useEffect } from "react";
 
 export function useCopyToClipboard(resetDelay = 2000) {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useAtom(useCreateAtom(false));
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const copy = useCallback(
@@ -18,7 +19,7 @@ export function useCopyToClipboard(resetDelay = 2000) {
         return false;
       }
     },
-    [resetDelay]
+    [resetDelay, setCopied]
   );
 
   useEffect(() => {

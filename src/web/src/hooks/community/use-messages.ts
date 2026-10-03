@@ -1,7 +1,14 @@
 "use client"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+
+import { getCommunityRuntime } from "@/stores/community/runtime"
+
 
 import {
   useInfiniteQuery,
+  useQuery,
+  QueryObserver,
   focusManager,
   onlineManager,
   useIsRestoring,
@@ -10,21 +17,23 @@ import {
   type InfiniteData,
   type QueryClient,
 } from "@tanstack/react-query"
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
 import { captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
 import { communityKeys } from "@/lib/query-keys"
 import type {
-  MessagesPage,
+  MessagesWindowPage as MessagesPage,
+  MessagesPage as WireMessagesPage,
   MessagesPageParam,
   Msg,
 } from "@/lib/community/models/message"
+import { messageWindowPage } from "@/lib/community/models/message"
 import {
   materializeMessageStream,
   type CanonicalMessage,
   type MessageScope,
 } from "@/lib/community/message-stream"
-import { useMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
+import { useMessageOverlay } from "@/stores/community/message-stream"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import {
   commitConversationNavigationProof,
@@ -32,15 +41,12 @@ import {
   useConversationNavigationGate,
 } from "@/lib/community/conversation-navigation-proof"
 import type { MessageSurfaceReceipt } from "@/lib/community/conversation-navigation-proof"
-import {
-  useCanonicalMessagesById,
-  useMessageProjection,
-  useOptionalCommunityDbRegistry,
-} from "@/lib/community-db/projections"
+import { useMessageProjection, useMessageWindowProjection, useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
 import {
   captureCommunityLiveSnapshotToken,
   publishCommunityMessages,
 } from "@/lib/community-db/sync"
+import { messageReconcileOptions } from "./community-ws/reconnect-messages"
 
 /**
  * Fetches paginated messages for a community channel.
@@ -74,7 +80,7 @@ function useCommittedTransportWindow(
   hasData: boolean,
 ): boolean {
   const key = useMemo(() => JSON.stringify(queryKey), [queryKey])
-  const [committed, setCommitted] = useState<CommittedTransportWindow>(() => ({
+  const [committed, setCommitted] = useAtom(useCreateAtom<CommittedTransportWindow>({
     key,
     observed: hasData,
   }))
@@ -93,12 +99,12 @@ function useCommittedTransportWindow(
       if (current.key === key && current.observed === nextObserved) return current
       return { key, observed: nextObserved }
     })
-  }, [hasData, key])
+  }, [hasData, key, setCommitted])
 
   return observed
 }
 
-type MessagesTransportPage = MessagesPage & {
+type MessagesTransportPage = WireMessagesPage & {
   surfaceReceipt?: MessageSurfaceReceipt
 }
 
@@ -142,14 +148,15 @@ function buildMessagesUrl(base: string, pageParam: MessagesPageParam, tag?: stri
 }
 
 async function fetchMessagesTransport(
+  queryClient: QueryClient,
   url: string,
   signal: AbortSignal | undefined,
   options: MessagesTransportOptions | undefined,
-): Promise<MessagesPage> {
+): Promise<WireMessagesPage> {
   const transport = await apiFetchProfiles<MessagesTransportPage>(
     url,
     (page) => messageProfilePatches(page.messages),
-    signal ? { signal } : undefined,
+    signal ? { signal } : undefined, getCommunityDbRegistry(queryClient),
   )
   const { surfaceReceipt, ...page } = transport
   if (isMessageSurfaceReceipt(surfaceReceipt)) {
@@ -163,27 +170,29 @@ export const channelMessagesQueryFn =
   async ({
     pageParam,
     signal,
+    client,
   }: {
     pageParam: MessagesPageParam
     signal?: AbortSignal
+    client?: QueryClient
   }): Promise<MessagesPage> => {
-    const publicationToken = options?.queryClient
-      ? captureCommunityLiveSnapshotToken(options.queryClient)
-      : null
+    const originalClient = options?.queryClient ?? client
+    if (!originalClient) throw new DOMException("Missing message query owner", "AbortError")
+    const publicationToken = captureCommunityLiveSnapshotToken(originalClient)
     const url = buildMessagesUrl(
       `/api/community/channels/${channelId}/messages`,
       pageParam,
       tag,
     )
-    const page = await fetchMessagesTransport(url, signal, options)
-    if (options?.queryClient && publicationToken) {
-      publishCommunityMessages(options.queryClient, {
+    const page = await fetchMessagesTransport(originalClient, url, signal, options)
+    {
+      publishCommunityMessages(originalClient, {
         channelId,
         messages: page.messages,
         proof: { token: publicationToken, signal },
       })
     }
-    return page
+    return messageWindowPage(page)
   }
 
 export const dmMessagesQueryFn =
@@ -191,26 +200,28 @@ export const dmMessagesQueryFn =
   async ({
     pageParam,
     signal,
+    client,
   }: {
     pageParam: MessagesPageParam
     signal?: AbortSignal
+    client?: QueryClient
   }): Promise<MessagesPage> => {
-    const publicationToken = options?.queryClient
-      ? captureCommunityLiveSnapshotToken(options.queryClient)
-      : null
+    const originalClient = options?.queryClient ?? client
+    if (!originalClient) throw new DOMException("Missing message query owner", "AbortError")
+    const publicationToken = captureCommunityLiveSnapshotToken(originalClient)
     const url = buildMessagesUrl(
       `/api/community/channels/${dmId}/messages`,
       pageParam,
     )
-    const page = await fetchMessagesTransport(url, signal, options)
-    if (options?.queryClient && publicationToken) {
-      publishCommunityMessages(options.queryClient, {
+    const page = await fetchMessagesTransport(originalClient, url, signal, options)
+    {
+      publishCommunityMessages(originalClient, {
         channelId: dmId,
         messages: page.messages,
         proof: { token: publicationToken, signal },
       })
     }
-    return page
+    return messageWindowPage(page)
   }
 
 export function messageMatchesTag(message: Msg, tag?: string | null): boolean {
@@ -227,12 +238,13 @@ export function messageMatchesTag(message: Msg, tag?: string | null): boolean {
  * regardless of fetch sequence. Bounded by loaded rows (typically < 500) —
  * O(n log n) is fine here.
  */
-export function mergeMessagesPages(pages: MessagesPage[]): Msg[] {
-  const all: Msg[] = []
+export function mergeMessagesPages<T extends { id: string; seq?: number; createdAt?: string }>(pages: Array<{ messages: T[] }>): T[] {
+  const all: T[] = []
   for (const p of pages) {
     for (const m of p.messages) all.push(m)
   }
   all.sort((a, b) => {
+    if (a.seq !== undefined && b.seq !== undefined && a.seq !== b.seq) return a.seq - b.seq
     const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0
     const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0
     if (ta !== tb) return ta - tb
@@ -241,7 +253,7 @@ export function mergeMessagesPages(pages: MessagesPage[]): Msg[] {
     return 0
   })
   const seen = new Set<string>()
-  const out: Msg[] = []
+  const out: T[] = []
   for (const m of all) {
     if (seen.has(m.id)) continue
     seen.add(m.id)
@@ -257,35 +269,6 @@ export function mergeMessagesPages(pages: MessagesPage[]): Msg[] {
 const ANCHOR_CACHE_FRESHNESS_MS = 30_000
 
 type PageCache = InfiniteData<MessagesPage, MessagesPageParam>
-
-const inflightAnchorRepairs = new WeakMap<
-  QueryClient,
-  Map<string, Promise<MessagesPage>>
->()
-
-function fetchSharedAnchorRepair(
-  queryClient: QueryClient,
-  requestKey: string,
-  fetchPage: () => Promise<MessagesPage>,
-): Promise<MessagesPage> {
-  let requests = inflightAnchorRepairs.get(queryClient)
-  const pending = requests?.get(requestKey)
-  if (pending) return pending
-
-  if (!requests) {
-    requests = new Map()
-    inflightAnchorRepairs.set(queryClient, requests)
-  }
-  const request = fetchPage()
-  requests.set(requestKey, request)
-  const release = () => {
-    if (requests.get(requestKey) !== request) return
-    requests.delete(requestKey)
-    if (requests.size === 0) inflightAnchorRepairs.delete(queryClient)
-  }
-  void request.then(release, release)
-  return request
-}
 
 function cacheHasAnchorPage(
   cache: PageCache | undefined,
@@ -445,6 +428,7 @@ function useMessagesInner(
 ): MessagesReturn {
   const queryClient = useQueryClient()
   const isRestoring = useIsRestoring()
+  useQuery({ ...messageReconcileOptions(queryClient, scopeId ?? "__none__", queryKey), enabled: false })
 
   // `undefined` = anchor snapshot is still resolving; gate the query on it
   // being a resolved value (string OR null). Owners without a snapshot
@@ -469,8 +453,8 @@ function useMessagesInner(
     data: PageCache | undefined
     viewKey: string
   } | null>(null)
-  const [activationRetryEpoch, setActivationRetryEpoch] = useState(0)
-  const [presentOverride, setPresentOverride] = useState<PresentOverride | null>(null)
+  const [activationRetryEpoch, setActivationRetryEpoch] = useAtom(useCreateAtom(0))
+  const [presentOverride, setPresentOverride] = useAtom(useCreateAtom<PresentOverride | null>(null))
   const forceNewest = presentOverride?.viewKey === viewKey
   const jumpPending = forceNewest && presentOverride?.phase === "requested"
 
@@ -512,11 +496,7 @@ function useMessagesInner(
       const attemptId = stateAtStart.activationKey === activationKey
         ? stateAtStart.activeAttemptId
         : null
-      const coldInitialRequest = !forceNewest
-        && attemptId === null
-        && queryClient.getQueryData(queryKey) === undefined
-        && sameMessagesPageParam(context.pageParam, initialPageParam)
-      const transportSignal = coldInitialRequest ? undefined : context.signal
+      const transportSignal = context.signal
       const markAborted = () => {
         if (
           attemptId !== null
@@ -685,25 +665,11 @@ function useMessagesInner(
       }
     }
     void request.then(settleAttempt, settleAttempt)
-  }, [
-    activationRetryEpoch,
-    activationKey,
-    anchorRepairNeeded,
-    enabled,
-    forceNewest,
-    initialPageParam,
-    isRestoring,
-    opts?.revalidateOnMount,
-    query.data,
-    queryClient,
-    queryKey,
-    refetchMountedObserver,
-    viewKey,
-  ])
+  }, [activationRetryEpoch, activationKey, anchorRepairNeeded, enabled, forceNewest, initialPageParam, isRestoring, opts?.revalidateOnMount, query.data, queryClient, queryKey, refetchMountedObserver, viewKey, setActivationRetryEpoch])
 
   useEffect(() => {
     setPresentOverride((current) => current?.viewKey === viewKey ? current : null)
-  }, [viewKey])
+  }, [setPresentOverride, viewKey])
 
   useEffect(() => {
     if (!jumpPending || !presentOverride) return
@@ -726,7 +692,7 @@ function useMessagesInner(
       current?.attemptId === presentOverride.attemptId
         ? { ...current, phase: "present" }
         : current)
-  }, [jumpPending, presentOverride, query.data])
+  }, [jumpPending, presentOverride, query.data, setPresentOverride])
 
   useEffect(() => {
     if (!jumpPending || !presentOverride || !query.isError) return
@@ -741,12 +707,20 @@ function useMessagesInner(
     snapshotRef.current = null
     setPresentOverride((current) =>
       current?.attemptId === presentOverride.attemptId ? null : current)
-  }, [jumpPending, presentOverride, query.isError, queryClient, queryKey, viewKey])
+  }, [jumpPending, presentOverride, query.isError, queryClient, queryKey, setPresentOverride, viewKey])
 
   const messageQuery = queryClient.getQueryCache().find({ queryKey, exact: true })
+  useLayoutEffect(() => {
+    if (!enabled || !messageQuery) return
+    // A native observer spans the route's commit gap. The next mount joins
+    // the same Query before this lease is released on the next task.
+    const lease = new QueryObserver(queryClient, { ...messageQuery.options, queryKey, enabled: false })
+    const release = lease.subscribe(() => undefined)
+    return () => { setTimeout(release, 0) }
+  }, [enabled, messageQuery, queryClient, queryKey])
   const settledAnchorRepairRef = useRef<{ key: string; query: unknown } | null>(null)
   const anchorRepairFailedRef = useRef(false)
-  const [anchorRetryEpoch, setAnchorRetryEpoch] = useState(0)
+  const [anchorRetryEpoch, setAnchorRetryEpoch] = useAtom(useCreateAtom(0))
   useEffect(() => {
     const retry = (ready: boolean) => {
       if (ready && anchorRepairFailedRef.current) setAnchorRetryEpoch((epoch) => epoch + 1)
@@ -757,7 +731,7 @@ function useMessagesInner(
       unsubscribeFocus()
       unsubscribeOnline()
     }
-  }, [])
+  }, [setAnchorRetryEpoch])
   useEffect(() => {
     if (!enabled) return
     if (forceNewest) return
@@ -772,23 +746,32 @@ function useMessagesInner(
     const updatedAt = messageQuery.state.dataUpdatedAt
     const isFresh = !!updatedAt && Date.now() - updatedAt < ANCHOR_CACHE_FRESHNESS_MS
     const anchorPageParam: MessagesPageParam = { mode: "anchor", anchor: anchorId }
-    const accessToken = captureChannelMetadataToken(scopeId!)
+    const accessToken = captureChannelMetadataToken(queryClient, scopeId!)
     const currentQuery = messageQuery
     let active = true
-    let retryTimer: ReturnType<typeof setTimeout> | undefined
     const isCurrent = () => active && isChannelMetadataTokenCurrent(accessToken)
       && queryClient.getQueryCache().find({ queryKey, exact: true }) === currentQuery
-    const anchorRequestKey = JSON.stringify([queryKey, anchorPageParam, accessToken])
+    const accessIdentity = [accessToken.viewerId, accessToken.accountEpoch, accessToken.accessEpoch, accessToken.ownerGeneration, accessToken.generation]
+    const anchorRequestKey = JSON.stringify([queryKey, anchorPageParam, accessIdentity])
     if (settledAnchorRepairRef.current?.key === anchorRequestKey
       && settledAnchorRepairRef.current.query === currentQuery) return
     anchorRepairFailedRef.current = false
-    const repair = (attempt: number) => {
+    const repairOptions = { queryKey: [...queryKey, "anchor-repair", anchorId, accessIdentity], queryFn: ({ signal }: { signal: AbortSignal }) => {
+      if (!isChannelMetadataTokenCurrent(accessToken) || queryClient.getQueryCache().find({ queryKey, exact: true }) !== currentQuery) throw new DOMException("Retired message window", "AbortError")
+      return queryFn({ pageParam: anchorPageParam, signal })
+    }, staleTime: 0, retry: (attempt: number, error: unknown) => !(error instanceof DOMException && error.name === "AbortError") && attempt < 2, retryDelay: (attempt: number) => 1000 * 2 ** attempt }
+    const lease = new QueryObserver(queryClient, { ...repairOptions, enabled: false })
+    const unsubscribe = lease.subscribe(() => undefined)
+    const releaseOnRemoval = queryClient.getQueryCache().subscribe((event) => {
+      if (event.type === "removed" && event.query === currentQuery) {
+        active = false
+        void queryClient.cancelQueries({ queryKey: repairOptions.queryKey, exact: true })
+        unsubscribe()
+      }
+    })
+    const repair = () => {
       if (!isCurrent()) return
-      void fetchSharedAnchorRepair(
-        queryClient,
-        anchorRequestKey,
-        () => queryFn({ pageParam: anchorPageParam }),
-      )
+      void queryClient.fetchQuery(repairOptions)
         .then((page) => {
           // Re-check right before the swap — a concurrent send/WS update or a
           // second re-anchor attempt in the interim shouldn't be clobbered by
@@ -817,26 +800,20 @@ function useMessagesInner(
             const currentMessages = mergeMessagesPages(current.pages)
             const anchorAlreadyPainted = opts?.waitForAnchor === false
               && currentMessages.some((message) => message.id === anchorId)
-            const merged = anchorAlreadyPainted
-              ? currentMessages
-              : mergeMessagesPages([...current.pages, page])
-            const mergedPage: MessagesPage = {
-              ...page,
-              messages: merged,
-            }
-            return { pages: [mergedPage], pageParams: [anchorPageParam] }
+            if (anchorAlreadyPainted) return { ...current, pages: [page, ...current.pages], pageParams: [anchorPageParam, ...current.pageParams] }
+            return { ...current, pages: [page, ...current.pages], pageParams: [anchorPageParam, ...current.pageParams] }
           })
         })
         .catch(() => {
           if (!isCurrent()) return
           anchorRepairFailedRef.current = true
-          if (attempt < 2) retryTimer = setTimeout(() => repair(attempt + 1), 1000 * (2 ** attempt))
         })
     }
-    repair(0)
+    repair()
     return () => {
       active = false
-      clearTimeout(retryTimer)
+      releaseOnRemoval()
+      setTimeout(unsubscribe, 0)
     }
   }, [
     anchorRetryEpoch,
@@ -855,10 +832,13 @@ function useMessagesInner(
     reconcileLateAnchor,
   ])
 
+  const windowIds = useMemo(() => query.data?.pages.flatMap((page) => page.messages.map((message) => message.id)) ?? [], [query.data])
+  const canonicalRows = useMessageProjection(scopeId, windowIds)
   const messages = useMemo<Msg[]>(() => {
     if (!query.data) return []
-    return mergeMessagesPages(query.data.pages)
-  }, [query.data])
+    const byId = new Map((canonicalRows ?? []).map((message) => [message.id, message]))
+    return mergeMessagesPages(query.data.pages).flatMap((window) => { const message = byId.get(window.id); return message ? [message] : [] })
+  }, [query.data, canonicalRows])
 
   const latestSeq = useMemo<number>(() => {
     if (!query.data) return 0
@@ -922,7 +902,7 @@ function useMessagesInner(
       phase: "requested",
       viewKey,
     })
-  }, [enabled, forceNewest, viewKey])
+  }, [enabled, forceNewest, setPresentOverride, viewKey])
 
   return {
     ...query,
@@ -976,8 +956,6 @@ export function useMessages(
   opts: ChannelMessagesOpts,
 ): MessagesReturn {
   const registry = useOptionalCommunityDbRegistry()
-  const dbMessages = useMessageProjection(channelId)
-  const canonicalMessagesById = useCanonicalMessagesById()
   const queryClient = useQueryClient()
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const queryKey = useMemo(() => {
@@ -1007,6 +985,9 @@ export function useMessages(
     queryKey,
     base.data !== undefined,
   )
+  const windowIds = useMemo(() => base.messages.map((message) => message.id), [base.messages])
+  const dbMessages = useMessageWindowProjection(channelId, transportWindowObserved ? windowIds : undefined)
+  const canonicalMessagesById = useMemo(() => new Map((dbMessages ?? []).map((message) => [message.id, message])), [dbMessages])
   const scope = useMemo<MessageScope>(() => ({
     kind: "channel",
     id: channelId ?? "__none__",
@@ -1031,11 +1012,11 @@ export function useMessages(
   )
   useEffect(() => {
     if (!channelId) return
-    useMessageStreamStore.getState().dispatch(scope, {
+    getCommunityRuntime(queryClient).messageStream.actions.dispatch(scope, {
       type: "baseChanged",
       messages: canonicalBase,
     })
-  }, [canonicalBase, channelId, scope])
+  }, [canonicalBase, channelId, queryClient, scope])
   const messages = useMemo(
     () => materializeMessageStream(canonicalBase, overlay).filter((message) =>
       messageMatchesTag(message, opts.tag)),
@@ -1068,8 +1049,6 @@ export function useDmMessages(
   opts?: MessagesOpts,
 ): MessagesReturn {
   const registry = useOptionalCommunityDbRegistry()
-  const dbMessages = useMessageProjection(dmId)
-  const canonicalMessagesById = useCanonicalMessagesById()
   const queryClient = useQueryClient()
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const queryKey = useMemo(
@@ -1099,6 +1078,9 @@ export function useDmMessages(
     queryKey,
     base.data !== undefined,
   )
+  const windowIds = useMemo(() => base.messages.map((message) => message.id), [base.messages])
+  const dbMessages = useMessageWindowProjection(dmId, transportWindowObserved ? windowIds : undefined)
+  const canonicalMessagesById = useMemo(() => new Map((dbMessages ?? []).map((message) => [message.id, message])), [dbMessages])
   const scope = useMemo<MessageScope>(() => ({
     kind: "dm",
     id: dmId ?? "__none__",
@@ -1122,11 +1104,11 @@ export function useDmMessages(
   )
   useEffect(() => {
     if (!dmId) return
-    useMessageStreamStore.getState().dispatch(scope, {
+    getCommunityRuntime(queryClient).messageStream.actions.dispatch(scope, {
       type: "baseChanged",
       messages: canonicalBase,
     })
-  }, [canonicalBase, dmId, scope])
+  }, [canonicalBase, dmId, queryClient, scope])
   const messages = useMemo(
     () => materializeMessageStream(canonicalBase, overlay),
     [canonicalBase, overlay],

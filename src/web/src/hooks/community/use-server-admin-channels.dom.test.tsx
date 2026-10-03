@@ -1,5 +1,6 @@
 import { createElement, type PropsWithChildren } from "react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { QueryClient } from "@tanstack/react-query"
+import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
@@ -36,7 +37,7 @@ describe("admin channel list isolation", () => {
     expect(rendered.result.current.channels).toBeUndefined()
     rendered.rerender({ serverId: "server-1", isAdmin: true })
     await waitFor(() => expect(rendered.result.current.channels).toEqual([channel]))
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/server-1/channels/admin", { signal: expect.any(AbortSignal) })
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/server-1/channels/admin", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
     expect(client.getQueryData(communityKeys.adminChannels("server-1"))).toEqual({ channels: [channel] })
     expect(shouldPersistQueryKey(communityKeys.adminChannels("server-1"))).toBe(false)
     rendered.unmount()
@@ -53,7 +54,7 @@ describe("admin channel list isolation", () => {
     await waitFor(() => expect(rendered.result.current.channels).toEqual([channel]))
     rendered.rerender({ serverId: "server-2" })
     expect(rendered.result.current.channels).toBeUndefined()
-    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/server-2/channels/admin", { signal: expect.any(AbortSignal) }))
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/server-2/channels/admin", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" })))
     rendered.unmount()
     client.clear()
   })

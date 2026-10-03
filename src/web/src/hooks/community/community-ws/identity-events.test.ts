@@ -23,10 +23,6 @@ function profile(queryClient: QueryClient, userId: string) {
   )?.find((row) => row.userId === userId)
 }
 
-beforeEach(() => {
-  useCommunityWsStore.getState().reset()
-  useCommunityWsStore.getState().activateProfileAccount("viewer")
-})
 
 describe("profile identity events", () => {
   it("updates only the canonical avatar and leaves raw query snapshots untouched", async () => {

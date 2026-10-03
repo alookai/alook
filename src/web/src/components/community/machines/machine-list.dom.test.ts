@@ -1,6 +1,7 @@
 import React from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { act, fireEvent, render, waitFor } from "@/test/react-dom-harness"
+import { act, fireEvent, waitFor } from "@/test/react-dom-harness"
+import { renderCommunity as render } from "@/test/community-owner-harness"
 
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
@@ -53,10 +54,6 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }))
 
-vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => ({ setQueryData: vi.fn(), invalidateQueries: vi.fn(), fetchQuery: mocks.fetchQuery }),
-}))
-
 vi.mock("@/components/ui/button", () => ({
   Button: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>
     React.createElement("button", props, children),
@@ -83,12 +80,12 @@ vi.mock("./machine-card", () => ({
 }))
 vi.mock("./pair-machine-sheet", () => ({ PairMachineSheet: ({ open, onLimitReached }: { open: boolean; onLimitReached: () => void }) => open ? React.createElement("button", { "data-testid": "test-pair-sheet", onClick: onLimitReached }, "Simulate server limit") : null }))
 vi.mock("@/components/community/onboarding-tiles/connect-tile", () => ({ ConnectTile: () => null }))
-vi.mock("@/hooks/community/use-machines", () => ({
-  machinesQueryFn: vi.fn(),
+vi.mock("@/hooks/community/use-machines", async (importOriginal) => ({ ...await importOriginal<typeof import("@/hooks/community/use-machines")>(),
+  machinesQueryFn: mocks.fetchQuery,
   useMachines: () => ({ machines: mocks.machines.current, isLoading: mocks.machinesLoading.current, data: { machineCapacity: mocks.capacity.current } }),
 }))
 vi.mock("@/hooks/community/use-bots", () => ({ useBots: () => ({ bots: [] }) }))
-vi.mock("@/stores/community", () => ({
+vi.mock("@/stores/community", async (importOriginal) => ({ ...await importOriginal<typeof import("@/stores/community")>(),
   usePendingMachineTokenId: () => null,
   useCommunityStore: { getState: () => ({ setPendingMachineTokenId: vi.fn() }) },
 }))
@@ -172,6 +169,7 @@ describe("machine daemon update UI", () => {
   it("refreshes the allowance before showing a server rejection", async () => {
     mocks.fetchQuery.mockImplementation(async () => {
       mocks.capacity.current = { ...mocks.capacity.current, limit: 5, ownedCount: 5 }
+      return { machines: mocks.machines.current, machineCapacity: mocks.capacity.current }
     })
     const view = render(React.createElement(MachineList))
     fireEvent.click(view.getByRole("button", { name: "Connect a machine" }))
@@ -221,7 +219,7 @@ describe("machine daemon update UI", () => {
     fireEvent.click(renderer.getByTestId(tid.onboardingStart))
 
     expect(mocks.startOnboarding).toHaveBeenCalledOnce()
-    expect(mocks.startOnboarding).toHaveBeenCalledWith({ guideAvatarSeed: expect.any(String) })
+    expect(mocks.startOnboarding).toHaveBeenCalledWith(expect.objectContaining({ ui: expect.any(Object), lifecycle: expect.any(Object) }), { guideAvatarSeed: expect.any(String) })
   })
 
   it("loads Community update eligibility from the daemon package endpoint", async () => {

@@ -53,6 +53,8 @@ export type MessageChannelControllerValue = {
   setReplyTo: (reply: ReplyTarget | null) => void
   searchQuery: string
   searchResults: Msg[]
+  searchError?: string
+  searchLoading: boolean
   search: (query: string) => void
   scrollTargetId: string | null
   setScrollTargetId: (targetId: string | null) => void

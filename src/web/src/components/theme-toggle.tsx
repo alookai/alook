@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect } from "react";
 import { useTheme } from "next-themes";
 import { Sun, Moon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
+  const [mounted, setMounted] = useAtom(useCreateAtom(false));
 
-  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => { setMounted(true); }, [setMounted]);
 
   const toggle = () => {
     setTheme(resolvedTheme === "dark" ? "light" : "dark");

@@ -1,6 +1,8 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
+import { useEffect, useRef } from "react"
 import { isTauri, safeRedirectPath, type NativeOauthProvider } from "@alook/shared"
 import { SiGithub, SiGoogle } from "@icons-pack/react-simple-icons"
 import Image from "next/image"
@@ -31,7 +33,7 @@ export function SocialSignIn({
   appleEnabled?: boolean
 }) {
   const controller = useRef<ReturnType<typeof createNativeOauthController> | null>(null)
-  const [native, setNative] = useState<NativeOauthView | null>(null)
+  const [native, setNative] = useAtom(useCreateAtom<NativeOauthView | null>(null))
   const lastProvider = useRef<NativeOauthProvider>("github")
   useEffect(() => {
     if (!isTauri()) return
@@ -39,7 +41,7 @@ export function SocialSignIn({
     controller.current = instance
     void instance.connect()
     return () => { instance.dispose(); if (controller.current === instance) controller.current = null }
-  }, [])
+  }, [setNative])
   const begin = (provider: NativeOauthProvider) => {
     lastProvider.current = provider
     if (!isTauri()) { void signIn.social({ provider, callbackURL: postLoginUrl }); return }

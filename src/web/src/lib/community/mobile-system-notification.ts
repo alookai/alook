@@ -1,4 +1,6 @@
 import { isMobile, isTauri, tauriInvoke } from "@alook/shared"
+import { createStore } from "@tanstack/store"
+import { QueryClient } from "@tanstack/react-query"
 import { systemNotificationHref } from "./system-notification-route"
 
 export type MobileSystemNotificationPermission = "granted" | "denied" | "prompt"
@@ -25,21 +27,19 @@ export type MobileSystemNotificationDestination = {
 const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const RETRY_DELAYS_MS = [1_000, 5_000, 30_000, 60_000] as const
-let registrationMutationTail: Promise<void> = Promise.resolve()
-let registrationSuppressed = false
+const registrationClient = new QueryClient()
+const registrationPolicy = createStore({ suppressed: false })
 
 function serializeRegistrationMutation<T>(operation: () => Promise<T>): Promise<T> {
-  const result = registrationMutationTail.then(operation, operation)
-  registrationMutationTail = result.then(() => undefined, () => undefined)
-  return result
+  return registrationClient.getMutationCache().build<T, Error, () => Promise<T>, unknown>(registrationClient, { mutationKey: ["native", "notification-registration"], scope: { id: "native-notification-registration" }, gcTime: 0, mutationFn: (run) => run() }).execute(operation)
 }
 
 export function suspendMobileSystemNotificationRegistration() {
-  registrationSuppressed = true
+  registrationPolicy.setState(() => ({ suppressed: true }))
 }
 
 export function resumeMobileSystemNotificationRegistration() {
-  registrationSuppressed = false
+  registrationPolicy.setState(() => ({ suppressed: false }))
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -212,12 +212,15 @@ export async function dismissMobileSystemNotificationConversation(
 export async function postMobileSystemNotificationRegistration(
   snapshot: MobileSystemNotificationRegistration,
   fetchImpl: typeof fetch = fetch,
+  options: { signal?: AbortSignal; assertActive?: () => void } = {},
 ): Promise<void> {
   if (!snapshot.providerToken) throw new Error("provider_token_unavailable")
   await serializeRegistrationMutation(async () => {
-    if (registrationSuppressed) throw new Error("registration_suspended")
+    options.assertActive?.()
+    if (registrationPolicy.get().suppressed) throw new Error("registration_suspended")
     const response = await fetchImpl("/api/community/notifications/devices", {
       method: "POST",
+      signal: options.signal,
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -231,6 +234,7 @@ export async function postMobileSystemNotificationRegistration(
         ...(snapshot.appVersion ? { appVersion: snapshot.appVersion } : {}),
       }),
     })
+    options.assertActive?.()
     if (!response.ok) throw new Error("registration_failed")
   })
 }
@@ -238,23 +242,29 @@ export async function postMobileSystemNotificationRegistration(
 export async function deleteMobileSystemNotificationRegistration(
   installationId: string,
   fetchImpl: typeof fetch = fetch,
+  options: { signal?: AbortSignal; assertActive?: () => void } = {},
 ): Promise<void> {
   if (!UUID.test(installationId)) throw new Error("invalid_installation_id")
   await serializeRegistrationMutation(async () => {
+    options.assertActive?.()
     const response = await fetchImpl(
       `/api/community/notifications/devices/${encodeURIComponent(installationId)}`,
-      { method: "DELETE", credentials: "same-origin" },
+      { method: "DELETE", credentials: "same-origin", signal: options.signal },
     )
+    options.assertActive?.()
     if (!response.ok) throw new Error("unregistration_failed")
   })
 }
 
 export async function unregisterCurrentMobileSystemNotification(
   fetchImpl: typeof fetch = fetch,
+  options: { signal?: AbortSignal; assertActive?: () => void } = {},
 ): Promise<void> {
   if (!isTauri() || !isMobile()) return
+  options.assertActive?.()
   const snapshot = await snapshotMobileSystemNotificationRegistration()
-  await deleteMobileSystemNotificationRegistration(snapshot.installationId, fetchImpl)
+  options.assertActive?.()
+  await deleteMobileSystemNotificationRegistration(snapshot.installationId, fetchImpl, options)
 }
 
 export type MobileSystemNotificationRegistrationDeps = {
@@ -272,86 +282,91 @@ export type MobileSystemNotificationRegistrationDeps = {
 export function createMobileSystemNotificationRegistrationController(
   deps: MobileSystemNotificationRegistrationDeps,
 ) {
-  let disposed = false
-  let active: Promise<void> | null = null
-  let rerun = false
-  let pendingPrompt = false
-  let retryAttempt = 0
-  let retryTimer: unknown | undefined
-
-  function clearRetry() {
-    if (retryTimer === undefined) return
-    deps.cancel(retryTimer)
-    retryTimer = undefined
-  }
-
-  function scheduleRetry(allowPrompt: boolean) {
-    if (disposed || retryTimer !== undefined) return
-    const delays = deps.retryDelaysMs ?? RETRY_DELAYS_MS
-    const delay = delays[retryAttempt]
-    if (delay === undefined) return
-    retryAttempt += 1
-    retryTimer = deps.schedule(() => {
-      retryTimer = undefined
-      void sync(allowPrompt)
-    }, delay)
-  }
-
-  async function runOnce(allowPrompt: boolean) {
-    let permission = await deps.checkPermission()
-    if (permission === "prompt" && allowPrompt) {
-      permission = await deps.requestPermission()
+    const protocol = createStore({ disposed: false, active: null as Promise<void> | null, rerun: false, pendingPrompt: false, retryAttempt: 0, retryTimer: undefined as unknown | undefined });
+    function clearRetry() {
+        if (protocol.get().retryTimer === undefined)
+            return;
+        deps.cancel(protocol.get().retryTimer);
+        protocol.setState(state => ({ ...state, retryTimer: undefined }));
     }
-    if (permission === "prompt") return
-
-    const snapshot = await deps.snapshot()
-    if (permission === "denied") {
-      await deps.unregister(snapshot.installationId)
-      return
+    function scheduleRetry(allowPrompt: boolean) {
+        if (protocol.get().disposed || protocol.get().retryTimer !== undefined)
+            return;
+        const delays = deps.retryDelaysMs ?? RETRY_DELAYS_MS;
+        const delay = delays[protocol.get().retryAttempt];
+        if (delay === undefined)
+            return;
+        protocol.setState(state => ({ ...state, retryAttempt: protocol.get().retryAttempt + 1 }));
+        const retryTimer = deps.schedule(() => {
+                protocol.setState(state => ({ ...state, retryTimer: undefined }));
+                void sync(allowPrompt);
+            }, delay);
+        protocol.setState(state => ({ ...state, retryTimer }));
     }
-    if (!snapshot.providerToken) return
-    const providerToken = snapshot.providerToken
-    await deps.register(snapshot)
-    await deps.acknowledge(providerToken)
-  }
-
-  function sync(allowPrompt = false): Promise<void> {
-    if (disposed) return Promise.resolve()
-    pendingPrompt ||= allowPrompt
-    rerun = true
-    clearRetry()
-    if (active) return active
-
-    active = (async () => {
-      while (rerun && !disposed) {
-        rerun = false
-        const promptThisRun = pendingPrompt
-        pendingPrompt = false
-        try {
-          await runOnce(promptThisRun)
-          retryAttempt = 0
-        } catch {
-          if (rerun) {
-            pendingPrompt ||= promptThisRun
-            continue
-          }
-          scheduleRetry(promptThisRun)
+    async function runOnce(allowPrompt: boolean) {
+        const assert = () => { if (protocol.get().disposed) throw new DOMException("Retired notification registration", "AbortError") }
+        assert()
+        let permission = await deps.checkPermission();
+        assert()
+        if (permission === "prompt" && allowPrompt) {
+            permission = await deps.requestPermission();
+            assert()
         }
-      }
-    })().finally(() => {
-      active = null
-    })
-    return active
-  }
-
-  return {
-    sync,
-    dispose() {
-      if (disposed) return
-      disposed = true
-      clearRetry()
-    },
-  }
+        if (permission === "prompt")
+            return;
+        const snapshot = await deps.snapshot();
+        assert()
+        if (permission === "denied") {
+            await deps.unregister(snapshot.installationId);
+            return;
+        }
+        if (!snapshot.providerToken)
+            return;
+        const providerToken = snapshot.providerToken;
+        await deps.register(snapshot);
+        assert()
+        await deps.acknowledge(providerToken);
+    }
+    function sync(allowPrompt = false): Promise<void> {
+        if (protocol.get().disposed)
+            return Promise.resolve();
+        protocol.setState(state => ({ ...state, pendingPrompt: protocol.get().pendingPrompt || allowPrompt }));
+        protocol.setState(state => ({ ...state, rerun: true }));
+        clearRetry();
+        const inFlight = protocol.get().active
+        if (inFlight) return inFlight
+        const active = Promise.resolve().then(async () => {
+                while (protocol.get().rerun && !protocol.get().disposed) {
+                    protocol.setState(state => ({ ...state, rerun: false }));
+                    const promptThisRun = protocol.get().pendingPrompt;
+                    protocol.setState(state => ({ ...state, pendingPrompt: false }));
+                    try {
+                        await runOnce(promptThisRun);
+                        protocol.setState(state => ({ ...state, retryAttempt: 0 }));
+                    }
+                    catch {
+                        if (protocol.get().rerun) {
+                            protocol.setState(state => ({ ...state, pendingPrompt: protocol.get().pendingPrompt || promptThisRun }));
+                            continue;
+                        }
+                        scheduleRetry(promptThisRun);
+                    }
+                }
+            }).finally(() => {
+                protocol.setState(state => ({ ...state, active: null }));
+            });
+        protocol.setState(state => ({ ...state, active }));
+        return protocol.get().active!;
+    }
+    return {
+        sync,
+        dispose() {
+            if (protocol.get().disposed)
+                return;
+            protocol.setState(state => ({ ...state, disposed: true }));
+            clearRetry();
+        },
+    };
 }
 
 export type MobileSystemNotificationActivationDeps = {
@@ -367,47 +382,52 @@ export type MobileSystemNotificationActivationDeps = {
 export function createMobileSystemNotificationActivationController(
   deps: MobileSystemNotificationActivationDeps,
 ) {
-  let disposed = false
-  let draining = false
-  let rerun = false
-
-  async function drain() {
-    if (disposed) return
-    if (draining) {
-      rerun = true
-      return
-    }
-    draining = true
-    try {
-      do {
-        rerun = false
-        let activation: MobileSystemNotificationActivation | null
-        try {
-          activation = await deps.take()
-        } catch {
-          continue
+    const protocol = createStore({ disposed: false, draining: false, rerun: false });
+    async function drain() {
+        if (protocol.get().disposed)
+            return;
+        if (protocol.get().draining) {
+            protocol.setState(state => ({ ...state, rerun: true }));
+            return;
         }
-        if (!activation || disposed) continue
-        const destination = await deps.revalidate(activation).catch(() => null)
-        if (disposed) continue
-        if (destination) {
-          try {
-            deps.queueDismiss(activation.notificationId, destination.href)
-          } catch {}
-          if (!disposed) deps.navigate(destination.href)
-        } else await deps.openInbox()
-      } while (rerun && !disposed)
-    } finally {
-      draining = false
+        protocol.setState(state => ({ ...state, draining: true }));
+        try {
+            do {
+                protocol.setState(state => ({ ...state, rerun: false }));
+                let activation: MobileSystemNotificationActivation | null;
+                try {
+                    activation = await deps.take();
+                }
+                catch {
+                    continue;
+                }
+                if (!activation || protocol.get().disposed)
+                    continue;
+                const destination = await deps.revalidate(activation).catch(() => null);
+                if (protocol.get().disposed)
+                    continue;
+                if (destination) {
+                    try {
+                        deps.queueDismiss(activation.notificationId, destination.href);
+                    }
+                    catch { }
+                    if (!protocol.get().disposed)
+                        deps.navigate(destination.href);
+                }
+                else
+                    await deps.openInbox();
+            } while (protocol.get().rerun && !protocol.get().disposed);
+        }
+        finally {
+            protocol.setState(state => ({ ...state, draining: false }));
+        }
     }
-  }
-
-  return {
-    drain,
-    dispose() {
-      disposed = true
-    },
-  }
+    return {
+        drain,
+        dispose() {
+            protocol.setState(state => ({ ...state, disposed: true }));
+        },
+    };
 }
 
 type SurfaceKind = "channel" | "forum" | "thread" | "dm"
@@ -425,14 +445,18 @@ function surfaceReceipt(value: unknown): { channelId: string; surfaceKind: Surfa
 export async function revalidateMobileSystemNotificationActivation(
   activation: MobileSystemNotificationActivation,
   fetchImpl: typeof fetch = fetch,
+  options: { signal?: AbortSignal; assertActive?: () => void } = {},
 ): Promise<MobileSystemNotificationDestination | null> {
   try {
+    options.assertActive?.()
     const messageResponse = await fetchImpl(
       `/api/community/channels/${encodeURIComponent(activation.targetId)}/messages?anchor=${encodeURIComponent(activation.messageId)}&limit=1`,
-      { method: "GET", credentials: "same-origin", cache: "no-store" },
+      { method: "GET", credentials: "same-origin", cache: "no-store", signal: options.signal },
     )
+    options.assertActive?.()
     if (!messageResponse.ok) return null
     const messagePayload: unknown = await messageResponse.json()
+    options.assertActive?.()
     if (!isObject(messagePayload) || !Array.isArray(messagePayload.messages)) return null
     const receipt = surfaceReceipt(messagePayload.surfaceReceipt)
     if (!receipt || receipt.channelId !== activation.targetId) return null
@@ -453,10 +477,12 @@ export async function revalidateMobileSystemNotificationActivation(
 
     const channelResponse = await fetchImpl(
       `/api/community/channels/${encodeURIComponent(activation.targetId)}`,
-      { method: "GET", credentials: "same-origin", cache: "no-store" },
+      { method: "GET", credentials: "same-origin", cache: "no-store", signal: options.signal },
     )
+    options.assertActive?.()
     if (!channelResponse.ok) return null
     const channel: unknown = await channelResponse.json()
+    options.assertActive?.()
     if (!isObject(channel)
       || channel.id !== activation.targetId
       || !isSafeId(channel.serverId)
@@ -473,6 +499,7 @@ export async function revalidateMobileSystemNotificationActivation(
       }),
     }
   } catch {
+    options.assertActive?.()
     return null
   }
 }

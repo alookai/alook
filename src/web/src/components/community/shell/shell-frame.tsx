@@ -1,6 +1,9 @@
 "use client"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { getCommunityRuntime } from "@/stores/community/runtime"
 
-import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react"
+
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { useCommunityOnboarding } from "@/lib/community-onboarding"
@@ -13,7 +16,7 @@ import {
   type CommunityCommittedFrame,
 } from "@/lib/community/community-route"
 import { communityKeys } from "@/lib/query-keys"
-import { useCommunityStore } from "@/stores/community"
+
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { ShellFrameView } from "./shell-frame-view"
@@ -61,24 +64,24 @@ export function ShellFrame(props: ShellFrameProps) {
     revision: 0,
   }
   const committedFrameRef = useRef(initialCommittedFrame)
-  const [committedFrame, setCommittedFrame] = useState(initialCommittedFrame)
+const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommittedFrame))
   const commitFrame = useCallback((href: string) => {
     const current = committedFrameRef.current
     const next = advanceCommunityCommittedFrame(current, href)
     if (next === current) return
     committedFrameRef.current = next
     setCommittedFrame(next)
-  }, [])
+  }, [setCommittedFrame])
   useLayoutEffect(() => {
     commitFrame(frameHref)
     if (ownerDeleteRouteScope) {
-      registerOwnerServerDeleteRoute(
+      registerOwnerServerDeleteRoute(queryClient,
         ownerDeleteRouteScope.serverId,
         ownerDeleteRouteScope.token,
       )
     }
-    observeOwnerServerDeleteRouteCommit(frameHref)
-  }, [commitFrame, frameHref, ownerDeleteRouteScope])
+    observeOwnerServerDeleteRouteCommit(queryClient, frameHref)
+  }, [commitFrame, frameHref, ownerDeleteRouteScope, queryClient])
   useEffect(() => {
     flushOwnerServerDeleteRouteCommit(queryClient)
   }, [frameHref, queryClient])
@@ -155,10 +158,10 @@ export function ShellFrame(props: ShellFrameProps) {
     viewerId: currentUser.id,
     accessEpoch,
   })
-  const [userBarExtension, dispatchUserBarExtension] = useReducer(
-    userBarExtensionReducer,
-    initialUserBarExtensionState,
-  )
+  const [userBarExtension, setUserBarExtension] = useAtom(useCreateAtom(initialUserBarExtensionState))
+  const dispatchUserBarExtension = useCallback((action: Parameters<typeof userBarExtensionReducer>[1]) => {
+    setUserBarExtension((state) => userBarExtensionReducer(state, action))
+  }, [setUserBarExtension])
   const daemonUpdate = useShellDaemonUpdateController({
     userId: currentUser.id,
     extensionState: userBarExtension,
@@ -174,7 +177,7 @@ export function ShellFrame(props: ShellFrameProps) {
     if (userBarExtension.active === "update") daemonUpdate.collapse()
     inbox.onOpenChange(true)
     dispatchUserBarExtension({ type: "extension.open", extension: "inbox" })
-  }, [daemonUpdate, inbox, profile, userBarExtension.active])
+  }, [daemonUpdate, dispatchUserBarExtension, inbox, profile, userBarExtension.active])
   const onUserBarOpenProfile = useCallback<ReturnType<typeof useShellProfileController>["openProfile"]>((
     name,
     event,
@@ -190,7 +193,7 @@ export function ShellFrame(props: ShellFrameProps) {
     if (userBarExtension.active === "update") daemonUpdate.collapse()
     profile.openProfile(name, event, discriminator, targetUserId)
     dispatchUserBarExtension({ type: "extension.open", extension: "profile" })
-  }, [daemonUpdate, inbox, profile, userBarExtension.active])
+  }, [daemonUpdate, dispatchUserBarExtension, inbox, profile, userBarExtension.active])
   const onUserBarOpenUpdate = useCallback(() => {
     if (userBarExtension.active === "inbox") inbox.onOpenChange(false)
     if (userBarExtension.active === "profile") profile.closeProfile()
@@ -204,7 +207,7 @@ export function ShellFrame(props: ShellFrameProps) {
       type: "extension.close",
       extension: userBarExtension.active,
     })
-  }, [daemonUpdate, inbox, profile, userBarExtension.active])
+  }, [daemonUpdate, dispatchUserBarExtension, inbox, profile, userBarExtension.active])
   const dismissNativeBackShellOverlay = useCallback(() => {
     if (userBarExtension.active === "none") return false
     dismissUserBarExtension()
@@ -224,13 +227,13 @@ export function ShellFrame(props: ShellFrameProps) {
     if (userBarExtension.active === "inbox" && !inbox.open) {
       dispatchUserBarExtension({ type: "extension.close", extension: "inbox" })
     }
-  }, [inbox.open, userBarExtension.active])
+  }, [dispatchUserBarExtension, inbox.open, userBarExtension.active])
 
   useEffect(() => {
     if (userBarExtension.active !== "profile") return
     if (profile.profile?.data.userId === currentUser.id) return
     dispatchUserBarExtension({ type: "extension.close", extension: "profile" })
-  }, [currentUser.id, profile.profile, userBarExtension.active])
+  }, [currentUser.id, dispatchUserBarExtension, profile.profile, userBarExtension.active])
 
   useEffect(() => {
     if (
@@ -244,7 +247,7 @@ export function ShellFrame(props: ShellFrameProps) {
   }, [breakpoint, onboardingState, replacePath, route.parentPath, route.surface])
 
   useEffect(() => {
-    useCommunityStore.getState().registerUiHandlers({
+    getCommunityRuntime(queryClient).ui.actions.registerUiHandlers({
       previewImage: profile.previewImage,
       previewAttachment: profile.previewAttachment,
       openProfile: profile.openProfile,
@@ -254,16 +257,7 @@ export function ShellFrame(props: ShellFrameProps) {
       navigate: rail.navigate,
       cancelPendingNavigation: navigation.cancelPendingNavigation,
     })
-  }, [
-    goBackMobile,
-    profile.openProfile,
-    profile.previewAttachment,
-    profile.previewImage,
-    rail.navigate,
-    navigation.cancelPendingNavigation,
-    navigation.push,
-    navigation.replace,
-  ])
+  }, [goBackMobile, profile.openProfile, profile.previewAttachment, profile.previewImage, rail.navigate, navigation.cancelPendingNavigation, navigation.push, navigation.replace, queryClient])
 
   return (
     <ShellFrameView

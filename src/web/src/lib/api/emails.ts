@@ -1,38 +1,45 @@
 import type { Email } from "@alook/shared";
 import { ApiError } from "@/lib/errors";
-import { apiFetch, wsQuery } from "./client";
+import { apiFetch, apiFetchResponse, wsQuery, type ApiRequestOptions } from "./client";
 
-export const listEmails = (agentId: string, workspaceId: string, folder?: string, address?: string) =>
-  apiFetch<Email[]>(`/api/email${wsQuery(workspaceId, { agentId, ...(folder ? { folder } : {}), ...(address ? { address } : {}) })}`);
+export const listEmails = (agentId: string, workspaceId: string, folder?: string, address?: string, options?: ApiRequestOptions) =>
+  apiFetch<Email[]>(`/api/email${wsQuery(workspaceId, { agentId, ...(folder ? { folder } : {}), ...(address ? { address } : {}) })}`, options);
 
-export const getEmail = (id: string, workspaceId: string) =>
-  apiFetch<Email>(`/api/email/${id}${wsQuery(workspaceId)}`);
+export const getEmail = (id: string, workspaceId: string, options?: ApiRequestOptions) =>
+  apiFetch<Email>(`/api/email/${id}${wsQuery(workspaceId)}`, options);
 
-export const getEmailThread = (id: string, workspaceId: string) =>
-  apiFetch<Email[]>(`/api/email/${id}/thread${wsQuery(workspaceId)}`);
+export const getEmailThread = (id: string, workspaceId: string, options?: ApiRequestOptions) =>
+  apiFetch<Email[]>(`/api/email/${id}/thread${wsQuery(workspaceId)}`, options);
 
-export const getEmailBody = async (id: string, workspaceId: string): Promise<{ content: string; isHtml: boolean }> => {
-  const params = new URLSearchParams({ workspace_id: workspaceId });
-  const res = await fetch(`/api/email/${id}/body?${params}`, { credentials: "include" });
-  if (!res.ok) return { content: "(body not available)", isHtml: false };
+export const getEmailBody = async (id: string, workspaceId: string, options?: ApiRequestOptions): Promise<{ content: string; isHtml: boolean }> => {
+  let res: Response;
+  try { res = await apiFetchResponse(`/api/email/${id}/body${wsQuery(workspaceId)}`, options); }
+  catch (error) {
+    options?.assertActive?.();
+    if (error instanceof ApiError && error.status !== 401) return { content: "(body not available)", isHtml: false };
+    throw error;
+  }
   const contentType = res.headers.get("Content-Type") ?? "";
   const content = await res.text();
+  options?.assertActive?.();
+  if (options?.signal?.aborted) throw new DOMException("Cancelled request", "AbortError");
   return { content, isHtml: contentType.includes("text/html") };
 };
 
-export const deleteEmail = (id: string, workspaceId: string) =>
-  apiFetch<void>(`/api/email/${id}${wsQuery(workspaceId)}`, { method: "DELETE" });
+export const deleteEmail = (id: string, workspaceId: string, options?: ApiRequestOptions) =>
+  apiFetch<void>(`/api/email/${id}${wsQuery(workspaceId)}`, { ...options, method: "DELETE" });
 
-export const updateEmailStatus = (id: string, workspaceId: string, status: string) =>
+export const updateEmailStatus = (id: string, workspaceId: string, status: string, options?: ApiRequestOptions) =>
   apiFetch<Email>(`/api/email/${id}${wsQuery(workspaceId)}`, {
+    ...options,
     method: "PATCH",
     body: JSON.stringify({ status }),
   });
 
-export const trustEmail = (id: string, workspaceId: string) =>
+export const trustEmail = (id: string, workspaceId: string, options?: ApiRequestOptions) =>
   apiFetch<{ ok: boolean; email: Email; conversationId: string }>(
     `/api/email/${id}/trust${wsQuery(workspaceId)}`,
-    { method: "POST" }
+    { ...options, method: "POST" }
   );
 
 export const uploadEmailAttachment = async (
@@ -62,8 +69,10 @@ export const sendEmail = (
   attachments?: { key: string; filename: string; size: number; contentType: string }[],
   threading?: { inReplyTo?: string; references?: string },
   customAccountId?: string,
+  options?: ApiRequestOptions,
 ) =>
   apiFetch<Email>(`/api/email/send${wsQuery(workspaceId)}`, {
+    ...options,
     method: "POST",
     body: JSON.stringify({ agentId, to, subject, htmlBody, attachments, ...threading, customAccountId }),
   });

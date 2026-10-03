@@ -1,7 +1,7 @@
 "use client";
 
 import { FileDownloadButton } from "@/components/file-download-button"
-import React, { useState, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useSheetResize, SheetResizeHandle } from "@/components/ui/sheet-resize-handle";
 import {
   Sheet,
@@ -15,7 +15,10 @@ import { X, Mail, Loader2, Paperclip, File as FileIcon } from "lucide-react";
 import { toast } from "sonner";
 import { getEmail, getEmailBody } from "@/lib/api";
 import { EmailBodyFrame } from "@/components/email-body-frame";
-import type { Email } from "@alook/shared";
+import { useQuery } from "@tanstack/react-query";
+import { useWorkspaceOwner } from "@/contexts/workspace-context";
+import { useWorkspaceViewSource } from "@/hooks/workspace/use-workspace-view-source";
+import { isAbortError } from "@/lib/errors";
 
 interface EmailEventSheetProps {
   open: boolean;
@@ -29,9 +32,19 @@ const MAX_WIDTH_RATIO = 0.8;
 const DEFAULT_WIDTH = 500;
 
 export function EmailEventSheet({ open, onOpenChange, emailId, workspaceId }: EmailEventSheetProps) {
-  const [email, setEmail] = useState<Email | null>(null);
-  const [body, setBody] = useState<{ content: string; isHtml: boolean } | null>(null);
-  const [loading, setLoading] = useState(false);
+  const owner = useWorkspaceOwner();
+  const source = useWorkspaceViewSource(owner, emailId ?? "__none__", open && !!emailId && workspaceId === owner.workspaceId);
+  const emailQuery = useQuery({ queryKey: owner.key("emails", "detail", source.active ? emailId! : "__none__"), enabled: source.active,
+    meta: { workspaceView: source.view },
+    queryFn: ({ signal }) => getEmail(emailId!, owner.workspaceId, source.request(signal)),
+  });
+  const bodyQuery = useQuery({ queryKey: owner.key("emails", "body", source.active ? emailId! : "__none__"), enabled: source.active,
+    meta: { workspaceView: source.view },
+    queryFn: ({ signal }) => getEmailBody(emailId!, owner.workspaceId, source.request(signal)),
+  });
+  const email = emailQuery.data;
+  const body = bodyQuery.data;
+  const loading = source.active && (emailQuery.isPending || bodyQuery.isPending);
   const { width, onPointerDown, onPointerMove, onPointerUp } = useSheetResize({
     defaultWidth: DEFAULT_WIDTH,
     minWidth: MIN_WIDTH,
@@ -41,35 +54,13 @@ export function EmailEventSheet({ open, onOpenChange, emailId, workspaceId }: Em
   useEffect(() => { onOpenChangeRef.current = onOpenChange; });
 
   useEffect(() => {
-    if (!open || !emailId) return;
-    setLoading(true);
-    setEmail(null);
-    setBody(null);
-
-    Promise.all([
-      getEmail(emailId, workspaceId),
-      getEmailBody(emailId, workspaceId),
-    ])
-      .then(([emailData, bodyData]) => {
-        setEmail(emailData);
-        setBody(bodyData);
-      })
-      .catch(() => {
-        toast.error("Email not found");
-        onOpenChangeRef.current(false);
-      })
-      .finally(() => setLoading(false));
-  }, [open, emailId, workspaceId]);
-
-  const handleOpenChange = (v: boolean) => {
-    onOpenChange(v);
-    if (!v) {
-      setTimeout(() => {
-        setEmail(null);
-        setBody(null);
-      }, 300);
-    }
-  };
+    const error = emailQuery.error ?? bodyQuery.error;
+    if (!error || emailQuery.isFetching || bodyQuery.isFetching || isAbortError(error)) return;
+    try { source.assertActive(); } catch { return; }
+    toast.error("Email not found");
+    onOpenChangeRef.current(false);
+  }, [emailQuery.error, bodyQuery.error, emailQuery.isFetching, bodyQuery.isFetching, source.assertActive, source]);
+  const handleOpenChange = onOpenChange;
 
 
   return (

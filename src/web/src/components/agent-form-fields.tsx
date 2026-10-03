@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,22 +28,13 @@ import { isValidHandle, isPublic, isPrivate } from "@alook/shared";
 import type { AgentRuntime as Runtime } from "@alook/shared";
 import { cn } from "@/lib/utils";
 import { InfoIcon, XIcon, Dices, ChevronDown } from "lucide-react";
-import { useWorkspace } from "@/contexts/workspace-context";
-import {
-  listWhitelist,
-  addWhitelistEmail,
-  removeWhitelistEmail,
-  listAgentAccess,
-  grantAgentAccess,
-  revokeAgentAccess,
-  listMembers,
-  listAgents,
-  updateAgent as updateAgentApi,
-  type WhitelistEntry,
-  type AgentAccessEntry,
-  type MemberEntry,
-} from "@/lib/api";
-import { ApiError } from "@/lib/errors";
+import { useWorkspaceOwner, captureWorkspaceOwner } from "@/contexts/workspace-context";
+import { useAgentContext } from "@/contexts/agent-context";
+import { useWorkspaceViewSource } from "@/hooks/workspace/use-workspace-view-source";
+import { agentWhitelistOptions, agentAccessOptions, workspaceMembersOptions } from "@/hooks/workspace/settings-query-options";
+import { useAgentPermissionCommand, usePendingAgentPermissions } from "@/hooks/workspace/use-agent-permission-command";
+import { type AgentAccessEntry } from "@/lib/api";
+import { isAbortError } from "@/lib/errors";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea";
@@ -270,7 +262,7 @@ export function GeneralFields({
 // --- Advanced Section (collapsible) ---
 
 function AdvancedSection({ children }: { children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useAtom(useCreateAtom(false));
   return (
     <div className="pt-1">
       <button
@@ -338,82 +330,46 @@ export function getHandleError(effectiveHandle: string): string {
 // --- Allowed Senders (inline tab content) ---
 
 export function AllowedSendersTab({ agentId }: { agentId: string }) {
-  const { workspaceId } = useWorkspace();
-  const [whitelist, setWhitelist] = useState<WhitelistEntry[]>([]);
-  const [newEmail, setNewEmail] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [adding, setAdding] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [hasSiblingAgents, setHasSiblingAgents] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    listWhitelist(agentId, workspaceId)
-      .then((entries) => {
-        if (!cancelled) setWhitelist(entries);
-      })
-      .catch(() => {
-        if (!cancelled) setError("Failed to load whitelist");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [agentId, workspaceId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    listAgents(workspaceId)
-      .then((agents) => {
-        if (!cancelled) {
-          const siblings = agents.filter(
-            (a) => a.id !== agentId && a.email_handle
-          );
-          setHasSiblingAgents(siblings.length > 0);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [agentId, workspaceId]);
-
+  const owner = useWorkspaceOwner();
+  const { agents } = useAgentContext();
+  const source = useWorkspaceViewSource(owner, `whitelist:${agentId}`, true);
+  const query = useQuery(agentWhitelistOptions(owner, agentId));
+  const command = useAgentPermissionCommand(owner, agentId);
+  const pending = usePendingAgentPermissions(owner, agentId);
+  const removed = new Set(pending.flatMap((action) => action.kind === "whitelist-remove" ? [action.id] : []));
+  const whitelist = (query.data ?? []).filter((entry) => !removed.has(entry.id));
+  const [newEmail, setNewEmail] = useAtom(useCreateAtom(""));
+  const [actionError, setActionError] = useAtom(useCreateAtom<string | null>(null));
+  const loading = query.isPending;
+  const adding = pending.some((action) => action.kind === "whitelist-add");
+  const error = actionError ?? query.error?.message ?? null;
+  const hasSiblingAgents = agents.some((agent) => agent.id !== agentId && !!agent.email_handle);
   const isValidEmail = newEmail.includes("@") && newEmail.trim().length > 0;
-
   const handleAdd = async () => {
     if (!isValidEmail || adding) return;
-    setAdding(true);
-    setError(null);
+    const assertView = source.assertActive;
+    setActionError(null);
     try {
-      const entry = await addWhitelistEmail(
-        agentId,
-        newEmail.toLowerCase(),
-        workspaceId
-      );
-      setWhitelist((prev) => [...prev, entry]);
+      await command.mutateAsync({ action: { kind: "whitelist-add", email: newEmail.toLowerCase() }, token: captureWorkspaceOwner(owner), assertActive: Object.assign(() => assertView(), { signal: source.signal }) });
+      assertView();
       setNewEmail("");
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to add email";
-      setError(msg);
-    } finally {
-      setAdding(false);
+    } catch (error) {
+      try { assertView(); } catch { return; }
+      if (!isAbortError(error)) setActionError(error instanceof Error ? error.message : "Failed to add email");
+    }
+  };
+  const handleRemove = async (id: string) => {
+    const assertView = source.assertActive;
+    setActionError(null);
+    try {
+      await command.mutateAsync({ action: { kind: "whitelist-remove", id }, token: captureWorkspaceOwner(owner), assertActive: Object.assign(() => assertView(), { signal: source.signal }) });
+      assertView();
+    } catch (error) {
+      try { assertView(); } catch { return; }
+      if (!isAbortError(error)) setActionError("Failed to remove email");
     }
   };
 
-  const handleRemove = async (entryId: string) => {
-    const prev = whitelist;
-    setWhitelist((wl) => wl.filter((w) => w.id !== entryId));
-    setError(null);
-    try {
-      await removeWhitelistEmail(agentId, entryId, workspaceId);
-    } catch {
-      setWhitelist(prev);
-      setError("Failed to remove email");
-    }
-  };
 
   return (
     <div className="mx-auto max-w-md space-y-4">
@@ -499,146 +455,73 @@ export function AgentAccessTab({
   agentId: string;
   ownerId: string | null;
 }) {
-  const { workspaceId } = useWorkspace();
-  const [visibility, setVisibility] = useState<string>("private");
-  const [savingVisibility, setSavingVisibility] = useState(false);
-  const [accessList, setAccessList] = useState<AgentAccessEntry[]>([]);
-  const [members, setMembers] = useState<MemberEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedUserId, setSelectedUserId] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [revokeTarget, setRevokeTarget] = useState<AgentAccessEntry | null>(
-    null
-  );
-  const [removeWhitelist, setRemoveWhitelist] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    Promise.all([
-      listAgentAccess(workspaceId, agentId),
-      listMembers(workspaceId),
-    ])
-      .then(([access, memberList]) => {
-        if (!cancelled) {
-          setAccessList(access);
-          setMembers(memberList);
-        }
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        if (e instanceof ApiError && e.status === 403) {
-          setError(e.message);
-        } else {
-          setError("Failed to load access list");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [workspaceId, agentId]);
-
-  useEffect(() => {
-    import("@/lib/api").then(({ listAgents }) => {
-      listAgents(workspaceId)
-        .then((agents) => {
-          const ag = agents.find((a: { id: string }) => a.id === agentId);
-          if (ag) setVisibility(ag.visibility ?? "private");
-        })
-        .catch(() => {});
-    });
-  }, [workspaceId, agentId]);
-
-  const handleVisibilityChange = async (newVisibility: string) => {
-    const prev = visibility;
-    setVisibility(newVisibility);
-    setSavingVisibility(true);
+  const owner = useWorkspaceOwner();
+  const { agents } = useAgentContext();
+  const source = useWorkspaceViewSource(owner, `agent-access:${agentId}`, true);
+  const access = useQuery(agentAccessOptions(owner, agentId));
+  const memberQuery = useQuery(workspaceMembersOptions(owner));
+  const command = useAgentPermissionCommand(owner, agentId);
+  const pending = usePendingAgentPermissions(owner, agentId);
+  const [actionError, setActionError] = useAtom(useCreateAtom<string | null>(null));
+  const [selectedUserId, setSelectedUserId] = useAtom(useCreateAtom(""));
+  const [revokeUserId, setRevokeUserId] = useAtom(useCreateAtom<string | null>(null));
+  const [removeWhitelist, setRemoveWhitelist] = useAtom(useCreateAtom(true));
+  const members = memberQuery.data ?? [];
+  const removed = new Set(pending.flatMap((action) => action.kind === "revoke" ? [action.userId] : []));
+  const accessList = (access.data ?? []).filter((entry) => !removed.has(entry.user_id));
+  const revokeTarget = access.data?.find((entry) => entry.user_id === revokeUserId) ?? null;
+  const setRevokeTarget = (entry: AgentAccessEntry | null) => setRevokeUserId(entry?.user_id ?? null);
+  const visibilityIntent = pending.findLast((action) => action.kind === "visibility");
+  const visibility = visibilityIntent?.kind === "visibility" ? visibilityIntent.value : agents.find((agent) => agent.id === agentId)?.visibility ?? "private";
+  const savingVisibility = pending.some((action) => action.kind === "visibility");
+  const adding = pending.some((action) => action.kind === "grant");
+  const loading = access.isPending || memberQuery.isPending;
+  const error = actionError ?? access.error?.message ?? memberQuery.error?.message ?? null;
+  const ownerMember = members.find((member) => member.user_id === ownerId);
+  const authorizedUserIds = new Set(accessList.map((entry) => entry.user_id));
+  for (const action of pending) if (action.kind === "grant") authorizedUserIds.add(action.userId);
+  const availableMembers = members.filter((member) => !authorizedUserIds.has(member.user_id) && member.user_id !== ownerId);
+  const handleVisibilityChange = async (value: string) => {
+    const assertView = source.assertActive;
     try {
-      await updateAgentApi(agentId, { visibility: newVisibility }, workspaceId);
-      toast.success(
-        isPublic(newVisibility)
-          ? "Agent is now public"
-          : "Agent is now private"
-      );
-    } catch {
-      setVisibility(prev);
-      toast.error("Failed to update visibility");
-    } finally {
-      setSavingVisibility(false);
+      await command.mutateAsync({ action: { kind: "visibility", value }, token: captureWorkspaceOwner(owner), assertActive: Object.assign(() => assertView(), { signal: source.signal }) });
+      assertView();
+      toast.success(isPublic(value) ? "Agent is now public" : "Agent is now private");
+    } catch (error) {
+      try { assertView(); } catch { return; }
+      if (!isAbortError(error)) toast.error("Failed to update visibility");
     }
   };
-
-  const ownerMember = members.find((m) => m.user_id === ownerId);
-  const authorizedUserIds = new Set(accessList.map((e) => e.user_id));
-  const availableMembers = members.filter(
-    (m) => !authorizedUserIds.has(m.user_id) && m.user_id !== ownerId
-  );
-
   const handleGrant = async (userId: string) => {
     if (!userId || adding) return;
-    setAdding(true);
-    setError(null);
+    const assertView = source.assertActive;
+    setActionError(null);
     try {
-      await grantAgentAccess(workspaceId, agentId, userId);
-      const member = members.find((m) => m.user_id === userId);
-      if (member) {
-        setAccessList((prev) => [
-          ...prev,
-          {
-            id: userId,
-            user_id: member.user_id,
-            name: member.name,
-            email: member.email,
-            created_at: new Date().toISOString(),
-          },
-        ]);
-      }
+      await command.mutateAsync({ action: { kind: "grant", userId }, token: captureWorkspaceOwner(owner), assertActive: Object.assign(() => assertView(), { signal: source.signal }) });
+      assertView();
       setSelectedUserId("");
       toast.success("Access granted");
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to grant access");
-    } finally {
-      setAdding(false);
+    } catch (error) {
+      try { assertView(); } catch { return; }
+      if (!isAbortError(error)) setActionError(error instanceof Error ? error.message : "Failed to grant access");
     }
   };
-
-  const handleRevoke = (userId: string) => {
-    const entry = accessList.find((e) => e.user_id === userId);
-    if (entry) {
-      setRevokeTarget(entry);
-      setRemoveWhitelist(true);
-    }
-  };
-
+  const handleRevoke = (userId: string) => { setRevokeUserId(userId); setRemoveWhitelist(true); };
   const confirmRevoke = async () => {
     if (!revokeTarget) return;
-    const prev = accessList;
-    setAccessList((list) =>
-      list.filter((e) => e.user_id !== revokeTarget.user_id)
-    );
-    setRevokeTarget(null);
-    setError(null);
+    const userId = revokeTarget.user_id, remove = removeWhitelist, assertView = source.assertActive;
+    setRevokeUserId(null);
+    setActionError(null);
     try {
-      await revokeAgentAccess(
-        workspaceId,
-        agentId,
-        revokeTarget.user_id,
-        removeWhitelist
-      );
-      toast.success(
-        removeWhitelist
-          ? "Access revoked and removed from whitelist"
-          : "Access revoked"
-      );
-    } catch {
-      setAccessList(prev);
-      setError("Failed to revoke access");
+      await command.mutateAsync({ action: { kind: "revoke", userId, removeWhitelist: remove }, token: captureWorkspaceOwner(owner), assertActive: Object.assign(() => assertView(), { signal: source.signal }) });
+      assertView();
+      toast.success(remove ? "Access revoked and removed from whitelist" : "Access revoked");
+    } catch (error) {
+      try { assertView(); } catch { return; }
+      if (!isAbortError(error)) setActionError("Failed to revoke access");
     }
   };
+
 
   return (
     <div className="mx-auto max-w-md space-y-6">

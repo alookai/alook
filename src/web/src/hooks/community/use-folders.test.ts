@@ -1,17 +1,26 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
-import { QueryClient } from "@tanstack/react-query"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { QueryClient, type QueryFunctionContext } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
-import { useCommunityWsStore } from "@/stores/community/ws"
+import { createCommunityDbRegistry, registerCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
 }))
 
-beforeEach(() => {
+let qc: QueryClient, registry: CommunityDbRegistry, unregister: () => void
+beforeEach(async () => {
   apiFetchMock.mockReset()
-  useCommunityWsStore.getState().reset()
+  qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  registry = createCommunityDbRegistry(qc, "viewer")
+  unregister = registerCommunityDbRegistry(registry)
+  await registry.preload()
 })
+afterEach(async () => { unregister(); await registry.cleanup(); qc.clear() })
+
+function context(): QueryFunctionContext {
+  return { client: qc, queryKey: communityKeys.folders(), signal: new AbortController().signal, meta: undefined }
+}
 
 describe("useFolders / foldersQueryFn", () => {
   it("materialises folder rows with avatar initials", async () => {
@@ -26,8 +35,8 @@ describe("useFolders / foldersQueryFn", () => {
       ],
     })
     const { foldersQueryFn } = await import("./use-folders")
-    const data = await foldersQueryFn()
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/me/server-folders")
+    const data = await foldersQueryFn(context())
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/me/server-folders", expect.objectContaining({ authenticationAccount: "viewer", signal: expect.any(AbortSignal) }))
     expect(data.folders[0].servers[0].initial).toBe("A")
     expect(data.folders[0].position).toBe(2)
   })
@@ -35,26 +44,34 @@ describe("useFolders / foldersQueryFn", () => {
   it("populates queryClient at communityKeys.folders()", async () => {
     apiFetchMock.mockResolvedValueOnce({ folders: [] })
     const { foldersProjectedQueryFn } = await import("./use-folders")
-    const qc = new QueryClient()
     const key = communityKeys.folders()
     await qc.fetchQuery({ queryKey: key, queryFn: foldersProjectedQueryFn(qc) })
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/community/users/me/server-folders",
-      { signal: expect.any(AbortSignal) },
+      expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
-    expect(qc.getQueryData(key)).toEqual({ folders: [] })
+    expect(qc.getQueryData(key)).toEqual([])
   })
 
   it("rejects a folder response captured before the access epoch changes", async () => {
-    useCommunityWsStore.getState().activateProfileAccount("viewer_1")
+
     let release!: (value: { folders: [] }) => void
     apiFetchMock.mockReturnValueOnce(new Promise((resolve) => { release = resolve }))
-    const { foldersQueryFn } = await import("./use-folders")
+    const { foldersProjectedQueryFn } = await import("./use-folders")
 
-    const pending = foldersQueryFn()
-    useCommunityWsStore.getState().revokeServerAccess("server_1")
+    const pending = qc.fetchQuery({ queryKey: communityKeys.folders(), queryFn: foldersProjectedQueryFn(qc) }).catch((error: unknown) => error)
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+    registry.runtime.ws.actions.revokeServerAccess("server_1")
     release({ folders: [] })
 
-    await expect(pending).rejects.toMatchObject({ name: "AbortError" })
+    expect(await pending).toMatchObject({ name: "AbortError" })
+  })
+
+  it("does not issue a folder request without the native account owner", async () => {
+    const { foldersQueryFn } = await import("./use-folders")
+    const bare = new QueryClient()
+    await expect(foldersQueryFn({ ...context(), client: bare })).rejects.toMatchObject({ name: "AbortError" })
+    expect(apiFetchMock).not.toHaveBeenCalled()
+    bare.clear()
   })
 })

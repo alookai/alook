@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useCallback } from "react"
 import Cropper, { type Area } from "react-easy-crop"
 import { toast } from "sonner"
 import { getErrorMessage } from "@/lib/api/client"
@@ -35,14 +36,14 @@ export function ImageCropDialog({
   onCancel: () => void
   onCropped: (file: File) => void
 }) {
-  const [crop, setCrop] = useState({ x: 0, y: 0 })
-  const [zoom, setZoom] = useState(1)
-  const [cropPixels, setCropPixels] = useState<Area | null>(null)
-  const [saving, setSaving] = useState(false)
+  const [crop, setCrop] = useAtom(useCreateAtom({ x: 0, y: 0 }))
+  const [zoom, setZoom] = useAtom(useCreateAtom(1))
+  const [cropPixels, setCropPixels] = useAtom(useCreateAtom<Area | null>(null))
+  const [saving, setSaving] = useAtom(useCreateAtom(false))
 
   const onCropComplete = useCallback((_area: Area, areaPixels: Area) => {
     setCropPixels(areaPixels)
-  }, [])
+  }, [setCropPixels])
 
   const save = async () => {
     if (!cropPixels) return

@@ -1,12 +1,14 @@
 import { createElement, type ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, render } from "@/test/react-dom-harness"
+import { act } from "@/test/react-dom-harness"
+import { renderCommunity as render } from "@/test/community-owner-harness"
 import { ServerRail, ServerRailPending, ServerRailSkeleton } from "./server-rail"
 import { tid } from "@/lib/community/testids"
 import type { RailInstruction } from "@/lib/community/server-rail-model"
 
 const mocks = vi.hoisted(() => ({
   mutate: vi.fn(),
+  pending: false,
   announce: vi.fn(),
   capturePddOptions: vi.fn(),
   querySelector: vi.fn(),
@@ -19,7 +21,7 @@ vi.mock("@atlaskit/pragmatic-drag-and-drop-live-region", () => ({
   cleanup: vi.fn(),
 }))
 vi.mock("@/hooks/community/mutations", () => ({
-  useServerRailCommit: () => ({ mutate: mocks.mutate, isPending: false }),
+  useServerRailCommit: () => ({ mutate: mocks.mutate, isPending: mocks.pending, isCommandPending: () => mocks.pending }),
 }))
 vi.mock("./use-server-rail-pdd", () => ({
   useServerRailPdd: (options: unknown) => {
@@ -150,6 +152,15 @@ async function expectReconciledFocus(testId: string, focus: ReturnType<typeof vi
 describe("ServerRail one-in-flight structural guard", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.pending = false
+    mocks.mutate.mockImplementation((_args, callbacks: MutationCallbacks) => {
+      mocks.pending = true
+      const settled = callbacks.onSettled
+      callbacks.onSettled = (...values) => {
+        mocks.pending = false
+        settled(...values)
+      }
+    })
     animationFrames.length = 0
     vi.stubGlobal("sessionStorage", { getItem: vi.fn(() => null), setItem: vi.fn() })
     vi.spyOn(document, "querySelector").mockImplementation((selector) => (
@@ -485,6 +496,10 @@ describe("ServerRail one-in-flight structural guard", () => {
     const { args, callbacks } = latestMutation()
     const clientId = args.commands.find((command) => command.kind === "create-folder")?.clientId
     expect(clientId).toBeDefined()
+    renderer.rerender(railElement([
+      ...folders,
+      { id: clientId!, name: "Group", position: 1, servers: [servers[0], servers[2]] },
+    ]))
     expect(latestFolderProps(clientId).open).toBe(true)
 
     await act(async () => (latestFolderProps(clientId).onToggle as () => void)())

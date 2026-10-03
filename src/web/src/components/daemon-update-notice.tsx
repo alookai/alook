@@ -8,14 +8,14 @@ import {
   parseReleaseVersion,
   releaseVersionGte,
 } from "@alook/shared"
-import { machinesQueryFn, type MachineSummary } from "@/hooks/community/use-machines"
+import type { MachinesResponse, MachineSummary } from "@/hooks/community/use-machines"
 import { messageNotification } from "@/components/ui/toast"
-import { apiFetch } from "@/lib/api/client"
+import { applicationKey, assertApplicationOwner, captureApplicationOwner, runApplicationRequest, useApplicationOwner } from "@/lib/application-owner"
+import { apiFetch, type ApiRequestOptions } from "@/lib/api/client"
 import { tid } from "@/lib/community/testids"
 import { log } from "@/lib/logger"
 
 const STORAGE_KEY_PREFIX = "alook:daemon-update-check"
-const pendingMachineChecks = new Map<string, ReturnType<typeof machinesQueryFn>>()
 
 export function daemonUpdateStorageKey(userId: string): string {
   return `${STORAGE_KEY_PREFIX}:${userId}`
@@ -38,9 +38,9 @@ export function eligibleDaemonUpdateMachines<T extends Pick<MachineSummary, "id"
 
 type MachineUpdateRequester = (machineId: string) => Promise<unknown>
 
-export async function requestMachineUpdate(machineId: string): Promise<void> {
+export async function requestMachineUpdate(machineId: string, options?: ApiRequestOptions): Promise<void> {
   await apiFetch<{ dispatched: true }>(`/api/community/machines/${machineId}/update`, {
-    method: "POST",
+    ...options, method: "POST",
   })
 }
 
@@ -74,28 +74,14 @@ function writeCheckedWebVersion(userId: string, webVersion: string): void {
   } catch {}
 }
 
-type MachinesLoader = typeof machinesQueryFn
-
-function fetchMachinesOnce(
-  checkKey: string,
-  loadMachines: MachinesLoader,
-): ReturnType<typeof machinesQueryFn> {
-  const pending = pendingMachineChecks.get(checkKey)
-  if (pending) return pending
-
-  const request = loadMachines().finally(() => {
-    if (pendingMachineChecks.get(checkKey) === request) pendingMachineChecks.delete(checkKey)
-  })
-  pendingMachineChecks.set(checkKey, request)
-  return request
-}
+type MachinesLoader = () => Promise<MachinesResponse>
 
 export function DaemonUpdateNotice({
   userId,
   webVersion = process.env.NEXT_PUBLIC_APP_VERSION,
   latestDaemonVersion = process.env.NEXT_PUBLIC_LATEST_DAEMON_VERSION,
-  loadMachines = machinesQueryFn,
-  requestUpdate = requestMachineUpdate,
+  loadMachines,
+  requestUpdate,
 }: {
   userId: string
   webVersion?: string
@@ -103,6 +89,7 @@ export function DaemonUpdateNotice({
   loadMachines?: MachinesLoader
   requestUpdate?: MachineUpdateRequester
 }) {
+  const owner = useApplicationOwner()
   const startedCheck = useRef<string | null>(null)
 
   useEffect(() => {
@@ -113,10 +100,17 @@ export function DaemonUpdateNotice({
     startedCheck.current = checkKey
     if (readCheckedWebVersion(userId) === webVersion) return
 
+    const token = captureApplicationOwner(owner)
+    const assertActive = () => assertApplicationOwner(token)
     let active = true
-    void fetchMachinesOnce(checkKey, loadMachines)
+    void owner.queryClient.fetchQuery({
+      queryKey: applicationKey(owner, "daemon-update-check", webVersion, latestDaemonVersion),
+      staleTime: Infinity,
+      queryFn: ({ signal }) => runApplicationRequest(owner, (options) => loadMachines ? loadMachines() : apiFetch<MachinesResponse>("/api/community/machines", options), signal),
+    })
       .then(({ machines }) => {
         if (!active) return
+        assertActive()
         const eligible = eligibleDaemonUpdateMachines(machines, latestDaemonVersion)
         if (eligible.length === 0) {
           writeCheckedWebVersion(userId, webVersion)
@@ -141,14 +135,18 @@ export function DaemonUpdateNotice({
             children: "Update",
             "data-testid": tid.daemonUpdateAction,
             onClick: () => {
+              try { assertActive() } catch { return }
               if (dispatched) return
               dispatched = true
               writeCheckedWebVersion(userId, webVersion)
               messageNotification.close(notificationId)
-              void dispatchDaemonUpdates(eligible, requestUpdate)
+              void dispatchDaemonUpdates(eligible, (machineId) => {
+                assertActive()
+                return runApplicationRequest(owner, (options) => requestUpdate ? requestUpdate(machineId) : requestMachineUpdate(machineId, options))
+              })
             },
           } as ComponentPropsWithoutRef<"button">,
-          onClose: () => writeCheckedWebVersion(userId, webVersion),
+          onClose: () => { try { assertActive(); writeCheckedWebVersion(userId, webVersion) } catch {} },
         })
       })
       .catch(() => {})
@@ -157,7 +155,7 @@ export function DaemonUpdateNotice({
       active = false
       if (startedCheck.current === checkKey) startedCheck.current = null
     }
-  }, [latestDaemonVersion, loadMachines, requestUpdate, userId, webVersion])
+  }, [latestDaemonVersion, loadMachines, owner, requestUpdate, userId, webVersion])
 
   return null
 }

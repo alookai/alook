@@ -3,6 +3,7 @@ import { renderToString } from "react-dom/server"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
 import { QueryClient } from "@tanstack/react-query"
+import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { communityKeys } from "@/lib/query-keys"
 import {
   beginConversationNavigationProof,
@@ -18,6 +19,13 @@ import {
   useConversationNavigationGate,
 } from "./conversation-navigation-proof"
 
+const owners: CommunityDbRegistry[] = []
+function createClient() {
+  const client = new QueryClient()
+  owners.push(createCommunityDbRegistry(client, "viewer"))
+  return client
+}
+
 const target = {
   href: "/c/channels/s1/c1",
   viewerId: "viewer",
@@ -28,12 +36,23 @@ const target = {
 }
 
 describe("conversation navigation proof", () => {
-  afterEach(() => {
-    vi.useRealTimers()
+  afterEach(async () => {
+    await act(async () => {
+      vi.useRealTimers()
+      for (const owner of owners.splice(0)) { await owner.cleanup(); owner.queryClient.clear() }
+    })
+  })
+
+  it("rejects a foreign viewer without superseding the original intent", () => {
+    const queryClient = createClient()
+    const original = beginConversationNavigationProof(queryClient, target, 1)
+    expect(() => beginConversationNavigationProof(queryClient, { ...target, viewerId: "foreign" }, 1)).toThrow("Conversation viewer does not match owner")
+    expect(original.signal.aborted).toBe(false)
+    expect(isCurrentConversationNavigation(queryClient, original.epoch, 1)).toBe(true)
   })
 
   it("aborts and fences A when B supersedes it", () => {
-    const queryClient = new QueryClient()
+    const queryClient = createClient()
     const a = beginConversationNavigationProof(queryClient, target, 3)
     const b = beginConversationNavigationProof(queryClient, {
       ...target,
@@ -59,7 +78,7 @@ describe("conversation navigation proof", () => {
   })
 
   it("accepts only a matching fresh canonical surface receipt", () => {
-    const queryClient = new QueryClient()
+    const queryClient = createClient()
     const proof = beginConversationNavigationProof(queryClient, target, 7)
 
     expect(recordConversationNavigationReceipt(
@@ -86,7 +105,7 @@ describe("conversation navigation proof", () => {
   })
 
   it("accepts forum authority, ignores duplicate receipts, and rejects wrong targets", () => {
-    const queryClient = new QueryClient()
+    const queryClient = createClient()
     const proof = beginConversationNavigationProof(queryClient, target, 2)
 
     expect(recordConversationNavigationReceipt(
@@ -112,7 +131,7 @@ describe("conversation navigation proof", () => {
   })
 
   it("supports DM supersession and exact active-proof cancellation", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createClient()
     const cancel = vi.spyOn(queryClient, "cancelQueries")
     const dmTarget = {
       ...target,
@@ -140,7 +159,7 @@ describe("conversation navigation proof", () => {
   })
 
   it("cancels the prior DM query when a new proof supersedes it", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createClient()
     const cancel = vi.spyOn(queryClient, "cancelQueries")
     const dmTarget = {
       ...target,
@@ -150,8 +169,8 @@ describe("conversation navigation proof", () => {
       scopeKind: "dm" as const,
       expectedSurfaceKind: "dm" as const,
     }
-    beginConversationNavigationProof(queryClient, dmTarget, 1)
-    beginConversationNavigationProof(queryClient, target, 1)
+    await act(async () => { beginConversationNavigationProof(queryClient, dmTarget, 1) })
+    await act(async () => { beginConversationNavigationProof(queryClient, target, 1) })
 
     await vi.waitFor(() => expect(cancel).toHaveBeenCalledWith({
       queryKey: communityKeys.dmMessages("d1"),
@@ -159,7 +178,7 @@ describe("conversation navigation proof", () => {
   })
 
   it("cannot reuse an Inbox proof after ordinary navigation supersedes it", () => {
-    const queryClient = new QueryClient()
+    const queryClient = createClient()
     const inboxA = beginConversationNavigationProof(queryClient, target, 4)
     expect(cancelActiveConversationNavigationProof(queryClient)).toBe(true)
     expect(recordConversationNavigationReceipt(
@@ -171,8 +190,8 @@ describe("conversation navigation proof", () => {
     expect(getConversationNavigationProof(queryClient)).toBeNull()
   })
 
-  it("registers and fences recovery by proof epoch", () => {
-    const queryClient = new QueryClient()
+  it("registers and fences recovery by proof epoch", async () => {
+    const queryClient = createClient()
     const first = beginConversationNavigationProof(queryClient, target, 3)
     const restart = vi.fn()
     expect(registerConversationNavigationRecovery(
@@ -183,8 +202,8 @@ describe("conversation navigation proof", () => {
     expect(registerConversationNavigationRecovery(queryClient, first.epoch, restart)).toBe(true)
     expect(recoverConversationNavigationProof(queryClient, first.epoch, 3)).toBe(false)
 
-    failConversationNavigationProof(queryClient, first.epoch + 1, 3, false)
-    failConversationNavigationProof(queryClient, first.epoch, 3, false)
+    await act(async () => { failConversationNavigationProof(queryClient, first.epoch + 1, 3, false) })
+    await act(async () => { failConversationNavigationProof(queryClient, first.epoch, 3, false) })
     expect(recoverConversationNavigationProof(queryClient, first.epoch, 3)).toBe(true)
     expect(restart).toHaveBeenCalledWith(3, 1)
 
@@ -195,12 +214,12 @@ describe("conversation navigation proof", () => {
     expect(restart).toHaveBeenLastCalledWith(5, 0)
   })
 
-  it("makes definitive denial terminal and clears recovery", () => {
-    const queryClient = new QueryClient()
+  it("makes definitive denial terminal and clears recovery", async () => {
+    const queryClient = createClient()
     const proof = beginConversationNavigationProof(queryClient, target, 6)
     const restart = vi.fn()
     registerConversationNavigationRecovery(queryClient, proof.epoch, restart)
-    failConversationNavigationProof(queryClient, proof.epoch, 6, true)
+    await act(async () => { failConversationNavigationProof(queryClient, proof.epoch, 6, true) })
 
     expect(proof.signal.aborted).toBe(true)
     expect(getConversationNavigationProof(queryClient)?.status).toBe("denied")
@@ -210,7 +229,7 @@ describe("conversation navigation proof", () => {
 
   it("recovers access drift immediately and transient failure after bounded backoff", async () => {
     vi.useFakeTimers()
-    const queryClient = new QueryClient()
+    const queryClient = createClient()
     const restart = vi.fn()
     const proof = beginConversationNavigationProof(queryClient, target, 7)
     registerConversationNavigationRecovery(queryClient, proof.epoch, restart)
@@ -225,9 +244,12 @@ describe("conversation navigation proof", () => {
     expect(latestGate).toEqual({ required: true, allowed: false })
     expect(restart).toHaveBeenCalledWith(8, 0)
 
-    const retry = beginConversationNavigationProof(queryClient, target, 8, 2)
-    registerConversationNavigationRecovery(queryClient, retry.epoch, restart)
-    failConversationNavigationProof(queryClient, retry.epoch, 8, false)
+    let retry!: ReturnType<typeof beginConversationNavigationProof>
+    await act(async () => {
+      retry = beginConversationNavigationProof(queryClient, target, 8, 2)
+      registerConversationNavigationRecovery(queryClient, retry.epoch, restart)
+    })
+    await act(async () => { failConversationNavigationProof(queryClient, retry.epoch, 8, false) })
     await act(async () => {
       renderer.rerender(createElement(Gate, { accessEpoch: 8 }))
     })
@@ -244,7 +266,7 @@ describe("conversation navigation proof", () => {
   })
 
   it("consumes successful proof after the first authorized paint", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = createClient()
     const proof = beginConversationNavigationProof(queryClient, target, 9)
     recordConversationNavigationReceipt(
       queryClient,
@@ -267,7 +289,7 @@ describe("conversation navigation proof", () => {
   })
 
   it("keeps the server snapshot proof-free", () => {
-    const queryClient = new QueryClient()
+    const queryClient = createClient()
 
     function Gate() {
       const gate = useConversationNavigationGate(queryClient, "viewer", "c1", 1)

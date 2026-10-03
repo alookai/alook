@@ -1,5 +1,8 @@
-import type { QueryClient } from "@tanstack/react-query"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { QueryClient, QueryObserver } from "@tanstack/react-query"
+import { communityKeys } from "@/lib/query-keys"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { getCommunityDbRegistry, createCommunityDbRegistry, registerCommunityDbRegistry } from "@/lib/community-db/collections"
+import { ingestServerDetail, ingestMessages, ingestAttentionSnapshot, captureCommunityLiveSnapshotToken, publishCommunityChannelFields } from "@/lib/community-db/sync"
 import {
   activateInboxProjectionTicket,
   armInboxReadReservationCandidate,
@@ -27,10 +30,44 @@ import {
 } from "./inbox-read-reservation"
 
 function client() {
-  return {
-    cancelQueries: vi.fn().mockResolvedValue(undefined),
-    refetchQueries: vi.fn().mockResolvedValue(undefined),
-  } as unknown as QueryClient
+  const value = createOwnedClient()
+  return Object.assign(value, { cancelQueries: vi.spyOn(value, "cancelQueries"), refetchQueries: vi.spyOn(value, "refetchQueries") })
+}
+
+const ownedClients = new Set<QueryClient>()
+function createOwnedClient() {
+  const client = new QueryClient()
+  registerCommunityDbRegistry(createCommunityDbRegistry(client, "user-1"))
+  ownedClients.add(client)
+  return client
+}
+afterEach(async () => {
+  for (const client of ownedClients) { await getCommunityDbRegistry(client)?.cleanup(); client.clear() }
+  ownedClients.clear()
+})
+
+async function seedProjection(queryClient: QueryClient, data: {
+  servers: Array<{ serverId?: string; channels: Array<{ channelId: string; lastMessageAt: string; children?: Array<{ channelId: string; lastMessageAt: string; openerMessageId?: string; openerSeq?: number; openerUnread?: boolean }> }> }>
+  dms: Array<{ channelId: string; lastMessageAt: string }>
+}) {
+  const registry = getCommunityDbRegistry(queryClient)!
+  await registry.preload()
+  const scopes: Array<{ scopeId: string; channelId: string; serverId: string; parentChannelId: string | null; ordinaryUnread: boolean; lastUnreadSeq: number; lastAttentionSeq: number | null; attentionCount: number }> = []
+  const items: Array<{ id: string; kind: "forum_post"; sourceId: string; scopeId: string; childChannelId: string; messageId: string; openerSeq: number; createdAt: string }> = []
+  for (const server of data.servers) {
+    const serverId = server.serverId ?? "server"
+    const channels = server.channels.flatMap((parent) => {
+      scopes.push({ scopeId: parent.channelId, channelId: parent.channelId, serverId, parentChannelId: null, ordinaryUnread: true, lastUnreadSeq: 7, lastAttentionSeq: null, attentionCount: 0 })
+      for (const child of parent.children ?? []) if (child.openerUnread && child.openerMessageId && child.openerSeq !== undefined) {
+        ingestMessages(registry, parent.channelId, [{ id: child.openerMessageId, type: "chat", seq: child.openerSeq, createdAt: child.lastMessageAt }])
+        items.push({ id: "forum:" + child.channelId, kind: "forum_post", sourceId: child.channelId, scopeId: parent.channelId, childChannelId: child.channelId, messageId: child.openerMessageId, openerSeq: child.openerSeq, createdAt: child.lastMessageAt })
+      }
+      return [{ id: parent.channelId, name: parent.channelId, type: parent.children?.length ? "forum" as const : "text" as const, active: false, unread: true, lastMessageAt: parent.lastMessageAt }, ...(parent.children ?? []).map((child) => ({ id: child.channelId, name: child.channelId, type: "thread" as const, active: false, unread: true, lastMessageAt: child.lastMessageAt, parentChannelId: parent.channelId, parentMessageId: child.openerMessageId }))]
+    })
+    ingestServerDetail(registry, { id: serverId, name: serverId, discriminator: "0001", description: "", icon: null, ownerId: "user-1", categories: [{ id: "category:" + serverId, name: "Category", channels }] })
+    for (const channel of channels) publishCommunityChannelFields(queryClient, channel.id, { lastMessageAt: channel.lastMessageAt }, { token: captureCommunityLiveSnapshotToken(queryClient) })
+  }
+  ingestAttentionSnapshot(registry, { scopes, items, limit: 100, truncated: false })
 }
 
 function response(channelId = "focused", lastMessageAt = "2026-08-27T01:00:00.000Z") {
@@ -520,10 +557,30 @@ describe("inbox read reservation", () => {
 
   it("publishes the next focused response when failure settles before the payload arrives", async () => {
     registerInboxReadReservationSurface(queryClient, "focused", vi.fn())
+    const signals: AbortSignal[] = []
+    let releaseRead!: (data: { loaded: boolean }) => void
+    const options = {
+      queryKey: communityKeys.accountAttention(), retry: false,
+      queryFn: ({ signal }: { signal: AbortSignal }) => {
+        signals.push(signal)
+        return signals.length === 1 ? new Promise<{ loaded: boolean }>((resolve) => { releaseRead = resolve }) : Promise.resolve({ loaded: true })
+      },
+    }
+    const observer = new QueryObserver(queryClient, options)
+    const unsubscribe = observer.subscribe(() => undefined)
+    const originalRead = queryClient.fetchQuery(options).catch((error) => error)
+    await vi.waitFor(() => expect(signals).toHaveLength(1))
 
     await settleInboxReadReservationGeneration(queryClient, 17, false, "focused")
-    expect(queryClient.cancelQueries).toHaveBeenCalledOnce()
+    expect(queryClient.cancelQueries).toHaveBeenCalledWith({ queryKey: communityKeys.accountAttention(), exact: true })
     expect(queryClient.refetchQueries).toHaveBeenCalledOnce()
+    expect(signals[0]!.aborted).toBe(true)
+    expect(signals).toHaveLength(2)
+    expect(await originalRead).toBeInstanceOf(Error)
+    releaseRead({ loaded: false })
+    await Promise.resolve()
+    expect(queryClient.getQueryData(options.queryKey)).toEqual({ loaded: true })
+    unsubscribe()
 
     const data = response()
     await expect(reserveInboxUnreadsResponse(queryClient, data)).resolves.toBe(data)
@@ -787,7 +844,7 @@ describe("inbox read reservation", () => {
     await Promise.resolve()
     await Promise.resolve()
     expect(getThreadOpenerReservationHandoff(queryClient, "nonce-route")).toBeNull()
-    expect(queryClient.refetchQueries).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(queryClient.refetchQueries).toHaveBeenCalledOnce())
   })
 
   it("keeps projection tickets dormant and emits success only for their bound generation", async () => {
@@ -806,11 +863,8 @@ describe("inbox read reservation", () => {
       }],
       dms: [],
     }
-    const cache = { current: data as typeof data | { servers: []; dms: [] } }
-    queryClient = {
-      ...client(),
-      getQueryData: vi.fn(() => cache.current),
-    } as unknown as QueryClient
+    queryClient = client()
+    await seedProjection(queryClient, data)
     const target: InboxRowTarget = {
       kind: "channel-direct",
       identity: JSON.stringify(["channel-direct", "server", "focused"]),
@@ -836,22 +890,20 @@ describe("inbox read reservation", () => {
     expect(receipt).not.toHaveBeenCalled()
 
     await settleInboxReadReservationGeneration(queryClient, 41, true, "focused")
-    cache.current = { servers: [], dms: [] }
+    await seedProjection(queryClient, { servers: [], dms: [] })
     publishInboxProjectionGenerationTerminal(queryClient, 41, "success")
-    expect(receipt).toHaveBeenCalledWith(expect.objectContaining({
+    await vi.waitFor(() => expect(receipt).toHaveBeenCalledWith(expect.objectContaining({
       epoch: 4,
       terminal: "success",
       disposition: "retire",
       observedFingerprint: null,
-    }))
+    })))
   })
 
   it("freezes exact retention as rollback after an owned negative refetch", async () => {
     const data = response()
-    queryClient = {
-      ...client(),
-      getQueryData: vi.fn(() => data),
-    } as unknown as QueryClient
+    queryClient = client()
+    await seedProjection(queryClient, data)
     const target: InboxRowTarget = {
       kind: "channel-direct",
       identity: JSON.stringify(["channel-direct", "server", "focused"]),
@@ -877,18 +929,15 @@ describe("inbox read reservation", () => {
     promoteInboxReadReservation(lease, 51)
 
     await settleInboxReadReservationGeneration(queryClient, 51, false, "focused")
-    expect(receipt).toHaveBeenCalledWith(expect.objectContaining({
+    await vi.waitFor(() => expect(receipt).toHaveBeenCalledWith(expect.objectContaining({
       terminal: "negative",
       disposition: "rollback",
       observedFingerprint: target.fingerprint,
-    }))
+    })))
   })
 
   it("forces Mention-negative and deferred terminals to rollback without cache authority", async () => {
-    queryClient = {
-      ...client(),
-      getQueryData: vi.fn(() => undefined),
-    } as unknown as QueryClient
+    queryClient = client()
     const mentionTarget: InboxRowTarget = {
       kind: "mention",
       identity: JSON.stringify(["mention", "mention-1"]),
@@ -908,10 +957,10 @@ describe("inbox read reservation", () => {
     void pending.catch(() => undefined)
     promoteInboxReadReservation(lease, 61)
     await settleInboxReadReservationGeneration(queryClient, 61, false, "focused")
-    expect(negativeReceipt).toHaveBeenCalledWith(expect.objectContaining({
+    await vi.waitFor(() => expect(negativeReceipt).toHaveBeenCalledWith(expect.objectContaining({
       disposition: "rollback",
       observedFingerprint: null,
-    }))
+    })))
 
     const deferredReceipt = vi.fn()
     const ticket = registerInboxProjectionTicket(
@@ -927,10 +976,10 @@ describe("inbox read reservation", () => {
     promoteInboxReadReservation(lease, 62)
     activateInboxProjectionTicket(ticket)
     publishInboxProjectionGenerationTerminal(queryClient, 62, "deferred")
-    expect(deferredReceipt).toHaveBeenCalledWith(expect.objectContaining({
+    await vi.waitFor(() => expect(deferredReceipt).toHaveBeenCalledWith(expect.objectContaining({
       terminal: "deferred",
       disposition: "rollback",
-    }))
+    })))
   })
 
   it("binds an exact child target to its opener-owned parent generation", async () => {
@@ -951,11 +1000,8 @@ describe("inbox read reservation", () => {
       }],
       dms: [],
     }
-    const cache = { current: data as typeof data | { servers: []; dms: [] } }
-    queryClient = {
-      ...client(),
-      getQueryData: vi.fn(() => cache.current),
-    } as unknown as QueryClient
+    queryClient = client()
+    await seedProjection(queryClient, data)
     const target: InboxRowTarget = {
       kind: "thread",
       identity: JSON.stringify(["thread", "server", "forum", "child"]),
@@ -991,21 +1037,19 @@ describe("inbox read reservation", () => {
     void pending.catch(() => undefined)
     completeThreadOpenerReservationHandoff(queryClient, "projection-thread", 81)
     await settleInboxReadReservationGeneration(queryClient, 81, true, "forum")
-    cache.current = { servers: [], dms: [] }
+    await seedProjection(queryClient, { servers: [], dms: [] })
     publishInboxProjectionGenerationTerminal(queryClient, 81, "success")
 
-    expect(receipt).toHaveBeenCalledWith(expect.objectContaining({
+    await vi.waitFor(() => expect(receipt).toHaveBeenCalledWith(expect.objectContaining({
       terminal: "success",
       disposition: "retire",
-    }))
+    })))
   })
 
   it("attaches an activated same-href ticket to a just-settled exact generation", async () => {
     const data = response()
-    queryClient = {
-      ...client(),
-      getQueryData: vi.fn(() => ({ servers: [], dms: [] })),
-    } as unknown as QueryClient
+    queryClient = client()
+    await seedProjection(queryClient, { servers: [], dms: [] })
     const lease = registerInboxReadReservationSurface(queryClient, "focused", vi.fn())
     const pending = reserveInboxUnreadsResponse(queryClient, data)
     void pending.catch(() => undefined)
@@ -1029,9 +1073,9 @@ describe("inbox read reservation", () => {
     const ticket = registerInboxProjectionTicket(queryClient, 9, target, receipt)
     expect(receipt).not.toHaveBeenCalled()
     activateInboxProjectionTicket(ticket)
-    expect(receipt).toHaveBeenCalledWith(expect.objectContaining({
+    await vi.waitFor(() => expect(receipt).toHaveBeenCalledWith(expect.objectContaining({
       terminal: "success",
       disposition: "retire",
-    }))
+    })))
   })
 })

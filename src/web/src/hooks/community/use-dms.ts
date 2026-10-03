@@ -1,4 +1,6 @@
 "use client"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+
 
 import {
   useQuery,
@@ -13,11 +15,10 @@ import {
 } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import type { DM } from "@/lib/community/models/people"
-import { useEffect, useMemo, useSyncExternalStore } from "react"
+import { useEffect, useMemo } from "react"
 import {
   useAttentionScopes,
   useCanonicalProfilesByUserId,
-  useOptionalCommunityDbRegistry,
 } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import {
@@ -46,17 +47,17 @@ export type DmsResponse = { conversations: DM[] }
 // Frozen empty fallback — see `use-servers.ts` for the rationale.
 const EMPTY_DMS: readonly DM[] = Object.freeze([])
 
-export const dmsQueryFn = (
-  context: QueryFunctionContext = {} as QueryFunctionContext,
+const loadDms = (
+  context: QueryFunctionContext,
 ) =>
   apiFetchProfiles<DmsResponse>(
     "/api/community/users/me/dms",
     (data) => data.conversations.map((dm) => communityUserProfilePatch(dm.userId, dm)),
-    context.signal ? { signal: context.signal } : undefined,
+    context.signal ? { signal: context.signal } : undefined, getCommunityDbRegistry(context.client),
   )
 
-function dmUnreadSources(data: DmsResponse): AccountUnreadSource[] {
-  return data.conversations.flatMap((dm) => dm.lastUnreadSeq === undefined ? [] : [{
+function dmUnreadSources(data: readonly DM[]): AccountUnreadSource[] {
+  return data.flatMap((dm) => dm.lastUnreadSeq === undefined ? [] : [{
     channelId: dm.id,
     lastUnreadSeq: dm.lastUnreadSeq,
   }])
@@ -64,44 +65,32 @@ function dmUnreadSources(data: DmsResponse): AccountUnreadSource[] {
 
 export const dmsProjectedQueryFn = (
   projection: AccountUnreadProjection,
-  queryClient?: QueryClient,
-) => async (context: QueryFunctionContext = {} as QueryFunctionContext) => {
-  const publicationToken = queryClient
-    ? captureCommunityLiveSnapshotToken(queryClient)
-    : null
+  queryClient: QueryClient,
+) => async (context: QueryFunctionContext) => {
+  const publicationToken = captureCommunityLiveSnapshotToken(queryClient)
   const token = projection.beginSnapshot("dms", "dms")
   try {
-    const data = await dmsQueryFn(context)
-    if (queryClient && publicationToken) {
-      assertCommunityLiveSnapshotTokenCurrent(queryClient, publicationToken, context.signal)
-    }
-    projection.absorbSnapshot(token, dmUnreadSources(data))
-    if (queryClient && publicationToken) {
-      publishCommunityLiveSnapshot(queryClient, {
-        snapshot: { kind: "dms", data },
-        proof: { kind: "structural", token: publicationToken, signal: context.signal },
-      })
-    }
-    return data
+    const data = await loadDms(context)
+    assertCommunityLiveSnapshotTokenCurrent(queryClient, publicationToken, context.signal)
+    projection.absorbSnapshot(token, dmUnreadSources(data.conversations))
+    publishCommunityLiveSnapshot(queryClient, {
+      snapshot: { kind: "dms", data },
+      proof: { kind: "structural", token: publicationToken, signal: context.signal },
+    })
+    return { ids: data.conversations.map((dm) => dm.id) }
   } catch (error) {
     projection.cancelSnapshot(token)
     throw error
   }
 }
 
-export function useDms(enabled = true): UseQueryResult<DmsResponse> & { dms: DM[] } {
-  const registry = useOptionalCommunityDbRegistry()
+export function useDms(enabled = true): UseQueryResult<{ ids: string[] }> & { dms: DM[] } {
   const attentionScopes = useAttentionScopes()
   const dbDms = useDmProjection()
   const queryClient = useQueryClient()
   const unreadProjection = useMemo(
     () => getActiveAccountUnreadProjection(queryClient),
     [queryClient],
-  )
-  const unreadVersion = useSyncExternalStore(
-    unreadProjection.subscribe,
-    unreadProjection.getSnapshot,
-    unreadProjection.getSnapshot,
   )
   const queryFn = useMemo(
     () => dmsProjectedQueryFn(unreadProjection, queryClient),
@@ -111,6 +100,7 @@ export function useDms(enabled = true): UseQueryResult<DmsResponse> & { dms: DM[
     queryKey: communityKeys.dms(),
     queryFn,
     enabled,
+    subscribed: enabled,
     // Inbox navigation projects the destination into this canonical cache
     // before routing. Reusing that projection across /c/me layout mounts keeps
     // the transition request-neutral; WS and reconnect invalidations still
@@ -119,26 +109,23 @@ export function useDms(enabled = true): UseQueryResult<DmsResponse> & { dms: DM[
   })
   const profilesByUserId = useCanonicalProfilesByUserId()
   useEffect(() => {
-    if (!query.data) return
+    if (!dbDms) return
     unreadProjection.mergeSources(
       "dms",
-      dmUnreadSources(query.data),
+      dmUnreadSources(dbDms),
       "dms",
     )
     unreadProjection.recordLegacySnapshot(
-      query.data,
-      query.data.conversations.flatMap((dm) => (
+      dbDms,
+      dbDms.flatMap((dm) => (
         dm.unread && dm.lastUnreadSeq === undefined
           ? [{ family: "dms" as const, channelId: dm.id }]
           : []
       )),
     )
-  }, [query.data, unreadProjection])
+  }, [dbDms, unreadProjection])
   const dms = useMemo(() => {
-    void unreadVersion
-    const source = registry
-      ? dbDms ?? EMPTY_DMS
-      : query.data?.conversations ?? EMPTY_DMS
+    const source = dbDms ?? EMPTY_DMS
     if (source.length === 0) return EMPTY_DMS as DM[]
     return sortDmsByActivity(source.map((dm) => {
       const liveProfile = profilesByUserId.get(dm.userId)
@@ -156,7 +143,7 @@ export function useDms(enabled = true): UseQueryResult<DmsResponse> & { dms: DM[
         unread,
       }
     }))
-  }, [attentionScopes, dbDms, profilesByUserId, query.data?.conversations, registry, unreadVersion])
+  }, [attentionScopes, dbDms, profilesByUserId])
   return {
     ...query,
     dms,

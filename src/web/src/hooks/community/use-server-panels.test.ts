@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { QueryClient } from "@tanstack/react-query"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { communityKeys } from "@/lib/query-keys"
 
 const apiFetchMock = vi.fn()
@@ -28,22 +28,23 @@ describe("useInvites / invitesQueryFn", () => {
       ],
     })
     const { invitesQueryFn } = await import("./use-server-panels")
-    const data = await invitesQueryFn("srv_1")()
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/invites")
+    const { client: qc, registry } = await createCommunityQueryOwner()
+    const data = await qc.fetchQuery({ queryKey: communityKeys.invites("srv_1"), queryFn: invitesQueryFn("srv_1") })
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/invites", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
     expect(data.invites[0]).toEqual({
       code: "abcd",
       uses: 3,
       maxUses: 10,
       expiresAt: null,
-      by: "Alice",
       creatorId: "u_alice",
     })
+    expect(registry.collections.profiles.get("u_alice")?.name).toBe("Alice")
   })
 
   it("populates queryClient at communityKeys.invites(serverId)", async () => {
     apiFetchMock.mockResolvedValueOnce({ invites: [] })
     const { invitesQueryFn } = await import("./use-server-panels")
-    const qc = new QueryClient()
+    const { client: qc } = await createCommunityQueryOwner()
     const key = communityKeys.invites("srv_1")
     await qc.fetchQuery({ queryKey: key, queryFn: invitesQueryFn("srv_1") })
     expect(qc.getQueryData(key)).toEqual({ invites: [] })
@@ -54,15 +55,16 @@ describe("usePresence / presenceQueryFn", () => {
   it("returns the online id list from the presence endpoint", async () => {
     apiFetchMock.mockResolvedValueOnce({ online: ["u_1", "u_2"], truncated: false, limit: 1000 })
     const { presenceQueryFn } = await import("./use-server-panels")
-    const data = await presenceQueryFn("srv_1")()
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/presence")
+    const { client: qc } = await createCommunityQueryOwner()
+    const data = await qc.fetchQuery({ queryKey: communityKeys.presence("srv_1"), queryFn: presenceQueryFn("srv_1") })
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/presence", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
     expect(data.online).toEqual(["u_1", "u_2"])
   })
 
   it("populates queryClient at communityKeys.presence(serverId)", async () => {
     apiFetchMock.mockResolvedValueOnce({ online: [] })
     const { presenceQueryFn } = await import("./use-server-panels")
-    const qc = new QueryClient()
+    const { client: qc } = await createCommunityQueryOwner()
     const key = communityKeys.presence("srv_1")
     await qc.fetchQuery({ queryKey: key, queryFn: presenceQueryFn("srv_1") })
     expect(qc.getQueryData(key)).toEqual({ online: [] })

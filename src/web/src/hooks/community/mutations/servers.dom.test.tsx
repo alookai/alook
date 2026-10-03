@@ -1,180 +1,103 @@
-import React from "react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, renderHook, waitFor } from "@/test/react-dom-harness"
+import "fake-indexeddb/auto"
+import React, { useMemo } from "react"
+import { useQueryClient, type QueryClient } from "@tanstack/react-query"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { act, render, waitFor } from "@/test/react-dom-harness"
+import { QueryProvider } from "@/app/c/QueryProvider"
+import { clearAllPersistedCaches } from "@/lib/query-persister"
 import { communityKeys } from "@/lib/query-keys"
-import {
-  cancelOwnerServerDelete,
-  claimOwnerServerDeleteNavigation,
-  claimOwnerServerDeleteScopeFlush,
-  completeOwnerServerDeleteScopeFlush,
-  createOwnerServerDeleteRouteToken,
-  isOwnerServerDeleteMeRootLanding,
-  isOwnerServerDeleteRouteProtected,
-  observeOwnerServerDeleteRouteCommit,
-} from "@/lib/community/eject-server"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { captureCommunityLiveSnapshotToken, publishCommunityLiveSnapshot } from "@/lib/community-db/sync"
+import { cancelOwnerServerDelete, claimOwnerServerDeleteNavigation, claimOwnerServerDeleteScopeFlush, completeOwnerServerDeleteScopeFlush, createOwnerServerDeleteRouteToken, isOwnerServerDeleteMeRootLanding, isOwnerServerDeleteRouteProtected, observeOwnerServerDeleteRouteCommit } from "@/lib/community/eject-server"
 import { useDeleteServer } from "./servers"
-
-const mocks = vi.hoisted(() => ({
-  api: vi.fn(),
-  evictServerChannelScopes: vi.fn(),
-  flushOwnerServerDeleteAfterSuccess: vi.fn(),
-}))
-
-vi.mock("@/lib/api/client", () => ({
-  apiFetch: mocks.api,
-  readUploadError: vi.fn(),
-}))
-
-vi.mock("@/hooks/community/community-ws/scope-eviction", () => ({
-  evictServerChannelScopes: mocks.evictServerChannelScopes,
-  flushOwnerServerDeleteAfterSuccess: mocks.flushOwnerServerDeleteAfterSuccess,
-}))
-
-type Deferred<T> = {
-  promise: Promise<T>
-  resolve: (value: T) => void
-  reject: (error: unknown) => void
-}
-
-function deferred<T>(): Deferred<T> {
-  let resolve!: (value: T) => void
-  let reject!: (error: unknown) => void
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise
-    reject = rejectPromise
-  })
-  return { promise, resolve, reject }
-}
-
-function setup(
-  serverId: string,
-  callbacks: Parameters<typeof useDeleteServer>[0],
-) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  })
-  client.setQueryData(communityKeys.servers(), {
-    servers: [{ id: serverId }],
-  })
-  const wrapper = ({ children }: { children: React.ReactNode }) => (
-    <QueryClientProvider client={client}>{children}</QueryClientProvider>
-  )
-  return {
-    client,
-    ...renderHook(
-      ({ activeCallbacks }) => useDeleteServer(activeCallbacks),
-      { initialProps: { activeCallbacks: callbacks }, wrapper },
-    ),
+const mocks = vi.hoisted(() => ({ api: vi.fn(), flushOwnerServerDeleteAfterSuccess: vi.fn() }))
+vi.mock("@/lib/api/client", () => ({ apiFetch: mocks.api }))
+vi.mock("@/lib/auth-client", () => { const sessionSDK = { useSession: () => ({ data: { user: { id: "viewer" } }, isPending: false, error: null }) }; return { ...sessionSDK, currentSessionViewer: () => { const value = sessionSDK.useSession(); return !value || value.isPending || value.error ? undefined : value.data?.user.id ?? null } } })
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), replace: vi.fn() }) }))
+vi.mock("@tanstack/react-query-devtools", () => ({ ReactQueryDevtools: () => null }))
+vi.mock("@/hooks/community/community-ws/scope-eviction", async (original) => ({ ...await original<typeof import("@/hooks/community/community-ws/scope-eviction")>(), flushOwnerServerDeleteAfterSuccess: mocks.flushOwnerServerDeleteAfterSuccess }))
+type Callbacks = Parameters<typeof useDeleteServer>[0]
+async function setup(serverId: string, callbacks: Omit<Callbacks, "routeToken">) {
+  let client!: QueryClient, current!: ReturnType<typeof useDeleteServer>, originalToken!: Callbacks["routeToken"]
+  function Probe({ activeCallbacks }: { activeCallbacks: Omit<Callbacks, "routeToken"> & Partial<Pick<Callbacks, "routeToken">> }) {
+    client = useQueryClient()
+    const token = useMemo(() => createOwnerServerDeleteRouteToken(client), [])
+    originalToken = token
+    current = useDeleteServer({ routeToken: token, ...activeCallbacks })
+    return null
   }
+  function Root({ visible = true, activeCallbacks = callbacks }: { visible?: boolean; activeCallbacks?: Omit<Callbacks, "routeToken"> & Partial<Pick<Callbacks, "routeToken">> }) { return <QueryProvider userId="viewer">{visible && <Probe activeCallbacks={activeCallbacks} />}</QueryProvider> }
+  const mounted = render(<Root />)
+  await act(async () => {
+    const registry = getCommunityDbRegistry(client)!
+    await registry.ready; await registry.preload()
+    publishCommunityLiveSnapshot(client, { snapshot: { kind: "servers", data: { servers: [{ id: serverId, name: "Server", initial: "S", active: false, unread: false, mentions: 0, isOwner: true, ownerId: "viewer" }] } }, proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(client), signal: undefined } })
+    client.setQueryData(communityKeys.servers(), [serverId])
+  })
+  return { client, routeToken: originalToken, result: { get current() { return current } }, unmount: () => mounted.rerender(<Root visible={false} />), rerender: ({ activeCallbacks }: { activeCallbacks: Callbacks }) => mounted.rerender(<Root activeCallbacks={activeCallbacks} />) }
 }
-
-describe("useDeleteServer — unmounted caller", () => {
-  const serverIds = [
-    "srv_unmounted_success",
-    "srv_unmounted_failure",
-    "srv_rerendered_success",
-  ]
-
-  beforeEach(() => {
-    mocks.api.mockReset()
-    mocks.evictServerChannelScopes.mockReset()
-    mocks.flushOwnerServerDeleteAfterSuccess.mockReset()
-    for (const serverId of serverIds) cancelOwnerServerDelete(serverId)
-  })
-
-  afterEach(() => {
-    for (const serverId of serverIds) cancelOwnerServerDelete(serverId)
-  })
-
+beforeEach(async () => { await clearAllPersistedCaches(); mocks.api.mockReset(); mocks.flushOwnerServerDeleteAfterSuccess.mockReset() })
+describe("useDeleteServer — unmounted caller with original account provider retained", () => {
   it("keeps the successful navigation handoff after the calling component unmounts", async () => {
-    const serverId = serverIds[0]
-    const request = deferred<void>()
-    const onSuccess = vi.fn()
-    const routeToken = createOwnerServerDeleteRouteToken()
-    mocks.api.mockReturnValueOnce(request.promise)
-    const view = setup(serverId, { routeToken, onSuccess })
-
+    const serverId = "srv_unmounted_success"
+    let resolve!: (value: undefined) => void
+    mocks.api.mockReturnValueOnce(new Promise((done) => { resolve = done }))
+    const onSuccess = vi.fn(), view = await setup(serverId, { onSuccess })
     act(() => view.result.current.mutate({ serverId }))
     await waitFor(() => {
       expect(mocks.api).toHaveBeenCalledOnce()
-      expect(view.client.getQueryData<{ servers: unknown[] }>(
-        communityKeys.servers(),
-      )?.servers).toEqual([])
-      expect(isOwnerServerDeleteRouteProtected(serverId)).toBe(true)
+      expect([...getCommunityDbRegistry(view.client)!.collections.serverMemberships.values()].filter((row) => row.viewer)).toEqual([])
+      expect(isOwnerServerDeleteRouteProtected(view.client, serverId)).toBe(true)
     })
-    view.unmount()
-
-    request.resolve(undefined)
+    act(() => view.unmount())
+    expect(getCommunityDbRegistry(view.client)!.runtime.lifecycle.get().active).toBe(true)
+    await act(async () => resolve(undefined))
     await waitFor(() => expect(onSuccess).toHaveBeenCalledOnce())
     expect(onSuccess).toHaveBeenCalledWith({ serverId }, { needsNavigation: true })
-    expect(isOwnerServerDeleteRouteProtected(serverId)).toBe(true)
-    expect(claimOwnerServerDeleteNavigation(serverId, routeToken, "/c/me")).toBe(true)
-    expect(isOwnerServerDeleteMeRootLanding()).toBe(true)
-
-    observeOwnerServerDeleteRouteCommit("/c/me")
-    expect(isOwnerServerDeleteMeRootLanding()).toBe(true)
-    expect(claimOwnerServerDeleteScopeFlush(serverId)).toBe(true)
-    expect(completeOwnerServerDeleteScopeFlush(serverId)).toBe(true)
-    expect(isOwnerServerDeleteRouteProtected(serverId)).toBe(false)
-    expect(isOwnerServerDeleteRouteProtected(serverId, routeToken)).toBe(true)
+    expect(isOwnerServerDeleteRouteProtected(view.client, serverId)).toBe(true)
+    expect(claimOwnerServerDeleteNavigation(view.client, serverId, view.routeToken, "/c/me")).toBe(true)
+    expect(isOwnerServerDeleteMeRootLanding(view.client)).toBe(true)
+    observeOwnerServerDeleteRouteCommit(view.client, "/c/me")
+    expect(isOwnerServerDeleteMeRootLanding(view.client)).toBe(true)
+    expect(claimOwnerServerDeleteScopeFlush(view.client, serverId)).toBe(true)
+    expect(completeOwnerServerDeleteScopeFlush(view.client, serverId)).toBe(true)
+    expect(isOwnerServerDeleteRouteProtected(view.client, serverId)).toBe(false)
+    expect(isOwnerServerDeleteRouteProtected(view.client, serverId, view.routeToken)).toBe(true)
   })
-
   it("rolls back and clears coordination before reporting an unmounted failure", async () => {
-    const serverId = serverIds[1]
-    const request = deferred<void>()
-    const failure = new Error("delete failed")
-    const routeToken = createOwnerServerDeleteRouteToken()
-    const clientRef: { current: QueryClient | null } = { current: null }
+    const serverId = "srv_unmounted_failure", failure = new Error("delete failed")
+    let reject!: (error: Error) => void
     const onError = vi.fn(() => {
-      expect(clientRef.current?.getQueryData<{ servers: Array<{ id: string }> }>(
-        communityKeys.servers(),
-      )?.servers).toEqual([{ id: serverId }])
-      expect(isOwnerServerDeleteRouteProtected(serverId)).toBe(false)
+      expect([...getCommunityDbRegistry(client)!.collections.serverMemberships.values()].filter((row) => row.viewer).map((row) => row.serverId)).toEqual([serverId])
+      expect(isOwnerServerDeleteRouteProtected(client, serverId)).toBe(false)
     })
-    mocks.api.mockReturnValueOnce(request.promise)
-    const view = setup(serverId, { routeToken, onError })
-    clientRef.current = view.client
-
+    mocks.api.mockReturnValueOnce(new Promise((_, fail) => { reject = fail }))
+    const view = await setup(serverId, { onError }), client = view.client
     act(() => view.result.current.mutate({ serverId }))
-    await waitFor(() => {
-      expect(mocks.api).toHaveBeenCalledOnce()
-      expect(isOwnerServerDeleteRouteProtected(serverId)).toBe(true)
-    })
-    view.unmount()
-
-    request.reject(failure)
+    await waitFor(() => { expect(mocks.api).toHaveBeenCalledOnce(); expect(isOwnerServerDeleteRouteProtected(client, serverId)).toBe(true) })
+    act(() => view.unmount())
+    await act(async () => reject(failure))
     await waitFor(() => expect(onError).toHaveBeenCalledOnce())
     expect(onError).toHaveBeenCalledWith(failure, { serverId })
-    observeOwnerServerDeleteRouteCommit("/c/me")
-    expect(claimOwnerServerDeleteScopeFlush(serverId)).toBe(false)
-    expect(isOwnerServerDeleteRouteProtected(serverId, routeToken)).toBe(false)
+    observeOwnerServerDeleteRouteCommit(client, "/c/me")
+    expect(claimOwnerServerDeleteScopeFlush(client, serverId)).toBe(false)
+    expect(isOwnerServerDeleteRouteProtected(client, serverId, view.routeToken)).toBe(false)
   })
-
   it("finishes with the originating token and callback after the route layout rerenders", async () => {
-    const serverId = serverIds[2]
-    const request = deferred<void>()
-    const originToken = createOwnerServerDeleteRouteToken()
-    const survivorToken = createOwnerServerDeleteRouteToken()
-    const originSuccess = vi.fn()
-    const survivorSuccess = vi.fn()
-    mocks.api.mockReturnValueOnce(request.promise)
-    const view = setup(serverId, { routeToken: originToken, onSuccess: originSuccess })
-
+    const serverId = "srv_rerendered_success"
+    let resolve!: (value: undefined) => void
+    mocks.api.mockReturnValueOnce(new Promise((done) => { resolve = done }))
+    const originSuccess = vi.fn(), survivorSuccess = vi.fn(), view = await setup(serverId, { onSuccess: originSuccess })
+    const survivorToken = createOwnerServerDeleteRouteToken(view.client)
     act(() => view.result.current.mutate({ serverId }))
-    await waitFor(() => expect(isOwnerServerDeleteRouteProtected(serverId)).toBe(true))
-    observeOwnerServerDeleteRouteCommit("/c/channels/survivor/channel-1")
-    view.rerender({
-      activeCallbacks: { routeToken: survivorToken, onSuccess: survivorSuccess },
-    })
-
-    request.resolve(undefined)
+    await waitFor(() => expect(isOwnerServerDeleteRouteProtected(view.client, serverId)).toBe(true))
+    observeOwnerServerDeleteRouteCommit(view.client, "/c/channels/survivor/channel-1")
+    act(() => view.rerender({ activeCallbacks: { routeToken: survivorToken, onSuccess: survivorSuccess } }))
+    await act(async () => resolve(undefined))
     await waitFor(() => expect(originSuccess).toHaveBeenCalledOnce())
     expect(originSuccess).toHaveBeenCalledWith({ serverId }, { needsNavigation: false })
     expect(survivorSuccess).not.toHaveBeenCalled()
-    expect(mocks.flushOwnerServerDeleteAfterSuccess).toHaveBeenCalledWith(
-      view.client,
-      serverId,
-    )
+    expect(mocks.flushOwnerServerDeleteAfterSuccess).toHaveBeenCalledWith(view.client, serverId)
+    cancelOwnerServerDelete(view.client, serverId, view.routeToken)
   })
 })

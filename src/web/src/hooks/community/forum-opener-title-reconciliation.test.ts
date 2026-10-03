@@ -11,6 +11,7 @@ import {
   captureCommunityLiveSnapshotToken,
   getCanonicalCommunityMessages,
   publishCommunityForumSidebar,
+  projectCommunityWsEventToDb,
 } from "@/lib/community-db/sync"
 import { getForumSidebarBase } from "./use-forum-sidebar-threads"
 
@@ -52,101 +53,34 @@ function seedCanonicalCaches() {
       signal: undefined,
     },
   })
-  queryClient.setQueryData(communityKeys.message("opener_1"), {
-    id: "opener_1", type: "chat", content: "Old title",
+  for (const id of ["forum_1", "post_1"]) queryClient.setQueryData(communityKeys.channelMessages(id), {
+    pages: [{ messages: [{ id: "opener_1" }], hasMore: false }], pageParams: [null],
   })
-  const messagePage = {
-    pages: [{ messages: [{ id: "opener_1", type: "chat", content: "Old title" }], hasMore: false }],
-    pageParams: [null],
-  }
-  queryClient.setQueryData(communityKeys.channelMessages("forum_1"), messagePage)
-  queryClient.setQueryData(communityKeys.channelMessages("post_1"), messagePage)
-  queryClient.setQueryData(communityKeys.inboxUnreads(), {
-    servers: [{
-      serverId: "server_1",
-      serverName: "Server",
-      channels: [{
-        channelId: "forum_1",
-        channelName: "Forum",
-        lastMessageAt: "now",
-        mentionCount: 0,
-        children: [{
-          channelId: "post_1",
-          channelName: "Old title",
-          lastMessageAt: "now",
-          mentionCount: 0,
-          openerMessageId: "opener_1",
-        }],
-      }],
-    }],
-    dms: [],
-  })
-  queryClient.setQueryData(communityKeys.threads("forum_1"), {
-    parentType: "forum",
-    serverId: "server_1",
-    parentChannelId: "forum_1",
-    threads: [{
-      id: "post_1",
-      name: "Old title",
-      openerMessageId: "opener_1",
-      messageCount: 1,
-      lastMessageAt: "now",
-      parent: { authorName: "A", text: "Old title" },
-    }],
-  })
+  queryClient.setQueryData(communityKeys.inboxUnreads(), { servers: [], dms: [] })
+  queryClient.setQueryData(communityKeys.threads("forum_1"), ["post_1"])
   queryClient.setQueryData(communityKeys.forumFeed("forum_1", null), {
-    pages: [{
-      parentType: "forum",
-      serverId: "server_1",
-      threads: [{ id: "post_1", parentMessageId: "opener_1" }],
-      included: {
-        parentMessages: [{ id: "opener_1", channelId: "forum_1", content: "Old title" }],
-        firstMessages: [], tags: [], participants: [],
-      },
-      hasMore: false,
-    }],
-    pageParams: [null],
-  })
-  queryClient.setQueryData(communityKeys.forumSidebarThreads("server_1"), {
-    threads: [{
-      id: "post_1",
-      parentChannelId: "forum_1",
-      parentMessageId: "opener_1",
-      title: "Old title",
-      activityAt: "now",
-      expiresAt: "later",
-      unread: false,
-    }],
-    verifiedEpoch: 0,
-    serverNow: "now",
-    serverClockOffsetMs: 0,
-  })
-  queryClient.setQueryData(communityKeys.forumOpenerHint("server_1", "opener_1"), {
-    id: "opener_1", content: "Old title",
+    pages: [{ serverId: "server_1", parentType: "forum", threads: [{ id: "post_1", openerMessageId: "opener_1", participantIds: [] }], hasMore: false }], pageParams: [null],
   })
 }
 
 describe("reconcileForumOpenerTitle", () => {
-  it("patches every exact forum title read model and repairs only exact network reads", async () => {
+  it("uses the already published canonical opener and repairs only exact network reads", async () => {
     seedCanonicalCaches()
     const feedKey = communityKeys.forumFeed("forum_1", null)
     const cancel = vi.spyOn(queryClient, "cancelQueries")
     const invalidate = vi.spyOn(queryClient, "invalidateQueries")
 
+    const windows = [communityKeys.channelMessages("forum_1"), communityKeys.channelMessages("post_1"), feedKey].map((key) => queryClient.getQueryData(key))
+    projectCommunityWsEventToDb(queryClient, { type: "community:message.edited", channelId: "forum_1", messageId: "opener_1", content: identity.content })
     await reconcileForumOpenerTitle(queryClient, identity)
 
-    expect(cancel).toHaveBeenCalledWith({ queryKey: communityKeys.inboxUnreads(), exact: true })
-    expect(cancel).toHaveBeenCalledWith({ queryKey: communityKeys.threads("forum_1"), exact: true })
+    expect(cancel).not.toHaveBeenCalled()
     expect(invalidate).toHaveBeenCalledWith({ queryKey: communityKeys.inboxUnreads(), exact: true })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: communityKeys.threads("forum_1"), exact: true })
     expect(queryClient.getQueryState(feedKey)?.isInvalidated).toBe(false)
 
-    expect(queryClient.getQueryData<any>(communityKeys.message("opener_1")).content).toBe("Full new title")
-    expect(queryClient.getQueryData<any>(communityKeys.channelMessages("forum_1")).pages[0].messages[0].content).toBe("Full new title")
-    expect(queryClient.getQueryData<any>(communityKeys.channelMessages("post_1")).pages[0].messages[0].content).toBe("Full new title")
-    expect(queryClient.getQueryData<any>(communityKeys.inboxUnreads()).servers[0].channels[0].children[0].channelName).toBe("Full new title")
-    expect(queryClient.getQueryData<any>(communityKeys.threads("forum_1")).threads[0].name).toBe("Full new title")
-    expect(queryClient.getQueryData<any>(feedKey).pages[0].included.parentMessages[0].content).toBe("Full new title")
+    ;[communityKeys.channelMessages("forum_1"), communityKeys.channelMessages("post_1"), feedKey].forEach((key, index) => expect(queryClient.getQueryData(key)).toBe(windows[index]))
+    expect(invalidate.mock.calls).toHaveLength(2)
     expect(getForumSidebarBase(queryClient, "server_1").threads[0]?.title).toBe("Full new title")
     expect(getCanonicalCommunityMessages(queryClient)
       .find(({ id }) => id === "opener_1")?.content).toBe("Full new title")
@@ -165,8 +99,7 @@ describe("reconcileForumOpenerTitle", () => {
       await reconcileForumOpenerTitle(queryClient, mismatch)
     }
 
-    expect(queryClient.getQueryData<any>(communityKeys.inboxUnreads()).servers[0].channels[0].children[0].channelName).toBe("Old title")
-    expect(queryClient.getQueryData<any>(communityKeys.threads("forum_1")).threads[0].name).toBe("Old title")
+    expect(getCanonicalCommunityMessages(queryClient).find(({ id }) => id === "opener_1")?.content).toBe("Old title")
     expect(getForumSidebarBase(queryClient, "server_1").threads[0]?.title).toBe("Old title")
   })
 

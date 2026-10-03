@@ -1,6 +1,8 @@
 "use client"
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useMemo } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect, useLayoutEffect, useRef } from "react"
 
 export const INITIAL_POSITION_CROSSFADE_MS = 300
 export const INITIAL_POSITION_TIMEOUT_MS = 2_000
@@ -21,9 +23,9 @@ export function useInitialPositionTransition({
   positionSettled: boolean
 }) {
   const initiallyRevealed = firstWindowReady && (authoritativeEmpty || positionSettled)
-  const [phase, setPhase] = useState<InitialPositionPhase>(() => (
+  const [phase, setPhase] = useAtom(useCreateAtom<InitialPositionPhase>(useMemo<InitialPositionPhase>(() => (
     !firstWindowReady ? "skeleton" : initiallyRevealed ? "revealed" : "positioning"
-  ))
+  ), [firstWindowReady, initiallyRevealed])))
   const revealedRef = useRef(initiallyRevealed)
   const startedAtRef = useRef<number | null>(null)
 
@@ -46,7 +48,7 @@ export function useInitialPositionTransition({
     }
     if (startedAtRef.current === null) startedAtRef.current = Date.now()
     if (phase === "skeleton") setPhase("positioning")
-  }, [authoritativeEmpty, firstWindowReady, phase, positionSettled])
+  }, [authoritativeEmpty, firstWindowReady, phase, positionSettled, setPhase])
 
   useEffect(() => {
     if (phase === "revealing") {
@@ -71,7 +73,7 @@ export function useInitialPositionTransition({
     }, timeoutRemaining)
 
     return () => window.clearTimeout(timeoutTimer)
-  }, [authoritativeEmpty, firstWindowReady, phase, positionSettled])
+  }, [authoritativeEmpty, firstWindowReady, phase, positionSettled, setPhase])
 
   // The first renderable window must mount its real DOM in the same commit
   // that clears loading. Waiting for the layout effect above to persist the

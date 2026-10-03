@@ -1,9 +1,12 @@
+import { clearLegacyChatCaches, getLegacyChatCacheSizeBytes } from "@/lib/legacy-chat-persistence"
+import { createStore as createNativeStore } from "@tanstack/store"
+import { scrubApplicationClient } from "@/lib/workspace-chat-persistence"
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister"
 import type {
   PersistedClient,
   Persister,
 } from "@tanstack/react-query-persist-client"
-import { del, get, keys, set } from "idb-keyval"
+import { createStore, promisifyRequest } from "idb-keyval"
 import {
   communityCollectionSchemas,
   type CommunityCollectionName,
@@ -14,7 +17,9 @@ import {
  * cached payload — use it as the escape hatch when the persisted query shape
  * changes in a way the runtime can't reconcile against fresh server data.
  */
-const IDB_PREFIX = "alook:qc:v2"
+// v3 does not import v2: older tabs write unqualified bare payloads. Their
+// late writes must never become a new owner's restore input after clear.
+const IDB_PREFIX = "alook:qc:v3"
 
 /**
  * Buster tag paired with `PersistedClient`. TanStack throws away restored
@@ -22,7 +27,7 @@ const IDB_PREFIX = "alook:qc:v2"
  * shape of a specific query needs to be reset without touching the IDB
  * namespace.
  */
-export const PERSIST_BUSTER = "v2"
+export const PERSIST_BUSTER = "v3"
 
 /** Persister max-age; queries older than this are discarded on restore. */
 export const PERSIST_MAX_AGE_MS = 24 * 60 * 60 * 1000
@@ -240,12 +245,20 @@ function namespaceFor(userId: string | null): string {
 }
 
 /** Storage sub-key for the persister blob within a user's namespace. */
-function blobKeyFor(userId: string | null): string {
-  return `${namespaceFor(userId)}:client`
+export type PersistDomain = "community" | "application"
+export const CACHE_INVALIDATION_STORAGE_KEY = "alook:qc:invalidation"
+export const cacheInvalidation = createNativeStore(0)
+function publishCacheInvalidation() {
+  cacheInvalidation.setState((version) => version + 1)
+  try { if (typeof localStorage !== "undefined") localStorage.setItem(CACHE_INVALIDATION_STORAGE_KEY, crypto.randomUUID()) } catch {}
+}
+export type QualifiedPersister = Persister & { isCurrent: () => Promise<boolean>; retireAccount: () => Promise<void> }
+function blobKeyFor(userId: string | null, domain: PersistDomain = "community"): string {
+  return `${namespaceFor(userId)}${domain === "application" ? ":application" : ""}:client`
 }
 
 function isPersistedCacheBlobKey(key: IDBValidKey): key is string {
-  return typeof key === "string" && /^alook:qc:[^:]+:[^:]+:client$/.test(key)
+  return typeof key === "string" && /^alook:qc:[^:]+:[^:]+(?::application)?:client$/.test(key)
 }
 
 export function formatBytes(bytes: number): string {
@@ -260,119 +273,178 @@ export function formatBytes(bytes: number): string {
   return `${Number(value.toFixed(1))} ${units[unitIndex]}`
 }
 
-type PersistCoordination = {
-  generations: Map<string, number>
-  operations: Map<string, Promise<void>>
-}
+// Reuse idb-keyval's existing database and native transaction serialization.
+// No document-local lock can fence a writer in another tab.
+const cacheStore = createStore("keyval-store", "keyval")
+const DEVICE_EPOCH_KEY = "alook:qc:device-epoch"
+const scopeEpochKey = (key: string) => `${key}:epoch`
+const accountEpochKey = (userId: string | null) => `${namespaceFor(userId)}:account-epoch`
+type PersistEligibility = { device: string; scope: string; account: string }
+const isEpoch = (value: unknown): value is string => (
+  typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+)
 
-// Keep the fence shared across client chunks and dev hot-reloads. QueryProvider
-// can retain a persister created by an older module instance while the logout
-// surface imports a freshly evaluated one; module-local maps would let those
-// two instances race even though they operate on the same IndexedDB key.
-const persistGlobal = globalThis as typeof globalThis & {
-  __alookQueryPersistCoordinationV1?: PersistCoordination
-}
-const persistCoordination = persistGlobal.__alookQueryPersistCoordinationV1 ?? {
-  generations: new Map<string, number>(),
-  operations: new Map<string, Promise<void>>(),
-}
-persistGlobal.__alookQueryPersistCoordinationV1 = persistCoordination
-const persistGenerations = persistCoordination.generations
-const persistOperations = persistCoordination.operations
-
-/**
- * Serialize reads, writes, and clears for one account namespace.
- *
- * The generation check rejects work that starts after a logout, but it cannot
- * cancel an IndexedDB write that already passed the check. Keeping the clear
- * behind that in-flight write makes the delete the final operation from the
- * retired generation, while a newly authenticated persister queues after it.
- */
-function runPersistOperation<T>(key: string, operation: () => Promise<T>): Promise<T> {
-  const previous = persistOperations.get(key) ?? Promise.resolve()
-  const result = previous.then(operation, operation)
-  const tail = result.then(() => undefined, () => undefined)
-  persistOperations.set(key, tail)
-  void tail.then(() => {
-    if (persistOperations.get(key) === tail) persistOperations.delete(key)
+async function cacheTransaction<T>(
+  mode: IDBTransactionMode,
+  operation: (store: IDBObjectStore) => Promise<T>,
+): Promise<T> {
+  return cacheStore(mode, async (store) => {
+    const committed = promisifyRequest(store.transaction)
+    try {
+      const result = await operation(store)
+      await committed
+      return result
+    } catch (error) {
+      await committed.catch(() => undefined)
+      throw error
+    }
   })
-  return result
 }
 
-/**
- * Create an async-storage persister scoped to a specific user id.
- *
- * Every read/write is namespaced by `userId` so signing in as a different
- * account never surfaces the previous user's cached rows. `serialize` retains
- * only the bounded canonical read closure before it reaches disk.
- */
-export function createIdbPersister(userId: string | null): Persister {
-  const key = blobKeyFor(userId)
-  const generation = persistGenerations.get(key) ?? 0
-  return createAsyncStoragePersister({
+async function readEligibility(store: IDBObjectStore, key: string, userId: string | null) {
+  const [device, scope, account] = await Promise.all([
+    promisifyRequest<unknown>(store.get(DEVICE_EPOCH_KEY)),
+    promisifyRequest<unknown>(store.get(scopeEpochKey(key))),
+    promisifyRequest<unknown>(store.get(accountEpochKey(userId))),
+  ])
+  return { device, scope, account }
+}
+
+// Qualification starts when the account owner is created, before restore or
+// any throttled persistence. Missing/corrupt eligibility never revives an old
+// writer or trusts its payload; generation tombstones survive payload removal.
+function qualifyPersister(key: string, userId: string | null): Promise<PersistEligibility> {
+  return cacheTransaction("readwrite", async (store) => {
+    const current = await readEligibility(store, key, userId)
+    const device = isEpoch(current.device) ? current.device : crypto.randomUUID()
+    const account = isEpoch(current.account) ? current.account : crypto.randomUUID()
+    let scope = isEpoch(current.scope) ? current.scope : crypto.randomUUID()
+    if (!isEpoch(current.account)) {
+      for (const domain of ["community", "application"] as const) {
+        const payloadKey = blobKeyFor(userId, domain)
+        const epoch = crypto.randomUUID()
+        store.delete(payloadKey)
+        store.put(epoch, scopeEpochKey(payloadKey))
+        if (payloadKey === key) scope = epoch
+      }
+      store.put(account, accountEpochKey(userId))
+    }
+    if (!isEpoch(current.device) || !isEpoch(current.scope)) store.delete(key)
+    if (!isEpoch(current.device)) store.put(device, DEVICE_EPOCH_KEY)
+    store.put(scope, scopeEpochKey(key))
+    return { device, scope, account }
+  })
+}
+
+async function withEligiblePersister<T>(
+  key: string,
+  userId: string | null,
+  eligibility: Promise<PersistEligibility>,
+  mode: IDBTransactionMode,
+  staleValue: T,
+  operation: (store: IDBObjectStore) => Promise<T>,
+): Promise<T> {
+  const expected = await eligibility
+  return cacheTransaction(mode, async (store) => {
+    const current = await readEligibility(store, key, userId)
+    if (current.device !== expected.device || current.scope !== expected.scope || current.account !== expected.account) return staleValue
+    return operation(store)
+  })
+}
+
+/** Native TanStack persister, qualified against durable device/account epochs. */
+export function createIdbPersister(userId: string | null, domain: PersistDomain = "community"): QualifiedPersister {
+  const key = blobKeyFor(userId, domain)
+  const eligibility = qualifyPersister(key, userId)
+  // An unavailable IDB must also fail restore through the provider's onError;
+  // attach a handler immediately so qualification cannot reject unobserved.
+  void eligibility.catch(() => undefined)
+  const persister = createAsyncStoragePersister({
     storage: {
-      getItem: async (_k: string) => {
-        return runPersistOperation(key, async () => {
-          const value = await get<string>(key)
-          return value ?? null
-        })
-      },
-      setItem: async (_k: string, value: string) => {
-        await runPersistOperation(key, async () => {
-          if ((persistGenerations.get(key) ?? 0) !== generation) return
-          await set(key, value)
-        })
-      },
-      removeItem: async (_k: string) => {
-        await runPersistOperation(key, async () => {
-          if ((persistGenerations.get(key) ?? 0) !== generation) return
-          await del(key)
-        })
-      },
+      getItem: () => withEligiblePersister(key, userId, eligibility, "readonly", null, async (store) => {
+        const value = await promisifyRequest<unknown>(store.get(key))
+        return typeof value === "string" ? value : null
+      }),
+      setItem: (_k: string, value: string) => withEligiblePersister(
+        key, userId, eligibility, "readwrite", undefined, async (store) => { store.put(value, key) },
+      ),
+      // Expiry/buster removal removes only this payload. It does not retire
+      // the owner, so its subsequent fresh network results can persist.
+      removeItem: () => withEligiblePersister(
+        key, userId, eligibility, "readwrite", undefined, async (store) => { store.delete(key) },
+      ),
     },
-    // Passed to storage under the covers, but our storage adapter ignores the
-    // key argument (we own the namespace). Leaving a stable literal keeps the
-    // persister's internal throttle bookkeeping predictable.
     key: "alook-query-cache",
-    serialize: (client) => JSON.stringify(scrubDehydratedClient(client, userId)),
-    deserialize: (raw) => scrubDehydratedClient(
-      JSON.parse(raw) as PersistedClient,
-      userId,
-    ),
+    serialize: (client) => JSON.stringify(domain === "application" ? scrubApplicationClient(client, userId) : scrubDehydratedClient(client, userId)),
+    deserialize: (raw) => domain === "application" ? scrubApplicationClient(JSON.parse(raw) as PersistedClient, userId) : scrubDehydratedClient(JSON.parse(raw) as PersistedClient, userId),
+  })
+  return Object.assign(persister, {
+    isCurrent: () => withEligiblePersister(key, userId, eligibility, "readonly", false, async () => true),
+    retireAccount: async () => {
+      const retired = await withEligiblePersister(key, userId, eligibility, "readwrite", false, async (store) => { await clearAccountRows(store, userId); return true })
+      if (retired) publishCacheInvalidation()
+    },
   })
 }
 
-/**
- * Delete the persisted blob for a given user id. Wire into the sign-out flow
- * so a shared machine doesn't leak the previous session's cached message
- * history to the next tab.
- */
-export async function clearPersistedCache(userId: string | null): Promise<void> {
-  const key = blobKeyFor(userId)
-  persistGenerations.set(key, (persistGenerations.get(key) ?? 0) + 1)
-  await runPersistOperation(key, async () => del(key))
-}
-
-export async function getPersistedCacheSizeBytes(): Promise<number> {
-  const cacheKeys = (await keys()).filter(isPersistedCacheBlobKey)
-  const values = await Promise.all(cacheKeys.map((key) => (
-    runPersistOperation(key, () => get<unknown>(key))
-  )))
-  const encoder = new TextEncoder()
-  return values.reduce<number>((total, value) => (
-    typeof value === "string" ? total + encoder.encode(value).byteLength : total
-  ), 0)
-}
-
-export async function clearAllPersistedCaches(): Promise<void> {
-  const storedKeys = (await keys()).filter(isPersistedCacheBlobKey)
-  const coordinatedKeys = [...persistGenerations.keys()].filter(isPersistedCacheBlobKey)
-  const cacheKeys = [...new Set([...storedKeys, ...coordinatedKeys])]
-
-  for (const key of cacheKeys) {
-    persistGenerations.set(key, (persistGenerations.get(key) ?? 0) + 1)
+async function clearAccountRows(store: IDBObjectStore, userId: string | null): Promise<void> {
+  store.put(crypto.randomUUID(), accountEpochKey(userId))
+  for (const domain of ["community", "application"] as const) {
+    const key = blobKeyFor(userId, domain)
+    store.put(crypto.randomUUID(), scopeEpochKey(key))
+    store.delete(key)
   }
-  await Promise.all(cacheKeys.map((key) => (
-    runPersistOperation(key, async () => del(key))
-  )))
+  await new Promise<void>((resolve, reject) => {
+    const request = store.openCursor()
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (!cursor) { resolve(); return }
+      if (isPersistedCacheBlobKey(cursor.key) && cursor.key.split(":")[3] === (userId ?? "anon")) cursor.delete()
+      cursor.continue()
+    }
+  })
+}
+
+export async function clearPersistedCache(userId: string | null): Promise<void> {
+  await cacheTransaction("readwrite", (store) => clearAccountRows(store, userId))
+  publishCacheInvalidation()
+}
+
+export async function getPersistedCacheSizeBytes(signal?: AbortSignal): Promise<number> {
+  if (signal?.aborted) throw new DOMException("Cancelled cache size read", "AbortError")
+  const bytes = await cacheTransaction("readonly", (store) => new Promise<number>((resolve, reject) => {
+    let total = 0
+    const encoder = new TextEncoder()
+    const request = store.openCursor()
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (!cursor) { resolve(total); return }
+      if (isPersistedCacheBlobKey(cursor.key) && typeof cursor.value === "string") {
+        total += encoder.encode(cursor.value).byteLength
+      }
+      cursor.continue()
+    }
+  }))
+  if (signal?.aborted) throw new DOMException("Cancelled cache size read", "AbortError")
+  const legacyBytes = await getLegacyChatCacheSizeBytes(signal)
+  if (signal?.aborted) throw new DOMException("Cancelled cache size read", "AbortError")
+  return bytes + legacyBytes
+}
+
+/** Clear this device, including qualified writers with no payload yet. */
+export async function clearAllPersistedCaches(): Promise<void> {
+  await cacheTransaction("readwrite", (store) => new Promise<void>((resolve, reject) => {
+    store.put(crypto.randomUUID(), DEVICE_EPOCH_KEY)
+    const request = store.openCursor()
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (!cursor) { resolve(); return }
+      if (isPersistedCacheBlobKey(cursor.key)) cursor.delete()
+      cursor.continue()
+    }
+  }))
+  try { await clearLegacyChatCaches() } finally { publishCacheInvalidation() }
 }

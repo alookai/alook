@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useRef, useEffect, useCallback } from "react";
 
 export function MockNetworkBanner() {
   const enabled =
@@ -8,8 +9,8 @@ export function MockNetworkBanner() {
     process.env.NEXT_PUBLIC_MOCK_NETWORK === "true";
   const delayMs = process.env.NEXT_PUBLIC_MOCK_NETWORK_DELAY_MS || "300";
 
-  const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
-  const [mounted, setMounted] = useState(false);
+  const [position, setPosition] = useAtom(useCreateAtom<{ x: number; y: number } | null>(null));
+  const [mounted, setMounted] = useAtom(useCreateAtom(false));
 
   const dragging = useRef(false);
   const offset = useRef({ x: 0, y: 0 });
@@ -18,7 +19,7 @@ export function MockNetworkBanner() {
   useEffect(() => {
     setPosition({ x: window.innerWidth - 220, y: window.innerHeight - 56 });
     setMounted(true);
-  }, []);
+  }, [setMounted, setPosition]);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     dragging.current = true;
@@ -34,7 +35,7 @@ export function MockNetworkBanner() {
     const newX = Math.max(0, Math.min(e.clientX - offset.current.x, window.innerWidth - 40));
     const newY = Math.max(0, Math.min(e.clientY - offset.current.y, window.innerHeight - 40));
     setPosition({ x: newX, y: newY });
-  }, []);
+  }, [setPosition]);
 
   const onPointerUp = useCallback(() => {
     dragging.current = false;

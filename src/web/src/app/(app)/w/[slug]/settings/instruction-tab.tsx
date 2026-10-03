@@ -1,8 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createStore, useSelector } from "@tanstack/react-store";
+import { useQuery, useMutation, type Query } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useLayoutEffect } from "react";
 import { toast } from "sonner";
-import { useWorkspace } from "@/contexts/workspace-context";
+import { Button } from "@/components/ui/button";
+import { isAbortError } from "@/lib/errors";
+import { useWorkspaceOwner, captureWorkspaceOwner, assertWorkspaceOwner, workspaceRequestOptions, runWorkspaceRequest } from "@/contexts/workspace-context";
+import { useWorkspaceViewSource } from "@/hooks/workspace/use-workspace-view-source";
 import { getMemberMe, updateMemberMe } from "@/lib/api";
 import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -38,107 +43,80 @@ function UsageRing({ ratio, size = 16, stroke = 1.5 }: { ratio: number; size?: n
 }
 
 export function InstructionTab() {
-  const { workspaceId } = useWorkspace();
-  const [value, setValue] = useState("");
-  const [savedValue, setSavedValue] = useState("");
-  const [loading, setLoading] = useState(true);
-
-  const valueRef = useRef(value);
-  useEffect(() => {
-    valueRef.current = value;
-  }, [value]);
-  const savedValueRef = useRef(savedValue);
-  useEffect(() => {
-    savedValueRef.current = savedValue;
-  }, [savedValue]);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const savingRef = useRef(false);
-
-  const fetchInstruction = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await getMemberMe(workspaceId);
-      setValue(data.global_instruction);
-      setSavedValue(data.global_instruction);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load settings");
-    } finally {
-      setLoading(false);
-    }
-  }, [workspaceId]);
-
-  useEffect(() => {
-    fetchInstruction();
-  }, [fetchInstruction]);
-
-  const scheduleSaveRef = useRef<() => void>(() => {});
-
-  const flushSave = useCallback(async () => {
-    if (savingRef.current) return;
-    const current = valueRef.current;
-    if (current === savedValueRef.current) return;
-    savingRef.current = true;
-    try {
-      const data = await updateMemberMe(workspaceId, current);
-      setSavedValue(data.global_instruction);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save");
-    } finally {
-      savingRef.current = false;
-      if (valueRef.current !== savedValueRef.current) {
-        scheduleSaveRef.current();
-      }
-    }
-  }, [workspaceId]);
-
-  const scheduleSave = useCallback(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(flushSave, DEBOUNCE_MS);
-  }, [flushSave]);
-
-  useEffect(() => {
-    scheduleSaveRef.current = scheduleSave;
-  }, [scheduleSave]);
-
-  const handleChange = useCallback(
-    (next: string) => {
-      setValue(next);
-      scheduleSave();
+  const owner = useWorkspaceOwner();
+  const { workspaceId } = owner;
+  const source = useWorkspaceViewSource(owner, "workspace-instruction", true);
+  const key = owner.key("member-instruction");
+  const query = useQuery({ queryKey: key, queryFn: ({ signal }) => runWorkspaceRequest(owner, (options) => getMemberMe(workspaceId, options), signal) });
+  type SaveIntent = { value: string; token: ReturnType<typeof captureWorkspaceOwner>; assertView: () => void; signal: AbortSignal; resource: Query | undefined };
+  const draft = useMemo(() => {
+    const draftKey = JSON.stringify(owner.key("instruction-draft"));
+    const create = () => createStore<{ value: string | null; pending: SaveIntent | null }>({ value: null, pending: null });
+    const saved = owner.application.preferences.get().localValues.get(draftKey) as ReturnType<typeof create> | undefined;
+    if (saved) return saved;
+    const store = create();
+    owner.application.preferences.setState((state) => ({ ...state, localValues: new Map(state.localValues).set(draftKey, store) }));
+    return store;
+  }, [owner]);
+  const edits = useSelector(draft, (state) => state);
+  const value = edits.value ?? query.data?.global_instruction ?? "";
+  const loading = query.isPending;
+  const command = useMutation({ mutationKey: [...key, "command"], scope: { id: JSON.stringify(key) }, gcTime: 0,
+    mutationFn: async ({ value, token, assertView, signal, resource: original }: SaveIntent) => {
+      const assert = () => { assertWorkspaceOwner(token, signal); assertView(); };
+      assert();
+      if (original && owner.queryClient.getQueryCache().find({ queryKey: key, exact: true }) === original) await owner.queryClient.cancelQueries({ queryKey: key, exact: true });
+      assert();
+      const before = original?.state.data as { global_instruction: string } | undefined;
+      const writes = original?.state.dataUpdateCount;
+      try {
+        const data = await updateMemberMe(workspaceId, value, { ...workspaceRequestOptions(token, signal, assert), keepalive: true });
+        assert();
+        if (original && owner.queryClient.getQueryCache().find({ queryKey: key, exact: true }) === original && original.state.dataUpdateCount === writes) {
+          owner.queryClient.setQueryData<{ global_instruction: string }>(key, (current) => current?.global_instruction === before?.global_instruction ? data : current);
+        }
+        return data;
+      } catch (error) { assert(); throw error; }
     },
-    [scheduleSave],
-  );
-
+    onSuccess: (_data, intent) => {
+      try { intent.assertView(); } catch { return; }
+      const confirmed = owner.queryClient.getQueryData<{ global_instruction: string }>(key)?.global_instruction;
+      draft.setState((state) => state.value === intent.value && confirmed === intent.value ? { ...state, value: null } : state);
+    },
+    onError: (error, intent) => {
+      try { intent.assertView(); } catch { return; }
+      if (!isAbortError(error)) toast.error(error instanceof Error ? error.message : "Failed to save");
+    },
+  });
+  const mutateInstruction = command.mutate;
+  const flush = useCallback(() => {
+    const intent = draft.get().pending;
+    if (!intent) return;
+    try { intent.assertView(); assertWorkspaceOwner(intent.token, intent.signal); } catch { return; }
+    draft.setState((state) => state.pending === intent ? { ...state, pending: null } : state);
+    mutateInstruction(intent);
+  }, [draft, mutateInstruction]);
   useEffect(() => {
-    const onBeforeUnload = () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      if (valueRef.current !== savedValueRef.current) {
-        const params = new URLSearchParams({ workspace_id: workspaceId });
-        fetch(`/api/members/me?${params}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ global_instruction: valueRef.current }),
-          keepalive: true,
-        });
-      }
-    };
+    if (!edits.pending) return;
+    const timer = setTimeout(flush, DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [edits.pending, flush]);
+  const handleChange = (value: string) => {
+    source.assertActive();
+    draft.setState((state) => ({ value, pending: {
+      value, token: state.pending?.token ?? captureWorkspaceOwner(owner), assertView: state.pending?.assertView ?? source.assertActive, signal: state.pending?.signal ?? source.signal, resource: state.pending?.resource ?? owner.queryClient.getQueryCache().find({ queryKey: key, exact: true }),
+    } }));
+  };
+  useEffect(() => {
+    const onBeforeUnload = () => flush();
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [workspaceId]);
-
+  }, [flush]);
+  useLayoutEffect(() => () => draft.setState((state) => ({ ...state, pending: null })), [draft]);
   useEffect(() => {
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      if (valueRef.current !== savedValueRef.current) {
-        const params = new URLSearchParams({ workspace_id: workspaceId });
-        fetch(`/api/members/me?${params}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ global_instruction: valueRef.current }),
-          keepalive: true,
-        });
-      }
-    };
-  }, [workspaceId]);
+    if (query.data?.global_instruction !== edits.value || edits.pending || command.isPending) return;
+    draft.setState((state) => state.value === query.data?.global_instruction ? { ...state, value: null } : state);
+  }, [query.data, edits.value, edits.pending, command.isPending, draft]);
 
   const ratio = value.length / MAX_LENGTH;
 
@@ -150,6 +128,11 @@ export function InstructionTab() {
       </div>
     );
   }
+
+  if (query.isError && !query.data) return <div role="alert" className="px-6 py-6 space-y-3">
+    <p>Couldn’t load instructions.</p>
+    <Button variant="outline" onClick={() => { source.assertActive(); void query.refetch({ cancelRefetch: false }); }}>Try again</Button>
+  </div>;
 
   return (
     <div className="flex flex-col h-full">
@@ -164,6 +147,7 @@ export function InstructionTab() {
         />
       </div>
       <div className="flex items-center gap-2 px-6 py-3">
+        {edits.value !== null && !edits.pending && !command.isPending && <Button size="sm" variant="outline" onClick={() => { handleChange(value); }}>Save changes</Button>}
         <UsageRing ratio={ratio} />
         <p className="text-xs text-muted-foreground">
           This instruction is prepended to every agent&apos;s individual instruction.

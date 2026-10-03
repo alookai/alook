@@ -1,6 +1,7 @@
 import React from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { act, render } from "@/test/react-dom-harness"
+import { act } from "@/test/react-dom-harness"
+import { renderCommunity as render } from "@/test/community-owner-harness"
 
 const mocks = vi.hoisted(() => ({
   useEditor: vi.fn(),

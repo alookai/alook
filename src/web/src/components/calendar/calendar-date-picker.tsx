@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
 import {
   Popover,
   PopoverTrigger,
@@ -52,10 +53,10 @@ export function CalendarDatePicker({
   hideIcon = false,
   onClear,
 }: CalendarDatePickerProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useAtom(useCreateAtom(false));
   const initial = value ?? new Date();
-  const [viewYear, setViewYear] = useState(initial.getFullYear());
-  const [viewMonth, setViewMonth] = useState(initial.getMonth());
+  const [viewYear, setViewYear] = useAtom(useCreateAtom(initial.getFullYear()));
+  const [viewMonth, setViewMonth] = useAtom(useCreateAtom(initial.getMonth()));
 
   const cells = buildMonthCells(viewYear, viewMonth);
   const today = new Date();

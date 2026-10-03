@@ -1,12 +1,20 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useCallback, useEffect, useMemo } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { WorkspaceProvider, useWorkspaceOwner, captureWorkspaceOwner, assertWorkspaceOwner, workspaceRequestOptions, runWorkspaceRequest } from "@/contexts/workspace-context";
+import { useWorkspaceViewSource } from "@/hooks/workspace/use-workspace-view-source";
+import { apiFetch } from "@/lib/api/client";
+import { applicationKey } from "@/lib/application-owner";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Loader2, CheckCircle2, LogOut, ArrowLeft, LayoutGrid } from "lucide-react";
 import { toast } from "sonner";
-import { signOut } from "@/lib/auth-client";
-import { clearAllCache } from "@/lib/chat-cache";
+import { toastApiError } from "@/lib/api/client";
+import { useApplicationSignOut } from "@/hooks/use-application-sign-out";
+import { assertApplicationOwner, captureApplicationOwner } from "@/lib/application-owner";
+import { useApplicationOwner } from "@/lib/application-owner";
 import { trackWorkspaceCreated, trackOnboardingCompleted, trackAgentCreated } from "@/lib/analytics";
 
 import { PublicLayout } from "@/components/public-layout";
@@ -25,7 +33,11 @@ import { useUserWs } from "@/lib/use-user-ws";
 import { ConnectMachineSteps } from "@/components/connect-machine-steps";
 import type { TemplatePreset } from "@/lib/templates";
 
-export function StudioOnboardingClient({
+export function StudioOnboardingClient(props: { workspaceId: string; workspaceSlug: string; initialTemplate?: TemplatePreset }) {
+  return <WorkspaceProvider workspaceId={props.workspaceId} slug={props.workspaceSlug}><StudioOnboardingInner {...props} /></WorkspaceProvider>;
+}
+
+function StudioOnboardingInner({
   workspaceId,
   workspaceSlug,
   initialTemplate,
@@ -34,256 +46,185 @@ export function StudioOnboardingClient({
   workspaceSlug: string;
   initialTemplate?: TemplatePreset;
 }) {
+  const applicationOwner = useApplicationOwner();
+  const logout = useApplicationSignOut();
+  const onLogout = async () => {
+    const token = captureApplicationOwner(applicationOwner);
+    try { if (await logout.mutateAsync()) router.push("/sign-in"); }
+    catch (error) { toastApiError(error, "Failed to log out", () => assertApplicationOwner(token)); }
+  };
   const router = useRouter();
 
-  const [runtimes, setRuntimes] = useState<Runtime[]>([]);
-  const [loadingRuntimes, setLoadingRuntimes] = useState(true);
-  const [scenarioId, setScenarioId] = useState<ScenarioId | null>(
-    initialTemplate ? initialTemplate.baseScenario : null,
-  );
-  const [members, setMembers] = useState<TeamMember[]>([]);
-  const [creating, setCreating] = useState(false);
-
-  const [generatedToken, setGeneratedToken] = useState("");
-  const [generatingToken, setGeneratingToken] = useState(false);
-  const [machineRegistered, setMachineRegistered] = useState(false);
-  const [daemonOnline, setDaemonOnline] = useState(false);
-
-  const onlineRuntimes = runtimes.filter((r) => r.status === "online");
+  const owner = useWorkspaceOwner();
+  const source = useWorkspaceViewSource(owner, "studio-onboarding", true);
+  const runtimesKey = owner.key("runtimes");
+  const runtimesQuery = useQuery({ queryKey: runtimesKey,
+    queryFn: ({ signal }) => runWorkspaceRequest(owner, (options) => listRuntimes(workspaceId, options), signal),
+    refetchInterval: 30_000, refetchIntervalInBackground: false,
+  });
+  const runtimes = runtimesQuery.data ?? [];
+  const loadingRuntimes = runtimesQuery.isPending;
+  const [scenarioId, setScenarioId] = useAtom(useCreateAtom<ScenarioId | null>(initialTemplate ? initialTemplate.baseScenario : null));
+  const [memberDrafts, setMembers] = useAtom(useCreateAtom<TeamMember[]>([]));
+  const [registeredDaemonId, setRegisteredDaemonId] = useAtom(useCreateAtom<string | null>(null));
+  const handlesQuery = useQuery({
+    queryKey: owner.key("studio-handles", memberDrafts.map(({ uid, name }) => ({ uid, name }))),
+    enabled: memberDrafts.length > 0, retry: false, gcTime: 0,
+    queryFn: ({ signal }) => runWorkspaceRequest(owner, (options) => apiFetch<{ uid: string; handle: string }[]>("/api/studios/check-handles", {
+      ...options, method: "POST", body: JSON.stringify({ members: memberDrafts.map(({ uid, name }) => ({ uid, name })) }),
+    }), signal),
+  });
+  const members = useMemo(() => memberDrafts.map((member) => ({
+    ...member, emailHandle: handlesQuery.data?.find((row) => row.uid === member.uid)?.handle,
+  })), [memberDrafts, handlesQuery.data]);
+  const tokenQuery = useQuery({ queryKey: owner.key("studio-pairing"), enabled: false, gcTime: 0, retry: false,
+    queryFn: ({ signal }) => runWorkspaceRequest(owner, (options) => createMachineToken("cli", workspaceId, options), signal),
+  });
+  const generatedToken = tokenQuery.data?.token ?? "";
+  const generatingToken = tokenQuery.isFetching;
+  const onlineRuntimes = useMemo(() => (runtimesQuery.data ?? []).filter((runtime) => runtime.status === "online"), [runtimesQuery.data]);
   const hasOnlineRuntime = onlineRuntimes.length > 0;
-  const computerConnected = hasOnlineRuntime || (machineRegistered && daemonOnline);
+  const daemonOnline = registeredDaemonId ? runtimes.some((runtime) => runtime.daemon_id === registeredDaemonId && runtime.status === "online") : hasOnlineRuntime;
+  const machineRegistered = !!registeredDaemonId || hasOnlineRuntime;
+  const computerConnected = hasOnlineRuntime;
 
-  useEffect(() => {
-    listRuntimes(workspaceId)
-      .then((rts) => {
-        setRuntimes(rts);
-        if (rts.some((r) => r.status === "online")) {
-          setMachineRegistered(true);
-          setDaemonOnline(true);
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoadingRuntimes(false));
-  }, [workspaceId]);
-
-  const handleWsMessage = useCallback((msg: WsMessage) => {
-    if (msg.type === "runtime.registered" && msg.workspaceId === workspaceId) {
-      setMachineRegistered(true);
-      setDaemonOnline(true);
-      listRuntimes(workspaceId).then(setRuntimes).catch(() => {});
-    } else if (msg.type === "runtime.status" && msg.workspaceId === workspaceId) {
-      setMachineRegistered(true);
-      if (msg.status === "online") setDaemonOnline(true);
-      else setDaemonOnline(false);
+  const handleWsMessage = useCallback((message: WsMessage) => {
+    try { source.assertActive(); } catch { return; }
+    if (message.type === "runtime.registered" && message.workspaceId === workspaceId) {
+      setRegisteredDaemonId(message.daemonId);
+      void owner.queryClient.invalidateQueries({ queryKey: runtimesKey, exact: true });
+    } else if (message.type === "runtime.status" && (!message.workspaceId || message.workspaceId === workspaceId)) {
+      setRegisteredDaemonId(message.daemonId);
+      void owner.queryClient.invalidateQueries({ queryKey: runtimesKey, exact: true });
     }
-  }, [workspaceId]);
+  }, [workspaceId, source, setRegisteredDaemonId, owner.queryClient, runtimesKey]);
 
-  useUserWs(handleWsMessage);
+  useUserWs(handleWsMessage, { onReconnect: () => { try { source.assertActive(); } catch { return; } return owner.queryClient.invalidateQueries({ queryKey: runtimesKey, exact: true }); } });
 
-  const handleGenerateToken = useCallback(async () => {
-    setGeneratingToken(true);
+  const handleGenerateToken = async () => {
+    const assert = source.assertActive;
+    assert();
     try {
-      const res = await createMachineToken("cli", workspaceId);
-      setGeneratedToken(res.token);
-    } catch {
-      toast.error("Failed to generate token");
-    } finally {
-      setGeneratingToken(false);
+      const result = await tokenQuery.refetch({ cancelRefetch: false, throwOnError: true });
+      assert();
+      return result.data;
+    } catch (error) {
+      try { assert(); } catch { return; }
+      if (!(error instanceof DOMException && error.name === "AbortError")) toast.error("Failed to generate token");
     }
-  }, [workspaceId]);
+  };
 
   useEffect(() => {
     const firstOnline = onlineRuntimes[0]?.id;
     if (!firstOnline) return;
-    setMembers((prev) => {
-      if (prev.length === 0) return prev;
-      const needsUpdate = prev.some((m) => !m.runtimeId);
-      if (!needsUpdate) return prev;
-      return prev.map((m) => m.runtimeId ? m : { ...m, runtimeId: firstOnline });
-    });
-  }, [onlineRuntimes]);
-
-  const resolveHandles = useCallback(async (members: { uid: string; name: string }[]) => {
-    try {
-      const res = await fetch("/api/studios/check-handles", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ members }),
-      });
-      if (!res.ok) return null;
-      return (await res.json()) as { uid: string; handle: string }[];
-    } catch {
-      return null;
-    }
-  }, []);
+    setMembers((previous) => previous.some((member) => !member.runtimeId) ? previous.map((member) => member.runtimeId ? member : { ...member, runtimeId: firstOnline }) : previous);
+  }, [onlineRuntimes, setMembers]);
 
   useEffect(() => {
-    if (!initialTemplate || loadingRuntimes) return;
-    if (members.length > 0) return;
+    if (!initialTemplate || loadingRuntimes || memberDrafts.length > 0) return;
     const generated = shuffleMembers(initialTemplate.members.length);
     const defaultRuntimeId = onlineRuntimes[0]?.id || "";
-    const newMembers = initialTemplate.members.map((m, i) => ({
-      uid: generated[i].uid,
-      name: generated[i].name,
-      role: m.role,
-      description: m.description,
-      instructions: m.instructions,
-      avatarUrl: generated[i].avatarUrl,
-      runtimeId: defaultRuntimeId,
-      relationship: m.relationship,
-    }));
-    setMembers(newMembers);
-    resolveHandles(newMembers.map((m) => ({ uid: m.uid, name: m.name }))).then((handles) => {
-      if (handles) {
-        setMembers((prev) =>
-          prev.map((m) => {
-            const h = handles.find((h) => h.uid === m.uid);
-            return h ? { ...m, emailHandle: h.handle } : m;
-          }),
-        );
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialTemplate, loadingRuntimes]);
+    setMembers(initialTemplate.members.map((member, index) => ({
+      uid: generated[index].uid, name: generated[index].name, role: member.role,
+      description: member.description, instructions: member.instructions, avatarUrl: generated[index].avatarUrl,
+      runtimeId: defaultRuntimeId, relationship: member.relationship,
+    })));
+  }, [initialTemplate, loadingRuntimes, memberDrafts.length, onlineRuntimes, setMembers]);
 
-  const handleScenarioSelect = async (id: ScenarioId) => {
+  const handleScenarioSelect = (id: ScenarioId) => {
     setScenarioId(id);
-    const preset = SCENARIO_PRESETS.find((s) => s.id === id)!;
+    const preset = SCENARIO_PRESETS.find((scenario) => scenario.id === id)!;
     const generated = shuffleMembers(preset.members.length);
     const defaultRuntimeId = onlineRuntimes[0]?.id || "";
-    const newMembers = preset.members.map((m, i) => ({
-      uid: generated[i].uid,
-      name: generated[i].name,
-      role: m.role,
-      description: m.description,
-      instructions: m.instructions,
-      avatarUrl: generated[i].avatarUrl,
-      runtimeId: defaultRuntimeId,
-      relationship: m.relationship,
-    }));
-    setMembers(newMembers);
-    const handles = await resolveHandles(newMembers.map((m) => ({ uid: m.uid, name: m.name })));
-    if (handles) {
-      setMembers((prev) => prev.map((m) => {
-        const h = handles.find((h) => h.uid === m.uid);
-        return h ? { ...m, emailHandle: h.handle } : m;
-      }));
-    }
+    setMembers(preset.members.map((member, index) => ({
+      uid: generated[index].uid, name: generated[index].name, role: member.role,
+      description: member.description, instructions: member.instructions, avatarUrl: generated[index].avatarUrl,
+      runtimeId: defaultRuntimeId, relationship: member.relationship,
+    })));
   };
 
-  const handleShuffle = async () => {
-    const generated = shuffleMembers(members.length);
-    const newMembers = members.map((m, i) => ({ ...m, uid: generated[i].uid, name: generated[i].name, avatarUrl: generated[i].avatarUrl, emailHandle: undefined }));
-    setMembers(newMembers);
-    const handles = await resolveHandles(newMembers.map((m) => ({ uid: m.uid, name: m.name })));
-    if (handles) {
-      setMembers((prev) => prev.map((m) => {
-        const h = handles.find((h) => h.uid === m.uid);
-        return h ? { ...m, emailHandle: h.handle } : m;
-      }));
-    }
+  const handleShuffle = () => {
+    const generated = shuffleMembers(memberDrafts.length);
+    setMembers((previous) => previous.map((member, index) => ({ ...member, uid: generated[index].uid, name: generated[index].name, avatarUrl: generated[index].avatarUrl })));
   };
 
   const handleAssignRuntime = (memberIndex: number, runtimeId: string) => {
-    setMembers((prev) =>
-      prev.map((m, i) => (i === memberIndex ? { ...m, runtimeId } : m)),
-    );
+    setMembers((previous) => previous.map((member, index) => index === memberIndex ? { ...member, runtimeId } : member));
   };
 
+  const createCommand = useMutation({ gcTime: 0, mutationKey: owner.key("studio-create"), scope: { id: JSON.stringify(owner.key("studio-create")) },
+    mutationFn: async ({ scenario, members, token }: { scenario: ScenarioId; members: TeamMember[]; token: ReturnType<typeof captureWorkspaceOwner> }) => {
+      const assert = () => assertWorkspaceOwner(token);
+      assert();
+      let readyMembers = members;
+      if (members.some((member) => !member.runtimeId)) {
+        const fresh = await owner.queryClient.fetchQuery({ queryKey: runtimesKey,
+          queryFn: ({ signal }) => listRuntimes(workspaceId, workspaceRequestOptions(token, signal)), staleTime: 0,
+        });
+        assert();
+        const firstOnline = fresh.find((runtime) => runtime.status === "online")?.id;
+        if (!firstOnline) throw new Error("No online runtime to assign — connect a computer and try again");
+        readyMembers = members.map((member) => member.runtimeId ? member : { ...member, runtimeId: firstOnline });
+      }
+      const options = workspaceRequestOptions(token);
+      try {
+        const data = await apiFetch<{ workspace: { slug: string }; leader_agent_id: string }>("/api/studios", {
+          ...options, method: "POST", headers: { "X-Workspace-ID": workspaceId },
+          body: JSON.stringify({ scenario, members: readyMembers.map((member) => ({
+            name: member.name, role: member.role, runtime_id: member.runtimeId, description: member.description,
+            instructions: member.instructions, avatar_url: member.avatarUrl || null, email_handle: member.emailHandle || undefined,
+            relationship: member.relationship || undefined,
+          })) }),
+        });
+        assert();
+        await apiFetch(`/api/workspaces/${workspaceId}/onboarded`, { ...options, method: "POST" }).catch((error) => { assert(); if (error instanceof DOMException && error.name === "AbortError") throw error; });
+        assert();
+        await owner.queryClient.invalidateQueries({ queryKey: applicationKey(applicationOwner, "workspaces") });
+        assert();
+        return data;
+      } catch (error) { assert(); throw error; }
+    },
+  });
+  const creating = createCommand.isPending;
   const handleCreate = async () => {
-    // Pre-flight diagnostics — surface exactly which gate is blocking instead of
-    // silently disabling the button. Helps pin down the "Computer connected but
-    // Launch disabled" state that doesn't reproduce locally.
-    if (!scenarioId) {
-      toast.error("Pick a focus area first");
-      return;
-    }
-    if (members.length === 0) {
-      toast.error("Add at least one team member");
-      return;
-    }
-    if (!computerConnected) {
-      toast.error("Connect a computer first — no runtime is online yet");
-      return;
-    }
-
-    let readyMembers = members;
-    if (members.some((m) => !m.runtimeId)) {
-      // A member has no runtime assigned while the machine reads as connected —
-      // the exact divergence we're chasing. Try to self-heal by re-fetching the
-      // runtime list, then report precisely if it's still empty.
-      const fresh = await listRuntimes(workspaceId).catch(() => [] as Runtime[]);
-      setRuntimes(fresh);
-      const freshOnline = fresh.filter((r) => r.status === "online");
-      const firstOnline = freshOnline[0]?.id;
-      if (!firstOnline) {
-        console.warn("[studio/new] Launch blocked — no online runtime to assign", {
-          workspaceId,
-          machineRegistered,
-          daemonOnline,
-          hasOnlineRuntime,
-          fetched: fresh.length,
-          online: freshOnline.length,
-          runtimes: fresh.map((r) => ({ id: r.id, provider: r.provider, status: r.status })),
-        });
-        toast.error(
-          `No online runtime to assign — machine reads connected but runtime list is ${fresh.length === 0 ? "empty" : "all offline"} (online: ${freshOnline.length}, fetched: ${fresh.length}, registered: ${machineRegistered}, daemonOnline: ${daemonOnline})`,
-        );
-        return;
-      }
-      readyMembers = members.map((m) => (m.runtimeId ? m : { ...m, runtimeId: firstOnline }));
-      setMembers(readyMembers);
-    }
-
-    setCreating(true);
+    if (!scenarioId) { toast.error("Pick a focus area first"); return; }
+    if (!members.length) { toast.error("Add at least one team member"); return; }
+    if (!computerConnected) { toast.error("Connect a computer first — no runtime is online yet"); return; }
+    const assert = source.assertActive;
+    const token = captureWorkspaceOwner(owner);
+    const scenario = scenarioId;
+    const team = members;
+    assert();
     try {
-      const res = await fetch("/api/studios", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Workspace-ID": workspaceId,
-        },
-        body: JSON.stringify({
-          name: undefined,
-          scenario: scenarioId,
-          members: readyMembers.map((m) => ({
-            name: m.name,
-            role: m.role,
-            runtime_id: m.runtimeId,
-            description: m.description,
-            instructions: m.instructions,
-            avatar_url: m.avatarUrl || null,
-            email_handle: m.emailHandle || undefined,
-            relationship: m.relationship || undefined,
-          })),
-        }),
-      });
-
-      if (!res.ok) {
-        const errBody = (await res.json()) as { error?: string; details?: string[] };
-        const detail = errBody.details?.length ? `: ${errBody.details.join(", ")}` : "";
-        throw new Error(`${errBody.error || "Failed to create company"}${detail}`);
-      }
-
-      const data = (await res.json()) as { workspace: { slug: string }; leader_agent_id: string };
-      await fetch(`/api/workspaces/${workspaceId}/onboarded`, { method: "POST" }).catch(() => {});
+      const data = await createCommand.mutateAsync({ scenario, members: team, token });
+      assert();
       trackWorkspaceCreated("onboarding");
-      trackOnboardingCompleted({
-        template_used: scenarioId ?? undefined,
-        agent_count: members.length,
-      });
-      for (let i = 0; i < members.length; i++) {
-        trackAgentCreated({
-          is_first_agent: i === 0,
-          has_email: !!members[i].emailHandle,
-        });
-      }
+      trackOnboardingCompleted({ template_used: scenario, agent_count: team.length });
+      team.forEach((member, index) => trackAgentCreated({ is_first_agent: index === 0, has_email: !!member.emailHandle }));
       toast.success("Company created!");
       router.push(`/w/${data.workspace.slug}/agents/${data.leader_agent_id}`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to create company");
-      setCreating(false);
+    } catch (error) {
+      try { assert(); } catch { return; }
+      if (!(error instanceof DOMException && error.name === "AbortError")) toast.error(error instanceof Error ? error.message : "Failed to create company");
     }
+  };
+
+
+  const finishCommand = useMutation({ mutationKey: owner.key("studio-finish"), gcTime: 0,
+    mutationFn: async (intent: ReturnType<typeof source.capture> & { resources: import("@tanstack/react-query").Query[] }) => {
+      intent.assert();
+      await apiFetch(`/api/workspaces/${workspaceId}/onboarded`, { ...workspaceRequestOptions(intent.token, intent.signal, intent.assert), method: "POST" });
+      intent.assert();
+      await owner.queryClient.invalidateQueries({ predicate: (query) => intent.resources.includes(query) });
+      intent.assert();
+      router.push(`/w/${workspaceSlug}/home`);
+    },
+    onError: (error, intent) => { try { intent.assert(); } catch { return; } toastApiError(error, "Failed to finish onboarding", intent.assert); },
+  });
+  const finishOnboarding = () => {
+    if (owner.queryClient.isMutating({ mutationKey: owner.key("studio-finish"), exact: true })) return;
+    const intent = source.capture(); intent.assert();
+    finishCommand.mutate({ ...intent, resources: owner.queryClient.getQueryCache().findAll({ queryKey: applicationKey(applicationOwner, "workspaces") }) });
   };
 
   if (!scenarioId) {
@@ -305,7 +246,7 @@ export function StudioOnboardingClient({
             variant="ghost"
             size="sm"
             className="text-xs text-muted-foreground"
-            onClick={async () => { await clearAllCache(); signOut({ fetchOptions: { onSuccess: () => router.push("/sign-in") } }); }}
+            onClick={onLogout}
           >
             <LogOut className="size-3 mr-2" />
             Sign out
@@ -331,10 +272,8 @@ export function StudioOnboardingClient({
           <div className="flex justify-center pt-2">
             <button
               type="button"
-              onClick={async () => {
-                await fetch(`/api/workspaces/${workspaceId}/onboarded`, { method: "POST" }).catch(() => {});
-                router.push(`/w/${workspaceSlug}/home`);
-              }}
+              onClick={finishOnboarding}
+              disabled={finishCommand.isPending}
               className="text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
               Skip for now
@@ -375,7 +314,7 @@ export function StudioOnboardingClient({
           variant="ghost"
           size="sm"
           className="text-xs text-muted-foreground"
-          onClick={async () => { await clearAllCache(); signOut({ fetchOptions: { onSuccess: () => router.push("/sign-in") } }); }}
+          onClick={onLogout}
         >
           <LogOut className="size-3 mr-2" />
           Sign out

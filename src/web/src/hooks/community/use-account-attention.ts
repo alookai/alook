@@ -1,11 +1,12 @@
 "use client"
+import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 import {
   AccountAttentionSnapshotSchema,
   type AccountAttentionSnapshot,
 } from "@alook/shared"
-import { apiFetch } from "@/lib/api/client"
+import { apiFetch, type ApiRequestOptions } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import {
   useAttentionItems,
@@ -13,6 +14,7 @@ import {
 } from "@/lib/community-db/projections"
 import {
   captureCommunityLiveSnapshotToken,
+  assertCommunityLiveSnapshotTokenCurrent,
   publishAccountAttentionSnapshot,
 } from "@/lib/community-db/sync"
 import {
@@ -27,10 +29,10 @@ class StaleAttentionReadError extends Error {
   }
 }
 
-async function fetchAccountAttention(signal?: AbortSignal): Promise<AccountAttentionSnapshot> {
+async function fetchAccountAttention(options: ApiRequestOptions): Promise<AccountAttentionSnapshot> {
   const response = await apiFetch<AccountAttentionSnapshot & { stale?: boolean }>(
     "/api/community/users/me/attention",
-    signal ? { signal } : undefined,
+    options,
   )
   if (response.stale) throw new StaleAttentionReadError()
   return AccountAttentionSnapshotSchema.parse(response)
@@ -39,12 +41,12 @@ async function fetchAccountAttention(signal?: AbortSignal): Promise<AccountAtten
 const accountAttentionQueryFn = (queryClient: QueryClient) =>
   async ({ signal }: { signal?: AbortSignal } = {}) => {
     const token = captureCommunityLiveSnapshotToken(queryClient)
-    const snapshot = await fetchAccountAttention(signal)
+    const snapshot = await fetchAccountAttention(communityRequestOptions(queryClient, token, signal))
     publishAccountAttentionSnapshot(queryClient, {
       snapshot,
       proof: { token, signal },
     })
-    return snapshot
+    return { loaded: true }
   }
 
 export function useAccountAttention() {
@@ -87,37 +89,12 @@ export async function reconcileAccountAttention(
   return snapshot
 }
 
-type AttentionReconcileState = { version: number; running: boolean }
-const attentionReconcileStates = new WeakMap<QueryClient, AttentionReconcileState>()
-
 export function scheduleAccountAttentionReconcile(queryClient: QueryClient) {
-  const state = attentionReconcileStates.get(queryClient) ?? { version: 0, running: false }
-  state.version += 1
-  attentionReconcileStates.set(queryClient, state)
-  if (state.running) return
-  state.running = true
-  queueMicrotask(() => {
-    void (async () => {
-      try {
-        while (true) {
-          const targetVersion = state.version
-          // An event must never join a request that began before that event.
-          // Abort that read first, then let the fresh query capture its own
-          // publication token after the local WS projection is complete.
-          await queryClient.cancelQueries({
-            queryKey: communityKeys.accountAttention(),
-            exact: true,
-          })
-          const registry = getCommunityDbRegistry(queryClient)
-          if (registry) await reconcileAccountAttention(registry).catch(() => undefined)
-          if (state.version === targetVersion) break
-        }
-      } finally {
-        state.running = false
-        if (state.version > 0 && !getCommunityDbRegistry(queryClient)) {
-          attentionReconcileStates.delete(queryClient)
-        }
-      }
-    })()
-  })
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry?.runtime.lifecycle.get().active) return
+  const token = captureCommunityLiveSnapshotToken(queryClient)
+  void queryClient.cancelQueries({ queryKey: communityKeys.accountAttention(), exact: true }).then(() => {
+    assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)
+    return queryClient.invalidateQueries({ queryKey: communityKeys.accountAttention(), exact: true, refetchType: "active" }, { cancelRefetch: false })
+  }).catch(() => undefined)
 }

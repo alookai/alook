@@ -1,4 +1,7 @@
-import type { InfiniteData } from "@tanstack/react-query"
+
+
+import { getCommunityRuntime } from "@/stores/community/runtime"
+
 import type {
   CommunityMemberJoin,
   CommunityMemberLeave,
@@ -6,29 +9,22 @@ import type {
   CommunityWsEvent,
 } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
-import { useMessageStreamStore } from "@/stores/community/message-stream"
-import { useCommunityStore } from "@/stores/community"
-import {
-  patchCacheJoin,
-  patchCacheLeave,
-  patchCacheUpdate,
-  dispatchMemberOverlayEvent,
-  type MembersEnvelope,
-} from "@/hooks/community/use-server-members"
+
+import { patchMemberWindows } from "@/hooks/community/use-server-members"
 import {
   removeForumSidebarProjectionExact,
   invalidateForumSidebarBaseExact,
   isKnownNonForumSidebarChannel,
 } from "@/hooks/community/use-forum-sidebar-threads"
 import { ApiError } from "@/lib/errors"
-import { useCommunityWsStore } from "@/stores/community/ws"
+
 import { fetchChannelMetadata, captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
 import { runCommunityWsProjectionTransaction } from "./projection-transaction"
 import type { MembershipEventContext } from "@/hooks/community/community-ws/handler-context"
 import { projectChannelScopeEviction } from "./channel-scope-projection"
 import { evictServerChannelScopes } from "./scope-eviction"
-import { avatarInitial } from "@/lib/community/avatar"
-import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
+
+
 import {
   invalidateChannelRefDirectory,
   invalidateInbox,
@@ -45,8 +41,9 @@ import {
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import {
   captureCommunityLiveSnapshotToken,
+  assertCommunityLiveSnapshotTokenCurrent,
   publishCommunityChannelMetadata,
-  setCanonicalCommunityChannelMembership,
+  setCanonicalCommunityChannelMember,
 } from "@/lib/community-db/sync"
 
 type ChannelMemberEvent = Extract<
@@ -62,30 +59,27 @@ export function handleChannelMemberEvent(
   invalidateServerDetail(projection, event.serverId)
   invalidateChannelRefDirectory(projection)
   invalidateChannelRoster(projection, event.channelId)
-  if (event.userId !== viewerUserIdRef.current) return
-  invalidateInbox(projection)
-  invalidateServersList(projection)
-  void invalidateForumSidebarBaseExact(queryClient, event.serverId).catch(() => undefined)
-  const store = useCommunityWsStore.getState()
-  store.beginChannelMembershipChange(event.serverId, event.channelId)
-  const token = captureChannelMetadataToken(event.channelId)
+  const viewerChange = event.userId === viewerUserIdRef.current
+  if (viewerChange) {
+    invalidateInbox(projection)
+    invalidateServersList(projection)
+    void invalidateForumSidebarBaseExact(queryClient, event.serverId).catch(() => undefined)
+  }
+  const store = getCommunityRuntime(context.queryClient).ws.get()
+  if (viewerChange) getCommunityRuntime(context.queryClient).ws.actions.beginChannelMembershipChange(event.serverId, event.channelId)
+  const token = captureChannelMetadataToken(queryClient, event.channelId)
+  const originalLiveToken = captureCommunityLiveSnapshotToken(queryClient)
   const key = communityKeys.channelMeta(event.serverId, event.channelId)
   const cached = queryClient.getQueryData<{ type: string; verifiedEpoch: number }>(key)
   const apply = (type: string, activeProjection = projection) => {
+    setCanonicalCommunityChannelMember(queryClient, event.channelId, event.userId, type === "thread" ? "notify" : "access", event.type === "community:channel.member_add", { event: true })
+    if (!viewerChange) return
     if (type === "thread") {
       if (event.type === "community:channel.member_remove") {
         getAccountUnreadProjection(queryClient, event.userId).retireNotificationScope({
           kind: "channel", channelId: event.channelId,
         })
         removeForumSidebarProjectionExact(queryClient, event.serverId, event.channelId)
-      } else {
-        setCanonicalCommunityChannelMembership(
-          queryClient,
-          event.channelId,
-          "notify",
-          true,
-          { event: true },
-        )
       }
       void invalidateForumSidebarBaseExact(queryClient, event.serverId).catch(() => undefined)
       invalidateInbox(activeProjection)
@@ -98,14 +92,7 @@ export function handleChannelMemberEvent(
       })
       projectChannelScopeEviction(activeProjection, queryClient, event.serverId, event.channelId)
     } else {
-      setCanonicalCommunityChannelMembership(
-        queryClient,
-        event.channelId,
-        "access",
-        true,
-        { event: true },
-      )
-      useCommunityWsStore.getState().rememberChannelAccess(event.serverId, event.channelId)
+      getCommunityRuntime(context.queryClient).ws.actions.rememberChannelAccess(event.serverId, event.channelId)
       getAccountUnreadProjection(queryClient, event.userId).grantAccessScope({
         kind: "channel", channelId: event.channelId,
       })
@@ -126,13 +113,13 @@ export function handleChannelMemberEvent(
       const meta = await queryClient.fetchQuery({
         queryKey: key,
         queryFn: async ({ signal }) => {
-          const liveToken = captureCommunityLiveSnapshotToken(queryClient)
-          const metadata = await fetchChannelMetadata(event.serverId, event.channelId, signal)
+          assertCommunityLiveSnapshotTokenCurrent(queryClient, originalLiveToken, signal)
+          const metadata = await fetchChannelMetadata(queryClient, event.serverId, event.channelId, signal, token)
           publishCommunityChannelMetadata(queryClient, {
             metadata,
-            proof: { token: liveToken, signal },
+            proof: { token: originalLiveToken, signal },
           })
-          return metadata
+          return { id: metadata.id, serverId: metadata.serverId, type: metadata.type, verifiedEpoch: metadata.verifiedEpoch }
         },
         staleTime: 0,
       })
@@ -166,23 +153,7 @@ export function handleMemberJoin(
   context: MembershipEventContext,
 ) {
   const { queryClient, viewerUserIdRef, projection } = context
-  writeCommunityProfilePatches([{
-    id: event.member.userId,
-    identityAbout: {
-      name: event.member.name,
-      discriminator: event.member.discriminator,
-    },
-    avatar: {
-      avatar: event.member.avatar ?? avatarInitial(event.member.name),
-      avatarVersion: event.member.avatarVersion,
-    },
-  }], undefined, { event: true })
-  const key = communityKeys.members(event.serverId)
-  queryClient.setQueryData<InfiniteData<MembersEnvelope> | undefined>(
-    key,
-    (cache) => patchCacheJoin(cache, event),
-  )
-  dispatchMemberOverlayEvent({ type: "refresh", serverId: event.serverId })
+  patchMemberWindows(queryClient, event)
   // MEMBER_JOIN intentionally carries identity, not presence. Refresh the
   // affected server's authoritative presence seed so a newly rendered member
   // does not inherit the offline fallback until the next presence frame.
@@ -191,7 +162,7 @@ export function handleMemberJoin(
   if (event.member.userId === viewerUserIdRef.current) {
     const viewerId = viewerUserIdRef.current
     if (viewerId) {
-      useCommunityWsStore.getState().grantServerAccess(event.serverId)
+      getCommunityRuntime(context.queryClient).ws.actions.grantServerAccess(event.serverId)
       getAccountUnreadProjection(queryClient, viewerId).grantAccessScope({
         kind: "server",
         serverId: event.serverId,
@@ -209,16 +180,7 @@ export function handleMemberLeave(
   context: MembershipEventContext,
 ) {
   const { queryClient, viewerUserIdRef, projection } = context
-  const key = communityKeys.members(event.serverId)
-  queryClient.setQueryData<InfiniteData<MembersEnvelope> | undefined>(
-    key,
-    (cache) => patchCacheLeave(cache, event),
-  )
-  dispatchMemberOverlayEvent({
-    type: "leave",
-    serverId: event.serverId,
-    userId: event.userId,
-  })
+  patchMemberWindows(queryClient, event)
   // If the leaver is the viewer (kick from another tab / owner
   // cascade), the viewer's server rail is stale — invalidate it
   // so the layout's eject effect can detect the drop and route
@@ -234,13 +196,12 @@ export function handleMemberLeave(
     }
     removeServerReactionDetails(queryClient, event.serverId)
     invalidateChannelRefDirectory(projection)
-    useMessageStreamStore.getState().removeServer(event.serverId)
+    getCommunityRuntime(context.queryClient).messageStream.actions.removeServer(event.serverId)
     queryClient.removeQueries({ queryKey: communityKeys.server(event.serverId) })
-    const store = useCommunityStore.getState()
+    const store = getCommunityRuntime(context.queryClient).ui.get()
     if (store.currentServerId === event.serverId) {
-      store.setCurrentChannelMeta(null)
-      store.setCurrentChannelId(null)
-      store.setCurrentServerId(null)
+      getCommunityRuntime(context.queryClient).ui.actions.setCurrentChannelId(null)
+      getCommunityRuntime(context.queryClient).ui.actions.setCurrentServerId(null)
     }
     // Rail LIST only (the layout's eject effect reads it to route the
     // kicked viewer away). `exact` so a kick doesn't cascade-refetch
@@ -257,15 +218,6 @@ export function handleMemberUpdate(
   context: MembershipEventContext,
 ) {
   const { queryClient } = context
-  const key = communityKeys.members(event.serverId)
-  queryClient.setQueryData<InfiniteData<MembersEnvelope> | undefined>(
-    key,
-    (cache) => patchCacheUpdate(cache, event),
-  )
-  dispatchMemberOverlayEvent({
-    type: "update",
-    serverId: event.serverId,
-    event,
-  })
+  patchMemberWindows(queryClient, event)
   finishMemberEvent(event, context)
 }

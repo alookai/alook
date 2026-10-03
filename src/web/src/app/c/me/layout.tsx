@@ -1,4 +1,6 @@
 "use client"
+import { useCommunityRuntime } from "@/stores/community/runtime"
+
 
 import { useCallback, useEffect, useMemo, type ReactNode } from "react"
 import {
@@ -9,7 +11,7 @@ import {
 import { ShellFrame } from "@/components/community/shell/shell-frame"
 import { DmRoute } from "@/components/community/channels/dm-route"
 import { DmSidebar } from "@/components/community/channels/dm-sidebar"
-import { useCommunityStore, useCurrentChannelId } from "@/stores/community"
+import { useCurrentChannelId } from "@/stores/community"
 import { useDms } from "@/hooks/community/use-dms"
 import { useFriends, useFriendsPresence } from "@/hooks/community/use-friends"
 import { useInboxUnreads } from "@/hooks/community/use-inbox"
@@ -23,6 +25,7 @@ import { commitLastCommunityRoute } from "@/lib/community/last-community-route"
 // DM-side layout. The DM subtree has no server settings, no channel sidebar,
 // and no `[serverId]` param — everything is scoped to the current user.
 export default function MeLayout({ children }: { children: ReactNode }) {
+  const communityRuntime = useCommunityRuntime()
   const pathname = usePathname()
   const currentUser = useCurrentUser()
   const params = useParams<{ dmId?: string }>()
@@ -42,8 +45,8 @@ export default function MeLayout({ children }: { children: ReactNode }) {
   // null` is the canonical "no server focused" state — no need for a "@me"
   // sentinel string.
   useEffect(() => {
-    useCommunityStore.getState().setCurrentServerId(null)
-  }, [])
+    communityRuntime.ui.actions.setCurrentServerId(null)
+  }, [communityRuntime.ui.actions])
 
   // Seed online friends into the global profile map. The endpoint is a subset
   // of the full WS audience, so it only patches the ids it explicitly returns.
@@ -63,23 +66,23 @@ export default function MeLayout({ children }: { children: ReactNode }) {
   // Navigation is intentionally read-neutral. The visible-row observer owns
   // both optimistic clearing and the durable cursor write.
   const enterDm = useCallback((id: string) => {
-    useCommunityStore.getState().uiHandlers.navigatePath?.(`/c/me/${id}`)
-  }, [])
+    communityRuntime.ui.get().uiHandlers.navigatePath?.(`/c/me/${id}`)
+  }, [communityRuntime.ui])
 
   const onShowFriends = useCallback(() => {
-    useCommunityStore.getState().setCurrentChannelId(null)
-    useCommunityStore.getState().uiHandlers.navigatePath?.("/c/me/friends")
-  }, [])
+    communityRuntime.ui.actions.setCurrentChannelId(null)
+    communityRuntime.ui.get().uiHandlers.navigatePath?.("/c/me/friends")
+  }, [communityRuntime.ui])
 
   const onShowMachines = useCallback(() => {
-    useCommunityStore.getState().setCurrentChannelId(null)
-    useCommunityStore.getState().uiHandlers.navigatePath?.("/c/me/machines")
-  }, [])
+    communityRuntime.ui.actions.setCurrentChannelId(null)
+    communityRuntime.ui.get().uiHandlers.navigatePath?.("/c/me/machines")
+  }, [communityRuntime.ui])
 
   const onShowBots = useCallback(() => {
-    useCommunityStore.getState().setCurrentChannelId(null)
-    useCommunityStore.getState().uiHandlers.navigatePath?.("/c/me/bots")
-  }, [])
+    communityRuntime.ui.actions.setCurrentChannelId(null)
+    communityRuntime.ui.get().uiHandlers.navigatePath?.("/c/me/bots")
+  }, [communityRuntime.ui])
 
   const blockedUserIds = useMemo(
     () => new Set(blocked.map((b) => b.userId ?? b.id)),

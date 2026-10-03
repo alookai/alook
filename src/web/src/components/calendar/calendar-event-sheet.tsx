@@ -1,6 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useQuery } from "@tanstack/react-query";
+import { useWorkspaceOwner } from "@/contexts/workspace-context";
+import { useWorkspaceViewSource } from "@/hooks/workspace/use-workspace-view-source";
+import { isAbortError } from "@/lib/errors";
+import { useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { getCalendarEvent } from "@/lib/api";
 import {
@@ -171,10 +176,10 @@ function RecurringScopeDialog({
   loadingLabel,
   confirmVariant = "default",
 }: RecurringScopeDialogProps) {
-  const [scope, setScope] = useState<"this" | "following">("this");
+  const [scope, setScope] = useAtom(useCreateAtom<"this" | "following">("this"));
   useEffect(() => {
     if (open) setScope("this");
-  }, [open]);
+  }, [open, setScope]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -261,36 +266,23 @@ export function CalendarEventSheet({
   onUpdate,
   onDelete,
 }: CalendarEventSheetProps) {
-  // --- Self-fetch logic ---
-  const [fetchedEvent, setFetchedEvent] = useState<CalendarEvent | null>(null);
-  const [fetchLoading, setFetchLoading] = useState(false);
+  const owner = useWorkspaceOwner();
+  const source = useWorkspaceViewSource(owner, calendarEventId ?? "__none__", open && !!calendarEventId && !event && workspaceId === owner.workspaceId);
+  const eventQuery = useQuery({ queryKey: owner.key("calendar", "detail", source.active ? calendarEventId! : "__none__"), enabled: source.active,
+    meta: { workspaceView: source.view },
+    queryFn: ({ signal }) => getCalendarEvent(calendarEventId!, owner.workspaceId, source.request(signal)),
+  });
   const onOpenChangeRef = useRef(onOpenChange);
   useEffect(() => { onOpenChangeRef.current = onOpenChange; });
-
   useEffect(() => {
-    if (!open || !calendarEventId || event) return;
-    let cancelled = false;
-    setFetchLoading(true);
-    setFetchedEvent(null);
-    getCalendarEvent(calendarEventId, workspaceId ?? "")
-      .then((ev) => { if (!cancelled) setFetchedEvent(ev); })
-      .catch(() => {
-        if (cancelled) return;
-        toast.error("Calendar event not found");
-        onOpenChangeRef.current(false);
-      })
-      .finally(() => { if (!cancelled) setFetchLoading(false); });
-    return () => { cancelled = true; };
-  }, [open, calendarEventId, workspaceId, event]);
-
-  const resolvedEvent = event ?? fetchedEvent;
-
-  const handleOpenChange = (v: boolean) => {
-    onOpenChange(v);
-    if (!v) {
-      setTimeout(() => setFetchedEvent(null), 300);
-    }
-  };
+    if (!eventQuery.error || eventQuery.isFetching || isAbortError(eventQuery.error)) return;
+    try { source.assertActive(); } catch { return; }
+    toast.error("Calendar event not found");
+    onOpenChangeRef.current(false);
+  }, [eventQuery.error, eventQuery.isFetching, source, source.assertActive]);
+  const resolvedEvent = event ?? eventQuery.data ?? null;
+  const fetchLoading = source.active && eventQuery.isPending;
+  const handleOpenChange = onOpenChange;
 
   // --- Resizable drag handle ---
   const { width: sheetWidth, onPointerDown: onDragPointerDown, onPointerMove: onDragPointerMove, onPointerUp: onDragPointerUp } = useSheetResize({
@@ -301,14 +293,14 @@ export function CalendarEventSheet({
 
   const mode = resolvedEvent ? "edit" : "create";
 
-  const [agentId, setAgentId] = useState("");
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [dateValue, setDateValue] = useState<Date>(new Date());
-  const [timeValue, setTimeValue] = useState<string>("09:00");
-  const [repeatEnabled, setRepeatEnabled] = useState(false);
-  const [repeatCount, setRepeatCount] = useState("1");
-  const [repeatUnit, setRepeatUnit] = useState<RepeatUnit>("day");
+  const [agentId, setAgentId] = useAtom(useCreateAtom(""));
+  const [title, setTitle] = useAtom(useCreateAtom(""));
+  const [description, setDescription] = useAtom(useCreateAtom(""));
+  const [dateValue, setDateValue] = useAtom(useCreateAtom<Date>(new Date()));
+  const [timeValue, setTimeValue] = useAtom(useCreateAtom<string>("09:00"));
+  const [repeatEnabled, setRepeatEnabled] = useAtom(useCreateAtom(false));
+  const [repeatCount, setRepeatCount] = useAtom(useCreateAtom("1"));
+  const [repeatUnit, setRepeatUnit] = useAtom(useCreateAtom<RepeatUnit>("day"));
 
   const repeat = useMemo(() => {
     if (!repeatEnabled) return "";
@@ -316,9 +308,9 @@ export function CalendarEventSheet({
     if (!n || n < 1) return "";
     return formatRepeatInterval(n, repeatUnit);
   }, [repeatEnabled, repeatCount, repeatUnit]);
-  const [stopDate, setStopDate] = useState<Date | null>(null);
-  const [scopeOpen, setScopeOpen] = useState(false);
-  const [deleteScopeOpen, setDeleteScopeOpen] = useState(false);
+  const [stopDate, setStopDate] = useAtom(useCreateAtom<Date | null>(null));
+  const [scopeOpen, setScopeOpen] = useAtom(useCreateAtom(false));
+  const [deleteScopeOpen, setDeleteScopeOpen] = useAtom(useCreateAtom(false));
   const descriptionRef = useRef<HTMLDivElement | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
 

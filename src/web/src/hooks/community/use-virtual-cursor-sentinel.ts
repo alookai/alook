@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, type RefObject } from "react"
+import { useCreateStore } from "@tanstack/react-store"
 
 // Wheel events have no lifecycle boundary. A short quiet window separates one
 // trackpad/mouse-wheel burst (including momentum) from the next user gesture.
@@ -24,29 +25,25 @@ export function useVirtualCursorSentinel({
   edge: "start" | "end"
 }) {
   const sentinelRef = useRef<HTMLDivElement>(null)
-  const stateRef = useRef({ onBeforeLoad, onLoad, hasMore, isFetching, isSettling })
-  const intersectingRef = useRef(false)
-  const intersectionDemandedRef = useRef(false)
-  const loadLockedRef = useRef(false)
-  const fetchObservedRef = useRef(false)
+  const protocol = useCreateStore({ inputs: { onBeforeLoad, onLoad, hasMore, isFetching, isSettling }, intersecting: false, intersectionDemanded: false, loadLocked: false, fetchObserved: false })
 
   useEffect(() => {
-    stateRef.current = { onBeforeLoad, onLoad, hasMore, isFetching, isSettling }
+    protocol.setState((state) => ({ ...state, inputs: { onBeforeLoad, onLoad, hasMore, isFetching, isSettling } }))
     if (!hasMore) {
-      loadLockedRef.current = false
-      fetchObservedRef.current = false
-      intersectionDemandedRef.current = false
+      protocol.setState((state) => ({ ...state, loadLocked: false }))
+      protocol.setState((state) => ({ ...state, fetchObserved: false }))
+      protocol.setState((state) => ({ ...state, intersectionDemanded: false }))
       return
     }
-    if (isFetching) fetchObservedRef.current = true
+    if (isFetching) protocol.setState((state) => ({ ...state, fetchObserved: true }))
     if (
-      loadLockedRef.current
-      && fetchObservedRef.current
+      protocol.get().loadLocked
+      && protocol.get().fetchObserved
       && !isFetching
       && !isSettling
     ) {
-      loadLockedRef.current = false
-      fetchObservedRef.current = false
+      protocol.setState((state) => ({ ...state, loadLocked: false }))
+      protocol.setState((state) => ({ ...state, fetchObserved: false }))
     }
   })
 
@@ -75,31 +72,31 @@ export function useVirtualCursorSentinel({
       ? root.scrollTop <= 200
       : root.scrollHeight - root.clientHeight - root.scrollTop <= 200
     const requestPage = (requireNearEdge: boolean) => {
-      const state = stateRef.current
+      const state = protocol.get().inputs
       if (
-        loadLockedRef.current
-        || !intersectingRef.current
+        protocol.get().loadLocked
+        || !protocol.get().intersecting
         || (requireNearEdge && !nearEdge())
         || !state.onLoad
         || !state.hasMore
         || state.isFetching
         || state.isSettling
       ) return
-      loadLockedRef.current = true
-      fetchObservedRef.current = false
+      protocol.setState((state) => ({ ...state, loadLocked: true }))
+      protocol.setState((state) => ({ ...state, fetchObserved: false }))
       consumeActiveGestures()
       state.onBeforeLoad?.()
       state.onLoad()
     }
     const observer = new IntersectionObserver((entries) => {
       for (const entry of entries) {
-        intersectingRef.current = entry.isIntersecting
+        protocol.setState((state) => ({ ...state, intersecting: entry.isIntersecting }))
         if (!entry.isIntersecting) {
-          intersectionDemandedRef.current = false
+          protocol.setState((state) => ({ ...state, intersectionDemanded: false }))
           continue
         }
-        if (!intersectionDemandedRef.current) {
-          intersectionDemandedRef.current = true
+        if (!protocol.get().intersectionDemanded) {
+          protocol.setState((state) => ({ ...state, intersectionDemanded: true }))
           requestPage(false)
         }
         break
@@ -172,8 +169,8 @@ export function useVirtualCursorSentinel({
     root.addEventListener("touchend", onTouchEnd, { passive: true })
     root.addEventListener("touchcancel", onTouchEnd, { passive: true })
     return () => {
-      intersectingRef.current = false
-      intersectionDemandedRef.current = false
+      protocol.setState((state) => ({ ...state, intersecting: false }))
+      protocol.setState((state) => ({ ...state, intersectionDemanded: false }))
       if (wheelIdleTimer !== undefined) clearTimeout(wheelIdleTimer)
       root.removeEventListener("wheel", onWheel)
       root.ownerDocument.removeEventListener("keydown", onKeyDown)
@@ -185,7 +182,7 @@ export function useVirtualCursorSentinel({
       root.removeEventListener("touchcancel", onTouchEnd)
       observer.disconnect()
     }
-  }, [edge, hasMore, scrollRef])
+  }, [edge, hasMore, protocol, scrollRef])
 
   return sentinelRef
 }

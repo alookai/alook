@@ -82,7 +82,11 @@ async function browserSave(source: FileSource, signal?: AbortSignal): Promise<Fi
     return { status: "started" }
   } finally {
     anchor.remove()
-    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    const revoke = () => { URL.revokeObjectURL(url); signal?.removeEventListener("abort", onRetire) }
+    const timer = setTimeout(revoke, 60_000)
+    const onRetire = () => { clearTimeout(timer); revoke() }
+    signal?.addEventListener("abort", onRetire, { once: true })
+    if (signal?.aborted) onRetire()
   }
 }
 
@@ -116,6 +120,7 @@ async function nativeSave(source: FileSource, signal?: AbortSignal): Promise<Fil
         const receipt = await tauriInvoke<{ attemptId: string; bytes: number; sequence: number }>("file_save_write_chunk", {
           payload: { attemptId, sequence, offset: bytes, data: encodeChunk(part) },
         })
+        abortIfNeeded(signal)
         if (receipt.attemptId !== attemptId || receipt.bytes !== next || receipt.sequence !== sequence + 1) {
           throw new Error("Mismatched write receipt")
         }
@@ -126,6 +131,7 @@ async function nativeSave(source: FileSource, signal?: AbortSignal): Promise<Fil
     if (source.size !== null && bytes !== source.size) throw new Error("Length mismatch")
     abortIfNeeded(signal)
     const result = await tauriInvoke<NativeReceipt>("file_save_commit", { payload: { attemptId, bytes } })
+    abortIfNeeded(signal)
     if (result.attemptId !== attemptId) throw new Error("Mismatched save receipt")
     if (result.status === "cancelled") return { status: "cancelled" }
     const sharing = result.status === "started" && result.destination === "share"
@@ -160,18 +166,24 @@ export async function saveFile(blob: Blob, name: string, options: { signal?: Abo
   } catch (error) { return normalizedError(error) }
 }
 
-export async function downloadUrl(url: string, name: string, options: { signal?: AbortSignal } = {}): Promise<FileSaveResult> {
+export async function downloadUrl(url: string, name: string, options: { signal?: AbortSignal; assertActive?: () => void } = {}): Promise<FileSaveResult> {
   try {
     abortIfNeeded(options.signal)
+    options.assertActive?.()
     const response = await fetch(url, { credentials: "same-origin", signal: options.signal })
+    abortIfNeeded(options.signal)
+    options.assertActive?.()
     if (!response.ok) throw new Error("Download failed")
     const mime = fileSaveMime(response.headers.get("content-type") ?? "")
     const length = response.headers.get("content-length")
     const size = length !== null && /^\d+$/.test(length) && !response.headers.get("content-encoding") ? Number(length) : null
     if (size !== null && !Number.isSafeInteger(size)) throw new Error("Invalid length")
     if (!response.body) throw new Error("Missing response body")
-    return await saveSource({ name: fileSaveName(name), mime, size, stream: response.body }, options.signal)
+    const result = await saveSource({ name: fileSaveName(name), mime, size, stream: response.body }, options.signal)
+    options.assertActive?.()
+    return result
   } catch (error) {
+    options.assertActive?.()
     return options.signal?.aborted ? { status: "cancelled" } : normalizedError(error)
   }
 }

@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
 import type React from "react"
 import { ChevronDown, Plus, Settings, Lock, Trash2 } from "lucide-react"
 import { useSortable } from "@dnd-kit/sortable"
@@ -32,7 +33,7 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
   pending?: boolean
   children: React.ReactNode
 }) {
-  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useAtom(useCreateAtom(false))
   const { attributes, listeners, setActivatorNodeRef, setNodeRef, transform, transition, isDragging, isOver, activeIndex, index } = useSortable({ id: catDndId, data: { kind: "category" }, disabled: !canReorder })
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1, zIndex: isDragging ? 10 : undefined }
   const showLine = isOver && !isDragging

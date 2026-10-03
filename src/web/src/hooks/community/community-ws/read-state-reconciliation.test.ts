@@ -1,3 +1,4 @@
+import { createCommunityDbRegistry } from "@/lib/community-db/collections"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClient, QueryObserver } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
@@ -20,6 +21,7 @@ describe("account read-state reconciliation", () => {
   beforeEach(() => {
     vi.useRealTimers()
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    createCommunityDbRegistry(queryClient, "viewer")
     apiFetch.mockReset()
   })
 

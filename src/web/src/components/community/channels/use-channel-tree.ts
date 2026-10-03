@@ -1,6 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react"
+
+import { useAtom, useCreateAtom } from "@tanstack/react-store"
+import { useCallback, useMemo } from "react"
 import { arrayMove } from "@dnd-kit/sortable"
 import type { DragEndEvent } from "@dnd-kit/core"
 import type { Category, Channel } from "@/lib/community/models/navigation"
@@ -10,36 +12,6 @@ import type { Category, Channel } from "@/lib/community/models/navigation"
 export const catId = (id: string) => id
 
 export type ChannelOrder = Record<string, Channel[]>
-
-function channelTreeIdentity(categories: Category[]): string {
-  return JSON.stringify(categories.map((category) => [
-    category.id,
-    category.name,
-    Boolean(category.private),
-    Boolean(category.pending),
-    category.creatorId ?? null,
-    category.channels.map((channel) => [
-      channel.id,
-      channel.name,
-      Boolean(channel.unread),
-      channel.pending ?? null,
-      channel.creatorId ?? null,
-      channel.type ?? null,
-    ]),
-  ]))
-}
-
-function replaceRecordIfChanged<T>(
-  current: Record<string, T>,
-  next: Record<string, T>,
-): Record<string, T> {
-  const keys = Object.keys(next)
-  if (keys.length === Object.keys(current).length &&
-      keys.every((key) => current[key] === next[key])) {
-    return current
-  }
-  return next
-}
 
 /** Which category currently holds a channel id (or the category itself if `id` is an order key). */
 export function catOf(id: string, order: ChannelOrder): string | undefined {
@@ -77,13 +49,6 @@ export function reorderChannelsWithin(order: ChannelOrder, activeId: string, ove
   const to = order[cat].findIndex((c) => c.id === overId)
   if (from === -1 || to === -1) return order
   return { ...order, [cat]: arrayMove(order[cat], from, to) }
-}
-
-/** Remove a channel by id from whichever category holds it. Pure. */
-function removeChannelFrom(order: ChannelOrder, id: string): ChannelOrder {
-  const cat = catOf(id, order)
-  if (!cat) return order
-  return { ...order, [cat]: order[cat].filter((c) => c.id !== id) }
 }
 
 /**
@@ -145,154 +110,44 @@ export function reorderCategories(catOrder: string[], activeCatId: string, overC
  * sort among themselves, channels sort across categories.
  */
 export function useChannelTree(categories: Category[]) {
-  const categoriesIdentity = channelTreeIdentity(categories)
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
-  const [catOrder, setCatOrder] = useState<string[]>(() => categories.map((c) => c.id))
-  const [order, setOrder] = useState<ChannelOrder>(() =>
-    Object.fromEntries(categories.map((c) => [c.id, c.channels])),
-  )
-  // id → name lookup for display
-  const [catNames, setCatNames] = useState<Record<string, string>>(() =>
-    Object.fromEntries(categories.map((c) => [c.id, c.name])),
-  )
-  // per-category privacy — default public; private restricts channel creation to admins
-  const [catPrivate, setCatPrivate] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(categories.map((c) => [c.id, !!c.private])),
-  )
-  // per-category optimistic-pending flag — a category being created (temp id).
-  // Non-interactive until the create resolves.
-  const [catPending, setCatPending] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(categories.map((c) => [c.id, !!c.pending])),
-  )
-  // per-category creator ID
-  const [catCreators, setCatCreators] = useState<Record<string, string | null>>(() =>
-    Object.fromEntries(categories.map((c) => [c.id, c.creatorId ?? null])),
-  )
-
-  // Sync state when categories change from API (initial load or server switch)
-  const prevCatsRef = useRef({ categories, identity: categoriesIdentity })
-  const reconcileCategories = useEffectEvent(() => {
-    const previous = prevCatsRef.current
-    if (previous.identity === categoriesIdentity) return
-    const prev = previous.categories
-    prevCatsRef.current = { categories, identity: categoriesIdentity }
-    // Server-detail cleared on route change — collapse our derived state so the
-    // sidebar's loading branch can render the skeleton instead of stale rows.
-    if (categories.length === 0) {
-      if (prev.length === 0) return
-      setCatOrder([])
-      setOrder({})
-      setCatNames({})
-      setCatPrivate({})
-      setCatPending({})
-      setCatCreators({})
-      return
+  const [collapsed, setCollapsed] = useAtom(useCreateAtom<Set<string>>(new Set<string>()));
+  const layout = useCreateAtom<{ identity: string; categories: string[]; channels: Record<string, string[]> } | null>(null);
+  const [preview, setPreview] = useAtom(layout);
+  const identity = JSON.stringify(categories.map((category) => [category.id, category.channels.map((channel) => channel.id)]));
+  const channelFacts = JSON.stringify(categories.flatMap((category) => category.channels));
+  const canonicalChannels = useMemo(() => new Map((JSON.parse(channelFacts) as Channel[]).map((channel) => [channel.id, channel])), [channelFacts]);
+  const baseOrder = useMemo(() => Object.fromEntries(JSON.parse(identity) as Array<[string, string[]]>), [identity]);
+  const current = useMemo(() => preview?.identity === identity ? preview : { identity, categories: Object.keys(baseOrder), channels: baseOrder }, [preview, identity, baseOrder]);
+  const catOrder = current.categories;
+  const order = useMemo<ChannelOrder>(() => Object.fromEntries(Object.entries(current.channels).map(([id, ids]) => [id, ids.flatMap((channelId) => {
+    const channel = canonicalChannels.get(channelId);
+    return channel ? [channel] : [];
+  })])), [current.channels, canonicalChannels]);
+  const catNames = Object.fromEntries(categories.map((category) => [category.id, category.name]));
+  const catPrivate = Object.fromEntries(categories.map((category) => [category.id, !!category.private]));
+  const catPending = Object.fromEntries(categories.map((category) => [category.id, !!category.pending]));
+  const catCreators = Object.fromEntries(categories.map((category) => [category.id, category.creatorId ?? null]));
+  const toggleCat = useCallback((id: string) => setCollapsed((previous) => {
+    const next = new Set(previous);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  }), [setCollapsed]);
+  const projectOrder = (next: ChannelOrder) => Object.fromEntries(Object.entries(next).map(([id, channels]) => [id, channels.map((channel) => channel.id)]));
+  const onDragOver = ({ active, over }: DragEndEvent) => {
+    if (!over || catOrder.includes(String(active.id))) return;
+    const from = catOf(String(active.id), order), to = catOf(String(over.id), order);
+    if (from && to && from !== to && catPrivate[from] !== catPrivate[to]) return;
+    const next = moveChannelAcrossCategories(order, String(active.id), String(over.id));
+    if (next !== order) setPreview({ ...current, channels: projectOrder(next) });
+  };
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
+    if (over && active.id !== over.id) {
+      const activeId = String(active.id), overId = String(over.id);
+      if (catOrder.includes(activeId) && catOrder.includes(overId)) setPreview({ ...current, categories: reorderCategories(catOrder, activeId, overId) });
+      else if (!catOrder.includes(activeId)) setPreview({ ...current, channels: projectOrder(reorderChannelsWithin(order, activeId, overId)) });
     }
-    // Compare both category IDs and channel IDs to detect any change
-    const prevKey = prev.map((c) => `${c.id}:${c.channels.map((ch) => ch.id).join(",")}`).join("|")
-    const nextKey = categories.map((c) => `${c.id}:${c.channels.map((ch) => ch.id).join(",")}`).join("|")
-    if (prevKey === nextKey) {
-      // Id sets are unchanged, but metadata fields (`unread`, `name`) may
-      // have changed underneath — e.g. a WS-driven cache patch or a refetch
-      // that only flips a flag. Merge those while preserving drag order and
-      // collapse state.
-      setOrder((prevOrder) => {
-        const { next, changed } = mergeChannelMetadata(prevOrder, categories)
-        return changed ? next : prevOrder
-      })
-      setCatNames((current) => replaceRecordIfChanged(
-        current,
-        Object.fromEntries(categories.map((category) => [category.id, category.name])),
-      ))
-      setCatPrivate((current) => replaceRecordIfChanged(
-        current,
-        Object.fromEntries(categories.map((category) => [category.id, !!category.private])),
-      ))
-      setCatPending((current) => replaceRecordIfChanged(
-        current,
-        Object.fromEntries(categories.map((category) => [
-          category.id,
-          category.pending === undefined ? (current[category.id] ?? false) : category.pending,
-        ])),
-      ))
-      setCatCreators((current) => replaceRecordIfChanged(
-        current,
-        Object.fromEntries(categories.map((category) => [category.id, category.creatorId ?? null])),
-      ))
-      return
-    }
-    setCatOrder(categories.map((c) => c.id))
-    setOrder(Object.fromEntries(categories.map((c) => [c.id, c.channels])))
-    setCatNames(Object.fromEntries(categories.map((c) => [c.id, c.name])))
-    setCatPrivate(Object.fromEntries(categories.map((c) => [c.id, !!c.private])))
-    setCatPending(Object.fromEntries(categories.map((c) => [c.id, !!c.pending])))
-    setCatCreators(Object.fromEntries(categories.map((c) => [c.id, c.creatorId ?? null])))
-  })
-  useEffect(() => {
-    reconcileCategories()
-  }, [categoriesIdentity])
-
-  const toggleCat = useCallback((id: string) =>
-    setCollapsed((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    }), [])
-
-  const removeChannel = useCallback((id: string) =>
-    setOrder((prev) => removeChannelFrom(prev, id)), [])
-  const renameChannel = useCallback((id: string, name: string) =>
-    setOrder((prev) => {
-      const cat = catOf(id, prev)
-      if (!cat) return prev
-      return { ...prev, [cat]: prev[cat].map((c) => c.id === id ? { ...c, name } : c) }
-    }), [])
-  // Category delete is driven by the query cache (useDeleteCategory's optimistic
-  // onMutate/onError), so the tree resettles from `categories` — no local
-  // removal helper (a local one had no rollback path; see the mutation hook).
-  const renameCategory = useCallback((id: string, name: string) =>
-    setCatNames((prev) => (prev[id] === name ? prev : { ...prev, [id]: name })), [])
-
-  const onDragOver = useCallback((e: DragEndEvent) => {
-    const { active, over } = e
-    if (!over || catOrder.includes(String(active.id))) return // category drags handled on drop
-    setOrder((prev) => {
-      const fromCat = catOf(String(active.id), prev)
-      const toCat = catOf(String(over.id), prev)
-      // Never let a channel cross a public↔private boundary during the drag —
-      // visibility would silently widen/tighten. Same-class cross-category
-      // moves still follow the cursor. `onDragEnd` toasts on a blocked attempt.
-      if (fromCat && toCat && fromCat !== toCat &&
-          !!catPrivate[fromCat] !== !!catPrivate[toCat]) {
-        return prev
-      }
-      return moveChannelAcrossCategories(prev, String(active.id), String(over.id))
-    })
-  }, [catOrder, catPrivate])
-
-  const onDragEnd = useCallback((e: DragEndEvent) => {
-    const { active, over } = e
-    if (!over || active.id === over.id) return
-    const activeIsCategory = catOrder.includes(String(active.id))
-    const overIsCategory = catOrder.includes(String(over.id))
-    if (activeIsCategory && overIsCategory) {
-      setCatOrder((prev) => reorderCategories(prev, String(active.id), String(over.id)))
-      return
-    }
-    if (activeIsCategory) return
-    setOrder((prev) => reorderChannelsWithin(prev, String(active.id), String(over.id)))
-  }, [catOrder])
-
-  return useMemo(() => ({
-    collapsed, catOrder, order, catNames, catPrivate, catPending, catCreators,
-    toggleCat, removeChannel, renameChannel,
-    renameCategory, onDragOver, onDragEnd,
-  }), [
-    collapsed, catOrder, order, catNames, catPrivate, catPending, catCreators,
-    toggleCat, removeChannel, renameChannel,
-    renameCategory, onDragOver, onDragEnd,
-  ])
+  };
+  return { collapsed, catOrder, order, catNames, catPrivate, catPending, catCreators, toggleCat, onDragOver, onDragEnd };
 }
-
 export type ChannelTree = ReturnType<typeof useChannelTree>

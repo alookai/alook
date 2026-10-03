@@ -1,17 +1,19 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { useAgentContext } from "@/contexts/agent-context";
-import { useWorkspace } from "@/contexts/workspace-context";
-import { requestWorkspaceBrowse } from "@/lib/api";
+import { useWorkspaceOwner } from "@/contexts/workspace-context";
+import { workspaceFileOptions } from "@/hooks/workspace/file-query-options";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Streamdown } from "streamdown";
-import type { WsMessage, WorkspaceFileEntry } from "@alook/shared";
+import type { WorkspaceFileEntry } from "@alook/shared";
 import {
   ArrowLeft,
   ChevronRight,
@@ -24,203 +26,39 @@ import {
   Loader2,
 } from "lucide-react";
 
-// --- Tree node state ---
-
 interface TreeNode {
   entry: WorkspaceFileEntry;
-  children: TreeNode[] | null; // null = not loaded
-  loading: boolean;
-  expanded: boolean;
 }
 
 export default function AgentFilesPage() {
   const params = useParams();
-  const agentId = params.id as string;
-  const { workspaceId } = useWorkspace();
+  return <AgentFilesSurface key={params.id as string} agentId={params.id as string} />;
+}
+
+function AgentFilesSurface({ agentId }: { agentId: string }) {
+  const owner = useWorkspaceOwner();
+  const { workspaceId } = owner;
   const { subscribeWs, runtimes, agents } = useAgentContext();
   const isMobile = useIsMobile();
-
-  const agent = agents.find((a) => a.id === agentId);
-  const runtime = agent ? runtimes.find((r) => r.id === agent.runtime_id) : null;
+  const agent = agents.find((row) => row.id === agentId);
+  const runtime = agent ? runtimes.find((row) => row.id === agent.runtime_id) : null;
   const isOnline = runtime?.status === "online";
-
-  // Tree state: top-level entries + nested children per directory
-  const [rootNodes, setRootNodes] = useState<TreeNode[]>([]);
-  const [rootLoading, setRootLoading] = useState(true);
-  const [rootError, setRootError] = useState<string | null>(null);
-
-  // File viewer state
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [fileContent, setFileContent] = useState<string | null>(null);
-  const [fileBinary, setFileBinary] = useState(false);
-  const [fileLoading, setFileLoading] = useState(false);
-  const [fileError, setFileError] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<"raw" | "preview">("preview");
-
-  // Pending request tracking: map requestId -> { type, path, timer }
-  const pendingRef = useRef<Map<string, { type: "tree" | "read"; path: string; timer: ReturnType<typeof setTimeout> }>>(new Map());
-
+  const [selectedFile, setSelectedFile] = useAtom(useCreateAtom<string | null>(null));
+  const [viewMode, setViewMode] = useAtom(useCreateAtom<"raw" | "preview">("preview"));
+  const rootQuery = useQuery({ ...workspaceFileOptions(owner, agentId, runtime?.id ?? null, "tree", ".", subscribeWs), enabled: isOnline });
+  const fileQuery = useQuery({ ...workspaceFileOptions(owner, agentId, runtime?.id ?? null, "read", selectedFile ?? "", subscribeWs), enabled: isOnline && !!selectedFile });
+  const rootNodes = (rootQuery.data?.entries ?? []).map((entry) => ({ entry }));
+  const rootLoading = isOnline && rootQuery.isPending;
+  const rootError = rootQuery.error?.message ?? null;
+  const fileContent = fileQuery.data?.content ?? null;
+  const fileBinary = fileQuery.data?.isBinary ?? false;
+  const fileLoading = !!selectedFile && fileQuery.isPending;
+  const fileError = fileQuery.error?.message ?? null;
   const workspacesRoot = runtime?.metadata?.workspaces_root;
   const rootLabel = `${workspacesRoot || "~/.alook/workspaces"}/${workspaceId}/${agentId}/workdir`;
+  const requestFile = useCallback((path: string) => { setSelectedFile(path); setViewMode("preview"); }, [setSelectedFile, setViewMode]);
+  const handleCopyPath = () => { navigator.clipboard.writeText(rootLabel).catch(() => {}); };
 
-  const REQUEST_TIMEOUT_MS = 15_000;
-
-  const clearPending = useCallback((requestId: string) => {
-    const entry = pendingRef.current.get(requestId);
-    if (entry) {
-      clearTimeout(entry.timer);
-      pendingRef.current.delete(requestId);
-    }
-  }, []);
-
-  const setNodeLoading = useCallback((path: string, loading: boolean) => {
-    setRootNodes((prev) => updateNodeRecursive(prev, path, (n) => ({ ...n, loading })));
-  }, []);
-
-  // --- Request helpers ---
-
-  const requestTree = useCallback(
-    async (path: string) => {
-      try {
-        const { request_id } = await requestWorkspaceBrowse(agentId, workspaceId, "tree", path);
-        const timer = setTimeout(() => {
-          if (pendingRef.current.has(request_id)) {
-            pendingRef.current.delete(request_id);
-            if (path === ".") {
-              setRootError("Request timed out — daemon may be offline");
-              setRootLoading(false);
-            } else {
-              setNodeLoading(path, false);
-            }
-          }
-        }, REQUEST_TIMEOUT_MS);
-        pendingRef.current.set(request_id, { type: "tree", path, timer });
-        return request_id;
-      } catch {
-        return null;
-      }
-    },
-    [agentId, workspaceId, setNodeLoading],
-  );
-
-  const requestFile = useCallback(
-    async (path: string) => {
-      setFileLoading(true);
-      setFileError(null);
-      setFileContent(null);
-      setFileBinary(false);
-      setSelectedFile(path);
-      setViewMode("preview");
-      try {
-        const { request_id } = await requestWorkspaceBrowse(agentId, workspaceId, "read", path);
-        const timer = setTimeout(() => {
-          if (pendingRef.current.has(request_id)) {
-            pendingRef.current.delete(request_id);
-            setFileError("Request timed out — daemon may be offline");
-            setFileLoading(false);
-          }
-        }, REQUEST_TIMEOUT_MS);
-        pendingRef.current.set(request_id, { type: "read", path, timer });
-      } catch {
-        setFileError("Failed to request file");
-        setFileLoading(false);
-      }
-    },
-    [agentId, workspaceId],
-  );
-
-  // --- Load root on mount + cleanup timers ---
-
-  useEffect(() => {
-    setRootLoading(true);
-    setRootError(null);
-    requestTree(".");
-    const pending = pendingRef.current;
-    return () => {
-      for (const entry of pending.values()) clearTimeout(entry.timer);
-      pending.clear();
-    };
-  }, [requestTree]);
-
-  // --- Update tree node helper ---
-
-  const updateNodeChildren = useCallback(
-    (path: string, children: WorkspaceFileEntry[]) => {
-      const childNodes: TreeNode[] = children.map((e) => ({
-        entry: e,
-        children: null,
-        loading: false,
-        expanded: false,
-      }));
-
-      if (path === ".") {
-        setRootNodes(childNodes);
-        setRootLoading(false);
-        return;
-      }
-
-      setRootNodes((prev) => updateNodeRecursive(prev, path, (n) => ({ ...n, children: childNodes, loading: false, expanded: true })));
-    },
-    [],
-  );
-
-  // --- WS handler ---
-
-  useEffect(() => {
-    return subscribeWs((msg: WsMessage) => {
-      if (msg.type !== "workspace.files" || msg.agentId !== agentId) return;
-
-      const pending = pendingRef.current.get(msg.requestId);
-      if (!pending) return;
-      clearPending(msg.requestId);
-
-      if (pending.type === "tree") {
-        if (msg.result.error) {
-          if (pending.path === ".") {
-            setRootError(msg.result.error);
-            setRootLoading(false);
-          } else {
-            setNodeLoading(pending.path, false);
-          }
-        } else {
-          updateNodeChildren(pending.path, msg.result.entries ?? []);
-        }
-      }
-
-      if (pending.type === "read") {
-        if (msg.result.error) {
-          setFileError(msg.result.error);
-        } else {
-          setFileContent(msg.result.content ?? null);
-          setFileBinary(msg.result.isBinary ?? false);
-        }
-        setFileLoading(false);
-      }
-    });
-  }, [subscribeWs, agentId, updateNodeChildren, setNodeLoading, clearPending]);
-
-  // --- Toggle directory ---
-
-  const toggleDir = useCallback(
-    (path: string, node: TreeNode) => {
-      if (node.expanded) {
-        // Collapse
-        setRootNodes((prev) => updateNodeRecursive(prev, path, (n) => ({ ...n, expanded: false })));
-        return;
-      }
-      // Expand: load if needed
-      if (node.children === null) {
-        setNodeLoading(path, true);
-        requestTree(path);
-      }
-      setRootNodes((prev) => updateNodeRecursive(prev, path, (n) => ({ ...n, expanded: true })));
-    },
-    [requestTree, setNodeLoading],
-  );
-
-  const handleCopyPath = () => {
-    navigator.clipboard.writeText(rootLabel).catch(() => {});
-  };
 
   // --- Offline ---
 
@@ -269,11 +107,12 @@ export default function AgentFilesPage() {
         <div className="py-1">
           {rootNodes.map((node) => (
             <TreeNodeRow
-              key={node.entry.path}
+              key={`${runtime?.id}:${node.entry.path}`}
               node={node}
               depth={0}
               selectedFile={selectedFile}
-              onToggleDir={toggleDir}
+              agentId={agentId}
+              runtimeId={runtime?.id ?? null}
               onSelectFile={requestFile}
             />
           ))}
@@ -291,7 +130,7 @@ export default function AgentFilesPage() {
         <div className="flex items-center gap-2 min-w-0">
           {isMobile && (
             <button
-              onClick={() => { setSelectedFile(null); setFileContent(null); }}
+              onClick={() => setSelectedFile(null)}
               className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
             >
               <ArrowLeft className="size-4" />
@@ -388,54 +227,63 @@ function TreeNodeRow({
   node,
   depth,
   selectedFile,
-  onToggleDir,
+  agentId,
+  runtimeId,
   onSelectFile,
 }: {
   node: TreeNode;
   depth: number;
   selectedFile: string | null;
-  onToggleDir: (path: string, node: TreeNode) => void;
+  agentId: string;
+  runtimeId: string | null;
   onSelectFile: (path: string) => void;
 }) {
   const { entry } = node;
+  const owner = useWorkspaceOwner();
+  const { subscribeWs } = useAgentContext();
+  const [expanded, setExpanded] = useAtom(useCreateAtom(false));
+  const children = useQuery({ ...workspaceFileOptions(owner, agentId, runtimeId, "tree", entry.path, subscribeWs), enabled: entry.isDirectory && expanded });
   const paddingLeft = 12 + depth * 16;
+
 
   if (entry.isDirectory) {
     return (
       <>
         <button
-          onClick={() => onToggleDir(entry.path, node)}
+          onClick={() => setExpanded((open) => !open)}
           className="w-full flex items-center gap-2 py-1 text-sm hover:bg-muted/50 transition-colors text-left"
           style={{ paddingLeft }}
         >
           <ChevronRight
             className={`size-3 text-muted-foreground/60 shrink-0 transition-transform duration-150 ${
-              node.expanded ? "rotate-90" : ""
+              expanded ? "rotate-90" : ""
             }`}
           />
-          {node.expanded ? (
+          {expanded ? (
             <FolderOpen className="size-3.5 text-blue-500/70 shrink-0" />
           ) : (
             <Folder className="size-3.5 text-blue-500/70 shrink-0" />
           )}
           <span className="truncate">{entry.name}</span>
-          {node.loading && <Loader2 className="size-3 text-muted-foreground animate-spin shrink-0 ml-auto mr-2" />}
+          {expanded && children.isPending && <Loader2 className="size-3 text-muted-foreground animate-spin shrink-0 ml-auto mr-2" />}
         </button>
-        {node.expanded && node.children && node.children.map((child) => (
+        {expanded && children.data?.entries?.map((child) => (
           <TreeNodeRow
-            key={child.entry.path}
-            node={child}
+            key={child.path}
+            node={{ entry: child }}
             depth={depth + 1}
             selectedFile={selectedFile}
-            onToggleDir={onToggleDir}
+            agentId={agentId}
+            runtimeId={runtimeId}
             onSelectFile={onSelectFile}
           />
         ))}
-        {node.expanded && node.children && node.children.length === 0 && (
+        {expanded && children.data?.entries?.length === 0 && (
           <div className="text-[10px] text-muted-foreground/50 py-1" style={{ paddingLeft: paddingLeft + 24 }}>
             empty
           </div>
         )}
+        {expanded && children.error && <div className="text-xs text-destructive py-1" style={{ paddingLeft: paddingLeft + 24 }}>{children.error.message}</div>}
       </>
     );
   }
@@ -457,21 +305,6 @@ function TreeNodeRow({
   );
 }
 
-// --- Recursive tree update helper ---
-
-function updateNodeRecursive(
-  nodes: TreeNode[],
-  targetPath: string,
-  updater: (node: TreeNode) => TreeNode,
-): TreeNode[] {
-  return nodes.map((node) => {
-    if (node.entry.path === targetPath) return updater(node);
-    if (node.children && targetPath.startsWith(node.entry.path + "/")) {
-      return { ...node, children: updateNodeRecursive(node.children, targetPath, updater) };
-    }
-    return node;
-  });
-}
 
 // --- Misc helpers ---
 

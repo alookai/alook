@@ -1,6 +1,7 @@
 "use client";
 
-import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { type RefObject, useCallback, useEffect, useRef } from "react";
 
 import { clampPetPosition, createWalkToTargetVelocity, getBounds } from "./cloud-code-monster-pet-activity";
 import { CLOUD_CODE_MONSTER_AUTO_WALK_STEP_MS, CLOUD_CODE_MONSTER_SIZE } from "./cloud-code-monster-pet-constants";
@@ -55,9 +56,9 @@ export function useWalkToTarget({
   onArrive,
   onStep,
 }: UseWalkToTargetParams): WalkToTargetState {
-  const [isWalking, setIsWalking] = useState(false);
-  const [isIdlingAtTarget, setIsIdlingAtTarget] = useState(false);
-  const [walkDirection, setWalkDirection] = useState<"left" | "right">("left");
+  const [isWalking, setIsWalking] = useAtom(useCreateAtom(false));
+  const [isIdlingAtTarget, setIsIdlingAtTarget] = useAtom(useCreateAtom(false));
+const [walkDirection, setWalkDirection] = useAtom(useCreateAtom<"left" | "right">("left"));
   const stepTimerRef = useRef<number | null>(null);
   const arrivedRef = useRef(false);
   const enabledRef = useRef(enabled);
@@ -78,7 +79,7 @@ export function useWalkToTarget({
     setIsWalking(false);
     setIsIdlingAtTarget(false);
     arrivedRef.current = false;
-  }, [clearStepTimer]);
+  }, [clearStepTimer, setIsIdlingAtTarget, setIsWalking]);
 
   useEffect(() => {
     if (!enabled || !targetId || !position) {

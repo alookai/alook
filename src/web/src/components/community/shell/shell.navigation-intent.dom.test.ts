@@ -1,5 +1,6 @@
 import { createElement, useState, type ReactNode } from "react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { QueryClient } from "@tanstack/react-query"
+import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen } from "@/test/react-dom-harness"
 import {

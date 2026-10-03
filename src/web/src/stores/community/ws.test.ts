@@ -1,6 +1,8 @@
+
+import { createCommunityWsStore } from "./ws"
+const nativeStore = createCommunityWsStore(null)
 import { beforeEach, describe, expect, it } from "vitest"
 import {
-  BOT_AUDIT_RING_MAX,
   SEEN_DELIVERY_OPERATION_MAX,
   SEEN_DELIVERY_OPERATION_TRIM_TO,
   SEEN_MESSAGE_MAX,
@@ -9,77 +11,77 @@ import {
 } from "./ws"
 
 beforeEach(() => {
-  useCommunityWsStore.getState().reset()
+  nativeStore.actions.reset()
 })
 
 function activate(viewerId = "viewer") {
-  useCommunityWsStore.getState().activateProfileAccount(viewerId)
-  return useCommunityWsStore.getState().beginPresenceSnapshot()
+  nativeStore.actions.activateProfileAccount(viewerId)
+  return nativeStore.actions.beginPresenceSnapshot()
 }
 
 describe("useCommunityWsStore", () => {
   it("publishes connection status, binds retry, and resets both safely", () => {
     const calls: string[] = []
-    useCommunityWsStore.getState().setConnectionStatus("reconnecting")
-    useCommunityWsStore.getState().bindReconnectNow(() => calls.push("retry"))
-    useCommunityWsStore.getState().reconnectNow()
+    nativeStore.actions.setConnectionStatus("reconnecting")
+    nativeStore.actions.bindReconnectNow(() => calls.push("retry"))
+    nativeStore.get().reconnectNow()
     expect(calls).toEqual(["retry"])
 
-    useCommunityWsStore.getState().reset()
-    expect(useCommunityWsStore.getState().connectionStatus).toBe("connected")
-    useCommunityWsStore.getState().reconnectNow()
+    nativeStore.actions.reset()
+    expect(nativeStore.get().connectionStatus).toBe("connected")
+    nativeStore.get().reconnectNow()
     expect(calls).toEqual(["retry"])
   })
 
   it("tracks websocket authentication without treating transport loss as revocation", () => {
-    expect(useCommunityWsStore.getState()).toMatchObject({ accessConnected: false, accessEpoch: 0 })
-    useCommunityWsStore.getState().markAccessDisconnected()
-    expect(useCommunityWsStore.getState()).toMatchObject({ accessConnected: false, accessEpoch: 0 })
-    useCommunityWsStore.getState().markAccessConnected()
-    useCommunityWsStore.getState().markAccessDisconnected()
-    useCommunityWsStore.getState().markAccessDisconnected()
-    expect(useCommunityWsStore.getState()).toMatchObject({ accessConnected: false, accessEpoch: 0 })
+    expect(nativeStore.get()).toMatchObject({ accessConnected: false, accessEpoch: 0 })
+    nativeStore.actions.markAccessDisconnected()
+    expect(nativeStore.get()).toMatchObject({ accessConnected: false, accessEpoch: 0 })
+    nativeStore.actions.markAccessConnected()
+    nativeStore.actions.markAccessDisconnected()
+    nativeStore.actions.markAccessDisconnected()
+    expect(nativeStore.get()).toMatchObject({ accessConnected: false, accessEpoch: 0 })
   })
 
   it("keeps only presence in the websocket overlay", () => {
     activate()
-    useCommunityWsStore.getState().setPresence("u1", "online")
-    expect(useCommunityWsStore.getState().presenceByUserId).toEqual(
+    nativeStore.actions.setPresence("u1", "online")
+    expect(nativeStore.get().presenceByUserId).toEqual(
       new Map([["u1", "online"]]),
     )
-    expect(useCommunityWsStore.getState()).not.toHaveProperty("profilesByUserId")
+    expect(nativeStore.get()).not.toHaveProperty("profilesByUserId")
   })
 
   it("preserves a live presence delta over an older HTTP seed", () => {
     const request = activate()
-    useCommunityWsStore.getState().setPresence("u1", "online")
-    useCommunityWsStore.getState().seedPresence(request, [["u1", "offline"]])
-    expect(useCommunityWsStore.getState().presenceByUserId.get("u1")).toBe("online")
+    nativeStore.actions.setPresence("u1", "online")
+    nativeStore.actions.seedPresence(request, [["u1", "offline"]])
+    expect(nativeStore.get().presenceByUserId.get("u1")).toBe("online")
   })
 
   it("rejects a presence seed after viewer switch or reset", () => {
     const oldSnapshot = activate("viewer-a")
-    useCommunityWsStore.getState().activateProfileAccount("viewer-b")
-    expect(useCommunityWsStore.getState().seedPresence(oldSnapshot, [["u1", "online"]]))
+    nativeStore.actions.activateProfileAccount("viewer-b")
+    expect(nativeStore.actions.seedPresence(oldSnapshot, [["u1", "online"]]))
       .toBe(false)
-    const beforeReset = useCommunityWsStore.getState().beginPresenceSnapshot()
-    useCommunityWsStore.getState().reset()
-    useCommunityWsStore.getState().activateProfileAccount("viewer-b")
-    expect(useCommunityWsStore.getState().seedPresence(beforeReset, [["u1", "online"]]))
+    const beforeReset = nativeStore.actions.beginPresenceSnapshot()
+    nativeStore.actions.reset()
+    nativeStore.actions.activateProfileAccount("viewer-b")
+    expect(nativeStore.actions.seedPresence(beforeReset, [["u1", "online"]]))
       .toBe(false)
-    expect(useCommunityWsStore.getState().presenceByUserId.size).toBe(0)
+    expect(nativeStore.get().presenceByUserId.size).toBe(0)
   })
 
   it("deduplicates seen messages and trims the oldest ids", () => {
-    useCommunityWsStore.getState().markSeenMessage("m1")
-    const first = useCommunityWsStore.getState().seenMessageIds
-    useCommunityWsStore.getState().markSeenMessage("m1")
-    expect(useCommunityWsStore.getState().seenMessageIds).toBe(first)
+    nativeStore.actions.markSeenMessage("m1")
+    const first = nativeStore.get().seenMessageIds
+    nativeStore.actions.markSeenMessage("m1")
+    expect(nativeStore.get().seenMessageIds).toBe(first)
 
     for (let index = 2; index <= SEEN_MESSAGE_MAX + 1; index += 1) {
-      useCommunityWsStore.getState().markSeenMessage(`m${index}`)
+      nativeStore.actions.markSeenMessage(`m${index}`)
     }
-    const after = useCommunityWsStore.getState().seenMessageIds
+    const after = nativeStore.get().seenMessageIds
     expect(after.size).toBe(SEEN_MESSAGE_TRIM_TO)
     expect(after.has("m1")).toBe(false)
     expect(after.has(`m${SEEN_MESSAGE_MAX + 1}`)).toBe(true)
@@ -87,62 +89,34 @@ describe("useCommunityWsStore", () => {
 
   it("locks delivery digests and keeps same-digest failures retryable", () => {
     const digest = "a".repeat(64)
-    expect(useCommunityWsStore.getState().observeDeliveryOperation("op", digest)).toBe("new")
-    expect(useCommunityWsStore.getState().observeDeliveryOperation("op", digest)).toBe("retryable")
-    expect(useCommunityWsStore.getState().observeDeliveryOperation("op", "b".repeat(64)))
+    expect(nativeStore.actions.observeDeliveryOperation("op", digest)).toBe("new")
+    expect(nativeStore.actions.observeDeliveryOperation("op", digest)).toBe("retryable")
+    expect(nativeStore.actions.observeDeliveryOperation("op", "b".repeat(64)))
       .toBe("conflict")
-    expect(useCommunityWsStore.getState().completeDeliveryOperation("op", digest)).toBe(true)
-    expect(useCommunityWsStore.getState().observeDeliveryOperation("op", digest)).toBe("duplicate")
+    expect(nativeStore.actions.completeDeliveryOperation("op", digest)).toBe(true)
+    expect(nativeStore.actions.observeDeliveryOperation("op", digest)).toBe("duplicate")
   })
 
   it("bounds delivery operations and clears transient state on reset", () => {
     for (let index = 0; index <= SEEN_DELIVERY_OPERATION_MAX; index += 1) {
       const digest = index.toString(16).padStart(64, "0")
-      useCommunityWsStore.getState().observeDeliveryOperation(`op-${index}`, digest)
+      nativeStore.actions.observeDeliveryOperation(`op-${index}`, digest)
       if (index % 2 === 0) {
-        useCommunityWsStore.getState().completeDeliveryOperation(`op-${index}`, digest)
+        nativeStore.actions.completeDeliveryOperation(`op-${index}`, digest)
       }
     }
-    expect(useCommunityWsStore.getState().seenDeliveryOperations.size)
+    expect(nativeStore.get().seenDeliveryOperations.size)
       .toBe(SEEN_DELIVERY_OPERATION_TRIM_TO)
-    const accountEpoch = useCommunityWsStore.getState().profileAccountEpoch
-    useCommunityWsStore.getState().reset()
-    expect(useCommunityWsStore.getState()).toMatchObject({
+    const accountEpoch = nativeStore.get().profileAccountEpoch
+    nativeStore.actions.reset()
+    expect(nativeStore.get()).toMatchObject({
       profileViewerId: null,
       profileAccountEpoch: accountEpoch + 1,
     })
-    expect(useCommunityWsStore.getState().seenDeliveryOperations.size).toBe(0)
-    expect(useCommunityWsStore.getState().seenMessageIds.size).toBe(0)
+    expect(nativeStore.get().seenDeliveryOperations.size).toBe(0)
+    expect(nativeStore.get().seenMessageIds.size).toBe(0)
   })
 
-  it("prepends, deduplicates, and independently bounds bot audit rings", () => {
-    const push = useCommunityWsStore.getState().pushBotAuditEvent
-    for (let index = 0; index < BOT_AUDIT_RING_MAX + 5; index += 1) {
-      push({
-        id: `a${index}`,
-        botId: "bot-a",
-        kind: "tool_call",
-        payload: {},
-        createdAt: "2026-01-01T00:00:00.000Z",
-      })
-    }
-    push({
-      id: "quiet",
-      botId: "bot-b",
-      kind: "nap",
-      payload: {},
-      createdAt: "2026-01-01T00:00:00.000Z",
-    })
-    push({
-      id: "quiet",
-      botId: "bot-b",
-      kind: "nap",
-      payload: {},
-      createdAt: "2026-01-01T00:00:00.000Z",
-    })
-    expect(useCommunityWsStore.getState().botAuditEvents.get("bot-a")).toHaveLength(
-      BOT_AUDIT_RING_MAX,
-    )
-    expect(useCommunityWsStore.getState().botAuditEvents.get("bot-b")).toHaveLength(1)
-  })
-})
+  it("keeps audit facts outside the transient owner", () => {
+    expect(nativeStore.get()).not.toHaveProperty("botAuditEvents")
+  })})

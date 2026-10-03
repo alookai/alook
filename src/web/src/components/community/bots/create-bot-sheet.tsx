@@ -1,6 +1,12 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { createStore, useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useQueryClient } from "@tanstack/react-query"
+import { communityKeys } from "@/lib/query-keys"
+import { isAbortError } from "@/lib/errors"
+
+import { useEffect, useMemo } from "react"
+import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import {
@@ -80,21 +86,24 @@ export function CreateBotSheet({
   guided?: boolean
   avatarSeed?: string
 }) {
+  const source = useCommunityViewSource("create-bot", open)
+  const client = useQueryClient()
+  const handleOpenChange = (next: boolean) => { if (!next) source.retire(); onOpenChange(next) }
   const { machines } = useMachines()
   const create = useCreateBot()
   const uploadBotAvatar = useUploadBotAvatar()
-  const [name, setName] = useState("")
-  const [description, setDescription] = useState("")
-  const [machineId, setMachineId] = useState<string>("")
-  const [runtime, setRuntime] = useState<string>("")
-  const [model, setModel] = useState<string | null>(null)
-  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | null>(null)
-  const [fieldErrors, setFieldErrors] = useState<BotCreateFieldErrors>({})
-  const [technicalExpanded, setTechnicalExpanded] = useState(false)
-  const [avatarDraft, setAvatarDraft] = useState<AvatarDraft>({
+  const [name, setName] = useAtom(useCreateAtom(""))
+  const [description, setDescription] = useAtom(useCreateAtom(""))
+  const [machineId, setMachineId] = useAtom(useCreateAtom<string>(""))
+  const [runtime, setRuntime] = useAtom(useCreateAtom<string>(""))
+  const [model, setModel] = useAtom(useCreateAtom<string | null>(null))
+  const [reasoningEffort, setReasoningEffort] = useAtom(useCreateAtom<ReasoningEffort | null>(null))
+  const [fieldErrors, setFieldErrors] = useAtom(useCreateAtom<BotCreateFieldErrors>({}))
+  const [technicalExpanded, setTechnicalExpanded] = useAtom(useCreateAtom(false))
+  const [avatarDraft, setAvatarDraft] = useAtom(useCreateAtom<AvatarDraft>({
     kind: "procedural",
     image: INITIAL_AVATAR,
-  })
+  }))
 
   const selectedMachine = machines.find((m) => m.id === machineId)
   const runtimeOptions = useMemo(() => normalizeRuntimes(selectedMachine), [selectedMachine])
@@ -106,14 +115,10 @@ export function CreateBotSheet({
 
   // Randomize name + avatar on client mount (not during SSR — Math.random would
   // hydration-mismatch). Fires once per sheet open.
-  const initializedFor = useRef<boolean | null>(null)
+  const initialization = useMemo(() => ({ scope: [source.signal], store: createStore(false) }), [source.signal]).store
   useEffect(() => {
-    if (!open) {
-      initializedFor.current = null
-      return
-    }
-    if (initializedFor.current) return
-    initializedFor.current = true
+    if (!open || initialization.get()) return
+    initialization.setState(() => true)
     setName(randomBotName())
     setAvatarDraft({
       kind: "procedural",
@@ -126,7 +131,7 @@ export function CreateBotSheet({
     setReasoningEffort(null)
     setFieldErrors({})
     setTechnicalExpanded(false)
-  }, [open, avatarSeed])
+  }, [open, avatarSeed, initialization, setName, setAvatarDraft, setDescription, setMachineId, setRuntime, setModel, setReasoningEffort, setFieldErrors, setTechnicalExpanded])
 
   // Auto-select sensible defaults once machine data arrives. useMachines()
   // loads async, so `machines` is often [] on the open transition and
@@ -143,7 +148,7 @@ export function CreateBotSheet({
       const next = firstHealthyRuntimeId(runtimeOptions)
       if (next) setRuntime(next)
     }
-  }, [open, machines, runtimeOptions, machineId, runtime])
+  }, [open, machines, runtimeOptions, machineId, runtime, setMachineId, setRuntime])
 
   function shuffleName() {
     setName(randomBotName())
@@ -174,12 +179,16 @@ export function CreateBotSheet({
   }
 
   async function submit() {
+    if (["create-command", "avatar-command"].some((kind) => client.isMutating({ mutationKey: [...communityKeys.bots(), kind], exact: true, predicate: (mutation) => (mutation.state.variables as { input?: { assertActive?: { signal: AbortSignal } } }).input?.assertActive?.signal === source.signal }) > 0)) return
+    const assert = source.capture()
+    assert()
     const nextErrors = validateBotCreateFields({ name, machineId, runtime })
     setFieldErrors(nextErrors)
     if (hasBotCreateFieldErrors(nextErrors)) return
 
     try {
       const data = await create.mutateAsync({
+        assertActive: assert,
         name: name.trim(),
         description: description.trim() || undefined,
         machineId,
@@ -188,6 +197,7 @@ export function CreateBotSheet({
         model,
         reasoningEffort,
       })
+      assert()
       // Bots don't have an id until creation resolves — the photo upload is
       // deferred until now so a cropped-then-cancelled dialog never uploads
       // anything. Surface an upload failure without blocking on it; the bot
@@ -195,24 +205,30 @@ export function CreateBotSheet({
       let avatarFailed = false
       if (avatarDraft.kind === "photo" && avatarDraft.file) {
         try {
-          await uploadBotAvatar.mutateAsync({ botId: data.bot.id, file: avatarDraft.file })
+          await uploadBotAvatar.mutateAsync({ botId: data.bot.id, file: avatarDraft.file, assertActive: assert })
+          assert()
         } catch (e) {
+          try { assert() } catch { return }
+          if (isAbortError(e)) return
           avatarFailed = true
-          toastApiError(e, "Bot created, but the avatar photo failed to upload")
+          toastApiError(e, "Bot created, but the avatar photo failed to upload", assert)
         }
       }
       if (!avatarFailed) toast.success(`Created ${name.trim()}`)
-      onOpenChange(false)
+      assert()
       await onCreated?.(data.bot)
+      assert()
+      handleOpenChange(false)
     } catch (e) {
-      toastApiError(e, "Couldn't create the bot")
+      if (isAbortError(e)) return
+      toastApiError(e, "Couldn't create the bot", assert)
     }
   }
 
   return (
     <CommunitySheet
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={handleOpenChange}
       title="Create a bot"
       bodyClassName="flex flex-col gap-6"
       footer={(requestClose) => (
@@ -220,7 +236,7 @@ export function CreateBotSheet({
           <Button variant="outline" onClick={requestClose}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={create.isPending}>
+          <Button onClick={submit} disabled={create.isPending || uploadBotAvatar.isPending}>
             {create.isPending ? "Creating…" : "Create bot"}
           </Button>
         </>

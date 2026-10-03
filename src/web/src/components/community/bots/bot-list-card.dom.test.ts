@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import React from "react"
-import { fireEvent, render as rtlRender } from "@/test/react-dom-harness"
+import { fireEvent } from "@/test/react-dom-harness"
+import { renderCommunity as rtlRender } from "@/test/community-owner-harness"
 import type { BotSummary } from "@/hooks/community/use-bots"
 import { tid } from "@/lib/community/testids"
 
@@ -34,13 +35,13 @@ vi.mock("@/hooks/community/use-bots", () => ({
 vi.mock("@/hooks/community/mutations", () => ({
   useCreateOrGetDm: () => ({ mutateAsync: vi.fn() }),
 }))
-vi.mock("@/lib/community-db/projections", () => ({
+vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
   useCanonicalProfilesByUserId: () => new Map(),
 }))
 
 function passthrough(name: string) {
-  return function P({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) {
-    return React.createElement("div", { "data-mock": name, ...props }, children)
+  return function P({ children, className, onClick, "data-testid": testId }: React.PropsWithChildren<Record<string, unknown>>) {
+    return React.createElement("div", { "data-mock": name, className, onClick, "data-testid": testId }, children)
   }
 }
 vi.mock("./create-bot-sheet", () => ({ CreateBotSheet: passthrough("create-sheet") }))
@@ -172,7 +173,7 @@ describe("BotList — bug-report feature entry", () => {
 
     fireEvent.click(reportItems[1]!)
     expect(bugReportDialogMock).toHaveBeenCalledWith(
-      expect.objectContaining({ bot: { id: "b2", name: "Maya" } }),
+      expect.objectContaining({ bot: expect.objectContaining({ id: "b2", name: "Maya" }) }),
     )
   })
 })

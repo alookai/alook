@@ -1,17 +1,9 @@
 "use client";
 
-import {
-  type CSSProperties,
-  type RefObject,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { type CSSProperties, type RefObject, useCallback, useEffect, useMemo, useRef } from "react";
 
-import { useAgentContextSafe } from "@/contexts/agent-context";
-import { useInboxCount } from "@/contexts/inbox-count-context";
+import type { WsMessage } from "@alook/shared";
 
 import styles from "./cloud-code-monster-pet.module.css";
 
@@ -43,8 +35,6 @@ import {
   CLOUD_CODE_MONSTER_NO_WORK_SLEEP_MS,
   CLOUD_CODE_MONSTER_PEEK_INTERVAL_MS,
   CLOUD_CODE_MONSTER_PEEK_MS,
-  CLOUD_CODE_MONSTER_PRESET_CHANGED_EVENT,
-  CLOUD_CODE_MONSTER_PRESET_STORAGE_KEY,
   CLOUD_CODE_MONSTER_REACTION_MS,
   CLOUD_CODE_MONSTER_SHAKE_REACTION_MS,
   CLOUD_CODE_MONSTER_SIZE,
@@ -54,9 +44,8 @@ import { usePetDrag } from "./cloud-code-monster-pet-drag";
 import { useWalkToTarget } from "./cloud-code-monster-pet-walk-target";
 import { MonsterSvg } from "./cloud-code-monster-pet-pixel-parts";
 import {
-  CLOUD_CODE_MONSTER_PET_PRESETS,
   getCloudCodeMonsterPreset,
-  readCloudCodeMonsterPetPresetId,
+  useCloudCodeMonsterPetPresetId,
 } from "./cloud-code-monster-pet-presets";
 import type {
   CloudCodeMonsterActivityId,
@@ -125,6 +114,9 @@ export type {
 } from "./cloud-code-monster-pet-types";
 
 export type CloudCodeMonsterPetProps = {
+  inboxCount?: number;
+  activeAgentTaskCount?: number;
+  subscribeWs?: (callback: (message: WsMessage) => void) => () => void;
   boundaryRef: RefObject<HTMLElement | null>;
   initialPosition?: PetPoint;
   previewComebackToken?: number;
@@ -335,32 +327,33 @@ export function resolveCloudCodeMonsterMotionPose(
 }
 
 export function CloudCodeMonsterPet({
+  inboxCount = 0,
+  activeAgentTaskCount = 0,
+  subscribeWs,
   boundaryRef,
   initialPosition,
   previewComebackToken = 0,
   notificationToken = 0,
   peekTargets = EMPTY_PEEK_TARGETS,
 }: CloudCodeMonsterPetProps) {
-  const [activityState, setActivityState] =
-    useState<StoredCloudCodeMonsterActivity | null>(null);
-  const [position, setPosition] = useState<PetPoint | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [isAutoWalking, setIsAutoWalking] = useState(false);
-  const [isPeeking, setIsPeeking] = useState(false);
-  const [notificationActive, setNotificationActive] = useState(false);
-  const [isUserTyping, setIsUserTyping] = useState(false);
-  const [reacting, setReacting] = useState(false);
-  const [shaken, setShaken] = useState(false);
-  const [fainted, setFainted] = useState(false);
-  const [presetId, setPresetId] = useState(
-    CLOUD_CODE_MONSTER_PET_PRESETS[0]!.id
-  );
-  const [walkIntensity, setWalkIntensity] = useState(1);
-  const [walkDirection, setWalkDirection] = useState<"left" | "right">("right");
-  const [eyeOffset, setEyeOffset] = useState<PetPoint>(EMPTY_EYE_OFFSET);
-  const [cursorPose, setCursorPose] =
-    useState<CloudCodeMonsterCursorPose>(EMPTY_CURSOR_POSE);
-  const [footprints, setFootprints] = useState<Footprint[]>([]);
+const [activityState, setActivityState] =
+    useAtom(useCreateAtom<StoredCloudCodeMonsterActivity | null>(null));
+const [position, setPosition] = useAtom(useCreateAtom<PetPoint | null>(null));
+  const [isDragging, setIsDragging] = useAtom(useCreateAtom(false));
+  const [isAutoWalking, setIsAutoWalking] = useAtom(useCreateAtom(false));
+  const [isPeeking, setIsPeeking] = useAtom(useCreateAtom(false));
+  const [notificationActive, setNotificationActive] = useAtom(useCreateAtom(false));
+  const [isUserTyping, setIsUserTyping] = useAtom(useCreateAtom(false));
+  const [reacting, setReacting] = useAtom(useCreateAtom(false));
+  const [shaken, setShaken] = useAtom(useCreateAtom(false));
+  const [fainted, setFainted] = useAtom(useCreateAtom(false));
+  const presetId = useCloudCodeMonsterPetPresetId();
+  const [walkIntensity, setWalkIntensity] = useAtom(useCreateAtom(1));
+const [walkDirection, setWalkDirection] = useAtom(useCreateAtom<"left" | "right">("right"));
+const [eyeOffset, setEyeOffset] = useAtom(useCreateAtom<PetPoint>(EMPTY_EYE_OFFSET));
+const [cursorPose, setCursorPose] =
+    useAtom(useCreateAtom<CloudCodeMonsterCursorPose>(EMPTY_CURSOR_POSE));
+const [footprints, setFootprints] = useAtom(useCreateAtom<Footprint[]>([]));
   const lastNotificationTokenRef = useRef(0);
   const lastFootstepAtRef = useRef(0);
   const autoWalkVelocityRef = useRef<PetPoint | null>(null);
@@ -370,41 +363,6 @@ export function CloudCodeMonsterPet({
   const violentDragEventsRef = useRef<number[]>([]);
   const peekTargetsRef = useRef(peekTargets);
   const { clearAllPetTimers, clearPetTimer, setPetTimer } = usePetTimers();
-
-  useEffect(() => {
-    const syncPreset = (nextPresetId?: string | null) => {
-      setPresetId(
-        nextPresetId
-          ? getCloudCodeMonsterPreset(nextPresetId).id
-          : readCloudCodeMonsterPetPresetId()
-      );
-    };
-    const handlePresetChange = (event: Event) => {
-      syncPreset(
-        (event as CustomEvent<{ presetId?: string }>).detail?.presetId
-      );
-    };
-    const handleStorageChange = (event: StorageEvent) => {
-      if (event.key === CLOUD_CODE_MONSTER_PRESET_STORAGE_KEY) {
-        syncPreset(event.newValue);
-      }
-    };
-
-    syncPreset();
-    window.addEventListener(
-      CLOUD_CODE_MONSTER_PRESET_CHANGED_EVENT,
-      handlePresetChange
-    );
-    window.addEventListener("storage", handleStorageChange);
-
-    return () => {
-      window.removeEventListener(
-        CLOUD_CODE_MONSTER_PRESET_CHANGED_EVENT,
-        handlePresetChange
-      );
-      window.removeEventListener("storage", handleStorageChange);
-    };
-  }, []);
 
   useEffect(() => {
     const nextState = resolveCloudCodeMonsterVisibleState(readStoredActivity());
@@ -432,7 +390,7 @@ export function CloudCodeMonsterPet({
     return () => {
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, []);
+  }, [setActivityState]);
 
   useEffect(() => {
     if (previewComebackToken <= 0) {
@@ -442,7 +400,7 @@ export function CloudCodeMonsterPet({
     const nextState = resolveCloudCodeMonsterPreviewComebackState();
     writeStoredActivity(nextState);
     setActivityState(nextState);
-  }, [previewComebackToken]);
+  }, [previewComebackToken, setActivityState]);
 
   useEffect(() => {
     const syncPosition = () => {
@@ -477,7 +435,7 @@ export function CloudCodeMonsterPet({
       resizeObserverRef.current?.disconnect();
       resizeObserverRef.current = null;
     };
-  }, [boundaryRef, initialPosition]);
+  }, [boundaryRef, initialPosition, setPosition]);
 
   useEffect(() => {
     return clearAllPetTimers;
@@ -516,7 +474,7 @@ export function CloudCodeMonsterPet({
       window.removeEventListener("focusout", clearTypingIfLeavingText, true);
       clearPetTimer("typing");
     };
-  }, [clearPetTimer, setPetTimer]);
+  }, [clearPetTimer, setIsUserTyping, setPetTimer]);
 
   const activity = useMemo(() => {
     if (!activityState?.activityId) {
@@ -540,8 +498,7 @@ export function CloudCodeMonsterPet({
   }, [peekTargets]);
 
   // --- Inbox walk-to-target integration ---
-  const { count: inboxCount } = useInboxCount();
-  const [inboxWalkEnabled, setInboxWalkEnabled] = useState(false);
+  const [inboxWalkEnabled, setInboxWalkEnabled] = useAtom(useCreateAtom(false));
   const inboxDebounceRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -566,7 +523,7 @@ export function CloudCodeMonsterPet({
         inboxDebounceRef.current = null;
       }
     };
-  }, [inboxCount, fainted, isDragging]);
+  }, [inboxCount, fainted, isDragging, setInboxWalkEnabled]);
 
   const handleWalkToTargetStep = useCallback((nextPosition: PetPoint, intensity: number) => {
     setWalkIntensity(intensity);
@@ -587,7 +544,7 @@ export function CloudCodeMonsterPet({
       ]);
       lastFootstepAtRef.current = now;
     }
-  }, []);
+  }, [setFootprints, setWalkIntensity]);
 
   const handleWalkToTargetArrive = useCallback(() => {
     setIsPeeking(true);
@@ -606,7 +563,7 @@ export function CloudCodeMonsterPet({
       };
       schedulePeek();
     }, CLOUD_CODE_MONSTER_PEEK_MS);
-  }, [setPetTimer]);
+  }, [setIsPeeking, setPetTimer, setWalkIntensity]);
 
   const walkToTarget = useWalkToTarget({
     boundaryRef,
@@ -629,14 +586,11 @@ export function CloudCodeMonsterPet({
       setIsPeeking(false);
     }
     wasWalkingToTargetRef.current = isWalkingToTarget;
-  }, [isWalkingToTarget, clearPetTimer]);
+  }, [isWalkingToTarget, clearPetTimer, setIsPeeking]);
 
   // --- Working state: lock activity when agents have running tasks ---
-  const agentCtx = useAgentContextSafe();
-  const activeAgentTaskCount = agentCtx?.activeTaskDetails.length ?? 0;
   const activeAgentTaskCountRef = useRef(activeAgentTaskCount);
   const hasRunningTasks = activeAgentTaskCount > 0;
-  const subscribeWs = agentCtx?.subscribeWs;
 
   useEffect(() => {
     activeAgentTaskCountRef.current = activeAgentTaskCount;
@@ -650,7 +604,7 @@ export function CloudCodeMonsterPet({
     };
     writeStoredActivity(nextState);
     setActivityState(nextState);
-  }, []);
+  }, [setActivityState]);
 
   useEffect(() => {
     if (isUserTyping) {
@@ -761,21 +715,7 @@ export function CloudCodeMonsterPet({
       clearPetTimer("noWorkDoze");
       clearPetTimer("noWorkSleep");
     };
-  }, [
-    activeAgentTaskCount,
-    activityState?.activityId,
-    clearPetTimer,
-    fainted,
-    hasRunningTasks,
-    isDragging,
-    isWalkingToTarget,
-    isUserTyping,
-    notificationActive,
-    reacting,
-    setPlatformActivity,
-    setPetTimer,
-    shaken,
-  ]);
+  }, [activeAgentTaskCount, activityState?.activityId, clearPetTimer, fainted, hasRunningTasks, isDragging, isWalkingToTarget, isUserTyping, notificationActive, reacting, setPlatformActivity, setPetTimer, shaken, setActivityState]);
 
   const pushFootprint = useCallback((nextPosition: PetPoint, intensity: number) => {
     const side = nextFootSideRef.current;
@@ -792,7 +732,7 @@ export function CloudCodeMonsterPet({
         intensity,
       },
     ]);
-  }, []);
+  }, [setFootprints]);
 
   useEffect(() => {
     if (
@@ -861,21 +801,7 @@ export function CloudCodeMonsterPet({
     return () => {
       clearPetTimer("autonomousWalk");
     };
-  }, [
-    activityState?.activityId,
-    boundaryRef,
-    fainted,
-    hasPosition,
-    isDragging,
-    isPeeking,
-    isWalkingToTarget,
-    reacting,
-    clearPetTimer,
-    pushFootprint,
-    shaken,
-    shouldAutoWalk,
-    setPetTimer,
-  ]);
+  }, [activityState?.activityId, boundaryRef, fainted, hasPosition, isDragging, isPeeking, isWalkingToTarget, reacting, clearPetTimer, pushFootprint, shaken, shouldAutoWalk, setPetTimer, setIsAutoWalking, setWalkIntensity, setPosition, setWalkDirection]);
 
   useEffect(() => {
     if (
@@ -922,18 +848,7 @@ export function CloudCodeMonsterPet({
     return () => {
       clearPetTimer("peek");
     };
-  }, [
-    boundaryRef,
-    clearPetTimer,
-    fainted,
-    hasPeekTargets,
-    hasPosition,
-    isDragging,
-    isWalkingToTarget,
-    reacting,
-    shaken,
-    setPetTimer,
-  ]);
+  }, [boundaryRef, clearPetTimer, fainted, hasPeekTargets, hasPosition, isDragging, isWalkingToTarget, reacting, shaken, setPetTimer, setIsAutoWalking, setIsPeeking, setWalkIntensity, setPosition]);
 
   const wakeMonsterToDefault = useCallback(() => {
     if (isSleepyActivity(activityState?.activityId ?? null)) {
@@ -953,7 +868,7 @@ export function CloudCodeMonsterPet({
       writeStoredActivity(nextState);
       return nextState;
     });
-  }, [activityState?.activityId, setPetTimer, setPlatformActivity]);
+  }, [activityState?.activityId, setActivityState, setPetTimer, setPlatformActivity]);
 
   const stopTemporaryMotion = useCallback(() => {
     setIsAutoWalking(false);
@@ -965,7 +880,7 @@ export function CloudCodeMonsterPet({
     clearPetTimer("peek");
     clearPetTimer("peekStop");
     clearPetTimer("walkToTargetPeek");
-  }, [clearPetTimer]);
+  }, [clearPetTimer, setIsAutoWalking, setIsPeeking]);
 
   useEffect(() => {
     if (isDragging || fainted || notificationActive) {
@@ -1058,20 +973,14 @@ export function CloudCodeMonsterPet({
         }
       }
     });
-  }, [
-    activityState?.activityId,
-    setPetTimer,
-    setPlatformActivity,
-    stopTemporaryMotion,
-    subscribeWs,
-  ]);
+  }, [activityState?.activityId, setActivityState, setPetTimer, setPlatformActivity, stopTemporaryMotion, subscribeWs]);
 
   const startShockReaction = useCallback(() => {
     setReacting(true);
     setPetTimer("reaction", () => {
       setReacting(false);
     }, CLOUD_CODE_MONSTER_REACTION_MS);
-  }, [setPetTimer]);
+  }, [setPetTimer, setReacting]);
 
   useEffect(() => {
     if (
@@ -1111,15 +1020,7 @@ export function CloudCodeMonsterPet({
       wakeMonsterToDefault();
     }
     showNotification();
-  }, [
-    activityState?.activityId,
-    notificationToken,
-    setPlatformActivity,
-    setPetTimer,
-    startShockReaction,
-    stopTemporaryMotion,
-    wakeMonsterToDefault,
-  ]);
+  }, [activityState?.activityId, notificationToken, setPlatformActivity, setPetTimer, startShockReaction, stopTemporaryMotion, wakeMonsterToDefault, setNotificationActive, setActivityState]);
 
   const startShakeReaction = useCallback(() => {
     if (fainted) {
@@ -1134,12 +1035,7 @@ export function CloudCodeMonsterPet({
     setPetTimer("shake", () => {
       setShaken(false);
     }, CLOUD_CODE_MONSTER_SHAKE_REACTION_MS);
-  }, [
-    activityState?.activityId,
-    fainted,
-    setPetTimer,
-    wakeMonsterToDefault,
-  ]);
+  }, [activityState?.activityId, fainted, setPetTimer, setShaken, wakeMonsterToDefault]);
 
   const startFaintReaction = useCallback(() => {
     clearPetTimer("faint");
@@ -1156,12 +1052,7 @@ export function CloudCodeMonsterPet({
     setPetTimer("faint", () => {
       setFainted(false);
     }, CLOUD_CODE_MONSTER_FAINT_MS);
-  }, [
-    clearPetTimer,
-    setPetTimer,
-    stopTemporaryMotion,
-    wakeMonsterToDefault,
-  ]);
+  }, [clearPetTimer, setFainted, setPetTimer, setReacting, setShaken, setWalkIntensity, stopTemporaryMotion, wakeMonsterToDefault]);
 
   const {
     handlePetClick,
@@ -1232,7 +1123,7 @@ export function CloudCodeMonsterPet({
     return () => {
       window.removeEventListener("pointermove", handlePointerLook);
     };
-  }, [boundaryRef, position]);
+  }, [boundaryRef, position, setCursorPose, setEyeOffset]);
 
   if (!position || !activityState) {
     return null;

@@ -123,11 +123,10 @@ describe("MessageChannelController facade contract", () => {
     const orderedHooks = [
       "const router = useRouter()",
       "const searchParams = useSearchParams()",
-      "const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null)",
-      "const [searchQuery, setSearchQuery] = useState(\"\")",
-      "const [searchResults, setSearchResults] = useState<Msg[]>([])",
-      "const [scrollTargetId, setScrollTargetId] = useState<string | null>(anchorMessageId)",
-      "const [contextTarget, setContextTarget] = useState<MessageContextTarget | null>(null)",
+      "const [replyTo, setReplyTo] = useAtom(useCreateAtom<ReplyTarget | null>(null))",
+      "const [searchQuery, setSearchQuery] = useAtom(useCreateAtom(\"\"))",
+      "const [scrollTargetId, setScrollTargetId] = useAtom(useCreateAtom<string | null>(anchorMessageId))",
+      "const [contextTarget, setContextTarget] = useAtom(useCreateAtom<MessageContextTarget | null>(null))",
       "useSendMessage()",
       "useToggleReactionApi()",
       "useAddReactionApi()",
@@ -146,7 +145,10 @@ describe("MessageChannelController facade contract", () => {
       expect(position, token).toBeGreaterThan(cursor)
       cursor = position
     }
-    expect(body.match(/\buseState(?:<[^>]+>)?\(/g)).toHaveLength(5)
+    expect(body.match(/\buseCreateAtom(?:<[^>]+>)?\(/g)).toHaveLength(4)
+    expect(body).toContain('queryKey: ["community", "message-search", channelId, term]')
+    expect(body).toContain("const searchMessages = useCanonicalMessagesById(searchIds)")
+    expect(body).not.toMatch(/\buseState(?:<[^>]+>)?\(/)
     expect(actions).not.toMatch(/\buse[A-Z][A-Za-z]+\(/)
     expect(send).not.toMatch(/\buse[A-Z][A-Za-z]+\(/)
   })

@@ -1,15 +1,21 @@
 "use client";
 
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useArtifactClick } from "@/components/use-artifact-click";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
+import { useQuery, isCancelledError } from "@tanstack/react-query";
+import { workspaceIssueListOptions, workspaceIssueOptions, workspaceTaskOptions, workspaceTraceOptions } from "@/hooks/workspace/issue-query-options";
+import { useIssueCommand, usePendingIssueChanges } from "@/hooks/workspace/use-issue-command";
+import { useWorkspaceViewSource } from "@/hooks/workspace/use-workspace-view-source";
+import { ApiError, isAbortError } from "@/lib/errors";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { CircleDot, Eye, EyeOff, Loader2, Plus, Trash2 } from "lucide-react";
-import type { Agent, Artifact, Issue, IssueComment, Message, WsMessage } from "@alook/shared";
-import { useWorkspace } from "@/contexts/workspace-context";
+import type { Agent, Artifact, Issue } from "@alook/shared";
+import { useWorkspaceOwner, captureWorkspaceOwner } from "@/contexts/workspace-context";
 import { useAgentContext } from "@/contexts/agent-context";
-import { createIssue, deleteIssue, getIssue, getTask, getTrace, listIssues, updateIssue } from "@/lib/api";
-import type { IssueListItem, TraceTask } from "@/lib/api";
-import type { TaskApi } from "@alook/shared";
+
+import type { IssueListItem } from "@/lib/api";
+
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -220,372 +226,131 @@ function DraggableIssueCard({
 }
 
 export default function IssuesPage() {
-  const { workspaceId, slug } = useWorkspace();
-  const { agents, loading: agentsLoading, subscribeWs } = useAgentContext();
-  const [recentAgentId, setRecentAgentId] = useLocalStorage<string>(`issue-recent-agent-id-${workspaceId}`, "");
-  const [draft, setDraft] = useLocalStorage<{ title: string; description: string; agentId: string }>(`issue-draft-${workspaceId}`, { title: "", description: "", agentId: "" });
-  const [showCompleted, setShowCompleted] = useLocalStorage<boolean>("issues-show-completed", true);
-  const [issues, setIssues] = useState<IssueListItem[]>([]);
-  const issuesRef = useRef<IssueListItem[]>([]);
-  useEffect(() => { issuesRef.current = issues; });
-  const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<{ issue: Issue & { trace_id?: string | null }; messages: Message[]; comments: IssueComment[]; artifacts: Artifact[] } | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [activeTask, setActiveTask] = useState<TaskApi | null>(null);
-  const [traceTasks, setTraceTasks] = useState<TraceTask[] | null>(null);
-  const [activeDragId, setActiveDragId] = useState<string | null>(null);
-  const [artifactSheetOpen, setArtifactSheetOpen] = useState(false);
-  const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
-  const pendingStatusUpdate = useRef<string | null>(null);
-  const refreshSeqRef = useRef(0);
-  const selectedIdRef = useRef<string | null>(null);
 
+  const owner = useWorkspaceOwner();
+  const { workspaceId, slug } = owner;
+  const { agents, loading: agentsLoading } = useAgentContext();
+  const scope = owner.application.userId + ":" + workspaceId;
+  const [recentAgentId, setRecentAgentId] = useLocalStorage<string>("issue-recent-agent-id-" + scope, "");
+  const [draft, setDraft] = useLocalStorage<{ title: string; description: string; agentId: string }>("issue-draft-" + scope, { title: "", description: "", agentId: "" });
+  const [showCompleted, setShowCompleted] = useLocalStorage<boolean>("issues-show-completed-" + owner.application.userId, true);
+  const [sheetOpen, setSheetOpen] = useAtom(useCreateAtom(false));
+  const selection = useCreateAtom<string | null>(null);
+  const [selectedId, setSelectedId] = useAtom(selection);
+  const [activeDragId, setActiveDragId] = useAtom(useCreateAtom<string | null>(null));
+  const [artifactSheetOpen, setArtifactSheetOpen] = useAtom(useCreateAtom(false));
+  const [selectedArtifactId, setSelectedArtifactId] = useAtom(useCreateAtom<string | null>(null));
+  const source = useWorkspaceViewSource(owner, JSON.stringify(["issue-board", selectedId, sheetOpen]), true);
+  const listQuery = useQuery(workspaceIssueListOptions(owner));
+  const issueQuery = useQuery({ ...workspaceIssueOptions(owner, sheetOpen ? selectedId ?? "__none__" : "__none__"), enabled: sheetOpen && !!selectedId });
+  const { mutateAsync: mutateIssue } = useIssueCommand(owner);
+  const pending = usePendingIssueChanges(owner);
+  const projectIssue = useCallback((issue: IssueListItem) => pending.reduce((current, action) => action.kind === "update" && action.id === current.id ? { ...current, ...action.patch } : current, issue), [pending]);
+  const issues = useMemo(() => (listQuery.data ?? []).filter((row) => !pending.some((action) => action.kind === "delete" && action.id === row.id)).map(projectIssue), [listQuery.data, pending, projectIssue]);
+  const detail = useMemo(() => issueQuery.data ? { ...issueQuery.data, issue: { ...issueQuery.data.issue, ...projectIssue(issueQuery.data.issue) } } : null, [issueQuery.data, projectIssue]);
+  const detailLoading = issueQuery.isPending && !!selectedId && sheetOpen;
+  const taskId = detail?.issue.latest_task_id;
+  const traceId = detail?.issue.trace_id;
+  const activeTask = useQuery({ ...workspaceTaskOptions(owner, taskId ?? "__none__"), enabled: sheetOpen && !!taskId }).data ?? null;
+  const traceTasks = useQuery({ ...workspaceTraceOptions(owner, traceId ?? "__none__"), enabled: sheetOpen && !!traceId }).data?.tasks ?? null;
+  const loading = listQuery.isPending;
+  const creating = pending.some((action) => action.kind === "create");
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
-  const agentsById = useMemo(() => new Map(agents.map(a => [a.id, a])), [agents]);
-
+  const agentsById = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
   const issueArtifacts = useMemo(() => detail?.artifacts ?? [], [detail?.artifacts]);
-  const { versionMap: artifactVersionMap, duplicateFilenames: artifactDuplicateFilenames } = useMemo(
-    () => computeArtifactVersions(issueArtifacts),
-    [issueArtifacts],
-  );
-
-  const previewArtifact = useCallback((artifact: Artifact) => {
-    setSelectedArtifact(artifact);
-    setArtifactSheetOpen(true);
-  }, []);
+  const selectedArtifact = issueArtifacts.find((artifact) => artifact.id === selectedArtifactId) ?? null;
+  const { versionMap: artifactVersionMap, duplicateFilenames: artifactDuplicateFilenames } = useMemo(() => computeArtifactVersions(issueArtifacts), [issueArtifacts]);
+  const previewArtifact = useCallback((artifact: Artifact) => { setSelectedArtifactId(artifact.id); setArtifactSheetOpen(true); }, [setSelectedArtifactId, setArtifactSheetOpen]);
   const handleArtifactClick = useArtifactClick(workspaceId, previewArtifact);
 
-  async function reload() {
-    setLoading(true);
-    try {
-      const [active, completed] = await Promise.all([
-        listIssues(workspaceId, { terminal: false }),
-        listIssues(workspaceId, { terminal: true }),
-      ]);
-      setIssues([...active, ...completed]);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load issues");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function silentReload() {
-    try {
-      const [active, completed] = await Promise.all([
-        listIssues(workspaceId, { terminal: false }),
-        listIssues(workspaceId, { terminal: true }),
-      ]);
-      setIssues([...active, ...completed]);
-    } catch {
-      // silent — background refresh, errors are transient
-    }
-  }
-
-  const silentReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const needsDetailRefreshRef = useRef(false);
-
-  function debouncedSilentReload() {
-    if (silentReloadTimerRef.current) clearTimeout(silentReloadTimerRef.current);
-    silentReloadTimerRef.current = setTimeout(() => {
-      silentReloadTimerRef.current = null;
-      silentReload().catch(() => {});
-      if (needsDetailRefreshRef.current) {
-        if (selectedIdRef.current) {
-          refreshIssue(selectedIdRef.current).catch(() => {});
-        }
-        needsDetailRefreshRef.current = false;
-      }
-    }, 300);
-  }
-
-  useEffect(() => {
-    reload();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId]);
-
-  async function openIssue(issueId: string) {
-    setSelectedId(issueId);
-    selectedIdRef.current = issueId;
+  const openIssue = useCallback((id: string) => {
+    source.assertActive();
+    setSelectedId(id);
     setSheetOpen(true);
-    setDetailLoading(true);
-    setTraceTasks(null);
-    try {
-      const res = await getIssue(workspaceId, issueId);
-      setDetail(res);
-      if (res.issue.trace_id) {
-        getTrace(res.issue.trace_id, workspaceId)
-          .then(t => setTraceTasks(t.tasks))
-          .catch(() => setTraceTasks(null));
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load issue");
-    } finally {
-      setDetailLoading(false);
-    }
-  }
-
-  async function refreshIssue(issueId: string) {
-    const seq = ++refreshSeqRef.current;
-    try {
-      const res = await getIssue(workspaceId, issueId);
-      if (seq !== refreshSeqRef.current || selectedIdRef.current !== issueId) return;
-      setDetail(res);
-      if (res.issue.trace_id) {
-        getTrace(res.issue.trace_id, workspaceId)
-          .then(t => { if (seq === refreshSeqRef.current && selectedIdRef.current === issueId) setTraceTasks(t.tasks); })
-          .catch(() => {});
-      }
-      const taskId = res.issue.latest_task_id;
-      if (taskId) {
-        getTask(taskId, workspaceId)
-          .then(task => { if (seq === refreshSeqRef.current && selectedIdRef.current === issueId) setActiveTask(task); })
-          .catch(() => {});
-      }
-    } catch (err: unknown) {
-      if (err && typeof err === "object" && "status" in err && (err as { status: number }).status === 404) {
-        handleSheetOpenChange(false);
-      }
-    }
-  }
-
-  const detailConvId = detail?.issue.conversation_id ?? null;
-  const detailConvIdRef = useRef<string | null>(null);
-  useEffect(() => { detailConvIdRef.current = detailConvId; });
-  const detailTaskId = detail?.issue.latest_task_id ?? null;
-  const detailTaskIdRef = useRef<string | null>(null);
-  useEffect(() => { detailTaskIdRef.current = detailTaskId; });
-  const detailAgentId = detail?.issue.agent_id ?? null;
-  const detailAgentIdRef = useRef<string | null>(null);
-  useEffect(() => { detailAgentIdRef.current = detailAgentId; });
-
-  useEffect(() => {
-    if (!detailTaskId) { setActiveTask(null); return; }
-    let cancelled = false;
-    getTask(detailTaskId, workspaceId).then((task) => {
-      if (!cancelled) setActiveTask(task);
-    }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [detailTaskId, workspaceId]);
-
-  useEffect(() => {
-    const unsub = subscribeWs((msg: WsMessage) => {
-      if (msg.type === "conversation.message" && detailConvIdRef.current && msg.conversationId === detailConvIdRef.current) {
-        setDetail((prev) => {
-          if (!prev) return prev;
-          if (prev.messages.some((m) => m.id === msg.message.id)) return prev;
-          return { ...prev, messages: [...prev.messages, msg.message] };
-        });
-        if (msg.message.role === "event" && msg.message.content.startsWith("Issue status changed:") && !pendingStatusUpdate.current) {
-          const match = msg.message.content.match(/-> (\w+)/);
-          if (match) {
-            const newStatus = match[1] as Issue["status"];
-            setDetail((prev) => prev ? { ...prev, issue: { ...prev.issue, status: newStatus } } : prev);
-            setIssues((prev) => prev.map((i) => i.conversation_id === detailConvIdRef.current ? { ...i, status: newStatus, updated_at: msg.message.created_at } : i));
-          }
-        }
-      }
-      if (msg.type === "conversation.message"
-          && msg.message.role === "event"
-          && msg.message.content.startsWith("Issue status changed:")
-          && !pendingStatusUpdate.current
-          && msg.conversationId !== detailConvIdRef.current) {
-        const match = msg.message.content.match(/-> (\w+)/);
-        if (match) {
-          const newStatus = match[1] as Issue["status"];
-          setIssues((prev) => prev.map((i) =>
-            i.conversation_id === msg.conversationId
-              ? { ...i, status: newStatus, updated_at: msg.message.created_at }
-              : i
-          ));
-        }
-      }
-      if (msg.type === "issue.comment" && selectedIdRef.current === msg.issueId) {
-        setDetail((prev) => {
-          if (!prev) return prev;
-          if (prev.comments.some((c) => c.id === msg.comment.id)) return prev;
-          return { ...prev, comments: [...prev.comments, msg.comment] };
-        });
-      }
-      if (msg.type === "task.updated" && (msg.status === "running" || msg.status === "completed" || msg.status === "failed")) {
-        if (pendingStatusUpdate.current) return;
-
-        const currentIssues = issuesRef.current;
-
-        if (currentIssues.length === 0) {
-          debouncedSilentReload();
-          return;
-        }
-
-        const issueAgentIds = new Set(currentIssues.map(i => i.agent_id).filter((id): id is string => !!id));
-        const issueTaskIds = new Set(currentIssues.map(i => i.latest_task_id).filter((id): id is string => !!id));
-
-        if (!issueAgentIds.has(msg.agentId) && !issueTaskIds.has(msg.taskId)) return;
-
-        if (msg.taskId === detailTaskIdRef.current || msg.agentId === detailAgentIdRef.current) {
-          needsDetailRefreshRef.current = true;
-        }
-
-        debouncedSilentReload();
-      }
-    });
-    return () => {
-      unsub();
-      if (silentReloadTimerRef.current) {
-        clearTimeout(silentReloadTimerRef.current);
-        silentReloadTimerRef.current = null;
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subscribeWs]);
-
-  // --- Sheet handlers ---
-
-  const handleCreate = useCallback(async (values: { agent_id?: string; title: string; description: string }) => {
-    setCreating(true);
-    try {
-      const res = await createIssue(workspaceId, {
-        agent_id: values.agent_id,
-        title: values.title,
-        description: values.description,
-      });
-      trackIssueCreated({ agent_id: values.agent_id ?? "" });
-      setIssues((prev) => [res.issue, ...prev]);
-      if (values.agent_id) setRecentAgentId(values.agent_id);
-      setDraft({ title: "", description: "", agentId: "" });
-      setSelectedId(res.issue.id);
-      selectedIdRef.current = res.issue.id;
-      openIssue(res.issue.id);
-      toast.success("Issue created");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create issue");
-    } finally {
-      setCreating(false);
-    }
-  }, [workspaceId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleUpdate = useCallback(async (issueId: string, patch: { title?: string; description?: string }) => {
-    try {
-      const updated = await updateIssue(workspaceId, issueId, patch);
-      setIssues((prev) => prev.map((i) => i.id === issueId ? { ...i, ...patch, updated_at: updated.updated_at } : i));
-      setDetail((prev) => prev && prev.issue.id === issueId ? { ...prev, issue: { ...prev.issue, ...patch, updated_at: updated.updated_at } } : prev);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update issue");
-    }
-  }, [workspaceId]);
-
-  const handleStatusChange = useCallback(async (issueId: string, newStatus: string) => {
-    const issue = issues.find((i) => i.id === issueId);
-    if (!issue) return;
-    const oldStatus = issue.status;
-    if (newStatus === oldStatus) return;
-
-    trackIssueStatusChanged({ from: oldStatus, to: newStatus, method: "button" });
-
-    const now = new Date().toISOString();
-    setIssues((prev) => prev.map((i) => i.id === issueId ? { ...i, status: newStatus as Issue["status"], updated_at: now } : i));
-    if (detail?.issue.id === issueId) {
-      setDetail((prev) => prev ? { ...prev, issue: { ...prev.issue, status: newStatus as Issue["status"], updated_at: now } } : prev);
-    }
-
-    pendingStatusUpdate.current = issueId;
-    try {
-      await updateIssue(workspaceId, issueId, { status: newStatus as Issue["status"] });
-    } catch (err) {
-      setIssues((prev) => prev.map((i) => i.id === issueId ? { ...i, status: oldStatus } : i));
-      if (detail?.issue.id === issueId) {
-        setDetail((prev) => prev ? { ...prev, issue: { ...prev.issue, status: oldStatus } } : prev);
-      }
-      toast.error(err instanceof Error ? err.message : "Failed to update issue status");
-    } finally {
-      pendingStatusUpdate.current = null;
-    }
-  }, [workspaceId, issues, detail]);
-
-
-  const handleDeleteIssue = useCallback(async (issueId: string) => {
-    try {
-      await deleteIssue(workspaceId, issueId);
-      setIssues((prev) => prev.filter((i) => i.id !== issueId));
-      if (selectedId === issueId) {
-        setSelectedId(null);
-        selectedIdRef.current = null;
-        setSheetOpen(false);
-        setDetail(null);
-      }
-      toast.success("Issue deleted");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete issue");
-    }
-  }, [workspaceId, selectedId]);
-
+  }, [source, setSelectedId, setSheetOpen]);
   const handleSheetOpenChange = useCallback((open: boolean) => {
     setSheetOpen(open);
-    if (!open) {
-      setSelectedId(null);
-      selectedIdRef.current = null;
-      setDetail(null);
-      setActiveTask(null);
-      setTraceTasks(null);
+    if (!open) setSelectedId(null);
+  }, [setSheetOpen, setSelectedId]);
+  useEffect(() => {
+    if (!issueQuery.error || isAbortError(issueQuery.error) || isCancelledError(issueQuery.error)) return;
+    try { source.assertActive(); } catch { return; }
+    if (issueQuery.error instanceof ApiError && issueQuery.error.status === 404) handleSheetOpenChange(false);
+    else toast.error(issueQuery.error instanceof Error ? issueQuery.error.message : "Failed to load issue");
+  }, [issueQuery.error, source.assertActive, handleSheetOpenChange, source]);
+
+  const handleCreate = useCallback(async (values: { agent_id?: string; title: string; description: string }) => {
+    const assertView = source.assertActive;
+    try {
+      assertView();
+      const issue = await mutateIssue({ action: { kind: "create", values }, token: captureWorkspaceOwner(owner), assertActive: Object.assign(() => assertView(), { signal: source.signal }) });
+      assertView();
+      if (!issue) return;
+      trackIssueCreated({ agent_id: values.agent_id ?? "" });
+      if (values.agent_id) setRecentAgentId(values.agent_id);
+      setDraft({ title: "", description: "", agentId: "" });
+      setSelectedId(issue.id);
+      setSheetOpen(true);
+      toast.success("Issue created");
+    } catch (error) {
+      try { assertView(); } catch { return; }
+      if (!isAbortError(error)) toast.error(error instanceof Error ? error.message : "Failed to create issue");
     }
-  }, []);
+  }, [owner, source, mutateIssue, setRecentAgentId, setDraft, setSelectedId, setSheetOpen]);
 
-  // --- DnD handlers ---
+  const handleUpdate = useCallback(async (id: string, patch: { title?: string; description?: string }) => {
+    const assertView = source.assertActive;
+    try {
+      assertView();
+      await mutateIssue({ action: { kind: "update", id, patch }, token: captureWorkspaceOwner(owner), assertActive: Object.assign(() => assertView(), { signal: source.signal }) });
+      assertView();
+    } catch (error) {
+      try { assertView(); } catch { return; }
+      if (!isAbortError(error)) toast.error(error instanceof Error ? error.message : "Failed to update issue");
+    }
+  }, [owner, source, mutateIssue]);
 
-  function handleDragStart(event: DragStartEvent) {
-    setActiveDragId(event.active.id as string);
-  }
+  const handleStatusChange = useCallback(async (id: string, status: string, method: "button" | "drag" = "button") => {
+    const issue = issues.find((row) => row.id === id);
+    if (!issue || issue.status === status) return;
+    const assertView = source.assertActive;
+    try {
+      assertView();
+      trackIssueStatusChanged({ from: issue.status, to: status, method });
+      await mutateIssue({ action: { kind: "update", id, patch: { status: status as Issue["status"] } }, token: captureWorkspaceOwner(owner), assertActive: Object.assign(() => assertView(), { signal: source.signal }) });
+      assertView();
+    } catch (error) {
+      try { assertView(); } catch { return; }
+      if (!isAbortError(error)) toast.error(error instanceof Error ? error.message : "Failed to update issue status");
+    }
+  }, [owner, issues, source, mutateIssue]);
 
+  const handleDeleteIssue = useCallback(async (id: string) => {
+    const assertView = source.assertActive;
+    try {
+      assertView();
+      await mutateIssue({ action: { kind: "delete", id }, token: captureWorkspaceOwner(owner), assertActive: Object.assign(() => assertView(), { signal: source.signal }) });
+      assertView();
+      if (selection.get() === id) handleSheetOpenChange(false);
+      toast.success("Issue deleted");
+    } catch (error) {
+      try { assertView(); } catch { return; }
+      if (!isAbortError(error)) toast.error(error instanceof Error ? error.message : "Failed to delete issue");
+    }
+  }, [owner, source, mutateIssue, selection, handleSheetOpenChange]);
+
+  function handleDragStart(event: DragStartEvent) { setActiveDragId(event.active.id as string); }
   async function handleDragEnd(event: DragEndEvent) {
     setActiveDragId(null);
     const { active, over } = event;
     if (!over) return;
-
-    const issueId = active.id as string;
-    const targetColId = over.id as string;
-    const issue = issues.find((i) => i.id === issueId);
-    if (!issue) return;
-
-    const targetCol = COLUMNS.find((c) => c.id === targetColId);
-    if (!targetCol) return;
-
-    if ((targetCol.statuses as readonly string[]).includes(issue.status)) return;
-
-    if (issue.status === "todo" && !issue.agent_id && targetColId !== "todo" && targetColId !== "completed") {
-      toast.error("Assign an agent first to run this issue");
-      return;
-    }
-
-    const newStatus = targetColId === "completed" ? "done" : targetColId;
-    const oldStatus = issue.status;
-
-    trackIssueStatusChanged({ from: oldStatus, to: newStatus, method: "drag" });
-
-    const now = new Date().toISOString();
-    setIssues((prev) => prev.map((i) => i.id === issueId ? { ...i, status: newStatus as Issue["status"], updated_at: now } : i));
-    if (detail?.issue.id === issueId) {
-      setDetail((prev) => prev ? { ...prev, issue: { ...prev.issue, status: newStatus as Issue["status"], updated_at: now } } : prev);
-    }
-
-    pendingStatusUpdate.current = issueId;
-    try {
-      await updateIssue(workspaceId, issueId, { status: newStatus as Issue["status"] });
-    } catch (err) {
-      setIssues((prev) => prev.map((i) => i.id === issueId ? { ...i, status: oldStatus } : i));
-      if (detail?.issue.id === issueId) {
-        setDetail((prev) => prev ? { ...prev, issue: { ...prev.issue, status: oldStatus } } : prev);
-      }
-      toast.error(err instanceof Error ? err.message : "Failed to update issue status");
-    } finally {
-      pendingStatusUpdate.current = null;
-    }
+    const issue = issues.find((row) => row.id === active.id), column = COLUMNS.find((row) => row.id === over.id);
+    if (!issue || !column || (column.statuses as readonly string[]).includes(issue.status)) return;
+    if (issue.status === "todo" && !issue.agent_id && column.id !== "todo" && column.id !== "completed") { toast.error("Assign an agent first to run this issue"); return; }
+    await handleStatusChange(issue.id, column.id === "completed" ? "done" : column.id, "drag");
   }
-
   const boardLoading = loading || agentsLoading;
-  const selectedIssue = selectedId ? issues.find((i) => i.id === selectedId) ?? null : null;
+  const selectedIssue = selectedId ? detail?.issue ?? issues.find((i) => i.id === selectedId) ?? null : null;
 
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-background/30">
@@ -594,7 +359,7 @@ export default function IssuesPage() {
           <h1 className="text-base font-semibold tracking-normal">Issues</h1>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" className="w-full sm:w-auto" onClick={() => { setSelectedId(null); selectedIdRef.current = null; setSheetOpen(true); }}>
+          <Button size="sm" className="w-full sm:w-auto" onClick={() => { setSelectedId(null); setSheetOpen(true); }}>
             <Plus className="size-4" />
             New issue
           </Button>
@@ -798,7 +563,7 @@ export default function IssuesPage() {
         onUpdate={handleUpdate}
         onStatusChange={handleStatusChange}
         onCommented={() => selectedId && openIssue(selectedId)}
-        onDispatched={(id) => { silentReload(); openIssue(id); }}
+        onDispatched={openIssue}
         onArtifactClick={handleArtifactClick}
       />
 
@@ -806,7 +571,7 @@ export default function IssuesPage() {
         open={artifactSheetOpen}
         onOpenChange={(v) => {
           setArtifactSheetOpen(v);
-          if (!v) setTimeout(() => setSelectedArtifact(null), 300);
+          if (!v) setSelectedArtifactId(null);
         }}
         artifacts={issueArtifacts}
         workspaceId={workspaceId}

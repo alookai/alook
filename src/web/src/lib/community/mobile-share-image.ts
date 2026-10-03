@@ -81,20 +81,21 @@ function normalizeError(error: unknown): MobileShareImageError {
 export async function saveMobileShareImage(
   blob: Blob,
   filename: string,
+  assertActive?: () => void,
 ): Promise<MobileShareImageSaveResult> {
   return invokeMobileShareImage("mobile_share_image_save", blob, { filename }, (result, id) => (
     result?.attemptId === id
     && result.status === "saved"
     && ["photos", "pictures", "document"].includes(result.destination)
-  ))
+  ), assertActive)
 }
 
-export async function copyMobileShareImage(blob: Blob): Promise<MobileShareImageCopyResult> {
+export async function copyMobileShareImage(blob: Blob, assertActive?: () => void): Promise<MobileShareImageCopyResult> {
   return invokeMobileShareImage("mobile_share_image_copy", blob, {}, (result, id) => (
     result?.attemptId === id
     && result.status === "copied"
     && result.destination === "clipboard"
-  ))
+  ), assertActive)
 }
 
 async function invokeMobileShareImage<T extends MobileShareImageCopyResult | MobileShareImageSaveResult>(
@@ -102,6 +103,7 @@ async function invokeMobileShareImage<T extends MobileShareImageCopyResult | Mob
   blob: Blob,
   extra: { filename?: string },
   accepts: (result: T, attemptId: string) => boolean,
+  assertActive?: () => void,
 ): Promise<T> {
   if (blob.type !== "image/png") {
     throw new MobileShareImageError("invalid_png", "Image must be a PNG")
@@ -118,18 +120,23 @@ async function invokeMobileShareImage<T extends MobileShareImageCopyResult | Mob
     console.debug(`mobile-share-image web dispatch attempt=${id} t=${start}`)
   }
   try {
+    assertActive?.()
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    assertActive?.()
     const result = await tauriInvoke<T>(command, {
       payload: {
         attemptId: id,
-        pngBase64: encodeMobileShareImageBytes(new Uint8Array(await blob.arrayBuffer())),
+        pngBase64: encodeMobileShareImageBytes(bytes),
         ...extra,
       },
     })
+    assertActive?.()
     if (!accepts(result, id)) {
       throw new MobileShareImageError("write_failed", "Native image result did not match the request")
     }
     return result
   } catch (error) {
+    assertActive?.()
     throw normalizeError(error)
   } finally {
     if (process.env.NODE_ENV !== "production") {

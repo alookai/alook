@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import React from "react"
-import { act, render as rtlRender } from "@/test/react-dom-harness"
+import { act } from "@/test/react-dom-harness"
+import { renderCommunity as rtlRender } from "@/test/community-owner-harness"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
   createMessageMenuPointAnchor,
@@ -18,7 +19,7 @@ import {
 } from "./message"
 import { EmojiPickerPopover } from "./emoji-picker"
 import type { RenderMsg } from "@/lib/community/models/message"
-vi.mock("@/lib/community-db/projections", () => ({
+vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
   useCanonicalCommunityProfile: (userId: string | null | undefined) => userId === "u1"
     ? { userId, name: "Alice", discriminator: "", avatar: "A", avatarVersion: 0 }
     : undefined,
@@ -1373,6 +1374,7 @@ describe("Message touch action menu", () => {
     act(() => avatar.props.onClick({ preventDefault, stopPropagation }))
     expect(onOpenProfile).toHaveBeenCalledOnce()
     act(() => renderer!.unmount())
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(vi.getTimerCount()).toBeLessThanOrEqual(mountedTimerCount)
   })
 

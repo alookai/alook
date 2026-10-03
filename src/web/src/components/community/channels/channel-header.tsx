@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect, useRef, type ReactNode } from "react"
 import type { LucideIcon } from "lucide-react"
 import { Bell, BellOff, Pin, Users, MessagesSquare, ChevronLeft, Check, Pencil, MoreHorizontal } from "lucide-react"
 import { NOTIF_LEVELS, USE_SERVER_DEFAULT, type NotifLevel } from "@alook/shared"
@@ -268,16 +269,16 @@ function HeaderRename({ label, onRename, titleMode = false, className = "" }: {
   titleMode?: boolean
   className?: string
 }) {
-  const [open, setOpen] = useState(false)
-  const [draft, setDraft] = useState(label)
-  const [saving, setSaving] = useState(false)
+  const [open, setOpen] = useAtom(useCreateAtom(false))
+  const [draft, setDraft] = useAtom(useCreateAtom(label))
+  const [saving, setSaving] = useAtom(useCreateAtom(false))
   const savingRef = useRef(false)
   // Keep the draft mirror in sync with the upstream label whenever the dialog
   // is closed — covers WS-driven renames and channel switches (the parent
   // component is reused across channelId changes).
   useEffect(() => {
     if (!open) setDraft(label)
-  }, [label, open])
+  }, [label, open, setDraft])
   const draftPreview = previewSlug(draft)
   const validDraft = titleMode ? Boolean(draft.trim()) : Boolean(draftPreview.slug)
   const save = async () => {

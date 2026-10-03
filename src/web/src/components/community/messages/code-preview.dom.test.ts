@@ -1,5 +1,6 @@
 import React from "react"
-import { act, fireEvent, render } from "@/test/react-dom-harness"
+import { act, fireEvent, waitFor } from "@/test/react-dom-harness"
+import { renderCommunity as render } from "@/test/community-owner-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { CodeHighlightResult } from "@/lib/community/code-highlight"
 import { tid } from "@/lib/community/testids"
@@ -26,8 +27,8 @@ function deferred<T>() {
 
 async function flush(): Promise<void> {
   await act(async () => {
-    await Promise.resolve()
-    await Promise.resolve()
+    if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(0)
+    else await new Promise((resolve) => setTimeout(resolve, 0))
   })
 }
 
@@ -190,7 +191,7 @@ describe("CodePreview", () => {
       reason: null,
     })
     await flush()
-    expect(renderer!.container.querySelector("code span")).toHaveTextContent("new-token")
+    await waitFor(() => expect(renderer!.container.querySelector("code span")).toHaveTextContent("new-token"))
 
     first.resolve({
       kind: "highlighted",

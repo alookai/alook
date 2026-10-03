@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useRef, useState, type ComponentProps } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useCallback, useRef, type ComponentProps } from "react"
 import { communityKeys } from "@/lib/query-keys"
 import { channelHref } from "@/lib/community/community-route"
 import type { Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
@@ -70,8 +71,8 @@ export function useShellInboxController({
   const unreadDms = attention.dms
   const mentions = attention.mentions
   const loading = attention.isLoading
-  const [markedTabOpened, setMarkedTabOpened] = useState(false)
-  const [activeTab, setActiveTab] = useState<InboxTab>("unreads")
+  const [markedTabOpened, setMarkedTabOpened] = useAtom(useCreateAtom(false))
+  const [activeTab, setActiveTab] = useAtom(useCreateAtom<InboxTab>("unreads"))
   const scrollOffsetsRef = useRef<Record<InboxTab, number>>({
     unreads: 0,
     mentions: 0,
@@ -92,7 +93,7 @@ export function useShellInboxController({
   const changeActiveTab = useCallback((tab: InboxTab) => {
     setActiveTab(tab)
     if (tab === "marked") setMarkedTabOpened(true)
-  }, [])
+  }, [setActiveTab, setMarkedTabOpened])
   const getScrollOffset = useCallback((tab: InboxTab) => (
     scrollOffsetsRef.current[tab]
   ), [])

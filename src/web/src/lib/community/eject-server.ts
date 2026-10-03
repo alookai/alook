@@ -1,23 +1,15 @@
 import type { Server } from "./models/navigation"
 import { ApiError } from "@/lib/errors"
 import { communityServerId } from "./community-route"
+import type { QueryClient } from "@tanstack/react-query"
+import { createStore, type Store } from "@tanstack/store"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import {
   COMMUNITY_COLD_ENTRY_FALLBACK,
   consumeCommunityColdEntryFailure,
 } from "./last-community-route"
 
-// Module-scoped marker set. The "Leave" button in the server rail marks
-// the server id here BEFORE firing the mutation; the layout's eject effect
-// consumes it — if present, the leave was voluntary and the button owns
-// the toast, so the layout stays silent. Any other trigger (kick, server
-// delete, forbidden URL) finds no marker and shows the involuntary toast.
-//
-// Set-backed, not a ref, because the button and the layout live in
-// sibling subtrees and threading a context just for this is heavier than
-// the coordination warrants. Same trick as `wsStore.hasSeenMessage`.
-const voluntaryLeaves = new Set<string>()
-
-export type OwnerServerDeleteRouteToken = object
+export type OwnerServerDeleteRouteToken = { owner: QueryClient; store: Store<OwnerServerDeleteState> }
 
 type OwnerServerDeleteRecord = {
   serverId: string
@@ -30,49 +22,41 @@ type OwnerServerDeleteRecord = {
   scopes: "retained" | "flushing"
 }
 
-type OwnerServerDeleteState = {
+export type OwnerServerDeleteState = {
   transactions: Map<string, OwnerServerDeleteRecord>
   tombstones: WeakMap<OwnerServerDeleteRouteToken, string>
   flushedServerIds: Set<string>
+  voluntaryLeaves: Set<string>
+  meRootLanding: boolean
 }
 
-type OwnerServerDeleteWindow = Window & {
-  __alookOwnerServerDeleteStateV8?: OwnerServerDeleteState
-  __alookOwnerServerDeleteMeRootLandingV1?: boolean
+export function emptyOwnerServerDeleteState(): OwnerServerDeleteState {
+  return { transactions: new Map(), tombstones: new WeakMap(), flushedServerIds: new Set(), voluntaryLeaves: new Set(), meRootLanding: false }
 }
 
-let ownerServerDeleteMeRootLandingFallback = false
-
-function setOwnerServerDeleteMeRootLanding(value: boolean): void {
-  if (typeof window === "undefined") {
-    ownerServerDeleteMeRootLandingFallback = value
-    return
-  }
-  ;(window as OwnerServerDeleteWindow).__alookOwnerServerDeleteMeRootLandingV1 = value
+export function createOwnerServerDeleteStore(): Store<OwnerServerDeleteState> {
+  return createStore(emptyOwnerServerDeleteState())
 }
 
-export function isOwnerServerDeleteMeRootLanding(): boolean {
-  if (typeof window === "undefined") return ownerServerDeleteMeRootLandingFallback
-  return Boolean(
-    (window as OwnerServerDeleteWindow).__alookOwnerServerDeleteMeRootLandingV1,
-  )
+function ownerServerDeleteStore(queryClient: QueryClient, token?: OwnerServerDeleteRouteToken) {
+  if (token) return token.owner === queryClient ? token.store : undefined
+  return getCommunityDbRegistry(queryClient)?.runtime.serverEject
 }
 
-const ownerServerDeleteFallback: OwnerServerDeleteState = {
-  transactions: new Map(),
-  tombstones: new WeakMap(),
-  flushedServerIds: new Set(),
+function changeOwnerServerDelete<T>(queryClient: QueryClient, change: (state: OwnerServerDeleteState) => T, token?: OwnerServerDeleteRouteToken): T | undefined {
+  const store = ownerServerDeleteStore(queryClient, token)
+  if (!store) return undefined
+  let result!: T
+  store.setState((previous) => {
+    const state = { ...previous, transactions: new Map(previous.transactions), flushedServerIds: new Set(previous.flushedServerIds), voluntaryLeaves: new Set(previous.voluntaryLeaves) }
+    result = change(state)
+    return state
+  })
+  return result
 }
 
-function ownerServerDeleteState(): OwnerServerDeleteState {
-  if (typeof window === "undefined") return ownerServerDeleteFallback
-  const scope = window as OwnerServerDeleteWindow
-  scope.__alookOwnerServerDeleteStateV8 ??= {
-    transactions: new Map(),
-    tombstones: new WeakMap(),
-    flushedServerIds: new Set(),
-  }
-  return scope.__alookOwnerServerDeleteStateV8
+export function isOwnerServerDeleteMeRootLanding(queryClient: QueryClient): boolean {
+  return ownerServerDeleteStore(queryClient)?.get().meRootLanding ?? false
 }
 
 function ownerServerDeleteScopeFlushReady(record: OwnerServerDeleteRecord): boolean {
@@ -81,151 +65,125 @@ function ownerServerDeleteScopeFlushReady(record: OwnerServerDeleteRecord): bool
     && record.scopes === "retained"
 }
 
-export function markVoluntaryLeave(serverId: string): void {
-  voluntaryLeaves.add(serverId)
+export function markVoluntaryLeave(queryClient: QueryClient, serverId: string): void {
+  changeOwnerServerDelete(queryClient, (state) => { state.voluntaryLeaves.add(serverId) })
 }
 
-// Returns true iff the id was marked; clears the marker either way.
-export function consumeVoluntaryLeave(serverId: string): boolean {
-  return voluntaryLeaves.delete(serverId)
+export function consumeVoluntaryLeave(queryClient: QueryClient, serverId: string): boolean {
+  return changeOwnerServerDelete(queryClient, (state) => state.voluntaryLeaves.delete(serverId)) ?? false
 }
 
-export function createOwnerServerDeleteRouteToken(): OwnerServerDeleteRouteToken {
-  return {}
+export function createOwnerServerDeleteRouteToken(queryClient: QueryClient): OwnerServerDeleteRouteToken {
+  const store = ownerServerDeleteStore(queryClient)
+  if (!store) throw new DOMException("Missing delete route owner", "AbortError")
+  return { owner: queryClient, store }
 }
 
-export function registerOwnerServerDeleteRoute(
-  serverId: string,
-  token: OwnerServerDeleteRouteToken,
-): "participant" | "ordinary" {
-  const state = ownerServerDeleteState()
-  const record = state.transactions.get(serverId)
-  if (record?.scopes === "retained") {
-    record.participantTokens.add(token)
-    return "participant"
-  }
-  if (state.tombstones.get(token) === serverId) state.tombstones.delete(token)
-  return "ordinary"
+export function registerOwnerServerDeleteRoute(queryClient: QueryClient, serverId: string, token: OwnerServerDeleteRouteToken): "participant" | "ordinary" {
+  return changeOwnerServerDelete(queryClient, (state) => {
+    const record = state.transactions.get(serverId)
+    if (record?.scopes === "retained") {
+      state.transactions.set(serverId, { ...record, participantTokens: new Set([...record.participantTokens, token]) })
+      return "participant" as const
+    }
+    if (state.tombstones.get(token) === serverId) state.tombstones.delete(token)
+    return "ordinary" as const
+  }, token) ?? "ordinary"
 }
 
-export function beginOwnerServerDelete(
-  serverId: string,
-  originToken: OwnerServerDeleteRouteToken,
-): void {
-  const state = ownerServerDeleteState()
-  const current = state.transactions.get(serverId)
-  if (current) {
-    if (current.scopes === "retained") current.participantTokens.add(originToken)
-    return
-  }
-  setOwnerServerDeleteMeRootLanding(false)
-  state.flushedServerIds.delete(serverId)
-  state.transactions.set(serverId, {
-    serverId,
-    request: "pending",
-    originToken,
-    participantTokens: new Set([originToken]),
-    lastCommittedHref: `/c/channels/${encodeURIComponent(serverId)}`,
-    targetHref: null,
-    navigationIssued: false,
-    scopes: "retained",
+export function beginOwnerServerDelete(queryClient: QueryClient, serverId: string, originToken: OwnerServerDeleteRouteToken): void {
+  changeOwnerServerDelete(queryClient, (state) => {
+    const current = state.transactions.get(serverId)
+    if (current) {
+      if (current.scopes === "retained") state.transactions.set(serverId, { ...current, participantTokens: new Set([...current.participantTokens, originToken]) })
+      return
+    }
+    state.meRootLanding = false
+    state.flushedServerIds.delete(serverId)
+    state.transactions.set(serverId, {
+      serverId, request: "pending", originToken, participantTokens: new Set([originToken]),
+      lastCommittedHref: `/c/channels/${encodeURIComponent(serverId)}`, targetHref: null,
+      navigationIssued: false, scopes: "retained",
+    })
+  }, originToken)
+}
+
+export function commitOwnerServerDelete(queryClient: QueryClient, serverId: string, originToken: OwnerServerDeleteRouteToken): boolean {
+  return changeOwnerServerDelete(queryClient, (state) => {
+    const record = state.transactions.get(serverId)
+    if (!record || record.originToken !== originToken || record.request !== "pending") return false
+    const next = { ...record, request: "resolving" as const }
+    state.transactions.set(serverId, next)
+    return ownerServerDeleteScopeFlushReady(next)
+  }, originToken) ?? false
+}
+
+export function cancelOwnerServerDelete(queryClient: QueryClient, serverId: string, originToken?: OwnerServerDeleteRouteToken): void {
+  changeOwnerServerDelete(queryClient, (state) => {
+    const record = state.transactions.get(serverId)
+    if (record && (!originToken || record.originToken === originToken)) state.transactions.delete(serverId)
+  }, originToken)
+}
+
+export function claimOwnerServerDeleteNavigation(queryClient: QueryClient, serverId: string, originToken: OwnerServerDeleteRouteToken, targetHref: string): boolean {
+  return changeOwnerServerDelete(queryClient, (state) => {
+    const record = state.transactions.get(serverId)
+    if (!record || record.originToken !== originToken || record.request !== "resolving" || record.scopes !== "retained" || record.navigationIssued || communityServerId(record.lastCommittedHref) !== serverId || communityServerId(targetHref) === serverId) return false
+    state.transactions.set(serverId, { ...record, request: "navigating", targetHref, navigationIssued: true })
+    state.meRootLanding = targetHref === "/c/me"
+    return true
+  }, originToken) ?? false
+}
+
+export function isOwnerServerDeleteRouteProtected(queryClient: QueryClient, serverId: string, token?: OwnerServerDeleteRouteToken): boolean {
+  const state = ownerServerDeleteStore(queryClient, token)?.get()
+  return !!state && (state.transactions.has(serverId) || !!token && state.tombstones.get(token) === serverId)
+}
+
+export function isOwnerServerDeleteScopeEvictionBlocked(queryClient: QueryClient, serverId: string): boolean {
+  const state = ownerServerDeleteStore(queryClient)?.get()
+  return !!state && (state.transactions.has(serverId) || state.flushedServerIds.has(serverId))
+}
+
+export function isOwnerServerDeleteCompleted(queryClient: QueryClient, serverId: string): boolean {
+  return ownerServerDeleteStore(queryClient)?.get().flushedServerIds.has(serverId) ?? false
+}
+
+export function observeOwnerServerDeleteRouteCommit(queryClient: QueryClient, committedHref: string): string[] {
+  changeOwnerServerDelete(queryClient, (state) => {
+    if (committedHref !== "/c/me") state.meRootLanding = false
+    for (const [id, record] of state.transactions) state.transactions.set(id, { ...record, lastCommittedHref: committedHref })
   })
+  return ownerServerDeleteScopeFlushCandidates(queryClient)
 }
 
-export function commitOwnerServerDelete(
-  serverId: string,
-  originToken: OwnerServerDeleteRouteToken,
-): boolean {
-  const record = ownerServerDeleteState().transactions.get(serverId)
-  if (!record || record.originToken !== originToken || record.request !== "pending") return false
-  record.request = "resolving"
-  return ownerServerDeleteScopeFlushReady(record)
+export function ownerServerDeleteScopeFlushCandidates(queryClient: QueryClient): string[] {
+  return [...(ownerServerDeleteStore(queryClient)?.get().transactions ?? [])].filter(([, record]) => ownerServerDeleteScopeFlushReady(record)).map(([serverId]) => serverId)
 }
 
-export function cancelOwnerServerDelete(
-  serverId: string,
-  originToken?: OwnerServerDeleteRouteToken,
-): void {
-  const state = ownerServerDeleteState()
-  const record = state.transactions.get(serverId)
-  if (record && (!originToken || record.originToken === originToken)) {
-    state.transactions.delete(serverId)
-  }
-}
-
-export function claimOwnerServerDeleteNavigation(
-  serverId: string,
-  originToken: OwnerServerDeleteRouteToken,
-  targetHref: string,
-): boolean {
-  const record = ownerServerDeleteState().transactions.get(serverId)
-  if (!record
-    || record.originToken !== originToken
-    || record.request !== "resolving"
-    || record.scopes !== "retained"
-    || record.navigationIssued
-    || communityServerId(record.lastCommittedHref) !== serverId
-    || communityServerId(targetHref) === serverId) return false
-  record.request = "navigating"
-  record.targetHref = targetHref
-  record.navigationIssued = true
-  setOwnerServerDeleteMeRootLanding(targetHref === "/c/me")
-  return true
-}
-
-export function isOwnerServerDeleteRouteProtected(
-  serverId: string,
-  token?: OwnerServerDeleteRouteToken,
-): boolean {
-  const state = ownerServerDeleteState()
-  if (state.transactions.has(serverId)) return true
-  return token ? state.tombstones.get(token) === serverId : false
-}
-
-export function isOwnerServerDeleteScopeEvictionBlocked(serverId: string): boolean {
-  const state = ownerServerDeleteState()
-  return state.transactions.has(serverId) || state.flushedServerIds.has(serverId)
-}
-
-export function isOwnerServerDeleteCompleted(serverId: string): boolean {
-  return ownerServerDeleteState().flushedServerIds.has(serverId)
-}
-
-export function observeOwnerServerDeleteRouteCommit(committedHref: string): string[] {
-  if (committedHref !== "/c/me") setOwnerServerDeleteMeRootLanding(false)
-  const state = ownerServerDeleteState()
-  for (const record of state.transactions.values()) {
-    record.lastCommittedHref = committedHref
-  }
-  return ownerServerDeleteScopeFlushCandidates()
-}
-
-export function ownerServerDeleteScopeFlushCandidates(): string[] {
-  return [...ownerServerDeleteState().transactions]
-    .filter(([, record]) => ownerServerDeleteScopeFlushReady(record))
-    .map(([serverId]) => serverId)
-}
-
-export function isOwnerServerDeleteScopeFlushReady(serverId: string): boolean {
-  const record = ownerServerDeleteState().transactions.get(serverId)
+export function isOwnerServerDeleteScopeFlushReady(queryClient: QueryClient, serverId: string): boolean {
+  const record = ownerServerDeleteStore(queryClient)?.get().transactions.get(serverId)
   return record ? ownerServerDeleteScopeFlushReady(record) : false
 }
 
-export function claimOwnerServerDeleteScopeFlush(serverId: string): boolean {
-  const record = ownerServerDeleteState().transactions.get(serverId)
-  if (!record || !ownerServerDeleteScopeFlushReady(record)) return false
-  record.scopes = "flushing"
-  return true
+export function claimOwnerServerDeleteScopeFlush(queryClient: QueryClient, serverId: string): boolean {
+  return changeOwnerServerDelete(queryClient, (state) => {
+    const record = state.transactions.get(serverId)
+    if (!record || !ownerServerDeleteScopeFlushReady(record)) return false
+    state.transactions.set(serverId, { ...record, scopes: "flushing" })
+    return true
+  }) ?? false
 }
 
-export function completeOwnerServerDeleteScopeFlush(serverId: string): boolean {
-  const state = ownerServerDeleteState()
-  const record = state.transactions.get(serverId)
-  if (!record || record.scopes !== "flushing") return false
-  for (const token of record.participantTokens) state.tombstones.set(token, serverId)
-  state.flushedServerIds.add(serverId)
-  state.transactions.delete(serverId)
-  return true
+export function completeOwnerServerDeleteScopeFlush(queryClient: QueryClient, serverId: string): boolean {
+  return changeOwnerServerDelete(queryClient, (state) => {
+    const record = state.transactions.get(serverId)
+    if (!record || record.scopes !== "flushing") return false
+    for (const token of record.participantTokens) state.tombstones.set(token, serverId)
+    state.flushedServerIds.add(serverId)
+    state.transactions.delete(serverId)
+    return true
+  }) ?? false
 }
 
 export function isDefinitiveChildMetaFailure(error: unknown): boolean {
@@ -236,7 +194,7 @@ export function isDefinitiveChildMetaFailure(error: unknown): boolean {
 // has any other servers, the first (railOrder-sorted from the API) wins.
 // Otherwise the DM home is the only safe landing spot.
 export function pickPostEjectDestination(
-  servers: readonly Server[],
+  servers: readonly Pick<Server, "id">[],
   ejectedServerId: string,
   serverDestination?: (serverId: string) => string,
 ): string {

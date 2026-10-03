@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect, useRef } from "react";
 import styles from "./hero-scroll-cue.module.css";
 
 export function HeroScrollCue({ targetId }: { targetId: string }) {
   const ref = useRef<HTMLAnchorElement>(null);
-  const [active, setActive] = useState(false);
+  const [active, setActive] = useAtom(useCreateAtom(false));
 
   useEffect(() => {
     const element = ref.current;
@@ -22,7 +23,7 @@ export function HeroScrollCue({ targetId }: { targetId: string }) {
       observer.disconnect();
       document.removeEventListener("visibilitychange", update);
     };
-  }, []);
+  }, [setActive]);
 
   return (
     <a

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useRef, useEffect, useCallback } from "react";
 import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import {
   DndContext,
@@ -52,9 +53,9 @@ export function ChannelBar() {
     reorderChannels,
   } = useChannel();
 
-  const [creating, setCreating] = useState(false);
-  const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [creating, setCreating] = useAtom(useCreateAtom(false));
+  const [renamingId, setRenamingId] = useAtom(useCreateAtom<string | null>(null));
+  const [deletingId, setDeletingId] = useAtom(useCreateAtom<string | null>(null));
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -344,7 +345,7 @@ function CreateInput({
 }) {
   const ref = useRef<HTMLInputElement>(null);
   const savedRef = useRef(false);
-  const [value, setValue] = useState("");
+  const [value, setValue] = useAtom(useCreateAtom(""));
 
   useEffect(() => {
     ref.current?.focus();
@@ -395,7 +396,7 @@ function RenameInput({
   const ref = useRef<HTMLInputElement>(null);
   const savedRef = useRef(false);
   const readyRef = useRef(false);
-  const [value, setValue] = useState(currentName);
+  const [value, setValue] = useAtom(useCreateAtom(currentName));
 
   useEffect(() => {
     const id = requestAnimationFrame(() => {

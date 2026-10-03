@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto"
 import { createElement, type PropsWithChildren } from "react"
-import { dehydrate, hydrate, QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { dehydrate, hydrate, isCancelledError, QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { createCommunityDbRegistry, registerCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -17,7 +17,7 @@ import {
   removeCanonicalCommunityChannelMembership,
   setCanonicalCommunityChannelMembership,
 } from "@/lib/community-db/sync"
-import { useCommunityWsStore } from "@/stores/community/ws"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useChannelMetadata } from "./use-channel-metadata"
 import { useForumOpenerHint } from "./use-forum-opener-hint"
 import { isChannelMetadataTokenCurrent } from "./channel-metadata"
@@ -36,7 +36,6 @@ import {
   removeForumSidebarProjectionExact,
   removeForumSidebarThreadExact,
   resolveForumSidebarRouteCandidate,
-  restoreForumSidebarThreadInflight,
   useForumSidebarThreads,
   type SidebarThreadEnvelope,
 } from "./use-forum-sidebar-threads"
@@ -55,12 +54,12 @@ const cleanups: Array<() => void | Promise<void>> = []
 
 beforeEach(() => {
   apiFetchMock.mockReset()
-  useCommunityWsStore.getState().reset()
+
 })
 
 afterEach(async () => {
   vi.useRealTimers()
-  await Promise.all(cleanups.splice(0).map((dispose) => dispose()))
+  await act(async () => { await Promise.all(cleanups.splice(0).map((dispose) => dispose())) })
 })
 
 function envelope(overrides: Partial<SidebarThreadEnvelope> = {}): SidebarThreadEnvelope {
@@ -182,7 +181,6 @@ function publish(queryClient: QueryClient, data = envelope()) {
 
 describe("forum sidebar canonical projection", () => {
   it("hands a fresh sidebar child and opener to the shared qualified route without another GET", async () => {
-    useCommunityWsStore.getState().activateProfileAccount("viewer")
     const { queryClient, wrapper } = await setup()
     apiFetchMock.mockResolvedValueOnce(envelope())
     let retainId: string | null = null
@@ -213,11 +211,10 @@ describe("forum sidebar canonical projection", () => {
   })
 
   it.each(["account", "access"] as const)("cannot qualify a sidebar response from before %s changed", async (race) => {
-    useCommunityWsStore.getState().activateProfileAccount("viewer")
     const { queryClient } = await setup()
     const token = captureCommunityLiveSnapshotToken(queryClient)
-    if (race === "account") useCommunityWsStore.getState().activateProfileAccount("other")
-    else useCommunityWsStore.getState().revokeChannelAccess("server-1", "post-1")
+    if (race === "account") getCommunityDbRegistry(queryClient)!.runtime.ws.actions.activateProfileAccount("other")
+    else getCommunityDbRegistry(queryClient)!.runtime.ws.actions.revokeChannelAccess("server-1", "post-1")
     expect(() => publishCommunityForumSidebar(queryClient, {
       serverId: "server-1", channels: envelope().channels, openers: envelope().included.parentMessages,
       proof: { token, signal: undefined },
@@ -227,7 +224,6 @@ describe("forum sidebar canonical projection", () => {
   })
 
   it("does not qualify an archived child carried in a sidebar response", async () => {
-    useCommunityWsStore.getState().activateProfileAccount("viewer")
     const { queryClient, registry } = await setup()
     const response = envelope()
     response.channels[0]!.archived = true
@@ -334,7 +330,7 @@ describe("forum sidebar canonical projection", () => {
   it("does not let an older reconnect response delete a newer WS notify membership", async () => {
     const { queryClient, registry } = await setup()
     publish(queryClient, envelopeFor(["post-ws"]))
-    removeCanonicalCommunityChannelMembership(queryClient, "post-ws", "notify")
+    act(() => { removeCanonicalCommunityChannelMembership(queryClient, "post-ws", "notify") });
     let settle!: (value: SidebarThreadEnvelope) => void
     apiFetchMock.mockReturnValue(new Promise<SidebarThreadEnvelope>((resolve) => {
       settle = resolve
@@ -554,7 +550,7 @@ describe("forum sidebar canonical projection", () => {
   })
 
   it("deduplicates one cold request across a StrictMode-style remount", async () => {
-    const { wrapper } = await setup()
+    const { wrapper, queryClient } = await setup()
     let resolveRequest!: (value: SidebarThreadEnvelope) => void
     apiFetchMock.mockReturnValue(new Promise((resolve) => { resolveRequest = resolve }))
     const first = renderHook(() => useForumSidebarThreads("server-1", "post-1"), { wrapper })
@@ -599,14 +595,14 @@ describe("forum sidebar canonical projection", () => {
   })
 
   it("accepts an in-flight response across a transport-only reconnect", async () => {
-    const { wrapper } = await setup()
+    const { wrapper, queryClient } = await setup()
     let resolveRequest!: (value: SidebarThreadEnvelope) => void
     apiFetchMock.mockReturnValue(new Promise((resolve) => { resolveRequest = resolve }))
     const rendered = renderHook(() => useForumSidebarThreads("server-1", null), { wrapper })
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
     act(() => {
-      useCommunityWsStore.getState().markAccessDisconnected()
-      useCommunityWsStore.getState().markAccessConnected()
+      getCommunityDbRegistry(queryClient)!.runtime.ws.actions.markAccessDisconnected()
+      getCommunityDbRegistry(queryClient)!.runtime.ws.actions.markAccessConnected()
     })
     await act(async () => resolveRequest(envelopeFor(["post-1"])))
     await waitFor(() => expect(rendered.result.current.threads[0]?.id).toBe("post-1"))
@@ -615,19 +611,20 @@ describe("forum sidebar canonical projection", () => {
 
   it("folds in-flight title, activity, and removal deltas into one canonical publish", async () => {
     const { queryClient, wrapper } = await setup()
+    publish(queryClient, envelopeFor(["post-1", "post-2"]))
     const activityAt = new Date(Date.now() - 60_000).toISOString()
     let resolveRequest!: (value: SidebarThreadEnvelope) => void
     apiFetchMock.mockReturnValue(new Promise((resolve) => { resolveRequest = resolve }))
     const rendered = renderHook(() => useForumSidebarThreads("server-1", null), { wrapper })
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
-    patchForumSidebarTitleExact(queryClient, "server-1", "post-1", "live title")
-    patchForumSidebarActivityExact(
+    act(() => { patchForumSidebarTitleExact(queryClient, "server-1", "post-1", "live title") });
+    act(() => { patchForumSidebarActivityExact(
       queryClient, "server-1", "post-1", "forum-1", activityAt,
-    )
-    patchForumSidebarActivityExact(
+    ) });
+    act(() => { patchForumSidebarActivityExact(
       queryClient, "server-1", "missing", "forum-1", activityAt,
-    )
-    removeForumSidebarThreadExact(queryClient, "server-1", "post-2")
+    ) });
+    act(() => { removeForumSidebarThreadExact(queryClient, "server-1", "post-2") });
     await act(async () => resolveRequest(envelopeFor(["post-1", "post-2"])))
     await waitFor(() => expect(rendered.result.current.threads).toEqual([
       expect.objectContaining({
@@ -643,6 +640,7 @@ describe("forum sidebar canonical projection", () => {
 
   it("folds an in-flight activity delta into an eligible retained row", async () => {
     const { queryClient, wrapper } = await setup()
+    publish(queryClient, envelopeFor(["post-1"]))
     const activityAt = new Date(Date.now() - 60_000).toISOString()
     let resolveRequest!: (value: SidebarThreadEnvelope) => void
     apiFetchMock.mockReturnValue(new Promise((resolve) => { resolveRequest = resolve }))
@@ -651,11 +649,9 @@ describe("forum sidebar canonical projection", () => {
       { wrapper },
     )
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
-    patchForumSidebarActivityExact(
+    act(() => { patchForumSidebarActivityExact(
       queryClient, "server-1", "post-1", "forum-1", activityAt,
-    )
-    removeForumSidebarThreadExact(queryClient, "server-1", "post-1")
-    restoreForumSidebarThreadInflight("server-1", "post-1")
+    ) });
     const retained = envelopeFor(["post-1"])
     await act(async () => resolveRequest({
       ...envelopeFor([]),
@@ -710,31 +706,31 @@ describe("forum sidebar canonical projection", () => {
   it("keeps invalid canonical activity literal and removes children by parent", async () => {
     const { queryClient } = await setup()
     publish(queryClient)
-    patchForumSidebarTitleExact(queryClient, "server-1", "post-1", "updated title")
+    act(() => { patchForumSidebarTitleExact(queryClient, "server-1", "post-1", "updated title") });
     expect(getCanonicalCommunityMessages(queryClient).find(({ id }) => id === "opener-1")?.content)
       .toBe("updated title")
-    patchForumSidebarActivityExact(queryClient, "server-1", "post-1", "forum-1", "invalid")
+    act(() => { patchForumSidebarActivityExact(queryClient, "server-1", "post-1", "forum-1", "invalid") });
     expect(getForumSidebarBase(queryClient, "server-1").threads[0]?.expiresAt).toBe("invalid")
-    removeForumSidebarProjectionExact(queryClient, "server-1", "post-1")
-    removeForumSidebarChildrenForParent(queryClient, "server-1", "forum-1")
+    act(() => { removeForumSidebarProjectionExact(queryClient, "server-1", "post-1") });
+    act(() => { removeForumSidebarChildrenForParent(queryClient, "server-1", "forum-1") });
     expect(getCanonicalCommunityChannels(queryClient).some(({ id }) => id === "post-1"))
       .toBe(false)
   })
 
-  it("renders providerless transport data and schedules its next expiry", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    const wrapper = ({ children }: PropsWithChildren) => createElement(
-      QueryClientProvider,
-      { client: queryClient },
-      children,
-    )
+  it("renders the Native canonical transport publication and schedules its next expiry", async () => {
+    vi.useFakeTimers()
+    const { queryClient, wrapper } = await setup()
     apiFetchMock.mockResolvedValue(envelopeFor(["post-1", "post-2"]))
     const rendered = renderHook(
       () => useForumSidebarThreads("server-1", null),
       { wrapper },
     )
-    await waitFor(() => expect(rendered.result.current.threads[0]?.id).toBe("post-1"))
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    expect(rendered.result.current.threads.map(({ id }) => id)).toEqual(["post-2", "post-1"])
     expect(rendered.result.current.projectionReady).toBe(true)
+    await act(async () => { await vi.advanceTimersByTimeAsync(72 * 60 * 60 * 1000 - 60_000 + 25) })
+    expect(rendered.result.current.threads).toEqual([])
+    expect(getCanonicalCommunityChannels(queryClient).filter(({ type }) => type === "thread")).toHaveLength(2)
     rendered.unmount()
     queryClient.clear()
   })
@@ -774,9 +770,9 @@ describe("forum sidebar canonical projection", () => {
     const { queryClient } = await setup()
     let resolveGrant!: (value: SidebarThreadEnvelope) => void
     apiFetchMock.mockReturnValue(new Promise((resolve) => { resolveGrant = resolve }))
-    const grant = grantForumSidebarChild(queryClient, "server-1", "post-1")
+    const grant = grantForumSidebarChild(queryClient, "server-1", "post-1").catch((error) => error)
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
-    removeForumSidebarThreadExact(queryClient, "server-1", "post-1")
+    act(() => { removeForumSidebarThreadExact(queryClient, "server-1", "post-1") });
     await reconcileForumSidebarArchiveTag(queryClient, "server-1", "post-1", true)
     const retained = envelopeFor(["post-1"])
     resolveGrant({
@@ -786,7 +782,7 @@ describe("forum sidebar canonical projection", () => {
       retainedDisposition: "eligible",
       included: retained.included,
     })
-    await grant
+    expect(isCancelledError(await grant)).toBe(true)
     expect(getCanonicalCommunityChannels(queryClient).some(({ id }) => id === "post-1"))
       .toBe(false)
   })
@@ -884,7 +880,7 @@ describe("forum sidebar canonical projection", () => {
   it("aggregates persisted unread child ownership even without notify membership", async () => {
     const { queryClient, wrapper } = await setup()
     publish(queryClient)
-    removeCanonicalCommunityChannelMembership(queryClient, "post-1", "notify")
+    act(() => { removeCanonicalCommunityChannelMembership(queryClient, "post-1", "notify") });
     const rendered = renderHook(
       () => useForumSidebarProjection("server-1", null, Date.now()),
       { wrapper },
@@ -941,7 +937,6 @@ describe("forum sidebar canonical projection", () => {
     expect(restored).toBeDefined()
     const restoredClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     hydrate(restoredClient, restored!.clientState)
-    useCommunityWsStore.getState().activateProfileAccount("viewer")
     const restoredRegistry = createCommunityDbRegistry(restoredClient, "viewer")
     restoredRegistry.captureRestoredCollections()
     await restoredRegistry.preload()

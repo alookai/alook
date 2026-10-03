@@ -19,6 +19,7 @@ describe("community DB schemas", () => {
       "channelMemberships",
       "profiles",
       "messages",
+      "friendships",
       "readStates",
       "readStateClock",
       "attentionScopes",

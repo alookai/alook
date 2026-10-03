@@ -1,10 +1,12 @@
+import { useMutation, useIsMutating, useQueryClient } from "@tanstack/react-query";
+import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections";
+import { useAtom, useCreateAtom, useCreateStore } from "@tanstack/react-store";
 import {
   useCallback,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
   useRef,
-  useState,
   type DragEvent,
   type ForwardedRef,
 } from "react"
@@ -54,15 +56,20 @@ export function useComposerController(
     hideEmoji = false,
     hideAttach = false,
     onDirty,
-    draftKey,
+    draftKey: requestedDraftKey,
   }: ComposerProps,
   ref: ForwardedRef<ComposerHandle>,
 ): ComposerViewProps {
+  const registry = useOptionalCommunityDbRegistry()
+  const client = useQueryClient()
+  const draftKey = registry && requestedDraftKey ? `${registry.accountId}:${requestedDraftKey}` : undefined
   const isForumThreadBody = mode === "forumThreadBody"
   const hoverCapable = useHoverCapable()
   const hoverCapableRef = useRef(hoverCapable)
-  const [editorHasContent, setEditorHasContent] = useState(false)
-  const [sendInFlight, setSendInFlight] = useState(false)
+  const [editorHasContent, setEditorHasContent] = useAtom(useCreateAtom(false))
+  const protocol = useCreateStore({ active: true, generation: 0, scope: "", scopeVersion: 0, draftKey, nextLongPasteIndex: 1, suppress: false, previousHasContent: false })
+  const sendKey = ["community", "composer-accept", useCreateAtom(crypto.randomUUID()).get()]
+  const sendInFlight = useIsMutating({ mutationKey: sendKey, exact: true }) > 0
   useLayoutEffect(() => {
     hoverCapableRef.current = hoverCapable
   }, [hoverCapable])
@@ -84,35 +91,17 @@ export function useComposerController(
     handleDragOver,
     handleDrop: handleDropRaw,
   } = attachments
-  const pendingFilesRef = useRef(pendingFiles)
-  const nextLongPasteIndexRef = useRef(1)
-  useLayoutEffect(() => {
-    pendingFilesRef.current = pendingFiles
-  }, [pendingFiles])
   const typingTimer = useRef<NodeJS.Timeout | null>(null)
   const sendRef = useRef<() => void>(() => {})
   const editorRef = useRef<Editor | null>(null)
-  const sendInFlightRef = useRef<Promise<void> | null>(null)
-  const lifecycleVersionRef = useRef(0)
-  const draftKeyRef = useRef(draftKey)
-  const sendScopeRef = useRef<string | null>(null)
-  const sendScopeVersionRef = useRef(0)
   useLayoutEffect(() => {
     const nextScope = `${context}\u0000${channel}\u0000${draftKey ?? ""}`
-    if (sendScopeRef.current !== nextScope) {
-      sendScopeRef.current = nextScope
-      sendScopeVersionRef.current++
-      nextLongPasteIndexRef.current = 1
-    }
-    draftKeyRef.current = draftKey
-  }, [channel, context, draftKey])
-  useLayoutEffect(
-    () => () => {
-      lifecycleVersionRef.current++
-    },
-    [],
-  )
-  const suppressUpdateEffectsRef = useRef(false)
+    protocol.setState((state) => ({ ...state, draftKey, scope: nextScope, ...(state.scope !== nextScope ? { scopeVersion: state.scopeVersion + 1, nextLongPasteIndex: 1 } : {}) }))
+  }, [channel, context, draftKey, protocol])
+  useLayoutEffect(() => {
+    protocol.setState((state) => ({ ...state, active: true }))
+    return () => protocol.setState((state) => ({ ...state, active: false, generation: state.generation + 1 }))
+  }, [protocol])
   const resolvedPlaceholder = placeholder ?? (context === "channel" ? `Message /${channel}` : `Message ${channel}`)
   const placeholderRef = useRef(resolvedPlaceholder)
   const resolvePlaceholder = useCallback(() => placeholderRef.current, [])
@@ -174,12 +163,12 @@ export function useComposerController(
         const clipboardText = event.clipboardData?.getData("text/plain")
         const attachment = createLongPasteAttachment(
           clipboardText,
-          pendingFilesRef.current.map(({ file }) => file.name),
-          nextLongPasteIndexRef.current,
+          attachments.readPendingFiles().map(({ file }) => file.name),
+          protocol.get().nextLongPasteIndex,
         )
         if (attachment) {
           event.preventDefault()
-          nextLongPasteIndexRef.current = attachment.nextIndex
+          protocol.setState((state) => ({ ...state, nextLongPasteIndex: attachment.nextIndex }))
           void addPendingFiles([attachment.file])
           return true
         }
@@ -201,10 +190,10 @@ export function useComposerController(
     },
     onUpdate: ({ editor: updatedEditor }) => {
       setEditorHasContent(!updatedEditor.isEmpty)
-      if (suppressUpdateEffectsRef.current) return
+      if (protocol.get().suppress) return
       fireTyping()
       emitDirtyTransition()
-      const key = draftKeyRef.current
+      const key = protocol.get().draftKey
       if (key && !isForumThreadBody) {
         writeComposerDraft(
           key,
@@ -231,7 +220,7 @@ export function useComposerController(
     if (!editor || isForumThreadBody || !draftKey) return
     const doc = readComposerDraft(draftKey)
     if (!doc) return
-    suppressUpdateEffectsRef.current = true
+    protocol.setState((state) => ({ ...state, suppress: true }))
     try {
       editor.commands.setContent(doc as JSONContent, {
         emitUpdate: false,
@@ -240,10 +229,9 @@ export function useComposerController(
       setEditorHasContent(!editor.isEmpty)
     } catch {
       clearComposerDraft(draftKey)
-    } finally { suppressUpdateEffectsRef.current = false }
+    } finally { protocol.setState((state) => ({ ...state, suppress: false })) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, draftKey])
-  const previousHasContentRef = useRef(false)
   const onDirtyRef = useRef(onDirty)
   useEffect(() => {
     onDirtyRef.current = onDirty
@@ -251,8 +239,8 @@ export function useComposerController(
   const emitDirtyTransition = () => {
     if (!editor) return
     const next = !editor.isEmpty || pendingFiles.length > 0
-    if (next === previousHasContentRef.current) return
-    previousHasContentRef.current = next
+    if (next === protocol.get().previousHasContent) return
+    protocol.setState((state) => ({ ...state, previousHasContent: next }))
     onDirtyRef.current?.(next)
   }
   useEffect(() => {
@@ -260,56 +248,36 @@ export function useComposerController(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingFiles, editor])
 
-  const send = () => {
-    if (!editor || sendInFlightRef.current) return
-    const attemptScopeVersion = sendScopeVersionRef.current
-    const attemptLifecycle = lifecycleVersionRef.current
-    sendInFlightRef.current = Promise.resolve()
-    setSendInFlight(true)
-    const attempt = (async () => {
+  const sendCommand = useMutation({ mutationKey: sendKey, gcTime: 0,
+    mutationFn: async ({ generation, scopeVersion, editor }: { generation: number; scopeVersion: number; editor: Editor }) => {
+      const assert = () => { const current = protocol.get(); if (!current.active || current.generation !== generation || current.scopeVersion !== scopeVersion) throw new DOMException("Retired composer send", "AbortError") }
+      assert()
       const preparedFiles = await awaitPendingFiles()
-      if (
-        lifecycleVersionRef.current !== attemptLifecycle ||
-        sendScopeVersionRef.current !== attemptScopeVersion
-      ) return
+      assert()
       if (editor.isEmpty && preparedFiles.length === 0) return
-      const markdown = editor.isEmpty
-        ? ""
-        : serializeComposerDocument(editor).trim()
-      const mentionType = detectMentionType(markdown)
-      const payload = pendingFilesToSendAttachments([...preparedFiles])
-      if (sendContract === "accepted") {
-        if (!onAcceptSend?.(markdown, payload, mentionType)) return
-      } else {
-        await onDeferredSubmit?.(markdown, payload, mentionType)
-      }
+      const markdown = editor.isEmpty ? "" : serializeComposerDocument(editor).trim()
+      const mentionType = detectMentionType(markdown), payload = pendingFilesToSendAttachments([...preparedFiles])
+      if (sendContract === "accepted") { if (!onAcceptSend?.(markdown, payload, mentionType)) return }
+      else await onDeferredSubmit?.(markdown, payload, mentionType)
+      assert()
       if (isForumThreadBody) return
       const accepted = sendContract === "accepted"
       if (accepted && typingTimer.current) clearTimeout(typingTimer.current)
       if (accepted) typingTimer.current = null
-      suppressUpdateEffectsRef.current = accepted
-      try { editor.commands.clearContent() } finally { suppressUpdateEffectsRef.current = false }
+      protocol.setState((state) => ({ ...state, suppress: accepted }))
+      try { editor.commands.clearContent() } finally { protocol.setState((state) => ({ ...state, suppress: false })) }
       setEditorHasContent(false)
-      if (draftKeyRef.current) clearComposerDraft(draftKeyRef.current)
+      if (protocol.get().draftKey) clearComposerDraft(protocol.get().draftKey!)
       transferPendingFiles()
-      nextLongPasteIndexRef.current = 1
+      protocol.setState((state) => ({ ...state, nextLongPasteIndex: 1 }))
       suggestions.resetPopups()
-    })()
-    sendInFlightRef.current = attempt
-    void attempt.then(
-      () => {
-        if (sendInFlightRef.current === attempt) {
-          sendInFlightRef.current = null
-          setSendInFlight(false)
-        }
-      },
-      () => {
-        if (sendInFlightRef.current === attempt) {
-          sendInFlightRef.current = null
-          setSendInFlight(false)
-        }
-      },
-    )
+    },
+  })
+  const send = () => {
+    if (!editor || client.isMutating({ mutationKey: sendKey, exact: true })) return
+    const current = protocol.get()
+    if (!current.active) return
+    sendCommand.mutate({ generation: current.generation, scopeVersion: current.scopeVersion, editor })
   }
 
   useLayoutEffect(() => {
@@ -336,7 +304,7 @@ export function useComposerController(
       editor.commands.clearContent()
       setEditorHasContent(false)
       setPendingFiles([])
-      nextLongPasteIndexRef.current = 1
+      protocol.setState((state) => ({ ...state, nextLongPasteIndex: 1 }))
       suggestions.resetPopups()
     },
     isEmpty: () => !editor || (editor.isEmpty && pendingFiles.length === 0),

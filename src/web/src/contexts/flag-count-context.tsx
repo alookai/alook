@@ -1,56 +1,27 @@
-"use client";
+"use client"
 
-import {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  useCallback,
-  type ReactNode,
-} from "react";
-import { getFlaggedCount } from "@/lib/api";
-import { useWorkspace } from "@/contexts/workspace-context";
-
-interface FlagCountContextValue {
-  count: number;
-  refresh: () => void;
-  increment: () => void;
-  decrement: () => void;
-}
-
-const FlagCountContext = createContext<FlagCountContextValue | null>(null);
-
-export function useFlagCount() {
-  const ctx = useContext(FlagCountContext);
-  if (!ctx) throw new Error("useFlagCount must be used within FlagCountProvider");
-  return ctx;
-}
-
+import { useCallback, useMemo, type ReactNode } from "react"
+import { createStoreContext } from "@tanstack/react-store"
+import { useQuery } from "@tanstack/react-query"
+import { beginFlagCountWrite, rollbackFlagCountWrite, type FlagCountData } from "@/lib/workspace-flag-count"
+import { getFlaggedCount } from "@/lib/api"
+import { runWorkspaceRequest, useWorkspaceOwner, type WorkspaceOwner } from "./workspace-context"
+const { StoreProvider, useStoreContext } = createStoreContext<{ workspace: WorkspaceOwner }>()
 export function FlagCountProvider({ children }: { children: ReactNode }) {
-  const { workspaceId } = useWorkspace();
-  const [count, setCount] = useState(0);
-
-  const refresh = useCallback(() => {
-    getFlaggedCount(workspaceId)
-      .then((r) => setCount(r.count))
-      .catch(() => {});
-  }, [workspaceId]);
-
-  const increment = useCallback(() => {
-    setCount((c) => c + 1);
-  }, []);
-
-  const decrement = useCallback(() => {
-    setCount((c) => Math.max(0, c - 1));
-  }, []);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
-
-  return (
-    <FlagCountContext.Provider value={{ count, refresh, increment, decrement }}>
-      {children}
-    </FlagCountContext.Provider>
-  );
+  const workspace = useWorkspaceOwner()
+  const handles = useMemo(() => ({ workspace }), [workspace])
+  return <StoreProvider value={handles}>{children}</StoreProvider>
+}
+export function useFlagCount() {
+  const { workspace } = useStoreContext()
+  const key = useMemo(() => workspace.key("flag-count"), [workspace])
+  const query = useQuery({ queryKey: key, queryFn: async ({ signal }) => {
+    const requestRevision = workspace.queryClient.getQueryData<FlagCountData>(key)?.revision ?? 0
+    const data = await runWorkspaceRequest(workspace, (options) => getFlaggedCount(workspace.workspaceId, options), signal)
+    return { ...data, requestRevision } satisfies FlagCountData
+  } })
+  const refresh = useCallback(() => { void workspace.queryClient.invalidateQueries({ queryKey: key, exact: true }) }, [workspace, key])
+  const begin = useCallback((delta: number) => beginFlagCountWrite(workspace, delta), [workspace])
+  const rollback = useCallback((ticket: ReturnType<typeof beginFlagCountWrite>) => rollbackFlagCountWrite(workspace, ticket), [workspace])
+  return useMemo(() => ({ count: query.data?.count ?? 0, refresh, begin, rollback }), [query.data?.count, refresh, begin, rollback])
 }

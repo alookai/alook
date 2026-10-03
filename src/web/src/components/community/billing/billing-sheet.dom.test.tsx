@@ -26,7 +26,7 @@ function state(overrides: Partial<BillingController> = {}): BillingController {
 }
 function view(billing: BillingController) { return render(<BillingContent billing={billing} />) }
 
-beforeEach(() => analytics.cta.mockReset())
+beforeEach(() => { analytics.cta.mockReset() })
 
 describe("billing sheet", () => {
   it("shows server offers without fixed plan IDs and sends only the selected price", () => {

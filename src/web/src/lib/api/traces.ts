@@ -1,4 +1,4 @@
-import { apiFetch, wsQuery } from "./client";
+import { apiFetch, wsQuery, type ApiRequestOptions } from "./client";
 
 export interface TraceListItem {
   trace_id: string;
@@ -28,7 +28,8 @@ export interface TraceTask {
 
 export const listTraces = (
   workspaceId: string,
-  opts?: { status?: string; limit?: number; before?: string; multiAgent?: boolean; agentId?: string; channel?: string }
+  opts?: { status?: string; limit?: number; before?: string; multiAgent?: boolean; agentId?: string; channel?: string },
+  options?: ApiRequestOptions,
 ) => {
   const extra: Record<string, string> = {};
   if (opts?.limit) extra.limit = String(opts.limit);
@@ -38,11 +39,11 @@ export const listTraces = (
   if (opts?.agentId) extra.agentId = opts.agentId;
   if (opts?.channel) extra.channel = opts.channel;
   return apiFetch<{ traces: TraceListItem[]; has_more: boolean }>(
-    `/api/traces${wsQuery(workspaceId, extra)}`
+    `/api/traces${wsQuery(workspaceId, extra)}`, options,
   );
 };
 
-export const getTrace = (traceId: string, workspaceId: string) =>
+export const getTrace = (traceId: string, workspaceId: string, options?: ApiRequestOptions) =>
   apiFetch<{ trace_id: string; channel: string; tasks: TraceTask[] }>(
-    `/api/traces/${traceId}${wsQuery(workspaceId)}`
+    `/api/traces/${traceId}${wsQuery(workspaceId)}`, options,
   );

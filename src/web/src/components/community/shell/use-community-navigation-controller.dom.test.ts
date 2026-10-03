@@ -17,7 +17,8 @@ const mocks = vi.hoisted(() => ({
   },
 }))
 
-vi.mock("@tanstack/react-query", () => ({
+vi.mock("@tanstack/react-query", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@tanstack/react-query")>(),
   useQueryClient: () => mocks.queryClient,
 }))
 vi.mock("@/lib/community/conversation-navigation-proof", () => ({

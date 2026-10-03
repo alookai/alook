@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import React from "react"
-import { act, fireEvent, render as rtlRender } from "@/test/react-dom-harness"
+import { act, fireEvent } from "@/test/react-dom-harness"
+import { renderCommunity as rtlRender } from "@/test/community-owner-harness"
 
 // --- Pure helper unit tests -------------------------------------------------
 

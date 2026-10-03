@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect, useMemo, useRef } from "react"
 import type React from "react"
 import { NumberTicker } from "@/components/ui/number-ticker"
 import {
@@ -338,14 +339,14 @@ export function MessageReactions({
   const previousEmojisRef = useRef(emojis)
   const initiatingChipRef = useRef<HTMLButtonElement | null>(null)
   const reactionGroupRef = useRef<HTMLDivElement | null>(null)
-  const [open, setOpen] = useState(false)
-  const [selectedEmoji, setSelectedEmoji] = useState<string | null>(null)
+  const [open, setOpen] = useAtom(useCreateAtom(false))
+  const [selectedEmoji, setSelectedEmoji] = useAtom(useCreateAtom<string | null>(null))
 
   useEffect(() => {
     const previous = previousEmojisRef.current
     setSelectedEmoji((selected) => reconcileReactionSelection(previous, emojis, selected))
     previousEmojisRef.current = emojis
-  }, [emojis])
+  }, [emojis, setSelectedEmoji])
 
   return (
     <>

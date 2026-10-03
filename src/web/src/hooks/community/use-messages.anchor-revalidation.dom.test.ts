@@ -1,9 +1,10 @@
+import { createCommunityQueryOwner, seedCommunityMessageWindow } from "@/test/community-query-owner"
+import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
+import { createCommunityDbRegistry } from "@/lib/community-db/collections"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import React from "react"
 import { act, render as rtlRender } from "@/test/react-dom-harness"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { useMessages } from "./use-messages"
-import { useCommunityWsStore } from "@/stores/community/ws"
 import { communityKeys } from "@/lib/query-keys"
 
 const apiFetchMock = vi.fn()
@@ -13,7 +14,7 @@ vi.mock("@/lib/api/client", () => ({
 
 beforeEach(() => {
   apiFetchMock.mockReset()
-  useCommunityWsStore.getState().reset()
+
 })
 
 function Capture({ onRender, channelId, lastReadMessageId }: {
@@ -57,9 +58,9 @@ function deferred<T>() {
 
 describe("useMessages — Fix 3 anchor re-validation", () => {
   it.each(["resolves", "rejects"])("does not restore evicted content when an old anchor repair %s", async (outcome) => {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: client } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
     const key = communityKeys.channelMessages("child")
-    client.setQueryData(key, {
+    seedCommunityMessageWindow(client, key, {
       pages: [{ messages: [{ id: "newest", seq: 3 }], hasMoreOlder: true }],
       pageParams: [{ mode: "newest" }],
     }, { updatedAt: Date.now() - 120_000 })
@@ -67,13 +68,13 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
     apiFetchMock.mockReturnValue(pending.promise)
     let renderer!: ReturnType<typeof rtlRender>
     act(() => {
-      renderer = rtlRender(React.createElement(QueryClientProvider, { client },
+      renderer = rtlRender(React.createElement(QueryClientProvider, { client, retainOwner: true },
         React.createElement(Capture, { onRender: () => undefined, channelId: "child", lastReadMessageId: "anchor" })))
     })
     await waitForSettled(() => apiFetchMock.mock.calls.length > 0)
     expect(apiFetchMock).toHaveBeenCalled()
     act(() => {
-      useCommunityWsStore.getState().revokeChannelAccess("s1", "parent")
+      createCommunityDbRegistry(client, "viewer").runtime.ws.actions.revokeChannelAccess("s1", "parent")
       client.removeQueries({ queryKey: key, exact: true })
       renderer.unmount()
     })
@@ -85,9 +86,9 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
   })
 
   it("shares one pending anchor repair across an asynchronous route remount", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
     const key = communityKeys.channelMessages("ch_remount")
-    queryClient.setQueryData(key, {
+    seedCommunityMessageWindow(queryClient, key, {
       pages: [{
         messages: [{ id: "m_newest", seq: 2, createdAt: "2026-08-20T00:00:02.000Z" }],
         hasMoreOlder: true,
@@ -109,7 +110,7 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
       first = rtlRender(
         React.createElement(
           QueryClientProvider,
-          { client: queryClient },
+          { client: queryClient, retainOwner: true },
           React.createElement(Capture, {
             onRender: (ids) => { firstRenders.push(ids) },
             channelId: "ch_remount",
@@ -127,7 +128,7 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
       remounted = rtlRender(
         React.createElement(
           QueryClientProvider,
-          { client: queryClient },
+          { client: queryClient, retainOwner: true },
           React.createElement(Capture, {
             onRender: (ids) => { remountedRenders.push(ids) },
             channelId: "ch_remount",
@@ -141,6 +142,7 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
     expect(apiFetchMock).toHaveBeenCalledTimes(1)
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/community/channels/ch_remount/messages?anchor=m_anchor",
+      expect.objectContaining({ authenticationAccount: "viewer", signal: expect.any(AbortSignal) }),
     )
 
     anchor.resolve({
@@ -157,9 +159,9 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
   })
 
   it("keeps settled observer remounts on the ordinary revalidation contract", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
     const key = communityKeys.channelMessages("ch_settled_remount")
-    queryClient.setQueryData(key, {
+    seedCommunityMessageWindow(queryClient, key, {
       pages: [{
         messages: [{ id: "m_newest", seq: 2, createdAt: "2026-08-20T00:00:02.000Z" }],
         hasMoreOlder: true,
@@ -181,7 +183,7 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
       first = rtlRender(
         React.createElement(
           QueryClientProvider,
-          { client: queryClient },
+          { client: queryClient, retainOwner: true },
           React.createElement(Capture, {
             onRender: () => undefined,
             channelId: "ch_settled_remount",
@@ -205,7 +207,7 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
       remounted = rtlRender(
         React.createElement(
           QueryClientProvider,
-          { client: queryClient },
+          { client: queryClient, retainOwner: true },
           React.createElement(Capture, {
             onRender: () => undefined,
             channelId: "ch_settled_remount",
@@ -224,9 +226,9 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
   })
 
   it("keeps different anchor identities on independent requests", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
     const key = communityKeys.channelMessages("ch_distinct")
-    queryClient.setQueryData(key, {
+    seedCommunityMessageWindow(queryClient, key, {
       pages: [{
         messages: [{ id: "m_newest", seq: 3, createdAt: "2026-08-20T00:00:03.000Z" }],
         hasMoreOlder: true,
@@ -254,7 +256,7 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
       first = rtlRender(
         React.createElement(
           QueryClientProvider,
-          { client: queryClient },
+          { client: queryClient, retainOwner: true },
           React.createElement(Capture, {
             onRender: () => undefined,
             channelId: "ch_distinct",
@@ -271,7 +273,7 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
       second = rtlRender(
         React.createElement(
           QueryClientProvider,
-          { client: queryClient },
+          { client: queryClient, retainOwner: true },
           React.createElement(Capture, {
             onRender: () => undefined,
             channelId: "ch_distinct",
@@ -300,7 +302,7 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
     // mocked fetch response meant for Fix 3's own decision path. That
     // implicit refetch is real production behavior but orthogonal to what
     // this test isolates: Fix 3's stale-vs-fresh branch choice.
-    const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { staleTime: Infinity } } })
     const key = communityKeys.channelMessages("ch_1")
 
     // Pre-seed the cache as if the channel had already loaded a window not
@@ -309,7 +311,7 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
     // Thread after the watermark advanced" rather than a stale IDB hydration.
     // Explicit timestamps OLDER than the new anchor page's — these rows must
     // survive the merge and sort BEFORE the new page's rows.
-    queryClient.setQueryData(key, {
+    seedCommunityMessageWindow(queryClient, key, {
       pages: [{
         messages: [
           { id: "m_old_1", seq: 1, createdAt: "2026-06-30T23:59:58.000Z" },
@@ -346,7 +348,7 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
       rtlRender(
         React.createElement(
           QueryClientProvider,
-          { client: queryClient },
+          { client: queryClient, retainOwner: true },
           React.createElement(Capture, {
             onRender: (ids) => { renderedMessageIds.push(ids) },
             channelId: "ch_1",
@@ -379,18 +381,19 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
     expect(apiFetchMock).toHaveBeenCalledTimes(1)
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/community/channels/ch_1/messages?anchor=m_new_anchor",
+      expect.objectContaining({ authenticationAccount: "viewer", signal: expect.any(AbortSignal) }),
     )
   })
 
   it("fresh cache with THREE pages (anchor + two fetchOlder pages): merge keeps every page's messages, not just the newest fetch", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { staleTime: Infinity } } })
     const key = communityKeys.channelMessages("ch_multi")
 
     // Simulate a user who scrolled up and loaded two older pages via
     // `fetchOlder`, in addition to the original anchor-window page. Pages
     // are stored oldest-last per this hook's `getNextPageParam` convention
     // (`pages[0]` = anchor/newest, later pages = progressively older).
-    queryClient.setQueryData(key, {
+    seedCommunityMessageWindow(queryClient, key, {
       pages: [
         { messages: [{ id: "m_anchor_old", seq: 3, createdAt: "2026-07-01T00:00:05.000Z" }], hasMoreOlder: true, hasMoreNewer: false },
         { messages: [{ id: "m_older_1", seq: 2, createdAt: "2026-07-01T00:00:03.000Z" }], hasMoreOlder: true, hasMoreNewer: false },
@@ -416,7 +419,7 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
       rtlRender(
         React.createElement(
           QueryClientProvider,
-          { client: queryClient },
+          { client: queryClient, retainOwner: true },
           React.createElement(Capture, {
             onRender: (ids) => { renderedMessageIds.push(ids) },
             channelId: "ch_multi",
@@ -440,9 +443,10 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
     expect(finalIds).toEqual([
       "m_older_2", "m_older_1", "m_anchor_old", "m_new_anchor",
     ])
-    // Merge collapses to a single page.
-    const cache = queryClient.getQueryData(key) as { pages: unknown[] } | undefined
-    expect(cache?.pages.length).toBe(1)
+    const cache = queryClient.getQueryData(key) as { pages: unknown[]; pageParams: unknown[] } | undefined
+    expect(cache?.pages).toHaveLength(4)
+    expect(cache?.pageParams).toHaveLength(4)
+    expect(cache?.pageParams[0]).toEqual({ mode: "anchor", anchor: "m_new_anchor" })
   })
 
   it("stale cache with a drifted anchor: swaps in the fresh anchor window WITHOUT ever clearing to an empty list", async () => {
@@ -452,10 +456,10 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
     // mocked fetch response meant for Fix 3's own decision path. That
     // implicit refetch is real production behavior but orthogonal to what
     // this test isolates: Fix 3's stale-vs-fresh branch choice.
-    const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { staleTime: Infinity } } })
     const key = communityKeys.channelMessages("ch_2")
 
-    queryClient.setQueryData(key, {
+    seedCommunityMessageWindow(queryClient, key, {
       pages: [{ messages: [{ id: "m_old_1", seq: 1, createdAt: "2026-06-30T00:00:00.000Z" }], hasMoreOlder: false, hasMoreNewer: false }],
       pageParams: [{ mode: "anchor", anchor: "m_old_anchor" }],
     })
@@ -482,7 +486,7 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
       rtlRender(
         React.createElement(
           QueryClientProvider,
-          { client: queryClient },
+          { client: queryClient, retainOwner: true },
           React.createElement(Capture, {
             onRender: (ids) => { renderedMessageIds.push(ids) },
             channelId: "ch_2",
@@ -515,6 +519,7 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
     // test's per-render `length > 0` assertion above guards against.)
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/community/channels/ch_2/messages?anchor=m_fresh_anchor",
+      expect.objectContaining({ authenticationAccount: "viewer", signal: expect.any(AbortSignal) }),
     )
   })
 })

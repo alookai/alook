@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
+import { createStore, useSelector, useAtom, useCreateAtom, type Store } from "@tanstack/react-store"
+import { useCallback, useEffect } from "react"
 import type { QueryClient } from "@tanstack/react-query"
 import {
   activateInboxProjectionTicket,
@@ -30,9 +31,7 @@ type Options = {
 }
 
 type ProjectionStore = {
-  current: ProjectionLease | null
-  listeners: Set<() => void>
-  nextEpoch: number
+  value: Store<{ lease: ProjectionLease | null; nextEpoch: number }>
 }
 
 const projectionStores = new WeakMap<QueryClient, ProjectionStore>()
@@ -40,7 +39,7 @@ const projectionStores = new WeakMap<QueryClient, ProjectionStore>()
 function projectionStoreFor(queryClient: QueryClient) {
   let store = projectionStores.get(queryClient)
   if (!store) {
-    store = { current: null, listeners: new Set(), nextEpoch: 0 }
+    store = { value: createStore<{ lease: ProjectionLease | null; nextEpoch: number }>({ lease: null, nextEpoch: 0 }) }
     projectionStores.set(queryClient, store)
   }
   return store
@@ -48,24 +47,16 @@ function projectionStoreFor(queryClient: QueryClient) {
 
 export function useInboxProjectionTarget(queryClient: QueryClient) {
   const store = projectionStoreFor(queryClient)
-  return useSyncExternalStore(
-    (listener) => {
-      store.listeners.add(listener)
-      return () => store.listeners.delete(listener)
-    },
-    () => store.current?.target ?? null,
-    () => store.current?.target ?? null,
-  )
+  return useSelector(store.value, (state) => state.lease?.target ?? null)
 }
 
 function publishProjection(store: ProjectionStore, lease: ProjectionLease | null) {
-  store.current = lease
-  for (const listener of store.listeners) listener()
+  store.value.setState((state) => ({ ...state, lease }))
 }
 
 function allocateProjectionEpoch(store: ProjectionStore) {
-  store.nextEpoch += 1
-  return store.nextEpoch
+  store.value.setState((state) => ({ ...state, nextEpoch: state.nextEpoch + 1 }))
+  return store.value.get().nextEpoch
 }
 
 function destinationMatches(observed: string | null, expected: string) {
@@ -87,53 +78,45 @@ export function useInboxAutoCollapse({
   navigationPending,
   pendingHref,
 }: Options) {
-  const [open, setOpen] = useState(false)
+  const openAtom = useCreateAtom(false)
+  const [open, setOpen] = useAtom(openAtom)
   const store = projectionStoreFor(queryClient)
-  const projection = useSyncExternalStore(
-    (listener) => {
-      store.listeners.add(listener)
-      return () => store.listeners.delete(listener)
-    },
-    () => store.current,
-    () => store.current,
-  )
+  const projection = useSelector(store.value, (state) => state.lease)
   const projectionTarget = projection?.target ?? null
-  const openRef = useRef(open)
-  const previousPublishedHrefRef = useRef(publishedHref)
+  const previousPublishedHref = useCreateAtom(publishedHref)
 
   const commitLease = useCallback((lease: ProjectionLease) => {
-    if (store.current?.epoch !== lease.epoch) return
+    if (store.value.get().lease?.epoch !== lease.epoch) return
     const committed = { ...lease, phase: "committed" as const }
     publishProjection(store, committed)
     activateInboxProjectionTicket(lease.ticket)
   }, [store])
 
   const rollbackProjection = useCallback((epoch: number, reopen = false) => {
-    const lease = store.current
+    const lease = store.value.get().lease
     if (!lease || lease.epoch !== epoch) return false
     cancelInboxProjectionTicket(lease.ticket)
     publishProjection(store, null)
     if (reopen) {
-      openRef.current = lease.previousOpen
       setOpen(lease.previousOpen)
     }
     return true
-  }, [store])
+  }, [store, setOpen])
 
   const beginProjection = useCallback((
     target: InboxRowTarget,
     destinationHref: string,
   ) => {
-    const previous = store.current
+    const previous = store.value.get().lease
     if (previous) cancelInboxProjectionTicket(previous.ticket)
     const epoch = allocateProjectionEpoch(store)
-    const previousOpen = openRef.current
+    const previousOpen = openAtom.get()
     const ticket = registerInboxProjectionTicket(
       queryClient,
       epoch,
       target,
       (receipt) => {
-        const current = store.current
+        const current = store.value.get().lease
         if (!current || current.epoch !== receipt.epoch) return
         publishProjection(store, null)
       },
@@ -150,13 +133,12 @@ export function useInboxAutoCollapse({
       ticket,
     }
     publishProjection(store, lease)
-    openRef.current = false
     setOpen(false)
     return epoch
-  }, [publishedHref, queryClient, store])
+  }, [store, openAtom, queryClient, publishedHref, setOpen])
 
   const markProjectionSubmitted = useCallback((epoch: number) => {
-    const lease = store.current
+    const lease = store.value.get().lease
     if (!lease || lease.epoch !== epoch) return false
     const submitted = { ...lease, submitted: true }
     publishProjection(store, submitted)
@@ -167,19 +149,17 @@ export function useInboxAutoCollapse({
   }, [commitLease, publishedHref, store])
 
   const closeWithoutProjection = useCallback(() => {
-    const lease = store.current
+    const lease = store.value.get().lease
     if (lease) cancelInboxProjectionTicket(lease.ticket)
     publishProjection(store, null)
-    const previousOpen = openRef.current
-    openRef.current = false
+    const previousOpen = openAtom.get()
     setOpen(false)
     return previousOpen
-  }, [store])
+  }, [store, openAtom, setOpen])
 
   const onOpenChange = useCallback((next: boolean) => {
-    openRef.current = next
     setOpen(next)
-  }, [])
+  }, [setOpen])
 
   const isProjected = useCallback((target: InboxRowTarget | null) => {
     if (!target || !projectionTarget) return false
@@ -188,11 +168,11 @@ export function useInboxAutoCollapse({
   }, [projectionTarget])
 
   const isLatestProjection = useCallback((epoch: number) => (
-    store.current?.epoch === epoch
+    store.value.get().lease?.epoch === epoch
   ), [store])
 
   useEffect(() => {
-    const lease = store.current
+    const lease = store.value.get().lease
     if (!lease || !lease.submitted || lease.phase !== "submitting") return
     if (destinationMatches(publishedHref, lease.destinationHref)) {
       commitLease(lease)
@@ -216,12 +196,11 @@ export function useInboxAutoCollapse({
   }, [commitLease, navigationPending, pendingHref, projection, publishedHref, rollbackProjection, store])
 
   useEffect(() => {
-    const previousHref = previousPublishedHrefRef.current
-    previousPublishedHrefRef.current = publishedHref
-    if (previousHref === publishedHref || !openRef.current) return
-    openRef.current = false
+    const previousHref = previousPublishedHref.get()
+    previousPublishedHref.set(publishedHref)
+    if (previousHref === publishedHref || !openAtom.get()) return
     setOpen(false)
-  }, [publishedHref])
+  }, [publishedHref, previousPublishedHref, openAtom, setOpen])
 
   return {
     open,

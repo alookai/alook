@@ -1,6 +1,7 @@
 "use client"
 
-import { useLayoutEffect, useRef, useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useLayoutEffect, useRef } from "react"
 
 export type AuditPreviewPlacement = "right" | "left" | "top" | "bottom"
 
@@ -62,7 +63,7 @@ export function useProfileSecondaryPosition(
   const popoverRef = useRef<HTMLDivElement | null>(null)
   const cardRef = useRef<HTMLDivElement | null>(null)
   const previewRef = useRef<HTMLDivElement | null>(null)
-  const [measuredPosition, setMeasuredPosition] = useState<MeasuredAuditPreviewPosition | null>(null)
+  const [measuredPosition, setMeasuredPosition] = useAtom(useCreateAtom<MeasuredAuditPreviewPosition | null>(null))
   const measurementKey = enabled && previewId ? `${previewId}:${x}:${y}` : null
 
   useLayoutEffect(() => {
@@ -144,7 +145,7 @@ export function useProfileSecondaryPosition(
       popoverElement?.removeEventListener("animationcancel", update)
       observer?.disconnect()
     }
-  }, [measurementKey])
+  }, [measurementKey, setMeasuredPosition])
 
   const ready = measurementKey !== null
     && measuredPosition?.measurementKey === measurementKey

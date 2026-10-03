@@ -2,7 +2,7 @@ import "fake-indexeddb/auto"
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { renderHook, waitFor } from "@/test/react-dom-harness"
+import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
 import {
   createCommunityDbRegistry,
@@ -31,12 +31,12 @@ const cleanups: Array<() => void | Promise<void>> = []
 
 beforeEach(() => {
   apiFetchMock.mockReset()
-  useCommunityWsStore.getState().reset()
-  useCommunityWsStore.getState().activateProfileAccount("viewer")
+
+
 })
 
 afterEach(async () => {
-  await Promise.all(cleanups.splice(0).map((dispose) => dispose()))
+  await act(async () => { await Promise.all(cleanups.splice(0).map((dispose) => dispose())) })
 })
 
 async function canonicalSetup() {
@@ -64,7 +64,7 @@ describe("useForumOpenerHint", () => {
   })
 
   it("refetches a legacy seeded hint that lacks the opener seq", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { queryClient, wrapper } = await canonicalSetup()
     apiFetchMock.mockResolvedValue({
       id: "opener-1",
       content: "Seeded",
@@ -76,7 +76,7 @@ describe("useForumOpenerHint", () => {
       { id: "opener-1", content: "Seeded" },
     )
     renderHook(() => useForumOpenerHint("server-1", "opener-1", true), {
-      wrapper: wrapperFor(queryClient),
+      wrapper,
     })
 
     await waitFor(() => {
@@ -87,12 +87,9 @@ describe("useForumOpenerHint", () => {
     })
     expect(queryClient.getQueryData(
       communityKeys.message("opener-1"),
-    )).toEqual({
-      id: "opener-1",
-      content: "Seeded",
-      seq: 7,
-      channelId: "forum-1",
-    })
+    )).toEqual({ id: "opener-1" })
+    const { getCanonicalCommunityMessages } = await import("@/lib/community-db/sync")
+    expect(getCanonicalCommunityMessages(queryClient)).toEqual([expect.objectContaining({ id: "opener-1", content: "Seeded", seq: 7, channelId: "forum-1" })])
   })
 
   it("exposes a warm canonical opener without waiting for its background transport", async () => {

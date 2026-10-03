@@ -1,6 +1,7 @@
 "use client";
 
-import { memo, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { Agent, AgentRuntime } from "@alook/shared";
 import { AgentPreviewCard } from "@/components/agent-preview-card";
@@ -23,7 +24,7 @@ function AgentNodeInner({ data, selected, dragging }: NodeProps) {
 
   const rt = runtimes.find((r: AgentRuntime) => r.id === agent.runtime_id);
   const isOnline = rt?.status === "online";
-  const [isHovered, setIsHovered] = useState(false);
+  const [isHovered, setIsHovered] = useAtom(useCreateAtom(false));
 
   return (
     <div

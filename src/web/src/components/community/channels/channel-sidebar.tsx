@@ -1,7 +1,8 @@
 "use client"
 
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { OfficialServerBadge } from "../official-server-badge"
-import { Fragment, memo, useRef, useState } from "react"
+import { Fragment, memo, useRef } from "react"
 import { Settings, Users, Link2, Bell, ChevronDown, UserPlus } from "lucide-react"
 import {
   DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors,
@@ -93,7 +94,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   serverId, invitePopoverOpen, onInvitePopoverOpenChange,
   forumThreadsByParent = {}, activeThreadId, onSelectForumThread,
 }: ChannelSidebarProps) {
-  const { collapsed, catOrder, order, catNames, catPrivate, catPending, toggleCat, removeChannel, renameCategory, onDragOver, onDragEnd: treeDragEnd } = tree
+  const { collapsed, catOrder, order, catNames, catPrivate, catPending, toggleCat, onDragOver, onDragEnd: treeDragEnd } = tree
   // Category the dragged channel started in — captured at drag start, because
   // `onDragOver` mutates `order` mid-drag so by drop time it already reflects
   // the destination.
@@ -166,7 +167,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
-  const [dialog, setDialog] = useState<Dialog>(null)
+  const [dialog, setDialog] = useAtom(useCreateAtom<Dialog>(null))
   const withMute = (ch: Channel): Channel => mutedChannels && ch.id in mutedChannels ? { ...ch, muted: mutedChannels[ch.id] } : ch
   const hasActiveSidebarThread = !!activeThreadId && Object.values(forumThreadsByParent)
     .some((threads) => threads.some((thread) => thread.id === activeThreadId))
@@ -247,7 +248,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
                   canReorder={isAdmin}
                   onClick={() => setActiveChannel(ch.id)}
                   onEdit={isAdmin ? () => setDialog({ kind: "edit-channel", id: ch.id, categoryId: noneCatId, name: ch.name, type: ch.type ?? "text" }) : undefined}
-                  onDelete={isAdmin ? () => { removeChannel(ch.id); onDeleteChannel?.(ch.id) } : undefined}
+                  onDelete={isAdmin ? () => onDeleteChannel?.(ch.id) : undefined}
                 />
                 {childRows(ch.id)}
               </Fragment>
@@ -287,7 +288,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
                         canReorder={isAdmin}
                         onClick={() => setActiveChannel(ch.id)}
                         onEdit={canManageChannel ? () => setDialog({ kind: "edit-channel", id: ch.id, categoryId: id, name: ch.name, type: ch.type ?? "text" }) : undefined}
-                        onDelete={canManageChannel ? () => { removeChannel(ch.id); onDeleteChannel?.(ch.id) } : undefined}
+                        onDelete={canManageChannel ? () => onDeleteChannel?.(ch.id) : undefined}
                         onManageMembers={(catPrivate[id] && canManageChannel) ? () => setDialog({ kind: "manage-members", channelId: ch.id, channelName: ch.name }) : undefined}
                       />
                       {childRows(ch.id)}
@@ -401,7 +402,6 @@ export const ChannelSidebar = memo(function ChannelSidebar({
           isPrivate={!!catPrivate[dialog.categoryId]}
           onClose={() => setDialog(null)}
           onSave={(nextName) => {
-            renameCategory(dialog.categoryId, nextName)
             onUpdateCategory?.(dialog.categoryId, { name: nextName })
           }}
         />
