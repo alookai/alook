@@ -342,10 +342,19 @@ describe("useServer / projected canonical detail", () => {
   })
 
   it("passes the navigation AbortSignal to every server-detail resource", async () => {
-    seedList(); apiFetchMock.mockImplementation(detailApi)
-    let signal!: AbortSignal
-    await client.fetchQuery({ queryKey: communityKeys.server(identity.id), queryFn: (context) => { signal = context.signal; return serverProjectedQueryFn(client, identity.id, signal)() } })
-    for (const path of ["categories", "channels"]) expect(apiFetchMock).toHaveBeenCalledWith(`/api/community/servers/${identity.id}/${path}`, expect.objectContaining({ signal, assertActive: expect.any(Function) }))
+    seedList()
+    apiFetchMock.mockImplementation(() => new Promise(() => {}))
+    const controller = new AbortController()
+    const result = serverProjectedQueryFn(client, identity.id, controller.signal)()
+    const rejected = expect(result).rejects.toMatchObject({ name: "AbortError" })
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(2))
+    const signals = apiFetchMock.mock.calls.map(([, options]) => options.signal as AbortSignal)
+    for (const path of ["categories", "channels"]) expect(apiFetchMock).toHaveBeenCalledWith(`/api/community/servers/${identity.id}/${path}`, expect.objectContaining({ signal: expect.any(AbortSignal), assertActive: expect.any(Function) }))
+    expect(signals.every((signal) => !signal.aborted)).toBe(true)
+    controller.abort(new DOMException("Retired navigation", "AbortError"))
+    await rejected
+    expect(signals.every((signal) => signal.aborted)).toBe(true)
+    expect(client.getQueryData(communityKeys.server(identity.id))).toBeUndefined()
   })
 
   it("resolves warm canonical detail without joining an in-flight rail replacement", async () => {

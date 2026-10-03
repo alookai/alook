@@ -7,6 +7,7 @@ import { compareAsciiSqliteBinary, DEFAULT_MESSAGE_PAGE_SIZE } from "@alook/shar
 import { apiFetch } from "@/lib/api/client"
 import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
+import { conversationReadRetryPolicy, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { communityKeys } from "@/lib/query-keys"
 import { canonicalUserImage } from "@/lib/community/storage"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -41,20 +42,20 @@ function beginForumRead(queryClient: ReturnType<typeof useQueryClient>, channelI
 }
 
 export function forumFeedPageQueryFn(channelId: string, tag: string | null, queryClient: ReturnType<typeof useQueryClient>) {
-  return async ({ pageParam, signal }: { pageParam: string | null; signal?: AbortSignal }) => {
+  return ({ pageParam, signal }: { pageParam: string | null; signal?: AbortSignal }) => withConversationReadDeadline(signal, async (readSignal) => {
     const protocol = beginForumRead(queryClient, channelId, tag)
     const token = protocol.get().token, registry = getCommunityDbRegistry(queryClient)
     await registry?.ready
     const resource = queryClient.getQueryCache().find({ queryKey: communityKeys.forumFeed(channelId, tag), exact: true })
     if (resource && forumReads.get(resource) === protocol && protocol.get().operation === undefined) protocol.setState((state) => ({ ...state, operation: resource.promise }))
-    assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
+    assertCommunityLiveSnapshotTokenCurrent(queryClient, token, readSignal)
     await Promise.all([registry!.collections.channels.preload(), registry!.collections.messages.preload(), registry!.collections.channelMemberships.preload(), registry!.collections.profiles.preload()])
-    assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
+    assertCommunityLiveSnapshotTokenCurrent(queryClient, token, readSignal)
     const params = new URLSearchParams({ order: "createdAt", limit: String(DEFAULT_MESSAGE_PAGE_SIZE), include: "parentMessage,firstMessage,tags,participants" })
     if (tag) params.set("tag", tag)
     if (pageParam) params.set("cursor", pageParam)
-    const page = await apiFetch<ForumFeedTransportPage>(`/api/community/channels/${channelId}/threads?${params}`, communityRequestOptions(queryClient, token, signal))
-    assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
+    const page = await apiFetch<ForumFeedTransportPage>(`/api/community/channels/${channelId}/threads?${params}`, communityRequestOptions(queryClient, token, readSignal))
+    assertCommunityLiveSnapshotTokenCurrent(queryClient, token, readSignal)
     const freshThreads = page.threads.filter((thread) => !protocol.get().publishedIds.has(thread.id))
     const ids = new Set(freshThreads.map((thread) => thread.id)), openerIds = new Set(freshThreads.map((thread) => thread.parentMessageId))
     const duplicateOpeners = new Set(page.threads.filter((thread) => protocol.get().publishedIds.has(thread.id)).map((thread) => thread.parentMessageId))
@@ -67,10 +68,10 @@ export function forumFeedPageQueryFn(channelId: string, tag: string | null, quer
       firstMessages: page.included.firstMessages.filter((message) => ids.has(message.channelId)),
       tags: page.included.tags.filter((row) => openerIds.has(row.messageId)),
       participants: page.included.participants.filter((row) => ids.has(row.channelId)),
-    } }, { token, signal })
+    } }, { token, signal: readSignal })
     protocol.setState((state) => ({ ...state, publishedIds: new Set([...state.publishedIds, ...ids]) }))
     return forumFeedWindow(page)
-  }
+  })
 }
 
 export function mapForumFeedPages(pages: ForumFeedPage[], messages: ReadonlyMap<string, Msg>, channels: ReadonlyMap<string, ChannelRow>, profiles: ReturnType<typeof useCanonicalProfilesByUserId>, filter: string | null = null): ForumThread[] {
@@ -99,7 +100,9 @@ export function useForumFeed(_serverId: string, channelId: string) {
   const tagsQuery = useForumTags(channelId, true)
   useEffect(() => { if (tagsQuery.isSuccess && tag !== "All" && validateForumTagSelection(tag, tagsQuery.data.tags) === "All") selectTag("All") }, [tag, tagsQuery.isSuccess, tagsQuery.data, selectTag])
   const selectedTag = tag === "All" ? null : tag
-  const query = useInfiniteQuery({ queryKey: communityKeys.forumFeed(channelId, selectedTag), queryFn: forumFeedPageQueryFn(channelId, selectedTag, queryClient), initialPageParam: null as string | null, getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.nextCursor : undefined })
+  const queryKey = communityKeys.forumFeed(channelId, selectedTag)
+  const query = useInfiniteQuery({ queryKey, queryFn: forumFeedPageQueryFn(channelId, selectedTag, queryClient), initialPageParam: null as string | null, getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.nextCursor : undefined,
+    retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey }).retry), networkMode: "always" })
   const posts = useMemo(() => mapForumFeedPages(query.data?.pages ?? [], messages ?? new Map(), channels, profiles, selectedTag), [query.data?.pages, messages, channels, profiles, selectedTag])
   return { ...query, posts, tag, selectTag, availableTags: tagsQuery.data?.tags ?? [], hasMoreOlder: query.hasNextPage, isFetchingOlder: query.isFetchingNextPage, fetchOlder: () => { void query.fetchNextPage() } }
 }

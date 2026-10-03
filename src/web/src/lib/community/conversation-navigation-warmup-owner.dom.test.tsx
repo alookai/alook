@@ -8,7 +8,7 @@ import { createQueryClient } from "@/lib/query-client"
 import { communityKeys } from "@/lib/query-keys"
 import { apiFetch } from "@/lib/api/client"
 import { startConversationNavigationWarmup } from "./conversation-navigation-warmup"
-import { getConversationNavigationProof, useConversationNavigationGate } from "./conversation-navigation-proof"
+import { getConversationNavigationProof, recoverConversationNavigationProof, useConversationNavigationGate } from "./conversation-navigation-proof"
 
 vi.mock("@/lib/api/client", async (load) => {
   const actual = await load<typeof import("@/lib/api/client")>()
@@ -65,6 +65,34 @@ function response(status: number) {
 }
 
 describe("warmup original owner and complete intent resources", () => {
+  it.each(["channel", "thread", "forum", "dm"] as const)("ends persistent %s 503 with manual Retry after finite Query retries", async (surfaceKind) => {
+    const owner = createClient()
+    await owner.registry.preload()
+    const defaults = owner.client.getDefaultOptions()
+    owner.client.setDefaultOptions({ ...defaults, queries: { ...defaults.queries, retry: 1, retryDelay: 0 } })
+    let failing = true
+    let requests = 0
+    vi.stubGlobal("fetch", vi.fn((path: string) => {
+      if (path.includes("/messages")) {
+        requests++
+        return Promise.resolve(new Response(JSON.stringify(failing ? { error: "unavailable" } : { messages: [], hasMore: false, surfaceReceipt: { channelId: "d1", surfaceKind } }), { status: failing ? 503 : 200, headers: { "Content-Type": "application/json" } }))
+      }
+      return Promise.resolve(response(200))
+    }))
+    const navigation = { ...target, scopeKind: surfaceKind === "dm" ? "dm" as const : "channel" as const, expectedSurfaceKind: surfaceKind }
+    const epoch = startConversationNavigationWarmup(owner.client, navigation, 0)
+    const rendered = render(<Gate client={owner.client} />)
+    await waitFor(() => expect(getConversationNavigationProof(owner.client)).toMatchObject({ status: "failed", manualRetry: true }))
+    expect(requests).toBe(2)
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)) })
+    expect(requests).toBe(2)
+    failing = false
+    act(() => { expect(recoverConversationNavigationProof(owner.client, epoch, 0)).toBe(true) })
+    await waitFor(() => expect(getConversationNavigationProof(owner.client)).toBeNull())
+    expect(requests).toBe(3)
+    rendered.unmount()
+  })
+
   it.each([401, 403, 200].flatMap((status) => [false, true].map((consume) => ({ status, consume }))))("retired owner late $status stays silent, consumed=$consume", async ({ status, consume }) => {
     const owner = createClient()
     startConversationNavigationWarmup(owner.client, target, 0)

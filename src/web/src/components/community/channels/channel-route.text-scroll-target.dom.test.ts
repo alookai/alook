@@ -17,6 +17,7 @@ const {
   mockHeaderServerNavigate,
   mockHeaderParentNavigate,
   mockOpenerGate,
+  mockForumOpener,
   mockSearchParams,
   mockSplitMode,
   mockSplitParentSurface,
@@ -34,6 +35,7 @@ const {
   mockHeaderServerNavigate: { current: undefined as undefined | (() => void) },
   mockHeaderParentNavigate: { current: undefined as undefined | (() => void) },
   mockOpenerGate: vi.fn(() => null),
+  mockForumOpener: { data: null as null | { content: string }, isLoading: false, isError: false, error: null as Error | null, isFetching: false, refetch: vi.fn(() => Promise.resolve()) },
   mockSearchParams: { value: "msg=m_target&keep=1" },
   mockSplitMode: { value: "full" as "split" | "full" },
   mockSplitParentSurface: vi.fn(() => null),
@@ -64,6 +66,9 @@ const {
     isChild: false,
     isForumPostChild: false,
     isNotifyUnit: false,
+    serverError: false,
+    retryingServer: false,
+    retryServer: vi.fn(),
     metadataError: false,
     retryingMetadata: false,
     retryMetadata: vi.fn(),
@@ -230,7 +235,7 @@ vi.mock("@/components/community/channels/thread-split-view", () => ({
   ),
 }))
 vi.mock("@/hooks/community/use-forum-opener-hint", () => ({
-  useForumOpenerHint: () => ({ data: null, isLoading: false }),
+  useForumOpenerHint: () => mockForumOpener,
 }))
 vi.mock("@/hooks/community/use-server-members", () => ({
   useServerMembers: () => ({
@@ -349,6 +354,8 @@ describe("ChannelRoute message surface ownership", () => {
     vi.useFakeTimers()
     mockedMessageList.mockClear()
     mockOpenerGate.mockClear()
+    Object.assign(mockForumOpener, { data: null, isLoading: false, isError: false, error: null, isFetching: false })
+    mockForumOpener.refetch.mockClear()
     mockSearchParams.value = "msg=m_target&keep=1"
     mockSplitMode.value = "full"
     mockSplitParentSurface.mockClear()
@@ -376,6 +383,8 @@ describe("ChannelRoute message surface ownership", () => {
       isChild: false,
       isForumPostChild: false,
       isNotifyUnit: false,
+      serverError: false,
+      retryingServer: false,
       metadataError: false,
       retryingMetadata: false,
       routeHydrated: true,
@@ -494,6 +503,39 @@ describe("ChannelRoute message surface ownership", () => {
     expect(mockedMessageList).not.toHaveBeenCalled()
     expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
     expect(mockCommitLastCommunityRoute).not.toHaveBeenCalled()
+  })
+
+  it("shows a required cold forum opener failure, keeps Retry feedback while pending, then opens body", async () => {
+    configureThreadRoute()
+    mockRouteModel.isForumPostChild = true
+    Object.assign(mockForumOpener, { isError: true, error: new Error("deadline") })
+    let release!: () => void
+    mockForumOpener.refetch.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve }))
+    const props = { serverParam: "server_1", channelId: "channel_1" }
+    const renderer = render(React.createElement(ChannelRoute, props))
+    expect(screen.getByRole("button", { name: "Retry" })).not.toBeDisabled()
+    expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+    expect(mockForumOpener.refetch).toHaveBeenCalledOnce()
+    Object.assign(mockForumOpener, { isError: false, error: null, isFetching: true, isLoading: true })
+    renderer.rerender(React.createElement(ChannelRoute, props))
+    expect(screen.getByRole("button", { name: "Retrying…" })).toBeDisabled()
+    await act(async () => { release() })
+    Object.assign(mockForumOpener, { data: { content: "Recovered title" }, isFetching: false, isLoading: false })
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+    renderer.rerender(React.createElement(ChannelRoute, props))
+    expect(screen.queryByRole("alert")).toBeNull()
+    expect(mockedUseChannelMessageFeed).toHaveBeenCalled()
+    renderer.unmount()
+  })
+
+  it("shows a server dependency error before unknown skeleton and forwards Retry", () => {
+    Object.assign(mockRouteModel, { serverError: true, routeLifecycle: "terminal-error", routeHydrated: false, skeletonSubtype: "unknown" })
+    const renderer = render(React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }))
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+    expect(mockRouteModel.retryServer).toHaveBeenCalledOnce()
+    expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
+    renderer.unmount()
   })
 
   it("renders the terminal metadata error without opening a feed and forwards Retry", async () => {

@@ -10,14 +10,14 @@ import { communityKeys } from "@/lib/query-keys"
 import { useCommunityStore } from "@/stores/community"
 import { useCommunityWsStore } from "@/stores/community/ws"
 
-const mocks = vi.hoisted(() => ({ apiFetch: vi.fn(), replace: vi.fn(), toast: vi.fn() }))
+const mocks = vi.hoisted(() => ({ apiFetch: vi.fn(), replace: vi.fn(), toast: vi.fn(),
+  server: { server: { id: "server-1", categories: [{ channels: [{ id: "parent-1", name: "parent", type: "text" }] }] } as { id: string; categories: { channels: { id: string; name: string; type: string }[] }[] } | null,
+    isError: false, isFetching: false, refetch: vi.fn(() => Promise.resolve()) },
+}))
 vi.mock("@/lib/api/client", () => ({ apiFetch: mocks.apiFetch, toastApiError: mocks.toast }))
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: mocks.replace }) }))
 vi.mock("./use-servers", () => ({
-  useServer: () => ({ server: {
-    id: "server-1",
-    categories: [{ channels: [{ id: "parent-1", name: "parent", type: "text" }] }],
-  } }),
+  useServer: () => mocks.server,
 }))
 vi.mock("./use-community-ws", () => ({ communityWsSubscribe: vi.fn(), communityWsUnsubscribe: vi.fn() }))
 vi.mock("./use-forum-sidebar-threads", () => ({
@@ -69,6 +69,8 @@ function payload(id = "post-1") {
 
 beforeEach(async () => {
   mocks.apiFetch.mockReset()
+  Object.assign(mocks.server, { server: { id: "server-1", categories: [{ channels: [{ id: "parent-1", name: "parent", type: "text" }] }] }, isError: false, isFetching: false })
+  mocks.server.refetch.mockReset().mockResolvedValue(undefined)
   mocks.replace.mockClear()
   mocks.toast.mockClear()
   client = (await createCommunityQueryOwner("viewer-1", { defaultOptions: { queries: { retry: 1, retryDelay: 0, gcTime: Infinity } } })).client
@@ -80,6 +82,28 @@ afterEach(async () => {
 })
 
 describe("unresolved metadata terminal error and retry", () => {
+  it("keeps a missing server dependency retryable until its own read settles", async () => {
+    mocks.apiFetch.mockResolvedValue(payload())
+    Object.assign(mocks.server, { server: null, isError: true })
+    await mount()
+    await until(() => current.serverError)
+    expect(current.routeLifecycle).toBe("terminal-error")
+    let release!: () => void
+    mocks.server.refetch.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve }))
+    let request!: Promise<void>
+    await act(async () => { request = current.retryServer(); void current.retryServer() })
+    expect(mocks.server.refetch).toHaveBeenCalledOnce()
+    Object.assign(mocks.server, { isError: false, isFetching: true })
+    renderer!.rerender(tree())
+    expect(current.serverError).toBe(true)
+    expect(current.retryingServer).toBe(true)
+    await act(async () => { release(); await request })
+    Object.assign(mocks.server, { server: { id: "server-1", categories: [{ channels: [{ id: "parent-1", name: "parent", type: "text" }] }] }, isFetching: false })
+    renderer!.rerender(tree())
+    await until(() => current.routeHydrated)
+    expect(current.serverError).toBe(false)
+  })
+
   it("waits for the original automatic retries before showing a persistent error", async () => {
     const first = deferred()
     const second = deferred()

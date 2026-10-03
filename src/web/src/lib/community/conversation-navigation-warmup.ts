@@ -5,7 +5,7 @@ import { getCommunityRuntime } from "@/stores/community/runtime"
 
 import { QueryObserver, type QueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
-import { ConversationReadTimeoutError, conversationReadRetryPolicy, withConversationReadDeadline } from "./conversation-read"
+import { conversationReadRetryPolicy, withConversationReadDeadline } from "./conversation-read"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import type { MessagesPageParam } from "@/lib/community/models/message"
@@ -15,6 +15,7 @@ import {
   beginConversationNavigationProof,
   commitConversationNavigationProof,
   failConversationNavigationProof,
+  getConversationNavigationProof,
   isCurrentConversationNavigation,
   recordConversationNavigationReceipt,
   registerConversationNavigationRecovery,
@@ -87,6 +88,7 @@ export function startConversationNavigationWarmup(
         },
       })
 
+  void queryClient.cancelQueries({ queryKey: messagesKey, exact: true })
   void queryClient.fetchInfiniteQuery({
     queryKey: messagesKey,
     queryFn,
@@ -100,12 +102,15 @@ export function startConversationNavigationWarmup(
     .then(() => {
       if (!isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) return
       commitConversationNavigationProof(queryClient, target.channelId, accessEpoch)
+      if (getConversationNavigationProof(queryClient)?.status === "warming") {
+        failConversationNavigationProof(queryClient, epoch, accessEpoch, false, true)
+      }
     })
     .catch((error) => {
       if (signal.aborted || !isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) return
       const definitive = isDefinitiveAccessFailure(error)
       if (definitive) clearDeniedTarget(queryClient, target)
-      failConversationNavigationProof(queryClient, epoch, accessEpoch, definitive, error instanceof ConversationReadTimeoutError)
+      failConversationNavigationProof(queryClient, epoch, accessEpoch, definitive, true)
     })
 
   const readKey = target.scopeKind === "dm"
@@ -118,19 +123,23 @@ export function startConversationNavigationWarmup(
     retry: false,
     networkMode: "always",
     queryFn: async ({ signal: querySignal }) => {
-      await registry.ready
-      return withConversationReadDeadline(querySignal, (readSignal) => apiFetch<ReadSnapshot>(`/api/community/channels/${target.channelId}/read-state`, {
+      return withConversationReadDeadline(querySignal, async (readSignal) => {
+        await registry.ready
+        readSignal.throwIfAborted()
+        return apiFetch<ReadSnapshot>(`/api/community/channels/${target.channelId}/read-state`, {
         signal: readSignal,
         assertActive: () => {
           if (!isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) throw new DOMException("Retired conversation warmup", "AbortError")
         },
-      }))
+        })
+      })
     },
   }).catch(() => undefined)
 
   if (target.serverId) {
     const serverId = target.serverId
-    const options = { queryKey: communityKeys.server(serverId), queryFn: ({ signal }: { signal: AbortSignal }) => serverProjectedQueryFn(queryClient, serverId, signal)(), staleTime: Infinity }
+    const queryKey = communityKeys.server(serverId)
+    const options = { queryKey, queryFn: ({ signal }: { signal: AbortSignal }) => serverProjectedQueryFn(queryClient, serverId, signal)(), staleTime: Infinity, networkMode: "always" as const, retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey }).retry) }
     const observer = new QueryObserver(queryClient, { ...options, enabled: false })
     const release = observer.subscribe(() => undefined)
     void queryClient.fetchQuery(options).finally(release).catch(() => undefined)

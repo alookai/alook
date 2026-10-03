@@ -3,7 +3,7 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { getCommunityRuntime } from "@/stores/community/runtime"
 
 
-import { useCallback, useEffect, useLayoutEffect, useMemo } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toastApiError } from "@/lib/api/client"
 import { ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
@@ -40,6 +40,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { useConversationNavigationGate } from "@/lib/community/conversation-navigation-proof"
 import { resolveConversationSubtype } from "@/lib/community/conversation-subtype"
+import { isConversationAccessError } from "@/lib/community/conversation-read"
 import { useNativeSystemNotificationConversationDismissal } from "@/hooks/community/use-native-system-notifications"
 
 const THREAD_VIEW_PARAM = "threadView"
@@ -108,6 +109,24 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
     currentChannelMeta?.parentMessageId,
     isForumPostChild && routeModel.routeHydrated && navigationGate.allowed,
   )
+  const { isFetching: fetchingOpener, refetch: refetchOpener } = forumPostOpener
+  const openerScope = JSON.stringify([currentUser.id, serverId, channelId, currentChannelMeta?.parentMessageId, accessEpoch])
+  const [openerRetryAttempt, setOpenerRetryAttempt] = useAtom(useCreateAtom<{ scope: string } | null>(null))
+  const openerRetryRef = useRef<{ scope: string } | null>(null)
+  const retryingOpener = openerRetryAttempt?.scope === openerScope
+  const openerError = isForumPostChild && (isConversationAccessError(forumPostOpener.error)
+    || (!forumPostOpener.data && (forumPostOpener.isError || retryingOpener)))
+  const retryOpener = useCallback(async () => {
+    if (!openerError || fetchingOpener || openerRetryRef.current?.scope === openerScope) return
+    const attempt = { scope: openerScope }
+    openerRetryRef.current = attempt
+    setOpenerRetryAttempt(attempt)
+    try { await refetchOpener({ cancelRefetch: false }) }
+    finally {
+      if (openerRetryRef.current === attempt) openerRetryRef.current = null
+      setOpenerRetryAttempt((current) => current === attempt ? null : current)
+    }
+  }, [fetchingOpener, refetchOpener, openerError, openerScope, setOpenerRetryAttempt])
   const threadOpenerHandoff = useThreadOpenerRouteGate({
     serverId,
     childChannelId: channelId,
@@ -219,7 +238,7 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
     routeModel.routeLifecycle === "ready" &&
     currentChannelId === channelId &&
     routeModel.routeHydrated &&
-    (!isForumPostChild || !forumPostOpener.isLoading) &&
+    (!isForumPostChild || (!forumPostOpener.isLoading && !openerError)) &&
     navigationGate.allowed
   useNativeSystemNotificationConversationDismissal(currentUser.id, {
     kind: "server",
@@ -243,11 +262,19 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
   if (navigationGate.failed) {
     return <ConversationResolutionErrorFrame retrying={false} onRetry={navigationGate.retry} />
   }
+  if (routeModel.serverError) {
+    return <ConversationResolutionErrorFrame retrying={routeModel.retryingServer}
+      onRetry={() => { void routeModel.retryServer() }} />
+  }
   if (routeModel.metadataError) {
     return <ConversationResolutionErrorFrame
       retrying={routeModel.retryingMetadata}
       onRetry={() => { void routeModel.retryMetadata() }}
     />
+  }
+  if (openerError) {
+    return <ConversationResolutionErrorFrame retrying={retryingOpener}
+      onRetry={() => { void retryOpener() }} />
   }
   if (subtype === "unknown") {
     return <ConversationResolutionPendingFrame />
