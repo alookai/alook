@@ -1,7 +1,20 @@
-import React from "react"
+import React, { useLayoutEffect, type PropsWithChildren } from "react"
+import { useCommunityRuntime } from "@/stores/community/runtime"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { render, screen, setupUser } from "@/test/react-dom-harness"
+import { screen, setupUser } from "@/test/react-dom-harness"
+import { renderCommunity } from "@/test/community-owner-harness"
 import { DmRoute } from "./dm-route"
+
+function RouteUi({ children }: PropsWithChildren) {
+  const runtime = useCommunityRuntime()
+  useLayoutEffect(() => {
+    runtime.ui.actions.registerUiHandlers({ cancelPendingNavigation: mocks.cancel })
+  }, [runtime])
+  return children
+}
+function render(node: React.ReactNode) {
+  return renderCommunity(node, { wrapper: RouteUi })
+}
 
 const mocks = vi.hoisted(() => ({
   verification: { status: "pending", retrying: false, retry: vi.fn() },
@@ -14,9 +27,8 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: mocks.replace }
 vi.mock("@/contexts/community/current-user", () => ({ useCurrentUser: () => ({ id: "viewer" }) }))
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => mocks.breakpoint }))
 vi.mock("@/hooks/community/use-dm-route-verification", () => ({ useDmRouteVerification: () => mocks.verification }))
-vi.mock("@/stores/community", () => ({ useCommunityStore: { getState: () => ({ uiHandlers: { cancelPendingNavigation: mocks.cancel } }) } }))
-vi.mock("@/lib/community-db/projections", () => ({ useOptionalCommunityDbRegistry: () => ({}) }))
-vi.mock("@/lib/community-db/sync", () => ({ purgeCommunityChannel: mocks.purge }))
+vi.mock("@/stores/community", async (importOriginal) => ({ ...await importOriginal<typeof import("@/stores/community")>(), useCommunityStore: { getState: () => ({ uiHandlers: { cancelPendingNavigation: mocks.cancel } }) } }))
+vi.mock("@/lib/community-db/sync", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/sync")>(), purgeCommunityChannel: mocks.purge }))
 vi.mock("@/lib/community/last-me-location", () => ({ ME_ROOT: "/c/me", getLastMeLeaf: () => mocks.last, clearLastMeLocation: mocks.clear }))
 vi.mock("@/lib/community/last-community-route", () => ({
   COMMUNITY_COLD_ENTRY_FALLBACK: "/c/me/machines",
@@ -66,7 +78,7 @@ describe("DM target main owns identity, retry and fallback", () => {
     mocks.verification.status = "missing"
     mocks.cold = cold
     render(React.createElement(DmRoute, { dmId: "dm-a" }))
-    expect(mocks.purge).toHaveBeenCalledExactlyOnceWith({}, "dm-a")
+    expect(mocks.purge).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ accountId: "viewer" }), "dm-a")
     expect(mocks.clear).toHaveBeenCalledOnce()
     expect(mocks.cancel).toHaveBeenCalledOnce()
     expect(mocks.consume).toHaveBeenCalledExactlyOnceWith("viewer", "/c/me/dm-a")

@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useSelector } from "@tanstack/react-store";
+import { useApplicationOwner } from "@/lib/application-owner";
+import { useCallback, useRef } from "react";
 import { useWorkspace } from "@/contexts/workspace-context";
-import { useAgentContext } from "@/contexts/agent-context";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { listInboxItems, markAllInboxRead, type InboxItem } from "@/lib/api";
+import { type InboxItem } from "@/lib/api";
 import { useInboxCount } from "@/contexts/inbox-count-context";
 import { useAgentChatSheet } from "@/contexts/agent-chat-sheet-context";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,13 +19,11 @@ import {
   INBOX_FILTER_TYPES,
   INBOX_FILTER_LABELS,
   MANDATORY_INBOX_TYPES,
-  getInboxFilterTypes,
   setInboxFilterTypes,
   type InboxFilterType,
 } from "@/lib/inbox-filter";
-import type { WsMessage } from "@alook/shared";
+import { useMarkAllInboxRead, useWorkspaceInbox } from "@/hooks/workspace/use-inbox";
 
-const INBOX_LIMIT = 30;
 
 function StatusDot({ status }: { status: string | null }) {
   const colorClass =
@@ -114,122 +113,24 @@ function SkeletonRow({ promptWidth }: { promptWidth: string }) {
 }
 
 export default function InboxPage() {
-  const { slug, workspaceId } = useWorkspace();
-  const { subscribeWs } = useAgentContext();
-  const { count, refresh: refreshInboxCount, decrement: decrementInboxCount } = useInboxCount();
+  const { slug } = useWorkspace();
+  const { decrement: decrementInboxCount } = useInboxCount();
   const { openAgentChat } = useAgentChatSheet();
 
-  const [items, setItems] = useState<InboxItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [hasMore, setHasMore] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [filterTypes, setFilterTypes] = useState<InboxFilterType[]>(getInboxFilterTypes);
-
+  const { items, isPending: loading, hasNextPage: hasMore, isFetchingNextPage: loadingMore, fetchNextPage } = useWorkspaceInbox();
+  const markAll = useMarkAllInboxRead();
+  const application = useApplicationOwner();
+  const filterTypes = useSelector(application.preferences, (state) => state.inboxFilterTypes);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const isFetchingRef = useRef(false);
-  const filterTypesRef = useRef(filterTypes);
-  useEffect(() => { filterTypesRef.current = filterTypes; });
-
-  const loadInitial = useCallback(async (opts?: { silent?: boolean }) => {
-    if (!opts?.silent) setLoading(true);
-    try {
-      const result = await listInboxItems(workspaceId, { limit: INBOX_LIMIT, types: filterTypesRef.current });
-      setItems(result.items);
-      setHasMore(result.has_more);
-    } catch {
-      // silently fail
-    } finally {
-      setLoading(false);
-    }
-  }, [workspaceId]);
-
-  const refreshInboxCountRef = useRef(refreshInboxCount);
-  useEffect(() => { refreshInboxCountRef.current = refreshInboxCount; });
-
-  useEffect(() => {
-    loadInitial();
-  }, [loadInitial]);
-
-  useEffect(() => {
-    refreshInboxCountRef.current();
-  }, []);
-
-  useEffect(() => {
-    return subscribeWs((msg: WsMessage) => {
-      if (msg.type === "task.updated" && (msg.status === "completed" || msg.status === "failed")) {
-        loadInitial({ silent: true });
-      }
-    });
-  }, [subscribeWs, loadInitial]);
-
-  const lastSeenCountRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (lastSeenCountRef.current !== null && count > lastSeenCountRef.current) {
-      const timer = setTimeout(() => loadInitial({ silent: true }), 1500);
-      lastSeenCountRef.current = count;
-      return () => clearTimeout(timer);
-    }
-    lastSeenCountRef.current = count;
-  }, [count, loadInitial]);
-
-  const loadMore = useCallback(async () => {
-    if (isFetchingRef.current || !hasMore || items.length === 0) return;
-    isFetchingRef.current = true;
-    setLoadingMore(true);
-    try {
-      const oldest = items[items.length - 1];
-      const result = await listInboxItems(workspaceId, {
-        limit: INBOX_LIMIT,
-        before: oldest.latest_response_at,
-        types: filterTypesRef.current,
-      });
-      if (result.items.length === 0) {
-        setHasMore(false);
-        return;
-      }
-      setHasMore(result.has_more);
-      setItems((prev) => {
-        const existingIds = new Set(prev.map((i) => i.id));
-        const unique = result.items.filter((i) => !existingIds.has(i.id));
-        return [...prev, ...unique];
-      });
-    } finally {
-      isFetchingRef.current = false;
-      setLoadingMore(false);
-    }
-  }, [workspaceId, items, hasMore]);
-
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
-    if (!el) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
-    if (!loadingMore && hasMore && nearBottom) {
-      loadMore();
-    }
-  }, [loadMore, loadingMore, hasMore]);
-
-  const handleMarkAllRead = useCallback(async () => {
-    setItems([]);
-    setHasMore(false);
-    try {
-      await markAllInboxRead(workspaceId);
-      refreshInboxCount();
-    } catch {
-      loadInitial();
-    }
-  }, [workspaceId, loadInitial, refreshInboxCount]);
-
-  const handleFilterToggle = useCallback((type: InboxFilterType, checked: boolean) => {
-    const next = checked
-      ? [...filterTypesRef.current, type]
-      : filterTypesRef.current.filter((t) => t !== type);
-    setFilterTypes(next);
-    setInboxFilterTypes(next);
-    filterTypesRef.current = next;
-    loadInitial();
-    refreshInboxCount();
-  }, [loadInitial, refreshInboxCount]);
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 200 && !loadingMore && hasMore) void fetchNextPage();
+  }, [fetchNextPage, loadingMore, hasMore]);
+  const handleMarkAllRead = () => markAll.mutate();
+  const handleFilterToggle = (type: InboxFilterType, checked: boolean) => {
+    const next = checked ? [...filterTypes, type] : filterTypes.filter((value) => value !== type);
+    setInboxFilterTypes(application, next);
+  };
 
   const activeFilterCount = filterTypes.length - MANDATORY_INBOX_TYPES.length;
 
@@ -292,7 +193,7 @@ export default function InboxPage() {
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto"
+        className="flex-1 overflow-y-auto thin-scrollbar"
       >
         {loading ? (
           <>

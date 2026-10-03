@@ -3,17 +3,13 @@
 import {
   createContext,
   useContext,
-  useLayoutEffect,
   useMemo,
   type ReactNode,
 } from "react"
-import { useIsRestoring } from "@tanstack/react-query"
 import type { Presence } from "@/lib/community/models/people"
 import {
   useCanonicalCommunityProfile,
-  useOptionalCommunityDbRegistry,
 } from "@/lib/community-db/projections"
-import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
 
 /**
  * Thin context that carries the viewer's identity down the community tree.
@@ -46,40 +42,13 @@ export type CurrentUser = {
   presence?: Presence
 }
 
-const CurrentUserContext = createContext<CurrentUser | null>(null)
+const CurrentUserContext = createContext<Pick<CurrentUser, "id" | "email"> | null>(null)
 
-export function CurrentUserProvider({
-  initialUser,
-  children,
-}: {
-  initialUser: CurrentUser
-  children: ReactNode
-}) {
-  const isRestoring = useIsRestoring()
-  const communityDb = useOptionalCommunityDbRegistry()
-  const current = useCanonicalCommunityProfile(initialUser.id)
-  useLayoutEffect(() => {
-    if (isRestoring) return
-    if (current?.name !== undefined && current.avatarVersion !== undefined) return
-    writeCommunityProfilePatches([{
-      id: initialUser.id,
-      ...(current?.name === undefined
-        ? { identityAbout: { name: initialUser.name } }
-        : {}),
-      ...(current?.avatarVersion === undefined
-        ? { avatar: {
-            avatar: initialUser.avatar,
-            avatarVersion: initialUser.avatarVersion ?? 0,
-          } }
-        : {}),
-    }], communityDb)
-  }, [communityDb, current?.avatarVersion, current?.name, initialUser, isRestoring])
-  return (
-    <CurrentUserContext.Provider value={initialUser}>
-      {children}
-    </CurrentUserContext.Provider>
-  )
+export function CurrentUserProvider({ initialUser, children }: { initialUser: CurrentUser; children: ReactNode }) {
+  const identity = useMemo(() => ({ id: initialUser.id, email: initialUser.email }), [initialUser.id, initialUser.email])
+  return <CurrentUserContext.Provider value={identity}>{children}</CurrentUserContext.Provider>
 }
+
 
 export function useCurrentUser(): CurrentUser {
   const ctx = useContext(CurrentUserContext)
@@ -89,9 +58,9 @@ export function useCurrentUser(): CurrentUser {
   return useMemo(() => ({
     id: ctx.id,
     email: ctx.email,
-    name: profile?.name ?? ctx.name,
-    avatar: profile?.avatar ?? ctx.avatar,
-    avatarVersion: profile?.avatarVersion ?? ctx.avatarVersion,
+    name: profile?.name ?? "",
+    avatar: profile?.avatar ?? "",
+    avatarVersion: profile?.avatarVersion,
     aboutMe: profile?.aboutMe,
     discriminator: profile?.discriminator,
     statusEmoji: profile?.statusEmoji,

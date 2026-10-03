@@ -1,9 +1,9 @@
 import React, { type ReactElement } from "react"
-import { act, fireEvent, render as rtlRender } from "@/test/react-dom-harness"
+import { act, fireEvent, waitFor } from "@/test/react-dom-harness"
+import { renderCommunity as rtlRender } from "@/test/community-owner-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AttachmentCard } from "./attachment-card"
 import type { FileAttachment } from "@/lib/community/models/message"
-import { resetAttachmentDownloadsForTest } from "@/lib/community/attachment-download"
 
 const rtlContainer = document.createElement("div")
 function render(element: ReactElement) {
@@ -23,9 +23,8 @@ function attachment(overrides: Partial<FileAttachment> = {}): FileAttachment {
 }
 
 describe("AttachmentCard", () => {
-  beforeEach(() => resetAttachmentDownloadsForTest())
+  beforeEach(() => {})
   afterEach(() => {
-    resetAttachmentDownloadsForTest()
     vi.unstubAllGlobals()
   })
 
@@ -67,9 +66,9 @@ describe("AttachmentCard", () => {
     expect(button).toHaveAttribute("aria-label", "Download 报告.zip")
     await act(async () => {
       fireEvent.click(button)
-      await Promise.resolve()
-      await Promise.resolve()
+      await new Promise((resolve) => setTimeout(resolve, 0))
     })
+    await waitFor(() => expect(renderer!.getByRole("status")).toHaveTextContent("Download started"), { container: rtlContainer })
     expect(fetch).toHaveBeenCalledWith("/attachments/a1", { credentials: "same-origin", signal: expect.any(AbortSignal) })
     expect(anchor).toEqual(expect.objectContaining({ href: "blob:file", download: "报告.zip" }))
     expect(anchor.click).toHaveBeenCalledOnce()
@@ -171,6 +170,7 @@ describe("AttachmentCard", () => {
       fireEvent.click(buttons[0]!)
       fireEvent.click(buttons[1]!)
     })
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
     expect(renderer!.getAllByRole("status").map((node) => node.textContent))
       .toEqual(["Downloading…", "Downloading…"])
     expect(renderer!.getAllByRole("button").every((button) => !(button as HTMLButtonElement).disabled))
@@ -178,12 +178,13 @@ describe("AttachmentCard", () => {
     await Promise.resolve()
     expect(fetchMock).toHaveBeenCalledOnce()
 
-    streamController.enqueue(new TextEncoder().encode("complete"))
-    streamController.close()
     await act(async () => {
-      await Promise.resolve()
-      await Promise.resolve()
+      streamController.enqueue(new TextEncoder().encode("complete"))
+      streamController.close()
+      await new Promise((resolve) => setTimeout(resolve, 0))
     })
+    await waitFor(() => expect(renderer!.getAllByRole("status").map((node) => node.textContent))
+      .toEqual(["Download started", "Download started"]), { container: rtlContainer })
     expect(anchor.click).toHaveBeenCalledOnce()
     expect(renderer!.getAllByRole("status").map((node) => node.textContent))
       .toEqual(["Download started", "Download started"])

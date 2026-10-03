@@ -1,16 +1,12 @@
+import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { createElement, type PropsWithChildren } from "react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { type QueryClient } from "@tanstack/react-query"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { friendshipSchema, profileSchema } from "@/lib/community-db/schema"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { renderHook, waitFor } from "@/test/react-dom-harness"
+import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
-import { useCommunityWsStore } from "@/stores/community/ws"
-
-const canonicalProfiles = vi.hoisted(() => ({
-  current: new Map<string, Record<string, unknown>>(),
-}))
-vi.mock("@/lib/community-db/projections", () => ({
-  useCanonicalProfilesByUserId: () => canonicalProfiles.current,
-}))
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
@@ -19,15 +15,14 @@ vi.mock("@/lib/api/client", () => ({
 
 function wrapperFor(queryClient: QueryClient) {
   return function QueryWrapper({ children }: PropsWithChildren) {
-    return createElement(QueryClientProvider, { client: queryClient }, children)
+    return createElement(QueryClientProvider, { client: queryClient, registry: getCommunityDbRegistry(queryClient)! }, children)
   }
 }
 
 beforeEach(() => {
   apiFetchMock.mockReset()
-  useCommunityWsStore.getState().reset()
-  useCommunityWsStore.getState().activateProfileAccount("viewer")
-  canonicalProfiles.current = new Map()
+
+
 })
 
 describe("useFriends / friendsQueryFn", () => {
@@ -68,10 +63,10 @@ describe("useFriends / friendsQueryFn", () => {
     })
 
     const { friendsQueryFn } = await import("./use-friends")
-    const data = await friendsQueryFn()
-    expect(data.friends).toHaveLength(1)
-    expect(data.blocked).toHaveLength(2)
-    expect(data.pending).toHaveLength(1)
+    const { client } = await createCommunityQueryOwner()
+    const data = await client.fetchQuery({ queryKey: communityKeys.friends(), queryFn: friendsQueryFn })
+    expect(data.ids).toEqual(["f_1", "p_1", "blocked:blocked_1", "blocked:b_legacy"])
+    expect([...getCommunityDbRegistry(client)!.collections.friendships.values()]).toHaveLength(4)
     expect(apiFetchMock).toHaveBeenCalledTimes(3)
     expect(apiFetchMock.mock.calls.map((call) => call[0]).sort()).toEqual([
       "/api/community/friends/accepted",
@@ -82,9 +77,7 @@ describe("useFriends / friendsQueryFn", () => {
 
   it("projects canonical profiles while preserving raw friend presentation fields", async () => {
     const { useFriends } = await import("./use-friends")
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { staleTime: Infinity } },
-    })
+    const { client: queryClient } = await createCommunityQueryOwner()
     const raw = {
       friends: [
         {
@@ -137,8 +130,17 @@ describe("useFriends / friendsQueryFn", () => {
         { id: "missing-blocked", userId: "blocked_missing", name: "missing blocked", avatar: "missing", avatarVersion: 0 },
       ],
     }
-    queryClient.setQueryData(communityKeys.friends(), raw)
-    canonicalProfiles.current = new Map([
+    const registry = getCommunityDbRegistry(queryClient)!
+    for (const row of [...raw.friends.map((friend) => ({ id: friend.id, userId: "userId" in friend ? friend.userId : friend.id, kind: "accepted", sub: friend.sub })),
+      ...raw.pending.map((pending) => ({ ...pending })),
+      ...raw.blocked.map((blocked) => ({ id: "blocked:" + ("userId" in blocked ? blocked.userId : blocked.id), userId: "userId" in blocked ? blocked.userId : blocked.id, kind: "blocked" }))]) await act(async () => { registry.collections.friendships.utils.writeUpsert(friendshipSchema.parse(row)) });
+    for (const row of [...raw.friends, ...raw.pending, ...raw.blocked]) {
+      const userId = "userId" in row ? row.userId : row.id
+      await act(async () => { registry.collections.profiles.utils.writeUpsert(profileSchema.parse({ discriminator: "", ...row, kind: "human", userId })) });
+    }
+    const window = { ids: [...registry.collections.friendships.values()].map((row) => row.id) }
+    queryClient.setQueryData(communityKeys.friends(), window)
+    const canonicalProfiles = new Map<string, Record<string, unknown>>([
       ["friend_1", {
         id: "friend_1",
         name: "Global Friend",
@@ -162,9 +164,12 @@ describe("useFriends / friendsQueryFn", () => {
         avatarVersion: 6,
       }],
     ])
-    const rendered = renderHook(() => useFriends(), {
+    for (const [userId, fields] of canonicalProfiles) await act(async () => { registry.collections.profiles.utils.writeUpsert(profileSchema.parse({ ...registry.collections.profiles.get(userId), ...fields, userId })) });
+    await act(async () => { registry.runtime.ws.actions.seedPresence(registry.runtime.ws.actions.beginPresenceSnapshot(), [["friend_1", "online"]]) });
+    let rendered!: ReturnType<typeof renderHook<ReturnType<typeof useFriends>, unknown>>
+    await act(async () => { rendered = renderHook(() => useFriends(), {
       wrapper: wrapperFor(queryClient),
-    })
+    }) })
 
     expect(rendered.result.current.friends).toEqual([
       expect.objectContaining({
@@ -180,13 +185,13 @@ describe("useFriends / friendsQueryFn", () => {
       expect.objectContaining({ name: "legacy", sub: "legacy presentation" }),
       expect.objectContaining({ name: "missing friend", sub: "missing presentation" }),
     ])
-    expect(rendered.result.current.pending[0]).toMatchObject({
+    expect(rendered.result.current.pending.find((row) => row.id === "p1")).toMatchObject({
       name: "Global Pending",
       avatar: "pending-global",
       avatarVersion: 5,
     })
-    expect(rendered.result.current.pending[1]).toMatchObject({ name: "missing pending" })
-    expect(rendered.result.current.blocked).toEqual([
+    expect(rendered.result.current.pending.find((row) => row.id === "p-missing")).toMatchObject({ name: "missing pending" })
+    expect(rendered.result.current.blocked).toEqual(expect.arrayContaining([
       expect.objectContaining({
         name: "Global Blocked",
         avatar: "blocked-global",
@@ -194,8 +199,9 @@ describe("useFriends / friendsQueryFn", () => {
       }),
       expect.objectContaining({ name: "legacy blocked" }),
       expect.objectContaining({ name: "missing blocked" }),
-    ])
-    expect(queryClient.getQueryData(communityKeys.friends())).toBe(raw)
+    ]))
+    expect(rendered.result.current.blocked).toHaveLength(3)
+    expect(queryClient.getQueryData(communityKeys.friends())).toBe(window)
   })
 
   it("populates queryClient at communityKeys.friends() and is invalidated by prefix", async () => {
@@ -204,7 +210,7 @@ describe("useFriends / friendsQueryFn", () => {
       .mockResolvedValueOnce({ blocked: [] })
       .mockResolvedValueOnce({ pending: [] })
     const { friendsQueryFn } = await import("./use-friends")
-    const queryClient = new QueryClient()
+    const { client: queryClient } = await createCommunityQueryOwner()
     const key = communityKeys.friends()
     await queryClient.fetchQuery({ queryKey: key, queryFn: friendsQueryFn })
     expect(queryClient.getQueryData(key)).toBeDefined()
@@ -221,7 +227,8 @@ describe("useFriendsPresence / friendsPresenceQueryFn", () => {
     })
 
     const { friendsPresenceQueryFn } = await import("./use-friends")
-    const data = await friendsPresenceQueryFn()
+    const { client } = await createCommunityQueryOwner()
+    const data = await client.fetchQuery({ queryKey: communityKeys.friendsPresence(), queryFn: friendsPresenceQueryFn })
     expect(data.online).toEqual(["u1", "u2"])
     expect(apiFetchMock).toHaveBeenCalledOnce()
   })
@@ -229,7 +236,7 @@ describe("useFriendsPresence / friendsPresenceQueryFn", () => {
   it("populates queryClient at communityKeys.friendsPresence(), nested under friends()", async () => {
     apiFetchMock.mockResolvedValueOnce({ online: ["u1"] })
     const { friendsPresenceQueryFn } = await import("./use-friends")
-    const queryClient = new QueryClient()
+    const { client: queryClient } = await createCommunityQueryOwner()
     const key = communityKeys.friendsPresence()
     expect(key.slice(0, communityKeys.friends().length)).toEqual(communityKeys.friends())
     await queryClient.fetchQuery({ queryKey: key, queryFn: friendsPresenceQueryFn })
@@ -241,7 +248,7 @@ describe("useFriendsPresence / friendsPresenceQueryFn", () => {
   it("can defer the friends presence fetch until its surface opens", async () => {
     apiFetchMock.mockResolvedValue({ online: ["u1"] })
     const { useFriendsPresence } = await import("./use-friends")
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner()
     const rendered = renderHook(
       ({ enabled }: { enabled: boolean }) => useFriendsPresence(enabled),
       {
@@ -259,7 +266,7 @@ describe("useFriendsPresence / friendsPresenceQueryFn", () => {
   it("fetches by default when no enabled override is provided", async () => {
     apiFetchMock.mockResolvedValue({ online: ["u1"] })
     const { useFriendsPresence } = await import("./use-friends")
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner()
     renderHook(() => useFriendsPresence(), { wrapper: wrapperFor(queryClient) })
 
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())

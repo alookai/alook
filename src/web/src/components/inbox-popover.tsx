@@ -1,16 +1,17 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useCallback } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useWorkspaceInbox } from "@/hooks/workspace/use-inbox";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { listInboxItems, type InboxItem } from "@/lib/api";
+import { type InboxItem } from "@/lib/api";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { useInboxCount } from "@/contexts/inbox-count-context";
 import { useAgentChatSheet } from "@/contexts/agent-chat-sheet-context";
 import { AgentAvatar } from "@/components/avatar";
 import { relativeTime } from "@/lib/time";
-import { getInboxFilterTypes } from "@/lib/inbox-filter";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Inbox, ArrowUpRight } from "lucide-react";
 import Link from "next/link";
@@ -50,7 +51,6 @@ function InboxPopoverRow({
   );
 }
 
-const POPOVER_LIMIT = 30;
 
 export function InboxPopover({
   isActive,
@@ -59,29 +59,12 @@ export function InboxPopover({
   isActive?: boolean;
   onNavigate?: () => void;
 }) {
-  const { slug, workspaceId } = useWorkspace();
+  const { slug } = useWorkspace();
   const { count: inboxCount, decrement, refresh } = useInboxCount();
   const { openAgentChat } = useAgentChatSheet();
-  const [items, setItems] = useState<InboxItem[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [open, setOpen] = useState(false);
-  const [tooltipOpen, setTooltipOpen] = useState(false);
-
-  const fetchItems = useCallback(async () => {
-    setItems(null);
-    setLoading(true);
-    try {
-      const result = await listInboxItems(workspaceId, {
-        limit: POPOVER_LIMIT,
-        types: getInboxFilterTypes(),
-      });
-      setItems(result.items);
-    } catch {
-      setItems([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [workspaceId]);
+  const [open, setOpen] = useAtom(useCreateAtom(false));
+  const [tooltipOpen, setTooltipOpen] = useAtom(useCreateAtom(false));
+  const { items, isPending: loading, refresh: fetchItems } = useWorkspaceInbox(open);
 
   const handleRowClick = useCallback((item: InboxItem, e: React.MouseEvent) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
@@ -90,7 +73,7 @@ export function InboxPopover({
     setOpen(false);
     onNavigate?.();
     openAgentChat(item.agent_id, { conversationId: item.id });
-  }, [decrement, onNavigate, openAgentChat]);
+  }, [decrement, onNavigate, openAgentChat, setOpen]);
 
   return (
     <Popover
@@ -163,7 +146,7 @@ export function InboxPopover({
               <p className="text-xs">No unread messages</p>
             </div>
           ) : (
-            <div className="max-h-96 overflow-y-auto">
+            <div className="max-h-96 overflow-y-auto thin-scrollbar">
               {items.map((item) => (
                 <InboxPopoverRow
                   key={item.id}

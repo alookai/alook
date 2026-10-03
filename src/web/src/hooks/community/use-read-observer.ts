@@ -1,6 +1,9 @@
 "use client"
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { createStore, useSelector } from "@tanstack/react-store";
+import { useCallback, useEffect, useLayoutEffect, useRef, useMemo } from "react"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { useCommunityViewSource } from "./use-community-view-source"
 import { useQueryClient } from "@tanstack/react-query"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import {
@@ -60,22 +63,17 @@ export function useTimelineReadObserver({
 }) {
   const queryClient = useQueryClient()
   const currentUser = useCurrentUser()
-  const messagesRef = useRef(messages)
-  const readyRef = useRef(snapshotStatus === "ready" && feedStatus === "ready")
-  const candidateRef = useRef<InboxReadCandidate | null>(null)
+  const source = useCommunityViewSource(`read-observer:${channelId}`, !!channelId)
+  const protocol = useMemo(() => ({ scope: [queryClient, channelId, currentUser.id], store: createStore({ visibleIds: new Set<string>() as ReadonlySet<string>, ready: false, candidate: null as InboxReadCandidate | null, started: new Set<string>() as ReadonlySet<string>, settled: new Set<string>() as ReadonlySet<string> }) }), [queryClient, channelId, currentUser.id]).store
   const readLeaseRef = useRef<ReturnType<typeof registerReadSurface> | null>(null)
   const reservationLeaseRef = useRef<InboxReadReservationLease | null>(null)
-  const catchUpStartedRef = useRef(new Set<string>())
-  const catchUpSettledRef = useRef(new Set<string>())
-  const [candidate, setCandidate] = useState<InboxReadCandidate | null>(null)
-  const [catchUpVersion, setCatchUpVersion] = useState(0)
+  const candidate = useSelector(protocol, (state) => state.candidate)
+  const settled = useSelector(protocol, (state) => state.settled)
+  const setCandidate = useCallback((candidate: InboxReadCandidate | null) => protocol.setState((state) => ({ ...state, candidate })), [protocol])
   const classifyCandidateRef = useRef<() => void>(() => undefined)
-
   useLayoutEffect(() => {
-    messagesRef.current = messages
-    readyRef.current = snapshotStatus === "ready" && feedStatus === "ready"
-    candidateRef.current = candidate
-  }, [candidate, feedStatus, messages, snapshotStatus])
+    protocol.setState((state) => ({ ...state, visibleIds: new Set(messages.map((message) => message.id)), ready: snapshotStatus === "ready" && feedStatus === "ready" }))
+  }, [feedStatus, messages, snapshotStatus, protocol])
 
   useLayoutEffect(() => {
     setCandidate(null)
@@ -98,7 +96,7 @@ export function useTimelineReadObserver({
       releaseInboxReadReservationSurface(reservationLease)
       releaseReadSurface(readLease)
     }
-  }, [channelId, currentUser.id, queryClient])
+  }, [channelId, currentUser.id, queryClient, setCandidate])
 
   useEffect(() => {
     const lease = readLeaseRef.current
@@ -133,19 +131,21 @@ export function useTimelineReadObserver({
       if (
         loadedTail
         && loadedTail < candidate.lastMessageAt
-        && !catchUpStartedRef.current.has(candidate.fingerprint)
+        && !protocol.get().started.has(candidate.fingerprint)
       ) {
-        catchUpStartedRef.current.add(candidate.fingerprint)
-        void catchUp().finally(() => {
-          catchUpSettledRef.current.add(candidate.fingerprint)
-          setCatchUpVersion((value) => value + 1)
+        const original = source.capture()
+        original()
+        protocol.setState((state) => ({ ...state, started: new Set(state.started).add(candidate.fingerprint) }))
+        void catchUp().catch(() => undefined).finally(() => {
+          try { original() } catch { return }
+          protocol.setState((state) => ({ ...state, settled: new Set(state.settled).add(candidate.fingerprint) }))
         })
         return
       }
       if (
         !loadedTail
         || loadedTail >= candidate.lastMessageAt
-        || catchUpSettledRef.current.has(candidate.fingerprint)
+        || protocol.get().settled.has(candidate.fingerprint)
       ) {
         takeInboxReadReservationNegative(reservationLease)
       }
@@ -154,16 +154,7 @@ export function useTimelineReadObserver({
     const node = [...scrollRootEl.querySelectorAll<HTMLElement>("[data-msg-id]")]
       .find((element) => element.dataset.msgId === correlated.id)
     if (!node) takeInboxReadReservationNegative(reservationLease)
-  }, [
-    candidate,
-    catchUp,
-    channelId,
-    feedStatus,
-    messages,
-    scrollRootEl,
-    snapshotStatus,
-    tailAttached,
-  ])
+  }, [candidate, catchUp, channelId, feedStatus, messages, protocol, scrollRootEl, snapshotStatus, source, tailAttached])
 
   useLayoutEffect(() => {
     classifyCandidateRef.current = classifyCandidate
@@ -171,7 +162,7 @@ export function useTimelineReadObserver({
 
   useEffect(() => {
     classifyCandidate()
-  }, [catchUpVersion, classifyCandidate])
+  }, [settled, classifyCandidate])
 
   useEffect(() => {
     if (!channelId || !scrollRootEl) return
@@ -190,7 +181,7 @@ export function useTimelineReadObserver({
     }
     const observer = new IntersectionObserver((entries) => {
       if (!readPresentationReadable(scrollRootEl)) return
-      if (!readyRef.current) return
+      if (!protocol.get().ready) return
       if (document.visibilityState !== "visible") {
         takeInboxReadReservationNegative(reservationLease)
         return
@@ -200,9 +191,9 @@ export function useTimelineReadObserver({
         if (!binding || binding.generation !== observerGeneration) continue
         if (!scrollRootEl.contains(entry.target)) continue
         if ((entry.target as HTMLElement).dataset.msgId !== binding.id) continue
-        const message = messagesRef.current.find((row) => row.id === binding.id)
+        const message = protocol.get().visibleIds.has(binding.id) ? getCommunityDbRegistry(queryClient)?.collections.messages.get(binding.id) : undefined
         if (!message?.seq || message.authorId === currentUser.id) continue
-        const activeCandidate = candidateRef.current
+        const activeCandidate = protocol.get().candidate
         const correlated = activeCandidate?.lastMessageAt === message.createdAt
         if (!entry.isIntersecting || entry.intersectionRatio < READ_VISIBILITY_THRESHOLD) {
           if (correlated) takeInboxReadReservationNegative(reservationLease)
@@ -278,7 +269,7 @@ export function useTimelineReadObserver({
       document.removeEventListener("visibilitychange", sample)
       window.removeEventListener("pageshow", sample)
     }
-  }, [channelId, currentUser.id, feedStatus, queryClient, scrollRootEl, snapshotStatus])
+  }, [channelId, currentUser.id, feedStatus, protocol, queryClient, scrollRootEl, snapshotStatus])
 
   useEffect(() => {
     if (

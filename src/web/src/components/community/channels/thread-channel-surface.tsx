@@ -1,6 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useState, type ComponentProps, type ReactNode } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
+import { useCallback, useEffect, type ComponentProps, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { toastApiError, apiFetch } from "@/lib/api/client"
 import { useBreakpoint } from "@/hooks/use-mobile"
@@ -97,8 +99,8 @@ export function ThreadChannelSurface({
 }) {
   const router = useRouter()
   const breakpoint = useBreakpoint()
-  const [rightPanel, setRightPanel] = useState<RightPanel>(null)
-  const [localName, setLocalName] = useState<string | null>(null)
+  const [rightPanel, setRightPanel] = useAtom(useCreateAtom<RightPanel>(null))
+  const [localName, setLocalName] = useAtom(useCreateAtom<string | null>(null))
   const mentionInsertion = useAuthorMentionInsertion({
     members: composerMembers,
     viewerUserId: viewer.id,
@@ -131,12 +133,12 @@ export function ThreadChannelSurface({
   useEffect(() => {
     setRightPanel(null)
     setLocalName(null)
-  }, [channelId])
+  }, [channelId, setLocalName, setRightPanel])
 
   const togglePanel = useCallback((panel: Exclude<RightPanel, null>) => {
     setRightPanel((current) => current === panel ? null : panel)
-  }, [])
-  const openPinned = useCallback(() => setRightPanel("pinned"), [])
+  }, [setRightPanel])
+  const openPinned = useCallback(() => setRightPanel("pinned"), [setRightPanel])
   const rename = parentIsForum && parentChannelId && parentMessageId && childCreatorId === viewer.id
     ? async (name: string) => {
         try {
@@ -305,6 +307,8 @@ export function ThreadChannelSurface({
               pinned={controller.feed.pinned}
               pinnedLoading={controller.feed.pinnedLoading}
               searchResults={controller.searchResults}
+              searchError={controller.searchError}
+              searchLoading={controller.searchLoading}
               searchQuery={controller.searchQuery}
               threads={controller.feed.threads}
               threadsLoading={controller.feed.threadsLoading}

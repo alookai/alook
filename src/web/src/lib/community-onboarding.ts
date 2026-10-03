@@ -1,6 +1,8 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useSelector } from "@tanstack/react-store";
+import { useCommunityRuntime, type CommunityRuntime } from "@/stores/community/runtime";
+import type { OnboardingInitializationProtocol } from "./community/models/onboarding";
 
 import {
   trackCommunityOnboardingCompleted,
@@ -9,8 +11,6 @@ import {
   trackCommunityOnboardingStarted,
   type CommunityOnboardingStage,
 } from "@/lib/analytics";
-
-const PENDING_ONBOARDING_KEY = "alook:community-onboarding:pending";
 
 type JourneyResources = {
   harness?: string;
@@ -27,52 +27,35 @@ type JourneyResources = {
 export type CommunityOnboardingState = {
   status: "active";
   stage: CommunityOnboardingStage;
+  initialization?: OnboardingInitializationProtocol;
 } & JourneyResources;
 
-let currentState: CommunityOnboardingState | null = null;
-const listeners = new Set<(state: CommunityOnboardingState | null) => void>();
-
-function publish(state: CommunityOnboardingState | null) {
-  currentState = state;
-  for (const listener of listeners) listener(state);
+function publish(runtime: CommunityRuntime, state: CommunityOnboardingState | null) {
+  if (!runtime.lifecycle.get().active) throw new DOMException("Retired onboarding owner", "AbortError");
+  runtime.ui.setState((current) => ({ ...current, onboardingState: state }));
   return state;
 }
 
-export function readCommunityOnboardingState() {
-  return currentState;
+export function readCommunityOnboardingState(runtime: CommunityRuntime) {
+  return runtime.ui.get().onboardingState;
 }
 
-export function queueCommunityOnboarding() {
-  try {
-    window.sessionStorage?.setItem(PENDING_ONBOARDING_KEY, "1");
-  } catch {
-    // A blocked storage API should never interrupt the signup redirect.
-  }
-}
-
-export function consumeQueuedCommunityOnboarding() {
-  try {
-    if (window.sessionStorage?.getItem(PENDING_ONBOARDING_KEY) !== "1") return false;
-    window.sessionStorage.removeItem(PENDING_ONBOARDING_KEY);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export function startCommunityOnboarding(resources: Pick<JourneyResources, "guideAvatarSeed"> = {}) {
+export function startCommunityOnboarding(runtime: CommunityRuntime, resources: Pick<JourneyResources, "guideAvatarSeed"> = {}) {
+  const currentState = readCommunityOnboardingState(runtime);
   if (currentState) return currentState;
   const next: CommunityOnboardingState = { ...resources, status: "active", stage: "harness" };
-  publish(next);
+  publish(runtime, next);
   trackCommunityOnboardingStarted();
   return next;
 }
 
 export function advanceCommunityOnboarding(
+  runtime: CommunityRuntime,
   expected: CommunityOnboardingStage,
   nextStage: CommunityOnboardingStage,
   resources: JourneyResources = {},
 ) {
+  const currentState = readCommunityOnboardingState(runtime);
   if (currentState?.status !== "active" || currentState.stage !== expected) {
     return currentState;
   }
@@ -82,17 +65,25 @@ export function advanceCommunityOnboarding(
     status: "active",
     stage: nextStage,
   };
-  publish(next);
+  publish(runtime, next);
   trackCommunityOnboardingStageCompleted(expected);
   return next;
 }
 
-export function updateCommunityOnboardingResources(resources: JourneyResources) {
+export function updateCommunityOnboardingResources(runtime: CommunityRuntime, resources: JourneyResources) {
+  const currentState = readCommunityOnboardingState(runtime);
   if (currentState?.status !== "active") return currentState;
-  return publish({ ...currentState, ...resources });
+  return publish(runtime, { ...currentState, ...resources });
 }
 
-export function recoverCommunityOnboardingHarness() {
+export function updateCommunityOnboardingInitialization(runtime: CommunityRuntime, update: (current: OnboardingInitializationProtocol) => OnboardingInitializationProtocol) {
+  const current = readCommunityOnboardingState(runtime);
+  if (current?.stage !== "initializing") throw new DOMException("Retired onboarding initialization", "AbortError");
+  return publish(runtime, { ...current, initialization: update(current.initialization ?? { checkpoint: {}, step: "creating-bots", result: null, pendingDestination: null }) });
+}
+
+export function recoverCommunityOnboardingHarness(runtime: CommunityRuntime) {
+  const currentState = readCommunityOnboardingState(runtime);
   if (currentState?.status !== "active" || currentState.stage !== "machine") {
     return currentState;
   }
@@ -101,55 +92,50 @@ export function recoverCommunityOnboardingHarness() {
     machineId: _machineId,
     ...retainedState
   } = currentState;
-  return publish({ ...retainedState, stage: "harness" });
+  return publish(runtime, { ...retainedState, stage: "harness" });
 }
 
-export function recoverCommunityOnboardingMachine() {
+export function recoverCommunityOnboardingMachine(runtime: CommunityRuntime) {
+  const currentState = readCommunityOnboardingState(runtime);
   if (currentState?.status !== "active" || currentState.stage !== "bot") {
     return currentState;
   }
-  return publish({ ...currentState, machineRecovery: true });
+  return publish(runtime, { ...currentState, machineRecovery: true });
 }
 
-export function completeCommunityOnboarding() {
+export function completeCommunityOnboarding(runtime: CommunityRuntime) {
+  const currentState = readCommunityOnboardingState(runtime);
   if (currentState?.status !== "active" || currentState.stage !== "initializing") {
     return currentState;
   }
-  publish(null);
+  publish(runtime, null);
   trackCommunityOnboardingStageCompleted("initializing");
   trackCommunityOnboardingCompleted();
   return null;
 }
 
-export function skipCommunityOnboarding() {
+export function skipCommunityOnboarding(runtime: CommunityRuntime) {
+  const currentState = readCommunityOnboardingState(runtime);
   if (!currentState) return null;
   const stage = currentState.stage;
-  publish(null);
+  publish(runtime, null);
   trackCommunityOnboardingSkipped(stage);
   return null;
 }
 
-export function isCommunityOnboardingStage(stage: CommunityOnboardingStage) {
+export function isCommunityOnboardingStage(runtime: CommunityRuntime, stage: CommunityOnboardingStage) {
+  const currentState = readCommunityOnboardingState(runtime);
   return currentState?.status === "active" && currentState.stage === stage;
 }
 
 export function subscribeCommunityOnboarding(
+  runtime: CommunityRuntime,
   listener: (state: CommunityOnboardingState | null) => void,
 ) {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
-function subscribeCommunityOnboardingStore(onStoreChange: () => void) {
-  return subscribeCommunityOnboarding(onStoreChange);
+  const subscription = runtime.ui.subscribe(() => listener(readCommunityOnboardingState(runtime)));
+  return () => subscription.unsubscribe();
 }
 
 export function useCommunityOnboarding() {
-  return useSyncExternalStore(
-    subscribeCommunityOnboardingStore,
-    readCommunityOnboardingState,
-    () => null,
-  );
+  return useSelector(useCommunityRuntime().ui, (state) => state.onboardingState);
 }

@@ -1,6 +1,9 @@
 "use client"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { getCommunityRuntime } from "@/stores/community/runtime"
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react"
+
+import { useCallback, useEffect, useLayoutEffect, useMemo } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toastApiError } from "@/lib/api/client"
 import { ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
@@ -21,11 +24,7 @@ import { clearLastChannel } from "@/lib/community/last-channel"
 import { commitCommunityChannelRoute } from "@/lib/community/last-community-route"
 import { resolveChannelDisplayName } from "@/lib/community/channel-display-name"
 import { toChannelRefCandidate } from "@/lib/community/channel-ref-extension"
-import {
-  useCommunityStore,
-  useCurrentChannelId,
-  useUiHandlers,
-} from "@/stores/community"
+import { useCurrentChannelId, useUiHandlers } from "@/stores/community"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { useChannelRouteModel } from "@/hooks/community/use-channel-route-model"
 import { useForumOpenerHint } from "@/hooks/community/use-forum-opener-hint"
@@ -65,7 +64,7 @@ export function ChannelRoute({ serverParam, channelId }: {
   // re-reads this. The param is stripped from the URL right after (below) so a
   // refresh/back doesn't re-trigger the jump; this frozen copy still drives the
   // anchor + scroll for this mount.
-  const [jumpTargetId] = useState<string | null>(() => searchParams.get("msg"))
+const [jumpTargetId] = useAtom(useCreateAtom<string | null>((() => searchParams.get("msg"))()))
   const queryClient = useQueryClient()
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const navigationGate = useConversationNavigationGate(
@@ -87,10 +86,10 @@ export function ChannelRoute({ serverParam, channelId }: {
     isForumPostChild,
     isNotifyUnit,
   } = routeModel
-  const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useState(() => ({
+const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAtom((() => ({
     channelId,
     wasTopLevel: channelInServer !== null,
-  }))
+  }))()))
   const routeWasTopLevel = topLevelRouteOwnership.channelId === channelId
     && topLevelRouteOwnership.wasTopLevel
   useLayoutEffect(() => {
@@ -103,7 +102,7 @@ export function ChannelRoute({ serverParam, channelId }: {
       }
       return ownership
     })
-  }, [channelId, channelInServer])
+  }, [channelId, channelInServer, setTopLevelRouteOwnership])
   const forumPostOpener = useForumOpenerHint(
     serverId,
     currentChannelMeta?.parentMessageId,
@@ -201,10 +200,10 @@ export function ChannelRoute({ serverParam, channelId }: {
   }, [channelId, jumpTargetId, router, searchParams, serverParam])
 
   const enterThread = useCallback((id: string) => {
-    useCommunityStore.getState().uiHandlers.navigatePath?.(
+    getCommunityRuntime(queryClient).ui.get().uiHandlers.navigatePath?.(
       channelHref(serverParam, id),
     )
-  }, [serverParam])
+  }, [queryClient, serverParam])
   const openThreadFullscreen = useCallback(() => {
     uiHandlers.cancelPendingNavigation?.()
     const params = new URLSearchParams(searchParams.toString())

@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useMemo, useLayoutEffect } from "react";
+import { useAtom, useCreateAtom, createStore, useSelector } from "@tanstack/react-store";
+import { useMutation, useQuery, type Query } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Agent } from "@alook/shared";
@@ -13,7 +15,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { RuntimeSelect } from "@/components/runtime-select";
-import { useWorkspace } from "@/contexts/workspace-context";
+import { useWorkspaceOwner, captureWorkspaceOwner, assertWorkspaceOwner, workspaceRequestOptions } from "@/contexts/workspace-context";
+import { useWorkspaceViewSource } from "@/hooks/workspace/use-workspace-view-source";
+import { isAbortError } from "@/lib/errors";
 import { useAgentContext } from "@/contexts/agent-context";
 import { getAgent as getAgentApi, updateAgent as updateAgentApi } from "@/lib/api";
 import { toast } from "sonner";
@@ -135,115 +139,110 @@ export function AgentEditForm({
   onCancel,
   saving,
 }: AgentEditFormProps) {
-  const { workspaceId } = useWorkspace();
-  const { patchAgent } = useAgentContext();
-  const [activeTab, setActiveTab] = useState<TabId>("general");
-  const [name, setName] = useState(agent.name ?? "");
-  const [description, setDescription] = useState(agent.description ?? "");
-  const [runtimeId, setRuntimeId] = useState(agent.runtime_id ?? "");
-  const [avatarUrl, setAvatarUrl] = useState<string>(
-    () => parseBeamSeed(agent.avatar_url) ? agent.avatar_url! : serializeBeamSeed(agent.id),
-  );
-  const [model, setModel] = useState(() => {
-    const rc = agent.runtime_config;
-    return typeof rc?.model === "string" ? rc.model : "";
-  });
+  const owner = useWorkspaceOwner();
+  const { workspaceId } = owner;
+  const { agents } = useAgentContext();
+  const canonicalAgent = agents.find((row) => row.id === agent.id);
+  const source = useWorkspaceViewSource(owner, `agent-edit:${agent.id}`, true);
+  const [activeTab, setActiveTab] = useAtom(useCreateAtom<TabId>("general"));
+  const [name, setName] = useAtom(useCreateAtom(agent.name ?? ""));
+  const [description, setDescription] = useAtom(useCreateAtom(agent.description ?? ""));
+  const [runtimeId, setRuntimeId] = useAtom(useCreateAtom(agent.runtime_id ?? ""));
+  const [avatarUrl, setAvatarUrl] = useAtom(useCreateAtom<string>(
+    parseBeamSeed(agent.avatar_url) ? agent.avatar_url! : serializeBeamSeed(agent.id),
+  ));
+  const [model, setModel] = useAtom(useCreateAtom(typeof agent.runtime_config?.model === "string" ? agent.runtime_config.model : ""));
 
-  // Instruction tab state — auto-saves independently
-  const [instructions, setInstructions] = useState(agent.instructions ?? "");
-  const [savedInstructions, setSavedInstructions] = useState(agent.instructions ?? "");
-  const instructionsRef = useRef(instructions);
-  useEffect(() => {
-    instructionsRef.current = instructions;
-  }, [instructions]);
-  const savedInstructionsRef = useRef(savedInstructions);
-  useEffect(() => {
-    savedInstructionsRef.current = savedInstructions;
-  }, [savedInstructions]);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const savingInstructionsRef = useRef(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    getAgentApi(agent.id, workspaceId).then((fresh) => {
-      if (cancelled) return;
-      if (fresh.instructions !== instructionsRef.current && !savingInstructionsRef.current) {
-        setInstructions(fresh.instructions);
-        setSavedInstructions(fresh.instructions);
+  type InstructionIntent = { value: string; token: ReturnType<typeof captureWorkspaceOwner>; assertView: () => void; signal: AbortSignal; resource: Query | undefined };
+  const draft = useMemo(() => {
+    const key = JSON.stringify(owner.key("agent-instruction-draft", agent.id));
+    const create = () => createStore<{ value: string | null; pending: InstructionIntent | null }>({ value: null, pending: null });
+    const saved = owner.application.preferences.get().localValues.get(key) as ReturnType<typeof create> | undefined;
+    if (saved) return saved;
+    const store = create();
+    owner.application.preferences.setState((state) => ({ ...state, localValues: new Map(state.localValues).set(key, store) }));
+    return store;
+  }, [owner, agent.id]);
+  const instructionDraft = useSelector(draft, (state) => state.value);
+  const pendingInstruction = useSelector(draft, (state) => state.pending);
+  const instructions = instructionDraft ?? canonicalAgent?.instructions ?? "";
+  const agentsKey = owner.key("agents");
+  useQuery({ queryKey: owner.key("agent-refresh", agent.id),
+    queryFn: async ({ signal }) => {
+      const token = captureWorkspaceOwner(owner);
+      assertWorkspaceOwner(token, signal);
+      const original = owner.queryClient.getQueryCache().find({ queryKey: agentsKey, exact: true });
+      const baseline = owner.queryClient.getQueryData<Agent[]>(agentsKey)?.find((row) => row.id === agent.id);
+      const writes = original?.state.dataUpdateCount;
+      const fresh = await getAgentApi(agent.id, workspaceId, workspaceRequestOptions(token, signal));
+      assertWorkspaceOwner(token, signal);
+      if (owner.queryClient.getQueryCache().find({ queryKey: agentsKey, exact: true }) === original && original?.state.dataUpdateCount === writes) {
+        owner.queryClient.setQueryData<Agent[]>(agentsKey, (rows) => rows?.map((row) => {
+          if (row.id !== fresh.id) return row;
+          const fields = Object.fromEntries(Object.entries(fresh).filter(([key]) => row[key as keyof Agent] === baseline?.[key as keyof Agent]));
+          return { ...row, ...fields };
+        }));
       }
-    }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [agent.id, workspaceId]);
-
-  const scheduleInstructionSaveRef = useRef<() => void>(() => {});
-
-  const flushInstructions = useCallback(async () => {
-    if (savingInstructionsRef.current) return;
-    const current = instructionsRef.current;
-    if (current === savedInstructionsRef.current) return;
-    savingInstructionsRef.current = true;
-    try {
-      await updateAgentApi(agent.id, { instructions: current }, workspaceId);
-      setSavedInstructions(current);
-      patchAgent(agent.id, { instructions: current });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save instructions");
-    } finally {
-      savingInstructionsRef.current = false;
-      if (instructionsRef.current !== savedInstructionsRef.current) {
-        scheduleInstructionSaveRef.current();
-      }
-    }
-  }, [agent.id, workspaceId, patchAgent]);
-
-  const scheduleInstructionSave = useCallback(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(flushInstructions, DEBOUNCE_MS);
-  }, [flushInstructions]);
-
-  useEffect(() => {
-    scheduleInstructionSaveRef.current = scheduleInstructionSave;
-  }, [scheduleInstructionSave]);
-
-  const handleInstructionChange = useCallback(
-    (next: string) => {
-      setInstructions(next);
-      scheduleInstructionSave();
+      return { id: fresh.id };
     },
-    [scheduleInstructionSave],
-  );
-
+  });
+  const instructionMutation = useMutation({
+    mutationKey: owner.key("agent-instruction-command", agent.id),
+    scope: { id: JSON.stringify(owner.key("agent-instruction-command", agent.id)) }, gcTime: 0,
+    mutationFn: async ({ value, token, assertView, signal, resource: original }: InstructionIntent) => {
+      const assert = () => { assertWorkspaceOwner(token, signal); assertView(); };
+      assert();
+      if (original && owner.queryClient.getQueryCache().find({ queryKey: agentsKey, exact: true }) === original) await owner.queryClient.cancelQueries({ queryKey: agentsKey, exact: true });
+      assert();
+      const before = owner.queryClient.getQueryData<Agent[]>(agentsKey)?.find((row) => row.id === agent.id)?.instructions;
+      const writes = original?.state.dataUpdateCount;
+      try {
+        const confirmed = await updateAgentApi(agent.id, { instructions: value }, workspaceId, { ...workspaceRequestOptions(token, signal, assert), keepalive: true });
+        assert();
+        if (original && owner.queryClient.getQueryCache().find({ queryKey: agentsKey, exact: true }) === original && original.state.dataUpdateCount === writes) {
+          owner.queryClient.setQueryData<Agent[]>(agentsKey, (rows) => rows?.map((row) => row.id === agent.id && row.instructions === before ? { ...row, instructions: confirmed.instructions } : row));
+        }
+      } catch (error) { assert(); throw error; }
+    },
+    onSuccess: (_data, intent) => {
+      try { intent.assertView(); } catch { return; }
+      const confirmed = owner.queryClient.getQueryData<Agent[]>(agentsKey)?.find((row) => row.id === agent.id)?.instructions;
+      draft.setState((state) => state.value === intent.value && confirmed === intent.value ? { ...state, value: null } : state);
+    },
+    onError: (error, intent) => {
+      try { intent.assertView(); } catch { return; }
+      if (!isAbortError(error)) toast.error(error instanceof Error ? error.message : "Failed to save instructions");
+    },
+  });
+  const flush = useCallback(() => {
+    const intent = draft.get().pending;
+    if (!intent) return;
+    try { intent.assertView(); assertWorkspaceOwner(intent.token, intent.signal); } catch { return; }
+    draft.setState((state) => state.pending === intent ? { ...state, pending: null } : state);
+    instructionMutation.mutate(intent);
+  }, [draft, instructionMutation]);
+  const flushRef = useRef(flush);
+  useEffect(() => { flushRef.current = flush; }, [flush]);
   useEffect(() => {
-    const onBeforeUnload = () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      if (instructionsRef.current !== savedInstructionsRef.current) {
-        const params = new URLSearchParams({ workspace_id: workspaceId });
-        fetch(`/api/agents/${agent.id}?${params}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ instructions: instructionsRef.current }),
-          keepalive: true,
-        });
-      }
-    };
+    if (!pendingInstruction) return;
+    const timer = setTimeout(() => flushRef.current(), DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [pendingInstruction]);
+  const handleInstructionChange = (value: string) => {
+    source.assertActive();
+    draft.setState((state) => ({ value, pending: {
+      value, token: state.pending?.token ?? captureWorkspaceOwner(owner), assertView: state.pending?.assertView ?? source.assertActive, signal: state.pending?.signal ?? source.signal, resource: state.pending?.resource ?? owner.queryClient.getQueryCache().find({ queryKey: agentsKey, exact: true }),
+    } }));
+  };
+  useEffect(() => {
+    const onBeforeUnload = () => flushRef.current();
     window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [agent.id, workspaceId]);
-
-  useEffect(() => {
     return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      if (instructionsRef.current !== savedInstructionsRef.current) {
-        const params = new URLSearchParams({ workspace_id: workspaceId });
-        fetch(`/api/agents/${agent.id}?${params}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ instructions: instructionsRef.current }),
-          keepalive: true,
-        });
-      }
+      window.removeEventListener("beforeunload", onBeforeUnload);
     };
-  }, [agent.id, workspaceId]);
+  }, [owner, agent.id]);
+  useLayoutEffect(() => () => draft.setState((state) => ({ ...state, pending: null })), [draft]);
+
 
   const selectedRuntime = runtimes.find((r) => r.id === runtimeId);
   const providerModels =
@@ -312,7 +311,7 @@ export function AgentEditForm({
 
         {activeTab === "instruction" ? (
           <div className="flex flex-col flex-1 min-h-0">
-            <div className="flex-1 px-6 pt-4 pb-4 overflow-y-auto">
+            <div className="flex-1 px-6 pt-4 pb-4 overflow-y-auto thin-scrollbar">
               <MarkdownEditor
                 value={instructions}
                 onChange={handleInstructionChange}
@@ -327,6 +326,11 @@ export function AgentEditForm({
               <p className="text-xs text-muted-foreground">
                 Agent-specific instruction. Your global instruction is prepended automatically.
               </p>
+              {instructionDraft !== null && (
+                <Button type="button" size="sm" variant="outline" className="ml-auto shrink-0" disabled={instructionMutation.isPending} onClick={() => { handleInstructionChange(instructions); flushRef.current(); }}>
+                  {instructionMutation.isPending ? "Saving…" : "Save changes"}
+                </Button>
+              )}
             </div>
           </div>
         ) : (

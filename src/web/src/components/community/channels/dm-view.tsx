@@ -1,6 +1,8 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store"
+import { useCommunityRuntime } from "@/stores/community/runtime"
 import { useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { useBreakpoint } from "@/hooks/use-mobile"
@@ -18,7 +20,6 @@ import {
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import {
-  useCommunityStore,
   useUiHandlers,
   useTypingUsersForScope,
   useTypingNamesForScope,
@@ -40,7 +41,6 @@ import {
   useToggleMark,
 } from "@/hooks/community/mutations"
 import { useDmMessageSender } from "@/hooks/community/use-dm-message-sender"
-import { useMessageStreamStore } from "@/stores/community/message-stream"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import {
   communityWsSubscribe,
@@ -84,6 +84,7 @@ function resolveDmLoadingOwnership({
 }
 
 export function DmView({ dmId }: { dmId: string }) {
+  const communityRuntime = useCommunityRuntime()
   const bp = useBreakpoint()
   const currentUser = useCurrentUser()
   const metadata = useChannelMetadata(null, dmId)
@@ -180,11 +181,11 @@ export function DmView({ dmId }: { dmId: string }) {
     const n = raw ? Number(raw) : NaN
     return Number.isFinite(n) ? n : null
   })
-  const [contextSheetSeq, setContextSheetSeq] = useState<number | null>(initialSeq)
+  const [contextSheetSeq, setContextSheetSeq] = useAtom(useCreateAtom<number | null>(initialSeq))
   // DM composer has no "current server" — flatten every member server's
   // channels into one cross-server candidate list so a `/`-ref can be
   // dropped into a DM (see plan community-channel-ref.md §6).
-  const [channelRefDirectoryEnabled, setChannelRefDirectoryEnabled] = useState(false)
+  const [channelRefDirectoryEnabled, setChannelRefDirectoryEnabled] = useAtom(useCreateAtom(false))
   const {
     directory: channelRefDirectory,
     isResolved: channelRefDirectoryResolved,
@@ -216,11 +217,7 @@ export function DmView({ dmId }: { dmId: string }) {
       return
     }
     if (channelRefDirectoryError) void refetchChannelRefDirectory()
-  }, [
-    channelRefDirectoryEnabled,
-    channelRefDirectoryError,
-    refetchChannelRefDirectory,
-  ])
+  }, [channelRefDirectoryEnabled, channelRefDirectoryError, refetchChannelRefDirectory, setChannelRefDirectoryEnabled])
   // Anchor of the "New" divider: the first non-self message after
   // `lastReadMessageId` inside the currently-loaded window. Mirrors the
   // channel-view logic exactly — see channel page for why we skip past
@@ -293,26 +290,26 @@ export function DmView({ dmId }: { dmId: string }) {
   // pill via the `jumpToSeq` UI-handler. The DM view has no in-place scroll
   // target prop (unlike the channel page), so always open the context sheet,
   // which resolves seq→id and shows the message with surrounding context.
-  const jumpToSeq = useCallback((seq: number) => setContextSheetSeq(seq), [])
+  const jumpToSeq = useCallback((seq: number) => setContextSheetSeq(seq), [setContextSheetSeq])
   useEffect(() => {
-    useCommunityStore.getState().registerUiHandlers({ jumpToSeq })
-    return () => useCommunityStore.getState().registerUiHandlers({ jumpToSeq: undefined })
-  }, [jumpToSeq])
+    communityRuntime.ui.actions.registerUiHandlers({ jumpToSeq })
+    return () => communityRuntime.ui.actions.registerUiHandlers({ jumpToSeq: undefined })
+  }, [communityRuntime, jumpToSeq])
 
   useEffect(() => {
-    useCommunityStore.getState().setCurrentChannelId(dmId)
-    communityWsSubscribe({ dmConversationId: dmId })
+    communityRuntime.ui.actions.setCurrentChannelId(dmId)
+    communityWsSubscribe(communityRuntime, { dmConversationId: dmId })
     return () => {
-      useCommunityStore.getState().setCurrentChannelId(null)
-      communityWsUnsubscribe()
+      communityRuntime.ui.actions.setCurrentChannelId(null)
+      communityWsUnsubscribe(communityRuntime)
     }
-  }, [dmId])
+  }, [communityRuntime, dmId])
 
-  const [replyTo, setReplyTo] = useState<{ id: string; authorName: string; text: string } | null>(null)
+  const [replyTo, setReplyTo] = useAtom(useCreateAtom<{ id: string; authorName: string; text: string } | null>(null))
 
   useEffect(() => {
     setReplyTo(null)
-  }, [dmId])
+  }, [communityRuntime, dmId, setReplyTo])
 
 
   const openProfile: OpenProfile = (name, e, discriminator, userId) => {
@@ -337,11 +334,11 @@ export function DmView({ dmId }: { dmId: string }) {
   }, [friends, currentUser.id, currentUser.name, dm])
 
   const advanceOnboardingAfterSend = useCallback(() => {
-    const state = readCommunityOnboardingState()
+    const state = readCommunityOnboardingState(communityRuntime)
     if (state?.status === "active" && state.stage === "dm" && state.dmId === dmId) {
-      advanceCommunityOnboarding("dm", "server")
+      advanceCommunityOnboarding(communityRuntime, "dm", "server")
     }
-  }, [dmId])
+  }, [communityRuntime, dmId])
 
   const messageActions = useMemo(() => ({
     onToggleReaction: (id: string, emoji: string) =>
@@ -375,7 +372,7 @@ export function DmView({ dmId }: { dmId: string }) {
     onDismiss: (id: string) => {
       const m = messages.find((x) => x.id === id)
       if (!m?.clientNonce) return
-      useMessageStreamStore.getState().dispatch(
+      communityRuntime.messageStream.actions.dispatch(
         { kind: "dm", id: dmId },
         { type: "dismissFailed", nonce: m.clientNonce },
       )
@@ -386,7 +383,7 @@ export function DmView({ dmId }: { dmId: string }) {
     onPreviewAttachment: (attachment: FileAttachment) => {
       uiHandlers.previewAttachment?.(attachment)
     },
-  }), [toggleReaction, addReaction, toggleMark, dmId, currentUser.id, messages, retryDmMessage, uiHandlers, advanceOnboardingAfterSend])
+  }), [toggleReaction, dmId, currentUser.id, addReaction, messages, setReplyTo, toggleMark, retryDmMessage, advanceOnboardingAfterSend, communityRuntime.messageStream.actions, uiHandlers])
 
   // DM endpoint ignores mentionType. Replies are supported — the backend
   // persists replyToId for DMs too.
@@ -406,12 +403,12 @@ export function DmView({ dmId }: { dmId: string }) {
     void receipt.committed.then((result) => {
       if (result.ok) advanceOnboardingAfterSend()
     })
-    communityWsEndTyping({ channelId: dmId })
+    communityWsEndTyping(communityRuntime, { channelId: dmId })
     setReplyTo(null)
     return true
   }
 
-  const handleTyping = () => { communityWsSendTyping({ channelId: dmId }) }
+  const handleTyping = () => { communityWsSendTyping(communityRuntime, { channelId: dmId }) }
 
   // The DM row owns header/composer identity. Until it is known, keep the
   // complete DM frame pending; once known, read-state and message fetching

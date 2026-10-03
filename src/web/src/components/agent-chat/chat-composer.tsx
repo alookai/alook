@@ -1,5 +1,6 @@
 "use client";
 
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import {
   forwardRef,
   useEffect,
@@ -176,8 +177,8 @@ export function RotatingPlaceholderOverlay({
 }) {
   // `shown` is the text currently painted; `visible` drives opacity. On a hint
   // change we fade out, then swap `shown` + fade back in.
-  const [shown, setShown] = useState(hint);
-  const [visible, setVisible] = useState(true);
+  const [shown, setShown] = useAtom(useCreateAtom(hint));
+  const [visible, setVisible] = useAtom(useCreateAtom(true));
 
   useEffect(() => {
     if (!animate) {
@@ -193,7 +194,7 @@ export function RotatingPlaceholderOverlay({
       setVisible(true); // fade in
     }, PLACEHOLDER_FADE_MS);
     return () => clearTimeout(id);
-  }, [hint, shown, animate]);
+  }, [hint, shown, animate, setVisible, setShown]);
 
   return (
     <div className="chat-placeholder-overlay" aria-hidden="true">
@@ -228,8 +229,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     },
     ref,
   ) {
-    const [editorFocused, setEditorFocused] = useState(false);
-    const [mentionPopup, setMentionPopup] = useState<MentionPopupState>(EMPTY_MENTION_STATE);
+    const [editorFocused, setEditorFocused] = useAtom(useCreateAtom(false));
+    const [mentionPopup, setMentionPopup] = useAtom(useCreateAtom<MentionPopupState>(EMPTY_MENTION_STATE));
     const mentionPopupRef = useRef(mentionPopup);
     useEffect(() => {
       mentionPopupRef.current = mentionPopup;

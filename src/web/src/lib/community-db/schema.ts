@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { PARTICIPANT_SOURCE } from "@alook/shared/constants/community"
 
 const nullableString = z.string().nullable()
 const optionalNullableString = nullableString.optional()
@@ -52,6 +53,9 @@ export const channelSchema = z.object({
   openerUnread: z.boolean().optional(),
   preview: z.string().optional(),
   lastUnreadSeq: z.number().int().nonnegative().optional(),
+  createdAt: z.string().optional(),
+  messageCount: z.number().int().nonnegative().optional(),
+  participantCount: z.number().int().nonnegative().optional(),
 })
 
 export const serverMembershipSchema = z.object({
@@ -71,7 +75,14 @@ export const channelMembershipSchema = z.object({
   userId: z.string().min(1),
   relation: z.enum(["access", "notify"]),
   memberId: z.string().optional(),
-  source: z.enum(["explicit", "inherited", "admin"]).optional(),
+  source: z.enum([
+    "explicit",
+    "inherited",
+    "admin",
+    PARTICIPANT_SOURCE.MENTION,
+    PARTICIPANT_SOURCE.SPOKE,
+    PARTICIPANT_SOURCE.ADDED,
+  ]).optional(),
   isCreator: z.boolean().optional(),
 })
 
@@ -85,6 +96,9 @@ export const profileSchema = z.object({
   bannerColor: optionalNullableString,
   kind: z.enum(["human", "bot"]).optional(),
   ownerUserId: optionalNullableString,
+  ownerHandle: optionalNullableString,
+  mutualServers: z.number().int().nonnegative().optional(),
+  ownedByViewer: z.boolean().optional(),
   statusEmoji: optionalNullableString,
   statusText: optionalNullableString,
 })
@@ -111,6 +125,14 @@ export const readStateSchema = z.object({
   lastReadMessageId: nullableString,
   lastReadAt: z.string(),
   lastReadSeq: z.number().int().nonnegative(),
+})
+
+export const friendshipSchema = z.object({
+  id: z.string().min(1),
+  userId: z.string().min(1),
+  kind: z.enum(["accepted", "incoming", "outgoing", "blocked"]),
+  sub: z.string().optional(),
+  needsOwnerApproval: optionalNullableString,
 })
 
 export const readStateClockSchema = z.object({
@@ -180,6 +202,7 @@ export const communityCollectionSchemas = {
   channelMemberships: channelMembershipSchema,
   profiles: profileSchema,
   messages: messageSchema,
+  friendships: friendshipSchema,
   readStates: readStateSchema,
   readStateClock: readStateClockSchema,
   attentionScopes: attentionScopeSchema,
@@ -197,6 +220,7 @@ export type ServerMembershipRow = z.infer<typeof serverMembershipSchema>
 export type ChannelMembershipRow = z.infer<typeof channelMembershipSchema>
 export type ProfileRow = z.infer<typeof profileSchema>
 export type MessageRow = z.infer<typeof messageSchema>
+export type FriendshipRow = z.infer<typeof friendshipSchema>
 export type ReadStateRow = z.infer<typeof readStateSchema>
 export type ReadStateClockRow = z.infer<typeof readStateClockSchema>
 export type AttentionScopeRow = z.infer<typeof attentionScopeSchema>

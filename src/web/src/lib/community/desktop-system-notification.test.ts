@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { CommunityMessageCreate, CommunityWsEvent } from "@alook/shared"
 import { QueryClient } from "@tanstack/react-query"
-import { communityKeys } from "@/lib/query-keys"
+import { createCommunityDbRegistry, getCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
+import { ingestServers, captureCommunityLiveSnapshotToken, publishCommunityCreatedChannel } from "@/lib/community-db/sync"
 import {
   buildDesktopSystemNotificationCandidate,
   dismissDesktopSystemNotification,
@@ -20,12 +21,7 @@ vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
   return { ...actual, isDesktop: vi.fn(() => desktopMode.value), tauriInvoke: invoke }
 })
-vi.mock("@/hooks/community/channel-metadata", async () => {
-  const actual = await vi.importActual<typeof import("@/hooks/community/channel-metadata")>(
-    "@/hooks/community/channel-metadata",
-  )
-  return { ...actual, fetchChannelMetadata: channelMetadataMocks.fetch }
-})
+vi.mock("@/lib/api/client", () => ({ apiFetch: channelMetadataMocks.fetch }))
 
 type UnreadBump = Extract<CommunityWsEvent, { type: "community:unread.bump" }>
 const create: CommunityMessageCreate = {
@@ -98,23 +94,23 @@ const channelRows = [
   },
 ]
 
-function seedCanonicalDirectory(
-  queryClient: QueryClient,
-  options: { channels?: boolean } = {},
-) {
-  queryClient.setQueryData(
-    communityKeys.communityDbCollection("viewer_1", "servers"),
-    serverRows,
-  )
+const owners: CommunityDbRegistry[] = []
+async function createClient() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const registry = createCommunityDbRegistry(client, "viewer_1")
+  await registry.preload()
+  owners.push(registry)
+  return client
+}
+function seedCanonicalDirectory(queryClient: QueryClient, options: { channels?: boolean } = {}) {
+  const registry = getCommunityDbRegistry(queryClient)!
+  ingestServers(registry, { servers: serverRows })
   if (options.channels !== false) {
-    queryClient.setQueryData(
-      communityKeys.communityDbCollection("viewer_1", "channels"),
-      channelRows,
-    )
+    for (const channel of channelRows) publishCommunityCreatedChannel(queryClient, channel, { token: captureCommunityLiveSnapshotToken(queryClient), signal: undefined })
   }
 }
-
-afterEach(() => {
+afterEach(async () => {
+  for (const owner of owners.splice(0)) { await owner.cleanup(); owner.queryClient.clear() }
   desktopMode.value = true
   vi.unstubAllGlobals()
   vi.clearAllMocks()
@@ -168,7 +164,7 @@ describe("desktop system notification candidates", () => {
   })
 
   it("does not resolve account-scoped metadata without a viewer", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = await createClient()
 
     await expect(resolveDesktopSystemNotificationCandidate(
       create,
@@ -180,7 +176,7 @@ describe("desktop system notification candidates", () => {
   })
 
   it("resolves a cold channel name before formatting the desktop copy", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = await createClient()
     seedCanonicalDirectory(queryClient, { channels: false })
     channelMetadataMocks.fetch.mockResolvedValue({
       id: "channel_1",
@@ -203,11 +199,11 @@ describe("desktop system notification candidates", () => {
       title: "Studio · #general",
       body: "Ada: Hello there",
     })
-    expect(channelMetadataMocks.fetch).toHaveBeenCalledWith("server_1", "channel_1")
+    expect(channelMetadataMocks.fetch).toHaveBeenCalledWith("/api/community/channels/channel_1", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer_1" }))
   })
 
   it("uses the default empty snapshot while resolving cold channel metadata", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = await createClient()
     channelMetadataMocks.fetch.mockResolvedValue({
       id: "channel_1",
       serverId: "server_1",
@@ -230,11 +226,11 @@ describe("desktop system notification candidates", () => {
       title: "Server · #general",
       body: "Ada: Hello there",
     })
-    expect(channelMetadataMocks.fetch).toHaveBeenCalledWith("server_1", "channel_1")
+    expect(channelMetadataMocks.fetch).toHaveBeenCalledWith("/api/community/channels/channel_1", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer_1" }))
   })
 
   it("resolves cold thread and parent channel names before formatting the desktop copy", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = await createClient()
     seedCanonicalDirectory(queryClient, { channels: false })
     channelMetadataMocks.fetch.mockResolvedValueOnce({
       id: "thread_1",
@@ -268,14 +264,11 @@ describe("desktop system notification candidates", () => {
       title: "Studio · #general · Release notes",
       body: "Ada: Hello there",
     })
-    expect(channelMetadataMocks.fetch.mock.calls).toEqual([
-      ["server_1", "thread_1"],
-      ["server_1", "channel_1"],
-    ])
+    expect(channelMetadataMocks.fetch.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/thread_1", "/api/community/channels/channel_1"])
   })
 
   it("uses complete current-account collections without metadata I/O", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = await createClient()
     seedCanonicalDirectory(queryClient)
     await expect(resolveDesktopSystemNotificationCandidate(
       create,
@@ -299,7 +292,7 @@ describe("desktop system notification candidates", () => {
   })
 
   it("keeps safe fallback copy when cold metadata resolution fails", async () => {
-    const queryClient = new QueryClient()
+    const queryClient = await createClient()
     seedCanonicalDirectory(queryClient, { channels: false })
     channelMetadataMocks.fetch.mockRejectedValue(new Error("metadata unavailable"))
     await expect(resolveDesktopSystemNotificationCandidate(

@@ -1,17 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { sanitizeSlug } from "@alook/shared";
-import { useWorkspace } from "@/contexts/workspace-context";
-import { useSession } from "@/lib/auth-client";
-import {
-  listMembers,
-  updateWorkspace,
-  deleteWorkspace,
-  listWorkspaces,
-} from "@/lib/api";
+import { useWorkspaceOwner, captureWorkspaceOwner, assertWorkspaceOwner, workspaceRequestOptions } from "@/contexts/workspace-context";
+import { useWorkspaceViewSource } from "@/hooks/workspace/use-workspace-view-source";
+import { useQuery, useMutation, type Query } from "@tanstack/react-query";
+import { applicationWorkspacesOptions, workspaceMembersOptions } from "@/hooks/workspace/settings-query-options";
+
+import { updateWorkspace, deleteWorkspace, listWorkspaces } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,102 +23,102 @@ import {
 import { trackSettingsUpdated } from "@/lib/analytics";
 
 export function GeneralTab() {
-  const { workspaceId, slug } = useWorkspace();
-  const session = useSession();
+  const owner = useWorkspaceOwner();
+  const { workspaceId, slug } = owner;
+  const source = useWorkspaceViewSource(owner, "workspace-general", true);
   const router = useRouter();
-
-  const [memberRole, setMemberRole] = useState<string>("");
-  const [loading, setLoading] = useState(true);
-
-  const [workspaceName, setWorkspaceName] = useState("");
-  const [workspaceSlug, setWorkspaceSlug] = useState("");
-  const [savedWorkspaceName, setSavedWorkspaceName] = useState("");
-  const [savedWorkspaceSlug, setSavedWorkspaceSlug] = useState("");
-  const [savingWorkspace, setSavingWorkspace] = useState(false);
-  const [workspaceErrors, setWorkspaceErrors] = useState<WorkspaceFormErrors>({});
-
-  const [deleteConfirm, setDeleteConfirm] = useState("");
-  const [deleting, setDeleting] = useState(false);
-
+  const membersQuery = useQuery(workspaceMembersOptions(owner));
+  const workspacesQuery = useQuery(applicationWorkspacesOptions(owner.application));
+  const current = workspacesQuery.data?.find((workspace) => workspace.id === workspaceId);
+  const memberRole = membersQuery.data?.find((member) => member.user_id === owner.application.userId)?.role ?? "";
+  const loading = membersQuery.isPending || workspacesQuery.isPending;
+  const [nameDraft, setWorkspaceName] = useAtom(useCreateAtom<string | null>(null));
+  const [slugDraft, setWorkspaceSlug] = useAtom(useCreateAtom<string | null>(null));
+  const workspaceName = nameDraft ?? current?.name ?? "";
+  const workspaceSlug = slugDraft ?? current?.slug ?? "";
+  const savedWorkspaceName = current?.name ?? "";
+  const savedWorkspaceSlug = current?.slug ?? "";
+  const [workspaceErrors, setWorkspaceErrors] = useAtom(useCreateAtom<WorkspaceFormErrors>({}));
+  const [deleteConfirm, setDeleteConfirm] = useAtom(useCreateAtom(""));
+  type OriginalIntent = { token: ReturnType<typeof captureWorkspaceOwner>; view: ReturnType<typeof source.capture>; resources: Query[] };
+  const native = useMutation({ mutationKey: owner.key("workspace-settings-command"), scope: { id: JSON.stringify(owner.key("workspace-settings-command")) }, gcTime: 0,
+    mutationFn: async ({ action, token, view, resources }: { action: { kind: "update"; name: string; slug: string } | { kind: "delete"; name: string }; token: ReturnType<typeof captureWorkspaceOwner> } & OriginalIntent) => {
+      const assert = () => { assertWorkspaceOwner(token, view.signal); view.assert(); };
+      const key = applicationWorkspacesOptions(owner.application).queryKey;
+      assert();
+      const original = resources.find((query) => JSON.stringify(query.queryKey) === JSON.stringify(key));
+      if (original && owner.queryClient.getQueryCache().find({ queryKey: key, exact: true }) === original) await owner.queryClient.cancelQueries({ queryKey: key, exact: true });
+      assert();
+      const before = owner.queryClient.getQueryData<Awaited<ReturnType<typeof listWorkspaces>>>(key)?.find((row) => row.id === workspaceId);
+      const writes = original?.state.dataUpdateCount;
+      const options = workspaceRequestOptions(token, view.signal, assert);
+      try {
+        const updated = action.kind === "update" ? await updateWorkspace(workspaceId, { name: action.name, slug: action.slug }, options)
+          : (await deleteWorkspace(workspaceId, action.name, options), null);
+        assert();
+        if (original && owner.queryClient.getQueryCache().find({ queryKey: key, exact: true }) === original && original.state.dataUpdateCount === writes) {
+          owner.queryClient.setQueryData<Awaited<ReturnType<typeof listWorkspaces>>>(key, (rows) => action.kind === "delete" ? rows?.filter((row) => row.id !== workspaceId)
+            : rows?.map((row) => row.id !== workspaceId ? row : { ...row, name: row.name === before?.name ? updated!.name : row.name, slug: row.slug === before?.slug ? updated!.slug : row.slug }));
+        }
+        if (action.kind === "delete") for (const query of resources.filter((query) => owner.key().every((part, index) => Object.is(part, query.queryKey[index])))) {
+          if (owner.queryClient.getQueryCache().find({ queryKey: query.queryKey, exact: true }) === query) owner.queryClient.removeQueries({ queryKey: query.queryKey, exact: true });
+        }
+        if (original && owner.queryClient.getQueryCache().find({ queryKey: key, exact: true }) === original) await owner.queryClient.invalidateQueries({ queryKey: key, exact: true }, { cancelRefetch: false });
+        assert();
+        return updated && original && owner.queryClient.getQueryCache().find({ queryKey: key, exact: true }) === original ? owner.queryClient.getQueryData<Awaited<ReturnType<typeof listWorkspaces>>>(key)?.find((row) => row.id === workspaceId) ?? null : null;
+      } catch (error) { assert(); throw error; }
+    },
+  });
+  const capture = (input: Omit<Parameters<typeof native.mutate>[0], "view" | "resources">) => { const view = source.capture(); view.assert(); assertWorkspaceOwner(input.token, view.signal); return { ...input, view, resources: [...new Set([...owner.queryClient.getQueryCache().findAll({ queryKey: owner.key() }), ...owner.queryClient.getQueryCache().findAll({ queryKey: applicationWorkspacesOptions(owner.application).queryKey, exact: true })])] }; };
+  const command = { ...native, mutate: (input: Omit<Parameters<typeof native.mutate>[0], "view" | "resources">) => native.mutate(capture(input)), mutateAsync: (input: Omit<Parameters<typeof native.mutate>[0], "view" | "resources">) => native.mutateAsync(capture(input)) };
+  const savingWorkspace = command.isPending && command.variables?.action.kind === "update";
+  const deleting = command.isPending && command.variables?.action.kind === "delete";
   const isOwner = memberRole === "owner";
-
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const currentUserId = session.data?.user?.id;
-      const [members, workspaces] = await Promise.all([
-        listMembers(workspaceId),
-        listWorkspaces(),
-      ]);
-
-      const me = members.find((m) => m.user_id === currentUserId);
-      setMemberRole(me?.role ?? "");
-
-      const ws = workspaces.find((w) => w.id === workspaceId);
-      if (ws) {
-        setWorkspaceName(ws.name);
-        setWorkspaceSlug(ws.slug);
-        setSavedWorkspaceName(ws.name);
-        setSavedWorkspaceSlug(ws.slug);
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load workspace info");
-    } finally {
-      setLoading(false);
-    }
-  }, [workspaceId, session.data?.user?.id]);
-
-  useEffect(() => {
-    if (session.data) fetchData();
-  }, [fetchData, session.data]);
-
-  const isWorkspaceDirty =
-    workspaceName !== savedWorkspaceName || workspaceSlug !== savedWorkspaceSlug;
+  const isWorkspaceDirty = workspaceName !== savedWorkspaceName || workspaceSlug !== savedWorkspaceSlug;
 
   const handleSaveWorkspace = async () => {
+    if (owner.queryClient.isMutating({ mutationKey: owner.key("workspace-settings-command"), exact: true })) return;
     const cleanSlug = sanitizeSlug(workspaceSlug);
     setWorkspaceSlug(cleanSlug);
-
-    const nextErrors = validateWorkspaceForm({
-      name: workspaceName,
-      slug: cleanSlug,
-    });
+    const values = { name: workspaceName.trim(), slug: cleanSlug };
+    const nextErrors = validateWorkspaceForm(values);
     setWorkspaceErrors(nextErrors);
     if (hasWorkspaceFormErrors(nextErrors)) return;
-
-    setSavingWorkspace(true);
+    const assert = source.capture().assert;
+    assert();
     try {
-      const updated = await updateWorkspace(workspaceId, {
-        name: workspaceName.trim(),
-        slug: cleanSlug,
-      });
+      const updated = await command.mutateAsync({ action: { kind: "update", ...values }, token: captureWorkspaceOwner(owner) });
+      assert();
       trackSettingsUpdated({ setting_tab: "general" });
-      setSavedWorkspaceName(updated.name);
-      setSavedWorkspaceSlug(updated.slug);
+      setWorkspaceName((value) => value?.trim() === values.name ? null : value);
+      setWorkspaceSlug((value) => value === cleanSlug ? null : value);
       toast.success("Workspace updated");
-      if (updated.slug !== slug) {
-        router.replace(`/w/${updated.slug}/settings`);
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update workspace");
-    } finally {
-      setSavingWorkspace(false);
+      if (updated && updated.slug !== slug) router.replace(`/w/${updated.slug}/settings`);
+    } catch (error) {
+      try { assert(); } catch { return; }
+      if (!(error instanceof DOMException && error.name === "AbortError")) toast.error(error instanceof Error ? error.message : "Failed to update workspace");
     }
   };
 
   const handleDelete = async () => {
+    if (owner.queryClient.isMutating({ mutationKey: owner.key("workspace-settings-command"), exact: true })) return;
     if (deleteConfirm !== savedWorkspaceName) return;
-    setDeleting(true);
+    const assert = source.capture().assert;
+    assert();
     try {
-      await deleteWorkspace(workspaceId, savedWorkspaceName);
+      await command.mutateAsync({ action: { kind: "delete", name: savedWorkspaceName }, token: captureWorkspaceOwner(owner) });
+      assert();
       toast.success("Workspace deleted");
       router.replace("/workspaces");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete workspace");
-    } finally {
-      setDeleting(false);
+    } catch (error) {
+      try { assert(); } catch { return; }
+      if (!(error instanceof DOMException && error.name === "AbortError")) toast.error(error instanceof Error ? error.message : "Failed to delete workspace");
     }
   };
+
+  if (membersQuery.isError || workspacesQuery.isError) {
+    return <div role="alert" className="space-y-3"><p className="text-sm text-destructive">Could not load workspace settings.</p><Button size="sm" variant="outline" onClick={() => { if (membersQuery.isError) void membersQuery.refetch(); if (workspacesQuery.isError) void workspacesQuery.refetch(); }}>Retry</Button></div>;
+  }
 
   if (loading) {
     return (
@@ -178,7 +177,7 @@ export function GeneralTab() {
                   setWorkspaceErrors((prev) => ({ ...prev, slug: undefined }));
                 }
               }}
-              onBlur={() => setWorkspaceSlug((s) => sanitizeSlug(s))}
+              onBlur={() => setWorkspaceSlug(sanitizeSlug(workspaceSlug))}
               placeholder="workspace-slug"
               aria-invalid={Boolean(workspaceErrors.slug)}
               aria-describedby={workspaceErrors.slug ? "workspace-slug-error" : undefined}

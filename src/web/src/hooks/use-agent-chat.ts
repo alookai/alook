@@ -2,46 +2,39 @@
 
 import {
   useEffect,
-  useState,
   useRef,
   useCallback,
   useMemo,
-  type MutableRefObject,
 } from "react";
 import { flushSync } from "react-dom";
 import {
-  chatInit,
-  checkFreshness,
-  conversationInit,
-  createConversation,
-  listMessages,
-  listMessagesAroundTask,
-  listPreviousConversations,
-  sendMessage,
-  getTask,
-  getTaskMessages,
-  listArtifacts,
-  getActiveTask,
-  retryTask,
-  markInboxRead,
-  listFlaggedMessageIds,
+  chatInit as chatInitApi,
+  checkFreshness as checkFreshnessApi,
+  conversationInit as conversationInitApi,
+  createConversation as createConversationApi,
+  listMessages as listMessagesApi,
+  listMessagesAroundTask as listMessagesAroundTaskApi,
+  listPreviousConversations as listPreviousConversationsApi,
+  sendMessage as sendMessageApi,
+  getTask as getTaskApi,
+  getTaskMessages as getTaskMessagesApi,
+  listArtifacts as listArtifactsApi,
+  getActiveTask as getActiveTaskApi,
+  retryTask as retryTaskApi,
+  markInboxRead as markInboxReadApi,
+  listFlaggedMessageIds as listFlaggedMessageIdsApi,
 } from "@/lib/api";
 import {
-  appendCachedMessage,
+  chatExtrasKey, chatMessagesKey, sortedChatMessages, type ChatMessagesData, type ChatExtras,
   getCachedMessages,
   getCachedMessagesBefore,
   getCacheMeta,
   mergeCachedMessages,
   getLastOpenConversation,
   setLastOpenConversation,
-  getConvExtras,
-  setConvExtras,
 } from "@/lib/chat-cache";
 import {
-  createFastLoadGateState,
   fastLoadKey,
-  shouldSkipFastLoad,
-  markFastLoadCompleted,
 } from "@/components/agent-chat/fast-load-gate";
 import {
   sortMessages,
@@ -50,7 +43,6 @@ import {
   buildTimeline,
   shouldPersistPointerForLoad,
   pointerRefreshTargetForTaskCreated,
-  useLatest,
 } from "@/components/agent-chat/chat-message-utils";
 import type { NapMarker } from "@/components/agent-chat/chat-message-utils";
 import type { PreviousConversation } from "@/lib/api";
@@ -68,9 +60,19 @@ import { toast } from "sonner";
 import type { PendingFile } from "@/hooks/use-file-attachments";
 import type { ChatComposerHandle } from "@/components/agent-chat/chat-composer";
 import { getArtifactThumbnailUrl } from "@/components/artifact-content-renderer";
-import { useCachedMessages } from "@/hooks/use-cached-messages";
+import { useIsRestoring, useIsMutating, useMutation, skipToken, useQuery, QueryObserver, InfiniteQueryObserver, isCancelledError } from "@tanstack/react-query";
+import type { ApiRequestOptions } from "@/lib/api/client";
+import { ApiError, isAbortError } from "@/lib/errors";
+import { useAtom, useCreateAtom, createStore, useSelector } from "@tanstack/react-store";
+import type { ChatFlagsData } from "@/lib/workspace-chat-flags";
+import { useChatData, captureChatIntent, assertChatIntent, runChatIntentRequest } from "@/hooks/workspace/use-chat-data";
+import { useWorkspaceOwner, workspaceRequestOptions } from "@/contexts/workspace-context";
+import { observeChatRead, chatReadSource, chatMessagePageOptions, chatAroundTaskOptions, readChatMessageIds, chatArtifactOptions, chatTaskOptions, readChatTask, chatTaskMessagesOptions, chatActiveTaskOptions, chatPreviousOptions, chatFlagsOptions } from "@/hooks/workspace/chat-query-options";
+import { isQueryReceiptCurrent } from "@/lib/query-receipt";
+import { captureChatLoad, settleChatLoad } from "@/lib/workspace-chat-load";
 import { trackAgentChatOpened, trackMessageSent } from "@/lib/analytics";
 
+const isChatCancellation = (error: unknown) => isAbortError(error) || isCancelledError(error);
 const MESSAGE_LIMIT = 20;
 const MAX_CONV_FETCHES_PER_CLICK = 5;
 
@@ -83,6 +85,7 @@ export interface UseAgentChatProps {
   workspaceId: string;
   agents: Agent[];
   activeChannel: string;
+  readActiveChannel: () => string;
   channelLoading: boolean;
   subscribeWs: (cb: (msg: WsMessage) => void) => () => void;
   subscribeReconnect: (cb: () => void) => () => void;
@@ -91,19 +94,16 @@ export interface UseAgentChatProps {
 
 export interface UseAgentChatExternal {
   // (a) Setters the hook WRITES — state owned outside the hook, passed IN.
-  setFlaggedIds: (ids: Set<string>) => void;
   setPendingFiles: (files: PendingFile[]) => void;
   setInput: (value: string) => void;
   setQuotedMessage: (value: { id: string; excerpt: string } | null) => void;
   setActiveSkill: (skill: SkillEntry | null) => void;
   clearActiveSkill: () => void;
-  // (b) Values the hook READS — owned outside, passed IN via useLatest ref.
-  inputRef: MutableRefObject<string>;
-  quotedMessageRef: MutableRefObject<{ id: string; excerpt: string } | null>;
-  pendingFilesRef: MutableRefObject<PendingFile[]>;
-  activeSkillRef: MutableRefObject<SkillEntry | null>;
-  // Component-owned ref written by the load effect (gates draft-meta persist).
-  draftMetaRestoredRef: MutableRefObject<boolean>;
+  readInput: () => string;
+  readQuotedMessage: () => { id: string; excerpt: string } | null;
+  readPendingFiles: () => PendingFile[];
+  readActiveSkill: () => SkillEntry | null;
+  markDraftRestored: () => void;
 }
 
 export function useAgentChat(
@@ -119,98 +119,124 @@ export function useAgentChat(
     workspaceId,
     agents,
     activeChannel,
+    readActiveChannel,
     channelLoading,
     subscribeWs,
     subscribeReconnect,
     refreshInboxCount,
   } = props;
   const {
-    setFlaggedIds,
     setPendingFiles,
     setInput,
     setQuotedMessage,
     setActiveSkill,
     clearActiveSkill,
-    inputRef,
-    quotedMessageRef,
-    pendingFilesRef,
-    activeSkillRef,
-    draftMetaRestoredRef,
+    readInput,
+    readQuotedMessage,
+    readPendingFiles,
+    readActiveSkill,
+    markDraftRestored,
   } = external;
 
-  const [conversation, setConversation] = useState<Conversation | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const messagesSnapshotRef = useRef<Message[]>([]);
-  useEffect(() => {
-    messagesSnapshotRef.current = messages;
-  });
-  const [sending, setSending] = useState(false);
-  const [activeTask, setActiveTask] = useState<Task | null>(null);
-  const [taskMessages, setTaskMessages] = useState<TaskMessageResponse[]>([]);
-  const [messagesLoading, setMessagesLoading] = useState(true);
-  const [connectionLost, setConnectionLost] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [artifacts, setArtifactsRaw] = useState<Artifact[]>([]);
+  const workspaceOwner = useWorkspaceOwner();
+  const isRestoring = useIsRestoring();
+  if (workspaceOwner.workspaceId !== workspaceId) throw new DOMException("Wrong chat workspace", "AbortError");
+  const chatViewIdentity = JSON.stringify([agentId, targetConvId, targetConvId ? null : activeChannel]);
+  const chatData = useChatData(workspaceOwner, chatViewIdentity, targetConvId);
+  const chatActions = chatData.actions;
+  const { conversation, setConversation, messages, setMessages, artifacts, activeTask, setActiveTask, taskMessages, hasMore, setHasMore, previousConversations, setPreviousConversations, hasMoreConversations, setHasMoreConversations } = chatData;
+  const { mutateAsync: mutateChatCommand } = useMutation({ mutationKey: workspaceOwner.key("chat", "command"), gcTime: 0, mutationFn: (operation: () => Promise<unknown>) => operation() });
+  const withChatOrigin = useCallback(<T,>(operation: (options: ApiRequestOptions) => Promise<T>, options?: ApiRequestOptions, mutation = false): Promise<T> => {
+    const intent = captureChatIntent(workspaceOwner, chatActions.view);
+    const controller = new AbortController();
+    const signal = options?.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
+    const assertActive = () => { assertChatIntent(intent, signal); options?.assertActive?.(); };
+    assertActive();
+    const onChange = () => { try { assertActive(); } catch { controller.abort(); } };
+    const subscriptions = [chatActions.view, workspaceOwner.lifecycle, workspaceOwner.application.lifecycle].map((store) => store.subscribe(onChange));
+    const load = async () => {
+      try { assertActive(); const result = await operation({ ...options, ...workspaceRequestOptions(intent.workspace, signal, assertActive) }); assertActive(); return result; }
+      catch (error) { assertActive(); throw error; }
+      finally { for (const subscription of subscriptions) subscription.unsubscribe(); }
+    };
+    return mutation ? mutateChatCommand(load) as Promise<T> : load();
+  }, [workspaceOwner, chatActions.view, mutateChatCommand]);
+  const chatInit = useCallback(async (...args: Parameters<typeof chatInitApi>) => { const tickets = captureChatLoad(workspaceOwner); const data = await withChatOrigin((options) => chatInitApi(args[0], args[1], args[2], options), args[3], false); return settleChatLoad(workspaceOwner, data, tickets); }, [withChatOrigin, workspaceOwner]);
+  const checkFreshness = useCallback((...args: Parameters<typeof checkFreshnessApi>) => withChatOrigin((options) => checkFreshnessApi(args[0], args[1], options), args[2], false), [withChatOrigin]);
+  const conversationInit = useCallback(async (...args: Parameters<typeof conversationInitApi>) => {
+    const tickets = captureChatLoad(workspaceOwner);
+    const flagsRequestRevision = workspaceOwner.queryClient.getQueryData<ChatFlagsData>(workspaceOwner.key("chat", "flags", args[0]))?.revision ?? 0;
+    const data = await withChatOrigin((options) => conversationInitApi(args[0], args[1], args[2], options), args[3], false);
+    return { ...settleChatLoad(workspaceOwner, data, tickets), flagsRequestRevision };
+  }, [withChatOrigin, workspaceOwner]);
+  const listMessages = useCallback(async (...args: Parameters<typeof listMessagesApi>) => {
+    const source = chatReadSource(workspaceOwner, chatActions.view, chatViewIdentity, args[3]);
+    const options = chatMessagePageOptions(source, args[0], args[2]);
+    let data: ChatMessagesData;
+    if (args[2]?.before && workspaceOwner.queryClient.getQueryData(options.queryKey)) {
+      const observer = new InfiniteQueryObserver(workspaceOwner.queryClient, { ...options, enabled: false });
+      const release = observeChatRead(source, observer);
+      try {
+        await observer.fetchNextPage({ cancelRefetch: false, throwOnError: true });
+        source.assertActive();
+        data = workspaceOwner.queryClient.getQueryData<ChatMessagesData>(options.queryKey)!;
+      } finally { release(); }
+    } else {
+      const observer = new InfiniteQueryObserver(workspaceOwner.queryClient, { ...options, enabled: false });
+      const release = observeChatRead(source, observer);
+      try { data = await workspaceOwner.queryClient.fetchInfiniteQuery(options) as ChatMessagesData; } finally { release(); }
+    }
+    source.assertActive();
+    data = workspaceOwner.queryClient.getQueryData<ChatMessagesData>(options.queryKey)!;
+    const cursor = args[2];
+    const eligible = sortedChatMessages(data).filter((row) => !cursor?.before || row.created_at < cursor.before || row.created_at === cursor.before && row.id < (cursor.beforeId ?? ""));
+    const messages = eligible.slice(-(cursor?.limit ?? 20));
+    return { messages, has_more: eligible.length > messages.length || data.pages.at(-1)?.hasMore === true };
+  }, [workspaceOwner, chatActions.view, chatViewIdentity]);
+  const listMessagesAroundTask = useCallback(async (...args: Parameters<typeof listMessagesAroundTaskApi>) => { const source = chatReadSource(workspaceOwner, chatActions.view, chatViewIdentity, args[3]); const options = chatAroundTaskOptions(source, args[0], args[2]); const release = observeChatRead(source, new QueryObserver(workspaceOwner.queryClient, { ...options, enabled: false })); let ids; try { ids = await workspaceOwner.queryClient.fetchQuery(options); } finally { release(); } return readChatMessageIds(source, args[0], ids); }, [workspaceOwner, chatActions.view, chatViewIdentity]);
+  const listPreviousConversations = useCallback(async (...args: Parameters<typeof listPreviousConversationsApi>) => {
+    const source = chatReadSource(workspaceOwner, chatActions.view, chatViewIdentity, args[3]);
+    const options = chatPreviousOptions(source, args[0], args[2]);
+    let data;
+    const old = workspaceOwner.queryClient.getQueryData(options.queryKey);
+    if (old && old.pageParams.includes(args[2].before)) data = old;
+    else if (old) {
+      const observer = new InfiniteQueryObserver(workspaceOwner.queryClient, { ...options, enabled: false });
+      const release = observeChatRead(source, observer);
+      try { data = (await observer.fetchNextPage({ cancelRefetch: false, throwOnError: true })).data; }
+      finally { release(); }
+    } else {
+      const observer = new InfiniteQueryObserver(workspaceOwner.queryClient, { ...options, enabled: false });
+      const release = observeChatRead(source, observer);
+      try { data = await workspaceOwner.queryClient.fetchInfiniteQuery(options); } finally { release(); }
+    }
+    source.assertActive();
+    chatActions.selectPreviousResource(options.queryKey);
+    const index = data?.pageParams.indexOf(args[2].before) ?? -1;
+    return data?.pages[index < 0 ? data.pages.length - 1 : index] ?? { conversations: [], has_more: false };
+  }, [workspaceOwner, chatActions, chatViewIdentity]);
+  const sendMessage = useCallback((...args: Parameters<typeof sendMessageApi>) => withChatOrigin((options) => sendMessageApi(args[0], args[1], args[2], args[3], args[4], options), args[5], true), [withChatOrigin]);
+  const getTask = useCallback(async (...args: Parameters<typeof getTaskApi>) => { const source = chatReadSource(workspaceOwner, chatActions.view, chatViewIdentity, args[2]); const options = chatTaskOptions(source, args[0]); const release = observeChatRead(source, new QueryObserver(workspaceOwner.queryClient, { ...options, enabled: false })); try { await workspaceOwner.queryClient.fetchQuery(options); } finally { release(); } source.assertActive(); return workspaceOwner.queryClient.getQueryData<Task>(options.queryKey)!; }, [workspaceOwner, chatActions.view, chatViewIdentity]);
+  const getTaskMessages = useCallback(async (...args: Parameters<typeof getTaskMessagesApi>) => { const source = chatReadSource(workspaceOwner, chatActions.view, chatViewIdentity, args[3]); const options = chatTaskMessagesOptions(source, args[0]); const release = observeChatRead(source, new QueryObserver(workspaceOwner.queryClient, { ...options, enabled: false })); try { await workspaceOwner.queryClient.fetchQuery(options); } finally { release(); } source.assertActive(); return (workspaceOwner.queryClient.getQueryData<TaskMessageResponse[]>(options.queryKey) ?? []).filter((row) => args[2] === undefined || row.seq > args[2]); }, [workspaceOwner, chatActions.view, chatViewIdentity]);
+  const listArtifacts = useCallback(async (...args: Parameters<typeof listArtifactsApi>) => { const source = chatReadSource(workspaceOwner, chatActions.view, chatViewIdentity, args[2]); const options = chatArtifactOptions(source, args[0]); const release = observeChatRead(source, new QueryObserver(workspaceOwner.queryClient, { ...options, enabled: false })); try { await workspaceOwner.queryClient.fetchQuery(options); } finally { release(); } source.assertActive(); return workspaceOwner.queryClient.getQueryData<ChatExtras>(options.queryKey)?.artifacts ?? []; }, [workspaceOwner, chatActions.view, chatViewIdentity]);
+  const getActiveTask = useCallback(async (...args: Parameters<typeof getActiveTaskApi>) => { const source = chatReadSource(workspaceOwner, chatActions.view, chatViewIdentity, args[2]); const options = chatActiveTaskOptions(source, args[0]); const release = observeChatRead(source, new QueryObserver(workspaceOwner.queryClient, { ...options, enabled: false })); try { await workspaceOwner.queryClient.fetchQuery(options); } finally { release(); } source.assertActive(); const currentId = workspaceOwner.queryClient.getQueryData<{ id: string | null }>(options.queryKey)?.id; return currentId ? readChatTask(source, currentId) : undefined; }, [workspaceOwner, chatActions.view, chatViewIdentity]);
+  const markInboxRead = useCallback((...args: Parameters<typeof markInboxReadApi>) => withChatOrigin((options) => markInboxReadApi(args[0], args[1], options), args[2], true), [withChatOrigin]);
+  const listFlaggedMessageIds = useCallback(async (...args: Parameters<typeof listFlaggedMessageIdsApi>) => { const source = chatReadSource(workspaceOwner, chatActions.view, chatViewIdentity, args[2]); const options = chatFlagsOptions(source, args[1]); const release = observeChatRead(source, new QueryObserver(workspaceOwner.queryClient, { ...options, enabled: false })); let ids; try { ids = await workspaceOwner.queryClient.fetchQuery(options); } finally { release(); } source.assertActive(); return { message_ids: ids.ids }; }, [workspaceOwner, chatActions.view, chatViewIdentity]);
+  const [messagesLoading, setMessagesLoading] = useAtom(useCreateAtom(true));
+  const [napMarkers, setNapMarkers] = useAtom(useCreateAtom<NapMarker[]>([]));
 
-  // Stable setter: skip the state update when the artifact list hasn't materially
-  // changed (same ids in same order, same thumbnail readiness). This prevents
-  // `listArtifacts` from creating a new array reference that cascades through
-  // `agentArtifacts` → `timeline` → every MessageItem re-render.
-  const artifactsRef = useRef(artifacts);
-  useEffect(() => {
-    artifactsRef.current = artifacts;
-  });
-  const setArtifacts = useCallback((next: Artifact[] | ((prev: Artifact[]) => Artifact[])) => {
-    setArtifactsRaw((prev) => {
-      const resolved = typeof next === "function" ? next(prev) : next;
-      if (resolved === prev) return prev;
-      if (
-        resolved.length === prev.length &&
-        resolved.every((a, i) =>
-          a.id === prev[i].id && a.has_thumbnail === prev[i].has_thumbnail,
-        )
-      ) {
-        return prev; // content-equal — keep the old reference
-      }
-      return resolved;
-    });
-  }, []);
-  const [previousConversations, setPreviousConversations] = useState<
-    PreviousConversation[]
-  >([]);
-  const [hasMoreConversations, setHasMoreConversations] = useState(false);
-  const [napMarkers, setNapMarkers] = useState<NapMarker[]>([]);
-
-  const [pendingFilesByMessage, setPendingFilesByMessage] = useState<
-    Map<string, PendingFile[]>
-  >(() => new Map());
-  const [failedSends, setFailedSends] = useState<
-    Map<string, { content: string; files: PendingFile[] }>
-  >(() => new Map());
+  const [pendingFilesByMessage, setPendingFilesByMessage] = useAtom(useCreateAtom<Map<string, PendingFile[]>>((() => new Map())()));
+  const [failedSends, setFailedSends] = useAtom(useCreateAtom<Map<string, { content: string; files: PendingFile[] }>>((() => new Map())()));
 
   // Maps real (server) message IDs back to their optimistic (temp-*) IDs so
   // the React key used in the timeline stays stable when the optimistic message
   // is replaced — preventing an unmount/remount flash of the entire row.
-  const [stableKeyMap, setStableKeyMap] = useState<Map<string, string>>(
-    () => new Map(),
-  );
+  const [stableKeyMap, setStableKeyMap] = useAtom(useCreateAtom<Map<string, string>>((() => new Map())()));
 
-  const { writeToCache } = useCachedMessages(targetConvId ?? null, workspaceId);
-  const writeToCacheRef = useRef(writeToCache);
-  useEffect(() => {
-    writeToCacheRef.current = writeToCache;
-  }, [writeToCache]);
 
-  const chatOpenedTracked = useRef(false);
-  useEffect(() => {
-    if (!conversation || chatOpenedTracked.current) return;
-    chatOpenedTracked.current = true;
-    trackAgentChatOpened({
-      agent_id: agentId,
-      is_first_chat: messages.length === 0,
-    });
-  }, [conversation, agentId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+
+
 
   const agentArtifacts = useMemo(
     () => artifacts.filter((a) => a.source === "agent"),
@@ -240,72 +266,47 @@ export function useAgentChat(
   }, [messages, activeTask]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollState = useMemo(() => ({ scope: [chatActions.view], store: createStore({ target: null as { taskId: string; conversationId: string; intent: ReturnType<typeof captureChatIntent> } | null }) }), [chatActions.view]).store;
+  const pollTarget = useSelector(pollState, (state) => state.target);
+  const followupTimers = useRef(new Set<ReturnType<typeof setTimeout>>());
   const markReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pollTaskIdRef = useRef<string | null>(null);
-  const lastSeqRef = useRef(0);
-  const pollFailures = useRef(0);
+  const protocol = useMemo(() => ({ scope: [chatActions.view], store: createStore({ chatOpenedTracked: false, lastSeq: 0, pollFailures: 0, loadingMore: false, oldestCursor: null as PreviousConversation | null, backfillAttempts: 0, previousConversationId: undefined as string | undefined, loadedConversationId: null as string | null, markedReadId: null as string | null, completedLoadKey: null as string | null }) }), [chatActions.view]).store;
+  useEffect(() => {
+    if (!conversation || protocol.get().chatOpenedTracked) return;
+    protocol.setState((state) => ({ ...state, chatOpenedTracked: true }));
+    trackAgentChatOpened({
+      agent_id: agentId,
+      is_first_chat: messages.length === 0,
+    });
+  }, [conversation, agentId, chatActions.view]); // eslint-disable-line react-hooks/exhaustive-deps
+
+
+  const loadingMore = useSelector(protocol, (state) => state.loadingMore);
+  const connectionLost = useSelector(protocol, (state) => state.pollFailures >= 3);
   const initialScrollDone = useRef(false);
-  const loadingMoreRef = useRef(false);
+
   const isNearBottom = useRef(true);
   const scrollTargetActiveRef = useRef(false);
   const startPollingRef = useRef<
     | ((taskId: string, conversationId: string, initialSeq?: number) => void)
     | null
   >(null);
-  const oldestConversationCursorRef = useRef<PreviousConversation | null>(null);
-  const backfillAttemptsRef = useRef(0);
-  const prevConversationIdRef = useRef<string | undefined>(undefined);
+
+
+
   // The server-confirmed conversation id for the current load. Cache writes
   // (mergeCachedMessages / appendCachedMessage / setLastOpenConversation) must
   // guard on this so a write never lands on an optimistically-rendered (not yet
   // confirmed) conversation during the cache-first window. Stays null until
   // checkFreshness / chatInit / conversationInit confirms an id.
-  const loadConvIdRef = useRef<string | null>(null);
+
   // Dedup gate for the fast-path load: skips a redundant re-run when only
   // channel deps (activeChannel / channelLoading) change, WITHOUT stranding the
   // skeleton if a run is cancelled mid-flight. See fast-load-gate.ts (Part 2-a /
   // TODO 6 + stuck-skeleton fix).
-  const fastLoadGateRef = useRef(createFastLoadGateState());
+
   // TipTap composer imperative handle (focus / clear / isEmpty / anchor coords).
   const composerRef = useRef<ChatComposerHandle>(null);
-
-  // Persist a live-updated artifacts array to the cached card metadata so the
-  // next instant open includes it. Read-modify-write: reads the existing
-  // `conv_extras` row (which holds the conversation_type/title/channel/
-  // created_at from the last network write) and replaces only `artifacts`.
-  //
-  // Best-effort and fire-and-forget (review MEDIUM-2): if two updates race
-  // within the write window, the loser may write a momentarily-short list — NOT
-  // data loss, because the next `conversationInit` does a full-replace write of
-  // the authoritative server artifacts. We skip the write when no extras row
-  // exists yet (artifact arrived before the first network write) — the imminent
-  // network/post-task write lands the full row. Guarded on `loadConvIdRef` so a
-  // write never lands on a switched-away or not-yet-confirmed conversation.
-  const persistArtifactsToCache = useCallback(
-    (conversationId: string, nextArtifacts: Artifact[]) => {
-      if (loadConvIdRef.current !== conversationId) return;
-      getConvExtras(conversationId, workspaceId)
-        .then((extras) => {
-          if (!extras) return;
-          if (loadConvIdRef.current !== conversationId) return;
-          return setConvExtras(
-            conversationId,
-            {
-              artifacts: nextArtifacts,
-              conversation_type: extras.conversation_type,
-              conversation_title: extras.conversation_title,
-              conversation_channel: extras.conversation_channel,
-              conversation_created_at: extras.conversation_created_at,
-              hasMoreArtifacts: extras.hasMoreArtifacts,
-            },
-            workspaceId,
-          );
-        })
-        .catch(() => { });
-    },
-    [workspaceId],
-  );
 
   const scrollToBottom = useCallback(() => {
     isNearBottom.current = true;
@@ -323,6 +324,8 @@ export function useAgentChat(
   // remove the local blob source, so the <img> switches without a flash.
   const preloadThenCleanPending = useCallback(
     (arts: Artifact[], _conversationId: string) => {
+      const intent = captureChatIntent(workspaceOwner, chatActions.view);
+      assertChatIntent(intent);
       // Collect thumbnail URLs for image artifacts that have server thumbnails.
       const thumbUrls = arts
         .filter((a) => a.content_type.startsWith("image/") && a.has_thumbnail)
@@ -342,9 +345,10 @@ export function useAgentChat(
       // for a second message still being uploaded.
       const artIdSet = new Set(arts.map((a) => a.id));
       Promise.all(thumbUrls.map(preloadImage)).then(() => {
+        try { assertChatIntent(intent); } catch { return; }
         setPendingFilesByMessage((prev) => {
           if (prev.size === 0) return prev;
-          const msgs = messagesSnapshotRef.current;
+          const msgs = sortedChatMessages(workspaceOwner.queryClient.getQueryData<ChatMessagesData>(chatMessagesKey(workspaceOwner, _conversationId)));
           const next = new Map(prev);
           let changed = false;
           for (const [msgId, files] of prev) {
@@ -362,7 +366,7 @@ export function useAgentChat(
         });
       });
     },
-    [workspaceId],
+    [workspaceOwner, chatActions.view, workspaceId, setPendingFilesByMessage],
   );
 
   useEffect(() => {
@@ -372,7 +376,7 @@ export function useAgentChat(
     // neither activeChannel nor a loaded channel list, so they must NOT be
     // gated by channelLoading (Part 2-a). channelLoading stays in the dep array
     // so the slow path retries once channels load.
-    if (!targetConvId && channelLoading) return;
+    if (isRestoring || !targetConvId && channelLoading) return;
 
     // Fast path: ignore channel-only dep changes (TODO 6). shouldSkipFastLoad
     // returns true only when a load for this identity has already COMPLETED, and
@@ -385,17 +389,15 @@ export function useAgentChat(
       targetConvId,
       scrollToTaskId,
     });
-    if (shouldSkipFastLoad(fastKey, fastLoadGateRef.current)) return;
+    if (fastKey && protocol.get().completedLoadKey === fastKey) return;
+    protocol.setState((state) => ({ ...state, completedLoadKey: null }));
 
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = null;
-    pollTaskIdRef.current = null;
-    loadConvIdRef.current = null;
+    pollState.setState(() => ({ target: null }));
+    protocol.setState((state) => ({ ...state, loadingMore: false }));
+    protocol.setState((state) => ({ ...state, loadedConversationId: null }));
     let ignore = false;
     setMessagesLoading(true);
     initialScrollDone.current = false;
-    setActiveTask(null);
-    setTaskMessages([]);
     // Revoke blob URLs before clearing the map — they were kept alive for the
     // session to avoid layout shift, so this is the only place they get freed.
     setPendingFilesByMessage((prev) => {
@@ -411,14 +413,14 @@ export function useAgentChat(
     setNapMarkers([]);
     setPreviousConversations([]);
     setHasMoreConversations(false);
-    oldestConversationCursorRef.current = null;
+    protocol.setState((state) => ({ ...state, oldestCursor: null }));
     setInput(
       localStorage.getItem(
-        `chat-draft:${agentId}:${targetConvId ?? "default"}`,
+        `chat-draft:${workspaceOwner.application.userId}:${workspaceId}:${agentId}:${targetConvId ?? "default"}`,
       ) ?? "",
     );
     const metaRaw = localStorage.getItem(
-      `chat-draft-meta:${agentId}:${targetConvId ?? "default"}`,
+      `chat-draft-meta:${workspaceOwner.application.userId}:${workspaceId}:${agentId}:${targetConvId ?? "default"}`,
     );
     if (metaRaw) {
       try {
@@ -436,7 +438,7 @@ export function useAgentChat(
       setQuotedMessage(null);
       setActiveSkill(null);
     }
-    draftMetaRestoredRef.current = true;
+    markDraftRestored();
     setMessages([]);
 
     // Paint cached messages for a known conversation id without any network.
@@ -446,13 +448,13 @@ export function useAgentChat(
       painted: boolean;
       cacheMeta: Awaited<ReturnType<typeof getCacheMeta>>;
     }> {
-      const cacheMeta = await getCacheMeta(convId, workspaceId);
+      const cacheMeta = await getCacheMeta(convId, workspaceOwner);
       if (cacheMeta?.newestMessageId) {
-        const cached = await getCachedMessages(convId, workspaceId);
+        const cached = await getCachedMessages(convId, workspaceOwner);
         if (ignore) return { painted: false, cacheMeta };
         if (cached && cached.length > 0) {
           setMessages(cached);
-          setHasMore(cacheMeta.hasMore);
+          setHasMore(cacheMeta.hasMore, convId!);
           setMessagesLoading(false);
           // Paint the cards (artifacts + event-card icon/label) from cache in
           // the same frame as the text, so they don't pop in after the network
@@ -465,46 +467,15 @@ export function useAgentChat(
       return { painted: false, cacheMeta };
     }
 
-    // Apply the cached card metadata (artifacts + a provisional conversation
-    // stub) for `convId`. The stub exists only so `conversationType` resolves
-    // the event-card icon/label correctly on first paint; the network's
-    // `setConversation(data.conversation)` overwrites the whole stub afterward.
-    // `paintedMessages` is the just-painted cached message list, used to derive
-    // a `created_at` fallback so we never seed an empty string (which would
-    // flip the scroll heuristic's `!conversation.created_at` branch).
-    async function paintExtrasFromCache(
-      convId: string,
-      paintedMessages: Message[],
-    ): Promise<void> {
-      const extras = await getConvExtras(convId, workspaceId);
-      if (ignore || !extras) return;
-      setArtifacts(extras.artifacts);
-      const createdAt =
-        extras.conversation_created_at ||
-        paintedMessages[0]?.created_at ||
-        paintedMessages[paintedMessages.length - 1]?.created_at ||
-        "";
-      setConversation((prev) =>
-        // Seed the provisional stub only when no conversation is set yet, OR
-        // when the existing one is for a DIFFERENT conversation (a switch from
-        // A→B: replace A's stale stub with B's). Never clobber an authoritative
-        // conversation already fetched for THIS `convId` — `prev.id === convId`
-        // means the network landed first (or this is a same-conversation
-        // re-run, e.g. a scrollToTaskId change), so keep the real value.
-        prev && prev.id === convId
-          ? prev
-          : {
-              id: convId,
-              agent_id: agentId,
-              title: extras.conversation_title,
-              type: extras.conversation_type,
-              channel: extras.conversation_channel,
-              created_at: createdAt,
-            },
-      );
+    async function paintExtrasFromCache(convId: string, _paintedMessages: Message[]): Promise<void> {
+      const cached = workspaceOwner.queryClient.getQueryData<ChatExtras>(chatExtrasKey(workspaceOwner, convId));
+      if (ignore || !cached?.conversation) return;
+      chatActions.selectConversation(convId);
     }
 
-    async function load() {
+    async function load(signal: AbortSignal) {
+      const loadIntent = captureChatIntent(workspaceOwner, chatActions.view);
+      const requestOptions = { signal, assertActive: () => assertChatIntent(loadIntent, signal) };
       let hasCachedMessages = false;
       try {
         let convId: string | null = null;
@@ -517,6 +488,7 @@ export function useAgentChat(
           // Fast path: we already know the conv ID — render from cache immediately, no network needed
           convId = targetConvId;
           const res = await paintFromCache(convId);
+      assertChatIntent(loadIntent);
           if (ignore) return;
           cacheMeta = res.cacheMeta;
           hasCachedMessages = res.painted;
@@ -539,11 +511,13 @@ export function useAgentChat(
           const lastOpen = await getLastOpenConversation(
             agentId,
             activeChannel,
-            workspaceId,
+            workspaceOwner,
           );
+      assertChatIntent(loadIntent);
           if (ignore) return;
           if (lastOpen?.conversation_id && lastOpen.serverMessageCount > 0) {
             const res = await paintFromCache(lastOpen.conversation_id);
+      assertChatIntent(loadIntent);
             if (ignore) return;
             if (res.painted) {
               hasCachedMessages = true;
@@ -554,10 +528,8 @@ export function useAgentChat(
 
           // Background freshness check — does NOT gate the paint above.
           try {
-            const fresh = await checkFreshness(
-              { agentId, channel: activeChannel },
-              workspaceId,
-            );
+            const fresh = await checkFreshness({ agentId, channel: activeChannel }, workspaceId, requestOptions);
+      assertChatIntent(loadIntent);
             if (ignore) return;
             convId = fresh.conversation_id;
 
@@ -568,6 +540,7 @@ export function useAgentChat(
               initialScrollDone.current = false;
               isNearBottom.current = true;
               const res = await paintFromCache(convId);
+      assertChatIntent(loadIntent);
               if (ignore) return;
               cacheMeta = res.cacheMeta;
               hasCachedMessages = res.painted;
@@ -585,11 +558,12 @@ export function useAgentChat(
                 // authoritative `setConversation(data.conversation)` (MEDIUM-3).
                 // When `res.painted` is true, paintFromCache already re-seeded
                 // the corrected conversation's own cards.
-                setArtifacts([]);
+                chatActions.selectConversation(convId);
               }
             } else if (!optimisticConvId) {
               // Nothing painted yet — read the resolved conversation's cache.
               const res = await paintFromCache(convId);
+      assertChatIntent(loadIntent);
               if (ignore) return;
               cacheMeta = res.cacheMeta;
               hasCachedMessages = res.painted;
@@ -602,14 +576,15 @@ export function useAgentChat(
             // it does NOT re-set messages — so a fresh cache means exactly one
             // setMessages (the instant paint), no flicker. Phase B also writes
             // the server-confirmed last_open pointer for both fresh and stale.
-          } catch {
+          } catch (error) {
+            if (isChatCancellation(error) || error instanceof ApiError && error.status === 401) throw error;
             // checkFreshness failed — fall back to chatInit below
           }
         }
 
         // Phase B: full data fetch (background hydration or stale-cache refresh)
         if (convId) {
-          loadConvIdRef.current = convId;
+          protocol.setState((state) => ({ ...state, loadedConversationId: convId }));
           const data = await conversationInit(convId, workspaceId, {
             newestMessageId: cacheMeta?.newestMessageId ?? undefined,
             // 0 means "count unknown" (e.g. cached via the chatInit fallback,
@@ -618,25 +593,29 @@ export function useAgentChat(
             // "0" would make the server's `serverMessageCount === 0` check fail
             // for every non-empty conversation, forcing a needless full merge.
             messageCount: cacheMeta?.serverMessageCount || undefined,
-          });
+          }, requestOptions);
+      assertChatIntent(loadIntent);
           if (ignore) return;
           setConversation(data.conversation);
+          if (data.root_message) {
+            workspaceOwner.queryClient.setQueryData(workspaceOwner.key("chat", "thread-root", data.conversation.id), { conversationId: data.root_message.conversation_id, id: data.root_message.id });
+          } else workspaceOwner.queryClient.setQueryData(workspaceOwner.key("chat", "thread-root", data.conversation.id), null);
           setHasMoreConversations(data.has_more_conversations);
           if (!data.cache_valid && data.messages) {
             // Stale cache — merge server data in place, preserving scroll
             // position unless the user was already near the bottom (A2 / TODO 5).
             const wasNearBottom = isNearBottom.current;
             setMessages((prev) => mergeMessages(prev, data.messages!));
-            if (loadConvIdRef.current === convId) {
+            if (protocol.get().loadedConversationId === convId) {
               mergeCachedMessages(
                 convId,
                 data.messages,
                 data.has_more_messages,
-                workspaceId,
+                workspaceOwner,
                 data.message_count,
               ).catch(() => { });
             }
-            setHasMore(data.has_more_messages);
+            setHasMore(data.has_more_messages, data.conversation.id);
             if (
               hasCachedMessages &&
               initialScrollDone.current &&
@@ -645,7 +624,7 @@ export function useAgentChat(
               scrollToBottom();
             }
           } else if (cacheMeta) {
-            setHasMore(cacheMeta.hasMore);
+            setHasMore(cacheMeta.hasMore, convId!);
           }
           // Record the last-open pointer with server-confirmed freshness so the
           // next param-less open can resolve this conversation locally. Re-read
@@ -661,10 +640,11 @@ export function useAgentChat(
           // wrong-conversation flash on the next param-less open. The pointer
           // must only ever carry the channel's latest-created conversation.
           if (
-            loadConvIdRef.current === convId &&
+            protocol.get().loadedConversationId === convId &&
             shouldPersistPointerForLoad(targetConvId)
           ) {
-            const confirmedMeta = await getCacheMeta(convId, workspaceId);
+            const confirmedMeta = await getCacheMeta(convId, workspaceOwner);
+      assertChatIntent(loadIntent);
             if (ignore) return;
             setLastOpenConversation(
               agentId,
@@ -677,48 +657,33 @@ export function useAgentChat(
                   null,
                 serverMessageCount: data.message_count,
               },
-              workspaceId,
+              workspaceOwner,
             ).catch(() => { });
           }
-          setArtifacts(data.artifacts);
           // Persist the authoritative card metadata so the next open paints the
           // artifact cards + correct event-card types instantly from cache.
           // Guarded on the stale-closure ref (same as the message write above)
           // so we never write extras for a switched-away conversation;
           // fire-and-forget, off the critical path.
-          if (loadConvIdRef.current === convId) {
-            setConvExtras(
-              convId,
-              {
-                artifacts: data.artifacts,
-                conversation_type: data.conversation.type,
-                conversation_title: data.conversation.title,
-                conversation_channel: data.conversation.channel,
-                conversation_created_at: data.conversation.created_at,
-                hasMoreArtifacts: data.has_more_artifacts,
-              },
-              workspaceId,
-            ).catch(() => { });
-          }
-          setFlaggedIds(new Set(data.flagged_message_ids));
+
+          workspaceOwner.queryClient.setQueryData(workspaceOwner.key("chat", "flags", data.conversation.id), { ids: data.flagged_message_ids, requestRevision: data.flagsRequestRevision } satisfies ChatFlagsData);
           if (data.active_task) {
-            setActiveTask(data.active_task);
-            setTaskMessages(data.task_messages);
             if (data.task_messages.length > 0) {
-              lastSeqRef.current = Math.max(
+              protocol.setState((state) => ({ ...state, lastSeq: Math.max(
                 ...data.task_messages.map((m) => m.seq),
-              );
+              ) }));
             }
             startPollingRef.current?.(
-              data.active_task.id,
+              chatActions.readActiveTaskId() ?? data.active_task.id,
               convId,
-              lastSeqRef.current,
+              protocol.get().lastSeq,
             );
           }
           if (scrollToTaskId) {
-            const task = await getTask(scrollToTaskId, workspaceId).catch(
-              () => null,
+            const task = await getTask(scrollToTaskId, workspaceId, requestOptions).catch(
+              (error) => { if (isChatCancellation(error)) throw error; assertChatIntent(loadIntent, signal); return null; },
             );
+      assertChatIntent(loadIntent);
             if (ignore) return;
             if (
               task &&
@@ -726,29 +691,27 @@ export function useAgentChat(
                 task.status,
               )
             ) {
-              setActiveTask(task);
-              const tmsgs = await getTaskMessages(
-                scrollToTaskId,
-                workspaceId,
-              ).catch(() => [] as TaskMessageResponse[]);
+              setActiveTask(workspaceOwner.queryClient.getQueryData<Task>(workspaceOwner.key("chat", "task", task.id)) ?? null);
+              const tmsgs = await getTaskMessages(scrollToTaskId, workspaceId, undefined, requestOptions).catch((error) => { if (isChatCancellation(error)) throw error; assertChatIntent(loadIntent, signal); return [] as TaskMessageResponse[]; });
+      assertChatIntent(loadIntent);
               if (ignore) return;
               // Errors-only: thinking is no longer rendered (replies arrive via
               // `send-dm`); we keep only the live error channel.
-              const errorMsgs = tmsgs.filter((m) => m.type === "error");
-              setTaskMessages(errorMsgs);
+
               // Advance the cursor past all fetched seqs (incl. dropped
               // thinking) so the poll/WS don't reconsider them.
               if (tmsgs.length > 0) {
-                lastSeqRef.current = Math.max(...tmsgs.map((m) => m.seq));
+                protocol.setState((state) => ({ ...state, lastSeq: Math.max(...tmsgs.map((m) => m.seq)) }));
               }
-              startPollingRef.current?.(task.id, convId, lastSeqRef.current);
+              startPollingRef.current?.(task.id, convId, protocol.get().lastSeq);
             }
           }
         } else {
           // checkFreshness failed entirely — fall back to chatInit
-          const data = await chatInit(agentId, workspaceId, activeChannel);
+          const data = await chatInit(agentId, workspaceId, activeChannel, requestOptions);
+      assertChatIntent(loadIntent);
           if (ignore) return;
-          loadConvIdRef.current = data.conversation.id;
+          protocol.setState((state) => ({ ...state, loadedConversationId: data.conversation.id }));
           setConversation(data.conversation);
           const wasNearBottom = isNearBottom.current;
           setMessages((prev) =>
@@ -756,33 +719,19 @@ export function useAgentChat(
               ? mergeMessages(prev, data.messages)
               : data.messages,
           );
-          setHasMore(data.has_more_messages);
-          setArtifacts(data.artifacts);
+          setHasMore(data.has_more_messages, data.conversation.id);
           setHasMoreConversations(data.has_more_conversations);
           mergeCachedMessages(
             data.conversation.id,
             data.messages,
             data.has_more_messages,
-            workspaceId,
+            workspaceOwner,
           ).catch(() => { });
           // Persist the card metadata from the chatInit fallback too (same
           // shape as the conversationInit write above), guarded on the
           // stale-closure ref. ChatInit's response carries the same
           // `artifacts` + `conversation` + `has_more_artifacts` fields.
-          if (loadConvIdRef.current === data.conversation.id) {
-            setConvExtras(
-              data.conversation.id,
-              {
-                artifacts: data.artifacts,
-                conversation_type: data.conversation.type,
-                conversation_title: data.conversation.title,
-                conversation_channel: data.conversation.channel,
-                conversation_created_at: data.conversation.created_at,
-                hasMoreArtifacts: data.has_more_artifacts,
-              },
-              workspaceId,
-            ).catch(() => { });
-          }
+
           // This branch is reached only when `convId` is null — i.e. the SLOW
           // path's checkFreshness failed and we fell back to chatInit. chatInit
           // returns the server's current (latest-created) conversation, so this
@@ -808,23 +757,18 @@ export function useAgentChat(
                 ? 0
                 : data.messages.length,
             },
-            workspaceId,
+            workspaceOwner,
           ).catch(() => { });
           if (hasCachedMessages && initialScrollDone.current && wasNearBottom) {
             scrollToBottom();
           }
-          listFlaggedMessageIds(workspaceId, data.conversation.id)
-            .then((r) => {
-              if (!ignore) setFlaggedIds(new Set(r.message_ids));
-            })
+          listFlaggedMessageIds(workspaceId, data.conversation.id, requestOptions)
             .catch(() => { });
           if (data.active_task) {
-            setActiveTask(data.active_task);
             if (data.task_messages.length > 0) {
-              setTaskMessages(data.task_messages);
-              lastSeqRef.current = Math.max(
+                protocol.setState((state) => ({ ...state, lastSeq: Math.max(
                 ...data.task_messages.map((m) => m.seq),
-              );
+              ) }));
             }
             if (
               !["completed", "failed", "cancelled", "superseded"].includes(
@@ -832,64 +776,66 @@ export function useAgentChat(
               )
             ) {
               startPollingRef.current?.(
-                data.active_task.id,
+                chatActions.readActiveTaskId() ?? data.active_task.id,
                 data.conversation.id,
-                lastSeqRef.current,
+                protocol.get().lastSeq,
               );
             }
           }
         }
-      } catch {
+      } catch (error) {
+        if (isChatCancellation(error) || signal.aborted || ignore) return;
+        assertChatIntent(loadIntent, signal);
         if (!hasCachedMessages) {
           toast.error("Failed to load conversation");
         } else {
           toast.error("Couldn't refresh conversation");
         }
       } finally {
-        if (!ignore) {
+        if (!ignore && !signal.aborted) {
+          try { assertChatIntent(loadIntent, signal); } catch { return; }
           setMessagesLoading(false);
           // Mark this fast-path identity as completed only now, so a re-fire
           // caused purely by a channel-dep change is deduped (TODO 6) — while a
           // run cancelled before reaching here leaves no marker, letting the
           // successor run take over and clear the skeleton.
-          markFastLoadCompleted(fastKey, fastLoadGateRef.current);
+          if (fastKey) protocol.setState((state) => ({ ...state, completedLoadKey: fastKey }));
         }
       }
     }
-    load();
+    const queryKey = workspaceOwner.key("chat", "open", chatViewIdentity, fastKey);
+    void workspaceOwner.queryClient.fetchQuery({ queryKey, staleTime: 0, gcTime: 0, retry: false, queryFn: async ({ signal }) => { await load(signal); return { conversationId: protocol.get().loadedConversationId }; } }).catch(() => {});
     return () => {
       ignore = true;
+      if (!chatActions.view.get().active) protocol.setState((state) => ({ ...state, completedLoadKey: null }));
+      void workspaceOwner.queryClient.cancelQueries({ queryKey, exact: true });
+      void workspaceOwner.queryClient.cancelQueries({ queryKey: workspaceOwner.key("chat", "io", chatViewIdentity) });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    agentId,
-    workspaceId,
-    targetConvId,
-    scrollToTaskId,
-    activeChannel,
-    channelLoading,
-  ]);
+  }, [agentId, workspaceId, targetConvId, scrollToTaskId, activeChannel, channelLoading, isRestoring, chatActions.view]);
 
   const refreshInboxCountRef = useRef(refreshInboxCount);
   useEffect(() => {
     refreshInboxCountRef.current = refreshInboxCount;
-  }, [refreshInboxCount]);
+  }, [refreshInboxCount, chatActions.view]);
 
-  const markedReadRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!conversation?.id || !workspaceId) return;
-    if (markedReadRef.current === conversation.id) return;
-    markedReadRef.current = conversation.id;
+    if (protocol.get().markedReadId === conversation.id) return;
+    protocol.setState((state) => ({ ...state, markedReadId: conversation.id }));
+    const intent = captureChatIntent(workspaceOwner, chatActions.view);
     const timer = setTimeout(() => {
-      markInboxRead(conversation.id, workspaceId)
-        .then(() => refreshInboxCountRef.current())
+      try { assertChatIntent(intent); } catch { return; }
+      markInboxRead(conversation.id, workspaceId, { assertActive: () => assertChatIntent(intent) })
+        .then(() => { assertChatIntent(intent); refreshInboxCountRef.current(); })
         .catch(() => { });
     }, 1000);
     return () => {
-      markedReadRef.current = null;
+      protocol.setState((state) => ({ ...state, markedReadId: null }));
       clearTimeout(timer);
     };
-  }, [conversation?.id, workspaceId]);
+  }, [conversation?.id, workspaceId, chatActions.view, protocol, workspaceOwner, markInboxRead]);
 
   // Scroll to bottom on initial load (skip if scroll-to-task/message is active)
   useEffect(() => {
@@ -924,13 +870,7 @@ export function useAgentChat(
         }, 50);
       }
     }
-  }, [
-    messagesLoading,
-    messages.length,
-    scrollToTaskId,
-    scrollToMessageId,
-    propTargetConvId,
-  ]);
+  }, [messagesLoading, messages.length, scrollToTaskId, scrollToMessageId, propTargetConvId, chatActions.view]);
 
   // Scroll to task when ?task= param is present
   useEffect(() => {
@@ -984,7 +924,7 @@ export function useAgentChat(
       clearTimeout(timerId);
       if (highlightTimerId) clearTimeout(highlightTimerId);
     };
-  }, [scrollToTaskId, messagesLoading, conversation, workspaceId]);
+  }, [scrollToTaskId, messagesLoading, conversation, workspaceId, chatActions.view, listMessagesAroundTask, setMessages]);
 
   // Scroll to message when ?msg= param is present (skip if task scroll is active)
   useEffect(() => {
@@ -1025,7 +965,7 @@ export function useAgentChat(
       clearTimeout(timerId);
       if (highlightTimerId) clearTimeout(highlightTimerId);
     };
-  }, [scrollToMessageId, scrollToTaskId, messagesLoading, conversation]);
+  }, [scrollToMessageId, scrollToTaskId, messagesLoading, conversation, chatActions.view]);
 
   // Auto-scroll when task badge appears or new task steps arrive
   const taskStatus = activeTask?.status;
@@ -1035,7 +975,7 @@ export function useAgentChat(
     if (isRunning && isNearBottom.current) {
       scrollToBottom();
     }
-  }, [taskMessages.length, taskStatus, scrollToBottom]);
+  }, [taskMessages.length, taskStatus, scrollToBottom, chatActions.view]);
 
   // Auto-scroll when a new agent-side item lands while the user is at the
   // bottom — covers artifact (file) cards and event cards, which grow the
@@ -1046,37 +986,35 @@ export function useAgentChat(
     if (scrollTargetActiveRef.current) return;
     if (!initialScrollDone.current) return;
     if (isNearBottom.current) scrollToBottom();
-  }, [artifacts.length, messages.length, scrollToBottom]);
+  }, [artifacts.length, messages.length, scrollToBottom, chatActions.view]);
 
   const agentName = useMemo(
     () => agents.find((a) => a.id === agentId)?.name ?? "Agent",
     [agents, agentId],
   );
 
-  const messagesRef = useLatest(messages);
-  const hasMoreRef = useLatest(hasMore);
-  const prevConvsRef = useLatest(previousConversations);
-  const hasMoreConvsRef = useLatest(hasMoreConversations);
-  const agentNameRef = useLatest(agentName);
-  const activeChannelRef = useLatest(activeChannel);
+  const readAgentName = useCallback(() => workspaceOwner.queryClient.getQueryData<Agent[]>(workspaceOwner.key("agents"))?.find((row) => row.id === agentId)?.name ?? "Agent", [workspaceOwner, agentId]);
 
   const loadOlderMessages = useCallback(
     async (scrollToEnd = false) => {
-      if (!conversation || loadingMoreRef.current) return;
-      loadingMoreRef.current = true;
+      if (!conversation || protocol.get().loadingMore) return;
+      const intent = captureChatIntent(workspaceOwner, chatActions.view);
+      const chainOptions = { assertActive: () => assertChatIntent(intent) };
+      protocol.setState((state) => ({ ...state, loadingMore: true }));
+      try {
 
-      const currentMessages = messagesRef.current;
-      const currentHasMore = hasMoreRef.current;
-      const currentHasMoreConvs = hasMoreConvsRef.current;
-      const currentAgentName = agentNameRef.current;
-      const currentChannel = activeChannelRef.current;
+      const currentMessages = chatActions.readMessages();
+      const currentHasMore = chatActions.readHasMore();
+      const currentHasMoreConvs = chatActions.readHasMoreConversations();
+      const currentAgentName = readAgentName();
+      const currentChannel = readActiveChannel();
       const isSingleConvView = !!targetConvId;
 
       const oldest = currentMessages[0];
       const paginatingConvId =
-        oldestConversationCursorRef.current?.id ?? conversation.id;
+        protocol.get().oldestCursor?.id ?? conversation.id;
       const canLoadMoreInConv = currentHasMore && oldest;
-      let prevConvsList = prevConvsRef.current;
+      let prevConvsList = chatActions.readPrevious();
 
       if (
         !isSingleConvView &&
@@ -1084,7 +1022,7 @@ export function useAgentChat(
         prevConvsList.length === 0 &&
         currentHasMoreConvs
       ) {
-        const oldestConv = oldestConversationCursorRef.current ?? {
+        const oldestConv = protocol.get().oldestCursor ?? {
           id: conversation.id,
           created_at: conversation.created_at,
         };
@@ -1093,11 +1031,14 @@ export function useAgentChat(
             exclude: conversation.id,
             before: oldestConv.created_at,
             channel: currentChannel,
-          });
+          }, chainOptions);
+      assertChatIntent(intent);
           prevConvsList = result.conversations;
           setPreviousConversations(result.conversations);
           setHasMoreConversations(result.has_more);
-        } catch {
+        } catch (error) {
+          if (isChatCancellation(error)) throw error;
+          assertChatIntent(intent);
           setHasMoreConversations(false);
         }
       }
@@ -1105,11 +1046,10 @@ export function useAgentChat(
       const canLoadPrevConv = !isSingleConvView && prevConvsList.length > 0;
 
       if (!canLoadMoreInConv && !canLoadPrevConv) {
-        loadingMoreRef.current = false;
+        protocol.setState((state) => ({ ...state, loadingMore: false }));
         return;
       }
 
-      setLoadingMore(true);
       const el = scrollRef.current;
       if (el) el.style.overflowAnchor = "none";
       const prevScrollHeight = el?.scrollHeight ?? 0;
@@ -1135,9 +1075,10 @@ export function useAgentChat(
                 oldest!.created_at,
                 oldest!.id,
                 MESSAGE_LIMIT,
-                workspaceId,
+                workspaceOwner,
               )
               : null;
+      assertChatIntent(intent);
 
           if (cached) {
             phase1Messages = cached.messages;
@@ -1148,7 +1089,8 @@ export function useAgentChat(
               limit: MESSAGE_LIMIT,
               before: oldest!.created_at,
               beforeId: oldest!.id,
-            });
+            }, chainOptions);
+      assertChatIntent(intent);
             phase1Messages = result.messages;
             remaining -= result.messages.length;
             lastHasMore = result.has_more;
@@ -1159,24 +1101,24 @@ export function useAgentChat(
         // --- Phase 2: Load from previous conversations (only in timeline mode) ---
         if (!isSingleConvView && !lastHasMore && remaining > 0) {
           if (prevConvsList.length === 0 && currentHasMoreConvs) {
-            const oldestConv = oldestConversationCursorRef.current ?? {
+            const oldestConv = protocol.get().oldestCursor ?? {
               id: conversation.id,
               created_at: conversation.created_at,
             };
             try {
-              const result = await listPreviousConversations(
-                agentId,
-                workspaceId,
-                {
+              const result = await listPreviousConversations(agentId, workspaceId, {
                   exclude: conversation.id,
                   before: oldestConv.created_at,
                   channel: currentChannel,
-                },
+                }, chainOptions
               );
+      assertChatIntent(intent);
               prevConvsList = result.conversations;
               setPreviousConversations(result.conversations);
               setHasMoreConversations(result.has_more);
-            } catch {
+            } catch (error) {
+              if (isChatCancellation(error)) throw error;
+              assertChatIntent(intent);
               setHasMoreConversations(false);
             }
           }
@@ -1194,15 +1136,16 @@ export function useAgentChat(
             fetchCount++;
             const result = await listMessages(prevConv.id, workspaceId, {
               limit: remaining,
-            });
+            }, chainOptions);
+      assertChatIntent(intent);
 
             if (result.messages.length === 0) {
-              oldestConversationCursorRef.current = prevConv;
+              protocol.setState((state) => ({ ...state, oldestCursor: prevConv }));
               continue;
             }
 
             const napTs =
-              oldestConversationCursorRef.current?.created_at ??
+              protocol.get().oldestCursor?.created_at ??
               conversation.created_at;
             napMarkersToAdd.push({
               agentName: currentAgentName,
@@ -1213,7 +1156,7 @@ export function useAgentChat(
             phase2Messages = [...result.messages, ...phase2Messages];
             remaining -= result.messages.length;
             lastHasMore = result.has_more;
-            oldestConversationCursorRef.current = prevConv;
+            protocol.setState((state) => ({ ...state, oldestCursor: prevConv }));
           }
 
           if (consumed > 0) {
@@ -1234,7 +1177,7 @@ export function useAgentChat(
                 return [...prev, ...newMarkers];
               });
             }
-            setHasMore(lastHasMore);
+            setHasMore(lastHasMore, protocol.get().oldestCursor?.id ?? conversation.id);
             setMessages((prev) => {
               const existingIds = new Set(prev.map((m) => m.id));
               const unique = allNewMessages.filter(
@@ -1256,13 +1199,13 @@ export function useAgentChat(
               conversation.id,
               currentConvMessages,
               phase1HasMore,
-              workspaceId,
+              workspaceOwner,
             ).catch(() => { });
           }
         }
 
-        loadingMoreRef.current = false;
-        flushSync(() => setLoadingMore(false));
+        protocol.setState((state) => ({ ...state, loadingMore: false }));
+        flushSync(() => protocol.setState((state) => ({ ...state, loadingMore: false })));
 
         if (el) {
           if (scrollToEnd) {
@@ -1272,26 +1215,25 @@ export function useAgentChat(
             el.scrollTop = newScrollHeight - prevScrollHeight;
           }
         }
-      } catch {
+      } catch (error) {
+        if (isChatCancellation(error)) return;
+        assertChatIntent(intent);
         toast.error("Failed to load older messages");
       } finally {
-        loadingMoreRef.current = false;
-        setLoadingMore(false);
-        if (scrollRef.current) scrollRef.current.style.overflowAnchor = "";
+        try { assertChatIntent(intent); } catch { return; }
+        protocol.setState((state) => ({ ...state, loadingMore: false }));
+            if (scrollRef.current) scrollRef.current.style.overflowAnchor = "";
+      }
+      } catch (error) {
+        if (isChatCancellation(error)) return;
+        try { assertChatIntent(intent); } catch { return; }
+        toast.error("Failed to load older messages");
+      } finally {
+        try { assertChatIntent(intent); } catch { return; }
+        protocol.setState((state) => ({ ...state, loadingMore: false }));
       }
     },
-    [
-      conversation,
-      workspaceId,
-      agentId,
-      targetConvId,
-      messagesRef,
-      hasMoreRef,
-      hasMoreConvsRef,
-      agentNameRef,
-      activeChannelRef,
-      prevConvsRef,
-    ],
+    [conversation, protocol, workspaceOwner, chatActions, readAgentName, readActiveChannel, targetConvId, listPreviousConversations, agentId, workspaceId, setPreviousConversations, setHasMoreConversations, listMessages, setHasMore, setMessages, setNapMarkers],
   );
 
   const canLoadMore = targetConvId
@@ -1299,10 +1241,10 @@ export function useAgentChat(
     : hasMore || previousConversations.length > 0 || hasMoreConversations;
 
   useEffect(() => {
-    if (conversation?.id === prevConversationIdRef.current) return;
-    prevConversationIdRef.current = conversation?.id;
-    backfillAttemptsRef.current = 0;
-  }, [conversation?.id]);
+    if (conversation?.id === protocol.get().previousConversationId) return;
+    protocol.setState((state) => ({ ...state, previousConversationId: conversation?.id }));
+    protocol.setState((state) => ({ ...state, backfillAttempts: 0 }));
+  }, [conversation?.id, chatActions.view, protocol]);
 
   const MIN_MESSAGES = 10;
   useEffect(() => {
@@ -1310,19 +1252,10 @@ export function useAgentChat(
     if (scrollToTaskId || targetConvId) return;
     if (messages.length >= MIN_MESSAGES || !canLoadMore) return;
     if (loadingMore) return;
-    if (backfillAttemptsRef.current >= 3) return;
-    backfillAttemptsRef.current += 1;
+    if (protocol.get().backfillAttempts >= 3) return;
+    protocol.setState((state) => ({ ...state, backfillAttempts: state.backfillAttempts + (1) }));
     loadOlderMessages(true);
-  }, [
-    messagesLoading,
-    messages.length,
-    canLoadMore,
-    loadingMore,
-    conversation,
-    loadOlderMessages,
-    scrollToTaskId,
-    targetConvId,
-  ]);
+  }, [messagesLoading, messages.length, canLoadMore, loadingMore, conversation, loadOlderMessages, scrollToTaskId, targetConvId, chatActions.view, protocol]);
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -1331,215 +1264,169 @@ export function useAgentChat(
       el.scrollHeight - el.scrollTop - el.clientHeight < 100;
   }, []);
 
-  const startPolling = useCallback(
-    (taskId: string, conversationId: string, initialSeq?: number) => {
-      if (pollRef.current) clearInterval(pollRef.current);
-      lastSeqRef.current = initialSeq ?? 0;
-      pollFailures.current = 0;
-      setConnectionLost(false);
-      pollTaskIdRef.current = taskId;
+  const startPolling = useCallback((taskId: string, conversationId: string, initialSeq?: number) => {
+    const intent = captureChatIntent(workspaceOwner, chatActions.view);
+    assertChatIntent(intent);
+    protocol.setState((state) => ({ ...state, lastSeq: initialSeq ?? 0 }));
+    protocol.setState((state) => ({ ...state, pollFailures: 0 }));
+    protocol.setState((state) => ({ ...state, pollFailures: 0 }));
+    pollState.setState(() => ({ target: { taskId, conversationId, intent } }));
+  }, [workspaceOwner, chatActions.view, protocol, pollState]);
+  useEffect(() => { startPollingRef.current = startPolling; }, [startPolling]);
 
-      pollRef.current = setInterval(async () => {
-        // A new poll was started (e.g. by a steering task) — bail out
-        if (pollTaskIdRef.current !== taskId) return;
-
-        try {
-          // Thin status-only poll: fetch only task status/error as a resilience
-          // fallback for a dropped WebSocket. Replies arrive via `send-dm` ->
-          // `conversation.message`, and live errors via the `task.messages` WS
-          // (filtered to errors-only) — the poll no longer fetches task_messages.
-          const task = await getTask(taskId, workspaceId);
-
-          // Re-check after await — a steering task may have started a new poll
-          const isStale = pollTaskIdRef.current !== taskId;
-
-          pollFailures.current = 0;
-          setConnectionLost(false);
-
-          if (
-            task.status === "completed" ||
-            task.status === "failed" ||
-            task.status === "cancelled" ||
-            task.status === "superseded"
-          ) {
-            if (isStale) {
-              // Stale poll — still merge messages but don't touch activeTask or polling
-              listMessages(conversationId, workspaceId)
-                .then(({ messages: latest }) => {
-                  setMessages((prev) => mergeMessages(prev, latest));
-                  mergeCachedMessages(
-                    conversationId,
-                    latest,
-                    null,
-                    workspaceId,
-                  ).catch(() => { });
-                })
-                .catch(() => { });
-              return;
-            }
-
-            if (pollRef.current) clearInterval(pollRef.current);
-            pollRef.current = null;
-
-            if (markReadTimerRef.current)
-              clearTimeout(markReadTimerRef.current);
-            markReadTimerRef.current = setTimeout(() => {
-              markInboxRead(conversationId, workspaceId)
-                .then(() => refreshInboxCountRef.current())
-                .catch(() => { });
-            }, 1000);
-
-            const shouldScroll =
-              !scrollTargetActiveRef.current && isNearBottom.current;
+  const pollFactSource = useMemo(() => pollTarget ? chatReadSource(workspaceOwner, chatActions.view, chatViewIdentity) : null, [workspaceOwner, chatActions.view, chatViewIdentity, pollTarget]);
+  const pollQuery = useQuery({
+    ...(pollFactSource ? chatTaskOptions(pollFactSource, pollTarget!.taskId) : { queryKey: workspaceOwner.key("chat", "task", "__none__"), queryFn: skipToken }),
+    enabled: !!pollTarget,
+    subscribed: !!pollTarget,
+    retry: false,
+    staleTime: 3000,
+    refetchInterval: pollTarget ? 3000 : false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+  useEffect(() => {
+    if (!pollTarget || pollQuery.isFetching) return;
+    const { taskId, conversationId, intent } = pollTarget;
+    const controller = new AbortController();
+    const assertActive = () => assertChatIntent(intent, controller.signal);
+    const chainOptions = { signal: controller.signal, assertActive };
+    const settle = async () => {
+      try {
+        assertActive();
+        if (pollQuery.error) throw pollQuery.error;
+        const task = pollQuery.data;
+        if (!task) return;
+        assertActive();
+        protocol.setState((state) => ({ ...state, pollFailures: 0 }));
+        protocol.setState((state) => ({ ...state, pollFailures: 0 }));
+        if (["completed", "failed", "cancelled", "superseded"].includes(task.status)) {
+          if (pollState.get().target?.taskId !== taskId) {
+            const result = await listMessages(conversationId, workspaceId, undefined, chainOptions);
+            assertActive();
+            setMessages((previous) => mergeMessages(previous, result.messages));
+            return task;
+          }
+          const shouldScroll = !scrollTargetActiveRef.current && isNearBottom.current;
+          try {
+            const [result, arts] = await Promise.all([
+              listMessages(conversationId, workspaceId, undefined, chainOptions),
+              listArtifacts(conversationId, workspaceId, chainOptions).catch((error) => {
+                if (isChatCancellation(error)) throw error;
+                assertActive();
+                return null;
+              }),
+            ]);
+            assertActive();
+            setMessages((previous) => mergeMessages(previous, result.messages));
+            if (arts) preloadThenCleanPending(arts, conversationId);
+            setActiveTask(workspaceOwner.queryClient.getQueryData<Task>(workspaceOwner.key("chat", "task", task.id)) ?? null);
+          } catch (error) {
+            if (isChatCancellation(error)) throw error;
+            assertActive();
+            setActiveTask(workspaceOwner.queryClient.getQueryData<Task>(workspaceOwner.key("chat", "task", task.id)) ?? null);
+            toast.error("Failed to refresh messages");
+          }
+          assertActive();
+          if (pollState.get().target?.taskId === taskId) pollState.setState(() => ({ target: null }));
+          if (shouldScroll) requestAnimationFrame(() => {
+            try { assertChatIntent(intent); } catch { return; }
+            scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+          });
+          if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current);
+          markReadTimerRef.current = setTimeout(() => {
+            try { assertChatIntent(intent); } catch { return; }
+            markInboxRead(conversationId, workspaceId, { assertActive: () => assertChatIntent(intent) })
+              .then(() => { assertChatIntent(intent); refreshInboxCountRef.current(); }).catch(() => {});
+          }, 1000);
+          const timer = setTimeout(async () => {
+            followupTimers.current.delete(timer);
             try {
-              const [latestResult, arts] = await Promise.all([
-                listMessages(conversationId, workspaceId),
-                listArtifacts(conversationId, workspaceId).catch(() => null),
-              ]);
-              setMessages((prev) => mergeMessages(prev, latestResult.messages));
-              mergeCachedMessages(
-                conversationId,
-                latestResult.messages,
-                null,
-                workspaceId,
-              ).catch(() => { });
-              if (arts) {
-                setArtifacts(arts);
-                // Full-replace persist of the authoritative post-task artifacts
-                // so the cache stays consistent with what's rendered.
-                persistArtifactsToCache(conversationId, arts);
-                // Preload server thumbnails, then clean up pending blob entries.
-                // This prevents layout shift: the browser cache is warm before
-                // we remove the local blob, so the <img> switches sources without
-                // a visible flash or reflow.
-                preloadThenCleanPending(arts, conversationId);
-              }
-              setActiveTask(task);
-            } catch {
-              setActiveTask(task);
-              toast.error("Failed to refresh messages");
-            }
-            if (shouldScroll) {
-              requestAnimationFrame(() => {
-                scrollRef.current?.scrollTo({
-                  top: scrollRef.current.scrollHeight,
-                  behavior: "smooth",
-                });
-              });
-            }
+              assertChatIntent(intent);
+              if (pollState.get().target) return;
+              const options = { assertActive: () => assertChatIntent(intent) };
+              const nextTask = await getActiveTask(conversationId, workspaceId, options);
+              assertChatIntent(intent);
+              if (nextTask && nextTask.id !== taskId) {
+                const result = await listMessages(conversationId, workspaceId, undefined, options);
+                assertChatIntent(intent);
+                setMessages((previous) => mergeMessages(previous, result.messages));
+                setActiveTask(nextTask);
 
-            // Fallback: if a steering task superseded this one but the
-            // WebSocket message was lost, detect the new active task via API.
-            setTimeout(async () => {
-              if (pollRef.current) return;
-              try {
-                const nextTask = await getActiveTask(
-                  conversationId,
-                  workspaceId,
-                );
-                if (nextTask && nextTask.id !== taskId) {
-                  const { messages: latestMsgs } = await listMessages(
-                    conversationId,
-                    workspaceId,
-                  );
-                  setMessages((prev) => mergeMessages(prev, latestMsgs));
-                  mergeCachedMessages(
-                    conversationId,
-                    latestMsgs,
-                    null,
-                    workspaceId,
-                  ).catch(() => { });
-                  setActiveTask(nextTask);
-                  setTaskMessages([]);
-                  startPollingRef.current?.(nextTask.id, conversationId);
-                }
-              } catch { }
-            }, 1000);
-          } else if (!isStale) {
-            setActiveTask(task);
-          }
-        } catch {
-          if (pollTaskIdRef.current !== taskId) return;
-          pollFailures.current += 1;
-          if (pollFailures.current >= 3) {
-            setConnectionLost(true);
-          }
-          if (pollFailures.current >= 10) {
-            if (pollRef.current) clearInterval(pollRef.current);
-            pollRef.current = null;
+                startPollingRef.current?.(nextTask.id, conversationId);
+              }
+            } catch {}
+          }, 1000);
+          followupTimers.current.add(timer);
+        } else if (pollState.get().target?.taskId === taskId) setActiveTask(workspaceOwner.queryClient.getQueryData<Task>(workspaceOwner.key("chat", "task", task.id)) ?? null);
+        assertActive();
+        return task;
+      } catch (error) {
+        if (isChatCancellation(error)) throw error;
+        assertActive();
+        if (pollState.get().target?.taskId === taskId) {
+          protocol.setState((state) => ({ ...state, pollFailures: state.pollFailures + (1) }));
+          if (protocol.get().pollFailures >= 10) {
+            pollState.setState(() => ({ target: null }));
             toast.error("Lost connection to agent");
           }
         }
-      }, 3000);
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- persistArtifactsToCache is stable (useCallback with no deps)
-    [workspaceId],
-  );
-  useEffect(() => {
-    startPollingRef.current = startPolling;
-  }, [startPolling]);
-
-  useEffect(() => {
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-      if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current);
+      }
     };
-  }, []);
+    void settle().catch(() => {});
+    return () => controller.abort();
+  }, [pollTarget, pollQuery.dataUpdatedAt, pollQuery.errorUpdatedAt, chatActions.view, pollQuery.isFetching, pollQuery.error, pollQuery.data, protocol, pollState, setActiveTask, workspaceOwner, listMessages, workspaceId, setMessages, listArtifacts, preloadThenCleanPending, markInboxRead, getActiveTask]);
 
-  const activeTaskIdRef = useRef<string | null>(null);
+  useEffect(() => () => {
+    if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current);
+    for (const timer of followupTimers.current) clearTimeout(timer);
+    followupTimers.current.clear();
+  }, [chatActions.view]);
+
+
 
   useEffect(() => {
-    activeTaskIdRef.current = activeTask?.id ?? null;
-  }, [activeTask]);
-
-  useEffect(() => {
+    const intent = captureChatIntent(workspaceOwner, chatActions.view);
+    const chainOptions = { assertActive: () => assertChatIntent(intent) };
     return subscribeWs((msg: WsMessage) => {
+      try { assertChatIntent(intent); } catch { return; }
       if (
         msg.type === "task.messages" &&
-        msg.taskId === activeTaskIdRef.current
+        msg.taskId === chatActions.readActiveTaskId()
       ) {
-        const incoming = msg.messages.filter((m) => m.seq > lastSeqRef.current);
+        const incoming = msg.messages.filter((m) => m.seq > protocol.get().lastSeq);
         if (incoming.length > 0) {
           // Thinking is no longer rendered — the reply lands via `send-dm`. Keep
           // ONLY `type:"error"` items: they are a live error channel (opencode /
           // codex emit them mid-run, sometimes without the task transitioning to
           // failed) and dropping them would hide real failures.
-          const errorsOnly = incoming.filter((m) => m.type === "error");
-          if (errorsOnly.length > 0) {
-            setTaskMessages((prev) => {
-              const existingSeqs = new Set(prev.map((m) => m.seq));
-              const unique = errorsOnly.filter((m) => !existingSeqs.has(m.seq));
-              return unique.length > 0 ? [...prev, ...unique] : prev;
-            });
-          }
           // Advance the cursor past every seq we've seen (incl. dropped
           // thinking) so we never reconsider them.
-          lastSeqRef.current = Math.max(
+          protocol.setState((state) => ({ ...state, lastSeq: Math.max(
             ...incoming.map((m) => m.seq),
-            lastSeqRef.current,
-          );
+            protocol.get().lastSeq,
+          ) }));
         }
       }
       if (
         msg.type === "task.created" &&
         msg.conversationId === conversation?.id
       ) {
-        listMessages(msg.conversationId, workspaceId)
+        listMessages(msg.conversationId, workspaceId, undefined, chainOptions)
           .then(({ messages: latest }) => {
+            assertChatIntent(intent);
             setMessages((prev) => mergeMessages(prev, latest));
             mergeCachedMessages(
               msg.conversationId,
               latest,
               null,
-              workspaceId,
+              workspaceOwner,
             ).catch(() => { });
           })
           .catch(() => { });
         const task = msg.task as Task;
-        activeTaskIdRef.current = task.id;
-        setActiveTask(task);
-        setTaskMessages([]);
-        lastSeqRef.current = 0;
+        setActiveTask(workspaceOwner.queryClient.getQueryData<Task>(workspaceOwner.key("chat", "task", task.id)) ?? null);
+        protocol.setState((state) => ({ ...state, lastSeq: 0 }));
         startPollingRef.current?.(task.id, msg.conversationId);
       }
       // Refresh the per-channel `last_open` pointer when a `task.created`
@@ -1549,13 +1436,12 @@ export function useAgentChat(
       // independently of the active-conversation block above: a new thread spawned
       // in this channel often has a different conversationId than the one being
       // viewed, so it must NOT be gated on `msg.conversationId === conversation?.id`.
-      // `activeChannelRef` is read (not `activeChannel`) because this effect does
-      // not re-subscribe on channel change — the ref always holds the current value.
       if (msg.type === "task.created") {
         const task = msg.task as Task;
-        const activeChannel = activeChannelRef.current;
-        getLastOpenConversation(agentId, activeChannel, workspaceId)
+        const activeChannel = readActiveChannel();
+        getLastOpenConversation(agentId, activeChannel, workspaceOwner)
           .then((current) => {
+            assertChatIntent(intent);
             const targetConvId = pointerRefreshTargetForTaskCreated({
               task,
               agentId,
@@ -1569,8 +1455,8 @@ export function useAgentChat(
             // the skeleton (the `serverMessageCount > 0` gate) — never wrong
             // content. We never over-count, so the pointer can't claim a
             // conversation is more complete than it is.
-            return getCacheMeta(targetConvId, workspaceId).then((meta) =>
-              setLastOpenConversation(
+            return getCacheMeta(targetConvId, workspaceOwner).then((meta) =>
+              { assertChatIntent(intent); return setLastOpenConversation(
                 agentId,
                 activeChannel,
                 {
@@ -1578,8 +1464,8 @@ export function useAgentChat(
                   newestMessageId: meta?.newestMessageId ?? null,
                   serverMessageCount: meta?.messageCount ?? 0,
                 },
-                workspaceId,
-              ),
+                workspaceOwner,
+              ); },
             );
           })
           .catch(() => { });
@@ -1588,16 +1474,9 @@ export function useAgentChat(
         // Only cache for the server-confirmed loaded conversation — never write
         // during the optimistic cache-first window before the id is confirmed
         // (review #1).
-        if (msg.conversationId === loadConvIdRef.current) {
-          appendCachedMessage(
-            msg.conversationId,
-            msg.message,
-            workspaceId,
-          ).catch(() => { });
-        }
         if (msg.conversationId === conversation?.id) {
           const incomingTime = new Date(msg.message.created_at).getTime();
-          const optimisticMatch = messagesRef.current.find(
+          const optimisticMatch = chatActions.readMessages().find(
             (m) =>
               m.id.startsWith("temp-") &&
               m.role === msg.message.role &&
@@ -1633,297 +1512,155 @@ export function useAgentChat(
           });
         }
       }
-      if (
-        msg.type === "task.updated" &&
-        msg.taskId === activeTaskIdRef.current
-      ) {
-        setActiveTask((prev) =>
-          prev ? { ...prev, status: msg.status } : prev,
-        );
-      }
-      if (
-        msg.type === "artifact.uploaded" &&
-        msg.conversationId === conversation?.id
-      ) {
-        setArtifacts((prev) => {
-          if (prev.some((a) => a.id === msg.artifact.id)) return prev;
-          const next = [...prev, msg.artifact];
-          // Persist the appended artifact to the cached card metadata so it
-          // renders instantly on the next open. Dedupe by id is handled above
-          // (we only reach here for a genuinely new artifact). Guarded inside
-          // `persistArtifactsToCache` on `loadConvIdRef`. The persist is an
-          // idempotent fire-and-forget read-modify-write, so the Strict-Mode
-          // dev double-invoke just writes the same row twice — harmless.
-          persistArtifactsToCache(msg.conversationId, next);
-          return next;
-        });
-      }
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- activeChannelRef is a stable ref, read inside to avoid re-subscribing on channel change
-  }, [subscribeWs, conversation?.id, workspaceId, agentId, persistArtifactsToCache]);
+  }, [subscribeWs, conversation?.id, workspaceId, agentId, chatActions.view, workspaceOwner, chatActions, protocol, listMessages, setActiveTask, setMessages, readActiveChannel, setPendingFilesByMessage, setStableKeyMap]);
 
   useEffect(() => {
+    const intent = captureChatIntent(workspaceOwner, chatActions.view);
     return subscribeReconnect(() => {
+      try { assertChatIntent(intent); } catch { return; }
       if (!conversation?.id) return;
-      getCacheMeta(conversation.id, workspaceId).then((meta) => {
-        conversationInit(conversation.id, workspaceId, {
-          newestMessageId: meta?.newestMessageId ?? undefined,
-          messageCount: meta?.serverMessageCount ?? undefined,
-        })
-          .then((data) => {
-            if (!data.cache_valid && data.messages) {
-              setMessages((prev) => mergeMessages(prev, data.messages!));
-              writeToCacheRef
-                .current(
-                  data.messages,
-                  data.has_more_messages,
-                  data.message_count,
-                )
-                .catch(() => { });
-            }
-          })
-          .catch(() => { });
-      });
+      void workspaceOwner.queryClient.fetchQuery({
+        queryKey: workspaceOwner.key("chat", "open", chatViewIdentity, "reconnect"), retry: false, staleTime: 0, gcTime: 0,
+        queryFn: async ({ signal }) => {
+          const assertActive = () => assertChatIntent(intent, signal);
+          assertActive();
+          const meta = await getCacheMeta(conversation.id, workspaceOwner);
+          assertActive();
+          const data = await conversationInit(conversation.id, workspaceId, { newestMessageId: meta?.newestMessageId ?? undefined, messageCount: meta?.serverMessageCount ?? undefined }, { signal, assertActive });
+          assertActive();
+          if (!data.cache_valid && data.messages) {
+            await mergeCachedMessages(conversation.id, data.messages, data.has_more_messages, workspaceOwner, data.message_count);
+            assertActive();
+            setMessages((previous) => mergeMessages(previous, data.messages!));
+          }
+          return { conversationId: data.conversation.id };
+        },
+      }).catch(() => {});
     });
-  }, [subscribeReconnect, conversation?.id, workspaceId]);
+  }, [subscribeReconnect, conversation?.id, workspaceId, workspaceOwner, chatViewIdentity, chatActions.view, conversationInit, setMessages]);
 
-  const handleSend = async () => {
-    const rawContent = inputRef.current.trim();
-    if ((!rawContent && pendingFilesRef.current.length === 0) || sending || !conversation)
-      return;
-    if (!rawContent) {
-      toast.error("Please type a message");
-      return;
-    }
-
-    let content = rawContent;
-    const quoteRef = quotedMessageRef.current;
-
-    // Prepend skill instruction if active
-    if (activeSkillRef.current) {
-      content = `/${activeSkillRef.current.name} ${content}`;
-    }
-
-    const filesToSend = [...pendingFilesRef.current];
-    // Create independent blob URLs for the copies that will live in
-    // pendingFilesByMessage. The originals will be revoked when
-    // setPendingFiles([]) clears the composer state below, so the copies
-    // need their own URLs to keep thumbnails visible until real artifacts load.
-    const filesToRender = filesToSend.map((pf) => ({
-      ...pf,
-      thumbnailUrl: pf.thumbnailBlob
-        ? URL.createObjectURL(pf.thumbnailBlob)
-        : null,
-    }));
-    trackMessageSent({ agent_id: agentId, message_length: content.length });
-    setInput("");
-    setPendingFiles([]);
-    setQuotedMessage(null);
-    clearActiveSkill();
-    setSending(true);
-
-    // Every send goes through the same enqueue-and-steer path: POST /messages
-    // enqueues a real task carrying contextKey=conversationId, so when a task
-    // is already running the daemon supersedes it (steering). No client-side
-    // buffering — sending while busy just drops a new bubble and steers.
-    const optimisticId = `temp-${Date.now()}`;
-    const optimistic: Message = {
-      id: optimisticId,
-      conversation_id: conversation.id,
-      role: "user",
-      content,
-      task_id: null,
-      attachment_ids: null,
-      ...(quoteRef ? { metadata: { quote: { messageId: quoteRef.id, excerpt: quoteRef.excerpt } } } : {}),
-      created_at: new Date().toISOString(),
-    };
-
-    // Store pending files (with independent blob URLs) for optimistic rendering.
-    // filesToRender has fresh blob URLs that won't be revoked by setPendingFiles([]).
-    if (filesToRender.length > 0) {
-      setPendingFilesByMessage((prev) => {
-        const next = new Map(prev);
-        next.set(optimisticId, filesToRender);
-        return next;
-      });
-    }
-
-    setMessages((prev) => [...prev, optimistic]);
-    scrollToBottom();
-
-    try {
-      const { message, task } = await sendMessage(
-        conversation.id,
-        content,
-        workspaceId,
-        filesToSend.length > 0 ? filesToSend : undefined,
-        quoteRef ? { quote: { messageId: quoteRef.id, excerpt: quoteRef.excerpt } } : undefined,
-      );
-      // Remap pending files from optimistic ID → real message ID so the local
-      // blob thumbnails / file pills stay visible until real artifacts are loaded.
-      setPendingFilesByMessage((prev) => {
-        if (!prev.has(optimisticId)) return prev;
-        const files = prev.get(optimisticId)!;
-        const next = new Map(prev);
-        next.delete(optimisticId);
-        next.set(message.id, files);
-        return next;
-      });
-      // Record the optimistic→real ID mapping so the React key stays stable
-      // and React updates the existing DOM node instead of unmounting/remounting.
-      setStableKeyMap((prev) => {
-        const next = new Map(prev);
-        next.set(message.id, optimisticId);
-        return next;
-      });
-      setMessages((prev) => {
-        const hasOptimistic = prev.some((m) => m.id === optimistic.id);
-        if (!hasOptimistic) {
-          const hasReal = prev.some((m) => m.id === message.id);
-          return hasReal ? prev : sortMessages([...prev, message]);
-        }
-        const without = prev.filter(
-          (m) => m.id !== optimistic.id && m.id !== message.id,
-        );
-        return sortMessages([...without, message]);
-      });
-      appendCachedMessage(conversation.id, message, workspaceId).catch(
-        () => { },
-      );
-      if (message.attachment_ids && message.attachment_ids.length > 0) {
-        listArtifacts(conversation.id, workspaceId)
-          .then((arts) => {
-            setArtifacts(arts);
-            persistArtifactsToCache(conversation.id, arts);
-            // Preload server thumbnails, then clean up pending blob entries.
-            preloadThenCleanPending(arts, conversation.id);
-          })
-          .catch(() => { });
+  type SendIntent = {
+    original: ReturnType<typeof captureChatIntent>;
+    conversation: Conversation;
+    content: string;
+    files: PendingFile[];
+    quote: { id: string; excerpt: string } | null;
+    retryId?: string;
+    rawInput?: string;
+    skillName?: string;
+  };
+  const sendIdentity = useMemo(() => crypto.randomUUID(), []);
+  const sendKey = workspaceOwner.key("chat", "send", sendIdentity);
+  const sending = useIsMutating({ mutationKey: sendKey, exact: true }) > 0;
+  const sendCommand = useMutation<void, Error, SendIntent>({
+    mutationKey: sendKey, gcTime: 0,
+    mutationFn: async ({ original: intent, conversation, content, files, quote, retryId, rawInput, skillName }) => {
+      const assertActive = () => assertChatIntent(intent);
+      assertActive();
+      const renderFiles = files.map((file) => ({ ...file, thumbnailUrl: file.thumbnailBlob ? URL.createObjectURL(file.thumbnailBlob) : null }));
+      if (retryId) {
+        setFailedSends((previous) => { const next = new Map(previous); next.delete(retryId); return next; });
+        setMessages((previous) => previous.filter((row) => row.id !== retryId));
+        setPendingFilesByMessage((previous) => {
+          const next = new Map(previous);
+          for (const file of next.get(retryId) ?? []) if (file.thumbnailUrl) URL.revokeObjectURL(file.thumbnailUrl);
+          next.delete(retryId); return next;
+        });
+      } else {
+        trackMessageSent({ agent_id: agentId, message_length: content.length });
+        if (readInput() === rawInput) setInput("");
+        if (readPendingFiles() === files) setPendingFiles([]);
+        if (readQuotedMessage()?.id === quote?.id) setQuotedMessage(null);
+        if (readActiveSkill()?.name === skillName) clearActiveSkill();
       }
-      setActiveTask(task);
-      setTaskMessages([]);
-      startPolling(task.id, conversation.id);
-    } catch {
-      // Keep the optimistic bubble in place and surface an inline
-      // "Not delivered · tap to retry" affordance instead of a toast (Priya).
-      // Store the rendering copies (with live blob URLs) so retries can re-use them.
-      setFailedSends((prev) => {
-        const next = new Map(prev);
-        next.set(optimisticId, { content, files: filesToRender });
-        return next;
-      });
-    } finally {
-      setSending(false);
-      composerRef.current?.focus();
-    }
+      const optimisticId = `temp-${crypto.randomUUID()}`;
+      const optimistic: Message = { id: optimisticId, conversation_id: conversation.id, role: "user", content, task_id: null, attachment_ids: null, ...(quote ? { metadata: { quote: { messageId: quote.id, excerpt: quote.excerpt } } } : {}), created_at: new Date().toISOString() };
+      if (renderFiles.length) setPendingFilesByMessage((previous) => new Map(previous).set(optimisticId, renderFiles));
+      setMessages((previous) => [...previous, optimistic]);
+      scrollToBottom();
+      try {
+        const tickets = captureChatLoad(workspaceOwner);
+        const { message: incoming, task } = await sendMessage(conversation.id, content, workspaceId, files.length ? files : undefined, quote ? { quote: { messageId: quote.id, excerpt: quote.excerpt } } : undefined, { assertActive });
+        assertActive();
+        const messageKey = chatMessagesKey(workspaceOwner, conversation.id), messageTicket = tickets.get(JSON.stringify(messageKey));
+        const current = workspaceOwner.queryClient.getQueryData<ChatMessagesData>(messageKey);
+        const message = (current?.liveMessageRevisions?.[incoming.id] ?? 0) > (messageTicket?.liveRevision ?? 0)
+          ? sortedChatMessages(current).find((row) => row.id === incoming.id) ?? incoming : incoming;
+        const originalMessageResource = messageTicket?.receipt.resource;
+        if (originalMessageResource ? workspaceOwner.queryClient.getQueryCache().find({ queryKey: messageKey, exact: true }) === originalMessageResource : !current || (current.liveRevision ?? 0) > 0) await mergeCachedMessages(conversation.id, [message], null, workspaceOwner);
+        assertActive();
+        const taskKey = workspaceOwner.key("chat", "task", task.id), taskTicket = tickets.get(JSON.stringify(taskKey))?.receipt;
+        if (taskTicket ? isQueryReceiptCurrent(taskTicket) : !workspaceOwner.queryClient.getQueryCache().find({ queryKey: taskKey, exact: true })) workspaceOwner.queryClient.setQueryData(taskKey, task);
+        setPendingFilesByMessage((previous) => { if (!previous.has(optimisticId)) return previous; const next = new Map(previous); const files = next.get(optimisticId)!; next.delete(optimisticId); next.set(message.id, files); return next; });
+        setStableKeyMap((previous) => new Map(previous).set(message.id, optimisticId));
+        setMessages((previous) => sortMessages([...previous.filter((row) => row.id !== optimisticId && row.id !== message.id), message]));
+        if (message.attachment_ids?.length) void listArtifacts(conversation.id, workspaceId, { assertActive }).then((artifacts) => { assertActive(); preloadThenCleanPending(artifacts, conversation.id); }).catch(() => undefined);
+        setActiveTask(workspaceOwner.queryClient.getQueryData<Task>(workspaceOwner.key("chat", "task", task.id)) ?? null);
+        startPolling(task.id, conversation.id);
+      } catch (error) {
+        if (isChatCancellation(error)) throw error;
+        assertActive();
+        setFailedSends((previous) => new Map(previous).set(optimisticId, { content, files: renderFiles }));
+        throw error;
+      } finally {
+        try { assertActive(); composerRef.current?.focus(); } catch {}
+      }
+    },
+  });
+  const sendPending = () => workspaceOwner.queryClient.isMutating({ mutationKey: sendKey, exact: true }) > 0;
+  const handleSend = () => {
+    const original = captureChatIntent(workspaceOwner, chatActions.view);
+    assertChatIntent(original);
+    const conversation = chatActions.readConversation(), rawInput = readInput(), files = readPendingFiles(), skill = readActiveSkill();
+    if (sendPending() || !conversation || !rawInput.trim() && !files.length) return;
+    if (!rawInput.trim()) { toast.error("Please type a message"); return; }
+    sendCommand.mutate({ original, conversation, content: skill ? `/${skill.name} ${rawInput.trim()}` : rawInput.trim(), files, quote: readQuotedMessage(), rawInput, skillName: skill?.name });
+  };
+  const handleRetrySend = (messageId: string) => {
+    const original = captureChatIntent(workspaceOwner, chatActions.view);
+    assertChatIntent(original);
+    const conversation = chatActions.readConversation(), failed = failedSends.get(messageId);
+    if (sendPending() || !conversation || !failed) return;
+    sendCommand.mutate({ original, conversation, content: failed.content, files: failed.files, quote: null, retryId: messageId });
   };
 
-  // Resend a failed optimistic message: drop the dead bubble + its failed state,
-  // then run the normal send with the stored content/files.
-  const handleRetrySend = useCallback(
-    (messageId: string) => {
-      const failed = failedSends.get(messageId);
-      if (!failed || !conversation || sending) return;
-
-      setFailedSends((prev) => {
-        const next = new Map(prev);
-        next.delete(messageId);
-        return next;
-      });
-      setMessages((prev) => prev.filter((m) => m.id !== messageId));
-      setPendingFilesByMessage((prev) => {
-        if (!prev.has(messageId)) return prev;
-        const next = new Map(prev);
-        next.delete(messageId);
-        return next;
-      });
-      setSending(true);
-
-      const optimisticId = `temp-${Date.now()}`;
-      const optimistic: Message = {
-        id: optimisticId,
-        conversation_id: conversation.id,
-        role: "user",
-        content: failed.content,
-        task_id: null,
-        attachment_ids: null,
-        created_at: new Date().toISOString(),
-      };
-      if (failed.files.length > 0) {
-        setPendingFilesByMessage((prev) => {
-          const next = new Map(prev);
-          next.set(optimisticId, failed.files);
-          return next;
-        });
+  const sessionCommandKey = useMemo(() => workspaceOwner.key("chat", "session-command", crypto.randomUUID()), [workspaceOwner]);
+  type SessionIntent = { original: ReturnType<typeof captureChatIntent>; conversation: Conversation; channel: string; agentName: string } & ({ kind: "nap" } | { kind: "retry"; taskId: string });
+  const sessionCommand = useMutation({ mutationKey: sessionCommandKey, gcTime: 0, scope: { id: JSON.stringify(sessionCommandKey) },
+    mutationFn: async (intent: SessionIntent) => {
+      assertChatIntent(intent.original);
+      if (intent.kind === "retry") {
+        const tickets = captureChatLoad(workspaceOwner);
+        const newTask = await runChatIntentRequest(intent.original, (options) => retryTaskApi(intent.taskId, workspaceId, options));
+        assertChatIntent(intent.original);
+        const key = workspaceOwner.key("chat", "task", newTask.id), ticket = tickets.get(JSON.stringify(key))?.receipt;
+        if (ticket ? isQueryReceiptCurrent(ticket) : !workspaceOwner.queryClient.getQueryCache().find({ queryKey: key, exact: true })) workspaceOwner.queryClient.setQueryData(key, newTask);
+        setActiveTask(workspaceOwner.queryClient.getQueryData<Task>(key) ?? null);
+        startPolling(newTask.id, intent.conversation.id);
+        return;
       }
-      setMessages((prev) => [...prev, optimistic]);
-
-      sendMessage(
-        conversation.id,
-        failed.content,
-        workspaceId,
-        failed.files.length > 0 ? failed.files : undefined,
-      )
-        .then(({ message, task }) => {
-          setPendingFilesByMessage((prev) => {
-            if (!prev.has(optimisticId)) return prev;
-            const files = prev.get(optimisticId)!;
-            const next = new Map(prev);
-            next.delete(optimisticId);
-            next.set(message.id, files);
-            return next;
-          });
-          setStableKeyMap((prev) => {
-            const next = new Map(prev);
-            next.set(message.id, optimisticId);
-            return next;
-          });
-          setMessages((prev) => {
-            const without = prev.filter(
-              (m) => m.id !== optimisticId && m.id !== message.id,
-            );
-            return sortMessages([...without, message]);
-          });
-          appendCachedMessage(conversation.id, message, workspaceId).catch(
-            () => { },
-          );
-          if (message.attachment_ids && message.attachment_ids.length > 0) {
-            listArtifacts(conversation.id, workspaceId)
-              .then((arts) => {
-                setArtifacts(arts);
-                persistArtifactsToCache(conversation.id, arts);
-                // Preload server thumbnails, then clean up pending blob entries.
-                preloadThenCleanPending(arts, conversation.id);
-              })
-              .catch(() => { });
-          }
-          setActiveTask(task);
-          setTaskMessages([]);
-          startPolling(task.id, conversation.id);
-        })
-        .catch(() => {
-          setFailedSends((prev) => {
-            const next = new Map(prev);
-            next.set(optimisticId, failed);
-            return next;
-          });
-        })
-        .finally(() => {
-          setSending(false);
-        });
+      pollState.setState(() => ({ target: null }));
+      const newConv = await runChatIntentRequest(intent.original, (options) => createConversationApi(agentId, workspaceId, intent.channel, options));
+      assertChatIntent(intent.original);
+      setNapMarkers((rows) => [...rows, { agentName: intent.agentName, created_at: newConv.created_at, id: `nap-${intent.conversation.id}` }]);
+      setPreviousConversations((rows) => [{ id: intent.conversation.id, created_at: intent.conversation.created_at }, ...rows]);
+      setConversation(newConv); setActiveTask(null);  setPendingFiles([]);
+      setPendingFilesByMessage((rows) => { for (const files of rows.values()) for (const file of files) if (file.thumbnailUrl) URL.revokeObjectURL(file.thumbnailUrl); return new Map(); });
+      setFailedSends(new Map()); setStableKeyMap(new Map());
+      protocol.setState((state) => ({ ...state, lastSeq: 0, pollFailures: 0, oldestCursor: null }));
+      setHasMore(false); scrollToBottom();
     },
-    [failedSends, conversation, sending, workspaceId, startPolling, setArtifacts, persistArtifactsToCache, preloadThenCleanPending],
-  );
-
-  const handleRetryTask = useCallback(async () => {
-    if (!activeTask || !conversation) return;
-    const newTask = await retryTask(activeTask.id, workspaceId);
-    setActiveTask(newTask);
-    setTaskMessages([]);
-    startPolling(newTask.id, conversation.id);
-  }, [activeTask, conversation, workspaceId, startPolling]);
-
-  const [napping, setNapping] = useState(false);
+  });
+  const napping = useIsMutating({ mutationKey: sessionCommandKey, exact: true, predicate: (mutation) => (mutation.state.variables as SessionIntent).kind === "nap" }) > 0;
+  const sessionPending = () => workspaceOwner.queryClient.isMutating({ mutationKey: sessionCommandKey, exact: true }) > 0;
+  const handleRetryTask = async () => {
+    const original = captureChatIntent(workspaceOwner, chatActions.view); assertChatIntent(original);
+    const conversation = chatActions.readConversation(), taskId = chatActions.readActiveTaskId();
+    if (!conversation || !taskId || sessionPending()) return;
+    try { await sessionCommand.mutateAsync({ original, conversation, kind: "retry", taskId, channel: readActiveChannel(), agentName: readAgentName() }); }
+    catch (error) { try { assertChatIntent(original); } catch { return; } if (!isChatCancellation(error)) toast.error("Failed to retry the task"); }
+  };
 
   const currentConvHasMessages = useMemo(
     () =>
@@ -1933,63 +1670,16 @@ export function useAgentChat(
   );
 
   const handleNap = async () => {
-    if (!conversation || !currentConvHasMessages || napping) return;
-    setNapping(true);
-    try {
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
-      const newConv = await createConversation(
-        agentId,
-        workspaceId,
-        activeChannel,
-      );
-
-      setNapMarkers((prev) => [
-        ...prev,
-        {
-          agentName,
-          created_at: newConv.created_at,
-          id: `nap-${conversation.id}`,
-        },
-      ]);
-
-      setPreviousConversations((prev) => [
-        { id: conversation.id, created_at: conversation.created_at },
-        ...prev,
-      ]);
-
-      setConversation(newConv);
-      setActiveTask(null);
-      setTaskMessages([]);
-      setArtifacts([]);
-      setPendingFiles([]);
-      // Revoke blob URLs before clearing (same as conversation-switch path).
-      setPendingFilesByMessage((prev) => {
-        for (const files of prev.values()) {
-          for (const pf of files) {
-            if (pf.thumbnailUrl) URL.revokeObjectURL(pf.thumbnailUrl);
-          }
-        }
-        return new Map();
-      });
-      setFailedSends(new Map());
-      setStableKeyMap(new Map());
-      lastSeqRef.current = 0;
-      setConnectionLost(false);
-      setHasMore(false);
-      oldestConversationCursorRef.current = null;
-
-      scrollToBottom();
-    } catch {
-      toast.error("Failed to start new conversation");
-    } finally {
-      setNapping(false);
-    }
+    const original = captureChatIntent(workspaceOwner, chatActions.view); assertChatIntent(original);
+    const conversation = chatActions.readConversation();
+    if (!conversation || !chatActions.readMessages().some((row) => row.conversation_id === conversation.id) || sessionPending()) return;
+    try { await sessionCommand.mutateAsync({ original, conversation, kind: "nap", channel: readActiveChannel(), agentName: readAgentName() }); }
+    catch (error) { try { assertChatIntent(original); } catch { return; } if (!isChatCancellation(error)) toast.error("Failed to start new conversation"); }
   };
 
   return {
+    chatView: chatActions.view,
+    readConversation: chatActions.readConversation,
     // hook-owned state
     conversation,
     messages,

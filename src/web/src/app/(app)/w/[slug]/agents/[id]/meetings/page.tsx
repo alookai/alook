@@ -1,8 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect } from "react";
 import { useParams } from "next/navigation";
-import { useWorkspace } from "@/contexts/workspace-context";
+import { useWorkspaceOwner } from "@/contexts/workspace-context";
+import { useWorkspaceMeetings } from "@/hooks/workspace/use-workspace-meetings";
+import { useWorkspaceViewSource } from "@/hooks/workspace/use-workspace-view-source";
+import { isAbortError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetBody, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -11,7 +15,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Video, Plus, Square, Check, Clock, AlertCircle, Loader2, Trash2, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { listMeetings, createMeeting, stopMeeting, approveMeeting, deleteMeeting } from "@/lib/api";
 import type { MeetingSession } from "@alook/shared";
 
 const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; icon: typeof Clock }> = {
@@ -42,107 +45,76 @@ function formatTime(iso: string | null) {
 
 export default function AgentMeetingsPage() {
   const params = useParams();
-  const agentId = params.id as string;
-  const { workspaceId } = useWorkspace();
+  const owner = useWorkspaceOwner();
+  return <AgentMeetingsView key={`${owner.workspaceId}:${params.id}`} agentId={params.id as string} />;
+}
 
-  const [meetings, setMeetings] = useState<MeetingSession[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<MeetingSession | null>(null);
-  const [deleting, setDeleting] = useState(false);
-
-  // Create form state
-  const [meetUrl, setMeetUrl] = useState("");
-  const [meetTitle, setMeetTitle] = useState("");
-  const [meetParticipants, setMeetParticipants] = useState("");
-
-
-  const loadMeetings = useCallback(async () => {
-    try {
-      const data = await listMeetings(agentId, workspaceId);
-      setMeetings(data);
-    } catch {
-      toast.error("Failed to load meetings");
-    } finally {
-      setLoading(false);
-    }
-  }, [agentId, workspaceId]);
-
+function AgentMeetingsView({ agentId }: { agentId: string }) {
+  const owner = useWorkspaceOwner();
+  const resource = useWorkspaceMeetings(agentId);
+  const meetings = resource.data ?? [];
+  const loading = resource.isPending;
+  const [createOpen, setCreateOpen] = useAtom(useCreateAtom(false));
+  const [deleteId, setDeleteId] = useAtom(useCreateAtom<string | null>(null));
+  const deleteTarget = meetings.find((meeting) => meeting.id === deleteId);
+  const creating = resource.mutation.isPending && resource.mutation.variables?.kind === "create";
+  const deleting = resource.mutation.isPending && resource.mutation.variables?.kind === "delete";
+  const [meetUrl, setMeetUrl] = useAtom(useCreateAtom(""));
+  const [meetTitle, setMeetTitle] = useAtom(useCreateAtom(""));
+  const [meetParticipants, setMeetParticipants] = useAtom(useCreateAtom(""));
+  const source = useWorkspaceViewSource(owner, `meetings:${agentId}`, true);
+  const creation = useWorkspaceViewSource(owner, `meetings:${agentId}:create`, createOpen);
+  const deletion = useWorkspaceViewSource(owner, `meetings:${agentId}:delete:${deleteId}`, deleteId !== null);
   useEffect(() => {
-    let cancelled = false;
-    listMeetings(agentId, workspaceId)
-      .then((data) => { if (!cancelled) { setMeetings(data); setLoading(false); } })
-      .catch(() => { if (!cancelled) { toast.error("Failed to load meetings"); setLoading(false); } });
-    return () => { cancelled = true; };
-  }, [agentId, workspaceId]);
-
-  // Auto-refresh for active meetings
-  useEffect(() => {
-    const hasActive = meetings.some((m) => m.status === "joining" || m.status === "recording");
-    if (!hasActive) return;
-    const interval = setInterval(loadMeetings, 5000);
-    return () => clearInterval(interval);
-  }, [meetings, loadMeetings]);
-
+    if (!resource.error || isAbortError(resource.error)) return;
+    try { source.assertActive() } catch { return; }
+    toast.error("Failed to load meetings");
+  }, [resource.error, source, source.assertActive]);
   const handleCreate = async () => {
-    if (!meetUrl) return;
-    setCreating(true);
+    if (!meetUrl || resource.isCommandPending()) return;
+    const assertUI = creation.assertActive;
     try {
-      const participants = meetParticipants
-        .split(/[,\n]/)
-        .map((s) => s.trim())
-        .filter(Boolean);
-      await createMeeting(agentId, workspaceId, {
-        meetingUrl: meetUrl,
-        title: meetTitle || undefined,
-        participants: participants.length > 0 ? participants : undefined,
-      });
+      assertUI();
+      const participants = meetParticipants.split(/[,\n]/).map((value) => value.trim()).filter(Boolean);
+      await resource.mutation.mutateAsync({ kind: "create", data: { meetingUrl: meetUrl, title: meetTitle || undefined, participants: participants.length ? participants : undefined }, assertUI });
+      assertUI();
       toast.success("Meeting created");
       setCreateOpen(false);
-      setMeetUrl("");
-      setMeetTitle("");
-      setMeetParticipants("");
-      loadMeetings();
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Failed to create meeting");
-    } finally {
-      setCreating(false);
+      setMeetUrl(""); setMeetTitle(""); setMeetParticipants("");
+      void resource.refetch();
+    } catch (error) {
+      try { assertUI() } catch { return; }
+      if (!isAbortError(error)) toast.error(error instanceof Error ? error.message : "Failed to create meeting");
     }
   };
-
-  const handleStop = async (meeting: MeetingSession) => {
+  const changeMeeting = async (kind: "stop" | "approve", meeting: MeetingSession) => {
+    if (resource.isCommandPending()) return;
+    const assertUI = source.assertActive;
     try {
-      await stopMeeting(agentId, meeting.id, workspaceId);
-      toast.success("Meeting stopped");
-      loadMeetings();
-    } catch {
-      toast.error("Failed to stop meeting");
+      assertUI();
+      await resource.mutation.mutateAsync({ kind, id: meeting.id, assertUI });
+      assertUI();
+      toast.success(kind === "stop" ? "Meeting stopped" : "Meeting approved");
+      void resource.refetch();
+    } catch (error) {
+      try { assertUI() } catch { return; }
+      if (!isAbortError(error)) toast.error(kind === "stop" ? "Failed to stop meeting" : "Failed to approve meeting");
     }
   };
-
-  const handleApprove = async (meeting: MeetingSession) => {
-    try {
-      await approveMeeting(agentId, meeting.id, workspaceId);
-      toast.success("Meeting approved");
-      loadMeetings();
-    } catch {
-      toast.error("Failed to approve meeting");
-    }
-  };
-
+  const handleStop = (meeting: MeetingSession) => changeMeeting("stop", meeting);
+  const handleApprove = (meeting: MeetingSession) => changeMeeting("approve", meeting);
   const handleDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
+    if (!deleteId || resource.isCommandPending()) return;
+    const assertUI = deletion.assertActive;
     try {
-      await deleteMeeting(agentId, deleteTarget.id, workspaceId);
-      toast.success("Meeting deleted");
-      setDeleteTarget(null);
-      loadMeetings();
-    } catch {
-      toast.error("Failed to delete meeting");
-    } finally {
-      setDeleting(false);
+      assertUI();
+      await resource.mutation.mutateAsync({ kind: "delete", id: deleteId, assertUI });
+      assertUI();
+      toast.success("Meeting deleted"); setDeleteId(null);
+      void resource.refetch();
+    } catch (error) {
+      try { assertUI() } catch { return; }
+      if (!isAbortError(error)) toast.error("Failed to delete meeting");
     }
   };
 
@@ -233,8 +205,9 @@ export default function AgentMeetingsPage() {
                   <Button
                     variant="ghost"
                     size="icon-sm"
+                    aria-label={`Delete ${meeting.title || "meeting"}`}
                     className="text-muted-foreground hover:text-destructive"
-                    onClick={() => setDeleteTarget(meeting)}
+                    onClick={() => setDeleteId(meeting.id)}
                   >
                     <Trash2 className="size-3" />
                   </Button>
@@ -303,8 +276,8 @@ export default function AgentMeetingsPage() {
 
       {/* Delete Confirmation */}
       <ConfirmDialog
-        open={!!deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        open={deleteId !== null}
+        onOpenChange={(open) => !open && setDeleteId(null)}
         title="Delete meeting"
         description={`Remove "${deleteTarget?.title || "this meeting"}" and its transcript?`}
         loading={deleting}

@@ -1,7 +1,11 @@
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import type { QueryClient } from "@tanstack/react-query"
 import { createElement } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { render } from "@/test/react-dom-harness"
+import { render as renderDom } from "@/test/react-dom-harness"
 import { ShellFrame } from "./shell-frame"
+import { communityKeys } from "@/lib/query-keys"
 
 const mocks = vi.hoisted(() => {
   const serverCache = new Set<string>()
@@ -57,13 +61,10 @@ const mocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => mocks.queryClient,
-}))
 vi.mock("@/hooks/community/community-ws/scope-eviction", () => ({
   flushOwnerServerDeleteRouteCommit: (...args: unknown[]) => mocks.flushOwnerDelete(...args),
 }))
-vi.mock("@/lib/community/eject-server", () => ({
+vi.mock("@/lib/community/eject-server", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community/eject-server")>(),
   observeOwnerServerDeleteRouteCommit: (...args: unknown[]) => mocks.observeOwnerDelete(...args),
   registerOwnerServerDeleteRoute: (...args: unknown[]) => mocks.registerOwnerDelete(...args),
 }))
@@ -83,18 +84,18 @@ vi.mock("./use-community-navigation-controller", () => ({
     cancelPendingNavigation: mocks.handlers.cancelPendingNavigation,
   }),
 }))
-vi.mock("@/stores/community", () => ({
+vi.mock("@/stores/community", async (importOriginal) => ({ ...await importOriginal<typeof import("@/stores/community")>(),
   useCommunityStore: Object.assign(vi.fn(), {
     getState: () => ({ registerUiHandlers: mocks.registerUiHandlers }),
   }),
 }))
-vi.mock("@/stores/community/ws", () => ({
+vi.mock("@/stores/community/ws", async (importOriginal) => ({ ...await importOriginal<typeof import("@/stores/community/ws")>(),
   useCommunityWsStore: (selector: (state: { accessEpoch: number }) => unknown) => selector({ accessEpoch: 0 }),
 }))
 vi.mock("@/contexts/community/current-user", () => ({
   useCurrentUser: () => ({ id: "viewer" }),
 }))
-vi.mock("@/lib/community-db/projections", () => ({
+vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
   useServerTreeProjection: () => mocks.projectedServer.current,
   useRouteChannelProjection: () => mocks.projectedChannel.current,
 }))
@@ -123,6 +124,10 @@ vi.mock("./shell-frame-view", () => ({
   },
 }))
 
+let queryClient: QueryClient
+function NativeOwner({ children }: { children: React.ReactNode }) { return createElement(CommunityTestProvider, { client: queryClient }, children) }
+function render(node: React.ReactNode) { return renderDom(node, { wrapper: NativeOwner }) }
+
 const baseProps = {
   view: "server" as const,
   activeServerId: "s1",
@@ -135,7 +140,11 @@ function checkpoint() {
 }
 
 describe("ShellFrame orchestration", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    const owner = await createCommunityQueryOwner()
+    queryClient = owner.client
+    const register = owner.runtime.ui.actions.registerUiHandlers
+    vi.spyOn(owner.runtime.ui.actions, "registerUiHandlers").mockImplementation((handlers) => { mocks.registerUiHandlers(handlers); register(handlers) })
     mocks.currentHref.current = "/c/channels/s1"
     mocks.pendingHref.current = null
     mocks.navigationPending.current = false
@@ -179,9 +188,9 @@ describe("ShellFrame orchestration", () => {
       frameHref: "/c/channels/s1/c2",
     }))
     expect(checkpoint().mode).toBe("committed")
-    expect(mocks.observeOwnerDelete).toHaveBeenLastCalledWith("/c/channels/s1/c2")
+    expect(mocks.observeOwnerDelete).toHaveBeenLastCalledWith(queryClient, "/c/channels/s1/c2")
     expect(mocks.flushOwnerDelete).toHaveBeenLastCalledWith(
-      mocks.queryClient,
+      queryClient,
     )
     expect(mocks.observeOwnerDelete.mock.invocationCallOrder.at(-1)).toBeLessThan(
       mocks.flushOwnerDelete.mock.invocationCallOrder.at(-1) ?? 0,
@@ -197,7 +206,7 @@ describe("ShellFrame orchestration", () => {
       ownerDeleteRouteScope: { serverId: "s1", token },
     }))
 
-    expect(mocks.registerOwnerDelete).toHaveBeenCalledWith("s1", token)
+    expect(mocks.registerOwnerDelete).toHaveBeenCalledWith(queryClient, "s1", token)
     expect(mocks.registerOwnerDelete.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.observeOwnerDelete.mock.invocationCallOrder[0] ?? 0,
     )
@@ -295,7 +304,7 @@ describe("ShellFrame orchestration", () => {
     mocks.currentHref.current = "/c/channels/s1/c1"
     mocks.pendingHref.current = "/c/channels/s2"
     mocks.navigationPending.current = true
-    mocks.serverCache.add("s2")
+    queryClient.setQueryData(communityKeys.server("s2"), { id: "s2" })
     render(createElement(ShellFrame, {
       ...baseProps,
       frameHref: "/c/channels/s1/c1",

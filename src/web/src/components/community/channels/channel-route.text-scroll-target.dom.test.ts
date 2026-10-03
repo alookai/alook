@@ -1,5 +1,6 @@
 import React from "react"
-import { act, fireEvent, render, screen } from "@/test/react-dom-harness"
+import { act, fireEvent, screen } from "@/test/react-dom-harness"
+import { renderCommunity as render } from "@/test/community-owner-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ChannelRoute } from "./channel-route"
 import { ForumChannelSurface } from "./forum-channel-surface"
@@ -89,8 +90,7 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/c/channels/server_1/channel_1",
   useSearchParams: () => new URLSearchParams(mockSearchParams.value),
 }))
-vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({}) }))
-vi.mock("@/lib/community/conversation-navigation-proof", () => ({
+vi.mock("@/lib/community/conversation-navigation-proof", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community/conversation-navigation-proof")>(),
   useConversationNavigationGate: () => ({ required: false, allowed: mockNavigationGate.allowed }),
 }))
 vi.mock("sonner", () => ({ toast: vi.fn() }))
@@ -143,13 +143,13 @@ vi.mock("@/components/community/shell/community-panel", () => ({ CommunityPanel:
 vi.mock("@/components/community/messages/message-context-sheet", () => ({ MessageContextSheet: () => null }))
 vi.mock("@/components/community/messages/thread-opener", () => ({ ThreadOpener: () => null }))
 vi.mock("@/components/community/members/add-members-dialog", () => ({ AddMembersDialog: () => null }))
-vi.mock("@alook/shared", () => ({
+vi.mock("@alook/shared", async (importOriginal) => ({ ...await importOriginal<typeof import("@alook/shared")>(),
   canManageServer: mockCanManageServer,
   devWsDoPort: () => 8789,
   isForum: () => false,
   deriveThreadName: () => "thread",
   USE_SERVER_DEFAULT: "default",
-}))
+ }))
 vi.mock("@/lib/community/last-channel", () => ({
   setLastChannel: (...args: unknown[]) => mockSetLastChannel(...args),
   clearLastChannel: (...args: unknown[]) => mockClearLastChannel(...args),
@@ -160,7 +160,8 @@ vi.mock("@/lib/community/last-community-route", () => ({
     mockCommitLastCommunityRoute(accountId, `/c/channels/${serverId}/${channelId}`)
   },
 }))
-vi.mock("@/stores/community", () => {
+vi.mock("@/stores/community", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/community")>();
   const state = {
     pendingReply: null,
     setPendingReply: vi.fn(),
@@ -171,6 +172,7 @@ vi.mock("@/stores/community", () => {
     { getState: () => state },
   )
   return {
+    ...actual,
     useCommunityStore,
     useCurrentChannelId: () => mockCurrentChannelId.value,
     useUiHandlers: () => mockUiHandlers,
@@ -259,7 +261,7 @@ vi.mock("@/hooks/community/use-channel-message-feed", () => ({
 vi.mock("@/hooks/community/use-notification-settings", () => ({
   useNotificationSettings: () => ({ channel: {} }),
 }))
-vi.mock("@/stores/community/ws", () => ({
+vi.mock("@/stores/community/ws", async (importOriginal) => ({ ...await importOriginal<typeof import("@/stores/community/ws")>(),
   useOnlineUserIds: () => new Set(),
   useCommunityWsStore: (selector: (state: { userStatuses: Map<string, unknown> }) => unknown) =>
     selector({ userStatuses: new Map() }),
@@ -382,11 +384,11 @@ describe("ChannelRoute message surface ownership", () => {
     })
   })
 
-  it("forwards the route lifecycle and canonical child tuple to the opener gate", () => {
+  it("forwards the route lifecycle and canonical child tuple to the opener gate", async () => {
     configureThreadRoute()
     mockRouteModel.routeLifecycle = "pending"
     mockedUseChannelMessageFeed.mockReturnValue(feed())
-    act(() => {
+    await act(async () => {
       render(React.createElement(ChannelRoute, {
         serverId: "server_1",
         serverParam: "server_1",
@@ -406,7 +408,7 @@ describe("ChannelRoute message surface ownership", () => {
   it.each([
     ["pending", true],
     ["ready", false],
-  ] as const)("keeps %s metadata on its known forum skeleton while access=%s", (routeLifecycle, accessAllowed) => {
+  ] as const)("keeps %s metadata on its known forum skeleton while access=%s", async (routeLifecycle, accessAllowed) => {
     Object.assign(mockRouteModel, {
       channel: { id: "channel_1", name: "cached-forum", type: "forum" },
       isForum: true,
@@ -417,7 +419,7 @@ describe("ChannelRoute message surface ownership", () => {
     mockedUseChannelMessageFeed.mockReturnValue(feed())
 
     let renderer!: ReturnType<typeof render>
-    act(() => {
+    await act(async () => {
       renderer = render(React.createElement(ChannelRoute, {
         serverParam: "server_1",
         channelId: "channel_1",
@@ -523,14 +525,14 @@ describe("ChannelRoute message surface ownership", () => {
     await act(async () => renderer.unmount())
   })
 
-  it("keeps an authoritative split route structural until the effect-owned pointer commits", () => {
+  it("keeps an authoritative split route structural until the effect-owned pointer commits", async () => {
     configureThreadRoute()
     mockSplitMode.value = "split"
     mockCurrentChannelId.value = null
     mockedUseChannelMessageFeed.mockReturnValue(feed())
 
     let renderer!: ReturnType<typeof render>
-    act(() => {
+    await act(async () => {
       renderer = render(React.createElement(ChannelRoute, {
         serverParam: "server_1",
         channelId: "channel_1",
@@ -626,9 +628,9 @@ describe("ChannelRoute message surface ownership", () => {
     )
   })
 
-  it("commits and dismisses only a ready top-level channel for the active account", () => {
+  it("commits and dismisses only a ready top-level channel for the active account", async () => {
     mockedUseChannelMessageFeed.mockReturnValue(feed())
-    act(() => {
+    await act(async () => {
       render(React.createElement(ChannelRoute, {
         serverParam: "server_1",
         channelId: "channel_1",
@@ -694,11 +696,11 @@ describe("ChannelRoute message surface ownership", () => {
     ["owner", true],
     ["admin", true],
     ["member", false],
-  ] as const)("maps the %s role to the live text-channel Pin capability", (role, allowed) => {
+  ] as const)("maps the %s role to the live text-channel Pin capability", async (role, allowed) => {
     mockMemberViewModel.myRole = role
     mockedUseChannelMessageFeed.mockReturnValue(feed())
 
-    act(() => {
+    await act(async () => {
       render(React.createElement(ChannelRoute, {
         serverParam: "server_1",
         channelId: "channel_1",
@@ -711,11 +713,11 @@ describe("ChannelRoute message surface ownership", () => {
     else expect(onPin).toBeUndefined()
   })
 
-  it("defers child msg cleanup until the handoff nonce has its own cleanup", () => {
+  it("defers child msg cleanup until the handoff nonce has its own cleanup", async () => {
     mockSearchParams.value = "inboxThreadOpener=nonce-1&msg=m_target&keep=1"
     mockedUseChannelMessageFeed.mockReturnValue(feed())
     let renderer!: ReturnType<typeof render>
-    act(() => {
+    await act(async () => {
       renderer = render(React.createElement(ChannelRoute, {
         serverParam: "server_1",
         channelId: "channel_1",
@@ -736,14 +738,14 @@ describe("ChannelRoute message surface ownership", () => {
     )
   })
 
-  it("composes a wide child route as parent + thread with fullscreen and close actions", () => {
+  it("composes a wide child route as parent + thread with fullscreen and close actions", async () => {
     configureThreadRoute()
     mockSplitMode.value = "split"
     mockSearchParams.value = "keep=1"
     mockedUseChannelMessageFeed.mockReturnValue(feed())
     let renderer!: ReturnType<typeof render>
 
-    act(() => {
+    await act(async () => {
       renderer = render(React.createElement(ChannelRoute, {
         serverParam: "server_1",
         channelId: "channel_1",
@@ -771,7 +773,7 @@ describe("ChannelRoute message surface ownership", () => {
     expect(mockUiHandlers.replacePath).toHaveBeenCalledWith("/c/channels/server_1/parent_1")
   })
 
-  it("uses the same split parent contract for a forum post", () => {
+  it("uses the same split parent contract for a forum post", async () => {
     configureThreadRoute()
     mockSplitMode.value = "split"
     mockRouteModel.parent = { id: "parent_1", name: "questions", type: "forum" }
@@ -781,7 +783,7 @@ describe("ChannelRoute message surface ownership", () => {
     }]
     mockedUseChannelMessageFeed.mockReturnValue(feed())
 
-    act(() => {
+    await act(async () => {
       render(React.createElement(ChannelRoute, {
         serverParam: "server_1",
         channelId: "channel_1",
@@ -798,12 +800,12 @@ describe("ChannelRoute message surface ownership", () => {
     vi.clearAllMocks()
   })
 
-  it("keeps the route anchor until MessageList reports a successful jump", () => {
+  it("keeps the route anchor until MessageList reports a successful jump", async () => {
     let surfaceFeed = feed({ messages: [{ id: "m_unrelated" }] })
     mockedUseChannelMessageFeed.mockImplementation(() => surfaceFeed)
     let renderer: ReturnType<typeof render>
 
-    act(() => {
+    await act(async () => {
       renderer = render(
         React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }),
       )
@@ -831,12 +833,12 @@ describe("ChannelRoute message surface ownership", () => {
     expect(mockedMessageList.mock.calls.at(-1)?.[0].scrollToMessageId).toBeNull()
   })
 
-  it("clears the route anchor only after the authoritative anchor request errors", () => {
+  it("clears the route anchor only after the authoritative anchor request errors", async () => {
     let surfaceFeed = feed({ messages: [{ id: "m_unrelated" }] })
     mockedUseChannelMessageFeed.mockImplementation(() => surfaceFeed)
     let renderer: ReturnType<typeof render>
 
-    act(() => {
+    await act(async () => {
       renderer = render(
         React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }),
       )
@@ -852,14 +854,14 @@ describe("ChannelRoute message surface ownership", () => {
     expect(mockedMessageList.mock.calls.at(-1)?.[0].scrollToMessageId).toBeNull()
   })
 
-  it("does not initialize an active message feed for a forum route", () => {
+  it("does not initialize an active message feed for a forum route", async () => {
     Object.assign(mockRouteModel, {
       channel: { id: "channel_1", name: "forum", type: "forum" },
       isForum: true,
     })
     mockedUseChannelMessageFeed.mockImplementation(() => feed())
 
-    act(() => {
+    await act(async () => {
       render(
         React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }),
       )
@@ -874,11 +876,11 @@ describe("ChannelRoute message surface ownership", () => {
     }), undefined)
   })
 
-  it("initializes only the child feed for a thread route", () => {
+  it("initializes only the child feed for a thread route", async () => {
     configureThreadRoute()
     mockedUseChannelMessageFeed.mockImplementation(() => feed({ anchorInCache: true }))
 
-    act(() => {
+    await act(async () => {
       render(
         React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }),
       )
@@ -895,12 +897,12 @@ describe("ChannelRoute message surface ownership", () => {
     )
   })
 
-  it("replaces directly to the verified parent from the child Back control", () => {
+  it("replaces directly to the verified parent from the child Back control", async () => {
     configureThreadRoute()
     mockBreakpoint.value = "mobile"
     mockedUseChannelMessageFeed.mockImplementation(() => feed({ anchorInCache: true }))
 
-    act(() => {
+    await act(async () => {
       render(
         React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }),
       )
@@ -913,11 +915,11 @@ describe("ChannelRoute message surface ownership", () => {
     expect(mockUiHandlers.goBackMobile).not.toHaveBeenCalled()
   })
 
-  it("replaces directly to the canonical server root from a top-level channel", () => {
+  it("replaces directly to the canonical server root from a top-level channel", async () => {
     mockBreakpoint.value = "mobile"
     mockedUseChannelMessageFeed.mockImplementation(() => feed())
 
-    act(() => {
+    await act(async () => {
       render(
         React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }),
       )
@@ -930,13 +932,13 @@ describe("ChannelRoute message surface ownership", () => {
     expect(mockUiHandlers.goBackMobile).not.toHaveBeenCalled()
   })
 
-  it("keeps a child target through warm cache and 5000ms until MessageList consumes it", () => {
+  it("keeps a child target through warm cache and 5000ms until MessageList consumes it", async () => {
     configureThreadRoute()
     let childFeed = feed({ messages: [{ id: "m_unrelated" }], anchorInCache: true })
     mockedUseChannelMessageFeed.mockImplementation(() => childFeed)
     let renderer: ReturnType<typeof render>
 
-    act(() => {
+    await act(async () => {
       renderer = render(
         React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }),
       )
@@ -955,13 +957,13 @@ describe("ChannelRoute message surface ownership", () => {
     expect(mockedMessageList.mock.calls.at(-1)?.[0].scrollToMessageId).toBeNull()
   })
 
-  it("clears a missing child target only after the child feed errors", () => {
+  it("clears a missing child target only after the child feed errors", async () => {
     configureThreadRoute()
     let childFeed = feed({ messages: [{ id: "m_unrelated" }], anchorInCache: true })
     mockedUseChannelMessageFeed.mockImplementation(() => childFeed)
     let renderer: ReturnType<typeof render>
 
-    act(() => {
+    await act(async () => {
       renderer = render(
         React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }),
       )

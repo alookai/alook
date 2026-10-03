@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
+import { PARTICIPANT_SOURCE } from "@alook/shared/constants/community"
 import {
   channelMembershipKey,
+  channelMembershipSchema,
   communityCollectionSchemas,
   folderItemKey,
   notificationSettingKey,
@@ -19,6 +21,7 @@ describe("community DB schemas", () => {
       "channelMemberships",
       "profiles",
       "messages",
+      "friendships",
       "readStates",
       "readStateClock",
       "attentionScopes",
@@ -36,6 +39,20 @@ describe("community DB schemas", () => {
     expect(folderItemKey("f1", "s1")).toBe("f1:s1")
     expect(notificationSettingKey({ serverId: "s1" })).toBe("server:s1")
     expect(notificationSettingKey({ channelId: "c1" })).toBe("channel:c1")
+  })
+
+  it("preserves access and notify provenance while rejecting unknown membership sources", () => {
+    for (const source of ["explicit", "inherited", "admin"] as const) {
+      const row = { id: "c:u:access", channelId: "c", userId: "u", relation: "access", source }
+      expect(channelMembershipSchema.parse(row)).toEqual(row)
+    }
+    for (const source of Object.values(PARTICIPANT_SOURCE)) {
+      const row = { id: "c:u:notify", channelId: "c", userId: "u", relation: "notify", source }
+      expect(channelMembershipSchema.parse(row)).toEqual(row)
+    }
+    expect(channelMembershipSchema.safeParse({
+      id: "c:u:notify", channelId: "c", userId: "u", relation: "notify", source: "unknown-wire-source",
+    }).success).toBe(false)
   })
 
   it("rejects notification rows without exactly one target", () => {

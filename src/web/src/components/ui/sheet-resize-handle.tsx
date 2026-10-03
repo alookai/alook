@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useCallback, useRef } from "react";
 import { cn } from "@/lib/utils";
 
 const DEFAULT_MIN_WIDTH = 320;
@@ -16,7 +17,7 @@ export function useSheetResize({
   minWidth?: number;
   maxWidthRatio?: number;
 } = {}) {
-  const [width, setWidth] = useState(defaultWidth);
+  const [width, setWidth] = useAtom(useCreateAtom(defaultWidth));
   const dragging = useRef(false);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
@@ -31,7 +32,7 @@ export function useSheetResize({
       const maxW = window.innerWidth * maxWidthRatio;
       setWidth(Math.min(maxW, Math.max(minWidth, window.innerWidth - e.clientX)));
     },
-    [minWidth, maxWidthRatio]
+    [maxWidthRatio, setWidth, minWidth]
   );
 
   const onPointerUp = useCallback((e: React.PointerEvent) => {

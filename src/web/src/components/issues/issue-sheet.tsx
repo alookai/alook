@@ -1,7 +1,8 @@
 "use client";
 
+import { useAtom, useCreateAtom, useCreateStore, useSelector } from "@tanstack/react-store";
 import { IssueAttachmentList } from "./issue-attachment-list";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
   Sheet,
   SheetClose,
@@ -40,7 +41,9 @@ import { mermaid, cjk } from "@/lib/streamdown-plugins";
 import type { Agent, Artifact, Issue, IssueComment, Message, TaskApi } from "@alook/shared";
 import { isTerminalIssueStatus, toAlookAddress } from "@alook/shared";
 import type { TraceTask } from "@/lib/api";
-import { updateIssue } from "@/lib/api";
+import { useWorkspaceOwner, captureWorkspaceOwner } from "@/contexts/workspace-context";
+import { useWorkspaceViewSource } from "@/hooks/workspace/use-workspace-view-source";
+import { useIssueCommand, usePendingIssueChanges } from "@/hooks/workspace/use-issue-command";
 import { AgentAvatar } from "@/components/avatar";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Kbd } from "@/components/ui/kbd";
@@ -156,6 +159,19 @@ export interface IssueSheetProps {
   onArtifactClick?: (artifact: Artifact) => void;
 }
 
+type IssueSaveIntent = {
+  id: string;
+  patch: { title?: string; description?: string };
+  token: ReturnType<typeof captureWorkspaceOwner>;
+  assertView: () => void;
+};
+type IssueDraftState = {
+  id: string | null;
+  title: string | null;
+  description: string | null;
+  pending: IssueSaveIntent | null;
+};
+
 export function IssueSheet({
   open,
   onOpenChange,
@@ -172,23 +188,31 @@ export function IssueSheet({
   draft,
   onDraftChange,
   onCreate,
-  onUpdate,
   onStatusChange,
   onCommented,
   onDispatched,
   onArtifactClick,
 }: IssueSheetProps) {
   const mode = issue ? "detail" : "create";
+  const owner = useWorkspaceOwner();
+  const source = useWorkspaceViewSource(owner, JSON.stringify(["issue-sheet", issue?.id ?? "create"]), open && owner.workspaceId === workspaceId);
+  const { mutateAsync: mutateIssue } = useIssueCommand(owner);
+  const pendingCommands = usePendingIssueChanges(owner);
+  const editing = useCreateStore<IssueDraftState>({ id: null, title: null, description: null, pending: null });
+  const edits = useSelector(editing, (state) => state);
 
   // Local editing state
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [agentId, setAgentId] = useState(defaultAgentId ?? "");
-  const [assigneeOpen, setAssigneeOpen] = useState(false);
-  const [commentContent, setCommentContent] = useState("");
-  const [commentSubmitting, setCommentSubmitting] = useState(false);
-  const [confirmAgent, setConfirmAgent] = useState<Agent | null>(null);
-  const [dispatching, setDispatching] = useState(false);
+  const [createTitle, setCreateTitle] = useAtom(useCreateAtom(""));
+  const [createDescription, setCreateDescription] = useAtom(useCreateAtom(""));
+  const title = issue ? (edits.id === issue.id ? edits.title : null) ?? issue.title : createTitle;
+  const description = issue ? (edits.id === issue.id ? edits.description : null) ?? issue.description ?? "" : createDescription;
+  const [agentId, setAgentId] = useAtom(useCreateAtom(defaultAgentId ?? ""));
+  const [assigneeOpen, setAssigneeOpen] = useAtom(useCreateAtom(false));
+  const [commentContent, setCommentContent] = useAtom(useCreateAtom(""));
+  const [confirmAgentId, setConfirmAgentId] = useAtom(useCreateAtom<string | null>(null));
+  const confirmAgent = agents.find((agent) => agent.id === confirmAgentId) ?? null;
+  const commentSubmitting = pendingCommands.some((action) => action.kind === "comment" && action.id === issue?.id);
+  const dispatching = pendingCommands.some((action) => action.kind === "update" && action.id === issue?.id && action.patch.agent_id != null);
 
   const descriptionRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -199,12 +223,11 @@ export function IssueSheet({
   // Seed state on open/issue change
   useEffect(() => {
     if (!open) return;
-    if (issue) {
-      setTitle(issue.title);
-      setDescription(issue.description ?? "");
-    } else {
-      setTitle(draft?.title ?? "");
-      setDescription(draft?.description ?? "");
+    setConfirmAgentId(null);
+    setCommentContent("");
+    if (!issue) {
+      setCreateTitle(draft?.title ?? "");
+      setCreateDescription(draft?.description ?? "");
       setAgentId(draft?.agentId || defaultAgentId || "");
     }
   }, [open, issue?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -223,52 +246,51 @@ export function IssueSheet({
   }, [detail?.messages?.length, detail?.comments?.length, traceTasks?.length]);
 
   // Auto-save (detail mode): debounce title/description changes
-  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const onUpdateRef = useRef(onUpdate);
-  useEffect(() => { onUpdateRef.current = onUpdate; }, [onUpdate]);
-  const titleRef2 = useRef(title);
-  useEffect(() => { titleRef2.current = title; }, [title]);
-  const descriptionRef2 = useRef(description);
-  useEffect(() => { descriptionRef2.current = description; }, [description]);
-  const issueRef = useRef(issue);
-  useEffect(() => { issueRef.current = issue; }, [issue]);
-
   const flushAutoSave = useCallback(() => {
-    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    autoSaveTimer.current = null;
-    const iss = issueRef.current;
-    if (!iss) return;
-    const titleChanged = titleRef2.current !== iss.title;
-    const descChanged = descriptionRef2.current !== (iss.description ?? "");
-    if (!titleChanged && !descChanged) return;
-    if (!titleRef2.current.trim()) return;
-    const patch: { title?: string; description?: string } = {};
-    if (titleChanged) patch.title = titleRef2.current.trim();
-    if (descChanged) patch.description = descriptionRef2.current.trim();
-    onUpdateRef.current?.(iss.id, patch);
-  }, []);
+    const intent = editing.get().pending;
+    if (!intent || (intent.patch.title != null && !intent.patch.title.trim())) return;
+    editing.setState((state) => state.pending === intent ? { ...state, pending: null } : state);
+    void mutateIssue({ action: { kind: "update", id: intent.id, patch: intent.patch }, token: intent.token }).then(() => {
+      intent.assertView();
+      editing.setState((state) => state.id !== intent.id ? state : {
+        ...state,
+        title: state.title?.trim() === intent.patch.title ? null : state.title,
+        description: state.description?.trim() === intent.patch.description ? null : state.description,
+      });
+    }).catch((error) => {
+      try { intent.assertView(); } catch { return; }
+      if (!(error instanceof DOMException && error.name === "AbortError")) toast.error(error instanceof Error ? error.message : "Failed to save issue");
+    });
+  }, [mutateIssue, editing]);
+
+  const editField = (field: "title" | "description", value: string) => {
+    if (!issue) {
+      if (field === "title") setCreateTitle(value);
+      else setCreateDescription(value);
+      return;
+    }
+    source.assertActive();
+    const id = issue.id;
+    editing.setState((state) => {
+      const current = state.id === id ? state : { id, title: null, description: null, pending: null };
+      const patch = { ...current.pending?.patch, [field]: value.trim() };
+      const intent = current.pending ?? { id, token: captureWorkspaceOwner(owner), assertView: source.assertActive, patch };
+      return { ...current, [field]: value, pending: { ...intent, patch } };
+    });
+  };
 
   useEffect(() => {
-    if (mode !== "detail" || !issue || !open) return;
-    const titleChanged = title !== issue.title;
-    const descChanged = description !== (issue.description ?? "");
-    if (!titleChanged && !descChanged) return;
-    if (!title.trim()) return;
-
-    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    autoSaveTimer.current = setTimeout(flushAutoSave, 500);
-
-    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
-  }, [title, description, mode, issue, open, flushAutoSave]);
+    if (!open || !edits.pending) return;
+    const timer = setTimeout(flushAutoSave, 500);
+    return () => clearTimeout(timer);
+  }, [edits.pending, open, flushAutoSave]);
 
   // Flush pending auto-save when sheet closes
-  const prevOpenRef = useRef(open);
   useEffect(() => {
-    if (prevOpenRef.current && !open && mode === "detail") {
-      flushAutoSave();
-    }
-    prevOpenRef.current = open;
-  }, [open, mode, flushAutoSave]);
+    if (!open || !issue?.id) return;
+    const id = issue.id;
+    return () => { if (editing.get().pending?.id === id) flushAutoSave(); };
+  }, [open, issue?.id, editing, flushAutoSave]);
 
   // --- Drag handle ---
   const { width, onPointerDown, onPointerMove, onPointerUp } = useSheetResize({
@@ -291,20 +313,20 @@ export function IssueSheet({
 
   const handleCommentSubmit = async () => {
     if (!commentContent.trim() || commentSubmitting || !issue) return;
-    setCommentSubmitting(true);
+    const original = source.assertActive;
+    original();
+    const content = commentContent;
+    const id = issue.id;
+    const token = captureWorkspaceOwner(owner);
     try {
-      const res = await fetch(`/api/issues/${issue.id}/comments?workspace_id=${workspaceId}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: commentContent.trim() }),
-      });
-      if (!res.ok) throw new Error("Failed to send comment");
-      setCommentContent("");
+      await mutateIssue({ action: { kind: "comment", id, content: content.trim() }, token });
+      original();
+      setCommentContent((current) => current === content ? "" : current);
       onCommented?.();
-    } catch {
+    } catch (error) {
+      try { original(); } catch { return; }
+      if (error instanceof DOMException && error.name === "AbortError") return;
       toast.error("Failed to send comment");
-    } finally {
-      setCommentSubmitting(false);
     }
   };
 
@@ -334,12 +356,12 @@ export function IssueSheet({
   const detailAgent = issue?.agent_id ? agents.find((a) => a.id === issue.agent_id) ?? null : null;
 
   // Mobile tab state (only used below lg breakpoint)
-  const [mobileTab, setMobileTab] = useState<"issue" | "activity">("issue");
+  const [mobileTab, setMobileTab] = useAtom(useCreateAtom<"issue" | "activity">("issue"));
 
   // Reset tab when switching issues or modes
   useEffect(() => {
     setMobileTab("issue");
-  }, [issue?.id, mode]);
+  }, [issue?.id, mode, setMobileTab]);
 
   const timelineContent = (
     <>
@@ -447,7 +469,7 @@ export function IssueSheet({
       <div className="shrink-0 px-2 sm:px-3 pt-5 pb-1">
         <AutoResizeTextarea
           value={title}
-          onChange={(e) => setTitle(e.target.value)}
+          onChange={(e) => editField("title", e.target.value)}
           onKeyDown={onTitleKeyDown}
           placeholder={mode === "create" ? "New issue" : "Untitled"}
           autoFocus={mode === "create"}
@@ -494,7 +516,7 @@ export function IssueSheet({
                     type="button"
                     onClick={() => {
                       if (isTodoDraft) {
-                        setConfirmAgent(agent);
+                        setConfirmAgentId(agent.id);
                       } else {
                         setAgentId(agent.id);
                       }
@@ -573,7 +595,7 @@ export function IssueSheet({
         <MarkdownEditor
           key={issue?.id ?? "new"}
           value={description}
-          onChange={setDescription}
+          onChange={(value) => editField("description", value)}
           placeholder="Describe the issue..."
           minHeight={mode === "create" ? "10rem" : "4rem"}
           variant="seamless"
@@ -712,7 +734,7 @@ export function IssueSheet({
       {/* Dispatch confirmation dialog for todo draft issues */}
       <ConfirmDialog
         open={!!confirmAgent}
-        onOpenChange={(open) => { if (!open) setConfirmAgent(null); }}
+        onOpenChange={(open) => { if (!open) setConfirmAgentId(null); }}
         title="Run issue?"
         description={`This issue will be assigned to ${confirmAgent?.name ?? "the agent"} and start running immediately.`}
         confirmLabel="Run"
@@ -721,16 +743,20 @@ export function IssueSheet({
         loading={dispatching}
         onConfirm={async () => {
           if (!confirmAgent || !issue) return;
-          setDispatching(true);
+          const original = source.assertActive;
+          original();
+          const id = issue.id;
+          const token = captureWorkspaceOwner(owner);
           try {
-            await updateIssue(workspaceId, issue.id, { agent_id: confirmAgent.id });
-            setConfirmAgent(null);
-            onDispatched?.(issue.id);
+            await mutateIssue({ action: { kind: "update", id, patch: { agent_id: confirmAgent.id } }, token });
+            original();
+            setConfirmAgentId(null);
+            onDispatched?.(id);
           } catch (e) {
+            try { original(); } catch { return; }
+            if (e instanceof DOMException && e.name === "AbortError") return;
             toast.error(e instanceof Error ? e.message : "Failed to dispatch issue");
-            setConfirmAgent(null);
-          } finally {
-            setDispatching(false);
+            setConfirmAgentId(null);
           }
         }}
       />

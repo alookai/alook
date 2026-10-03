@@ -1,6 +1,7 @@
 "use client";
 
-import { createContext, useContext, type ReactNode, useRef, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { createContext, useContext, type ReactNode, useRef } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { MobileTopBar } from "@/components/mobile-top-bar";
 import { AppBackground, AppSurface } from "@/components/ui/app-surface";
@@ -22,7 +23,7 @@ export function useSidebarTrigger() {
 export function WorkspaceShell({ children }: { children: ReactNode }) {
   const isMobile = useIsMobile();
   const { slug } = useWorkspace();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useAtom(useCreateAtom(false));
   const shellRef = useRef<HTMLDivElement>(null);
 
   if (isMobile) {

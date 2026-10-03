@@ -50,7 +50,7 @@ describe("AccountUnreadProjection", () => {
 
     projection.recordArrival({ channelId: "dm", seq: 1 })
     expect(listener).toHaveBeenCalledOnce()
-    expect(projection.getSnapshot()).toBe(1)
+    expect(projection.getSnapshot()).toMatchObject({ ordinal: 1 })
 
     unsubscribe()
     projection.recordArrival({ channelId: "dm", seq: 2 })
@@ -63,7 +63,7 @@ describe("AccountUnreadProjection", () => {
     projection.recordArrival({ channelId: "", seq: 1 })
     projection.recordRead("c1", 0)
     projection.recordOptimisticRead("c1", Number.NaN, 1)
-    expect(projection.getSnapshot()).toBe(0)
+    expect(projection.getSnapshot()).toMatchObject({ ordinal: 0 })
     expect(projection.hasPending()).toBe(false)
   })
 
@@ -354,7 +354,7 @@ describe("AccountUnreadProjection", () => {
     })
     const anonymous = getActiveAccountUnreadProjection(client)
     expect(anonymous.ownerUserId).toBe("__anonymous__")
-    expect(anonymous.getSnapshot()).toBe(0)
+    expect(anonymous.getSnapshot()).toMatchObject({ ordinal: 0 })
   })
 
   it("never derives a numeric server mention increment from isMention", () => {

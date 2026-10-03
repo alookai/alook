@@ -1,5 +1,6 @@
 "use client"
 
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
 /* Hallmark · component: secondary-card · genre: playful · theme: Alook locked system
  * states: default · hover · focus · active · disabled · loading · error · success
  * contrast: verified in light and dark browser QA
@@ -7,7 +8,7 @@
 
 import { stripInlineMarkup } from "@alook/shared"
 import { Activity, ChevronRight, CircleStop, ListTodo, LoaderCircle, Lock, Square } from "lucide-react"
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef } from "react"
 import { useBotAuditPreview } from "@/hooks/community/use-bot-audit-preview"
 import { useBotMarks } from "@/hooks/community/use-bot-marks"
 import { formatRelativeTime } from "@/lib/community/format-time"
@@ -42,7 +43,7 @@ export function BotMarkSticker({
   onStop: () => void
   onOpenActivity: () => void
 }) {
-  const [view, setView] = useState<StickerView>("activity")
+  const [view, setView] = useAtom(useCreateAtom<StickerView>("activity"))
   const activityScrollRef = useRef<HTMLDivElement>(null)
   const activityBottomAnchorRef = useRef<HTMLDivElement>(null)
   const latestEventIdRef = useRef<string | undefined>(undefined)

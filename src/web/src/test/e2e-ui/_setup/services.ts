@@ -2,7 +2,7 @@ import { spawn, spawnSync, type ChildProcess } from "child_process"
 import { createRequire } from "module"
 import { closeSync, cpSync, existsSync, mkdirSync, openSync, rmSync, statSync } from "fs"
 import { dirname, resolve } from "path"
-import { REPO_ROOT, SERVICE_LOG_DIR, SERVICE_STATE_PATH, WEB_URL, WS_URL } from "./paths"
+import { QUEUE_URL, REPO_ROOT, SERVICE_LOG_DIR, SERVICE_STATE_PATH, WEB_URL, WS_URL } from "./paths"
 import {
   addServiceProcess,
   applyHealthProbe,
@@ -355,6 +355,14 @@ export function serviceDefinitions(singleRuntime: boolean): ServiceDefinition[] 
         expectedStatus: 200,
         expectedBody: { status: "ok" },
       },
+      {
+        name: "queue-worker",
+        command: "pnpm",
+        args: ["--filter", "@alook/queue-worker", "dev"],
+        healthUrl: `${QUEUE_URL}/health`,
+        expectedStatus: 200,
+        expectedBody: { status: "ok" },
+      },
     ]
   }
 
@@ -486,10 +494,9 @@ async function warmUpRoutes(): Promise<void> {
 }
 
 export async function startServices(): Promise<ManagedService[]> {
-  const webHealth = `${WEB_URL}/api/health`
-  const wsHealth = `${WS_URL}/health`
+  const definitions = serviceDefinitions(SINGLE_RUNTIME)
 
-  if (REUSE_EXISTING && (await hasExactHealth(webHealth)).ok && (await hasExactHealth(wsHealth)).ok) {
+  if (REUSE_EXISTING && (await Promise.all(definitions.map(({ healthUrl }) => hasExactHealth(healthUrl)))).every((health) => health.ok)) {
     const state = readLifecycleState(SERVICE_STATE_PATH)
     if (state) writeLifecycleState(SERVICE_STATE_PATH, { ...state, status: "healthy" })
     await warmUpRoutes()
@@ -499,8 +506,8 @@ export async function startServices(): Promise<ManagedService[]> {
   // Starting fresh — clear any orphaned dev servers on our ports first so a
   // prior crashed run doesn't leave 3000/8789 occupied (or get reused).
   const ports = (SINGLE_RUNTIME
-    ? [portOf(WEB_URL), 3001, 3002, 8789]
-    : [portOf(WEB_URL), portOf(WS_URL)])
+    ? [portOf(WEB_URL), 3001, 3002, 8789, portOf(QUEUE_URL)]
+    : definitions.map(({ healthUrl }) => portOf(healthUrl)))
     .filter((p): p is number => p != null)
   killPortOrphans(ports)
   // Give the OS a moment to release the sockets before we bind them.
@@ -508,7 +515,12 @@ export async function startServices(): Promise<ManagedService[]> {
   rmSync(SERVICE_LOG_DIR, { recursive: true, force: true })
   mkdirSync(SERVICE_LOG_DIR, { recursive: true })
 
-  const services = serviceDefinitions(SINGLE_RUNTIME).map(startService)
+  const services: ManagedService[] = []
+  for (const definition of definitions) {
+    const service = startService(definition)
+    services.push(service)
+    await waitForHealth(service)
+  }
 
   await waitForServicesReady(services)
   const state = readLifecycleState(SERVICE_STATE_PATH)

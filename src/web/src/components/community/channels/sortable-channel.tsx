@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
 import { BellOff, Loader2, Pencil, Trash2, Users } from "lucide-react"
 import { EntityIcon } from "../entity-icon"
 import { useSortable } from "@dnd-kit/sortable"
@@ -47,7 +48,7 @@ export function SortableChannel({ ch, active, onClick, onEdit, onDelete, onManag
   onManageMembers?: () => void
   canReorder?: boolean
 }) {
-  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useAtom(useCreateAtom(false))
   const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver, activeIndex, index } = useSortable({ id: ch.id, disabled: !canReorder })
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1, zIndex: isDragging ? 10 : undefined }
   const showLine = isOver && !isDragging

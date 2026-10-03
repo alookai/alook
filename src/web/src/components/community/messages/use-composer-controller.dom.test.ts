@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { forwardRef, createElement, createRef } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, render } from "@/test/react-dom-harness"
+import { act } from "@/test/react-dom-harness"
+import { renderCommunity as render } from "@/test/community-owner-harness"
 
 const mocks = vi.hoisted(() => ({
   useEditor: vi.fn(),
@@ -231,6 +232,7 @@ describe("useComposerController", () => {
     })
     mocks.useFileAttachments.mockImplementation(() => ({
       pendingFiles,
+      readPendingFiles: () => pendingFiles,
       setPendingFiles,
       transferPendingFiles,
       restorePendingFiles: mocks.restorePendingFiles,
@@ -305,7 +307,7 @@ describe("useComposerController", () => {
       maxFileSize: 25 * 1024 * 1024,
       maxFiles: 10,
       thumbnailPolicy: "community",
-      draftSessionScope: "server/channel",
+      draftSessionScope: "viewer:server/channel",
     }))
   })
 
@@ -363,7 +365,7 @@ describe("useComposerController", () => {
     await enter()
     expect(accept).toHaveBeenCalledOnce()
     expect(clearContent).toHaveBeenCalledOnce()
-    expect(mocks.clearDraft).toHaveBeenCalledWith("server/channel")
+    expect(mocks.clearDraft).toHaveBeenCalledWith("viewer:server/channel")
     expect(transferPendingFiles).toHaveBeenCalledOnce()
     expect(resetPopups).toHaveBeenCalledOnce()
     expect(clearContent.mock.invocationCallOrder[0]).toBeLessThan(
@@ -549,7 +551,7 @@ describe("useComposerController", () => {
     const accept = vi.fn(() => true)
     const renderer = render(createElement(Harness, acceptedProps(accept)))
     expect(mocks.useFileAttachments).toHaveBeenLastCalledWith(expect.objectContaining({
-      draftSessionScope: "server/channel",
+      draftSessionScope: "viewer:server/channel",
     }))
 
     renderer.rerender(createElement(Harness, {
@@ -559,7 +561,7 @@ describe("useComposerController", () => {
       draftKey: "dm/person",
     }))
     expect(mocks.useFileAttachments).toHaveBeenLastCalledWith(expect.objectContaining({
-      draftSessionScope: "dm/person",
+      draftSessionScope: "viewer:dm/person",
     }))
   })
 
@@ -698,7 +700,7 @@ describe("useComposerController", () => {
       view().onSend()
     })
     expect(awaitPendingFiles).toHaveBeenCalledOnce()
-    expect(view().sendDisabled).toBe(true)
+    await vi.waitFor(() => expect(view().sendDisabled).toBe(true))
     expect(accept).not.toHaveBeenCalled()
     await act(async () => {
       releaseFiles()
@@ -794,7 +796,7 @@ describe("useComposerController", () => {
         }),
       )
     })
-    expect(mocks.readDraft).toHaveBeenCalledWith("server/channel")
+    expect(mocks.readDraft).toHaveBeenCalledWith("viewer:server/channel")
     expect(setContent).toHaveBeenCalledWith(doc, {
       emitUpdate: false,
       errorOnInvalidContent: true,
@@ -819,13 +821,13 @@ describe("useComposerController", () => {
       )
     })
     expect(mocks.clearDraft).toHaveBeenCalledTimes(1)
-    expect(mocks.clearDraft).toHaveBeenCalledWith("server/channel")
+    expect(mocks.clearDraft).toHaveBeenCalledWith("viewer:server/channel")
 
     await act(async () => {
       editorOptions.onUpdate({ editor })
     })
     expect(onTyping).toHaveBeenCalledOnce()
-    expect(mocks.writeDraft).toHaveBeenCalledWith("server/channel", {
+    expect(mocks.writeDraft).toHaveBeenCalledWith("viewer:server/channel", {
       type: "doc",
     })
   })
@@ -856,7 +858,7 @@ describe("useComposerController", () => {
     expect(onTyping).toHaveBeenCalledOnce()
     expect(onDirty).toHaveBeenCalledTimes(1)
     expect(onDirty).toHaveBeenLastCalledWith(true)
-    expect(mocks.writeDraft).toHaveBeenLastCalledWith("server/channel", {
+    expect(mocks.writeDraft).toHaveBeenLastCalledWith("viewer:server/channel", {
       type: "doc",
     })
 
@@ -866,7 +868,7 @@ describe("useComposerController", () => {
     })
     expect(onTyping).toHaveBeenCalledOnce()
     expect(onDirty).toHaveBeenLastCalledWith(false)
-    expect(mocks.writeDraft).toHaveBeenLastCalledWith("server/channel", null)
+    expect(mocks.writeDraft).toHaveBeenLastCalledWith("viewer:server/channel", null)
 
     await act(async () => {
       vi.advanceTimersByTime(3_000)
@@ -881,9 +883,9 @@ describe("useComposerController", () => {
       false,
       true,
     ])
-    expect(vi.getTimerCount()).toBe(1)
     await act(async () => renderer.unmount())
-    expect(vi.getTimerCount()).toBe(1)
+    await act(async () => { vi.advanceTimersByTime(3_000) })
+    expect(onTyping).toHaveBeenCalledTimes(2)
   })
 
   it("resets the leading-edge typing timer only after an accepted send", async () => {
@@ -1088,7 +1090,7 @@ describe("useComposerController", () => {
     })
     handleRef.current?.submitNow()
     handleRef.current?.submitNow()
-    expect(awaitPendingFiles).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(awaitPendingFiles).toHaveBeenCalledOnce())
     expect(accept).not.toHaveBeenCalled()
     await act(async () => {
       releaseFiles()
@@ -1249,12 +1251,13 @@ describe("useComposerController", () => {
       ),
       "utf8",
     )
-    const gate = source.indexOf("if (!editor || sendInFlightRef.current) return")
+    const gate = source.indexOf("if (!editor || client.isMutating(")
     const awaitFiles = source.indexOf("await awaitPendingFiles()")
-    const secondCheck = source.indexOf("lifecycleVersionRef.current !== attemptLifecycle")
+    const secondCheck = source.indexOf("assert()", awaitFiles)
     const empty = source.indexOf("editor.isEmpty && preparedFiles.length === 0")
     const markdown = source.indexOf("const markdown =")
-    expect(gate).toBeLessThan(awaitFiles)
+    expect(gate).toBeGreaterThan(-1)
+    expect(source).toContain("current.scopeVersion !== scopeVersion")
     expect(awaitFiles).toBeLessThan(secondCheck)
     expect(secondCheck).toBeLessThan(empty)
     expect(empty).toBeLessThan(markdown)
@@ -1262,7 +1265,7 @@ describe("useComposerController", () => {
     expect(source).toContain("useLayoutEffect(")
     expect(source).toContain("emitUpdate: false")
     expect(source).toContain("errorOnInvalidContent: true")
-    expect(source).toContain("suppressUpdateEffectsRef.current = false")
+    expect(source).toContain("suppress: false")
     expect(source).toContain("3_000")
     expect(source.indexOf("clearTimeout(typingTimer.current)"))
       .toBeLessThan(source.indexOf("editor.commands.clearContent()"))

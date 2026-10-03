@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
 import type React from "react"
 import { useTheme } from "next-themes"
 import EmojiMartPicker from "@emoji-mart/react"
@@ -34,7 +35,7 @@ export function EmojiPickerPopover({
   align?: "start" | "center" | "end"
   onOpenChange?: (open: boolean) => void
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useAtom(useCreateAtom(false))
   const setBoth = (o: boolean) => { setOpen(o); onOpenChange?.(o) }
   return (
     <Popover open={open} onOpenChange={setBoth}>

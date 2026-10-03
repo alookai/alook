@@ -1,122 +1,72 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import type { ServerRailCommand, ServerRailCommitResponse } from "@alook/shared"
+import { useCommunityCommandMutation } from "../use-community-command-mutation"
+import { beginCommunityCommandRevision } from "@/lib/community-db/sync"
+import { useCommunityMutationOrigin } from "../community-origin"
+import { useIsMutating, useQueryClient } from "@tanstack/react-query"
+import { projectServerRailCommit, type ServerRailCommand, type ServerRailCommitResponse } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
+import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { communityKeys } from "@/lib/query-keys"
-import type { FoldersResponse } from "@/hooks/community/use-folders"
-import type { ServersResponse } from "@/hooks/community/use-servers"
-import type { FolderServer } from "@/lib/community/models/navigation"
+import { mutateCommunityServerRail, readCommunityServerRail } from "@/lib/community-db/server-rail"
+import { publishCommunityServerRailCommit } from "@/lib/community-db/sync"
 import type { RailState } from "@/lib/community/server-rail-model"
 
-export type ServerRailCommitArgs = {
-  before: RailState
-  after: RailState
-  commands: ServerRailCommand[]
-}
-
-type ServerRailCommitContext = {
-  servers: ServersResponse | undefined
-  folders: FoldersResponse | undefined
-}
-
-function applyOptimisticRail(
-  servers: ServersResponse | undefined,
-  folders: FoldersResponse | undefined,
-  state: RailState,
-): { servers: ServersResponse | undefined; folders: FoldersResponse | undefined } {
-  const serverById = new Map(servers?.servers.map((server) => [server.id, server]) ?? [])
-  const folderServerById = new Map<string, FolderServer>()
-  for (const folder of folders?.folders ?? []) {
-    for (const server of folder.servers) folderServerById.set(server.id, server)
-  }
-  const asFolderServer = (serverId: string): FolderServer => {
-    const existing = folderServerById.get(serverId)
-    if (existing) return existing
-    const server = serverById.get(serverId)
-    return server
-      ? { id: server.id, name: server.name, initial: server.initial, icon: server.icon ?? null }
-      : { id: serverId, name: "", initial: "?", icon: null }
-  }
-  const folderById = new Map(folders?.folders.map((folder) => [folder.id, folder]) ?? [])
-  return {
-    servers: servers
-      ? {
-          ...servers,
-          servers: state.serverOrder
-            .map((serverId) => serverById.get(serverId))
-            .filter((server): server is ServersResponse["servers"][number] => !!server),
-        }
-      : servers,
-    folders: {
-      folders: state.folderOrder.map((folderId, position) => ({
-        id: folderId,
-        name: folderById.get(folderId)?.name ?? "Group",
-        position,
-        servers: (state.folders[folderId] ?? []).map(asFolderServer),
-      })),
-    },
-  }
-}
-
-function reconcileCreatedFolderIds(
-  folders: FoldersResponse | undefined,
-  createdFolderIds: Record<string, string>,
-): FoldersResponse | undefined {
-  if (!folders || Object.keys(createdFolderIds).length === 0) return folders
-  return {
-    ...folders,
-    folders: folders.folders.map((folder) => ({
-      ...folder,
-      id: createdFolderIds[folder.id] ?? folder.id,
-    })),
-  }
-}
-
+export type ServerRailCommitArgs = { before: RailState; after: RailState; commands: ServerRailCommand[]; assertUI?: () => void }
+const mutationKey = ["community", "server-rail", "change"] as const
 export function useServerRailCommit() {
-  const queryClient = useQueryClient()
-  const serversKey = communityKeys.servers()
-  const foldersKey = communityKeys.folders()
-  return useMutation<
-    ServerRailCommitResponse,
-    Error,
-    ServerRailCommitArgs,
-    ServerRailCommitContext
-  >({
+  const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
+  const pending = useIsMutating({ mutationKey, exact: true }) > 0
+  const mutation = useCommunityCommandMutation<ServerRailCommitResponse, Error, ServerRailCommitArgs>(origin, {
+    mutationKey,
     scope: { id: "server-rail-commit" },
-    mutationFn: ({ commands }) => apiFetch<ServerRailCommitResponse>(
-      "/api/community/users/me/server-rail",
-      { method: "PATCH", body: JSON.stringify({ commands }) },
-    ),
-    onMutate: async ({ after }) => {
+    mutationFn: async ({ commands, assertUI, original, resources }) => {
+      assertUI?.()
+      const registry = origin.registry
+      origin.assert(original)
+      await registry?.ready
+      origin.assert(original)
+      assertUI?.()
       await Promise.all([
-        queryClient.cancelQueries({ queryKey: serversKey, exact: true }),
-        queryClient.cancelQueries({ queryKey: foldersKey, exact: true }),
+        queryClient.cancelQueries({ queryKey: communityKeys.servers(), exact: true, predicate: (query) => resources.includes(query) }),
+        queryClient.cancelQueries({ queryKey: communityKeys.folders(), exact: true, predicate: (query) => resources.includes(query) }),
       ])
-      const context: ServerRailCommitContext = {
-        servers: queryClient.getQueryData<ServersResponse>(serversKey),
-        folders: queryClient.getQueryData<FoldersResponse>(foldersKey),
-      }
-      const optimistic = applyOptimisticRail(context.servers, context.folders, after)
-      queryClient.setQueryData(serversKey, optimistic.servers)
-      queryClient.setQueryData(foldersKey, optimistic.folders)
-      return context
+      origin.assert(original)
+      assertUI?.()
+      const token = beginCommunityCommandRevision(queryClient, original)
+      const snapshot = readCommunityServerRail(registry!)
+      const optimistic = projectServerRailCommit(snapshot, { commands }, (id) => id)
+      if (!optimistic.ok) throw new Error(optimistic.error)
+      let response: ServerRailCommitResponse | undefined
+      const transaction = registry!.dbClient.createTransaction({ mutationFn: async () => {
+        try {
+          assertUI?.()
+          response = await apiFetch<ServerRailCommitResponse>("/api/community/users/me/server-rail", {
+            method: "PATCH", body: JSON.stringify({ commands }),
+            ...(() => {
+              const options = communityRequestOptions(queryClient, token, undefined, () => origin.assert(original))
+              return { ...options, onUnauthorized: async () => {
+                try { assertUI?.() } catch { return false }
+                return options.onUnauthorized ? options.onUnauthorized() : false
+              } }
+            })(),
+          })
+          origin.assert(original)
+          for (const command of commands) if (command.kind === "create-folder" && !response.createdFolderIds[command.clientId]) throw new Error("Missing confirmed folder identity")
+          const confirmed = projectServerRailCommit(snapshot, { commands }, (id) => response!.createdFolderIds[id]!)
+          if (!confirmed.ok) throw new Error(confirmed.error)
+          publishCommunityServerRailCommit(queryClient, confirmed.value, { token, signal: undefined })
+        } catch (error) { origin.assert(original); throw error }
+      } })
+      transaction.mutate(() => mutateCommunityServerRail(registry!, optimistic.value))
+      try { await transaction.isPersisted.promise } catch (error) { origin.assert(original); throw error }
+      return response!
     },
-    onError: (_error, _args, context) => {
-      if (!context) return
-      queryClient.setQueryData(serversKey, context.servers)
-      queryClient.setQueryData(foldersKey, context.folders)
-    },
-    onSuccess: (response) => {
-      queryClient.setQueryData<FoldersResponse | undefined>(foldersKey, (folders) =>
-        reconcileCreatedFolderIds(folders, response.createdFolderIds),
-      )
-    },
-    onSettled: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: serversKey, exact: true }),
-        queryClient.invalidateQueries({ queryKey: foldersKey, exact: true }),
-      ])
+    onSettled: (_response, error, args) => {
+      if ((error instanceof Error && error.name === "AbortError") || !origin.registry?.runtime.lifecycle.get().active) return
+      void queryClient.invalidateQueries({ queryKey: communityKeys.servers(), exact: true, predicate: (query) => args.resources.includes(query) })
+      void queryClient.invalidateQueries({ queryKey: communityKeys.folders(), exact: true, predicate: (query) => args.resources.includes(query) })
     },
   })
+  return { ...mutation, isPending: pending, isCommandPending: () => queryClient.isMutating({ mutationKey, exact: true }) > 0 }
 }

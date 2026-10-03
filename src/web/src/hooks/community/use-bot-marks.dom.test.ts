@@ -1,5 +1,6 @@
+import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { createElement, type PropsWithChildren } from "react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { QueryClient } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { renderHook, waitFor } from "@/test/react-dom-harness"
 import { ApiError } from "@/lib/errors"
@@ -40,7 +41,7 @@ describe("useBotMarks", () => {
     const rendered = renderBotMarks("bot_1")
     await waitFor(() => expect(rendered.result.current.marks).toHaveLength(1))
 
-    expect(apiFetch).toHaveBeenCalledWith("/api/community/bots/bot_1/marks")
+    expect(apiFetch).toHaveBeenCalledWith("/api/community/bots/bot_1/marks", expect.objectContaining({ signal: expect.any(AbortSignal), assertActive: expect.any(Function), authenticationAccount: "viewer", onUnauthorized: expect.any(Function) }))
     renderBotMarks(null)
     expect(apiFetch).toHaveBeenCalledTimes(1)
   })
@@ -65,6 +66,6 @@ describe("useBotMarks", () => {
     first.unmount()
     renderBotMarks("bot_1", queryClient)
     await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
-    expect(apiFetch).toHaveBeenNthCalledWith(2, "/api/community/bots/bot_1/marks")
+    expect(apiFetch).toHaveBeenNthCalledWith(2, "/api/community/bots/bot_1/marks", expect.objectContaining({ signal: expect.any(AbortSignal), assertActive: expect.any(Function), authenticationAccount: "viewer", onUnauthorized: expect.any(Function) }))
   })
 })

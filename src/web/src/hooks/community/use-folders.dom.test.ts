@@ -10,8 +10,8 @@ const dbRail = vi.hoisted(() => ({
   },
 }))
 const registryActive = vi.hoisted(() => ({ current: true }))
-vi.mock("@/lib/community-db/projections", () => ({
-  useServerRailProjection: () => dbRail.current,
+vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
+  useServerRailProjection: () => registryActive.current ? dbRail.current : null,
   useOptionalCommunityDbRegistry: () => registryActive.current ? {} : null,
 }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn(() => new Promise(() => undefined)) }))
@@ -33,7 +33,7 @@ describe("useFolders canonical projection", () => {
     client.clear()
   })
 
-  it("uses transport folders without a canonical registry", () => {
+  it("does not expose old transport DTOs without a canonical registry", () => {
     registryActive.current = false
     const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } })
     client.setQueryData(["community", "folders"], {
@@ -46,10 +46,9 @@ describe("useFolders canonical projection", () => {
     )
     const rendered = renderHook(useFolders, { wrapper })
 
-    expect(rendered.result.current.folders).toEqual([
-      { id: "query-folder", name: "Query", position: 0, servers: [] },
-    ])
+    expect(rendered.result.current.folders).toEqual([])
     rendered.unmount()
+    client.clear()
     registryActive.current = true
   })
 })

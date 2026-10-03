@@ -1,6 +1,7 @@
 "use client";
 
-import { memo, useCallback, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { memo, useCallback } from "react";
 import {
   getSmoothStepPath,
   EdgeLabelRenderer,
@@ -25,7 +26,7 @@ function LinkEdgeInner({
   data,
 }: EdgeProps) {
   const { instruction, onEdgeClick } = (data ?? {}) as LinkEdgeData;
-  const [hovered, setHovered] = useState(false);
+  const [hovered, setHovered] = useAtom(useCreateAtom(false));
 
   const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,

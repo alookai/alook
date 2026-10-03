@@ -31,9 +31,13 @@ describe("React DOM harness contract", () => {
     expect(files.length).toBeGreaterThan(0)
     for (const file of files) {
       const source = readFileSync(file, "utf8")
-      expect(source, relative(webRoot, file)).toMatch(/from ["'](?:@\/test\/|\.\/)react-dom-harness["']/)
+      const projectPath = relative(webRoot, file).split(sep).join("/")
+      const throughWsHarness = (projectPath.startsWith("src/hooks/community/community-ws/") && /from ["']\.\/test-harness["']/.test(source))
+        || (projectPath.startsWith("src/hooks/community/") && /from ["']\.\/community-ws\/test-harness["']/.test(source))
+      if (throughWsHarness) expect(readFileSync(resolve(webRoot, "src/hooks/community/community-ws/test-harness.ts"), "utf8")).toMatch(/from ["']@\/test\/react-dom-harness["']/)
+      else expect(source, relative(webRoot, file)).toMatch(/from ["'](?:@\/test\/|\.\/)(?:react-dom-harness|community-owner-harness)["']/)
       expect(source, relative(webRoot, file)).not.toMatch(/from ["']@testing-library\/(?:react|user-event)["']/)
-      expect(source, relative(webRoot, file)).not.toMatch(/\bcleanup\s*\(/)
+      expect(source, relative(webRoot, file)).not.toMatch(/(?<![\w.])cleanup\s*\(/)
       expect(source, relative(webRoot, file)).not.toMatch(/IS_REACT_ACT_ENVIRONMENT\s*=/)
     }
   })

@@ -1,6 +1,12 @@
 "use client"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { useState, useEffect, useMemo, useRef } from "react"
+
+import { useEffect, useMemo } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store"
+import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
+import { isAbortError } from "@/lib/errors"
 import type React from "react"
 import { Users, MessagesSquare, ChevronLeft, Check, LoaderCircle, X, AtSign, UserMinus, Ban, UserPlus, Search } from "lucide-react"
 import { toastApiError } from "@/lib/api/client"
@@ -61,7 +67,8 @@ export function FriendsPage({
   onBlock?: (id: string) => void
   onDm?: (userId: string) => void
 }) {
-  const [filter, setFilter] = useState("")
+  const profileQueryClient = useQueryClient()
+  const [filter, setFilter] = useAtom(useCreateAtom(""))
   const filteredFriends = useMemo(() => {
     const q = filter.trim().toLowerCase()
     if (!q) return friends
@@ -72,10 +79,9 @@ export function FriendsPage({
     )
   }, [friends, filter])
 
-  const [addValue, setAddValue] = useState("")
-  const [searchResults, setSearchResults] = useState<string[]>([])
+  const [addValue, setAddValue] = useAtom(useCreateAtom(""))
+  const [searchTerm, setSearchTerm] = useAtom(useCreateAtom(""))
   const profilesByUserId = useCanonicalProfilesByUserId()
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
 
   // Relationship state by user id, so search results can show Friends/Pending/
   // Blocked and disable the add action. `Friend`/`BlockedUser` userId is
@@ -100,43 +106,41 @@ export function FriendsPage({
   const incomingCount = compactRequestCount(incomingActions.items.length)
 
   useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current)
     const q = addValue.trim()
-    // Below the server minimum the API 400s ("query must be at least N
-    // characters"); don't fire — just clear results, no error toast.
-    if (q.length < MIN_SEARCH_LENGTH) { setSearchResults([]); return }
-    debounceRef.current = setTimeout(async () => {
+    if (q.length < MIN_SEARCH_LENGTH) { setSearchTerm(""); return }
+    const timer = setTimeout(() => setSearchTerm(q), 300)
+    return () => clearTimeout(timer)
+  }, [addValue, setSearchTerm])
+
+  const searchQuery = useQuery({
+    queryKey: ["community", "user-search", searchTerm],
+    enabled: searchTerm.length >= MIN_SEARCH_LENGTH,
+    retry: false,
+    queryFn: async ({ signal }) => {
+      const token = captureCommunityLiveSnapshotToken(profileQueryClient)
+      const assertActive = () => assertCommunityLiveSnapshotTokenCurrent(profileQueryClient, token, signal)
       try {
         const data = await apiFetchProfiles<{
-          users: Array<{
-            id: string
-            name: string
-            image: string | null
-            avatarVersion: number
-            discriminator: string
-          }>
+          users: Array<{ id: string; name: string; image: string | null; avatarVersion: number; discriminator: string }>
         }>(
-          `/api/community/users/search?q=${encodeURIComponent(q)}`,
+          `/api/community/users/search?q=${encodeURIComponent(searchTerm)}`,
           (response) => response.users.map((user) => ({
             id: user.id,
-            identityAbout: {
-              name: user.name,
-              discriminator: user.discriminator,
-            },
-            avatar: {
-              avatar: user.image ?? avatarInitial(user.name),
-              avatarVersion: user.avatarVersion,
-            },
+            identityAbout: { name: user.name, discriminator: user.discriminator },
+            avatar: { avatar: user.image ?? avatarInitial(user.name), avatarVersion: user.avatarVersion },
           })),
+          { signal, assertActive }, getCommunityDbRegistry(profileQueryClient),
         )
-        setSearchResults(data.users.map((user) => user.id))
-      } catch (e) {
-        setSearchResults([])
-        toastApiError(e, "Search failed")
+        assertActive()
+        return data.users.map((user) => user.id)
+      } catch (error) {
+        assertActive()
+        if (!isAbortError(error)) toastApiError(error, "Search failed", assertActive)
+        throw error
       }
-    }, 300)
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
-  }, [addValue])
+    },
+  })
+  const searchResults = searchTerm === addValue.trim() && searchTerm.length >= MIN_SEARCH_LENGTH ? searchQuery.data ?? [] : []
 
   if (loading && friends.length === 0 && pending.length === 0 && blocked.length === 0) {
     return <FriendsPageSkeleton reserveBackSlot={reserveBackSlot || Boolean(onBack)} />
@@ -145,7 +149,7 @@ export function FriendsPage({
   const sendRequest = (u: { id: string; name: string; discriminator: string }) => {
     onSendRequest?.({ userId: u.id, username: `${u.name}#${u.discriminator}` })
     setAddValue("")
-    setSearchResults([])
+    setSearchTerm("")
   }
 
   const friendRow = (f: Friend) => {

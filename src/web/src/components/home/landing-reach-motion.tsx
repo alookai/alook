@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect } from "react"
 import {
   LandingMobileChatMotion,
   LandingShellMotion,
@@ -19,7 +20,7 @@ import { useLandingMotionPlayback } from "./use-landing-motion-playback"
  */
 
 function useReducedMotion() {
-  const [reduced, setReduced] = useState(false)
+  const [reduced, setReduced] = useAtom(useCreateAtom(false))
 
   useEffect(() => {
     const query = window.matchMedia("(prefers-reduced-motion: reduce)")
@@ -27,7 +28,7 @@ function useReducedMotion() {
     sync()
     query.addEventListener("change", sync)
     return () => query.removeEventListener("change", sync)
-  }, [])
+  }, [setReduced])
 
   return reduced
 }
@@ -35,7 +36,7 @@ function useReducedMotion() {
 export function LandingReachMotion() {
   const maxBeat = SCENE_MAX_BEAT.server
   const reducedMotion = useReducedMotion()
-  const [beat, setBeat] = useState(0)
+  const [beat, setBeat] = useAtom(useCreateAtom(0))
   const {
     targetRef: playbackRef,
     isPlaying,
@@ -44,11 +45,11 @@ export function LandingReachMotion() {
 
   useEffect(() => {
     setBeat(reducedMotion ? maxBeat : 0)
-  }, [maxBeat, reducedMotion])
+  }, [maxBeat, reducedMotion, setBeat])
 
   useEffect(() => {
     if (!reducedMotion && shouldReset) setBeat(0)
-  }, [reducedMotion, shouldReset])
+  }, [reducedMotion, setBeat, shouldReset])
 
   useEffect(() => {
     if (reducedMotion || !isPlaying) return
@@ -57,7 +58,7 @@ export function LandingReachMotion() {
       setBeat((current) => (current >= maxBeat ? 0 : current + 1))
     }, delay)
     return () => window.clearTimeout(timer)
-  }, [beat, isPlaying, maxBeat, reducedMotion])
+  }, [beat, isPlaying, maxBeat, reducedMotion, setBeat])
 
   return (
     <div

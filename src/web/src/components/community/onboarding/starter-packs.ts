@@ -1,4 +1,4 @@
-export type StarterPackBotKey = "lead" | "doer" | "reviewer"
+import type { StarterPackBotKey } from "@/lib/community/models/onboarding"
 
 type StarterPackBotTemplate = {
   key: StarterPackBotKey

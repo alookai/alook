@@ -1,3 +1,5 @@
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { getCommunityRuntime, readCurrentCommunityChannelMeta } from "@/stores/community/runtime"
 import type {
   CommunityMessageCreate,
   CommunityMessageUpdated,
@@ -8,8 +10,7 @@ import type {
   CommunityWsEvent,
 } from "@alook/shared"
 import { projectCommunityMessageCreate } from "@/lib/community/message-wire"
-import { useCommunityStore } from "@/stores/community"
-import { useMessageStreamStore } from "@/stores/community/message-stream"
+
 import {
   hasForumSidebarOwnershipEvidence,
   isForumSidebarParent,
@@ -25,20 +26,14 @@ import {
   messageProfilePatches,
   writeCommunityProfilePatches,
 } from "@/lib/community/profile-seed"
-import {
-  projectApprovalCopies,
-  projectEditedCopies,
-  projectReactionCopies,
-} from "@/hooks/community/community-ws/message-projections"
+
 import {
   invalidateChannelMembers,
   invalidateFriends,
   invalidatePins,
 } from "@/hooks/community/community-ws/invalidation-projections"
-import { fetchChannelMetadata } from "@/hooks/community/channel-metadata"
+import { channelMetadataOptions } from "@/hooks/community/channel-metadata"
 import {
-  captureCommunityLiveSnapshotToken,
-  publishCommunityChannelMetadata,
 } from "@/lib/community-db/sync"
 
 type CommunityMessageEdited = Extract<
@@ -56,14 +51,7 @@ function warmLiveForumChildOwner(
     || !isForumSidebarParent(queryClient, event.serverId, event.parentChannelId)
     || hasForumSidebarOwnershipEvidence(queryClient, event.serverId, event.channelId)
   ) return
-  const token = captureCommunityLiveSnapshotToken(queryClient)
-  void fetchChannelMetadata(event.serverId, event.channelId)
-    .then((metadata) => {
-      publishCommunityChannelMetadata(queryClient, {
-        metadata,
-        proof: { token, signal: undefined },
-      })
-    })
+  void queryClient.fetchQuery(channelMetadataOptions(queryClient, event.serverId, event.channelId))
     .catch(() => undefined)
 }
 
@@ -81,11 +69,11 @@ export function handleMessageCreate(
 ) {
   warmLiveForumChildOwner(queryClient, event)
   const viewerId = viewerUserIdRef.current
-  const hasSeenMessage = wsStore.hasSeenMessage(event.message.id)
+  const hasSeenMessage = wsStore.actions.hasSeenMessage(event.message.id)
   const isForeignFocused = event.message.authorId !== viewerId
     && matchesFocus(event)
   const projected = projectCommunityMessageCreate(event.message)
-  writeCommunityProfilePatches(messageProfilePatches([projected]), undefined, { event: true })
+  writeCommunityProfilePatches(messageProfilePatches([projected]), getCommunityDbRegistry(queryClient), { event: true })
   if (isForeignFocused && !hasSeenMessage) {
     armInboxReadReservationCandidate(queryClient, {
       channelId: event.channelId,
@@ -94,14 +82,14 @@ export function handleMessageCreate(
     })
   }
   if (event.channelId === sub.channelId || event.channelId === sub.secondaryChannelId) {
-    const serverId = useCommunityStore.getState().currentServerId
+    const serverId = getCommunityRuntime(queryClient).ui.get().currentServerId
     if (serverId) {
       void scheduleFocusedMessageGapRepair(
         queryClient,
         { kind: "channel", scopeId: event.channelId, serverId },
         event.message.seq,
       )
-      useMessageStreamStore.getState().dispatch(
+      getCommunityRuntime(queryClient).messageStream.actions.dispatch(
         { kind: "channel", id: event.channelId, serverId },
         { type: "wsMessage", message: projected },
       )
@@ -113,20 +101,20 @@ export function handleMessageCreate(
       { kind: "dm", scopeId: event.channelId },
       event.message.seq,
     )
-    useMessageStreamStore.getState().dispatch(
+    getCommunityRuntime(queryClient).messageStream.actions.dispatch(
       { kind: "dm", id: event.channelId },
       { type: "wsMessage", message: projected },
     )
   }
   if (hasSeenMessage) return
-  wsStore.markSeenMessage(event.message.id)
+  wsStore.actions.markSeenMessage(event.message.id)
   // Sending a message is an implicit typing.stop for its author —
   // clear once we know this is a fresh message. Clearing before dedup
   // would also clear on WS-reconnect replays of stale messages,
   // briefly wiping a still-active heartbeat pill. Derive the scope
   // from whether this channelId is the focused DM channel (`dm:`) or a
   // regular channel (`ch:`) so the pill clears in the right bucket.
-  clearTypingIndicator(typingScopeKey(event, sub), event.message.authorId)
+  clearTypingIndicator(queryClient, typingScopeKey(event, sub), event.message.authorId)
 
 
   if (
@@ -147,7 +135,7 @@ export function handleMessageCreate(
   //    member set server-side, so refresh an open child roster live.
   if (
     (event.channelId === sub.channelId || event.channelId === sub.secondaryChannelId) &&
-    (event.parentChannelId || (communityStore.currentChannelId === event.channelId && communityStore.currentChannelMeta?.parentChannelId))
+    (event.parentChannelId || (communityStore.get().currentChannelId === event.channelId && readCurrentCommunityChannelMeta(queryClient)?.parentChannelId))
   ) {
     invalidateChannelMembers(projection, event.channelId)
   }
@@ -172,7 +160,8 @@ export function handleReactionEvent(
   event: CommunityReactionAdd | CommunityReactionRemove,
   context: MessageEventContext,
 ) {
-  projectReactionCopies(event, context)
+  void event
+  void context
 }
 
 export function handlePinEvent(
@@ -186,8 +175,7 @@ export function handleMessageUpdated(
   event: CommunityMessageUpdated,
   context: MessageEventContext,
 ) {
-  writeCommunityProfilePatches(approvalProfilePatches(event.approval), undefined, { event: true })
-  projectApprovalCopies(event, context)
+  writeCommunityProfilePatches(approvalProfilePatches(event.approval), getCommunityDbRegistry(context.queryClient), { event: true })
   // When a card resolves (accepted/denied/superseded), the friend graph
   // changed — invalidate friends + pending so the owner's lists reflect
   // it. This is the owner's only signal in the J2 tail (Alice's accept
@@ -213,5 +201,6 @@ export function handleMessageEdited(
     })
     return
   }
-  projectEditedCopies(event, context)
+  void event
+  void context
 }

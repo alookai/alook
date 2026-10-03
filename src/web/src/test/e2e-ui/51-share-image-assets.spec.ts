@@ -665,6 +665,8 @@ test("clipboard failure releases retry and Download keeps first-winner ownership
   await expect.poll(() => clipboardAttempts(page)).toBe(2)
   expect(await captureCounts(page)).toEqual({ clipboard: 1, download: 0 })
 
+  await expect(dialog.getByRole("button", { name: "Download", exact: true })).toBeEnabled()
+  await expect(dialog.getByTestId(tid.messageShareCopy)).toBeEnabled()
   const downloadStarted = page.waitForEvent("download")
   await page.evaluate((copyTestId) => {
     const copy = document.querySelector<HTMLButtonElement>(`[data-testid="${copyTestId}"]`)!

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest"
 import React from "react"
-import { act, fireEvent, render } from "@/test/react-dom-harness"
+import { act, fireEvent } from "@/test/react-dom-harness"
+import { renderCommunity as render } from "@/test/community-owner-harness"
 import { readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"

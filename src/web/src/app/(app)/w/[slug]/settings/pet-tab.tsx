@@ -1,63 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Sparkles } from "lucide-react";
 
 import {
   CLOUD_CODE_MONSTER_PET_PRESETS,
   getCloudCodeMonsterPreset,
-  readCloudCodeMonsterPetPresetId,
+  useCloudCodeMonsterPetPresetId,
   writeCloudCodeMonsterPetPresetId,
 } from "@/components/home-pet/cloud-code-monster-pet-presets";
-import { CLOUD_CODE_MONSTER_PRESET_CHANGED_EVENT } from "@/components/home-pet/cloud-code-monster-pet-constants";
 import { CloudCodeMonsterPresetPreview } from "@/components/home-pet/cloud-code-monster-pet-pixel-parts";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
-  readHomePetSettings,
+  useHomePetSettings,
   writeHomePetSettings,
 } from "@/lib/home-pet-settings";
 import { cn } from "@/lib/utils";
 
 export function PetTab() {
-  const [enabled, setEnabled] = useState(false);
-  const [selectedPresetId, setSelectedPresetId] = useState(
-    CLOUD_CODE_MONSTER_PET_PRESETS[0]!.id
-  );
+  const { enabled } = useHomePetSettings();
+  const selectedPresetId = useCloudCodeMonsterPetPresetId();
   const selectedPreset = getCloudCodeMonsterPreset(selectedPresetId);
-
-  useEffect(() => {
-    const settings = readHomePetSettings();
-    setEnabled(settings.enabled);
-    setSelectedPresetId(readCloudCodeMonsterPetPresetId());
-
-    const handlePresetChange = (event: Event) => {
-      const nextPresetId = (event as CustomEvent<{ presetId?: string }>).detail
-        ?.presetId;
-      setSelectedPresetId(
-        nextPresetId
-          ? getCloudCodeMonsterPreset(nextPresetId).id
-          : readCloudCodeMonsterPetPresetId()
-      );
-    };
-
-    window.addEventListener(
-      CLOUD_CODE_MONSTER_PRESET_CHANGED_EVENT,
-      handlePresetChange
-    );
-
-    return () => {
-      window.removeEventListener(
-        CLOUD_CODE_MONSTER_PRESET_CHANGED_EVENT,
-        handlePresetChange
-      );
-    };
-  }, []);
-
-  const handleEnabledChange = (checked: boolean) => {
-    setEnabled(checked);
-    writeHomePetSettings({ enabled: checked });
-  };
+  const handleEnabledChange = (checked: boolean) => writeHomePetSettings({ enabled: checked });
 
   return (
     <div className="space-y-8">
@@ -109,10 +73,9 @@ export function PetTab() {
                   type="button"
                   aria-pressed={isSelected}
                   onClick={() => {
-                    const nextPresetId = writeCloudCodeMonsterPetPresetId(
+                    writeCloudCodeMonsterPetPresetId(
                       preset.id
                     );
-                    setSelectedPresetId(nextPresetId);
                   }}
                   className={cn(
                     "group grid h-28 min-w-0 grid-rows-[1fr_auto] rounded-md border bg-card/60 p-2 text-left transition-all hover:border-foreground/20 hover:bg-accent/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70",

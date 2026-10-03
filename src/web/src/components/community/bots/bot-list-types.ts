@@ -1,4 +1,5 @@
-import type { Dispatch, SetStateAction } from "react"
+
+import type { Atom } from "@tanstack/react-store"
 import type { BotPlanSummary, BotSummary } from "@/hooks/community/use-bots"
 import type { MachineSummary } from "@/hooks/community/use-machines"
 import type { CommunityProfile } from "@/lib/community/models/people"
@@ -28,11 +29,11 @@ export type BotListController = {
   machinesLoading: boolean
   profilesByUserId: ReadonlyMap<string, CommunityProfile>
   createOpen: boolean
-  setCreateOpen: Dispatch<SetStateAction<boolean>>
+  setCreateOpen: Atom<boolean>["set"]
   editingBot: BotSummary | null
-  setEditingBot: Dispatch<SetStateAction<BotSummary | null>>
+  setEditingBot: (bot: BotSummary | null) => void
   editOpen: boolean
-  setEditOpen: Dispatch<SetStateAction<boolean>>
+  setEditOpen: Atom<boolean>["set"]
   activityBot: BotSummary | null
   activityOpen: boolean
   activityGeneration: number
@@ -40,19 +41,19 @@ export type BotListController = {
   onActivityOpenChange: (open: boolean) => void
   onActivityOpenChangeComplete: (open: boolean, generation: number) => void
   bugReportBot: Pick<BotSummary, "id" | "name"> | null
-  setBugReportBot: Dispatch<SetStateAction<Pick<BotSummary, "id" | "name"> | null>>
+  setBugReportBot: (bot: Pick<BotSummary, "id" | "name"> | null) => void
   bugReportOpen: boolean
-  setBugReportOpen: Dispatch<SetStateAction<boolean>>
+  setBugReportOpen: Atom<boolean>["set"]
   confirmDelete: BotSummary | null
-  setConfirmDelete: Dispatch<SetStateAction<BotSummary | null>>
+  setConfirmDelete: (bot: BotSummary | null) => void
   confirmReset: BotSummary | null
-  setConfirmReset: Dispatch<SetStateAction<BotSummary | null>>
+  setConfirmReset: (bot: BotSummary | null) => void
   confirmResetMachine: string | null
-  setConfirmResetMachine: Dispatch<SetStateAction<string | null>>
+  setConfirmResetMachine: Atom<string | null>["set"]
   collapsedMachines: Set<string>
-  setCollapsedMachines: Dispatch<SetStateAction<Set<string>>>
+  setCollapsedMachines: Atom<Set<string>>["set"]
   helpOpen: boolean
-  setHelpOpen: Dispatch<SetStateAction<boolean>>
+  setHelpOpen: Atom<boolean>["set"]
   guidedActive: boolean
   guidedCreateLabel: string
   guidedAvatarSeed: string | undefined

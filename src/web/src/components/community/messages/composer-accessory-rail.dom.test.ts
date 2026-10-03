@@ -7,11 +7,11 @@ import { fireEvent, render, type RenderResult } from "@/test/react-dom-harness"
 import { ComposerAccessoryRail, MessageSelectionFooter } from "./composer-accessory-rail"
 
 vi.mock("@/components/ui/number-ticker", () => ({
-  NumberTicker: ({ value }: { value: number }) => React.createElement("ticker", { value }),
+  NumberTicker: ({ value }: { value: number }) => React.createElement("mock-ticker", { value }),
 }))
 
 vi.mock("@/components/ui/tooltip", () => ({
-  Tooltip: ({ children }: { children: React.ReactNode }) => React.createElement("tooltip", null, children),
+  Tooltip: ({ children }: { children: React.ReactNode }) => React.createElement("mock-tooltip", null, children),
   TooltipTrigger: ({
     render: trigger,
     children,

@@ -1,4 +1,5 @@
-import { ApiError } from "@/lib/errors";
+import { createStore } from "@tanstack/store";
+import { ApiError, UnauthorizedError, isAbortError } from "@/lib/errors";
 
 const API_BASE = "";
 export const ACCOUNT_DELETED_SIGN_IN_PATH = "/sign-in?account_deleted=1";
@@ -6,14 +7,23 @@ export const ACCOUNT_DELETED_SIGN_IN_PATH = "/sign-in?account_deleted=1";
 const MOCK_NETWORK_ENABLED = process.env.NODE_ENV === "development" && process.env.NEXT_PUBLIC_MOCK_NETWORK === "true";
 const MOCK_NETWORK_DELAY_MS = parseInt(process.env.NEXT_PUBLIC_MOCK_NETWORK_DELAY_MS || "300", 10) || 300;
 let mockNetworkLogged = false;
-let accountDeletionAuthTransition = false;
+const accountDeletionAuthTransitions = createStore(new Map<string, symbol>());
+type AccountDeletionAuthTransition = { key: string; id: symbol };
 
-export function beginAccountDeletionAuthTransition() {
-  accountDeletionAuthTransition = true;
+export function beginAccountDeletionAuthTransition(accountId?: string | null): AccountDeletionAuthTransition {
+  const lease = { key: accountId ?? "legacy", id: Symbol() };
+  accountDeletionAuthTransitions.setState((state) => new Map(state).set(lease.key, lease.id));
+  return lease;
 }
-
-export function cancelAccountDeletionAuthTransition() {
-  accountDeletionAuthTransition = false;
+export function cancelAccountDeletionAuthTransition(lease?: AccountDeletionAuthTransition) {
+  const key = lease?.key ?? "legacy";
+  accountDeletionAuthTransitions.setState((state) => {
+    if (lease && state.get(key) !== lease.id) return state;
+    const next = new Map(state); next.delete(key); return next;
+  });
+}
+export function hasAccountDeletionAuthTransition(accountId?: string | null) {
+  return accountDeletionAuthTransitions.get().has(accountId ?? "legacy");
 }
 
 function humanizeValidationDetail(detail: string): string {
@@ -52,13 +62,21 @@ function getReadableErrorMessage(error: string | undefined, details: string[] | 
  * tree. Use an explicit same-origin absolute URL so this intentional hard
  * navigation is not mistaken for an internal client-side route transition.
  */
-export function redirectToSignIn() {
+export function redirectToSignIn(accountId?: string | null) {
   if (typeof window === "undefined") return;
-  if (accountDeletionAuthTransition) return;
+  if (hasAccountDeletionAuthTransition(accountId)) return;
   window.location.assign(new URL("/sign-in", window.location.origin));
 }
 
-export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+export type ApiRequestOptions = RequestInit & { assertActive?: () => void; onUnauthorized?: () => Promise<boolean>; authenticationAccount?: string };
+
+export async function apiFetchResponse(path: string, options?: ApiRequestOptions): Promise<Response> {
+  const { assertActive, onUnauthorized, authenticationAccount, ...request } = options ?? {};
+  const assertEligible = () => {
+    assertActive?.();
+    if (request.signal?.aborted) throw new DOMException("Cancelled request", "AbortError");
+  };
+  assertEligible();
   if (MOCK_NETWORK_ENABLED) {
     if (!mockNetworkLogged) {
       console.info(`[Mock Network] Enabled — ${MOCK_NETWORK_DELAY_MS}ms delay on all API requests`);
@@ -69,24 +87,29 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
 
   let res: Response;
   try {
+    assertEligible();
+    const headers = new Headers(request.headers);
+    if (!headers.has("Content-Type") && !(typeof FormData !== "undefined" && request.body instanceof FormData)) headers.set("Content-Type", "application/json");
     res = await fetch(API_BASE + path, {
-      ...options,
+      ...request,
       credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-      },
+      headers,
     });
   } catch (err) {
+    assertEligible();
     if (err instanceof TypeError) {
       throw new ApiError("Unable to connect — check your network", 0);
     }
     throw err;
   }
 
+  assertEligible();
+
   if (res.status === 401) {
-    redirectToSignIn();
-    throw new ApiError("Unauthorized", 401);
+    if (hasAccountDeletionAuthTransition(authenticationAccount)) throw new ApiError("Unauthorized", 401);
+    if (onUnauthorized && !await onUnauthorized()) throw new DOMException("Retired authentication transition", "AbortError");
+    redirectToSignIn(authenticationAccount);
+    throw new UnauthorizedError();
   }
 
   if (!res.ok) {
@@ -99,6 +122,8 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
     } catch {
       // non-JSON body (HTML from proxy, empty body, etc.)
     }
+
+    assertEligible();
 
     if (res.status === 429) {
       throw new ApiError("Please wait a moment before trying again", 429);
@@ -120,8 +145,16 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
     );
   }
 
+  return res;
+}
+
+export async function apiFetch<T>(path: string, options?: ApiRequestOptions): Promise<T> {
+  const res = await apiFetchResponse(path, options);
   if (res.status === 204) return undefined as T;
-  return res.json();
+  const data = await res.json() as T;
+  options?.assertActive?.();
+  if (options?.signal?.aborted) throw new DOMException("Cancelled request", "AbortError");
+  return data;
 }
 
 export function getErrorMessage(err: unknown, fallback: string): string {
@@ -136,9 +169,13 @@ export function getErrorMessage(err: unknown, fallback: string): string {
 // `document`. `sonner` injects a `<style>` tag at import time, which throws
 // outside a real DOM. A top-level `import { toast } from "sonner"` would
 // break every one of those call sites just for this optional feature.
-export function toastApiError(err: unknown, fallback: string): void {
+export function toastApiError(err: unknown, fallback: string, assertActive?: () => void): void {
+  if (isAbortError(err)) return;
   void import("sonner")
-    .then(({ toast }) => toast.error(getErrorMessage(err, fallback)))
+    .then(({ toast }) => {
+      assertActive?.();
+      toast.error(getErrorMessage(err, fallback));
+    })
     .catch(() => {});
 }
 

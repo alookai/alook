@@ -3,19 +3,14 @@
 import { sendGTMEvent } from "@next/third-parties/google";
 import { hasAnalyticsConsent } from "@/lib/analytics-consent"
 
-const analyticsAuthStates = ["guest", "signed_in"] as const
 const analyticsPlanIds = ["free", "studio", "house"] as const
-const analyticsCurrentPlans = ["none", "free", "studio", "house", "founder", "unknown"] as const
-const billingEntryPoints = ["pricing_page", "billing_sheet"] as const
-const pricingCtaActions = ["start_free", "open_app", "manage_cancellation", "choose_plan"] as const
-const pricingCtaIds = ["pricing_free", "pricing_studio", "pricing_house", "billing_studio", "billing_house"] as const
 
-export type AnalyticsAuthState = typeof analyticsAuthStates[number]
+export type AnalyticsAuthState = "guest" | "signed_in"
 export type AnalyticsPlanId = typeof analyticsPlanIds[number]
-export type AnalyticsCurrentPlan = typeof analyticsCurrentPlans[number]
-export type BillingEntryPoint = typeof billingEntryPoints[number]
-export type PricingCtaAction = typeof pricingCtaActions[number]
-type PricingCtaId = typeof pricingCtaIds[number]
+export type AnalyticsCurrentPlan = "none" | "free" | "studio" | "house" | "founder" | "unknown"
+export type BillingEntryPoint = "pricing_page" | "billing_sheet"
+export type PricingCtaAction = "start_free" | "open_app" | "manage_cancellation" | "choose_plan"
+type PricingCtaId = "pricing_free" | "pricing_studio" | "pricing_house" | "billing_studio" | "billing_house"
 
 const analyticsPlanNames: Record<AnalyticsPlanId, string> = {
   free: "Free",

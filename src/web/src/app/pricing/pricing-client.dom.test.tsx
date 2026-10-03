@@ -11,7 +11,7 @@ const state = vi.hoisted(() => ({
   billing: {} as Record<string, unknown>,
   pricingView: vi.fn(), pricingCta: vi.fn(),
 }))
-vi.mock("@/lib/auth-client", () => ({ useSession: () => state.session }))
+vi.mock("@/lib/auth-client", () => { const sessionSDK = { useSession: () => state.session }; return { ...sessionSDK, currentSessionViewer: () => { const value = sessionSDK.useSession(); return !value || value.isPending || value.error ? undefined : value.data?.user.id ?? null } } })
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: state.push }), useSearchParams: () => state.search }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: state.api }))
 vi.mock("@/hooks/community/use-billing", () => ({ useBilling: () => ({ ...state.billing, checkout: state.checkout, portal: state.portal, refresh: state.refresh }) }))

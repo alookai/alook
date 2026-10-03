@@ -1,11 +1,18 @@
 "use client"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
-import { useCallback, useState, type ComponentProps } from "react"
+import { useCommunityRuntime } from "@/stores/community/runtime"
+
+
+import { useCallback, useMemo, type ComponentProps } from "react"
+import { useQuery } from "@tanstack/react-query"
+import { useCanonicalCommunityProfile } from "@/lib/community-db/projections"
+import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { usePathname, useSearchParams } from "next/navigation"
 import { readBillingReturn } from "@/hooks/community/use-billing"
 import { parseNameAndTag } from "@alook/shared"
 import { toast } from "sonner"
-import { ACCOUNT_DELETED_SIGN_IN_PATH, toastApiError } from "@/lib/api/client"
+import { toastApiError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { userProfileQueryFn, PROFILE_STALE_TIME_MS } from "@/hooks/community/use-user-profile"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
@@ -20,18 +27,12 @@ import {
   resolveProfileTarget,
   resolveProfileUserId,
 } from "@/components/community/social/profile-lookup"
-import { signOut } from "@/lib/auth-client"
-import { clearPersistedCache } from "@/lib/query-persister"
+import { useAccountSignOut } from "@/hooks/community/use-account-sign-out"
+import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
 import { disposeAccountReadStateReconciliation } from "@/hooks/community/community-ws/read-state-reconciliation"
 import { disposeReadCoordinator } from "@/hooks/community/read-coordinator"
-import { useCommunityStore } from "@/stores/community"
-import { useCommunityWsStore } from "@/stores/community/ws"
-import { useMessageStreamStore } from "@/stores/community/message-stream"
-import {
-  beginCommunityProfileSeed,
-  writeCommunityProfilePatches,
-  type CommunityProfileSeedSnapshot,
-} from "@/lib/community/profile-seed"
+
+
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { useFriends } from "@/hooks/community/use-friends"
 import { useServerMembers } from "@/hooks/community/use-server-members"
@@ -39,8 +40,7 @@ import {
   useCreateOrGetDm,
   useUpdateProfile,
   useUploadUserAvatar,
-  type UpdateProfileResult,
-} from "@/hooks/community/mutations"
+  } from "@/hooks/community/mutations"
 import { useDmMessageSender } from "@/hooks/community/use-dm-message-sender"
 import type { UserSettings } from "@/components/community/settings/user-settings"
 import type { ImageCropDialog } from "@/components/community/image-crop-dialog"
@@ -59,29 +59,6 @@ type Options = Pick<ShellFrameProps, "view" | "activeServerId"> & {
   cancelPendingNavigation: () => void
 }
 
-function commitCanonicalSelfProfile(
-  snapshot: CommunityProfileSeedSnapshot,
-  profile: UpdateProfileResult,
-) {
-  writeCommunityProfilePatches([{
-    id: profile.id,
-    identityAbout: {
-      name: profile.name,
-      discriminator: profile.discriminator,
-      aboutMe: profile.aboutMe,
-      bannerColor: profile.bannerColor,
-    },
-    avatar: {
-      avatar: profile.avatar,
-      avatarVersion: profile.avatarVersion,
-    },
-    status: {
-      statusEmoji: profile.statusEmoji,
-      statusText: profile.statusText,
-    },
-  }], snapshot.registry, { snapshot })
-}
-
 export function useShellProfileController({
   router,
   queryClient,
@@ -89,6 +66,8 @@ export function useShellProfileController({
   view,
   activeServerId,
 }: Options) {
+  const communityRuntime = useCommunityRuntime()
+  const source = useCommunityViewSource(JSON.stringify(["shell-profile", view, activeServerId]))
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const billingReturn = readBillingReturn(searchParams.get("billing"))
@@ -111,14 +90,29 @@ export function useShellProfileController({
   const updateProfile = useUpdateProfile()
   const uploadUserAvatar = useUploadUserAvatar()
 
-  const [editingProfile, setEditingProfile] = useState(false)
-  const [profile, setProfile] = useState<ShellProfileState | null>(null)
-  const [preview, setPreview] = useState<ImagePreview | null>(null)
-  const [attachmentPreview, setAttachmentPreview] = useState<FileAttachment | null>(null)
-  const [pendingAvatarCrop, setPendingAvatarCrop] = useState<{
+  const [editingProfile, setEditingProfile] = useAtom(useCreateAtom(false))
+  const [profileTarget, setProfile] = useAtom(useCreateAtom<ShellProfileState | null>(null))
+  const [preview, setPreview] = useAtom(useCreateAtom<ImagePreview | null>(null))
+  const [attachmentPreview, setAttachmentPreview] = useAtom(useCreateAtom<FileAttachment | null>(null))
+  const [pendingAvatarCrop, setPendingAvatarCrop] = useAtom(useCreateAtom<{
     src: string
     fileName: string
-  } | null>(null)
+  } | null>(null))
+  const profileUserId = profileTarget?.data.userId
+  const canonicalProfile = useCanonicalCommunityProfile(profileUserId)
+  useQuery({ queryKey: communityKeys.profile(profileUserId ?? "__none__"), enabled: !!profileUserId && profileUserId !== currentUser.id,
+    queryFn: userProfileQueryFn(profileUserId ?? ""), staleTime: PROFILE_STALE_TIME_MS })
+  const profile = useMemo<ShellProfileState | null>(() => profileTarget ? {
+    ...profileTarget,
+    data: {
+      ...profileTarget.data,
+      contextLabel: resolveProfileContextLabel(profileServerId, members.find((member) => member.userId === profileUserId)),
+      mutual: canonicalProfile?.mutualServers ?? 0,
+      identity: canonicalProfile?.kind === "bot" && canonicalProfile.ownerUserId && canonicalProfile.ownerHandle
+        ? { kind: "bot", ownerProfile: { id: canonicalProfile.ownerUserId, handle: canonicalProfile.ownerHandle }, ownedByViewer: canonicalProfile.ownedByViewer ?? false }
+        : canonicalProfile?.kind === "human" || profileUserId === currentUser.id ? { kind: "human" } : undefined,
+    },
+  } : null, [profileTarget, profileServerId, members, profileUserId, canonicalProfile, currentUser.id])
 
   const openProfileAt = useCallback((
     name: string,
@@ -160,36 +154,7 @@ export function useShellProfileController({
       x,
       y,
     })
-    if (userId) {
-      queryClient
-        .fetchQuery({
-          queryKey: communityKeys.profile(userId),
-          queryFn: userProfileQueryFn(userId),
-          staleTime: PROFILE_STALE_TIME_MS,
-        })
-        .then((profileResponse) => {
-          setProfile((previous) =>
-            previous?.data.userId === profileResponse.id
-              ? {
-                ...previous,
-                data: {
-                  ...previous.data,
-                  mutual: profileResponse.mutualServers ?? 0,
-                  identity: profileResponse.kind === "bot"
-                    ? {
-                        kind: "bot",
-                        ownerProfile: profileResponse.ownerProfile,
-                        ownedByViewer: profileResponse.ownedByViewer,
-                      }
-                    : { kind: "human" },
-                },
-              }
-              : previous,
-          )
-        })
-        .catch((error) => toastApiError(error, "Failed to load profile"))
-    }
-  }, [currentUser, friends, members, profileServerId, queryClient])
+  }, [currentUser.id, friends, members, profileServerId, setProfile])
 
   const openProfile = useCallback((
     name: string,
@@ -217,25 +182,27 @@ export function useShellProfileController({
     cancelPendingNavigation()
     router.push(`/c/me/bots?audit=${encodeURIComponent(botId)}`)
     setProfile(null)
-  }, [cancelPendingNavigation, router])
+  }, [cancelPendingNavigation, router, setProfile])
 
-  const previewImage = useCallback((image: ImagePreview) => setPreview(image), [])
+  const previewImage = useCallback((image: ImagePreview) => setPreview(image), [setPreview])
   const previewAttachment = useCallback(
     (attachment: FileAttachment) => setAttachmentPreview(attachment),
-    [],
+    [setAttachmentPreview],
   )
 
   const updateOwnStatus = async (statusEmoji: string | null, statusText: string | null) => {
+    const assert = source.capture()
     try {
-      const snapshot = beginCommunityProfileSeed()
-      const profile = await updateProfile.mutateAsync({ statusEmoji, statusText })
-      commitCanonicalSelfProfile(snapshot, profile)
+      await updateProfile.mutateAsync({ statusEmoji, statusText, assertActive: assert })
+      assert()
     } catch (error) {
-      toastApiError(error, "Failed to update status")
+      toastApiError(error, "Failed to update status", assert)
     }
   }
 
   const profileMessage = async (userId: string, text: string) => {
+    const assert = source.capture()
+    assert()
     if (!userId) {
       toast("Could not find user")
       return
@@ -243,15 +210,17 @@ export function useShellProfileController({
     cancelPendingNavigation()
     let dmId: string
     try {
-      const data = await createOrGetDm.mutateAsync({ userId })
+      const data = await createOrGetDm.mutateAsync({ userId, assertActive: assert })
+      assert()
       dmId = data.conversation.id
     } catch (error) {
-      toastApiError(error, "Failed to open DM")
+      toastApiError(error, "Failed to open DM", assert)
       return
     }
     const trimmed = text.trim()
     if (trimmed) {
       const receipt = acceptDmMessage({
+        assertActive: assert,
         dmId,
         content: trimmed,
         author: {
@@ -270,10 +239,12 @@ export function useShellProfileController({
   }
 
   const onUploadAvatar = () => {
+    const assert = source.capture()
     const input = document.createElement("input")
     input.type = "file"
     input.accept = "image/png,image/jpeg,image/webp"
     input.onchange = () => {
+      try { assert() } catch { return }
       const file = input.files?.[0]
       if (!file) return
       const check = validateIconSourceFile(file)
@@ -287,42 +258,35 @@ export function useShellProfileController({
   }
 
   const onSaveProfile: ComponentProps<typeof UserSettings>["onSave"] = async (data) => {
+    const assert = source.capture()
     try {
-      const snapshot = beginCommunityProfileSeed()
-      const profile = await updateProfile.mutateAsync(data)
-      commitCanonicalSelfProfile(snapshot, profile)
+      await updateProfile.mutateAsync({ ...data, assertActive: assert })
+      assert()
     } catch (error) {
-      toastApiError(error, "Failed to save profile")
+      toastApiError(error, "Failed to save profile", assert)
     }
   }
 
   const clearVolatileAccountState = () => {
     cancelPendingNavigation()
-    useCommunityStore.getState().reset()
-    useCommunityWsStore.getState().reset()
-    useMessageStreamStore.getState().resetAll()
+    communityRuntime.ui.actions.reset()
+    communityRuntime.ws.actions.reset()
+    communityRuntime.messageStream.actions.resetAll()
     disposeReadCoordinator(queryClient)
     disposeAccountReadStateReconciliation(queryClient)
     queryClient.clear()
   }
 
+  const logout = useAccountSignOut()
   const onLogout = async () => {
-    const result = await signOut({
-      fetchOptions: {
-        onSuccess: async () => {
-          await clearPersistedCache(currentUser.id).catch(() => {})
-          globalThis.location.replace("/sign-in")
-        },
-      },
-    })
-    if (result?.error) toastApiError(result.error, "Failed to log out")
+    const token = captureCommunityLiveSnapshotToken(queryClient)
+    try { if (await logout.mutateAsync()) globalThis.location.replace("/sign-in") }
+    catch (error) { toastApiError(error, "Failed to log out", () => assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)) }
   }
 
   const onAccountDeleted = async () => {
     clearVolatileAccountState()
-    await clearPersistedCache(currentUser.id).catch(() => {})
     setEditingProfile(false)
-    globalThis.location.replace(ACCOUNT_DELETED_SIGN_IN_PATH)
   }
 
   const userSettingsProps: ComponentProps<typeof UserSettings> = {
@@ -348,17 +312,15 @@ export function useShellProfileController({
       imageSrc: pendingAvatarCrop.src,
       originalFileName: pendingAvatarCrop.fileName,
       onCropped: (file) => {
+        const assert = source.capture()
         uploadUserAvatar.mutate(
-          { file },
+          { file, assertActive: assert },
           {
-            onSuccess: (data) => {
-              writeCommunityProfilePatches([{
-                id: currentUser.id,
-                avatar: { avatar: data.url, avatarVersion: data.avatarVersion },
-              }])
+            onSuccess: () => {
+              try { assert() } catch { return }
               toast("Avatar updated")
             },
-            onError: (error) => toastApiError(error, "Failed to upload avatar"),
+            onError: (error) => toastApiError(error, "Failed to upload avatar", assert),
           },
         )
         URL.revokeObjectURL(pendingAvatarCrop.src)

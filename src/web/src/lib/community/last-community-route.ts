@@ -1,3 +1,4 @@
+import { createStore } from "@tanstack/store"
 import { resolveCommunityModulePlan } from "./community-route"
 import { setLastChannel } from "./last-channel"
 import {
@@ -9,7 +10,16 @@ import {
 const PREFIX = "community:lastRoute:"
 export const COMMUNITY_COLD_ENTRY_FALLBACK = "/c/me/machines"
 
-const activeRestoreByAccount = new Map<string, string>()
+const activeRestoreByAccount = createStore<ReadonlyMap<string, string>>(new Map())
+
+function setActiveRestore(accountId: string, destination?: string) {
+  activeRestoreByAccount.setState((current) => {
+    const next = new Map(current)
+    if (destination) next.set(accountId, destination)
+    else next.delete(accountId)
+    return next
+  })
+}
 
 export function lastCommunityRouteKey(accountId: string): string {
   return `${PREFIX}${encodeURIComponent(accountId)}`
@@ -49,7 +59,7 @@ export function commitLastCommunityRoute(accountId: string, href: string): strin
   const canonical = canonicalCommunityLeafPathname(href)
   if (!accountId || !canonical) return null
   writeNavigationMemory(lastCommunityRouteKey(accountId), canonical)
-  activeRestoreByAccount.delete(accountId)
+  setActiveRestore(accountId)
   return canonical
 }
 
@@ -73,28 +83,28 @@ export function resolveCommunityColdEntryDestination({
   search: string
   hash: string
 }): string {
-  if (accountId) activeRestoreByAccount.delete(accountId)
+  if (accountId) setActiveRestore(accountId)
   if (pathname !== "/c" || search !== "" || hash !== "") {
     return COMMUNITY_COLD_ENTRY_FALLBACK
   }
   const destination = getLastCommunityRoute(accountId)
   if (!destination) return COMMUNITY_COLD_ENTRY_FALLBACK
-  activeRestoreByAccount.set(accountId, destination)
+  setActiveRestore(accountId, destination)
   return destination
 }
 
 export function consumeCommunityColdEntryFailure(accountId: string, href: string): boolean {
   const canonical = canonicalCommunityLeafPathname(href)
-  if (!accountId || !canonical || activeRestoreByAccount.get(accountId) !== canonical) {
+  if (!accountId || !canonical || activeRestoreByAccount.get().get(accountId) !== canonical) {
     return false
   }
-  activeRestoreByAccount.delete(accountId)
+  setActiveRestore(accountId)
   clearNavigationMemory(lastCommunityRouteKey(accountId))
   return true
 }
 
 export function retireCommunityColdEntryAttempt(accountId: string, href: string): boolean {
-  const target = activeRestoreByAccount.get(accountId)
+  const target = activeRestoreByAccount.get().get(accountId)
   if (!target) return false
 
   const pathname = href.split(/[?#]/, 1)[0] || "/"
@@ -102,10 +112,10 @@ export function retireCommunityColdEntryAttempt(accountId: string, href: string)
     return false
   }
 
-  activeRestoreByAccount.delete(accountId)
+  setActiveRestore(accountId)
   return true
 }
 
 export function clearCommunityColdEntryAttempts(): void {
-  activeRestoreByAccount.clear()
+  activeRestoreByAccount.setState(() => new Map())
 }

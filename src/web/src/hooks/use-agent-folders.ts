@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useCallback } from "react";
 import { useLocalStorage } from "./use-local-storage";
 
 export interface AgentFolder {
@@ -23,7 +24,7 @@ export function useAgentFolders(workspaceId: string) {
     `agent-sidebar-folders:${workspaceId}`,
     EMPTY_STATE
   );
-  const [expandedFolderId, setExpandedFolderId] = useState<string | null>(null);
+  const [expandedFolderId, setExpandedFolderId] = useAtom(useCreateAtom<string | null>(null));
 
   const folders = state.folders;
 
@@ -47,7 +48,7 @@ export function useAgentFolders(workspaceId: string) {
       });
       setExpandedFolderId(id);
     },
-    [setState]
+    [setExpandedFolderId, setState]
   );
 
   const addToFolder = useCallback(
@@ -90,7 +91,7 @@ export function useAgentFolders(workspaceId: string) {
       }));
       if (expandedFolderId === folderId) setExpandedFolderId(null);
     },
-    [setState, expandedFolderId]
+    [setState, expandedFolderId, setExpandedFolderId]
   );
 
   const reorderInFolder = useCallback(

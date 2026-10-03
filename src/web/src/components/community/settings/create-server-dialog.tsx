@@ -1,6 +1,7 @@
 "use client"
 
-import { useId, useRef, useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useId, useRef } from "react"
 import { ImagePlus } from "lucide-react"
 import { toast } from "sonner"
 import { SeededBackdrop } from "@/components/avatar"
@@ -62,10 +63,10 @@ export function CreateServerDialog({ onClose, onCreateServer }: {
   onClose: () => void
   onCreateServer?: (name: string, icon?: File) => void
 }) {
-  const [name, setName] = useState("")
-  const [iconFile, setIconFile] = useState<File | null>(null)
-  const [iconPreview, setIconPreview] = useState<string | null>(null)
-  const [pendingCropSrc, setPendingCropSrc] = useState<{ src: string; fileName: string } | null>(null)
+  const [name, setName] = useAtom(useCreateAtom(""))
+  const [iconFile, setIconFile] = useAtom(useCreateAtom<File | null>(null))
+  const [iconPreview, setIconPreview] = useAtom(useCreateAtom<string | null>(null))
+  const [pendingCropSrc, setPendingCropSrc] = useAtom(useCreateAtom<{ src: string; fileName: string } | null>(null))
   const fileRef = useRef<HTMLInputElement>(null)
   const nameRef = useRef<HTMLInputElement>(null)
   const avatarRef = useRef<HTMLButtonElement>(null)

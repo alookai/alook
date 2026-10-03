@@ -1,0 +1,253 @@
+import { getCapturedRuntime } from "./community-ws/test-harness"
+/**
+ * Root Community WebSocket boundary and transport-ownership tests.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  capturedConnectionStateChange,
+  capturedOnMessage,
+  capturedOnReconnect,
+  capturedQueryClient,
+  capturedUseUserWsOptions,
+  cleanupCommunityWsHarness,
+  flushEffects,
+  getStableReconnectNow,
+  getStableSend,
+  mountHook,
+  mountAdditionalHook,
+  resetCommunityWsHarness,
+  resetHookInstance,
+  setStableSend,
+  useUserWsCallCount,
+} from "./community-ws/test-harness"
+import {
+  COMMUNITY_WS_FAILED_AFTER_MS,
+} from "./community-ws/connection-status"
+
+beforeEach(resetCommunityWsHarness)
+afterEach(cleanupCommunityWsHarness)
+
+describe("useCommunityWs — non-community events bail", () => {
+  it("rejects non-community and unknown community-prefixed events", async () => {
+    await mountHook()
+    const setSpy = vi.spyOn(capturedQueryClient, "setQueryData")
+    const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+    capturedOnMessage!({ type: "task.updated", taskId: "t_1" })
+    capturedOnMessage!({ type: "community:unknown", serverId: "srv_1" })
+    expect(setSpy).not.toHaveBeenCalled()
+    expect(invalidateSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe("useCommunityWs — public helper contracts", () => {
+  it("returns void after mounting the single root transport", async () => {
+    expect(await mountHook({ viewerUserId: "u_viewer" })).toBeUndefined()
+  })
+
+  it("free subscription helpers preserve primary, secondary, and DM slots", async () => {
+    const {
+      communityWsClaimSecondaryChannel,
+      communityWsReleaseSecondaryChannel,
+      communityWsSubscribe,
+      communityWsUnsubscribe,
+    } = await import("./use-community-ws")
+    const { useCommunityStore } = await import("@/stores/community")
+    const target = { channelId: "ch_contract", dmConversationId: "dm_contract" }
+
+    communityWsSubscribe(getCapturedRuntime(), target)
+    expect(getCapturedRuntime().ui.get().subscription).toEqual(target)
+
+    const owner = Symbol("split")
+    communityWsClaimSecondaryChannel(getCapturedRuntime(), owner, "ch_parent")
+    expect(getCapturedRuntime().ui.get().subscription).toEqual({
+      ...target,
+      secondaryChannelId: "ch_parent",
+    })
+
+    communityWsReleaseSecondaryChannel(getCapturedRuntime(), owner)
+    expect(getCapturedRuntime().ui.get().subscription).toEqual(target)
+
+    communityWsUnsubscribe(getCapturedRuntime())
+    expect(getCapturedRuntime().ui.get().subscription.channelId).toBeUndefined()
+    expect(getCapturedRuntime().ui.get().subscription.secondaryChannelId).toBeUndefined()
+    expect(getCapturedRuntime().ui.get().subscription.dmConversationId).toBeUndefined()
+  })
+
+  it("ends a typing burst, resets the throttle, and permits an immediate fresh start", async () => {
+    const { communityWsEndTyping, communityWsSendTyping } = await import("./use-community-ws")
+    const target = { channelId: "ch_typing_contract" }
+
+    communityWsSendTyping(getCapturedRuntime(), target)
+    expect(getStableSend()).not.toHaveBeenCalled()
+
+    await mountHook()
+    flushEffects()
+    const send = getStableSend()
+    communityWsEndTyping(getCapturedRuntime(), target)
+    expect(send).not.toHaveBeenCalled()
+    communityWsSendTyping(getCapturedRuntime(), target)
+    communityWsSendTyping(getCapturedRuntime(), target)
+    expect(send).toHaveBeenCalledOnce()
+    expect(send).toHaveBeenNthCalledWith(1, {
+      type: "community:typing.start",
+      channelId: "ch_typing_contract",
+    })
+
+    communityWsEndTyping(getCapturedRuntime(), target)
+    communityWsSendTyping(getCapturedRuntime(), target)
+    expect(send).toHaveBeenCalledTimes(3)
+    expect(send).toHaveBeenNthCalledWith(2, {
+      type: "community:typing.stop",
+      channelId: "ch_typing_contract",
+    })
+    expect(send).toHaveBeenNthCalledWith(3, {
+      type: "community:typing.start",
+      channelId: "ch_typing_contract",
+    })
+  })
+
+  it("sends one interrupt frame through the mounted authenticated transport", async () => {
+    const { communityWsInterruptAgent } = await import("./use-community-ws")
+
+    communityWsInterruptAgent(getCapturedRuntime(), "bot_1")
+    expect(getStableSend()).not.toHaveBeenCalled()
+
+    await mountHook()
+    flushEffects()
+    communityWsInterruptAgent(getCapturedRuntime(), "bot_1")
+
+    expect(getStableSend()).toHaveBeenCalledOnce()
+    expect(getStableSend()).toHaveBeenCalledWith({
+      type: "agent:interrupt",
+      agentId: "bot_1",
+    })
+  })
+})
+
+describe("useCommunityWs — connection status publication", () => {
+  it("keeps cold start non-blocking and publishes only authenticated replacement outages", async () => {
+    vi.useFakeTimers()
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    await mountHook()
+    flushEffects()
+
+    capturedConnectionStateChange!("reconnecting")
+    expect(getCapturedRuntime().ws.get().connectionStatus).toBe("connected")
+    vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS * 2)
+    expect(getCapturedRuntime().ws.get().connectionStatus).toBe("connected")
+
+    capturedConnectionStateChange!("authenticated")
+    expect(getCapturedRuntime().ws.get().connectionStatus).toBe("connected")
+
+    capturedConnectionStateChange!("reconnecting")
+    expect(getCapturedRuntime().ws.get().connectionStatus).toBe("reconnecting")
+    vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS)
+    expect(getCapturedRuntime().ws.get().connectionStatus).toBe("failed")
+
+    getCapturedRuntime().ws.get().reconnectNow()
+    expect(getCapturedRuntime().ws.get().connectionStatus).toBe("reconnecting")
+    expect(getStableReconnectNow()).toHaveBeenCalledOnce()
+
+    capturedConnectionStateChange!("authenticated")
+    expect(getCapturedRuntime().ws.get().connectionStatus).toBe("connected")
+  })
+
+  it("suspends an authenticated outage timer and re-arms on the next visible replacement", async () => {
+    vi.useFakeTimers()
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    await mountHook()
+    flushEffects()
+
+    capturedConnectionStateChange!("reconnecting")
+    capturedConnectionStateChange!("authenticated")
+    capturedConnectionStateChange!("reconnecting")
+    vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS - 1)
+    capturedConnectionStateChange!("suspended")
+    vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS)
+    expect(getCapturedRuntime().ws.get().connectionStatus).toBe("connected")
+
+    capturedConnectionStateChange!("reconnecting")
+    expect(getCapturedRuntime().ws.get().connectionStatus).toBe("reconnecting")
+    vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS)
+    expect(getCapturedRuntime().ws.get().connectionStatus).toBe("failed")
+  })
+
+  it("keeps resume validation quiet until transport failure and clears recovery once", async () => {
+    vi.useFakeTimers()
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    await mountHook()
+    flushEffects()
+
+    capturedConnectionStateChange!("reconnecting")
+    capturedConnectionStateChange!("authenticated")
+    capturedConnectionStateChange!("suspended")
+    vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS + 1)
+    expect(getCapturedRuntime().ws.get().connectionStatus).toBe("connected")
+
+    capturedConnectionStateChange!("authenticated")
+    expect(getCapturedRuntime().ws.get().connectionStatus).toBe("connected")
+
+    capturedConnectionStateChange!("reconnecting")
+    expect(getCapturedRuntime().ws.get().connectionStatus).toBe("reconnecting")
+    vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS)
+    expect(getCapturedRuntime().ws.get().connectionStatus).toBe("failed")
+
+    capturedConnectionStateChange!("authenticated")
+    expect(getCapturedRuntime().ws.get().connectionStatus).toBe("connected")
+    vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS)
+    expect(getCapturedRuntime().ws.get().connectionStatus).toBe("connected")
+  })
+})
+
+describe("useCommunityWs — double-mount detection", () => {
+  it("owns exactly one useUserWs call for one hook mount", async () => {
+    await mountHook()
+
+    expect(useUserWsCallCount).toBe(1)
+    expect(capturedOnMessage).not.toBeNull()
+    expect(capturedOnReconnect).not.toBeNull()
+    expect(capturedUseUserWsOptions?.requestDaemonStatusOnAuth).toBe(false)
+    expect(capturedUseUserWsOptions).not.toHaveProperty("capabilities")
+  })
+
+  it("emits console.warn when a second instance mounts with a different send", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => { })
+    try {
+      // First mount publishes the current stable `send` into activeSend.
+      await mountHook()
+      flushEffects()
+      // Simulate a second, independent hook site returning a different `send`
+      // by swapping the shared stub before the second mount.
+      setStableSend(vi.fn())
+      // Reset ref counters so the shim hands out fresh refs (mimics a second
+      // hook site — not a re-render of the first).
+      await mountAdditionalHook()
+      flushEffects()
+      expect(
+        warnSpy.mock.calls.some((c) =>
+          typeof c[0] === "string" && c[0].includes("Multiple instances"),
+        ),
+      ).toBe(true)
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it("does NOT warn on a normal re-render (same send identity)", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => { })
+    try {
+      await mountHook()
+      flushEffects()
+      // Re-mount with the SAME stableSend — should be a no-op for the guard.
+      await mountHook()
+      flushEffects()
+      expect(
+        warnSpy.mock.calls.some((c) =>
+          typeof c[0] === "string" && c[0].includes("Multiple instances"),
+        ),
+      ).toBe(false)
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+})

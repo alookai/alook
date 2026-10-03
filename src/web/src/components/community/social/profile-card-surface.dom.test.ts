@@ -37,7 +37,7 @@ vi.mock("@/components/ui/popover", () => {
 })
 
 vi.mock("../avatar", () => ({
-  Avatar: () => React.createElement("avatar"),
+  Avatar: () => React.createElement("mock-avatar"),
 }))
 
 vi.mock("@/components/avatar", () => ({

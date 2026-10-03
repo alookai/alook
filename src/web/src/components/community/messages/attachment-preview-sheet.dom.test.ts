@@ -1,13 +1,13 @@
 import React from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { act, fireEvent, render } from "@/test/react-dom-harness"
+import { act, fireEvent, waitFor } from "@/test/react-dom-harness"
+import { renderCommunity as render } from "@/test/community-owner-harness"
 import {
   AttachmentPreviewSheet,
   readAttachmentBytes,
   readAttachmentText,
 } from "./attachment-preview-sheet"
 import type { FileAttachment } from "@/lib/community/models/message"
-import { resetAttachmentDownloadsForTest } from "@/lib/community/attachment-download"
 import { MAX_PDF_ATTACHMENT_PREVIEW_BYTES } from "@/lib/community/attachment-presentation"
 
 const dynamicMock = vi.hoisted(() => ({
@@ -100,13 +100,12 @@ function file(overrides: Partial<FileAttachment> = {}): FileAttachment {
 
 async function flush(): Promise<void> {
   await act(async () => {
-    await Promise.resolve()
-    await Promise.resolve()
+    if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(0)
+    else await new Promise((resolve) => setTimeout(resolve, 0))
   })
 }
 
 afterEach(() => {
-  resetAttachmentDownloadsForTest()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -169,7 +168,6 @@ describe("AttachmentPreviewSheet", () => {
   })
 
   it("fetches private Markdown, renders it safely, and exposes metadata/download", async () => {
-    resetAttachmentDownloadsForTest()
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response("# Hello", { status: 200 }))
       .mockResolvedValueOnce(new Response("download bytes", { status: 200 }))
@@ -189,7 +187,7 @@ describe("AttachmentPreviewSheet", () => {
     }))
     await flush()
     expect(fetchMock).toHaveBeenCalledWith("/attachments/a1", expect.objectContaining({ credentials: "same-origin", signal: expect.any(AbortSignal) }))
-    expect(renderer.container.querySelector("[data-markdown]")?.textContent).toBe("# Hello")
+    await waitFor(() => expect(renderer.container.querySelector("[data-markdown]")?.textContent).toBe("# Hello"))
     const download = renderer.container.querySelector<HTMLButtonElement>(
       '[data-testid="community-attachment-preview-download"]',
     )!
@@ -205,12 +203,13 @@ describe("AttachmentPreviewSheet", () => {
       await Promise.resolve()
     })
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/attachments/a1", { credentials: "same-origin", signal: expect.any(AbortSignal) })
+    await waitFor(() => expect(click).toHaveBeenCalledOnce())
     expect(anchor).toEqual(expect.objectContaining({ href: "blob:preview", download: "notes.md" }))
     expect(click).toHaveBeenCalledOnce()
-    expect(renderer.container.querySelector(
+    await waitFor(() => expect(renderer.container.querySelector(
       '[data-testid="community-attachment-preview-download"]',
     )?.textContent)
-      .toContain("Download started")
+      .toContain("Download started"))
   })
 
   it("aborts the old request on switch and never paints its stale result", async () => {
@@ -238,7 +237,7 @@ describe("AttachmentPreviewSheet", () => {
 
     requests[1]!.resolve(new Response("second", { status: 200 }))
     await flush()
-    expect(renderer.container.querySelector("pre")?.textContent).toBe("second")
+    await waitFor(() => expect(renderer.container.querySelector("pre")?.textContent).toBe("second"))
 
     requests[0]!.resolve(new Response("stale", { status: 200 }))
     await flush()
@@ -264,8 +263,8 @@ describe("AttachmentPreviewSheet", () => {
     expect(fetchMock).toHaveBeenCalledWith("/attachments/a1", expect.objectContaining({
       credentials: "same-origin",
     }))
-    expect(renderer.container.querySelector('[data-testid="community-pdf-preview"]')
-      ?.getAttribute("data-byte-length")).toBe("4")
+    await waitFor(() => expect(renderer.container.querySelector('[data-testid="community-pdf-preview"]')
+      ?.getAttribute("data-byte-length")).toBe("4"))
     expect(renderer.container.querySelector(
       '[data-testid="community-attachment-preview-content"]',
     )?.className)
@@ -333,8 +332,8 @@ describe("AttachmentPreviewSheet", () => {
     }))
     await flush()
 
-    expect([...renderer.container.querySelectorAll("p")]
-      .some((node) => node.textContent?.includes("403"))).toBe(true)
+    await waitFor(() => expect([...renderer.container.querySelectorAll("p")]
+      .some((node) => node.textContent?.includes("403"))).toBe(true))
     expect(renderer.container.querySelector(
       '[data-testid="community-attachment-preview-download"]',
     )).not.toBeNull()
@@ -348,6 +347,7 @@ describe("AttachmentPreviewSheet", () => {
       onOpenChange: vi.fn(),
     }))
     await flush()
+    await waitFor(() => expect(renderer.container.querySelector('[data-code-language="typescript"]')?.textContent).toBe("const answer = 42"))
     const preview = renderer.container.querySelector('[data-code-language="typescript"]')!
     expect(preview.textContent).toBe("const answer = 42")
     expect(renderer.container.querySelector(

@@ -1,15 +1,14 @@
 import { createElement, type PropsWithChildren } from "react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { QueryClient } from "@tanstack/react-query"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { communityUserProfilePatch, writeCommunityProfilePatches } from "@/lib/community/profile-seed"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 
-const apiFetchProfiles = vi.fn()
-const communityUserProfilePatch = vi.fn((userId: string, profile: unknown) => ({ userId, profile }))
-vi.mock("@/lib/community/profile-seed", () => ({
-  apiFetchProfiles: (...args: unknown[]) => apiFetchProfiles(...args),
-  communityUserProfilePatch: (userId: string, profile: unknown) =>
-    communityUserProfilePatch(userId, profile),
-}))
+const apiFetchProfiles = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/api/client", () => ({ apiFetch: apiFetchProfiles }))
 
 import { useReactionDetails, type ReactionDetailsEnvelope } from "./use-reaction-details"
 import { communityKeys } from "@/lib/query-keys"
@@ -39,7 +38,7 @@ function envelope(actorIds: string[]): ReactionDetailsEnvelope {
 
 function wrapperFor(queryClient: QueryClient) {
   return function QueryWrapper({ children }: PropsWithChildren) {
-    return createElement(QueryClientProvider, { client: queryClient }, children)
+    return createElement(CommunityTestProvider, { client: queryClient, registry: getCommunityDbRegistry(queryClient)!, retainOwner: true }, children)
   }
 }
 
@@ -57,6 +56,7 @@ function renderReactionHook(queryClient: QueryClient, initialProps: ReactionProp
 }
 
 describe("useReactionDetails", () => {
+  beforeEach(() => { apiFetchProfiles.mockReset() })
   afterEach(() => {
     vi.useRealTimers()
     vi.clearAllMocks()
@@ -74,11 +74,12 @@ describe("useReactionDetails", () => {
       .mockReturnValueOnce(third.promise)
       .mockReturnValueOnce(fourth.promise)
 
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner()
     const rendered = renderReactionHook(queryClient, { open: false, userIds: ["user_1"] })
     expect(apiFetchProfiles).not.toHaveBeenCalled()
 
     rendered.rerender({ open: true, userIds: ["user_1"] })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(apiFetchProfiles).toHaveBeenCalledTimes(1)
     await act(async () => {
       first.resolve(envelope(["user_1"]))
@@ -124,25 +125,23 @@ describe("useReactionDetails", () => {
   it("seeds only authorized non-null profiles from the initial envelope", async () => {
     const data = envelope(["user_1"])
     data.actors.push({ userId: "departed", profile: null })
-    apiFetchProfiles.mockImplementationOnce(async (_url, selectProfiles) => {
-      expect(selectProfiles(data)).toEqual([{
-        userId: "user_1",
-        profile: data.actors[0].profile,
-      }])
-      return data
-    })
+    apiFetchProfiles.mockResolvedValueOnce(data)
 
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    renderReactionHook(queryClient, { open: true, userIds: ["user_1"] })
+    const { client: queryClient, registry } = await createCommunityQueryOwner()
+    const rendered = renderReactionHook(queryClient, { open: true, userIds: ["user_1"] })
 
-    await waitFor(() => expect(communityUserProfilePatch).toHaveBeenCalledOnce())
-    expect(communityUserProfilePatch).toHaveBeenCalledWith("user_1", data.actors[0].profile)
+    await waitFor(() => expect(rendered.result.current.data?.actors).toEqual(data.actors))
+    expect(registry.collections.profiles.get("user_1")?.name).toBe("user_1")
+    expect(registry.collections.profiles.has("departed")).toBe(false)
+    expect(apiFetchProfiles).toHaveBeenCalledWith("/api/community/messages/message_1/reactions", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
   })
 
   it("cancels a scheduled unknown-actor refresh when the dialog closes", async () => {
     vi.useFakeTimers()
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    queryClient.setQueryData(communityKeys.reactionDetails("message_1"), envelope(["user_1"]))
+    const { client: queryClient, registry } = await createCommunityQueryOwner()
+    const cached = envelope(["user_1"])
+    writeCommunityProfilePatches(cached.actors.flatMap((actor) => actor.profile ? [communityUserProfilePatch(actor.userId, actor.profile)] : []), registry)
+    queryClient.setQueryData(communityKeys.reactionDetails("message_1"), { ...cached, actors: [{ userId: "user_1", profilePresent: true }] })
     const rendered = renderReactionHook(queryClient, {
       open: true,
       userIds: ["user_1", "user_2"],

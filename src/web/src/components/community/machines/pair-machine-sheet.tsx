@@ -1,12 +1,16 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCreateAtom } from "@tanstack/react-store";
+import { useQuery, useMutation } from "@tanstack/react-query"
+import { useCommunityMutationOrigin } from "@/hooks/community/community-origin"
+import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
+import { useCallback, useEffect } from "react"
 import { toast } from "sonner"
 import { Copy, Loader2, RefreshCw, TerminalIcon } from "lucide-react"
 import { isDesktop, isTauri, tauriInvoke } from "@alook/shared"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { Button } from "@/components/ui/button"
-import { apiFetch, toastApiError } from "@/lib/api/client"
+import { toastApiError } from "@/lib/api/client"
 import { tid } from "@/lib/community/testids"
 import { isLocalServiceEnvironment, WS_DO_PORT_DEFAULT } from "@/lib/utils"
 import { websocketUrl } from "@/lib/websocket-url"
@@ -68,138 +72,106 @@ export function PairMachineSheet({
   onLimitReached?: () => void
 }) {
   const isReconnect = mode.kind === "reconnect"
-  const [generating, setGenerating] = useState(false)
-  const [generationError, setGenerationError] = useState<string | null>(null)
-  const [connecting, setConnecting] = useState(false)
-  const [started, setStarted] = useState(false)
-  const [checkingRuntime, setCheckingRuntime] = useState(false)
-  const [runtimeCapability, setRuntimeCapability] = useState<DaemonRuntimeCapability | null>(null)
-  const [launchError, setLaunchError] = useState<string | null>(null)
-  const generatedForKey = useRef<string | null>(null)
-  const connectingRef = useRef(false)
+  const origin = useCommunityMutationOrigin()
+  const openKey = mode.kind === "reconnect" ? `reconnect:${mode.machineId}` : "pair"
+  const source = useCommunityViewSource(`machine-pair:${openKey}`, open)
   const desktopNative = isTauri() && isDesktop()
-
+  const generation = useMutation({
+    gcTime: 0,
+    mutationKey: ["community", "machine-pair", openKey],
+    mutationFn: async ({ token, assert }: { token: ReturnType<typeof origin.begin>["token"]; assert: ReturnType<typeof source.capture> }) => {
+      assert()
+      const endpoint = mode.kind === "reconnect" ? `/api/community/machines/${mode.machineId}/reconnect` : "/api/community/machines/pair"
+      const result = await origin.request<{ tokenId: string; expiresAt: string }>(token, endpoint, { method: "POST", signal: assert.signal, assertActive: assert })
+      assert()
+      return result
+    },
+  })
+  const generating = generation.isPending && generation.variables?.assert.signal === source.signal
+  const generationError = generation.variables?.assert.signal === source.signal && generation.isError && !(generation.error instanceof DOMException && generation.error.name === "AbortError") ? "Couldn't generate a key — try again." : null
+  const mutateGeneration = generation.mutateAsync
   const generate = useCallback(async () => {
-    setGenerating(true)
-    setGenerationError(null)
+    const assert = source.capture(), token = origin.begin().token
+    assert()
     try {
-      const endpoint =
-        mode.kind === "reconnect"
-          ? `/api/community/machines/${mode.machineId}/reconnect`
-          : "/api/community/machines/pair"
-      const res = await apiFetch<{ tokenId: string; expiresAt: string }>(
-        endpoint,
-        { method: "POST" }
-      )
-      setPendingTokenId(res.tokenId)
-    } catch (err) {
-      if (err instanceof Error && err.message === "MACHINE_LIMIT_REACHED" && onLimitReached) {
-        onLimitReached()
-        return
-      }
-      const message = "Couldn't generate a key — try again."
-      setGenerationError(message)
-      toastApiError(err, message)
-      console.error(err)
-    } finally {
-      setGenerating(false)
+      const result = await mutateGeneration({ token, assert })
+      assert()
+      setPendingTokenId(result.tokenId)
+    } catch (error) {
+      try { assert() } catch { return }
+      if (error instanceof Error && error.message === "MACHINE_LIMIT_REACHED" && onLimitReached) { onLimitReached(); return }
+      toastApiError(error, "Couldn't generate a key — try again.", assert)
     }
-  }, [setPendingTokenId, mode, onLimitReached])
-
-  // Auto-generate the key when the sheet opens. Track per-open so re-opens or
-  // mode swaps trigger a fresh mint.
-  const openKey = open
-    ? mode.kind === "reconnect"
-      ? `reconnect:${mode.machineId}`
-      : "pair"
-    : null
+  }, [mutateGeneration, source, origin, setPendingTokenId, onLimitReached])
+  const generatedForKey = useCreateAtom<{ key: string; signal: AbortSignal } | null>(null)
   useEffect(() => {
-    if (!openKey) {
-      generatedForKey.current = null
-      return
-    }
-    if (generatedForKey.current === openKey) return
-    generatedForKey.current = openKey
-    setStarted(false)
+    if (!open) { generatedForKey.set(null); return }
+    const previous = generatedForKey.get()
+    if (previous?.key === openKey && previous.signal === source.signal) return
+    generatedForKey.set({ key: openKey, signal: source.signal })
     setPendingTokenId(null)
     void generate()
-  }, [openKey, generate, setPendingTokenId])
-
-  useEffect(() => {
-    if (!open || !desktopNative) {
-      setCheckingRuntime(false)
-      setRuntimeCapability(null)
-      return
-    }
-    let active = true
-    setCheckingRuntime(true)
-    setRuntimeCapability(null)
-    setLaunchError(null)
-    void tauriInvoke<DaemonRuntimeCapability>("daemon_runtime_capability")
-      .then((capability) => {
-        if (active) setRuntimeCapability(capability)
-      })
-      .catch((error) => {
-        if (!active) return
-        setRuntimeCapability({
-          available: false,
-          reason: nativeErrorMessage(
-            error,
-            "Alook couldn't check Node.js and npm on this computer.",
-          ),
-          nodeVersion: null,
-        })
-      })
-      .finally(() => {
-        if (active) setCheckingRuntime(false)
-      })
-    return () => {
-      active = false
-    }
-  }, [open, desktopNative])
-
-  const command = pendingTokenId
-    ? buildPairCommand(
-        pendingTokenId,
-        mode.kind === "reconnect" ? mode.machineId : undefined,
-      )
-    : ""
-
-  const copyCommand = useCallback(async () => {
-    if (!command) return
-    try {
-      await navigator.clipboard.writeText(command)
-      toast.success("Command copied")
-    } catch {
-      toast.error("Copy failed")
-    }
-  }, [command])
-
-  const connectDesktop = useCallback(async () => {
-    if (!pendingTokenId || connectingRef.current || !runtimeCapability?.available) return
-    connectingRef.current = true
-    setConnecting(true)
-    setLaunchError(null)
-    try {
-      const result = await tauriInvoke<{ success: boolean; message: string }>("daemon_pair", {
-        machineKey: pendingTokenId,
-        machineId: mode.kind === "reconnect" ? mode.machineId : null,
-      })
+  }, [open, openKey, setPendingTokenId, source.signal, generatedForKey, generate])
+  const capability = useQuery({
+    queryKey: ["community", "daemon-runtime-capability"], enabled: open && desktopNative, subscribed: open && desktopNative,
+    gcTime: 0, retry: false,
+    queryFn: async ({ signal }) => {
+      const token = origin.begin().token
+      origin.assert(token)
+      try {
+        const result = await tauriInvoke<DaemonRuntimeCapability>("daemon_runtime_capability")
+        origin.assert(token)
+        if (signal.aborted) throw new DOMException("Cancelled native runtime check", "AbortError")
+        return result
+      } catch (error) {
+        origin.assert(token)
+        if (signal.aborted) throw new DOMException("Cancelled native runtime check", "AbortError")
+        throw error
+      }
+    },
+  })
+  const runtimeCapability = capability.data ?? (capability.error ? {
+    available: false, reason: nativeErrorMessage(capability.error, "Alook couldn't check Node.js and npm on this computer."), nodeVersion: null,
+  } : null)
+  const checkingRuntime = open && desktopNative && capability.isPending
+  const launch = useMutation({
+    gcTime: 0,
+    mutationKey: ["community", "machine-pair", openKey, "launch"],
+    mutationFn: async ({ key, machineId, assert }: { key: string; machineId: string | null; assert: ReturnType<typeof source.capture> }) => {
+      assert()
+      const result = await tauriInvoke<{ success: boolean; message: string }>("daemon_pair", { machineKey: key, machineId })
+      assert()
       if (!result.success) throw new Error(result.message || "The daemon did not start")
-      setStarted(true)
+      return { key }
+    },
+  })
+  const currentLaunch = launch.variables?.assert.signal === source.signal
+  const connecting = currentLaunch && launch.isPending
+  const started = currentLaunch && launch.isSuccess && launch.data.key === pendingTokenId
+  const launchError = currentLaunch && launch.error && !(launch.error instanceof DOMException && launch.error.name === "AbortError")
+    ? nativeErrorMessage(launch.error, "Couldn't start the daemon. Run the command below in a terminal instead.") : null
+  const command = pendingTokenId ? buildPairCommand(pendingTokenId, mode.kind === "reconnect" ? mode.machineId : undefined) : ""
+  const copyCommand = async () => {
+    if (!command) return
+    const assert = source.capture()
+    assert()
+    try { await navigator.clipboard.writeText(command); assert(); toast.success("Command copied") }
+    catch (error) { try { assert() } catch { return }; if (!(error instanceof DOMException && error.name === "AbortError")) toast.error("Copy failed") }
+  }
+  const connectDesktop = async () => {
+    if (!pendingTokenId || connecting || !runtimeCapability?.available) return
+    const assert = source.capture()
+    assert()
+    try {
+      await launch.mutateAsync({ key: pendingTokenId, machineId: mode.kind === "reconnect" ? mode.machineId : null, assert })
+      assert()
       toast.success(isReconnect ? "Machine reconnected" : "This computer is connecting")
     } catch (error) {
-      const message = nativeErrorMessage(
-        error,
-        "Couldn't start the daemon. Run the command below in a terminal instead.",
-      )
-      setLaunchError(message)
-      toast.error(message)
-    } finally {
-      connectingRef.current = false
-      setConnecting(false)
+      try { assert() } catch { return }
+      if (!(error instanceof DOMException && error.name === "AbortError")) toast.error(nativeErrorMessage(error, "Couldn't start the daemon. Run the command below in a terminal instead."))
     }
-  }, [pendingTokenId, runtimeCapability?.available, isReconnect, mode])
+  }
+
 
   return (
     <CommunitySheet

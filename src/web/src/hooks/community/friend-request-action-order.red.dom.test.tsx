@@ -1,3 +1,9 @@
+import { useAccountAttentionProjection, reconcileAccountAttention } from "./use-account-attention"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { publishCommunityFriendships, publishAccountAttentionSnapshot, captureCommunityLiveSnapshotToken, projectCommunityWsEventToDb } from "@/lib/community-db/sync"
+import { useFriendshipRows } from "@/lib/community-db/projections"
+import { createCommunityDbRegistry, registerCommunityDbRegistry } from "@/lib/community-db/collections"
+import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { useCallback, useLayoutEffect, type MutableRefObject } from "react"
 import {
   QueryClient,
@@ -5,14 +11,13 @@ import {
   useQuery,
 } from "@tanstack/react-query"
 import { act, render, waitFor } from "@/test/react-dom-harness"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { communityKeys } from "@/lib/query-keys"
 import { apiFetch } from "@/lib/api/client"
 import type { PendingRequest } from "@/lib/community/models/people"
 import type { InboxFriendRequest } from "@/lib/community/models/inbox"
-import { useCommunityWsStore } from "@/stores/community/ws"
 import { useAcceptFriendRequest } from "./mutations/friends"
-import { handleFriendEvent } from "./community-ws/social-events"
+import { handleFriendEvent as handleFriendEventLeaf } from "./community-ws/social-events"
 import {
   runCommunityWsProjectionTransaction,
   type CommunityWsProjectionTransaction,
@@ -66,29 +71,21 @@ function friendsData(ids: readonly string[]): FriendsResponse {
   }
 }
 
-type AttentionResponse = {
-  items: Array<{
-    id: string
-    kind: "friend_request"
-    sourceId: string
-    actorUserId: string
-  }>
-}
-
-function attentionData(ids: readonly string[]): AttentionResponse {
+function attentionData(ids: readonly string[]) {
   return {
-    items: inboxRows.filter((row) => ids.includes(row.id)).map((row) => ({
-      id: `friend_request:${row.id}`,
-      kind: "friend_request",
-      sourceId: row.id,
-      actorUserId: row.userId,
-    })),
+    scopes: [], limit: 100, truncated: false,
+    items: inboxRows.filter((row) => ids.includes(row.id)).map((row) => ({ id: `friend_request:${row.id}`, kind: "friend_request" as const, sourceId: row.id, actorUserId: row.userId, createdAt: row.createdAt })),
+    included: { servers: [], channels: [], dms: [], messages: [], profiles: inboxRows.filter((row) => ids.includes(row.id)).map((row) => ({ userId: row.userId, name: row.name, discriminator: "0001", avatar: row.avatar, avatarVersion: row.avatarVersion ?? 0 })) },
   }
 }
-
-const attentionQueryFn = () => apiFetch<AttentionResponse>(
-  "/api/community/users/me/attention",
-)
+function publishRows(client: QueryClient, ids: readonly string[], token = captureCommunityLiveSnapshotToken(client)) {
+  publishCommunityFriendships(client, pendingRows.filter((row) => ids.includes(row.id)).map((row) => ({ id: row.id, userId: row.userId, kind: row.kind })), { token })
+  publishAccountAttentionSnapshot(client, { snapshot: attentionData(ids), proof: { token } })
+}
+function handleFriendEvent(event: Parameters<typeof handleFriendEventLeaf>[0], context: SocialEventContext) {
+  projectCommunityWsEventToDb(context.queryClient, event)
+  handleFriendEventLeaf(event, context)
+}
 
 type Transport = {
   action: (id: string) => Promise<unknown>
@@ -139,10 +136,10 @@ function TestSurfaces({
     queryFn: friendsQueryFn,
     enabled: false,
   })
-  const inbox = useQuery({
-    queryKey: communityKeys.accountAttention(),
-    queryFn: attentionQueryFn,
-    enabled: false,
+  const inbox = useAccountAttentionProjection()
+  const canonicalPending = useFriendshipRows().flatMap((row) => {
+    const fixture = pendingRows.find((request) => request.id === row.id)
+    return fixture && (row.kind === "incoming" || row.kind === "outgoing") ? [{ ...fixture, kind: row.kind }] : []
   })
   const mutation = useAcceptFriendRequest()
   const onAccept = useCallback(
@@ -150,17 +147,17 @@ function TestSurfaces({
     [mutation],
   )
   const inboxActions = useFriendRequestActionState({
-    rows: inboxRows.filter((row) => inbox.data?.items.some((item) => item.sourceId === row.id)),
+    rows: inboxRows.filter((row) => inbox.items.some((item) => item.sourceId === row.id)),
     onAccept,
     surface: "inbox",
   })
   const friendsActions = useFriendRequestActionState({
-    rows: friends.data?.pending ?? [],
+    rows: canonicalPending,
     onAccept,
     surface: "friends",
   })
   const shortcutActions = useFriendRequestActionState({
-    rows: friends.data?.pending ?? [],
+    rows: canonicalPending,
     surface: "friends",
   })
 
@@ -229,23 +226,26 @@ function TestSurfaces({
   )
 }
 
-function createClient(ids: readonly string[] = ["a", "b"]) {
-  const client = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
-  })
-  client.setQueryData(communityKeys.friends(), friendsData(ids), { updatedAt: 1 })
-  client.setQueryData(communityKeys.accountAttention(), attentionData(ids), { updatedAt: 1 })
+const clients = new Set<QueryClient>()
+async function createClient(ids: readonly string[] = ["a", "b"]) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  clients.add(client)
+  const registry = createCommunityDbRegistry(client, "viewer")
+  registerCommunityDbRegistry(registry)
+  await registry.preload()
+  publishRows(client, ids)
+  client.setQueryData(communityKeys.friends(), { ids })
+  client.setQueryData(communityKeys.accountAttention(), { loaded: true })
   return client
 }
 
 function mount(client: QueryClient, onPaint?: (paint: Paint) => void) {
+  const registry = createCommunityDbRegistry(client, "viewer")
+  registerCommunityDbRegistry(registry)
   const controls = { current: null } as MutableRefObject<Controls | null>
   const rendered = render(
     <QueryClientProvider client={client}>
-      <TestSurfaces controlsRef={controls} onPaint={onPaint} />
+      <CommunityDbProvider registry={registry}><TestSurfaces controlsRef={controls} onPaint={onPaint} /></CommunityDbProvider>
     </QueryClientProvider>,
   )
   return { controls, rendered }
@@ -260,17 +260,17 @@ async function fetchFriends(client: QueryClient) {
 }
 
 async function fetchAttention(client: QueryClient) {
-  return client.fetchQuery({
-    queryKey: communityKeys.accountAttention(),
-    queryFn: attentionQueryFn,
-    staleTime: 0,
-  })
+  return reconcileAccountAttention(getCommunityDbRegistry(client)!)
 }
+afterEach(async () => {
+  await act(async () => {
+    for (const client of clients) { await getCommunityDbRegistry(client)?.cleanup(); client.clear() }
+    clients.clear()
+  })
+})
 
 beforeEach(() => {
   apiFetchMock.mockReset()
-  useCommunityWsStore.getState().reset()
-  useCommunityWsStore.getState().activateProfileAccount("viewer")
 })
 
 describe("friend-request action authority RED", () => {
@@ -281,7 +281,7 @@ describe("friend-request action authority RED", () => {
       readFriends: async () => [],
       readInbox: async () => [],
     })
-    const client = createClient(["a"])
+    const client = await createClient(["a"])
     const { controls, rendered } = mount(client)
     let request!: Promise<void>
     act(() => { request = controls.current!.act("inbox", "a") })
@@ -309,15 +309,15 @@ describe("friend-request action authority RED", () => {
         return []
       },
     })
-    const client = createClient(["a"])
+    const client = await createClient(["a"])
     const { controls, rendered } = mount(client)
     await act(async () => { await controls.current!.act("inbox", "a") })
-    expect(rendered.getByTestId("inbox-row-a")).toHaveAttribute("data-status", "error")
+    await waitFor(() => expect(rendered.getByTestId("inbox-row-a")).toHaveAttribute("data-status", "error"))
 
     await act(async () => {
       await Promise.allSettled([fetchFriends(client), fetchAttention(client)])
     })
-    expect(rendered.getByTestId("inbox-row-a")).toHaveAttribute("data-status", "error")
+    await waitFor(() => expect(rendered.getByTestId("inbox-row-a")).toHaveAttribute("data-status", "error"))
 
     stale = false
     await act(async () => { await fetchAttention(client) })
@@ -338,7 +338,7 @@ describe("friend-request action authority RED", () => {
       readInbox: () => inboxRead.promise,
     })
     const paints: Paint[] = []
-    const client = createClient(["a"])
+    const client = await createClient(["a"])
     const { controls, rendered } = mount(client, (paint) => paints.push(paint))
     await act(async () => { await controls.current!.act("inbox", "a") })
     const read = fetchAttention(client)
@@ -380,7 +380,7 @@ describe("friend-request action authority RED", () => {
       readInbox: async () => { throw new Error("inbox refresh failed") },
     })
     const paints: Paint[] = []
-    const client = createClient(["a"])
+    const client = await createClient(["a"])
     const { controls, rendered } = mount(client, (paint) => paints.push(paint))
     await act(async () => { await controls.current!.act("inbox", "a") })
     paints.length = 0
@@ -431,8 +431,9 @@ describe("friend-request action authority RED", () => {
       },
     })
     const paints: Paint[] = []
-    const client = createClient([])
+    const client = await createClient([])
     const { rendered } = mount(client, (paint) => paints.push(paint))
+    const beforeBlock = captureCommunityLiveSnapshotToken(client)
 
     const projection = {
       project: <T,>(effect: () => T) => effect(),
@@ -451,8 +452,7 @@ describe("friend-request action authority RED", () => {
           scheduleInboxInvalidate: vi.fn(),
         } satisfies SocialEventContext,
       )
-      client.setQueryData(communityKeys.friends(), friendsData(["a"]))
-      client.setQueryData(communityKeys.accountAttention(), attentionData(["a"]))
+      publishRows(client, ["a"], beforeBlock)
     })
 
     await act(async () => {
@@ -487,8 +487,7 @@ describe("friend-request action authority RED", () => {
     expect(rendered.queryByTestId("friends-row-a")).toBeNull()
 
     await act(async () => {
-      client.setQueryData(communityKeys.friends(), friendsData(["a"]))
-      client.setQueryData(communityKeys.accountAttention(), attentionData(["a"]))
+      publishRows(client, ["a"])
     })
     await waitFor(() => {
       expect(rendered.getByTestId("inbox-row-a")).toBeInTheDocument()
@@ -506,7 +505,7 @@ describe("friend-request action authority RED", () => {
       readFriends: () => postTerminal ? Promise.resolve([]) : oldFriends.promise,
       readInbox: () => postTerminal ? Promise.resolve([]) : oldInbox.promise,
     })
-    const client = createClient(["a"])
+    const client = await createClient(["a"])
     const preTerminalReads = [fetchFriends(client), fetchAttention(client)]
     await waitFor(() => expect(apiFetchMock.mock.calls.some(
       ([path]) => path === "/api/community/users/me/attention",
@@ -522,8 +521,8 @@ describe("friend-request action authority RED", () => {
     oldInbox.resolve(["a"])
     await Promise.allSettled(preTerminalReads)
 
-    expect(client.getQueryData<FriendsResponse>(communityKeys.friends())?.pending).toEqual([])
-    expect(client.getQueryData<AttentionResponse>(communityKeys.accountAttention())?.items).toEqual([])
+    expect([...getCommunityDbRegistry(client)!.collections.friendships.values()].filter((row) => row.kind === "incoming")).toEqual([])
+    expect([...getCommunityDbRegistry(client)!.collections.attentionItems.values()]).toEqual([])
   })
 })
 
@@ -537,7 +536,7 @@ describe("friend-request shared owner RED", () => {
         readFriends: async () => ["a", "b"],
         readInbox: async () => ["a", "b"],
       })
-      const client = createClient()
+      const client = await createClient()
       const { controls, rendered } = mount(client)
       let request!: Promise<void>
       act(() => { request = controls.current!.act(origin, "a") })
@@ -567,9 +566,10 @@ describe("friend-request shared owner RED", () => {
       readFriends: async () => ["a"],
       readInbox: async () => ["a"],
     })
-    const client = createClient(["a"])
+    const client = await createClient(["a"])
     const { controls, rendered } = mount(client)
     await act(async () => { await controls.current!.act("inbox", "a") })
+    await waitFor(() => expect(rendered.getByTestId("inbox-row-a")).toHaveAttribute("data-status", "error"))
     act(() => {
       client.removeQueries({ queryKey: communityKeys.friends(), exact: true })
       client.removeQueries({ queryKey: communityKeys.accountAttention(), exact: true })
@@ -601,7 +601,7 @@ describe("friend-request shared owner RED", () => {
       readFriends: async () => ["a"],
       readInbox: async () => ["a"],
     })
-    const client = createClient(["a"])
+    const client = await createClient(["a"])
     const { controls } = mount(client)
     let inboxRequest!: Promise<void>
     let friendsRequest!: Promise<void>
@@ -630,9 +630,10 @@ describe("friend-request shared owner RED", () => {
       readFriends: async () => ["a"],
       readInbox: async () => ["a"],
     })
-    const client = createClient(["a"])
-    const { controls } = mount(client)
+    const client = await createClient(["a"])
+    const { controls, rendered } = mount(client)
     await act(async () => { await controls.current!.act("inbox", "a") })
+    await waitFor(() => expect(rendered.getByTestId("inbox-row-a")).toHaveAttribute("data-status", "error"))
     let first!: Promise<void>
     let second!: Promise<void>
     act(() => {
@@ -665,7 +666,7 @@ describe("friend-request shared owner RED", () => {
         readFriends: async () => [failedId],
         readInbox: async () => [failedId],
       })
-      const client = createClient()
+      const client = await createClient()
       const { controls, rendered } = mount(client)
       let actionA!: Promise<void>
       let actionB!: Promise<void>
@@ -698,8 +699,8 @@ describe("friend-request shared owner RED", () => {
 
       expect(rendered.queryByTestId(`inbox-row-${terminalId}`)).toBeNull()
       expect(rendered.queryByTestId(`friends-row-${terminalId}`)).toBeNull()
-      expect(rendered.getByTestId(`inbox-row-${failedId}`)).toHaveAttribute("data-status", "error")
-      expect(rendered.getByTestId(`friends-row-${failedId}`)).toHaveAttribute("data-status", "error")
+      await waitFor(() => expect(rendered.getByTestId(`inbox-row-${failedId}`)).toHaveAttribute("data-status", "error"))
+      await waitFor(() => expect(rendered.getByTestId(`friends-row-${failedId}`)).toHaveAttribute("data-status", "error"))
     },
   )
 })

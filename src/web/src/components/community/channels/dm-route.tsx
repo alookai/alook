@@ -8,7 +8,7 @@ import { DmLoadingFrame } from "./dm-loading-frame"
 import { useDmRouteVerification } from "@/hooks/community/use-dm-route-verification"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { useCurrentUser } from "@/contexts/community/current-user"
-import { useCommunityStore } from "@/stores/community"
+import { useCommunityRuntime } from "@/stores/community/runtime"
 import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
 import { purgeCommunityChannel } from "@/lib/community-db/sync"
 import { clearLastMeLocation, getLastMeLeaf, ME_ROOT } from "@/lib/community/last-me-location"
@@ -18,6 +18,7 @@ import {
 } from "@/lib/community/last-community-route"
 
 export function DmRoute({ dmId }: { dmId: string }) {
+  const runtime = useCommunityRuntime()
   const router = useRouter()
   const currentUser = useCurrentUser()
   const breakpoint = useBreakpoint()
@@ -35,9 +36,9 @@ export function DmRoute({ dmId }: { dmId: string }) {
       : ME_ROOT
     if (registry) purgeCommunityChannel(registry, dmId)
     if (getLastMeLeaf() === dmId) clearLastMeLocation()
-    useCommunityStore.getState().uiHandlers.cancelPendingNavigation?.()
+    runtime.ui.get().uiHandlers.cancelPendingNavigation?.()
     router.replace(destination)
-  }, [currentUser.id, dmId, registry, router, verification.status])
+  }, [currentUser.id, dmId, registry, router, runtime, verification.status])
 
   if (verification.status === "error") {
     return <DmRouteErrorFrame onRetry={verification.retry} retrying={verification.retrying}

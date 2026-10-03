@@ -1,35 +1,19 @@
 "use client";
 
 import { useArtifactClick } from "@/components/use-artifact-click";
-import React, {
-  useEffect,
-  useLayoutEffect,
-  useState,
-  useRef,
-  useCallback,
-  useMemo,
-} from "react";
+import { useMutation, useIsMutating } from "@tanstack/react-query";
+import { captureQueryReceipt, isQueryReceiptCurrent, type QueryReceipt } from "@/lib/query-receipt";
+import { captureChatIntent, assertChatIntent, runChatIntentRequest } from "@/hooks/workspace/use-chat-data";
+import { isAbortError } from "@/lib/errors";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useMountedClock } from "@/hooks/use-mounted-clock";
+import { useEffect, useCallback, useMemo } from "react";
 import { useParams, useSearchParams } from "next/navigation";
-import { useWorkspace } from "@/contexts/workspace-context";
+import { useWorkspaceOwner, useWorkspace } from "@/contexts/workspace-context";
 import { Button } from "@/components/ui/button";
 import { TaskStream } from "@/components/task-stream";
-import {
-  getTask,
-  updateIssue,
-  getAgentSkills,
-  cancelActiveTask,
-  getThreadSummaries,
-  createThread,
-  conversationInit,
-} from "@/lib/api";
-import { useLatest } from "@/components/agent-chat/chat-message-utils";
-import type {
-  Artifact,
-  Issue,
-  Message,
-  SkillEntry,
-  WsMessage,
-} from "@alook/shared";
+import { cancelActiveTask, createThread } from "@/lib/api";
+import type { Artifact, Issue, SkillEntry } from "@alook/shared";
 import { useAgentContext } from "@/contexts/agent-context";
 import { useInboxCount } from "@/contexts/inbox-count-context";
 import { useChannel } from "@/contexts/channel-context";
@@ -52,9 +36,11 @@ import {
   Square,
   X,
 } from "lucide-react";
+import { useChatThreadResources } from "@/hooks/workspace/use-chat-thread-resources";
 import { useAgentChat } from "@/hooks/use-agent-chat";
 import { useMessageFlags } from "@/hooks/use-message-flags";
 import { useChatSheets } from "@/hooks/use-chat-sheets";
+import { useChatArtifactSelection } from "@/hooks/workspace/use-chat-artifact-selection";
 import { useFileAttachments } from "@/hooks/use-file-attachments";
 import { useTextSelectionQuote } from "@/hooks/use-text-selection-quote";
 import { useSlashCommand } from "@/hooks/use-slash-command";
@@ -104,6 +90,7 @@ export function AgentChatView({
 }) {
   const params = useParams();
   const searchParams = useSearchParams();
+  const workspaceOwner = useWorkspaceOwner();
   const { workspaceId, slug } = useWorkspace();
   const {
     agents,
@@ -116,6 +103,7 @@ export function AgentChatView({
   const { refresh: refreshInboxCount } = useInboxCount();
   const {
     activeChannel,
+    readActiveChannel,
     loading: channelLoading,
     setAgentId: setChannelAgentId,
   } = useChannel();
@@ -140,46 +128,20 @@ export function AgentChatView({
       ? propTargetConvId
       : searchParams.get("conv");
 
-  const [input, setInput] = useState(() => {
+  const inputAtom = useCreateAtom(useMemo(() => {
     if (typeof window === "undefined") return "";
     return (
       localStorage.getItem(
-        `chat-draft:${agentId}:${targetConvId ?? "default"}`,
+        `chat-draft:${workspaceOwner.application.userId}:${workspaceId}:${agentId}:${targetConvId ?? "default"}`,
       ) ?? ""
     );
-  });
-  const [composerFocused, setComposerFocused] = useState(false);
-  const {
-    artifactSheetOpen,
-    setArtifactSheetOpen,
-    selectedArtifact,
-    setSelectedArtifact,
-    emailSheetOpen,
-    setEmailSheetOpen,
-    selectedEmailId,
-    setSelectedEmailId,
-    calendarEventSheetOpen,
-    setCalendarEventSheetOpen,
-    selectedCalendarEventId,
-    setSelectedCalendarEventId,
-    issueSheetOpen,
-    setIssueSheetOpen,
-    selectedIssueId,
-    setSelectedIssueId,
-    issueDetail,
-    setIssueDetail,
-    issueDetailLoading,
-    issueTraceTasks,
-    issueActiveTask,
-    setIssueActiveTask,
-    openIssue,
-    issueConvId,
-    issueTaskId,
-  } = useChatSheets(workspaceId);
-  const [lightboxArtifact, setLightboxArtifact] = useState<Artifact | null>(null);
-  const [lightboxLocalUrl, setLightboxLocalUrl] = useState<{ url: string; filename: string } | null>(null);
+  }, [agentId, targetConvId, workspaceId, workspaceOwner.application.userId]));
+  const [input, setInput] = useAtom(inputAtom);
+  const [composerFocused, setComposerFocused] = useAtom(useCreateAtom(false));
+  const [lightboxLocalUrl, setLightboxLocalUrl] = useAtom(useCreateAtom<{ url: string; filename: string } | null>(null));
   const {
     pendingFiles,
+    readPendingFiles,
     setPendingFiles,
     fileInputRef,
     addPendingFiles,
@@ -191,15 +153,15 @@ export function AgentChatView({
     handleDragOver,
     handleDrop,
   } = useFileAttachments();
-  const [caretIndex, setCaretIndex] = useState<number | null>(null);
-  const [renderNow] = useState(() => Date.now());
+  const [caretIndex, setCaretIndex] = useAtom(useCreateAtom<number | null>(null));
+  const [renderNow] = useMountedClock();
 
-  const [quotedMessage, setQuotedMessage] = useState<{ id: string; excerpt: string } | null>(() => {
+  const quotedMessageAtom = useCreateAtom<{ id: string; excerpt: string } | null>(useMemo<{ id: string; excerpt: string } | null>(() => {
     if (typeof window === "undefined") return null;
     try {
       const meta = JSON.parse(
         localStorage.getItem(
-          `chat-draft-meta:${agentId}:${targetConvId ?? "default"}`,
+          `chat-draft-meta:${workspaceOwner.application.userId}:${workspaceId}:${agentId}:${targetConvId ?? "default"}`,
         ) ?? "null",
       );
       const q = meta?.quote;
@@ -207,39 +169,21 @@ export function AgentChatView({
     } catch {
       return null;
     }
-  });
-  const [isMultiLine, setIsMultiLine] = useState(false);
-  const { flaggedIds, setFlaggedIds, handleToggleFlag } =
-    useMessageFlags(workspaceId);
+  }, [agentId, targetConvId, workspaceId, workspaceOwner.application.userId]));
+  const [quotedMessage, setQuotedMessage] = useAtom(quotedMessageAtom);
+  const [isMultiLine, setIsMultiLine] = useAtom(useCreateAtom(false));
 
   // Thread state
   const { openAgentChat } = useAgentChatSheet();
-  const [threadSummaries, setThreadSummaries] = useState<Map<string, { thread_id: string; reply_count: number; last_reply_at: string | null; thread_title: string }>>(new Map());
-  const [threadRootMessage, setThreadRootMessage] = useState<Message | null>(null);
 
   useEffect(() => {
     setChannelAgentId(agentId);
   }, [agentId, setChannelAgentId]);
 
-  // Component-owned ref written by the hook's load effect; read by the
-  // draft-meta persist effect below to gate the first write until restore runs.
-  const draftMetaRestoredRef = useRef(false);
-
-  // Reader-refs for the externally-owned values the orchestration reads inside
-  // long-lived callbacks (handleSend). useLatest keeps them fresh without
-  // churning callback identity. `activeSkillRef` is a manual ref synced below,
-  // because `slashCommand` is defined after `useAgentChat` (it needs the
-  // hook-created `composerRef`).
-  const inputRef = useLatest(input);
-  const quotedMessageRef = useLatest(quotedMessage);
-  const pendingFilesRef = useLatest(pendingFiles);
-  const activeSkillRef = useRef<SkillEntry | null>(null);
-  // Holds the `slashCommand` instance (created after this hook call, since it
-  // needs the hook's `composerRef`) so the hook's setActiveSkill/clearActiveSkill
-  // wrappers can reach it from inside the load effect.
-  const slashCommandRef = useRef<ReturnType<typeof useSlashCommand> | null>(
-    null,
-  );
+  const draftRestored = useCreateAtom(false);
+  const activeSkillNameAtom = useCreateAtom<string | null>(useMemo<string | null>(() => {
+    try { return JSON.parse(localStorage.getItem(`chat-draft-meta:${workspaceOwner.application.userId}:${workspaceId}:${agentId}:${targetConvId ?? "default"}`) ?? "null")?.skill?.name ?? null; } catch { return null; }
+  }, [agentId, targetConvId, workspaceId, workspaceOwner.application.userId]));
 
   const chat = useAgentChat(
     {
@@ -251,24 +195,23 @@ export function AgentChatView({
       workspaceId,
       agents,
       activeChannel,
+      readActiveChannel,
       channelLoading,
       subscribeWs,
       subscribeReconnect,
       refreshInboxCount,
     },
     {
-      setFlaggedIds,
       setPendingFiles,
       setInput,
       setQuotedMessage,
-      setActiveSkill: (skill: SkillEntry | null) =>
-        slashCommandRef.current?.setActiveSkill(skill),
-      clearActiveSkill: () => slashCommandRef.current?.clearActiveSkill(),
-      inputRef,
-      quotedMessageRef,
-      pendingFilesRef,
-      activeSkillRef,
-      draftMetaRestoredRef,
+      setActiveSkill: (skill: SkillEntry | null) => activeSkillNameAtom.set(skill?.name ?? null),
+      clearActiveSkill: () => activeSkillNameAtom.set(null),
+      readInput: inputAtom.get,
+      readQuotedMessage: quotedMessageAtom.get,
+      readPendingFiles,
+      readActiveSkill: () => workspaceOwner.queryClient.getQueryData<SkillEntry[]>(workspaceOwner.key("agent-skills", agentId))?.find((skill) => skill.name === activeSkillNameAtom.get()) ?? null,
+      markDraftRestored: () => draftRestored.set(true),
     },
   );
 
@@ -303,51 +246,60 @@ export function AgentChatView({
     handleNap,
   } = chat;
 
+  const {
+    artifactSheetOpen,
+    setArtifactSheetOpen,
+    selectedArtifact,
+    setSelectedArtifact,
+    emailSheetOpen,
+    setEmailSheetOpen,
+    selectedEmailId,
+    setSelectedEmailId,
+    calendarEventSheetOpen,
+    setCalendarEventSheetOpen,
+    selectedCalendarEventId,
+    setSelectedCalendarEventId,
+    issueSheetOpen,
+    setIssueSheetOpen,
+    selectedIssueId,
+    issueDetail,
+    issueDetailLoading,
+    issueTraceTasks,
+    issueActiveTask,
+    openIssue,
+    updateSelectedIssue,
+  } = useChatSheets(workspaceOwner, chat.chatView);
+  const [lightboxArtifact, setLightboxArtifact] = useChatArtifactSelection(workspaceOwner, chat.chatView, selectedIssueId);
+
+  const { flaggedIds, handleToggleFlag } = useMessageFlags(workspaceOwner, chat.chatView, conversation?.id ?? null);
+
+  const chatActionKey = useMemo(() => workspaceOwner.key("chat", "action", crypto.randomUUID()), [workspaceOwner]);
+  type ChatAction = { original: ReturnType<typeof captureChatIntent>; conversationId: string; resources: Map<string, QueryReceipt> } & ({ kind: "thread"; messageId: string } | { kind: "stop" });
+  const chatAction = useMutation({ mutationKey: chatActionKey, gcTime: 0, scope: { id: JSON.stringify(chatActionKey) },
+    mutationFn: async (action: ChatAction) => {
+      assertChatIntent(action.original);
+      return runChatIntentRequest(action.original, async (options) => {
+        if (action.kind === "thread") return createThread(action.conversationId, action.messageId, "", workspaceId, options);
+        const task = await cancelActiveTask(action.conversationId, workspaceId, options);
+        assertChatIntent(action.original);
+        const key = workspaceOwner.key("chat", "task", task.id), ticket = action.resources.get(JSON.stringify(key));
+        if (ticket ? isQueryReceiptCurrent(ticket) : !workspaceOwner.queryClient.getQueryCache().find({ queryKey: key, exact: true })) workspaceOwner.queryClient.setQueryData(key, task);
+        return task;
+      });
+    },
+  });
+  const stopping = useIsMutating({ mutationKey: chatActionKey, exact: true, predicate: (mutation) => (mutation.state.variables as ChatAction).kind === "stop" }) > 0;
+  const captureChatAction = () => {
+    const original = captureChatIntent(workspaceOwner, chat.chatView); assertChatIntent(original);
+    return { original, resources: new Map(workspaceOwner.queryClient.getQueryCache().findAll({ queryKey: workspaceOwner.key("chat", "task") }).map((query) => [JSON.stringify(query.queryKey), captureQueryReceipt(workspaceOwner.queryClient, query.queryKey)])) };
+  };
+
   const { versionMap, duplicateFilenames } = useMemo(
     () => computeArtifactVersions(agentArtifacts),
     [agentArtifacts],
   );
 
-  // Fetch root message for thread conversations
-  useEffect(() => {
-    if (!conversation?.parent_message_id || !workspaceId) {
-      setThreadRootMessage(null);
-      return;
-    }
-    conversationInit(conversation.id, workspaceId)
-      .then((data) => {
-        if (data.root_message) setThreadRootMessage(data.root_message);
-      })
-      .catch(() => {});
-  }, [conversation?.id, conversation?.parent_message_id, workspaceId]);
-
-  const fetchThreadSummaries = useCallback(() => {
-    if (!conversation?.id || !workspaceId) return;
-    getThreadSummaries(conversation.id, workspaceId)
-      .then((data) => {
-        const map = new Map<string, { thread_id: string; reply_count: number; last_reply_at: string | null; thread_title: string }>();
-        for (const s of data.thread_summaries) {
-          map.set(s.parent_message_id, {
-            thread_id: s.thread_id,
-            reply_count: s.reply_count,
-            last_reply_at: s.last_reply_at,
-            thread_title: s.thread_title,
-          });
-        }
-        setThreadSummaries(map);
-      })
-      .catch(() => {});
-  }, [conversation?.id, workspaceId]);
-
-  useEffect(() => { fetchThreadSummaries(); }, [fetchThreadSummaries]);
-
-  useEffect(() => {
-    return subscribeWs((msg: WsMessage) => {
-      if (msg.type === "thread.created" || msg.type === "thread.reply") {
-        fetchThreadSummaries();
-      }
-    });
-  }, [subscribeWs, fetchThreadSummaries]);
+  const { threadRootMessage, threadSummaries, readThreadSummary, summariesKey, agentSkills } = useChatThreadResources(workspaceOwner, chat.chatView, conversation, agentId, subscribeWs);
 
   const agentAvatarUrl = useMemo(
     () => agents.find((a) => a.id === agentId)?.avatar_url ?? null,
@@ -361,57 +313,31 @@ export function AgentChatView({
       const url = URL.createObjectURL(file);
       setLightboxLocalUrl({ url, filename: file.name });
     },
-    [],
+    [setLightboxLocalUrl],
   );
 
   const previewArtifact = useCallback((artifact: Artifact) => {
     setSelectedArtifact(artifact);
     setArtifactSheetOpen(true);
   }, [setSelectedArtifact, setArtifactSheetOpen]);
-  const handleArtifactClick = useArtifactClick(workspaceId, previewArtifact, setLightboxArtifact);
-  const handleIssueArtifactClick = useArtifactClick(workspaceId, previewArtifact, setLightboxArtifact);
+  const handleArtifactClick = useArtifactClick(workspaceId, previewArtifact, setLightboxArtifact, JSON.stringify([agentId, targetConvId, activeChannel, selectedIssueId]));
+  const handleIssueArtifactClick = useArtifactClick(workspaceId, previewArtifact, setLightboxArtifact, JSON.stringify([agentId, targetConvId, activeChannel, selectedIssueId]));
 
   // Editor plain text + caret, reported up from the composer, drive the
   // slash-command popup (mentions are handled natively inside the composer).
-  const [editorText, setEditorText] = useState("");
+  const [editorText, setEditorText] = useAtom(useCreateAtom(""));
 
   const otherAgents = useMemo(
     () => agents.filter((a) => a.id !== agentId),
     [agents, agentId],
   );
 
-  // Slash command skills — fetch from D1 on mount
-  const [agentSkills, setAgentSkills] = useState<SkillEntry[]>([]);
-  const skillsFetchedRef = useRef(false);
-
-  useEffect(() => {
-    if (skillsFetchedRef.current) return;
-    skillsFetchedRef.current = true;
-    getAgentSkills(agentId, workspaceId)
-      .then((res) => setAgentSkills(res.skills as SkillEntry[]))
-      .catch(() => { });
-  }, [agentId, workspaceId]);
-
-  const [initialActiveSkill] = useState<SkillEntry | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      const meta = JSON.parse(
-        localStorage.getItem(
-          `chat-draft-meta:${agentId}:${targetConvId ?? "default"}`,
-        ) ?? "null",
-      );
-      return meta?.skill ?? null;
-    } catch {
-      return null;
-    }
-  });
-
   const slashCommand = useSlashCommand({
     input: editorText,
     caretIndex,
     skills: agentSkills,
     onInputChange: () => composerRef.current?.clear(),
-    initialActiveSkill,
+    activeSkillNameAtom,
     getAnchorPos: useCallback(
       (triggerStart: number) =>
         composerRef.current?.coordsAtTextIndex(triggerStart) ?? null,
@@ -424,20 +350,6 @@ export function AgentChatView({
     }, []),
   });
 
-  // Bridge `slashCommand` (defined here, after `useAgentChat` because it needs
-  // the hook-created `composerRef`) back to the orchestration: a ref the hook's
-  // setActiveSkill/clearActiveSkill wrappers call, and a useLatest-style sync of
-  // `activeSkill` into the `activeSkillRef` the hook reads inside handleSend.
-  // MUST be a layout effect, not a passive one: the hook's load effect (passive)
-  // runs on first mount and calls setActiveSkill to restore a saved skill draft.
-  // React fires all layout effects of a commit before any passive effect, so this
-  // populates slashCommandRef before the load effect reads it — a passive sync
-  // here would still be null then and silently drop the restore.
-  useLayoutEffect(() => {
-    slashCommandRef.current = slashCommand;
-    activeSkillRef.current = slashCommand.activeSkill;
-  });
-
   useEffect(() => {
     if (agentSkills.length === 0 || !slashCommand.activeSkill) return;
     const exists = agentSkills.some(
@@ -448,17 +360,17 @@ export function AgentChatView({
   }, [agentSkills]);
 
   useEffect(() => {
-    const key = `chat-draft:${agentId}:${targetConvId ?? "default"}`;
+    const key = `chat-draft:${workspaceOwner.application.userId}:${workspaceId}:${agentId}:${targetConvId ?? "default"}`;
     if (input) {
       localStorage.setItem(key, input);
     } else {
       localStorage.removeItem(key);
     }
-  }, [input, agentId, targetConvId]);
+  }, [input, agentId, targetConvId, workspaceOwner.application.userId, workspaceId]);
 
   useEffect(() => {
-    if (!draftMetaRestoredRef.current) return;
-    const key = `chat-draft-meta:${agentId}:${targetConvId ?? "default"}`;
+    if (!draftRestored.get()) return;
+    const key = `chat-draft-meta:${workspaceOwner.application.userId}:${workspaceId}:${agentId}:${targetConvId ?? "default"}`;
     const meta: {
       skill?: { name: string; description: string } | null;
       quote?: { id: string; excerpt: string } | null;
@@ -477,7 +389,7 @@ export function AgentChatView({
     } else {
       localStorage.removeItem(key);
     }
-  }, [slashCommand.activeSkill, quotedMessage, agentId, targetConvId]);
+  }, [slashCommand.activeSkill, quotedMessage, agentId, targetConvId, draftRestored, workspaceOwner.application.userId, workspaceId]);
 
   useEffect(() => {
     if (!sending) {
@@ -530,105 +442,34 @@ export function AgentChatView({
     openAgentChat(agId, { conversationId: convId });
   }, [openAgentChat]);
 
-  const threadSummariesRef = useLatest(threadSummaries);
-  const conversationRef = useLatest(conversation);
-  const fetchThreadSummariesRef = useLatest(fetchThreadSummaries);
-
-  const handleReplyInThread = useCallback(async (msgId: string) => {
-    const summary = threadSummariesRef.current.get(msgId);
-    if (summary?.thread_id) {
-      openAgentChat(agentId, { conversationId: summary.thread_id });
-    } else if (conversationRef.current) {
-      try {
-        const result = await createThread(conversationRef.current.id, msgId, "", workspaceId);
-        openAgentChat(agentId, { conversationId: result.conversation.id });
-        fetchThreadSummariesRef.current();
-      } catch {}
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- refs are stable
-  }, [openAgentChat, agentId, workspaceId]);
-
-  useEffect(() => {
-    if (!issueSheetOpen || !selectedIssueId) return;
-
-    return subscribeWs((msg: WsMessage) => {
-      if (
-        msg.type === "task.updated" &&
-        issueTaskId &&
-        msg.taskId === issueTaskId
-      ) {
-        getTask(issueTaskId, workspaceId)
-          .then((task) => setIssueActiveTask(task))
-          .catch(() => { });
-      }
-      if (
-        msg.type === "conversation.message" &&
-        issueConvId &&
-        msg.conversationId === issueConvId
-      ) {
-        setIssueDetail((prev) => {
-          if (!prev) return prev;
-          if (prev.messages.some((m) => m.id === msg.message.id)) return prev;
-          return { ...prev, messages: [...prev.messages, msg.message] };
-        });
-        if (
-          msg.message.role === "event" &&
-          msg.message.content.startsWith("Issue status changed:")
-        ) {
-          const match = msg.message.content.match(/-> (\w+)/);
-          if (match) {
-            setIssueDetail((prev) =>
-              prev
-                ? {
-                  ...prev,
-                  issue: {
-                    ...prev.issue,
-                    status: match[1] as Issue["status"],
-                  },
-                }
-                : prev,
-            );
-          }
-        }
-      }
-      if (msg.type === "issue.comment" && msg.issueId === selectedIssueId) {
-        setIssueDetail((prev) => {
-          if (!prev) return prev;
-          if (prev.comments.some((c) => c.id === msg.comment.id)) return prev;
-          return { ...prev, comments: [...prev.comments, msg.comment] };
-        });
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- setState fns are stable
-  }, [
-    issueSheetOpen,
-    selectedIssueId,
-    issueConvId,
-    issueTaskId,
-    workspaceId,
-    subscribeWs,
-  ]);
-
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [stopping, setStopping] = useState(false);
-
-  const isTaskActive =
-    !!activeTask &&
-    !["completed", "failed", "cancelled", "superseded"].includes(
-      activeTask.status,
-    );
-
-  const handleStop = useCallback(async () => {
-    if (!conversation?.id || stopping) return;
-    setStopping(true);
+  const handleReplyInThread = async (msgId: string) => {
+    const action = captureChatAction(), current = chat.readConversation();
+    const summary = readThreadSummary(msgId);
+    if (summary?.thread_id) { openAgentChat(agentId, { conversationId: summary.thread_id }); return; }
+    if (!current || workspaceOwner.queryClient.isMutating({ mutationKey: chatActionKey, exact: true })) return;
+    const summaryResource = workspaceOwner.queryClient.getQueryCache().find({ queryKey: summariesKey, exact: true });
     try {
-      await cancelActiveTask(conversation.id, workspaceId);
-    } catch {
-      toast.error("Failed to stop the task");
-    } finally {
-      setStopping(false);
+      const result = await chatAction.mutateAsync({ ...action, kind: "thread", conversationId: current.id, messageId: msgId }) as Awaited<ReturnType<typeof createThread>>;
+      assertChatIntent(action.original);
+      if (summaryResource && workspaceOwner.queryClient.getQueryCache().find({ queryKey: summariesKey, exact: true }) === summaryResource) void workspaceOwner.queryClient.invalidateQueries({ queryKey: summariesKey, exact: true }).catch(() => undefined);
+      openAgentChat(agentId, { conversationId: result.conversation.id });
+    } catch (error) {
+      try { assertChatIntent(action.original); } catch { return; }
+      if (!isAbortError(error)) toast.error("Failed to create thread");
     }
-  }, [conversation?.id, workspaceId, stopping]);
+  };
+
+  const [menuOpen, setMenuOpen] = useAtom(useCreateAtom(false));
+  const isTaskActive = !!activeTask && !["completed", "failed", "cancelled", "superseded"].includes(activeTask.status);
+  const handleStop = async () => {
+    const action = captureChatAction(), current = chat.readConversation();
+    if (!current || workspaceOwner.queryClient.isMutating({ mutationKey: chatActionKey, exact: true, predicate: (mutation) => (mutation.state.variables as ChatAction).kind === "stop" })) return;
+    try { await chatAction.mutateAsync({ ...action, kind: "stop", conversationId: current.id }); }
+    catch (error) {
+      try { assertChatIntent(action.original); } catch { return; }
+      if (!isAbortError(error)) toast.error("Failed to stop the task");
+    }
+  };
 
   // Rotating capability-hint placeholder for the idle, empty composer. Freezes
   // on focus/typing, resumes on empty blur; never rotates while a task is
@@ -1292,10 +1133,7 @@ export function AgentChatView({
         open={artifactSheetOpen}
         onOpenChange={(v) => {
           setArtifactSheetOpen(v);
-          if (!v)
-            setTimeout(() => {
-              setSelectedArtifact(null);
-            }, 300);
+
         }}
         artifacts={selectedArtifact ? [selectedArtifact] : agentArtifacts}
         workspaceId={workspaceId}
@@ -1308,7 +1146,7 @@ export function AgentChatView({
         open={emailSheetOpen}
         onOpenChange={(v) => {
           setEmailSheetOpen(v);
-          if (!v) setTimeout(() => setSelectedEmailId(null), 300);
+
         }}
         emailId={selectedEmailId}
         workspaceId={workspaceId}
@@ -1319,7 +1157,7 @@ export function AgentChatView({
         open={calendarEventSheetOpen}
         onOpenChange={(v) => {
           setCalendarEventSheetOpen(v);
-          if (!v) setTimeout(() => setSelectedCalendarEventId(null), 300);
+
         }}
         calendarEventId={selectedCalendarEventId}
         workspaceId={workspaceId}
@@ -1329,12 +1167,7 @@ export function AgentChatView({
         open={issueSheetOpen}
         onOpenChange={(v) => {
           setIssueSheetOpen(v);
-          if (!v)
-            setTimeout(() => {
-              setSelectedIssueId(null);
-              setIssueDetail(null);
-              setIssueActiveTask(null);
-            }, 300);
+
         }}
         agents={agents}
         issue={issueDetail?.issue ?? null}
@@ -1353,46 +1186,8 @@ export function AgentChatView({
         traceTasks={issueTraceTasks}
         slug={slug}
         workspaceId={workspaceId}
-        onUpdate={async (issueId, patch) => {
-          try {
-            const updated = await updateIssue(workspaceId, issueId, patch);
-            setIssueDetail((prev) =>
-              prev && prev.issue.id === issueId
-                ? {
-                  ...prev,
-                  issue: {
-                    ...prev.issue,
-                    ...patch,
-                    updated_at: updated.updated_at,
-                  },
-                }
-                : prev,
-            );
-          } catch (err) {
-            toast.error(
-              err instanceof Error ? err.message : "Failed to update issue",
-            );
-          }
-        }}
-        onStatusChange={async (issueId, status) => {
-          try {
-            await updateIssue(workspaceId, issueId, {
-              status: status as Issue["status"],
-            });
-            setIssueDetail((prev) =>
-              prev && prev.issue.id === issueId
-                ? {
-                  ...prev,
-                  issue: { ...prev.issue, status: status as Issue["status"] },
-                }
-                : prev,
-            );
-          } catch (err) {
-            toast.error(
-              err instanceof Error ? err.message : "Failed to update status",
-            );
-          }
-        }}
+        onUpdate={updateSelectedIssue}
+        onStatusChange={(issueId, status) => updateSelectedIssue(issueId, { status: status as Issue["status"] })}
         onCommented={() => {
           if (selectedIssueId) openIssue(selectedIssueId);
         }}

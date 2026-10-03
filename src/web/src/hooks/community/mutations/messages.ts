@@ -1,15 +1,21 @@
 "use client"
 
+import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
+
 import { useCallback } from "react"
-import {
-  useMutation,
-  useQueryClient,
-  type InfiniteData,
-} from "@tanstack/react-query"
+
+import { useCommunityMutationOrigin } from "../community-origin"
+import { getCommunityRuntime, useCommunityRuntime } from "@/stores/community/runtime"
+
+
+
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch, toastApiError } from "@/lib/api/client"
-import { ApiError } from "@/lib/errors"
+import { ApiError, isAbortError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
+import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
+import { publishCommunityMessageFields, publishCommunityMessages, publishCommunityCreatedChannel } from "@/lib/community-db/sync"
 import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
 import { formatAttachmentSize } from "@/lib/community/attachment-presentation"
 import { attachmentThumbnailUrl, attachmentUrl } from "@/lib/community/storage"
@@ -17,20 +23,12 @@ import {
   projectPostedMessage,
   type PostedMessage,
 } from "@/lib/community/message-wire"
-import { useCommunityStore } from "@/stores/community"
-import { useMessageStreamStore } from "@/stores/community/message-stream"
-import { getMessageOverlay } from "@/stores/community/message-stream"
-import {
-  materializeMessageStream,
-  type CanonicalMessage,
-  type MessageScope,
-} from "@/lib/community/message-stream"
-import type { Attachment, MessagesPage, Msg } from "@/lib/community/models/message"
-import type { PinsResponse } from "@/hooks/community/use-channel-panels"
-import type {
-  MarkedResponse,
-  MessageMarkedResponse,
-} from "@/hooks/community/use-inbox"
+
+
+
+import type { Attachment, Msg } from "@/lib/community/models/message"
+
+
 import {
   getForumSidebarBase,
   hasForumSidebarThread,
@@ -38,7 +36,6 @@ import {
   isForumSidebarParent,
   patchForumSidebarActivityExact,
 } from "@/hooks/community/use-forum-sidebar-threads"
-import { reconcileForumOpenerTitle } from "@/hooks/community/forum-opener-title-reconciliation"
 import { isBlocked, type MentionType } from "@alook/shared"
 import {
   getActiveAccountUnreadProjection,
@@ -48,7 +45,7 @@ import {
 } from "@/hooks/community/account-unread-projection"
 import { reconcileAccountReadState } from "@/hooks/community/community-ws/read-state-reconciliation"
 import { reconcileAccountAttention } from "@/hooks/community/use-account-attention"
-import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+
 import {
   clearAttentionOptimistically,
   commitAttentionOptimisticSnapshot,
@@ -63,42 +60,10 @@ import {
 } from "@/lib/community-db/sync"
 
 
-/**
- * Message-scoped mutation hooks — the split of the God-context's
- * `sendMessage`/`toggleReaction`/`pinMessage`/etc. into standalone
- * `useMutation` hooks. Message existence is owned by the session overlay;
- * field-only operations and panel resources may still patch TanStack Query.
- * Each hook performs its fetch inside `mutationFn` and applies the matching
- * reducer/cache terminal transition on success or failure.
- *
- * Rules of engagement:
- * - Never invalidate on success unless there's no server-broadcast path — the
- *   WS handler already patches the cache. Over-invalidating causes a
- *   double-fetch (WS invalidate then success invalidate).
- * - Reads from cache via `queryClient.getQueryData` for the pre-mutation
- *   snapshot, never from parent-supplied props — snapshots must be captured
- *   at the same instant they're written back on rollback.
- */
-
-// ── Helpers ─────────────────────────────────────────────────────────────────
-
-type PageCache = InfiniteData<MessagesPage>
-
-function patchContentById(cache: PageCache | undefined, id: string, content: string): PageCache | undefined {
-  if (!cache) return cache
-  let touched = false
-  const pages = cache.pages.map((page) => ({
-    ...page,
-    messages: page.messages.map((message) => {
-      if (message.id !== id) return message
-      touched = true
-      return { ...message, content }
-    }),
-  }))
-  return touched ? { ...cache, pages } : cache
-}
+type OriginalView = (() => void) & { signal: AbortSignal }
 
 type EditMessageArgs = {
+  assertActive?: OriginalView
   serverId: string
   channelId: string
   messageId: string
@@ -107,68 +72,47 @@ type EditMessageArgs = {
   forumThreadId?: string
 }
 
-type EditMessageContext = {
-  previous: PageCache | undefined
-  previousContent: string | undefined
-  key: readonly unknown[]
-  scope: MessageScope
-  previousMessage: { content: string } | undefined
-  messageKey: readonly unknown[]
-}
-
 export function useEditMessage() {
+  const origin = useCommunityMutationOrigin()
   const queryClient = useQueryClient()
-  return useMutation<void, Error, EditMessageArgs, EditMessageContext>({
-    mutationFn: async ({ messageId, content }) => {
-      await apiFetch(`/api/community/messages/${messageId}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ content }),
-      })
-    },
-    onMutate: async ({ serverId, channelId, messageId, content }) => {
-      const key = communityKeys.channelMessages(channelId)
-      const scope: MessageScope = { kind: "channel", id: channelId, serverId }
-      const messageKey = communityKeys.message(messageId)
+  type Intent = EditMessageArgs & { original: ReturnType<typeof origin.begin>["token"] }
+  const native = useMutation<void, Error, Intent>({
+    scope: { id: "community-message-field-commands" },
+    mutationFn: async ({ channelId, messageId, content, original: token, assertActive }) => {
+      origin.assert(token); assertActive?.()
+      const registry = origin.registry
+      await registry?.ready
+      origin.assert(token); assertActive?.()
+      await registry!.collections.messages.preload()
+      origin.assert(token); assertActive?.()
       await Promise.all([
-        queryClient.cancelQueries({ queryKey: key }),
-        queryClient.cancelQueries({ queryKey: messageKey }),
+        queryClient.cancelQueries({ queryKey: communityKeys.channelMessages(channelId) }),
+        queryClient.cancelQueries({ queryKey: communityKeys.message(messageId), exact: true }),
       ])
-      const previous = queryClient.getQueryData<PageCache>(key)
-      const previousMessage = queryClient.getQueryData<{ content: string }>(messageKey)
-      const previousContent = currentMaterializedMessage(previous, scope, messageId)?.content
-      queryClient.setQueryData<PageCache>(key, (cache) => patchContentById(cache, messageId, content))
-      queryClient.setQueryData<{ content: string }>(messageKey, (message) => message ? { ...message, content } : message)
-      useMessageStreamStore.getState().dispatch(scope, {
-        type: "messageEdited",
-        messageId,
-        content,
-      })
-      return { previous, previousContent, key, scope, previousMessage, messageKey }
-    },
-    onError: (_error, _variables, context) => {
-      if (!context) return
-      queryClient.setQueryData(context.key, context.previous)
-      if (context.previousContent !== undefined) {
-        useMessageStreamStore.getState().dispatch(context.scope, {
-          type: "messageEdited",
-          messageId: _variables.messageId,
-          content: context.previousContent,
-        })
+      origin.assert(token); assertActive?.()
+      const persist = async () => {
+        try {
+          await apiFetch(`/api/community/messages/${messageId}`, {
+            method: "PATCH",
+            body: JSON.stringify({ content }),
+            ...communityRequestOptions(queryClient, token, assertActive?.signal, () => { origin.assert(token); assertActive?.() }),
+          })
+          origin.assert(token); assertActive?.()
+          publishCommunityMessageFields(queryClient, messageId, { content }, { token, signal: assertActive?.signal })
+        } catch (error) { origin.assert(token); throw error }
       }
-      queryClient.setQueryData(context.messageKey, context.previousMessage)
-    },
-    onSuccess: async (_data, variables) => {
-      if (!variables.forumChannelId || !variables.forumThreadId) return
-      await reconcileForumOpenerTitle(queryClient, {
-        serverId: variables.serverId,
-        forumChannelId: variables.forumChannelId,
-        childChannelId: variables.forumThreadId,
-        openerMessageId: variables.messageId,
-        content: variables.content,
+      const transaction = registry!.dbClient.createTransaction({ autoCommit: false, mutationFn: persist })
+      transaction.mutate(() => {
+        if (registry!.collections.messages.has(messageId)) {
+          registry!.collections.messages.update(messageId, (row) => { row.content = content })
+        }
       })
+      try { if (transaction.mutations.length) await transaction.commit(); else await persist() } catch (error) { origin.assert(token); throw error }
     },
   })
+  const capture = useCallback((input: EditMessageArgs): Intent => { input.assertActive?.(); return { ...input, original: origin.begin().token } }, [origin])
+  const assertCurrent = useCallback((args: Intent) => { origin.assert(args.original); args.assertActive?.() }, [origin])
+  return useNativeMutationFacade(native, capture, assertCurrent)
 }
 
 /**
@@ -228,6 +172,7 @@ export function sendNonce(): string {
 // ── Send message (channel/thread) ──────────────────────────────────────────
 
 export type SendMessageArgs = {
+  assertActive?: OriginalView
   serverId: string
   channelId: string
   forumParentChannelId?: string
@@ -259,21 +204,26 @@ export type SendMessageResult = { message: PostedMessage; deduped?: boolean }
  * `/channels/:id/messages`.
  */
 export function useSendMessage() {
+  const origin = useCommunityMutationOrigin()
   const queryClient = useQueryClient()
-  return useMutation<
+  type Intent = SendMessageArgs & { original: ReturnType<typeof origin.begin>["token"] }
+  const native = useMutation<
     SendMessageResult,
     Error,
-    SendMessageArgs
+    Intent
   >({
-    mutationFn: async ({ channelId, content, replyToId, replyTo, mentionType, attachments, nonce }) => {
+    mutationFn: async ({ channelId, content, replyToId, replyTo, mentionType, attachments, nonce, original: token, assertActive }) => {
+      origin.assert(token); assertActive?.()
       // Server receives only the attachment IDS (reserve-by-id); the rest of the
       // descriptor is client-only (optimistic VM). Dimensions already rode the
       // upload, so they are NOT re-sent here (single-source guard).
       const attachmentIds = attachments?.map((a) => a.id)
-      return apiFetch<SendMessageResult>(
+      const result = await origin.request<SendMessageResult>(token,
         `/api/community/channels/${channelId}/messages`,
         {
           method: "POST",
+          signal: assertActive?.signal,
+          assertActive,
           body: JSON.stringify({
             content,
             replyToId: replyTo?.id ?? replyToId,
@@ -283,14 +233,22 @@ export function useSendMessage() {
           }),
         },
       )
+      await origin.registry!.collections.messages.preload()
+      origin.assert(token); assertActive?.()
+      const message = projectPostedMessage(result.message, nonce ?? "")
+      publishCommunityMessages(queryClient, { channelId, messages: [{ ...message, ...(attachments?.length ? { attachments: attachments.map((attachment) => toAttachmentVm(channelId, attachment)) } : {}), ...(replyTo ? { replyTo } : {}) }], proof: { token, signal: assertActive?.signal } })
+      return result
     },
     onError: (err, args) => {
+      try { origin.assert(args.original) } catch { return }
       if (args.nonce) {
-        useMessageStreamStore.getState().dispatch(
+        getCommunityRuntime(queryClient).messageStream.actions.dispatch(
           { kind: "channel", id: args.channelId, serverId: args.serverId },
           { type: "postFail", nonce: args.nonce },
         )
       }
+      try { args.assertActive?.() } catch { return }
+      if (isAbortError(err)) return
       // 429: server-side rate limit. Fire an explicit toast so the user
       // knows why the send failed — otherwise the only signal is a
       // `failed: true` pill, which reads like a generic error. The row
@@ -306,6 +264,7 @@ export function useSendMessage() {
       }
     },
     onSuccess: (data, args) => {
+      try { origin.assert(args.original) } catch { return }
       if (
         args.forumParentChannelId &&
         isForumSidebarParent(queryClient, args.serverId, args.forumParentChannelId)
@@ -326,7 +285,7 @@ export function useSendMessage() {
         }
       }
       if (!args.nonce) return
-      useMessageStreamStore.getState().dispatch(
+      getCommunityRuntime(queryClient).messageStream.actions.dispatch(
         { kind: "channel", id: args.channelId, serverId: args.serverId },
         {
           type: "postAck",
@@ -336,11 +295,15 @@ export function useSendMessage() {
       )
     },
   })
+  const capture = useCallback((input: SendMessageArgs): Intent => { input.assertActive?.(); return { ...input, original: origin.begin().token } }, [origin])
+  const assertCurrent = useCallback((args: Intent) => { origin.assert(args.original); args.assertActive?.() }, [origin])
+  return useNativeMutationFacade(native, capture, assertCurrent)
 }
 
 // ── Send DM message ────────────────────────────────────────────────────────
 
 export type SendDmMessageArgs = {
+  assertActive?: (() => void) & { signal: AbortSignal }
   dmId: string
   content: string
   replyToId?: string
@@ -352,17 +315,24 @@ export type SendDmMessageArgs = {
 }
 
 export function useSendDmMessage() {
-  return useMutation<
+  const origin = useCommunityMutationOrigin()
+  const queryClient = useQueryClient()
+  const communityRuntime = useCommunityRuntime()
+  type Intent = SendDmMessageArgs & { original: ReturnType<typeof origin.begin>["token"] }
+  const native = useMutation<
     SendMessageResult,
     Error,
-    SendDmMessageArgs
+    Intent
   >({
-    mutationFn: async ({ dmId, content, replyToId, replyTo, attachments, nonce }) => {
+    mutationFn: async ({ dmId, content, replyToId, replyTo, attachments, nonce, original: token, assertActive }) => {
+      origin.assert(token); assertActive?.()
       const attachmentIds = attachments?.map((a) => a.id)
-      return apiFetch<SendMessageResult>(
+      const result = await origin.request<SendMessageResult>(token,
         `/api/community/channels/${dmId}/messages`,
         {
           method: "POST",
+          signal: assertActive?.signal,
+          assertActive,
           body: JSON.stringify({
             content,
             replyToId: replyTo?.id ?? replyToId,
@@ -371,21 +341,30 @@ export function useSendDmMessage() {
           }),
         },
       )
+      await origin.registry!.collections.messages.preload()
+      origin.assert(token)
+      assertActive?.()
+      publishCommunityMessages(queryClient, { channelId: dmId, messages: [{ ...projectPostedMessage(result.message, nonce), ...(attachments?.length ? { attachments: attachments.map((attachment) => toAttachmentVm(dmId, attachment)) } : {}), ...(replyTo ? { replyTo } : {}) }], proof: { token } })
+      return result
     },
     onError: (err, args) => {
+      try { origin.assert(args.original) } catch { return }
       const scope = { kind: "dm" as const, id: args.dmId }
       if (err instanceof ApiError && err.status === 403 && isBlocked(err.message)) {
-        useMessageStreamStore.getState().dispatch(scope, {
+        communityRuntime.messageStream.actions.dispatch(scope, {
           type: "terminalReject",
           nonce: args.nonce,
         })
+        try { args.assertActive?.() } catch { return }
         toast("You cannot send messages to this user")
         return
       }
-      useMessageStreamStore.getState().dispatch(scope, {
+      communityRuntime.messageStream.actions.dispatch(scope, {
         type: "postFail",
         nonce: args.nonce,
       })
+      try { args.assertActive?.() } catch { return }
+      if (isAbortError(err)) return
       if (err instanceof ApiError && err.status === 429) {
         toast.error("Rate limited — please wait a moment before trying again")
       } else {
@@ -393,7 +372,8 @@ export function useSendDmMessage() {
       }
     },
     onSuccess: (data, args) => {
-      useMessageStreamStore.getState().dispatch(
+      try { origin.assert(args.original) } catch { return }
+      communityRuntime.messageStream.actions.dispatch(
         { kind: "dm", id: args.dmId },
         {
           type: "postAck",
@@ -403,412 +383,25 @@ export function useSendDmMessage() {
       )
     },
   })
+  const capture = useCallback((input: SendDmMessageArgs): Intent => { input.assertActive?.(); return { ...input, original: origin.begin().token } }, [origin])
+  const assertCurrent = useCallback((args: Intent) => { origin.assert(args.original); args.assertActive?.() }, [origin])
+  return useNativeMutationFacade(native, capture, assertCurrent)
 }
 
 // ── Reaction intents ──────────────────────────────────────────────────────
 
-export type ReactionArgs = {
-  serverId?: string
-  channelId?: string
-  dmId?: string
-  messageId: string
-  emoji: string
-  userId: string
-  currentMe?: boolean
-  skipDefaultCache?: boolean
-  syncReactionState?: (me: boolean) => void
-  onError?: (error: unknown) => void
-}
+export type { ReactionArgs } from "./message-command-inputs"
 
-type ReactionIntent = "toggle" | "add"
-
-// Apply an optimistic reaction state to any page cache that contains the
-// message. This mirrors the reducer in the God-context.
-function togglePageCacheReaction(
-  cache: PageCache | undefined,
-  messageId: string,
-  emoji: string,
-  userId: string,
-  add: boolean,
-): PageCache | undefined {
-  if (!cache) return cache
-  let touched = false
-  const pages = cache.pages.map((p) => {
-    if (!p.messages.some((m) => m.id === messageId)) return p
-    touched = true
-    const nextMessages = p.messages.map((m) =>
-      m.id === messageId ? toggleMessageReaction(m, emoji, userId, add) : m)
-    return { ...p, messages: nextMessages }
-  })
-  if (!touched) return cache
-  return { ...cache, pages }
-}
-
-function toggledReactions(
-  reactionsSource: Msg["reactions"],
-  emoji: string,
-  userId: string,
-  add: boolean,
-): NonNullable<Msg["reactions"]> {
-  const reactions = (reactionsSource ?? []).map((reaction) => ({
-    ...reaction,
-    userIds: [...(reaction.userIds ?? [])],
-  }))
-  const existing = reactions.find((reaction) => reaction.emoji === emoji)
-  if (add) {
-    if (existing) {
-      if (!existing.userIds.includes(userId)) existing.userIds.push(userId)
-      existing.count = existing.userIds.length
-      existing.me = true
-    } else {
-      reactions.push({ emoji, count: 1, me: true, userIds: [userId] })
-    }
-  } else if (existing) {
-    existing.userIds = existing.userIds.filter((id) => id !== userId)
-    existing.count = existing.userIds.length
-    existing.me = false
-    if (existing.count <= 0) reactions.splice(reactions.indexOf(existing), 1)
-  }
-  return reactions
-}
-
-function toggleMessageReaction(
-  message: Msg,
-  emoji: string,
-  userId: string,
-  add: boolean,
-): Msg {
-  return { ...message, reactions: toggledReactions(message.reactions, emoji, userId, add) }
-}
-
-function toggleSingleMessageReaction<T extends { reactions?: Msg["reactions"] }>(
-  message: T | undefined,
-  emoji: string,
-  userId: string,
-  add: boolean,
-): T | undefined {
-  return message
-    ? { ...message, reactions: toggledReactions(message.reactions, emoji, userId, add) }
-    : message
-}
-
-function messageScope(args: ReactionArgs): MessageScope | undefined {
-  if (args.channelId && args.serverId) {
-    return { kind: "channel", id: args.channelId, serverId: args.serverId }
-  }
-  return args.dmId ? { kind: "dm", id: args.dmId } : undefined
-}
-
-function currentMaterializedMessage(
-  cache: PageCache | undefined,
-  scope: MessageScope,
-  messageId: string,
-): Msg | undefined {
-  const base = cache?.pages.flatMap((page) => page.messages)
-    .filter((message): message is CanonicalMessage => message.seq !== undefined) ?? []
-  return materializeMessageStream(base, getMessageOverlay(scope))
-    .find((message) => message.id === messageId)
-}
-
-function refreshExistingReactionFallback(
-  cache: PageCache | undefined,
-  args: ReactionArgs,
-  add: boolean,
-): void {
-  const scope = messageScope(args)
-  if (!scope) return
-  const overlay = getMessageOverlay(scope)
-  const existing = [...overlay.liveById.values()].find((message) => message.id === args.messageId)
-  if (!existing) return
-  const source = currentMaterializedMessage(cache, scope, args.messageId) ?? existing
-  if (source.seq === undefined) return
-  useMessageStreamStore.getState().dispatch(scope, {
-    type: "liveRefreshed",
-    message: toggleMessageReaction(source, args.emoji, args.userId, add) as CanonicalMessage,
-  })
-}
-
-function currentMeStatus(
-  cache: PageCache | undefined,
-  messageId: string,
-  emoji: string,
-): boolean {
-  if (!cache) return false
-  for (const p of cache.pages) {
-    const msg = p.messages.find((m) => m.id === messageId)
-    if (!msg) continue
-    return msg.reactions?.find((r) => r.emoji === emoji)?.me ?? false
-  }
-  return false
-}
-
-// #9: 300ms coalescing window. A user tapping the same reaction pill in rapid
-// succession should collapse to one API call whose verb matches the final
-// state vs the *original* server state at first click — never a burst of
-// racing PUT/DELETE pairs. Mirrors the old context at
-// contexts/community/context.tsx:1061-1130.
-const REACTION_DEBOUNCE_MS = 300
-
-/** Testing hook — clears any pending reaction timers without firing. */
-export function _resetReactionTimers_forTesting() {
-  const timers = useCommunityStore.getState().reactionTimers
-  for (const { timer } of timers.values()) clearTimeout(timer)
-  timers.clear()
-}
-
-/**
- * Coordinated reaction-intent callback. Because the fetch verb (`PUT`/`DELETE`)
- * depends on the original `me` state, we express the pattern here as a
- * stable closure that (a) writes the optimistic toggle synchronously, (b)
- * schedules the fetch behind a 300ms debounce keyed by `${messageId}:${emoji}`
- * so rapid re-clicks collapse to one request measured against the *original*
- * server state at first click, and (c) rolls back on failure.
- *
- * The pending-timer map lives on `useCommunityStore.reactionTimers` — its
- * `reset()` (fired on sign-out) clears any outstanding timers before they can
- * hit an already-torn-down cache.
- */
-function useReactionApi(intent: ReactionIntent): (args: ReactionArgs) => void {
-  const queryClient = useQueryClient()
-  return useCallback((args: ReactionArgs) => {
-    const key = args.channelId
-      ? communityKeys.channelMessages(args.channelId)
-      : args.dmId
-        ? communityKeys.dmMessages(args.dmId)
-        : communityKeys.channelMessages("__none__")
-    const cache = queryClient.getQueryData<PageCache>(key)
-    const messageKey = communityKeys.message(args.messageId)
-    const singleMessage = queryClient.getQueryData<{ reactions?: Msg["reactions"] }>(messageKey)
-    const scope = messageScope(args)
-    const source = scope
-      ? currentMaterializedMessage(cache, scope, args.messageId)
-      : undefined
-    const wasMe = args.currentMe ?? (source
-      ? source.reactions?.find((reaction) => reaction.emoji === args.emoji)?.me ?? false
-      : singleMessage
-        ? singleMessage.reactions?.find((reaction) => reaction.emoji === args.emoji)?.me ?? false
-        : currentMeStatus(cache, args.messageId, args.emoji))
-    if (intent === "add" && wasMe) return
-    const nextMe = intent === "add" ? true : !wasMe
-    // Optimistic write is always synchronous — the debounce only defers the
-    // API call, not the visible UI.
-    if (!args.skipDefaultCache) {
-      queryClient.setQueryData<PageCache>(key, (c) =>
-        togglePageCacheReaction(c, args.messageId, args.emoji, args.userId, nextMe),
-      )
-      queryClient.setQueryData(messageKey, (message: typeof singleMessage) =>
-        toggleSingleMessageReaction(message, args.emoji, args.userId, nextMe),
-      )
-      refreshExistingReactionFallback(queryClient.getQueryData<PageCache>(key), args, nextMe)
-    }
-    args.syncReactionState?.(nextMe)
-
-    const timerKey = `${args.messageId}:${args.emoji}`
-    const reactionTimers = useCommunityStore.getState().reactionTimers
-    const pending = reactionTimers.get(timerKey)
-    if (pending) {
-      clearTimeout(pending.timer)
-      // If this click reverts to the ORIGINAL server state (net-zero over the
-      // debounce window), cancel outright — no API call ever fires.
-      if (pending.originalMe === nextMe) {
-        reactionTimers.delete(timerKey)
-        return
-      }
-    }
-    // `originalMe` is the server state at the very first click in this window
-    // — subsequent clicks within 300ms retain that capture so the final API
-    // verb reflects the true diff, not the intermediate optimistic flip-flops.
-    const originalMe = pending?.originalMe ?? wasMe
-
-    const timer = setTimeout(() => {
-      reactionTimers.delete(timerKey)
-      const method = originalMe ? "DELETE" : "PUT"
-      const url = `/api/community/messages/${args.messageId}/reactions/${encodeURIComponent(args.emoji)}`
-      apiFetch(url, { method }).catch((error) => {
-        // Roll back to the original server state on failure.
-        if (!args.skipDefaultCache) {
-          queryClient.setQueryData<PageCache>(key, (c) =>
-            togglePageCacheReaction(c, args.messageId, args.emoji, args.userId, originalMe),
-          )
-          queryClient.setQueryData(messageKey, (message: typeof singleMessage) =>
-            toggleSingleMessageReaction(message, args.emoji, args.userId, originalMe),
-          )
-          refreshExistingReactionFallback(queryClient.getQueryData<PageCache>(key), args, originalMe)
-        }
-        args.syncReactionState?.(originalMe)
-        args.onError?.(error)
-      })
-    }, REACTION_DEBOUNCE_MS)
-    reactionTimers.set(timerKey, { timer, originalMe })
-  }, [intent, queryClient])
-}
-
-export function useToggleReactionApi(): (args: ReactionArgs) => void {
-  return useReactionApi("toggle")
-}
-
-export function useAddReactionApi(): (args: ReactionArgs) => void {
-  return useReactionApi("add")
-}
+export { useToggleReactionApi, useAddReactionApi } from "./message-reactions"
 
 // ── Pin / unpin ────────────────────────────────────────────────────────────
 
-export type PinMessageArgs = { channelId: string; messageId: string }
-
-/**
- * Pin a message. The pins list (`communityKeys.pins(channelId)`) is small; we
- * refetch on success rather than reconstructing the enriched Msg locally.
- */
-export function usePinMessage() {
-  const queryClient = useQueryClient()
-  return useMutation<void, Error, PinMessageArgs, { key: readonly unknown[] } | undefined>({
-    mutationFn: async ({ channelId, messageId }) => {
-      await apiFetch(`/api/community/channels/${channelId}/pins`, {
-        method: "POST",
-        body: JSON.stringify({ messageId }),
-      })
-    },
-    onSuccess: (_data, args) => {
-      // Server broadcasts pin.add which triggers cache invalidation via WS.
-      // Still poke pins() here so a same-tab pinner sees it before the WS
-      // arrives (avoids "wait, did I click that?" flicker).
-      void queryClient.invalidateQueries({ queryKey: communityKeys.pins(args.channelId) })
-    },
-  })
-}
-
-export type UnpinMessageArgs = { channelId: string; messageId: string }
-
-export function useUnpinMessage() {
-  const queryClient = useQueryClient()
-  return useMutation<void, Error, UnpinMessageArgs, { snapshot: PinsResponse | undefined; key: readonly unknown[] }>({
-    mutationFn: async ({ channelId, messageId }) => {
-      await apiFetch(`/api/community/channels/${channelId}/pins/${messageId}`, {
-        method: "DELETE",
-      })
-    },
-    onMutate: async (args) => {
-      const key = communityKeys.pins(args.channelId)
-      await queryClient.cancelQueries({ queryKey: key })
-      const snapshot = queryClient.getQueryData<PinsResponse>(key)
-      queryClient.setQueryData<PinsResponse | undefined>(key, (prev) =>
-        prev ? { ...prev, pins: prev.pins.filter((p) => p.id !== args.messageId) } : prev,
-      )
-      return { snapshot, key }
-    },
-    onError: (_err, _args, ctx) => {
-      if (!ctx) return
-      if (ctx.snapshot) queryClient.setQueryData(ctx.key, ctx.snapshot)
-    },
-  })
-}
-
-// ── Mark / unmark (per-user saved messages) ──────────────────────────────────
-//
-// mark ≠ pin: a pin is channel-scoped and shared; a mark is the viewer's own
-// private saved-messages set. So these hit a distinct per-user route
-// (`/api/community/messages/{id}/marks`, self-scoped by ctx.userId server-side), never the
-// pins route. The ⋯ menu's Mark/Unmark label is driven by `useMessageMarked`
-// (a lazy single-row read on menu-open); these mutations flip that per-message
-// cache optimistically so the label updates instantly, and prune the Marked
-// list on unmark. POST is idempotent server-side (UNIQUE(userId,messageId)).
-
-export type MarkMessageArgs = { channelId: string; messageId: string }
-
-export function useMarkMessage() {
-  const queryClient = useQueryClient()
-  return useMutation<void, Error, MarkMessageArgs, { prev: MessageMarkedResponse | undefined }>({
-    mutationFn: async ({ channelId, messageId }) => {
-      // Message-keyed mark door (route/disc marks relocation): messageId in path,
-      // channelId in body (the membership + belongs-to-channel gate). PUT = mark.
-      await apiFetch(`/api/community/messages/${messageId}/marks`, {
-        method: "PUT",
-        body: JSON.stringify({ channelId }),
-      })
-    },
-    onMutate: async ({ messageId }) => {
-      const key = communityKeys.messageMarked(messageId)
-      await queryClient.cancelQueries({ queryKey: key })
-      const prev = queryClient.getQueryData<MessageMarkedResponse>(key)
-      queryClient.setQueryData<MessageMarkedResponse>(key, { marked: true })
-      return { prev }
-    },
-    onSuccess: () => {
-      // The Marked list gains a row — refetch it so the tab reflects the new
-      // save next time it's opened (list carries the enriched snapshot + seq
-      // we don't reconstruct locally).
-      void queryClient.invalidateQueries({ queryKey: communityKeys.inboxMarked() })
-    },
-    onError: (err, args, ctx) => {
-      queryClient.setQueryData(communityKeys.messageMarked(args.messageId), ctx?.prev)
-      toastApiError(err, "Failed to mark message")
-    },
-  })
-}
-
-export type UnmarkMessageArgs = { messageId: string }
-
-export function useUnmarkMessage() {
-  const queryClient = useQueryClient()
-  return useMutation<void, Error, UnmarkMessageArgs, {
-    prevMarked: MessageMarkedResponse | undefined
-    prevList: MarkedResponse | undefined
-  }>({
-    mutationFn: async ({ messageId }) => {
-      await apiFetch(`/api/community/messages/${messageId}/marks`, { method: "DELETE" })
-    },
-    onMutate: async ({ messageId }) => {
-      const markedKey = communityKeys.messageMarked(messageId)
-      const listKey = communityKeys.inboxMarked()
-      await queryClient.cancelQueries({ queryKey: markedKey })
-      const prevMarked = queryClient.getQueryData<MessageMarkedResponse>(markedKey)
-      const prevList = queryClient.getQueryData<MarkedResponse>(listKey)
-      queryClient.setQueryData<MessageMarkedResponse>(markedKey, { marked: false })
-      // Drop the row from the Marked list immediately (list rows are keyed by
-      // the message id via `m.id`, mirroring useDeleteMention's optimistic prune).
-      queryClient.setQueryData<MarkedResponse | undefined>(listKey, (prev) =>
-        prev ? { ...prev, marked: prev.marked.filter((mk) => mk.m.id !== messageId) } : prev,
-      )
-      return { prevMarked, prevList }
-    },
-    onError: (err, args, ctx) => {
-      queryClient.setQueryData(communityKeys.messageMarked(args.messageId), ctx?.prevMarked)
-      if (ctx?.prevList) queryClient.setQueryData(communityKeys.inboxMarked(), ctx.prevList)
-      toastApiError(err, "Failed to unmark message")
-    },
-  })
-}
-
-/**
- * Toggle a message's marked state with one call. Reads the per-message
- * `messageMarked` cache — populated by `useMessageMarked` when the menu that
- * fired this action opened — to decide POST (mark) vs DELETE (unmark). If the
- * read hasn't landed yet (cache miss), defaults to marking, which is safe:
- * POST is idempotent server-side, so a double-mark is a no-op rather than an
- * error. Returns a stable callback for the message-actions bundle.
- */
-export function useToggleMark() {
-  const queryClient = useQueryClient()
-  const { mutate: markMutate } = useMarkMessage()
-  const { mutate: unmarkMutate } = useUnmarkMessage()
-  return useCallback(
-    (channelId: string, messageId: string) => {
-      const cached = queryClient.getQueryData<MessageMarkedResponse>(
-        communityKeys.messageMarked(messageId),
-      )
-      if (cached?.marked) {
-        unmarkMutate({ messageId }, { onSuccess: () => toast("Removed from marked") })
-      } else {
-        markMutate({ channelId, messageId }, { onSuccess: () => toast("Message marked") })
-      }
-    },
-    [queryClient, markMutate, unmarkMutate],
-  )
-}
+export { usePinMessage, useUnpinMessage, useMarkMessage, useUnmarkMessage, useToggleMark } from "./message-memberships"
 
 // ── Create thread ──────────────────────────────────────────────────────────
 
 export type CreateThreadArgs = {
+  assertActive?: OriginalView
   serverId: string
   channelId: string // parent channel — used to invalidate the threads list
   messageId: string
@@ -818,65 +411,31 @@ export type CreateThreadArgs = {
 export type CreateThreadResult = { id: string }
 
 export function useCreateThread() {
-  const queryClient = useQueryClient()
-  return useMutation<CreateThreadResult, Error, CreateThreadArgs>({
-    mutationFn: async ({ messageId, name }) => {
-      // Unified create door (route/disc create-door step): POST /channels with
-      // {type:"thread", messageId, name} → get-or-create thread by root message.
-      return apiFetch<CreateThreadResult>(
-        `/api/community/channels`,
-        { method: "POST", body: JSON.stringify({ type: "thread", messageId, name }) },
-      )
-    },
-    onSuccess: (data, args) => {
-      // Live-patch the message row so the "Open thread" affordance appears
-      // immediately, then invalidate the thread list.
-      queryClient.setQueryData<PageCache>(
-        communityKeys.channelMessages(args.channelId),
-        (cache) => {
-          if (!cache) return cache
-          let touched = false
-          const pages = cache.pages.map((p) => {
-            if (!p.messages.some((m) => m.id === args.messageId)) return p
-            touched = true
-            return {
-              ...p,
-              messages: p.messages.map((m) =>
-                m.id === args.messageId
-                  ? { ...m, thread: { id: data.id, name: args.name, messageCount: 0 } }
-                  : m,
-              ),
-            }
-          })
-          if (!touched) return cache
-          return { ...cache, pages }
-        },
-      )
-      const scope: MessageScope = { kind: "channel", id: args.channelId, serverId: args.serverId }
-      const fallback = [...getMessageOverlay(scope).liveById.values()]
-        .find((message) => message.id === args.messageId)
-      if (fallback) {
-        const cached = queryClient.getQueryData<PageCache>(communityKeys.channelMessages(args.channelId))
-        const source = currentMaterializedMessage(cached, scope, args.messageId) ?? fallback
-        if (source.seq !== undefined) {
-          useMessageStreamStore.getState().dispatch(scope, {
-            type: "liveRefreshed",
-            message: {
-              ...source,
-              seq: source.seq,
-              thread: { id: data.id, name: args.name, messageCount: 0 },
-            },
-          })
-        }
-      }
-      void queryClient.invalidateQueries({ queryKey: communityKeys.threads(args.channelId) })
+  const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
+  type Intent = CreateThreadArgs & { original: ReturnType<typeof origin.begin>["token"]; resource: ReturnType<ReturnType<typeof queryClient.getQueryCache>["find"]> }
+  const native = useMutation<CreateThreadResult, Error, Intent>({
+    mutationFn: async (args) => {
+      const token = args.original
+      origin.assert(token); args.assertActive?.()
+      await origin.registry?.ready
+      origin.assert(token); args.assertActive?.()
+      await Promise.all([origin.registry!.collections.channels.preload(), origin.registry!.collections.messages.preload()])
+      origin.assert(token); args.assertActive?.()
+      const data = await origin.request<CreateThreadResult>(token, "/api/community/channels", { method: "POST", signal: args.assertActive?.signal, assertActive: args.assertActive, body: JSON.stringify({ type: "thread", messageId: args.messageId, name: args.name }) })
+      publishCommunityCreatedChannel(queryClient, { id: data.id, serverId: args.serverId, categoryId: null, name: args.name, type: "thread", parentChannelId: args.channelId, parentMessageId: args.messageId, creatorId: origin.registry!.accountId, position: 0, archived: false, muted: false, unread: false, tags: [], pending: false, messageCount: 0 }, { token, signal: args.assertActive?.signal })
+      if (args.resource && queryClient.getQueryCache().find({ queryKey: communityKeys.threads(args.channelId), exact: true }) === args.resource) void queryClient.invalidateQueries({ queryKey: communityKeys.threads(args.channelId), exact: true }, { cancelRefetch: false }).catch(() => undefined)
+      return data
     },
   })
+  const capture = useCallback((input: CreateThreadArgs): Intent => { input.assertActive?.(); return { ...input, original: origin.begin().token, resource: queryClient.getQueryCache().find({ queryKey: communityKeys.threads(input.channelId), exact: true }) } }, [origin, queryClient])
+  const assertCurrent = useCallback((args: Intent) => { origin.assert(args.original); args.assertActive?.() }, [origin])
+  return useNativeMutationFacade(native, capture, assertCurrent)
 }
 
 // ── Inbox mutations ────────────────────────────────────────────────────────
 
 export function useMarkAllInboxRead() {
+  const origin = useCommunityMutationOrigin()
   const queryClient = useQueryClient()
   const unreadProjection = getActiveAccountUnreadProjection(queryClient)
   type ReadAllResponse = { revision: number }
@@ -888,20 +447,23 @@ export function useMarkAllInboxRead() {
     tokens: Map<AccountUnreadDomain, MarkAllToken>
     snapshot?: AttentionOptimisticSnapshot
   }
-  return useMutation<DomainResult[], Error, void, MarkAllContext>({
-    mutationFn: async () => {
+  type Original = ReturnType<typeof origin.begin>["token"]
+  const mutation = useMutation<DomainResult[], Error, Original, MarkAllContext>({
+    scope: { id: "community-inbox-read-all" },
+    mutationFn: async (original) => {
       const requests = [
         ["mentions", "/api/community/users/me/inbox/mentions/read-all"],
         ["channels", "/api/community/users/me/inbox/unreads/read-all"],
         ["dms", "/api/community/users/me/inbox/dms/read-all"],
       ] as const
       const settled = await Promise.allSettled(requests.map(([, path]) => (
-        apiFetch<ReadAllResponse>(path, { method: "POST" })
+        origin.request<ReadAllResponse>(original, path, { method: "POST" })
       )))
       const results = requests.map(([domain], index) => ({
         domain,
         result: settled[index]!,
       }))
+      origin.assert(original)
       const failures = results.filter(
         (entry): entry is DomainResult & { result: PromiseRejectedResult } => (
           entry.result.status === "rejected"
@@ -910,8 +472,12 @@ export function useMarkAllInboxRead() {
       if (failures.length === results.length) throw failures[0]!.result.reason
       return results
     },
-    onMutate: async () => {
-      const registry = getCommunityDbRegistry(queryClient)
+    onMutate: async (token) => {
+      const registry = origin.registry
+      await registry?.ready
+      origin.assert(token)
+      await Promise.all([registry!.collections.attentionScopes.preload(), registry!.collections.attentionItems.preload()])
+      origin.assert(token)
       return {
         tokens: new Map<AccountUnreadDomain, MarkAllToken>([
           ["channels", unreadProjection.beginMarkAll("channels")],
@@ -921,7 +487,8 @@ export function useMarkAllInboxRead() {
         snapshot: registry ? clearAttentionOptimistically(registry) : undefined,
       }
     },
-    onSuccess: (results, _variables, context) => {
+    onSuccess: async (results, original, context) => {
+      origin.assert(original)
       let targetRevision = 0
       let firstFailure: unknown
       const failedDomains = new Set<AccountUnreadDomain>()
@@ -937,14 +504,15 @@ export function useMarkAllInboxRead() {
           firstFailure ??= result.reason
         }
       }
-      const registry = getCommunityDbRegistry(queryClient)
+      const registry = origin.registry
       if (registry && context.snapshot) {
         if (failedDomains.size === 0) {
-          commitAttentionOptimisticSnapshot(registry, context.snapshot)
+          await commitAttentionOptimisticSnapshot(registry, context.snapshot)
         } else {
-          restoreAttentionOptimisticDomains(registry, context.snapshot, failedDomains)
+          await restoreAttentionOptimisticDomains(registry, context.snapshot, failedDomains)
         }
       }
+      origin.assert(original)
       if (registry) void reconcileAccountAttention(registry).catch(() => undefined)
       if (firstFailure) toastApiError(firstFailure, "Some inbox items could not be marked read")
       void reconcileAccountReadState(queryClient, {
@@ -952,45 +520,59 @@ export function useMarkAllInboxRead() {
         targetRevision,
       }).catch(() => undefined)
     },
-    onError: (e, _variables, context) => {
+    onError: (e, original, context) => {
       for (const token of context?.tokens.values() ?? []) {
         unreadProjection.rollbackMarkAll(token)
       }
-      const registry = getCommunityDbRegistry(queryClient)
+      const registry = origin.registry
       if (registry && context?.snapshot) {
-        if (!restoreAttentionOptimisticSnapshot(registry, context.snapshot)) {
-          void reconcileAccountAttention(registry).catch(() => undefined)
-        }
+        restoreAttentionOptimisticSnapshot(registry, context.snapshot)
       }
+      try { origin.assert(original) } catch { return }
+      if (isAbortError(e)) return
+      if (registry) void reconcileAccountAttention(registry).catch(() => undefined)
       toastApiError(e, "Failed to mark inbox read")
       void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
       void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
     },
   })
+  return {
+    ...mutation,
+    mutate: (_variables?: void, options?: Parameters<typeof mutation.mutate>[1]) => mutation.mutate(origin.begin().token, options),
+    mutateAsync: (_variables?: void, options?: Parameters<typeof mutation.mutateAsync>[1]) => mutation.mutateAsync(origin.begin().token, options),
+  }
 }
 
 export type DeleteMentionArgs = { mentionId: string }
 
 export function useDeleteMention() {
+  const origin = useCommunityMutationOrigin()
   const queryClient = useQueryClient()
   const unreadProjection = getActiveAccountUnreadProjection(queryClient)
-  return useMutation<
+  type Original = ReturnType<typeof origin.begin>["token"]
+  const mutation = useMutation<
     { revision: number },
     Error,
-    DeleteMentionArgs,
+    { input: DeleteMentionArgs; original: Original },
     {
       token?: AccountUnreadDismissToken
       attentionSnapshot?: AttentionItemsOptimisticSnapshot
     }
   >({
-    mutationFn: async ({ mentionId }) => {
-      return apiFetch<{ revision: number }>(
+    scope: { id: "community-mention-delete" },
+    mutationFn: async ({ input: { mentionId }, original }) => {
+      return origin.request<{ revision: number }>(original,
         `/api/community/users/me/inbox/mentions/${mentionId}`,
         { method: "DELETE" },
       )
     },
-    onMutate: async (args) => {
-      const registry = getCommunityDbRegistry(queryClient)
+    onMutate: async ({ input: args, original }) => {
+      const registry = origin.registry
+      await registry?.ready
+      origin.assert(original)
+      await Promise.all([registry!.collections.attentionScopes.preload(), registry!.collections.attentionItems.preload()])
+      origin.assert(original)
+      const removed = Array.from(registry!.collections.attentionItems.values()).find((item) => item.sourceId === args.mentionId && (item.kind === "mention" || item.kind === "reply"))
       const attentionSnapshot = registry
         ? removeAttentionItemsOptimistically(
             registry,
@@ -1000,7 +582,6 @@ export function useDeleteMention() {
             ),
           )
         : undefined
-      const removed = attentionSnapshot?.items[0]
       const message = removed?.messageId
         ? getCanonicalCommunityMessages(queryClient)
           .find((candidate) => candidate.id === removed.messageId)
@@ -1015,28 +596,36 @@ export function useDeleteMention() {
         : undefined
       return { token, attentionSnapshot }
     },
-    onSuccess: (result, _args, context) => {
+    onSuccess: async (result, { original }, context) => {
+      origin.assert(original)
       if (context.token) unreadProjection.commitDismissMention(context.token, result?.revision)
-      const registry = getCommunityDbRegistry(queryClient)
+      const registry = origin.registry
       if (registry && context.attentionSnapshot) {
-        commitAttentionItemsOptimisticSnapshot(registry, context.attentionSnapshot)
+        await commitAttentionItemsOptimisticSnapshot(registry, context.attentionSnapshot)
+        origin.assert(original)
         void reconcileAccountAttention(registry).catch(() => undefined)
       }
       // Deleting a mention row removes it from the unread-mention aggregate
       // that feeds the server rail badge — refresh so the count drops.
       void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
     },
-    onError: (err, _args, ctx) => {
+    onError: (err, { original }, ctx) => {
       if (ctx?.token) unreadProjection.rollbackDismissMention(ctx.token)
-      const registry = getCommunityDbRegistry(queryClient)
+      const registry = origin.registry
       if (registry && ctx?.attentionSnapshot) {
-        if (!restoreAttentionItemsOptimisticSnapshot(registry, ctx.attentionSnapshot)) {
-          void reconcileAccountAttention(registry).catch(() => undefined)
-        }
+        restoreAttentionItemsOptimisticSnapshot(registry, ctx.attentionSnapshot)
       }
+      try { origin.assert(original) } catch { return }
+      if (isAbortError(err)) return
+      if (registry) void reconcileAccountAttention(registry).catch(() => undefined)
       toastApiError(err, "Failed to remove mention")
     },
   })
+  return {
+    ...mutation,
+    mutate: (input: DeleteMentionArgs, options?: Parameters<typeof mutation.mutate>[1]) => mutation.mutate({ input, original: origin.begin().token }, options),
+    mutateAsync: (input: DeleteMentionArgs, options?: Parameters<typeof mutation.mutateAsync>[1]) => mutation.mutateAsync({ input, original: origin.begin().token }, options),
+  }
 }
 
 // ── Load more messages ─────────────────────────────────────────────────────

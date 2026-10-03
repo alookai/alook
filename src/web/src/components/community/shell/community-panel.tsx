@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
 import { MessagesSquare, Pin, Search, Users } from "lucide-react"
 import { stripInlineMarkup, type CommunityRole as Role } from "@alook/shared"
 
@@ -26,6 +27,7 @@ export type CommunityPanelProps = {
   onOpenChange: (open: boolean) => void
   kind: Exclude<RightPanel, null>
   members: Member[]
+  memberScopeId?: string
   membersLoading?: boolean
   membersLoadingMore?: boolean
   membersHasMore?: boolean
@@ -36,6 +38,8 @@ export type CommunityPanelProps = {
   pinned: Msg[]
   pinnedLoading?: boolean
   searchResults: Msg[]
+  searchError?: string
+  searchLoading?: boolean
   searchQuery?: string
   threads: Thread[]
   threadsLoading?: boolean
@@ -76,6 +80,7 @@ export function CommunityPanel(props: CommunityPanelProps) {
 function renderCommunityPanelBody({
   kind,
   members,
+  memberScopeId,
   membersLoading,
   membersLoadingMore,
   membersHasMore,
@@ -86,6 +91,8 @@ function renderCommunityPanelBody({
   pinned,
   pinnedLoading,
   searchResults,
+  searchError,
+  searchLoading,
   searchQuery,
   threads,
   threadsLoading,
@@ -101,6 +108,7 @@ function renderCommunityPanelBody({
   if (kind === "members") {
     return (
       <MemberList
+        scopeId={memberScopeId}
         members={members}
         loading={membersLoading}
         hasMore={membersHasMore}
@@ -158,6 +166,8 @@ function renderCommunityPanelBody({
     return (
       <SearchPanel
         searchResults={searchResults}
+        error={searchError}
+        loading={searchLoading}
         initialQuery={searchQuery}
         onOpenProfile={onOpenProfile}
         onSearch={onSearch}
@@ -220,18 +230,22 @@ function panelHeading(kind: Exclude<RightPanel, null>) {
 
 function SearchPanel({
   searchResults,
+  error,
+  loading,
   initialQuery,
   onOpenProfile,
   onSearch,
   viewerUserId,
 }: {
   searchResults: Msg[]
+  error?: string
+  loading?: boolean
   initialQuery?: string
   onOpenProfile?: OpenProfile
   onSearch?: (query: string) => void
   viewerUserId?: string
 }) {
-  const [query, setQuery] = useState(initialQuery ?? "")
+  const [query, setQuery] = useAtom(useCreateAtom(initialQuery ?? ""))
   const submit = () => {
     const nextQuery = query.trim()
     if (nextQuery) onSearch?.(nextQuery)
@@ -249,7 +263,7 @@ function SearchPanel({
           onKeyDown={onEnterSubmit(submit)}
         />
       </div>
-      <div className="mb-2 text-xs text-muted-foreground">{searchResults.length} results</div>
+      <div className="mb-2 text-xs text-muted-foreground" role={error ? "alert" : "status"}>{error ?? (loading ? "Searching…" : `${searchResults.length} results`)}</div>
       {searchResults.map((message) => {
         const renderMessage: RenderMsg = { ...message, grouped: false }
         return (

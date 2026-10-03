@@ -1,7 +1,11 @@
 import React from "react"
 import type { QueryClient } from "@tanstack/react-query"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { ingestMessages } from "@/lib/community-db/sync"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, render as rtlRender } from "@/test/react-dom-harness"
+import { act, render as renderDom } from "@/test/react-dom-harness"
 
 const state = vi.hoisted(() => ({
   queryClient: null as QueryClient | null,
@@ -22,10 +26,6 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(state.params),
   usePathname: () => state.pathname,
 }))
-vi.mock("@tanstack/react-query", async () => {
-  const actual = await vi.importActual<typeof import("@tanstack/react-query")>("@tanstack/react-query")
-  return { ...actual, useQueryClient: () => state.queryClient }
-})
 vi.mock("@/contexts/community/current-user", () => ({
   useCurrentUser: () => ({ id: "viewer" }),
 }))
@@ -63,12 +63,16 @@ const target: ThreadOpenerHandoffTarget = {
   openerSeq: 7,
 }
 
-function client() {
-  return {
-    cancelQueries: vi.fn().mockResolvedValue(undefined),
-    refetchQueries: vi.fn().mockResolvedValue(undefined),
-  } as unknown as QueryClient
+async function client() {
+  const { client: queryClient } = await createCommunityQueryOwner()
+  vi.spyOn(queryClient, "cancelQueries")
+  vi.spyOn(queryClient, "refetchQueries")
+  return queryClient
 }
+function NativeOwner({ children }: React.PropsWithChildren) {
+  return React.createElement(CommunityTestProvider, { client: state.queryClient!, registry: getCommunityDbRegistry(state.queryClient!)!, retainOwner: true }, children)
+}
+const rtlRender: typeof renderDom = (node, options) => renderDom(node, { ...options, wrapper: NativeOwner })
 
 function Claim({ handoff }: {
   handoff: ReturnType<typeof getThreadOpenerReservationHandoff> | undefined
@@ -156,6 +160,9 @@ function DirectChildHarness({
   catchUp?: () => Promise<unknown>
 }) {
   const [scrollRootEl, setScrollRootEl] = React.useState<HTMLElement | null>(null)
+  React.useLayoutEffect(() => {
+    if (lifecycle === "ready") ingestMessages(getCommunityDbRegistry(state.queryClient!)!, "child-1", messages.map((message) => ({ ...message, type: "chat" })))
+  }, [lifecycle, messages])
   useTimelineReadObserver({
     channelId: "child-1",
     messages: lifecycle === "ready" ? messages : [],
@@ -225,8 +232,8 @@ async function render(lifecycle: Lifecycle = "pending") {
 }
 
 describe("thread opener read handoff", () => {
-  beforeEach(() => {
-    state.queryClient = client()
+  beforeEach(async () => {
+    state.queryClient = await client()
     state.params = "inboxThreadOpener=nonce-1&msg=message-9&tab=all"
     state.pathname = "/c/channels/server-1/child-1"
     readObservers = []
@@ -417,7 +424,7 @@ describe("thread opener read handoff", () => {
       renderer = rtlRender(React.createElement(Claim, { handoff: target }))
     })
 
-    state.queryClient = client()
+    state.queryClient = await client()
     await act(async () => {
       renderer.rerender(React.createElement(Claim, { handoff: target }))
       await Promise.resolve()

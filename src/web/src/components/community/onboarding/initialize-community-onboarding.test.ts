@@ -11,14 +11,50 @@ vi.mock("@/lib/avatar/seed-url", () => ({ randomBeamAvatar }))
 vi.mock("@/lib/community/bot-random-name", () => ({ randomBotName }))
 
 import {
-  initializeCommunityOnboarding,
+  initializeCommunityOnboarding as initialize,
   onboardingRoomName,
   type OnboardingInitializationCheckpoint,
 } from "./initialize-community-onboarding"
 import { resolveStarterPack } from "./starter-packs"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
+import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
+import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
+
+let owner: Awaited<ReturnType<typeof createCommunityQueryOwner>>
+async function initializeCommunityOnboarding(input: Omit<Parameters<typeof initialize>[0], "services">) {
+  const token = captureCommunityLiveSnapshotToken(owner.client)
+  const signal = new AbortController().signal
+  const assert = () => assertCommunityLiveSnapshotTokenCurrent(owner.client, token, signal)
+  return initialize({ ...input, services: {
+    assert,
+    request: async <T,>(path: string, options?: import("@/lib/api/client").ApiRequestOptions) => {
+      assert()
+      const result = await apiFetch(path, { ...options, ...communityRequestOptions(owner.client, token, signal) }) as T
+      assert()
+      return result
+    },
+    readChannels: async (serverId) => {
+      assert()
+      const data = await apiFetch("/api/community/servers/" + serverId + "/channels", communityRequestOptions(owner.client, token, signal))
+      assert()
+      return data.channels
+    },
+    publishBot: (bot, requested) => {
+      assert()
+      writeCommunityProfilePatches([{ id: bot.id, identityAbout: { name: bot.name ?? requested.name, discriminator: bot.discriminator, kind: "bot" }, avatar: { avatar: bot.image ?? requested.image, avatarVersion: bot.avatarVersion ?? 0 } }], owner.registry)
+    },
+    resolveBot: (id) => owner.registry.collections.profiles.get(id),
+  } })
+}
 
 describe("initializeCommunityOnboarding", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    owner = await createCommunityQueryOwner()
+    writeCommunityProfilePatches([
+      { id: "bot-a", identityAbout: { name: "Maya", discriminator: "0001", kind: "bot" } },
+      { id: "bot-b", identityAbout: { name: "Sol", discriminator: "0002", kind: "bot" } },
+    ], owner.registry)
     apiFetch.mockReset()
     randomBotName.mockReset().mockReturnValueOnce("Ari").mockReturnValueOnce("Bo")
     randomBeamAvatar
@@ -63,14 +99,17 @@ describe("initializeCommunityOnboarding", () => {
       privateChannelId: "private-1",
       leadBotId: "bot-lin",
       bots: [
-        { key: "lead", id: "bot-lin", name: "Lin", discriminator: "0001" },
-        { key: "doer", id: "bot-kit", name: "Kit", discriminator: "0002" },
-        { key: "reviewer", id: "bot-moss", name: "Moss", discriminator: "0003" },
+        { key: "lead", id: "bot-lin" },
+        { key: "doer", id: "bot-kit" },
+        { key: "reviewer", id: "bot-moss" },
       ],
     })
+    expect(result.bots.map(({ id }) => owner.registry.collections.profiles.get(id))).toMatchObject([
+      { name: "Lin", discriminator: "0001" }, { name: "Kit", discriminator: "0002" }, { name: "Moss", discriminator: "0003" },
+    ])
     expect(apiFetch).toHaveBeenCalledTimes(10)
     for (const [index, template] of pack.bots.entries()) {
-      expect(apiFetch).toHaveBeenNthCalledWith(index + 1, "/api/community/bots", {
+      expect(apiFetch).toHaveBeenNthCalledWith(index + 1, "/api/community/bots", expect.objectContaining({
         method: "POST",
         body: JSON.stringify({
           name: template.name,
@@ -79,7 +118,7 @@ describe("initializeCommunityOnboarding", () => {
           runtime: "codex",
           image: `avatar:beam:avatar-${String.fromCharCode(97 + index)}`,
         }),
-      })
+      }))
     }
     const onboardPayload = JSON.parse(apiFetch.mock.calls[5]![1].body)
     expect(onboardPayload.leadBotId).toBe("bot-lin")
@@ -98,10 +137,10 @@ describe("initializeCommunityOnboarding", () => {
       { type: "wake", botId: "bot-moss" },
     ])
     expect(JSON.parse(apiFetch.mock.calls[8]![1].body).action).toEqual({ type: "finalize" })
-    expect(apiFetch).toHaveBeenNthCalledWith(10, "/api/community/channels/private-1/members", {
+    expect(apiFetch).toHaveBeenNthCalledWith(10, "/api/community/channels/private-1/members", expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ userId: "bot-lin" }),
-    })
+    }))
     expect(checkpoints.at(-1)).toMatchObject({
       botsOnboarded: true,
       leadAddedToPrivate: true,
@@ -131,10 +170,8 @@ describe("initializeCommunityOnboarding", () => {
       userName: "Ada",
     })
 
-    expect(result.bots).toMatchObject([
-      { key: "lead", name: "Ari" },
-      { key: "doer", name: "Bo" },
-    ])
+    expect(result.bots).toEqual([{ key: "lead", id: "bot-a" }, { key: "doer", id: "bot-b" }])
+    expect(result.bots.map(({ id }) => owner.registry.collections.profiles.get(id)?.name)).toEqual(["Ari", "Bo"])
     expect(randomBotName).toHaveBeenCalledTimes(2)
     const createBodies = apiFetch.mock.calls.slice(0, 2).map((call) => JSON.parse(call[1].body))
     expect(createBodies.map(({ runtime }) => runtime)).toEqual(["claude", "claude"])
@@ -154,8 +191,8 @@ describe("initializeCommunityOnboarding", () => {
       userName: "Grace",
       checkpoint: {
         bots: [
-          { key: "lead", id: "bot-a", name: "Maya", discriminator: "0001" },
-          { key: "doer", id: "bot-b", name: "Sol", discriminator: "0002" },
+          { key: "lead", id: "bot-a" },
+          { key: "doer", id: "bot-b" },
         ],
         serverId: "server-1",
         publicChannelId: "public-1",
@@ -165,18 +202,18 @@ describe("initializeCommunityOnboarding", () => {
     })
 
     expect(apiFetch).toHaveBeenCalledOnce()
-    expect(apiFetch).toHaveBeenCalledWith("/api/community/channels/private-1/members", {
+    expect(apiFetch).toHaveBeenCalledWith("/api/community/channels/private-1/members", expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ userId: "bot-a" }),
-    })
+    }))
   })
 
   it("retries a failed second wake without waking the first bot again", async () => {
     const checkpoints: OnboardingInitializationCheckpoint[] = []
     const checkpoint: OnboardingInitializationCheckpoint = {
       bots: [
-        { key: "lead", id: "bot-a", name: "Maya", discriminator: "0001" },
-        { key: "doer", id: "bot-b", name: "Sol", discriminator: "0002" },
+        { key: "lead", id: "bot-a" },
+        { key: "doer", id: "bot-b" },
       ],
       serverId: "server-1",
       publicChannelId: "public-1",
@@ -245,8 +282,8 @@ describe("initializeCommunityOnboarding", () => {
       userName: "Ada",
       checkpoint: {
         bots: [
-          { key: "lead", id: "bot-a", name: "Olive" },
-          { key: "doer", id: "bot-b", name: "Poppy" },
+          { key: "lead", id: "bot-a" },
+          { key: "doer", id: "bot-b" },
         ],
         serverId: "server-1",
       },
@@ -268,8 +305,8 @@ describe("initializeCommunityOnboarding", () => {
       userName: "Ada",
       checkpoint: {
         bots: [
-          { key: "lead", id: "bot-a", name: "Olive" },
-          { key: "doer", id: "bot-b", name: "Poppy" },
+          { key: "lead", id: "bot-a" },
+          { key: "doer", id: "bot-b" },
         ],
         serverId: "server-1",
       },

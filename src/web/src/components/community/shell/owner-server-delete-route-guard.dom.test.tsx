@@ -1,4 +1,7 @@
 import { createElement } from "react"
+import { QueryClient } from "@tanstack/react-query"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { createCommunityDbRegistry } from "@/lib/community-db/collections"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { render } from "@/test/react-dom-harness"
 
@@ -16,21 +19,13 @@ vi.mock("next/navigation", () => ({
   usePathname: () => mocks.pathname,
   useRouter: () => ({ replace: mocks.replace }),
 }))
-vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => ({
-    getQueryData: mocks.getQueryData,
-    getQueryState: mocks.getQueryState,
-    getQueryCache: () => ({
-      subscribe: mocks.subscribe,
-      find: () => ({ queryHash: "servers" }),
-    }),
-  }),
-}))
+vi.mock("@/hooks/community/use-servers", () => ({ useServers: () => ({ servers: [{ id: "survivor" }], isSuccess: true, isFetching: false }) }))
 vi.mock("sonner", () => ({ toast: vi.fn() }))
 vi.mock("@/contexts/community/current-user", () => ({
   useCurrentUser: () => ({ id: "viewer-1" }),
 }))
-vi.mock("@/lib/community/eject-server", () => ({
+vi.mock("@/lib/community/eject-server", async (original) => ({
+  ...await original<typeof import("@/lib/community/eject-server")>(),
   consumeVoluntaryLeave: vi.fn(),
   isOwnerServerDeleteCompleted: () => mocks.completed,
   runAuthoritativeServerEject: mocks.runEject,
@@ -38,6 +33,13 @@ vi.mock("@/lib/community/eject-server", () => ({
 vi.mock("@/lib/community/last-channel", () => ({ clearLastChannel: vi.fn() }))
 
 import { OwnerServerDeleteRouteGuard } from "./owner-server-delete-route-guard"
+
+function renderGuard() {
+  const client = new QueryClient()
+  const registry = createCommunityDbRegistry(client, "viewer-1")
+  registry.runtime.serverEject.setState((state) => ({ ...state, flushedServerIds: new Set(mocks.completed ? ["deleted"] : []) }))
+  return render(createElement(CommunityTestProvider, { client, userId: "viewer-1" }, createElement(OwnerServerDeleteRouteGuard)))
+}
 
 describe("OwnerServerDeleteRouteGuard", () => {
   beforeEach(() => {
@@ -49,8 +51,8 @@ describe("OwnerServerDeleteRouteGuard", () => {
     mocks.subscribe.mockReset()
   })
 
-  it("rechecks a completed delete from cached server-list state without mounting a query observer", () => {
-    render(createElement(OwnerServerDeleteRouteGuard))
+  it("rechecks a completed native delete using the canonical rail projection", () => {
+    renderGuard()
 
     expect(mocks.runEject).toHaveBeenCalledWith(expect.objectContaining({
       serverId: "deleted",
@@ -64,7 +66,7 @@ describe("OwnerServerDeleteRouteGuard", () => {
 
   it("does not touch the server-list cache for ordinary routes", () => {
     mocks.completed = false
-    render(createElement(OwnerServerDeleteRouteGuard))
+    renderGuard()
 
     expect(mocks.runEject).not.toHaveBeenCalled()
     expect(mocks.getQueryData).not.toHaveBeenCalled()

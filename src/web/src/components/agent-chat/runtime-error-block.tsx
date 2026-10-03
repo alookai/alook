@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
 import { AlertCircle, RotateCw, Loader2 } from "lucide-react";
 import { runtimeDisplayName } from "@/lib/runtime-display";
 
@@ -23,7 +24,7 @@ export function RuntimeErrorBlock({
   onRetry?: () => void | Promise<void>;
   retrying?: boolean;
 }) {
-  const [retryingLocal, setRetryingLocal] = useState(false);
+  const [retryingLocal, setRetryingLocal] = useAtom(useCreateAtom(false));
   const retrying = retryingProp ?? retryingLocal;
 
   const handleRetry = async () => {

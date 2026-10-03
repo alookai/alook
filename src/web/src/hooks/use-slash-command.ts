@@ -1,4 +1,5 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from "react"
+import { useAtom, useCreateAtom, type Atom } from "@tanstack/react-store";
+import { useCallback, useMemo, useRef, useEffect } from "react"
 import type { SkillEntry } from "@alook/shared"
 import type { AnchorRect, AnchorRectResolver } from "@/hooks/use-anchored-popover"
 
@@ -32,6 +33,7 @@ interface UseSlashCommandParams {
   skills: SkillEntry[]
   onInputChange: (value: string) => void
   initialActiveSkill?: SkillEntry | null
+  activeSkillNameAtom?: Atom<string | null>
   /**
    * Resolve the popup's viewport-relative caret rect for the
    * slash trigger at `triggerStart`. The TipTap composer computes this from
@@ -65,12 +67,13 @@ export function useSlashCommand({
   skills,
   onInputChange,
   initialActiveSkill,
+  activeSkillNameAtom,
   getAnchorPos,
   onAfterSelect,
 }: UseSlashCommandParams): SlashCommandPopupState {
-  const [isOpen, setIsOpen] = useState(false)
-  const [query, setQuery] = useState("")
-  const [selectedIndex, setSelectedIndex] = useState(0)
+  const [isOpen, setIsOpen] = useAtom(useCreateAtom(false))
+  const [query, setQuery] = useAtom(useCreateAtom(""))
+  const [selectedIndex, setSelectedIndex] = useAtom(useCreateAtom(0))
   const triggerStartRef = useRef<number | null>(null)
 
   const filteredSkills = useMemo(() => {
@@ -89,9 +92,12 @@ export function useSlashCommand({
 
   useEffect(() => {
     setSelectedIndex(0)
-  }, [filteredSkills.length, query])
+  }, [filteredSkills.length, query, setSelectedIndex])
 
-  const [activeSkill, setActiveSkill] = useState<SkillEntry | null>(initialActiveSkill ?? null)
+  const localActiveSkill = useCreateAtom<string | null>(initialActiveSkill?.name ?? null)
+  const [activeSkillName, setActiveSkillName] = useAtom(activeSkillNameAtom ?? localActiveSkill)
+  const activeSkill = skills.find((skill) => skill.name === activeSkillName) ?? null
+  const setActiveSkill = useCallback((skill: SkillEntry | null) => setActiveSkillName(skill?.name ?? null), [setActiveSkillName])
 
   useEffect(() => {
     if (activeSkill) {
@@ -113,7 +119,7 @@ export function useSlashCommand({
       setIsOpen(false)
       triggerStartRef.current = null
     }
-  }, [input, caretIndex, getAnchorPos, activeSkill])
+  }, [input, caretIndex, getAnchorPos, activeSkill, setIsOpen, setQuery])
 
   const getAnchorRect = useCallback<AnchorRectResolver>(() => {
     const triggerStart = triggerStartRef.current
@@ -126,11 +132,11 @@ export function useSlashCommand({
     onInputChange("")
     setIsOpen(false)
     onAfterSelect?.()
-  }, [onInputChange, onAfterSelect])
+  }, [setActiveSkill, onInputChange, setIsOpen, onAfterSelect])
 
   const clearActiveSkill = useCallback(() => {
     setActiveSkill(null)
-  }, [])
+  }, [setActiveSkill])
 
   const handleSlashKeyDown = useCallback((e: PopupKeyEvent): boolean => {
     if (!isOpen || filteredSkills.length === 0) return false
@@ -157,7 +163,7 @@ export function useSlashCommand({
       return true
     }
     return false
-  }, [isOpen, filteredSkills, selectedIndex, selectSkill])
+  }, [isOpen, filteredSkills, setSelectedIndex, selectSkill, selectedIndex, setIsOpen])
 
   return {
     isOpen,

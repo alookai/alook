@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useCallback } from "react";
+import { useWorkspaceFlags } from "@/hooks/workspace/use-inbox";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { listFlaggedItems, type FlaggedItem } from "@/lib/api";
+import { type FlaggedItem } from "@/lib/api";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { useFlagCount } from "@/contexts/flag-count-context";
 import { useAgentChatSheet } from "@/contexts/agent-chat-sheet-context";
@@ -58,26 +60,15 @@ export function FlagPopover({
   isActive?: boolean;
   onNavigate?: () => void;
 }) {
-  const { slug, workspaceId } = useWorkspace();
+  const { slug } = useWorkspace();
   const { count: flagCount } = useFlagCount();
   const { openAgentChat } = useAgentChatSheet();
-  const [items, setItems] = useState<FlaggedItem[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [open, setOpen] = useState(false);
-  const [tooltipOpen, setTooltipOpen] = useState(false);
+  const [open, setOpen] = useAtom(useCreateAtom(false));
+  const query = useWorkspaceFlags(open);
+  const items = query.items.slice(0, POPOVER_LIMIT);
+  const loading = query.isPending;
+  const [tooltipOpen, setTooltipOpen] = useAtom(useCreateAtom(false));
 
-  const fetchItems = useCallback(async () => {
-    setItems(null);
-    setLoading(true);
-    try {
-      const result = await listFlaggedItems(workspaceId, { limit: POPOVER_LIMIT });
-      setItems(result.items);
-    } catch {
-      setItems([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [workspaceId]);
 
   const handleRowClick = useCallback((item: FlaggedItem, e: React.MouseEvent) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
@@ -85,14 +76,13 @@ export function FlagPopover({
     setOpen(false);
     onNavigate?.();
     openAgentChat(item.agent_id, { conversationId: item.conversation_id, messageId: item.message_id });
-  }, [onNavigate, openAgentChat]);
+  }, [onNavigate, openAgentChat, setOpen]);
 
   return (
     <Popover
       open={open}
       onOpenChange={(nextOpen) => {
         setOpen(nextOpen);
-        if (nextOpen) fetchItems();
       }}
     >
       <Tooltip open={open ? false : tooltipOpen} onOpenChange={setTooltipOpen}>

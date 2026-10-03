@@ -4,6 +4,7 @@ import { act, fireEvent, render as rtlRender } from "@/test/react-dom-harness"
 
 function passthrough(name: string) {
   return function Passthrough({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) {
+    delete props.onOpenChange
     return React.createElement("div", { ...props, "data-mock": name }, children)
   }
 }

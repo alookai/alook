@@ -1,6 +1,10 @@
 "use client"
 
-import { useCallback, useRef, useState } from "react"
+import { useAtom, useCreateAtom, useCreateStore } from "@tanstack/react-store";
+import { useCallback, useRef, useMemo, useEffect } from "react"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
+import type { UploadFileArgs, UploadFileResult } from "@/hooks/community/mutations/uploads"
 import { PlusCircle, Upload, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
@@ -30,6 +34,7 @@ import {
 // attachments and the audience-broadcast `mentionType` extracted from the body
 // text. Tags are added AFTER creation from the post card's tag dialog, not here.
 export type NewForumThread = {
+  assertActive?: (() => void) & { signal: AbortSignal }
   nonce: string
   name: string
   content: string
@@ -55,83 +60,57 @@ export function CreateForumThread({
   // (failure — child toasts and preserves state for retry).
   onCreatePost: (post: NewForumThread) => Promise<void>
 }) {
-  const [title, setTitle] = useState("")
-  const [bodyHasContent, setBodyHasContent] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  // Ref-mirrored `isSubmitting` — the state-based flag is set asynchronously,
-  // so a rapid second Shift+Enter (which fires the editor's keydown BEFORE
-  // React commits `setIsSubmitting(true)`) sees a stale `false` and double-
-  // submits. The button's own `disabled` attribute blocks click-based
-  // double-submits, but keyboard submits go straight through the composer.
-  const submittingRef = useRef(false)
+  const [title, setTitle] = useAtom(useCreateAtom(""))
+  const [bodyHasContent, setBodyHasContent] = useAtom(useCreateAtom(false))
+  const client = useQueryClient()
+  const scopeId = useMemo(() => crypto.randomUUID(), [])
+  const source = useCommunityViewSource(`forum-compose:${scopeId}`)
+  const nonce = useCreateStore({ value: crypto.randomUUID() })
   const bodyComposerRef = useRef<ComposerHandle>(null)
-  const uploadFile = useUploadFile()
-
-  // Retry cache: files already uploaded to R2 skip re-upload on retry after a
-  // create failure. Mutation-only (ref, not state) — read inside the async
-  // submit path. Cleared after a successful create.
-  const uploadedCacheRef = useRef<Map<File, UploadedAttachment>>(new Map())
-  const commandNonceRef = useRef(crypto.randomUUID())
-
+  const uploadFile = useUploadFile({ gcTime: Infinity })
+  const key = ["community", "forum-compose", scopeId]
   const canSubmit = title.trim().length > 0 && bodyHasContent
-
-  const onCancelGuarded = useCallback(() => {
-    // Belt-and-suspenders: Escape mid-upload from ANY source (title, root,
-    // composer body, footer button) is a no-op. Prevents orphaned R2 objects
-    // and half-submitted posts.
-    if (isSubmitting) return
-    onCancel()
-  }, [isSubmitting, onCancel])
-
-  const focusBody = () => bodyComposerRef.current?.focusEditor()
-
-  const doSubmit = async (markdown: string, attachments: SendAttachment[] | undefined, mentionType: MentionType | undefined) => {
-    if (!canSubmit || submittingRef.current) return
-    submittingRef.current = true
-    setIsSubmitting(true)
-    try {
-      const pending = attachments ?? []
-      let uploaded: UploadedAttachment[] = []
-      if (pending.length > 0) {
-        const results = await Promise.all(
-          pending.map(async (att) => {
-            const cached = uploadedCacheRef.current.get(att.file)
-            if (cached) return cached
-            const res = await uploadFile.mutateAsync({
-              target: { channelId: forumChannelId },
-              file: att.file,
-              thumbnailBlob: att.thumbnailBlob,
-              width: att.width,
-              height: att.height,
-            })
-            uploadedCacheRef.current.set(att.file, res)
-            return res
-          }),
-        )
-        uploaded = zipUploadResultsWithDimensions(results, pending)
-      }
-      try {
-        await onCreatePost({
-          nonce: commandNonceRef.current,
-          name: title.trim(),
-          content: markdown,
-          attachments: uploaded.length > 0 ? uploaded : undefined,
-          mentionType,
-        })
-      } catch (e) {
-        toastApiError(e, "Failed to create post")
-        return
-      }
-      uploadedCacheRef.current.clear()
-      commandNonceRef.current = crypto.randomUUID()
+  const clearUploadReceipts = useCallback(() => {
+    for (const mutation of client.getMutationCache().findAll({ mutationKey: ["community", "file-upload"], predicate: (mutation) => (mutation.state.variables as UploadFileArgs | undefined)?.receiptScope === scopeId })) client.getMutationCache().remove(mutation)
+  }, [client, scopeId])
+  useEffect(() => () => clearUploadReceipts(), [clearUploadReceipts])
+  const command = useMutation({ mutationKey: key, gcTime: 0,
+    mutationFn: async ({ markdown, title, attachments, mentionType, nonce, original }: { markdown: string; title: string; attachments: SendAttachment[]; mentionType?: MentionType; nonce: string; original: ReturnType<typeof source.capture> }) => {
+      original()
+      const results = await Promise.all(attachments.map(async (attachment) => {
+        const cached = client.getMutationCache().findAll({ mutationKey: ["community", "file-upload"], status: "success", predicate: (mutation) => {
+          const input = mutation.state.variables as UploadFileArgs | undefined
+          return input?.receiptScope === scopeId && input.file === attachment.file && input.width === attachment.width && input.height === attachment.height && input.assertActive?.signal === original.signal
+        } }).at(-1)?.state.data as UploadFileResult | undefined
+        if (cached) return cached
+        return uploadFile.mutateAsync({ target: { channelId: forumChannelId }, receiptScope: scopeId, assertActive: original, ...attachment })
+      }))
+      original()
+      const uploaded = zipUploadResultsWithDimensions(results, attachments)
+      await onCreatePost({ nonce, name: title, content: markdown, attachments: uploaded.length ? uploaded : undefined, mentionType, assertActive: original })
+      return null
+    },
+    onSuccess: (_result, input) => {
+      try { input.original() } catch { return }
+      clearUploadReceipts()
+      nonce.setState(() => ({ value: crypto.randomUUID() }))
       bodyComposerRef.current?.resetAfterSubmit()
       setTitle("")
-    } catch (e) {
-      toastApiError(e, "Failed to upload attachment")
-    } finally {
-      submittingRef.current = false
-      setIsSubmitting(false)
-    }
+    },
+    onError: (error, input) => toastApiError(error, "Failed to create post", input.original),
+  })
+  const isSubmitting = command.isPending
+  const onCancelGuarded = () => {
+    if (client.getMutationCache().findAll({ mutationKey: key, status: "pending" }).length) return
+    source.retire()
+    onCancel()
+  }
+  const focusBody = () => bodyComposerRef.current?.focusEditor()
+  const doSubmit = async (markdown: string, attachments: SendAttachment[] | undefined, mentionType: MentionType | undefined) => {
+    if (!canSubmit || client.getMutationCache().findAll({ mutationKey: key, status: "pending" }).length) return
+    const original = source.capture()
+    original()
+    try { await command.mutateAsync({ markdown, title: title.trim(), attachments: attachments ?? [], mentionType, nonce: nonce.get().value, original }) } catch {}
   }
 
   const handleBodySubmit = (markdown: string, attachments: SendAttachment[] | undefined, mentionType: MentionType | undefined) => {

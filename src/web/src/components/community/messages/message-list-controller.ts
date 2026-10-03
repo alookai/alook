@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import type { RenderMsg } from "@/lib/community/models/message"
 import { flattenMessageItems } from "@/lib/community/message-list-items"
 import {
@@ -34,9 +35,9 @@ export function useMessageListController({
 }: ResolvedMessageListProps) {
   const breakpoint = useBreakpoint()
   const tailPaddingEnd = resolveMessageRailTailPaddingEnd(breakpoint)
-  const [jumped, setJumped] = useState<string | null>(null)
-  const [anchorPositionSettled, setAnchorPositionSettled] = useState(false)
-  const [targetPositionSettled, setTargetPositionSettled] = useState(!scrollToMessageId)
+  const [jumped, setJumped] = useAtom(useCreateAtom<string | null>(null))
+  const [anchorPositionSettled, setAnchorPositionSettled] = useAtom(useCreateAtom(false))
+  const [targetPositionSettled, setTargetPositionSettled] = useAtom(useCreateAtom(!scrollToMessageId))
   const targetSettleFrameRef = useRef<number | null>(null)
   const consumedScrollTargetRef = useRef<string | null>(null)
 
@@ -48,13 +49,13 @@ export function useMessageListController({
     && messages.some((message) => message.id === scrollToMessageId)
   const scrollAnchorReady = scrollToMessageId ? scrollTargetLoaded : initialScrollReady
 
-  const [selectMode, setSelectMode] = useState(false)
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
-  const [shareOpen, setShareOpen] = useState(false)
+  const [selectMode, setSelectMode] = useAtom(useCreateAtom(false))
+  const [selectedIds, setSelectedIds] = useAtom(useCreateAtom<Set<string>>(useMemo<Set<string>>(() => new Set<string>(), [])))
+  const [shareOpen, setShareOpen] = useAtom(useCreateAtom(false))
   const onEnterSelectId = useCallback((id: string) => {
     setSelectMode(true)
     setSelectedIds(new Set([id]))
-  }, [])
+  }, [setSelectMode, setSelectedIds])
   const onToggleSelectId = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev)
@@ -62,11 +63,11 @@ export function useMessageListController({
       else next.add(id)
       return next
     })
-  }, [])
+  }, [setSelectedIds])
   const exitSelect = useCallback(() => {
     setSelectMode(false)
-    setSelectedIds(new Set())
-  }, [])
+    setSelectedIds(new Set<string>())
+  }, [setSelectMode, setSelectedIds])
   const selectedMessages = useMemo<RenderMsg[]>(() => {
     if (selectedIds.size === 0) return []
     const picked = items.flatMap((item) => (
@@ -90,11 +91,11 @@ export function useMessageListController({
   }, [items, selectedIds])
 
   const heroRef = useRef<HTMLDivElement>(null)
-  const [heroHeight, setHeroHeight] = useState(0)
-  const [heroMeasured, setHeroMeasured] = useState(false)
+  const [heroHeight, setHeroHeight] = useAtom(useCreateAtom(0))
+  const [heroMeasured, setHeroMeasured] = useAtom(useCreateAtom(false))
   const isLoading = !!loading && messages.length === 0
   const authoritativeEmpty = !loading && messages.length === 0
-  const settleAnchorPosition = useCallback(() => setAnchorPositionSettled(true), [])
+  const settleAnchorPosition = useCallback(() => setAnchorPositionSettled(true), [setAnchorPositionSettled])
   useEffect(() => {
     const element = heroRef.current
     if (!element) return
@@ -107,7 +108,7 @@ export function useMessageListController({
     setHeroHeight(element.offsetHeight)
     setHeroMeasured(true)
     return () => observer.disconnect()
-  }, [isLoading, hasMore, hero])
+  }, [isLoading, hasMore, hero, setHeroHeight, setHeroMeasured])
 
   const {
     scrollRef,
@@ -205,7 +206,7 @@ export function useMessageListController({
       jumpVisibilityFrameRef.current = window.requestAnimationFrame(waitUntilVisible)
     }
     jumpVisibilityFrameRef.current = window.requestAnimationFrame(waitUntilVisible)
-  }, [jumpToIndex, scrollRef])
+  }, [jumpToIndex, scrollRef, setJumped])
   useEffect(() => () => {
     if (jumpClearTimerRef.current !== null) clearTimeout(jumpClearTimerRef.current)
     if (jumpVisibilityFrameRef.current !== null) {
@@ -216,7 +217,7 @@ export function useMessageListController({
   useLayoutEffect(() => {
     if (!scrollToMessageId) return
     setTargetPositionSettled(false)
-  }, [scrollToMessageId])
+  }, [scrollToMessageId, setTargetPositionSettled])
 
   useEffect(() => {
     if (!scrollToMessageId) {
@@ -235,13 +236,7 @@ export function useMessageListController({
       targetSettleFrameRef.current = null
       setTargetPositionSettled(true)
     })
-  }, [
-    scrollToMessageId,
-    scrollTargetLoaded,
-    heroMeasured,
-    jumpTo,
-    onScrollTargetConsumed,
-  ])
+  }, [scrollToMessageId, scrollTargetLoaded, heroMeasured, jumpTo, onScrollTargetConsumed, setTargetPositionSettled])
   useLayoutEffect(() => () => {
     if (targetSettleFrameRef.current !== null) {
       window.cancelAnimationFrame(targetSettleFrameRef.current)
@@ -257,7 +252,7 @@ export function useMessageListController({
   const closeShare = useCallback(() => {
     setShareOpen(false)
     exitSelect()
-  }, [exitSelect])
+  }, [exitSelect, setShareOpen])
 
   return {
     items,

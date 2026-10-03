@@ -2,12 +2,16 @@ import React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render as renderDom, screen } from "@/test/react-dom-harness"
 import { tid } from "@/lib/community/testids"
-import { useCommunityWsStore } from "@/stores/community/ws"
+import { QueryClient } from "@tanstack/react-query"
+import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
+import { CommunityRuntimeProvider } from "@/stores/community/runtime"
+let registry: CommunityDbRegistry
 import { CommunityWsReconnectBoundary } from "./community-ws-reconnect-overlay"
 
 describe("CommunityWsReconnectBoundary", () => {
   beforeEach(() => {
-    useCommunityWsStore.getState().reset()
+    registry = createCommunityDbRegistry(new QueryClient(), "viewer")
+
     vi.stubGlobal("matchMedia", vi.fn(() => ({matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn()})))
     vi.stubGlobal("IntersectionObserver", class {
       observe() {}
@@ -15,19 +19,21 @@ describe("CommunityWsReconnectBoundary", () => {
     })
   })
 
-  afterEach(() => {
-    useCommunityWsStore.getState().reset()
-    vi.restoreAllMocks()
-    vi.unstubAllGlobals()
+  afterEach(async () => {
+    await act(async () => {
+      await registry.cleanup()
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+    })
   })
 
   function render() {
     const focus = vi.spyOn(HTMLElement.prototype, "focus")
-    const renderer = renderDom(React.createElement(
+    const renderer = renderDom(React.createElement(CommunityRuntimeProvider, { value: { runtime: registry.runtime } }, React.createElement(
       CommunityWsReconnectBoundary,
       null,
       React.createElement("button", { type: "button" }, "Underlying action"),
-    ))
+    )))
     return { renderer, focus }
   }
 
@@ -41,7 +47,7 @@ describe("CommunityWsReconnectBoundary", () => {
 
   it("keeps cached content interactive while connecting or reconnecting", () => {
     const { renderer, focus } = render()
-    act(() => useCommunityWsStore.getState().setConnectionStatus("reconnecting"))
+    act(() => registry.runtime.ws.actions.setConnectionStatus("reconnecting"))
 
     const content = renderer.container.querySelector(".contents")!
     expect(content).not.toHaveAttribute("inert")
@@ -52,9 +58,9 @@ describe("CommunityWsReconnectBoundary", () => {
 
   it("shows a non-modal Retry status without disabling cached content", () => {
     const reconnectNow = vi.fn()
-    useCommunityWsStore.getState().bindReconnectNow(reconnectNow)
+    registry.runtime.ws.actions.bindReconnectNow(reconnectNow)
     const { renderer } = render()
-    act(() => useCommunityWsStore.getState().setConnectionStatus("failed"))
+    act(() => registry.runtime.ws.actions.setConnectionStatus("failed"))
 
     const status = screen.getByRole("status")
     expect(status).toHaveAttribute("aria-atomic", "true")
@@ -68,7 +74,7 @@ describe("CommunityWsReconnectBoundary", () => {
     fireEvent.click(retry)
     expect(reconnectNow).toHaveBeenCalledOnce()
 
-    act(() => useCommunityWsStore.getState().setConnectionStatus("connected"))
+    act(() => registry.runtime.ws.actions.setConnectionStatus("connected"))
     expect(screen.queryByTestId(tid.wsReconnectOverlay)).not.toBeInTheDocument()
     expect(renderer.container.querySelector(".contents")).not.toHaveAttribute("inert")
   })

@@ -1,7 +1,10 @@
 "use client"
 
-import { useEffect, useSyncExternalStore } from "react"
+import { useEffect } from "react"
+import { createStore, useSelector, type Store } from "@tanstack/react-store"
 import type { QueryClient } from "@tanstack/react-query"
+import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent, type CommunityLiveSnapshotToken } from "@/lib/community-db/sync"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { communityKeys } from "@/lib/query-keys"
 
 export type MessageSurfaceReceipt = {
@@ -35,6 +38,7 @@ type ConversationNavigationRecovery = (
 ) => void
 
 type ProofStore = {
+  ownerToken: CommunityLiveSnapshotToken | null
   nextEpoch: number
   activeEpoch: number
   activeAccessEpoch: number
@@ -42,15 +46,15 @@ type ProofStore = {
   proof: ConversationNavigationProof | null
   controller: AbortController | null
   recovery: { epoch: number; restart: ConversationNavigationRecovery } | null
-  listeners: Set<() => void>
 }
 
-const stores = new WeakMap<QueryClient, ProofStore>()
+const stores = new WeakMap<QueryClient, Store<ProofStore>>()
 
-function getStore(queryClient: QueryClient): ProofStore {
+function getStore(queryClient: QueryClient): Store<ProofStore> {
   let store = stores.get(queryClient)
   if (!store) {
-    store = {
+    store = createStore<ProofStore>({
+      ownerToken: null,
       nextEpoch: 0,
       activeEpoch: 0,
       activeAccessEpoch: 0,
@@ -58,16 +62,14 @@ function getStore(queryClient: QueryClient): ProofStore {
       proof: null,
       controller: null,
       recovery: null,
-      listeners: new Set(),
-    }
+    })
     stores.set(queryClient, store)
   }
   return store
 }
 
-function publish(store: ProofStore, proof: ConversationNavigationProof | null) {
-  store.proof = proof
-  for (const listener of store.listeners) listener()
+function publish(store: Store<ProofStore>, proof: ConversationNavigationProof | null) {
+  store.setState((state) => state.proof === proof ? state : { ...state, proof })
 }
 
 export function beginConversationNavigationProof(
@@ -77,21 +79,33 @@ export function beginConversationNavigationProof(
   recoveryAttempt = 0,
 ): { epoch: number; signal: AbortSignal } {
   const store = getStore(queryClient)
-  if (store.activeTarget) {
-    const previousKey = store.activeTarget.scopeKind === "dm"
-      ? communityKeys.dmMessages(store.activeTarget.channelId)
-      : communityKeys.channelMessages(store.activeTarget.channelId)
+  const current = store.get()
+  const ownerToken = captureCommunityLiveSnapshotToken(queryClient)
+  if (ownerToken.viewerId !== target.viewerId) throw new DOMException("Conversation viewer does not match owner", "AbortError")
+  if (current.activeTarget) {
+    const previousKey = current.activeTarget.scopeKind === "dm"
+      ? communityKeys.dmMessages(current.activeTarget.channelId)
+      : communityKeys.channelMessages(current.activeTarget.channelId)
     void queryClient.cancelQueries({ queryKey: previousKey })
+    const previousReadKey = current.activeTarget.scopeKind === "dm"
+      ? communityKeys.dmReadStateSnapshot(current.activeTarget.channelId)
+      : communityKeys.channelReadStateSnapshot(current.activeTarget.channelId)
+    void queryClient.cancelQueries({ queryKey: previousReadKey })
   }
-  store.controller?.abort()
+  current.controller?.abort()
   const controller = new AbortController()
-  const epoch = ++store.nextEpoch
-  store.activeEpoch = epoch
-  store.activeAccessEpoch = accessEpoch
-  store.activeTarget = target
-  store.controller = controller
-  store.recovery = null
-  publish(store, { epoch, accessEpoch, recoveryAttempt, target, status: "warming" })
+  const epoch = current.nextEpoch + 1
+  store.setState((state) => ({
+    ...state,
+    ownerToken,
+    nextEpoch: epoch,
+    activeEpoch: epoch,
+    activeAccessEpoch: accessEpoch,
+    activeTarget: target,
+    controller,
+    recovery: null,
+    proof: { epoch, accessEpoch, recoveryAttempt, target, status: "warming" },
+  }))
   return { epoch, signal: controller.signal }
 }
 
@@ -101,8 +115,9 @@ export function registerConversationNavigationRecovery(
   restart: ConversationNavigationRecovery,
 ) {
   const store = getStore(queryClient)
-  if (store.activeEpoch !== epoch || store.proof?.epoch !== epoch) return false
-  store.recovery = { epoch, restart }
+  const current = store.get()
+  if (current.activeEpoch !== epoch || current.proof?.epoch !== epoch) return false
+  store.setState((state) => ({ ...state, recovery: { epoch, restart } }))
   return true
 }
 
@@ -111,9 +126,11 @@ export function recoverConversationNavigationProof(
   epoch: number,
   accessEpoch: number,
 ) {
-  const store = getStore(queryClient)
+  const store = getStore(queryClient).get()
   const proof = store.proof
   const recovery = store.recovery
+  const owner = store.ownerToken
+  if (!owner || getCommunityDbRegistry(queryClient) !== owner.registry || !owner.registry?.runtime.lifecycle.get().active || owner.registry.runtime.lifecycle.get().generation !== owner.ownerGeneration || owner.registry.runtime.ws.get().profileAccountEpoch !== owner.accountEpoch || owner.registry.runtime.ws.get().profileViewerId !== owner.viewerId) return false
   if (
     !proof ||
     proof.epoch !== epoch ||
@@ -134,7 +151,9 @@ export function isCurrentConversationNavigation(
   epoch: number,
   accessEpoch: number,
 ): boolean {
-  const store = getStore(queryClient)
+  const store = getStore(queryClient).get()
+  if (!store.ownerToken) return false
+  try { assertCommunityLiveSnapshotTokenCurrent(queryClient, store.ownerToken, store.controller?.signal) } catch { return false }
   return store.activeEpoch === epoch && store.activeAccessEpoch === accessEpoch
 }
 
@@ -145,7 +164,8 @@ export function recordConversationNavigationReceipt(
   epoch?: number,
 ): boolean {
   const store = getStore(queryClient)
-  const proof = store.proof
+  const proof = store.get().proof
+  if (proof && !isCurrentConversationNavigation(queryClient, proof.epoch, accessEpoch)) return false
   if (
     !proof ||
     proof.status === "denied" ||
@@ -174,7 +194,8 @@ export function commitConversationNavigationProof(
   accessEpoch: number,
 ) {
   const store = getStore(queryClient)
-  const proof = store.proof
+  const proof = store.get().proof
+  if (proof && !isCurrentConversationNavigation(queryClient, proof.epoch, accessEpoch)) return false
   if (
     proof?.status !== "verified" ||
     proof.target.channelId !== channelId ||
@@ -191,14 +212,27 @@ export function failConversationNavigationProof(
   definitive: boolean,
 ) {
   const store = getStore(queryClient)
-  const proof = store.proof
-  if (proof?.epoch !== epoch || proof.accessEpoch !== accessEpoch) return
+  const current = store.get()
+  const proof = current.proof
+  if (proof?.epoch !== epoch || proof.accessEpoch !== accessEpoch || !isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) return
   if (definitive) {
-    store.controller?.abort()
-    store.activeEpoch = ++store.nextEpoch
-    store.recovery = null
+    current.controller?.abort()
+    if (current.activeTarget) {
+      const readKey = current.activeTarget.scopeKind === "dm"
+        ? communityKeys.dmReadStateSnapshot(current.activeTarget.channelId)
+        : communityKeys.channelReadStateSnapshot(current.activeTarget.channelId)
+      void queryClient.cancelQueries({ queryKey: readKey })
+    }
   }
-  publish(store, { ...proof, status: definitive ? "denied" : "failed" })
+  store.setState((state) => ({
+    ...state,
+    ...(definitive ? {
+      nextEpoch: state.nextEpoch + 1,
+      activeEpoch: state.nextEpoch + 1,
+      recovery: null,
+    } : {}),
+    proof: { ...proof, status: definitive ? "denied" : "failed" },
+  }))
 }
 
 function consumeConversationNavigationProof(
@@ -206,9 +240,8 @@ function consumeConversationNavigationProof(
   epoch: number,
 ) {
   const store = getStore(queryClient)
-  if (store.proof?.epoch !== epoch) return
-  store.recovery = null
-  publish(store, null)
+  if (store.get().proof?.epoch !== epoch) return
+  store.setState((state) => ({ ...state, recovery: null, proof: null }))
 }
 
 export function cancelConversationNavigationProof(
@@ -216,24 +249,34 @@ export function cancelConversationNavigationProof(
   epoch: number,
 ) {
   const store = getStore(queryClient)
-  if (store.activeEpoch !== epoch) return
-  if (store.activeTarget) {
-    const queryKey = store.activeTarget.scopeKind === "dm"
-      ? communityKeys.dmMessages(store.activeTarget.channelId)
-      : communityKeys.channelMessages(store.activeTarget.channelId)
+  const current = store.get()
+  if (current.activeEpoch !== epoch) return
+  if (current.activeTarget) {
+    const queryKey = current.activeTarget.scopeKind === "dm"
+      ? communityKeys.dmMessages(current.activeTarget.channelId)
+      : communityKeys.channelMessages(current.activeTarget.channelId)
     void queryClient.cancelQueries({ queryKey })
+    const readKey = current.activeTarget.scopeKind === "dm"
+      ? communityKeys.dmReadStateSnapshot(current.activeTarget.channelId)
+      : communityKeys.channelReadStateSnapshot(current.activeTarget.channelId)
+    void queryClient.cancelQueries({ queryKey: readKey })
   }
-  store.controller?.abort()
-  store.controller = null
-  store.recovery = null
-  store.activeEpoch = ++store.nextEpoch
-  store.activeTarget = null
-  publish(store, null)
+  current.controller?.abort()
+  store.setState((state) => ({
+    ...state,
+    ownerToken: null,
+    controller: null,
+    recovery: null,
+    nextEpoch: state.nextEpoch + 1,
+    activeEpoch: state.nextEpoch + 1,
+    activeTarget: null,
+    proof: null,
+  }))
 }
 
 export function cancelActiveConversationNavigationProof(queryClient: QueryClient) {
-  const store = getStore(queryClient)
-  if (!store.proof) return false
+  const store = getStore(queryClient).get()
+  if (!store.controller && !store.activeTarget) return false
   cancelConversationNavigationProof(queryClient, store.activeEpoch)
   return true
 }
@@ -241,7 +284,7 @@ export function cancelActiveConversationNavigationProof(queryClient: QueryClient
 export function getConversationNavigationProof(
   queryClient: QueryClient,
 ): ConversationNavigationProof | null {
-  return getStore(queryClient).proof
+  return getStore(queryClient).get().proof
 }
 
 export function useConversationNavigationGate(
@@ -251,14 +294,7 @@ export function useConversationNavigationGate(
   accessEpoch: number,
 ): { required: boolean; allowed: boolean } {
   const store = getStore(queryClient)
-  const proof = useSyncExternalStore(
-    (listener) => {
-      store.listeners.add(listener)
-      return () => store.listeners.delete(listener)
-    },
-    () => store.proof,
-    () => null,
-  )
+  const proof = useSelector(store, (state) => state.proof)
   const matching = proof?.target.viewerId === viewerId
     && proof.target.channelId === channelId
   const required = matching === true

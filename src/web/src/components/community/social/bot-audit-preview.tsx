@@ -1,9 +1,10 @@
 "use client"
 
+import { useMountedClock } from "@/hooks/use-mounted-clock"
 /* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4 */
 
 import { Activity, ChevronRight, Lock } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
 import { useBotAuditPreview } from "@/hooks/community/use-bot-audit-preview"
 import type { AuditEvent } from "@/hooks/community/use-bot-audit-log"
 import {
@@ -147,7 +148,7 @@ export function BotAuditActiveRow({
   latestEventAt?: string
   tone?: BotAuditTone
 }) {
-  const [nowMs, setNowMs] = useState(Date.now)
+  const [nowMs, setNowMs] = useMountedClock()
 
   useEffect(() => {
     let timer: ReturnType<typeof globalThis.setTimeout>
@@ -160,7 +161,7 @@ export function BotAuditActiveRow({
     }
     scheduleNextMinute()
     return () => globalThis.clearTimeout(timer)
-  }, [])
+  }, [setNowMs])
 
   const latestEventMs = latestEventAt ? Date.parse(latestEventAt) : Number.NaN
   const displayedAt = new Date(

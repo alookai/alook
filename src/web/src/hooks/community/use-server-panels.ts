@@ -1,8 +1,13 @@
 "use client"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import type { QueryFunctionContext } from "@tanstack/react-query"
 
-import { useQuery, keepPreviousData, type UseQueryResult } from "@tanstack/react-query"
+import { useQuery,useQueryClient,useMutationState,keepPreviousData,type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
-import { loadAndSeedProfiles } from "@/lib/community/profile-seed"
+import { loadAndSeedProfiles,beginCommunityProfileSeed,writeCommunityProfilePatches } from "@/lib/community/profile-seed"
+import { captureCommunityLiveSnapshotToken,assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
+import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
+import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { communityKeys } from "@/lib/query-keys"
 import type { InviteRow } from "@/lib/community/models/people"
 
@@ -30,21 +35,29 @@ type RawInvite = {
   creatorName: string | null
 }
 
-export type InvitesResponse = { invites: InviteRow[] }
+type InviteResourceRow = Omit<InviteRow, "by">
+export type InvitesResponse = { invites: InviteResourceRow[] }
 
 // Frozen empty fallbacks — see `use-servers.ts` for the rationale.
 const EMPTY_INVITES: readonly InviteRow[] = Object.freeze([])
 
-export const invitesQueryFn = (serverId: string) => async (): Promise<InvitesResponse> => {
+export const invitesQueryFn = (serverId: string) => async (context: QueryFunctionContext): Promise<InvitesResponse> => {
+  const original = captureCommunityLiveSnapshotToken(context.client)
+  const assert = () => assertCommunityLiveSnapshotTokenCurrent(context.client, original, context.signal)
+  const snapshot = beginCommunityProfileSeed(original.registry)
+  await original.registry?.ready
+  assert()
   const data = await apiFetch<{ invites: RawInvite[] }>(
     `/api/community/servers/${serverId}/invites`,
+    communityRequestOptions(context.client, original, context.signal, assert),
   )
-  const invites: InviteRow[] = data.invites.map((i) => ({
+  assert()
+  writeCommunityProfilePatches(data.invites.flatMap((i) => i.creatorId && i.creatorName !== null ? [{ id: i.creatorId, identityAbout: { name: i.creatorName } }] : []), original.registry, { snapshot })
+  const invites: InviteResourceRow[] = data.invites.map((i) => ({
     code: i.token,
     uses: i.uses,
     maxUses: i.maxUses,
     expiresAt: i.expiresAt,
-    by: i.creatorName ?? "Deleted user",
     creatorId: i.creatorId,
   }))
   return { invites }
@@ -60,6 +73,7 @@ export function useInvites(
   serverId: string | null,
   isAdmin: boolean = true,
 ): UseQueryResult<InvitesResponse> & { invites: InviteRow[] } {
+  const client = useQueryClient()
   const enabled = !!serverId && isAdmin
   const query = useQuery({
     queryKey: enabled ? communityKeys.invites(serverId!) : communityKeys.invites("__none__"),
@@ -67,14 +81,20 @@ export function useInvites(
       ? invitesQueryFn(serverId!)
       : (() => Promise.reject(new Error("disabled"))),
     enabled,
+    subscribed: enabled,
     // Not WS-live — no invite events patch this cache. A short staleTime keeps
     // a re-opened settings tab from re-fetching on every mount without going
     // fully stale.
     staleTime: 60_000,
   })
+  const profiles = useCanonicalProfilesByUserId(query.data?.invites.flatMap((row) => row.creatorId ? [row.creatorId] : []) ?? [])
+  const pending = useMutationState({ filters: { mutationKey: ["community", "invite-revoke"], status: "pending" }, select: (mutation) => mutation.state.variables as { serverId: string; code: string; resource?: unknown } | undefined })
+  const resource = client.getQueryCache().find({ queryKey: communityKeys.invites(serverId ?? "__none__"), exact: true })
+  const hidden = new Set(pending.filter((intent) => intent?.serverId === serverId && intent.resource === resource).map((intent) => intent!.code))
+  const invites = query.data?.invites.filter((row) => !hidden.has(row.code)).map((row) => ({ ...row, by: row.creatorId ? profiles.get(row.creatorId)?.name || "Deleted user" : "Deleted user" }))
   return {
     ...query,
-    invites: query.data?.invites ?? (EMPTY_INVITES as InviteRow[]),
+    invites: invites ?? (EMPTY_INVITES as InviteRow[]),
   }
 }
 
@@ -85,12 +105,15 @@ export function useInvites(
  */
 export type PresenceResponse = { online: string[]; truncated?: boolean; limit?: number }
 
-export const presenceQueryFn = (serverId: string) => () =>
+export const presenceQueryFn = (serverId: string) => (context: QueryFunctionContext) =>
   loadAndSeedProfiles(
-    () => apiFetch<PresenceResponse & { stale?: boolean }>(
+    (origin) => apiFetch<PresenceResponse & { stale?: boolean }>(
       `/api/community/servers/${serverId}/presence`,
+      origin,
     ).then(throwIfStale),
     (data) => data.online.map((id) => ({ id, presence: "online" })),
+    getCommunityDbRegistry(context.client),
+    context.signal,
   )
 
 const EMPTY_ONLINE: readonly string[] = Object.freeze([])

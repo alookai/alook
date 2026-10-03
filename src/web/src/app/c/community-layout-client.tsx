@@ -47,8 +47,10 @@ export function CommunityLayoutClient({
   return (
     <AuthenticatedContextMenuBoundary>
       <AuthenticatedNativeOauthCleanup />
-      <SignupTracker redirectTo="/c/me/machines" />
-      <CommunityShell currentUser={currentUser}>{children}</CommunityShell>
+      <CommunityShell currentUser={currentUser}>
+        <SignupTracker redirectTo="/c/me/machines" />
+        {children}
+      </CommunityShell>
     </AuthenticatedContextMenuBoundary>
   )
 }

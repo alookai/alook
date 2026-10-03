@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import React from "react"
-import { fireEvent, render, screen } from "@/test/react-dom-harness"
+import { act, fireEvent, render, screen, waitFor } from "@/test/react-dom-harness"
 
 vi.mock("../settings/create-dialog-shell", async () => {
   const ReactModule = await import("react")
@@ -79,14 +79,13 @@ describe("ChannelHeader — forum title dialog", () => {
     expect(onRename).toHaveBeenCalledOnce()
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
 
-    rejectRename(new Error("save failed"))
-    await vi.waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeEnabled())
+    await act(async () => { rejectRename(new Error("save failed")) })
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeEnabled())
     expect(screen.getByRole("textbox", { name: "Post title" })).toHaveValue("New title")
 
     fireEvent.click(screen.getByRole("button", { name: "Save" }))
     expect(onRename).toHaveBeenCalledTimes(2)
-    resolveRename()
-    await Promise.resolve()
+    await act(async () => { resolveRename() })
 
     renderer.unmount()
   })

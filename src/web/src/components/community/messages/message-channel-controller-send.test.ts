@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { QueryClient } from "@tanstack/react-query"
+import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
+import type { CommunityRuntime } from "@/stores/community/runtime"
 import { acceptChannelMessage, runAcceptedMessageIntent } from "./message-channel-controller-send"
 
 const mocks = vi.hoisted(() => ({
@@ -13,13 +16,6 @@ const mocks = vi.hoisted(() => ({
   })),
 }))
 
-vi.mock("@/stores/community/message-stream", () => ({
-  useMessageStreamStore: { getState: () => ({
-    accept: mocks.accept,
-    getRetryPayload: mocks.getRetryPayload,
-    dispatch: mocks.dispatch,
-  }) },
-}))
 vi.mock("@/hooks/community/mutations", () => ({
   sendNonce: () => "nonce_1",
   tempMessageId: () => "temp_1",
@@ -31,12 +27,18 @@ vi.mock("@/hooks/community/use-community-ws", () => ({
 }))
 vi.mock("@/lib/api/client", () => ({ toastApiError: mocks.toastApiError }))
 
+let registry: CommunityDbRegistry, runtime: CommunityRuntime
 const scope = { kind: "channel" as const, id: "channel_1", serverId: "server_1" }
 const viewer = { id: "viewer_1", name: "Viewer", avatar: "V" }
 
 describe("message channel send helpers", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    registry = createCommunityDbRegistry(new QueryClient(), "viewer_1")
+    runtime = registry.runtime
+    vi.spyOn(runtime.messageStream.actions, "accept").mockImplementation(mocks.accept)
+    vi.spyOn(runtime.messageStream.actions, "getRetryPayload").mockImplementation(mocks.getRetryPayload)
+    vi.spyOn(runtime.messageStream.actions, "dispatch").mockImplementation(mocks.dispatch)
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-01-02T03:04:05.000Z"))
     vi.stubGlobal("URL", {
@@ -44,7 +46,8 @@ describe("message channel send helpers", () => {
       revokeObjectURL: vi.fn(),
     })
   })
-  afterEach(() => {
+  afterEach(async () => {
+    await registry.cleanup(); registry.queryClient.clear()
     vi.useRealTimers()
     vi.unstubAllGlobals()
   })
@@ -53,6 +56,7 @@ describe("message channel send helpers", () => {
     const runner = vi.fn(async () => {})
     const clearReply = vi.fn()
     expect(acceptChannelMessage({
+      runtime,
       markdown: "", messageScope: scope, viewer, replyTo: null,
       runAcceptedIntent: runner, channelId: "channel_1", clearReply,
     })).toBe(false)
@@ -62,6 +66,7 @@ describe("message channel send helpers", () => {
     const created = new File(["a"], "a.txt", { type: "text/plain" })
     const supplied = new File(["b"], "b.txt", { type: "text/plain" })
     expect(acceptChannelMessage({
+      runtime,
       markdown: "hello",
       attachments: [
         { file: created },
@@ -116,6 +121,7 @@ describe("message channel send helpers", () => {
     mocks.endTyping.mockImplementation(() => order.push("typing"))
     const clearReply = vi.fn(() => order.push("clear"))
     expect(acceptChannelMessage({
+      runtime,
       markdown: "hello",
       attachments: [{ file, thumbnailBlob, width: 10, height: 20 }],
       mentionType: "user",
@@ -127,7 +133,7 @@ describe("message channel send helpers", () => {
       clearReply,
     })).toBe(true)
     expect(runner).toHaveBeenCalledWith("nonce_1")
-    expect(mocks.endTyping).toHaveBeenCalledWith({ channelId: "channel_1" })
+    expect(mocks.endTyping).toHaveBeenCalledWith(runtime, { channelId: "channel_1" })
     expect(order).toEqual(["accept", "run", "typing", "clear"])
     expect(URL.revokeObjectURL).not.toHaveBeenCalled()
   })
@@ -139,6 +145,7 @@ describe("message channel send helpers", () => {
     mocks.accept.mockReturnValue(true)
 
     expect(acceptChannelMessage({
+      runtime,
       markdown: "",
       attachments: [{ file, previewObjectUrl: "blob:provided" }],
       messageScope: scope,
@@ -169,7 +176,7 @@ describe("message channel send helpers", () => {
       mentionType: undefined,
     })
     expect(runner).toHaveBeenCalledWith("nonce_1")
-    expect(mocks.endTyping).toHaveBeenCalledWith({ channelId: "channel_1" })
+    expect(mocks.endTyping).toHaveBeenCalledWith(runtime, { channelId: "channel_1" })
     expect(clearReply).toHaveBeenCalledOnce()
   })
 
@@ -178,6 +185,7 @@ describe("message channel send helpers", () => {
     mocks.accept.mockReturnValue(true)
 
     expect(acceptChannelMessage({
+      runtime,
       markdown: "",
       attachments: [{ file, previewObjectUrl: "blob:provided" }],
       messageScope: scope,
@@ -218,6 +226,7 @@ describe("message channel send helpers", () => {
       mentionType: "user",
     })
     await runAcceptedMessageIntent({
+      runtime,
       messageScope: scope, nonce: "nonce_1", uploadFileAsync, sendMessageAsync,
       channelId: "channel_1", serverId: "server_1", viewer,
     })
@@ -239,11 +248,12 @@ describe("message channel send helpers", () => {
     }).mockRejectedValueOnce(new Error("failed"))
     sendMessageAsync.mockClear()
     await runAcceptedMessageIntent({
+      runtime,
       messageScope: scope, nonce: "nonce_2", uploadFileAsync, sendMessageAsync,
       channelId: "channel_1", serverId: "server_1", viewer,
     })
     expect(uploadFileAsync).toHaveBeenCalledTimes(2)
-    expect(mocks.toastApiError).toHaveBeenCalledWith(expect.any(Error), "Failed to attach file")
+    expect(mocks.toastApiError).toHaveBeenCalledWith(expect.any(Error), "Failed to attach file", expect.any(Function))
     expect(mocks.dispatch).toHaveBeenCalledWith(scope, { type: "uploadFailed", nonce: "nonce_2" })
     expect(sendMessageAsync).not.toHaveBeenCalled()
   })
@@ -296,6 +306,7 @@ describe("message channel send helpers", () => {
     const sendMessageAsync = vi.fn(async () => { order.push("send") })
 
     await runAcceptedMessageIntent({
+      runtime,
       messageScope: scope,
       nonce: "nonce_upload",
       uploadFileAsync,
@@ -308,6 +319,7 @@ describe("message channel send helpers", () => {
 
     expect(uploadFileAsync).toHaveBeenCalledTimes(2)
     expect(uploadFileAsync).toHaveBeenNthCalledWith(1, {
+      assertActive: undefined,
       target: { channelId: "channel_1" },
       file: uploads[0].file,
       thumbnailBlob: uploads[0].thumbnailBlob,
@@ -315,6 +327,7 @@ describe("message channel send helpers", () => {
       height: 20,
     })
     expect(uploadFileAsync).toHaveBeenNthCalledWith(2, {
+      assertActive: undefined,
       target: { channelId: "channel_1" },
       file: uploads[1].file,
       thumbnailBlob: undefined,
@@ -330,6 +343,7 @@ describe("message channel send helpers", () => {
       ],
     })
     expect(sendMessageAsync).toHaveBeenCalledWith({
+      assertActive: undefined,
       serverId: "server_1",
       channelId: "channel_1",
       forumParentChannelId: "forum_1",
@@ -350,6 +364,7 @@ describe("message channel send helpers", () => {
     const sendMessageAsync = vi.fn()
     mocks.getRetryPayload.mockReturnValueOnce(undefined)
     await runAcceptedMessageIntent({
+      runtime,
       messageScope: scope, nonce: "missing", uploadFileAsync, sendMessageAsync,
       channelId: "channel_1", serverId: "server_1", viewer,
     })
@@ -365,6 +380,7 @@ describe("message channel send helpers", () => {
     })
     sendMessageAsync.mockRejectedValueOnce(failure)
     await expect(runAcceptedMessageIntent({
+      runtime,
       messageScope: scope, nonce: "nonce_failed", uploadFileAsync, sendMessageAsync,
       channelId: "channel_1", serverId: "server_1", viewer,
     })).resolves.toBeUndefined()
@@ -372,7 +388,7 @@ describe("message channel send helpers", () => {
       content: "keep optimistic",
       nonce: "nonce_failed",
     }))
-    expect(mocks.dispatch).not.toHaveBeenCalled()
+    expect(mocks.dispatch).toHaveBeenCalledWith(scope, { type: "postFail", nonce: "nonce_failed" })
     expect(mocks.toastApiError).not.toHaveBeenCalled()
   })
 
@@ -388,6 +404,7 @@ describe("message channel send helpers", () => {
     })
     const sendMessageAsync = vi.fn(async () => ({}))
     const args = {
+      runtime,
       messageScope: scope,
       nonce: "nonce_retry",
       uploadFileAsync: vi.fn(),

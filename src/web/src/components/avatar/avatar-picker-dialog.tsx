@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
 import { Shuffle } from "lucide-react";
 import { GeneratedAvatar } from "./generated-avatar";
 import { serializeBeamSeed, parseBeamSeed } from "@/lib/avatar/seed-url";
@@ -20,7 +22,7 @@ function randomSeed(): string {
  * Generated avatar picker: a preview and Shuffle control that rerolls the stored seed.
  */
 export function AvatarPickerDialog({ value, onChange }: AvatarPickerDialogProps) {
-  const [seed, setSeed] = useState<string>(() => parseBeamSeed(value) ?? randomSeed());
+  const [seed, setSeed] = useAtom(useCreateAtom<string>(useMemo<string>(() => parseBeamSeed(value) ?? randomSeed(), [value])));
 
   const shuffle = () => {
     const next = randomSeed();

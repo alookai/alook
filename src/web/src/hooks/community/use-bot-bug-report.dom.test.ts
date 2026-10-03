@@ -1,5 +1,6 @@
 import React from "react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { onlineManager, QueryClient } from "@tanstack/react-query"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
 import { ApiError } from "@/lib/errors"
@@ -41,7 +42,7 @@ function renderBugReportHook(initialOpen = true) {
   act(() => {
     renderer = render(
       React.createElement(
-        QueryClientProvider,
+        CommunityTestProvider,
         { client: queryClient },
         React.createElement(Probe, { open: initialOpen }),
       ),
@@ -56,7 +57,7 @@ function renderBugReportHook(initialOpen = true) {
       act(() => {
         renderer.rerender(
           React.createElement(
-            QueryClientProvider,
+            CommunityTestProvider,
             { client: queryClient },
             React.createElement(Probe, { open }),
           ),
@@ -68,9 +69,8 @@ function renderBugReportHook(initialOpen = true) {
 
 async function flushMicrotasks() {
   await act(async () => {
-    await Promise.resolve()
-    await Promise.resolve()
-    await Promise.resolve()
+    if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(1)
+    else await new Promise((resolve) => setTimeout(resolve, 0))
   })
 }
 
@@ -86,6 +86,7 @@ function pendingReport(nowMs = Date.now()) {
 }
 
 beforeEach(() => {
+  onlineManager.setOnline(true)
   apiFetchMock.mockReset()
   vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue(
     "00000000-0000-4000-8000-000000000001",
@@ -93,6 +94,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  onlineManager.setOnline(true)
   vi.useRealTimers()
   vi.restoreAllMocks()
 })
@@ -382,6 +384,7 @@ describe("useBotBugReport", () => {
       void result.current.confirm()
     })
 
+    await flushMicrotasks()
     expect(apiFetchMock).toHaveBeenCalledTimes(1)
     expect(globalThis.crypto.randomUUID).toHaveBeenCalledTimes(1)
     expect(apiFetchMock).toHaveBeenCalledWith(
@@ -409,6 +412,7 @@ describe("useBotBugReport", () => {
     await act(async () => {
       await hook.result.current.confirm()
     })
+    await flushMicrotasks()
     expect(hook.result.current.state).toMatchObject({
       phase: "uploaded",
       terminal: true,
@@ -470,13 +474,15 @@ describe("useBotBugReport", () => {
       await Promise.resolve()
       await Promise.resolve()
     })
-    expect(hook.result.current.state).toEqual(initialBugReportState)
+    await flushMicrotasks()
+    await vi.waitFor(() => expect(hook.result.current.state).toEqual(initialBugReportState))
 
     hook.setOpen(true)
     expect(hook.result.current.state).toEqual(initialBugReportState)
     await act(async () => {
       await hook.result.current.confirm()
     })
+    await flushMicrotasks()
     expect(hook.result.current.state).toMatchObject(expected)
     expect(apiFetchMock.mock.calls.filter(([, init]) =>
       (init as RequestInit | undefined)?.method === "POST",
@@ -493,6 +499,7 @@ describe("useBotBugReport", () => {
     await act(async () => {
       await hook.result.current.confirm()
     })
+    await flushMicrotasks()
     await flushMicrotasks()
     expect(hook.result.current.state).toMatchObject({
       phase: "collecting",
@@ -532,6 +539,7 @@ describe("useBotBugReport", () => {
       await hook.result.current.confirm()
     })
     await flushMicrotasks()
+    await flushMicrotasks()
 
     const postsAfterReopen = apiFetchMock.mock.calls.filter(([, init]) =>
       (init as RequestInit | undefined)?.method === "POST",
@@ -558,6 +566,7 @@ describe("useBotBugReport", () => {
     await act(async () => {
       await result.current.confirm()
     })
+    await flushMicrotasks()
     expect(result.current.state).toMatchObject({
       phase: "failed",
       terminal,
@@ -579,18 +588,23 @@ describe("useBotBugReport", () => {
     await act(async () => {
       await result.current.confirm()
     })
+    await flushMicrotasks()
     expect(result.current.state).toMatchObject({ phase: "failed", terminal: false })
 
     await act(async () => {
       await result.current.confirm()
     })
     await flushMicrotasks()
+    await flushMicrotasks()
 
     const postCalls = apiFetchMock.mock.calls.filter(([, init]) =>
       (init as RequestInit | undefined)?.method === "POST",
     )
     expect(postCalls).toHaveLength(2)
-    expect(postCalls[0]?.[1]).toMatchObject(postCalls[1]?.[1] as RequestInit)
+    expect(postCalls.map(([, init]) => ({ method: init.method, body: init.body, headers: init.headers, authenticationAccount: init.authenticationAccount }))).toEqual([
+      expect.objectContaining({ method: "POST", body: postCalls[0]?.[1].body, authenticationAccount: "viewer" }),
+      expect.objectContaining({ method: "POST", body: postCalls[0]?.[1].body, authenticationAccount: "viewer" }),
+    ])
     expect(globalThis.crypto.randomUUID).toHaveBeenCalledTimes(1)
     expect(result.current.state).toMatchObject({
       phase: "collecting",
@@ -623,17 +637,13 @@ describe("useBotBugReport", () => {
       }))
 
     const hook = renderBugReportHook()
-    const cancelQueries = vi.spyOn(hook.queryClient, "cancelQueries")
     await act(async () => {
       await hook.result.current.confirm()
     })
+    await flushMicrotasks()
     await vi.waitFor(() => expect(statusSignal).toBeDefined())
 
     hook.setOpen(false)
-    expect(cancelQueries).toHaveBeenCalledWith({
-      queryKey: communityKeys.bugReport("dbr_pending"),
-      exact: true,
-    })
     expect(statusSignal?.aborted).toBe(true)
     const getCount = apiFetchMock.mock.calls.filter(([, init]) =>
       (init as RequestInit | undefined)?.method === "GET",
@@ -657,17 +667,13 @@ describe("useBotBugReport", () => {
       }))
 
     const hook = renderBugReportHook()
-    const cancelQueries = vi.spyOn(hook.queryClient, "cancelQueries")
     await act(async () => {
       await hook.result.current.confirm()
     })
+    await flushMicrotasks()
     await vi.waitFor(() => expect(statusSignal).toBeDefined())
 
     act(() => hook.renderer.unmount())
-    expect(cancelQueries).toHaveBeenCalledWith({
-      queryKey: communityKeys.bugReport("dbr_pending"),
-      exact: true,
-    })
     expect(statusSignal?.aborted).toBe(true)
   })
 
@@ -683,6 +689,7 @@ describe("useBotBugReport", () => {
       await hook.result.current.confirm()
     })
     await flushMicrotasks()
+    await flushMicrotasks()
     expect(apiFetchMock.mock.calls.filter(([, init]) =>
       (init as RequestInit | undefined)?.method === "GET",
     )).toHaveLength(1)
@@ -693,6 +700,30 @@ describe("useBotBugReport", () => {
     expect(apiFetchMock.mock.calls.filter(([, init]) =>
       (init as RequestInit | undefined)?.method === "GET",
     )).toHaveLength(2)
+    hook.renderer.unmount()
+  })
+
+  it.each([
+    ["uploaded", null, "uploaded"],
+    ["failed", "timeout", "timeout"],
+  ] as const)("retains a terminal %s creation receipt without GET on reconnect", async (status, failureCode, phase) => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const report = { ...pendingReport(), status, failureCode, completedAt: 1_000 }
+    apiFetchMock.mockResolvedValueOnce({ report, delivery: "accepted" })
+    const hook = renderBugReportHook()
+    await act(async () => { await hook.result.current.confirm() })
+    await flushMicrotasks()
+    expect(hook.result.current.state.phase).toBe(phase)
+    expect(hook.queryClient.getQueryData(communityKeys.bugReport(report.reportId))).toEqual(report)
+    await act(async () => {
+      onlineManager.setOnline(false)
+      onlineManager.setOnline(true)
+      await vi.advanceTimersByTimeAsync(60_000)
+    })
+    expect(apiFetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "GET")).toHaveLength(0)
+    expect(hook.result.current.state.phase).toBe(phase)
+    expect(hook.queryClient.getQueryData(communityKeys.bugReport(report.reportId))).toEqual(report)
     hook.renderer.unmount()
   })
 
@@ -718,12 +749,15 @@ describe("useBotBugReport", () => {
       await hook.result.current.confirm()
     })
     await flushMicrotasks()
+    await flushMicrotasks()
     expect(hook.result.current.state.phase).toBe(phase)
 
     const getCount = apiFetchMock.mock.calls.filter(([, init]) =>
       (init as RequestInit | undefined)?.method === "GET",
     ).length
     await act(async () => {
+      onlineManager.setOnline(false)
+      onlineManager.setOnline(true)
       await vi.advanceTimersByTimeAsync(60_000)
     })
     expect(apiFetchMock.mock.calls.filter(([, init]) =>
@@ -749,6 +783,7 @@ describe("useBotBugReport", () => {
     await act(async () => {
       await hook.result.current.confirm()
     })
+    await flushMicrotasks()
     await flushMicrotasks()
 
     expect(hook.result.current.state).toMatchObject({

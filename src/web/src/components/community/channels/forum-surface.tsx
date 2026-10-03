@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
 import type { NewForumThread } from "../messages/create-forum-thread"
 import type { ComposerProps } from "../messages/composer"
 import type { ForumThread } from "@/lib/community/models/message"
@@ -26,7 +27,7 @@ export function ForumSurface({ serverId, forumChannelId, ...props }: {
 }) {
   const feed = useForumFeed(serverId, forumChannelId)
   const readState = useChannelReadStateSnapshot(forumChannelId)
-  const [scrollRootEl, setScrollRootEl] = useState<HTMLDivElement | null>(null)
+  const [scrollRootEl, setScrollRootEl] = useAtom(useCreateAtom<HTMLDivElement | null>(null))
   useTimelineReadObserver({
     channelId: forumChannelId,
     messages: feed.posts.flatMap((post) => (

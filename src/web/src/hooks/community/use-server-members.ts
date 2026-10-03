@@ -1,24 +1,20 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import {
-  useInfiniteQuery,
-  useQueryClient,
-  type InfiniteData,
-} from "@tanstack/react-query"
-import { toastApiError } from "@/lib/api/client"
-import {
-  apiFetchProfiles,
-  communityUserProfilePatch,
-} from "@/lib/community/profile-seed"
+import { useEffect, useMemo } from "react"
+import { createStore, useSelector } from "@tanstack/react-store"
+import { useInfiniteQuery, useMutationState, useQueryClient, replaceEqualDeep, type InfiniteData, type Query, type QueryKey, type QueryClient } from "@tanstack/react-query"
+import { apiFetch, toastApiError } from "@/lib/api/client"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent, publishCommunityMembersSnapshot } from "@/lib/community-db/sync"
+import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
+import { beginCommunityProfileSeed, writeCommunityProfilePatches, communityUserProfilePatch } from "@/lib/community/profile-seed"
+import { useCanonicalProfilesByUserId, useServerMemberRows } from "@/lib/community-db/projections"
+import { readCommunityProfile } from "@/lib/community/profile-read"
+import { serverMembershipKey } from "@/lib/community-db/schema"
+import { useCommunityViewSource } from "./use-community-view-source"
 import { communityKeys } from "@/lib/query-keys"
 import type { Member } from "@/lib/community/models/people"
-import type {
-  CommunityMemberJoin,
-  CommunityMemberLeave,
-  CommunityMemberUpdate,
-  CommunityRole,
-} from "@alook/shared"
+import type { CommunityMemberJoin, CommunityMemberLeave, CommunityMemberUpdate, CommunityRole } from "@alook/shared"
 import { avatarInitial } from "@/lib/community/avatar"
 
 // Debounce window for the search input (ms). Kept short — the endpoint is
@@ -91,22 +87,6 @@ type SearchEnvelope = {
   cursor?: string
 }
 
-type MemberSearchStatus =
-  | "idle"
-  | "loading"
-  | "loading-more"
-  | "ready"
-  | "empty"
-  | "error"
-
-type MemberSearchState = {
-  serverId: string
-  query: string
-  members: Member[]
-  status: Exclude<MemberSearchStatus, "idle">
-  cursor?: string
-}
-
 export function mergeMemberSearchPage(
   current: Member[],
   incoming: Member[],
@@ -116,21 +96,6 @@ export function mergeMemberSearchPage(
   const additions = incoming.filter((member) => !seen.has(member.id))
   return additions.length === 0 ? current : [...current, ...additions]
 }
-
-// Exported so the tests can drive the query function against a mocked
-// apiFetch without going through React.
-export const membersPageQueryFn =
-  (serverId: string) =>
-    async ({ pageParam }: { pageParam: string | null | undefined }): Promise<MembersEnvelope> => {
-      const params = new URLSearchParams()
-      if (pageParam) params.set("cursor", pageParam)
-      const url = `/api/community/servers/${serverId}/members${params.toString() ? `?${params}` : ""}`
-      return apiFetchProfiles<MembersEnvelope>(
-        url,
-        (data) => data.members.map((member) =>
-          communityUserProfilePatch(member.userId, member)),
-      )
-    }
 
 // ── Cache mutation helpers (also used by the WS handler in Step 3) ──────────
 
@@ -245,51 +210,148 @@ export function patchCacheRole(
   return { ...cache, pages: nextPages }
 }
 
-// ── Overlay event bus ───────────────────────────────────────────────────────
-//
-// The paged cache lives in TanStack Query and is patched directly by the
-// mutations. The *search overlay* (results of the /members/search endpoint)
-// lives in local state inside `useServerMembers`, so mutations that only touch
-// the paged cache would leave a stale row visible when the user has an active
-// search.
-//
-// The bus below lets mutations broadcast overlay-affecting events without
-// coupling to the hook instance. `useServerMembers` subscribes and mirror-
-// patches its search overlay state; if there's no active search the events
-// are a no-op.
-export type MemberOverlayEvent =
-  | { type: "kick"; serverId: string; memberId: string }
-  | { type: "role"; serverId: string; memberId: string; role: CommunityRole }
-  | { type: "update"; serverId: string; event: CommunityMemberUpdate }
-  | { type: "leave"; serverId: string; userId: string }
-  | { type: "refresh"; serverId: string }
-
-const memberOverlayBus =
-  typeof EventTarget !== "undefined" ? new EventTarget() : null
-
-const MEMBER_OVERLAY_EVENT = "member-overlay"
-
-export function dispatchMemberOverlayEvent(ev: MemberOverlayEvent): void {
-  if (!memberOverlayBus) return
-  memberOverlayBus.dispatchEvent(
-    new CustomEvent<MemberOverlayEvent>(MEMBER_OVERLAY_EVENT, { detail: ev }),
-  )
+export type MemberIdentity = Pick<Member, "id" | "userId">
+export type MemberWindow = {
+  members: MemberIdentity[]
+  hasMore: boolean
+  cursor?: string
+  limit: number
+  total?: number
+  liveRevision: number
 }
+export type MembersWindowCache = InfiniteData<MemberWindow, string | null | undefined>
+type MemberReadProtocol = {
+  operation: Promise<unknown> | undefined
+  token: ReturnType<typeof captureCommunityLiveSnapshotToken>
+  profileSnapshot: ReturnType<typeof beginCommunityProfileSeed>
+  baselineIds: ReadonlySet<string>
+  liveRevision: number
+}
+const memberReads = new WeakMap<Query, ReturnType<typeof createStore<MemberReadProtocol>>>()
 
-export function subscribeMemberOverlayEvents(
-  listener: (ev: MemberOverlayEvent) => void,
-): () => void {
-  if (!memberOverlayBus) return () => { }
-  const handler = (e: Event) => {
-    const detail = (e as CustomEvent<MemberOverlayEvent>).detail
-    if (detail) listener(detail)
+function beginMemberRead(client: QueryClient, key: QueryKey) {
+  const resource = client.getQueryCache().find({ queryKey: key, exact: true })
+  const existing = resource ? memberReads.get(resource) : undefined
+  if (existing && existing.get().operation === resource!.promise) return { resource, protocol: existing.get() }
+  const cached = resource?.state.data as MembersWindowCache | undefined
+  const protocol: MemberReadProtocol = {
+    operation: resource?.promise,
+    token: captureCommunityLiveSnapshotToken(client),
+    profileSnapshot: beginCommunityProfileSeed(getCommunityDbRegistry(client)),
+    baselineIds: new Set(cached?.pages.flatMap((page) => page.members.map((member) => member.id)) ?? []),
+    liveRevision: Math.max(0, ...(cached?.pages.map((page) => page.liveRevision ?? 0) ?? [])),
   }
-  memberOverlayBus.addEventListener(MEMBER_OVERLAY_EVENT, handler)
-  return () => memberOverlayBus.removeEventListener(MEMBER_OVERLAY_EVENT, handler)
+  if (resource) {
+    const state = existing ?? createStore(protocol)
+    state.setState(() => protocol)
+    memberReads.set(resource, state)
+  }
+  return { resource, protocol }
 }
 
-// ── Public hook API ─────────────────────────────────────────────────────────
+export const membersPageQueryFn = (serverId: string, search = "", limit?: number) =>
+  async ({ pageParam, client, signal, queryKey }: { pageParam: string | null | undefined; client: QueryClient; signal?: AbortSignal; queryKey?: QueryKey }): Promise<MemberWindow> => {
+    const key = queryKey ?? communityKeys.members(serverId)
+    const { resource, protocol } = beginMemberRead(client, key)
+    const { token, profileSnapshot } = protocol
+    const registry = token.registry!
+    const assert = () => {
+      assertCommunityLiveSnapshotTokenCurrent(client, token, signal)
+      if (resource && client.getQueryCache().find({ queryKey: key, exact: true }) !== resource) throw new DOMException("Retired member resource", "AbortError")
+    }
+    assert()
+    await registry.ready
+    await registry.collections.serverMemberships.preload()
+    assert()
+    const params = new URLSearchParams()
+    if (pageParam) params.set("cursor", pageParam)
+    if (search) params.set("q", search)
+    if (limit) params.set("limit", String(limit))
+    const path = "/api/community/servers/" + serverId + "/members" + (search ? "/search" : "") + (params.size ? "?" + params : "")
+    const data = await apiFetch<MembersEnvelope | SearchEnvelope>(path, communityRequestOptions(client, token, signal, assert))
+    assert()
+    if (data.hasMore && !data.cursor) throw new Error("members page missing cursor")
+    writeCommunityProfilePatches(data.members.map((member) => communityUserProfilePatch(member.userId, member)), registry, { snapshot: profileSnapshot })
+    publishCommunityMembersSnapshot(client, serverId, data.members, { token, signal })
+    assert()
+    return { members: data.members.map(({ id, userId }) => ({ id, userId })), hasMore: data.hasMore, cursor: data.cursor, limit: data.limit, ...("total" in data ? { total: data.total } : {}), liveRevision: protocol.liveRevision }
+  }
 
+export function mergeMemberWindows(client: QueryClient, key: QueryKey, previous: unknown, next: unknown): MembersWindowCache {
+  const incoming = next as MembersWindowCache
+  const old = previous as MembersWindowCache | undefined
+  const resource = client.getQueryCache().find({ queryKey: key, exact: true })
+  const read = resource ? memberReads.get(resource)?.get() : undefined
+  if (!read || !old?.pages.length) return replaceEqualDeep(previous, incoming)
+  const oldRevision = Math.max(0, ...old.pages.map((page) => page.liveRevision ?? 0))
+  if (Math.max(0, ...incoming.pages.map((page) => page.liveRevision ?? 0)) > oldRevision) return replaceEqualDeep(previous, incoming)
+  if (oldRevision <= read.liveRevision) return replaceEqualDeep(previous, incoming)
+  const serverId = key[2] as string
+  const registry = read.token.registry
+  const pages = incoming.pages.map((page) => ({ ...page, liveRevision: oldRevision, members: page.members.filter((member) => registry?.collections.serverMemberships.get(serverMembershipKey(serverId, member.userId))?.memberId === member.id), ...(page.total === undefined ? {} : { total: old.pages[0]?.total ?? page.total }) }))
+  const tail = pages.at(-1)
+  if (tail && !tail.hasMore && key[4] !== "search") {
+    const seen = new Set(pages.flatMap((page) => page.members.map((member) => member.id)))
+    for (const member of old.pages.flatMap((page) => page.members)) {
+      if (read.baselineIds.has(member.id) || seen.has(member.id) || registry?.collections.serverMemberships.get(serverMembershipKey(serverId, member.userId))?.memberId !== member.id) continue
+      tail.members.push(member)
+      seen.add(member.id)
+    }
+  }
+  return replaceEqualDeep(previous, { ...incoming, pages })
+}
+
+export function patchMemberKickWindows(client: QueryClient, resources: readonly Query[], memberId: string) {
+  for (const query of resources) {
+    if (client.getQueryCache().find({ queryKey: query.queryKey, exact: true }) !== query) continue
+    const current = query.state.data as MembersWindowCache | undefined
+    if (!current?.pages?.length) continue
+    const revision = Math.max(0, ...current.pages.map((page) => page.liveRevision ?? 0)) + 1
+    const pages = current.pages.map((page) => ({ ...page, liveRevision: revision, members: page.members.filter((member) => member.id !== memberId), ...(page.total === undefined ? {} : { total: Math.max(0, page.total - 1) }) }))
+    client.setQueryData(query.queryKey, { ...current, pages })
+  }
+}
+
+export function patchMemberWindows(client: QueryClient, event: CommunityMemberJoin | CommunityMemberLeave | CommunityMemberUpdate) {
+  const root = communityKeys.members(event.serverId)
+  for (const query of client.getQueryCache().findAll({ queryKey: root })) {
+    const current = query.state.data as MembersWindowCache | undefined
+    if (!current?.pages?.length) {
+      if (query.state.fetchStatus !== "fetching") continue
+      const original = captureCommunityLiveSnapshotToken(client)
+      void client.cancelQueries({ queryKey: query.queryKey, exact: true }).then(() => {
+        assertCommunityLiveSnapshotTokenCurrent(client, original, undefined)
+        if (client.getQueryCache().find({ queryKey: query.queryKey, exact: true }) === query) return client.invalidateQueries({ queryKey: query.queryKey, exact: true }, { cancelRefetch: false })
+      }).catch(() => undefined)
+      continue
+    }
+    if (query.queryKey[4] === "search") {
+      if (event.type === "community:member.update" && event.changes.nickname === undefined) continue
+      if (event.type !== "community:member.leave") { void client.invalidateQueries({ queryKey: query.queryKey, exact: true }, { cancelRefetch: false }); continue }
+    }
+    const revision = Math.max(0, ...current.pages.map((page) => page.liveRevision ?? 0)) + 1
+    let delta = 0
+    let pages = current.pages.map((page) => ({ ...page, liveRevision: revision }))
+    if (event.type === "community:member.join") {
+      if (pages.some((page) => page.members.some((member) => member.userId === event.member.userId))) {
+        if (pages.some((page) => page.members.some((member) => member.id === event.member.id))) continue
+        pages = pages.map((page) => ({ ...page, members: page.members.map((member) => member.userId === event.member.userId ? { id: event.member.id, userId: event.member.userId } : member) }))
+        client.setQueryData(query.queryKey, { ...current, pages })
+        continue
+      }
+      delta = 1
+      const tail = pages.at(-1)!
+      if (!tail.hasMore) tail.members = [...tail.members, { id: event.member.id, userId: event.member.userId }]
+    } else if (event.type === "community:member.leave") {
+      delta = -1
+      pages = pages.map((page) => ({ ...page, members: page.members.filter((member) => member.userId !== event.userId) }))
+    }
+    pages = pages.map((page) => ({ ...page, ...(page.total === undefined ? {} : { total: Math.max(0, page.total + delta) }) }))
+    client.setQueryData(query.queryKey, { ...current, pages })
+  }
+}
+
+type MemberSearchStatus = "idle" | "loading" | "loading-more" | "ready" | "empty" | "error"
 export type UseServerMembers = {
   members: Member[]
   loading: boolean
@@ -304,331 +366,89 @@ export type UseServerMembers = {
   reset: () => void
   refresh: () => void
   searchMembers: (q: string) => void
-  // Optimistic-UI hooks for the caller's role/kick mutations. The server
-  // fans out MEMBER_UPDATE / MEMBER_LEAVE on success; these keep the local
-  // view in sync during the in-flight window.
-  applyRoleChange: (memberId: string, role: CommunityRole) => void
-  applyKick: (memberId: string) => void
 }
 
-/**
- * Paginated + virtualized-friendly member state for a single community server.
- *
- * Two view modes:
- * - "paged": pages live in the TanStack Query cache keyed under
- *   `communityKeys.members(serverId)`. `loadMore()` calls `fetchNextPage`.
- * - "search": bypasses the cache — paginated search results and their cursor
- *   live in local state because the search endpoint is a different route and
- *   we don't want to overwrite the server-roster page cache while typing.
- *
- * WS events patch the shared paged cache in `community-ws/membership-events`
- * and notify the overlay bus above. Optimistic mutations use the same cache
- * helpers. Search-view state is patched or re-fetched in parallel so it
- * cannot diverge from the paged view.
- */
 export function useServerMembers(serverId: string | null): UseServerMembers {
-  const enabled = !!serverId
-  // `communityKeys.members(...)` returns a fresh tuple per call, so every
-  // `useCallback` below that lists `queryKey` in its deps would churn each
-  // render without this memo — cascading a fresh identity into every
-  // consumer's dep array. Keep it pinned to the serverId axis.
-  const queryKey = useMemo(
-    () => communityKeys.members(serverId ?? "__none__"),
-    [serverId],
-  )
   const queryClient = useQueryClient()
-
-  const infinite = useInfiniteQuery<
-    MembersEnvelope,
-    Error,
-    MembersPageCache,
-    typeof queryKey,
-    string | null | undefined
-  >({
-    queryKey,
-    // TS satisfies both branches; the `enabled` gate below prevents the
-    // disabled query from ever calling this function.
-    queryFn: enabled
-      ? membersPageQueryFn(serverId!)
-      : (() => Promise.reject(new Error("disabled"))),
-    initialPageParam: null,
-    getNextPageParam: (last) => (last.hasMore ? (last.cursor ?? null) : undefined),
-    enabled,
-    // WS `member.join/leave/update` live-patch this roster cache, so a remount
-    // doesn't need to refetch — this is a once-per-server seed. staleTime:
-    // Infinity stops the per-channel-switch refetch. Browser network reconnect
-    // and the explicit WS reconnect reconciler both re-seed this query so an
-    // event missed during a socket-only gap cannot leave it permanently stale.
-    staleTime: Infinity,
-    refetchOnReconnect: true,
+  const source = useCommunityViewSource("server-members:" + serverId, !!serverId)
+  const intent = useMemo(() => createStore({ queryClient, serverId, query: "", debounced: "" }), [queryClient, serverId])
+  const searchIntent = useSelector(intent, (state) => state)
+  useEffect(() => {
+    if (!serverId || searchIntent.query === searchIntent.debounced) return
+    const assert = source.capture()
+    const timer = setTimeout(() => {
+      try { assert() } catch { return }
+      intent.setState((state) => state.query === searchIntent.query ? { ...state, debounced: state.query } : state)
+    }, SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [intent, searchIntent.query, searchIntent.debounced, serverId, source.signal, source])
+  const key = communityKeys.members(serverId ?? "__none__")
+  const searching = !!serverId && !!searchIntent.query
+  const infinite = useInfiniteQuery({
+    queryKey: key, queryFn: membersPageQueryFn(serverId ?? "__none__"),
+    initialPageParam: null as string | null | undefined,
+    getNextPageParam: (last) => last.hasMore ? last.cursor : undefined,
+    enabled: !!serverId, subscribed: !!serverId,
+    staleTime: Infinity, refetchOnReconnect: true,
+    structuralSharing: (previous, next) => mergeMemberWindows(queryClient, key, previous, next),
   })
-
-  // ── Search state ────────────────────────────────────────────────────────
-  const [searchOverlay, setSearchOverlay] = useState<MemberSearchState | null>(null)
-  const activeSearchQuery = useRef("")
-  const searchActive = useRef(false)
-  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Monotonic sequence so out-of-order responses drop old results silently.
-  const searchSeq = useRef(0)
-  const searchPageInFlight = useRef<string | null>(null)
-
-  // ── Derived paged state ─────────────────────────────────────────────────
-  const pagedMembers = useMemo<Member[]>(() => {
-    if (!infinite.data) return []
-    return infinite.data.pages.flatMap((p) => p.members)
-  }, [infinite.data])
-
-  const lastPage = infinite.data?.pages[infinite.data.pages.length - 1]
-  const hasMore = lastPage?.hasMore ?? false
-  const total = lastPage?.total ?? 0
-
-  // ── Actions ─────────────────────────────────────────────────────────────
-  const loadMore = useCallback(() => {
-    if (!infinite.hasNextPage) return
-    if (infinite.isFetchingNextPage) return
-    void infinite.fetchNextPage()
-  }, [infinite])
-
-  const reset = useCallback(() => {
-    activeSearchQuery.current = ""
-    searchActive.current = false
-    setSearchOverlay(null)
-    if (searchTimer.current) {
-      clearTimeout(searchTimer.current)
-      searchTimer.current = null
-    }
-    searchSeq.current += 1
-    if (enabled) {
-      queryClient.removeQueries({ queryKey })
-    }
-  }, [enabled, queryClient, queryKey])
-
-  const refresh = useCallback(() => {
-    if (!enabled) return
-    void queryClient.invalidateQueries({ queryKey })
-  }, [enabled, queryClient, queryKey])
-
-  // When the serverId flips, drop the search overlay (pages are keyed by
-  // serverId so they don't need explicit teardown — TanStack Query GC's them
-  // and enable=false stops any in-flight fetch).
+  const searchKey = [...key, "search", searchIntent.debounced] as const
+  const searchReady = searching && searchIntent.query === searchIntent.debounced
+  const search = useInfiniteQuery({
+    queryKey: searchKey, queryFn: membersPageQueryFn(serverId ?? "__none__", searchIntent.debounced),
+    initialPageParam: null as string | null | undefined,
+    getNextPageParam: (last) => last.hasMore ? last.cursor : undefined,
+    enabled: searchReady, subscribed: searchReady,
+    retry: false, staleTime: Infinity, refetchOnReconnect: true,
+    structuralSharing: (previous, next) => mergeMemberWindows(queryClient, searchKey, previous, next),
+  })
   useEffect(() => {
-    activeSearchQuery.current = ""
-    searchActive.current = false
-    setSearchOverlay(null)
-    if (searchTimer.current) {
-      clearTimeout(searchTimer.current)
-      searchTimer.current = null
-    }
-    searchSeq.current += 1
-  }, [serverId])
-
-  const runSearch = useCallback(
-    async (q: string, seq: number, cursor?: string) => {
-      if (!enabled) return
-      const pageKey = `${seq}:${cursor ?? "__first__"}`
-      if (searchPageInFlight.current === pageKey) return
-      searchPageInFlight.current = pageKey
-      try {
-        const params = new URLSearchParams({ q })
-        if (cursor) params.set("cursor", cursor)
-        const data = await apiFetchProfiles<SearchEnvelope>(
-          `/api/community/servers/${serverId}/members/search?${params}`,
-          (page) => page.members.map((member) =>
-            communityUserProfilePatch(member.userId, member)),
-        )
-        if (searchSeq.current !== seq) return
-        setSearchOverlay((current) => {
-          const members = cursor
-            ? mergeMemberSearchPage(current!.members, data.members)
-            : data.members
-          return {
-            serverId: serverId!,
-            query: q,
-            members,
-            status: data.hasMore && data.cursor
-              ? "loading-more"
-              : members.length === 0 ? "empty" : "ready",
-            cursor: data.hasMore ? data.cursor : undefined,
-          }
-        })
-      } catch (e) {
-        if (searchSeq.current === seq) {
-          setSearchOverlay((current) => ({
-            serverId: serverId!,
-            query: q,
-            members: current!.members,
-            status: "error",
-          }))
-          toastApiError(e, "Search failed")
-        }
-      } finally {
-        if (searchPageInFlight.current === pageKey) {
-          searchPageInFlight.current = null
-        }
-      }
-    },
-    [enabled, serverId],
-  )
-
+    if (!searchReady || !search.error || search.isFetching) return
+    let assertActive: ReturnType<typeof source.capture>
+    try { assertActive = source.capture(); assertActive() } catch { return }
+    toastApiError(search.error, "Search failed", assertActive)
+  }, [searchReady, search.error, search.isFetching, source])
+  const fetchNextSearchPage = search.fetchNextPage
   useEffect(() => {
-    if (!searchOverlay || searchOverlay.serverId !== serverId) return
-    if (searchOverlay.status !== "loading-more" || !searchOverlay.cursor) return
-    const seq = searchSeq.current
-    void runSearch(searchOverlay.query, seq, searchOverlay.cursor)
-  }, [runSearch, searchOverlay, serverId])
-
-  const searchMembers = useCallback(
-    (q: string) => {
-      const trimmed = q.trim()
-      if (
-        trimmed.length > 0
-        && searchActive.current
-        && activeSearchQuery.current === trimmed
-      ) return
-      if (searchTimer.current) {
-        clearTimeout(searchTimer.current)
-        searchTimer.current = null
-      }
-      searchSeq.current += 1
-      if (trimmed.length === 0) {
-        activeSearchQuery.current = ""
-        searchActive.current = false
-        setSearchOverlay(null)
-        return
-      }
-      activeSearchQuery.current = trimmed
-      searchActive.current = true
-      const seq = searchSeq.current
-      setSearchOverlay({
-        serverId: serverId!,
-        query: trimmed,
-        members: [],
-        status: "loading",
-      })
-      searchTimer.current = setTimeout(() => {
-        searchTimer.current = null
-        void runSearch(trimmed, seq)
-      }, SEARCH_DEBOUNCE_MS)
-    },
-    [runSearch, serverId],
-  )
-
-  const applyRoleChange = useCallback(
-    (memberId: string, role: CommunityRole) => {
-      if (!enabled) return
-      queryClient.setQueryData<MembersPageCache | undefined>(queryKey, (cache) =>
-        patchCacheRole(cache, memberId, role),
-      )
-      setSearchOverlay((prev) =>
-        prev === null
-          ? null
-          : {
-              ...prev,
-              members: prev.members.map((m) =>
-                m.id === memberId ? { ...m, role } : m,
-              ),
-            },
-      )
-    },
-    [enabled, queryClient, queryKey],
-  )
-
-  const applyKick = useCallback(
-    (memberId: string) => {
-      if (!enabled) return
-      queryClient.setQueryData<MembersPageCache | undefined>(queryKey, (cache) =>
-        patchCacheKick(cache, memberId),
-      )
-      setSearchOverlay((prev) =>
-        prev === null
-          ? null
-          : { ...prev, members: prev.members.filter((m) => m.id !== memberId) },
-      )
-    },
-    [enabled, queryClient, queryKey],
-  )
-
-  // Cleanup pending debounce on unmount so a late fire doesn't paint torn
-  // state.
-  useEffect(() => {
-    return () => {
-      if (searchTimer.current) clearTimeout(searchTimer.current)
-    }
-  }, [])
-
-  const refreshSearchOverlay = useCallback(() => {
-    if (!searchActive.current) return
-    const q = activeSearchQuery.current
-    if (!q) return
-    searchSeq.current += 1
-    const seq = searchSeq.current
-    setSearchOverlay({
-      serverId: serverId!,
-      query: q,
-      members: [],
-      status: "loading",
+    if (searchReady && search.hasNextPage && !search.isFetching && !search.isError) void fetchNextSearchPage({ cancelRefetch: false })
+  }, [searchReady, search.hasNextPage, search.isFetching, search.isError, search.data, fetchNextSearchPage])
+  const data = searching ? searchReady ? search.data : undefined : infinite.data
+  const identities = useMemo(() => {
+    const seen = new Set<string>()
+    return data?.pages.flatMap((page) => page.members).filter((member) => {
+      if (seen.has(member.id)) return false
+      seen.add(member.id)
+      return true
+    }) ?? []
+  }, [data])
+  const memberships = useServerMemberRows(serverId, identities.map((member) => member.userId))
+  const profiles = useCanonicalProfilesByUserId(identities.map((member) => member.userId))
+  const members = useMemo(() => {
+    const byUser = new Map(memberships.map((row) => [row.userId, row]))
+    return identities.flatMap((identity) => {
+      const row = byUser.get(identity.userId)
+      if (!row || row.memberId !== identity.id) return []
+      const profile = readCommunityProfile(profiles.get(identity.userId), identity.userId)
+      return [{ id: identity.id, userId: identity.userId, name: row.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, role: row.role as CommunityRole, status: row.viewer ? "online" as const : profile.presence, sub: "", statusEmoji: profile.statusEmoji, statusText: profile.statusText }]
     })
-    void runSearch(q, seq)
-  }, [runSearch, serverId])
-
-  // Mirror-patch the search overlay from mutation and WS events. Every event
-  // carries serverId so a transitioning hook cannot patch results retained
-  // from another server. Nickname/join/rollback events re-run the active
-  // search because they can change whether a row matches at all.
-  useEffect(() => {
-    return subscribeMemberOverlayEvents((ev) => {
-      if (ev.serverId !== serverId) return
-      if (ev.type === "refresh") {
-        refreshSearchOverlay()
-        return
-      }
-      if (ev.type === "update" && ev.event.changes.nickname !== undefined) {
-        refreshSearchOverlay()
-        return
-      }
-      setSearchOverlay((prev) => {
-        if (prev === null) return prev
-        switch (ev.type) {
-          case "kick":
-            return { ...prev, members: prev.members.filter((m) => m.id !== ev.memberId) }
-          case "role":
-            return {
-              ...prev,
-              members: prev.members.map((m) =>
-                m.id === ev.memberId ? { ...m, role: ev.role } : m,
-              ),
-            }
-          case "update":
-            return { ...prev, members: applyUpdateEvent(prev.members, ev.event) }
-          case "leave":
-            return { ...prev, members: prev.members.filter((m) => m.userId !== ev.userId) }
-          default:
-            return prev
-        }
-      })
-    })
-  }, [refreshSearchOverlay, serverId])
-
-  // A server switch renders before the cleanup effect above runs. Never expose
-  // the previous server's local search overlay during that transition frame.
-  const isSearchingCurrentServer =
-    searchOverlay !== null && searchOverlay.serverId === serverId
-
+  }, [identities, memberships, profiles])
+  const active = searching ? search : infinite
+  const pendingKicks = useMutationState({ filters: { mutationKey: ["community", "member-command"], status: "pending" }, select: (mutation) => {
+    const variables = mutation.state.variables as { kind: string; input: { serverId: string; memberId: string } }
+    const current = queryClient.getQueryData<MembersWindowCache>(key)
+    return variables.kind === "kick" && variables.input.serverId === serverId && current?.pages.some((page) => page.members.some((member) => member.id === variables.input.memberId)) ? 1 : 0
+  } })
+  const assertView = () => source.capture()()
   return {
-    members: isSearchingCurrentServer ? searchOverlay.members : pagedMembers,
-    loading: infinite.isPending && enabled,
-    loadingMore: infinite.isFetchingNextPage,
-    hasMore,
-    total,
-    isSearching: isSearchingCurrentServer,
-    searchQuery: isSearchingCurrentServer ? searchOverlay.query : "",
-    searchStatus: isSearchingCurrentServer ? searchOverlay.status : "idle",
-    failed: infinite.isError,
-    loadMore,
-    reset,
-    refresh,
-    searchMembers,
-    applyRoleChange,
-    applyKick,
+    members: searching && search.isRefetching ? [] : members, loading: searching ? searchReady ? search.isPending || search.isRefetching : true : !!serverId && infinite.isPending,
+    loadingMore: active.isFetchingNextPage, hasMore: active.hasNextPage,
+    total: Math.max(0, (infinite.data?.pages.at(-1)?.total ?? 0) - pendingKicks.reduce<number>((sum, value) => sum + value, 0)), isSearching: searching,
+    searchQuery: searching ? searchIntent.query : "",
+    searchStatus: !searching ? "idle" : !searchReady || search.isPending || search.isRefetching ? "loading" : search.isError ? "error" : search.isFetchingNextPage || search.hasNextPage ? "loading-more" : members.length ? "ready" : "empty",
+    failed: active.isError,
+    loadMore: () => { assertView(); if (active.hasNextPage && !active.isFetchingNextPage) void active.fetchNextPage({ cancelRefetch: false }) },
+    reset: () => { assertView(); intent.setState((state) => ({ ...state, query: "", debounced: "" })) },
+    refresh: () => { assertView(); void queryClient.invalidateQueries({ queryKey: key }, { cancelRefetch: false }) },
+    searchMembers: (query) => { assertView(); intent.setState((state) => { const trimmed = query.trim(); return state.query === trimmed ? state : { ...state, query: trimmed, debounced: trimmed ? state.debounced : "" } }) },
   }
 }

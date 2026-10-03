@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect, useRef } from "react"
 
 export const LANDING_MOTION_VISIBILITY_THRESHOLD = 0.3
 
@@ -20,7 +21,7 @@ export function shouldPlayLandingMotion(entry: Pick<IntersectionObserverEntry, "
 
 export function useLandingMotionPlayback<T extends Element>() {
   const targetRef = useRef<T>(null)
-  const [visibility, setVisibility] = useState<LandingMotionVisibility>("hidden")
+  const [visibility, setVisibility] = useAtom(useCreateAtom<LandingMotionVisibility>("hidden"))
 
   useEffect(() => {
     const target = targetRef.current
@@ -36,7 +37,7 @@ export function useLandingMotionPlayback<T extends Element>() {
     )
     observer.observe(target)
     return () => observer.disconnect()
-  }, [])
+  }, [setVisibility])
 
   return {
     targetRef,

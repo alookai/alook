@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { badgeVariants } from "@/components/ui/badge";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +10,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { listWorkspaceActiveTasks, type WorkspaceActiveTask } from "@/lib/api";
-import { useWorkspace } from "@/contexts/workspace-context";
+import { useWorkspaceOwner, runWorkspaceRequest } from "@/contexts/workspace-context";
 import { relativeTime } from "@/lib/time";
 
 interface AgentStatusBadgeProps {
@@ -62,24 +63,16 @@ const MAX_VISIBLE_TASKS = 6;
 const badgeBase = "gap-2 text-muted-foreground hover:text-foreground cursor-pointer";
 
 export function AgentStatusBadge({ isOnline, taskCount, agentId }: AgentStatusBadgeProps) {
-  const { slug, workspaceId } = useWorkspace();
-  const [tasks, setTasks] = useState<WorkspaceActiveTask[] | null>(null);
-  const [loadingTasks, setLoadingTasks] = useState(false);
-  const [error, setError] = useState(false);
-
-  const fetchTasks = useCallback(async () => {
-    setTasks(null);
-    setLoadingTasks(true);
-    setError(false);
-    try {
-      const res = await listWorkspaceActiveTasks(workspaceId);
-      setTasks(res.tasks.filter((t) => t.agent_id === agentId));
-    } catch {
-      setError(true);
-    } finally {
-      setLoadingTasks(false);
-    }
-  }, [agentId, workspaceId]);
+  const owner = useWorkspaceOwner();
+  const { slug, workspaceId } = owner;
+  const [open, setOpen] = useAtom(useCreateAtom(false));
+  const query = useQuery({ queryKey: owner.key("active-tasks"), enabled: open, subscribed: open,
+    queryFn: ({ signal }) => runWorkspaceRequest(owner, (options) => listWorkspaceActiveTasks(workspaceId, options), signal),
+    select: (data) => data.tasks.filter((task) => task.agent_id === agentId),
+  });
+  const tasks = query.data;
+  const loadingTasks = query.isPending;
+  const error = query.isError;
 
   if (!isOnline) {
     return (
@@ -100,7 +93,7 @@ export function AgentStatusBadge({ isOnline, taskCount, agentId }: AgentStatusBa
   }
 
   return (
-    <Popover onOpenChange={(open) => { if (open) fetchTasks(); }}>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         render={
           <button
@@ -136,7 +129,7 @@ export function AgentStatusBadge({ isOnline, taskCount, agentId }: AgentStatusBa
         ) : !tasks || tasks.length === 0 ? (
           <div className="p-3 text-xs text-muted-foreground">No active tasks</div>
         ) : (
-          <div className="max-h-75 overflow-y-auto">
+          <div className="max-h-75 overflow-y-auto thin-scrollbar">
             {tasks.slice(0, MAX_VISIBLE_TASKS).map((task) => (
               <TaskRow key={task.id} task={task} slug={slug} agentId={agentId} />
             ))}

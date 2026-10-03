@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useSession, signOut } from "@/lib/auth-client";
-import { clearAllCache } from "@/lib/chat-cache";
-import { clearPersistedCache } from "@/lib/query-persister";
-import { useCommunityStore } from "@/stores/community";
-import { useCommunityWsStore } from "@/stores/community/ws";
-import { useMessageStreamStore } from "@/stores/community/message-stream";
+import { useSession } from "@/lib/auth-client";
+import { assertApplicationOwner, captureApplicationOwner, useApplicationOwner } from "@/lib/application-owner";
+import { useApplicationSignOut } from "@/hooks/use-application-sign-out";
+import { toastApiError } from "@/lib/api/client";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,12 +23,14 @@ import { ProfileAvatar } from "@/components/avatar";
 
 export function NavUser() {
   const { data: session, isPending } = useSession();
+  const applicationOwner = useApplicationOwner();
+  const logout = useApplicationSignOut();
   const router = useRouter();
-  const [mounted, setMounted] = useState(false);
+  const [mounted, setMounted] = useAtom(useCreateAtom(false));
 
   useEffect(() => {
     setMounted(true);
-  }, []);
+  }, [setMounted]);
 
   const user = session?.user;
   if (!mounted || isPending || !user)
@@ -90,17 +91,9 @@ export function NavUser() {
         <DropdownMenuGroup>
           <DropdownMenuItem
             onClick={async () => {
-              // Clear community-local state (timers, subscription) so no
-              // WS handler timers survive past sign-out.
-              useCommunityStore.getState().reset();
-              useCommunityWsStore.getState().reset();
-              useMessageStreamStore.getState().resetAll();
-              await clearAllCache();
-              // Drop the persisted IDB blob so the next user on this machine
-              // doesn't inherit the previous session's cached message rows.
-              await clearPersistedCache(user.id).catch(() => {});
-              await signOut();
-              router.push("/sign-in");
+              const token = captureApplicationOwner(applicationOwner);
+              try { if (await logout.mutateAsync()) router.push("/sign-in"); }
+              catch (error) { toastApiError(error, "Failed to log out", () => assertApplicationOwner(token)); }
             }}
           >
             <LogOut className="size-4" />

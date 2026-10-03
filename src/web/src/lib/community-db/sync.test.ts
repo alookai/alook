@@ -11,7 +11,7 @@ import {
 } from "@/lib/community/last-me-location"
 import {
   createCommunityDbRegistry,
-  getActiveCommunityDbRegistry,
+  getCommunityDbRegistry,
   registerCommunityDbRegistry,
   type CommunityDbRegistry,
 } from "./collections"
@@ -32,6 +32,8 @@ import {
   publishCommunityDmSummary,
   publishCommunityMessages,
   publishCommunityChannelDirectory,
+  publishCommunityServerFields,
+  publishCommunityChannelFields,
   publishCommunityLiveSnapshot as publishCommunityLiveSnapshotWithProof,
   publishAccountAttentionSnapshot,
   projectCommunityWsEventToDb,
@@ -42,9 +44,7 @@ import {
   type CommunityLiveSnapshot,
 } from "./sync"
 import { useCommunityStore } from "@/stores/community"
-import { useMessageStreamStore } from "@/stores/community/message-stream"
 import { useCommunityWsStore } from "@/stores/community/ws"
-import { emptyMessageOverlay } from "@/lib/community/message-stream"
 import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
 
 const registries: CommunityDbRegistry[] = []
@@ -89,6 +89,31 @@ afterEach(async () => {
 })
 
 describe("community DB sync", () => {
+  it.each(["newer-ws", "original"])("preserves the named WS write %s while confirming independent server fields and rejecting the older whole snapshot", async (name) => {
+    const db = await registry()
+    const original = { id: "s1", name: "original", description: "before", initial: "O", active: false, unread: false, mentions: 0, ownerId: "viewer" }
+    ingestServers(db, { servers: [original] })
+    const token = captureCommunityLiveSnapshotToken(db.queryClient)
+    projectCommunityWsEventToDb(db.queryClient, { type: "community:server.update", serverId: "s1", changes: { name } })
+    publishCommunityServerFields(db.queryClient, "s1", { name: "old-confirmation", description: "confirmed" }, { token, signal: undefined })
+    expect(db.collections.servers.get("s1")).toMatchObject({ name, description: "confirmed" })
+    publishCommunityLiveSnapshotWithProof(db.queryClient, { snapshot: { kind: "servers", data: { servers: [original] } }, proof: { kind: "structural", token, signal: undefined } })
+    expect(db.collections.servers.get("s1")).toMatchObject({ name, description: "confirmed" })
+  })
+
+  it("cannot resurrect a deleted channel through a confirmed field patch or the older snapshot", async () => {
+    const db = await registry()
+    const original = { id: "s1", name: "Server", discriminator: "0001", description: "", ownerId: "viewer", icon: null, categories: [{ id: "cat1", name: "General", channels: [{ id: "c1", name: "old", active: false, unread: false }] }] }
+    ingestServerDetail(db, original)
+    const token = captureCommunityLiveSnapshotToken(db.queryClient)
+    projectCommunityWsEventToDb(db.queryClient, { type: "community:channel.delete", serverId: "s1", channelId: "c1" })
+    expect(() => publishCommunityChannelFields(db.queryClient, "c1", { name: "confirmed" }, { token, signal: undefined })).toThrow(expect.objectContaining({ name: "AbortError" }))
+    expect(() => publishCommunityLiveSnapshotWithProof(db.queryClient, { snapshot: { kind: "server-detail", data: original }, proof: { kind: "structural", token, signal: undefined } })).toThrow(expect.objectContaining({ name: "AbortError" }))
+    const current = captureCommunityLiveSnapshotToken(db.queryClient)
+    expect(publishCommunityChannelFields(db.queryClient, "c1", { name: "confirmed" }, { token: current, signal: undefined })).toBe(false)
+    expect(db.collections.channels.has("c1")).toBe(false)
+  })
+
   it("does not regress a known channel subtype when directory transport omits it", async () => {
     const db = await registry()
     ingestServers(db, { servers: [{
@@ -169,7 +194,7 @@ describe("community DB sync", () => {
     "rejects a structurally stale %s proof before destructive replacement",
     async (race) => {
       const db = await registry()
-      useCommunityWsStore.getState().activateProfileAccount(`viewer-${race}`)
+      db.runtime.ws.actions.activateProfileAccount(`viewer-${race}`)
       ingestDms(db, {
         conversations: [{
           id: "dm-current",
@@ -185,9 +210,9 @@ describe("community DB sync", () => {
       const controller = new AbortController()
       if (race === "signal") controller.abort()
       else if (race === "account") {
-        useCommunityWsStore.getState().activateProfileAccount("viewer-next")
+        db.runtime.ws.actions.activateProfileAccount("viewer-next")
       } else {
-        useCommunityWsStore.setState((state) => ({ accessEpoch: state.accessEpoch + 1 }))
+        db.runtime.ws.setState((state) => ({ ...state,  accessEpoch: state.accessEpoch + 1 }))
       }
 
       expect(() => publishCommunityLiveSnapshotWithProof(db.queryClient, {
@@ -805,7 +830,7 @@ describe("community DB sync", () => {
     })
 
     expect(db.collections.servers.get("merge-s2")).toBeDefined()
-    expect(useCommunityWsStore.getState().revokedServerIds.has("merge-s2")).toBe(false)
+    expect(db.runtime.ws.get().revokedServerIds.has("merge-s2")).toBe(false)
     expect(db.collections.channels.get("merge-c2")).toBeDefined()
     expect(db.collections.channels.get("merge-dm2")).toBeDefined()
     expect(db.collections.folders.get("merge-f2")).toBeDefined()
@@ -948,9 +973,9 @@ describe("community DB sync", () => {
     })
 
     expect(db.collections.servers.get("live-s2")).toBeUndefined()
-    expect(useCommunityWsStore.getState().revokedServerIds.has("live-s2")).toBe(true)
+    expect(db.runtime.ws.get().revokedServerIds.has("live-s2")).toBe(true)
     expect(db.collections.channels.get("live-c2")).toBeUndefined()
-    expect(useCommunityWsStore.getState().isChannelAccessRevoked("live-c2", "live-s1")).toBe(true)
+    expect(db.runtime.ws.actions.isChannelAccessRevoked("live-c2", "live-s1")).toBe(true)
     expect(db.collections.channels.get("live-dm2")).toBeUndefined()
     expect(db.collections.folders.get("live-f2")).toBeUndefined()
     expect(db.collections.folderItems.get("live-f2:live-s2")).toBeUndefined()
@@ -962,9 +987,9 @@ describe("community DB sync", () => {
       serverId: "live-s1",
     } as CommunityWsEvent)
     expect(db.collections.servers.get("live-s1")).toBeUndefined()
-    expect(useCommunityWsStore.getState().revokedServerIds.has("live-s1")).toBe(true)
-    useCommunityWsStore.getState().grantServerAccess("live-s1")
-    useCommunityWsStore.getState().grantServerAccess("live-s2")
+    expect(db.runtime.ws.get().revokedServerIds.has("live-s1")).toBe(true)
+    db.runtime.ws.actions.grantServerAccess("live-s1")
+    db.runtime.ws.actions.grantServerAccess("live-s2")
   })
 
   it("preserves completed server detail when the rail identity refreshes", async () => {
@@ -1009,7 +1034,7 @@ describe("community DB sync", () => {
     })
     ingestServers(db, { servers: [rail] })
     expect(db.collections.servers.get("s1")?.detailComplete).toBe(true)
-    expect(getActiveCommunityDbRegistry()).toBe(db)
+    expect(getCommunityDbRegistry(db.queryClient)).toBe(db)
 
     const originalGetQueryData = db.queryClient.getQueryData.bind(db.queryClient)
     const collectionKey = communityKeys.communityDbCollection(db.scopeId, "servers")
@@ -1513,6 +1538,38 @@ describe("community DB sync", () => {
     },
   )
 
+  it("retires a completed attention transaction before a simultaneous canonical rebase", async () => {
+    const db = await registry()
+    const snapshot = {
+      scopes: ["c1", "c2"].map((scopeId) => ({ scopeId, channelId: scopeId, serverId: "s1", parentChannelId: null, ordinaryUnread: true, lastUnreadSeq: 5, lastAttentionSeq: null, attentionCount: 0 })),
+      items: [], limit: 100, truncated: false,
+    }
+    ingestAttentionSnapshot(db, snapshot)
+    const nativeCreate = db.dbClient.createTransaction.bind(db.dbClient)
+    const transactions: Array<ReturnType<typeof nativeCreate>> = []
+    vi.spyOn(db.dbClient, "createTransaction").mockImplementation((options) => {
+      const transaction = nativeCreate(options)
+      transactions.push(transaction)
+      return transaction
+    })
+    const first = clearAttentionScopeOptimistically(db, "c1", 5)
+    const second = clearAttentionScopeOptimistically(db, "c2", 5)
+    const transaction = transactions.at(-2)!
+    const nativeSetState = transaction.setState.bind(transaction)
+    let rebased = false
+    vi.spyOn(transaction, "setState").mockImplementation((state) => {
+      nativeSetState(state)
+      if (state === "completed" && !rebased) {
+        rebased = true
+        ingestAttentionSnapshot(db, { ...snapshot, scopes: [] })
+      }
+    })
+    await expect(Promise.all([commitAttentionScopeOptimisticSnapshot(db, first), commitAttentionScopeOptimisticSnapshot(db, second)])).resolves.toEqual([true, true])
+    expect(rebased).toBe(true)
+    expect(db.collections.attentionScopes.size).toBe(0)
+    expect(db.collections.attentionItems.size).toBe(0)
+  })
+
   it.each(["older-first", "newer-first", "rollback-older", "rollback-both"] as const)(
     "does not double-subtract nested scope fences when %s settles",
     async (settledFirst) => {
@@ -1575,7 +1632,10 @@ describe("community DB sync", () => {
         if (settledFirst === "rollback-older") {
           commitAttentionScopeOptimisticSnapshot(db, newer)
         } else {
-          expect(restoreAttentionScopeOptimisticSnapshot(db, newer)).toBe(false)
+          expect(restoreAttentionScopeOptimisticSnapshot(db, newer)).toBe(true)
+          expect(db.collections.attentionScopes.get("c1")?.attentionCount).toBe(2)
+          expect(db.collections.attentionItems.get("mention:4")).toBeDefined()
+          expect(db.collections.attentionItems.get("mention:5")).toBeDefined()
           ingestAttentionSnapshot(db, snapshot)
           expect(db.collections.attentionScopes.get("c1")?.attentionCount).toBe(2)
         }
@@ -2106,7 +2166,7 @@ describe("community DB sync", () => {
       createdAt: "2026-09-25T00:00:00.000Z",
       replyTo: { id: "reply", authorId: "reply-author", authorName: "Reply", text: "reply" },
       thread: {
-        channelId: "thread1", messageCount: 1,
+        id: "thread1", name: "Thread", messageCount: 1,
         participants: [{ id: "participant", name: "Participant", avatar: "P", avatarVersion: 1 }],
       },
       approval: {
@@ -2147,10 +2207,9 @@ describe("community DB sync", () => {
       messages: [],
     })
     setLastChannel("s1", "c1")
-    useCommunityStore.setState({
+    db.runtime.ui.setState((state) => ({ ...state, ...{
       currentServerId: "s1",
       currentChannelId: "c1",
-      currentChannelMeta: { name: "one", parentChannelId: null },
       typingByScope: new Map([
         ["ch:c1", new Map([["author", "Author"]])],
         ["dm:c1", new Map([["author", "Author"]])],
@@ -2158,13 +2217,13 @@ describe("community DB sync", () => {
       subscription: { channelId: "c1", secondaryChannelId: "thread1", dmConversationId: "c1" },
       secondaryChannelOwner: Symbol("test"),
       pendingReply: { channelId: "c1", target: { id: "m1", authorName: "Author", text: "rich" } },
-    })
-    useMessageStreamStore.setState({
+    } }))
+    db.runtime.messageStream.setState((state) => ({ ...state, ...{
       entries: new Map([["channel:c1", {
         scope: { kind: "channel", id: "c1", serverId: "s1" },
-        state: emptyMessageOverlay(),
+        state: { liveIds: [], outboxByNonce: new Map() },
       }]]),
-    })
+    } }))
 
     purgeCommunityChannel(db, "thread1")
     expect(db.queryClient.getQueryData<{ servers: Array<{ channels: Array<{ children: unknown[] }> }> }>(
@@ -2175,17 +2234,16 @@ describe("community DB sync", () => {
     expect(db.collections.readStates.get("c1")).toBeUndefined()
     expect(db.collections.folderItems.get("f1:s1")).toBeUndefined()
     expect(db.collections.notificationSettings.size).toBe(0)
-    expect(useCommunityStore.getState()).toMatchObject({
+    expect(db.runtime.ui.get()).toMatchObject({
       currentServerId: null,
       currentChannelId: null,
-      currentChannelMeta: null,
       subscription: {},
       pendingReply: null,
     })
-    expect(useMessageStreamStore.getState().entries.size).toBe(0)
+    expect(db.runtime.messageStream.get().entries.size).toBe(0)
     uninstall()
-    useCommunityStore.getState().reset()
-    useMessageStreamStore.getState().resetAll()
+    db.runtime.ui.actions.reset()
+    db.runtime.messageStream.actions.resetAll()
   })
 
   it("keeps writes safe across idle collections, anonymous DMs, and absent registries", async () => {

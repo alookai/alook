@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect, useRef } from "react";
 import { LoadingFrame } from "./LoadingFrame";
 import { DURATION, REDUCED_MOTION_FRAME } from "./motion";
 export type AlookLoadingProps = {
@@ -16,7 +17,7 @@ export const AlookLoading = ({
 }: AlookLoadingProps) => {
   const element = useRef<HTMLSpanElement>(null);
   const elapsed = useRef(0);
-  const [frame, setFrame] = useState(0);
+  const [frame, setFrame] = useAtom(useCreateAtom(0));
   useEffect(() => {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
     let visible = true;
@@ -49,7 +50,7 @@ export const AlookLoading = ({
       media.removeEventListener("change", sync);
       document.removeEventListener("visibilitychange", sync);
     };
-  }, [paused]);
+  }, [paused, setFrame]);
   return (
     <span
       ref={element}

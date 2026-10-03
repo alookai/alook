@@ -1,9 +1,9 @@
-import type { MutableRefObject } from "react"
 import { deriveThreadName } from "@alook/shared"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import type { FileAttachment, ImagePreview, Msg } from "@/lib/community/models/message"
-import { useMessageStreamStore } from "@/stores/community/message-stream"
+import type { CommunityRuntime } from "@/stores/community/runtime"
+import { isAbortError } from "@/lib/errors"
 import { canonicalizeReplyContent, displayReplyContent } from "@/lib/community/reply-content"
 import type {
   MessageActions,
@@ -21,18 +21,22 @@ type MutationOptions = {
   onSuccess?: () => void
   onError?: (error: unknown) => void
 }
+function current(assert: () => void) { try { assert(); return true } catch { return false } }
 
 export type MessageActionContext = {
-  messages: Msg[]
+  messageIds: readonly string[]
   pinnedIds: Set<string>
   channelName: string
   uiHandlers: MessageUiHandlers
-  onOpenThread: (threadId: string) => void
-  onOpenPinned: () => void
+  onOpenThread?: (threadId: string) => void
+  onOpenPinned?: () => void
 }
 
 export function createMessageActions({
+  runtime,
   actionContext,
+  getMessage,
+  captureView,
   serverId,
   channelId,
   viewerUserId,
@@ -47,7 +51,10 @@ export function createMessageActions({
   messageScope,
   runAcceptedIntent,
 }: {
-  actionContext: MutableRefObject<MessageActionContext>
+  runtime: CommunityRuntime
+  actionContext: { get: () => MessageActionContext }
+  getMessage: (id: string) => Msg | undefined
+  captureView: () => (() => void) & { signal: AbortSignal }
   serverId: string
   channelId: string
   viewerUserId: string
@@ -58,6 +65,7 @@ export function createMessageActions({
     messageId: string
     emoji: string
     userId: string
+    assertActive?: (() => void) & { signal: AbortSignal }
   }) => void
   addReactionApi: (input: {
     serverId: string
@@ -65,24 +73,26 @@ export function createMessageActions({
     messageId: string
     emoji: string
     userId: string
+    assertActive?: (() => void) & { signal: AbortSignal }
   }) => void
   unpinMessageMutate: (
-    input: { channelId: string; messageId: string },
+    input: { channelId: string; messageId: string; assertActive?: (() => void) & { signal: AbortSignal } },
     options?: MutationOptions,
   ) => void
   pinMessageMutate: (
-    input: { channelId: string; messageId: string },
+    input: { channelId: string; messageId: string; assertActive?: (() => void) & { signal: AbortSignal } },
     options?: MutationOptions,
   ) => void
-  toggleMark: (channelId: string, messageId: string) => void
+  toggleMark: (channelId: string, messageId: string, assertActive?: (() => void) & { signal: AbortSignal }) => void
   createThreadAsync: (input: {
     serverId: string
     channelId: string
     messageId: string
     name: string
+    assertActive?: (() => void) & { signal: AbortSignal }
   }) => Promise<{ id: string }>
   editMessage: (
-    input: { serverId: string; channelId: string; messageId: string; content: string },
+    input: { serverId: string; channelId: string; messageId: string; content: string; assertActive?: (() => void) & { signal: AbortSignal } },
     options?: MutationOptions,
   ) => void
   messageScope: ChannelMessageScope
@@ -90,11 +100,12 @@ export function createMessageActions({
 }): MessageActions {
   return {
     onToggleReaction: (id, emoji) =>
-      toggleReactionApi({ serverId, channelId, messageId: id, emoji, userId: viewerUserId }),
+      toggleReactionApi({ serverId, channelId, messageId: id, emoji, userId: viewerUserId, assertActive: captureView() }),
     onReact: (id, emoji) =>
-      addReactionApi({ serverId, channelId, messageId: id, emoji, userId: viewerUserId }),
+      addReactionApi({ serverId, channelId, messageId: id, emoji, userId: viewerUserId, assertActive: captureView() }),
     onReply: (id) => {
-      const message = actionContext.current.messages.find((item) => item.id === id)
+      captureView()()
+      const message = getMessage(id)
       if (message) {
         setReplyTo({
           id: message.id,
@@ -104,74 +115,87 @@ export function createMessageActions({
       }
     },
     onPin: (id) => {
-      if (actionContext.current.pinnedIds.has(id)) {
-        unpinMessageMutate({ channelId, messageId: id }, {
-          onSuccess: () => toast("Message unpinned"),
-          onError: (error) => toastApiError(error, "Failed to unpin message"),
+      const original = captureView(), context = actionContext.get()
+      original()
+      if (context.pinnedIds.has(id)) {
+        unpinMessageMutate({ channelId, messageId: id, assertActive: original }, {
+          onSuccess: () => { if (current(original)) toast("Message unpinned") },
+          onError: (error) => toastApiError(error, "Failed to unpin message", original),
         })
         return
       }
-      pinMessageMutate({ channelId, messageId: id }, {
+      pinMessageMutate({ channelId, messageId: id, assertActive: original }, {
         onSuccess: () => {
+          if (!current(original)) return
           toast("Message pinned")
-          actionContext.current.onOpenPinned()
+          context.onOpenPinned?.()
         },
-        onError: (error) => toastApiError(error, "Failed to pin message"),
+        onError: (error) => toastApiError(error, "Failed to pin message", original),
       })
     },
-    onMark: (id) => toggleMark(channelId, id),
+    onMark: (id) => toggleMark(channelId, id, captureView()),
     onCreateThread: async (id) => {
-      const message = actionContext.current.messages.find((item) => item.id === id)
+      const original = captureView(), context = actionContext.get()
+      original()
+      const message = getMessage(id)
       const content = message
         ? displayReplyContent(message.content ?? "", message.replyTo)
         : undefined
-      const name = deriveThreadName(content, actionContext.current.channelName)
+      const name = deriveThreadName(content, context.channelName)
       try {
-        const data = await createThreadAsync({ serverId, channelId, messageId: id, name })
-        actionContext.current.onOpenThread(data.id)
+        const data = await createThreadAsync({ serverId, channelId, messageId: id, name, assertActive: original })
+        original()
+        actionContext.get().onOpenThread?.(data.id)
       } catch (error) {
-        toastApiError(error, "Failed to create thread")
+        toastApiError(error, "Failed to create thread", original)
       }
     },
-    onCopy: (id) => {
-      const message = actionContext.current.messages.find((item) => item.id === id)
+    onCopy: async (id) => {
+      const original = captureView()
+      original()
+      const message = getMessage(id)
       if (!message) return
       const content = displayReplyContent(message.content ?? "", message.replyTo)
       if (!content) return
-      void navigator.clipboard?.writeText(content)
-      toast("Copied to clipboard")
+      if (!navigator.clipboard) return
+      try { await navigator.clipboard.writeText(content); original(); toast("Copied to clipboard") }
+      catch (error) { if (!isAbortError(error)) toastApiError(error, "Failed to copy message", original) }
     },
     onEdit: (id) => {
-      const message = actionContext.current.messages.find((item) => item.id === id)
+      const original = captureView()
+      original()
+      const message = getMessage(id)
       if (!message || message.authorId !== viewerUserId || message.seq === undefined) return
       const visibleContent = displayReplyContent(message.content ?? "", message.replyTo)
       if (!visibleContent) return
       const editedContent = window.prompt("Edit message", visibleContent)
       if (!editedContent || editedContent === visibleContent) return
       const content = canonicalizeReplyContent(editedContent, message.replyTo)
-      editMessage({ serverId, channelId, messageId: id, content }, {
-        onError: (error) => toastApiError(error, "Failed to edit message"),
+      original()
+      editMessage({ serverId, channelId, messageId: id, content, assertActive: original }, {
+        onError: (error) => toastApiError(error, "Failed to edit message", original),
       })
     },
     onRetry: (id) => {
-      const message = actionContext.current.messages.find((item) => item.id === id)
+      captureView()()
+      const message = getMessage(id)
       if (!message?.clientNonce) return
-      useMessageStreamStore.getState().dispatch(messageScope, {
+      runtime.messageStream.actions.dispatch(messageScope, {
         type: "retry",
         nonce: message.clientNonce,
       })
       void runAcceptedIntent(message.clientNonce)
     },
     onDismiss: (id) => {
-      const message = actionContext.current.messages.find((item) => item.id === id)
+      captureView()()
+      const message = getMessage(id)
       if (!message?.clientNonce) return
-      useMessageStreamStore.getState().dispatch(messageScope, {
+      runtime.messageStream.actions.dispatch(messageScope, {
         type: "dismissFailed",
         nonce: message.clientNonce,
       })
     },
-    onPreviewImage: (image: ImagePreview) => actionContext.current.uiHandlers.previewImage?.(image),
-    onPreviewAttachment: (attachment: FileAttachment) =>
-      actionContext.current.uiHandlers.previewAttachment?.(attachment),
+    onPreviewImage: (image: ImagePreview) => { captureView()(); actionContext.get().uiHandlers.previewImage?.(image) },
+    onPreviewAttachment: (attachment: FileAttachment) => { captureView()(); actionContext.get().uiHandlers.previewAttachment?.(attachment) },
   }
 }

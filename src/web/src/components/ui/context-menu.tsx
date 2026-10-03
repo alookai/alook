@@ -1,5 +1,6 @@
 "use client"
 
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import * as React from "react"
 import { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu"
 
@@ -55,13 +56,13 @@ function ContextMenu({ disabled, ...props }: ContextMenuPrimitive.Root.Props) {
   const policy = useAuthenticatedContextMenuPolicy()
   const nextTokenRef = React.useRef(0)
   const gestureRef = React.useRef<NativeContextGesture | null>(null)
-  const [gesture, setGesture] = React.useState<NativeContextGesture | null>(null)
+  const [gesture, setGesture] = useAtom(useCreateAtom<NativeContextGesture | null>(null))
 
   const clear = React.useCallback((token: number) => {
     if (gestureRef.current?.token !== token) return
     gestureRef.current = null
     setGesture((current) => current?.token === token ? null : current)
-  }, [])
+  }, [setGesture])
 
   const arm = React.useCallback((event: React.PointerEvent<HTMLElement>) => {
     if (disabled || !policy || !isSecondaryContextPointer(event.nativeEvent)) return
@@ -80,7 +81,7 @@ function ContextMenu({ disabled, ...props }: ContextMenuPrimitive.Root.Props) {
     }
     gestureRef.current = next
     setGesture(next)
-  }, [disabled, policy])
+  }, [disabled, policy, setGesture])
 
   React.useEffect(() => {
     if (!gesture) return

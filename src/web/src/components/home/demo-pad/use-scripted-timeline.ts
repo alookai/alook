@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useCallback, useEffect, useRef } from "react";
 
 export interface TimelineStep {
   id: string;
@@ -18,20 +19,20 @@ export function useScriptedTimeline({
   holdAfterComplete = 4000,
   resetDuration = 300,
 }: UseScriptedTimelineOptions) {
-  const [visibleCount, setVisibleCount] = useState(0);
-  const [isResetting, setIsResetting] = useState(false);
-  const [isActive, setIsActive] = useState(false);
+  const [visibleCount, setVisibleCount] = useAtom(useCreateAtom(0));
+  const [isResetting, setIsResetting] = useAtom(useCreateAtom(false));
+  const [isActive, setIsActive] = useAtom(useCreateAtom(false));
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reducedMotionRef = useRef(false);
+  const [reducedMotion, setReducedMotion] = useAtom(useCreateAtom(false));
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    reducedMotionRef.current = mq.matches;
+    setReducedMotion(mq.matches);
     if (mq.matches) {
       setVisibleCount(steps.length);
     }
     const handler = (e: MediaQueryListEvent) => {
-      reducedMotionRef.current = e.matches;
+      setReducedMotion(e.matches);
       if (e.matches) {
         setVisibleCount(steps.length);
         setIsResetting(false);
@@ -39,7 +40,7 @@ export function useScriptedTimeline({
     };
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
-  }, [steps.length]);
+  }, [setIsResetting, setVisibleCount, setReducedMotion, steps.length]);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {
@@ -49,7 +50,7 @@ export function useScriptedTimeline({
   }, []);
 
   useEffect(() => {
-    if (!isActive || reducedMotionRef.current) {
+    if (!isActive || reducedMotion) {
       clearTimer();
       return;
     }
@@ -83,7 +84,7 @@ export function useScriptedTimeline({
     timerRef.current = setTimeout(() => showNext(0), 500);
 
     return clearTimer;
-  }, [isActive, steps, holdAfterComplete, resetDuration, clearTimer]);
+  }, [isActive, reducedMotion, steps, holdAfterComplete, resetDuration, clearTimer, setVisibleCount, setIsResetting]);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -98,7 +99,7 @@ export function useScriptedTimeline({
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [setIsActive]);
 
   return {
     visibleCount,

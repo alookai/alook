@@ -1,6 +1,5 @@
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { QueryClient } from "@tanstack/react-query"
-import { useCommunityWsStore } from "@/stores/community/ws"
 import { communityKeys } from "@/lib/query-keys"
 import { fetchChannelMetadata } from "./channel-metadata"
 
@@ -15,76 +14,83 @@ const metadata = {
 
 beforeEach(() => {
   fetchMock.mockReset()
-  useCommunityWsStore.getState().reset()
-  useCommunityWsStore.getState().activateProfileAccount("alice")
+
+
 })
 
 describe("canonical channel metadata lifecycle", () => {
   it.each(["text", "forum", "thread", "dm"])("validates the exact %s resource with its nullable scope", async (type) => {
     const serverId = type === "dm" ? null : "server"
     fetchMock.mockResolvedValue({ ...metadata, serverId, type, name: type === "dm" ? null : metadata.name })
-    await expect(fetchChannelMetadata(serverId, "child")).resolves.toMatchObject({ id: "child", serverId, type, name: type === "dm" ? "" : metadata.name })
-    expect(useCommunityWsStore.getState().channelAccessScopes.has("child")).toBe(type !== "dm")
+    const { client, runtime } = await createCommunityQueryOwner()
+    await expect(fetchChannelMetadata(client, serverId, "child")).resolves.toMatchObject({ id: "child", serverId, type, name: type === "dm" ? "" : metadata.name })
+    expect(runtime.ws.get().channelAccessScopes.has("child")).toBe(type !== "dm")
   })
   it.each(["account", "parent", "server", "membership"] as const)(
     "rejects an old successful HTTP response after %s changes",
     async (change) => {
-      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      const { client, runtime } = await createCommunityQueryOwner()
+      runtime.ws.actions.rememberChannelAccess("server", "child", "parent")
       let release!: (value: unknown) => void
       fetchMock.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
       const key = communityKeys.channelMeta("server", "child")
       const result = client.fetchQuery({
         queryKey: key,
-        queryFn: ({ signal }) => fetchChannelMetadata("server", "child", signal),
+        queryFn: ({ signal }) => fetchChannelMetadata(client, "server", "child", signal),
       })
       const rejection = expect(result).rejects.toMatchObject({ name: "AbortError" })
-      const state = useCommunityWsStore.getState()
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
       if (change === "account") {
-        state.activateProfileAccount("bob")
-        useCommunityWsStore.getState().activateProfileAccount("alice")
-      } else if (change === "parent") state.revokeChannelAccess("server", "parent")
-      else if (change === "server") state.revokeServerAccess("server")
-      else state.beginChannelMembershipChange("server", "child")
+        runtime.ws.actions.activateProfileAccount("bob")
+        runtime.ws.actions.activateProfileAccount("alice")
+      } else if (change === "parent") runtime.ws.actions.revokeChannelAccess("server", "parent")
+      else if (change === "server") runtime.ws.actions.revokeServerAccess("server")
+      else runtime.ws.actions.beginChannelMembershipChange("server", "child")
+      const expectedScope = runtime.ws.get().channelAccessScopes.get("child")
       release(metadata)
       await rejection
       expect(client.getQueryData(key)).toBeUndefined()
-      expect(useCommunityWsStore.getState().channelAccessScopes.get("child")?.parentChannelId).toBeUndefined()
-      client.clear()
+      expect(runtime.ws.get().channelAccessScopes.get("child")).toEqual(expectedScope)
     },
   )
 
   it("accepts an authoritative HTTP response across a transport-only reconnect", async () => {
     let release!: (value: unknown) => void
     fetchMock.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
-    const result = fetchChannelMetadata("server", "child")
-    const state = useCommunityWsStore.getState()
+    const { client, runtime } = await createCommunityQueryOwner()
+    const result = client.fetchQuery({ queryKey: communityKeys.channelMeta("server", "child"), queryFn: ({ signal }) => fetchChannelMetadata(client, "server", "child", signal) })
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+    const state = runtime.ws.actions
+    const epoch = runtime.ws.get().accessEpoch
     state.markAccessConnected()
     state.markAccessDisconnected()
     state.markAccessConnected()
     release(metadata)
-    await expect(result).resolves.toMatchObject({ id: "child", verifiedEpoch: state.accessEpoch })
+    await expect(result).resolves.toMatchObject({ id: "child", verifiedEpoch: epoch })
   })
 
   it("restores readable child and parent only from a current authoritative response", async () => {
-    const state = useCommunityWsStore.getState()
+    const { client, runtime } = await createCommunityQueryOwner()
+    const state = runtime.ws.actions
     state.revokeChannelAccess("server", "parent")
     state.revokeChannelAccess("server", "child")
     state.revokeServerAccess("server")
     fetchMock.mockResolvedValue(metadata)
-    await expect(fetchChannelMetadata("server", "child")).resolves.toMatchObject({
+    await expect(client.fetchQuery({ queryKey: communityKeys.channelMeta("server", "child"), queryFn: ({ signal }) => fetchChannelMetadata(client, "server", "child", signal) })).resolves.toMatchObject({
       archived: false, activityAt: metadata.createdAt,
     })
-    expect(useCommunityWsStore.getState().isChannelAccessRevoked("child")).toBe(false)
-    expect(useCommunityWsStore.getState().isChannelAccessRevoked("parent")).toBe(false)
+    expect(runtime.ws.actions.isChannelAccessRevoked("child")).toBe(false)
+    expect(runtime.ws.actions.isChannelAccessRevoked("parent")).toBe(false)
   })
 
   it.each([{ id: "other" }, { serverId: "other" }, { type: "unknown" }])(
     "does not grant access from mismatched metadata %j",
     async (overrides) => {
-      useCommunityWsStore.getState().revokeChannelAccess("server", "child")
+      const { client, runtime } = await createCommunityQueryOwner()
+      runtime.ws.actions.revokeChannelAccess("server", "child")
       fetchMock.mockResolvedValue({ ...metadata, ...overrides })
-      await expect(fetchChannelMetadata("server", "child")).rejects.toThrow("scope mismatch")
-      expect(useCommunityWsStore.getState().isChannelAccessRevoked("child")).toBe(true)
+      await expect(client.fetchQuery({ queryKey: communityKeys.channelMeta("server", "child"), queryFn: ({ signal }) => fetchChannelMetadata(client, "server", "child", signal) })).rejects.toThrow("scope mismatch")
+      expect(runtime.ws.actions.isChannelAccessRevoked("child")).toBe(true)
     },
   )
 })

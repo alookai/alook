@@ -93,7 +93,7 @@ describe("human account read-state writer contract", () => {
 
   it("keeps the sole browser read transport in the account coordinator only", () => {
     const webSourceRoot = resolve(repositoryRoot, "src/web/src")
-    const transportPattern = /\/api\/community\/channels\/\$\{[^}]+\}\/read(?!-)/
+    const transportPattern = /(?:\/api\/community\/channels\/\$\{[^}]+\}\/read(?!-)|["']\/api\/community\/channels\/["']\s*\+[^\n]+\+\s*["']\/read["'])/
     const owners = walkTypeScript(webSourceRoot)
       .filter((path) => !path.includes("/test/") && !path.endsWith(".test.ts"))
       .filter((path) => transportPattern.test(readFileSync(path, "utf8")))

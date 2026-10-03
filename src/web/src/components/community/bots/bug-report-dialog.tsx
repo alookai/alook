@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
@@ -45,7 +46,7 @@ function statusTitle(phase: BugReportPhase, errorCode: BugReportUiErrorCode | nu
 }
 
 function ReportIdCopy({ reportId }: { reportId: string }) {
-  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle")
+  const [copyStatus, setCopyStatus] = useAtom(useCreateAtom<"idle" | "copied" | "failed">("idle"))
 
   const copy = async () => {
     try {

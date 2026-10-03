@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
+import { communityRequestOptions } from "@/lib/community-db/sync"
 
 export type AdminChannel = {
   id: string
@@ -18,9 +19,9 @@ export function useServerAdminChannels(serverId: string | null, isAdmin: boolean
   const enabled = Boolean(serverId && isAdmin)
   const query = useQuery({
     queryKey: communityKeys.adminChannels(enabled ? serverId! : "__none__"),
-    queryFn: ({ signal }) => apiFetch<{ channels: AdminChannel[] }>(
+    queryFn: ({ client, signal }) => apiFetch<{ channels: AdminChannel[] }>(
       `/api/community/servers/${serverId}/channels/admin`,
-      { signal },
+      communityRequestOptions(client, signal),
     ),
     enabled,
     staleTime: 60_000,

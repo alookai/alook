@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Blob as NodeBlob } from "node:buffer"
 import React from "react"
-import { act, render } from "@/test/react-dom-harness"
+import { act, waitFor } from "@/test/react-dom-harness"
+import { renderCommunity as render } from "@/test/community-owner-harness"
 import { toBlob } from "html-to-image"
 import { toast } from "sonner"
 import {
@@ -27,7 +28,7 @@ const sessionMocks = vi.hoisted(() => ({
   capture: vi.fn(),
 }))
 
-vi.mock("@/lib/community-db/projections", () => ({
+vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
   useCanonicalProfilesByUserId: () => profileState.map,
 }))
 vi.mock("@/lib/community/share-image-session", () => {
@@ -133,7 +134,7 @@ function renderMessage(m: RenderMsg | RenderMsg[] = message()) {
 
 async function renderReady(m: RenderMsg | RenderMsg[] = message()) {
   const renderer = renderMessage(m)
-  await vi.waitFor(() => {
+  await waitFor(() => {
     expect(renderer.container.querySelector('[data-share-session-state="ready"]')).not.toBeNull()
   })
   return renderer
@@ -207,7 +208,7 @@ describe("MessageShareDialog session lifecycle", () => {
     sessionMocks.prepare.mockReturnValueOnce(preparation.promise)
     const renderer = renderMessage()
 
-    await vi.waitFor(() => expect(sessionMocks.prepare).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(sessionMocks.prepare).toHaveBeenCalledTimes(1))
     expect(renderer.container.querySelector("[data-share-card-source]")).not.toBeNull()
     expect(renderer.container.querySelector("[data-share-card]")).toBeNull()
     expect(buttonWithText(renderer.container, "Download").disabled).toBe(true)
@@ -217,7 +218,7 @@ describe("MessageShareDialog session lifecycle", () => {
       sessionMocks.prepare.mock.calls[0]![0] as HTMLElement,
     )))
 
-    expect(renderer.container.querySelector("[data-share-card-source]")).toBeNull()
+    await waitFor(() => expect(renderer.container.querySelector("[data-share-card-source]")).toBeNull())
     expect(renderer.container.querySelector("[data-share-card]")).not.toBeNull()
     expect(buttonWithText(renderer.container, "Download").disabled).toBe(false)
     expect(buttonWithText(renderer.container, "Copy image").disabled).toBe(false)
@@ -280,11 +281,11 @@ describe("MessageShareDialog session lifecycle", () => {
       .mockImplementationOnce(async (source: HTMLElement) => preparedFrom(source))
     const renderer = renderMessage()
 
-    await vi.waitFor(() => expect(renderer.container.textContent).toContain("preparing images took too long"))
+    await waitFor(() => expect(renderer.container.textContent).toContain("preparing images took too long"))
     expect(buttonWithText(renderer.container, "Copy image").disabled).toBe(true)
 
     await act(async () => buttonWithText(renderer.container, "Retry").click())
-    await vi.waitFor(() => expect(renderer.container.querySelector("[data-share-card]")).not.toBeNull())
+    await waitFor(() => expect(renderer.container.querySelector("[data-share-card]")).not.toBeNull())
     expect(sessionMocks.prepare).toHaveBeenCalledTimes(2)
   })
 
@@ -486,9 +487,9 @@ describe("MessageShareDialog exports", () => {
     const renderer = await renderReady()
 
     await act(async () => buttonWithText(renderer.container, "Copy image").click())
-    await vi.waitFor(() => expect(toast.success).toHaveBeenCalledWith("Image copied to clipboard"))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Image copied to clipboard"))
     await act(async () => buttonWithText(renderer.container, "Download").click())
-    await vi.waitFor(() => expect(toast.success).toHaveBeenCalledWith("Download started"))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Download started"))
 
     expect(sessionMocks.capture).toHaveBeenCalledTimes(1)
     expect(toBlob).toHaveBeenCalledTimes(1)
@@ -509,7 +510,7 @@ describe("MessageShareDialog exports", () => {
     const renderer = await renderReady()
 
     await act(async () => buttonWithText(renderer.container, "Copy image").click())
-    await vi.waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
       "Couldn't generate image — rendering the image took too long",
     ))
     expect(write).not.toHaveBeenCalled()
@@ -548,7 +549,7 @@ describe("MessageShareDialog exports", () => {
     const save = buttonWithText(renderer.container, "Save image")
 
     await act(async () => copy.click())
-    await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1))
     expect(invoke.mock.calls[0]![0]).toBe("mobile_share_image_copy")
     expect(copy.disabled).toBe(true)
     expect(save.disabled).toBe(true)
@@ -560,7 +561,7 @@ describe("MessageShareDialog exports", () => {
       status: "copied",
       destination: "clipboard",
     }))
-    await vi.waitFor(() => expect(toast.success).toHaveBeenCalledWith("Image copied to clipboard"))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Image copied to clipboard"))
     expect(toast.error).not.toHaveBeenCalled()
   })
 
@@ -642,7 +643,7 @@ describe("MessageShareDialog exports", () => {
       copy.click()
       save.click()
     })
-    await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1))
     expect(invoke.mock.calls[0]![0]).toBe("mobile_share_image_copy")
     const attemptId = invoke.mock.calls[0]![1].payload.attemptId as string
     await act(async () => native.resolve({
@@ -650,7 +651,7 @@ describe("MessageShareDialog exports", () => {
       status: "copied",
       destination: "clipboard",
     }))
-    await vi.waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1))
   })
 
   it("suppresses late mobile feedback after close", async () => {
@@ -660,7 +661,7 @@ describe("MessageShareDialog exports", () => {
     const renderer = await renderReady()
 
     await act(async () => buttonWithText(renderer.container, "Save image").click())
-    await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1))
     const dialogProps = componentMocks.dialogProps.mock.calls.at(-1)?.[0] as {
       onOpenChange: (open: boolean) => void
     }
@@ -698,7 +699,7 @@ describe("MessageShareDialog exports", () => {
       secondButton.click()
     })
     await act(async () => rendered.resolve(new Blob(["png"], { type: "image/png" })))
-    await vi.waitFor(() => expect(toast.success).toHaveBeenCalledWith(feedback))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith(feedback))
 
     if (first === "Copy") {
       expect(write).toHaveBeenCalledTimes(1)
@@ -713,17 +714,29 @@ describe("MessageShareDialog exports", () => {
     const write = installWebClipboard(vi.fn()
       .mockRejectedValueOnce(new Error("clipboard denied"))
       .mockResolvedValueOnce(undefined))
+    const download = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {})
+    vi.stubGlobal("URL", Object.assign(URL, {
+      createObjectURL: vi.fn(() => "blob:share-card"),
+      revokeObjectURL: vi.fn(),
+    }))
     const renderer = await renderReady()
 
     await act(async () => buttonWithText(renderer.container, "Copy image").click())
-    await vi.waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
       "Couldn't copy image — try Download instead",
     ))
     await act(async () => buttonWithText(renderer.container, "Copy image").click())
-    await vi.waitFor(() => expect(toast.success).toHaveBeenCalledWith("Image copied to clipboard"))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Image copied to clipboard"))
 
     expect(sessionMocks.capture).toHaveBeenCalledTimes(1)
     expect(write).toHaveBeenCalledTimes(2)
+    const copy = renderer.container.querySelector<HTMLButtonElement>(`[data-testid="${tid.messageShareCopy}"]`)!
+    const save = buttonWithText(renderer.container, "Download")
+    await waitFor(() => { expect(copy).toBeEnabled(); expect(save).toBeEnabled() })
+    act(() => { save.click(); copy.click() })
+    await waitFor(() => expect(download).toHaveBeenCalledOnce())
+    expect(write).toHaveBeenCalledTimes(2)
+    expect(sessionMocks.capture).toHaveBeenCalledTimes(1)
   })
 
   it("suppresses a late raster result after unmount", async () => {
@@ -747,7 +760,7 @@ describe("MessageShareDialog exports", () => {
     const renderer = await renderReady()
 
     await act(async () => buttonWithText(renderer.container, "Copy image").click())
-    await vi.waitFor(() => expect(navigator.clipboard.write).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(navigator.clipboard.write).toHaveBeenCalledTimes(1))
     const dialogProps = componentMocks.dialogProps.mock.calls.at(-1)?.[0] as {
       onOpenChange: (open: boolean) => void
     }
@@ -765,7 +778,7 @@ describe("MessageShareDialog exports", () => {
     const renderer = await renderReady()
 
     await act(async () => buttonWithText(renderer.container, "Download").click())
-    await vi.waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
       "Couldn't generate image — rendering the image failed",
     ))
 

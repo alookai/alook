@@ -1,4 +1,5 @@
-const STORAGE_KEY = "inbox-filter-types";
+import type { ApplicationOwner } from "./application-owner";
+const storageKey = (userId: string) => `alook:${userId}:inbox-filter-types`;
 
 export const INBOX_FILTER_TYPES = [
   "user_dm_message",
@@ -18,10 +19,10 @@ export const DEFAULT_INBOX_TYPES: InboxFilterType[] = ["user_dm_message"];
 
 export const MANDATORY_INBOX_TYPES: InboxFilterType[] = ["user_dm_message"];
 
-export function getInboxFilterTypes(): InboxFilterType[] {
+export function readStoredInboxFilterTypes(userId: string): InboxFilterType[] {
   if (typeof window === "undefined") return DEFAULT_INBOX_TYPES;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey(userId));
     if (!raw) return DEFAULT_INBOX_TYPES;
     const parsed = JSON.parse(raw) as string[];
     const valid = parsed.filter((t): t is InboxFilterType =>
@@ -37,10 +38,16 @@ export function getInboxFilterTypes(): InboxFilterType[] {
   }
 }
 
-export function setInboxFilterTypes(types: InboxFilterType[]): void {
+export function getInboxFilterTypes(owner: ApplicationOwner): InboxFilterType[] {
+  return owner.preferences.get().inboxFilterTypes;
+}
+
+export function setInboxFilterTypes(owner: ApplicationOwner, types: InboxFilterType[]): void {
+  if (!owner.lifecycle.get().active) return;
   const withMandatory = [...types];
   for (const m of MANDATORY_INBOX_TYPES) {
     if (!withMandatory.includes(m)) withMandatory.unshift(m);
   }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(withMandatory));
+  owner.preferences.setState((state) => ({ ...state, inboxFilterTypes: withMandatory }));
+  try { localStorage.setItem(storageKey(owner.userId), JSON.stringify(withMandatory)); } catch {}
 }

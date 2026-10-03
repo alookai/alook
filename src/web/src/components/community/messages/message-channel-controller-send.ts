@@ -10,7 +10,7 @@ import {
   type UploadedAttachment,
 } from "@/hooks/community/mutations"
 import { toastApiError } from "@/lib/api/client"
-import { useMessageStreamStore } from "@/stores/community/message-stream"
+import type { CommunityRuntime } from "@/stores/community/runtime"
 import { communityWsEndTyping } from "@/hooks/community/use-community-ws"
 import { canonicalizeReplyContent } from "@/lib/community/reply-content"
 
@@ -21,6 +21,7 @@ type ChannelMessageScope = {
 }
 
 type UploadFile = (input: {
+  assertActive?: (() => void) & { signal: AbortSignal }
   target: { channelId: string }
   file: File
   thumbnailBlob?: Blob
@@ -29,6 +30,7 @@ type UploadFile = (input: {
 }) => Promise<UploadedAttachment>
 
 type SendMessage = (input: {
+  assertActive?: (() => void) & { signal: AbortSignal }
   serverId: string
   channelId: string
   forumParentChannelId?: string
@@ -41,6 +43,8 @@ type SendMessage = (input: {
 }) => Promise<unknown>
 
 export async function runAcceptedMessageIntent({
+  runtime,
+  assertActive,
   messageScope,
   nonce,
   uploadFileAsync,
@@ -50,6 +54,8 @@ export async function runAcceptedMessageIntent({
   serverId,
   viewer,
 }: {
+  runtime: CommunityRuntime
+  assertActive?: (() => void) & { signal: AbortSignal }
   messageScope: ChannelMessageScope
   nonce: string
   uploadFileAsync: UploadFile
@@ -59,7 +65,14 @@ export async function runAcceptedMessageIntent({
   serverId: string
   viewer: Viewer
 }) {
-  const streamStore = useMessageStreamStore.getState()
+  const generation = runtime.lifecycle.get().generation
+  const assertOwner = () => {
+    const state = runtime.lifecycle.get()
+    if (!state.active || state.generation !== generation) throw new DOMException("Retired send owner", "AbortError")
+  }
+  const assert = () => { assertOwner(); assertActive?.() }
+  assert()
+  const streamStore = runtime.messageStream.actions
   const payload = streamStore.getRetryPayload(messageScope, nonce)
   if (!payload) return
   let uploadedAttachments: UploadedAttachment[] | undefined
@@ -86,18 +99,20 @@ export async function runAcceptedMessageIntent({
     const results = await Promise.all(
       payload.localUploads.map((upload) =>
         uploadFileAsync({
+          assertActive,
           target: { channelId },
           file: upload.file,
           thumbnailBlob: upload.thumbnailBlob,
           width: upload.width,
           height: upload.height,
         }).catch((error) => {
-          toastApiError(error, "Failed to attach file")
+          toastApiError(error, "Failed to attach file", assert)
           return null
         }),
       ),
     )
     if (results.some((result) => result === null)) {
+      try { assertOwner() } catch { return }
       streamStore.dispatch(messageScope, { type: "uploadFailed", nonce })
       return
     }
@@ -105,6 +120,7 @@ export async function runAcceptedMessageIntent({
       results as UploadedAttachment[],
       [...payload.localUploads],
     )
+    try { assert() } catch { try { assertOwner(); streamStore.dispatch(messageScope, { type: "uploadFailed", nonce }) } catch {} return }
     streamStore.dispatch(messageScope, {
       type: "uploadSettled",
       nonce,
@@ -112,7 +128,9 @@ export async function runAcceptedMessageIntent({
     })
   }
   try {
+    assert()
     await sendMessageAsync({
+      assertActive,
       serverId,
       channelId,
       forumParentChannelId,
@@ -124,11 +142,13 @@ export async function runAcceptedMessageIntent({
       author: viewer,
     })
   } catch {
+    try { assertOwner(); streamStore.dispatch(messageScope, { type: "postFail", nonce }) } catch {}
     return
   }
 }
 
 export function acceptChannelMessage({
+  runtime,
   markdown,
   attachments,
   mentionType,
@@ -139,6 +159,7 @@ export function acceptChannelMessage({
   channelId,
   clearReply,
 }: {
+  runtime: CommunityRuntime
   markdown: string
   attachments?: SendAttachment[]
   mentionType?: MentionType
@@ -153,7 +174,7 @@ export function acceptChannelMessage({
   const content = canonicalizeReplyContent(markdown, replyTo)
   const nonce = sendNonce()
   const createdPreviewUrls: string[] = []
-  const accepted = useMessageStreamStore.getState().accept(messageScope, {
+  const accepted = runtime.messageStream.actions.accept(messageScope, {
     nonce,
     tempId: tempMessageId(),
     message: {
@@ -183,7 +204,7 @@ export function acceptChannelMessage({
     return false
   }
   void runAcceptedIntent(nonce)
-  communityWsEndTyping({ channelId })
+  communityWsEndTyping(runtime, { channelId })
   clearReply()
   return true
 }

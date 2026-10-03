@@ -50,6 +50,55 @@ describe("remote image state adapters", () => {
     expect(rendered.container.querySelectorAll("svg")).toHaveLength(0)
   })
 
+  it("recovers an offline identity image on online with the exact URL and fences its old decode", async () => {
+    let finishOldDecode!: () => void
+    const oldDecode = new Promise<void>((resolve) => { finishOldDecode = resolve })
+    const rendered = render(React.createElement(RemoteIdentityImage, { src: "/avatar/peer?v=3", alt: "Peer", profilePhoto: true }))
+    const identity = () => rendered.container.querySelector<HTMLImageElement>('[data-remote-image-kind="identity"]')!
+    const original = identity()
+    setImageMetrics(original, () => oldDecode)
+    fireEvent.load(original)
+    fireEvent.error(original)
+    expect(original).toHaveAttribute("data-avatar-photo-state", "failed")
+
+    fireEvent(window, new Event("online"))
+    const retried = identity()
+    expect(retried).not.toBe(original)
+    expect(retried).toHaveAttribute("src", "/avatar/peer?v=3")
+    expect(retried).toHaveAttribute("data-avatar-photo-state", "pending")
+    await act(async () => { finishOldDecode(); await oldDecode })
+    expect(retried).toHaveAttribute("data-avatar-photo-state", "pending")
+
+    const decode = vi.fn(async () => {})
+    setImageMetrics(retried, decode)
+    fireEvent.load(retried)
+    await act(async () => { await Promise.resolve() })
+    expect(decode).toHaveBeenCalledOnce()
+    expect(retried).toHaveAttribute("data-avatar-photo-state", "ready")
+    expect(retried.naturalWidth).toBeGreaterThan(0)
+    fireEvent(window, new Event("online"))
+    expect(identity()).toBe(retried)
+  })
+
+  it("restarts a pending identity attempt on online and removes its listener on exit", () => {
+    const added = vi.spyOn(window, "addEventListener")
+    const removed = vi.spyOn(window, "removeEventListener")
+    try {
+      const rendered = render(React.createElement(RemoteIdentityImage, { src: "/avatar/peer?v=3", alt: "Peer" }))
+      const original = rendered.container.querySelector<HTMLImageElement>("img")!
+      fireEvent(window, new Event("online"))
+      const retried = rendered.container.querySelector<HTMLImageElement>("img")!
+      expect(retried).not.toBe(original)
+      expect(retried).toHaveAttribute("src", "/avatar/peer?v=3")
+      expect(retried).toHaveAttribute("data-remote-image-state", "pending")
+      const online = added.mock.calls.find(([name]) => name === "online")![1]
+      rendered.unmount()
+      expect(removed).toHaveBeenCalledWith("online", online)
+      fireEvent(window, new Event("online"))
+      expect(rendered.container).toBeEmptyDOMElement()
+    } finally { added.mockRestore(); removed.mockRestore() }
+  })
+
   it("retries content with the exact URL and fences callbacks from the old attempt", async () => {
     let resolveOldDecode!: () => void
     const oldDecode = new Promise<void>((resolve) => { resolveOldDecode = resolve })

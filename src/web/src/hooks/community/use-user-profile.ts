@@ -1,5 +1,8 @@
 "use client"
 
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import type { QueryFunctionContext } from "@tanstack/react-query"
+
 import { apiFetchProfiles } from "@/lib/community/profile-seed"
 import { avatarInitial } from "@/lib/community/avatar"
 
@@ -33,8 +36,8 @@ export type UserProfile = UserProfileBase & (
     }
 )
 
-export const userProfileQueryFn = (userId: string) => () =>
-  apiFetchProfiles<UserProfile>(
+export const userProfileQueryFn = (userId: string) => async (context: QueryFunctionContext) => {
+  const profile = await apiFetchProfiles<UserProfile>(
     `/api/community/users/${userId}/profile`,
     (profile) => [{
       id: profile.id,
@@ -54,8 +57,15 @@ export const userProfileQueryFn = (userId: string) => () =>
         statusEmoji: profile.statusEmoji,
         statusText: profile.statusText,
       },
-    }],
+      card: {
+        mutualServers: profile.mutualServers,
+        ownerHandle: profile.kind === "bot" ? profile.ownerProfile.handle : null,
+        ownedByViewer: profile.kind === "bot" && profile.ownedByViewer,
+      },
+    }], { signal: context.signal }, getCommunityDbRegistry(context.client),
   )
+  return { id: profile.id }
+}
 
 // How long a fetched profile card is considered fresh before a re-click
 // triggers a background refetch (`queryClient.fetchQuery`'s `staleTime`).

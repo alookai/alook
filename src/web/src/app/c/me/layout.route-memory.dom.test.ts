@@ -1,9 +1,11 @@
 import { createElement } from "react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import type { QueryClient } from "@tanstack/react-query"
+import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
-import { getFriendRequestActionController } from "@/hooks/community/use-friend-request-action-state"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { ingestAttentionSnapshot, publishCommunityFriendDecision, captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 
 const mocks = vi.hoisted(() => ({
   pathname: "/c/me/friends",
@@ -59,13 +61,15 @@ vi.mock("@/components/community/channels/dm-sidebar", () => ({
     },
   ),
 }))
-vi.mock("@/stores/community", () => {
+vi.mock("@/stores/community", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/community")>();
   const state = {
     setCurrentServerId: vi.fn(),
     setCurrentChannelId: vi.fn(),
     uiHandlers: { cancelPendingNavigation: mocks.cancelPendingNavigation },
   }
   return {
+    ...actual,
     useCommunityStore: { getState: () => state },
     useCurrentChannelId: () => null,
   }
@@ -80,7 +84,7 @@ vi.mock("@/hooks/community/use-friends", () => ({
   useFriends: () => ({ blocked: [], pending: mocks.pending }),
   useFriendsPresence: vi.fn(),
 }))
-vi.mock("@/stores/community/ws", () => ({
+vi.mock("@/stores/community/ws", async (importOriginal) => ({ ...await importOriginal<typeof import("@/stores/community/ws")>(),
   useCommunityWsStore: (selector: (state: { profilesByUserId: Map<string, unknown> }) => unknown) =>
     selector({ profilesByUserId: new Map() }),
 }))
@@ -109,16 +113,18 @@ vi.mock("@/lib/community/last-community-route", () => ({
 
 import MeLayout from "./layout"
 
-function renderLayout(queryClient = new QueryClient()) {
+let layoutClient: QueryClient
+function renderLayout(queryClient = layoutClient) {
   return render(createElement(
     QueryClientProvider,
-    { client: queryClient },
+    { client: queryClient, userId: "viewer-1" },
     createElement(MeLayout, null, createElement("div")),
   ))
 }
 
 describe("MeLayout route memory", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    layoutClient = (await createCommunityQueryOwner("viewer-1")).client
     mocks.pathname = "/c/me/friends"
     mocks.dmId = undefined
     mocks.dmStatus = "idle"
@@ -154,8 +160,8 @@ describe("MeLayout route memory", () => {
   it("mounts each target DM while Next children stay on the neutral root, without saving last in layout", () => {
     mocks.pathname = "/c/me/dm-a"
     mocks.dmId = "dm-a"
-    const client = new QueryClient()
-    const tree = () => createElement(QueryClientProvider, { client },
+    const client = layoutClient
+    const tree = () => createElement(QueryClientProvider, { client, userId: "viewer-1" },
       createElement(MeLayout, null, createElement("div", { "data-testid": "neutral-leaf" }, "Loading your space")))
     const rendered = render(tree())
     expect(rendered.getByTestId("target-dm").getAttribute("data-channel-id")).toBe("dm-a")
@@ -191,9 +197,7 @@ describe("MeLayout route memory", () => {
       kind: "incoming" as const,
     }
     mocks.pending = [request]
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    })
+    const { client: queryClient, registry } = await createCommunityQueryOwner("viewer-1")
     queryClient.setQueryData(communityKeys.friends(), {
       friends: [],
       blocked: [],
@@ -204,7 +208,11 @@ describe("MeLayout route memory", () => {
       servers: [],
       dms: [],
     })
-    getFriendRequestActionController(queryClient).publishTerminal(request.id)
+    ingestAttentionSnapshot(registry, {
+      scopes: [], items: [{ id: `friend_request:${request.id}`, kind: "friend_request", sourceId: request.id, scopeId: null, messageId: null, actorUserId: request.userId, createdAt: "2026-09-12T00:00:00.000Z" }],
+      included: { servers: [], channels: [], dms: [], messages: [], profiles: [{ userId: request.userId, name: request.name, discriminator: "0001", avatar: request.avatar, avatarVersion: 1 }] }, limit: 100, truncated: false,
+    })
+    publishCommunityFriendDecision(queryClient, request.id, "reject", { token: captureCommunityLiveSnapshotToken(queryClient), signal: undefined })
 
     const rendered = renderLayout(queryClient)
     await act(async () => {
@@ -215,7 +223,7 @@ describe("MeLayout route memory", () => {
           staleTime: 0,
         }),
         queryClient.fetchQuery({
-          queryKey: communityKeys.inboxUnreads(),
+          queryKey: communityKeys.accountAttention(),
           queryFn: async () => { throw new Error("inbox refresh failed") },
           staleTime: 0,
         }),

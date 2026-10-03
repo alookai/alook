@@ -1,6 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
+import { useCallback, useEffect, useMemo, type ComponentProps, type ReactNode } from "react"
 import { toast } from "sonner"
 import { isForum, type CommunityRole as Role } from "@alook/shared"
 import { AddMembersDialog } from "@/components/community/members/add-members-dialog"
@@ -17,11 +19,13 @@ import {
   useRemoveChannelMember,
 } from "@/hooks/community/use-channel-members"
 import { useServerMembers } from "@/hooks/community/use-server-members"
+import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import {
   useAddThreadParticipant,
   useRemoveThreadParticipant,
 } from "@/hooks/community/use-thread-participants"
 import { useKickMember, useSetMemberRole } from "@/hooks/community/mutations"
+import type { MemberOriginalView } from "./member-management-types"
 import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 
 type MentionCandidateSource = NonNullable<ComposerProps["mentionCandidates"]>
@@ -31,6 +35,7 @@ type PanelProps = ComponentProps<typeof CommunityPanel>
 export type ChannelMemberPanelProps = Pick<
   PanelProps,
   | "members"
+  | "memberScopeId"
   | "membersLoading"
   | "membersLoadingMore"
   | "membersHasMore"
@@ -91,8 +96,13 @@ export function useChannelMemberViewModel({
   myRole: Role | undefined
 } {
   const membersHook = useServerMembers(accessAllowed && currentServer ? serverId : null)
-  const profilesByUserId = useCanonicalProfilesByUserId()
-  const [memberUi, setMemberUi] = useState({ channelId, query: "", dialogOpen: false })
+  const source = useCommunityViewSource(`channel-members:${serverId}:${channelId}`, accessAllowed)
+  const originalView = useCallback((caller?: MemberOriginalView) => {
+    const local = source.capture()
+    return Object.assign(() => { local(); caller?.() }, { signal: caller?.signal ?? local.signal })
+  }, [source])
+  const members = membersHook.members
+  const [memberUi, setMemberUi] = useAtom(useCreateAtom({ channelId, query: "", dialogOpen: false }))
   const memberQuery = memberUi.channelId === channelId ? memberUi.query : ""
   const manageMembersOpen = memberUi.channelId === channelId && memberUi.dialogOpen
 
@@ -102,27 +112,7 @@ export function useChannelMemberViewModel({
         ? current
         : { channelId, query: "", dialogOpen: false },
     )
-  }, [channelId])
-
-  const members = useMemo(
-    () => membersHook.members.map((member) => {
-      const canonical = profilesByUserId.get(member.userId)
-      const profile = canonical
-        ? readCommunityProfile(canonical, member.userId)
-        : { ...member, presence: member.status }
-      return {
-        ...member,
-        name: profile.name,
-        discriminator: profile.discriminator,
-        avatar: profile.avatar,
-        avatarVersion: profile.avatarVersion,
-        status: member.userId === currentUser.id ? "online" as const : profile.presence,
-        statusEmoji: profile.statusEmoji,
-        statusText: profile.statusText,
-      }
-    }),
-    [currentUser.id, membersHook.members, profilesByUserId],
-  )
+  }, [channelId, setMemberUi])
 
   const currentChannelPrivate = useMemo(() => {
     const anchorId = isChildChannel
@@ -137,11 +127,15 @@ export function useChannelMemberViewModel({
   const channelMembersHook = useChannelMembers(
     channelId,
     accessAllowed && (isNotifyUnit || (currentChannelPrivate && !isNotifyUnit)),
+    serverId,
+    isNotifyUnit ? "notify" : "access",
   )
   const parentChannelId = isNotifyUnit ? currentChannelMeta?.parentChannelId ?? null : null
   const parentChannelMembersHook = useChannelMembers(
     parentChannelId ?? "",
     accessAllowed && !!parentChannelId,
+    serverId,
+    "access",
   )
   const participantMembersData = channelMembersHook.data
   const parentMembersData = parentChannelMembersHook.data
@@ -206,6 +200,8 @@ export function useChannelMemberViewModel({
   )
   const setMemberRoleMut = useSetMemberRole()
   const kickMemberMut = useKickMember()
+  const profileIds = useMemo(() => [...new Set([...members.map((member) => member.userId), ...channelMembersHook.members.map((member) => member.userId), ...parentChannelMembersHook.members.map((member) => member.userId), ...addableMembers.map((member) => member.userId)])], [members, channelMembersHook.members, parentChannelMembersHook.members, addableMembers])
+  const profilesByUserId = useCanonicalProfilesByUserId(profileIds)
 
   const panelMembers = useMemo(() => {
     const query = memberQuery.trim().toLowerCase()
@@ -215,7 +211,7 @@ export function useChannelMemberViewModel({
       userId: string
       sub: string
       isCreator?: boolean
-      source?: "explicit" | "inherited" | "admin"
+      source?: Member["source"]
     }): Member => {
       const profile = readCommunityProfile(
         profilesByUserId.get(member.userId),
@@ -328,12 +324,13 @@ export function useChannelMemberViewModel({
         viewerUserId: currentUser.id,
         viewerIsCreator: viewerIsUnitCreator,
         unitLabel: currentChannelMeta?.name ?? channelName,
-        onLeave: (userId: string) => removeMember.mutateAsync(userId),
-        onRemove: (userId: string) => removeMember.mutateAsync(userId),
+        onLeave: (userId: string, caller?: MemberOriginalView) => removeMember.mutateAsync({ userId, assertActive: originalView(caller) }),
+        onRemove: (userId: string, caller?: MemberOriginalView) => removeMember.mutateAsync({ userId, assertActive: originalView(caller) }),
       }
     : undefined
 
   const memberPanelProps: ChannelMemberPanelProps = {
+    memberScopeId: `${serverId}:${channelId}`,
     members: panelMembers,
     membersLoading: scopedDrawer ? channelMembersHook.isLoading : membersHook.loading,
     membersLoadingMore: scopedDrawer ? false : membersHook.loadingMore,
@@ -348,13 +345,18 @@ export function useChannelMemberViewModel({
     manageContext,
     myRole,
     onSetRole: (memberId: string, role: Role) => {
-      setMemberRoleMut.mutate({ serverId, memberId, role }, {
-        onSuccess: () => toast("Role updated"),
-        onError: (error) => toastApiError(error, "Failed to update role"),
+      const assert = source.capture()
+      assert()
+      setMemberRoleMut.mutate({ serverId, memberId, role, assertActive: assert }, {
+        onSuccess: () => { try { assert() } catch { return }; toast("Role updated") },
+        onError: (error) => toastApiError(error, "Failed to update role", assert),
       })
     },
-    onKickMember: (memberId: string) =>
-      kickMemberMut.mutateAsync({ serverId, memberId }).then(() => toast("Member kicked")),
+    onKickMember: (memberId: string, caller?: MemberOriginalView) => {
+      const assert = originalView(caller)
+      assert()
+      return kickMemberMut.mutateAsync({ serverId, memberId, assertActive: assert }).then(() => { assert(); toast("Member kicked") })
+    },
   }
 
   const manageMembersDialog = useMemo(() => {
@@ -368,6 +370,7 @@ export function useChannelMemberViewModel({
         .map((member) => ({ userId: member.userId, name: member.name ?? null, avatar: member.avatar }))
       return (
         <AddMembersDialog
+          scopeId={`${serverId}:${channelId}:notify`}
           title={`Add participants to /${currentChannelMeta?.name ?? channelName}`}
           subtitle="Added people are notified of new replies. Anyone with access can already read it."
           candidates={candidates}
@@ -378,7 +381,7 @@ export function useChannelMemberViewModel({
             retrying: participantCandidatesRetrying,
             retry: retryParticipantCandidates,
           }}
-          onAdd={(userId) => addThreadParticipantMut.mutateAsync(userId)}
+          onAdd={(userId, caller) => addThreadParticipantMut.mutateAsync({ userId, assertActive: originalView(caller) })}
           onClose={() => setMemberUi({ channelId, query: memberQuery, dialogOpen: false })}
         />
       )
@@ -390,6 +393,7 @@ export function useChannelMemberViewModel({
     }))
     return (
       <AddMembersDialog
+        scopeId={`${serverId}:${channelId}:access`}
         title={`Add members to /${channelName}`}
         subtitle="Added members can see and post here."
         candidates={candidates}
@@ -401,38 +405,16 @@ export function useChannelMemberViewModel({
             addableMembersData === undefined && addableMembersFetching,
           retry: () => { void refetchAddableMembers() },
         }}
-        onAdd={(userId) => addChannelMemberMut.mutateAsync(userId)}
+        onAdd={(userId, caller) => addChannelMemberMut.mutateAsync({ userId, assertActive: originalView(caller) })}
         onClose={() => setMemberUi({ channelId, query: memberQuery, dialogOpen: false })}
       />
     )
-  }, [
-    addChannelMemberMut,
-    addThreadParticipantMut,
-    addableMembers,
-    addableMembersData,
-    addableMembersError,
-    addableMembersFetching,
-    addableMembersLoading,
-    channelName,
-    channelId,
-    currentChannelMeta,
-    currentUser.id,
-    isNotifyUnit,
-    manageMembersOpen,
-    memberQuery,
-    parentMembersData,
-    participantMembersData,
-    participantCandidatesError,
-    participantCandidatesLoading,
-    participantCandidatesResolved,
-    participantCandidatesRetrying,
-    refetchAddableMembers,
-    retryParticipantCandidates,
-  ])
+  }, [manageMembersOpen, isNotifyUnit, addableMembers, serverId, channelId, channelName, addableMembersData, addableMembersLoading, addableMembersError, addableMembersFetching, participantMembersData, parentMembersData, currentChannelMeta?.name, participantCandidatesResolved, participantCandidatesLoading, participantCandidatesError, participantCandidatesRetrying, retryParticipantCandidates, currentUser.id, addThreadParticipantMut, originalView, setMemberUi, memberQuery, refetchAddableMembers, addChannelMemberMut])
 
+  const memberNames = JSON.stringify(membersHook.members.map(({ userId, id, name }) => ({ userId, id, name })))
   const resolveUserName = useMemo(
-    () => makeUserNameResolver(membersHook.members),
-    [membersHook.members],
+    () => makeUserNameResolver(JSON.parse(memberNames) as Array<{ userId: string; id: string; name: string }>),
+    [memberNames],
   )
 
   return {

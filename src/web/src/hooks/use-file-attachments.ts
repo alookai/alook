@@ -1,4 +1,6 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createStore, useCreateStore, useSelector } from "@tanstack/react-store";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import React, { useCallback, useLayoutEffect, useRef, useMemo } from "react";
 import { toast } from "sonner";
 import { generateThumbnail, prepareCommunityImage } from "../lib/image-thumbnail";
 import {
@@ -36,308 +38,147 @@ export type UseFileAttachmentsOptions = {
   draftSessionScope?: string;
 };
 
-let fallbackDraftId = 0;
-
+const draftIdentity = createStore(0);
 function createDraftId() {
-  return globalThis.crypto?.randomUUID?.() ?? `attachment-draft-${++fallbackDraftId}`;
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  draftIdentity.setState((value) => value + 1);
+  return `attachment-draft-${draftIdentity.get()}`;
 }
-
-function revokeThumbnailUrls(files: PendingFile[]) {
-  for (const pf of files) {
-    if (pf.thumbnailUrl) URL.revokeObjectURL(pf.thumbnailUrl);
-  }
-}
+function revokeThumbnailUrls(files: readonly PendingFile[]) { for (const file of files) if (file.thumbnailUrl) URL.revokeObjectURL(file.thumbnailUrl); }
 
 export function useFileAttachments(opts: UseFileAttachmentsOptions = {}) {
-  const maxFileSize = opts.maxFileSize ?? DEFAULT_MAX_FILE_SIZE;
-  const maxFiles = opts.maxFiles;
-  const thumbnailPolicy = opts.thumbnailPolicy ?? "legacy";
-  // Options are read via ref so `addPendingFiles`'s stable identity survives
-  // caller re-renders while still observing an updated size limit.
-  const optsRef = useRef({
-    maxFileSize,
-    maxFiles,
-    thumbnailPolicy,
-    draftSessionScope: opts.draftSessionScope,
-  });
-  useLayoutEffect(() => {
-    optsRef.current = {
-      maxFileSize,
-      maxFiles,
-      thumbnailPolicy,
-      draftSessionScope: opts.draftSessionScope,
-    };
-  });
-  const [pendingFiles, _setPendingFiles] = useState<PendingFile[]>([]);
-  const pendingFilesRef = useRef(pendingFiles);
-  const preparationTailRef = useRef<Promise<void>>(Promise.resolve());
-  const preparationGenerationRef = useRef(0);
-  const queuedDraftGenerationsRef = useRef(new Map<string, number>());
-  const mountedRef = useRef(true);
-
-  const setPendingFiles = useCallback((next: PendingFile[] | ((prev: PendingFile[]) => PendingFile[])) => {
-    const prev = pendingFilesRef.current;
-    const nextVal = typeof next === "function" ? next(prev) : next;
-    if (nextVal.length === 0) {
-      if (optsRef.current.draftSessionScope) {
-        clearComposerAttachmentSession(optsRef.current.draftSessionScope);
-      }
-      preparationGenerationRef.current++;
-      queuedDraftGenerationsRef.current.clear();
-      if (prev.length > 0) revokeThumbnailUrls(prev);
-    }
-    pendingFilesRef.current = nextVal;
-    _setPendingFiles(nextVal);
-  }, []);
-
-  const transferPendingFiles = useCallback(() => {
-    const transferred = pendingFilesRef.current;
-    if (optsRef.current.draftSessionScope) {
-      transferComposerAttachmentSession(optsRef.current.draftSessionScope);
-    }
-    preparationGenerationRef.current++;
-    queuedDraftGenerationsRef.current.clear();
-    pendingFilesRef.current = [];
-    _setPendingFiles([]);
-    return transferred;
-  }, []);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      revokeThumbnailUrls(pendingFilesRef.current);
-    };
-  }, []);
-
+  const client = useQueryClient();
+  const id = useMemo(() => createDraftId(), []);
+  const key = useMemo(() => ["application", "attachment-preparation", id], [id]);
+  const protocol = useCreateStore({ files: [] as PendingFile[], queued: new Map<string, number>() as ReadonlyMap<string, number>, generation: 0, active: true, controller: new AbortController(), dragging: false, dragDepth: 0, options: { maxFileSize: opts.maxFileSize ?? DEFAULT_MAX_FILE_SIZE, maxFiles: opts.maxFiles, policy: opts.thumbnailPolicy ?? "legacy", scope: opts.draftSessionScope } });
+  const pendingFiles = useSelector(protocol, (state) => state.files);
+  const dragging = useSelector(protocol, (state) => state.dragging);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const queuePreparation = useCallback(async (
-    drafts: readonly AttachmentDraftFile[],
-    generation: number,
-    policy: "legacy" | "community",
-    draftSessionScope: string | undefined,
-  ) => {
-    const prior = preparationTailRef.current;
-    const preparation = prior.then(async () => {
-      const prepared = await Promise.all(
-        drafts.map(async ({ draftId, file }): Promise<PendingFile | null> => {
-          if (policy === "community") {
-            try {
-              const image = await prepareCommunityImage(file);
-              const previewSource = image?.blob ?? (image ? file : null);
-              return {
-                draftId,
-                file,
-                thumbnailUrl: previewSource ? URL.createObjectURL(previewSource) : null,
-                thumbnailBlob: image?.blob ?? null,
-                width: image?.width,
-                height: image?.height,
-              } satisfies PendingFile;
-            } catch {
-              if (mountedRef.current && preparationGenerationRef.current === generation) {
-                toast.error(`Could not prepare "${file.name}" for upload`);
-                if (draftSessionScope) {
-                  removeComposerAttachmentSessionFiles(draftSessionScope, [draftId]);
-                }
-              }
-              return null;
-            }
-          }
-          const thumbnail = await generateThumbnail(file);
-          const thumbnailUrl = thumbnail ? URL.createObjectURL(thumbnail.blob) : null;
-          return {
-            draftId,
-            file,
-            thumbnailUrl,
-            thumbnailBlob: thumbnail?.blob ?? null,
-            width: thumbnail?.width,
-            height: thumbnail?.height,
-          };
-        }),
-      );
-      for (const { draftId } of drafts) {
-        if (queuedDraftGenerationsRef.current.get(draftId) === generation) {
-          queuedDraftGenerationsRef.current.delete(draftId);
-        }
-      }
-      const pending = prepared.filter((file): file is PendingFile => file !== null);
-      if (pending.length === 0) return;
-
-      if (!mountedRef.current || preparationGenerationRef.current !== generation) {
-        revokeThumbnailUrls(pending);
-        return;
-      }
-
-      const currentIds = new Set(pendingFilesRef.current.map((file) => file.draftId));
-      const next = [
-        ...pendingFilesRef.current,
-        ...pending.filter((file) => !currentIds.has(file.draftId)),
-      ];
-      pendingFilesRef.current = next;
-      _setPendingFiles(next);
-    });
-    preparationTailRef.current = preparation.catch(() => {});
-    await preparation;
-  }, []);
-
-  const addPendingFiles = useCallback(async (files: File[]) => {
-    const {
-      maxFileSize: maxSize,
-      maxFiles: countLimit,
-      thumbnailPolicy: policy,
-      draftSessionScope,
-    } = optsRef.current;
-    const valid: File[] = [];
-    for (const file of files) {
-      if (file.size > maxSize) {
-        const mb = Math.floor(maxSize / 1024 / 1024);
-        toast.error(`"${file.name}" exceeds ${mb} MB limit`);
-        continue;
-      }
-      valid.push(file);
-    }
-    if (valid.length === 0) return;
-
-    const reservedCount = pendingFilesRef.current.length + queuedDraftGenerationsRef.current.size;
-    if (countLimit !== undefined && reservedCount + valid.length > countLimit) {
-      toast.error(`You can attach up to ${countLimit} files`);
-      return;
-    }
-
-    const drafts = valid.map((file) => ({ draftId: createDraftId(), file }));
-    if (draftSessionScope) {
-      const result = appendComposerAttachmentSession(draftSessionScope, drafts);
-      if (result.evictedScopes > 0) {
-        toast.info("Older attachment drafts were cleared to free memory");
-      }
-      if (!result.accepted) {
-        toast.error("These files exceed the attachment draft memory limit");
-        return;
-      }
-    }
-    const generation = preparationGenerationRef.current;
-    for (const { draftId } of drafts) queuedDraftGenerationsRef.current.set(draftId, generation);
-    await queuePreparation(
-      drafts,
-      generation,
-      policy,
-      draftSessionScope,
-    );
-  }, [queuePreparation]);
-
-  const restorePendingFiles = useCallback(async (
-    drafts: readonly AttachmentDraftFile[],
-  ) => {
-    const previous = pendingFilesRef.current;
-    preparationGenerationRef.current++;
-    const generation = preparationGenerationRef.current;
-    queuedDraftGenerationsRef.current.clear();
-    pendingFilesRef.current = [];
-    _setPendingFiles([]);
-    revokeThumbnailUrls(previous);
-
-    const {
-      maxFiles: countLimit,
-      thumbnailPolicy: policy,
-      draftSessionScope,
-    } = optsRef.current;
-    const accepted = countLimit === undefined ? drafts : drafts.slice(0, countLimit);
-    for (const { draftId } of accepted) queuedDraftGenerationsRef.current.set(draftId, generation);
-    if (accepted.length > 0) {
-      await queuePreparation(accepted, generation, policy, draftSessionScope);
-    }
-  }, [queuePreparation]);
-
   useLayoutEffect(() => {
-    if (thumbnailPolicy !== "community") return;
-    const snapshot = opts.draftSessionScope
-      ? readComposerAttachmentSession(opts.draftSessionScope)
-      : [];
-    void restorePendingFiles(snapshot);
-  }, [opts.draftSessionScope, restorePendingFiles, thumbnailPolicy]);
-
+    protocol.setState((state) => ({ ...state, options: { maxFileSize: opts.maxFileSize ?? DEFAULT_MAX_FILE_SIZE, maxFiles: opts.maxFiles, policy: opts.thumbnailPolicy ?? "legacy", scope: opts.draftSessionScope } }));
+  }, [opts.maxFileSize, opts.maxFiles, opts.thumbnailPolicy, opts.draftSessionScope, protocol]);
+  useLayoutEffect(() => {
+    protocol.setState((state) => ({ ...state, active: true, controller: state.controller.signal.aborted ? new AbortController() : state.controller, files: state.files.map((file) => file.thumbnailBlob && !file.thumbnailUrl ? { ...file, thumbnailUrl: URL.createObjectURL(file.thumbnailBlob) } : file) }));
+    const original = protocol.get().controller;
+    return () => {
+      original.abort();
+      revokeThumbnailUrls(protocol.get().files);
+      protocol.setState((state) => ({ ...state, active: false, generation: state.generation + 1, queued: new Map(), files: state.files.map((file) => ({ ...file, thumbnailUrl: null })) }));
+    };
+  }, [protocol]);
+  type Preparation = { drafts: readonly AttachmentDraftFile[]; generation: number; policy: "legacy" | "community"; scope?: string; signal: AbortSignal };
+  const preparation = useMutation({ mutationKey: key, scope: { id }, gcTime: 0,
+    mutationFn: async ({ drafts, generation, policy, scope, signal }: Preparation) => {
+      const eligible = () => protocol.get().active && protocol.get().generation === generation && !signal.aborted;
+      if (!eligible()) return;
+      const prepared = await Promise.all(drafts.map(async ({ draftId, file }): Promise<PendingFile | null> => {
+        try {
+          const thumbnail = await new Promise<Awaited<ReturnType<typeof prepareCommunityImage>>>((resolve, reject) => {
+            const decoding = new AbortController();
+            const abort = () => { decoding.abort(); cleanup(); reject(new DOMException("Retired attachment preparation", "AbortError")); };
+            const timer = setTimeout(() => { decoding.abort(); cleanup(); reject(new Error("Image preparation timed out")); }, 30_000);
+            const cleanup = () => { clearTimeout(timer); signal.removeEventListener("abort", abort); };
+            signal.addEventListener("abort", abort, { once: true });
+            if (signal.aborted) { abort(); return; }
+            void (policy === "community" ? prepareCommunityImage(file, decoding.signal) : generateThumbnail(file, decoding.signal)).then((value) => { cleanup(); resolve(value); }, (error) => { cleanup(); reject(error); });
+          });
+          if (!eligible()) return null;
+          const blob = thumbnail?.blob ?? null;
+          const preview = blob ?? (policy === "community" && thumbnail ? file : null);
+          return { draftId, file, thumbnailUrl: preview ? URL.createObjectURL(preview) : null, thumbnailBlob: blob, width: thumbnail?.width, height: thumbnail?.height };
+        } catch {
+          if (eligible()) { toast.error(`Could not prepare "${file.name}" for upload`); if (scope) removeComposerAttachmentSessionFiles(scope, [draftId]); }
+          return null;
+        }
+      }));
+      const pending = prepared.filter((file): file is PendingFile => file !== null);
+      if (!eligible()) { revokeThumbnailUrls(pending); return; }
+      protocol.setState((state) => {
+        const queued = new Map(state.queued);
+        for (const { draftId } of drafts) if (queued.get(draftId) === generation) queued.delete(draftId);
+        const ids = new Set(state.files.map((file) => file.draftId));
+        const unique = pending.filter((file) => !ids.has(file.draftId));
+        revokeThumbnailUrls(pending.filter((file) => ids.has(file.draftId)));
+        return { ...state, queued, files: [...state.files, ...unique] };
+      });
+    },
+  });
+  const mutatePreparation = preparation.mutateAsync;
+  const queuePreparation = useCallback((drafts: readonly AttachmentDraftFile[], generation: number, policy: "legacy" | "community", scope?: string) => mutatePreparation({ drafts, generation, policy, scope, signal: protocol.get().controller.signal }), [mutatePreparation, protocol]);
+  const setPendingFiles = useCallback((next: PendingFile[] | ((previous: PendingFile[]) => PendingFile[])) => {
+    const state = protocol.get();
+    const files = typeof next === "function" ? next(state.files) : next;
+    if (!files.length) { state.controller.abort(); if (state.options.scope) clearComposerAttachmentSession(state.options.scope); revokeThumbnailUrls(state.files); }
+    protocol.setState((current) => ({ ...current, files, ...(!files.length ? { generation: current.generation + 1, queued: new Map(), controller: new AbortController() } : {}) }));
+  }, [protocol]);
+  const transferPendingFiles = useCallback(() => {
+    const state = protocol.get();
+    state.controller.abort();
+    if (state.options.scope) transferComposerAttachmentSession(state.options.scope);
+    protocol.setState((current) => ({ ...current, files: [], generation: current.generation + 1, queued: new Map(), controller: new AbortController() }));
+    return state.files;
+  }, [protocol]);
+  const addPendingFiles = useCallback(async (files: File[]) => {
+    const state = protocol.get();
+    if (!state.active) return;
+    const { maxFileSize, maxFiles, policy, scope } = state.options;
+    const valid = files.filter((file) => {
+      if (file.size <= maxFileSize) return true;
+      toast.error(`"${file.name}" exceeds ${Math.floor(maxFileSize / 1024 / 1024)} MB limit`); return false;
+    });
+    if (!valid.length) return;
+    if (maxFiles !== undefined && state.files.length + state.queued.size + valid.length > maxFiles) { toast.error(`You can attach up to ${maxFiles} files`); return; }
+    const drafts = valid.map((file) => ({ draftId: createDraftId(), file }));
+    if (scope) {
+      const result = appendComposerAttachmentSession(scope, drafts);
+      if (result.evictedScopes > 0) toast.info("Older attachment drafts were cleared to free memory");
+      if (!result.accepted) { toast.error("These files exceed the attachment draft memory limit"); return; }
+    }
+    protocol.setState((current) => ({ ...current, queued: new Map([...current.queued, ...drafts.map((draft) => [draft.draftId, state.generation] as const)]) }));
+    await queuePreparation(drafts, state.generation, policy, scope);
+  }, [protocol, queuePreparation]);
+  const restorePendingFiles = useCallback(async (drafts: readonly AttachmentDraftFile[]) => {
+    const previous = protocol.get();
+    previous.controller.abort();
+    revokeThumbnailUrls(previous.files);
+    protocol.setState((state) => ({ ...state, files: [], generation: state.generation + 1, queued: new Map(), controller: new AbortController() }));
+    const state = protocol.get(), { maxFiles, policy, scope } = state.options;
+    const accepted = maxFiles === undefined ? drafts : drafts.slice(0, maxFiles);
+    protocol.setState((current) => ({ ...current, queued: new Map(accepted.map((draft) => [draft.draftId, state.generation])) }));
+    if (accepted.length) await queuePreparation(accepted, state.generation, policy, scope);
+  }, [protocol, queuePreparation]);
+  useLayoutEffect(() => {
+    if ((opts.thumbnailPolicy ?? "legacy") !== "community") return;
+    void restorePendingFiles(opts.draftSessionScope ? readComposerAttachmentSession(opts.draftSessionScope) : []).catch(() => undefined);
+  }, [opts.draftSessionScope, opts.thumbnailPolicy, restorePendingFiles]);
   const awaitPendingFiles = useCallback(async (): Promise<readonly PendingFile[]> => {
-    while (true) {
-      const tail = preparationTailRef.current;
-      await tail;
-      if (tail === preparationTailRef.current) return pendingFilesRef.current;
-    }
-  }, []);
-
-  const handleFileSelect = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const fileList = e.target.files;
-      if (!fileList) return;
-      addPendingFiles(Array.from(fileList));
-      e.target.value = "";
-    },
-    [addPendingFiles],
-  );
-
+    const original = protocol.get(), assert = () => {
+      if (!protocol.get().active || protocol.get().generation !== original.generation) throw new DOMException("Retired attachment preparation", "AbortError");
+    };
+    assert();
+    await new Promise<void>((resolve, reject) => {
+      let release: () => void = () => undefined;
+      const finish = () => {
+        try { assert(); } catch (error) { cleanup(); reject(error); return; }
+        if (!client.getMutationCache().findAll({ mutationKey: key, status: "pending" }).length) { cleanup(); resolve(); }
+      };
+      const cleanup = () => { release(); original.controller.signal.removeEventListener("abort", finish); };
+      release = client.getMutationCache().subscribe(finish);
+      original.controller.signal.addEventListener("abort", finish, { once: true });
+      finish();
+    });
+    assert(); return protocol.get().files;
+  }, [client, key, protocol]);
+  const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => { if (event.target.files) void addPendingFiles(Array.from(event.target.files)).catch(() => undefined); event.target.value = ""; }, [addPendingFiles]);
   const removePendingFile = useCallback((index: number) => {
-    const prev = pendingFilesRef.current;
-    const removed = prev[index];
-    if (removed?.draftId && optsRef.current.draftSessionScope) {
-      removeComposerAttachmentSessionFiles(optsRef.current.draftSessionScope, [removed.draftId]);
-    }
+    const state = protocol.get(), removed = state.files[index];
+    if (removed?.draftId && state.options.scope) removeComposerAttachmentSessionFiles(state.options.scope, [removed.draftId]);
     if (removed?.thumbnailUrl) URL.revokeObjectURL(removed.thumbnailUrl);
-    const next = prev.filter((_, i) => i !== index);
-    pendingFilesRef.current = next;
-    _setPendingFiles(next);
-  }, []);
-
-  const [dragging, setDragging] = useState(false);
-  const dragCounter = useRef(0);
-
-  const handleDragEnter = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounter.current++;
-    if (e.dataTransfer.types.includes("Files")) {
-      setDragging(true);
-    }
-  }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounter.current--;
-    if (dragCounter.current === 0) {
-      setDragging(false);
-    }
-  }, []);
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-  }, []);
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setDragging(false);
-      dragCounter.current = 0;
-      addPendingFiles(Array.from(e.dataTransfer.files));
-    },
-    [addPendingFiles],
-  );
-
-  return {
-    pendingFiles,
-    setPendingFiles,
-    transferPendingFiles,
-    restorePendingFiles,
-    awaitPendingFiles,
-    fileInputRef,
-    addPendingFiles,
-    handleFileSelect,
-    removePendingFile,
-    dragging,
-    handleDragEnter,
-    handleDragLeave,
-    handleDragOver,
-    handleDrop,
-  };
+    protocol.setState((current) => ({ ...current, files: current.files.filter((_, item) => item !== index) }));
+  }, [protocol]);
+  const handleDragEnter = useCallback((event: React.DragEvent) => { event.preventDefault(); event.stopPropagation(); protocol.setState((state) => ({ ...state, dragDepth: state.dragDepth + 1, dragging: state.dragging || event.dataTransfer.types.includes("Files") })); }, [protocol]);
+  const handleDragLeave = useCallback((event: React.DragEvent) => { event.preventDefault(); event.stopPropagation(); protocol.setState((state) => ({ ...state, dragDepth: Math.max(0, state.dragDepth - 1), dragging: state.dragDepth > 1 && state.dragging })); }, [protocol]);
+  const handleDragOver = useCallback((event: React.DragEvent) => { event.preventDefault(); event.stopPropagation(); }, []);
+  const handleDrop = useCallback((event: React.DragEvent) => { event.preventDefault(); event.stopPropagation(); protocol.setState((state) => ({ ...state, dragging: false, dragDepth: 0 })); void addPendingFiles(Array.from(event.dataTransfer.files)).catch(() => undefined); }, [addPendingFiles, protocol]);
+  return { pendingFiles, readPendingFiles: () => protocol.get().files, setPendingFiles, transferPendingFiles, restorePendingFiles, awaitPendingFiles, fileInputRef, addPendingFiles, handleFileSelect, removePendingFile, dragging, handleDragEnter, handleDragLeave, handleDragOver, handleDrop };
 }

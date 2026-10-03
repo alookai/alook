@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useQuery } from "@tanstack/react-query";
+import { useMemo, useRef, useEffect, useCallback } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useAgentContext } from "@/contexts/agent-context";
 import { Button } from "@/components/ui/button";
@@ -29,15 +31,21 @@ import type { AgentRuntime as Runtime } from "@alook/shared";
 import { semverGte } from "@alook/shared";
 import { cliCmd, getAppMode } from "@/lib/utils";
 import { ProviderLogo } from "@/components/provider-logo";
-import { triggerRuntimeUpdate, triggerRuntimeRescan, fetchLatestCliVersion } from "@/lib/api";
+import { createMachineToken } from "@/lib/api";
+import { captureWorkspaceOwner, runWorkspaceRequest, useWorkspaceOwner } from "@/contexts/workspace-context";
+import { useWorkspaceViewSource } from "@/hooks/workspace/use-workspace-view-source";
+import { useRuntimeCommand, usePendingRuntimeCommands } from "@/hooks/workspace/use-runtime-command";
+import { latestCliVersionOptions } from "@/hooks/workspace/settings-query-options";
 import { Loader2, RefreshCw } from "lucide-react";
 
 import { ConnectMachineSteps } from "@/components/connect-machine-steps";
 import { trackRuntimeConnected } from "@/lib/analytics";
 
 export default function RuntimesPage() {
-  const { agents, runtimes, loading, handleGenerateToken, handleDeleteMachine, subscribeWs, workspaceId } =
+  const { runtimes, loading, handleDeleteMachine, subscribeWs, workspaceId } =
     useAgentContext();
+  const owner = useWorkspaceOwner();
+  const pageSource = useWorkspaceViewSource(owner, "runtimes", true);
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -45,30 +53,33 @@ export default function RuntimesPage() {
   const isMobileApp = mode === "mobile";
   const hideNewMachine = isMobileApp;
 
-  const [sheetOpen, setSheetOpen] = useState(() => searchParams.has("connect"));
-  const [generatedToken, setGeneratedToken] = useState("");
-  const [generatingToken, setGeneratingToken] = useState(false);
-  const [registeredDaemonId, setRegisteredDaemonId] = useState<string | null>(null);
-  const [daemonOnline, setDaemonOnline] = useState(false);
+  const initialSheetOpen = useMemo(() => searchParams.has("connect"), [searchParams]);
+  const [sheetOpen, setSheetOpen] = useAtom(useCreateAtom(initialSheetOpen));
+  const registeredDaemon = useCreateAtom<string | null>(null);
+  const [registeredDaemonId, setRegisteredDaemonId] = useAtom(registeredDaemon);
+  const sheetSource = useWorkspaceViewSource(owner, "runtime-pairing", sheetOpen);
+  const pairing = useQuery({
+    queryKey: owner.key("machine-pairing", "runtime-page", sheetOpen ? "open" : "closed"),
+    enabled: false, gcTime: 0, retry: false,
+    queryFn: ({ signal }) => runWorkspaceRequest(owner, (options) => createMachineToken("cli", workspaceId, options), signal),
+  });
+  const generatedToken = sheetOpen ? pairing.data?.token ?? "" : "";
+  const generatingToken = pairing.isFetching;
+  const daemonOnline = runtimes.some((runtime) => runtime.daemon_id === registeredDaemonId && runtime.status === "online");
+  const latestCliVersion = useQuery(latestCliVersionOptions(owner)).data?.version ?? null;
+  const runtimeCommand = useRuntimeCommand(owner);
+  const pendingCommands = usePendingRuntimeCommands(owner);
+  const updatingDaemons = new Set(pendingCommands.filter((intent) => intent.kind === "update").map((intent) => runtimes.find((runtime) => runtime.id === intent.id)?.daemon_id ?? intent.id));
+  const rescanningDaemons = new Set(pendingCommands.filter((intent) => intent.kind === "rescan").map((intent) => runtimes.find((runtime) => runtime.id === intent.id)?.daemon_id ?? intent.id));
 
-  const [latestCliVersion, setLatestCliVersion] = useState<string | null>(null);
-  const [updatingDaemons, setUpdatingDaemons] = useState<Set<string>>(new Set());
-  const [rescanningDaemons, setRescanningDaemons] = useState<Set<string>>(new Set());
-
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [confirmTitle, setConfirmTitle] = useState("");
-  const [confirmDescription, setConfirmDescription] = useState("");
-  const [confirmLabel, setConfirmLabel] = useState("Remove");
-  const [confirmLoadingLabel, setConfirmLoadingLabel] = useState<string | undefined>(undefined);
-  const [confirmVariant, setConfirmVariant] = useState<"destructive" | "default">("destructive");
-  const [confirmLoading, setConfirmLoading] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useAtom(useCreateAtom(false));
+  const [confirmTitle, setConfirmTitle] = useAtom(useCreateAtom(""));
+  const [confirmDescription, setConfirmDescription] = useAtom(useCreateAtom(""));
+  const [confirmLabel, setConfirmLabel] = useAtom(useCreateAtom("Remove"));
+  const [confirmLoadingLabel, setConfirmLoadingLabel] = useAtom(useCreateAtom<string | undefined>(undefined));
+  const [confirmVariant, setConfirmVariant] = useAtom(useCreateAtom<"destructive" | "default">("destructive"));
+  const [confirmLoading, setConfirmLoading] = useAtom(useCreateAtom(false));
   const confirmAction = useRef<(() => Promise<void>) | null>(null);
-
-  useEffect(() => {
-    fetchLatestCliVersion()
-      .then((data) => setLatestCliVersion(data.version))
-      .catch(() => {});
-  }, []);
 
   // Clean up ?connect query param after initial open
   useEffect(() => {
@@ -78,15 +89,11 @@ export default function RuntimesPage() {
   }, [searchParams, router, pathname]);
 
   // Listen for registration + online events while the sheet is open.
-  const sheetOpenRef = useRef(sheetOpen);
-  useEffect(() => { sheetOpenRef.current = sheetOpen; }, [sheetOpen]);
-  const agentsRef = useRef(agents);
-  useEffect(() => { agentsRef.current = agents; }, [agents]);
-  const registeredDaemonIdRef = useRef(registeredDaemonId);
-  useEffect(() => { registeredDaemonIdRef.current = registeredDaemonId; }, [registeredDaemonId]);
   useEffect(() => {
+    if (!sheetOpen) return;
+    const assert = sheetSource.assertActive;
     return subscribeWs((msg) => {
-      if (!sheetOpenRef.current) return;
+      try { assert(); } catch { return; }
       if (msg.type === "runtime.registered" && msg.workspaceId === workspaceId) {
         setRegisteredDaemonId(msg.daemonId);
       }
@@ -94,22 +101,19 @@ export default function RuntimesPage() {
         msg.type === "runtime.status" &&
         msg.workspaceId === workspaceId &&
         msg.status === "online" &&
-        registeredDaemonIdRef.current &&
-        msg.daemonId === registeredDaemonIdRef.current
+        registeredDaemon.get() &&
+        msg.daemonId === registeredDaemon.get()
       ) {
         trackRuntimeConnected({ runtime_type: "desktop" });
         setSheetOpen(false);
-        setGeneratedToken("");
         setRegisteredDaemonId(null);
-        setDaemonOnline(false);
         toast.success("Machine connected");
-        if (agentsRef.current.length === 0) {
-          const slug = pathname.split("/")[2];
-          router.push(`/w/${slug}/agents/new`);
+        if (owner.queryClient.getQueryData<unknown[]>(owner.key("agents"))?.length === 0) {
+          router.push(`/w/${owner.slug}/agents/new`);
         }
       }
     });
-  }, [subscribeWs, workspaceId, pathname, router]);
+  }, [subscribeWs, workspaceId, owner, router, sheetOpen, sheetSource.assertActive, registeredDaemon, setRegisteredDaemonId, setSheetOpen]);
 
   const openConfirm = (
     title: string,
@@ -128,81 +132,68 @@ export default function RuntimesPage() {
 
   const handleConfirm = async () => {
     if (!confirmAction.current) return;
+    const assert = pageSource.assertActive;
+    const action = confirmAction.current;
+    assert();
     setConfirmLoading(true);
     try {
-      await confirmAction.current();
+      await action();
+    } catch (error) {
+      try { assert(); } catch { return; }
+      if (!(error instanceof DOMException && error.name === "AbortError")) toast.error("Failed to update machine");
     } finally {
-      setConfirmLoading(false);
-      setConfirmOpen(false);
-      confirmAction.current = null;
+      try {
+        assert();
+        if (confirmAction.current === action) {
+          setConfirmLoading(false);
+          setConfirmOpen(false);
+          confirmAction.current = null;
+        }
+      } catch {}
     }
   };
 
   const onGenerateToken = useCallback(async () => {
-    setGeneratingToken(true);
+    const assert = sheetSource.assertActive;
     try {
-      const token = await handleGenerateToken();
-      if (token) setGeneratedToken(token);
-    } finally {
-      setGeneratingToken(false);
+      assert();
+      await pairing.refetch({ throwOnError: true });
+      assert();
+    } catch (error) {
+      try { assert(); } catch { return; }
+      if (!(error instanceof DOMException && error.name === "AbortError")) toast.error("Failed to generate token");
     }
-  }, [handleGenerateToken]);
+  }, [pairing, sheetSource.assertActive]);
 
-  const handleUpdate = async (runtimeId: string, daemonId: string) => {
-    setUpdatingDaemons((prev) => new Set(prev).add(daemonId));
+  const handleUpdate = async (runtimeId: string) => {
+    const assert = pageSource.assertActive;
+    const token = captureWorkspaceOwner(owner);
     try {
-      await triggerRuntimeUpdate(runtimeId, workspaceId);
+      assert();
+      await runtimeCommand.mutateAsync({ kind: "update", id: runtimeId, token, assertActive: Object.assign(() => assert(), { signal: pageSource.signal }) });
+      assert();
       toast.success("Update triggered");
-    } catch {
+    } catch (error) {
+      try { assert(); } catch { return; }
+      if (error instanceof DOMException && error.name === "AbortError") return;
       toast.error("Failed to trigger update");
-      setUpdatingDaemons((prev) => {
-        const next = new Set(prev);
-        next.delete(daemonId);
-        return next;
-      });
     }
   };
 
-  const handleRescan = async (runtimeId: string, daemonId: string) => {
-    setRescanningDaemons((prev) => new Set(prev).add(daemonId));
+  const handleRescan = async (runtimeId: string) => {
+    const assert = pageSource.assertActive;
+    const token = captureWorkspaceOwner(owner);
     try {
-      await triggerRuntimeRescan(runtimeId, workspaceId);
+      assert();
+      await runtimeCommand.mutateAsync({ kind: "rescan", id: runtimeId, token, assertActive: Object.assign(() => assert(), { signal: pageSource.signal }) });
+      assert();
       toast.success("Rescan triggered — daemon will restart to detect runtimes");
-    } catch {
+    } catch (error) {
+      try { assert(); } catch { return; }
+      if (error instanceof DOMException && error.name === "AbortError") return;
       toast.error("Failed to trigger rescan");
-      setRescanningDaemons((prev) => {
-        const next = new Set(prev);
-        next.delete(daemonId);
-        return next;
-      });
     }
   };
-
-  // Derive effective optimistic sets: clear once server-side flag is gone AND runtime refreshed
-  const effectiveUpdatingDaemons = useMemo(() => {
-    if (updatingDaemons.size === 0) return updatingDaemons;
-    const still = new Set<string>();
-    for (const id of updatingDaemons) {
-      const rt = runtimes.find((r) => (r.daemon_id || r.id) === id);
-      // Keep optimistic state until runtime data confirms update is done (flag cleared)
-      if (!rt || rt.pending_update_version) {
-        still.add(id);
-      }
-    }
-    return still;
-  }, [runtimes, updatingDaemons]);
-
-  const effectiveRescanningDaemons = useMemo(() => {
-    if (rescanningDaemons.size === 0) return rescanningDaemons;
-    const still = new Set<string>();
-    for (const rt of runtimes) {
-      const key = rt.daemon_id || rt.id;
-      if (rescanningDaemons.has(key) && rt.pending_rescan) {
-        still.add(key);
-      }
-    }
-    return still;
-  }, [runtimes, rescanningDaemons]);
 
   // Group runtimes by machine
   const machines = new Map<
@@ -239,7 +230,7 @@ export default function RuntimesPage() {
           <Skeleton className="h-8 w-29 rounded-md" />
         </div>
         {/* Skeleton card grid */}
-        <div className="flex-1 overflow-y-auto px-4 py-4">
+        <div className="flex-1 overflow-y-auto thin-scrollbar px-4 py-4">
           <div className="grid gap-4 sm:grid-cols-3">
             {Array.from({ length: 3 }).map((_, i) => (
               <div
@@ -282,7 +273,6 @@ export default function RuntimesPage() {
             size="sm"
             variant="outline"
             onClick={() => {
-              setGeneratedToken("");
               setRegisteredDaemonId(null);
               setSheetOpen(true);
             }}
@@ -294,7 +284,7 @@ export default function RuntimesPage() {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      <div className="flex-1 overflow-y-auto thin-scrollbar px-4 py-4">
         {runtimes.length === 0 ? (
           <div className="flex flex-1 items-center justify-center min-h-[60vh]">
             <div className="text-center animate-[fade-up_400ms_ease-out_both]">
@@ -308,7 +298,7 @@ export default function RuntimesPage() {
                   size="sm"
                   className="mt-4 glow-border"
                   onClick={() => {
-                    setGeneratedToken("");
+                    setRegisteredDaemonId(null);
                     setSheetOpen(true);
                   }}
                 >
@@ -355,7 +345,7 @@ export default function RuntimesPage() {
                         </span>
                         <div className="flex items-center gap-1">
                           {(() => {
-                            const isUpdating = !!machine.pendingUpdateVersion || effectiveUpdatingDaemons.has(daemonId);
+                            const isUpdating = !!machine.pendingUpdateVersion || updatingDaemons.has(daemonId);
                             const needsUpdate = machine.status === "online" && latestCliVersion && (!machine.cliVersion || !semverGte(machine.cliVersion, latestCliVersion));
                             if (isUpdating) {
                               return (
@@ -374,7 +364,7 @@ export default function RuntimesPage() {
                                   onClick={() => openConfirm(
                                     "Update daemon",
                                     `This will update the daemon on "${displayName}" to the latest CLI version. The daemon will restart during the update.`,
-                                    async () => { await handleUpdate(machine.runtimes[0].id, daemonId); },
+                                    async () => { await handleUpdate(machine.runtimes[0].id); },
                                     { label: "Update", loadingLabel: "Updating...", variant: "default" }
                                   )}
                                 >
@@ -385,7 +375,7 @@ export default function RuntimesPage() {
                             return null;
                           })()}
                           {(() => {
-                            const isRescanning = machine.pendingRescan || effectiveRescanningDaemons.has(daemonId);
+                            const isRescanning = machine.pendingRescan || rescanningDaemons.has(daemonId);
                             if (machine.status !== "online") return null;
                             if (isRescanning) {
                               return (
@@ -403,7 +393,7 @@ export default function RuntimesPage() {
                                 onClick={() => openConfirm(
                                   "Rescan runtimes",
                                   `This will restart the daemon on "${displayName}" to re-detect available runtimes (Claude Code, Codex, OpenCode).`,
-                                  async () => { await handleRescan(machine.runtimes[0].id, daemonId); },
+                                  async () => { await handleRescan(machine.runtimes[0].id); },
                                   { label: "Rescan", loadingLabel: "Triggering...", variant: "default" }
                                 )}
                               >
@@ -457,9 +447,17 @@ export default function RuntimesPage() {
                               render={
                                 <div
                                   className="relative overflow-hidden rounded-md bg-muted px-2 py-2 font-mono text-[11px] text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(`${cliCmd()} daemon start`);
-                                    toast.success("Copied to clipboard");
+                                  onClick={async () => {
+                                    const assert = pageSource.assertActive;
+                                    try {
+                                      assert();
+                                      await navigator.clipboard.writeText(`${cliCmd()} daemon start`);
+                                      assert();
+                                      toast.success("Copied to clipboard");
+                                    } catch (error) {
+                                      try { assert(); } catch { return; }
+                                      if (!(error instanceof DOMException && error.name === "AbortError")) toast.error("Failed to copy command");
+                                    }
                                   }}
                                 />
                               }
@@ -485,9 +483,7 @@ export default function RuntimesPage() {
         open={sheetOpen}
         onOpenChange={(open) => {
           setSheetOpen(open);
-          if (!open) {
-            setGeneratedToken("");
-          }
+          if (!open) setRegisteredDaemonId(null);
         }}
       >
         <SheetContent className="data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:rounded-xl data-[side=right]:sm:border">

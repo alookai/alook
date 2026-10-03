@@ -1,9 +1,11 @@
 import React from "react"
-import { onlineManager, QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { onlineManager } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
-import { useCommunityWsStore } from "@/stores/community/ws"
+import { QueryClientProvider } from "@tanstack/react-query"
+import { CommunityDbProvider } from "@/lib/community-db/projections"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { channelMetadataOptions } from "./channel-metadata"
 import { startDmRouteVerification, useDmRouteVerification } from "./use-dm-route-verification"
 
@@ -19,23 +21,22 @@ function deferred<T>() {
   const promise = new Promise<T>((done) => { resolve = done })
   return { promise, resolve }
 }
-function fixture(strict = false) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: Infinity } } })
+async function fixture(strict = false) {
+  const { client, registry } = await createCommunityQueryOwner()
+  client.setDefaultOptions({ queries: { retry: false, staleTime: Infinity, gcTime: Infinity } })
   const wrapper = ({ children }: React.PropsWithChildren) => React.createElement(QueryClientProvider,
-    { client }, strict ? React.createElement(React.StrictMode, null, children) : children)
-  return { client, wrapper }
+    { client }, React.createElement(CommunityDbProvider, { registry }, strict ? React.createElement(React.StrictMode, null, children) : children))
+  return { client, registry, wrapper }
 }
 
 beforeEach(() => {
   apiFetch.mockReset()
-  useCommunityWsStore.getState().reset()
-  useCommunityWsStore.getState().activateProfileAccount("viewer")
 })
 afterEach(() => onlineManager.setOnline(true))
 
 describe("DM route uses the shared Channel metadata owner", () => {
   it("shares one exact Channel request between imperative and route consumers without another DM-list request", async () => {
-    const { client, wrapper } = fixture(true)
+    const { client, registry, wrapper } = await fixture(true)
     client.setQueryData(communityKeys.dms(), { conversations: [] })
     const request = deferred<typeof metadata>()
     apiFetch.mockReturnValue(request.promise)
@@ -48,16 +49,16 @@ describe("DM route uses the shared Channel metadata owner", () => {
     await expect(first).resolves.toBe("present")
     await expect(second).resolves.toBe("present")
     await waitFor(() => expect(route.result.current.status).toBe("present"))
-    expect(apiFetch).toHaveBeenCalledWith(`/api/community/channels/${dm.id}`, { signal: expect.any(AbortSignal) })
-    expect(client.getQueryData(communityKeys.channelMeta(null, dm.id))).toMatchObject({ ...metadata, name: "" })
+    expect(apiFetch).toHaveBeenCalledWith(`/api/community/channels/${dm.id}`, expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
+    expect(client.getQueryData(communityKeys.channelMeta(null, dm.id))).toMatchObject({ id: metadata.id })
     expect(client.getQueryData(communityKeys.dms())).toEqual({ conversations: [] })
-    expect(useCommunityWsStore.getState().channelAccessScopes.size).toBe(0)
+    expect(registry.runtime.ws.get().channelAccessScopes.size).toBe(0)
     route.unmount()
     client.clear()
   })
 
   it("reuses the same metadata Query when another Channel consumer has already fetched it", async () => {
-    const { client, wrapper } = fixture()
+    const { client, registry, wrapper } = await fixture()
     apiFetch.mockResolvedValue(metadata)
     await client.fetchQuery(channelMetadataOptions(client, null, dm.id))
     const route = renderHook(() => useDmRouteVerification(dm.id), { wrapper })
@@ -69,7 +70,7 @@ describe("DM route uses the shared Channel metadata owner", () => {
   })
 
   it("a manually cached peer list cannot qualify the target Channel", async () => {
-    const { client, wrapper } = fixture()
+    const { client, registry, wrapper } = await fixture()
     client.setQueryData(communityKeys.dms(), { conversations: [dm] })
     const request = deferred<typeof metadata>()
     apiFetch.mockReturnValue(request.promise)
@@ -83,7 +84,7 @@ describe("DM route uses the shared Channel metadata owner", () => {
   })
 
   it.each([403, 404])("keeps explicit %s terminal and rejects scope mismatches", async (status) => {
-    const { client } = fixture()
+    const { client, registry } = await fixture()
     apiFetch.mockRejectedValueOnce(Object.assign(new Error("denied"), { status }))
     await expect(startDmRouteVerification(client, dm.id)).resolves.toBe("denied")
     apiFetch.mockResolvedValueOnce({ ...metadata, serverId: "server", type: "text" })
@@ -93,7 +94,7 @@ describe("DM route uses the shared Channel metadata owner", () => {
   })
 
   it("keeps a transient error local across a remount/reconnect and retries only its Channel resource", async () => {
-    const { client, wrapper } = fixture()
+    const { client, registry, wrapper } = await fixture()
     apiFetch.mockRejectedValueOnce(new Error("offline"))
     const hook = ({ key }: { key: string }) => React.createElement(Capture, { key })
     let latest!: ReturnType<typeof useDmRouteVerification>
@@ -114,24 +115,24 @@ describe("DM route uses the shared Channel metadata owner", () => {
   })
 
   it.each(["cancel", "account", "access"] as const)("rejects an old successful metadata response after %s", async (race) => {
-    const { client } = fixture()
+    const { client, registry } = await fixture()
     const request = deferred<typeof metadata>()
     apiFetch.mockReturnValue(request.promise)
     const started = startDmRouteVerification(client, dm.id)
     const rejection = expect(started).rejects.toBeDefined()
     await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
     if (race === "cancel") await client.cancelQueries({ queryKey: communityKeys.channelMeta(null, dm.id), exact: true })
-    else if (race === "account") useCommunityWsStore.getState().activateProfileAccount("other")
-    else useCommunityWsStore.setState((state) => ({ accessEpoch: state.accessEpoch + 1 }))
+    else if (race === "account") registry.runtime.ws.actions.activateProfileAccount("other")
+    else registry.runtime.ws.setState((state) => ({ ...state, accessEpoch: state.accessEpoch + 1 }))
     request.resolve(metadata)
     await rejection
     expect(client.getQueryData(communityKeys.channelMeta(null, dm.id))).toBeUndefined()
-    expect(useCommunityWsStore.getState().channelAccessScopes.size).toBe(0)
+    expect(registry.runtime.ws.get().channelAccessScopes.size).toBe(0)
     client.clear()
   })
 
   it("releases the last route observer and aborts its metadata request", async () => {
-    const { client, wrapper } = fixture()
+    const { client, registry, wrapper } = await fixture()
     const request = deferred<typeof metadata>()
     apiFetch.mockReturnValue(request.promise)
     const route = renderHook(() => useDmRouteVerification(dm.id), { wrapper })

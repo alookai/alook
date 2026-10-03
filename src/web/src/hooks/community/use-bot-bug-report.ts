@@ -1,8 +1,11 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { apiFetch } from "@/lib/api/client"
+import { useEffect } from "react"
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query"
+import { useCreateStore, useSelector } from "@tanstack/react-store"
+import { useCommunityViewSource } from "./use-community-view-source"
+import { useCommunityMutationOrigin } from "./community-origin"
+
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import {
@@ -11,6 +14,7 @@ import {
 } from "@alook/shared"
 
 export const BUG_REPORT_POLL_INTERVAL_MS = 1_000
+const BUG_REPORT_GC_TIME_MS = 5 * 60_000
 
 const CLIENT_ERROR_CODES = [
   "rate_limited",
@@ -259,127 +263,92 @@ function reportFromEnvelope(value: unknown): OwnerBugReport | null {
   return projectOwnerBugReport(value.report)
 }
 
+class InvalidBugReportPayloadError extends Error {}
+
 export function useBotBugReport({ agentId, open }: { agentId: string; open: boolean }) {
-  const queryClient = useQueryClient()
-  const [state, setState] = useState<BugReportState>(initialBugReportState)
-  const stateRef = useRef(state)
-  const mountedRef = useRef(true)
-
-  const replaceState = useCallback((next: BugReportState) => {
-    stateRef.current = next
-    if (mountedRef.current) setState(next)
-  }, [])
-
-  const apply = useCallback((action: BugReportAction) => {
-    let next = bugReportReducer(stateRef.current, action)
-    if (
-      (action.type === "created" || action.type === "status") &&
-      next.phase === "collecting" &&
-      next.deadlineAt !== null &&
-      Date.now() >= next.deadlineAt
-    ) {
-      next = bugReportReducer(next, { type: "deadline" })
-    }
-    replaceState(next)
-  }, [replaceState])
-
-  const confirm = useCallback(async () => {
-    const current = stateRef.current
-    const started = startBugReportAttempt(current)
-    if (started === current) return
-    replaceState(started)
-
-    const request = buildBugReportCreateRequest(agentId, started.clientNonce!)
-    try {
-      const response = await apiFetch<unknown>(request.path, request.init)
+  const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
+  const source = useCommunityViewSource(`bug-report:${agentId}`)
+  const attempt = useCreateStore({ nonce: null as string | null, expiredReportId: null as string | null })
+  const intent = useSelector(attempt, (state) => state)
+  const createKey = ["community", "bug-report-create", agentId] as const
+  const creation = useMutation({
+    mutationKey: createKey,
+    mutationFn: async ({ nonce, token, assert }: { nonce: string; token: ReturnType<typeof origin.begin>["token"]; assert: ReturnType<typeof source.capture> }) => {
+      assert()
+      const request = buildBugReportCreateRequest(agentId, nonce)
+      const response = await origin.request<unknown>(token, request.path, { ...request.init, signal: assert.signal, assertActive: assert })
+      assert()
       const report = reportFromEnvelope(response)
-      if (!report) {
-        apply({ type: "invalid_payload" })
-        return
-      }
-      const delivery = isRecord(response) && response.delivery === "accepted"
-        ? "accepted"
-        : "unknown"
-      apply({ type: "created", delivery, report })
-    } catch (error) {
-      apply(createActionFromApiError(error))
-    }
-  }, [agentId, apply, replaceState])
-
-  const reportId = state.reportId
-  const polling = Boolean(open && state.phase === "collecting" && reportId)
-  const statusQuery = useQuery({
-    queryKey: communityKeys.bugReport(reportId ?? "inactive"),
-    enabled: polling,
-    retry: false,
-    queryFn: async ({ signal }) => {
-      const request = buildBugReportStatusRequest(reportId!)
-      const response = await apiFetch<unknown>(request.path, { ...request.init, signal })
-      const report = reportFromEnvelope(response)
-      if (report) apply({ type: "status", report })
-      else apply({ type: "invalid_payload" })
-      return report
+      if (!report) throw new InvalidBugReportPayloadError("Invalid diagnostics response")
+      const key = communityKeys.bugReport(report.reportId)
+      const resource = queryClient.getQueryCache().build<OwnerBugReport>(queryClient, { queryKey: key, gcTime: BUG_REPORT_GC_TIME_MS })
+      if (!resource.state.data) resource.setData(report)
+      origin.assert(token)
+      return { nonce, reportId: report.reportId }
     },
   })
-  const refetchStatus = statusQuery.refetch
-  const statusErrorUpdatedAt = statusQuery.errorUpdatedAt
-
-  useEffect(() => {
-    if (!polling) return
-    const interval = globalThis.setInterval(() => {
-      if (shouldPollBugReport(stateRef.current, { open, nowMs: Date.now() })) {
-        void refetchStatus()
-      } else {
-        apply({ type: "deadline" })
-      }
-    }, BUG_REPORT_POLL_INTERVAL_MS)
-    return () => globalThis.clearInterval(interval)
-  }, [apply, open, polling, refetchStatus])
-
-  useEffect(() => {
-    if (statusErrorUpdatedAt) apply({ type: "poll_error" })
-  }, [apply, statusErrorUpdatedAt])
-
-  useEffect(() => {
-    if (state.phase !== "collecting" || state.deadlineAt === null) return
-    const remaining = state.deadlineAt - Date.now()
-    if (remaining <= 0) {
-      apply({ type: "deadline" })
-      return
+  const resetCreation = creation.reset
+  const reportId = creation.data?.nonce === intent.nonce ? creation.data.reportId : null
+  const polling = open && !!reportId && intent.expiredReportId !== reportId
+  const statusQuery = useQuery<OwnerBugReport>({
+    queryKey: communityKeys.bugReport(reportId ?? "inactive"), subscribed: polling,
+    gcTime: BUG_REPORT_GC_TIME_MS,
+    enabled: (query) => polling && query.state.data?.status === "pending" && Date.now() < query.state.data.deadlineAt && !(query.state.error instanceof InvalidBugReportPayloadError),
+    retry: false,
+    queryFn: async ({ signal }) => {
+      const token = origin.begin().token
+      const request = buildBugReportStatusRequest(reportId!)
+      const response = await origin.request<unknown>(token, request.path, { ...request.init, signal })
+      origin.assert(token)
+      const report = reportFromEnvelope(response)
+      if (!report) throw new InvalidBugReportPayloadError("Invalid diagnostics response")
+      return report
+    },
+    refetchInterval: (query) => {
+      const report = query.state.data
+      return polling && !(query.state.error instanceof InvalidBugReportPayloadError) && report?.status === "pending" && Date.now() < report.deadlineAt ? BUG_REPORT_POLL_INTERVAL_MS : false
+    },
+  })
+  let state: BugReportState = { ...initialBugReportState, clientNonce: intent.nonce }
+  if (creation.variables?.nonce === intent.nonce) {
+    if (creation.isPending) state = { ...state, phase: "submitting" }
+    else if (creation.error && !(creation.error instanceof DOMException && creation.error.name === "AbortError")) {
+      state = bugReportReducer(state, creation.error instanceof InvalidBugReportPayloadError ? { type: "invalid_payload" } : createActionFromApiError(creation.error))
     }
-    const timeout = globalThis.setTimeout(() => apply({ type: "deadline" }), remaining)
-    return () => globalThis.clearTimeout(timeout)
-  }, [apply, state.deadlineAt, state.phase])
-
+  }
+  if (statusQuery.data && statusQuery.data.reportId === reportId) state = stateForReport(state, statusQuery.data)
+  if (statusQuery.error instanceof InvalidBugReportPayloadError) state = bugReportReducer(state, { type: "invalid_payload" })
+  if (intent.expiredReportId === reportId && state.phase === "collecting") state = bugReportReducer(state, { type: "deadline" })
   useEffect(() => {
-    if (open || !reportId) return
-    void queryClient.cancelQueries({
-      queryKey: communityKeys.bugReport(reportId),
-      exact: true,
-    })
-  }, [open, queryClient, reportId])
-
+    const report = statusQuery.data
+    if (!open || !report || report.status !== "pending") return
+    const assert = source.capture()
+    const expire = () => {
+      try { assert() } catch { return }
+      attempt.setState((state) => ({ ...state, expiredReportId: report.reportId }))
+    }
+    const remaining = report.deadlineAt - Date.now()
+    if (remaining <= 0) { expire(); return }
+    const timer = setTimeout(expire, remaining)
+    return () => clearTimeout(timer)
+  }, [open, statusQuery.data, source, attempt])
   useEffect(() => {
     if (open || !state.terminal) return
-    replaceState(initialBugReportState)
-  }, [open, replaceState, state.terminal])
-
-  useEffect(() => {
-    if (!reportId) return
-    return () => {
-      void queryClient.cancelQueries({
-        queryKey: communityKeys.bugReport(reportId),
-        exact: true,
-      })
+    attempt.setState(() => ({ nonce: null, expiredReportId: null }))
+    resetCreation()
+  }, [open, state.terminal, attempt, resetCreation])
+  const confirm = async () => {
+    if (state.phase === "submitting" || state.phase === "collecting") return
+    if (queryClient.getMutationCache().findAll({ mutationKey: createKey, status: "pending" }).length) return
+    try {
+      const assert = source.capture(), token = origin.begin().token
+      assert()
+      const started = startBugReportAttempt({ ...state, clientNonce: attempt.get().nonce })
+      if (!started.clientNonce) return
+      attempt.setState(() => ({ nonce: started.clientNonce, expiredReportId: null }))
+      await creation.mutateAsync({ nonce: started.clientNonce, token, assert })
     }
-  }, [queryClient, reportId])
-
-  useEffect(() => {
-    mountedRef.current = true
-    return () => {
-      mountedRef.current = false
-    }
-  }, [])
-
+    catch {}
+  }
   return { state, confirm }
 }

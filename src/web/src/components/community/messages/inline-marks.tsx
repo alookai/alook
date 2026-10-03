@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
 import type React from "react"
 import { ChannelIcon } from "../channels/channel-icon"
 
@@ -8,7 +9,7 @@ import { ChannelIcon } from "../channels/channel-icon"
 
 // Spoiler — hidden until clicked.
 export function Spoiler({ children }: { children?: React.ReactNode }) {
-  const [shown, setShown] = useState(false)
+  const [shown, setShown] = useAtom(useCreateAtom(false))
   return (
     <button
       onClick={() => setShown(true)}

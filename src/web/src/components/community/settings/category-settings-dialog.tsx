@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
 import { Button } from "@/components/ui/button"
 import { onEnterSubmit } from "@/lib/ime"
 import { CreateDialogShell } from "./create-dialog-shell"
@@ -16,7 +17,7 @@ export function CategorySettingsDialog({ name, isPrivate, onClose, onSave }: {
   onClose: () => void
   onSave: (name: string) => void
 }) {
-  const [nameDraft, setNameDraft] = useState(name)
+  const [nameDraft, setNameDraft] = useAtom(useCreateAtom(name))
   const trimmedName = nameDraft.trim()
   const save = () => {
     if (!trimmedName) return

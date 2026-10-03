@@ -1,5 +1,6 @@
 "use client"
 
+import { batch, createStore } from "@tanstack/react-store"
 import type { QueryClient } from "@tanstack/react-query"
 
 export type AccountUnreadFamily =
@@ -235,101 +236,217 @@ function scopeKey(scope: AccountUnreadScope) {
     : `channel:${scope.channelId}`
 }
 
-/**
- * Account-wide optimistic unread ledger. Raw TanStack resources remain
- * authoritative and feed evidence into this synchronous projection; the
- * owner may request their coalesced reconciliation but owns no transport,
- * timer, cache write, or route transition itself.
- */
-export class AccountUnreadProjection {
-  private ordinal = 0
-  private version = 0
-  private ownerEpoch = 0
-  private disposed = false
-  private highestRevision = -1
-  private policyGeneration = 0
-  private policyReady = false
-  private policy: FrozenPolicy = {
-    all: "all",
-    server: new Map(),
-    channel: new Map(),
-    parentByChannel: new Map(),
-  }
-  private policyBase: MutablePolicy = {
-    all: "all",
-    server: new Map(),
-    channel: new Map(),
-    parentByChannel: new Map(),
-  }
-  private readonly policyOverlays = new Map<symbol, {
+function copyArrival(source: PendingArrival): PendingArrival {
+  return { ...source, attentionIds: new Set(source.attentionIds), families: new Map(source.families) }
+}
+
+function copySticky(source: StickyUnknown): StickyUnknown {
+  return { ...source, attentionIds: new Set(source.attentionIds), families: new Map([...source.families].map(([family, value]) => [family, { ...value }])) }
+}
+
+export type AccountUnreadState = {
+  ordinal: number
+  ownerEpoch: number
+  disposed: boolean
+  highestRevision: number
+  policyGeneration: number
+  policyReady: boolean
+  policy: FrozenPolicy
+  policyBase: MutablePolicy
+  policyOverlays: Map<symbol, {
     patch: AccountUnreadPolicyPatch
     state: "pending" | "committed"
-  }>()
-  private reconcileScheduled = false
-  private reconcilePendingDelivery = false
-  private lastPolicyReconcileGeneration = -1
-  private prePolicySnapshotNeedsReconcile = false
-  private reconcile: (() => void) | null = null
-  private readonly listeners = new Set<() => void>()
-  private readonly exact = new Map<string, PendingArrival>()
-  private readonly exactByChannel = new Map<string, Set<string>>()
-  private readonly sticky = new Map<string, StickyUnknown>()
-  private readonly evidence = new Map<string, number>()
-  private readonly readSeq = new Map<string, number>()
-  private readonly optimisticReads = new Map<
+  }>
+  reconcileScheduled: boolean
+  reconcilePendingDelivery: boolean
+  lastPolicyReconcileGeneration: number
+  prePolicySnapshotNeedsReconcile: boolean
+  exact: Map<string, PendingArrival>
+  exactByChannel: Map<string, Set<string>>
+  sticky: Map<string, StickyUnknown>
+  evidence: Map<string, number>
+  readSeq: Map<string, number>
+  optimisticReads: Map<number, { channelId: string; seq: number; committed: boolean }>
+  markAll: Map<AccountUnreadDomain, MarkAllFence>
+  scopeHints: Map<string, AccountUnreadScopeHint>
+  rawRetirementFloors: Map<string, number>
+  accessFences: Map<string, AccountUnreadScopeToken & { state: "pending" | "committed" | "grant-pending" }>
+  dismissals: Map<symbol, AccountUnreadDismissToken & { state: "pending" | "committed" }>
+  snapshots: Set<symbol>
+}
+
+export function accountUnreadAllowsAccess(state: AccountUnreadState, source: { channelId?: string; serverId?: string | null }) {
+  return !state.disposed
+    && (!source.channelId || !state.accessFences.has(`channel:${source.channelId}`))
+    && (!source.serverId || !state.accessFences.has(`server:${source.serverId}`))
+}
+
+function initialUnreadState(): AccountUnreadState {
+  return {
+    ordinal: 0,
+    ownerEpoch: 0,
+    disposed: false,
+    highestRevision: -1,
+    policyGeneration: 0,
+    policyReady: false,
+    policy: {
+    all: "all",
+    server: new Map(),
+    channel: new Map(),
+    parentByChannel: new Map(),
+  },
+    policyBase: {
+    all: "all",
+    server: new Map(),
+    channel: new Map(),
+    parentByChannel: new Map(),
+  },
+    policyOverlays: new Map<symbol, {
+    patch: AccountUnreadPolicyPatch
+    state: "pending" | "committed"
+  }>(),
+    reconcileScheduled: false,
+    reconcilePendingDelivery: false,
+    lastPolicyReconcileGeneration: -1,
+    prePolicySnapshotNeedsReconcile: false,
+    exact: new Map<string, PendingArrival>(),
+    exactByChannel: new Map<string, Set<string>>(),
+    sticky: new Map<string, StickyUnknown>(),
+    evidence: new Map<string, number>(),
+    readSeq: new Map<string, number>(),
+    optimisticReads: new Map<
     number,
     { channelId: string; seq: number; committed: boolean }
-  >()
-  private readonly markAll = new Map<AccountUnreadDomain, MarkAllFence>()
-  // Scope identity outlives the unread source itself. Access retirement prunes
-  // canonical evidence, but cached raw rows still need their server identity
-  // so a committed fence cannot be bypassed by the sourceScope fallback.
-  private readonly scopeHints = new Map<string, AccountUnreadScopeHint>()
-  // A re-grant restores access, not unread truth. Keep raw values from every
-  // family below this ordinal suppressed until that family contributes new
-  // positive evidence after the retirement.
-  private readonly rawRetirementFloors = new Map<string, number>()
-  private readonly accessFences = new Map<
+  >(),
+    markAll: new Map<AccountUnreadDomain, MarkAllFence>(),
+    scopeHints: new Map<string, AccountUnreadScopeHint>(),
+    rawRetirementFloors: new Map<string, number>(),
+    accessFences: new Map<
     string,
     AccountUnreadScopeToken & { state: "pending" | "committed" | "grant-pending" }
-  >()
-  private readonly dismissals = new Map<
+  >(),
+    dismissals: new Map<
     symbol,
     AccountUnreadDismissToken & { state: "pending" | "committed" }
-  >()
-  private readonly snapshots = new Set<symbol>()
+  >(),
+    snapshots: new Set<symbol>(),
+  }
+}
+
+export class AccountUnreadProjection {
+  readonly state = createStore(initialUnreadState())
+  private reconcile: (() => void) | null = null
   private readonly legacySnapshots = new WeakSet<object>()
+
+  private get ordinal(): AccountUnreadState["ordinal"] { return this.state.get().ordinal }
+  private set ordinal(value: AccountUnreadState["ordinal"]) { this.state.setState((state) => state.ordinal === value ? state : { ...state, ordinal: value }) }
+  private get ownerEpoch(): AccountUnreadState["ownerEpoch"] { return this.state.get().ownerEpoch }
+  private set ownerEpoch(value: AccountUnreadState["ownerEpoch"]) { this.state.setState((state) => state.ownerEpoch === value ? state : { ...state, ownerEpoch: value }) }
+  private get disposed(): AccountUnreadState["disposed"] { return this.state.get().disposed }
+  private set disposed(value: AccountUnreadState["disposed"]) { this.state.setState((state) => state.disposed === value ? state : { ...state, disposed: value }) }
+  private get highestRevision(): AccountUnreadState["highestRevision"] { return this.state.get().highestRevision }
+  private set highestRevision(value: AccountUnreadState["highestRevision"]) { this.state.setState((state) => state.highestRevision === value ? state : { ...state, highestRevision: value }) }
+  private get policyGeneration(): AccountUnreadState["policyGeneration"] { return this.state.get().policyGeneration }
+  private set policyGeneration(value: AccountUnreadState["policyGeneration"]) { this.state.setState((state) => state.policyGeneration === value ? state : { ...state, policyGeneration: value }) }
+  private get policyReady(): AccountUnreadState["policyReady"] { return this.state.get().policyReady }
+  private set policyReady(value: AccountUnreadState["policyReady"]) { this.state.setState((state) => state.policyReady === value ? state : { ...state, policyReady: value }) }
+  private get policy(): AccountUnreadState["policy"] { return this.state.get().policy }
+  private set policy(value: AccountUnreadState["policy"]) { this.state.setState((state) => state.policy === value ? state : { ...state, policy: value }) }
+  private get policyBase(): AccountUnreadState["policyBase"] { return this.state.get().policyBase }
+  private set policyBase(value: AccountUnreadState["policyBase"]) { this.state.setState((state) => state.policyBase === value ? state : { ...state, policyBase: value }) }
+  private get policyOverlays(): AccountUnreadState["policyOverlays"] { return this.state.get().policyOverlays }
+  private set policyOverlays(value: AccountUnreadState["policyOverlays"]) { this.state.setState((state) => state.policyOverlays === value ? state : { ...state, policyOverlays: value }) }
+  private get reconcileScheduled(): AccountUnreadState["reconcileScheduled"] { return this.state.get().reconcileScheduled }
+  private set reconcileScheduled(value: AccountUnreadState["reconcileScheduled"]) { this.state.setState((state) => state.reconcileScheduled === value ? state : { ...state, reconcileScheduled: value }) }
+  private get reconcilePendingDelivery(): AccountUnreadState["reconcilePendingDelivery"] { return this.state.get().reconcilePendingDelivery }
+  private set reconcilePendingDelivery(value: AccountUnreadState["reconcilePendingDelivery"]) { this.state.setState((state) => state.reconcilePendingDelivery === value ? state : { ...state, reconcilePendingDelivery: value }) }
+  private get lastPolicyReconcileGeneration(): AccountUnreadState["lastPolicyReconcileGeneration"] { return this.state.get().lastPolicyReconcileGeneration }
+  private set lastPolicyReconcileGeneration(value: AccountUnreadState["lastPolicyReconcileGeneration"]) { this.state.setState((state) => state.lastPolicyReconcileGeneration === value ? state : { ...state, lastPolicyReconcileGeneration: value }) }
+  private get prePolicySnapshotNeedsReconcile(): AccountUnreadState["prePolicySnapshotNeedsReconcile"] { return this.state.get().prePolicySnapshotNeedsReconcile }
+  private set prePolicySnapshotNeedsReconcile(value: AccountUnreadState["prePolicySnapshotNeedsReconcile"]) { this.state.setState((state) => state.prePolicySnapshotNeedsReconcile === value ? state : { ...state, prePolicySnapshotNeedsReconcile: value }) }
+  private get exact(): AccountUnreadState["exact"] { return this.state.get().exact }
+  private set exact(value: AccountUnreadState["exact"]) { this.state.setState((state) => state.exact === value ? state : { ...state, exact: value }) }
+  private get exactByChannel(): AccountUnreadState["exactByChannel"] { return this.state.get().exactByChannel }
+  private set exactByChannel(value: AccountUnreadState["exactByChannel"]) { this.state.setState((state) => state.exactByChannel === value ? state : { ...state, exactByChannel: value }) }
+  private get sticky(): AccountUnreadState["sticky"] { return this.state.get().sticky }
+  private set sticky(value: AccountUnreadState["sticky"]) { this.state.setState((state) => state.sticky === value ? state : { ...state, sticky: value }) }
+  private get evidence(): AccountUnreadState["evidence"] { return this.state.get().evidence }
+  private set evidence(value: AccountUnreadState["evidence"]) { this.state.setState((state) => state.evidence === value ? state : { ...state, evidence: value }) }
+  private get readSeq(): AccountUnreadState["readSeq"] { return this.state.get().readSeq }
+  private set readSeq(value: AccountUnreadState["readSeq"]) { this.state.setState((state) => state.readSeq === value ? state : { ...state, readSeq: value }) }
+  private get optimisticReads(): AccountUnreadState["optimisticReads"] { return this.state.get().optimisticReads }
+  private set optimisticReads(value: AccountUnreadState["optimisticReads"]) { this.state.setState((state) => state.optimisticReads === value ? state : { ...state, optimisticReads: value }) }
+  private get markAll(): AccountUnreadState["markAll"] { return this.state.get().markAll }
+  private set markAll(value: AccountUnreadState["markAll"]) { this.state.setState((state) => state.markAll === value ? state : { ...state, markAll: value }) }
+  private get scopeHints(): AccountUnreadState["scopeHints"] { return this.state.get().scopeHints }
+  private set scopeHints(value: AccountUnreadState["scopeHints"]) { this.state.setState((state) => state.scopeHints === value ? state : { ...state, scopeHints: value }) }
+  private get rawRetirementFloors(): AccountUnreadState["rawRetirementFloors"] { return this.state.get().rawRetirementFloors }
+  private set rawRetirementFloors(value: AccountUnreadState["rawRetirementFloors"]) { this.state.setState((state) => state.rawRetirementFloors === value ? state : { ...state, rawRetirementFloors: value }) }
+  private get accessFences(): AccountUnreadState["accessFences"] { return this.state.get().accessFences }
+  private set accessFences(value: AccountUnreadState["accessFences"]) { this.state.setState((state) => state.accessFences === value ? state : { ...state, accessFences: value }) }
+  private get dismissals(): AccountUnreadState["dismissals"] { return this.state.get().dismissals }
+  private set dismissals(value: AccountUnreadState["dismissals"]) { this.state.setState((state) => state.dismissals === value ? state : { ...state, dismissals: value }) }
+  private get snapshots(): AccountUnreadState["snapshots"] { return this.state.get().snapshots }
+  private set snapshots(value: AccountUnreadState["snapshots"]) { this.state.setState((state) => state.snapshots === value ? state : { ...state, snapshots: value }) }
+
+  private changeMap<K extends "policyOverlays" | "exact" | "exactByChannel" | "sticky" | "evidence" | "readSeq" | "optimisticReads" | "markAll" | "scopeHints" | "rawRetirementFloors" | "accessFences" | "dismissals", R>(
+    field: K, change: (map: AccountUnreadState[K]) => R,
+  ): R {
+    const next = new Map(this.state.get()[field] as Map<unknown, unknown>) as AccountUnreadState[K]
+    const result = change(next)
+    const previous = this.state.get()[field] as Map<unknown, unknown>
+    if (next.size !== previous.size || [...(next as Map<unknown, unknown>)].some(([key, value]) => !previous.has(key) || previous.get(key) !== value)) {
+      this.state.setState((state) => ({ ...state, [field]: next }))
+    }
+    return result
+  }
+
+  private changeSet<R>(change: (snapshots: Set<symbol>) => R): R {
+    const next = new Set(this.snapshots)
+    const result = change(next)
+    if (next.size !== this.snapshots.size || [...next].some((nonce) => !this.snapshots.has(nonce))) this.snapshots = next
+    return result
+  }
+
+  private transition<T>(operation: () => T): T {
+    let result!: T
+    batch(() => { result = operation() })
+    return result
+  }
 
   constructor(readonly ownerUserId: string) {}
 
   subscribe = (listener: () => void) => {
     if (this.disposed) return () => undefined
-    this.listeners.add(listener)
-    return () => this.listeners.delete(listener)
+    const subscription = this.state.subscribe(listener)
+    return () => subscription.unsubscribe()
   }
 
-  getSnapshot = () => this.version
+  getSnapshot = () => this.state.get()
 
   allowsAccess(source: { channelId?: string; serverId?: string | null }) {
-    if (this.disposed) return false
-    if (source.channelId && this.accessFences.has(`channel:${source.channelId}`)) return false
-    return !source.serverId || !this.accessFences.has(`server:${source.serverId}`)
+    return accountUnreadAllowsAccess(this.state.get(), source)
   }
 
   setReconcileScheduler(reconcile: (() => void) | null) {
+    return this.transition(() => {
     if (this.disposed) return
     this.reconcile = reconcile
     if (reconcile && this.reconcilePendingDelivery) {
       this.reconcilePendingDelivery = false
       reconcile()
     }
+      })
   }
 
   recordArrival(arrival: AccountUnreadArrival) {
+    return this.transition(() => {
     this.recordArrivalForFamilies(arrival, familiesFor(arrival))
+      })
   }
 
   recordMentionArrival(arrival: AccountUnreadArrival) {
+    return this.transition(() => {
     const knownSource = this.findSourceScope(arrival.channelId)
     const knownScope = knownSource ?? this.scopeHints.get(arrival.channelId)
     const enriched = {
@@ -344,12 +461,14 @@ export class AccountUnreadProjection {
         ? ["inbox-unreads", "inbox-mentions", "dms"]
         : ["inbox-unreads", "inbox-mentions"]
     this.recordArrivalForFamilies(enriched, families)
+      })
   }
 
   recordLegacySnapshot(
     snapshot: object,
     sources: readonly AccountUnreadLegacySource[],
   ) {
+    return this.transition(() => {
     if (this.disposed || this.legacySnapshots.has(snapshot)) return
     this.legacySnapshots.add(snapshot)
     for (const source of sources) {
@@ -367,18 +486,22 @@ export class AccountUnreadProjection {
         source.railChannelId,
       )
     }
+      })
   }
 
   absorbLegacyServerAggregate(
     serverId: string,
     sources: readonly AccountUnreadSource[],
   ) {
+    return this.transition(() => {
     if (this.disposed || sources.length === 0) return
     const channelId = `\u0000legacy-server:${serverId}`
-    const unknown = this.sticky.get(channelId)
+    const source = this.sticky.get(channelId)
+    const unknown = source ? copySticky(source) : undefined
     if (!unknown?.families.delete("servers")) return
-    if (unknown.families.size === 0) this.sticky.delete(channelId)
-    this.publish()
+    if (unknown.families.size === 0) this.changeMap("sticky", (map) => map.delete(channelId))
+    else this.changeMap("sticky", (map) => map.set(channelId, unknown))
+      })
   }
 
   private recordArrivalForFamilies(
@@ -407,10 +530,11 @@ export class AccountUnreadProjection {
     const key = arrival.messageId
       ? `${arrival.channelId}:${arrival.messageId}`
       : `${arrival.channelId}:seq:${seq}`
-    const channelKeys = this.exactByChannel.get(arrival.channelId) ?? new Set<string>()
-    const existing = this.exact.get(key) ?? [...channelKeys]
+    const channelKeys = new Set(this.exactByChannel.get(arrival.channelId))
+    const previousArrival = this.exact.get(key) ?? [...channelKeys]
       .map((candidate) => this.exact.get(candidate))
       .find((candidate) => candidate?.seq === seq)
+    const existing = previousArrival ? copyArrival(previousArrival) : undefined
     if (existing) {
       let changed = false
       let membershipOrdinal = this.ordinal
@@ -441,7 +565,7 @@ export class AccountUnreadProjection {
         existing.railChannelId = arrival.railChannelId
         changed = true
       }
-      if (changed) this.publish()
+      if (changed) this.changeMap("exact", (map) => map.set(existing.key, existing))
       return
     }
     if (
@@ -509,29 +633,33 @@ export class AccountUnreadProjection {
         Math.max(pending.families.get(family) ?? -1, pendingOrdinal),
       )
     }
-    if (correlatedSticky) this.sticky.delete(arrival.channelId)
-    this.exact.set(key, pending)
+    if (correlatedSticky) this.changeMap("sticky", (map) => map.delete(arrival.channelId))
+    this.changeMap("exact", (map) => map.set(key, pending))
     channelKeys.add(key)
-    this.exactByChannel.set(arrival.channelId, channelKeys)
-    this.publish()
+    this.changeMap("exactByChannel", (map) => map.set(arrival.channelId, channelKeys))
+
   }
 
   recordRead(channelId: string, seq: number) {
+    return this.transition(() => {
     if (this.disposed || !Number.isSafeInteger(seq) || seq <= 0) return
     const previous = this.readSeq.get(channelId) ?? 0
     if (seq <= previous) return
-    this.readSeq.set(channelId, seq)
+    this.changeMap("readSeq", (map) => map.set(channelId, seq))
     for (const key of this.exactByChannel.get(channelId) ?? []) {
       const arrival = this.exact.get(key)
       if (arrival && arrival.seq <= seq) this.removeExact(key)
     }
-    this.publish()
+
+      })
   }
 
   recordOptimisticRead(channelId: string, seq: number, generation: number) {
+    return this.transition(() => {
     if (this.disposed || !Number.isSafeInteger(seq) || seq <= 0) return
-    this.optimisticReads.set(generation, { channelId, seq, committed: false })
-    this.publish()
+    this.changeMap("optimisticReads", (map) => map.set(generation, { channelId, seq, committed: false }))
+
+      })
   }
 
   settleOptimisticRead(
@@ -539,23 +667,24 @@ export class AccountUnreadProjection {
     committed: boolean,
     confirmedSeq?: number,
   ) {
+    return this.transition(() => {
     if (this.disposed) return
     const optimistic = this.optimisticReads.get(generation)
     if (!optimistic) return
     if (committed) {
-      optimistic.seq = Math.max(optimistic.seq, confirmedSeq ?? 0)
-      optimistic.committed = true
-      this.publish()
+      this.changeMap("optimisticReads", (map) => map.set(generation, { ...optimistic, seq: Math.max(optimistic.seq, confirmedSeq ?? 0), committed: true }))
       return
     }
-    this.optimisticReads.delete(generation)
-    this.publish()
+    this.changeMap("optimisticReads", (map) => map.delete(generation))
+
+      })
   }
 
   acceptPrimarySnapshot(snapshot: {
     revision: number
     readStates: Array<{ channelId: string; lastReadSeq: number }>
   }) {
+    return this.transition(() => {
     if (this.disposed || snapshot.revision < this.highestRevision) return
     this.highestRevision = snapshot.revision
     for (const row of snapshot.readStates) {
@@ -564,10 +693,9 @@ export class AccountUnreadProjection {
         if (
           optimistic.channelId === row.channelId
           && optimistic.seq <= row.lastReadSeq
-        ) this.optimisticReads.delete(generation)
+        ) this.changeMap("optimisticReads", (map) => map.delete(generation))
       }
     }
-    let changed = false
     for (const [domain, fence] of this.markAll) {
       if (
         fence.state === "committed"
@@ -575,12 +703,12 @@ export class AccountUnreadProjection {
         && snapshot.revision >= fence.revision
       ) {
         if (!this.hasCapturedDomainSource(domain, fence.ordinal)) {
-          this.markAll.delete(domain)
-          changed = true
+          this.changeMap("markAll", (map) => map.delete(domain))
         }
       }
     }
-    if (changed) this.publish()
+
+      })
   }
 
   beginSnapshot(
@@ -590,6 +718,7 @@ export class AccountUnreadProjection {
       family === "inbox-mentions" ? "attention" : "ordinary",
     ],
   ): AccountUnreadSnapshotToken {
+    return this.transition(() => {
     this.reconcileScheduled = false
     const token = {
       family,
@@ -601,8 +730,9 @@ export class AccountUnreadProjection {
       ownerEpoch: this.ownerEpoch,
       policy: this.clonePolicy(),
     }
-    if (!this.disposed) this.snapshots.add(token.nonce)
+    if (!this.disposed) this.changeSet((snapshots) => snapshots.add(token.nonce))
     return token
+      })
   }
 
   absorbSnapshot(
@@ -614,10 +744,11 @@ export class AccountUnreadProjection {
       confirmedAccessScopes?: readonly AccountUnreadScope[]
     } = {},
   ) {
+    return this.transition(() => {
     if (
       this.disposed
       || token.ownerEpoch !== this.ownerEpoch
-      || !this.snapshots.delete(token.nonce)
+      || !this.changeSet((snapshots) => snapshots.delete(token.nonce))
     ) return
     const family = token.family
     const facet = family === "inbox-mentions" ? "attention" : "ordinary"
@@ -669,7 +800,6 @@ export class AccountUnreadProjection {
       return
     }
 
-    let changed = false
     if (family === "inbox-mentions") {
       for (const [nonce, dismissal] of this.dismissals) {
         if (
@@ -677,12 +807,12 @@ export class AccountUnreadProjection {
           && dismissal.ordinal < token.startOrdinal
           && !positiveAttentionIds.has(dismissal.mentionId)
         ) {
-          this.dismissals.delete(nonce)
-          changed = true
+          this.changeMap("dismissals", (map) => map.delete(nonce))
         }
       }
     }
-    for (const [key, arrival] of [...this.exact]) {
+    for (const [key, source] of [...this.exact]) {
+      const arrival = copyArrival(source)
       const membershipOrdinal = arrival.families.get(family)
       if (
         membershipOrdinal === undefined
@@ -698,9 +828,10 @@ export class AccountUnreadProjection {
       if (positiveSeq !== undefined && positiveSeq >= arrival.seq) continue
       arrival.families.delete(family)
       if (arrival.families.size === 0) this.removeExact(key)
-      changed = true
+      else this.changeMap("exact", (map) => map.set(key, arrival))
     }
-    for (const [channelId, unknown] of [...this.sticky]) {
+    for (const [channelId, source] of [...this.sticky]) {
+      const unknown = copySticky(source)
       const membership = unknown.families.get(family)
       const positiveSeq = (
         family === "inbox-mentions" || unknown.isMention
@@ -719,16 +850,19 @@ export class AccountUnreadProjection {
       // into the exact record added above. Retire only this family membership;
       // other families still need their own complete coverage.
       unknown.families.delete(family)
-      if (unknown.families.size === 0) this.sticky.delete(channelId)
-      changed = true
+      if (unknown.families.size === 0) this.changeMap("sticky", (map) => map.delete(channelId))
+      else this.changeMap("sticky", (map) => map.set(channelId, unknown))
     }
-    changed = this.settleConfirmedMarkAllFences() || changed
-    if (changed) this.publish()
+    this.settleConfirmedMarkAllFences()
+
+      })
   }
 
   cancelSnapshot(token: AccountUnreadSnapshotToken) {
+    return this.transition(() => {
     if (!this.validOwnerToken(token)) return
-    this.snapshots.delete(token.nonce)
+    this.changeSet((snapshots) => snapshots.delete(token.nonce))
+      })
   }
 
   absorbFamily(
@@ -740,12 +874,14 @@ export class AccountUnreadProjection {
       domain?: AccountUnreadDomain
     } = {},
   ) {
+    return this.transition(() => {
     if (this.disposed) return
     const token = this.beginSnapshot(
       family,
       options.domain ?? familyDomain(family),
     )
     this.absorbSnapshot(token, sources, options)
+      })
   }
 
   mergeSources(
@@ -753,8 +889,10 @@ export class AccountUnreadProjection {
     sources: readonly AccountUnreadSource[],
     domain: AccountUnreadDomain = familyDomain(family),
   ) {
+    return this.transition(() => {
     const token = this.beginSnapshot(family, domain)
     this.absorbSnapshot(token, sources, { truncated: true })
+      })
   }
 
   projectUnread(
@@ -1068,6 +1206,7 @@ export class AccountUnreadProjection {
   }
 
   setNotificationPolicy(snapshot: AccountUnreadPolicySnapshot) {
+    return this.transition(() => {
     if (this.disposed) return
     const wasReady = this.policyReady
     const nextBase = freezePolicy(snapshot)
@@ -1093,32 +1232,39 @@ export class AccountUnreadProjection {
       && (wasReady || this.prePolicySnapshotNeedsReconcile)
     ) this.requestPolicyReconcile()
     this.prePolicySnapshotNeedsReconcile = false
+      })
   }
 
   beginNotificationPolicyOverlay(
     patch: AccountUnreadPolicyPatch,
   ): AccountUnreadPolicyToken {
+    return this.transition(() => {
     const token = { nonce: Symbol(patch.id), ownerEpoch: this.ownerEpoch }
     if (this.disposed) return token
-    this.policyOverlays.set(token.nonce, { patch, state: "pending" })
+    this.changeMap("policyOverlays", (map) => map.set(token.nonce, { patch: { ...patch }, state: "pending" }))
     this.refreshPolicy(false)
     return token
+      })
   }
 
   commitNotificationPolicyOverlay(token: AccountUnreadPolicyToken) {
+    return this.transition(() => {
     if (!this.validOwnerToken(token)) return
     const overlay = this.policyOverlays.get(token.nonce)
     if (!overlay) return
-    overlay.state = "committed"
+    this.changeMap("policyOverlays", (map) => map.set(token.nonce, { ...overlay, state: "committed" }))
     this.flushCommittedPolicyOverlays()
     this.refreshPolicy(false)
     this.requestPolicyReconcile()
+      })
   }
 
   rollbackNotificationPolicyOverlay(token: AccountUnreadPolicyToken) {
-    if (!this.validOwnerToken(token) || !this.policyOverlays.delete(token.nonce)) return
+    return this.transition(() => {
+    if (!this.validOwnerToken(token) || !this.changeMap("policyOverlays", (map) => map.delete(token.nonce))) return
     this.flushCommittedPolicyOverlays()
     this.refreshPolicy(false)
+      })
   }
 
   getPolicyGeneration() {
@@ -1131,6 +1277,7 @@ export class AccountUnreadProjection {
     seq?: number
     countsServerMention?: boolean
   }): AccountUnreadDismissToken {
+    return this.transition(() => {
     const token: AccountUnreadDismissToken = {
       ...input,
       countsServerMention: input.countsServerMention ?? true,
@@ -1139,98 +1286,117 @@ export class AccountUnreadProjection {
       ownerEpoch: this.ownerEpoch,
     }
     if (!this.disposed) {
-      this.dismissals.set(token.nonce, { ...token, state: "pending" })
-      this.publish()
+      this.changeMap("dismissals", (map) => map.set(token.nonce, { ...token, state: "pending" }))
+
     }
     return token
+      })
   }
 
   commitDismissMention(token: AccountUnreadDismissToken, _revision?: number) {
+    return this.transition(() => {
     if (!this.validOwnerToken(token)) return
     // The optimistic facet fence remains until the next complete Mentions
     // snapshot supplies matching negative evidence. A revision hint alone is
     // deliberately insufficient to settle a destructive transaction.
     const dismissal = this.dismissals.get(token.nonce)
     if (!dismissal) return
-    dismissal.state = "committed"
-    this.publish()
+    this.changeMap("dismissals", (map) => map.set(token.nonce, { ...dismissal, state: "committed" }))
+
+      })
   }
 
   rollbackDismissMention(token: AccountUnreadDismissToken) {
-    if (!this.validOwnerToken(token) || !this.dismissals.delete(token.nonce)) return
-    this.publish()
+    return this.transition(() => {
+    if (!this.validOwnerToken(token) || !this.changeMap("dismissals", (map) => map.delete(token.nonce))) return
+
+      })
   }
 
   beginScopeRetirement(scope: AccountUnreadScope): AccountUnreadScopeToken {
+    return this.transition(() => {
     const token: AccountUnreadScopeToken = {
-      scope,
+      scope: { ...scope },
       ordinal: this.ordinal,
       nonce: Symbol(scope.kind),
       ownerEpoch: this.ownerEpoch,
     }
     if (!this.disposed) {
-      this.accessFences.set(scopeKey(scope), { ...token, state: "pending" })
-      this.publish()
+      this.changeMap("accessFences", (map) => map.set(scopeKey(scope), { ...token, state: "pending" }))
+
     }
     return token
+      })
   }
 
   commitScopeRetirement(token: AccountUnreadScopeToken, _revision?: number) {
+    return this.transition(() => {
     if (!this.validOwnerToken(token)) return
     const current = this.accessFences.get(scopeKey(token.scope))
     if (current?.nonce !== token.nonce) return
-    current.state = "committed"
+    this.changeMap("accessFences", (map) => map.set(scopeKey(token.scope), { ...current, state: "committed" }))
     this.recordRawRetirementFloor(token.scope, this.ordinal)
     this.pruneScope(token.scope, this.ordinal)
-    this.publish()
+
+      })
   }
 
   rollbackScopeRetirement(token: AccountUnreadScopeToken) {
+    return this.transition(() => {
     if (!this.validOwnerToken(token)) return
     const key = scopeKey(token.scope)
     if (this.accessFences.get(key)?.nonce !== token.nonce) return
-    this.accessFences.delete(key)
-    this.publish()
+    this.changeMap("accessFences", (map) => map.delete(key))
+
+      })
   }
 
   retireNotificationScope(scope: AccountUnreadScope) {
+    return this.transition(() => {
     if (this.disposed) return
     const ordinal = ++this.ordinal
     this.recordRawRetirementFloor(scope, ordinal)
     this.pruneScope(scope, ordinal)
-    this.publish()
+
     this.requestReconcile()
+      })
   }
 
   retireAccessScope(scope: AccountUnreadScope) {
+    return this.transition(() => {
     if (this.disposed) return
     const token = this.beginScopeRetirement(scope)
     this.commitScopeRetirement(token)
+      })
   }
 
   grantAccessScope(scope: AccountUnreadScope) {
+    return this.transition(() => {
     if (this.disposed) return
     const fence = this.accessFences.get(scopeKey(scope))
     if (!fence) return
-    fence.state = "grant-pending"
+    this.changeMap("accessFences", (map) => map.set(scopeKey(scope), { ...fence, state: "grant-pending" }))
     // A grant only permits fresh authoritative evidence to seed the scope; it
     // does not expose raw cache retained from before the retirement.
     this.requestReconcile()
+      })
   }
 
   beginAccessConfirmation(): AccountUnreadAccessConfirmationToken {
+    return this.transition(() => {
     return {
       ordinal: this.disposed ? this.ordinal : ++this.ordinal,
       ownerEpoch: this.ownerEpoch,
     }
+      })
   }
 
   confirmAccessScopes(
     scopes: readonly AccountUnreadScope[],
     token: AccountUnreadAccessConfirmationToken,
   ) {
+    return this.transition(() => {
     if (!this.validOwnerToken(token)) return
-    let changed = false
     for (const scope of scopes) {
       const key = scopeKey(scope)
       const fence = this.accessFences.get(key)
@@ -1239,34 +1405,34 @@ export class AccountUnreadProjection {
         || fence.state === "pending"
         || fence.ordinal >= token.ordinal
       ) continue
-      this.accessFences.delete(key)
-      changed = true
+      this.changeMap("accessFences", (map) => map.delete(key))
     }
-    if (changed) this.publish()
+
+      })
   }
 
   dispose() {
+    return this.transition(() => {
     if (this.disposed) return
     this.disposed = true
     this.ownerEpoch += 1
-    this.exact.clear()
-    this.exactByChannel.clear()
-    this.sticky.clear()
-    this.evidence.clear()
-    this.readSeq.clear()
-    this.optimisticReads.clear()
-    this.markAll.clear()
-    this.scopeHints.clear()
-    this.rawRetirementFloors.clear()
-    this.accessFences.clear()
-    this.dismissals.clear()
-    this.snapshots.clear()
-    this.policyOverlays.clear()
+    this.changeMap("exact", (map) => map.clear())
+    this.changeMap("exactByChannel", (map) => map.clear())
+    this.changeMap("sticky", (map) => map.clear())
+    this.changeMap("evidence", (map) => map.clear())
+    this.changeMap("readSeq", (map) => map.clear())
+    this.changeMap("optimisticReads", (map) => map.clear())
+    this.changeMap("markAll", (map) => map.clear())
+    this.changeMap("scopeHints", (map) => map.clear())
+    this.changeMap("rawRetirementFloors", (map) => map.clear())
+    this.changeMap("accessFences", (map) => map.clear())
+    this.changeMap("dismissals", (map) => map.clear())
+    this.changeSet((snapshots) => snapshots.clear())
+    this.changeMap("policyOverlays", (map) => map.clear())
     this.reconcile = null
     this.reconcileScheduled = false
     this.reconcilePendingDelivery = false
-    this.listeners.clear()
-    this.version += 1
+      })
   }
 
   inspectForTests() {
@@ -1284,30 +1450,35 @@ export class AccountUnreadProjection {
   }
 
   beginMarkAll(domain: AccountUnreadDomain): MarkAllToken {
+    return this.transition(() => {
     if (this.disposed) {
       return { domain, ordinal: this.ordinal, nonce: Symbol(domain) }
     }
     const token: MarkAllToken = { domain, ordinal: this.ordinal, nonce: Symbol(domain) }
-    this.markAll.set(domain, { ...token, state: "pending", revision: null })
-    this.publish()
+    this.changeMap("markAll", (map) => map.set(domain, { ...token, state: "pending", revision: null }))
+
     return token
+      })
   }
 
   commitMarkAll(token: MarkAllToken, revision: number) {
+    return this.transition(() => {
     if (this.disposed) return
     const fence = this.markAll.get(token.domain)
     if (!fence || fence.nonce !== token.nonce) return
-    fence.state = "committed"
-    fence.revision = revision
-    this.publish()
+    this.changeMap("markAll", (map) => map.set(token.domain, { ...fence, state: "committed", revision }))
+
+      })
   }
 
   rollbackMarkAll(token: MarkAllToken) {
+    return this.transition(() => {
     if (this.disposed) return
     const fence = this.markAll.get(token.domain)
     if (!fence || fence.nonce !== token.nonce) return
-    this.markAll.delete(token.domain)
-    this.publish()
+    this.changeMap("markAll", (map) => map.delete(token.domain))
+
+      })
   }
 
   private recordSnapshotSource(
@@ -1317,10 +1488,7 @@ export class AccountUnreadProjection {
     observedOrdinal: number,
   ) {
     const evidenceKey = this.evidenceKey(family, source.channelId)
-    this.evidence.set(
-      evidenceKey,
-      Math.max(this.evidence.get(evidenceKey) ?? 0, evidenceSeq),
-    )
+    this.changeMap("evidence", (map) => map.set(evidenceKey, Math.max(this.evidence.get(evidenceKey) ?? 0, evidenceSeq)))
     const knownSource = this.findSourceScope(source.channelId)
     const knownScope = knownSource ?? this.scopeHints.get(source.channelId)
     const sourceArrival = {
@@ -1340,8 +1508,9 @@ export class AccountUnreadProjection {
           : ["inbox-unreads", "inbox-mentions"]
       : [family]
     for (const key of this.exactByChannel.get(source.channelId) ?? []) {
-      const existing = this.exact.get(key)
-      if (!existing || existing.seq !== evidenceSeq) continue
+      const previous = this.exact.get(key)
+      if (!previous || previous.seq !== evidenceSeq) continue
+      const existing = copyArrival(previous)
       for (const observedFamily of observedFamilies) {
         existing.families.set(
           observedFamily,
@@ -1358,7 +1527,7 @@ export class AccountUnreadProjection {
       if (!existing.railChannelId && source.railChannelId) {
         existing.railChannelId = source.railChannelId
       }
-      this.publish()
+      this.changeMap("exact", (map) => map.set(key, existing))
       return
     }
     this.recordArrivalForFamilies(sourceArrival, observedFamilies, observedOrdinal)
@@ -1383,11 +1552,15 @@ export class AccountUnreadProjection {
   }
 
   private flushCommittedPolicyOverlays() {
+    const nextBase: MutablePolicy = { ...this.policyBase, server: new Map(this.policyBase.server), channel: new Map(this.policyBase.channel), parentByChannel: new Map(this.policyBase.parentByChannel) }
+    let changed = false
     for (const [nonce, overlay] of this.policyOverlays) {
       if (overlay.state !== "committed") break
-      this.applyPolicyPatch(this.policyBase, overlay.patch)
-      this.policyOverlays.delete(nonce)
+      this.applyPolicyPatch(nextBase, overlay.patch)
+      this.changeMap("policyOverlays", (map) => map.delete(nonce))
+      changed = true
     }
+    if (changed) this.policyBase = nextBase
   }
 
   private refreshPolicy(markReady: boolean) {
@@ -1405,7 +1578,7 @@ export class AccountUnreadProjection {
     this.policy = next
     if (markReady) this.policyReady = true
     this.policyGeneration += 1
-    this.publish()
+
     return true
   }
 
@@ -1560,24 +1733,21 @@ export class AccountUnreadProjection {
       serverId: source.serverId ?? previous?.serverId,
       railChannelId: source.railChannelId ?? previous?.railChannelId,
     }
-    this.scopeHints.set(source.channelId, next)
+    this.changeMap("scopeHints", (map) => map.set(source.channelId, next))
     if (!next.serverId) return
     const serverFence = this.accessFences.get(`server:${next.serverId}`)
     if (!serverFence || serverFence.state === "pending") return
-    this.rawRetirementFloors.set(
-      source.channelId,
-      Math.max(this.rawRetirementFloors.get(source.channelId) ?? -1, serverFence.ordinal),
-    )
+    this.changeMap("rawRetirementFloors", (map) => map.set(source.channelId, Math.max(this.rawRetirementFloors.get(source.channelId) ?? -1, serverFence.ordinal)))
   }
 
   private recordRawRetirementFloor(scope: AccountUnreadScope, ordinal: number) {
     if (scope.kind === "channel") {
-      this.rawRetirementFloors.set(scope.channelId, ordinal)
+      this.changeMap("rawRetirementFloors", (map) => map.set(scope.channelId, ordinal))
       return
     }
     for (const [channelId, hint] of this.scopeHints) {
       if (hint.serverId === scope.serverId) {
-        this.rawRetirementFloors.set(channelId, ordinal)
+        this.changeMap("rawRetirementFloors", (map) => map.set(channelId, ordinal))
       }
     }
   }
@@ -1598,19 +1768,23 @@ export class AccountUnreadProjection {
         ? source.serverId === scope.serverId
         : source.channelId === scope.channelId
     )
-    for (const [key, source] of [...this.exact]) {
-      if (!matches(source)) continue
+    for (const [key, previous] of [...this.exact]) {
+      if (!matches(previous)) continue
+      const source = copyArrival(previous)
       for (const [family, membershipOrdinal] of [...source.families]) {
         if (membershipOrdinal <= throughOrdinal) source.families.delete(family)
       }
       if (source.families.size === 0) this.removeExact(key)
+      else this.changeMap("exact", (map) => map.set(key, source))
     }
-    for (const [channelId, source] of [...this.sticky]) {
-      if (!matches(source)) continue
+    for (const [channelId, previous] of [...this.sticky]) {
+      if (!matches(previous)) continue
+      const source = copySticky(previous)
       for (const [family, membership] of [...source.families]) {
         if (membership.ordinal <= throughOrdinal) source.families.delete(family)
       }
-      if (source.families.size === 0) this.sticky.delete(channelId)
+      if (source.families.size === 0) this.changeMap("sticky", (map) => map.delete(channelId))
+      else this.changeMap("sticky", (map) => map.set(channelId, source))
     }
   }
 
@@ -1643,7 +1817,7 @@ export class AccountUnreadProjection {
         && fence.revision <= this.highestRevision
         && !this.hasCapturedDomainSource(domain, fence.ordinal)
       ) {
-        this.markAll.delete(domain)
+        this.changeMap("markAll", (map) => map.delete(domain))
         changed = true
       }
     }
@@ -1714,7 +1888,8 @@ export class AccountUnreadProjection {
     this.rememberScope({ channelId, serverId, railChannelId })
     if (!this.scopeAllowsArrival({ channelId, serverId })) return
     const arrivalOrdinal = observedOrdinal ?? ++this.ordinal
-    let unknown = this.sticky.get(channelId)
+    const previous = this.sticky.get(channelId)
+    let unknown = previous ? copySticky(previous) : undefined
     if (!unknown) {
       if (this.sticky.size >= MAX_STICKY_SCOPES) {
         const oldest = [...this.sticky.entries()].reduce<
@@ -1725,7 +1900,7 @@ export class AccountUnreadProjection {
           const entryOrdinal = Math.min(...[...entry[1].families.values()].map((v) => v.ordinal))
           return entryOrdinal < oldestOrdinal ? entry : candidate
         }, null)
-        if (oldest) this.sticky.delete(oldest[0])
+        if (oldest) this.changeMap("sticky", (map) => map.delete(oldest[0]))
         this.requestReconcile()
       }
       unknown = {
@@ -1740,7 +1915,6 @@ export class AccountUnreadProjection {
         ]),
         families: new Map(),
       }
-      this.sticky.set(channelId, unknown)
     } else if (unknown.messageId === undefined && messageId !== undefined) {
       unknown.messageId = messageId
     } else if (
@@ -1772,7 +1946,7 @@ export class AccountUnreadProjection {
         )
       }
     }
-    this.publish()
+    this.changeMap("sticky", (map) => map.set(channelId, unknown!))
   }
 
   private evidenceKey(family: AccountUnreadFamily, channelId: string) {
@@ -1789,16 +1963,13 @@ export class AccountUnreadProjection {
 
   private removeExact(key: string) {
     const arrival = this.exact.get(key)!
-    this.exact.delete(key)
-    const channelKeys = this.exactByChannel.get(arrival.channelId)
-    channelKeys?.delete(key)
-    if (channelKeys?.size === 0) this.exactByChannel.delete(arrival.channelId)
+    this.changeMap("exact", (map) => map.delete(key))
+    const channelKeys = new Set(this.exactByChannel.get(arrival.channelId))
+    channelKeys.delete(key)
+    this.changeMap("exactByChannel", (map) => channelKeys.size === 0 ? map.delete(arrival.channelId) : map.set(arrival.channelId, channelKeys))
   }
 
-  private publish() {
-    this.version += 1
-    for (const listener of this.listeners) listener()
-  }
+
 }
 
 export function getAccountUnreadProjection(

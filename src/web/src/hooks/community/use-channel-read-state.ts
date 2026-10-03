@@ -1,7 +1,10 @@
 "use client"
 
-import { useEffect, useRef } from "react"
-import { useQuery } from "@tanstack/react-query"
+import { useLayoutEffect, useMemo } from "react"
+import { createStore, useSelector } from "@tanstack/react-store"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
+import { captureChannelMetadataToken, isChannelMetadataTokenCurrent, type ChannelMetadataResource } from "./channel-metadata"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 
@@ -31,10 +34,10 @@ export type ChannelReadStateSnapshot = {
  * a WS event mutates the underlying row.
  *
  * Implementation: force a mount fetch, then latch its first settled non-null
- * response in a `useRef`. Cached data retained across an unmount is withheld
+ * response in a mount-owned Store. Cached data retained across an unmount is withheld
  * while that fetch is active; otherwise it could become the new mount's
  * frozen anchor before the server response arrives. All later calls return
- * the ref value, keeping the anchor stable through mid-mount refetches.
+ * the frozen value, keeping the anchor stable through mid-mount refetches.
  *
  * Cross-mount refresh: `gcTime: 0` normally evicts the cache entry after the
  * consumer unmounts, and `refetchOnMount: "always"` covers a quick remount
@@ -44,21 +47,42 @@ export type ChannelReadStateSnapshot = {
 export function useChannelReadStateSnapshot(
   channelId: string | null | undefined,
   canonicalSnapshot?: ChannelReadStateSnapshot,
+  kind: "channel" | "dm" = "channel",
 ): {
   snapshot: ChannelReadStateSnapshot | null
   isFetching: boolean
+  error: Error | null
+  retrying: boolean
+  retry: () => void
 } {
+  const client = useQueryClient()
+  const entry = useMemo(() => createStore({ client, channelId, kind, snapshot: null as ChannelReadStateSnapshot | null }), [client, channelId, kind])
+  const frozen = useSelector(entry, (state) => state.snapshot)
   const query = useQuery<ChannelReadStateSnapshot>({
     queryKey: channelId
-      ? communityKeys.channelReadStateSnapshot(channelId)
-      : ["community", "channel", "__none__", "read-state-snapshot"],
-    queryFn: async ({ signal }) => {
-      return apiFetch<ChannelReadStateSnapshot>(
-        `/api/community/channels/${channelId}/read-state`,
-        { signal },
-      )
+      ? kind === "dm" ? communityKeys.dmReadStateSnapshot(channelId) : communityKeys.channelReadStateSnapshot(channelId)
+      : ["community", kind, "__none__", "read-state-snapshot"],
+    queryFn: async ({ client, signal }) => {
+      const token = captureChannelMetadataToken(client, channelId!)
+      const metadataKey = communityKeys.channelMeta(null, channelId!)
+      const metadataQuery = kind === "dm" ? client.getQueryCache().find({ queryKey: metadataKey, exact: true }) : undefined
+      const assert = () => { if (signal.aborted || !isChannelMetadataTokenCurrent(token)) throw new DOMException("Stale read-state owner", "AbortError") }
+      const updateHistory = (historyVerification?: ChannelMetadataResource["historyVerification"]) => {
+        if (metadataQuery && client.getQueryCache().find({ queryKey: metadataKey, exact: true }) === metadataQuery) client.setQueryData<ChannelMetadataResource>(metadataKey, (metadata) => metadata ? { ...metadata, historyVerification } : metadata)
+      }
+      try {
+        const snapshot = await apiFetch<ChannelReadStateSnapshot>(`/api/community/channels/${channelId}/read-state`, communityRequestOptions(client, token, signal, assert))
+        assert()
+        updateHistory(token)
+        return snapshot
+      } catch (error) {
+        assert()
+        if (typeof error === "object" && error !== null && "status" in error && [403, 404].includes(Number(error.status))) updateHistory()
+        throw error
+      }
     },
     enabled: !!channelId,
+    subscribed: !!channelId,
     staleTime: Infinity,
     // Schedule eviction when the last observer unmounts. A rapid remount can
     // still beat that timer, so the forced refetch and settled-data latch are
@@ -71,40 +95,20 @@ export function useChannelReadStateSnapshot(
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     // Snapshot is one-shot; even if TanStack retries a failed fetch, the
-    // ref latches only the FIRST resolved value we see.
-    retry: 1,
+    // Store latches only the FIRST resolved value we see.
+    retry: kind === "dm" ? (failureCount, error) => error.name !== "AbortError" && !("status" in error && [403, 404].includes(Number(error.status))) && failureCount < 1 : 1,
   })
 
-  // Latch the first available snapshot so subsequent renders return a stable
-  // reference. A canonical row restored with the message window is a complete
-  // warm projection and may render immediately while this query revalidates
-  // in the background. Its response updates canonical state for later mounts;
-  // it must never walk this mount's divider.
-  //
-  // Reset on channelId change — a new channel mount is a new snapshot
-  // lifecycle. Must reset synchronously during render so the returned
-  // snapshot never belongs to the previous channel.
-  const snapshotRef = useRef<ChannelReadStateSnapshot | null>(null)
-  const lastChannelIdRef = useRef<string | null | undefined>(channelId)
-  /* eslint-disable react-hooks/refs -- sync channel switch reset; see hook tests */
-  if (lastChannelIdRef.current !== channelId) {
-    snapshotRef.current = null
-    lastChannelIdRef.current = channelId
-  }
-  if (snapshotRef.current === null && canonicalSnapshot) {
-    snapshotRef.current = canonicalSnapshot
-  }
-  /* eslint-enable react-hooks/refs */
-  useEffect(() => {
-    if (snapshotRef.current !== null) return
-    if (query.isFetching) return
-    if (query.data) snapshotRef.current = query.data
-  }, [query.data, query.isFetching])
+  useLayoutEffect(() => {
+    const available = canonicalSnapshot ?? (!query.isFetching ? query.data : undefined)
+    if (available) entry.setState((state) => state.snapshot ? state : { ...state, snapshot: available })
+  }, [entry, canonicalSnapshot, query.data, query.isFetching])
 
-  /* eslint-disable react-hooks/refs -- latched snapshot read; see hook tests */
   return {
-    snapshot: snapshotRef.current ?? (!query.isFetching ? (query.data ?? null) : null),
-    isFetching: snapshotRef.current === null && query.isFetching,
+    snapshot: frozen ?? canonicalSnapshot ?? (!query.isFetching ? (query.data ?? null) : null),
+    isFetching: frozen === null && !canonicalSnapshot && query.isFetching,
+    error: query.error,
+    retrying: query.isFetching,
+    retry: () => { void query.refetch({ cancelRefetch: false }) },
   }
-  /* eslint-enable react-hooks/refs */
 }

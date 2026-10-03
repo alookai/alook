@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useRef, useState, type AnimationEvent, type RefObject } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect, useRef, type AnimationEvent, type RefObject } from "react"
 import { GeneratedAvatar } from "@/components/avatar"
 import { tid } from "@/lib/community/testids"
 
@@ -123,7 +124,7 @@ export function GuideMeAvatarMotion({
 }) {
   const introRef = useRef<HTMLSpanElement>(null)
   const landingRef = useRef<HTMLSpanElement>(null)
-  const [ready, setReady] = useState(false)
+  const [ready, setReady] = useAtom(useCreateAtom(false))
 
   useEffect(() => {
     if (!intro) {
@@ -159,7 +160,7 @@ export function GuideMeAvatarMotion({
       cancelStablePaint()
       if (reducedTimer !== undefined) window.clearTimeout(reducedTimer)
     }
-  }, [intro, onIntroComplete, stageRef])
+  }, [intro, onIntroComplete, setReady, stageRef])
 
   const handleAnimationEnd = (event: AnimationEvent<HTMLSpanElement>) => {
     if (

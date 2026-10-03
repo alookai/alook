@@ -14,11 +14,12 @@ vi.mock("@/lib/analytics", () => ({
   trackCommunityOnboardingSkipped: analytics.skipped,
 }));
 
+import { QueryClient } from "@tanstack/react-query";
+import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections";
+
 import {
   advanceCommunityOnboarding,
   completeCommunityOnboarding,
-  consumeQueuedCommunityOnboarding,
-  queueCommunityOnboarding,
   readCommunityOnboardingState,
   recoverCommunityOnboardingHarness,
   recoverCommunityOnboardingMachine,
@@ -29,58 +30,40 @@ import {
 } from "./community-onboarding";
 
 describe("community onboarding journey", () => {
+  let registry: CommunityDbRegistry;
+  const runtime = () => registry.runtime;
   beforeEach(() => {
-    skipCommunityOnboarding();
+    registry = createCommunityDbRegistry(new QueryClient(), "viewer");
     vi.clearAllMocks();
   });
 
   afterEach(() => {
+    void registry.cleanup();
+    registry.queryClient.clear();
     vi.unstubAllGlobals();
   });
 
-  it("persists a pending signup journey until it is consumed once", () => {
-    const pending = new Map<string, string>();
-    vi.stubGlobal("window", {
-      sessionStorage: {
-        getItem: (key: string) => pending.get(key) ?? null,
-        removeItem: (key: string) => pending.delete(key),
-        setItem: (key: string, value: string) => pending.set(key, value),
-      },
-    });
-
-    queueCommunityOnboarding();
-    expect(consumeQueuedCommunityOnboarding()).toBe(true);
-    expect(consumeQueuedCommunityOnboarding()).toBe(false);
-  });
-
-  it("keeps signup navigation usable when session storage is blocked", () => {
-    vi.stubGlobal("window", {
-      get sessionStorage(): Storage {
-        throw new Error("storage blocked");
-      },
-    });
-
-    expect(() => queueCommunityOnboarding()).not.toThrow();
-    expect(consumeQueuedCommunityOnboarding()).toBe(false);
-  });
-
-  it("starts only from an explicit trigger", () => {
-    expect(readCommunityOnboardingState()).toBeNull();
-    expect(startCommunityOnboarding()).toEqual({ status: "active", stage: "harness" });
-    expect(startCommunityOnboarding()).toEqual({ status: "active", stage: "harness" });
+  it("starts once per explicit owner and never shares another account journey", () => {
+    expect(readCommunityOnboardingState(runtime())).toBeNull();
+    expect(startCommunityOnboarding(runtime())).toEqual({ status: "active", stage: "harness" });
+    expect(startCommunityOnboarding(runtime())).toEqual({ status: "active", stage: "harness" });
     expect(analytics.started).toHaveBeenCalledOnce();
+    const other = createCommunityDbRegistry(new QueryClient(), "other");
+    expect(readCommunityOnboardingState(other.runtime)).toBeNull();
+    void other.cleanup();
+    other.queryClient.clear();
   });
 
   it("advances only from the expected stage and keeps the chosen onboarding context", () => {
-    startCommunityOnboarding();
-    advanceCommunityOnboarding("machine", "identity", { machineId: "wrong" });
-    expect(readCommunityOnboardingState()).toMatchObject({ stage: "harness" });
-    advanceCommunityOnboarding("harness", "machine", { harness: "codex" });
-    advanceCommunityOnboarding("machine", "identity", { machineId: "machine-7" });
-    advanceCommunityOnboarding("identity", "initializing", {
+    startCommunityOnboarding(runtime());
+    advanceCommunityOnboarding(runtime(), "machine", "identity", { machineId: "wrong" });
+    expect(readCommunityOnboardingState(runtime())).toMatchObject({ stage: "harness" });
+    advanceCommunityOnboarding(runtime(), "harness", "machine", { harness: "codex" });
+    advanceCommunityOnboarding(runtime(), "machine", "identity", { machineId: "machine-7" });
+    advanceCommunityOnboarding(runtime(), "identity", "initializing", {
       identity: "developer",
     });
-    expect(readCommunityOnboardingState()).toEqual({
+    expect(readCommunityOnboardingState(runtime())).toEqual({
       status: "active",
       stage: "initializing",
       harness: "codex",
@@ -90,23 +73,23 @@ describe("community onboarding journey", () => {
   });
 
   it("keeps the same companion avatar through every guide stage", () => {
-    startCommunityOnboarding({ guideAvatarSeed: "guide-face-7" });
-    advanceCommunityOnboarding("harness", "machine");
-    advanceCommunityOnboarding("machine", "identity");
-    advanceCommunityOnboarding("identity", "initializing");
+    startCommunityOnboarding(runtime(), { guideAvatarSeed: "guide-face-7" });
+    advanceCommunityOnboarding(runtime(), "harness", "machine");
+    advanceCommunityOnboarding(runtime(), "machine", "identity");
+    advanceCommunityOnboarding(runtime(), "identity", "initializing");
 
-    expect(readCommunityOnboardingState()).toMatchObject({
+    expect(readCommunityOnboardingState(runtime())).toMatchObject({
       stage: "initializing",
       guideAvatarSeed: "guide-face-7",
     });
   });
 
   it("recovers a missing machine without falsely completing the bot stage", () => {
-    startCommunityOnboarding();
-    advanceCommunityOnboarding("harness", "machine");
-    advanceCommunityOnboarding("machine", "bot");
-    recoverCommunityOnboardingMachine();
-    expect(readCommunityOnboardingState()).toEqual({
+    startCommunityOnboarding(runtime());
+    advanceCommunityOnboarding(runtime(), "harness", "machine");
+    advanceCommunityOnboarding(runtime(), "machine", "bot");
+    recoverCommunityOnboardingMachine(runtime());
+    expect(readCommunityOnboardingState(runtime())).toEqual({
       status: "active",
       stage: "bot",
       machineRecovery: true,
@@ -115,13 +98,13 @@ describe("community onboarding journey", () => {
   });
 
   it("returns to harness selection without completing machine or retaining stale choices", () => {
-    startCommunityOnboarding({ guideAvatarSeed: "guide-face-7" });
-    advanceCommunityOnboarding("harness", "machine", { harness: "codex" });
-    updateCommunityOnboardingResources({ machineId: "stale-machine" });
+    startCommunityOnboarding(runtime(), { guideAvatarSeed: "guide-face-7" });
+    advanceCommunityOnboarding(runtime(), "harness", "machine", { harness: "codex" });
+    updateCommunityOnboardingResources(runtime(), { machineId: "stale-machine" });
 
-    recoverCommunityOnboardingHarness();
+    recoverCommunityOnboardingHarness(runtime());
 
-    expect(readCommunityOnboardingState()).toEqual({
+    expect(readCommunityOnboardingState(runtime())).toEqual({
       status: "active",
       stage: "harness",
       guideAvatarSeed: "guide-face-7",
@@ -129,41 +112,41 @@ describe("community onboarding journey", () => {
     expect(analytics.stageCompleted).toHaveBeenCalledOnce();
     expect(analytics.stageCompleted).toHaveBeenCalledWith("harness");
 
-    recoverCommunityOnboardingHarness();
+    recoverCommunityOnboardingHarness(runtime());
     expect(analytics.stageCompleted).toHaveBeenCalledOnce();
   });
 
   it("clears an explicit skip and allows manual retry", () => {
-    startCommunityOnboarding();
-    skipCommunityOnboarding();
-    expect(readCommunityOnboardingState()).toBeNull();
+    startCommunityOnboarding(runtime());
+    skipCommunityOnboarding(runtime());
+    expect(readCommunityOnboardingState(runtime())).toBeNull();
     expect(analytics.skipped).toHaveBeenCalledWith("harness");
-    expect(startCommunityOnboarding()).toEqual({ status: "active", stage: "harness" });
+    expect(startCommunityOnboarding(runtime())).toEqual({ status: "active", stage: "harness" });
   });
 
   it("completes only after initialization finishes", () => {
-    startCommunityOnboarding();
-    advanceCommunityOnboarding("harness", "machine");
-    advanceCommunityOnboarding("machine", "identity");
-    advanceCommunityOnboarding("identity", "initializing");
-    completeCommunityOnboarding();
-    expect(readCommunityOnboardingState()).toBeNull();
+    startCommunityOnboarding(runtime());
+    advanceCommunityOnboarding(runtime(), "harness", "machine");
+    advanceCommunityOnboarding(runtime(), "machine", "identity");
+    advanceCommunityOnboarding(runtime(), "identity", "initializing");
+    completeCommunityOnboarding(runtime());
+    expect(readCommunityOnboardingState(runtime())).toBeNull();
     expect(analytics.stageCompleted).toHaveBeenLastCalledWith("initializing");
     expect(analytics.completed).toHaveBeenCalledOnce();
   });
 
   it("does not complete before initialization finishes", () => {
-    startCommunityOnboarding();
-    expect(completeCommunityOnboarding()).toEqual({ status: "active", stage: "harness" });
+    startCommunityOnboarding(runtime());
+    expect(completeCommunityOnboarding(runtime())).toEqual({ status: "active", stage: "harness" });
     expect(analytics.completed).not.toHaveBeenCalled();
   });
 
   it("publishes in-memory state changes to mounted consumers", () => {
     const listener = vi.fn();
-    const unsubscribe = subscribeCommunityOnboarding(listener);
-    startCommunityOnboarding();
-    advanceCommunityOnboarding("harness", "machine");
-    skipCommunityOnboarding();
+    const unsubscribe = subscribeCommunityOnboarding(runtime(), listener);
+    startCommunityOnboarding(runtime());
+    advanceCommunityOnboarding(runtime(), "harness", "machine");
+    skipCommunityOnboarding(runtime());
     unsubscribe();
     expect(listener).toHaveBeenNthCalledWith(1, { status: "active", stage: "harness" });
     expect(listener).toHaveBeenNthCalledWith(2, { status: "active", stage: "machine" });

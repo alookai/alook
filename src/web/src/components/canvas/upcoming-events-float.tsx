@@ -1,14 +1,15 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { CalendarDays, X } from "lucide-react";
 import { useAgentContext } from "@/contexts/agent-context";
-import { useWorkspace } from "@/contexts/workspace-context";
+import { useWorkspaceOwner, runWorkspaceRequest } from "@/contexts/workspace-context";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { AgentAvatar } from "@/components/avatar";
 import { listCalendarEvents } from "@/lib/api";
-import type { CalendarEvent } from "@alook/shared";
+
 
 interface AgentEventSummary {
   agentId: string;
@@ -19,35 +20,23 @@ interface AgentEventSummary {
 
 export function UpcomingEventsFloat() {
   const { agents } = useAgentContext();
-  const { slug, workspaceId } = useWorkspace();
+  const owner = useWorkspaceOwner();
+  const { slug, workspaceId } = owner;
   const isMobile = useIsMobile();
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useAtom(useCreateAtom(false));
 
   const agentMap = new Map(agents.map((a) => [a.id, a]));
 
-  const fetchEvents = useCallback(async () => {
-    if (!workspaceId) return;
-    const now = new Date();
-    const todayEnd = new Date(now);
-    todayEnd.setHours(23, 59, 59, 999);
-    try {
-      const data = await listCalendarEvents(workspaceId, {
-        from: now.toISOString(),
-        to: todayEnd.toISOString(),
-      });
-      const upcoming = data.filter((e) => new Date(e.occurrence_at) >= now);
-      setEvents(upcoming);
-    } catch {
-      // silently ignore
-    }
-  }, [workspaceId]);
+  const query = useQuery({ queryKey: owner.key("calendar", "upcoming"), refetchInterval: 60_000,
+    queryFn: ({ signal }) => runWorkspaceRequest(owner, (options) => {
+      const now = new Date(), todayEnd = new Date(now);
+      todayEnd.setHours(23, 59, 59, 999);
+      return listCalendarEvents(workspaceId, { from: now.toISOString(), to: todayEnd.toISOString() }, options);
+    }, signal),
+    select: (rows) => rows.filter((event) => new Date(event.occurrence_at).getTime() >= Date.now()),
+  });
+  const events = query.data ?? [];
 
-  useEffect(() => {
-    fetchEvents();
-    const interval = setInterval(fetchEvents, 60_000);
-    return () => clearInterval(interval);
-  }, [fetchEvents]);
 
   const count = events.reduce((sum, e) => sum + (e.collapsed_count ?? 1), 0);
 

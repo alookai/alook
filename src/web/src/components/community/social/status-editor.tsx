@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
 import type React from "react"
 import { X } from "lucide-react"
 import { MAX_STATUS_TEXT_LENGTH } from "@alook/shared"
@@ -35,8 +36,8 @@ export function StatusEditor({
   side?: "top" | "bottom" | "left" | "right"
   align?: "start" | "center" | "end"
 }) {
-  const [open, setOpen] = useState(false)
-  const [draftText, setDraftText] = useState(text ?? "")
+  const [open, setOpen] = useAtom(useCreateAtom(false))
+  const [draftText, setDraftText] = useAtom(useCreateAtom(text ?? ""))
 
   const setBoth = (o: boolean) => {
     setOpen(o)

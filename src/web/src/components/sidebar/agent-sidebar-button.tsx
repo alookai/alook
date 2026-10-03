@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
 import type { Agent } from "@alook/shared";
 import { cn } from "@/lib/utils";
 import { PinIcon, PinOffIcon } from "lucide-react";
@@ -39,7 +40,7 @@ export function AgentSidebarButton({
   hidePin?: boolean;
   isDragActive?: boolean;
 }) {
-  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useAtom(useCreateAtom(false));
   return (
     <Popover
       open={previewOpen}

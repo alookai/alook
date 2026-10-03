@@ -1,37 +1,31 @@
-import type { LoginResponse, Workspace } from "@alook/shared";
-import { sanitizeSlug } from "@alook/shared";
-import { apiFetch, redirectToSignIn, wsQuery } from "./client";
+import type { Workspace } from "@alook/shared";
+import { apiFetch,wsQuery,type ApiRequestOptions } from "./client";
 
-export const listWorkspaces = () => apiFetch<Workspace[]>("/api/workspaces");
+export const listWorkspaces = (options?: ApiRequestOptions) => apiFetch<Workspace[]>("/api/workspaces", options);
 
-export const createWorkspace = (name: string, slug?: string) =>
-  apiFetch<Workspace>("/api/workspaces", {
-    method: "POST",
-    body: JSON.stringify({ name, slug: sanitizeSlug(slug || name) || "workspace" }),
-  });
+export const updateWorkspace = (workspaceId: string, data: { name?: string; slug?: string }, options?: ApiRequestOptions) =>
+  apiFetch<Workspace>(`/api/workspaces/${workspaceId}${wsQuery(workspaceId)}`, { ...options, method: "PATCH", body: JSON.stringify(data) });
 
-export const updateWorkspace = (workspaceId: string, data: { name?: string; slug?: string }) =>
-  apiFetch<Workspace>(`/api/workspaces/${workspaceId}${wsQuery(workspaceId)}`, { method: "PATCH", body: JSON.stringify(data) });
-
-export const deleteWorkspace = (workspaceId: string, confirmName: string) =>
-  apiFetch<void>(`/api/workspaces/${workspaceId}${wsQuery(workspaceId)}`, { method: "DELETE", body: JSON.stringify({ confirm_name: confirmName }) });
+export const deleteWorkspace = (workspaceId: string, confirmName: string, options?: ApiRequestOptions) =>
+  apiFetch<void>(`/api/workspaces/${workspaceId}${wsQuery(workspaceId)}`, { ...options, method: "DELETE", body: JSON.stringify({ confirm_name: confirmName }) });
 
 // Members
 export interface MemberEntry {
   id: string; user_id: string; role: string; name: string; email: string; image: string | null; created_at: string;
 }
 
-export const listMembers = (workspaceId: string) =>
-  apiFetch<MemberEntry[]>(`/api/workspaces/${workspaceId}/members${wsQuery(workspaceId)}`);
+export const listMembers = (workspaceId: string, options?: ApiRequestOptions) =>
+  apiFetch<MemberEntry[]>(`/api/workspaces/${workspaceId}/members${wsQuery(workspaceId)}`, options);
 
-export const removeMember = (workspaceId: string, memberId: string) =>
-  apiFetch<void>(`/api/workspaces/${workspaceId}/members/${memberId}${wsQuery(workspaceId)}`, { method: "DELETE" });
+export const removeMember = (workspaceId: string, memberId: string, options?: ApiRequestOptions) =>
+  apiFetch<void>(`/api/workspaces/${workspaceId}/members/${memberId}${wsQuery(workspaceId)}`, { ...options, method: "DELETE" });
 
-export const getMemberMe = (workspaceId: string) =>
-  apiFetch<{ global_instruction: string }>(`/api/members/me${wsQuery(workspaceId)}`);
+export const getMemberMe = (workspaceId: string, options?: ApiRequestOptions) =>
+  apiFetch<{ global_instruction: string }>(`/api/members/me${wsQuery(workspaceId)}`, options);
 
-export const updateMemberMe = (workspaceId: string, globalInstruction: string) =>
+export const updateMemberMe = (workspaceId: string, globalInstruction: string, options?: ApiRequestOptions) =>
   apiFetch<{ global_instruction: string }>(`/api/members/me${wsQuery(workspaceId)}`, {
+    ...options,
     method: "PATCH",
     body: JSON.stringify({ global_instruction: globalInstruction }),
   });
@@ -41,14 +35,14 @@ export interface InviteEntry {
   id: string; token: string; expires_at: string; created_at: string;
 }
 
-export const listInvites = (workspaceId: string) =>
-  apiFetch<InviteEntry[]>(`/api/workspaces/${workspaceId}/invites${wsQuery(workspaceId)}`);
+export const listInvites = (workspaceId: string, options?: ApiRequestOptions) =>
+  apiFetch<InviteEntry[]>(`/api/workspaces/${workspaceId}/invites${wsQuery(workspaceId)}`, options);
 
-export const createInvite = (workspaceId: string) =>
-  apiFetch<InviteEntry>(`/api/workspaces/${workspaceId}/invites${wsQuery(workspaceId)}`, { method: "POST" });
+export const createInvite = (workspaceId: string, options?: ApiRequestOptions) =>
+  apiFetch<InviteEntry>(`/api/workspaces/${workspaceId}/invites${wsQuery(workspaceId)}`, { ...options, method: "POST" });
 
-export const revokeInvite = (workspaceId: string, inviteId: string) =>
-  apiFetch<void>(`/api/workspaces/${workspaceId}/invites/${inviteId}${wsQuery(workspaceId)}`, { method: "DELETE" });
+export const revokeInvite = (workspaceId: string, inviteId: string, options?: ApiRequestOptions) =>
+  apiFetch<void>(`/api/workspaces/${workspaceId}/invites/${inviteId}${wsQuery(workspaceId)}`, { ...options, method: "DELETE" });
 
 // Invite accept
 export interface InviteInfo {
@@ -59,11 +53,11 @@ export interface InviteAcceptResult {
   workspace_id: string; workspace_slug: string;
 }
 
-export const getInviteInfo = (token: string) => apiFetch<InviteInfo>(`/api/invite/${token}`);
-export const acceptInvite = (token: string) => apiFetch<InviteAcceptResult>(`/api/invite/${token}`, { method: "POST" });
+export const getInviteInfo = (token: string, options?: ApiRequestOptions) => apiFetch<InviteInfo>(`/api/invite/${token}`, options);
+export const acceptInvite = (token: string, options?: ApiRequestOptions) => apiFetch<InviteAcceptResult>(`/api/invite/${token}`, { ...options, method: "POST" });
 
 // Overview
-export interface OverviewEmailAccount {
+interface OverviewEmailAccount {
   id: string;
   agent_id: string;
   email_address: string;
@@ -72,7 +66,7 @@ export interface OverviewEmailAccount {
   last_synced_at: string | null;
 }
 
-export interface OverviewRecentTask {
+interface OverviewRecentTask {
   id: string;
   agent_id: string;
   type: string;
@@ -83,7 +77,7 @@ export interface OverviewRecentTask {
   error: string | null;
 }
 
-export interface OverviewCalendarEvent {
+interface OverviewCalendarEvent {
   id: string;
   agent_id: string;
   title: string;
@@ -94,7 +88,7 @@ export interface OverviewCalendarEvent {
   last_triggered_at: string | null;
 }
 
-export interface OverviewMember {
+interface OverviewMember {
   id: string;
   user_id: string;
   role: string;
@@ -115,16 +109,5 @@ export interface WorkspaceOverview {
   calendar_events: OverviewCalendarEvent[];
 }
 
-export const getWorkspaceOverview = (workspaceId: string) =>
-  apiFetch<WorkspaceOverview>(`/api/workspaces/${workspaceId}/overview${wsQuery(workspaceId)}`);
-
-// Auth
-export const signOut = async () => {
-  redirectToSignIn();
-};
-
-export const verifyCode = (email: string, code: string) =>
-  apiFetch<LoginResponse>("/api/auth/sign-in/email", {
-    method: "POST",
-    body: JSON.stringify({ email, otp: code }),
-  });
+export const getWorkspaceOverview = (workspaceId: string, options?: ApiRequestOptions) =>
+  apiFetch<WorkspaceOverview>(`/api/workspaces/${workspaceId}/overview${wsQuery(workspaceId)}`, options);

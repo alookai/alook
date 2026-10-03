@@ -1,13 +1,15 @@
 "use client"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { getCommunityRuntime } from "@/stores/community/runtime"
 
-import { type QueryClient } from "@tanstack/react-query"
+
+import { QueryObserver, type QueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import type { MessagesPageParam } from "@/lib/community/models/message"
 import { channelMessagesQueryFn, dmMessagesQueryFn } from "@/hooks/community/use-messages"
-import { serverProjectedQueryFn, type ServerDetail } from "@/hooks/community/use-servers"
-import { useMessageStreamStore } from "@/stores/community/message-stream"
+import { serverProjectedQueryFn } from "@/hooks/community/use-servers"
 import {
   beginConversationNavigationProof,
   commitConversationNavigationProof,
@@ -42,7 +44,7 @@ function clearDeniedTarget(queryClient: QueryClient, target: ConversationNavigat
   } else {
     queryClient.removeQueries({ queryKey: communityKeys.channelMeta(null, target.channelId) })
   }
-  useMessageStreamStore.getState().removeScope(
+  getCommunityRuntime(queryClient).messageStream.actions.removeScope(
     target.scopeKind === "dm"
       ? { kind: "dm", id: target.channelId }
       : { kind: "channel", id: target.channelId, serverId: target.serverId! },
@@ -72,11 +74,13 @@ export function startConversationNavigationWarmup(
     : communityKeys.channelMessages(target.channelId)
   const queryFn = target.scopeKind === "dm"
     ? dmMessagesQueryFn(target.channelId, {
+        queryClient,
         onSurfaceReceipt: (receipt) => {
           recordConversationNavigationReceipt(queryClient, receipt, accessEpoch, epoch)
         },
       })
     : channelMessagesQueryFn(target.channelId, null, {
+        queryClient,
         onSurfaceReceipt: (receipt) => {
           recordConversationNavigationReceipt(queryClient, receipt, accessEpoch, epoch)
         },
@@ -95,7 +99,7 @@ export function startConversationNavigationWarmup(
       commitConversationNavigationProof(queryClient, target.channelId, accessEpoch)
     })
     .catch((error) => {
-      if (signal.aborted) return
+      if (signal.aborted || !isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) return
       const definitive = isDefinitiveAccessFailure(error)
       if (definitive) clearDeniedTarget(queryClient, target)
       failConversationNavigationProof(queryClient, epoch, accessEpoch, definitive)
@@ -104,20 +108,28 @@ export function startConversationNavigationWarmup(
   const readKey = target.scopeKind === "dm"
     ? communityKeys.dmReadStateSnapshot(target.channelId)
     : communityKeys.channelReadStateSnapshot(target.channelId)
-  void apiFetch<ReadSnapshot>(`/api/community/channels/${target.channelId}/read-state`, { signal })
-    .then((snapshot) => {
-      if (!isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) return
-      queryClient.setQueryData(readKey, snapshot)
-    })
-    .catch(() => undefined)
+  const registry = getCommunityDbRegistry(queryClient)!
+  void queryClient.fetchQuery({
+    queryKey: readKey,
+    staleTime: 0,
+    retry: false,
+    queryFn: async ({ signal: querySignal }) => {
+      await registry.ready
+      return apiFetch<ReadSnapshot>(`/api/community/channels/${target.channelId}/read-state`, {
+        signal: querySignal,
+        assertActive: () => {
+          if (!isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) throw new DOMException("Retired conversation warmup", "AbortError")
+        },
+      })
+    },
+  }).catch(() => undefined)
 
   if (target.serverId) {
-    void serverProjectedQueryFn(queryClient, target.serverId, signal)()
-      .then((detail) => {
-        if (!isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) return
-        queryClient.setQueryData<ServerDetail>(communityKeys.server(target.serverId!), detail)
-      })
-      .catch(() => undefined)
+    const serverId = target.serverId
+    const options = { queryKey: communityKeys.server(serverId), queryFn: ({ signal }: { signal: AbortSignal }) => serverProjectedQueryFn(queryClient, serverId, signal)(), staleTime: Infinity }
+    const observer = new QueryObserver(queryClient, { ...options, enabled: false })
+    const release = observer.subscribe(() => undefined)
+    void queryClient.fetchQuery(options).finally(release).catch(() => undefined)
   }
 
   return epoch

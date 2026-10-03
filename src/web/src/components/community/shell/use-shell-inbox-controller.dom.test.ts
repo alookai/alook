@@ -1,12 +1,21 @@
+import "fake-indexeddb/auto"
 import { createElement } from "react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { act, render as rtlRender } from "@/test/react-dom-harness"
+import { type QueryClient, useQueryClient, useIsRestoring } from "@tanstack/react-query"
+import { act, waitFor, render as rtlRender } from "@/test/react-dom-harness"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import type { DmCache } from "@/lib/community/dm-cache"
+import { QueryProvider } from "@/app/c/QueryProvider"
+import { communityKeys } from "@/lib/query-keys"
+import { getCanonicalCommunityChannels } from "@/lib/community-db/sync"
 import type { Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 import { useShellInboxController } from "./use-shell-inbox-controller"
 
 const order: string[] = []
+vi.mock("@/lib/auth-client", () => ({
+  useSession: () => ({ data: { user: { id: "viewer" } }, isPending: false, error: null }),
+  currentSessionViewer: () => "viewer",
+}))
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }) }))
+vi.mock("@tanstack/react-query-devtools", () => ({ ReactQueryDevtools: () => null }))
 const mocks = vi.hoisted(() => ({
   markedEnabled: [] as boolean[],
   refetchAttention: vi.fn(),
@@ -107,20 +116,28 @@ vi.mock("@/hooks/community/use-inbox-auto-collapse", () => ({
     isLatestProjection: (epoch: number) => epoch === mocks.latestEpoch,
   }),
 }))
-vi.mock("@/hooks/community/mutations", () => ({
+vi.mock("@/hooks/community/mutations", async () => {
+  const { useMutation } = await vi.importActual<typeof import("@tanstack/react-query")>("@tanstack/react-query")
+  function useRequest(action: "accept" | "reject") {
+    const command = useMutation({ mutationKey: ["community", "friend-request", action], gcTime: Infinity, mutationFn: (input: { friendshipId: string }) => mocks[action](input) })
+    return command
+  }
+  return {
   useMarkAllInboxRead: () => ({ mutate: mocks.markAll }),
   useDeleteMention: () => ({ mutate: mocks.deleteMention }),
   useUnmarkMessage: () => ({ mutate: mocks.unmark }),
-  useAcceptFriendRequest: () => ({ mutateAsync: mocks.accept }),
-  useRejectFriendRequest: () => ({ mutateAsync: mocks.reject }),
-}))
+  useAcceptFriendRequest: () => useRequest("accept"),
+  useRejectFriendRequest: () => useRequest("reject"),
+  }
+})
 vi.mock("@/hooks/community/use-dm-route-verification", () => ({
   startDmRouteVerification: (...args: unknown[]) => mocks.verifyDm(...args),
 }))
 vi.mock("@/lib/community/conversation-navigation-warmup", () => ({
   startConversationNavigationWarmup: (...args: unknown[]) => mocks.warmup(...args),
 }))
-vi.mock("@/lib/community/conversation-navigation-proof", () => ({
+vi.mock("@/lib/community/conversation-navigation-proof", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/community/conversation-navigation-proof")>(),
   cancelConversationNavigationProof: (...args: unknown[]) => mocks.cancelProof(...args),
 }))
 vi.mock("@/hooks/community/thread-opener-read-handoff", () => ({
@@ -138,15 +155,17 @@ vi.mock("@/hooks/community/inbox-read-reservation", async (importOriginal) => {
 type Result = ReturnType<typeof useShellInboxController>
 
 function Capture({ options, onResult }: {
-  options: Parameters<typeof useShellInboxController>[0]
-  onResult: (result: Result) => void
+  options: Omit<Parameters<typeof useShellInboxController>[0], "queryClient">
+  onResult: (result: Result, client: QueryClient, restoring: boolean) => void
 }) {
-  onResult(useShellInboxController(options))
+  const queryClient = useQueryClient()
+  const restoring = useIsRestoring()
+  onResult(useShellInboxController({ ...options, queryClient }), queryClient, restoring)
   return null
 }
 
 async function renderController(
-  initialDmCache: DmCache = { conversations: [] },
+  _initialDmCache: undefined = undefined,
   push?: (href: string) => void,
 ) {
   const pushed: string[] = []
@@ -159,38 +178,35 @@ async function renderController(
     replace: vi.fn(),
     prefetch: vi.fn(),
   }
-  let dmCache = initialDmCache
-  const queryClient = {
-    setQueryData: vi.fn((_key, updater) => {
-      order.push("query")
-      dmCache = updater(dmCache)
-    }),
-  }
+  let queryClient!: QueryClient
+  let restoring = true
   const cancelPendingNavigation = vi.fn(() => { order.push("cancel") })
   let current!: Result
-  const actionQueryClient = new QueryClient()
   await act(async () => {
     rtlRender(createElement(
-      QueryClientProvider,
-      { client: actionQueryClient },
+      QueryProvider,
+      { userId: "viewer" },
       createElement(Capture, {
         options: {
           router,
-          queryClient,
           cancelPendingNavigation,
           publishedHref: "/c/channels/s1",
           navigationPending: false,
           pendingHref: null,
-        } as never,
-        onResult: (result) => { current = result },
+          viewerId: "viewer",
+          accessEpoch: 0,
+        },
+        onResult: (result, client, pending) => { current = result; queryClient = client; restoring = pending },
       }),
     ))
   })
+  await waitFor(() => expect(restoring).toBe(false))
+  act(() => { queryClient.setQueryData(communityKeys.dms(), { ids: [] }) })
   return {
     get current() { return current },
     order,
     pushed,
-    get dmCache() { return dmCache },
+    queryClient,
   }
 }
 
@@ -271,6 +287,7 @@ describe("useShellInboxController", () => {
     expect(item).toBeDefined()
 
     await act(async () => hook.current.popoverProps.onRejectFriendRequest?.(item!))
+    await waitFor(() => expect(hook.current.popoverProps.friendRequests?.[0]).toMatchObject({ action: "reject", status: "error" }))
     const failed = hook.current.popoverProps.friendRequests?.[0]
     expect(failed).toMatchObject({ action: "reject", status: "error" })
     await act(async () => hook.current.popoverProps.onRetryFriendRequest?.(failed!))
@@ -368,12 +385,13 @@ describe("useShellInboxController", () => {
       "project",
       "cancel",
       "clear",
-      "query",
       "push",
       "submitted",
       "verify",
     ])
-    expect(hook.dmCache.conversations[0]?.id).toBe("dm1")
+    expect(getCanonicalCommunityChannels(hook.queryClient)).toContainEqual(expect.objectContaining({ id: "dm1", type: "dm" }))
+    expect(hook.queryClient.getQueryData(communityKeys.dms())).toEqual({ ids: [] })
+    expect(hook.pushed).toEqual(["/c/me/dm1"])
   })
 
   it("arms an exact unread opener after stale setup is cleared and before push", async () => {
@@ -417,7 +435,7 @@ describe("useShellInboxController", () => {
     expect(mocks.warmup).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       href: "/c/channels/s1/c1?seq=7",
       anchorMessageId: "message-7",
-    }), undefined)
+    }), 0)
     expect(mocks.begin).not.toHaveBeenCalled()
   })
 

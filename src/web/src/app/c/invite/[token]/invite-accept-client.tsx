@@ -1,6 +1,10 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { createStore } from "@tanstack/react-store";
+import { useCallback, useEffect, useMemo } from "react"
+import { useQuery, useMutation } from "@tanstack/react-query"
+import { PublicQueryProvider, applicationKey, runApplicationRequest } from "@/lib/application-owner"
+import { useApplicationViewSource } from "@/hooks/use-application-view-source"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { CircleAlert } from "lucide-react"
@@ -35,71 +39,63 @@ function isDeadInvite(err: unknown): boolean {
  * Fetches invite info, displays server preview, and joins on button click.
  */
 export function InviteAcceptClient({ token }: { token: string }) {
+  return <PublicQueryProvider><InviteAcceptInner token={token} /></PublicQueryProvider>
+}
+
+function InviteAcceptInner({ token }: { token: string }) {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [info, setInfo] = useState<InviteInfo | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [joining, setJoining] = useState(false)
-  const [error, setError] = useState<{ message: string; dead: boolean } | null>(null)
-
-  useEffect(() => {
-    async function fetchInfo() {
+  const source = useApplicationViewSource(`community-invite:${token}`)
+  const { owner } = source
+  const query = useQuery({ queryKey: applicationKey(owner, "community-invite", token), retry: false,
+    queryFn: ({ signal }) => runApplicationRequest(owner, (options) => apiFetch<InviteInfo>(`/api/community/invites/${token}/info`, {
+      ...options, onUnauthorized: async () => { options.assertActive?.(); return false },
+    }), signal),
+  })
+  const info = query.data
+  const loading = query.isPending
+  const error = query.error ? { message: query.error instanceof Error ? query.error.message : "This invite is no longer valid", dead: isDeadInvite(query.error) } : null
+  const command = useMutation({ mutationKey: applicationKey(owner, "community-invite", token, "join"),
+    scope: { id: JSON.stringify(applicationKey(owner, "community-invite", token, "join")) },
+    mutationFn: async (original: ReturnType<typeof source.capture>) => {
+      original.assert()
       try {
-        const data = await apiFetch<InviteInfo>(`/api/community/invites/${token}/info`)
-        setInfo(data)
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : "This invite is no longer valid"
-        setError({ message, dead: isDeadInvite(err) })
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchInfo()
-  }, [token])
-
+        const res = await fetch(`/api/community/invites/${token}/join`, {
+          signal: original.signal,
+          method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        })
+        original.assert()
+        if (res.status === 401) return { kind: "sign-in" as const }
+        if (!res.ok) {
+          const body = (await res.json().catch(() => null)) as { error?: string } | null
+          original.assert()
+          throw new Error(body?.error || "Couldn't join the server — try the invite again")
+        }
+        const result = await res.json() as { serverId: string }
+        original.assert()
+        return { kind: "joined" as const, serverId: result.serverId }
+      } catch (error) { original.assert(); throw error }
+    },
+  })
+  const joining = command.isPending
+  const mutateJoin = command.mutateAsync
   const handleJoin = useCallback(async () => {
-    setJoining(true)
-    // Raw fetch (not the shared `apiFetch`): apiFetch has a GLOBAL 401 handler
-    // that hard-navigates to a bare `/sign-in` (no redirect param) before we
-    // can react — which would drop the visitor at the default post-login page
-    // (/workspaces → /studio/new) instead of back here. Preview-first needs the
-    // 401 to route to sign-in WITH a return path, so we handle status ourselves.
+    const original = source.capture()
     try {
-      const res = await fetch(`/api/community/invites/${token}/join`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-      })
-
-      // Not signed in → bounce to sign-in carrying an `autojoin=1` return path
-      // so the join resumes automatically once they're back. The visitor clicks
-      // Join exactly once.
-      if (res.status === 401) {
+      const result = await mutateJoin(original)
+      original.assert()
+      if (result.kind === "sign-in") {
         const returnTo = `/c/invite/${token}?autojoin=1`
         router.push(`/sign-in?redirect=${encodeURIComponent(returnTo)}`)
         return
       }
-
-      if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as { error?: string } | null
-        toast(body?.error || "Couldn't join the server — try the invite again")
-        setJoining(false)
-        return
-      }
-
-      const result = (await res.json()) as { serverId: string }
       toast("Joined server")
-      // Navigate into the joined server. This page renders standalone (outside
-      // CommunityShell / its QueryProvider), so there's no community query cache
-      // to invalidate here — arriving at /c/channels mounts the shell fresh and
-      // its server list fetches on mount.
       router.push(`/c/channels/${result.serverId}`)
-    } catch {
-      toast("Couldn't join the server — try the invite again")
-      setJoining(false)
+    } catch (error) {
+      try { original.assert() } catch { return }
+      if (!(error instanceof DOMException && error.name === "AbortError")) toast(error instanceof Error ? error.message : "Couldn't join the server — try the invite again")
     }
-  }, [token, router])
-
+  }, [source, mutateJoin, router, token])
   // Returning from the login wall (`?autojoin=1`) → resume the Join the visitor
   // already clicked. A ref latch fires it EXACTLY once per landing: a bare
   // `!joining` guard isn't enough because `info`'s reference can change (a
@@ -107,13 +103,13 @@ export function InviteAcceptClient({ token }: { token: string }) {
   // has settled, double-firing the join (a real member-row insert). The ref
   // flips synchronously on first fire and never resets, so re-renders are inert.
   const autojoin = searchParams.get("autojoin") === "1"
-  const autojoinFired = useRef(false)
+  const autojoinIntent = useMemo(() => ({ scope: [owner, token], store: createStore<AbortSignal | null>(null) }), [owner, token]).store
   useEffect(() => {
-    if (autojoin && info && !autojoinFired.current) {
-      autojoinFired.current = true
-      handleJoin()
+    if (autojoin && info && autojoinIntent.get() !== source.signal) {
+      autojoinIntent.setState(() => source.signal)
+      void handleJoin()
     }
-  }, [autojoin, info, handleJoin])
+  }, [autojoin, info, handleJoin, source.signal, autojoinIntent])
 
   if (loading) {
     return (

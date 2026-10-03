@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect, useCallback } from "react";
+import { useMutation, useQuery, type Query } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,7 +27,9 @@ import {
   ChevronRight, XIcon, CircleHelp,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useWorkspace } from "@/contexts/workspace-context";
+import { useWorkspaceOwner, captureWorkspaceOwner, assertWorkspaceOwner, workspaceRequestOptions, runWorkspaceRequest } from "@/contexts/workspace-context";
+import { useWorkspaceViewSource } from "@/hooks/workspace/use-workspace-view-source";
+import { isAbortError } from "@/lib/errors";
 import {
   type CustomEmailErrors,
   hasCustomEmailErrors,
@@ -49,16 +53,16 @@ interface Props {
 }
 
 function useEmailFields() {
-  const [emailAddress, setEmailAddress] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [imapHost, setImapHost] = useState("");
-  const [imapPort, setImapPort] = useState(993);
-  const [imapUsername, setImapUsername] = useState("");
-  const [imapPassword, setImapPassword] = useState("");
-  const [smtpHost, setSmtpHost] = useState("");
-  const [smtpPort, setSmtpPort] = useState(587);
-  const [smtpUsername, setSmtpUsername] = useState("");
-  const [smtpPassword, setSmtpPassword] = useState("");
+  const [emailAddress, setEmailAddress] = useAtom(useCreateAtom(""));
+  const [displayName, setDisplayName] = useAtom(useCreateAtom(""));
+  const [imapHost, setImapHost] = useAtom(useCreateAtom(""));
+  const [imapPort, setImapPort] = useAtom(useCreateAtom(993));
+  const [imapUsername, setImapUsername] = useAtom(useCreateAtom(""));
+  const [imapPassword, setImapPassword] = useAtom(useCreateAtom(""));
+  const [smtpHost, setSmtpHost] = useAtom(useCreateAtom(""));
+  const [smtpPort, setSmtpPort] = useAtom(useCreateAtom(587));
+  const [smtpUsername, setSmtpUsername] = useAtom(useCreateAtom(""));
+  const [smtpPassword, setSmtpPassword] = useAtom(useCreateAtom(""));
 
   function applyPreset(name: string) {
     const preset = PRESETS[name];
@@ -210,15 +214,50 @@ function EmailFieldsForm({ fields, applyPreset, errors, onClearError }: {
 }
 
 export function CustomEmailForm({ agentId, workspaceId, onDataChange, getDataRef }: Props) {
-  const { slug } = useWorkspace();
+  const owner = useWorkspaceOwner();
+  const { slug } = owner;
   const isCreateMode = !agentId;
-  const [open, setOpen] = useState(false);
-  const [accounts, setAccounts] = useState<AgentEmailAccount[]>([]);
-  const [loading, setLoading] = useState(!isCreateMode);
-  const [saving, setSaving] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [fieldErrors, setFieldErrors] = useState<CustomEmailErrors>({});
+  const [open, setOpen] = useAtom(useCreateAtom(false));
+  const source = useWorkspaceViewSource(owner, `custom-email:${agentId ?? "create"}`, open);
+  const formSource = useWorkspaceViewSource(owner, `custom-email-draft:${agentId ?? "create"}`, true);
+  const changeOpen = (next: boolean) => { if (!next) source.retire(); setOpen(next); };
+  const [fieldErrors, setFieldErrors] = useAtom(useCreateAtom<CustomEmailErrors>({}));
+  const queryKey = owner.key("email-accounts", agentId);
+  const accountsQuery = useQuery({ queryKey, enabled: !!agentId && owner.workspaceId === workspaceId, subscribed: !!agentId && owner.workspaceId === workspaceId,
+    queryFn: ({ signal }) => runWorkspaceRequest(owner, (options) => listEmailAccounts(agentId!, workspaceId, options), signal),
+  });
+  type Command = { kind: "create"; data: CustomEmailData } | { kind: "delete" | "sync"; id: string };
+  const command = useMutation({ mutationKey: [...queryKey, "command"], scope: { id: JSON.stringify(queryKey) },
+    gcTime: 0,
+    mutationFn: async ({ action, token, assertView, signal, resource: original }: { action: Command; token: ReturnType<typeof captureWorkspaceOwner>; assertView: () => void; signal: AbortSignal; resource: Query | undefined }) => {
+      const assert = () => { assertWorkspaceOwner(token, signal); assertView(); };
+      assert();
+      if (!agentId || owner.workspaceId !== workspaceId) throw new DOMException("Retired email scope", "AbortError");
+      if (original && owner.queryClient.getQueryCache().find({ queryKey, exact: true }) === original) await owner.queryClient.cancelQueries({ queryKey, exact: true });
+      assert();
+      const canPublish = () => original && owner.queryClient.getQueryCache().find({ queryKey, exact: true }) === original;
+      const options = workspaceRequestOptions(token, signal, assert);
+      try {
+        if (action.kind === "create") {
+          const account = await createEmailAccount(agentId, action.data, workspaceId, options);
+          assert();
+          if (canPublish()) owner.queryClient.setQueryData<AgentEmailAccount[]>(queryKey, (rows) => rows ? [...rows.filter((row) => row.id !== account.id), account] : rows);
+        } else if (action.kind === "delete") {
+          await deleteEmailAccount(agentId, action.id, workspaceId, options);
+          assert();
+          if (canPublish()) owner.queryClient.setQueryData<AgentEmailAccount[]>(queryKey, (rows) => rows?.filter((row) => row.id !== action.id));
+        } else await syncEmailAccount(agentId, action.id, workspaceId, options);
+        assert();
+        if (canPublish()) void owner.queryClient.invalidateQueries({ queryKey, exact: true }, { cancelRefetch: false }).catch(() => undefined);
+        assert();
+      } catch (error) { assert(); throw error; }
+    },
+  });
+  const accounts = accountsQuery.data ?? [];
+  const loading = !isCreateMode && accountsQuery.isPending;
+  const saving = command.isPending && command.variables?.action.kind === "create";
+  const syncing = command.isPending && command.variables?.action.kind === "sync";
+  const deleting = command.isPending && command.variables?.action.kind === "delete";
 
   const { fields, applyPreset, buildData } = useEmailFields();
   const effectiveImapUsername = fields.imapUsername || fields.emailAddress;
@@ -226,37 +265,22 @@ export function CustomEmailForm({ agentId, workspaceId, onDataChange, getDataRef
 
   const clearFieldError = useCallback((field: keyof CustomEmailErrors) => {
     setFieldErrors((prev) => ({ ...prev, [field]: undefined }));
-  }, []);
+  }, [setFieldErrors]);
 
   useEffect(() => {
-    if (getDataRef) getDataRef.current = buildData;
-  });
+    if (!getDataRef) return;
+    const get = () => { formSource.capture().assert(); return buildData(); };
+    getDataRef.current = get;
+    return () => { if (getDataRef.current === get) getDataRef.current = null; };
+  }, [getDataRef, buildData, formSource.assertActive, formSource]);
 
   useEffect(() => {
     if (!isCreateMode) return;
+    formSource.capture().assert();
     onDataChange?.(buildData());
-  }, [
-    isCreateMode,
-    buildData,
-    onDataChange,
-    fields.emailAddress, fields.displayName,
-    fields.imapHost, fields.imapPort, fields.imapUsername, fields.imapPassword,
-    fields.smtpHost, fields.smtpPort, fields.smtpUsername, fields.smtpPassword,
-  ]);
+  }, [isCreateMode, buildData, onDataChange, fields.emailAddress, fields.displayName, fields.imapHost, fields.imapPort, fields.imapUsername, fields.imapPassword, fields.smtpHost, fields.smtpPort, fields.smtpUsername, fields.smtpPassword, formSource]);
 
-  const load = useCallback(async () => {
-    if (isCreateMode) return;
-    try {
-      const list = await listEmailAccounts(agentId!, workspaceId);
-      setAccounts(list);
-    } catch {
-      // silent
-    } finally {
-      setLoading(false);
-    }
-  }, [agentId, workspaceId, isCreateMode]);
 
-  useEffect(() => { load(); }, [load]);
 
   const existing = accounts[0] ?? null;
 
@@ -276,48 +300,54 @@ export function CustomEmailForm({ agentId, workspaceId, onDataChange, getDataRef
     const data = buildData();
     if (!data) return;
     if (!agentId) return;
-    setSaving(true);
+    const assertView = source.assertActive;
+    assertView();
+    if (owner.queryClient.getMutationCache().findAll({ mutationKey: [...queryKey, "command"], status: "pending" }).length) return;
     try {
-      await createEmailAccount(agentId, data, workspaceId);
-      const domain = fields.emailAddress.split("@")[1] ?? "";
+      await command.mutateAsync({ action: { kind: "create", data }, token: captureWorkspaceOwner(owner), assertView, signal: source.signal, resource: owner.queryClient.getQueryCache().find({ queryKey, exact: true }) });
+      assertView();
+      const domain = data.emailAddress.split("@")[1] ?? "";
       trackCustomEmailConnected({ email_domain: domain });
       toast.success("Custom email configured");
-      setOpen(false);
-      await load();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save");
-    } finally {
-      setSaving(false);
+      fields.setImapPassword("");
+      fields.setSmtpPassword("");
+      changeOpen(false);
+    } catch (error) {
+      try { assertView(); } catch { return; }
+      if (!isAbortError(error)) toast.error(error instanceof Error ? error.message : "Failed to save");
     }
   }
 
   async function handleDelete() {
     if (!existing || !agentId) return;
-    setDeleting(true);
+    const assertView = source.assertActive;
+    assertView();
+    if (owner.queryClient.getMutationCache().findAll({ mutationKey: [...queryKey, "command"], status: "pending" }).length) return;
     try {
-      await deleteEmailAccount(agentId, existing.id, workspaceId);
+      await command.mutateAsync({ action: { kind: "delete", id: existing.id }, token: captureWorkspaceOwner(owner), assertView, signal: source.signal, resource: owner.queryClient.getQueryCache().find({ queryKey, exact: true }) });
+      assertView();
       toast.success("Custom email removed");
-      setAccounts([]);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to remove");
-    } finally {
-      setDeleting(false);
+    } catch (error) {
+      try { assertView(); } catch { return; }
+      if (!isAbortError(error)) toast.error(error instanceof Error ? error.message : "Failed to remove");
     }
   }
 
   async function handleSync() {
     if (!existing || !agentId) return;
-    setSyncing(true);
+    const assertView = source.assertActive;
+    assertView();
+    if (owner.queryClient.getMutationCache().findAll({ mutationKey: [...queryKey, "command"], status: "pending" }).length) return;
     try {
-      await syncEmailAccount(agentId, existing.id, workspaceId);
+      await command.mutateAsync({ action: { kind: "sync", id: existing.id }, token: captureWorkspaceOwner(owner), assertView, signal: source.signal, resource: owner.queryClient.getQueryCache().find({ queryKey, exact: true }) });
+      assertView();
       toast.success("Sync triggered");
-      setTimeout(() => load(), 2000);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Sync failed");
-    } finally {
-      setSyncing(false);
+    } catch (error) {
+      try { assertView(); } catch { return; }
+      if (!isAbortError(error)) toast.error(error instanceof Error ? error.message : "Sync failed");
     }
   }
+
 
   const triggerDesc = isCreateMode
     ? (fields.emailAddress
@@ -330,7 +360,7 @@ export function CustomEmailForm({ agentId, workspaceId, onDataChange, getDataRef
         : "Connect your own mailbox via IMAP/SMTP";
 
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
+    <Sheet open={open} onOpenChange={changeOpen}>
       <SheetTrigger
         render={
           <button
@@ -389,7 +419,10 @@ export function CustomEmailForm({ agentId, workspaceId, onDataChange, getDataRef
               </p>
             </div>
 
-            {!isCreateMode && existing ? (
+            {!isCreateMode && accountsQuery.isError ? <div role="alert" className="space-y-3">
+              <p className="text-sm">Couldn’t load email accounts.</p>
+              <Button variant="outline" onClick={() => { source.assertActive(); void accountsQuery.refetch({ cancelRefetch: false }); }}>Try again</Button>
+            </div> : !isCreateMode && loading ? <Loader2 className="size-4 animate-spin" /> : !isCreateMode && existing ? (
               <div className="space-y-4">
                 <div className="flex items-center justify-between rounded-md border border-border/50 px-3 py-2">
                   <div className="flex items-center gap-2 min-w-0">

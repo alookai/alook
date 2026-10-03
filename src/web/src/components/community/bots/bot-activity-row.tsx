@@ -1,6 +1,7 @@
 "use client"
 
-import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useId, useLayoutEffect, useRef, type ReactNode } from "react"
 import {
   Tooltip,
   TooltipContent,
@@ -241,8 +242,8 @@ function TruncatedAuditLog({
   const triggerId = useId()
   const textRef = useRef<HTMLSpanElement | null>(null)
   const pointerTypeRef = useRef<string | null>(null)
-  const [isTruncated, setIsTruncated] = useState(false)
-  const [open, setOpen] = useState(false)
+  const [isTruncated, setIsTruncated] = useAtom(useCreateAtom(false))
+  const [open, setOpen] = useAtom(useCreateAtom(false))
 
   useLayoutEffect(() => {
     const element = textRef.current
@@ -257,7 +258,7 @@ function TruncatedAuditLog({
     const observer = new ResizeObserver(measure)
     observer.observe(element)
     return () => observer.disconnect()
-  }, [fullText])
+  }, [fullText, setIsTruncated, setOpen])
 
   const trigger = (
     <button

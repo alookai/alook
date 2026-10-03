@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect } from "react"
 import { useSearchParams } from "next/navigation"
 import { signIn, signUp, authClient } from "@/lib/auth-client"
 import { parseRetryAfterSeconds } from "@/lib/retry-after"
@@ -48,14 +49,14 @@ function SignInForm({
   accountDeleted: boolean
   appleEnabled: boolean
 }) {
-  const [email, setEmail] = useState("")
-  const [emailError, setEmailError] = useState("")
-  const [otpError, setOtpError] = useState("")
-  const [loading, setLoading] = useState(false)
+  const [email, setEmail] = useAtom(useCreateAtom(""))
+  const [emailError, setEmailError] = useAtom(useCreateAtom(""))
+  const [otpError, setOtpError] = useAtom(useCreateAtom(""))
+  const [loading, setLoading] = useAtom(useCreateAtom(false))
 
-  const [code, setCode] = useState("")
-  const [step, setStep] = useState<"email" | "code">("email")
-  const [retryAfter, setRetryAfter] = useState<number | null>(null)
+  const [code, setCode] = useAtom(useCreateAtom(""))
+  const [step, setStep] = useAtom(useCreateAtom<"email" | "code">("email"))
+  const [retryAfter, setRetryAfter] = useAtom(useCreateAtom<number | null>(null))
 
   useEffect(() => {
     if (retryAfter == null) return
@@ -63,7 +64,7 @@ function SignInForm({
       setRetryAfter((v) => (v == null || v <= 1 ? null : v - 1))
     }, 1000)
     return () => clearTimeout(id)
-  }, [retryAfter])
+  }, [retryAfter, setRetryAfter])
 
   const rateLimitHandler = {
     onError: (ctx: { response: Response }) => {
@@ -297,9 +298,9 @@ const galleryScenes: { scene: LandingScene; label: string; description: string }
 ]
 
 function ProductGallery() {
-  const [active, setActive] = useState(0)
-  const [enabled, setEnabled] = useState(false)
-  const [autoAdvance, setAutoAdvance] = useState(true)
+  const [active, setActive] = useAtom(useCreateAtom(0))
+  const [enabled, setEnabled] = useAtom(useCreateAtom(false))
+  const [autoAdvance, setAutoAdvance] = useAtom(useCreateAtom(true))
   const activeScene = galleryScenes[active]
 
   useEffect(() => {
@@ -316,7 +317,7 @@ function ProductGallery() {
       viewport.removeEventListener("change", sync)
       reducedMotion.removeEventListener("change", sync)
     }
-  }, [])
+  }, [setAutoAdvance, setEnabled])
 
   useEffect(() => {
     if (!enabled || !autoAdvance) return
@@ -324,7 +325,7 @@ function ProductGallery() {
       setActive((index) => (index + 1) % galleryScenes.length)
     }, sceneDurationMs(activeScene.scene))
     return () => window.clearTimeout(timeout)
-  }, [activeScene.scene, autoAdvance, enabled])
+  }, [activeScene.scene, autoAdvance, enabled, setActive])
 
   if (!enabled) return null
 

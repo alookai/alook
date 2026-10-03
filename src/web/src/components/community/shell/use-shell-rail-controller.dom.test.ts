@@ -1,6 +1,8 @@
 import { createElement } from "react"
 import { act, render as rtlRender } from "@/test/react-dom-harness"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { useShellRailController } from "./use-shell-rail-controller"
 
 const mocks = vi.hoisted(() => ({
@@ -24,7 +26,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("sonner", () => ({ toast: mocks.toast }))
 vi.mock("@/lib/api/client", () => ({ toastApiError: mocks.toastApiError }))
 vi.mock("@/lib/perf/switch-mark", () => ({ markSwitch: mocks.markSwitch }))
-vi.mock("@/lib/community/eject-server", () => ({
+vi.mock("@/lib/community/eject-server", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/community/eject-server")>(),
   markVoluntaryLeave: mocks.markVoluntaryLeave,
   pickPostEjectDestination: () => "/c/me",
 }))
@@ -35,7 +38,8 @@ vi.mock("@/hooks/community/use-servers", () => ({
   }),
 }))
 vi.mock("@/hooks/community/use-folders", () => ({ useFolders: () => ({ folders: mocks.folders }) }))
-vi.mock("@/lib/community-db/projections", () => ({
+vi.mock("@/lib/community-db/projections", async () => ({
+  ...await vi.importActual<typeof import("@/lib/community-db/projections")>("@/lib/community-db/projections"),
   useOptionalCommunityDbRegistry: () => mocks.communityDb.current,
 }))
 vi.mock("@/hooks/community/mutations", () => ({
@@ -43,7 +47,8 @@ vi.mock("@/hooks/community/mutations", () => ({
   useLeaveServer: () => ({ mutate: mocks.leaveServer }),
   useUploadServerIcon: () => ({ mutate: mocks.uploadIcon }),
 }))
-vi.mock("@/stores/community", () => ({
+vi.mock("@/stores/community", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/stores/community")>(),
   useCommunityStore: (selector: (state: { currentServerId: string }) => unknown) =>
     selector({ currentServerId: "s1" }),
 }))
@@ -87,10 +92,10 @@ async function renderController(overrides: Record<string, unknown> = {}) {
     cancelPendingNavigation: vi.fn(),
   }
   const cache = new Map<string, unknown>()
-  const queryClient = {
-    getQueryData: vi.fn((key: unknown[]) => cache.get(String(key.at(-1)))),
-    fetchQuery: vi.fn(),
-  }
+  const { client: queryClient, registry } = await createCommunityQueryOwner()
+  vi.spyOn(queryClient, "fetchQuery")
+  if (!mocks.communityDb.current) mocks.communityDb.current = registry
+
   const options = {
     navigation,
     queryClient,
@@ -104,10 +109,7 @@ async function renderController(overrides: Record<string, unknown> = {}) {
   let renderer!: ReturnType<typeof rtlRender>
   const onResult = (result: Result) => { current = result }
   await act(async () => {
-    renderer = rtlRender(createElement(Capture, {
-      options,
-      onResult,
-    }))
+    renderer = rtlRender(createElement(Capture, { options, onResult }), { wrapper: ({ children }) => createElement(CommunityTestProvider, { client: queryClient, registry, retainOwner: true }, children) })
   })
   return {
     get current() { return current },

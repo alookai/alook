@@ -1,5 +1,7 @@
+import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
+import { createCommunityDbRegistry } from "@/lib/community-db/collections"
 import { createElement, useLayoutEffect } from "react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { QueryClient } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen } from "@/test/react-dom-harness"
 import { useCommunityStore } from "@/stores/community"
@@ -35,7 +37,7 @@ vi.mock("@/hooks/community/use-bots", () => ({
 vi.mock("@/hooks/community/use-machines", () => ({
   useMachines: () => ({ machines: [{ id: "machine", status: "online" }], isLoading: false }),
 }))
-vi.mock("@/lib/community-db/projections", () => ({ useCanonicalProfilesByUserId: () => new Map() }))
+vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(), useCanonicalProfilesByUserId: () => new Map() }))
 vi.mock("@/hooks/community/mutations", () => ({
   useCreateOrGetDm: () => ({ mutateAsync: mocks.createDm }),
   useSendFriendRequest: () => ({}),
@@ -89,7 +91,7 @@ function renderEntries() {
     navigation = currentNavigation
     bots = useBotListController()
     useLayoutEffect(() => {
-      useCommunityStore.getState().registerUiHandlers({
+      createCommunityDbRegistry(queryClient, "viewer").runtime.ui.actions.registerUiHandlers({
         cancelPendingNavigation: currentNavigation.cancelPendingNavigation,
         navigatePath: currentNavigation.push,
       })
@@ -108,9 +110,9 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.alreadyMember = false
   mocks.onboarding = null
-  useCommunityStore.getState().reset()
+
 })
-afterEach(() => useCommunityStore.getState().reset())
+
 
 describe("real navigation entry actions", () => {
   it.each(["bot DM", "guided DM", "created bot DM", "invite Join", "Friends DM"])(

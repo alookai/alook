@@ -1,3 +1,4 @@
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import React, { memo } from "react";
 import { parseEmailHandle, stripMentionTokens, type Agent, type Artifact, type Message, type TaskApi as Task, type TaskMessageResponse } from "@alook/shared";
 
@@ -498,7 +499,7 @@ export const MessageItem = memo(function MessageItem({
   // (flagging your own message is meaningless). Capability is detected, not
   // viewport-sized, so a touch laptop gets the sheet and a desktop stays hover.
   const hoverCapable = useHoverCapable();
-  const [actionSheetOpen, setActionSheetOpen] = React.useState(false);
+  const [actionSheetOpen, setActionSheetOpen] = useAtom(useCreateAtom(false));
 
   const doCopy = React.useCallback(async () => {
     const ok = await copy(stripMentionTokens(msg.content));

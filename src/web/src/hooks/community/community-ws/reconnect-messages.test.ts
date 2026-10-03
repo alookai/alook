@@ -1,3 +1,7 @@
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { messageWindowPage, type MessagesPage } from "@/lib/community/models/message"
+import { getCommunityRuntime } from "@/stores/community/runtime"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   InfiniteQueryObserver,
@@ -13,26 +17,31 @@ import {
 } from "./reconnect-messages"
 
 const apiFetchMock = vi.hoisted(() => vi.fn())
-const publicationToken = vi.hoisted(() => ({ canonicalRevision: 7 }))
-const captureCommunityLiveSnapshotTokenMock = vi.hoisted(() => vi.fn(() => publicationToken))
+const captureCommunityLiveSnapshotTokenMock = vi.hoisted(() => vi.fn())
 const publishCommunityMessagesMock = vi.hoisted(() => vi.fn())
 
 vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
 }))
 
-vi.mock("@/lib/community-db/sync", () => ({
+vi.mock("@/lib/community-db/sync", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/community-db/sync")>()
+  captureCommunityLiveSnapshotTokenMock.mockImplementation(actual.captureCommunityLiveSnapshotToken)
+  publishCommunityMessagesMock.mockImplementation(actual.publishCommunityMessages)
+  return {
+  ...actual,
   captureCommunityLiveSnapshotToken: (...args: unknown[]) => (
     captureCommunityLiveSnapshotTokenMock(...args)
   ),
   publishCommunityMessages: (...args: unknown[]) => publishCommunityMessagesMock(...args),
-}))
+  }
+})
 
 function seedActiveQuery(
   queryClient: QueryClient,
   queryKey: readonly unknown[],
 ) {
-  queryClient.setQueryData(queryKey, {
+  const data = {
     pages: [
       {
         messages: [{
@@ -60,7 +69,8 @@ function seedActiveQuery(
       { mode: "newest" },
       { mode: "older", cursor: "older-2" },
     ],
-  })
+  }
+  queryClient.setQueryData(queryKey, { ...data, pages: data.pages.map((page) => messageWindowPage(page as MessagesPage)) })
   const queryFn = vi.fn(async () => ({ stale: true }))
   const observer = new QueryObserver(queryClient, {
     queryKey,
@@ -94,24 +104,23 @@ function seedEmptyActiveQuery(
 beforeEach(() => {
   apiFetchMock.mockReset()
   captureCommunityLiveSnapshotTokenMock.mockClear()
-  publishCommunityMessagesMock.mockReset()
-  useCommunityWsStore.getState().reset()
+  publishCommunityMessagesMock.mockClear()
 })
 
 describe("focused message reconnect catch-up", () => {
   it.each(["account", "parent", "replacement"] as const)("drops old reconnect data after %s changes", async (change) => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner("a")
     const key = communityKeys.channelMessages("child")
     const { unsubscribe } = seedActiveQuery(queryClient, key)
     let release!: (value: unknown) => void
     apiFetchMock.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
     const result = reconcileFocusedMessageQueries(queryClient, "channel", "child")
     await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
-    const state = useCommunityWsStore.getState()
+    const state = getCommunityRuntime(queryClient).ws.get()
     if (change === "account") {
-      state.activateProfileAccount("b")
-      useCommunityWsStore.getState().activateProfileAccount("a")
-    } else if (change === "parent") state.revokeChannelAccess("server", "parent")
+      getCommunityRuntime(queryClient).ws.actions.activateProfileAccount("b")
+      getCommunityRuntime(queryClient).ws.actions.activateProfileAccount("a")
+    } else if (change === "parent") getCommunityRuntime(queryClient).ws.actions.revokeChannelAccess("server", "parent")
     else {
       queryClient.removeQueries({ queryKey: key, exact: true })
       queryClient.setQueryData(key, { pages: [{ messages: [{ id: "new-account-message" }] }], pageParams: [] })
@@ -125,7 +134,7 @@ describe("focused message reconnect catch-up", () => {
   })
 
   it.each(["channel", "dm"] as const)("shares in-flight %s window work across foreground, reconnect and gap repair", async (kind) => {
-    const client = new QueryClient()
+    const { client: client } = await createCommunityQueryOwner("a")
     const key = kind === "channel" ? communityKeys.channelMessages("shared") : communityKeys.dmMessages("shared")
     const { unsubscribe } = seedActiveQuery(client, key)
     let release!: (page: unknown) => void
@@ -135,7 +144,7 @@ describe("focused message reconnect catch-up", () => {
     await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
     const reconnect = reconcileFocusedMessageQueries(client, kind, "shared")
     const gap = scheduleFocusedMessageGapRepair(client, { kind, scopeId: "shared" }, 5)
-    expect(reconnect).toBe(first)
+    expect(client.getQueryCache().find({ queryKey: [...key, "reconcile"], exact: true })?.state.fetchStatus).toBe("fetching")
     expect(cancel).toHaveBeenCalledOnce()
     expect(apiFetchMock).toHaveBeenCalledOnce()
     apiFetchMock.mockResolvedValueOnce({ messages: [3, 4, 5].map((seq) => ({ id: `m_${seq}`, seq, createdAt: `2026-08-15T00:00:0${seq}.000Z` })), latestSeq: 5, hasMoreNewer: false })
@@ -151,7 +160,7 @@ describe("focused message reconnect catch-up", () => {
   })
 
   it("refreshes a completed query variant when another variant still holds the scope owner", async () => {
-    const client = new QueryClient()
+    const { client: client } = await createCommunityQueryOwner("a")
     const key = communityKeys.channelMessages("variants")
     const taggedKey = [...key, "tag", "selected"]
     const subscriptions = [seedActiveQuery(client, key), seedActiveQuery(client, taggedKey)]
@@ -178,8 +187,8 @@ describe("focused message reconnect catch-up", () => {
   })
 
   it.each(["account", "permission", "replacement"] as const)("does not share an old repair after %s changes or let its cleanup remove the new owner", async (change) => {
-    const client = new QueryClient()
-    useCommunityWsStore.getState().activateProfileAccount("a")
+    const { client: client } = await createCommunityQueryOwner("a")
+    getCommunityRuntime(client).ws.actions.activateProfileAccount("a")
     const key = communityKeys.channelMessages("changed")
     const subscriptions = [seedActiveQuery(client, key).unsubscribe]
     let rejectOld!: (reason: unknown) => void
@@ -187,10 +196,10 @@ describe("focused message reconnect catch-up", () => {
     apiFetchMock.mockReturnValueOnce(new Promise((_, reject) => { rejectOld = reject }))
     const first = reconcileFocusedMessageQueries(client, "channel", "changed")
     await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
-    if (change === "account") useCommunityWsStore.getState().activateProfileAccount("b")
+    if (change === "account") getCommunityRuntime(client).ws.actions.activateProfileAccount("b")
     else if (change === "permission") {
-      useCommunityWsStore.getState().revokeChannelAccess("server", "changed")
-      useCommunityWsStore.getState().rememberChannelAccess("server", "changed")
+      getCommunityRuntime(client).ws.actions.revokeChannelAccess("server", "changed")
+      getCommunityRuntime(client).ws.actions.rememberChannelAccess("server", "changed")
     } else {
       client.removeQueries({ queryKey: key, exact: true })
       subscriptions.push(seedActiveQuery(client, key).unsubscribe)
@@ -202,20 +211,21 @@ describe("focused message reconnect catch-up", () => {
     rejectOld(new ApiError("old denial", 403))
     await first
     expect(client.getQueryData(key)).toBeDefined()
-    expect(reconcileFocusedMessageQueries(client, "channel", "changed")).toBe(second)
+    const shared = reconcileFocusedMessageQueries(client, "channel", "changed")
     expect(scheduleFocusedMessageGapRepair(client, { kind: "channel", scopeId: "changed" }, 5)).not.toBeNull()
     expect(apiFetchMock).toHaveBeenCalledTimes(2)
     apiFetchMock.mockResolvedValueOnce({ messages: [], latestSeq: 5, hasMoreNewer: false })
-    releaseNew({ messages: [{ id: "current", seq: 2, createdAt: "2026-08-15T00:00:02.000Z" }], latestSeq: 2, hasMore: false })
-    await second
+    releaseNew({ messages: [{ id: "m_2", content: "current", seq: 2, createdAt: "2026-08-15T00:00:02.000Z" }], latestSeq: 2, hasMore: false })
+    await Promise.all([second, shared])
     expect(publishCommunityMessagesMock).toHaveBeenCalledOnce()
-    expect(client.getQueryData<{ pages: Array<{ messages: Array<{ id: string }> }> }>(key)?.pages[0].messages[0].id).toBe("current")
+    expect(client.getQueryData<{ pages: Array<{ messages: Array<{ id: string }> }> }>(key)?.pages[0].messages[0].id).toBe("m_2")
+    expect(getCommunityDbRegistry(client)?.collections.messages.get("m_2")?.content).toBe("current")
     for (const unsubscribe of subscriptions) unsubscribe()
     client.clear()
   })
 
-  it("does not repair exact-next, duplicate, or out-of-order frames", () => {
-    const queryClient = new QueryClient()
+  it("does not repair exact-next, duplicate, or out-of-order frames", async () => {
+    const { client: queryClient } = await createCommunityQueryOwner("a")
     const queryKey = communityKeys.channelMessages("ch_contiguous")
     const { unsubscribe } = seedActiveQuery(queryClient, queryKey)
 
@@ -239,7 +249,7 @@ describe("focused message reconnect catch-up", () => {
   })
 
   it("coalesces simultaneous gap frames onto one focused catch-up", async () => {
-    const queryClient = new QueryClient()
+    const { client: queryClient } = await createCommunityQueryOwner("a")
     const queryKey = communityKeys.channelMessages("ch_gap")
     const { unsubscribe } = seedActiveQuery(queryClient, queryKey)
     const setQueryDataSpy = vi.spyOn(queryClient, "setQueryData")
@@ -276,10 +286,10 @@ describe("focused message reconnect catch-up", () => {
       6,
     )
     expect(first).not.toBeNull()
-    expect(second).toBe(first)
+    expect(queryClient.getQueryCache().find({ queryKey: [...queryKey, "reconcile"], exact: true })?.state.fetchStatus).toBe("fetching")
     await first
     expect(apiFetchMock).toHaveBeenCalledTimes(2)
-    expect(captureCommunityLiveSnapshotTokenMock).toHaveBeenCalledOnce()
+    expect(captureCommunityLiveSnapshotTokenMock).toHaveBeenCalledWith(queryClient)
     expect(publishCommunityMessagesMock).toHaveBeenCalledWith(queryClient, {
       channelId: "ch_gap",
       messages: expect.arrayContaining([
@@ -287,17 +297,17 @@ describe("focused message reconnect catch-up", () => {
         expect.objectContaining({ id: "m_3" }),
         expect.objectContaining({ id: "m_6" }),
       ]),
-      proof: { token: publicationToken, signal: undefined },
+      proof: { token: expect.objectContaining({ queryClient }), signal: expect.any(AbortSignal) },
     })
     expect(captureCommunityLiveSnapshotTokenMock.mock.invocationCallOrder[0])
       .toBeLessThan(apiFetchMock.mock.invocationCallOrder[0]!)
     expect(publishCommunityMessagesMock.mock.invocationCallOrder[0])
-      .toBeLessThan(setQueryDataSpy.mock.invocationCallOrder[0]!)
+      .toBeLessThan(setQueryDataSpy.mock.invocationCallOrder[setQueryDataSpy.mock.calls.findIndex(([key]) => JSON.stringify(key) === JSON.stringify(queryKey))]!)
     unsubscribe()
   })
 
   it("does not mistake a page latestSeq watermark for a locally cached row", async () => {
-    const queryClient = new QueryClient()
+    const { client: queryClient } = await createCommunityQueryOwner("a")
     const queryKey = communityKeys.dmMessages("dm_gap")
     const { unsubscribe } = seedActiveQuery(queryClient, queryKey)
     queryClient.setQueryData<any>(queryKey, (current: any) => ({
@@ -322,7 +332,7 @@ describe("focused message reconnect catch-up", () => {
   })
 
   it("keeps the painted message cache visible while reconnect reconciliation is in flight", async () => {
-    const queryClient = new QueryClient()
+    const { client: queryClient } = await createCommunityQueryOwner("a")
     const queryKey = communityKeys.channelMessages("ch_visible")
     const { unsubscribe } = seedActiveQuery(queryClient, queryKey)
     let resolveRefresh!: (page: {
@@ -365,7 +375,7 @@ describe("focused message reconnect catch-up", () => {
   })
 
   it("evicts a focused scope only after an authoritative access denial", async () => {
-    const queryClient = new QueryClient()
+    const { client: queryClient } = await createCommunityQueryOwner("a")
     const queryKey = communityKeys.channelMessages("ch_denied")
     const { unsubscribe } = seedActiveQuery(queryClient, queryKey)
     apiFetchMock.mockRejectedValueOnce(new ApiError("forbidden", 403))
@@ -377,21 +387,21 @@ describe("focused message reconnect catch-up", () => {
   })
 
   it("retains the focused scope on transient reconnect failure", async () => {
-    const queryClient = new QueryClient()
+    const { client: queryClient } = await createCommunityQueryOwner("a")
     const queryKey = communityKeys.channelMessages("ch_offline")
     const { unsubscribe } = seedActiveQuery(queryClient, queryKey)
     apiFetchMock.mockRejectedValueOnce(new ApiError("unavailable", 503))
 
     await expect(
       reconcileFocusedMessageQueries(queryClient, "channel", "ch_offline"),
-    ).rejects.toThrow("focused messages failed")
+    ).rejects.toThrow("unavailable")
 
     expect(queryClient.getQueryData(queryKey)).toBeDefined()
     unsubscribe()
   })
 
   it("cancels and replays an in-flight older-page fetch so neither side overwrites the other", async () => {
-    const queryClient = new QueryClient()
+    const { client: queryClient } = await createCommunityQueryOwner("a")
     const queryKey = communityKeys.channelMessages("ch_race")
     let resolveStaleOlder!: (page: {
       messages: Array<Record<string, unknown>>
@@ -488,7 +498,7 @@ describe("focused message reconnect catch-up", () => {
     const cancel = vi.spyOn(queryClient, "cancelQueries")
     const foreground = reconcileFocusedMessageQueries(queryClient, "channel", "ch_race")
     const reconnect = reconcileFocusedMessageQueries(queryClient, "channel", "ch_race")
-    expect(reconnect).toBe(foreground)
+    expect(queryClient.getQueryCache().find({ queryKey: [...queryKey, "reconcile"], exact: true })?.state.fetchStatus).toBe("fetching")
     await Promise.all([foreground, reconnect])
     expect(cancel).toHaveBeenCalledOnce()
     resolveStaleOlder({
@@ -511,7 +521,7 @@ describe("focused message reconnect catch-up", () => {
   })
 
   it("consumes a new gap arriving while the one pagination replay is still pending", async () => {
-    const client = new QueryClient()
+    const { client: client } = await createCommunityQueryOwner("a")
     const key = communityKeys.channelMessages("late-replay")
     let olderCalls = 0
     const newest = { messages: [{ id: "m_2", seq: 2, createdAt: "2026-08-15T00:00:02.000Z" }], latestSeq: 2, hasMore: true, cursor: "older" }
@@ -555,7 +565,7 @@ describe("focused message reconnect catch-up", () => {
   })
 
   it("does not replay completed pagination whose fetch metadata remains idle", async () => {
-    const client = new QueryClient()
+    const { client: client } = await createCommunityQueryOwner("a")
     const key = communityKeys.channelMessages("idle-pagination")
     let olderCalls = 0
     const newest = { messages: [{ id: "m_2", seq: 2, createdAt: "2026-08-15T00:00:02.000Z" }], latestSeq: 2, hasMore: true, cursor: "older-2" }
@@ -587,7 +597,7 @@ describe("focused message reconnect catch-up", () => {
   ] as const)(
     "refreshes an empty active %s query so its first missed message appears",
     async (kind, queryKey, scopeId) => {
-      const queryClient = new QueryClient()
+      const { client: queryClient } = await createCommunityQueryOwner("a")
       const { queryFn, unsubscribe } = seedEmptyActiveQuery(queryClient, queryKey)
       apiFetchMock.mockResolvedValue({
         messages: [{
@@ -604,7 +614,7 @@ describe("focused message reconnect catch-up", () => {
 
       expect(apiFetchMock).toHaveBeenCalledOnce()
       expect(apiFetchMock).toHaveBeenCalledWith(
-        `/api/community/channels/${scopeId}/messages`,
+        `/api/community/channels/${scopeId}/messages`, expect.objectContaining({ assertActive: expect.any(Function) }),
       )
       expect(queryFn).not.toHaveBeenCalled()
       const messages = queryClient.getQueryData<{
@@ -616,7 +626,7 @@ describe("focused message reconnect catch-up", () => {
   )
 
   it.each(["channel", "dm"] as const)("rechecks a stale empty %s window when an in-flight foreground repair receives its first gap", async (kind) => {
-    const client = new QueryClient()
+    const { client: client } = await createCommunityQueryOwner("a")
     const scopeId = "first-gap"
     const key = kind === "channel" ? communityKeys.channelMessages(scopeId) : communityKeys.dmMessages(scopeId)
     const { queryFn, unsubscribe } = seedEmptyActiveQuery(client, key)
@@ -645,7 +655,7 @@ describe("focused message reconnect catch-up", () => {
   })
 
   it.each(["channel", "dm"] as const)("bounds stale empty %s reads and allows a later recovery", async (kind) => {
-    const client = new QueryClient()
+    const { client: client } = await createCommunityQueryOwner("a")
     const scopeId = "bounded-empty"
     const key = kind === "channel" ? communityKeys.channelMessages(scopeId) : communityKeys.dmMessages(scopeId)
     const { queryFn, unsubscribe } = seedEmptyActiveQuery(client, key)
@@ -663,7 +673,7 @@ describe("focused message reconnect catch-up", () => {
   })
 
   it.each(["permission", "replacement"] as const)("drops an empty-window retry result after %s changes", async (change) => {
-    const client = new QueryClient()
+    const { client: client } = await createCommunityQueryOwner("a")
     const scopeId = "empty-retry-owner"
     const key = communityKeys.channelMessages(scopeId)
     const subscriptions = [seedEmptyActiveQuery(client, key).unsubscribe]
@@ -672,7 +682,8 @@ describe("focused message reconnect catch-up", () => {
     apiFetchMock.mockReturnValueOnce(new Promise((resolve) => { release = resolve }))
     const gap = scheduleFocusedMessageGapRepair(client, { kind: "channel", scopeId }, 2)
     await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(2))
-    if (change === "permission") useCommunityWsStore.getState().revokeChannelAccess("server", scopeId)
+    const publicationsBeforeRetirement = publishCommunityMessagesMock.mock.calls.length
+    if (change === "permission") getCommunityRuntime(client).ws.actions.revokeChannelAccess("server", scopeId)
     else {
       client.removeQueries({ queryKey: key, exact: true })
       subscriptions.push(seedActiveQuery(client, key).unsubscribe)
@@ -681,14 +692,15 @@ describe("focused message reconnect catch-up", () => {
     release({ messages: [{ id: "m_obsolete", seq: 2 }], latestSeq: 2, hasMore: false })
     await gap
     expect(client.getQueryData(key)).toBe(current)
-    expect(publishCommunityMessagesMock).not.toHaveBeenCalled()
+    expect(publishCommunityMessagesMock).toHaveBeenCalledTimes(publicationsBeforeRetirement)
+    expect(getCommunityDbRegistry(client)?.collections.messages.has("m_obsolete")).toBe(false)
     expect(apiFetchMock).toHaveBeenCalledTimes(2)
     for (const unsubscribe of subscriptions) unsubscribe()
     client.clear()
   })
 
   it("preserves a same-query cold reset until its canonical read completes instead of rebuilding pages from old HTTP", async () => {
-    const client = new QueryClient()
+    const { client: client } = await createCommunityQueryOwner("a")
     const key = communityKeys.channelMessages("reset-pending")
     const oldPage = { messages: [{ id: "m_old", seq: 2 }], latestSeq: 2, hasMore: false }
     client.setQueryData(key, { pages: [oldPage], pageParams: [{ mode: "newest" }] })
@@ -729,9 +741,7 @@ describe("focused message reconnect catch-up", () => {
   ] as const)(
     "recovers a cold failed active %s query through its canonical queryFn",
     async (kind, queryKey, scopeId) => {
-      const queryClient = new QueryClient({
-        defaultOptions: { queries: { retry: false } },
-      })
+      const { client: queryClient } = await createCommunityQueryOwner("a")
       const queryFn = vi.fn()
         .mockRejectedValueOnce(new Error("offline"))
         .mockResolvedValueOnce({
@@ -771,7 +781,7 @@ describe("focused message reconnect catch-up", () => {
   )
 
   it("refreshes an anchor window, then catches up only from its newest cached row", async () => {
-    const queryClient = new QueryClient()
+    const { client: queryClient } = await createCommunityQueryOwner("a")
     const queryKey = communityKeys.channelMessages("ch_anchor")
     queryClient.setQueryData(queryKey, {
       pages: [{
@@ -785,6 +795,7 @@ describe("focused message reconnect catch-up", () => {
         olderCursor: "older-10",
         hasMoreNewer: true,
         newerCursor: "newer-10",
+        newestCursor: "2026-08-15T00:00:10.000Z|m_10",
         latestSeq: 10,
       }],
       pageParams: [{ mode: "anchor", anchor: "m_10" }],
@@ -837,7 +848,7 @@ describe("focused message reconnect catch-up", () => {
   })
 
   it("walks only forward delta pages and preserves every cached history page", async () => {
-    const queryClient = new QueryClient()
+    const { client: queryClient } = await createCommunityQueryOwner("a")
     const queryKey = communityKeys.channelMessages("ch_1")
     const { queryFn, unsubscribe } = seedActiveQuery(queryClient, queryKey)
     apiFetchMock
@@ -912,7 +923,7 @@ describe("focused message reconnect catch-up", () => {
   })
 
   it("caps forward catch-up at eight pages and leaves the newer cursor resumable", async () => {
-    const queryClient = new QueryClient()
+    const { client: queryClient } = await createCommunityQueryOwner("a")
     const queryKey = communityKeys.channelMessages("ch_bounded")
     const { unsubscribe } = seedActiveQuery(queryClient, queryKey)
     apiFetchMock.mockResolvedValueOnce({
@@ -961,7 +972,7 @@ describe("focused message reconnect catch-up", () => {
   })
 
   it("refreshes one visible window for missed edits without walking history", async () => {
-    const queryClient = new QueryClient()
+    const { client: queryClient } = await createCommunityQueryOwner("a")
     const queryKey = communityKeys.channelMessages("ch_1")
     const { queryFn, unsubscribe } = seedActiveQuery(queryClient, queryKey)
     apiFetchMock.mockResolvedValue({
@@ -981,20 +992,20 @@ describe("focused message reconnect catch-up", () => {
 
     expect(apiFetchMock).toHaveBeenCalledOnce()
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/community/channels/ch_1/messages",
+      "/api/community/channels/ch_1/messages", expect.objectContaining({ assertActive: expect.any(Function) }),
     )
     expect(queryFn).not.toHaveBeenCalled()
     expect(queryClient.getQueryData<{
       pages: Array<{ messages: Array<{ id: string; content?: string }> }>
     }>(queryKey)?.pages[0].messages[0]).toMatchObject({
       id: "m_2",
-      content: "edited while disconnected",
     })
+    expect(getCommunityDbRegistry(queryClient)?.collections.messages.get("m_2")?.content).toBe("edited while disconnected")
     unsubscribe()
   })
 
   it("merges into the latest cache so a live WS row arriving mid-reconcile is preserved", async () => {
-    const queryClient = new QueryClient()
+    const { client: queryClient } = await createCommunityQueryOwner("a")
     const queryKey = communityKeys.channelMessages("ch_1")
     const { unsubscribe } = seedActiveQuery(queryClient, queryKey)
     apiFetchMock.mockImplementationOnce(async () => {
@@ -1034,14 +1045,15 @@ describe("focused message reconnect catch-up", () => {
     expect(queryClient.getQueryData<{
       pages: Array<{ messages: Array<{ id: string; content?: string }> }>
     }>(queryKey)?.pages[0].messages).toMatchObject([
-      { id: "m_2", content: "refreshed" },
+      { id: "m_2" },
       { id: "m_live" },
     ])
+    expect(getCommunityDbRegistry(queryClient)?.collections.messages.get("m_2")?.content).toBe("refreshed")
     unsubscribe()
   })
 
   it("keeps a DM's loaded history pages while refreshing its current window", async () => {
-    const queryClient = new QueryClient()
+    const { client: queryClient } = await createCommunityQueryOwner("a")
     const queryKey = communityKeys.dmMessages("dm_1")
     const { queryFn, unsubscribe } = seedActiveQuery(queryClient, queryKey)
     apiFetchMock.mockResolvedValue({
@@ -1060,7 +1072,7 @@ describe("focused message reconnect catch-up", () => {
 
     expect(apiFetchMock).toHaveBeenCalledOnce()
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/community/channels/dm_1/messages",
+      "/api/community/channels/dm_1/messages", expect.objectContaining({ assertActive: expect.any(Function) }),
     )
     expect(queryFn).not.toHaveBeenCalled()
     expect(queryClient.getQueryData<{
@@ -1080,7 +1092,7 @@ describe("focused message reconnect catch-up", () => {
   })
 
   it("keeps a tag-filtered active query scoped to the same tag", async () => {
-    const queryClient = new QueryClient()
+    const { client: queryClient } = await createCommunityQueryOwner("a")
     const queryKey = [...communityKeys.channelMessages("forum_1"), "tag", "bug"] as const
     const { unsubscribe } = seedActiveQuery(queryClient, queryKey)
     apiFetchMock.mockResolvedValue({ messages: [], hasMoreNewer: false, latestSeq: 2 })
@@ -1088,13 +1100,13 @@ describe("focused message reconnect catch-up", () => {
     await reconcileFocusedMessageQueries(queryClient, "channel", "forum_1")
 
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/community/channels/forum_1/messages?tag=bug",
+      "/api/community/channels/forum_1/messages?tag=bug", expect.objectContaining({ assertActive: expect.any(Function) }),
     )
     unsubscribe()
   })
 
   it("leaves rendered cache untouched when catch-up fails", async () => {
-    const queryClient = new QueryClient()
+    const { client: queryClient } = await createCommunityQueryOwner("a")
     const queryKey = communityKeys.dmMessages("dm_1")
     const { unsubscribe } = seedActiveQuery(queryClient, queryKey)
     const before = queryClient.getQueryData(queryKey)
@@ -1102,7 +1114,7 @@ describe("focused message reconnect catch-up", () => {
 
     await expect(
       reconcileFocusedMessageQueries(queryClient, "dm", "dm_1"),
-    ).rejects.toThrow("focused messages failed")
+    ).rejects.toThrow("network unavailable")
 
     expect(queryClient.getQueryData(queryKey)).toBe(before)
     unsubscribe()

@@ -1,6 +1,10 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCreateAtom } from "@tanstack/react-store";
+import { useCallback, useEffect, useMemo } from "react"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useCommunityMutationOrigin } from "@/hooks/community/community-origin"
+import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { isPresenceOnline } from "@alook/shared"
 import { CircleAlert } from "lucide-react"
 import { toast } from "sonner"
@@ -20,7 +24,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useMachines } from "@/hooks/community/use-machines"
-import { apiFetch } from "@/lib/api/client"
 import { tid } from "@/lib/community/testids"
 
 export function OnboardingMachineDialog({
@@ -42,7 +45,13 @@ export function OnboardingMachineDialog({
   previewConnectedMachine?: { id: string; hostname: string }
   previewCommand?: string
 }) {
-  const { machines, isSuccess, refetch } = useMachines()
+  const origin = useCommunityMutationOrigin()
+  const queryClient = useQueryClient()
+  const source = useCommunityViewSource(`onboarding-machine:${harness}`, open)
+  const { machines, isSuccess, refetch } = useMachines({
+    enabled: open, subscribed: open,
+    refetchInterval: (query) => open && !previewConnectedMachine && !previewCommand && !query.state.data?.machines.some((machine) => isPresenceOnline(machine.status) && machine.availableRuntimes.some((runtime) => runtime.id === harness && runtime.status !== "unhealthy")) ? 2000 : false,
+  })
   const connectedMachine = useMemo(
     () => machines.find((machine) => isPresenceOnline(machine.status)),
     [machines],
@@ -54,40 +63,38 @@ export function OnboardingMachineDialog({
     ),
     [harness, machines],
   )
-  const [tokenId, setTokenId] = useState<string | null>(null)
-  const [generating, setGenerating] = useState(false)
-  const [generateError, setGenerateError] = useState<string | null>(null)
-  const [machineLimitReached, setMachineLimitReached] = useState(false)
-  const generationInFlight = useRef(false)
-
+  const autoMint = useCreateAtom<AbortSignal | null>(null)
+  const generation = useMutation({
+    mutationKey: ["community", "onboarding-machine-pair", harness], gcTime: 0,
+    mutationFn: async ({ token, assert }: { token: ReturnType<typeof origin.begin>["token"]; assert: ReturnType<typeof source.capture> }) => {
+      assert()
+      const result = await origin.request<{ tokenId: string; expiresAt: string }>(token, "/api/community/machines/pair", { method: "POST", signal: assert.signal, assertActive: assert })
+      assert()
+      return result
+    },
+  })
+  const currentGeneration = generation.variables?.assert.signal === source.signal
+  const generating = currentGeneration && generation.isPending
+  const tokenId = currentGeneration ? generation.data?.tokenId : undefined
+  const error = currentGeneration ? generation.error : null
+  const machineLimitReached = error instanceof Error && error.message === "MACHINE_LIMIT_REACHED"
+  const generateError = error && !machineLimitReached && !(error instanceof DOMException && error.name === "AbortError") ? "Couldn’t prepare the command. Try again." : null
+  const mutateGeneration = generation.mutateAsync
   const generateCommand = useCallback(async () => {
-    if (generationInFlight.current) return
-    generationInFlight.current = true
-    setGenerating(true)
-    setGenerateError(null)
-    setMachineLimitReached(false)
-    try {
-      const result = await apiFetch<{ tokenId: string; expiresAt: string }>(
-        "/api/community/machines/pair",
-        { method: "POST" },
-      )
-      setTokenId(result.tokenId)
-    } catch (error) {
-      if (error instanceof Error && error.message === "MACHINE_LIMIT_REACHED") {
-        setMachineLimitReached(true)
-        void refetch()
-        return
-      }
-      setGenerateError("Couldn’t prepare the command. Try again.")
-    } finally {
-      generationInFlight.current = false
-      setGenerating(false)
+    if (generating || queryClient.getMutationCache().find({ mutationKey: ["community", "onboarding-machine-pair", harness], status: "pending", predicate: (mutation) => (mutation.state.variables as { assert?: { signal: AbortSignal } } | undefined)?.assert?.signal === source.signal })) return
+    const token = origin.begin().token, assert = source.capture()
+    assert()
+    try { await mutateGeneration({ token, assert }) }
+    catch (error) {
+      try { assert() } catch { return }
+      if (error instanceof Error && error.message === "MACHINE_LIMIT_REACHED") void refetch({ cancelRefetch: false })
     }
-  }, [refetch])
+  }, [generating, queryClient, harness, origin, source, mutateGeneration, refetch])
 
   useEffect(() => {
+    if (!open) { autoMint.set(null); return }
     if (
-      !open ||
+      autoMint.get() === source.signal ||
       !isSuccess ||
       onlineMachine ||
       previewConnectedMachine ||
@@ -97,6 +104,7 @@ export function OnboardingMachineDialog({
       machineLimitReached ||
       generateError
     ) return
+    autoMint.set(source.signal)
     void generateCommand()
   }, [
     generateCommand,
@@ -109,15 +117,9 @@ export function OnboardingMachineDialog({
     previewConnectedMachine,
     previewCommand,
     tokenId,
+    source.signal,
+    autoMint,
   ])
-
-  useEffect(() => {
-    if (!open || !isSuccess || onlineMachine || previewConnectedMachine) return
-    const timer = window.setInterval(() => {
-      void refetch()
-    }, 2000)
-    return () => window.clearInterval(timer)
-  }, [isSuccess, onlineMachine, open, previewConnectedMachine, refetch])
 
   const command = tokenId ? buildPairCommand(tokenId) : ""
   const displayedCommand = previewConnectedMachine
@@ -125,10 +127,14 @@ export function OnboardingMachineDialog({
     : previewCommand ?? command
   const copyCommand = async () => {
     if (!displayedCommand) return
+    const assert = source.capture()
+    assert()
     try {
       await navigator.clipboard.writeText(displayedCommand)
+      assert()
       toast.success("Command copied")
     } catch {
+      try { assert() } catch { return }
       toast.error("Copy failed")
     }
   }
@@ -222,6 +228,7 @@ export function OnboardingMachineDialog({
             className="h-11 w-full sm:h-9 sm:w-auto"
             disabled={!previewConnectedMachine && !onlineMachine}
             onClick={() => {
+              source.capture()()
               const machineId = previewConnectedMachine?.id ?? onlineMachine?.id
               if (machineId) onConnected(machineId)
             }}

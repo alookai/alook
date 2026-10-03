@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useRef } from "react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
@@ -82,8 +83,8 @@ const scenarios: Scenario[] = [
 
 export function UseCasesSection() {
   const sectionRef = useRef<HTMLDivElement>(null);
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [slideDir, setSlideDir] = useState<"left" | "right">("left");
+  const [activeIndex, setActiveIndex] = useAtom(useCreateAtom(0));
+  const [slideDir, setSlideDir] = useAtom(useCreateAtom<"left" | "right">("left"));
 
   useGSAP(
     () => {

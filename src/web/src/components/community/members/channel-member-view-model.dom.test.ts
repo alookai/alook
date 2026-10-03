@@ -1,5 +1,6 @@
 import React, { useEffect } from "react"
-import { act, render as rtlRender } from "@/test/react-dom-harness"
+import { act } from "@/test/react-dom-harness"
+import { renderCommunity as rtlRender } from "@/test/community-owner-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AddMembersDialog } from "./add-members-dialog"
 import { useChannelMemberViewModel } from "./channel-member-view-model"
@@ -96,7 +97,7 @@ vi.mock("@/hooks/community/mutations", () => ({
   useSetMemberRole: () => ({ mutate: mocks.setMemberRole }),
   useKickMember: () => ({ mutateAsync: mocks.kickMember }),
 }))
-vi.mock("@/lib/community-db/projections", () => ({
+vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
   useCanonicalProfilesByUserId: () => {
     const rows = [
       ...mocks.serverMembers,
@@ -249,8 +250,8 @@ describe("useChannelMemberViewModel", () => {
     })
 
     expect(mocks.serverMemberArgs.at(-1)).toBeNull()
-    expect(mockedUseChannelMembers).toHaveBeenNthCalledWith(1, "channel_1", false)
-    expect(mockedUseChannelMembers).toHaveBeenNthCalledWith(2, "", false)
+    expect(mockedUseChannelMembers).toHaveBeenNthCalledWith(1, "channel_1", false, "server_1", "access")
+    expect(mockedUseChannelMembers).toHaveBeenNthCalledWith(2, "", false, "server_1", "access")
     expect(mockedUseAddableMembers).toHaveBeenCalledWith(
       "server_1",
       "channel_1",
@@ -284,6 +285,7 @@ describe("useChannelMemberViewModel", () => {
     const resolver = latestModel().resolveUserName
     expect(resolver("alice_1")).toBe("Alice")
 
+    mocks.serverMembers = mocks.serverMembers.map((row) => row.userId === "alice_1" ? { ...row, status: "online", statusEmoji: "🌱", statusText: "Focused" } : row)
     mocks.onlineUserIds = new Set(["alice_1"])
     mocks.userStatuses = new Map([["alice_1", { emoji: "🌱", text: "Focused" }]])
     act(() => {
@@ -341,7 +343,7 @@ describe("useChannelMemberViewModel", () => {
     })
 
     await latestModel().memberPanelProps.manageContext?.onRemove("alice_1")
-    expect(mocks.removeChannelMember).toHaveBeenCalledWith("alice_1")
+    expect(mocks.removeChannelMember).toHaveBeenCalledWith({ userId: "alice_1", assertActive: expect.any(Function) })
     expect(mocks.removeThreadParticipant).not.toHaveBeenCalled()
     expect(latestModel().memberPanelProps.manageContext).toEqual(expect.objectContaining({
       viewerUserId: "viewer_1",
@@ -372,8 +374,8 @@ describe("useChannelMemberViewModel", () => {
       })))
     })
 
-    expect(mockedUseChannelMembers).toHaveBeenCalledWith("thread_1", true)
-    expect(mockedUseChannelMembers).toHaveBeenCalledWith("parent_1", true)
+    expect(mockedUseChannelMembers).toHaveBeenCalledWith("thread_1", true, "server_1", "notify")
+    expect(mockedUseChannelMembers).toHaveBeenCalledWith("parent_1", true, "server_1", "access")
     expect(latestModel().memberPanelProps.members.map((row) => row.userId)).toEqual(["viewer_1", "alice_1"])
     expect(latestModel().memberPanelProps.members.every((row) => row.source === undefined)).toBe(true)
     expect(latestModel().composerMembers.map((row) => row.userId)).toEqual(["alice_1", "bob_1"])
@@ -393,8 +395,8 @@ describe("useChannelMemberViewModel", () => {
     }))
     await dialogProps.onAdd("bob_1")
     await latestModel().memberPanelProps.manageContext?.onRemove("alice_1")
-    expect(mocks.addThreadParticipant).toHaveBeenCalledWith("bob_1")
-    expect(mocks.removeThreadParticipant).toHaveBeenCalledWith("alice_1")
+    expect(mocks.addThreadParticipant).toHaveBeenCalledWith({ userId: "bob_1", assertActive: expect.any(Function) })
+    expect(mocks.removeThreadParticipant).toHaveBeenCalledWith({ userId: "alice_1", assertActive: expect.any(Function) })
     expect(mocks.addChannelMember).not.toHaveBeenCalled()
     expect(mocks.removeChannelMember).not.toHaveBeenCalled()
   })
@@ -549,10 +551,11 @@ describe("useChannelMemberViewModel", () => {
     latestModel().memberPanelProps.onSetRole?.("member_alice", "admin")
     await latestModel().memberPanelProps.onKickMember?.("member_alice")
     expect(mocks.setMemberRole).toHaveBeenCalledWith({
+      assertActive: expect.any(Function),
       serverId: "server_1",
       memberId: "member_alice",
       role: "admin",
     }, expect.any(Object))
-    expect(mocks.kickMember).toHaveBeenCalledWith({ serverId: "server_1", memberId: "member_alice" })
+    expect(mocks.kickMember).toHaveBeenCalledWith({ serverId: "server_1", memberId: "member_alice", assertActive: expect.any(Function) })
   })
 })

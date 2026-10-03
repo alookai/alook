@@ -1,4 +1,6 @@
 "use client"
+import { useCommunityRuntime, type CommunityRuntime } from "@/stores/community/runtime"
+
 
 import { useCallback, useEffect, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
@@ -6,12 +8,8 @@ import {
   useUserWs,
   type UserWsConnectionPhase,
 } from "@/lib/use-user-ws"
-import { useCommunityStore } from "@/stores/community"
-import {
-  SEEN_DELIVERY_OPERATION_MAX,
-  SEEN_DELIVERY_OPERATION_TRIM_TO,
-  useCommunityWsStore,
-} from "@/stores/community/ws"
+
+import { SEEN_DELIVERY_OPERATION_MAX, SEEN_DELIVERY_OPERATION_TRIM_TO } from "@/stores/community/ws"
 import {
   reconcileCommunityWsReconnect,
   reconcileFocusedCommunityMessages,
@@ -73,7 +71,7 @@ export type {
  *
  * The subscription (which channel/DM is focused) is read from
  * `useCommunityStore.subscription`, not from local component state — that
- * way any consumer can call `useCommunityStore.getState().subscribe(...)`
+ * way any consumer can call `runtime.ui.actions.subscribe(...)`
  * and the WS handler picks it up on the next event.
  */
 
@@ -162,38 +160,32 @@ function armInboxRefreshGeneration(
 // `useCommunityWs` writes into this on connect so free helpers below can
 // dispatch typing events without needing to re-mount the hook (which would
 // open a second WebSocket per consumer). Cleared on unmount.
-let activeSend: ((msg: object) => void) | null = null
-
-/** Testing hook — clears the module-scoped `activeSend` binding. */
-export function _resetActiveSend_forTesting() {
-  activeSend = null
-}
-
 /**
  * Subscribe to a channel/thread/DM. Free helper so any component can update
  * the focused subscription without holding a reference to `useCommunityWs`.
  */
 export function communityWsSubscribe(
+  runtime: CommunityRuntime,
   target: Pick<Subscription, "channelId" | "dmConversationId">,
 ) {
-  useCommunityStore.getState().subscribe(target)
+  runtime.ui.actions.subscribe(target)
 }
 
-export function communityWsUnsubscribe() {
-  useCommunityStore.getState().unsubscribe()
+export function communityWsUnsubscribe(runtime: CommunityRuntime) {
+  runtime.ui.actions.unsubscribe()
 }
 
-export function communityWsClaimSecondaryChannel(owner: symbol, channelId: string) {
-  useCommunityStore.getState().claimSecondaryChannel(owner, channelId)
+export function communityWsClaimSecondaryChannel(runtime: CommunityRuntime, owner: symbol, channelId: string) {
+  runtime.ui.actions.claimSecondaryChannel(owner, channelId)
 }
 
-export function communityWsReleaseSecondaryChannel(owner: symbol) {
-  useCommunityStore.getState().releaseSecondaryChannel(owner)
+export function communityWsReleaseSecondaryChannel(runtime: CommunityRuntime, owner: symbol) {
+  runtime.ui.actions.releaseSecondaryChannel(owner)
 }
 
-export function communityWsInterruptAgent(agentId: string) {
-  if (!activeSend || !agentId) return
-  activeSend({
+export function communityWsInterruptAgent(runtime: CommunityRuntime, agentId: string) {
+  if (!runtime.lifecycle.get().active || !runtime.transport.send || !agentId) return
+  runtime.transport.send({
     type: "agent:interrupt",
     agentId,
   } satisfies AgentInterruptRequest)
@@ -205,14 +197,15 @@ export function communityWsInterruptAgent(agentId: string) {
  * call is a no-op — subsequent connections don't retroactively fire missed
  * typings.
  */
-export function communityWsSendTyping(target: { channelId: string }) {
+export function communityWsSendTyping(runtime: CommunityRuntime, target: { channelId: string }) {
+  if (!runtime.lifecycle.get().active) return
   const key = target.channelId
   if (!key) return
-  const send = activeSend
+  const send = runtime.transport.send
   if (!send) return
 
   const now = Date.now()
-  const map = useCommunityStore.getState().lastTypingSent
+  const map = runtime.ui.get().lastTypingSent
   const lastSent = map.get(key) || 0
   if (now - lastSent < TYPING_INDICATOR_THROTTLE_MS) return
 
@@ -220,26 +213,28 @@ export function communityWsSendTyping(target: { channelId: string }) {
   send({ type: "community:typing.start", channelId: key })
 }
 
-export function communityWsEndTyping(target: { channelId: string }) {
+export function communityWsEndTyping(runtime: CommunityRuntime, target: { channelId: string }) {
+  if (!runtime.lifecycle.get().active) return
   const key = target.channelId
   if (!key) return
-  const hadActiveBurst = useCommunityStore.getState().lastTypingSent.delete(key)
-  if (hadActiveBurst) activeSend?.({ type: "community:typing.stop", channelId: key })
+  const hadActiveBurst = runtime.ui.get().lastTypingSent.delete(key)
+  if (hadActiveBurst) runtime.transport.send?.({ type: "community:typing.stop", channelId: key })
 }
 
 export function useCommunityWs(options?: UseCommunityWsOptions): void {
+  const runtime = useCommunityRuntime()
   const queryClient = useQueryClient()
   const reconnectTransportRef = useRef<() => void>(() => undefined)
   const connectionControllerRef = useRef<CommunityWsConnectionStatusController | null>(null)
   const getConnectionController = useCallback(() => {
     if (connectionControllerRef.current === null) {
       connectionControllerRef.current = createCommunityWsConnectionStatusController({
-        publish: useCommunityWsStore.getState().setConnectionStatus,
+        publish: runtime.ws.actions.setConnectionStatus,
         reconnectTransport: () => reconnectTransportRef.current(),
       })
     }
     return connectionControllerRef.current
-  }, [])
+  }, [runtime.ws.actions.setConnectionStatus])
   const handleConnectionStateChange = useCallback((phase: UserWsConnectionPhase) => {
     getConnectionController().handlePhase(phase)
   }, [getConnectionController])
@@ -250,9 +245,8 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
   viewerUserIdRef.current = viewerUserId
   useEffect(() => {
     if (!viewerUserId) return
-    const store = useCommunityWsStore.getState()
-    store.setPresence(viewerUserId, "online")
-  }, [viewerUserId])
+    runtime.ws.actions.setPresence(viewerUserId, "online")
+  }, [runtime.ws.actions, viewerUserId])
 
   const inboxRefreshOwner = useRef<InboxRefreshOwner | null>(null)
   if (inboxRefreshOwner.current === null) {
@@ -356,9 +350,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
   const handleMessage = useCallback(
     (msg: { type: string;[key: string]: unknown }) => {
       if (!msg.type.startsWith("community:")) return
-      const communityStore = useCommunityStore.getState()
-      const sub = communityStore.subscription
-      const wsStore = useCommunityWsStore.getState()
+      if (!runtime.lifecycle.get().active) return
+      const communityStore = runtime.ui
+      const sub = communityStore.get().subscription
+      const wsStore = runtime.ws
       // A DM is a channel now — every message/typing/reaction event carries a
       // single `channelId`. The subscription still tracks two slots so the
       // handler can route a DM channel's events into the `dmMessages` cache vs
@@ -416,7 +411,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
           trackCommunityWsFrameDropped(metadata)
           return
         }
-        const operationStatus = wsStore.observeDeliveryOperation(
+        const operationStatus = runtime.ws.actions.observeDeliveryOperation(
           decoded.batch.operationId,
           decoded.batch.operationDigest,
         )
@@ -476,7 +471,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         // identical bundle retry, so idempotent child projections can finish
         // converging even when authoritative reconnect reconciliation fails.
         if (collectedRefresh) scheduleInboxInvalidate(collectedRefresh, operationKey)
-        wsStore.completeDeliveryOperation(
+        runtime.ws.actions.completeDeliveryOperation(
           decoded.batch.operationId,
           decoded.batch.operationDigest,
         )
@@ -504,7 +499,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         void drainCommunityFunnelEvents()
       }
     },
-    [queryClient, scheduleInboxInvalidate],
+    [queryClient, runtime.lifecycle, runtime.ui, runtime.ws, scheduleInboxInvalidate],
   )
 
   const handleReconnect = useCallback(async ({ reconnectDurationMs }: { reconnectDurationMs: number }) => {
@@ -518,11 +513,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     }
   }, [queryClient])
   const handleAuthenticated = useCallback(async () => {
-    const store = useCommunityWsStore.getState()
-    store.markAccessConnected()
+    runtime.ws.actions.markAccessConnected()
     const viewerId = viewerUserIdRef.current
     if (viewerId) {
-      store.setPresence(viewerId, "online")
+      runtime.ws.actions.setPresence(viewerId, "online")
     }
     const firstAuthentication = !hasAuthenticatedRef.current
     hasAuthenticatedRef.current = true
@@ -530,16 +524,16 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
       scheduleAccountAttentionReconcile(queryClient)
     }
     await reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox" })
-  }, [queryClient])
+  }, [queryClient, runtime.ws.actions])
   const handleForeground = useCallback(() => {
     if (inboxRefreshOwner.current?.disposed
       || viewerUserIdRef.current !== viewerUserId
-      || (viewerUserId !== null && useCommunityWsStore.getState().profileViewerId !== viewerUserId)) return
+      || (viewerUserId !== null && runtime.ws.get().profileViewerId !== viewerUserId)) return
     return reconcileFocusedCommunityMessages(queryClient)
-  }, [queryClient, viewerUserId])
+  }, [queryClient, runtime.ws, viewerUserId])
   const { send, reconnectNow } = useUserWs(handleMessage, {
     onReconnect: handleReconnect,
-    onDisconnect: useCommunityWsStore.getState().markAccessDisconnected,
+    onDisconnect: runtime.ws.actions.markAccessDisconnected,
     onAuthenticated: handleAuthenticated,
     onForeground: handleForeground,
     onConnectionStateChange: handleConnectionStateChange,
@@ -553,7 +547,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     if (typeof document === "undefined" || typeof window === "undefined") return
     const reconcileVisible = () => {
       if (document.visibilityState !== "visible") return
-      if (useCommunityWsStore.getState().accessConnected) {
+      if (runtime.ws.get().accessConnected) {
         scheduleAccountAttentionReconcile(queryClient)
       }
       void reconcileAccountReadState(queryClient, {
@@ -566,46 +560,35 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
       document.removeEventListener("visibilitychange", reconcileVisible)
       window.removeEventListener("pageshow", reconcileVisible)
     }
-  }, [queryClient])
+  }, [queryClient, runtime.ws])
 
-  // Publish the send binding so free helpers (`communityWsSendTyping`) can
-  // dispatch without holding a hook reference. Single-instance assumption
-  // matches the "mount at tree root" contract; if a second call site invoked
-  // the hook, the last one would win. Cleared on unmount.
   useEffect(() => {
-    // #15: warn if a second hook instance has mounted while another is still
-    // active. Two live subscribers would each publish their own `send` into
-    // this module slot — the second mount overwrites the first, and the
-    // first's cleanup then clears the slot mid-flight (see the `activeSend
-    // === send` check below). Whoever added the second mount site should
-    // co-locate them under a single root-level `useCommunityWs()` call.
-    if (activeSend !== null && activeSend !== send) {
+    if (runtime.transport.send !== null && runtime.transport.send !== send) {
       console.warn(
         "[useCommunityWs] Multiple instances detected — mount this hook once at the tree root.",
       )
     }
-    activeSend = send
+    runtime.transport.send = send
     return () => {
-      if (activeSend === send) activeSend = null
+      if (runtime.transport.send === send) runtime.transport.send = null
     }
-  }, [send])
+  }, [send, runtime])
 
   useEffect(() => {
     const controller = getConnectionController()
     const retry = () => controller.reconnectNow()
-    useCommunityWsStore.getState().bindReconnectNow(retry)
+    runtime.ws.actions.bindReconnectNow(retry)
     return () => {
       controller.dispose()
       if (connectionControllerRef.current === controller) {
         connectionControllerRef.current = null
       }
-      const store = useCommunityWsStore.getState()
-      if (store.reconnectNow === retry) {
-        store.bindReconnectNow(() => undefined)
-        store.setConnectionStatus("connected")
+      if (runtime.ws.get().reconnectNow === retry) {
+        runtime.ws.actions.bindReconnectNow(() => undefined)
+        runtime.ws.actions.setConnectionStatus("connected")
       }
     }
-  }, [getConnectionController])
+  }, [getConnectionController, runtime.ws, runtime.ws.actions])
 
   useEffect(() => {
     const owner = inboxRefreshOwner.current

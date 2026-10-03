@@ -1,7 +1,6 @@
 "use client"
 
 import { toast } from "sonner"
-import { readFileDownloadState, fileDownloadKey } from "@/lib/file-download"
 import type { ComponentProps } from "react"
 import { fileDownloadStatusText, useFileDownload } from "@/lib/file-download"
 
@@ -19,8 +18,7 @@ export function FileDownloadButton({ url, filename, children, onClick, ...props 
         onClick?.(event)
         if (event.defaultPrevented) return
         if (busy) download.cancel()
-        else void download.start().then(() => {
-          const result = readFileDownloadState(fileDownloadKey({ name: filename, url }))
+        else void download.start((result) => {
           const text = fileDownloadStatusText(result)
           if (result.status === "error") toast.error(text)
           else if (result.status === "saved" || result.status === "started") toast.success(text)

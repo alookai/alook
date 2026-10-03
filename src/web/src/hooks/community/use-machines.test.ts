@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { QueryClient } from "@tanstack/react-query"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { communityKeys } from "@/lib/query-keys"
 import type { CommunityMachineSummary } from "@alook/shared"
 
@@ -35,15 +35,16 @@ describe("useMachines / machinesQueryFn", () => {
   it("returns the machines envelope from GET /api/community/machines", async () => {
     apiFetchMock.mockResolvedValueOnce({ machines: [machineFixture] })
     const { machinesQueryFn } = await import("./use-machines")
-    const data = await machinesQueryFn()
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/machines")
+    const { client: qc } = await createCommunityQueryOwner()
+    const data = await qc.fetchQuery({ queryKey: communityKeys.machines(), queryFn: machinesQueryFn })
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/machines", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
     expect(data.machines).toEqual([machineFixture])
   })
 
   it("populates queryClient at communityKeys.machines()", async () => {
     apiFetchMock.mockResolvedValueOnce({ machines: [machineFixture] })
     const { machinesQueryFn } = await import("./use-machines")
-    const qc = new QueryClient()
+    const { client: qc } = await createCommunityQueryOwner()
     const key = communityKeys.machines()
     await qc.fetchQuery({ queryKey: key, queryFn: machinesQueryFn })
     expect(qc.getQueryData(key)).toEqual({ machines: [machineFixture] })

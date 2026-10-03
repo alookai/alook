@@ -1,5 +1,6 @@
 import React from "react"
-import { act, fireEvent, render } from "@/test/react-dom-harness"
+import { act, fireEvent } from "@/test/react-dom-harness"
+import { renderCommunity as render } from "@/test/community-owner-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MessageChannelController } from "../messages/message-channel-controller"
 import type { MessageChannelControllerValue } from "../messages/message-channel-controller"
@@ -10,7 +11,6 @@ import { ConversationFooterShell } from "../messages/conversation-footer-shell"
 import { MessageList } from "../messages/message-list"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 import { buildAttachmentUploadFormData } from "@/hooks/community/mutations/uploads"
-import { useMessageStreamStore } from "@/stores/community/message-stream"
 
 const mutationMocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
@@ -64,11 +64,12 @@ vi.mock("@/components/community/shell/community-panel", () => ({
 vi.mock("@/components/community/messages/message-context-sheet", () => ({
   MessageContextSheet: vi.fn(() => null),
 }))
-vi.mock("@alook/shared", () => ({
+vi.mock("@alook/shared", async (importOriginal) => ({ ...await importOriginal<typeof import("@alook/shared")>(),
   deriveThreadName: () => "thread",
   MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES: 512 * 1024,
-}))
-vi.mock("@/stores/community", () => {
+ }))
+vi.mock("@/stores/community", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/community")>();
   const state = {
     pendingReply: null,
     setPendingReply: vi.fn(),
@@ -79,6 +80,7 @@ vi.mock("@/stores/community", () => {
     { getState: () => state },
   )
   return {
+    ...actual,
     useCommunityStore,
     useTypingUsersForScope: () => [],
     useTypingNamesForScope: () => ({}),
@@ -177,7 +179,7 @@ function ControllerProbe({ controller }: { controller: MessageChannelControllerV
 describe("MessageChannelController scroll target ownership", () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    useMessageStreamStore.getState().resetAll()
+
   })
 
   afterEach(() => {
@@ -185,20 +187,20 @@ describe("MessageChannelController scroll target ownership", () => {
     vi.clearAllMocks()
   })
 
-  it("passes the route anchor through while the feed is loading", () => {
+  it("passes the route anchor through while the feed is loading", async () => {
     let renderer: ReturnType<typeof render>
 
-    act(() => {
+    await act(async () => {
       renderer = render(renderController(feed({ isLoading: true })))
     })
 
     expect(renderer!.container.querySelector("div")).toHaveAttribute("data-scroll-target", "m_target")
   })
 
-  it("keeps a loaded target until MessageList reports consumption", () => {
+  it("keeps a loaded target until MessageList reports consumption", async () => {
     let renderer: ReturnType<typeof render>
 
-    act(() => {
+    await act(async () => {
       renderer = render(renderController(feed({ messages: [{ id: "m_target" }] })))
     })
 
@@ -209,11 +211,11 @@ describe("MessageChannelController scroll target ownership", () => {
     expect(renderer!.container.querySelector("div")).not.toHaveAttribute("data-scroll-target")
   })
 
-  it("keeps a missing target across warm cache until the anchor request errors", () => {
+  it("keeps a missing target across warm cache until the anchor request errors", async () => {
     let messageFeed = feed({ messages: [{ id: "m_unrelated" }] })
     let renderer: ReturnType<typeof render>
 
-    act(() => {
+    await act(async () => {
       renderer = render(renderController(messageFeed))
     })
 
@@ -223,14 +225,19 @@ describe("MessageChannelController scroll target ownership", () => {
     expect(renderer!.container.querySelector("div")).not.toHaveAttribute("data-scroll-target")
   })
 
-  it("does not start a visual highlight timer for a loaded target", () => {
+  it("does not start a visual highlight timer for a loaded target", async () => {
+    const schedule = vi.spyOn(globalThis, "setTimeout")
     let renderer: ReturnType<typeof render>
 
-    act(() => {
+    await act(async () => {
       renderer = render(renderController(feed({ messages: [{ id: "m_target" }] })))
     })
-    expect(vi.getTimerCount()).toBe(0)
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(schedule.mock.calls.some(([, delay]) => delay === 1_600)).toBe(false)
+    act(() => vi.advanceTimersByTime(5_000))
+    expect(renderer!.container.querySelector("div")).toHaveAttribute("data-scroll-target", "m_target")
     act(() => renderer!.unmount())
+    schedule.mockRestore()
   })
 
   it("keeps message action references stable while calling the latest surface callbacks", async () => {
@@ -240,7 +247,7 @@ describe("MessageChannelController scroll target ownership", () => {
     const latestOpenPinned = vi.fn()
     let renderer: ReturnType<typeof render>
 
-    act(() => {
+    await act(async () => {
       renderer = render(renderController(
         feed({ messages: [{ id: "m_target", content: "first" }] }),
         "m_target",
@@ -271,12 +278,12 @@ describe("MessageChannelController scroll target ownership", () => {
     expect(firstOpenThread).not.toHaveBeenCalled()
   })
 
-  it("updates latest action callbacks before descendant passive effects run", () => {
+  it("updates latest action callbacks before descendant passive effects run", async () => {
     const firstOpenPinned = vi.fn()
     const latestOpenPinned = vi.fn()
     let renderer: ReturnType<typeof render>
 
-    act(() => {
+    await act(async () => {
       renderer = render(renderController(
         feed({ messages: [{ id: "m_target" }] }),
         "m_target",
@@ -312,7 +319,7 @@ describe("MessageChannelController scroll target ownership", () => {
     mutationMocks.sendMessage.mockResolvedValueOnce({ message: { id: "server_thumb", seq: 10 } })
     let renderer: ReturnType<typeof render>
 
-    act(() => {
+    await act(async () => {
       renderer = render(renderController(feed()))
     })
     const firstController = latestController
@@ -353,11 +360,11 @@ describe("TextChannelSurface header hierarchy", () => {
     vi.clearAllMocks()
   })
 
-  it("forwards the explicit mobile parent Back callback", () => {
+  it("forwards the explicit mobile parent Back callback", async () => {
     const onNavigateParent = vi.fn()
     mockedUseChannelMessageFeed.mockReturnValue(feed())
 
-    act(() => {
+    await act(async () => {
       render(React.createElement(TextChannelSurface, {
         channelId: "channel_1",
         serverId: "server_1",
@@ -387,7 +394,7 @@ describe("TextChannelSurface header hierarchy", () => {
     expect(headerProps).not.toHaveProperty("onBack")
   })
 
-  it("keeps pinned reads available while gating live and preview Pin actions", () => {
+  it("keeps pinned reads available while gating live and preview Pin actions", async () => {
     mockedUseChannelMessageFeed.mockReturnValue(feed())
     const baseProps = {
       channelId: "channel_1",
@@ -410,7 +417,7 @@ describe("TextChannelSurface header hierarchy", () => {
     }
     let renderer: ReturnType<typeof render>
 
-    act(() => {
+    await act(async () => {
       renderer = render(React.createElement(TextChannelSurface, {
         ...baseProps,
         canManagePins: true,

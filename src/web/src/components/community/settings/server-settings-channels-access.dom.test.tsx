@@ -1,5 +1,6 @@
 import { createElement, type PropsWithChildren } from "react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { QueryClient } from "@tanstack/react-query"
+import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { describe, expect, it, vi } from "vitest"
 import { render, screen, setupUser, waitFor } from "@/test/react-dom-harness"
 import { tid } from "@/lib/community/testids"

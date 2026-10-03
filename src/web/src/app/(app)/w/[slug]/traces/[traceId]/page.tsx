@@ -1,11 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { workspaceTraceOptions } from "@/hooks/workspace/issue-query-options";
+import { useWorkspaceViewSource } from "@/hooks/workspace/use-workspace-view-source";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { useWorkspace } from "@/contexts/workspace-context";
-import { getTrace, type TraceTask } from "@/lib/api";
+import { useWorkspaceOwner } from "@/contexts/workspace-context";
+import type { TraceTask } from "@/lib/api";
 import { trackThreadViewed } from "@/lib/analytics";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft } from "lucide-react";
@@ -153,26 +156,21 @@ function TaskNode({ node, slug }: { node: TreeNode; slug: string }) {
 
 export default function TraceDetailPage() {
   const params = useParams();
-  const { slug, workspaceId } = useWorkspace();
+  const owner = useWorkspaceOwner();
+  const { slug } = owner;
   const traceId = params.traceId as string;
-
-  const [tasks, setTasks] = useState<TraceTask[]>([]);
-  const [channel, setChannel] = useState("default");
-  const [loading, setLoading] = useState(true);
-
+  const source = useWorkspaceViewSource(owner, traceId, true);
+  const resource = useQuery(workspaceTraceOptions(owner, traceId));
+  const tasks = resource.data?.tasks ?? [];
+  const channel = resource.data?.channel ?? "default";
+  const loading = resource.isPending;
   useEffect(() => {
-    setLoading(true);
-    getTrace(traceId, workspaceId)
-      .then((data) => {
-        setTasks(data.tasks);
-        setChannel(data.channel);
-        const agentIds = new Set(data.tasks.map((t: TraceTask) => t.agent_id));
-        const rootStatus = data.tasks.find((t: TraceTask) => !t.parent_task_id)?.status ?? "unknown";
-        trackThreadViewed({ agent_count: agentIds.size, status: rootStatus });
-      })
-      .catch(() => { })
-      .finally(() => setLoading(false));
-  }, [traceId, workspaceId]);
+    if (!resource.data) return;
+    try { source.assertActive() } catch { return; }
+    const agentIds = new Set(resource.data.tasks.map((task) => task.agent_id));
+    const rootStatus = resource.data.tasks.find((task) => !task.parent_task_id)?.status ?? "unknown";
+    trackThreadViewed({ agent_count: agentIds.size, status: rootStatus });
+  }, [resource.data, resource.dataUpdatedAt, source, source.assertActive]);
 
   const tree = buildTree(tasks);
   const flat = flattenTree(tree);

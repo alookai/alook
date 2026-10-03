@@ -1,6 +1,7 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useMemo } from "react"
 import { useChannelReadStateSnapshot } from "./use-channel-read-state"
 import { useChannelWatermark } from "./use-channel-watermark"
 import { useMessages } from "./use-messages"
@@ -49,7 +50,7 @@ export function useChannelMessageFeed({
       anchorReconciled: messagesQuery.anchorReconciled,
     })
   }, [messagesQuery.anchorReconciled, messagesQuery.messages, readSnapshot, viewerUserId])
-  const [scrollRootEl, setScrollRootEl] = useState<HTMLDivElement | null>(null)
+  const [scrollRootEl, setScrollRootEl] = useAtom(useCreateAtom<HTMLDivElement | null>(null))
   /* istanbul ignore next -- retained Chromium covers the mounted observer integration */
   useChannelWatermark({
     channelId,

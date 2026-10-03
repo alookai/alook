@@ -1,144 +1,79 @@
 "use client"
 
+import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
+
 import { useCallback } from "react"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { apiFetch } from "@/lib/api/client"
+
+import { useMutation, useQueryClient, QueryObserver, type Query } from "@tanstack/react-query"
+import { useCommunityMutationOrigin } from "../community-origin"
 import { communityKeys } from "@/lib/query-keys"
-import type { InvitesResponse } from "@/hooks/community/use-server-panels"
+import { invitesQueryFn, type InvitesResponse } from "../use-server-panels"
 
-/**
- * Invite CRUD for the settings surface. Create prepends the fresh row into
- * the cache — the server response includes the canonical token and creator
- * so no follow-up fetch is required. Revoke filters by token (the API's
- * unique identifier).
- */
+export type ResolveInviteResult = { token: string; uses: number; maxUses: number | null; expiresAt: string | null }
+type OriginalView = (() => void) & { signal: AbortSignal }
+type ResolveInviteArgs = { currentUserId: string; assert: OriginalView }
 
-// ── Create invite ─────────────────────────────────────────────────────────
-
-type CreateInviteArgs = {
-  serverId: string
-  creatorId: string
-  creatorName: string
-}
-
-type CreateInviteResult = {
-  invite: {
-    token: string
-    uses: number
-    maxUses: number | null
-    expiresAt: string | null
-  }
-}
-
-function useCreateInvite() {
-  const queryClient = useQueryClient()
-  return useMutation<CreateInviteResult, Error, CreateInviteArgs>({
-    mutationFn: async ({ serverId }) => {
-      return apiFetch<CreateInviteResult>(
-        `/api/community/servers/${serverId}/invites`,
-        { method: "POST" },
-      )
-    },
-    onSuccess: (data, args) => {
-      const fresh = {
-        code: data.invite.token,
-        uses: data.invite.uses,
-        maxUses: data.invite.maxUses,
-        expiresAt: data.invite.expiresAt,
-        by: args.creatorName,
-        creatorId: args.creatorId,
+export function useResolveOrCreateInvite(serverId: string) {
+  const client = useQueryClient(), origin = useCommunityMutationOrigin()
+  type Intent = ResolveInviteArgs & { original: ReturnType<typeof origin.begin>["token"] }
+  const native = useMutation({
+    mutationKey: ["community", "invite-resolve", serverId],
+    scope: { id: "community-invite-command" },
+    gcTime: 0,
+    mutationFn: async ({ currentUserId, assert, original }: Intent): Promise<ResolveInviteResult> => {
+      origin.assert(original); assert()
+      const options = { queryKey: communityKeys.invites(serverId), queryFn: invitesQueryFn(serverId), staleTime: 60_000 }
+      const observer = new QueryObserver(client, { ...options, enabled: false })
+      const unsubscribe = observer.subscribe(() => undefined)
+      assert.signal.addEventListener("abort", unsubscribe, { once: true })
+      let cached: InvitesResponse
+      try { cached = await client.fetchQuery(options); origin.assert(original); assert() }
+      finally { assert.signal.removeEventListener("abort", unsubscribe); unsubscribe() }
+      const now = new Date().toISOString()
+      const reusable = cached.invites.find((invite) => invite.creatorId === currentUserId && (!invite.expiresAt || invite.expiresAt > now) && (invite.maxUses === null || invite.uses < invite.maxUses))
+      if (reusable) return { token: reusable.code, uses: reusable.uses, maxUses: reusable.maxUses, expiresAt: reusable.expiresAt }
+      const resource = client.getQueryCache().find({ queryKey: options.queryKey, exact: true })
+      await client.cancelQueries({ queryKey: options.queryKey, exact: true })
+      origin.assert(original); assert()
+      const result = await origin.request<{ invite: ResolveInviteResult }>(original, "/api/community/servers/" + serverId + "/invites", { method: "POST", signal: assert.signal, assertActive: assert })
+      origin.assert(original); assert()
+      if (resource && client.getQueryCache().find({ queryKey: options.queryKey, exact: true }) === resource) {
+        await client.cancelQueries({ queryKey: options.queryKey, exact: true })
+        origin.assert(original); assert()
+        if (client.getQueryCache().find({ queryKey: options.queryKey, exact: true }) === resource) client.setQueryData<InvitesResponse>(options.queryKey, (current) => current && !current.invites.some((row) => row.code === result.invite.token) ? { invites: [{ code: result.invite.token, uses: result.invite.uses, maxUses: result.invite.maxUses, expiresAt: result.invite.expiresAt, creatorId: currentUserId }, ...current.invites.filter((row) => row.code !== result.invite.token)] } : current)
       }
-      queryClient.setQueryData<InvitesResponse | undefined>(
-        communityKeys.invites(args.serverId),
-        (prev) =>
-          prev
-            ? { ...prev, invites: [fresh, ...prev.invites] }
-            : { invites: [fresh] },
-      )
+      return result.invite
     },
   })
+  const capture = useCallback((input: ResolveInviteArgs): Intent => { input.assert(); return { ...input, original: origin.begin().token } }, [origin])
+  const assertCurrent = useCallback((args: Intent) => { origin.assert(args.original); args.assert() }, [origin])
+  return useNativeMutationFacade(native, capture, assertCurrent)
 }
 
-// ── Resolve-or-create current invite ─────────────────────────────────────
-//
-// The share popover wants "a link the user can hand to a friend right now".
-// Creating one on every open would burn the 50-active-per-server cap in
-// short order (`route.ts:76-81`), so we reuse an existing valid invite
-// created by this user first and only mint a fresh one if the pool has
-// nothing usable.
-
-export type ResolveInviteResult = {
-  token: string
-  uses: number
-  maxUses: number | null
-  expiresAt: string | null
-}
-
-/**
- * Returns a `resolve(currentUserId, currentUserName) → invite` handle.
- *
- * A hook (not a static function) so it reads the cached invite list and pipes
- * the "we just created one" write into that same cache — the dialog can then
- * close/reopen without re-fetching or re-minting. Only invites the current
- * user created themselves are candidates for reuse; if none is still usable
- * (unexpired, uses < maxUses), POST a new one via `useCreateInvite`.
- */
-export function useResolveOrCreateInvite(serverId: string) {
-  const queryClient = useQueryClient()
-  const createMut = useCreateInvite()
-
-  return useCallback(
-    async (currentUserId: string, currentUserName: string): Promise<ResolveInviteResult> => {
-      const cache = queryClient.getQueryData<InvitesResponse>(
-        communityKeys.invites(serverId),
-      )
-      const nowIso = new Date().toISOString()
-      const reusable = cache?.invites.find((iv) => {
-        if (iv.creatorId !== currentUserId) return false
-        if (iv.expiresAt && iv.expiresAt <= nowIso) return false
-        if (iv.maxUses !== null && iv.uses >= iv.maxUses) return false
-        return true
-      })
-      if (reusable) {
-        return {
-          token: reusable.code,
-          uses: reusable.uses,
-          maxUses: reusable.maxUses,
-          expiresAt: reusable.expiresAt,
-        }
-      }
-      const { invite } = await createMut.mutateAsync({
-        serverId,
-        creatorId: currentUserId,
-        creatorName: currentUserName,
-      })
-      return invite
-    },
-    [serverId, queryClient, createMut],
-  )
-}
-
-// ── Revoke invite ─────────────────────────────────────────────────────────
-
-export type RevokeInviteArgs = { serverId: string; code: string }
+export type RevokeInviteArgs = { serverId: string; code: string; assertActive?: OriginalView }
 
 export function useRevokeInvite() {
-  const queryClient = useQueryClient()
-  return useMutation<void, Error, RevokeInviteArgs, { snapshot: InvitesResponse | undefined }>({
-    mutationFn: async ({ code }) => {
-      await apiFetch(`/api/community/invites/${code}`, { method: "DELETE" })
-    },
-    onMutate: async (args) => {
-      const key = communityKeys.invites(args.serverId)
-      await queryClient.cancelQueries({ queryKey: key })
-      const snapshot = queryClient.getQueryData<InvitesResponse>(key)
-      queryClient.setQueryData<InvitesResponse | undefined>(key, (prev) =>
-        prev ? { ...prev, invites: prev.invites.filter((i) => i.code !== args.code) } : prev,
-      )
-      return { snapshot }
-    },
-    onError: (_err, args, ctx) => {
-      if (ctx?.snapshot) queryClient.setQueryData(communityKeys.invites(args.serverId), ctx.snapshot)
+  const client = useQueryClient(), origin = useCommunityMutationOrigin()
+  type Intent = RevokeInviteArgs & { original: ReturnType<typeof origin.begin>["token"]; resource: Query | undefined }
+  const native = useMutation({
+    mutationKey: ["community", "invite-revoke"],
+    scope: { id: "community-invite-command" }, gcTime: 0,
+    mutationFn: async ({ serverId, code, original, resource, assertActive }: Intent) => {
+      origin.assert(original); assertActive?.()
+      const key = communityKeys.invites(serverId)
+      if (resource && client.getQueryCache().find({ queryKey: key, exact: true }) === resource) await client.cancelQueries({ queryKey: key, exact: true })
+      origin.assert(original); assertActive?.()
+      const writes = resource?.state.dataUpdateCount
+      await origin.request(original, "/api/community/invites/" + code, { method: "DELETE", signal: assertActive?.signal, assertActive })
+      origin.assert(original); assertActive?.()
+      if (resource && client.getQueryCache().find({ queryKey: key, exact: true }) === resource) {
+        await client.cancelQueries({ queryKey: key, exact: true })
+        origin.assert(original); assertActive?.()
+        if (client.getQueryCache().find({ queryKey: key, exact: true }) === resource && resource.state.dataUpdateCount === writes) client.setQueryData<InvitesResponse>(key, (current) => current ? { invites: current.invites.filter((row) => row.code !== code) } : current)
+      }
     },
   })
+  const capture = useCallback((input: RevokeInviteArgs): Intent => { input.assertActive?.(); return { ...input, original: origin.begin().token, resource: client.getQueryCache().find({ queryKey: communityKeys.invites(input.serverId), exact: true }) } }, [origin, client])
+  const assertCurrent = useCallback((args: Intent) => { origin.assert(args.original); args.assertActive?.() }, [origin])
+  return useNativeMutationFacade(native, capture, assertCurrent)
 }

@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
 import { Check } from "lucide-react"
 import { EntityIcon } from "../entity-icon"
 import { CreateDialogShell } from "./create-dialog-shell"
@@ -21,8 +22,8 @@ export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
   onCreate: (channel: { name: string; type: ChannelType }) => void
 }) {
   const editing = !!initial
-  const [type, setType] = useState<ChannelType>(initial?.type ?? "text")
-  const [name, setName] = useState(initial?.name ?? "")
+  const [type, setType] = useAtom(useCreateAtom<ChannelType>(initial?.type ?? "text"))
+  const [name, setName] = useAtom(useCreateAtom(initial?.name ?? ""))
 
   const options: { value: ChannelType; label: string; desc: string }[] = [
     { value: "text", label: "Text", desc: "Send messages, images, emoji, and opinions" },

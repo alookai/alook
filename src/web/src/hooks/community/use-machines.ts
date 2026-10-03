@@ -1,7 +1,8 @@
 "use client"
 
-import { useQuery, type UseQueryResult } from "@tanstack/react-query"
+import { useQuery, type QueryFunctionContext, type UseQueryResult, type UseQueryOptions } from "@tanstack/react-query"
 import { isPresenceOnline } from "@alook/shared"
+import { communityRequestOptions } from "@/lib/community-db/sync"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type {
@@ -67,15 +68,16 @@ export function replaceMachines(data: MachinesResponse, machines: MachineSummary
 // Frozen empty fallback — see `use-servers.ts` for the rationale.
 const EMPTY_MACHINES: readonly MachineSummary[] = Object.freeze([])
 
-export const machinesQueryFn = () =>
-  apiFetch<MachinesResponse>("/api/community/machines")
+export const machinesQueryFn = (context: QueryFunctionContext) =>
+  apiFetch<MachinesResponse>("/api/community/machines", communityRequestOptions(context.client, context.signal))
 
-export function useMachines(): UseQueryResult<MachinesResponse> & {
+export function useMachines(options?: Pick<UseQueryOptions<MachinesResponse>, "enabled" | "subscribed" | "refetchInterval">): UseQueryResult<MachinesResponse> & {
   machines: MachineSummary[]
 } {
   const query = useQuery({
     queryKey: communityKeys.machines(),
     queryFn: machinesQueryFn,
+    ...options,
   })
   return {
     ...query,

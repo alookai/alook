@@ -93,7 +93,7 @@ async function waitForHttpOk(url, timeoutMs = 60_000) {
 }
 
 const mainWorkerConfigs = withWsDo
-  ? ["wrangler.toml", "../ws-do/wrangler.toml"]
+  ? ["wrangler.toml", "../ws-do/wrangler.toml", "../queue-worker/wrangler.toml"]
   : ["wrangler.toml"]
 const workerCommand = wranglerEntry ? process.execPath : packageManagerCli
 const workerArgs = (configPaths, endpoint) => wranglerEntry

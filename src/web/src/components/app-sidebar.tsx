@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useCallback, useRef, useEffect } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
@@ -74,8 +75,8 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   } = useAgentFolders(workspaceId);
 
   // --- Selection mode for "Create group" ---
-  const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(new Set());
+  const [selectionMode, setSelectionMode] = useAtom(useCreateAtom(false));
+  const [selectedAgentIds, setSelectedAgentIds] = useAtom(useCreateAtom<Set<string>>(new Set<string>()));
 
   const pinned = agents
     .filter((a) => pins.has(a.id))
@@ -103,9 +104,9 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   }, [agents, cleanupStaleAgents]);
 
   // --- Drag-hold merge state (unpinned section) ---
-  const [dragActiveId, setDragActiveId] = useState<string | null>(null);
-  const [mergeTargetId, setMergeTargetId] = useState<string | null>(null);
-  const [sortingDisabled, setSortingDisabled] = useState(false);
+  const [dragActiveId, setDragActiveId] = useAtom(useCreateAtom<string | null>(null));
+  const [mergeTargetId, setMergeTargetId] = useAtom(useCreateAtom<string | null>(null));
+  const [sortingDisabled, setSortingDisabled] = useAtom(useCreateAtom(false));
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
   const hoverTargetRef = useRef<string | null>(null);
 
@@ -264,7 +265,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
 
   const hasOnlineRuntime = runtimes.some((r) => r.status === "online");
 
-  const [wiggling, setWiggling] = useState(false);
+  const [wiggling, setWiggling] = useAtom(useCreateAtom(false));
   const wiggleRef = useRef(false);
   const wiggleTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
 
@@ -284,7 +285,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
       wiggleRef.current = false;
       setWiggling(false);
     }, total);
-  }, [pinned.length, unpinned.length]);
+  }, [pinned.length, setWiggling, unpinned.length]);
 
   // Get the drag overlay content for the unpinned section
   const dragActiveAgent = dragActiveId
@@ -357,12 +358,12 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
       createFolder(Array.from(selectedAgentIds));
     }
     setSelectionMode(false);
-    setSelectedAgentIds(new Set());
+    setSelectedAgentIds(new Set<string>());
   };
 
   const handleSelectionCancel = () => {
     setSelectionMode(false);
-    setSelectedAgentIds(new Set());
+    setSelectedAgentIds(new Set<string>());
   };
 
   const toggleAgentSelection = (agentId: string) => {

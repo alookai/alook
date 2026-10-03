@@ -1,6 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query"
-import type { useCommunityStore } from "@/stores/community"
-import type { useCommunityWsStore } from "@/stores/community/ws"
+import type { CommunityRuntime } from "@/stores/community/runtime"
 import type { CommunityWsProjectionTransaction } from "@/hooks/community/community-ws/projection-transaction"
 import type { CommunityWsEvent } from "@alook/shared"
 
@@ -32,8 +31,8 @@ export type CommunityInboxRefreshRequest = {
 export type CommunityWsDispatchContext = {
   deliveryMode: "single" | "batch"
   queryClient: QueryClient
-  communityStore: ReturnType<typeof useCommunityStore.getState>
-  wsStore: ReturnType<typeof useCommunityWsStore.getState>
+  communityStore: CommunityRuntime["ui"]
+  wsStore: CommunityRuntime["ws"]
   sub: Subscription
   viewerUserIdRef: { current: string | null }
   matchesFocus: (event: { channelId?: string }) => boolean
@@ -58,7 +57,7 @@ export type CommunityWsHandlerContext = CommunityWsDispatchContext & {
 export type MessageEventContext = CommunityWsHandlerContext
 export type TypingEventContext = Pick<
   CommunityWsHandlerContext,
-  "sub" | "viewerUserIdRef" | "matchesFocus"
+  "queryClient" | "sub" | "viewerUserIdRef" | "matchesFocus"
 >
 export type StructureTreeEventContext = Pick<
   CommunityWsHandlerContext,

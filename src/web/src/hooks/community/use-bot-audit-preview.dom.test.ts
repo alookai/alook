@@ -1,10 +1,11 @@
+import { appendBotAuditEvent } from "./use-bot-audit-log"
+import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { createElement, type PropsWithChildren } from "react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { QueryClient } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
-import { useCommunityWsStore } from "@/stores/community/ws"
 import { useBotAuditPreview } from "./use-bot-audit-preview"
 
 const apiFetch = vi.fn()
@@ -45,19 +46,19 @@ const event = (id: string, second: number) => ({
 describe("useBotAuditPreview", () => {
   beforeEach(() => {
     apiFetch.mockReset()
-    useCommunityWsStore.getState().reset()
+
   })
 
-  it("uses a separate finite limit=10 cache from the full modal", async () => {
+  it("derives ten rows from the canonical infinite log cache", async () => {
     apiFetch.mockResolvedValueOnce({ events: [event("e1", 1)], nextCursor: null })
     const rendered = renderBotAuditPreview("b1")
     await waitFor(() => expect(rendered.result.current.events).toHaveLength(1))
 
-    expect(apiFetch).toHaveBeenCalledWith("/api/community/bots/b1/audit-log?limit=10")
+    expect(apiFetch).toHaveBeenCalledWith("/api/community/bots/b1/audit-log?limit=50", expect.objectContaining({ assertActive: expect.any(Function) }))
     expect(rendered.result.current.events.map((item) => item.id)).toEqual(["e1"])
     expect(rendered.result.current.hasEarlierEvents).toBe(false)
-    expect(rendered.queryClient.getQueryData(communityKeys.botAuditPreview("b1"))).toBeDefined()
-    expect(rendered.queryClient.getQueryData(communityKeys.botAuditLog("b1"))).toBeUndefined()
+    expect(rendered.queryClient.getQueryData(communityKeys.botAuditPreview("b1"))).toBeUndefined()
+    expect(rendered.queryClient.getQueryData(communityKeys.botAuditLog("b1"))).toBeDefined()
   })
 
   it("does no request when ownership gating passes a null bot id", async () => {
@@ -75,9 +76,9 @@ describe("useBotAuditPreview", () => {
     await waitFor(() => expect(rendered.result.current.events).toHaveLength(9))
 
     act(() => {
-      useCommunityWsStore.getState().pushBotAuditEvent({ ...event("e2", 12), botId: "b1" })
-      useCommunityWsStore.getState().pushBotAuditEvent({ ...event("e10", 10), botId: "b1" })
-      useCommunityWsStore.getState().pushBotAuditEvent({ ...event("e11", 11), botId: "b1" })
+      appendBotAuditEvent(rendered.queryClient, "b1", { ...event("e2", 12) })
+      appendBotAuditEvent(rendered.queryClient, "b1", { ...event("e10", 10) })
+      appendBotAuditEvent(rendered.queryClient, "b1", { ...event("e11", 11) })
     })
     await waitFor(() => expect(rendered.result.current.events[0]?.id).toBe("e2"))
 

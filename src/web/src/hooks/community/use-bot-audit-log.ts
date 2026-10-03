@@ -1,14 +1,18 @@
 "use client"
+import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 
-import { useEffect, useMemo } from "react"
+import { useMemo } from "react"
 import {
-  useInfiniteQuery,
-  useQueryClient,
-  type InfiniteData,
+useInfiniteQuery,
+useQueryClient,
+replaceEqualDeep,
+type InfiniteData,
+type QueryClient,
 } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import { useBotAuditEventsForBot } from "@/stores/community/ws"
+import { captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
+import { ApiError } from "@/lib/errors"
 
 export type AuditKind = "cli_invocation" | "tool_call" | "thinking" | "turn_interrupt" | "wake_trigger" | "session_reset" | "nap" | "model_changed" | "provider_changed" | "error"
 
@@ -24,17 +28,56 @@ export type AuditEvent = {
 export type AuditLogPage = {
   events: AuditEvent[]
   nextCursor: { beforeCreatedAt: string; beforeId: string } | null
+  liveIds?: string[]
 }
 
 const PAGE_SIZE = 50
+export const UNOBSERVED_AUDIT_HEAD_LIMIT = 200
 
-/**
- * React Query infinite hook for a bot's audit log. Live events from the
- * WS store (`useBotAuditEventsForBot`) are prepended into the first page —
- * de-duplicated by `event.id` across ALL cached pages so an event that also
- * arrives via the initial GET (which raced the WS push) is not rendered
- * twice.
- */
+const auditOrder = (a: AuditEvent, b: AuditEvent) => a.createdAt === b.createdAt ? (a.id > b.id ? -1 : a.id < b.id ? 1 : 0) : (a.createdAt > b.createdAt ? -1 : 1)
+
+function reconcileAuditLogPages(previous: unknown, incoming: unknown, unobserved = false) {
+  const prev = previous as InfiniteData<AuditLogPage> | undefined
+  const next = incoming as InfiniteData<AuditLogPage> | undefined
+  if (!next?.pages[0]) return replaceEqualDeep(previous, incoming)
+  const incomingLive = new Set(next.pages[0].liveIds)
+  const confirmed = new Set(next.pages.flatMap((page) => page.events.filter((event) => !incomingLive.has(event.id)).map((event) => event.id)))
+  const liveIds = new Set([...(prev?.pages[0]?.liveIds ?? []), ...incomingLive].filter((id) => !confirmed.has(id)))
+  const rows = new Map(next.pages[0].events.map((event) => [event.id, event]))
+  const laterPageIds = new Set(next.pages.slice(1).flatMap((page) => page.events.map((event) => event.id)))
+  for (const event of prev?.pages[0]?.events ?? []) if (liveIds.has(event.id) && !rows.has(event.id) && !laterPageIds.has(event.id)) rows.set(event.id, event)
+  const ordered = [...rows.values()].sort(auditOrder)
+  const events = unobserved ? ordered.slice(0, UNOBSERVED_AUDIT_HEAD_LIMIT) : ordered
+  const retained = new Set(events.map((event) => event.id))
+  const [first, ...rest] = next.pages
+  return replaceEqualDeep(previous, { ...next, pages: [{ ...first, events, liveIds: [...liveIds].filter((id) => retained.has(id)) }, ...rest] })
+}
+
+export function appendBotAuditEvent(queryClient: QueryClient, botId: string, row: AuditEvent) {
+  const key = communityKeys.botAuditLog(botId)
+  const query = queryClient.getQueryCache().find({ queryKey: key, exact: true })
+  const updatedAt = query?.state.dataUpdatedAt ?? 0
+  const unobserved = !query?.getObserversCount()
+  let truncated = false
+  queryClient.setQueryData<InfiniteData<AuditLogPage>>(key, (cache) => {
+    const [first, ...rest] = cache?.pages ?? []
+    const previousRows = first?.events ?? []
+    const byId = new Map(previousRows.map((event) => [event.id, event]))
+    const existing = byId.get(row.id)
+    if (existing && auditOrder(existing, row) <= 0) return cache
+    byId.set(row.id, row)
+    const ordered = [...byId.values()].sort(auditOrder)
+    truncated = unobserved && ordered.length > UNOBSERVED_AUDIT_HEAD_LIMIT
+    const events = truncated ? ordered.slice(0, UNOBSERVED_AUDIT_HEAD_LIMIT) : ordered
+    const retained = new Set(events.map((event) => event.id))
+    const liveIds = [...new Set([row.id, ...(first?.liveIds ?? [])])].filter((id) => retained.has(id))
+    return { pages: [{ ...first, events, nextCursor: first?.nextCursor ?? null, liveIds }, ...rest], pageParams: cache?.pageParams ?? [null] }
+  }, { updatedAt })
+  if (truncated) {
+    void queryClient.invalidateQueries({ queryKey: key, exact: true, refetchType: "none" })
+  }
+}
+
 export function useBotAuditLog(botId: string | null | undefined) {
   const enabled = Boolean(botId)
   const qc = useQueryClient()
@@ -42,8 +85,10 @@ export function useBotAuditLog(botId: string | null | undefined) {
   const query = useInfiniteQuery<AuditLogPage>({
     enabled,
     queryKey: botId ? communityKeys.botAuditLog(botId) : ["disabled-bot-audit-log"],
+    structuralSharing: (prev, next) => reconcileAuditLogPages(prev, next, !qc.getQueryCache().find({ queryKey: communityKeys.botAuditLog(botId!), exact: true })?.getObserversCount()),
     initialPageParam: null as AuditLogPage["nextCursor"],
-    queryFn: async ({ pageParam }) => {
+    queryFn: async ({ pageParam, signal }) => {
+      const token = captureCommunityLiveSnapshotToken(qc)
       const cursor = pageParam as AuditLogPage["nextCursor"]
       const search = new URLSearchParams()
       search.set("limit", String(PAGE_SIZE))
@@ -51,57 +96,22 @@ export function useBotAuditLog(botId: string | null | undefined) {
         search.set("beforeCreatedAt", cursor.beforeCreatedAt)
         search.set("beforeId", cursor.beforeId)
       }
-      return apiFetch<AuditLogPage>(
+      const page = await apiFetch<AuditLogPage>(
         `/api/community/bots/${botId}/audit-log?${search.toString()}`,
+        communityRequestOptions(qc, token, signal),
       )
+      if (cursor) return page
+      const fetchedIds = new Set(page.events.map((event) => event.id))
+      const current = qc.getQueryData<InfiniteData<AuditLogPage>>(communityKeys.botAuditLog(botId!))?.pages[0]
+      const liveIds = new Set(current?.liveIds)
+      const arrived = current?.events.filter((event) => liveIds.has(event.id) && !fetchedIds.has(event.id)) ?? []
+      return arrived.length ? { ...page, events: [...arrived, ...page.events], liveIds: arrived.map((event) => event.id) } : page
     },
+    retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 1,
+    staleTime: 30_000,
     getNextPageParam: (last) => last.nextCursor,
   })
 
-  const liveEvents = useBotAuditEventsForBot(botId)
-
-  // Fold live events into the first-page cache. Dedup on `event.id` across
-  // ALL pages — the initial GET can race a WS push and land the same row in
-  // both channels. Depend on `query.data` too: a live event that lands while
-  // the initial GET is still in flight would otherwise see `prev === undefined`
-  // and silently drop.
-  useEffect(() => {
-    if (!enabled || liveEvents.length === 0) return
-    qc.setQueryData<InfiniteData<AuditLogPage>>(
-      communityKeys.botAuditLog(botId as string),
-      (prev) => {
-        if (!prev || prev.pages.length === 0) return prev
-        const seen = new Set<string>()
-        for (const p of prev.pages) for (const e of p.events) seen.add(e.id)
-        const fresh: AuditEvent[] = liveEvents
-          .filter((e) => !seen.has(e.id))
-          .map((e) => ({
-            id: e.id,
-            kind: e.kind,
-            payload: e.payload,
-            sessionId: e.sessionId ?? null,
-            launchId: e.launchId ?? null,
-            createdAt: e.createdAt,
-          }))
-        if (fresh.length === 0) return prev
-        const [firstPage, ...rest] = prev.pages
-        const merged: AuditLogPage = {
-          nextCursor: firstPage.nextCursor,
-          events: [...fresh, ...firstPage.events],
-        }
-        return { ...prev, pages: [merged, ...rest] }
-      },
-    )
-  }, [botId, enabled, liveEvents, qc, query.data])
-
-  // Flatten pages and dedup by id. The WS-prepend effect above dedups fresh
-  // live events against ALL cached pages before writing them into page 1,
-  // so on paper duplicates can't leak into the flattened array. In practice
-  // they can — a prepended live event on page 1 whose id later appears in a
-  // just-fetched older page 2 (the cursor race, when the daemon's
-  // server-stamped `createdAt` is close to the page-1 boundary), or a page
-  // re-fetch that overlaps at the seam. Dedup here so React never sees two
-  // rows with the same key. Keep first occurrence (page order = newest-first).
   const events = useMemo(() => {
     if (!query.data) return [] as AuditEvent[]
     const seen = new Set<string>()
@@ -118,6 +128,8 @@ export function useBotAuditLog(botId: string | null | undefined) {
 
   return {
     events,
+    error: query.error,
+    isError: query.isError,
     isLoading: query.isLoading,
     fetchNextPage: query.fetchNextPage,
     hasNextPage: query.hasNextPage,

@@ -1,8 +1,9 @@
 "use client";
 
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { OfficialServerBadge } from "../official-server-badge";
 
-import { memo, useLayoutEffect, useRef, useState } from "react";
+import { memo, useLayoutEffect, useRef } from "react";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -56,8 +57,8 @@ function SortableServerImpl({
 }: SortableServerProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
-  const [confirmLeave, setConfirmLeave] = useState(false);
-  const [activated, setActivated] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useAtom(useCreateAtom(false));
+  const [activated, setActivated] = useAtom(useCreateAtom(false));
   useLayoutEffect(() => {
     if (!registerItem || !rootRef.current || !buttonRef.current) return
     return registerItem(

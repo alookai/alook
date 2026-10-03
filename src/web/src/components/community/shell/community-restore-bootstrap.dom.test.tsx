@@ -9,11 +9,11 @@ const queryClient = vi.hoisted(() => ({
   getQueryData: vi.fn<() => unknown>(() => undefined),
 }))
 
-vi.mock("@tanstack/react-query", () => ({
+vi.mock("@tanstack/react-query", async (importOriginal) => ({ ...await importOriginal<typeof import("@tanstack/react-query")>(),
   useIsRestoring: () => restoring.current,
   useQueryClient: () => queryClient,
 }))
-vi.mock("@/lib/community-db/projections", () => ({
+vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
   useOptionalCommunityDbRegistry: () => ({
     hasRestoredData: () => restored.dataExists,
   }),

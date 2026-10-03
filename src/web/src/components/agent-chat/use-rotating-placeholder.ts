@@ -1,6 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useMemo } from "react";
+
+import { useEffect, useRef } from "react";
 
 /**
  * Rotating capability hints for the main chat composer's empty-state
@@ -67,7 +70,7 @@ export function shouldRotate(state: {
  * than adding a shared hook. SSR-safe (defaults to false when no window).
  */
 function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false);
+  const [reduced, setReduced] = useAtom(useCreateAtom(false));
 
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) return;
@@ -76,7 +79,7 @@ function usePrefersReducedMotion(): boolean {
     const onChange = (e: MediaQueryListEvent) => setReduced(e.matches);
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
-  }, []);
+  }, [setReduced]);
 
   return reduced;
 }
@@ -106,9 +109,8 @@ export function useRotatingPlaceholder(
   state: RotatingPlaceholderState,
 ): RotatingPlaceholder {
   const reducedMotion = usePrefersReducedMotion();
-  const [index, setIndex] = useState(() =>
-    randomStartIndex(CHAT_PLACEHOLDER_HINTS.length),
-  );
+  const [index, setIndex] = useAtom(useCreateAtom(useMemo(() =>
+    randomStartIndex(CHAT_PLACEHOLDER_HINTS.length), [])));
 
   const rotating = shouldRotate({ ...state, reducedMotion });
 
@@ -125,7 +127,7 @@ export function useRotatingPlaceholder(
       setIndex(nextIndex(indexRef.current, CHAT_PLACEHOLDER_HINTS.length));
     }, HINT_HOLD_MS);
     return () => clearInterval(id);
-  }, [rotating]);
+  }, [rotating, setIndex]);
 
   return {
     hint: CHAT_PLACEHOLDER_HINTS[index] ?? CHAT_PLACEHOLDER_HINTS[0],

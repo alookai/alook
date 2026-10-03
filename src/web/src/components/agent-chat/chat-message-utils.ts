@@ -1,5 +1,4 @@
-import { useEffect, useRef } from "react";
-import type { Artifact, Message, TaskApi as Task } from "@alook/shared";
+import type { Artifact,Message,TaskApi as Task } from "@alook/shared";
 
 type EventIconType = "issue" | "email" | "calendar";
 
@@ -262,12 +261,4 @@ export function pointerRefreshTargetForTaskCreated(args: {
   // Already pointing here — nothing to do.
   if (task.conversation_id === currentPointerConvId) return null;
   return task.conversation_id;
-}
-
-export function useLatest<T>(value: T) {
-  const ref = useRef(value);
-  useEffect(() => {
-    ref.current = value;
-  }, [value]);
-  return ref;
 }

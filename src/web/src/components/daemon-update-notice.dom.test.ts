@@ -4,6 +4,13 @@ import { resolve } from "node:path"
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
 
+let application: ReturnType<typeof import("@/lib/application-owner").createApplicationOwner>
+vi.mock("@/lib/application-owner", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/application-owner")>(),
+  useApplicationOwner: () => application,
+}))
+import { createApplicationOwner } from "@/lib/application-owner"
+
 const mocks = vi.hoisted(() => ({
   machinesQueryFn: vi.fn(),
   notificationAdd: vi.fn(),
@@ -49,6 +56,7 @@ function machine(
 async function renderNotice() {
   const rendered = render(createElement(DaemonUpdateNotice, {
     userId: "user-1",
+    loadMachines: mocks.machinesQueryFn,
     webVersion: "0.1.27",
     latestDaemonVersion: "0.1.27",
     requestUpdate: mocks.requestUpdate,
@@ -61,6 +69,7 @@ async function renderNotice() {
 
 describe("DaemonUpdateNotice", () => {
   beforeEach(() => {
+    application = createApplicationOwner("user-1")
     window.localStorage.clear()
     storageGetItem.mockClear()
     storageSetItem.mockClear()
@@ -167,6 +176,7 @@ describe("DaemonUpdateNotice", () => {
       null,
       createElement(DaemonUpdateNotice, {
         userId: "user-1",
+    loadMachines: mocks.machinesQueryFn,
         webVersion: "0.1.27",
         latestDaemonVersion: "0.1.27",
         requestUpdate: mocks.requestUpdate,

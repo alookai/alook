@@ -1,6 +1,9 @@
 "use client"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { useAtom, useCreateAtom } from "@tanstack/react-store"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+
+import { useCallback, useEffect, useMemo, useRef } from "react"
 import { useRouter, useParams } from "next/navigation"
 import { toast } from "sonner"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -27,7 +30,9 @@ import {
   useUnpinMessage,
   type ReactionArgs,
 } from "@/hooks/community/mutations"
-import type { FileAttachment, ImagePreview, MessagesPage, Msg, Reaction, RenderMsg } from "@/lib/community/models/message"
+import type { FileAttachment, ImagePreview, MessagesPage, Msg, RenderMsg } from "@/lib/community/models/message"
+import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
+import { isAbortError } from "@/lib/errors"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
 import { channelHref } from "@/lib/community/community-route"
@@ -39,7 +44,7 @@ import {
 } from "@/lib/community-db/projections"
 import {
   captureCommunityLiveSnapshotToken,
-  patchCanonicalCommunityMessage,
+  assertCommunityLiveSnapshotTokenCurrent,
   publishCommunityEmbeddedMessages,
 } from "@/lib/community-db/sync"
 
@@ -86,7 +91,7 @@ function anchorFetchUrl(_type: ScopeType, id: string, anchor: string, limit: num
 type SheetCache = {
   notFound?: boolean
   anchorId?: string
-  messages?: Msg[]
+  messages?: { id: string }[]
 }
 
 export function messageContextQueryFn(
@@ -97,68 +102,40 @@ export function messageContextQueryFn(
 ) {
   return async ({ signal }: { signal?: AbortSignal } = {}): Promise<SheetCache> => {
     const publicationToken = captureCommunityLiveSnapshotToken(queryClient)
+    const registry = getCommunityDbRegistry(queryClient)
+    const assert = () => assertCommunityLiveSnapshotTokenCurrent(queryClient, publicationToken, signal)
+    await registry?.ready
+    assert()
+    await registry?.collections.messages.preload()
+    assert()
     let lookup: { id: string }
     try {
       lookup = await apiFetch<{ id: string }>(
         seqLookupUrl(type, channelId, targetSeq),
-        { signal },
+        communityRequestOptions(queryClient, publicationToken, signal, assert),
       )
     } catch (error) {
+      assert()
       if (error instanceof ApiError && error.status === 404) return { notFound: true }
       throw error
     }
+    assert()
     const page = await apiFetchProfiles<MessagesPage>(
       anchorFetchUrl(type, channelId, lookup.id, CONTEXT_LIMIT),
       (response) => messageProfilePatches(response.messages),
-      { signal },
+      { signal, assertActive: assert }, registry,
     )
     const messages = (page.messages ?? []).slice().sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
     publishCommunityEmbeddedMessages(queryClient, {
       entries: messages.map((message) => ({ channelId, message })),
       proof: { token: publicationToken, signal },
     })
-    return { notFound: false, anchorId: lookup.id, messages }
+    assert()
+    return { notFound: false, anchorId: lookup.id, messages: messages.map(({ id }) => ({ id })) }
   }
 }
 
-// Apply a reaction toggle to the sheet's own cache — mirrors the reducer
-// `togglePageCacheReaction` in mutations/messages.ts but on this hook's flat
-// `messages[]` shape instead of the main list's PageCache-of-pages shape.
-function toggleSheetReaction(
-  cache: SheetCache | undefined,
-  messageId: string,
-  emoji: string,
-  userId: string,
-  add: boolean,
-): SheetCache | undefined {
-  if (!cache?.messages) return cache
-  let touched = false
-  const messages = cache.messages.map((m) => {
-    if (m.id !== messageId) return m
-    touched = true
-    const reactions: Reaction[] = (m.reactions ?? []).map((r) => ({ ...r, userIds: [...(r.userIds ?? [])] }))
-    const existing = reactions.find((r) => r.emoji === emoji)
-    if (add) {
-      if (existing) {
-        if (!existing.userIds.includes(userId)) {
-          existing.userIds.push(userId)
-          existing.count = existing.userIds.length
-        }
-        existing.me = true
-      } else {
-        reactions.push({ emoji, count: 1, me: true, userIds: [userId] })
-      }
-    } else if (existing) {
-      existing.userIds = existing.userIds.filter((id) => id !== userId)
-      existing.count = existing.userIds.length
-      existing.me = false
-      if (existing.count <= 0) reactions.splice(reactions.indexOf(existing), 1)
-    }
-    return { ...m, reactions }
-  })
-  if (!touched) return cache
-  return { ...cache, messages }
-}
+
 
 /**
  * Sidecar preview shown when the user clicks a `#NUMBER` ref pointing at a
@@ -288,30 +265,9 @@ export function MessageContextSheet({
       emoji,
       userId: currentUser.id,
       currentMe,
-      skipDefaultCache: true,
-      syncReactionState: (me) => {
-        if (canonicalMessages === undefined) {
-          queryClient.setQueryData<SheetCache>(queryKey, (cache) =>
-            toggleSheetReaction(cache, messageId, emoji, currentUser.id, me),
-          )
-        } else {
-          patchCanonicalCommunityMessage(queryClient, messageId, (message) => (
-            {
-              ...message,
-              reactions: toggleSheetReaction(
-              { messages: [message] },
-              messageId,
-              emoji,
-              currentUser.id,
-              me,
-              )?.messages?.[0]?.reactions,
-            }
-          ))
-        }
-      },
       onError: (error) => toastApiError(error, "Failed to update reaction"),
     })
-  }, [canonicalMessages, channelId, currentUser.id, findMessage, queryClient, queryKey, type])
+  }, [channelId, currentUser.id, findMessage, type])
 
   const toggleReaction = useCallback((messageId: string, emoji: string) => {
     runReactionIntent(toggleReactionApi, messageId, emoji)
@@ -378,30 +334,12 @@ export function MessageContextSheet({
     const content = m ? displayReplyContent(m.content ?? "", m.replyTo) : undefined
     const name = deriveThreadName(content, "channel")
     try {
-      const data = await createThreadMut.mutateAsync({ serverId, channelId, messageId: id, name })
-      // Match the main-channel UX: after creating a thread the row shows
-      // the thread indicator, click it to enter. Don't auto-navigate — we're
-      // inside a sidecar preview, silently teleporting the user to the thread
-      // route surprises them.
-      // Patch the sheet's own cache so the indicator appears immediately (the
-      // main list's WS handler patches the main cache, but the sheet uses its
-      // own query key). Server-authoritative fields land on the actual thread
-      // page's fetch; here we only need the shape the row's indicator reads.
-      queryClient.setQueryData<SheetCache>(queryKey, (c) => {
-        if (!c?.messages) return c
-        return {
-          ...c,
-          messages: c.messages.map((msg) =>
-            msg.id === id
-              ? { ...msg, thread: { id: data.id, name, messageCount: 0 } }
-              : msg,
-          ),
-        }
-      })
+      await createThreadMut.mutateAsync({ serverId, channelId, messageId: id, name })
     } catch (e) {
-      toastApiError(e, "Failed to create thread")
+      if (!isAbortError(e)) toastApiError(e, "Failed to create thread")
     }
-  }, [type, routeParams, channelId, findMessage, createThreadMut, queryClient, queryKey])
+  }, [type, routeParams, channelId, findMessage, createThreadMut])
+
 
   const onOpenThreadId = useCallback((threadId: string) => {
     // Sheet's Reply-style handoff: navigate the main window to the thread and
@@ -563,15 +501,16 @@ function ContextRows({
   // context (it's a read-only preview), so Share opens the dialog directly on
   // the clicked row — via `onShareSingle`, independent of the list's select-mode
   // plumbing (Cecilia #511: share capability must not depend on it).
-  const [shareTarget, setShareTarget] = useState<RenderMsg | null>(null)
+  const [shareTargetId, setShareTargetId] = useAtom(useCreateAtom<string | null>(null))
+  const shareTarget = rows.find((row) => row.id === shareTargetId) ?? null
   const onShareSingleId = useCallback(
-    (id: string) => setShareTarget(rows.find((r) => r.id === id) ?? null),
-    [rows],
+    (id: string) => setShareTargetId(id),
+    [setShareTargetId],
   )
   return (
     <div className="flex flex-col">
       {shareTarget && (
-        <MessageShareDialog m={shareTarget} open onClose={() => setShareTarget(null)} />
+        <MessageShareDialog m={shareTarget} open onClose={() => setShareTargetId(null)} />
       )}
       {rows.map((m, i) => {
         const isTarget = m.id === anchorId

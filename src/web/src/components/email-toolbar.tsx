@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useRef, useEffect, useReducer } from "react";
-import type { Editor } from "@tiptap/react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useRef, useEffect } from "react";
+import { useEditorState, type Editor } from "@tiptap/react";
 import { cn } from "@/lib/utils";
 import { onEnterSubmit } from "@/lib/ime";
 import { Button } from "@/components/ui/button";
@@ -78,22 +79,17 @@ function ToolbarDivider() {
 }
 
 export function EmailToolbar({ editor }: EmailToolbarProps) {
-  const [, forceUpdate] = useReducer((x: number) => x + 1, 0);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [dialogMode, setDialogMode] = useState<"link" | "image">("link");
-  const [urlValue, setUrlValue] = useState("");
-  const [urlError, setUrlError] = useState("");
-  const [displayText, setDisplayText] = useState("");
-  const [selectionEmpty, setSelectionEmpty] = useState(false);
+  useEditorState({ editor, selector: (context) => context.editor?.state ?? null });
+  const [dialogOpen, setDialogOpen] = useAtom(useCreateAtom(false));
+  const [dialogMode, setDialogMode] = useAtom(useCreateAtom<"link" | "image">("link"));
+  const [urlValue, setUrlValue] = useAtom(useCreateAtom(""));
+  const [urlError, setUrlError] = useAtom(useCreateAtom(""));
+  const [displayText, setDisplayText] = useAtom(useCreateAtom(""));
+  const [selectionEmpty, setSelectionEmpty] = useAtom(useCreateAtom(false));
   const inputRef = useRef<HTMLInputElement>(null);
   const linkActiveOnMouseDown = useRef(false);
 
-  useEffect(() => {
-    if (!editor) return;
-    const handler = () => forceUpdate();
-    editor.on("transaction", handler);
-    return () => { editor.off("transaction", handler); };
-  }, [editor]);
+
 
   useEffect(() => {
     if (dialogOpen) {

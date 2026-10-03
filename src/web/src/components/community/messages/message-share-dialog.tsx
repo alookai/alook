@@ -1,7 +1,11 @@
 "use client"
 
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
+import { useCommunityRuntime } from "@/stores/community/runtime"
 import { saveFile, fileSaveMessage, type FileSaveResult } from "@/lib/file-save"
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, type MouseEvent as ReactMouseEvent } from "react"
 import { toBlob } from "html-to-image"
 import { toast } from "sonner"
 import { Check, Copy, Download, Highlighter, Loader2 } from "lucide-react"
@@ -49,9 +53,12 @@ function mobileShareImageErrorCode(error: unknown): string | null {
     : null
 }
 
-export async function writeShareCardToClipboard(blob: Blob): Promise<void> {
+export async function writeShareCardToClipboard(blob: Blob, assertActive?: () => void): Promise<void> {
+  assertActive?.()
   if (isTauri() && isDesktop()) {
-    await writeImage(await blob.arrayBuffer())
+    const bytes = await blob.arrayBuffer()
+    assertActive?.()
+    await writeImage(bytes)
     return
   }
 
@@ -94,12 +101,6 @@ export function shareCardRenderErrorMessage(error: unknown): string | null {
     : `Couldn't generate image — ${stage} failed`
 }
 
-type ShareCardExportFlight = {
-  id: number
-  controller: AbortController
-  promise: Promise<void>
-}
-
 type ShareSessionState =
   | { status: "idle" | "preparing" }
   | { status: "ready"; value: PreparedShareImageSession; filename: string }
@@ -112,244 +113,146 @@ export function MessageShareDialog({ m, open, onClose }: {
 }) {
   const messages = useMemo(() => (Array.isArray(m) ? m : [m]), [m])
   const mobileNative = isTauri() && isMobile()
-  const profilesByUserId = useCanonicalProfilesByUserId()
-  const profilesByUserIdRef = useRef(profilesByUserId)
-  const messagesRef = useRef(messages)
+  const runtime = useCommunityRuntime(), client = useQueryClient()
+  const messageIdentity = messages.map((message) => message.id).join(":")
+  const scopeId = useMemo(() => ({ runtime, messageIdentity, open, id: crypto.randomUUID() }), [runtime, messageIdentity, open]).id
+  const source = useCommunityViewSource(`share-image:${scopeId}`, open)
+  const profileIds = useMemo(() => [...new Set(messages.flatMap((message) => [message.authorId, message.replyTo?.authorId].filter((id): id is string => !!id)))], [messages])
+  const profilesByUserId = useCanonicalProfilesByUserId(profileIds)
   const previewRef = useRef<HTMLDivElement>(null)
-  const exportOwnerRef = useRef<{
-    generation: number
-    active: ShareCardExportFlight | null
-  }>({ generation: 0, active: null })
   const copiedTimerRef = useRef<number | null>(null)
-  const pngRef = useRef<{
-    revision: number
-    promise: Promise<Blob>
-  } | null>(null)
-  const [busy, setBusy] = useState<"copy" | "download" | null>(null)
-  const [copied, setCopied] = useState(false)
-  const [highlighted, setHighlighted] = useState(false)
-  const [captureRevision, setCaptureRevision] = useState(0)
-  const [prepareAttempt, setPrepareAttempt] = useState(0)
-  const [preparationNode, setPreparationNode] = useState<HTMLDivElement | null>(null)
-  const [session, setSession] = useState<ShareSessionState>({ status: "idle" })
-
-  useEffect(() => {
-    profilesByUserIdRef.current = profilesByUserId
-  }, [profilesByUserId])
-
-  useEffect(() => {
-    messagesRef.current = messages
-  }, [messages])
-
+  const [copied, setCopied] = useAtom(useCreateAtom(false))
+  const [highlighted, setHighlighted] = useAtom(useCreateAtom(false))
+  const [captureRevision, setCaptureRevision] = useAtom(useCreateAtom(0))
+  const [prepareAttempt, setPrepareAttempt] = useAtom(useCreateAtom(0))
+  const [preparationNode, setPreparationNode] = useAtom(useCreateAtom<HTMLDivElement | null>(null))
+  const preparationKey = ["community", "share-image", scopeId, "prepare", prepareAttempt] as const
+  const preparation = useQuery({ queryKey: preparationKey, enabled: open && !!preparationNode, subscribed: open, staleTime: Infinity, gcTime: 0, retry: false,
+    queryFn: async ({ signal }) => {
+      const assert = source.capture()
+      assert()
+      const node = preparationNode
+      if (!node) throw new ShareImageSessionError("source")
+      const authorId = messages[0]?.authorId
+      const author = authorId ? readCommunityProfile(profilesByUserId.get(authorId), authorId) : null
+      const value = await prepareShareImageSession(node, { signal })
+      assert()
+      return { value, filename: `alook-message-${author?.name ?? "share"}.png` }
+    },
+  })
+  const session: ShareSessionState = !open ? { status: "idle" } : preparation.data ? { status: "ready", ...preparation.data }
+    : preparation.isError ? { status: "error", message: shareCardRenderErrorMessage(preparation.error) ?? "Couldn't prepare share image" } : { status: "preparing" }
+  const pngOptions = { queryKey: ["community", "share-image", scopeId, "png", prepareAttempt, captureRevision], staleTime: Infinity, gcTime: 0, retry: false,
+    queryFn: async ({ signal }: { signal: AbortSignal }) => {
+      const assert = source.capture()
+      assert()
+      const prepared = client.getQueryData<{ value: PreparedShareImageSession; filename: string }>(preparationKey)
+      const node = previewRef.current?.querySelector<HTMLElement>("[data-share-card]")
+      if (!node || !prepared) throw new ShareImageSessionError("rasterize")
+      const blob = await renderShareCard(node, prepared.value.fontEmbedCSS, toBlob, { signal })
+      assert()
+      return blob
+    },
+  }
+  useQuery({ ...pngOptions, enabled: false, subscribed: open })
+  const exportKey = ["community", "share-image", scopeId, "export"]
+  const command = useMutation({ mutationKey: exportKey, gcTime: 0,
+    mutationFn: async ({ action, original }: { action: "copy" | "download"; original: ReturnType<typeof source.capture> }) => {
+      original()
+      const prepared = client.getQueryData<{ value: PreparedShareImageSession; filename: string }>(preparationKey)
+      if (!prepared) throw new ShareImageSessionError("source")
+      const blob = await client.fetchQuery(pngOptions)
+      original()
+      if (action === "copy") {
+        if (mobileNative) {
+          const { copyMobileShareImage } = await import("@/lib/community/mobile-share-image")
+          original()
+          await copyMobileShareImage(blob, original)
+        } else await writeShareCardToClipboard(blob, original)
+        original()
+        return { action, destination: null }
+      }
+      if (mobileNative) {
+        const { saveMobileShareImage } = await import("@/lib/community/mobile-share-image")
+        original()
+        const result = await saveMobileShareImage(blob, prepared.filename, original)
+        original()
+        return { action, destination: result.destination }
+      }
+      const result = await saveShareCardDownload(blob, prepared.filename, undefined, original.signal)
+      original()
+      if (result.status === "error") toast.error(fileSaveMessage(result))
+      else if (result.status !== "cancelled") toast.success(fileSaveMessage(result))
+      return { action, destination: null }
+    },
+    onSuccess: (result, intent) => {
+      try { intent.original() } catch { return }
+      if (result.action === "copy") {
+        setCopied(true)
+        toast.success("Image copied to clipboard")
+        copiedTimerRef.current = window.setTimeout(() => {
+          try { intent.original() } catch { return }
+          copiedTimerRef.current = null
+          setCopied(false)
+        }, 1600)
+      } else if (result.destination === "photos") toast.success("Saved to Photos")
+      else if (result.destination === "pictures") toast.success("Saved to Pictures/Alook")
+      else if (result.destination === "document") toast.success("Image saved")
+    },
+    onError: (error, intent) => {
+      try { intent.original() } catch { return }
+      const code = mobileShareImageErrorCode(error)
+      if (code === "cancelled" || (error as { name?: unknown })?.name === "AbortError") return
+      if (code === "image_too_large") { toast.error("Image is too large — select fewer messages"); return }
+      if (intent.action === "download" && code === "permission_denied") { toast.error("Couldn't save image — allow Photos access in Settings"); return }
+      toast.error(shareCardRenderErrorMessage(error) ?? (intent.action === "copy" ? mobileNative ? "Couldn't copy image — try Save image instead" : "Couldn't copy image — try Download instead" : mobileNative ? "Couldn't save image" : "Couldn't generate image"))
+    },
+  })
+  const busy = command.isPending ? command.variables.action : null
   const anyHighlight = useCallback(() => {
     const preview = previewRef.current
-    return !!preview && [...preview.querySelectorAll<HTMLElement>("[data-share-body-id]")]
-      .some((body) => hasHighlights(body))
+    return !!preview && [...preview.querySelectorAll<HTMLElement>("[data-share-body-id]")].some((body) => hasHighlights(body))
   }, [])
-
   const onPreviewMouseUp = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     if (busy !== null) return
+    source.capture()()
     const target = event.target instanceof Element ? event.target : null
     const body = target?.closest<HTMLElement>("[data-share-body-id]")
     if (!body || !previewRef.current?.contains(body)) return
-    const sel = window.getSelection?.()
-    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return
-    const range = sel.getRangeAt(0)
+    const selection = window.getSelection?.()
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return
+    const range = selection.getRangeAt(0)
     if (!body.contains(range.commonAncestorContainer)) return
     const added = applyHighlightToRange(body, range)
-    sel.removeAllRanges()
+    selection.removeAllRanges()
     if (added <= 0) return
-    pngRef.current = null
     setCaptureRevision((value) => value + 1)
     setHighlighted(anyHighlight())
-  }, [anyHighlight, busy])
-
+  }, [anyHighlight, busy, setCaptureRevision, setHighlighted, source])
   const resetHighlights = useCallback(() => {
+    source.capture()()
     const preview = previewRef.current
     if (!preview) return
-    for (const body of preview.querySelectorAll<HTMLElement>("[data-share-body-id]")) {
-      clearHighlights(body)
-    }
-    pngRef.current = null
+    for (const body of preview.querySelectorAll<HTMLElement>("[data-share-body-id]")) clearHighlights(body)
     setCaptureRevision((value) => value + 1)
     setHighlighted(false)
-  }, [])
-
-  const invalidateExport = useCallback(() => {
-    const owner = exportOwnerRef.current
-    owner.generation += 1
-    owner.active?.controller.abort()
-    owner.active = null
-    pngRef.current = null
-    if (copiedTimerRef.current !== null) {
-      window.clearTimeout(copiedTimerRef.current)
-      copiedTimerRef.current = null
-    }
-  }, [])
-
+  }, [setCaptureRevision, setHighlighted, source])
   useEffect(() => {
-    if (open) return
-    invalidateExport()
-    setBusy(null)
     setCopied(false)
-    setSession({ status: "idle" })
     setHighlighted(false)
-  }, [invalidateExport, open])
-
-  useEffect(() => () => invalidateExport(), [invalidateExport])
-
-  useEffect(() => {
-    if (!open) return
-    const source = preparationNode
-    if (!source) return
-    const controller = new AbortController()
-    const firstAuthorId = messagesRef.current[0]?.authorId
-    const firstAuthor = firstAuthorId
-      ? readCommunityProfile(profilesByUserIdRef.current.get(firstAuthorId), firstAuthorId)
-      : null
-    const filename = `alook-message-${firstAuthor?.name ?? "share"}.png`
-    setSession({ status: "preparing" })
-    setHighlighted(false)
-    pngRef.current = null
-    void prepareShareImageSession(source, { signal: controller.signal }).then(
-      (value) => {
-        if (controller.signal.aborted) return
-        setSession({ status: "ready", value, filename })
-      },
-      (error) => {
-        if (controller.signal.aborted || (error as { name?: unknown })?.name === "AbortError") return
-        setSession({
-          status: "error",
-          message: shareCardRenderErrorMessage(error) ?? "Couldn't prepare share image",
-        })
-      },
-    )
-    return () => controller.abort()
-  }, [open, preparationNode, prepareAttempt])
-
-  const startExport = useCallback((action: "copy" | "download"): Promise<void> => {
-    const owner = exportOwnerRef.current
-    if (owner.active) return owner.active.promise
-    if (session.status !== "ready") return Promise.resolve()
-
-    const id = owner.generation + 1
-    const controller = new AbortController()
-    const flight: ShareCardExportFlight = {
-      id,
-      controller,
-      promise: Promise.resolve(),
-    }
-    owner.generation = id
-    owner.active = flight
-    if (copiedTimerRef.current !== null) {
-      window.clearTimeout(copiedTimerRef.current)
-      copiedTimerRef.current = null
-    }
+    return () => { if (copiedTimerRef.current !== null) { window.clearTimeout(copiedTimerRef.current); copiedTimerRef.current = null } }
+  }, [scopeId, setCopied, setHighlighted])
+  const startExport = async (action: "copy" | "download") => {
+    const original = source.capture()
+    original()
+    if (session.status !== "ready" || client.getMutationCache().findAll({ mutationKey: exportKey, status: "pending" }).length) return
+    if (copiedTimerRef.current !== null) { window.clearTimeout(copiedTimerRef.current); copiedTimerRef.current = null }
     setCopied(false)
-    setBusy(action)
-
-    const filename = session.filename
-    const isCurrent = () => (
-      exportOwnerRef.current.generation === id && !controller.signal.aborted
-    )
-
-    flight.promise = (async () => {
-      try {
-        const node = previewRef.current?.querySelector<HTMLElement>("[data-share-card]")
-        if (!node) throw new ShareImageSessionError("rasterize")
-        let rendered = pngRef.current
-        if (!rendered || rendered.revision !== captureRevision) {
-          const promise = renderShareCard(node, session.value.fontEmbedCSS, toBlob, {
-            signal: controller.signal,
-          })
-          rendered = { revision: captureRevision, promise }
-          pngRef.current = rendered
-          promise.catch(() => {
-            if (pngRef.current?.promise === promise) pngRef.current = null
-          })
-        }
-        const blob = await rendered.promise
-        if (!isCurrent()) return
-
-        let mobileDestination: "photos" | "pictures" | "document" | null = null
-        if (action === "copy") {
-          if (mobileNative) {
-            const { copyMobileShareImage } = await import("@/lib/community/mobile-share-image")
-            if (!isCurrent()) return
-            await copyMobileShareImage(blob)
-          } else await writeShareCardToClipboard(blob)
-        } else if (mobileNative) {
-          const { saveMobileShareImage } = await import("@/lib/community/mobile-share-image")
-          if (!isCurrent()) return
-          mobileDestination = (await saveMobileShareImage(blob, filename)).destination
-        } else {
-          const result = await saveShareCardDownload(blob, filename, undefined, controller.signal)
-          if (!isCurrent()) return
-          if (result.status === "error") toast.error(fileSaveMessage(result))
-          else if (result.status !== "cancelled") toast.success(fileSaveMessage(result))
-          return
-        }
-        if (!isCurrent()) return
-
-        if (action === "copy") {
-          setCopied(true)
-          toast.success("Image copied to clipboard")
-          copiedTimerRef.current = window.setTimeout(() => {
-            if (!isCurrent()) return
-            copiedTimerRef.current = null
-            setCopied(false)
-          }, 1600)
-        } else if (mobileDestination === "photos") {
-          toast.success("Saved to Photos")
-        } else if (mobileDestination === "pictures") {
-          toast.success("Saved to Pictures/Alook")
-        } else if (mobileDestination === "document") {
-          toast.success("Image saved")
-        } else {
-          toast.success("Download started")
-        }
-      } catch (error) {
-        if (!isCurrent()) return
-        const mobileErrorCode = mobileShareImageErrorCode(error)
-        if (mobileErrorCode === "cancelled") return
-        if (mobileErrorCode === "image_too_large") {
-          toast.error("Image is too large — select fewer messages")
-          return
-        }
-        if (
-          action === "download"
-          && mobileErrorCode === "permission_denied"
-        ) {
-          toast.error("Couldn't save image — allow Photos access in Settings")
-          return
-        }
-        toast.error(
-          shareCardRenderErrorMessage(error)
-          ?? (action === "copy"
-            ? mobileNative
-              ? "Couldn't copy image — try Save image instead"
-              : "Couldn't copy image — try Download instead"
-            : mobileNative ? "Couldn't save image" : "Couldn't generate image"),
-        )
-      } finally {
-        if (exportOwnerRef.current.active?.id !== id) return
-        exportOwnerRef.current.active = null
-        if (!controller.signal.aborted) setBusy(null)
-      }
-    })()
-
-    return flight.promise
-  }, [captureRevision, mobileNative, session])
-
-  const close = useCallback(() => {
-    invalidateExport()
-    setBusy(null)
-    setCopied(false)
-    onClose()
-  }, [invalidateExport, onClose])
-
-  const copy = useCallback(() => startExport("copy"), [startExport])
-  const download = useCallback(() => startExport("download"), [startExport])
+    try { await command.mutateAsync({ action, original }) } catch {}
+  }
+  const close = () => { source.retire(); onClose() }
+  const copy = () => startExport("copy")
+  const download = () => startExport("download")
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && close()}>

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useRef } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -45,11 +46,11 @@ export function EmailCompose({
   inReplyTo,
   references,
 }: EmailComposeProps) {
-  const [to, setTo] = useState(initialTo);
-  const [subject, setSubject] = useState(initialSubject);
-  const [sending, setSending] = useState(false);
-  const [attachments, setAttachments] = useState<EmailAttachment[]>(initialAttachments);
-  const [uploading, setUploading] = useState(false);
+  const [to, setTo] = useAtom(useCreateAtom(initialTo));
+  const [subject, setSubject] = useAtom(useCreateAtom(initialSubject));
+  const [sending, setSending] = useAtom(useCreateAtom(false));
+  const [attachments, setAttachments] = useAtom(useCreateAtom<EmailAttachment[]>(initialAttachments));
+  const [uploading, setUploading] = useAtom(useCreateAtom(false));
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const editor = useEditor({

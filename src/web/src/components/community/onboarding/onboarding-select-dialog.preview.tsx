@@ -1,8 +1,11 @@
 "use client"
+import { useCommunityRuntime } from "@/stores/community/runtime"
 
-import { useEffect, useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect } from "react"
 
 import { skipCommunityOnboarding } from "@/lib/community-onboarding"
+import { CommunityPreviewProfileOwner } from "@/stores/community/profile-preview"
 import { tid } from "@/lib/community/testids"
 import { ONBOARDING_HARNESSES, ONBOARDING_IDENTITIES } from "./onboarding-form-options"
 import { OnboardingMachineDialog } from "./onboarding-machine-dialog"
@@ -19,25 +22,25 @@ const PREVIEW_CHECKPOINT: OnboardingInitializationCheckpoint = {
     {
       key: "lead",
       id: "preview-bot-a",
-      name: "Lin",
-      image: "avatar:beam:preview-bot-a",
     },
     {
       key: "doer",
       id: "preview-bot-b",
-      name: "Kit",
-      image: "avatar:beam:preview-bot-b",
     },
     {
       key: "reviewer",
       id: "preview-bot-c",
-      name: "Moss",
-      image: "avatar:beam:preview-bot-c",
     },
   ],
   serverId: "preview-server",
-  serverName: "Gustavo-work-room",
+  requestedServerName: "Gustavo-work-room",
 }
+
+const PREVIEW_PROFILES = new Map([
+  ["preview-bot-a", { id: "preview-bot-a", name: "Lin", avatar: "avatar:beam:preview-bot-a", avatarVersion: 0 }],
+  ["preview-bot-b", { id: "preview-bot-b", name: "Kit", avatar: "avatar:beam:preview-bot-b", avatarVersion: 0 }],
+  ["preview-bot-c", { id: "preview-bot-c", name: "Moss", avatar: "avatar:beam:preview-bot-c", avatarVersion: 0 }],
+])
 
 export function OnboardingSelectDialogPreview({
   simulateOnlineMachine = false,
@@ -46,21 +49,22 @@ export function OnboardingSelectDialogPreview({
   simulateOnlineMachine?: boolean
   showSettingUp?: boolean
 }) {
-  const [value, setValue] = useState("")
-  const [customIdentity, setCustomIdentity] = useState("")
-  const [harness, setHarness] = useState("")
-  const [mode, setMode] = useState<"harness" | "machine" | "identity" | "status">("harness")
-  const [initializationStep, setInitializationStep] = useState<OnboardingInitializationStep>(
+  const communityRuntime = useCommunityRuntime()
+  const [value, setValue] = useAtom(useCreateAtom(""))
+  const [customIdentity, setCustomIdentity] = useAtom(useCreateAtom(""))
+  const [harness, setHarness] = useAtom(useCreateAtom(""))
+  const [mode, setMode] = useAtom(useCreateAtom<"harness" | "machine" | "identity" | "status">("harness"))
+  const [initializationStep, setInitializationStep] = useAtom(useCreateAtom<OnboardingInitializationStep>(
     "creating-bots",
-  )
+  ))
   const isIdentity = mode === "identity"
 
   useEffect(() => {
-    skipCommunityOnboarding()
+    skipCommunityOnboarding(communityRuntime)
     return () => {
-      skipCommunityOnboarding()
+      skipCommunityOnboarding(communityRuntime)
     }
-  }, [])
+  }, [communityRuntime])
 
   useEffect(() => {
     if (!showSettingUp && mode !== "status") return
@@ -72,18 +76,18 @@ export function OnboardingSelectDialogPreview({
       setInitializationStep(ONBOARDING_INITIALIZATION_STEPS[currentIndex + 1])
     }, 1600)
     return () => window.clearTimeout(timer)
-  }, [initializationStep, mode, showSettingUp])
+  }, [initializationStep, mode, setInitializationStep, showSettingUp])
 
   if (showSettingUp || mode === "status") {
     return (
-      <OnboardingStatusDialog
+      <CommunityPreviewProfileOwner profiles={PREVIEW_PROFILES}><OnboardingStatusDialog
         status="loading"
         currentStep={initializationStep}
         checkpoint={PREVIEW_CHECKPOINT}
         detail="Follow along as your room comes together."
         onRetry={() => undefined}
         onContinue={() => undefined}
-      />
+      /></CommunityPreviewProfileOwner>
     )
   }
 

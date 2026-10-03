@@ -1,35 +1,41 @@
 "use client"
+import { useSelector } from "@tanstack/react-store"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 
-import { useMemo, useSyncExternalStore } from "react"
+
+import { useMemo } from "react"
 import {
-  keepPreviousData,
-  useQuery,
-  useQueryClient,
-  type QueryClient,
-  type UseQueryResult,
+keepPreviousData,
+useQuery,
+useMutationState,
+useQueryClient,
+type QueryClient,
+type QueryFunctionContext,
+type UseQueryResult,
 } from "@tanstack/react-query"
+import { communityRequestOptions } from "@/lib/community-db/sync"
 import { apiFetch } from "@/lib/api/client"
-import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
+import { apiFetchProfiles,messageProfilePatches } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import type {
-  InboxFriendRequest,
-  Marked,
-  Mention,
-  UnreadDm,
-  UnreadServer,
+InboxFriendRequest,
+Marked,
+Mention,
+UnreadDm,
+UnreadServer,
 } from "@/lib/community/models/inbox"
-import { getActiveAccountUnreadProjection } from "./account-unread-projection"
+import { accountUnreadAllowsAccess,getActiveAccountUnreadProjection } from "./account-unread-projection"
 import {
-  materializeCanonicalMessage,
-  useCanonicalChannelsById,
-  useCanonicalMessagesById,
-  useCanonicalProfilesByUserId,
-  useCanonicalServersById,
-  useDmProjection,
+materializeCanonicalMessage,
+useCanonicalChannelsById,
+useCanonicalMessagesById,
+useCanonicalProfilesByUserId,
+useCanonicalServersById,
+useDmProjection,
 } from "@/lib/community-db/projections"
 import {
-  captureCommunityLiveSnapshotToken,
-  publishCommunityEmbeddedMessages,
+captureCommunityLiveSnapshotToken,
+publishCommunityEmbeddedMessages,
 } from "@/lib/community-db/sync"
 import { useAccountAttentionProjection } from "./use-account-attention"
 
@@ -278,7 +284,8 @@ export function useInboxUnreads() {
   return useInboxAttention()
 }
 
-export type MarkedResponse = { marked: Marked[] }
+type MarkedResponse = { marked: Marked[] }
+type MarkedWindowResponse = { marked: Array<Omit<Marked, "m"> & { m: { id: string } }> }
 
 const inboxMarkedQueryFn = (queryClient: QueryClient) =>
   async ({ signal }: { signal?: AbortSignal } = {}) => {
@@ -289,7 +296,7 @@ const inboxMarkedQueryFn = (queryClient: QueryClient) =>
         throwIfStale(response)
         return messageProfilePatches(response.marked.map((marked) => marked.m))
       },
-      signal ? { signal } : undefined,
+      signal ? { signal } : undefined, getCommunityDbRegistry(queryClient),
     )
     if (publicationToken) {
       publishCommunityEmbeddedMessages(queryClient, {
@@ -300,10 +307,10 @@ const inboxMarkedQueryFn = (queryClient: QueryClient) =>
         proof: { token: publicationToken, signal },
       })
     }
-    return throwIfStale(data)
+    return { marked: throwIfStale(data).marked.map((row) => ({ ...row, m: { id: row.m.id } })) }
   }
 
-export function useInboxMarked(enabled: boolean): UseQueryResult<MarkedResponse> & {
+export function useInboxMarked(enabled: boolean): UseQueryResult<MarkedWindowResponse> & {
   marked: Marked[]
 } {
   const canonicalMessages = useCanonicalMessagesById()
@@ -312,47 +319,43 @@ export function useInboxMarked(enabled: boolean): UseQueryResult<MarkedResponse>
     () => getActiveAccountUnreadProjection(queryClient),
     [queryClient],
   )
-  const unreadVersion = useSyncExternalStore(
-    unreadProjection.subscribe,
-    unreadProjection.getSnapshot,
-    unreadProjection.getSnapshot,
-  )
   const query = useQuery({
     queryKey: communityKeys.inboxMarked(),
     queryFn: inboxMarkedQueryFn(queryClient),
     placeholderData: keepPreviousData,
     enabled,
   })
+  const pendingMarks = useMutationState({ filters: { mutationKey: ["community", "mark-command"], status: "pending" }, select: (mutation) => ({ messageId: (mutation.state.variables as { messageId: string }).messageId, marked: mutation.options.mutationKey?.[2] === true }) })
+  const markedAccess = useSelector(unreadProjection.state, (state) => (query.data?.marked ?? []).map((row) => accountUnreadAllowsAccess(state, row)), { compare: (left, right) => left.length === right.length && left.every((value, index) => value === right[index]) })
   const marked = useMemo(() => {
-    void unreadVersion
     const source = query.data?.marked ?? (EMPTY_MARKED as Marked[])
-    return source.flatMap((marked) => {
-      if (!unreadProjection.allowsAccess({
-        channelId: marked.channelId,
-        serverId: marked.serverId,
-      })) return []
+    return source.flatMap((marked, index) => {
+      if (pendingMarks.filter((command) => command.messageId === marked.m.id).at(-1)?.marked === false) return []
+      if (!markedAccess[index]) return []
       const message = materializeCanonicalMessage(marked.m, canonicalMessages)
       return message ? [{ ...marked, m: message }] : []
     })
-  }, [canonicalMessages, query.data?.marked, unreadProjection, unreadVersion])
+  }, [canonicalMessages, query.data?.marked, markedAccess, pendingMarks])
   return { ...query, marked }
 }
 
 export type MessageMarkedResponse = { marked: boolean }
 
-const messageMarkedQueryFn = (messageId: string) => () =>
+const messageMarkedQueryFn = (messageId: string) => ({ client, signal }: QueryFunctionContext) =>
   apiFetch<MessageMarkedResponse & { stale?: boolean }>(
-    `/api/community/messages/${messageId}/marks`,
+    `/api/community/messages/${messageId}/marks`, communityRequestOptions(client, signal),
   ).then(throwIfStale)
 
 export function useMessageMarked(
   messageId: string,
   enabled: boolean,
 ): UseQueryResult<MessageMarkedResponse> {
-  return useQuery({
+  const query = useQuery({
     queryKey: communityKeys.messageMarked(messageId),
     queryFn: messageMarkedQueryFn(messageId),
     enabled,
     staleTime: 30_000,
   })
+  const pending = useMutationState({ filters: { mutationKey: ["community", "mark-command"], status: "pending", predicate: (mutation) => (mutation.state.variables as { messageId: string }).messageId === messageId }, select: (mutation) => mutation.options.mutationKey?.[2] === true }).at(-1)
+  return { ...query, data: pending === undefined ? query.data : { marked: pending } } as UseQueryResult<MessageMarkedResponse>
 }

@@ -1,8 +1,14 @@
 "use client"
 
+import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
+
+import { useCallback } from "react"
+
+import { useCommunityMutationOrigin } from "../community-origin"
+
 import { useMutation } from "@tanstack/react-query"
 import { MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES } from "@alook/shared"
-import { readUploadError } from "@/lib/api/client"
+
 import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
 
 /**
@@ -19,6 +25,8 @@ export type UploadTarget = {
 }
 
 export type UploadFileArgs = {
+  receiptScope?: string
+  assertActive?: (() => void) & { signal: AbortSignal }
   target: UploadTarget
   file: File
   thumbnailBlob?: Blob
@@ -113,19 +121,20 @@ function uploadPath(target: UploadTarget): string | null {
   return id ? `/api/community/channels/${id}/attachments` : null
 }
 
-export function useUploadFile() {
-  return useMutation<UploadFileResult, Error, UploadFileArgs>({
-    mutationFn: async ({ target, file, thumbnailBlob, width, height }) => {
+export function useUploadFile(options: { gcTime?: number } = {}) {
+  const origin = useCommunityMutationOrigin()
+  type Intent = UploadFileArgs & { original: ReturnType<typeof origin.begin>["token"] }
+  const native = useMutation<UploadFileResult, Error, Intent>({
+    mutationKey: ["community", "file-upload"], gcTime: options.gcTime ?? 0,
+    mutationFn: async ({ target, file, thumbnailBlob, width, height, original, assertActive }) => {
+      origin.assert(original); assertActive?.()
       const path = uploadPath(target)
       if (!path) throw new Error("Upload target requires channelId, dmId, or threadId")
       const formData = buildAttachmentUploadFormData({ file, thumbnailBlob, width, height })
-      const res = await fetch(path, {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      })
-      if (!res.ok) throw await readUploadError(res, "Upload failed")
-      return (await res.json()) as UploadFileResult
+      return origin.request<UploadFileResult>(original, path, { method: "POST", body: formData, signal: assertActive?.signal, assertActive })
     },
   })
+  const capture = useCallback((input: UploadFileArgs): Intent => { input.assertActive?.(); return { ...input, original: origin.begin().token } }, [origin])
+  const assertCurrent = useCallback((args: Intent) => { origin.assert(args.original); args.assertActive?.() }, [origin])
+  return useNativeMutationFacade(native, capture, assertCurrent)
 }

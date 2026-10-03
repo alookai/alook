@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect, useRef } from "react"
 import { Loader2 } from "lucide-react"
 import {
   getDocument,
@@ -64,7 +65,7 @@ function pdfErrorMessage(error: unknown): string {
 }
 
 function useElementWidth(ref: React.RefObject<HTMLDivElement | null>): number {
-  const [width, setWidth] = useState(0)
+  const [width, setWidth] = useAtom(useCreateAtom(0))
 
   useEffect(() => {
     const element = ref.current
@@ -75,7 +76,7 @@ function useElementWidth(ref: React.RefObject<HTMLDivElement | null>): number {
     const observer = new ResizeObserver(update)
     observer.observe(element)
     return () => observer.disconnect()
-  }, [ref])
+  }, [ref, setWidth])
 
   return width
 }
@@ -91,9 +92,9 @@ function PdfPage({
 }) {
   const containerRef = useRef<HTMLElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [nearby, setNearby] = useState(false)
-  const [aspectRatio, setAspectRatio] = useState(8.5 / 11)
-  const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle")
+  const [nearby, setNearby] = useAtom(useCreateAtom(false))
+  const [aspectRatio, setAspectRatio] = useAtom(useCreateAtom(8.5 / 11))
+  const [status, setStatus] = useAtom(useCreateAtom<"idle" | "loading" | "ready" | "error">("idle"))
 
   useEffect(() => {
     const element = containerRef.current
@@ -108,7 +109,7 @@ function PdfPage({
     )
     observer.observe(element)
     return () => observer.disconnect()
-  }, [])
+  }, [setNearby])
 
   useEffect(() => {
     if (!nearby || availableWidth < 1) return
@@ -164,7 +165,7 @@ function PdfPage({
         canvas.height = 0
       }
     }
-  }, [availableWidth, document, nearby, pageNumber])
+  }, [availableWidth, document, nearby, pageNumber, setAspectRatio, setStatus])
 
   return (
     <section
@@ -215,11 +216,11 @@ function PdfPages({ document }: { document: PDFDocumentProxy }) {
 }
 
 export function PdfPreview({ data }: { data: Uint8Array<ArrayBuffer> }) {
-  const [state, setState] = useState<DocumentState>({
+  const [state, setState] = useAtom(useCreateAtom<DocumentState>({
     status: "loading",
     document: null,
     error: null,
-  })
+  }))
 
   useEffect(() => {
     let active = true
@@ -257,7 +258,7 @@ export function PdfPreview({ data }: { data: Uint8Array<ArrayBuffer> }) {
         if (!worker.destroyed) worker.destroy()
       })
     }
-  }, [data])
+  }, [data, setState])
 
   return (
     <div

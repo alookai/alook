@@ -46,7 +46,7 @@ describe("AddMemberRow", () => {
     expect(source).toContain("error: queryState.error")
     expect(source).toContain('errorMessage="Couldn\'t load people."')
     expect(source).toContain('emptyMessage="Everyone is already here."')
-    expect(source).toContain("onRetry={queryState.retry}")
+    expect(source).toContain("onRetry={() => { source.capture()(); queryState.retry?.() }}")
   })
 })
 

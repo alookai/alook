@@ -1,19 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+
+import { useQuery, useMutation, type Query } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Copy, Trash2, Plus, UserMinus } from "lucide-react";
-import { useWorkspace } from "@/contexts/workspace-context";
-import { useSession } from "@/lib/auth-client";
-import {
-  listMembers,
-  removeMember,
-  listInvites,
-  createInvite,
-  revokeInvite,
-  type MemberEntry,
-  type InviteEntry,
-} from "@/lib/api";
+import { useWorkspaceOwner, captureWorkspaceOwner, assertWorkspaceOwner, workspaceRequestOptions } from "@/contexts/workspace-context";
+import { workspaceMembersOptions, workspaceInvitesOptions } from "@/hooks/workspace/settings-query-options";
+import { useWorkspaceViewSource } from "@/hooks/workspace/use-workspace-view-source";
+import { isAbortError } from "@/lib/errors";
+import { removeMember, createInvite, revokeInvite, type MemberEntry, type InviteEntry } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
@@ -27,83 +22,111 @@ function getInviteLink(token: string) {
 }
 
 export function MembersTab() {
-  const { workspaceId } = useWorkspace();
-  const session = useSession();
-
-  const currentUserId = session.data?.user?.id;
-
-  const [members, setMembers] = useState<MemberEntry[]>([]);
-  const [invites, setInvites] = useState<InviteEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [generatingInvite, setGeneratingInvite] = useState(false);
-
-  const isOwner = members.find((m) => m.user_id === currentUserId)?.role === "owner";
-
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [membersData, invitesData] = await Promise.all([
-        listMembers(workspaceId),
-        listInvites(workspaceId).catch(() => [] as InviteEntry[]),
-      ]);
-      setMembers(membersData);
-      setInvites(invitesData);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load members");
-    } finally {
-      setLoading(false);
-    }
-  }, [workspaceId]);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
+  const owner = useWorkspaceOwner();
+  const { workspaceId } = owner;
+  const source = useWorkspaceViewSource(owner, "workspace-members", true);
+  const currentUserId = owner.application.userId;
+  const memberQuery = useQuery(workspaceMembersOptions(owner));
+  const members = memberQuery.data ?? [];
+  const isOwner = members.find((member) => member.user_id === currentUserId)?.role === "owner";
+  const invitesQuery = useQuery({ ...workspaceInvitesOptions(owner), enabled: isOwner, subscribed: isOwner, gcTime: 0 });
+  const invites = isOwner ? invitesQuery.data ?? [] : [];
+  const loading = memberQuery.isPending || isOwner && invitesQuery.isPending;
+  type OriginalIntent = { token: ReturnType<typeof captureWorkspaceOwner>; view: ReturnType<typeof source.capture>; resources: Query[] };
+  const native = useMutation({ mutationKey: owner.key("workspace-members-command"), scope: { id: JSON.stringify(owner.key("workspace-members-command")) }, gcTime: 0,
+    mutationFn: async ({ action, token, view, resources }: { action: { kind: "create-invite" } | { kind: "revoke-invite" | "remove-member"; id: string }; token: ReturnType<typeof captureWorkspaceOwner> } & OriginalIntent) => {
+      const assert = () => { assertWorkspaceOwner(token, view.signal); view.assert(); }, qc = owner.queryClient;
+      const key = action.kind === "remove-member" ? workspaceMembersOptions(owner).queryKey : workspaceInvitesOptions(owner).queryKey;
+      assert();
+      const resource = resources.find((query) => JSON.stringify(query.queryKey) === JSON.stringify(key));
+      if (resource && qc.getQueryCache().find({ queryKey: key, exact: true }) === resource) await qc.cancelQueries({ queryKey: key, exact: true });
+      assert();
+      const writes = resource?.state.dataUpdateCount;
+      const qualified = () => resource && qc.getQueryCache().find({ queryKey: key, exact: true }) === resource && resource.state.dataUpdateCount === writes;
+      const options = workspaceRequestOptions(token, view.signal, assert);
+      let invite: InviteEntry | undefined;
+      try {
+        if (action.kind === "create-invite") {
+          invite = await createInvite(workspaceId, options);
+          assert();
+          if (qualified()) { const row = invite; qc.setQueryData<InviteEntry[]>(key, (rows) => [...(rows ?? []).filter((entry) => entry.id !== row.id), row]); }
+        } else if (action.kind === "revoke-invite") {
+          await revokeInvite(workspaceId, action.id, options);
+          assert();
+          if (qualified()) qc.setQueryData<InviteEntry[]>(key, (rows) => rows?.filter((entry) => entry.id !== action.id));
+        } else {
+          await removeMember(workspaceId, action.id, options);
+          assert();
+          if (qualified()) qc.setQueryData<MemberEntry[]>(key, (rows) => rows?.filter((entry) => entry.id !== action.id));
+        }
+        assert();
+        if (resource && qc.getQueryCache().find({ queryKey: key, exact: true }) === resource) await qc.invalidateQueries({ queryKey: key, exact: true }, { cancelRefetch: false });
+        assert();
+        return invite;
+      } catch (error) { assert(); throw error; }
+    },
+  });
+  const capture = (input: Omit<Parameters<typeof native.mutate>[0], "view" | "resources">) => { const view = source.capture(); view.assert(); assertWorkspaceOwner(input.token, view.signal); return { ...input, view, resources: [...new Set([workspaceMembersOptions(owner).queryKey, workspaceInvitesOptions(owner).queryKey].flatMap((queryKey) => owner.queryClient.getQueryCache().findAll({ queryKey, exact: true })))] }; };
+  const command = { ...native, mutate: (input: Omit<Parameters<typeof native.mutate>[0], "view" | "resources">) => native.mutate(capture(input)), mutateAsync: (input: Omit<Parameters<typeof native.mutate>[0], "view" | "resources">) => native.mutateAsync(capture(input)) };
+  const generatingInvite = command.isPending && command.variables?.action.kind === "create-invite";
   const handleGenerateInvite = async () => {
-    setGeneratingInvite(true);
+    if (owner.queryClient.isMutating({ mutationKey: owner.key("workspace-members-command"), exact: true })) return;
+    const assertView = source.capture().assert;
+    assertView();
     try {
-      const invite = await createInvite(workspaceId);
+      const invite = await command.mutateAsync({ action: { kind: "create-invite" }, token: captureWorkspaceOwner(owner) });
+      assertView();
+      if (!invite) return;
       trackTeamMemberInvited({ workspace_id: workspaceId });
-      setInvites((prev) => [...prev, invite]);
-      const link = getInviteLink(invite.token);
-      await navigator.clipboard.writeText(link);
+      await navigator.clipboard.writeText(getInviteLink(invite.token));
+      assertView();
       toast.success("Invite link copied to clipboard");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to generate invite");
-    } finally {
-      setGeneratingInvite(false);
+    } catch (error) {
+      try { assertView(); } catch { return; }
+      if (!isAbortError(error)) toast.error(error instanceof Error ? error.message : "Failed to generate invite");
     }
   };
-
   const handleCopyInvite = async (token: string) => {
-    const link = getInviteLink(token);
+    const assertView = source.capture().assert;
+    assertView();
     try {
-      await navigator.clipboard.writeText(link);
+      await navigator.clipboard.writeText(getInviteLink(token));
+      assertView();
       toast.success("Invite link copied");
     } catch {
+      try { assertView(); } catch { return; }
       toast.error("Failed to copy link");
     }
   };
-
-  const handleRevokeInvite = async (inviteId: string) => {
+  const handleRevokeInvite = async (id: string) => {
+    const assertView = source.capture().assert;
+    assertView();
     try {
-      await revokeInvite(workspaceId, inviteId);
-      setInvites((prev) => prev.filter((i) => i.id !== inviteId));
+      await command.mutateAsync({ action: { kind: "revoke-invite", id }, token: captureWorkspaceOwner(owner) });
+      assertView();
       toast.success("Invite revoked");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to revoke invite");
+    } catch (error) {
+      try { assertView(); } catch { return; }
+      if (!isAbortError(error)) toast.error(error instanceof Error ? error.message : "Failed to revoke invite");
+    }
+  };
+  const handleRemoveMember = async (id: string) => {
+    const assertView = source.capture().assert;
+    assertView();
+    try {
+      await command.mutateAsync({ action: { kind: "remove-member", id }, token: captureWorkspaceOwner(owner) });
+      assertView();
+      toast.success("Member removed");
+    } catch (error) {
+      try { assertView(); } catch { return; }
+      if (!isAbortError(error)) toast.error(error instanceof Error ? error.message : "Failed to remove member");
     }
   };
 
-  const handleRemoveMember = async (memberId: string) => {
-    try {
-      await removeMember(workspaceId, memberId);
-      setMembers((prev) => prev.filter((m) => m.id !== memberId));
-      toast.success("Member removed");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to remove member");
-    }
-  };
+
+  if (memberQuery.isError || isOwner && invitesQuery.isError) {
+    return <div role="alert" className="space-y-3"><p className="text-sm text-destructive">Could not load workspace members.</p><Button size="sm" variant="outline" onClick={() => { if (memberQuery.isError) void memberQuery.refetch(); if (isOwner && invitesQuery.isError) void invitesQuery.refetch(); }}>Retry</Button></div>;
+  }
 
   if (loading) {
     return (

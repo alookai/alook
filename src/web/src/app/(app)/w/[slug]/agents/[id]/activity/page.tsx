@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback, useRef, useMemo } from "react";
+import { useInfiniteQuery, useMutation } from "@tanstack/react-query";
+import { useWorkspaceViewSource } from "@/hooks/workspace/use-workspace-view-source";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { useWorkspace } from "@/contexts/workspace-context";
+import { useWorkspaceOwner, captureWorkspaceOwner, assertWorkspaceOwner, workspaceRequestOptions, runWorkspaceRequest } from "@/contexts/workspace-context";
 import { listAgentActivity, retryTask, type ActivityTask } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -111,20 +113,32 @@ function ActivityRow({ task, slug, agentId, workspaceId, onRetry }: { task: Acti
   const duration = TERMINAL_STATUSES.has(task.status)
     ? formatDuration(task.started_at, task.completed_at)
     : null;
-  const [retrying, setRetrying] = useState(false);
 
+  const owner = useWorkspaceOwner();
+  const source = useWorkspaceViewSource(owner, "activity-retry:" + task.id, true);
+  const retry = useMutation({
+    mutationKey: owner.key("task-retry", task.id),
+    mutationFn: async (token: ReturnType<typeof captureWorkspaceOwner>) => {
+      const assertActive = () => assertWorkspaceOwner(token);
+      assertActive();
+      try {
+        await retryTask(task.id, workspaceId, workspaceRequestOptions(token));
+        assertActive();
+        await owner.queryClient.invalidateQueries({ queryKey: owner.key("agent-activity", agentId) });
+        assertActive();
+      } catch (error) { assertActive(); throw error; }
+    },
+  });
+  const retrying = retry.isPending;
   const handleRetry = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setRetrying(true);
+    const assertView = source.assertActive;
     try {
-      await retryTask(task.id, workspaceId);
+      await retry.mutateAsync(captureWorkspaceOwner(owner));
+      assertView();
       onRetry();
-    } catch {
-      // silently fail
-    } finally {
-      setRetrying(false);
-    }
+    } catch { }
   };
 
   return (
@@ -205,42 +219,27 @@ export default function AgentActivityPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const agentId = params.id as string;
-  const { slug, workspaceId } = useWorkspace();
 
-  const [tasks, setTasks] = useState<ActivityTask[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [hasMore, setHasMore] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const isFetchingRef = useRef(false);
-  const initialScrollDone = useRef(false);
-
+  const owner = useWorkspaceOwner();
+  const { slug, workspaceId } = owner;
   const statusFilter = searchParams.get("status") ?? "";
   const typeFilter = searchParams.get("type") ?? "";
+  const source = useWorkspaceViewSource(owner, JSON.stringify(["agent-activity", agentId, statusFilter, typeFilter]), true);
+  const activity = useInfiniteQuery({
+    queryKey: owner.key("agent-activity", agentId, statusFilter, typeFilter),
+    initialPageParam: null as { before: string; beforeId: string } | null,
+    queryFn: ({ signal, pageParam }) => runWorkspaceRequest(owner, (options) => listAgentActivity(agentId, workspaceId, { limit: ACTIVITY_LIMIT, status: statusFilter || undefined, type: typeFilter || undefined, ...pageParam }, options), signal),
+    getNextPageParam: (page) => page.has_more && page.tasks[0] ? { before: page.tasks[0].created_at, beforeId: page.tasks[0].id } : undefined,
+  });
+  const tasks = useMemo(() => [...new Map((activity.data?.pages.toReversed().flatMap((page) => page.tasks) ?? []).map((task) => [task.id, task])).values()], [activity.data]);
+  const loading = activity.isPending;
+  const hasMore = activity.hasNextPage;
+  const loadingMore = activity.isFetchingNextPage;
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const initialScrollDone = useRef(false);
+  const filterIdentity = JSON.stringify([agentId, statusFilter, typeFilter]);
 
-  const loadInitial = useCallback(async () => {
-    setLoading(true);
-    try {
-      const result = await listAgentActivity(agentId, workspaceId, {
-        limit: ACTIVITY_LIMIT,
-        status: statusFilter || undefined,
-        type: typeFilter || undefined,
-      });
-      setTasks(result.tasks);
-      setHasMore(result.has_more);
-      initialScrollDone.current = false;
-    } catch {
-      // error handled silently
-    } finally {
-      setLoading(false);
-    }
-  }, [agentId, workspaceId, statusFilter, typeFilter]);
-
-  useEffect(() => {
-    loadInitial();
-  }, [loadInitial]);
-
+  useEffect(() => { initialScrollDone.current = false; }, [filterIdentity]);
   useEffect(() => {
     if (!loading && !initialScrollDone.current && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -248,48 +247,21 @@ export default function AgentActivityPage() {
     }
   }, [loading, tasks]);
 
+  const loadInitial = useCallback(() => { void activity.refetch(); }, [activity]);
   const loadOlderTasks = useCallback(async () => {
-    if (isFetchingRef.current || !hasMore || tasks.length === 0) return;
-    isFetchingRef.current = true;
-    setLoadingMore(true);
-
+    if (activity.isFetching || !hasMore || tasks.length === 0) return;
+    const assertView = source.assertActive;
     const el = scrollRef.current;
-    const prevScrollHeight = el?.scrollHeight ?? 0;
-
+    const previousHeight = el?.scrollHeight ?? 0;
     try {
-      const oldest = tasks[0];
-      const result = await listAgentActivity(agentId, workspaceId, {
-        limit: ACTIVITY_LIMIT,
-        before: oldest.created_at,
-        beforeId: oldest.id,
-        status: statusFilter || undefined,
-        type: typeFilter || undefined,
-      });
-
-      if (result.tasks.length === 0) {
-        setHasMore(false);
-        return;
-      }
-
-      setHasMore(result.has_more);
-      setTasks((prev) => {
-        const existingIds = new Set(prev.map((t) => t.id));
-        const unique = result.tasks.filter((t) => !existingIds.has(t.id));
-        return [...unique, ...prev];
-      });
-
+      await activity.fetchNextPage({ cancelRefetch: false });
+      assertView();
       requestAnimationFrame(() => {
-        if (el) {
-          const newScrollHeight = el.scrollHeight;
-          el.scrollTop = newScrollHeight - prevScrollHeight;
-        }
+        try { assertView(); } catch { return; }
+        if (el?.isConnected && el === scrollRef.current) el.scrollTop = el.scrollHeight - previousHeight;
       });
-    } finally {
-      isFetchingRef.current = false;
-      setLoadingMore(false);
-    }
-  }, [agentId, workspaceId, tasks, hasMore, statusFilter, typeFilter]);
-
+    } catch { }
+  }, [activity, hasMore, tasks.length, source.assertActive]);
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;

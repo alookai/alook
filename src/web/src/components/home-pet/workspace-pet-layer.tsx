@@ -3,6 +3,7 @@
 import { type RefObject } from "react";
 import dynamic from "next/dynamic";
 
+import { useAgentContext } from "@/contexts/agent-context";
 import { useInboxCount } from "@/contexts/inbox-count-context";
 import { useHomePetSettings } from "@/lib/home-pet-settings";
 import type { CloudCodeMonsterPetProps } from "./cloud-code-monster-pet";
@@ -21,8 +22,9 @@ type WorkspacePetLayerProps = {
 };
 
 export function WorkspacePetLayer({ boundaryRef }: WorkspacePetLayerProps) {
+  const { activeTaskDetails, subscribeWs } = useAgentContext();
   const petSettings = useHomePetSettings();
-  const { notificationToken } = useInboxCount();
+  const { notificationToken, count: inboxCount } = useInboxCount();
 
   if (!petSettings.enabled) {
     return null;
@@ -30,6 +32,9 @@ export function WorkspacePetLayer({ boundaryRef }: WorkspacePetLayerProps) {
 
   return (
     <CloudCodeMonsterPet
+      inboxCount={inboxCount}
+      activeAgentTaskCount={activeTaskDetails.length}
+      subscribeWs={subscribeWs}
       boundaryRef={boundaryRef}
       notificationToken={notificationToken}
     />

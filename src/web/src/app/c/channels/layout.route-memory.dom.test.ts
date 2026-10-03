@@ -1,6 +1,13 @@
 import { createElement, useLayoutEffect } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { act, render } from "@/test/react-dom-harness"
+import { act } from "@/test/react-dom-harness"
+import { render as renderDom } from "@/test/react-dom-harness"
+import { QueryClient } from "@tanstack/react-query"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { ingestServers } from "@/lib/community-db/sync"
+import { registerOwnerServerDeleteRoute, type OwnerServerDeleteRouteToken } from "@/lib/community/eject-server"
 
 const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
@@ -15,7 +22,7 @@ const mocks = vi.hoisted(() => ({
   claimNavigation: vi.fn(),
   registerRoute: vi.fn(),
   routeProtected: { current: false },
-  routeToken: {},
+  routeToken: {} as OwnerServerDeleteRouteToken,
   clearLastChannel: vi.fn(),
   communityServerId: vi.fn(),
   useServer: vi.fn(),
@@ -28,10 +35,10 @@ const mocks = vi.hoisted(() => ({
   serverListFetching: { current: false },
   serverListLiveAuthoritative: { current: true },
   serverAccessRevoked: { current: false },
-  queryClient: { getQueryData: vi.fn(), fetchQuery: vi.fn() },
+  queryClient: null as unknown as QueryClient,
 }))
 
-vi.mock("@tanstack/react-query", () => ({
+vi.mock("@tanstack/react-query", async (importOriginal) => ({ ...await importOriginal<typeof import("@tanstack/react-query")>(),
   useQueryClient: () => mocks.queryClient,
 }))
 
@@ -57,12 +64,13 @@ vi.mock("@/components/community/shell/shell-frame", () => ({
     extraDialogs?: React.ReactNode
     ownerDeleteRouteScope?: {
       serverId: string
-      token: object
+      token: OwnerServerDeleteRouteToken
     }
   }) => {
     useLayoutEffect(() => {
       if (!ownerDeleteRouteScope) return
-      mocks.registerRoute(
+      registerOwnerServerDeleteRoute(
+        mocks.queryClient,
         ownerDeleteRouteScope.serverId,
         ownerDeleteRouteScope.token,
       )
@@ -93,13 +101,14 @@ vi.mock("@/components/community/settings/server-settings", () => ({
 }))
 vi.mock("@/components/community/image-crop-dialog", () => ({ ImageCropDialog: () => null }))
 vi.mock("@/lib/community/image-crop", () => ({ validateIconSourceFile: () => ({ ok: true }) }))
-vi.mock("@alook/shared", () => ({
+vi.mock("@alook/shared", async (importOriginal) => ({ ...await importOriginal<typeof import("@alook/shared")>(),
   canManageServer: () => false,
   isForum: () => false,
   notifLevelDisplay: (value: string) => value,
-}))
+ }))
 vi.mock("@/lib/community/profile-read", () => ({ readCommunityProfile: vi.fn() }))
-vi.mock("@/stores/community", () => {
+vi.mock("@/stores/community", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/community")>();
   const state = {
     setCurrentServerId: mocks.setCurrentServerId,
     uiHandlers: {
@@ -108,6 +117,7 @@ vi.mock("@/stores/community", () => {
     },
   }
   return {
+    ...actual,
     useCommunityStore: { getState: () => state },
     useCurrentChannelId: () => null,
     useCurrentChannelMeta: () => null,
@@ -135,7 +145,7 @@ vi.mock("@/hooks/community/use-server-members", () => ({
     loadMore: vi.fn(), searchMembers: vi.fn(),
   }),
 }))
-vi.mock("@/lib/community/eject-server", () => ({
+vi.mock("@/lib/community/eject-server", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community/eject-server")>(),
   claimOwnerServerDeleteNavigation: (...args: unknown[]) => mocks.claimNavigation(...args),
   consumeVoluntaryLeave: vi.fn(),
   createOwnerServerDeleteRouteToken: () => mocks.routeToken,
@@ -151,7 +161,7 @@ vi.mock("@/lib/community/eject-server", () => ({
   },
   registerOwnerServerDeleteRoute: (...args: unknown[]) => mocks.registerRoute(...args),
   runAuthoritativeServerEject: (args: Record<string, unknown>) => mocks.runEject(args),
-}))
+ }))
 vi.mock("@/lib/community/last-channel", () => ({
   clearLastChannel: (...args: unknown[]) => mocks.clearLastChannel(...args),
   getLastChannel: (serverId: string) => mocks.lastChannels.get(serverId) ?? null,
@@ -167,7 +177,7 @@ vi.mock("@/hooks/community/use-forum-sidebar-threads", () => ({
   resolveForumSidebarRouteCandidate: () => null,
   useForumSidebarThreads: () => ({ threads: [], parentUnread: {} }),
 }))
-vi.mock("@/stores/community/ws", () => ({
+vi.mock("@/stores/community/ws", async (importOriginal) => ({ ...await importOriginal<typeof import("@/stores/community/ws")>(),
   useCommunityWsStore: (selector: (state: {
     profilesByUserId: Map<string, unknown>
     revokedServerIds: Set<string>
@@ -182,7 +192,8 @@ vi.mock("@/hooks/community/use-notification-settings", () => ({
   resolveServerNotificationDisplayLevel: () => "default",
   useNotificationSettings: () => ({ server: {}, channel: {} }),
 }))
-vi.mock("@/hooks/community/mutations", () => {
+vi.mock("@/hooks/community/mutations", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/community/eject-server")>("@/lib/community/eject-server")
   const mutation = () => ({ mutate: vi.fn(), mutateAsync: vi.fn() })
   return {
     useCreateChannel: mutation,
@@ -195,7 +206,7 @@ vi.mock("@/hooks/community/mutations", () => {
     useReorderCategories: mutation,
     useReorderChannels: mutation,
     useDeleteServer: (callbacks: {
-      routeToken: object
+      routeToken: OwnerServerDeleteRouteToken
       onSuccess: (
         args: { serverId: string },
         result: { needsNavigation: boolean },
@@ -203,12 +214,15 @@ vi.mock("@/hooks/community/mutations", () => {
       onError: (error: Error, args: { serverId: string }) => void
     }) => ({
       mutate: (args: { serverId: string }) => {
+        actual.beginOwnerServerDelete(mocks.queryClient, args.serverId, callbacks.routeToken)
         mocks.routeProtected.current = true
         mocks.deleteServer(args, {
           onSuccess: (needsNavigation = true) => {
+            actual.commitOwnerServerDelete(mocks.queryClient, args.serverId, callbacks.routeToken)
             callbacks.onSuccess(args, { needsNavigation })
           },
           onError: (error: Error) => {
+            actual.cancelOwnerServerDelete(mocks.queryClient, args.serverId, callbacks.routeToken)
             mocks.routeProtected.current = false
             callbacks.onError(error, args)
           },
@@ -226,8 +240,20 @@ vi.mock("@/hooks/community/mutations", () => {
 
 import ServerLayout from "./layout"
 
+function render(node: React.ReactNode) {
+  ingestServers(getCommunityDbRegistry(mocks.queryClient)!, { servers: mocks.servers.current.map(({ id }) => ({ id, name: id, unread: false, mentions: 0 })) })
+  return renderDom(node, { wrapper: ({ children }) => createElement(CommunityTestProvider, { client: mocks.queryClient, userId: "viewer-1", retainOwner: true }, children) })
+}
+
 describe("ServerLayout deletion routing", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    const { client, registry } = await createCommunityQueryOwner("viewer-1")
+    mocks.queryClient = client
+    const actual = await vi.importActual<typeof import("@/lib/community/eject-server")>("@/lib/community/eject-server")
+    mocks.routeToken = actual.createOwnerServerDeleteRouteToken(client)
+    registry.runtime.ui.actions.registerUiHandlers({ cancelPendingNavigation: mocks.cancelPendingNavigation, navigatePath: mocks.navigatePath })
+    vi.spyOn(client, "getQueryData")
+    vi.spyOn(client, "fetchQuery")
     window.history.replaceState({}, "", "/c/channels/missing-server/missing-channel")
     mocks.replace.mockClear()
     mocks.navigatePath.mockClear()
@@ -256,14 +282,14 @@ describe("ServerLayout deletion routing", () => {
     mocks.serverListFetching.current = false
     mocks.serverListLiveAuthoritative.current = true
     mocks.serverAccessRevoked.current = false
-    mocks.queryClient.getQueryData.mockImplementation((key: unknown[]) => {
+    vi.mocked(mocks.queryClient.getQueryData).mockImplementation((key: unknown[]) => {
       if (key.length === 2 && key[1] === "servers") {
         return { servers: mocks.servers.current }
       }
       return mocks.serverDetails.get(String(key.at(-1)))
     })
-    mocks.queryClient.fetchQuery.mockReset()
-    mocks.queryClient.fetchQuery.mockImplementation(({ queryKey }: { queryKey: unknown[] }) => (
+    vi.mocked(mocks.queryClient.fetchQuery).mockReset()
+    vi.mocked(mocks.queryClient.fetchQuery).mockImplementation(({ queryKey }: { queryKey: unknown[] }) => (
       Promise.resolve(mocks.serverDetails.get(String(queryKey.at(-1))))
     ))
     mocks.runEject.mockReturnValue(false)
@@ -302,7 +328,7 @@ describe("ServerLayout deletion routing", () => {
     }))
     expect(mocks.cancelPendingNavigation).toHaveBeenCalledTimes(1)
     expect(mocks.replace).toHaveBeenCalledWith("/c/me/machines")
-    expect(mocks.registerRoute).toHaveBeenCalledWith("missing-server", mocks.routeToken)
+    expect(mocks.registerRoute).toHaveBeenCalledWith(mocks.queryClient, "missing-server", mocks.routeToken)
   })
 
   it("keeps restored absence non-authoritative until the current client settles a live list", () => {
@@ -371,6 +397,7 @@ describe("ServerLayout deletion routing", () => {
 
     await act(async () => callbacks.onSuccess())
     expect(mocks.claimNavigation).toHaveBeenCalledExactlyOnceWith(
+      mocks.queryClient,
       "missing-server",
       mocks.routeToken,
       "/c/channels/surviving-server/channel-remembered",
@@ -395,6 +422,7 @@ describe("ServerLayout deletion routing", () => {
     await act(async () => callbacks.onSuccess())
 
     expect(mocks.claimNavigation).toHaveBeenCalledExactlyOnceWith(
+      mocks.queryClient,
       "missing-server",
       mocks.routeToken,
       "/c/me",
@@ -461,7 +489,7 @@ describe("ServerLayout deletion routing", () => {
 
     render(createElement(ServerLayout, null, createElement("div")))
 
-    expect(mocks.registerRoute).toHaveBeenCalledWith("missing-server", mocks.routeToken)
+    expect(mocks.registerRoute).toHaveBeenCalledWith(mocks.queryClient, "missing-server", mocks.routeToken)
     expect(mocks.runEject).toHaveBeenLastCalledWith(expect.objectContaining({
       ownerDeleteRouteProtected: false,
     }))
@@ -496,11 +524,11 @@ describe("ServerLayout deletion routing", () => {
     expect(mocks.replace).not.toHaveBeenCalled()
 
     const error = new Error("delete failed")
-    await act(async () => callbacks.onError(error))
     mocks.servers.current = [
       { id: "missing-server" },
       { id: "surviving-server" },
     ]
+    await act(async () => callbacks.onError(error))
     rendered.rerender(createElement(ServerLayout, null, createElement("div")))
     expect(mocks.replace).not.toHaveBeenCalled()
     expect(mocks.toastApiError).toHaveBeenCalledWith(error, "Failed to delete server")

@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useCallback, useEffect, useRef } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -105,8 +106,8 @@ function MentionList({
 }
 
 function useMentionSuggestion(agents: Agent[] | undefined) {
-  const [popup, setPopup] = useState<PopupState>({ items: [], selectedIndex: 0, command: null });
-  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+  const [popup, setPopup] = useAtom(useCreateAtom<PopupState>({ items: [], selectedIndex: 0, command: null }));
+  const [anchorEl, setAnchorEl] = useAtom(useCreateAtom<HTMLElement | null>(null));
   const popupRef = useRef(popup);
   useEffect(() => {
     popupRef.current = popup;

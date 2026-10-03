@@ -1,15 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { QueryClient } from "@tanstack/react-query"
+import { type QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { getCanonicalCommunityMessages, getCanonicalCommunityChannels } from "@/lib/community-db/sync"
+import { channelSchema } from "@/lib/community-db/schema"
+import { materializeThreadsResponse, type ThreadsResponse } from "./use-channel-panels"
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
 }))
 
-beforeEach(() => {
+let qc: QueryClient
+beforeEach(async () => {
   apiFetchMock.mockReset()
+  qc = (await createCommunityQueryOwner()).client
 })
+const project = (data: ThreadsResponse) => materializeThreadsResponse(data, new Map(getCanonicalCommunityMessages(qc).map((row) => [row.id, row])), new Map(getCanonicalCommunityChannels(qc).map((row) => [row.id, row])))
 
 describe("useThreads / threadsQueryFn", () => {
   it("fetches from /channels/:id/threads and returns { threads }", async () => {
@@ -22,11 +29,11 @@ describe("useThreads / threadsQueryFn", () => {
       .mockResolvedValueOnce({ tags: [] })
       .mockResolvedValueOnce({ participants: [] })
     const { threadsQueryFn } = await import("./use-channel-panels")
-    const data = await threadsQueryFn("ch_1")()
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/ch_1/threads", { signal: undefined })
+    const data = await threadsQueryFn("ch_1", qc)()
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/ch_1/threads", expect.objectContaining({ authenticationAccount: "viewer", signal: undefined }))
     expect(apiFetchMock).not.toHaveBeenCalledWith("/api/community/channels/ch_1/posts")
     expect(data.threads).toHaveLength(1)
-    expect(data.threads[0]?.parent.text).toBe("identityless preview")
+    expect(project(data)[0]?.parent.text).toBe("identityless preview")
   })
 
   it("populates queryClient at communityKeys.threads(channelId)", async () => {
@@ -35,7 +42,6 @@ describe("useThreads / threadsQueryFn", () => {
       .mockResolvedValueOnce({ tags: [] })
       .mockResolvedValueOnce({ participants: [] })
     const { threadsQueryFn } = await import("./use-channel-panels")
-    const qc = new QueryClient()
     const key = communityKeys.threads("ch_1")
     await qc.fetchQuery({ queryKey: key, queryFn: threadsQueryFn("ch_1", qc) })
     expect(qc.getQueryData<{ threads: unknown[] }>(key)?.threads).toHaveLength(1)
@@ -49,8 +55,8 @@ describe("useThreads / threadsQueryFn", () => {
       .mockResolvedValueOnce({ tags: [] })
       .mockResolvedValueOnce({ participants: [] })
     const { threadsQueryFn } = await import("./use-channel-panels")
-    const forum = await threadsQueryFn("forum_1")({ signal })
-    expect(forum.threads[0]).toMatchObject({
+    const forum = await threadsQueryFn("forum_1", qc)({ signal })
+    expect(project(forum)[0]).toMatchObject({
       name: "  Full opener content  ",
       openerMessageId: "opener_1",
     })
@@ -63,8 +69,8 @@ describe("useThreads / threadsQueryFn", () => {
       .mockResolvedValueOnce({ messages: [{ id: "root_1", channelId: "text_1", content: "Root message", seq: 1, authorId: "u1", authorName: "A", authorImage: null }], firstMessages: [] })
       .mockResolvedValueOnce({ tags: [] })
       .mockResolvedValueOnce({ participants: [] })
-    const text = await threadsQueryFn("text_1")()
-    expect(text.threads[0]?.name).toBe("Custom thread name")
+    const text = await threadsQueryFn("text_1", qc)()
+    expect(project(text)[0]?.name).toBe("Custom thread name")
   })
 
   it("aborts all four loader requests when the exact base query is cancelled", async () => {
@@ -78,9 +84,8 @@ describe("useThreads / threadsQueryFn", () => {
       })
     })
     const { threadsQueryFn } = await import("./use-channel-panels")
-    const qc = new QueryClient()
     const key = communityKeys.threads("forum_1")
-    const pending = qc.fetchQuery({ queryKey: key, queryFn: threadsQueryFn("forum_1") }).catch(() => undefined)
+    const pending = qc.fetchQuery({ queryKey: key, queryFn: threadsQueryFn("forum_1", qc) }).catch(() => undefined)
     await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(4))
     await qc.cancelQueries({ queryKey: key, exact: true })
     expect(new Set(signals).size).toBe(1)
@@ -91,17 +96,16 @@ describe("useThreads / threadsQueryFn", () => {
 
 describe("usePins / pinsQueryFn", () => {
   it("fetches from /channels/:id/pins and returns { pins }", async () => {
-    apiFetchMock.mockResolvedValueOnce({ pins: [{ id: "m_1" }] })
+    apiFetchMock.mockResolvedValueOnce({ pins: [{ id: "m_1", type: "chat", channelId: "ch_1", authorId: "u1", content: "pin" }] })
     const { pinsQueryFn } = await import("./use-channel-panels")
-    const data = await pinsQueryFn("ch_1")()
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/ch_1/pins")
+    const data = await pinsQueryFn("ch_1", qc)()
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/ch_1/pins", expect.objectContaining({ authenticationAccount: "viewer" }))
     expect(data.pins).toHaveLength(1)
   })
 
   it("populates queryClient at communityKeys.pins(channelId)", async () => {
     apiFetchMock.mockResolvedValueOnce({ pins: [{ id: "m_1", type: "chat", authorId: "u1", authorName: "A", content: "pin", createdAt: "now" }] })
     const { pinsQueryFn } = await import("./use-channel-panels")
-    const qc = new QueryClient()
     const key = communityKeys.pins("ch_1")
     await qc.fetchQuery({ queryKey: key, queryFn: pinsQueryFn("ch_1", qc) })
     expect(qc.getQueryData<{ pins: unknown[] }>(key)?.pins).toHaveLength(1)
@@ -123,9 +127,10 @@ describe("materializeThreadsResponse", () => {
     }
     const canonical = new Map([["opener", { id: "opener", type: "chat" as const, authorId: "u1", authorName: "A", content: "Canonical title", createdAt: "now" }]])
 
-    expect(materializeThreadsResponse(base, canonical).map(({ name }) => name))
+    const channels = new Map(base.threads.map((thread) => [thread.id, channelSchema.parse({ id: thread.id, name: thread.id === "identityless" ? "Post" : thread.name, type: "thread", position: 0, archived: false, muted: false, unread: false, pending: false, tags: [], serverId: "s1", parentChannelId: "forum_1", parentMessageId: thread.openerMessageId, preview: thread.parent.text, messageCount: thread.messageCount, lastMessageAt: thread.lastMessageAt })]))
+    expect(materializeThreadsResponse(base, canonical, channels).map(({ name }) => name))
       .toEqual(["Canonical title", "Post"])
-    expect(materializeThreadsResponse({ ...base, parentType: "text" }, canonical)[0]?.parent.text)
+    expect(materializeThreadsResponse({ ...base, parentType: "text" }, canonical, channels)[0]?.parent.text)
       .toBe("Canonical title")
   })
 })

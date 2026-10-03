@@ -1,29 +1,36 @@
 "use client"
+import { useAtom,useCreateAtom } from "@tanstack/react-store"
+import { useTrustedRestoredForumProjection } from "@/lib/community-db/projections"
+import { getCommunityRuntime } from "@/stores/community/runtime"
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
-import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
+
+import { useEffect,useMemo,useRef } from "react"
+import { QueryObserver,useQuery,useQueryClient,type QueryClient } from "@tanstack/react-query"
 import { compareAsciiSqliteBinary } from "@alook/shared"
+import { FORUM_ARCHIVE_TAG } from "@alook/shared/constants/community"
 import { apiFetch } from "@/lib/api/client"
+import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import {
-  useAttentionScopes,
-  useForumSidebarProjection,
-  useOptionalCommunityDbRegistry,
+useAttentionScopes,
+useForumSidebarProjection,
+useOptionalCommunityDbRegistry,
 } from "@/lib/community-db/projections"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import {
-  captureCommunityLiveSnapshotToken,
-  getCanonicalCommunityChannelMemberships,
-  getCanonicalCommunityChannels,
-  getCanonicalCommunityMessages,
-  patchCanonicalCommunityChannel,
-  patchCanonicalCommunityMessage,
-  publishCommunityForumSidebar,
-  removeCanonicalCommunityChannelMembership,
-  removeCanonicalCommunityChannel,
-  setCanonicalCommunityChannelMembership,
-  type CommunityFreshQueryProof,
+captureCommunityLiveSnapshotToken,
+assertCommunityLiveSnapshotTokenCurrent,
+getCanonicalCommunityChannelMemberships,
+getCanonicalCommunityChannels,
+getCanonicalCommunityMessages,
+patchCanonicalCommunityChannel,
+patchCanonicalCommunityMessage,
+publishCommunityForumSidebar,
+removeCanonicalCommunityChannelMembership,
+purgeCommunityChannel,
+setCanonicalCommunityChannelMembership,
+type CommunityFreshQueryProof,
 } from "@/lib/community-db/sync"
 import { getActiveAccountUnreadProjection } from "./account-unread-projection"
 
@@ -37,8 +44,6 @@ export type ForumSidebarThread = {
   unread: boolean
 }
 
-const subscribeToNoRestoredForumProjection = () => () => {}
-const noRestoredForumProjection = () => false
 
 type ForumSidebarRetainedDisposition =
   | "eligible"
@@ -97,7 +102,7 @@ export type ChildChannelMeta = {
   verifiedEpoch: number
 }
 
-export type ForumOpenerHint = {
+type ForumOpenerHint = {
   id: string
   content: string
   seq?: number
@@ -119,24 +124,7 @@ export type ForumSidebarUnreadFallbackState = Record<string, {
   childIds: string[]
 }>
 
-type InflightDelta = {
-  activity: Map<string, { parentChannelId: string; activityAt: string }>
-  titles: Map<string, string>
-  removed: Set<string>
-}
-
-type InflightRecord = {
-  promise: Promise<NormalizedForumSidebarEnvelope>
-  delta: InflightDelta
-  candidate: string | null
-  controller: AbortController
-  signals: Set<AbortSignal>
-  abortTimer: ReturnType<typeof setTimeout> | null
-}
-
 const SIDEBAR_ACTIVITY_WINDOW_MS = 72 * 60 * 60 * 1000
-const STRICT_MODE_ABORT_GRACE_MS = 50
-const inflight = new Map<string, InflightRecord>()
 
 export function resolveForumSidebarRouteCandidate(
   channelId: string | null,
@@ -158,46 +146,6 @@ function compareThreads(left: ForumSidebarThread, right: ForumSidebarThread) {
   return compareAsciiSqliteBinary(left.parentChannelId, right.parentChannelId)
     || compareAsciiSqliteBinary(right.activityAt, left.activityAt)
     || compareAsciiSqliteBinary(right.id, left.id)
-}
-
-function patchForumSidebarActivity(
-  data: ForumSidebarQueryData,
-  threadId: string,
-  parentChannelId: string,
-  activityAt: string,
-): ForumSidebarQueryData {
-  if (!data.threads.some((thread) => (
-    thread.id === threadId && thread.parentChannelId === parentChannelId
-  ))) return data
-  const expiresAt = new Date(Date.parse(activityAt) + SIDEBAR_ACTIVITY_WINDOW_MS).toISOString()
-  return {
-    ...data,
-    threads: data.threads
-      .map((thread) => thread.id === threadId
-        ? { ...thread, activityAt, expiresAt }
-        : thread)
-      .sort(compareThreads),
-  }
-}
-
-function patchForumSidebarTitle(
-  data: ForumSidebarQueryData,
-  threadId: string,
-  title: string,
-) {
-  return {
-    ...data,
-    threads: data.threads.map((thread) => (
-      thread.id === threadId ? { ...thread, title } : thread
-    )),
-  }
-}
-
-function removeForumSidebarThread(
-  data: ForumSidebarQueryData,
-  threadId: string,
-) {
-  return { ...data, threads: data.threads.filter((thread) => thread.id !== threadId) }
 }
 
 function projectForumSidebarThreads(data: SidebarThreadEnvelope) {
@@ -327,110 +275,25 @@ function sidebarUrl(serverId: string, retainId: string | null) {
   return `/api/community/servers/${serverId}/channels?${params.toString()}`
 }
 
-function attachInflightSignal(
-  serverId: string,
-  record: InflightRecord,
-  signal?: AbortSignal,
-) {
-  if (!signal || record.signals.has(signal)) return
-  if (record.abortTimer !== null) globalThis.clearTimeout(record.abortTimer)
-  record.abortTimer = null
-  record.signals.add(signal)
-  const release = () => {
-    record.signals.delete(signal)
-    if (record.signals.size > 0 || record.abortTimer !== null) return
-    record.abortTimer = globalThis.setTimeout(() => {
-      record.abortTimer = null
-      if (inflight.get(serverId) === record && record.signals.size === 0) {
-        record.controller.abort()
-      }
-    }, STRICT_MODE_ABORT_GRACE_MS)
-  }
-  if (signal.aborted) release()
-  else signal.addEventListener("abort", release, { once: true })
-}
-
-function fetchForumSidebar(
+async function fetchForumSidebar(
+  queryClient: QueryClient,
   serverId: string,
   retainId: string | null,
-  signal?: AbortSignal,
+  signal: AbortSignal | undefined,
+  token: ReturnType<typeof captureCommunityLiveSnapshotToken>,
 ) {
-  const pending = inflight.get(serverId)
-  if (pending?.candidate === retainId && !pending.controller.signal.aborted) {
-    attachInflightSignal(serverId, pending, signal)
-    return pending.promise
-  }
-  if (pending) pending.controller.abort()
-  const controller = new AbortController()
-  const delta: InflightDelta = {
-    activity: new Map(),
-    titles: new Map(),
-    removed: new Set(),
-  }
-  const request = apiFetch<SidebarThreadEnvelope>(sidebarUrl(serverId, retainId), {
-    signal: controller.signal,
-  }).then((envelope) => normalizeForumSidebarEnvelope(envelope, retainId))
-    .then((normalized) => {
-      let base = normalized.base
-      let retained = normalized.retained
-      const channelMetas = { ...normalized.channelMetas }
-      const openerHints = { ...normalized.openerHints }
-      for (const [childId, update] of delta.activity) {
-        base = patchForumSidebarActivity(base, childId, update.parentChannelId, update.activityAt)
-        if (retained?.id === childId) {
-          retained = {
-            ...retained,
-            activityAt: update.activityAt,
-            expiresAt: new Date(
-              Date.parse(update.activityAt) + SIDEBAR_ACTIVITY_WINDOW_MS,
-            ).toISOString(),
-          }
-        }
-        if (channelMetas[childId]) {
-          channelMetas[childId] = { ...channelMetas[childId], activityAt: update.activityAt }
-        }
-      }
-      for (const [childId, title] of delta.titles) {
-        base = patchForumSidebarTitle(base, childId, title)
-        if (retained?.id === childId) retained = { ...retained, title }
-        const meta = channelMetas[childId]
-        if (meta && openerHints[meta.parentMessageId]) {
-          openerHints[meta.parentMessageId] = {
-            ...openerHints[meta.parentMessageId],
-            content: title,
-          }
-        }
-      }
-      for (const childId of delta.removed) {
-        const meta = channelMetas[childId]
-        if (meta) delete openerHints[meta.parentMessageId]
-        delete channelMetas[childId]
-        base = removeForumSidebarThread(base, childId)
-        if (retained?.id === childId) retained = null
-      }
-      return { ...normalized, base, retained, channelMetas, openerHints }
-    }).finally(() => {
-      const current = inflight.get(serverId)
-      if (current?.promise !== request) return
-      if (current.abortTimer !== null) globalThis.clearTimeout(current.abortTimer)
-      inflight.delete(serverId)
-    })
-  const record: InflightRecord = {
-    promise: request,
-    delta,
-    candidate: retainId,
-    controller,
-    signals: new Set(),
-    abortTimer: null,
-  }
-  inflight.set(serverId, record)
-  attachInflightSignal(serverId, record, signal)
-  return request
-}
-
-function recordInflightDelta(serverId: string, update: (delta: InflightDelta) => void) {
-  const record = inflight.get(serverId)
-  if (record) update(record.delta)
+  const registry = token.registry
+  await registry?.ready
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
+  await Promise.all([
+    registry!.collections.channels.preload(),
+    registry!.collections.channelMemberships.preload(),
+    registry!.collections.messages.preload(),
+  ])
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
+  const envelope = await apiFetch<SidebarThreadEnvelope>(sidebarUrl(serverId, retainId), communityRequestOptions(queryClient, token, signal))
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
+  return normalizeForumSidebarEnvelope(envelope, retainId)
 }
 
 function publishNormalizedForumSidebar(
@@ -483,6 +346,10 @@ function publishNormalizedForumSidebar(
 }
 
 function canonicalSidebarBase(queryClient: QueryClient, serverId: string) {
+  const channels = getCanonicalCommunityChannels(queryClient)
+  const forumParentIds = new Set(channels
+    .filter((channel) => channel.serverId === serverId && channel.type === "forum")
+    .map((channel) => channel.id))
   const participating = new Set(
     getCanonicalCommunityChannelMemberships(queryClient)
       .filter((membership) => membership.relation === "notify")
@@ -495,13 +362,15 @@ function canonicalSidebarBase(queryClient: QueryClient, serverId: string) {
     communityKeys.forumSidebarThreads(serverId),
   )
   return {
-    threads: getCanonicalCommunityChannels(queryClient)
+    threads: channels
       .filter((channel) => (
         channel.serverId === serverId
         && channel.type === "thread"
         && !channel.archived
+        && !channel.tags.includes(FORUM_ARCHIVE_TAG)
         && participating.has(channel.id)
         && channel.parentChannelId
+        && forumParentIds.has(channel.parentChannelId)
         && channel.parentMessageId
       ))
       .map((channel) => {
@@ -520,7 +389,7 @@ function canonicalSidebarBase(queryClient: QueryClient, serverId: string) {
         }
       })
       .sort(compareThreads),
-    verifiedEpoch: useCommunityWsStore.getState().accessEpoch,
+    verifiedEpoch: getCommunityRuntime(queryClient).ws.get().accessEpoch,
     serverNow: transport?.serverNow ?? new Date().toISOString(),
     serverClockOffsetMs: transport?.serverClockOffsetMs ?? 0,
   } satisfies ForumSidebarQueryData
@@ -584,9 +453,6 @@ export function patchForumSidebarActivityExact(
   parentChannelId: string,
   activityAt: string,
 ) {
-  recordInflightDelta(serverId, (delta) => {
-    delta.activity.set(childId, { parentChannelId, activityAt })
-  })
   patchCanonicalCommunityChannel(queryClient, childId, (row) => (
     row.parentChannelId === parentChannelId ? { ...row, lastMessageAt: activityAt } : row
   ))
@@ -598,7 +464,6 @@ export function patchForumSidebarTitleExact(
   childId: string,
   title: string,
 ) {
-  recordInflightDelta(serverId, (delta) => delta.titles.set(childId, title))
   const channel = getCanonicalCommunityChannels(queryClient)
     .find((candidate) => candidate.id === childId && candidate.serverId === serverId)
   if (channel?.parentMessageId) {
@@ -614,8 +479,13 @@ export function removeForumSidebarThreadExact(
   serverId: string,
   childId: string,
 ) {
-  recordInflightDelta(serverId, (delta) => delta.removed.add(childId))
-  removeCanonicalCommunityChannel(queryClient, childId)
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry) return
+  const channel = getCanonicalCommunityChannels(queryClient).find((row) => row.id === childId)
+  if (channel && channel.serverId !== serverId) return
+  if (!channel && registry.runtime.ws.actions.isChannelAccessRevoked(childId, serverId)) return
+  purgeCommunityChannel(registry, childId)
+  if (!registry.runtime.ws.actions.isChannelAccessRevoked(childId, serverId)) registry.runtime.ws.actions.revokeChannelAccess(serverId, childId)
 }
 
 export function removeForumSidebarProjectionExact(
@@ -623,13 +493,8 @@ export function removeForumSidebarProjectionExact(
   serverId: string,
   childId: string,
 ) {
-  recordInflightDelta(serverId, (delta) => delta.removed.add(childId))
   removeCanonicalCommunityChannelMembership(queryClient, childId, "notify")
   removeForumSidebarUnreadChild(queryClient, serverId, childId)
-}
-
-export function restoreForumSidebarThreadInflight(serverId: string, childId: string) {
-  recordInflightDelta(serverId, (delta) => delta.removed.delete(childId))
 }
 
 export function removeForumSidebarChildrenForParent(
@@ -650,12 +515,6 @@ export async function invalidateForumSidebarBaseExact(
   queryClient: QueryClient,
   serverId: string,
 ) {
-  const pending = inflight.get(serverId)
-  if (pending) {
-    if (pending.abortTimer !== null) globalThis.clearTimeout(pending.abortTimer)
-    pending.controller.abort()
-    inflight.delete(serverId)
-  }
   const queryKey = communityKeys.forumSidebarThreads(serverId)
   await queryClient.cancelQueries({ queryKey, exact: true })
   await queryClient.invalidateQueries({ queryKey, exact: true, refetchType: "active" })
@@ -665,12 +524,6 @@ async function fetchForumSidebarBaseExact(
   queryClient: QueryClient,
   serverId: string,
 ) {
-  const pending = inflight.get(serverId)
-  if (pending) {
-    if (pending.abortTimer !== null) globalThis.clearTimeout(pending.abortTimer)
-    pending.controller.abort()
-    inflight.delete(serverId)
-  }
   const queryKey = communityKeys.forumSidebarThreads(serverId)
   await queryClient.cancelQueries({ queryKey, exact: true })
   await queryClient.invalidateQueries({ queryKey, exact: true, refetchType: "none" })
@@ -679,14 +532,14 @@ async function fetchForumSidebarBaseExact(
   const unreadProjection = getActiveAccountUnreadProjection(queryClient)
   const confirmation = unreadProjection.beginAccessConfirmation()
   const token = captureCommunityLiveSnapshotToken(queryClient)
-  const requestEpoch = useCommunityWsStore.getState().accessEpoch
+  const requestEpoch = getCommunityRuntime(queryClient).ws.get().accessEpoch
   let normalized: NormalizedForumSidebarEnvelope | undefined
   let proof: CommunityFreshQueryProof | undefined
   await queryClient.fetchQuery({
     queryKey,
     staleTime: 0,
     queryFn: async ({ signal }) => {
-      normalized = await fetchForumSidebar(serverId, null, signal)
+      normalized = await fetchForumSidebar(queryClient, serverId, null, signal, token)
       if (signal.aborted) throw new DOMException("Aborted", "AbortError")
       proof = { token, signal }
       publishNormalizedForumSidebar(
@@ -812,42 +665,44 @@ function reconcileForumSidebarNotifyMembershipsFromBase(
   return { removedIds }
 }
 
-export async function grantForumSidebarChild(
-  queryClient: QueryClient,
-  serverId: string,
-  childId: string,
-) {
-  const unreadProjection = getActiveAccountUnreadProjection(queryClient)
-  const confirmation = unreadProjection.beginAccessConfirmation()
-  const token = captureCommunityLiveSnapshotToken(queryClient)
-  const normalized = await fetchForumSidebar(serverId, childId)
-  publishNormalizedForumSidebar(queryClient, serverId, normalized, childId, undefined, token)
-  if (
-    hasForumSidebarThread(normalized.base, childId)
-    || normalized.retainedDisposition === "eligible" && normalized.retained?.id === childId
-  ) {
-    unreadProjection.confirmAccessScopes(
-      [{ kind: "channel", channelId: childId }],
-      confirmation,
-    )
+export async function grantForumSidebarChild(queryClient: QueryClient, serverId: string, childId: string, assertActive?: (() => void) & { signal: AbortSignal }) {
+  assertActive?.()
+  const options = {
+    queryKey: communityKeys.forumSidebarRetained(serverId, childId),
+    staleTime: 0,
+    retry: false,
+    queryFn: async ({ signal }: { signal: AbortSignal }) => {
+      const token = captureCommunityLiveSnapshotToken(queryClient)
+      const unreadProjection = getActiveAccountUnreadProjection(queryClient)
+      const confirmation = unreadProjection.beginAccessConfirmation()
+      const normalized = await fetchForumSidebar(queryClient, serverId, childId, signal, token)
+      publishNormalizedForumSidebar(queryClient, serverId, normalized, childId, signal, token)
+      if (hasForumSidebarThread(normalized.base, childId)
+        || normalized.retainedDisposition === "eligible" && normalized.retained?.id === childId) {
+        unreadProjection.confirmAccessScopes([{ kind: "channel", channelId: childId }], confirmation)
+      }
+      return { id: childId, disposition: normalized.retainedDisposition, verifiedEpoch: token.accessEpoch }
+    },
   }
+  const observer = new QueryObserver(queryClient, { ...options, enabled: false })
+  const release = observer.subscribe(() => undefined)
+  assertActive?.signal.addEventListener("abort", release, { once: true })
+  try { const value = await queryClient.fetchQuery(options); assertActive?.(); return value } finally { assertActive?.signal.removeEventListener("abort", release); release() }
 }
 
-export function reconcileForumSidebarArchiveTag(
+export async function reconcileForumSidebarArchiveTag(
   queryClient: QueryClient,
   serverId: string,
   childId: string,
   archived: boolean,
 ) {
+  const cancellation = queryClient.cancelQueries({ queryKey: communityKeys.forumSidebarRetained(serverId, childId), exact: true })
   if (archived) {
     removeCanonicalCommunityChannelMembership(queryClient, childId, "notify")
   } else {
     setCanonicalCommunityChannelMembership(queryClient, childId, "notify", true)
   }
-  recordInflightDelta(serverId, (delta) => {
-    if (archived) delta.removed.add(childId)
-    else delta.removed.delete(childId)
-  })
+  await cancellation
   return invalidateForumSidebarBaseExact(queryClient, serverId)
 }
 
@@ -857,25 +712,12 @@ export function useForumSidebarThreads(
   enabled = true,
 ) {
   const registry = useOptionalCommunityDbRegistry()
-  const restoredForumProjection = useSyncExternalStore(
-    registry?.subscribeRestoredCollections ?? subscribeToNoRestoredForumProjection,
-    () => Boolean(
-      registry?.hasRestoredCollection("channels")
-      && registry.hasRestoredCollection("channelMemberships")
-      && registry.hasRestoredCollection("messages"),
-    ),
-    noRestoredForumProjection,
-  )
+  const restoredForumProjection = useTrustedRestoredForumProjection()
   const queryClient = useQueryClient()
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const unreadProjection = useMemo(
     () => getActiveAccountUnreadProjection(queryClient),
     [queryClient],
-  )
-  useSyncExternalStore(
-    unreadProjection.subscribe,
-    unreadProjection.getSnapshot,
-    unreadProjection.getSnapshot,
   )
   const query = useQuery<ForumSidebarQueryData>({
     queryKey: communityKeys.forumSidebarThreads(serverId),
@@ -884,8 +726,8 @@ export function useForumSidebarThreads(
     queryFn: async ({ signal }) => {
       const token = captureCommunityLiveSnapshotToken(queryClient)
       const confirmation = unreadProjection.beginAccessConfirmation()
-      const requestEpoch = useCommunityWsStore.getState().accessEpoch
-      const normalized = await fetchForumSidebar(serverId, retainId, signal)
+      const requestEpoch = getCommunityRuntime(queryClient).ws.get().accessEpoch
+      const normalized = await fetchForumSidebar(queryClient, serverId, retainId, signal, token)
       if (signal.aborted) throw new DOMException("Aborted", "AbortError")
       if (registry) {
         publishNormalizedForumSidebar(
@@ -929,11 +771,11 @@ export function useForumSidebarThreads(
     void invalidateForumSidebarBaseExact(queryClient, serverId)
   }, [queryClient, retainId, serverId])
 
-  const [clockNowMs, setClockNowMs] = useState<number | null>(null)
+  const [clockNowMs, setClockNowMs] = useAtom(useCreateAtom<number | null>(null))
   useEffect(() => {
     const timeout = globalThis.setTimeout(() => setClockNowMs(Date.now()), 0)
     return () => globalThis.clearTimeout(timeout)
-  }, [])
+  }, [setClockNowMs])
   const serverNowMs = clockNowMs === null
     ? null
     : clockNowMs + (query.data?.serverClockOffsetMs ?? 0)
@@ -945,10 +787,8 @@ export function useForumSidebarThreads(
       : deriveForumSidebarProjection(query.data, null, undefined, clockNowMs),
     [clockNowMs, query.data],
   )
-  const structuralProjection = registry
-    ? canonical ?? { threads: [], parentUnread: {} }
-    : providerless
   const projection = useMemo(() => {
+    const structuralProjection = registry ? canonical ?? { threads: [], parentUnread: {} } : providerless
     if (!registry) return structuralProjection
     const relevant = attentionScopes.filter((scope) => scope.serverId === serverId)
     const unreadByScope = new Map(relevant.map((scope) => [
@@ -970,7 +810,7 @@ export function useForumSidebarThreads(
       })),
       parentUnread,
     }
-  }, [attentionScopes, registry, serverId, structuralProjection])
+  }, [attentionScopes, registry, serverId, canonical, providerless])
 
   useEffect(() => {
     if (serverNowMs === null) return
@@ -985,7 +825,7 @@ export function useForumSidebarThreads(
       Math.max(0, nextExpiry - serverNowMs) + 25,
     )
     return () => globalThis.clearTimeout(timeout)
-  }, [projection.threads, retainId, serverNowMs])
+  }, [projection.threads, retainId, serverNowMs, setClockNowMs])
 
   return {
     ...query,

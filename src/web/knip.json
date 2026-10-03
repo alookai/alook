@@ -18,13 +18,13 @@
     "blog/src/app/globals.css",
     "blog/custom-worker.ts",
     "blog/mdx-components.tsx",
-    "blog/next.config.ts",
     "blog/open-next.config.ts",
     "blog/scripts/**/*.ts",
+    "blog/src/content/**/*.mdx",
     "auth/index.ts",
     "scripts/**/*.{ts,mjs}"
   ],
-  "project": ["src/**/*.{ts,tsx}", "blog/**/*.{ts,tsx}", "auth/**/*.{ts,tsx,mts}", "scripts/**/*.{ts,mjs}", "test-runtime/**/*.ts"],
+  "project": ["src/**/*.{ts,tsx,css,mdx}", "blog/**/*.{ts,tsx,css,mdx}", "auth/**/*.{ts,tsx,mts}", "scripts/**/*.{ts,mjs}", "test-runtime/**/*.ts"],
   "ignoreDependencies": [
     "@tailwindcss/node",
     "cloudflare",
@@ -33,9 +33,6 @@
     "rehype-pretty-code",
     "rehype-slug",
     "shiki"
-  ],
-  "ignoreBinaries": [
-    "lsof"
   ],
   "ignore": [
     "src/components/ui/**",

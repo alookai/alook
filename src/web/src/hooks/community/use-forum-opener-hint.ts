@@ -3,7 +3,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import type { ForumOpenerHint } from "@/hooks/community/use-forum-sidebar-threads"
 import {
   useCanonicalMessagesById,
   useOptionalCommunityDbRegistry,
@@ -11,7 +10,9 @@ import {
 import {
   captureCommunityLiveSnapshotToken,
   publishCommunityMessages,
+  assertCommunityLiveSnapshotTokenCurrent,
 } from "@/lib/community-db/sync"
+import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 
 export function useForumOpenerHint(
   serverId: string,
@@ -22,10 +23,12 @@ export function useForumOpenerHint(
   const registry = useOptionalCommunityDbRegistry()
   const canonicalMessages = useCanonicalMessagesById()
   const queryClient = useQueryClient()
-  const query = useQuery<ForumOpenerHint>({
+  const query = useQuery<{ id: string }>({
     queryKey: communityKeys.message(messageId ?? "__none__"),
     queryFn: async ({ signal }) => {
       const token = captureCommunityLiveSnapshotToken(queryClient)
+      await token.registry!.ready
+      assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
       const message = await apiFetch<{
         id: string
         content: string
@@ -34,7 +37,7 @@ export function useForumOpenerHint(
         type: "chat" | "system"
       }>(
         `/api/community/messages/${messageId}`,
-        { signal },
+        communityRequestOptions(queryClient, token, signal),
       )
       publishCommunityMessages(queryClient, {
         channelId: message.channelId,
@@ -43,9 +46,6 @@ export function useForumOpenerHint(
       })
       return {
         id: message.id,
-        content: message.content,
-        seq: message.seq,
-        channelId: message.channelId,
       }
     },
     enabled: active,
@@ -61,7 +61,5 @@ export function useForumOpenerHint(
       }
     : undefined
   void serverId
-  return registry
-    ? { ...query, data, isLoading: query.isLoading && data === undefined }
-    : query
+  return { ...query, data: registry ? data : undefined, isLoading: query.isLoading && data === undefined }
 }

@@ -1,4 +1,5 @@
 "use client"
+import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 
 import {
   useQuery,
@@ -11,9 +12,7 @@ import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { CommunityFolder } from "@/lib/community/models/navigation"
-import { useCommunityWsStore } from "@/stores/community/ws"
 import {
-  useOptionalCommunityDbRegistry,
   useServerRailProjection,
 } from "@/lib/community-db/projections"
 import {
@@ -43,24 +42,8 @@ const EMPTY_FOLDERS: readonly CommunityFolder[] = Object.freeze([])
 export const foldersQueryFn = async (
   context: QueryFunctionContext = {} as QueryFunctionContext,
 ): Promise<FoldersResponse> => {
-  const before = useCommunityWsStore.getState()
-  const token = {
-    viewerId: before.profileViewerId,
-    accountEpoch: before.profileAccountEpoch,
-    accessEpoch: before.accessEpoch,
-  }
-  const data = context.signal
-    ? await apiFetch<{ folders: RawFolder[] }>(
-        "/api/community/users/me/server-folders",
-        { signal: context.signal },
-      )
-    : await apiFetch<{ folders: RawFolder[] }>("/api/community/users/me/server-folders")
-  const after = useCommunityWsStore.getState()
-  if (
-    after.profileViewerId !== token.viewerId
-    || after.profileAccountEpoch !== token.accountEpoch
-    || after.accessEpoch !== token.accessEpoch
-  ) throw new DOMException("Stale structural query", "AbortError")
+  const token = captureCommunityLiveSnapshotToken(context.client)
+  const data = await apiFetch<{ folders: RawFolder[] }>("/api/community/users/me/server-folders", communityRequestOptions(context.client, token, context.signal))
   const folders: CommunityFolder[] = data.folders.map((f) => ({
     id: f.id,
     name: f.name,
@@ -84,13 +67,12 @@ export const foldersProjectedQueryFn = (
     snapshot: { kind: "folders", data },
     proof: { kind: "structural", token, signal: context.signal },
   })
-  return data
+  return data.folders.map((folder) => folder.id)
 }
 
-export function useFolders(): UseQueryResult<FoldersResponse> & {
+export function useFolders(): UseQueryResult<string[]> & {
   folders: CommunityFolder[]
 } {
-  const registry = useOptionalCommunityDbRegistry()
   const dbRail = useServerRailProjection()
   const queryClient = useQueryClient()
   const query = useQuery({
@@ -99,8 +81,6 @@ export function useFolders(): UseQueryResult<FoldersResponse> & {
   })
   return {
     ...query,
-    folders: registry
-      ? dbRail?.folders ?? (EMPTY_FOLDERS as CommunityFolder[])
-      : query.data?.folders ?? (EMPTY_FOLDERS as CommunityFolder[]),
+    folders: dbRail?.folders ?? (EMPTY_FOLDERS as CommunityFolder[]),
   }
 }

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, type RefObject } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect, useCallback, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { ArrowDown } from "lucide-react";
@@ -12,7 +13,7 @@ interface ScrollToBottomButtonProps {
 }
 
 export function ScrollToBottomButton({ scrollRef, threshold = 100 }: ScrollToBottomButtonProps) {
-  const [showButton, setShowButton] = useState(false);
+  const [showButton, setShowButton] = useAtom(useCreateAtom(false));
 
   const check = useCallback(() => {
     const el = scrollRef.current;
@@ -20,7 +21,7 @@ export function ScrollToBottomButton({ scrollRef, threshold = 100 }: ScrollToBot
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
     const hasOverflow = el.scrollHeight > el.clientHeight;
     setShowButton(hasOverflow && !atBottom);
-  }, [scrollRef, threshold]);
+  }, [scrollRef, setShowButton, threshold]);
 
   useEffect(() => {
     const el = scrollRef.current;

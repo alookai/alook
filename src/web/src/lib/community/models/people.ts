@@ -10,6 +10,9 @@ export type CommunityProfile = {
   bannerColor?: string | null
   kind?: "human" | "bot"
   ownerUserId?: string | null
+  ownerHandle?: string | null
+  mutualServers?: number
+  ownedByViewer?: boolean
   statusEmoji?: string | null
   statusText?: string | null
   presence?: Presence
@@ -23,6 +26,7 @@ export type CommunityProfilePatch = {
   >>
   avatar?: { avatar: string; avatarVersion: number }
   status?: Pick<CommunityProfile, "statusEmoji" | "statusText">
+  card?: Pick<CommunityProfile, "ownerHandle" | "mutualServers" | "ownedByViewer">
   presence?: Presence
 }
 
@@ -59,7 +63,7 @@ export type Member = CommunityUserCore & {
   //     admin-by-role or inherited public member isn't an explicit roster row).
   //     Thread participants are always "explicit"-equivalent (a real row).
   isCreator?: boolean
-  source?: "explicit" | "inherited" | "admin"
+  source?: "explicit" | "inherited" | "admin" | import("@alook/shared").ParticipantSource
 }
 
 export type Friend = CommunityUserCore & {

@@ -1,20 +1,17 @@
+import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { createCommunityDbRegistry } from "@/lib/community-db/collections"
+import { channelSchema } from "@/lib/community-db/schema"
 import { createElement, type PropsWithChildren } from "react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { renderHook, waitFor } from "@/test/react-dom-harness"
 import type { ChildChannelMeta } from "./use-forum-sidebar-threads"
 import { communityKeys } from "@/lib/query-keys"
-import { useCommunityWsStore } from "@/stores/community/ws"
 import { ApiError } from "@/lib/errors"
 
 const apiFetchMock = vi.hoisted(() => vi.fn())
-const projectedChannel = vi.hoisted(() => ({ current: undefined as undefined | Record<string, unknown> }))
 vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
-}))
-vi.mock("@/lib/community-db/projections", () => ({
-  useRouteChannelProjection: () => projectedChannel.current,
-  useOptionalCommunityDbRegistry: () => projectedChannel.current === undefined ? null : {},
 }))
 
 import {
@@ -52,9 +49,7 @@ beforeEach(() => {
     lastMessageAt: "2026-08-09T00:00:00.000Z",
     createdAt: "2026-08-08T00:00:00.000Z",
   })
-  useCommunityWsStore.getState().reset()
-  useCommunityWsStore.getState().markAccessConnected()
-  projectedChannel.current = undefined
+
 })
 
 describe("child channel metadata stale rendering", () => {
@@ -85,7 +80,7 @@ describe("child channel metadata stale rendering", () => {
   })
 
   it("starts exact metadata loading without waiting for the forum sidebar", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner()
     const wrapper = ({ children }: PropsWithChildren) => createElement(
       QueryClientProvider,
       { client: queryClient },
@@ -96,31 +91,37 @@ describe("child channel metadata stale rendering", () => {
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/community/channels/post-1",
-      { signal: expect.any(AbortSignal) },
+      expect.objectContaining({ authenticationAccount: "viewer", signal: expect.any(AbortSignal) }),
     )
     expect(queryClient.getQueryData(
       communityKeys.channelMeta("server-1", "post-1"),
-    )).toMatchObject({ id: "post-1", parentChannelId: "forum-1" })
+    )).toMatchObject({ id: "post-1" })
+    expect(createCommunityDbRegistry(queryClient, "viewer").collections.channels.get("post-1"))
+      .toMatchObject({ parentChannelId: "forum-1" })
   })
 
-  it("renders a current-account structural placeholder while exact metadata revalidates", async () => {
+  it("renders current-account canonical structure without granting permission while exact metadata revalidates", async () => {
     apiFetchMock.mockImplementation(() => new Promise(() => {}))
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { client: queryClient } = await createCommunityQueryOwner()
     const wrapper = ({ children }: PropsWithChildren) => createElement(
       QueryClientProvider,
       { client: queryClient },
       children,
     )
-    const cached = meta({ verifiedEpoch: useCommunityWsStore.getState().accessEpoch })
+    const cached = meta({ verifiedEpoch: createCommunityDbRegistry(queryClient, "viewer").runtime.ws.get().accessEpoch })
+    createCommunityDbRegistry(queryClient, "viewer").collections.channels.utils.writeUpsert(channelSchema.parse({
+      ...cached, position: 0, muted: false, unread: false, tags: [], pending: false,
+      lastMessageAt: cached.activityAt,
+    }))
     const rendered = renderHook(
       () => useChildChannelMeta("server-1", "post-1", true, cached),
       { wrapper },
     )
 
     expect(rendered.result.current).toMatchObject({
-      data: cached,
-      isVerified: true,
-      isPlaceholderData: true,
+      data: { id: cached.id, parentChannelId: cached.parentChannelId },
+      isVerified: false,
+      isPlaceholderData: false,
     })
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
     rendered.unmount()
@@ -128,18 +129,19 @@ describe("child channel metadata stale rendering", () => {
 
   it("builds a structural placeholder from a complete canonical thread row", async () => {
     apiFetchMock.mockImplementation(() => new Promise(() => {}))
-    projectedChannel.current = {
+    const { client: queryClient } = await createCommunityQueryOwner()
+    createCommunityDbRegistry(queryClient, "viewer").collections.channels.utils.writeUpsert(channelSchema.parse({
       id: "post-1",
       serverId: "server-1",
       name: "post",
       type: "thread",
       parentChannelId: "forum-1",
       parentMessageId: "opener-1",
-      creatorId: undefined,
+      creatorId: null,
       archived: false,
       lastMessageAt: undefined,
-    }
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      position: 0, muted: false, unread: false, tags: [], pending: false,
+    }))
     const wrapper = ({ children }: PropsWithChildren) => createElement(
       QueryClientProvider,
       { client: queryClient },
@@ -153,7 +155,7 @@ describe("child channel metadata stale rendering", () => {
 
     expect(rendered.result.current).toMatchObject({
       data: { creatorId: null, activityAt: "" },
-      isVerified: true,
+      isVerified: false,
       isPlaceholderData: false,
     })
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
@@ -162,7 +164,8 @@ describe("child channel metadata stale rendering", () => {
 
   it("does not retry terminal metadata failures before route ejection", async () => {
     apiFetchMock.mockRejectedValue(new ApiError("missing", 404))
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retryDelay: 0 } } })
+    const { client: queryClient } = await createCommunityQueryOwner()
+    queryClient.setDefaultOptions({ queries: { retryDelay: 0 } })
     const wrapper = ({ children }: PropsWithChildren) => createElement(
       QueryClientProvider,
       { client: queryClient },
@@ -179,7 +182,8 @@ describe("child channel metadata stale rendering", () => {
 
   it("retries one transient metadata failure", async () => {
     apiFetchMock.mockRejectedValue(new Error("offline"))
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retryDelay: 0 } } })
+    const { client: queryClient } = await createCommunityQueryOwner()
+    queryClient.setDefaultOptions({ queries: { retryDelay: 0 } })
     const wrapper = ({ children }: PropsWithChildren) => createElement(
       QueryClientProvider,
       { client: queryClient },
@@ -195,9 +199,8 @@ describe("child channel metadata stale rendering", () => {
   })
 
   it("preserves the trusted object when an exact refetch returns identical metadata", async () => {
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false, structuralSharing: false } },
-    })
+    const { client: queryClient } = await createCommunityQueryOwner()
+    queryClient.setDefaultOptions({ queries: { retry: false, structuralSharing: false } })
     const wrapper = ({ children }: PropsWithChildren) => createElement(
       QueryClientProvider,
       { client: queryClient },

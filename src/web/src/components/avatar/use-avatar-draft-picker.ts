@@ -1,6 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useMemo } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useCallback, useEffect } from "react"
 import { isPhotoAvatarUrl, type AvatarDraft } from "@/lib/avatar/model"
 import { parseBeamSeed, serializeBeamSeed } from "@/lib/avatar/seed-url"
 
@@ -33,8 +35,8 @@ function randomSeed(): string {
 }
 
 export function useAvatarDraftPicker(image: string | null, onChange: (draft: AvatarDraft) => void) {
-  const [open, setOpen] = useState(false)
-  const [state, setState] = useState(() => avatarPickerStateFromImage(image, randomSeed()))
+  const [open, setOpen] = useAtom(useCreateAtom(false))
+  const [state, setState] = useAtom(useCreateAtom(useMemo(() => avatarPickerStateFromImage(image, randomSeed()), [image])))
 
   const syncFromImage = useCallback((value: string | null, resetTab: boolean) => {
     const next = avatarPickerStateFromImage(value, randomSeed())
@@ -46,7 +48,7 @@ export function useAvatarDraftPicker(image: string | null, onChange: (draft: Ava
           ? current.photoDraft
           : next.photoDraft,
     }))
-  }, [])
+  }, [setState])
 
   useEffect(() => {
     syncFromImage(image, false)

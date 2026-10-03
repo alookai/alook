@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+
+import { useQuery, useMutation, type Query } from "@tanstack/react-query";
+import { applicationKey, useApplicationOwner, runApplicationRequest } from "@/lib/application-owner";
+import { useApplicationViewSource } from "@/hooks/use-application-view-source";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { getInviteInfo, acceptInvite, type InviteInfo } from "@/lib/api";
+import { getInviteInfo, acceptInvite } from "@/lib/api";
 import { trackInviteAccepted } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -14,35 +17,35 @@ export default function InvitePage() {
   const { token } = useParams<{ token: string }>();
   const router = useRouter();
 
-  const [state, setState] = useState<State>("loading");
-  const [info, setInfo] = useState<InviteInfo | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string>("");
-
-  useEffect(() => {
-    if (!token) return;
-    getInviteInfo(token)
-      .then((data) => {
-        setInfo(data);
-        setState("ready");
-      })
-      .catch((err) => {
-        setErrorMsg(err instanceof Error ? err.message : "Invalid or expired invite link");
-        setState("error");
-      });
-  }, [token]);
+  const owner = useApplicationOwner();
+  const source = useApplicationViewSource(`workspace-invite:${token}`);
+  const query = useQuery({ queryKey: applicationKey(owner, "workspace-invite", token), enabled: !!token, retry: false,
+    queryFn: ({ signal }) => runApplicationRequest(owner, (options) => getInviteInfo(token, options), signal) });
+  const command = useMutation({ mutationKey: applicationKey(owner, "workspace-invite", token, "accept"), gcTime: 0,
+    mutationFn: async ({ original, resources }: { original: ReturnType<typeof source.capture>; resources: Query[] }) => {
+      original.assert();
+      const result = await acceptInvite(token, { authenticationAccount: owner.userId, signal: original.signal, assertActive: original.assert, onUnauthorized: async () => { original.assert(); return false; } });
+      original.assert();
+      await owner.queryClient.invalidateQueries({ queryKey: applicationKey(owner, "workspaces"), predicate: (query) => resources.includes(query) }, { cancelRefetch: false });
+      original.assert();
+      return result;
+    } });
+  const info = query.data;
+  const error = command.error ?? query.error;
+  const errorMsg = error instanceof Error ? error.message : "Invalid or expired invite link";
+  const state: State = command.isPending ? "accepting" : command.isSuccess ? "done" : error ? "error" : query.isPending ? "loading" : "ready";
 
   const handleAccept = async () => {
-    if (!token) return;
-    setState("accepting");
+    if (!token || owner.queryClient.isMutating({ mutationKey: applicationKey(owner, "workspace-invite", token, "accept"), exact: true })) return;
+    const original = source.capture();
     try {
-      const result = await acceptInvite(token);
+      const result = await command.mutateAsync({ original, resources: owner.queryClient.getQueryCache().findAll({ queryKey: applicationKey(owner, "workspaces") }) });
+      original.assert();
       trackInviteAccepted({ workspace_id: result.workspace_id ?? "" });
-      setState("done");
       toast.success(`Joined ${info?.workspace_name ?? "workspace"}`);
       router.replace(`/w/${result.workspace_slug}/home`);
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Failed to join workspace");
-      setState("error");
+    } catch {
+      try { original.assert(); } catch { return; }
     }
   };
 

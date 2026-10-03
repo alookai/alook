@@ -1,4 +1,5 @@
 import { createElement } from "react"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { readFileSync } from "node:fs"
@@ -21,7 +22,8 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("sonner", () => ({ toast: mocks.toastSpy }))
-vi.mock("@/lib/community-db/projections", () => ({
+vi.mock("@/lib/community-db/projections", async () => ({
+  ...await vi.importActual<typeof import("@/lib/community-db/projections")>("@/lib/community-db/projections"),
   useCanonicalProfilesByUserId: () => {
     const profilesByUserId = new Map(mocks.friendsQuery.friends.flatMap((friend) =>
       friend.userId ? [[friend.userId, {
@@ -42,7 +44,10 @@ vi.mock("@/hooks/community/use-friends", () => ({
   useFriendsPresence: () => ({ online: mocks.onlineFriendIds }),
 }))
 vi.mock("@/hooks/community/use-invitable-friends", () => ({
-  useInvitableFriends: () => mocks.friendsQuery,
+  useInvitableFriends: () => ({
+    ...mocks.friendsQuery,
+    friends: mocks.friendsQuery.friends.map((friend) => ({ ...friend, status: friend.userId && (mocks.onlineUserIds.has(friend.userId) || mocks.onlineFriendIds.includes(friend.userId)) ? "online" : "offline" })),
+  }),
 }))
 vi.mock("@/hooks/community/mutations", () => ({
   useResolveOrCreateInvite: () => () => Promise.resolve({ token: "token" }),
@@ -185,12 +190,15 @@ describe("InviteDialog presence", () => {
   })
 
   function renderDialog() {
-    return renderToStaticMarkup(createElement(InviteDialog, {
+    const client = new QueryClient()
+    const html = renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(InviteDialog, {
       open: true,
       onOpenChange: () => {},
       serverId: "server_1",
       serverName: "Alook",
-    }))
+    })))
+    client.clear()
+    return html
   }
 
   it("overlays canonical live presence onto an offline API friend row", () => {

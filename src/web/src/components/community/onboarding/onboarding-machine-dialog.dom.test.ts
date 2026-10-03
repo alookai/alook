@@ -1,6 +1,7 @@
 import React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, fireEvent, render } from "@/test/react-dom-harness"
+import { act, fireEvent } from "@/test/react-dom-harness"
+import { renderCommunity as render } from "@/test/community-owner-harness"
 
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
@@ -22,8 +23,8 @@ vi.mock("@/components/ui/button", () => ({
 }))
 vi.mock("@/components/ui/dialog", () => ({
   Dialog: ({ children }: React.PropsWithChildren) => React.createElement("dialog", {}, children),
-  DialogContent: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>
-    React.createElement("section", props, children),
+  DialogContent: ({ children, className }: React.PropsWithChildren<Record<string, unknown>>) =>
+    React.createElement("section", { className }, children),
   DialogDescription: ({ children }: React.PropsWithChildren) => React.createElement("p", {}, children),
   DialogFooter: ({ children }: React.PropsWithChildren) => React.createElement("footer", {}, children),
   DialogHeader: ({ children }: React.PropsWithChildren) => React.createElement("header", {}, children),
@@ -59,11 +60,12 @@ describe("OnboardingMachineDialog", () => {
     }))
 
     act(() => mockedSteps.mock.calls.at(-1)![0].onRetry())
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(mocks.apiFetch).toHaveBeenCalledOnce()
 
     await act(async () => {
       resolvePair({ tokenId: "token-1", expiresAt: "soon" })
-      await Promise.resolve()
+      await vi.advanceTimersByTimeAsync(0)
     })
     expect(mockedSteps.mock.calls.at(-1)![0].command).toBe("pair token-1")
   })
@@ -102,8 +104,7 @@ describe("OnboardingMachineDialog", () => {
     }))
 
     await act(async () => {
-      await Promise.resolve()
-      await Promise.resolve()
+      await vi.advanceTimersByTimeAsync(0)
     })
 
     expect(view.getByRole("alert", { hidden: true })).toHaveTextContent("Machine limit reached")

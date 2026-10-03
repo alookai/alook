@@ -1,5 +1,8 @@
 import { createElement } from "react"
-import { act, render as rtlRender } from "@/test/react-dom-harness"
+import { act, waitFor } from "@/test/react-dom-harness"
+import { render as rtlRender } from "@/test/react-dom-harness"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useShellProfileController } from "./use-shell-profile-controller"
 
@@ -39,32 +42,25 @@ vi.mock("sonner", () => ({ toast: mocks.toast }))
 vi.mock("@/lib/api/client", () => ({
   ACCOUNT_DELETED_SIGN_IN_PATH: "/sign-in?account_deleted=1",
   toastApiError: mocks.toastApiError,
-}))
-vi.mock("@/hooks/community/use-user-profile", () => ({
-  userProfileQueryFn: (id: string) => () => Promise.resolve({ id }),
-  PROFILE_STALE_TIME_MS: 300_000,
+  apiFetch: (path: string, options: { method?: string; body?: string }) => Promise.resolve(options?.method === "PATCH" ? mocks.updateProfile(JSON.parse(options.body!)) : mocks.fetchQuery(path, options)).then((data) => ({ id: path.split("/").at(-2), name: "Remote", discriminator: "0001", image: null, avatarVersion: 0, bannerColor: null, aboutMe: "", mutualServers: 0, statusEmoji: null, statusText: null, kind: "human", ...data })),
 }))
 vi.mock("@/lib/community/image-crop", () => ({ validateIconSourceFile: mocks.validate }))
 vi.mock("@/contexts/community/current-user", () => ({
   useCurrentUser: () => mocks.currentUser,
 }))
-vi.mock("@/stores/community", () => ({
+vi.mock("@/stores/community", async (importOriginal) => ({ ...await importOriginal<typeof import("@/stores/community")>(),
   useCommunityStore: Object.assign(vi.fn(), {
     getState: () => ({ reset: mocks.communityReset }),
   }),
 }))
-vi.mock("@/stores/community/ws", () => ({
+vi.mock("@/stores/community/ws", async (importOriginal) => ({ ...await importOriginal<typeof import("@/stores/community/ws")>(),
   useCommunityWsStore: Object.assign(vi.fn(), {
     getState: () => ({
       reset: mocks.wsReset,
     }),
   }),
 }))
-vi.mock("@/lib/community/profile-seed", () => ({
-  beginCommunityProfileSeed: mocks.beginCommunityProfileSeed,
-  writeCommunityProfilePatches: mocks.writeCommunityProfilePatches,
-}))
-vi.mock("@/stores/community/message-stream", () => ({
+vi.mock("@/stores/community/message-stream", async (importOriginal) => ({ ...await importOriginal<typeof import("@/stores/community/message-stream")>(),
   useMessageStreamStore: Object.assign(vi.fn(), {
     getState: () => ({
       resetAll: mocks.streamReset,
@@ -77,9 +73,9 @@ vi.mock("@/hooks/community/use-friends", () => ({
 vi.mock("@/hooks/community/use-server-members", () => ({
   useServerMembers: () => ({ members: [{ id: "remote", userId: "remote", name: "Remote", avatar: "R", sub: "seed" }] }),
 }))
-vi.mock("@/hooks/community/mutations", () => ({
+vi.mock("@/hooks/community/mutations", async () => ({
+  ...await vi.importActual<typeof import("@/hooks/community/mutations")>("@/hooks/community/mutations"),
   useCreateOrGetDm: () => ({ mutateAsync: mocks.createDm }),
-  useUpdateProfile: () => ({ mutateAsync: mocks.updateProfile }),
   useUploadUserAvatar: () => ({ mutate: mocks.uploadAvatar }),
 }))
 vi.mock("@/hooks/community/use-dm-message-sender", () => ({
@@ -108,10 +104,9 @@ vi.mock("@/hooks/community/community-ws/read-state-reconciliation", () => ({
 vi.mock("@/hooks/community/read-coordinator", () => ({
   disposeReadCoordinator: mocks.disposeCoordinator,
 }))
-vi.mock("@/lib/auth-client", () => ({ signOut: mocks.signOut }))
+vi.mock("@/lib/auth-client", () => ({ signOutWithOrigin: async (assert: () => void, options: unknown) => { assert(); const result = await mocks.signOut(options); assert(); return result } }))
 
 type Result = ReturnType<typeof useShellProfileController>
-const rtlContainer = document.createElement("div")
 
 function Capture({ options, onResult }: {
   options: Parameters<typeof useShellProfileController>[0]
@@ -121,7 +116,9 @@ function Capture({ options, onResult }: {
   return null
 }
 
+const realDocument = document
 async function renderController() {
+  const rtlContainer = realDocument.createElement("div")
   const pushed: string[] = []
   const router = {
     push: vi.fn((href: string) => { pushed.push(href) }),
@@ -129,7 +126,10 @@ async function renderController() {
     prefetch: vi.fn(),
   }
   const cancelPendingNavigation = vi.fn()
-  const queryClient = { fetchQuery: mocks.fetchQuery, clear: vi.fn(), setQueriesData: vi.fn() }
+  const { client: queryClient, registry } = await createCommunityQueryOwner("self")
+  registry.bindAuthentication(() => "self", () => mocks.clearCache())
+  const originalClear = queryClient.clear.bind(queryClient)
+  vi.spyOn(queryClient, "clear")
   let current!: Result
   let renderer!: ReturnType<typeof rtlRender>
   const render = () => createElement(Capture, {
@@ -143,7 +143,7 @@ async function renderController() {
     onResult: (result) => { current = result },
   })
   await act(async () => {
-    renderer = rtlRender(render(), { container: rtlContainer, baseElement: rtlContainer })
+    renderer = rtlRender(render(), { container: rtlContainer, baseElement: rtlContainer, wrapper: ({ children }) => createElement(CommunityTestProvider, { client: queryClient, registry, userId: "self", retainOwner: true }, children) })
   })
   return {
     get current() { return current },
@@ -152,6 +152,8 @@ async function renderController() {
     pushed,
     cancelPendingNavigation,
     queryClient,
+    registry,
+    originalClear,
     rerender: async () => act(async () => renderer.rerender(render())),
   }
 }
@@ -267,9 +269,8 @@ describe("useShellProfileController", () => {
       userId: "remote",
       contextLabel: "Server member",
     })
-    expect(mocks.fetchQuery).toHaveBeenCalledWith(expect.objectContaining({
-      staleTime: 300_000,
-    }))
+    expect(mocks.fetchQuery).toHaveBeenCalledWith("/api/community/users/remote/profile", expect.objectContaining({ authenticationAccount: "self" }))
+    expect(hook.queryClient.getQueryCache().find({ queryKey: ["community", "profile", "remote"], exact: true })?.options.staleTime).toBe(300_000)
 
     await act(async () => response.resolve({
       id: "remote",
@@ -280,6 +281,7 @@ describe("useShellProfileController", () => {
       statusText: "Growing",
       kind: "human",
     }))
+    await waitFor(() => expect(hook.current.profile?.data.mutual).toBe(3))
     expect(hook.current.profile?.data).toMatchObject({
       mutual: 3,
       identity: { kind: "human" },
@@ -307,6 +309,7 @@ describe("useShellProfileController", () => {
       "remote",
     ))
 
+    await waitFor(() => expect(hook.current.profile?.data.mutual).toBe(1))
     expect(hook.current.profile?.data).toMatchObject({
       userId: "remote",
       mutual: 1,
@@ -371,6 +374,7 @@ describe("useShellProfileController", () => {
       kind: "human",
     }))
 
+    await waitFor(() => expect(hook.current.profile?.data.mutual).toBe(1))
     expect(hook.current.profile?.data).toMatchObject({
       userId: "next",
       mutual: 1,
@@ -406,6 +410,7 @@ describe("useShellProfileController", () => {
       undefined,
       "remote",
     ))
+    await waitFor(() => expect(hook.current.profile?.data.identity?.kind).toBe("bot"))
     expect(hook.current.profile?.data.identity).toEqual({
       kind: "bot",
       ownerProfile: { id: "owner", handle: "Owner#0042" },
@@ -467,11 +472,7 @@ describe("useShellProfileController", () => {
       statusEmoji: "🌱",
       statusText: "Growing",
     })
-    expect(mocks.writeCommunityProfilePatches).toHaveBeenCalledWith(
-      [expect.objectContaining({ id: "self" })],
-      "registry",
-      { snapshot: { registry: "registry", revision: 0 } },
-    )
+    expect(hook.registry.collections.profiles.get("self")).toMatchObject({ statusEmoji: "🙂", statusText: "Here" })
 
     await act(async () => hook.current.userSettingsProps.onSave({
       name: "Renamed",
@@ -479,19 +480,19 @@ describe("useShellProfileController", () => {
       statusEmoji: "🚀",
       statusText: "Shipping",
     }))
-    expect(mocks.writeCommunityProfilePatches).toHaveBeenCalledTimes(2)
+    expect(mocks.updateProfile).toHaveBeenCalledTimes(2)
     await act(async () => hook.current.userSettingsProps.onSave({ aboutMe: "About only" }))
-    expect(mocks.writeCommunityProfilePatches).toHaveBeenCalledTimes(3)
+    expect(mocks.updateProfile).toHaveBeenCalledTimes(3)
 
     const statusError = new Error("status")
     mocks.updateProfile.mockRejectedValueOnce(statusError)
     await act(async () => hook.current.updateOwnStatus(null, null))
-    expect(mocks.toastApiError).toHaveBeenLastCalledWith(statusError, "Failed to update status")
+    expect(mocks.toastApiError).toHaveBeenLastCalledWith(statusError, "Failed to update status", expect.any(Function))
 
     const saveError = new Error("save")
     mocks.updateProfile.mockRejectedValueOnce(saveError)
     await act(async () => hook.current.userSettingsProps.onSave({ name: "Broken" }))
-    expect(mocks.toastApiError).toHaveBeenLastCalledWith(saveError, "Failed to save profile")
+    expect(mocks.toastApiError).toHaveBeenLastCalledWith(saveError, "Failed to save profile", expect.any(Function))
   })
 
   it("replaces the document after logout cleanup and preserves rejection behavior", async () => {
@@ -503,11 +504,14 @@ describe("useShellProfileController", () => {
     mocks.wsReset.mockImplementation(() => { order.push("ws") })
     mocks.streamReset.mockImplementation(() => { order.push("stream") })
     mocks.disposeReconciliation.mockImplementation(() => { order.push("reconcile") })
-    hook.queryClient.clear.mockImplementation(() => { order.push("query") })
+    vi.mocked(hook.queryClient.clear).mockImplementation(() => { order.push("query"); hook.originalClear() })
     mocks.clearCache.mockImplementation(async () => { order.push("cache"); throw new Error("cache") })
+    const retirementError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     mocks.signOut.mockImplementation(async ({ fetchOptions }) => { order.push("signOut"); await fetchOptions.onSuccess(); order.push("session-notify") })
     await act(async () => hook.current.userSettingsProps.onLogout())
-    expect(order).toEqual(["signOut", "cache", "replace:/sign-in", "session-notify"])
+    expect(retirementError).toHaveBeenCalledWith("Account disk cache retirement failed", expect.objectContaining({ message: "cache" }))
+    retirementError.mockRestore()
+    expect(order).toEqual(["signOut", "session-notify", "query", "cache", "replace:/sign-in"])
     expect(hook.router.push).not.toHaveBeenCalled()
     expect(hook.router.replace).not.toHaveBeenCalled()
 
@@ -515,7 +519,10 @@ describe("useShellProfileController", () => {
     mocks.clearCache.mockClear()
     mocks.clearCache.mockResolvedValue(undefined)
     mocks.signOut.mockRejectedValue(new Error("auth"))
-    await expect(act(async () => hook.current.userSettingsProps.onLogout())).rejects.toThrow("auth")
+    hook.renderer.unmount()
+    const rejected = await renderController()
+    await act(async () => rejected.current.userSettingsProps.onLogout())
+    expect(mocks.toastApiError).toHaveBeenCalledWith(expect.any(Error), "Failed to log out", expect.any(Function))
     expect(mocks.clearCache).not.toHaveBeenCalled()
     expect(order.some((entry) => entry.startsWith("replace:"))).toBe(false)
   })
@@ -527,7 +534,7 @@ describe("useShellProfileController", () => {
     mocks.signOut.mockResolvedValue({ error })
     const hook = await renderController()
     await act(async () => hook.current.userSettingsProps.onLogout())
-    expect(mocks.toastApiError).toHaveBeenCalledWith(error, "Failed to log out")
+    expect(mocks.toastApiError).toHaveBeenCalledWith(expect.objectContaining({ message: error.message }), "Failed to log out", expect.any(Function))
     expect(mocks.communityReset).not.toHaveBeenCalled()
     expect(hook.queryClient.clear).not.toHaveBeenCalled()
     expect(mocks.clearCache).not.toHaveBeenCalled()
@@ -548,22 +555,16 @@ describe("useShellProfileController", () => {
     mocks.streamReset.mockImplementation(() => { order.push("stream") })
     mocks.disposeCoordinator.mockImplementation(() => { order.push("coordinator") })
     mocks.disposeReconciliation.mockImplementation(() => { order.push("reconcile") })
-    hook.queryClient.clear.mockImplementation(() => { order.push("query") })
+    vi.mocked(hook.queryClient.clear).mockImplementation(() => { order.push("query"); hook.originalClear() })
     mocks.clearCache.mockImplementation(async () => { order.push("cache") })
 
     await act(async () => hook.current.userSettingsProps.onAccountDeleted())
 
-    expect(order).toEqual([
-      "cancel",
-      "community",
-      "ws",
-      "stream",
-      "coordinator",
-      "reconcile",
-      "query",
-      "cache",
-      "replace:/sign-in?account_deleted=1",
-    ])
+    expect(order).toEqual(["cancel", "coordinator", "reconcile", "query"])
+    expect(hook.registry.runtime.ui.get().currentChannelId).toBeNull()
+    expect(hook.registry.runtime.messageStream.get().entries.size).toBe(0)
+    expect(mocks.clearCache).not.toHaveBeenCalled()
+
     expect(hook.router.replace).not.toHaveBeenCalled()
     expect(mocks.signOut).not.toHaveBeenCalled()
   })
@@ -597,12 +598,7 @@ describe("useShellProfileController", () => {
 
     const uploadOptions = mocks.uploadAvatar.mock.calls[0]![1]
     await act(async () => uploadOptions.onSuccess({ url: "/avatar.png?v=4", avatarVersion: 4 }))
-    expect(mocks.writeCommunityProfilePatches).toHaveBeenCalledWith(
-      [{
-        id: "self",
-        avatar: { avatar: "/avatar.png?v=4", avatarVersion: 4 },
-      }],
-    )
+    expect(mocks.uploadAvatar).toHaveBeenCalledWith(expect.objectContaining({ file: expect.any(File), assertActive: expect.any(Function) }), expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }))
     expect(mocks.toast).toHaveBeenLastCalledWith("Avatar updated")
 
     const uploadError = new Error("upload")
@@ -610,6 +606,7 @@ describe("useShellProfileController", () => {
     expect(mocks.toastApiError).toHaveBeenLastCalledWith(
       uploadError,
       "Failed to upload avatar",
+      expect.any(Function),
     )
   })
 

@@ -1,5 +1,6 @@
 "use client"
 
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
 /* Hallmark · component: tag editor · genre: modern-minimal · theme: DESIGN.md
  * states: default · hover · focus · active · disabled · loading · error-retain · success-close
  * contrast: pass (40–41) · responsive: pass (320 / 375 / 414 / 768)
@@ -10,7 +11,6 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
-  useState,
   type ReactElement,
   type RefObject,
 } from "react"
@@ -170,11 +170,11 @@ export function PostTagDialog({
   const shell: ResolvedShell | null = breakpoint === "unknown" ? null : breakpoint
   const activeShellRef = useRef<ResolvedShell | null>(shell)
 
-  const [open, setOpen] = useState(false)
-  const [baseline, setBaseline] = useState<string[]>(current)
-  const [selected, setSelected] = useState<string[]>(current)
-  const [draft, setDraft] = useState("")
-  const [committing, setCommitting] = useState(false)
+  const [open, setOpen] = useAtom(useCreateAtom(false))
+  const [baseline, setBaseline] = useAtom(useCreateAtom<string[]>(current))
+  const [selected, setSelected] = useAtom(useCreateAtom<string[]>(current))
+  const [draft, setDraft] = useAtom(useCreateAtom(""))
+  const [committing, setCommitting] = useAtom(useCreateAtom(false))
   const triggerRef = useRef<HTMLButtonElement>(null)
   const surfaceRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -194,7 +194,7 @@ export function PostTagDialog({
       setBaseline(current)
       setSelected(current)
     }
-  }, [current, open])
+  }, [current, open, setBaseline, setSelected])
 
   useEffect(() => {
     const previousShell = previousShellRef.current

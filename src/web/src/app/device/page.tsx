@@ -1,6 +1,10 @@
 "use client"
 
-import { Suspense, useEffect, useState, useRef } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { Suspense, useEffect } from "react"
+import { useQuery, useMutation } from "@tanstack/react-query"
+import { PublicQueryProvider, applicationKey, captureApplicationOwner, assertApplicationOwner } from "@/lib/application-owner"
+import { useApplicationViewSource } from "@/hooks/use-application-view-source"
 import { useSearchParams, useRouter } from "next/navigation"
 import { authClient, useSession } from "@/lib/auth-client"
 import { Button } from "@/components/ui/button"
@@ -14,7 +18,7 @@ type Step = "loading" | "code" | "approve" | "done" | "denied"
 export default function DeviceAuthPage() {
   return (
     <Suspense>
-      <DeviceAuthPageInner />
+      <PublicQueryProvider><DeviceAuthPageInner /></PublicQueryProvider>
     </Suspense>
   )
 }
@@ -25,85 +29,63 @@ function DeviceAuthPageInner() {
   const { data: session, isPending } = useSession()
 
   const urlCode = searchParams.get("user_code") || ""
-  const [userCode, setUserCode] = useState(urlCode)
-  const [step, setStep] = useState<Step>(urlCode ? "loading" : "code")
-  const [error, setError] = useState("")
-  const [loading, setLoading] = useState(false)
-  const autoVerified = useRef(false)
+  const [userCode, setUserCode] = useAtom(useCreateAtom(urlCode))
+  const [verificationCode, setVerificationCode] = useAtom(useCreateAtom(urlCode.trim()))
+  const source = useApplicationViewSource(`device:${verificationCode}`)
+  const { owner } = source
+  const verification = useQuery({
+    queryKey: applicationKey(owner, "device-verification", verificationCode),
+    enabled: !!verificationCode && !!session && !isPending, subscribed: !!verificationCode && !!session && !isPending, retry: false, gcTime: 0,
+    queryFn: async ({ signal }) => {
+      const token = captureApplicationOwner(owner)
+      assertApplicationOwner(token, signal)
+      try {
+        const res = await authClient.device({ query: { user_code: verificationCode }, fetchOptions: { signal } })
+        assertApplicationOwner(token, signal)
+        if (res.error) throw new Error(res.error.error_description || "Invalid or expired code")
+        return true
+      } catch (error) { assertApplicationOwner(token, signal); throw error }
+    },
+  })
+  const command = useMutation({
+    mutationKey: applicationKey(owner, "device-decision"),
+    scope: { id: JSON.stringify(applicationKey(owner, "device-decision")) },
+    mutationFn: async ({ kind, code, original }: { kind: "approve" | "deny"; code: string; original: ReturnType<typeof source.capture> }) => {
+      original.assert()
+      try {
+        const options = { signal: original.signal, onRequest: () => original.assert(), onSuccess: () => original.assert(), onError: () => original.assert() }
+        const res = kind === "approve" ? await authClient.device.approve({ userCode: code, fetchOptions: options }) : await authClient.device.deny({ userCode: code, fetchOptions: options })
+        original.assert()
+        if (res.error) throw new Error(res.error.error_description || `Failed to ${kind} device`)
+        return kind
+      } catch (error) { original.assert(); throw error }
+    },
+  })
+  const currentDecision = command.variables?.code === verificationCode ? command : null
+  const loading = verification.isFetching || !!currentDecision?.isPending
+  const failure = currentDecision?.error ?? verification.error
+  const error = failure instanceof DOMException && failure.name === "AbortError" ? "" : failure instanceof Error ? failure.message : ""
+  const step: Step = currentDecision?.isSuccess ? currentDecision.data === "approve" ? "done" : "denied"
+    : verification.isFetching ? "loading" : verification.isSuccess ? "approve" : "code"
 
   useEffect(() => {
     if (!isPending && !session) {
+      const original = source.capture()
+      original.assert()
       const callbackUrl = `/device${userCode ? `?user_code=${encodeURIComponent(userCode)}` : ""}`
       router.push(`/sign-in?redirect=${encodeURIComponent(callbackUrl)}`)
     }
-  }, [isPending, session, router, userCode])
+  }, [isPending, session, router, userCode, source])
 
-  useEffect(() => {
-    if (!urlCode || !session || autoVerified.current) return
-    autoVerified.current = true
-
-    async function autoVerify() {
-      try {
-        const res = await authClient.device({ query: { user_code: urlCode.trim() } })
-        if (res.error) {
-          setError(res.error.error_description || "Invalid or expired code")
-          setStep("code")
-        } else {
-          setStep("approve")
-        }
-      } catch {
-        setError("Failed to verify code")
-        setStep("code")
-      }
-    }
-
-    autoVerify()
-  }, [urlCode, session])
-
-  async function handleVerifyCode(e: React.FormEvent) {
+  const handleVerifyCode = (e: React.FormEvent) => {
     e.preventDefault()
-    setError("")
-    setLoading(true)
-    try {
-      const res = await authClient.device({ query: { user_code: userCode.trim() } })
-      if (res.error) {
-        setError(res.error.error_description || "Invalid or expired code")
-      } else {
-        setStep("approve")
-      }
-    } catch {
-      setError("Failed to verify code")
-    }
-    setLoading(false)
+    const code = userCode.trim()
+    command.reset()
+    if (code === verificationCode) void verification.refetch({ cancelRefetch: false })
+    else setVerificationCode(code)
   }
-
-  async function handleApprove() {
-    setError("")
-    setLoading(true)
-    try {
-      const res = await authClient.device.approve({ userCode: userCode.trim() })
-      if (res.error) {
-        setError(res.error.error_description || "Failed to approve")
-      } else {
-        setStep("done")
-      }
-    } catch {
-      setError("Failed to approve device")
-    }
-    setLoading(false)
-  }
-
-  async function handleDeny() {
-    setError("")
-    setLoading(true)
-    try {
-      await authClient.device.deny({ userCode: userCode.trim() })
-      setStep("denied")
-    } catch {
-      setError("Failed to deny device")
-    }
-    setLoading(false)
-  }
+  const handleApprove = () => command.mutate({ kind: "approve", code: verificationCode, original: source.capture() })
+  const handleDeny = () => command.mutate({ kind: "deny", code: verificationCode, original: source.capture() })
 
   if (isPending || !session) {
     return null

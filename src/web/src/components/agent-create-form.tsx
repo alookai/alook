@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import type { AgentRuntime as Runtime } from "@alook/shared";
 import {
@@ -117,19 +118,19 @@ export function AgentCreateForm({
   saving,
 }: AgentCreateFormProps) {
   const { workspaceId } = useWorkspace();
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [instructions, setInstructions] = useState("");
-  const [runtimeId, setRuntimeId] = useState(defaultRuntimeId);
-  const [emailHandle, setEmailHandle] = useState("");
-  const [fieldErrors, setFieldErrors] = useState<AgentCreateFieldErrors>({});
+  const [name, setName] = useAtom(useCreateAtom(""));
+  const [description, setDescription] = useAtom(useCreateAtom(""));
+  const [instructions, setInstructions] = useAtom(useCreateAtom(""));
+  const [runtimeId, setRuntimeId] = useAtom(useCreateAtom(defaultRuntimeId));
+  const [emailHandle, setEmailHandle] = useAtom(useCreateAtom(""));
+  const [fieldErrors, setFieldErrors] = useAtom(useCreateAtom<AgentCreateFieldErrors>({}));
   const [customEmailData, setCustomEmailData] =
-    useState<CustomEmailData | null>(null);
+    useAtom(useCreateAtom<CustomEmailData | null>(null));
   const customEmailGetDataRef = useRef<(() => CustomEmailData | null) | null>(
     null
   );
-  const [model, setModel] = useState("");
-  const [avatarUrl, setAvatarUrl] = useState<string>(INITIAL_AVATAR);
+  const [model, setModel] = useAtom(useCreateAtom(""));
+  const [avatarUrl, setAvatarUrl] = useAtom(useCreateAtom<string>(INITIAL_AVATAR));
 
   // Randomize avatar and name on client mount to avoid hydration mismatch
   const avatarInitialized = useRef(false);
@@ -139,12 +140,12 @@ export function AgentCreateForm({
       setAvatarUrl(serializeBeamSeed(crypto.randomUUID()));
       setName(uniqueNamesGenerator({ dictionaries: [names], length: 1, style: "capital" }));
     }
-  }, []);
+  }, [setAvatarUrl, setName]);
 
   const shuffleName = useCallback(() => {
     setName(uniqueNamesGenerator({ dictionaries: [names], length: 1, style: "capital" }));
     setFieldErrors((prev) => ({ ...prev, name: undefined }));
-  }, []);
+  }, [setFieldErrors, setName]);
 
   const selectedRuntime = runtimes.find((r) => r.id === runtimeId);
   const providerModels =

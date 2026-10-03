@@ -1,15 +1,8 @@
 "use client"
 
-import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { useEffect, useState } from "react"
-import { channelMetadataOptions, type ChannelMetadata } from "@/hooks/community/channel-metadata"
-import type { ChildChannelMeta } from "@/hooks/community/use-forum-sidebar-threads"
-import { useCommunityWsStore } from "@/stores/community/ws"
-import { captureChannelMetadataToken } from "./channel-metadata"
-import {
-  useOptionalCommunityDbRegistry,
-  useRouteChannelProjection,
-} from "@/lib/community-db/projections"
+import type { ChannelMetadata } from "./channel-metadata"
+import { useChannelMetadata } from "./use-channel-metadata"
+import type { ChildChannelMeta } from "./use-forum-sidebar-threads"
 
 function projectChildMeta(payload: ChannelMetadata, verifiedEpoch: number): ChildChannelMeta {
   if (!payload.serverId || !payload.parentChannelId || !payload.parentMessageId) {
@@ -67,59 +60,9 @@ export function pickRenderableChildMeta(
   return undefined
 }
 
-export function useChildChannelMeta(
-  serverId: string,
-  channelId: string,
-  enabled: boolean,
-  placeholderData?: ChildChannelMeta,
-) {
-  const registry = useOptionalCommunityDbRegistry()
-  const queryClient = useQueryClient()
-  const dbChannel = useRouteChannelProjection(channelId)
-  const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
-  const dbPlaceholder = dbChannel?.type === "thread"
-    && dbChannel.serverId === serverId
-    && dbChannel.parentChannelId
-    && dbChannel.parentMessageId
-    ? {
-        id: dbChannel.id,
-        serverId,
-        name: dbChannel.name,
-        type: dbChannel.type,
-        parentChannelId: dbChannel.parentChannelId,
-        parentMessageId: dbChannel.parentMessageId,
-        creatorId: dbChannel.creatorId ?? null,
-        archived: dbChannel.archived,
-        activityAt: dbChannel.lastMessageAt ?? "",
-        verifiedEpoch: accessEpoch,
-      }
-    : undefined
-  const query = useQuery({
-    ...channelMetadataOptions(queryClient, serverId, channelId),
-    select: (meta) => projectChildMeta(meta, meta.verifiedEpoch),
-    enabled,
-    placeholderData: registry || !placeholderData ? undefined : {
-      ...placeholderData,
-      creatorId: placeholderData.creatorId ?? null,
-      lastMessageAt: placeholderData.activityAt,
-      createdAt: placeholderData.activityAt,
-      verification: captureChannelMetadataToken(channelId),
-      historyVerification: undefined,
-    },
-  })
-  const [trusted, setTrusted] = useState<TrustedChildMeta>(null)
-  useEffect(() => {
-    if (registry) return
-    if (query.data?.verifiedEpoch !== accessEpoch) return
-    setTrusted((current) => updateTrustedChildMeta(current, channelId, query.data!))
-  }, [accessEpoch, channelId, query.data, registry])
-  const trustedMeta = trusted?.channelId === channelId ? trusted.meta : undefined
-  const renderable = registry
-    ? dbPlaceholder?.archived ? undefined : dbPlaceholder
-    : pickRenderableChildMeta(query.data, trustedMeta, accessEpoch)
-  return {
-    ...query,
-    data: renderable,
-    isVerified: !!renderable,
-  }
+export function useChildChannelMeta(serverId: string, channelId: string, enabled: boolean, _placeholderData?: ChildChannelMeta) {
+  const query = useChannelMetadata(serverId, enabled ? channelId : undefined)
+  const data = query.data?.type === "thread" && query.data.parentChannelId && query.data.parentMessageId && !query.data.archived
+    ? projectChildMeta(query.data, query.data.verifiedEpoch) : undefined
+  return { ...query, data, isVerified: query.isVerified && !!data }
 }

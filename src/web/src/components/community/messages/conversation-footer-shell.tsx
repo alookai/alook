@@ -1,35 +1,26 @@
 "use client"
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useState,
-  type Dispatch,
-  type HTMLAttributes,
-  type ReactNode,
-  type SetStateAction,
-} from "react"
+import { useAtom, useCreateAtom, type Atom } from "@tanstack/react-store";
+import { createContext, useCallback, useContext, useMemo, type HTMLAttributes, type ReactNode } from "react"
 
 type ConversationFooterSlot = {
   target: HTMLDivElement | null
-  setTarget: Dispatch<SetStateAction<HTMLDivElement | null>>
+  setTarget: Atom<HTMLDivElement | null>["set"]
   selectionActive: boolean
-  setSelectionActive: Dispatch<SetStateAction<boolean>>
+  setSelectionActive: Atom<boolean>["set"]
 }
 
 const ConversationFooterSlotContext = createContext<ConversationFooterSlot | null>(null)
 
 export function ConversationFooterSlotProvider({ children }: { children: ReactNode }) {
-  const [target, setTarget] = useState<HTMLDivElement | null>(null)
-  const [selectionActive, setSelectionActive] = useState(false)
+const [target, setTarget] = useAtom(useCreateAtom<HTMLDivElement | null>(null))
+  const [selectionActive, setSelectionActive] = useAtom(useCreateAtom(false))
   const value = useMemo(() => ({
     target,
     setTarget,
     selectionActive,
     setSelectionActive,
-  }), [selectionActive, target])
+  }), [selectionActive, setSelectionActive, setTarget, target])
 
   return (
     <ConversationFooterSlotContext.Provider value={value}>

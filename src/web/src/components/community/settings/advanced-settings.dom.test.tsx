@@ -1,4 +1,6 @@
-import { render, screen, setupUser, waitFor } from "@/test/react-dom-harness"
+import React from "react"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { render as renderDom, screen, setupUser, waitFor } from "@/test/react-dom-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { tid } from "@/lib/community/testids"
 import { AdvancedSettings } from "./user-settings"
@@ -19,6 +21,11 @@ vi.mock("@/components/ui/confirm-dialog", () => ({
     open ? <button onClick={() => { void onConfirm() }}>Confirm clear cache</button> : null
   ),
 }))
+
+function render(element: React.ReactNode) {
+  const client = new QueryClient()
+  return renderDom(element, { wrapper: ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> })
+}
 
 describe("AdvancedSettings cache size", () => {
   beforeEach(() => {
@@ -65,7 +72,7 @@ describe("AdvancedSettings cache size", () => {
 
   it("shows 0 B after clearing and before the reload frame", async () => {
     const user = setupUser()
-    cache.size.mockResolvedValue(2048)
+    cache.size.mockResolvedValueOnce(2048).mockResolvedValue(0)
     cache.clearAll.mockResolvedValue(undefined)
     vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1))
     render(<AdvancedSettings />)

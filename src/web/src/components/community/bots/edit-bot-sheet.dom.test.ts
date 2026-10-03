@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import React from "react"
-import { act, fireEvent, render } from "@/test/react-dom-harness"
+import { act, fireEvent } from "@/test/react-dom-harness"
+import { renderCommunity as render } from "@/test/community-owner-harness"
 import type { BotSummary } from "@/hooks/community/use-bots"
 
 // Online-only UI contract (Ruthann #1274/#1280 / Shelly gate):

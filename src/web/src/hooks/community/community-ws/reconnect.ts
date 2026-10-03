@@ -1,11 +1,13 @@
+
+import { getCommunityRuntime, readCurrentCommunityChannelMeta } from "@/stores/community/runtime"
 import type { QueryClient, QueryKey } from "@tanstack/react-query"
 import {
   communityKeys,
   isCommunityServerDetailQueryKey,
   isCommunityServerIdSegment,
 } from "@/lib/query-keys"
-import { useCommunityStore } from "@/stores/community"
-import { useCommunityWsStore } from "@/stores/community/ws"
+
+
 import { reconcileForumSidebarNotifyMemberships } from "@/hooks/community/use-forum-sidebar-threads"
 import { clearAllTypingIndicators } from "@/hooks/community/community-ws/typing"
 import { communityWsReconnectPolicies } from "@/hooks/community/community-ws/registry"
@@ -126,7 +128,7 @@ async function reconcileCachedServer(queryClient: QueryClient, serverId: string)
 
 export async function reconcileFocusedCommunityMessages(
   queryClient: QueryClient,
-  sub = useCommunityStore.getState().subscription,
+  sub = getCommunityRuntime(queryClient).ui.get().subscription,
 ) {
   const operations: Promise<unknown>[] = []
   if (sub.channelId) {
@@ -158,12 +160,12 @@ function policyExecutors(
   queryClient: QueryClient,
   viewerUserId?: string | null,
 ): Record<CommunityWsReconcilePolicy, () => void | Promise<void>> {
-  const sub = useCommunityStore.getState().subscription
+  const sub = getCommunityRuntime(queryClient).ui.get().subscription
   const queryKeys = queryClient.getQueryCache().getAll().map((query) => query.queryKey)
   return {
     "focused-messages": () => reconcileFocusedCommunityMessages(queryClient, sub),
     "focused-opener": async () => {
-      const parentMessageId = useCommunityStore.getState().currentChannelMeta?.parentMessageId
+      const parentMessageId = readCurrentCommunityChannelMeta(queryClient)?.parentMessageId
       if (!parentMessageId) return
       await queryClient.invalidateQueries({
         queryKey: communityKeys.message(parentMessageId),
@@ -234,10 +236,10 @@ function policyExecutors(
       await queryClient.invalidateQueries({ queryKey: communityKeys.friends(), refetchType: "active" })
     },
     "presence-overlay": async () => {
-      const presence = useCommunityWsStore.getState()
+      const presence = getCommunityRuntime(queryClient).ws.get()
       for (const [userId, status] of presence.presenceByUserId) {
         if (userId !== viewerUserId && status === "online") {
-          presence.setPresence(userId, "offline")
+          getCommunityRuntime(queryClient).ws.actions.setPresence(userId, "offline")
         }
       }
     },
@@ -249,7 +251,7 @@ function policyExecutors(
       ))
       const settled = await Promise.allSettled([
         ...(viewerUserId
-          ? [userProfileQueryFn(viewerUserId)()]
+          ? [queryClient.fetchQuery({ queryKey: communityKeys.profile(viewerUserId), queryFn: userProfileQueryFn(viewerUserId), staleTime: 0 })]
           : []),
         ...(hasIdentitySurface
           ? [queryClient.invalidateQueries({
@@ -263,7 +265,7 @@ function policyExecutors(
         throw new Error("identity reconciliation failed")
       }
     },
-    "ephemeral-typing": clearAllTypingIndicators,
+    "ephemeral-typing": () => clearAllTypingIndicators(queryClient),
     "machines": async () => {
       await queryClient.invalidateQueries({ queryKey: communityKeys.machines(), refetchType: "active" })
     },

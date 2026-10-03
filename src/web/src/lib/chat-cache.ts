@@ -1,6 +1,11 @@
-import { openDB, type IDBPDatabase } from "idb";
-import type { Message, Artifact } from "@alook/shared";
+import type { InfiniteData } from "@tanstack/react-query";
+import type { Message, Artifact, Conversation } from "@alook/shared";
+import { assertWorkspaceOwner, captureWorkspaceOwner, type WorkspaceOwner } from "@/contexts/workspace-context";
+import type { ApplicationOwner } from "@/lib/application-owner";
 
+export type ChatMessagesPage = { messages: Message[]; hasMore: boolean; requestRevision?: number };
+export type ChatMessagesData = InfiniteData<ChatMessagesPage> & { serverMessageCount: number; liveRevision?: number; liveMessageRevisions?: Record<string, number> };
+export type ChatExtras = { conversation: Conversation | null; artifacts: Artifact[]; hasMoreArtifacts: boolean };
 export interface CacheMeta {
   conversation_id: string;
   lastFetchedAt: number;
@@ -10,615 +15,121 @@ export interface CacheMeta {
   hasMore: boolean;
   serverMessageCount: number;
 }
-
-/**
- * Pointer to the **latest-created** conversation for a given agent+channel, used
- * to render the multi-conversation chat page cache-first (without a gating
- * network round-trip to resolve "which conversation is this?").
- *
- * Semantics: this is the latest-created conversation as last known to THIS
- * client — matching the server's `check-fresh` definition of "current"
- * (`getOrCreateAgentConversation` → `orderBy(desc(createdAt))`). It is NOT "the
- * conversation the user last manually opened". Honoring those two as the same
- * concept caused the wrong-conversation flash: an explicit `?conv=<old-id>` open
- * would record an old conversation, then the param-less open painted it and
- * visibly swapped to the server's latest. Only writes that establish
- * "latest-created" (slow-path server-resolved load, chatInit fallback, and the
- * `task.created` WS refresh) may update this pointer.
- *
- * Cross-device caveat: if another device/tab just created a newer conversation
- * this client hasn't heard of yet, the pointer may briefly lag until the next
- * `check-fresh` corrects it — the rare residual case, no longer the common one.
- *
- * The DB is already scoped per-workspace (`alook-chat-cache-${workspaceId}`),
- * so the key only needs to encode agent + channel.
- */
 export interface LastOpenEntry {
-  /** `${agentId}::${channel == null ? "" : channel}` — see {@link lastOpenKey} */
   key: string;
   conversation_id: string;
   newestMessageId: string | null;
   serverMessageCount: number;
   updatedAt: number;
 }
-
-/**
- * Per-conversation "card metadata" — the non-message data the chat timeline
- * needs to paint its cards (file/artifact cards + the event-card icon/label)
- * WITHOUT waiting on the network. Mirrors how `messages` + `cache_meta` already
- * power the instant text paint.
- *
- * The two pieces the network currently gates:
- *   - `artifacts`: the full per-conversation artifacts array (full server set,
- *     full-replace on every load — never merged, never the write authority).
- *   - the lightweight `conversation_*` fields: at minimum `conversation_type`,
- *     which drives the event-card icon/label on first paint for metadata-less
- *     event messages (the ones whose type would otherwise re-resolve from
- *     `conversation.type` only after the network lands).
- *
- * Cached values are only ever RENDERED; every load still fetches the
- * authoritative `artifacts` + `conversation` and overwrites this row, so the
- * worst case is a one-frame stale card that reconciles — never data loss (same
- * guarantee as the message cache).
- */
 export interface ConvExtrasEntry {
   conversation_id: string;
   artifacts: Artifact[];
   conversation_type: string;
   conversation_title: string;
   conversation_channel: string;
-  // Server `conversation.created_at`. Seeded into the provisional conversation
-  // stub on the instant paint so the scroll heuristic
-  // (`agent-chat-view.tsx`, `wasScrolledToBottom`) reads a real value rather
-  // than an empty string (which would flip its `!conversation.created_at`
-  // branch and alter scroll behavior during the optimistic window).
   conversation_created_at: string;
   hasMoreArtifacts: boolean;
   updatedAt: number;
 }
-
-interface ChatCacheDB {
-  messages: {
-    key: [string, string];
-    value: Message;
-    indexes: {
-      "by-conversation": string;
-      "by-created": [string, string];
-    };
-  };
-  cache_meta: {
-    key: string;
-    value: CacheMeta;
-  };
-  last_open: {
-    key: string;
-    value: LastOpenEntry;
-    indexes: {
-      "by-conversation": string;
-    };
-  };
-  conv_extras: {
-    key: string;
-    value: ConvExtrasEntry;
-  };
+export const chatMessagesKey = (owner: WorkspaceOwner, conversationId: string) => owner.key("chat", "messages", conversationId);
+export const chatExtrasKey = (owner: WorkspaceOwner, conversationId: string) => owner.key("chat", "extras", conversationId);
+export const chatLatestKey = (owner: WorkspaceOwner, agentId: string, channel: string | null | undefined) => owner.key("chat", "latest-created", agentId, channel ?? "");
+export function sortedChatMessages(data: ChatMessagesData | undefined): Message[] {
+  const rows = new Map<string, Message>();
+  for (const page of data?.pages ?? []) for (const row of page.messages) {
+    if (!row.id.startsWith("temp-")) rows.set(row.id, row);
+  }
+  return [...rows.values()].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
 }
+function assertOwner(owner: WorkspaceOwner) { assertWorkspaceOwner(captureWorkspaceOwner(owner)); }
+export async function getCachedMessages(conversationId: string, owner: WorkspaceOwner): Promise<Message[] | null> {
+  assertOwner(owner);
+  const messages = sortedChatMessages(owner.queryClient.getQueryData<ChatMessagesData>(chatMessagesKey(owner, conversationId)));
+  return messages.length ? messages : null;
+}
+export async function getCacheMeta(conversationId: string, owner: WorkspaceOwner): Promise<CacheMeta | null> {
+  assertOwner(owner);
+  const key = chatMessagesKey(owner, conversationId);
+  const data = owner.queryClient.getQueryData<ChatMessagesData>(key);
+  if (!data) return null;
+  const rows = sortedChatMessages(data);
+  const updatedAt = owner.queryClient.getQueryState(key)?.dataUpdatedAt ?? 0;
+  return { conversation_id: conversationId, lastFetchedAt: updatedAt, lastAccessedAt: updatedAt, messageCount: rows.length, newestMessageId: rows.at(-1)?.id ?? null, hasMore: data.pages.at(-1)?.hasMore ?? true, serverMessageCount: data.serverMessageCount };
+}
+export async function mergeCachedMessages(conversationId: string, messages: Message[], hasMore: boolean | null, owner: WorkspaceOwner, serverMessageCount?: number, live = false): Promise<void> {
+  assertOwner(owner);
+  const valid = messages.filter((row) => !row.id.startsWith("temp-") && row.conversation_id === conversationId);
+  owner.queryClient.setQueryData<ChatMessagesData>(chatMessagesKey(owner, conversationId), (previous) => {
+    const liveRevision = (previous?.liveRevision ?? 0) + (live ? 1 : 0);
+    const liveMessageRevisions = { ...previous?.liveMessageRevisions };
+    if (live) for (const row of valid) liveMessageRevisions[row.id] = liveRevision;
+    const byId = new Map(valid.map((row) => [row.id, row]));
+    const present = new Set(sortedChatMessages(previous).map((row) => row.id));
+    const pages = (previous?.pages ?? [{ messages: [], hasMore: true }]).map((page, index, all) => ({
+      ...page,
+      messages: [...page.messages.map((row) => byId.get(row.id) ?? row), ...(!index ? valid.filter((row) => !present.has(row.id)) : [])].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)),
+      hasMore: index === all.length - 1 ? hasMore ?? page.hasMore : page.hasMore,
+    }));
+    return { pages, pageParams: previous?.pageParams ?? [null], serverMessageCount: serverMessageCount ?? previous?.serverMessageCount ?? 0, liveRevision, liveMessageRevisions };
 
-const DB_VERSION = 4;
-const MAX_CONVERSATIONS = 50;
-
-let dbPromise: Promise<IDBPDatabase<ChatCacheDB>> | null = null;
-let currentWorkspaceId: string | null = null;
-
-export function openCacheDB(workspaceId: string): Promise<IDBPDatabase<ChatCacheDB>> | null {
-  if (typeof indexedDB === "undefined") return null;
-
-  if (dbPromise && currentWorkspaceId === workspaceId) return dbPromise;
-
-  currentWorkspaceId = workspaceId;
-  dbPromise = openDB<ChatCacheDB>(`alook-chat-cache-${workspaceId}`, DB_VERSION, {
-    upgrade(db, oldVersion) {
-      if (oldVersion < 1) {
-        const msgStore = db.createObjectStore("messages", {
-          keyPath: ["conversation_id", "id"],
-        });
-        msgStore.createIndex("by-conversation", "conversation_id", { unique: false });
-        msgStore.createIndex("by-created", ["conversation_id", "created_at"], { unique: false });
-
-        db.createObjectStore("cache_meta", { keyPath: "conversation_id" });
-      }
-      // v1 → v2: serverMessageCount field added to cache_meta entries.
-      // No schema migration needed — the field is added at write time with default 0.
-      if (oldVersion < 3) {
-        // v2 → v3: last-open conversation pointer per agent+channel. Existing
-        // `messages`/`cache_meta` stores are untouched; this store starts empty,
-        // so the first param-less open is a clean cache miss (today's behavior),
-        // then it populates.
-        const lastOpenStore = db.createObjectStore("last_open", { keyPath: "key" });
-        lastOpenStore.createIndex("by-conversation", "conversation_id", { unique: false });
-      }
-      if (oldVersion < 4) {
-        // v3 → v4: per-conversation card metadata (artifacts + conversation
-        // type/title/channel/created_at). Existing `messages`/`cache_meta`/
-        // `last_open` stores are untouched; this store starts empty, so the
-        // first open of any conversation is a clean cache miss (today's
-        // behavior — text paints, cards pop in after the network), then it
-        // populates and subsequent opens paint cards instantly. Keyed by
-        // `conversation_id` (single-row lookup), no index needed.
-        db.createObjectStore("conv_extras", { keyPath: "conversation_id" });
-      }
-    },
   });
-
-  return dbPromise;
 }
-
-function getDB(workspaceId?: string): Promise<IDBPDatabase<ChatCacheDB>> | null {
-  if (workspaceId) return openCacheDB(workspaceId);
-  return dbPromise;
-}
-
-export async function getCachedMessages(conversationId: string, workspaceId?: string): Promise<Message[] | null> {
-  const p = getDB(workspaceId);
-  if (!p) return null;
-
-  try {
-    const db = await p;
-    const messages = await db.getAllFromIndex("messages", "by-conversation", conversationId);
-    if (messages.length === 0) return null;
-
-    const filtered = messages.filter((m) => !m.id.startsWith("temp-"));
-
-    filtered.sort((a, b) => {
-      const cmp = a.created_at.localeCompare(b.created_at);
-      if (cmp !== 0) return cmp;
-      return a.id.localeCompare(b.id);
-    });
-
-    // Update lastAccessedAt
-    const meta = await db.get("cache_meta", conversationId);
-    if (meta) {
-      await db.put("cache_meta", { ...meta, lastAccessedAt: Date.now() });
-    }
-
-    return filtered;
-  } catch {
-    return null;
-  }
-}
-
-export async function getCachedMessagesBefore(
-  conversationId: string,
-  beforeCreatedAt: string,
-  beforeId: string,
-  limit: number,
-  workspaceId?: string
-): Promise<{ messages: Message[]; hasMore: boolean } | null> {
-  const p = getDB(workspaceId);
-  if (!p) return null;
-
-  try {
-    const db = await p;
-    const meta = await db.get("cache_meta", conversationId);
-    if (!meta) return null;
-
-    const range = IDBKeyRange.bound(
-      [conversationId, ""],
-      [conversationId, beforeCreatedAt],
-      false,
-      false
-    );
-
-    const allInRange = await db.getAllFromIndex("messages", "by-created", range);
-
-    const filtered = allInRange.filter((m) => {
-      if (m.id.startsWith("temp-")) return false;
-      if (m.created_at === beforeCreatedAt && m.id >= beforeId) return false;
-      return true;
-    });
-
-    filtered.sort((a, b) => {
-      const cmp = b.created_at.localeCompare(a.created_at);
-      if (cmp !== 0) return cmp;
-      return b.id.localeCompare(a.id);
-    });
-
-    const topN = filtered.slice(0, limit);
-
-    if (topN.length < limit && meta.hasMore) return null;
-
-    await db.put("cache_meta", { ...meta, lastAccessedAt: Date.now() });
-
-    const result = topN.reverse();
-    return {
-      messages: result,
-      hasMore: filtered.length > limit || meta.hasMore,
-    };
-  } catch {
-    return null;
-  }
-}
-
-export async function mergeCachedMessages(
-  conversationId: string,
-  messages: Message[],
-  hasMore: boolean | null,
-  workspaceId?: string,
-  serverMessageCount?: number
-): Promise<void> {
-  const p = getDB(workspaceId);
-  if (!p) return;
-
-  try {
-    const db = await p;
-
-    const validMessages = messages.filter((m) => !m.id.startsWith("temp-"));
-    if (validMessages.length === 0) return;
-
-    const tx = db.transaction(["messages", "cache_meta"], "readwrite");
-    const msgStore = tx.objectStore("messages");
-    const metaStore = tx.objectStore("cache_meta");
-
-    for (const msg of validMessages) {
-      await msgStore.put(msg);
-    }
-
-    const allKeys = await msgStore.index("by-conversation").getAllKeys(conversationId);
-
-    const now = Date.now();
-    const newestInBatch = validMessages.reduce((a, b) =>
-      a.created_at > b.created_at ? a : b
-    );
-
-    const existingMeta = await metaStore.get(conversationId);
-    const resolvedHasMore = hasMore ?? existingMeta?.hasMore ?? true;
-
-    const newestMessageId =
-      existingMeta?.newestMessageId && existingMeta.newestMessageId !== newestInBatch.id
-        ? await (async () => {
-            const existing = await msgStore.get([conversationId, existingMeta.newestMessageId!]);
-            if (existing && existing.created_at > newestInBatch.created_at) return existing.id;
-            return newestInBatch.id;
-          })()
-        : newestInBatch.id;
-
-    const meta: CacheMeta = {
-      conversation_id: conversationId,
-      lastFetchedAt: now,
-      lastAccessedAt: now,
-      messageCount: allKeys.length,
-      newestMessageId,
-      hasMore: resolvedHasMore,
-      serverMessageCount: serverMessageCount ?? existingMeta?.serverMessageCount ?? 0,
-    };
-    await metaStore.put(meta);
-
-    await tx.done;
-
-    evictLRU().catch(() => {});
-  } catch {
-    // Graceful degradation
-  }
-}
-
-export async function appendCachedMessage(
-  conversationId: string,
-  message: Message,
-  workspaceId?: string
-): Promise<void> {
-  const p = getDB(workspaceId);
-  if (!p) return;
-
+export async function appendCachedMessage(conversationId: string, message: Message, owner: WorkspaceOwner): Promise<void> {
   if (message.id.startsWith("temp-")) return;
-
-  try {
-    const db = await p;
-    const meta = await db.get("cache_meta", conversationId);
-    if (!meta) return;
-
-    const existing = await db.get("messages", [conversationId, message.id]);
-    await db.put("messages", message);
-
-    await db.put("cache_meta", {
-      ...meta,
-      lastAccessedAt: Date.now(),
-      messageCount: existing ? meta.messageCount : meta.messageCount + 1,
-      newestMessageId: message.id,
-    });
-  } catch {
-    // Graceful degradation
-  }
+  await mergeCachedMessages(conversationId, [message], null, owner, undefined, true);
 }
-
-export async function removeCachedMessage(
-  conversationId: string,
-  messageId: string,
-  workspaceId?: string
-): Promise<void> {
-  const p = getDB(workspaceId);
-  if (!p) return;
-
-  try {
-    const db = await p;
-    await db.delete("messages", [conversationId, messageId]);
-
-    const meta = await db.get("cache_meta", conversationId);
-    if (meta) {
-      await db.put("cache_meta", {
-        ...meta,
-        messageCount: Math.max(0, meta.messageCount - 1),
-      });
-    }
-  } catch {
-    // Graceful degradation
-  }
+export async function removeCachedMessage(conversationId: string, messageId: string, owner: WorkspaceOwner): Promise<void> {
+  assertOwner(owner);
+  owner.queryClient.setQueryData<ChatMessagesData>(chatMessagesKey(owner, conversationId), (data) => data ? { ...data, pages: data.pages.map((page) => ({ ...page, messages: page.messages.filter((row) => row.id !== messageId) })) } : undefined);
 }
-
-export async function getCacheMeta(conversationId: string, workspaceId?: string): Promise<CacheMeta | null> {
-  const p = getDB(workspaceId);
-  if (!p) return null;
-
-  try {
-    const db = await p;
-    return (await db.get("cache_meta", conversationId)) ?? null;
-  } catch {
-    return null;
-  }
+export async function getCachedMessagesBefore(conversationId: string, beforeCreatedAt: string, beforeId: string, limit: number, owner: WorkspaceOwner): Promise<{ messages: Message[]; hasMore: boolean } | null> {
+  const token = captureWorkspaceOwner(owner);
+  const meta = await getCacheMeta(conversationId, owner);
+  assertWorkspaceOwner(token);
+  if (!meta) return null;
+  const rows = sortedChatMessages(owner.queryClient.getQueryData<ChatMessagesData>(chatMessagesKey(owner, conversationId))).filter((row) => row.created_at < beforeCreatedAt || row.created_at === beforeCreatedAt && row.id < beforeId);
+  if (rows.length < limit && meta.hasMore) return null;
+  return { messages: rows.slice(-limit), hasMore: rows.length > limit || meta.hasMore };
 }
-
-/**
- * Build the `last_open` key. `null` and `undefined` channel both normalize to
- * `""`, so the param-less "default channel" maps to one stable entry.
- */
-function lastOpenKey(agentId: string, channel: string | null | undefined): string {
-  return `${agentId}::${channel == null ? "" : channel}`;
+export async function getLastOpenConversation(agentId: string, channel: string | null | undefined, owner: WorkspaceOwner): Promise<LastOpenEntry | null> {
+  assertOwner(owner);
+  return owner.queryClient.getQueryData<LastOpenEntry>(chatLatestKey(owner, agentId, channel)) ?? null;
 }
-
-/**
- * Read the last-open conversation pointer for an agent+channel. IndexedDB only,
- * no network. Returns null on cache miss, error, or SSR (no indexedDB).
- *
- * Note: `null` and `undefined` channel resolve to the same entry (see
- * {@link lastOpenKey}).
- */
-export async function getLastOpenConversation(
-  agentId: string,
-  channel: string | null | undefined,
-  workspaceId?: string
-): Promise<LastOpenEntry | null> {
-  const p = getDB(workspaceId);
-  if (!p) return null;
-
-  try {
-    const db = await p;
-    return (await db.get("last_open", lastOpenKey(agentId, channel))) ?? null;
-  } catch {
-    return null;
-  }
+export async function setLastOpenConversation(agentId: string, channel: string | null | undefined, entry: Pick<LastOpenEntry, "conversation_id" | "newestMessageId" | "serverMessageCount">, owner: WorkspaceOwner): Promise<void> {
+  assertOwner(owner);
+  owner.queryClient.setQueryData<LastOpenEntry>(chatLatestKey(owner, agentId, channel), { ...entry, key: `${agentId}::${channel ?? ""}`, updatedAt: Date.now() });
 }
-
-/**
- * Write the per-channel pointer to the **latest-created** conversation for an
- * agent+channel (see {@link LastOpenEntry}). Call ONLY when establishing
- * latest-created semantics — i.e. from a server-resolved (slow-path) load, the
- * chatInit fallback, or the `task.created` WS refresh. Do NOT call it for an
- * explicit `?conv=<id>` (fast-path) open: that records "last opened", not
- * "latest", and reintroduces the wrong-conversation flash.
- *
- * Values should be server-confirmed where available so the next open's freshness
- * compare is accurate. The `task.created` path derives `serverMessageCount` from
- * the locally-cached count (may under-count → at worst the next read falls back
- * to the skeleton via the `serverMessageCount > 0` gate, never wrong content).
- */
-export async function setLastOpenConversation(
-  agentId: string,
-  channel: string | null | undefined,
-  entry: Pick<LastOpenEntry, "conversation_id" | "newestMessageId" | "serverMessageCount">,
-  workspaceId?: string
-): Promise<void> {
-  const p = getDB(workspaceId);
-  if (!p) return;
-
-  try {
-    const db = await p;
-    await db.put("last_open", {
-      key: lastOpenKey(agentId, channel),
-      conversation_id: entry.conversation_id,
-      newestMessageId: entry.newestMessageId,
-      serverMessageCount: entry.serverMessageCount,
-      updatedAt: Date.now(),
-    });
-  } catch {
-    // Graceful degradation
-  }
+export async function clearLastOpenForConversation(conversationId: string, owner: WorkspaceOwner): Promise<void> {
+  assertOwner(owner);
+  owner.queryClient.removeQueries({ queryKey: owner.key("chat", "latest-created"), predicate: (query) => (query.state.data as LastOpenEntry | undefined)?.conversation_id === conversationId });
 }
-
-/**
- * Remove any `last_open` pointer(s) referencing the given conversation. Used
- * when invalidating a conversation so we don't render then immediately wipe.
- */
-export async function clearLastOpenForConversation(
-  conversationId: string,
-  workspaceId?: string
-): Promise<void> {
-  const p = getDB(workspaceId);
-  if (!p) return;
-
-  try {
-    const db = await p;
-    const tx = db.transaction("last_open", "readwrite");
-    const store = tx.objectStore("last_open");
-    const keys = await store.index("by-conversation").getAllKeys(conversationId);
-    for (const key of keys) {
-      await store.delete(key);
-    }
-    await tx.done;
-  } catch {
-    // Graceful degradation
-  }
+export async function getConvExtras(conversationId: string, owner: WorkspaceOwner): Promise<ConvExtrasEntry | null> {
+  assertOwner(owner);
+  const key = chatExtrasKey(owner, conversationId);
+  const data = owner.queryClient.getQueryData<ChatExtras>(key);
+  if (!data?.conversation) return null;
+  return { conversation_id: conversationId, artifacts: data.artifacts, conversation_type: data.conversation.type, conversation_title: data.conversation.title, conversation_channel: data.conversation.channel, conversation_created_at: data.conversation.created_at, hasMoreArtifacts: data.hasMoreArtifacts, updatedAt: owner.queryClient.getQueryState(key)?.dataUpdatedAt ?? 0 };
 }
-
-/**
- * Read the cached card metadata for a conversation. IndexedDB only, no network.
- * Returns null on cache miss, error, or SSR (no indexedDB).
- */
-export async function getConvExtras(
-  conversationId: string,
-  workspaceId?: string
-): Promise<ConvExtrasEntry | null> {
-  const p = getDB(workspaceId);
-  if (!p) return null;
-
-  try {
-    const db = await p;
-    return (await db.get("conv_extras", conversationId)) ?? null;
-  } catch {
-    return null;
-  }
+export async function setConvExtras(conversationId: string, entry: Omit<ConvExtrasEntry, "conversation_id" | "updatedAt">, owner: WorkspaceOwner): Promise<void> {
+  assertOwner(owner);
+  owner.queryClient.setQueryData<ChatExtras>(chatExtrasKey(owner, conversationId), (data) => ({ conversation: { ...data?.conversation, id: conversationId, agent_id: data?.conversation?.agent_id ?? "", type: entry.conversation_type, title: entry.conversation_title, channel: entry.conversation_channel, created_at: entry.conversation_created_at }, artifacts: entry.artifacts, hasMoreArtifacts: entry.hasMoreArtifacts }));
 }
-
-/**
- * Upsert the card metadata for a conversation. Stamps `updatedAt` at write
- * time. No-op when the DB is unavailable (SSR / private browsing). Callers
- * should fire-and-forget (`.catch(() => {})`) — this is never on the critical
- * render path, mirroring `mergeCachedMessages`.
- */
-export async function setConvExtras(
-  conversationId: string,
-  entry: Omit<ConvExtrasEntry, "conversation_id" | "updatedAt">,
-  workspaceId?: string
-): Promise<void> {
-  const p = getDB(workspaceId);
-  if (!p) return;
-
-  try {
-    const db = await p;
-    await db.put("conv_extras", {
-      conversation_id: conversationId,
-      ...entry,
-      updatedAt: Date.now(),
-    });
-  } catch {
-    // Graceful degradation
-  }
+export async function clearConvExtras(conversationId: string, owner: WorkspaceOwner): Promise<void> {
+  assertOwner(owner);
+  owner.queryClient.removeQueries({ queryKey: chatExtrasKey(owner, conversationId), exact: true });
 }
-
-/** Remove the cached card metadata for a single conversation. */
-export async function clearConvExtras(
-  conversationId: string,
-  workspaceId?: string
-): Promise<void> {
-  const p = getDB(workspaceId);
-  if (!p) return;
-
-  try {
-    const db = await p;
-    await db.delete("conv_extras", conversationId);
-  } catch {
-    // Graceful degradation
-  }
+export async function invalidateCache(conversationId: string, owner: WorkspaceOwner): Promise<void> {
+  const token = captureWorkspaceOwner(owner);
+  assertWorkspaceOwner(token);
+  await owner.queryClient.cancelQueries({ queryKey: chatMessagesKey(owner, conversationId), exact: true });
+  assertWorkspaceOwner(token);
+  owner.queryClient.removeQueries({ queryKey: chatMessagesKey(owner, conversationId), exact: true });
+  await clearConvExtras(conversationId, owner);
+  await clearLastOpenForConversation(conversationId, owner);
 }
-
-export async function invalidateCache(conversationId: string, workspaceId?: string): Promise<void> {
-  const p = getDB(workspaceId);
-  if (!p) return;
-
-  try {
-    const db = await p;
-    const tx = db.transaction(["messages", "cache_meta", "last_open", "conv_extras"], "readwrite");
-    const msgStore = tx.objectStore("messages");
-    const metaStore = tx.objectStore("cache_meta");
-    const lastOpenStore = tx.objectStore("last_open");
-    const extrasStore = tx.objectStore("conv_extras");
-
-    const keys = await msgStore.index("by-conversation").getAllKeys(conversationId);
-    for (const key of keys) {
-      await msgStore.delete(key);
-    }
-    await metaStore.delete(conversationId);
-
-    // Drop any last-open pointer to this conversation so a later param-less
-    // open doesn't briefly render the invalidated conversation.
-    const lastOpenKeys = await lastOpenStore.index("by-conversation").getAllKeys(conversationId);
-    for (const key of lastOpenKeys) {
-      await lastOpenStore.delete(key);
-    }
-
-    // Drop the cached card metadata so an invalidated conversation doesn't
-    // render stale cards then wipe.
-    await extrasStore.delete(conversationId);
-
-    await tx.done;
-  } catch {
-    // Graceful degradation
-  }
-}
-
-export async function evictLRU(maxConversations = MAX_CONVERSATIONS): Promise<void> {
-  const p = getDB();
-  if (!p) return;
-
-  try {
-    const db = await p;
-    const allMeta = await db.getAll("cache_meta");
-    if (allMeta.length <= maxConversations) return;
-
-    allMeta.sort((a, b) => a.lastAccessedAt - b.lastAccessedAt);
-    const toEvict = allMeta.slice(0, allMeta.length - maxConversations);
-
-    const tx = db.transaction(["messages", "cache_meta", "last_open", "conv_extras"], "readwrite");
-    const msgStore = tx.objectStore("messages");
-    const metaStore = tx.objectStore("cache_meta");
-    const lastOpenStore = tx.objectStore("last_open");
-    const extrasStore = tx.objectStore("conv_extras");
-
-    for (const meta of toEvict) {
-      const keys = await msgStore.index("by-conversation").getAllKeys(meta.conversation_id);
-      for (const key of keys) {
-        await msgStore.delete(key);
-      }
-      await metaStore.delete(meta.conversation_id);
-
-      // Prune any last-open pointers to the evicted conversation so we never
-      // keep a dangling id that would resolve to an empty cache.
-      const lastOpenKeys = await lastOpenStore.index("by-conversation").getAllKeys(meta.conversation_id);
-      for (const key of lastOpenKeys) {
-        await lastOpenStore.delete(key);
-      }
-
-      // Prune the evicted conversation's card metadata in the same pass so no
-      // dangling artifacts/type row outlives its messages.
-      await extrasStore.delete(meta.conversation_id);
-    }
-
-    await tx.done;
-  } catch {
-    // Graceful degradation
-  }
-}
-
-export async function clearAllCache(): Promise<void> {
-  if (typeof indexedDB === "undefined") return;
-
-  try {
-    if (dbPromise) {
-      const db = await dbPromise;
-      db.close();
-      dbPromise = null;
-    }
-    if (currentWorkspaceId) {
-      await deleteDB(`alook-chat-cache-${currentWorkspaceId}`);
-      currentWorkspaceId = null;
-    }
-  } catch {
-    // Graceful degradation
-  }
-}
-
-async function deleteDB(name: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.deleteDatabase(name);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
-    req.onblocked = () => resolve();
-  });
+export async function clearAllCache(owner: ApplicationOwner): Promise<void> {
+  await owner.queryClient.cancelQueries({ queryKey: ["application", owner.userId, "workspace"] });
+  owner.queryClient.removeQueries({ queryKey: ["application", owner.userId, "workspace"] });
+  await owner.retireDisk();
 }

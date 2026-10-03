@@ -1,7 +1,9 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
+import { runWorkspaceRequest, useWorkspaceOwner } from "@/contexts/workspace-context";
 import { FileDownloadButton } from "@/components/file-download-button"
-import React, { useEffect, useState } from "react";
+
 import { getArtifactContent } from "@/lib/api";
 import type { Artifact } from "@alook/shared";
 import { Loader2, Download } from "lucide-react";
@@ -75,21 +77,18 @@ interface ArtifactContentRendererProps {
 }
 
 export function ArtifactContentRenderer({ artifact, workspaceId }: ArtifactContentRendererProps) {
-  const [content, setContent] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const owner = useWorkspaceOwner();
+  const query = useQuery({
+    queryKey: owner.key("artifact-content", artifact.id), gcTime: 0, staleTime: Infinity, retry: false,
+    enabled: owner.workspaceId === workspaceId && isTextType(artifact.content_type) && !isHtmlType(artifact.content_type),
+    queryFn: ({ signal }) => runWorkspaceRequest(owner, (options) => getArtifactContent(artifact.id, workspaceId, options), signal),
+  });
+  const content = query.isError ? "(failed to load content)" : query.data ?? null;
+  const loading = query.isLoading;
+
+  if (owner.workspaceId !== workspaceId) return null;
 
   const url = getArtifactUrl(artifact.id, workspaceId);
-
-  useEffect(() => {
-    if (isTextType(artifact.content_type) && !isHtmlType(artifact.content_type)) {
-      setLoading(true);
-      setContent(null);
-      getArtifactContent(artifact.id, workspaceId)
-        .then(setContent)
-        .catch(() => setContent("(failed to load content)"))
-        .finally(() => setLoading(false));
-    }
-  }, [artifact.id, artifact.content_type, workspaceId]);
 
   if (loading) {
     return (

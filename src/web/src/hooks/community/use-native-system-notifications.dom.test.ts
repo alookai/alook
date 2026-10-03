@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { act, renderHook, waitFor } from "@/test/react-dom-harness"
+import { createElement, type PropsWithChildren } from "react"
+import { act, waitFor, renderHook as renderOwnedHook } from "@/test/react-dom-harness"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { renderCommunityHook as renderHook } from "@/test/community-owner-harness"
 import {
   createDesktopSystemNotificationActivationController,
   createDesktopSystemNotificationInboxOpener,
@@ -499,7 +503,7 @@ describe("native system notification hook", () => {
     await waitFor(() => expect(assign).toHaveBeenCalledWith(
       "/c/channels/server_1/channel_1",
     ))
-    expect(hookMocks.revalidate).toHaveBeenCalledWith(activation.target)
+    expect(hookMocks.revalidate).toHaveBeenCalledWith(activation.target, expect.any(Function), expect.objectContaining({ signal: expect.any(AbortSignal), assertActive: expect.any(Function) }))
     expect(hookMocks.dismiss).not.toHaveBeenCalled()
 
     rendered.unmount()
@@ -545,8 +549,10 @@ describe("native system notification hook", () => {
       resolveDismiss = resolve
     }))
 
-    const first = renderHook(() => useNativeSystemNotifications("viewer_1"))
-    const second = renderHook(() => useNativeSystemNotifications("viewer_1"))
+    const owner = await createCommunityQueryOwner("viewer_1")
+    const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "viewer_1", retainOwner: true }, children)
+    const first = renderOwnedHook(() => useNativeSystemNotifications("viewer_1"), { wrapper })
+    const second = renderOwnedHook(() => useNativeSystemNotifications("viewer_1"), { wrapper })
     await waitFor(() => expect(hookMocks.dismiss).toHaveBeenCalledOnce())
     expect(window.sessionStorage.length).toBe(1)
     resolveDismiss()
@@ -772,22 +778,30 @@ describe("native system notification hook", () => {
     visible.mockRestore()
   })
 
-  it("schedules and cancels a mobile registration retry", async () => {
+  it("retries Native registration at one second and cancels later retry IO on retirement", async () => {
+    vi.useFakeTimers()
     hookMocks.desktop = false
     hookMocks.mobile = true
     const stop = vi.fn()
-    const setTimeout = vi.spyOn(window, "setTimeout")
-    const clearTimeout = vi.spyOn(window, "clearTimeout")
     hookMocks.mobileListen.mockResolvedValue(stop)
     hookMocks.mobileCheck.mockRejectedValue(new Error("offline"))
     hookMocks.mobileTake.mockResolvedValue(null)
-
-    const rendered = renderHook(() => useNativeSystemNotifications("viewer_1"))
-    await waitFor(() => expect(setTimeout.mock.calls.some(([, delay]) => delay === 1_000)).toBe(true))
-    const clearsBeforeUnmount = clearTimeout.mock.calls.length
+    const owner = await createCommunityQueryOwner("viewer_1")
+    const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "viewer_1", retainOwner: true }, children)
+    const rendered = renderOwnedHook(() => useNativeSystemNotifications("viewer_1"), { wrapper })
+    const key = ["community", "native-notifications", "viewer_1", "mobile", "permission"]
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(hookMocks.mobileCheck).toHaveBeenCalledOnce()
+    expect(owner.client.getQueryState(key)).toMatchObject({ fetchStatus: "fetching", fetchFailureCount: 1 })
+    await act(async () => { await vi.advanceTimersByTimeAsync(999) })
+    expect(hookMocks.mobileCheck).toHaveBeenCalledOnce()
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    expect(hookMocks.mobileCheck).toHaveBeenCalledTimes(2)
+    expect(owner.client.getQueryState(key)).toMatchObject({ fetchStatus: "fetching", fetchFailureCount: 2 })
     rendered.unmount()
-
-    expect(clearTimeout.mock.calls).toHaveLength(clearsBeforeUnmount + 1)
+    expect(owner.client.getQueryState(key)?.fetchStatus).toBe("idle")
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(hookMocks.mobileCheck).toHaveBeenCalledTimes(2)
     expect(stop).toHaveBeenCalledOnce()
   })
 

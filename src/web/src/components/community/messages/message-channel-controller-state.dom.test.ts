@@ -1,5 +1,11 @@
 import React from "react"
-import { act, render as rtlRender } from "@/test/react-dom-harness"
+import { act, waitFor } from "@/test/react-dom-harness"
+import { render as renderDom } from "@/test/react-dom-harness"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { ingestMessages } from "@/lib/community-db/sync"
+let fixtureOwner: Awaited<ReturnType<typeof createCommunityQueryOwner>>
+const rtlRender: typeof renderDom = (node, options) => renderDom(node, { ...options, wrapper: ({ children }) => React.createElement(CommunityTestProvider, { client: fixtureOwner.client, registry: fixtureOwner.registry, userId: "viewer_1", retainOwner: true }, children) })
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useMessageChannelController } from "./message-channel-controller-state"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -61,7 +67,8 @@ vi.mock("@/lib/api/client", () => ({
   apiFetch: mocks.apiFetch,
   toastApiError: mocks.toastApiError,
 }))
-vi.mock("@/stores/community", () => {
+vi.mock("@/stores/community", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/community")>();
   const useCommunityStore = Object.assign(
     (selector: (state: typeof mocks.storeState) => unknown) => {
       mocks.order.push("pending-store")
@@ -70,6 +77,7 @@ vi.mock("@/stores/community", () => {
     { getState: () => mocks.storeState },
   )
   return {
+    ...actual,
     useCommunityStore,
     useTypingUsersForScope: (scope: string) => {
       mocks.order.push("typing-users")
@@ -130,6 +138,7 @@ function props(overrides: Partial<MessageChannelControllerProps> = {}): Omit<Mes
 
 let latest: MessageChannelControllerValue
 function Probe({ value }: { value: Omit<MessageChannelControllerProps, "children"> }) {
+  React.useLayoutEffect(() => { ingestMessages(fixtureOwner.registry, value.channelId, value.feed.messages) }, [value.channelId, value.feed.messages])
   const controller = useMessageChannelController(value)
   React.useLayoutEffect(() => { latest = controller }, [controller])
   return null
@@ -140,6 +149,7 @@ function PassiveActionProbe({
 }: {
   value: Omit<MessageChannelControllerProps, "children">
 }) {
+  React.useLayoutEffect(() => { ingestMessages(fixtureOwner.registry, value.channelId, value.feed.messages) }, [value.channelId, value.feed.messages])
   const controller = useMessageChannelController(value)
   React.useLayoutEffect(() => { latest = controller }, [controller])
   React.useEffect(() => { controller.messageActions.onReply("probe") })
@@ -147,7 +157,9 @@ function PassiveActionProbe({
 }
 
 describe("useMessageChannelController", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    fixtureOwner = await createCommunityQueryOwner("viewer_1")
+    mocks.storeState.setPendingReply = vi.spyOn(fixtureOwner.registry.runtime.ui.actions, "setPendingReply")
     vi.clearAllMocks()
     mocks.order.length = 0
     mocks.pathname = "/c/channels/server_1/channel_1"
@@ -190,7 +202,7 @@ describe("useMessageChannelController", () => {
     expect(latest.threadActions).not.toBe(firstThreadActions)
     expect(latest.handleTyping).not.toBe(firstTyping)
     act(() => latest.handleTyping())
-    expect(mocks.sendTyping).toHaveBeenCalledWith({ channelId: "channel_1" })
+    expect(mocks.sendTyping).toHaveBeenCalledWith(fixtureOwner.registry.runtime, { channelId: "channel_1" })
 
     const afterSearch = latest
     const afterSearchThreadActions = latest.threadActions
@@ -218,16 +230,17 @@ describe("useMessageChannelController", () => {
     expect(latest.messageActions).toBe(firstActions)
   })
 
-  it("keeps scroll target and lets a captured channel-one search complete after channel reset", async () => {
+  it("keeps scroll target and rejects a captured channel-one search after channel reset", async () => {
     let resolveOld: (value: unknown) => void = () => {}
     mocks.apiFetch.mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve }))
     let renderer: ReturnType<typeof rtlRender>
     act(() => { renderer = rtlRender(React.createElement(Probe, { value: props() })) })
     let oldPromise: Promise<void>
     act(() => { oldPromise = (latest.search as (query: string) => Promise<void>)("old") })
-    expect(mocks.apiFetch).toHaveBeenCalledWith(
+    await waitFor(() => expect(mocks.apiFetch).toHaveBeenCalledWith(
       "/api/community/messages/search?q=old&channelId=channel_1",
-    )
+      expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer_1", assertActive: expect.any(Function) }),
+    ))
     act(() => latest.setReplyTo({ id: "r1", authorName: "A", text: "x" }))
     act(() => latest.setContextTarget({
       serverId: "server_1", channelId: "channel_1", label: "general", seq: 42,
@@ -248,19 +261,12 @@ describe("useMessageChannelController", () => {
     await act(async () => {
       resolveOld({ results: [{
         message: { id: "old_1", content: "old", authorId: "u1", createdAt: "2026-01-01" },
-        author: { name: "Alice", image: null },
+        author: { id: "u1", name: "Alice", image: null, avatarVersion: 0 },
       }] })
       await oldPromise!
     })
     expect(latest.searchQuery).toBe("")
-    expect(latest.searchResults).toEqual([{
-      id: "old_1",
-      type: "chat",
-      authorName: "Alice",
-      authorAvatar: avatarInitial("Alice"),
-      content: "old",
-      createdAt: "2026-01-01",
-    }])
+    expect(latest.searchResults).toEqual([])
     await act(async () => { await (latest.search as (query: string) => Promise<void>)("") })
     expect(latest.searchResults).toEqual([])
   })
@@ -279,6 +285,7 @@ describe("useMessageChannelController", () => {
     act(() => { accepted = latest.acceptMessage("hello", attachments, "everyone") })
     expect(accepted).toBe(true)
     expect(mocks.accept).toHaveBeenCalledWith({
+      runtime: fixtureOwner.registry.runtime,
       markdown: "hello",
       attachments,
       mentionType: "everyone",
@@ -295,6 +302,8 @@ describe("useMessageChannelController", () => {
     }
     await act(async () => input.runAcceptedIntent("nonce_1"))
     expect(mocks.run).toHaveBeenCalledWith({
+      assertActive: expect.any(Function),
+      runtime: fixtureOwner.registry.runtime,
       messageScope: { kind: "channel", id: "channel_1", serverId: "server_1" },
       nonce: "nonce_1",
       uploadFileAsync: mocks.uploadMutation,
@@ -380,7 +389,7 @@ describe("useMessageChannelController", () => {
     expect(latest.scrollTargetId).toBeNull()
   })
 
-  it("maps search avatars, reports failures, and retains the current unguarded completion race", async () => {
+  it("maps canonical search avatars and exposes the current scoped query failure", async () => {
     const failure = new Error("search down")
     mocks.apiFetch
       .mockResolvedValueOnce({
@@ -398,11 +407,13 @@ describe("useMessageChannelController", () => {
       .mockRejectedValueOnce(failure)
     act(() => { rtlRender(React.createElement(Probe, { value: props() })) })
     await act(async () => { await (latest.search as (query: string) => Promise<void>)("found") })
+    await waitFor(() => expect(latest.searchResults).toHaveLength(2))
     expect(mocks.apiFetch).toHaveBeenCalledWith(
       "/api/community/messages/search?q=found&channelId=channel_1",
+      expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer_1", assertActive: expect.any(Function) }),
     )
     expect(latest.searchResults).toEqual([
-      {
+      expect.objectContaining({
         id: "m2",
         type: "chat",
         authorId: "u2",
@@ -411,8 +422,8 @@ describe("useMessageChannelController", () => {
         authorAvatarVersion: 0,
         content: "found",
         createdAt: "2026-01-02",
-      },
-      {
+      }),
+      expect.objectContaining({
         id: "m3",
         type: "chat",
         authorId: "u3",
@@ -421,11 +432,12 @@ describe("useMessageChannelController", () => {
         authorAvatarVersion: 3,
         content: "image",
         createdAt: "2026-01-03",
-      },
+      }),
     ])
     await act(async () => { await (latest.search as (query: string) => Promise<void>)("broken") })
     expect(latest.searchResults).toEqual([])
-    expect(mocks.toastApiError).toHaveBeenCalledWith(failure, "Search failed")
+    await waitFor(() => expect(latest.searchError).toBe("Search failed. Try again."))
+    expect(mocks.toastApiError).not.toHaveBeenCalled()
   })
 
   it("handles same-channel and pending replies plus loaded/fallback seq jumps", () => {
@@ -466,11 +478,11 @@ describe("useMessageChannelController", () => {
   it("publishes the latest action context in layout before descendant passive actions", () => {
     mocks.createActions.mockImplementation((input) => {
       const { actionContext } = input as {
-        actionContext: { current: { onOpenThread: (threadId: string) => void } }
+        actionContext: { get: () => { onOpenThread: (threadId: string) => void } }
       }
       return {
         ...mocks.messageActions,
-        onReply: () => actionContext.current.onOpenThread("from-passive"),
+        onReply: () => actionContext.get().onOpenThread("from-passive"),
       }
     })
     const first = vi.fn()
@@ -512,7 +524,7 @@ describe("useMessageChannelController", () => {
     expect(latest.feed).toBe(projectedFeed)
     expect(resolveUserName).toHaveBeenCalledWith("u2")
     expect(Object.keys(latest)).toEqual([
-      "feed", "pinnedIds", "replyTo", "setReplyTo", "searchQuery", "searchResults",
+      "feed", "pinnedIds", "replyTo", "setReplyTo", "searchQuery", "searchResults", "searchError", "searchLoading",
       "search", "scrollTargetId", "setScrollTargetId", "consumeScrollTarget",
       "contextTarget", "setContextTarget", "openContextSeq", "onSheetReply", "jumpToSeq",
       "messageActions", "threadActions", "acceptMessage", "handleTyping", "typingUsers",

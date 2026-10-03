@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
+import { useEffect, useRef } from "react";
 import { GeneratedAvatar } from "./generated-avatar";
 import { resolveAvatar } from "@/lib/avatar/resolve";
 import { RemoteIdentityImage } from "@/components/remote-image/remote-image";
@@ -21,7 +23,7 @@ interface AnimatedAvatarProps {
 }
 
 export function AnimatedAvatar({ seed, avatarUrl, size, className, isHovered, isWorking }: AnimatedAvatarProps) {
-  const [animClass, setAnimClass] = useState<string | null>(null);
+  const [animClass, setAnimClass] = useAtom(useCreateAtom<string | null>(null));
   const lastPickRef = useRef(-1);
 
   function pickAnimation() {
@@ -37,7 +39,7 @@ export function AnimatedAvatar({ seed, avatarUrl, size, className, isHovered, is
     } else if (!isWorking) {
       setAnimClass(null);
     }
-  }, [isHovered, isWorking]);
+  }, [isHovered, isWorking, setAnimClass]);
 
   useEffect(() => {
     if (!isWorking) {
@@ -49,7 +51,7 @@ export function AnimatedAvatar({ seed, avatarUrl, size, className, isHovered, is
       setAnimClass(pickAnimation());
     }, 4000);
     return () => clearInterval(interval);
-  }, [isHovered, isWorking]);
+  }, [isHovered, isWorking, setAnimClass]);
 
   const resolved = resolveAvatar(avatarUrl, seed);
   return (

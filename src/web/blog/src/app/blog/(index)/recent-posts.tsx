@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, type Ref } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect, useMemo, type Ref } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -51,7 +52,7 @@ export function replaceRecentPostsTopicUrl(topicId: string) {
 }
 
 export function RecentPosts({ posts, topics }: RecentPostsProps) {
-  const [selectedTopicId, setSelectedTopicId] = useState(allTopicsId);
+  const [selectedTopicId, setSelectedTopicId] = useAtom(useCreateAtom(allTopicsId));
   const breakpoint = useBreakpoint();
   const hoverCapable = useHoverCapable();
   const topicIds = useMemo(() => new Set(topics.map((topic) => topic.id)), [topics]);
@@ -77,7 +78,7 @@ export function RecentPosts({ posts, topics }: RecentPostsProps) {
 
   useEffect(() => {
     return subscribeToRecentPostsTopicHash(topicIds, setSelectedTopicId);
-  }, [topicIds]);
+  }, [setSelectedTopicId, topicIds]);
 
   const selectTopic = (topicId: string) => {
     setSelectedTopicId(topicId);

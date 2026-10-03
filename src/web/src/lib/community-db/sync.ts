@@ -1,73 +1,88 @@
-import { notifyManager, type QueryClient } from "@tanstack/react-query"
+import type { Transaction } from "@tanstack/react-db"
+import { communityRequestOptions as qualifiedCommunityRequestOptions } from "@/lib/community/account-cache-lifecycle"
+import { isAbortError } from "@/lib/errors"
+import { isOwnerServerDeleteScopeEvictionBlocked } from "@/lib/community/eject-server"
+
+import { getCommunityRuntime } from "@/stores/community/runtime"
+import { notifyManager,type QueryClient } from "@tanstack/react-query"
+import { createStore } from "@tanstack/store"
 import type { Query } from "@tanstack/react-query"
 import {
-  UNCATEGORIZED_CATEGORY_ID,
-  type AccountAttentionSnapshot,
-  type CommunityWsEvent,
+UNCATEGORIZED_CATEGORY_ID,
+FORUM_ARCHIVE_TAG,
+type AccountAttentionSnapshot,
+type CommunityWsEvent,
+type ServerRailProjection,
 } from "@alook/shared"
 import type { DmsResponse } from "@/hooks/community/use-dms"
 import type { FoldersResponse } from "@/hooks/community/use-folders"
 import type {
-  AccountReadStateSnapshot,
+AccountReadStateSnapshot,
 } from "@/hooks/community/community-ws/read-state-reconciliation"
-import type { ServerDetail, ServersResponse } from "@/hooks/community/use-servers"
+import type { ServerDetail,ServersResponse } from "@/hooks/community/use-servers"
 import type { Msg } from "@/lib/community/models/message"
 import type { NotificationSettings } from "@/hooks/community/use-notification-settings"
 import { communityKeys } from "@/lib/query-keys"
 import {
-  communityUserProfilePatch,
-  messageProfilePatches,
-  writeCommunityProfilePatches,
+beginCommunityProfileSeed,
+type CommunityProfileSeedSnapshot,
+communityUserProfilePatch,
+messageProfilePatches,
+writeCommunityProfilePatches,
 } from "@/lib/community/profile-seed"
 import type { CommunityProfilePatch } from "@/lib/community/models/people"
 import type { ChannelRefDirectory } from "@/lib/community/channel-ref"
-import { useCommunityStore } from "@/stores/community"
-import { useCommunityWsStore } from "@/stores/community/ws"
-import { useMessageStreamStore } from "@/stores/community/message-stream"
+
+
+import { canonicalUserImage } from "@/lib/community/storage"
 import { projectCommunityMessageCreate } from "@/lib/community/message-wire"
 import { clearTypingIndicator } from "@/hooks/community/community-ws/typing"
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import { takeMessageIdsForAccessScope } from "./message-access-scope"
-import { clearLastChannel, getLastChannel } from "@/lib/community/last-channel"
-import { clearLastMeLocation, getLastMeLeaf } from "@/lib/community/last-me-location"
+import { clearLastChannel,getLastChannel } from "@/lib/community/last-channel"
+import { clearLastMeLocation,getLastMeLeaf } from "@/lib/community/last-me-location"
 import {
-  getCommunityDbRegistry,
-  type CommunityDbRegistry,
+getCommunityDbRegistry,
+type CommunityDbRegistry,
 } from "./collections"
 import {
-  categorySchema,
-  attentionItemSchema,
-  attentionScopeSchema,
-  channelMembershipKey,
-  channelMembershipSchema,
-  channelSchema,
-  folderItemKey,
-  folderItemSchema,
-  folderSchema,
-  messageSchema,
-  notificationSettingKey,
-  notificationSettingSchema,
-  profileSchema,
-  readStateClockSchema,
-  readStateSchema,
-  serverMembershipKey,
-  serverMembershipSchema,
-  serverSchema,
-  type CategoryRow,
-  type AttentionItemRow,
-  type AttentionScopeRow,
-  type ChannelMembershipRow,
-  type ChannelRow,
-  type FolderItemRow,
-  type FolderRow,
-  type MessageRow,
-  type NotificationSettingRow,
-  type ReadStateClockRow,
-  type ReadStateRow,
-  type ServerMembershipRow,
-  type ServerRow,
+categorySchema,
+attentionItemSchema,
+attentionScopeSchema,
+channelMembershipKey,
+channelMembershipSchema,
+channelSchema,
+folderItemKey,
+folderItemSchema,
+folderSchema,
+messageSchema,
+friendshipSchema,
+notificationSettingKey,
+notificationSettingSchema,
+profileSchema,
+readStateClockSchema,
+readStateSchema,
+serverMembershipKey,
+serverMembershipSchema,
+serverSchema,
+type CategoryRow,
+type AttentionItemRow,
+type AttentionScopeRow,
+type ChannelMembershipRow,
+type ChannelRow,
+type FolderItemRow,
+type FolderRow,
+type MessageRow,
+type FriendshipRow,
+type NotificationSettingRow,
+type ReadStateClockRow,
+type ReadStateRow,
+type ServerMembershipRow,
+type ServerRow,
 } from "./schema"
 import type { z } from "zod"
+import { writeCommunityCollectionRows } from "./write"
+import type { ForumFeedTransportPage } from "@/hooks/community/forum-feed-window"
 
 type CollectionName = keyof CommunityDbRegistry["collections"]
 type SnapshotIngestMode = "authoritative" | "merge"
@@ -75,6 +90,7 @@ type SnapshotIngestMode = "authoritative" | "merge"
 type CanonicalRevisionState = {
   revision: number
   entityRevisions: Map<string, number>
+  fieldRevisions: Map<string, Map<string, number>>
   pendingOperations: Map<string, CanonicalPendingOperation[]>
 }
 
@@ -84,18 +100,35 @@ type CanonicalPendingOperation =
 
 type CanonicalWriteContext =
   | { kind: "event" }
-  | { kind: "query"; requestRevision: number }
+  | { kind: "query"; requestRevision: number; profileSnapshot: CommunityProfileSeedSnapshot }
 
-const canonicalRevisionStates = new WeakMap<QueryClient, CanonicalRevisionState>()
+const canonicalRevisionStates = new WeakMap<QueryClient, ReturnType<typeof createStore<CanonicalRevisionState>>>()
 const canonicalWriteContexts = new WeakMap<QueryClient, CanonicalWriteContext>()
 
-function canonicalRevisionState(queryClient: QueryClient) {
+function writeCanonicalProfilePatches(registry: CommunityDbRegistry, patches: readonly CommunityProfilePatch[]) {
+  const context = canonicalWriteContexts.get(registry.queryClient)
+  return writeCommunityProfilePatches(patches, registry, context?.kind === "query" ? { snapshot: context.profileSnapshot } : { event: context?.kind === "event" })
+}
+
+function canonicalRevisionStore(queryClient: QueryClient) {
   let state = canonicalRevisionStates.get(queryClient)
   if (!state) {
-    state = { revision: 0, entityRevisions: new Map(), pendingOperations: new Map() }
+    state = createStore<CanonicalRevisionState>({ revision: 0, entityRevisions: new Map(), fieldRevisions: new Map(), pendingOperations: new Map() })
     canonicalRevisionStates.set(queryClient, state)
   }
   return state
+}
+
+function canonicalRevisionState(queryClient: QueryClient) {
+  return canonicalRevisionStore(queryClient).get()
+}
+
+function updateCanonicalRevisions(queryClient: QueryClient, update: (state: CanonicalRevisionState) => void) {
+  canonicalRevisionStore(queryClient).setState((previous) => {
+    const state = { ...previous, entityRevisions: new Map(previous.entityRevisions), fieldRevisions: new Map(previous.fieldRevisions), pendingOperations: new Map(previous.pendingOperations) }
+    update(state)
+    return state
+  })
 }
 
 function canonicalEntityKey(name: CollectionName, key: string) {
@@ -118,13 +151,19 @@ function recordEventWrites(
   registry: CommunityDbRegistry,
   name: CollectionName,
   keys: Iterable<string>,
+  fields: readonly string[] = ["*"],
 ) {
   if (canonicalWriteContexts.get(registry.queryClient)?.kind !== "event") return
-  const state = canonicalRevisionState(registry.queryClient)
-  for (const key of new Set(keys)) {
+  updateCanonicalRevisions(registry.queryClient, (state) => {
+   for (const key of new Set(keys)) {
     state.revision += 1
-    state.entityRevisions.set(canonicalEntityKey(name, key), state.revision)
-  }
+    const entityKey = canonicalEntityKey(name, key)
+    state.entityRevisions.set(entityKey, state.revision)
+    const revisions = new Map(state.fieldRevisions.get(entityKey))
+    for (const field of fields) revisions.set(field, state.revision)
+    state.fieldRevisions.set(entityKey, revisions)
+   }
+  })
 }
 
 function recordEventPatches<T extends object>(
@@ -133,25 +172,30 @@ function recordEventPatches<T extends object>(
   keys: Iterable<string>,
   patch: (row: T) => T,
   presentKeys: ReadonlySet<string>,
+  fields: readonly string[] = ["*"],
 ) {
   if (canonicalWriteContexts.get(registry.queryClient)?.kind !== "event") return
-  const state = canonicalRevisionState(registry.queryClient)
-  for (const key of new Set(keys)) {
+  updateCanonicalRevisions(registry.queryClient, (state) => {
+   for (const key of new Set(keys)) {
     state.revision += 1
     const entityKey = canonicalEntityKey(name, key)
     state.entityRevisions.set(entityKey, state.revision)
+    const revisions = new Map(state.fieldRevisions.get(entityKey))
+    for (const field of fields) revisions.set(field, state.revision)
+    state.fieldRevisions.set(entityKey, revisions)
     if (presentKeys.has(key)) {
       state.pendingOperations.delete(entityKey)
       continue
     }
-    const pending = state.pendingOperations.get(entityKey) ?? []
+    const pending = [...(state.pendingOperations.get(entityKey) ?? [])]
     pending.push({
       revision: state.revision,
       kind: "patch",
       apply: patch as unknown as (row: object) => object,
     })
     state.pendingOperations.set(entityKey, pending)
-  }
+   }
+  })
 }
 
 function recordEventDeletes(
@@ -160,16 +204,20 @@ function recordEventDeletes(
   keys: Iterable<string>,
 ) {
   if (canonicalWriteContexts.get(registry.queryClient)?.kind !== "event") return
-  const state = canonicalRevisionState(registry.queryClient)
-  for (const key of new Set(keys)) {
+  updateCanonicalRevisions(registry.queryClient, (state) => {
+   for (const key of new Set(keys)) {
     state.revision += 1
     const entityKey = canonicalEntityKey(name, key)
     state.entityRevisions.set(entityKey, state.revision)
+    const revisions = new Map(state.fieldRevisions.get(entityKey))
+    revisions.set("*", state.revision)
+    state.fieldRevisions.set(entityKey, revisions)
     state.pendingOperations.set(entityKey, [{
       revision: state.revision,
       kind: "delete",
     }])
-  }
+   }
+  })
 }
 
 function clearPendingOperations(
@@ -177,8 +225,9 @@ function clearPendingOperations(
   name: CollectionName,
   keys: Iterable<string>,
 ) {
-  const pending = canonicalRevisionState(registry.queryClient).pendingOperations
-  for (const key of keys) pending.delete(canonicalEntityKey(name, key))
+  updateCanonicalRevisions(registry.queryClient, (state) => {
+    for (const key of keys) state.pendingOperations.delete(canonicalEntityKey(name, key))
+  })
 }
 
 function mergePendingOperationsIntoQueryRow<T extends object>(
@@ -240,41 +289,6 @@ function collectionRows<T extends object>(
   })
 }
 
-function publishRows<T extends object>(
-  registry: CommunityDbRegistry,
-  name: CollectionName,
-  rows: T[],
-) {
-  registry.queryClient.setQueryData(
-    communityKeys.communityDbCollection(registry.scopeId, name),
-    rows,
-  )
-}
-
-function writeCollectionRows<T extends object>(
-  registry: CommunityDbRegistry,
-  name: CollectionName,
-  rows: T[],
-  getKey: (row: T) => string,
-) {
-  const collection = registry.collections[name] as unknown as {
-    status: string
-    keys: () => IterableIterator<string>
-    utils: {
-      writeBatch: (callback: () => void) => void
-      writeDelete: (keys: string | string[]) => void
-      writeUpsert: (rows: T | T[]) => void
-    }
-  }
-  if (collection.status !== "ready") return
-  const nextKeys = new Set(rows.map(getKey))
-  const removed = Array.from(collection.keys()).filter((key) => !nextKeys.has(key))
-  collection.utils.writeBatch(() => {
-    if (removed.length > 0) collection.utils.writeDelete(removed)
-    if (rows.length > 0) collection.utils.writeUpsert(rows)
-  })
-}
-
 function replaceRows<T extends object>(
   registry: CommunityDbRegistry,
   name: CollectionName,
@@ -306,8 +320,8 @@ function replaceRows<T extends object>(
     if (merged) nextByKey.set(key, merged)
   }
   const next = [...nextByKey.values()]
-  writeCollectionRows(registry, name, next, getKey)
-  publishRows(registry, name, next)
+  writeCommunityCollectionRows(registry, name, next, getKey)
+  if (name === "attentionScopes" || name === "attentionItems") rebaseAttentionTransactions(registry)
   recordEventWrites(registry, name, [
     ...current.filter(owns).map(getKey),
     ...parsedIncoming.map(getKey),
@@ -342,8 +356,8 @@ function upsertRows<T extends object>(
     if (merged) nextByKey.set(key, merged)
   }
   const next = [...nextByKey.values()]
-  writeCollectionRows(registry, name, next, getKey)
-  publishRows(registry, name, next)
+  writeCommunityCollectionRows(registry, name, next, getKey)
+  if (name === "attentionScopes" || name === "attentionItems") rebaseAttentionTransactions(registry)
   recordEventWrites(registry, name, acceptedKeys)
 }
 
@@ -359,8 +373,7 @@ function promoteServerDetailComplete(
     return serverSchema.parse({ ...row, detailComplete: true })
   })
   if (!changed) return
-  writeCollectionRows(registry, "servers", next, (row) => row.id)
-  publishRows(registry, "servers", next)
+  writeCommunityCollectionRows(registry, "servers", next, (row) => row.id)
 }
 
 function patchRows<T extends object>(
@@ -371,6 +384,7 @@ function patchRows<T extends object>(
   patch: (row: T) => T,
   matches: (row: T) => boolean,
   eventKeys?: Iterable<string>,
+  eventFields?: readonly string[],
 ) {
   const current = collectionRows(registry, name, schema)
   let changed = false
@@ -384,13 +398,13 @@ function patchRows<T extends object>(
     return schema.parse(patch(row))
   })
   if (changed) {
-    writeCollectionRows(registry, name, next, getKey)
-    publishRows(registry, name, next)
+    writeCommunityCollectionRows(registry, name, next, getKey)
+    if (name === "attentionScopes" || name === "attentionItems") rebaseAttentionTransactions(registry)
   }
   if (eventKeys) {
-    recordEventPatches(registry, name, eventKeys, patch, new Set(changedKeys))
+    recordEventPatches(registry, name, eventKeys, patch, new Set(changedKeys), eventFields)
   }
-  else recordEventWrites(registry, name, changedKeys)
+  else recordEventWrites(registry, name, changedKeys, eventFields)
   return changed
 }
 
@@ -415,8 +429,8 @@ function deleteRows<T extends object>(
   const keyByValue = new Map(current.map((row) => [row, (
     registry.collections[name] as unknown as { getKeyFromItem: (value: T) => string }
   ).getKeyFromItem(row)]))
-  writeCollectionRows(registry, name, next, (row) => keyByValue.get(row)!)
-  publishRows(registry, name, next)
+  writeCommunityCollectionRows(registry, name, next, (row) => keyByValue.get(row)!)
+  if (name === "attentionScopes" || name === "attentionItems") rebaseAttentionTransactions(registry)
   if (eventKeys) recordEventDeletes(registry, name, eventKeys)
   else recordEventWrites(registry, name, removedKeys)
 }
@@ -432,6 +446,7 @@ function referencedProfileIds(registry: CommunityDbRegistry) {
   for (const row of collectionRows(registry, "channelMemberships", channelMembershipSchema)) {
     ids.add(row.userId)
   }
+  for (const row of collectionRows(registry, "friendships", friendshipSchema)) ids.add(row.userId)
   for (const row of collectionRows(registry, "messages", messageSchema)) {
     const message = row as MessageRow & Msg
     if (message.authorId) ids.add(message.authorId)
@@ -531,10 +546,10 @@ function clearChannelTransientState(
     })
   }
   if (channelIds.size === 0) return
-  for (const entry of useMessageStreamStore.getState().entries.values()) {
-    if (channelIds.has(entry.scope.id)) useMessageStreamStore.getState().removeScope(entry.scope)
+  for (const entry of registry.runtime.messageStream.get().entries.values()) {
+    if (channelIds.has(entry.scope.id)) registry.runtime.messageStream.actions.removeScope(entry.scope)
   }
-  const community = useCommunityStore.getState()
+  const community = registry.runtime.ui.get()
   const unreadProjection = getAccountUnreadProjection(
     registry.queryClient,
     registry.accountId ?? "__anonymous__",
@@ -543,10 +558,10 @@ function clearChannelTransientState(
     unreadProjection.retireAccessScope({ kind: "channel", channelId })
     for (const scope of [`ch:${channelId}`, `dm:${channelId}`]) {
       for (const userId of community.typingByScope.get(scope)?.keys() ?? []) {
-        clearTypingIndicator(scope, userId)
+        clearTypingIndicator(registry.queryClient, scope, userId)
       }
     }
-    if (serverId) useCommunityWsStore.getState().revokeChannelAccess(serverId, channelId)
+    if (serverId) registry.runtime.ws.actions.revokeChannelAccess(serverId, channelId)
   }
   pruneInboxCaches(registry.queryClient, channelIds, null)
   if (serverId) {
@@ -557,27 +572,27 @@ function clearChannelTransientState(
     if (remembered && channelIds.has(remembered)) clearLastMeLocation()
   }
   if (community.currentChannelId && channelIds.has(community.currentChannelId)) {
-    community.setCurrentChannelMeta(null)
-    community.setCurrentChannelId(null)
+    registry.runtime.ui.actions.setCurrentChannelId(null)
   }
   const subscription = { ...community.subscription }
   if (subscription.channelId && channelIds.has(subscription.channelId)) delete subscription.channelId
   if (subscription.secondaryChannelId && channelIds.has(subscription.secondaryChannelId)) {
     delete subscription.secondaryChannelId
-    useCommunityStore.setState({ secondaryChannelOwner: null })
+    registry.runtime.ui.setState((state) => ({ ...state, secondaryChannelOwner: null }))
   }
   if (subscription.dmConversationId && channelIds.has(subscription.dmConversationId)) {
     delete subscription.dmConversationId
   }
-  useCommunityStore.setState({ subscription })
+  registry.runtime.ui.setState((state) => ({ ...state, subscription }))
   if (community.pendingReply && channelIds.has(community.pendingReply.channelId)) {
-    community.setPendingReply(null)
+    registry.runtime.ui.actions.setPendingReply(null)
   }
   const predicate = (query: Query) => {
     const key = query.queryKey
     if (key[0] !== "community" || key[1] === "db") return false
     if ((key[1] === "channel" || key[1] === "dm") && channelIds.has(String(key[2]))) return true
     if (key[1] === "message-context" && channelIds.has(String(key[3]))) return true
+    if (key[1] === "servers" && (!serverId || key[2] === serverId) && (key[3] === "channel-meta" || key[3] === "forum-sidebar-retained") && channelIds.has(String(key[4]))) return true
     const data = query.state.data as { channelId?: unknown; scope?: { channelId?: unknown } } | undefined
     return typeof data?.channelId === "string" && channelIds.has(data.channelId)
       || typeof data?.scope?.channelId === "string" && channelIds.has(data.scope.channelId)
@@ -623,8 +638,8 @@ export function ingestServers(
     : []
   notifyManager.batch(() => {
     if (mode === "authoritative") {
-      for (const serverId of removedServerIds) purgeCommunityServer(registry, serverId)
-      replaceRows(registry, "servers", serverSchema, (row) => row.id, servers, () => true)
+      for (const serverId of removedServerIds) if (!isOwnerServerDeleteScopeEvictionBlocked(registry.queryClient, serverId)) purgeCommunityServer(registry, serverId)
+      replaceRows(registry, "servers", serverSchema, (row) => row.id, servers, (row) => !isOwnerServerDeleteScopeEvictionBlocked(registry.queryClient, row.id))
     } else {
       upsertRows(registry, "servers", serverSchema, (row) => row.id, servers)
     }
@@ -967,7 +982,7 @@ export function ingestDms(
         memberships,
       )
     }
-    writeCommunityProfilePatches(profilePatches, registry)
+    writeCanonicalProfilePatches(registry, profilePatches)
   })
 }
 
@@ -1018,6 +1033,30 @@ function ingestFolders(
   })
 }
 
+export function publishCommunityServerRailCommit(queryClient: QueryClient, projection: ServerRailProjection, proof: CommunityFreshQueryProof) {
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry) return "no-registry" as const
+  return withCanonicalWriteContext(queryClient, { kind: "query", requestRevision: proof.token.canonicalRevision, profileSnapshot: proof.token.profileSnapshot }, () => {
+    if (projection.reorderServers) {
+      const positions = new Map(projection.after.serverOrder.map((id, position) => [id, position]))
+      withCanonicalWriteContext(queryClient, { kind: "event" }, () => {
+        patchRows(registry, "servers", serverSchema, (row) => row.id, (row) => ({ ...row, position: positions.get(row.id)! }), (row) => positions.has(row.id), undefined, ["position"])
+      })
+    }
+    const affected = new Set([...projection.affectedFolderIds, ...projection.createdFolders.map((row) => row.id), ...(projection.reorderFolders ? projection.after.folderOrder : [])])
+    const folders = projection.after.folderOrder.filter((id) => affected.has(id)).map((id) => ({ id, name: projection.after.folders[id]!.name, position: projection.after.folderOrder.indexOf(id) }))
+    const knownServers = new Set(collectionRows(registry, "servers", serverSchema).map((row) => row.id))
+    const allowed = new Set(collectionRows(registry, "serverMemberships", serverMembershipSchema).filter((row) => row.viewer && row.userId === registry.accountId && knownServers.has(row.serverId)).map((row) => row.serverId))
+    const items = folders.flatMap((folder) => projection.after.folders[folder.id]!.serverIds.filter((serverId) => allowed.has(serverId)).map((serverId, position) => ({ id: folderItemKey(folder.id, serverId), folderId: folder.id, serverId, position })))
+    notifyManager.batch(() => {
+      replaceRows(registry, "folders", folderSchema, (row) => row.id, folders, (row) => affected.has(row.id))
+      replaceRows(registry, "folderItems", folderItemSchema, (row) => row.id, items, (row) => affected.has(row.folderId))
+    })
+    return "published" as const
+  })
+}
+
 export function ingestMessages(
   registry: CommunityDbRegistry,
   channelId: string,
@@ -1025,14 +1064,17 @@ export function ingestMessages(
 ) {
   const rows: MessageRow[] = messages
     .filter((message) => !message.id.startsWith("temp_") && message.failed !== true)
-    .map((message) => ({
-      ...message,
-      type: message.type ?? "chat",
-      channelId,
-      replyToId: message.replyTo?.id,
-    }))
+    .map((message) => {
+      const { thread, ...fields } = message
+      if (thread) {
+        const existing = collectionRows(registry, "channels", channelSchema).find((row) => row.id === thread.id)
+        const parent = collectionRows(registry, "channels", channelSchema).find((row) => row.id === channelId)
+        upsertRows(registry, "channels", channelSchema, (row) => row.id, [{ ...existing, id: thread.id, serverId: existing?.serverId ?? parent?.serverId, categoryId: null, name: thread.name, type: "thread", parentChannelId: channelId, parentMessageId: message.id, creatorId: existing?.creatorId ?? null, position: existing?.position ?? 0, archived: thread.tags?.includes(FORUM_ARCHIVE_TAG) ?? existing?.archived ?? false, tags: thread.tags ?? existing?.tags ?? [], muted: existing?.muted ?? false, unread: existing?.unread ?? false, pending: false, messageCount: thread.messageCount, ...(thread.lastReplyAt ? { lastMessageAt: thread.lastReplyAt } : {}), ...(thread.preview !== undefined ? { preview: thread.preview } : {}), ...(thread.participantCount !== undefined ? { participantCount: thread.participantCount } : {}) }])
+      }
+      return { ...fields, type: message.type ?? "chat", channelId, replyToId: message.replyTo?.id }
+    })
   upsertRows(registry, "messages", messageSchema, (row) => row.id, rows)
-  writeCommunityProfilePatches(messageProfilePatches(messages), registry)
+  writeCanonicalProfilePatches(registry, messageProfilePatches(messages))
 }
 
 export function ingestReadStateSnapshot(
@@ -1152,9 +1194,9 @@ function ingestAttentionIncluded(
   }
   const profiles = profileSchema.array().safeParse(included?.profiles ?? [])
   if (profiles.success) {
-    writeCommunityProfilePatches(profiles.data.map((profile) => (
+    writeCanonicalProfilePatches(registry, profiles.data.map((profile) => (
       communityUserProfilePatch(profile.userId, profile)
-    )), registry)
+    )))
   }
   const messages = messageSchema.array().safeParse(included?.messages ?? [])
   if (messages.success) {
@@ -1169,498 +1211,383 @@ function ingestAttentionIncluded(
   }
 }
 
-type AttentionProtectionState = {
-  optimisticClears: Set<symbol>
-  optimisticScopeDeletes: Map<symbol, {
-    scopeId: string
-    targetSeq: number
-    clearedAttentionCount: number
-    itemIds: Set<string>
-    requiresReconcileOnRestore: boolean
-  }>
-  optimisticItemDeletes: Map<symbol, Set<string>>
+type AttentionDomain = "channels" | "dms" | "mentions"
+type AttentionFloor = {
+  throughSeq: number
+  clearedCount: number
+  domain: "channels" | "dms"
+  ordinary: boolean
+  mentions: boolean
 }
-
-const attentionProtectionStates = new WeakMap<QueryClient, AttentionProtectionState>()
-
-function attentionProtectionState(queryClient: QueryClient) {
-  let state = attentionProtectionStates.get(queryClient)
-  if (!state) {
-    state = {
-      optimisticClears: new Set(),
-      optimisticScopeDeletes: new Map(),
-      optimisticItemDeletes: new Map(),
-    }
-    attentionProtectionStates.set(queryClient, state)
-  }
-  return state
+type AttentionIntent = {
+  token: symbol
+  generation: number
+  scopesQuery: Query | undefined
+  itemsQuery: Query | undefined
+  floors: ReadonlyMap<string, AttentionFloor>
+  itemIds: ReadonlySet<string>
+  itemDomains: ReadonlyMap<string, AttentionDomain>
+  scopeId?: string
+  targetSeq?: number
+  clearedAttentionCount: number
+  outcome: Promise<ReadonlySet<AttentionDomain> | undefined>
+  resolveOutcome: (domains: ReadonlySet<AttentionDomain> | undefined) => void
+  settled: Promise<boolean>
+  resolveSettled: (success: boolean) => void
 }
-
-export function hasAttentionScopeOptimisticFence(
-  queryClient: QueryClient,
-  scopeId: string,
-  targetSeq: number,
-) {
-  return [...attentionProtectionState(queryClient).optimisticScopeDeletes.values()]
-    .some((entry) => entry.scopeId === scopeId && entry.targetSeq >= targetSeq)
+type AttentionTransaction = Transaction<Record<string, unknown>>
+type AttentionTransactionState = {
+  intents: ReadonlyMap<symbol, AttentionIntent>
+  transactions: ReadonlyMap<symbol, AttentionTransaction>
+  rebasing: boolean
+  preload: Promise<void> | null
 }
+const attentionTransactionStores = new WeakMap<CommunityDbRegistry, ReturnType<typeof createStore<AttentionTransactionState>>>()
 
-export function ingestAttentionSnapshot(
-  registry: CommunityDbRegistry,
-  snapshot: AccountAttentionSnapshot,
-) {
-  const protection = attentionProtectionState(registry.queryClient)
-  const scopesById = new Map<string, AttentionScopeRow>(
-    snapshot.scopes.map((row) => [row.scopeId, { ...row }]),
-  )
-  const itemsById = new Map<string, AttentionItemRow>(
-    snapshot.items.map((row) => [row.id, { ...row }]),
-  )
-  const optimisticClear = protection.optimisticClears.size > 0
-  const optimisticScopeDeletes = [...protection.optimisticScopeDeletes.values()]
-  const optimisticItemDeletes = new Set(
-    [...protection.optimisticItemDeletes.values()].flatMap((ids) => [...ids]),
-  )
-  const attentionMessages = new Map(
-    collectionRows(registry, "messages", messageSchema).map((message) => [message.id, message]),
-  )
-  for (const message of snapshot.included?.messages ?? []) {
-    const parsed = messageSchema.safeParse(message)
-    if (parsed.success) attentionMessages.set(parsed.data.id, parsed.data)
-  }
-  const fencedItems = new Set<string>()
-  for (const item of itemsById.values()) {
-    const fenced = optimisticScopeDeletes.some((entry) => (
-      item.scopeId === entry.scopeId
-      && (
-        entry.itemIds.has(item.id)
-        || (item.messageId
-          && (attentionMessages.get(item.messageId)?.seq ?? Number.POSITIVE_INFINITY)
-            <= entry.targetSeq)
-      )
-    ))
-    if (!fenced) continue
-    fencedItems.add(item.id)
-  }
-  const itemDeleteCountsByScope = new Map<string, number>()
-  for (const item of itemsById.values()) {
-    if (
-      !optimisticItemDeletes.has(item.id)
-      || !item.scopeId
-      || item.kind !== "mention" && item.kind !== "reply"
-    ) continue
-    itemDeleteCountsByScope.set(
-      item.scopeId,
-      (itemDeleteCountsByScope.get(item.scopeId) ?? 0) + 1,
-    )
-  }
-  const scopes = optimisticClear ? [] : [...scopesById.values()].flatMap((scope) => {
-    const targetSeq = optimisticScopeDeletes.reduce((target, entry) => (
-      entry.scopeId === scope.scopeId ? Math.max(target, entry.targetSeq) : target
-    ), -1)
-    if (targetSeq < 0) {
-      const deletedAttentionCount = itemDeleteCountsByScope.get(scope.scopeId) ?? 0
-      if (deletedAttentionCount === 0) return [scope]
-      const attentionCount = Math.max(0, scope.attentionCount - deletedAttentionCount)
-      if (!scope.ordinaryUnread && attentionCount === 0) return []
-      return [{
-        ...scope,
-        attentionCount,
-        lastAttentionSeq: attentionCount === 0 ? null : scope.lastAttentionSeq,
-      }]
-    }
-    const clearedAttentionCount = optimisticScopeDeletes.reduce((count, entry) => (
-      entry.scopeId === scope.scopeId ? count + entry.clearedAttentionCount : count
-    ), 0)
-    const ordinaryUnread = scope.ordinaryUnread && scope.lastUnreadSeq > targetSeq
-    const lastAttentionSeq = scope.lastAttentionSeq !== null
-      && scope.lastAttentionSeq !== undefined
-      && scope.lastAttentionSeq > targetSeq
-      ? scope.lastAttentionSeq
-      : null
-    const attentionCount = lastAttentionSeq === null
-      ? 0
-      : Math.max(0, scope.attentionCount - clearedAttentionCount)
-    return ordinaryUnread || attentionCount > 0
-      ? [{ ...scope, ordinaryUnread, lastAttentionSeq, attentionCount }]
-      : []
+function attentionTransactionStore(registry: CommunityDbRegistry) {
+  let store = attentionTransactionStores.get(registry)
+  if (store) return store
+  store = createStore<AttentionTransactionState>({ intents: new Map(), transactions: new Map(), rebasing: false, preload: null })
+  attentionTransactionStores.set(registry, store)
+  const original = store
+  const unsubscribe = registry.queryClient.getQueryCache().subscribe((event) => {
+    if (event.type !== "removed" && (event.type !== "updated" || event.action.type !== "success")) return
+    if (original.get().intents.size === 0) return
+    const key = event.query.queryKey
+    if (JSON.stringify(key) !== JSON.stringify(communityKeys.communityDbCollection(registry.scopeId, "attentionScopes"))
+      && JSON.stringify(key) !== JSON.stringify(communityKeys.communityDbCollection(registry.scopeId, "attentionItems"))) return
+    if (!original.get().rebasing) queueMicrotask(() => rebaseAttentionTransactions(registry))
   })
-  const items = [...itemsById.values()].filter((item) => (
-    (!optimisticClear || item.kind === "friend_request")
-    && !fencedItems.has(item.id)
-    && !optimisticItemDeletes.has(item.id)
-  ))
+  const retire = registry.runtime.lifecycle.subscribe(() => {
+    if (registry.runtime.lifecycle.get().active) return
+    for (const intent of original.get().intents.values()) { intent.resolveOutcome(undefined); intent.resolveSettled(false) }
+    original.setState((state) => ({ ...state, rebasing: true, intents: new Map() }))
+    for (const transaction of original.get().transactions.values()) if (transaction.state !== "completed" && transaction.state !== "failed") transaction.rollback({ isSecondaryRollback: true })
+    original.setState(() => ({ intents: new Map(), transactions: new Map(), rebasing: false, preload: null }))
+    attentionTransactionStores.delete(registry)
+    unsubscribe()
+    retire.unsubscribe()
+  })
+  return store
+}
+
+function attentionIntentActive(registry: CommunityDbRegistry, intent: AttentionIntent) {
+  const lifecycle = registry.runtime.lifecycle.get()
+  return lifecycle.active && lifecycle.generation === intent.generation
+    && getCommunityDbRegistry(registry.queryClient) === registry
+    && registry.queryClient.getQueryCache().find({ queryKey: communityKeys.communityDbCollection(registry.scopeId, "attentionScopes"), exact: true }) === intent.scopesQuery
+    && registry.queryClient.getQueryCache().find({ queryKey: communityKeys.communityDbCollection(registry.scopeId, "attentionItems"), exact: true }) === intent.itemsQuery
+}
+
+function attentionProjection(
+  registry: CommunityDbRegistry,
+  scopes: AttentionScopeRow[],
+  items: AttentionItemRow[],
+  intents: Iterable<AttentionIntent>,
+) {
+  const floors = new Map<string, { ordinary: number; mentions: number; cleared: number }>()
+  const itemIds = new Set<string>()
+  for (const intent of intents) {
+    for (const id of intent.itemIds) itemIds.add(id)
+    for (const [id, floor] of intent.floors) {
+      const previous = floors.get(id) ?? { ordinary: -1, mentions: -1, cleared: 0 }
+      floors.set(id, {
+        ordinary: floor.ordinary ? Math.max(previous.ordinary, floor.throughSeq) : previous.ordinary,
+        mentions: floor.mentions ? Math.max(previous.mentions, floor.throughSeq) : previous.mentions,
+        cleared: floor.mentions ? Math.max(previous.cleared, floor.clearedCount) : previous.cleared,
+      })
+    }
+  }
+  const messages = new Map(collectionRows(registry, "messages", messageSchema).map((message) => [message.id, message]))
+  const seqOf = (item: AttentionItemRow) => item.readTarget?.seq ?? item.openerSeq ?? (item.messageId ? messages.get(item.messageId)?.seq : undefined)
+  const removedByScope = new Map<string, number>()
+  const survivingByScope = new Map<string, number>()
+  const nextItems = items.filter((item) => {
+    const floor = item.scopeId ? floors.get(item.scopeId) : undefined
+    const seq = seqOf(item)
+    const read = floor && (seq !== undefined ? seq <= floor.mentions : floor.mentions >= 0 && itemIds.has(item.id))
+    const removed = itemIds.has(item.id) || read
+    if (item.scopeId && (item.kind === "mention" || item.kind === "reply")) {
+      if (removed && !read) removedByScope.set(item.scopeId, (removedByScope.get(item.scopeId) ?? 0) + 1)
+      if (!removed) survivingByScope.set(item.scopeId, (survivingByScope.get(item.scopeId) ?? 0) + 1)
+    }
+    return !removed
+  })
+  const nextScopes = scopes.flatMap((scope): AttentionScopeRow[] => {
+    const floor = floors.get(scope.scopeId)
+    const ordinaryUnread = scope.ordinaryUnread && (!floor || scope.lastUnreadSeq > floor.ordinary)
+    const lastAttentionSeq = floor && (scope.lastAttentionSeq ?? -1) <= floor.mentions ? null : scope.lastAttentionSeq
+    const cleared = floor?.mentions !== undefined && floor.mentions >= 0 ? floor.cleared : 0
+    const remaining = lastAttentionSeq === null ? 0 : Math.max(
+      survivingByScope.get(scope.scopeId) ?? 0,
+      scope.attentionCount - cleared,
+    )
+    const attentionCount = Math.max(0, Math.min(scope.attentionCount, remaining) - (removedByScope.get(scope.scopeId) ?? 0))
+    if (!ordinaryUnread && attentionCount === 0) return []
+    return [{ ...scope, ordinaryUnread, lastAttentionSeq: attentionCount === 0 ? null : lastAttentionSeq, attentionCount }]
+  })
+  return { scopes: nextScopes, items: nextItems }
+}
+
+function rebaseAttentionTransactions(registry: CommunityDbRegistry) {
+  const store = attentionTransactionStores.get(registry)
+  if (!store || store.get().rebasing) return
+  store.setState((state) => ({ ...state, rebasing: true }))
+  try {
+    const terminal = new Set<symbol>()
+    for (const [token, transaction] of store.get().transactions) {
+      if (transaction.state === "completed" || transaction.state === "failed") {
+        terminal.add(token)
+        store.get().intents.get(token)?.resolveSettled(transaction.state === "completed")
+      } else transaction.rollback({ isSecondaryRollback: true })
+    }
+    const intents = new Map([...store.get().intents].filter(([token, intent]) => !terminal.has(token) && attentionIntentActive(registry, intent)))
+    for (const [token, intent] of store.get().intents) if (!intents.has(token) && !terminal.has(token)) { intent.resolveOutcome(undefined); intent.resolveSettled(false) }
+    const transactions = new Map<symbol, AttentionTransaction>()
+    store.setState((state) => ({ ...state, intents, transactions }))
+    if (registry.collections.attentionScopes.status !== "ready" || registry.collections.attentionItems.status !== "ready") {
+      if (!store.get().preload && intents.size > 0) {
+        const original = store
+        const preload = Promise.all([registry.collections.attentionScopes.preload(), registry.collections.attentionItems.preload()]).then(() => {
+          if (attentionTransactionStores.get(registry) !== original) return
+          original.setState((state) => ({ ...state, preload: null }))
+          rebaseAttentionTransactions(registry)
+        }, () => {
+          if (attentionTransactionStores.get(registry) !== original) return
+          for (const intent of original.get().intents.values()) { intent.resolveOutcome(undefined); intent.resolveSettled(false) }
+          original.setState((state) => ({ ...state, intents: new Map(), transactions: new Map(), preload: null }))
+        })
+        original.setState((state) => ({ ...state, preload }))
+      }
+      return
+    }
+    const scopes = collectionRows(registry, "attentionScopes", attentionScopeSchema)
+    const items = collectionRows(registry, "attentionItems", attentionItemSchema)
+    const prefix: AttentionIntent[] = []
+    for (const intent of intents.values()) {
+      prefix.push(intent)
+      const projected = attentionProjection(registry, scopes, items, prefix)
+      const persist = async () => {
+        const committed = await intent.outcome
+        if (!committed || store.get().transactions.get(intent.token) !== transaction || !attentionIntentActive(registry, intent)) return
+        store.setState((state) => ({ ...state, rebasing: true }))
+        try { publishAttentionConfirmation(registry, store.get().intents.get(intent.token) ?? intent, committed) }
+        catch {
+          transaction.rollback({ isSecondaryRollback: true })
+          finishAttentionTransaction(registry, intent, transaction, false)
+        } finally { store.setState((state) => ({ ...state, rebasing: false })) }
+      }
+      const transaction = registry.dbClient.createTransaction({ autoCommit: false, mutationFn: persist })
+      void transaction.isPersisted.promise.catch(() => undefined)
+      transaction.mutate(() => {
+        const nextScopes = new Map(projected.scopes.map((scope) => [scope.scopeId, scope]))
+        for (const scope of registry.collections.attentionScopes.values()) {
+          const next = nextScopes.get(scope.scopeId)
+          if (!next) registry.collections.attentionScopes.delete(scope.scopeId)
+          else if (Object.entries(next).some(([key, value]) => (scope as unknown as Record<string, unknown>)[key] !== value)) registry.collections.attentionScopes.update(scope.scopeId, (draft) => Object.assign(draft, next))
+        }
+        const nextIds = new Set(projected.items.map((item) => item.id))
+        for (const item of registry.collections.attentionItems.values()) if (!nextIds.has(item.id)) registry.collections.attentionItems.delete(item.id)
+      })
+      transactions.set(intent.token, transaction)
+    }
+    store.setState((state) => ({ ...state, transactions }))
+    for (const intent of intents.values()) {
+      const transaction = transactions.get(intent.token)!
+      if (transaction.mutations.length > 0) {
+        void transaction.commit().then(() => finishAttentionTransaction(registry, intent, transaction, transaction.state === "completed"), () => finishAttentionTransaction(registry, intent, transaction, false))
+      } else {
+        void intent.outcome.then((committed) => {
+          if (!committed || store.get().transactions.get(intent.token) !== transaction || !attentionIntentActive(registry, intent)) return
+          store.setState((state) => ({ ...state, rebasing: true }))
+          try { publishAttentionConfirmation(registry, store.get().intents.get(intent.token) ?? intent, committed) }
+          finally { store.setState((state) => ({ ...state, rebasing: false })) }
+          return transaction.commit().then(() => finishAttentionTransaction(registry, intent, transaction, true))
+        }).catch(() => finishAttentionTransaction(registry, intent, transaction, false))
+      }
+    }
+  } finally {
+    store.setState((state) => ({ ...state, rebasing: false }))
+  }
+}
+
+function beginAttentionIntent(registry: CommunityDbRegistry, values: Pick<AttentionIntent, "floors" | "itemIds" | "itemDomains" | "scopeId" | "targetSeq" | "clearedAttentionCount">) {
+  const store = attentionTransactionStore(registry)
+  let resolveOutcome!: AttentionIntent["resolveOutcome"], resolveSettled!: AttentionIntent["resolveSettled"]
+  const outcome = new Promise<ReadonlySet<AttentionDomain> | undefined>((resolve) => { resolveOutcome = resolve })
+  const settled = new Promise<boolean>((resolve) => { resolveSettled = resolve })
+  const intent: AttentionIntent = {
+    ...values, outcome, resolveOutcome, settled, resolveSettled, token: Symbol("attention-command"), generation: registry.runtime.lifecycle.get().generation,
+    scopesQuery: registry.queryClient.getQueryCache().find({ queryKey: communityKeys.communityDbCollection(registry.scopeId, "attentionScopes"), exact: true }),
+    itemsQuery: registry.queryClient.getQueryCache().find({ queryKey: communityKeys.communityDbCollection(registry.scopeId, "attentionItems"), exact: true }),
+  }
   notifyManager.batch(() => {
-    replaceRows(registry, "attentionScopes", attentionScopeSchema, (row) => row.scopeId, scopes, () => true)
-    replaceRows(registry, "attentionItems", attentionItemSchema, (row) => row.id, items, () => true)
+    store.setState((state) => ({ ...state, intents: new Map(state.intents).set(intent.token, intent) }))
+    rebaseAttentionTransactions(registry)
+  })
+  return intent
+}
+
+function publishAttentionConfirmation(registry: CommunityDbRegistry, current: AttentionIntent, committed: ReadonlySet<AttentionDomain>) {
+  const floors = new Map([...current.floors].map(([id, floor]) => [id, {
+    ...floor,
+    ordinary: floor.ordinary && committed.has(floor.domain),
+    mentions: floor.mentions && committed.has(floor.domain === "dms" ? "dms" : "mentions"),
+  }]))
+  const confirmed = { ...current, floors, itemIds: new Set([...current.itemIds].filter((id) => committed.has(current.itemDomains.get(id) ?? "mentions"))) }
+  const scopes = collectionRows(registry, "attentionScopes", attentionScopeSchema)
+  const items = collectionRows(registry, "attentionItems", attentionItemSchema)
+  const projected = attentionProjection(registry, scopes, items, [confirmed])
+  const nextScopes = new Map(projected.scopes.map((scope) => [scope.scopeId, scope]))
+  const previousScopes = new Map(scopes.map((scope) => [scope.scopeId, scope]))
+  const nextItems = new Set(projected.items.map((item) => item.id))
+  const removedScopes = new Set(scopes.filter((scope) => !nextScopes.has(scope.scopeId)).map((scope) => scope.scopeId))
+  const removedItems = new Set(items.filter((item) => !nextItems.has(item.id)).map((item) => item.id))
+  withCanonicalWriteContext(registry.queryClient, { kind: "event" }, () => {
+    if (removedScopes.size) deleteRows(registry, "attentionScopes", attentionScopeSchema, (row) => removedScopes.has(row.scopeId))
+    upsertRows(registry, "attentionScopes", attentionScopeSchema, (row) => row.scopeId, projected.scopes.filter((scope) => JSON.stringify(scope) !== JSON.stringify(previousScopes.get(scope.scopeId))))
+    if (removedItems.size) deleteRows(registry, "attentionItems", attentionItemSchema, (row) => removedItems.has(row.id))
+  })
+  const store = attentionTransactionStores.get(registry)
+  store?.setState((state) => ({ ...state, intents: new Map([...state.intents].map(([token, intent]) => {
+    if (token === current.token) return [token, intent]
+    const remaining = new Map([...intent.floors].map(([id, floor]) => {
+      const applied = floors.get(id)
+      if (!applied?.mentions || !floor.mentions) return [id, floor]
+      const removed = Math.max(0, (previousScopes.get(id)?.attentionCount ?? 0) - (nextScopes.get(id)?.attentionCount ?? 0))
+      return [id, { ...floor, clearedCount: applied.throughSeq >= floor.throughSeq ? 0 : Math.max(0, floor.clearedCount - removed) }]
+    }))
+    return [token, { ...intent, floors: remaining }]
+  })) }))
+}
+
+function finishAttentionTransaction(registry: CommunityDbRegistry, intent: AttentionIntent, transaction: AttentionTransaction, success: boolean) {
+  const store = attentionTransactionStores.get(registry)
+  if (!store || store.get().transactions.get(intent.token) !== transaction) return
+  notifyManager.batch(() => {
+    store.setState((state) => {
+      const intents = new Map(state.intents), transactions = new Map(state.transactions)
+      intents.delete(intent.token)
+      transactions.delete(intent.token)
+      return { ...state, intents, transactions }
+    })
+    intent.resolveSettled(success)
+    rebaseAttentionTransactions(registry)
+  })
+}
+
+function settleAttentionIntent(registry: CommunityDbRegistry, intent: AttentionIntent, committed?: ReadonlySet<AttentionDomain>) {
+  const store = attentionTransactionStores.get(registry)
+  const current = store?.get().intents.get(intent.token)
+  if (!store || !current || !attentionIntentActive(registry, current)) { intent.resolveSettled(false); return false }
+  if (committed) {
+    current.resolveOutcome(committed)
+    return true
+  }
+  const transaction = store.get().transactions.get(intent.token)
+  if (transaction?.state === "completed" || transaction?.state === "failed") {
+    finishAttentionTransaction(registry, current, transaction, transaction.state === "completed")
+    return false
+  }
+  const superseded = current.scopeId && [...store.get().intents.values()].some((other) => other.token !== current.token && other.scopeId === current.scopeId && (other.targetSeq ?? -1) >= (current.targetSeq ?? -1))
+  notifyManager.batch(() => {
+    store.setState((state) => ({ ...state, rebasing: true }))
+    try {
+      store.get().transactions.get(intent.token)?.rollback({ isSecondaryRollback: true })
+      store.setState((state) => {
+        const intents = new Map(state.intents), transactions = new Map(state.transactions)
+        intents.delete(intent.token)
+        transactions.delete(intent.token)
+        return { ...state, intents, transactions }
+      })
+      current.resolveOutcome(undefined)
+      current.resolveSettled(false)
+    } finally { store.setState((state) => ({ ...state, rebasing: false })) }
+    rebaseAttentionTransactions(registry)
+  })
+  return !superseded
+}
+
+export function hasAttentionScopeOptimisticFence(queryClient: QueryClient, scopeId: string, targetSeq: number) {
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry) return false
+  return [...(attentionTransactionStores.get(registry)?.get().intents.values() ?? [])]
+    .some((intent) => intent.scopeId === scopeId && (intent.targetSeq ?? -1) >= targetSeq)
+}
+
+export function ingestAttentionSnapshot(registry: CommunityDbRegistry, snapshot: AccountAttentionSnapshot) {
+  notifyManager.batch(() => {
+    const pending = collectionRows(registry, "friendships", friendshipSchema).filter((row) => row.kind === "incoming" && row.needsOwnerApproval == null)
+    const blocked = new Set(collectionRows(registry, "friendships", friendshipSchema).filter((row) => row.kind === "blocked").map((row) => row.userId))
     ingestAttentionIncluded(registry, snapshot.included)
+    replaceRows(registry, "attentionScopes", attentionScopeSchema, (row) => row.scopeId, snapshot.scopes, () => true)
+    replaceRows(registry, "attentionItems", attentionItemSchema, (row) => row.id, snapshot.items.filter((row) => row.kind !== "friend_request" || !row.actorUserId || (!blocked.has(row.actorUserId) && !isProtectedFromQueryWrite(registry, "friendships", `user:${row.actorUserId}`))), () => true)
+    const requests = collectionRows(registry, "attentionItems", attentionItemSchema).filter((row) => row.kind === "friend_request" && row.actorUserId)
+    upsertRows(registry, "friendships", friendshipSchema, (row) => row.id, requests.filter((row) => !blocked.has(row.actorUserId!)).map((row) => ({ id: row.sourceId, userId: row.actorUserId!, kind: "incoming" as const })))
+    if (!snapshot.truncated) retireCanonicalFriendRequests(registry, pending.filter((row) => !requests.some((item) => item.sourceId === row.id)).map((row) => row.id))
+    rebaseAttentionTransactions(registry)
   })
   return "applied" as const
 }
 
-export type AttentionOptimisticSnapshot = {
-  token: symbol
-  publicationRevision: number
-  scopes: AttentionScopeRow[]
-  items: AttentionItemRow[]
+export type AttentionOptimisticSnapshot = AttentionIntent
+export type AttentionScopeOptimisticSnapshot = AttentionIntent & { scopeId: string; targetSeq: number }
+export type AttentionItemsOptimisticSnapshot = AttentionIntent
+
+export function clearAttentionOptimistically(registry: CommunityDbRegistry): AttentionOptimisticSnapshot {
+  const floors = new Map(collectionRows(registry, "attentionScopes", attentionScopeSchema).map((scope) => [scope.scopeId, {
+    throughSeq: Math.max(scope.lastUnreadSeq, scope.lastAttentionSeq ?? 0),
+    clearedCount: scope.attentionCount, domain: scope.serverId == null ? "dms" as const : "channels" as const,
+    ordinary: true, mentions: true,
+  }]))
+  const items = collectionRows(registry, "attentionItems", attentionItemSchema).filter((item) => item.kind !== "friend_request")
+  return beginAttentionIntent(registry, { floors, itemIds: new Set(items.map((item) => item.id)), itemDomains: new Map(items.map((item) => [item.id, "mentions" as const])), clearedAttentionCount: 0 })
 }
 
-export function clearAttentionOptimistically(
-  registry: CommunityDbRegistry,
-): AttentionOptimisticSnapshot {
-  const token = Symbol("attention-clear")
-  const snapshot = {
-    token,
-    publicationRevision: 0,
-    scopes: collectionRows(registry, "attentionScopes", attentionScopeSchema),
-    items: collectionRows(registry, "attentionItems", attentionItemSchema),
-  }
-  const protection = attentionProtectionState(registry.queryClient)
-  protection.optimisticClears.add(token)
-  withCanonicalWriteContext(registry.queryClient, { kind: "event" }, () => {
-    notifyManager.batch(() => {
-      deleteRows(registry, "attentionScopes", attentionScopeSchema, () => true)
-      deleteRows(registry, "attentionItems", attentionItemSchema, () => true)
-      const friendRequests = snapshot.items.filter((row) => row.kind === "friend_request")
-      if (friendRequests.length > 0) {
-        upsertRows(
-          registry,
-          "attentionItems",
-          attentionItemSchema,
-          (row) => row.id,
-          friendRequests,
-        )
-      }
-    })
-  })
-  snapshot.publicationRevision = canonicalRevisionState(registry.queryClient).revision
-  return snapshot
+export function commitAttentionOptimisticSnapshot(registry: CommunityDbRegistry, snapshot: AttentionOptimisticSnapshot) {
+  settleAttentionIntent(registry, snapshot, new Set(["channels", "dms", "mentions"]))
+  return snapshot.settled
+}
+export function restoreAttentionOptimisticDomains(registry: CommunityDbRegistry, snapshot: AttentionOptimisticSnapshot, failedDomains: ReadonlySet<AttentionDomain>) {
+  settleAttentionIntent(registry, snapshot, new Set((["channels", "dms", "mentions"] as const).filter((domain) => !failedDomains.has(domain))))
+  return snapshot.settled
+}
+export function restoreAttentionOptimisticSnapshot(registry: CommunityDbRegistry, snapshot: AttentionOptimisticSnapshot) {
+  return settleAttentionIntent(registry, snapshot)
 }
 
-export function commitAttentionOptimisticSnapshot(
-  registry: CommunityDbRegistry,
-  snapshot: AttentionOptimisticSnapshot,
-) {
-  attentionProtectionState(registry.queryClient).optimisticClears.delete(snapshot.token)
+export function clearAttentionScopeOptimistically(registry: CommunityDbRegistry, scopeId: string, targetSeq: number): AttentionScopeOptimisticSnapshot {
+  const scope = collectionRows(registry, "attentionScopes", attentionScopeSchema).find((row) => row.scopeId === scopeId)
+  const messages = new Map(collectionRows(registry, "messages", messageSchema).map((message) => [message.id, message]))
+  const items = collectionRows(registry, "attentionItems", attentionItemSchema).filter((item) => item.scopeId === scopeId)
+  const seqOf = (item: AttentionItemRow) => item.readTarget?.seq ?? item.openerSeq ?? (item.messageId ? messages.get(item.messageId)?.seq : undefined)
+  const removed = items.filter((item) => (seqOf(item) ?? scope?.lastUnreadSeq ?? 0) <= targetSeq)
+  const surviving = items.filter((item) => (item.kind === "mention" || item.kind === "reply") && (seqOf(item) ?? -1) > targetSeq).length
+  const clearedAttentionCount = Math.max(0, (scope?.attentionCount ?? 0) - surviving)
+  return beginAttentionIntent(registry, {
+    scopeId, targetSeq, clearedAttentionCount,
+    floors: new Map([[scopeId, { throughSeq: targetSeq, clearedCount: clearedAttentionCount, domain: scope?.serverId == null ? "dms" : "channels", ordinary: true, mentions: true }]]),
+    itemIds: new Set(removed.map((item) => item.id)), itemDomains: new Map(removed.map((item) => [item.id, "mentions" as const])),
+  }) as AttentionScopeOptimisticSnapshot
+}
+export function commitAttentionScopeOptimisticSnapshot(registry: CommunityDbRegistry, snapshot: AttentionScopeOptimisticSnapshot) {
+  settleAttentionIntent(registry, snapshot, new Set(["channels", "dms", "mentions"]))
+  return snapshot.settled
+}
+export function restoreAttentionScopeOptimisticSnapshot(registry: CommunityDbRegistry, snapshot: AttentionScopeOptimisticSnapshot) {
+  return settleAttentionIntent(registry, snapshot)
 }
 
-export function restoreAttentionOptimisticDomains(
-  registry: CommunityDbRegistry,
-  snapshot: AttentionOptimisticSnapshot,
-  failedDomains: ReadonlySet<"channels" | "dms" | "mentions">,
-) {
-  const protection = attentionProtectionState(registry.queryClient)
-  protection.optimisticClears.delete(snapshot.token)
-  if (canonicalRevisionState(registry.queryClient).revision !== snapshot.publicationRevision) return false
-
-  const restoreMentions = failedDomains.has("mentions")
-  const scopes = snapshot.scopes.flatMap((scope): AttentionScopeRow[] => {
-    const isDm = scope.serverId == null
-    if (isDm) return failedDomains.has("dms") ? [scope] : []
-    const ordinaryUnread = failedDomains.has("channels") && scope.ordinaryUnread
-    const attentionCount = restoreMentions ? scope.attentionCount : 0
-    if (!ordinaryUnread && attentionCount === 0) return []
-    return [{
-      ...scope,
-      ordinaryUnread,
-      lastUnreadSeq: ordinaryUnread
-        ? scope.lastUnreadSeq
-        : scope.lastAttentionSeq ?? scope.lastUnreadSeq,
-      lastAttentionSeq: restoreMentions ? scope.lastAttentionSeq : null,
-      attentionCount,
-    }]
-  })
-  const items = restoreMentions
-    ? snapshot.items.filter((item) => item.kind !== "friend_request")
-    : []
-  withCanonicalWriteContext(registry.queryClient, { kind: "event" }, () => {
-    notifyManager.batch(() => {
-      upsertRows(registry, "attentionScopes", attentionScopeSchema, (row) => row.scopeId, scopes)
-      upsertRows(registry, "attentionItems", attentionItemSchema, (row) => row.id, items)
-    })
-  })
-  return true
+export function removeAttentionItemsOptimistically(registry: CommunityDbRegistry, remove: (item: AttentionItemRow) => boolean): AttentionItemsOptimisticSnapshot {
+  const items = collectionRows(registry, "attentionItems", attentionItemSchema).filter(remove)
+  return beginAttentionIntent(registry, { floors: new Map(), itemIds: new Set(items.map((item) => item.id)), itemDomains: new Map(items.map((item) => [item.id, "mentions" as const])), clearedAttentionCount: 0 })
 }
-
-export function restoreAttentionOptimisticSnapshot(
-  registry: CommunityDbRegistry,
-  snapshot: AttentionOptimisticSnapshot,
-) {
-  const protection = attentionProtectionState(registry.queryClient)
-  protection.optimisticClears.delete(snapshot.token)
-  if (canonicalRevisionState(registry.queryClient).revision !== snapshot.publicationRevision) return false
-  withCanonicalWriteContext(registry.queryClient, { kind: "event" }, () => {
-    notifyManager.batch(() => {
-      replaceRows(
-        registry,
-        "attentionScopes",
-        attentionScopeSchema,
-        (row) => row.scopeId,
-        snapshot.scopes,
-        () => true,
-      )
-      replaceRows(
-        registry,
-        "attentionItems",
-        attentionItemSchema,
-        (row) => row.id,
-        snapshot.items,
-        () => true,
-      )
-    })
-  })
-  return true
+export function commitAttentionItemsOptimisticSnapshot(registry: CommunityDbRegistry, snapshot: AttentionItemsOptimisticSnapshot) {
+  settleAttentionIntent(registry, snapshot, new Set(["channels", "dms", "mentions"]))
+  return snapshot.settled
 }
-
-export type AttentionScopeOptimisticSnapshot = {
-  token: symbol
-  publicationRevision: number
-  scopeId: string
-  targetSeq: number
-  clearedAttentionCount: number
-  scopes: AttentionScopeRow[]
-  items: AttentionItemRow[]
-}
-
-export function clearAttentionScopeOptimistically(
-  registry: CommunityDbRegistry,
-  scopeId: string,
-  targetSeq: number,
-): AttentionScopeOptimisticSnapshot {
-  const token = Symbol("attention-scope-delete")
-  const scopes = collectionRows(registry, "attentionScopes", attentionScopeSchema)
-    .filter((scope) => scope.scopeId === scopeId)
-  const messages = new Map(
-    collectionRows(registry, "messages", messageSchema).map((message) => [message.id, message]),
-  )
-  const currentScope = scopes[0]
-  const items = collectionRows(registry, "attentionItems", attentionItemSchema)
-    .filter((item) => {
-      if (item.scopeId !== scopeId) return false
-      const seq = item.messageId ? messages.get(item.messageId)?.seq : undefined
-      return seq !== undefined ? seq <= targetSeq : (currentScope?.lastUnreadSeq ?? 0) <= targetSeq
-    })
-  const itemIds = new Set(items.map((item) => item.id))
-  const survivingAttentionCount = collectionRows(registry, "attentionItems", attentionItemSchema)
-    .filter((item) => {
-      if (item.scopeId !== scopeId || !item.messageId) return false
-      const seq = messages.get(item.messageId)?.seq
-      return seq !== undefined && seq > targetSeq
-    })
-    .length
-  const clearedAttentionCount = Math.max(
-    0,
-    (currentScope?.attentionCount ?? 0) - survivingAttentionCount,
-  )
-  const protection = attentionProtectionState(registry.queryClient)
-  protection.optimisticScopeDeletes.set(token, {
-    scopeId,
-    targetSeq,
-    clearedAttentionCount,
-    itemIds,
-    requiresReconcileOnRestore: false,
-  })
-  withCanonicalWriteContext(registry.queryClient, { kind: "event" }, () => {
-    notifyManager.batch(() => {
-      const scope = currentScope
-      if (scope) {
-        const ordinaryUnread = scope.ordinaryUnread && scope.lastUnreadSeq > targetSeq
-        const lastAttentionSeq = scope.lastAttentionSeq !== null
-          && scope.lastAttentionSeq !== undefined
-          && scope.lastAttentionSeq > targetSeq
-          ? scope.lastAttentionSeq
-          : null
-        const attentionCount = lastAttentionSeq === null
-          ? 0
-          : Math.max(0, scope.attentionCount - clearedAttentionCount)
-        if (ordinaryUnread || attentionCount > 0) {
-          upsertRows(
-            registry,
-            "attentionScopes",
-            attentionScopeSchema,
-            (row) => row.scopeId,
-            [{ ...scope, ordinaryUnread, lastAttentionSeq, attentionCount }],
-          )
-        } else {
-          deleteRows(
-            registry,
-            "attentionScopes",
-            attentionScopeSchema,
-            (row) => row.scopeId === scopeId,
-          )
-        }
-      }
-      deleteRows(
-        registry,
-        "attentionItems",
-        attentionItemSchema,
-        (item) => itemIds.has(item.id),
-      )
-    })
-  })
-  return {
-    token,
-    publicationRevision: canonicalRevisionState(registry.queryClient).revision,
-    scopeId,
-    targetSeq,
-    clearedAttentionCount,
-    scopes,
-    items,
-  }
-}
-
-export function commitAttentionScopeOptimisticSnapshot(
-  registry: CommunityDbRegistry,
-  snapshot: AttentionScopeOptimisticSnapshot,
-) {
-  const fences = attentionProtectionState(registry.queryClient).optimisticScopeDeletes
-  const settled = fences.get(snapshot.token)
-  if (!settled || !fences.delete(snapshot.token)) return
-  const remaining = [...fences.values()]
-    .filter((entry) => entry.scopeId === snapshot.scopeId)
-    .sort((left, right) => right.targetSeq - left.targetSeq)
-  const successor = remaining[0]
-  if (!successor) return
-  successor.targetSeq = Math.max(successor.targetSeq, settled.targetSeq)
-  successor.clearedAttentionCount += settled.clearedAttentionCount
-  for (const itemId of settled.itemIds) successor.itemIds.add(itemId)
-  successor.requiresReconcileOnRestore ||= settled.requiresReconcileOnRestore
-}
-
-export function restoreAttentionScopeOptimisticSnapshot(
-  registry: CommunityDbRegistry,
-  snapshot: AttentionScopeOptimisticSnapshot,
-) {
-  const fences = attentionProtectionState(registry.queryClient).optimisticScopeDeletes
-  const settled = fences.get(snapshot.token)
-  fences.delete(snapshot.token)
-  const successor = [...fences.values()]
-    .find((entry) => (
-      entry.scopeId === snapshot.scopeId && entry.targetSeq >= snapshot.targetSeq
-    ))
-  if (settled && successor) {
-    successor.clearedAttentionCount += settled.clearedAttentionCount
-    for (const itemId of settled.itemIds) successor.itemIds.add(itemId)
-    successor.requiresReconcileOnRestore = true
-  }
-  const absorbedCommittedFence = Boolean(
-    settled
-    && settled.targetSeq > snapshot.targetSeq
-  )
-  if (
-    successor
-    || absorbedCommittedFence
-    || settled?.requiresReconcileOnRestore
-    || canonicalRevisionState(registry.queryClient).revision !== snapshot.publicationRevision
-  ) {
-    return false
-  }
-  withCanonicalWriteContext(registry.queryClient, { kind: "event" }, () => {
-    notifyManager.batch(() => {
-      upsertRows(
-        registry,
-        "attentionScopes",
-        attentionScopeSchema,
-        (row) => row.scopeId,
-        snapshot.scopes,
-      )
-      upsertRows(
-        registry,
-        "attentionItems",
-        attentionItemSchema,
-        (row) => row.id,
-        snapshot.items,
-      )
-    })
-  })
-  return true
-}
-
-export type AttentionItemsOptimisticSnapshot = {
-  token: symbol
-  publicationRevision: number
-  scopes: AttentionScopeRow[]
-  items: AttentionItemRow[]
-}
-
-export function removeAttentionItemsOptimistically(
-  registry: CommunityDbRegistry,
-  remove: (item: AttentionItemRow) => boolean,
-): AttentionItemsOptimisticSnapshot {
-  const allItems = collectionRows(registry, "attentionItems", attentionItemSchema)
-  const items = allItems.filter(remove)
-  const removedMentionCountByScope = new Map<string, number>()
-  for (const item of items) {
-    if (!item.scopeId || item.kind !== "mention" && item.kind !== "reply") continue
-    removedMentionCountByScope.set(
-      item.scopeId,
-      (removedMentionCountByScope.get(item.scopeId) ?? 0) + 1,
-    )
-  }
-  const scopes = collectionRows(registry, "attentionScopes", attentionScopeSchema)
-    .filter((scope) => removedMentionCountByScope.has(scope.scopeId))
-  const token = Symbol("attention-item-delete")
-  const protection = attentionProtectionState(registry.queryClient)
-  protection.optimisticItemDeletes.set(token, new Set(items.map((item) => item.id)))
-  withCanonicalWriteContext(registry.queryClient, { kind: "event" }, () => {
-    notifyManager.batch(() => {
-      for (const scope of scopes) {
-        const attentionCount = Math.max(
-          0,
-          scope.attentionCount - (removedMentionCountByScope.get(scope.scopeId) ?? 0),
-        )
-        if (!scope.ordinaryUnread && attentionCount === 0) {
-          deleteRows(
-            registry,
-            "attentionScopes",
-            attentionScopeSchema,
-            (row) => row.scopeId === scope.scopeId,
-          )
-        } else {
-          upsertRows(
-            registry,
-            "attentionScopes",
-            attentionScopeSchema,
-            (row) => row.scopeId,
-            [{
-              ...scope,
-              attentionCount,
-              lastAttentionSeq: attentionCount === 0 ? null : scope.lastAttentionSeq,
-            }],
-          )
-        }
-      }
-      deleteRows(registry, "attentionItems", attentionItemSchema, remove)
-    })
-  })
-  return {
-    token,
-    publicationRevision: canonicalRevisionState(registry.queryClient).revision,
-    scopes,
-    items,
-  }
-}
-
-export function commitAttentionItemsOptimisticSnapshot(
-  registry: CommunityDbRegistry,
-  snapshot: AttentionItemsOptimisticSnapshot,
-) {
-  attentionProtectionState(registry.queryClient).optimisticItemDeletes.delete(snapshot.token)
-}
-
-export function restoreAttentionItemsOptimisticSnapshot(
-  registry: CommunityDbRegistry,
-  snapshot: AttentionItemsOptimisticSnapshot,
-) {
-  attentionProtectionState(registry.queryClient).optimisticItemDeletes.delete(snapshot.token)
-  if (canonicalRevisionState(registry.queryClient).revision !== snapshot.publicationRevision) return false
-  withCanonicalWriteContext(registry.queryClient, { kind: "event" }, () => {
-    notifyManager.batch(() => {
-      upsertRows(registry, "attentionScopes", attentionScopeSchema, (row) => row.scopeId, snapshot.scopes)
-      upsertRows(registry, "attentionItems", attentionItemSchema, (row) => row.id, snapshot.items)
-    })
-  })
-  return true
+export function restoreAttentionItemsOptimisticSnapshot(registry: CommunityDbRegistry, snapshot: AttentionItemsOptimisticSnapshot) {
+  return settleAttentionIntent(registry, snapshot)
 }
 
 function ingestNotificationSettings(
@@ -1707,8 +1634,11 @@ export type CommunityLiveSnapshotToken = {
   readonly viewerId: string | null
   readonly accountEpoch: number
   readonly accessEpoch: number
+  readonly profileSnapshot: CommunityProfileSeedSnapshot
   readonly canonicalRevision: number
   readonly queryClient: QueryClient
+  readonly registry: CommunityDbRegistry | null
+  readonly ownerGeneration: number
   readonly [communityLiveSnapshotTokenBrand]: true
 }
 
@@ -1737,19 +1667,60 @@ type CommunityLiveSnapshotPublication =
 
 export type CommunityFreshQueryProof = {
   token: CommunityLiveSnapshotToken
-  signal: AbortSignal | undefined
+  signal?: AbortSignal
+}
+
+export function publishCommunityMembersSnapshot(queryClient: QueryClient, serverId: string, members: readonly { id: string; userId: string; role: string }[], proof: CommunityFreshQueryProof) {
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
+  const registry = proof.token.registry!
+  return withCanonicalWriteContext(queryClient, { kind: "query", requestRevision: proof.token.canonicalRevision, profileSnapshot: proof.token.profileSnapshot }, () => {
+    const previous = new Map(collectionRows(registry, "serverMemberships", serverMembershipSchema).map((row) => [row.id, row]))
+    upsertRows(registry, "serverMemberships", serverMembershipSchema, (row) => row.id, members.map((member) => {
+      const id = serverMembershipKey(serverId, member.userId)
+      return { ...previous.get(id), id, serverId, userId: member.userId, memberId: member.id, role: member.role, viewer: member.userId === registry.accountId }
+    }))
+  })
+}
+
+export function publishCommunityChannelMembersSnapshot(queryClient: QueryClient, serverId: string, channelId: string, relation: "access" | "notify", members: readonly { id: string; userId: string; role: string; source: NonNullable<ChannelMembershipRow["source"]>; isCreator: boolean }[], proof: CommunityFreshQueryProof) {
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
+  publishCommunityMembersSnapshot(queryClient, serverId, members, proof)
+  const registry = proof.token.registry!
+  return withCanonicalWriteContext(queryClient, { kind: "query", requestRevision: proof.token.canonicalRevision, profileSnapshot: proof.token.profileSnapshot }, () => {
+    replaceRows(registry, "channelMemberships", channelMembershipSchema, (row) => row.id, members.map((member) => ({ id: channelMembershipKey(channelId, member.userId, relation), channelId, userId: member.userId, relation, memberId: member.id, source: member.source, isCreator: member.isCreator })), (row) => row.channelId === channelId && row.relation === relation)
+  })
+}
+
+export function publishCommunityMemberRole(queryClient: QueryClient, memberKey: string, memberId: string, role: string, proof: CommunityFreshQueryProof) {
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
+  const row = collectionRows(proof.token.registry!, "serverMemberships", serverMembershipSchema).find((row) => row.id === memberKey)
+  if (!row || row.memberId !== memberId) return false
+  return publishConfirmedFields(queryClient, "serverMemberships", serverMembershipSchema, memberKey, { role }, proof)
+}
+
+export function publishCommunityMemberRemoval(queryClient: QueryClient, memberKey: string, memberId: string, proof: CommunityFreshQueryProof) {
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
+  const registry = proof.token.registry!
+  if (!collectionRows(registry, "serverMemberships", serverMembershipSchema).some((row) => row.id === memberKey && row.memberId === memberId)) return false
+  return withCanonicalWriteContext(queryClient, { kind: "event" }, () => {
+    deleteRows(registry, "serverMemberships", serverMembershipSchema, (row) => row.id === memberKey && row.memberId === memberId, [memberKey])
+    return true
+  })
 }
 
 export function captureCommunityLiveSnapshotToken(
   queryClient: QueryClient,
 ): CommunityLiveSnapshotToken {
-  const state = useCommunityWsStore.getState()
+  const state = getCommunityRuntime(queryClient).ws.get()
   return {
     viewerId: state.profileViewerId,
     accountEpoch: state.profileAccountEpoch,
     accessEpoch: state.accessEpoch,
     canonicalRevision: canonicalRevisionState(queryClient).revision,
+    profileSnapshot: beginCommunityProfileSeed(getCommunityDbRegistry(queryClient)),
     queryClient,
+    registry: getCommunityDbRegistry(queryClient),
+    ownerGeneration: getCommunityRuntime(queryClient).lifecycle.get().generation,
   } as CommunityLiveSnapshotToken
 }
 
@@ -1758,14 +1729,22 @@ export function assertCommunityLiveSnapshotTokenCurrent(
   token: CommunityLiveSnapshotToken,
   signal: AbortSignal | undefined,
 ) {
-  const state = useCommunityWsStore.getState()
+  const state = getCommunityRuntime(queryClient).ws.get()
   if (
     signal?.aborted
+    || !token.registry?.runtime.lifecycle.get().active
+    || token.registry.runtime.lifecycle.get().generation !== token.ownerGeneration
     || state.profileViewerId !== token.viewerId
     || state.profileAccountEpoch !== token.accountEpoch
     || state.accessEpoch !== token.accessEpoch
     || queryClient !== token.queryClient
+    || getCommunityDbRegistry(queryClient) !== token.registry
   ) throw new DOMException("Stale community live snapshot", "AbortError")
+}
+
+export function beginCommunityCommandRevision(queryClient: QueryClient, token: CommunityLiveSnapshotToken): CommunityLiveSnapshotToken {
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)
+  return { ...token, canonicalRevision: canonicalRevisionState(queryClient).revision }
 }
 
 /**
@@ -1795,7 +1774,7 @@ export function publishCommunityLiveSnapshot(
   if (!registry) return "no-registry" as const
   return withCanonicalWriteContext(queryClient, {
     kind: "query",
-    requestRevision: proof.token.canonicalRevision,
+    requestRevision: proof.token.canonicalRevision, profileSnapshot: proof.token.profileSnapshot,
   }, () => {
     switch (snapshot.kind) {
       case "servers":
@@ -1840,7 +1819,7 @@ export function publishAccountAttentionSnapshot(
   if (!registry) return "no-registry" as const
   return withCanonicalWriteContext(queryClient, {
     kind: "query",
-    requestRevision: publication.proof.token.canonicalRevision,
+    requestRevision: publication.proof.token.canonicalRevision, profileSnapshot: publication.proof.token.profileSnapshot,
   }, () => {
     ingestAttentionSnapshot(registry, publication.snapshot)
     return "published" as const
@@ -1865,7 +1844,7 @@ export function publishCommunityMessages(
   if (!registry) return "no-registry" as const
   return withCanonicalWriteContext(queryClient, {
     kind: "query",
-    requestRevision: publication.proof.token.canonicalRevision,
+    requestRevision: publication.proof.token.canonicalRevision, profileSnapshot: publication.proof.token.profileSnapshot,
   }, () => {
     ingestMessages(registry, publication.channelId, publication.messages)
     return "published" as const
@@ -1889,7 +1868,7 @@ export function publishCommunityEmbeddedMessages(
   if (!registry) return "no-registry" as const
   return withCanonicalWriteContext(queryClient, {
     kind: "query",
-    requestRevision: publication.proof.token.canonicalRevision,
+    requestRevision: publication.proof.token.canonicalRevision, profileSnapshot: publication.proof.token.profileSnapshot,
   }, () => {
     const byChannel = new Map<string, Msg[]>()
     for (const { channelId, message } of publication.entries) {
@@ -1922,27 +1901,11 @@ function qualifyCanonicalChannelMetadata(registry: CommunityDbRegistry, channelI
     const channel = registry.collections.channels.get(channelId)
     const membership = registry.collections.channelMemberships.get(channelMembershipKey(channelId, registry.accountId, "access"))
     if (!channel || channel.pending || channel.archived || !membership) continue
-    registry.queryClient.setQueryData(communityKeys.channelMeta(channel.serverId ?? null, channelId), (previous: CommunityChannelMetadata | undefined) => ({
-      ...previous,
+    registry.queryClient.setQueryData(communityKeys.channelMeta(channel.serverId ?? null, channelId), (previous: { historyVerification?: unknown } | undefined) => ({
       id: channel.id,
-      serverId: channel.serverId ?? null,
-      name: channel.name,
-      type: channel.type,
-      parentChannelId: channel.parentChannelId ?? null,
-      parentMessageId: channel.parentMessageId ?? null,
-      creatorId: channel.creatorId ?? null,
-      archived: channel.archived,
-      lastMessageAt: channel.lastMessageAt ?? null,
-      createdAt: channel.lastMessageAt ?? "",
-      activityAt: channel.lastMessageAt ?? "",
       verifiedEpoch: token.accessEpoch,
-      verification: {
-        viewerId: token.viewerId,
-        accountEpoch: token.accountEpoch,
-        accessEpoch: token.accessEpoch,
-        channelId,
-        generation: useCommunityWsStore.getState().channelAccessScopes.get(channelId)?.generation ?? 0,
-      },
+      verification: { ...token, channelId, generation: registry.runtime.ws.get().channelAccessScopes.get(channelId)?.generation ?? 0 },
+      historyVerification: previous?.historyVerification,
     }))
   }
 }
@@ -1964,9 +1927,26 @@ export function publishCommunityChannelMetadata(
   if (!registry) return "no-registry" as const
   return withCanonicalWriteContext(queryClient, {
     kind: "query",
-    requestRevision: publication.proof.token.canonicalRevision,
+    requestRevision: publication.proof.token.canonicalRevision, profileSnapshot: publication.proof.token.profileSnapshot,
   }, () => {
-    ingestChannelMetadata(registry, publication.metadata)
+    const metadata = publication.metadata
+    const existing = collectionRows(registry, "channels", channelSchema)
+      .find((row) => row.id === metadata.id)
+    if (existing) {
+      publishConfirmedFields<ChannelRow>(queryClient, "channels", channelSchema, metadata.id, {
+        serverId: metadata.serverId,
+        name: metadata.name ?? "",
+        type: metadata.type as ChannelRow["type"],
+        parentChannelId: metadata.parentChannelId,
+        parentMessageId: metadata.parentMessageId,
+        creatorId: metadata.creatorId,
+        archived: metadata.archived === true || metadata.archived === 1,
+        lastMessageAt: metadata.lastMessageAt,
+        pending: false,
+      }, publication.proof)
+    } else {
+      ingestChannelMetadata(registry, metadata)
+    }
     const viewerId = registry.accountId
     if (viewerId) {
       upsertRows(
@@ -2004,7 +1984,7 @@ export function publishCommunityChannelDirectory(
   if (!registry) return "no-registry" as const
   return withCanonicalWriteContext(queryClient, {
     kind: "query",
-    requestRevision: publication.proof.token.canonicalRevision,
+    requestRevision: publication.proof.token.canonicalRevision, profileSnapshot: publication.proof.token.profileSnapshot,
   }, () => {
     const existingServers = new Map(
     collectionRows(registry, "servers", serverSchema).map((row) => [row.id, row]),
@@ -2135,7 +2115,7 @@ export function publishCommunityForumSidebar(
   if (!registry) return "no-registry" as const
   return withCanonicalWriteContext(queryClient, {
     kind: "query",
-    requestRevision: publication.proof.token.canonicalRevision,
+    requestRevision: publication.proof.token.canonicalRevision, profileSnapshot: publication.proof.token.profileSnapshot,
   }, () => {
     const existingById = new Map(
     collectionRows(registry, "channels", channelSchema).map((row) => [row.id, row]),
@@ -2164,6 +2144,16 @@ export function publishCommunityForumSidebar(
   const viewerId = registry.accountId
   notifyManager.batch(() => {
     upsertRows(registry, "channels", channelSchema, (row) => row.id, channels)
+    for (const channel of publication.channels) {
+      if (channel.participating === false || channel.archived === true || channel.archived === 1) continue
+      const current = collectionRows(registry, "channels", channelSchema)
+        .find((row) => row.id === channel.id && row.serverId === publication.serverId && row.type === "thread")
+      if (current?.tags.includes(FORUM_ARCHIVE_TAG)) {
+        publishConfirmedFields<ChannelRow>(queryClient, "channels", channelSchema, channel.id, {
+          tags: current.tags.filter((tag) => tag !== FORUM_ARCHIVE_TAG),
+        }, publication.proof)
+      }
+    }
     if (viewerId) {
       upsertRows(
         registry,
@@ -2206,6 +2196,36 @@ export function publishCommunityForumSidebar(
     }
     if (publication.negativeRetain) {
       const { id, disposition } = publication.negativeRetain
+      if (disposition === "opener-archived") {
+        const current = collectionRows(registry, "channels", channelSchema)
+          .find((row) => row.id === id)
+        if (!current) {
+          upsertRows(registry, "channels", channelSchema, (row) => row.id, [{
+            id,
+            serverId: publication.serverId,
+            categoryId: null,
+            name: "",
+            type: "thread",
+            parentChannelId: null,
+            parentMessageId: null,
+            creatorId: null,
+            position: 0,
+            archived: false,
+            muted: false,
+            unread: false,
+            tags: [],
+            pending: true,
+            lastMessageAt: null,
+          }])
+        }
+        const target = collectionRows(registry, "channels", channelSchema)
+          .find((row) => row.id === id && row.serverId === publication.serverId && row.type === "thread")
+        if (target && !target.tags.includes(FORUM_ARCHIVE_TAG)) {
+          publishConfirmedFields<ChannelRow>(queryClient, "channels", channelSchema, id, {
+            tags: [...target.tags, FORUM_ARCHIVE_TAG],
+          }, publication.proof)
+        }
+      }
       deleteRows(
         registry,
         "channelMemberships",
@@ -2238,14 +2258,239 @@ export function patchCanonicalCommunityChannel(
 ) {
   const registry = getCommunityDbRegistry(queryClient)
   if (!registry) return false
-  return patchRows(
+  return withCanonicalWriteContext(queryClient, { kind: "event" }, () => patchRows(
     registry,
     "channels",
     channelSchema,
     (row) => row.id,
     patch,
     (row) => row.id === channelId,
-  )
+  ))
+}
+
+export function publishCommunityChannelPatch(
+  queryClient: QueryClient,
+  channelId: string,
+  patch: (row: ChannelRow) => ChannelRow,
+  proof: CommunityFreshQueryProof,
+) {
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
+  const registry = proof.token.registry!
+  const row = collectionRows(registry, "channels", channelSchema).find((row) => row.id === channelId)
+  if (!row) return false
+  const next = patch(row)
+  const changes = Object.fromEntries(Object.entries(next).filter(([key, value]) => !Object.is(value, row[key as keyof ChannelRow])))
+  return publishConfirmedFields(queryClient, "channels", channelSchema, channelId, changes, proof)
+}
+
+function publishConfirmedFields<T extends { id: string }>(
+  queryClient: QueryClient,
+  name: CollectionName,
+  schema: z.ZodType<T>,
+  id: string,
+  changes: Partial<T>,
+  proof: CommunityFreshQueryProof,
+) {
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
+  const registry = proof.token.registry!
+  if (!collectionRows(registry, name, schema).some((row) => row.id === id)) return false
+  const revisions = canonicalRevisionState(queryClient).fieldRevisions.get(canonicalEntityKey(name, id))
+  const fields = Object.keys(changes).filter((field) => (
+    changes[field as keyof T] !== undefined
+    && (revisions?.get("*") ?? 0) <= proof.token.canonicalRevision
+    && (revisions?.get(field) ?? 0) <= proof.token.canonicalRevision
+  ))
+  if (!fields.length) return false
+  const accepted = Object.fromEntries(fields.map((field) => [field, changes[field as keyof T]]))
+  return withCanonicalWriteContext(queryClient, { kind: "event" }, () => (
+    patchRows(registry, name, schema, (row) => row.id, (row) => ({ ...row, ...accepted }), (row) => row.id === id, [id], fields)
+  ))
+}
+
+export function publishCommunityServerFields(
+  queryClient: QueryClient,
+  serverId: string,
+  changes: Partial<Pick<ServerRow, "name" | "description" | "icon">>,
+  proof: CommunityFreshQueryProof,
+) {
+  return publishConfirmedFields<ServerRow>(queryClient, "servers", serverSchema, serverId, changes, proof)
+}
+
+export function publishCommunityChannelFields(
+  queryClient: QueryClient,
+  channelId: string,
+  changes: Partial<Pick<ChannelRow, "name" | "categoryId" | "position">>,
+  proof: CommunityFreshQueryProof,
+) {
+  return publishConfirmedFields<ChannelRow>(queryClient, "channels", channelSchema, channelId, changes, proof)
+}
+
+export function publishCommunityCategoryFields(
+  queryClient: QueryClient,
+  categoryId: string,
+  changes: Partial<Pick<CategoryRow, "name" | "position">>,
+  proof: CommunityFreshQueryProof,
+) {
+  return publishConfirmedFields<CategoryRow>(queryClient, "categories", categorySchema, categoryId, changes, proof)
+}
+
+export function publishCommunityMessageFields(
+  queryClient: QueryClient,
+  messageId: string,
+  changes: Partial<MessageRow>,
+  proof: CommunityFreshQueryProof,
+) {
+  return publishConfirmedFields<MessageRow>(queryClient, "messages", messageSchema, messageId, changes, proof)
+}
+
+export function publishCommunityMessageReaction(queryClient: QueryClient, messageId: string, emoji: string, userId: string, add: boolean, proof: CommunityFreshQueryProof) {
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
+  const state = canonicalRevisionState(queryClient), registry = proof.token.registry!, field = `reaction:${emoji}:${userId}`
+  const revisions = state.fieldRevisions.get(canonicalEntityKey("messages", messageId))
+  if ((revisions?.get("*") ?? 0) > proof.token.canonicalRevision || (revisions?.get(field) ?? 0) > proof.token.canonicalRevision) return false
+  return withCanonicalWriteContext(queryClient, { kind: "event" }, () => patchRows(registry, "messages", messageSchema, (row) => row.id, (row) => {
+    const reactions = ((row as MessageRow & Msg).reactions ?? []).map((reaction) => ({ ...reaction, userIds: [...reaction.userIds] }))
+    const reaction = reactions.find((candidate) => candidate.emoji === emoji)
+    if (add) { if (reaction && !reaction.userIds.includes(userId)) reaction.userIds.push(userId); else if (!reaction) reactions.push({ emoji, count: 1, me: userId === registry.accountId, userIds: [userId] }) }
+    else if (reaction) reaction.userIds = reaction.userIds.filter((id) => id !== userId)
+    return { ...row, reactions: reactions.filter((reaction) => reaction.userIds.length).map((reaction) => ({ ...reaction, count: reaction.userIds.length, me: !!registry.accountId && reaction.userIds.includes(registry.accountId) })) }
+  }, (row) => row.id === messageId, [messageId], ["reactions", field]))
+}
+
+export function publishCommunityForumFeed(queryClient: QueryClient, forumChannelId: string, page: ForumFeedTransportPage, proof: CommunityFreshQueryProof) {
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
+  const registry = proof.token.registry!
+  return withCanonicalWriteContext(queryClient, { kind: "query", requestRevision: proof.token.canonicalRevision, profileSnapshot: proof.token.profileSnapshot }, () => notifyManager.batch(() => {
+    const existing = new Map(collectionRows(registry, "channels", channelSchema).map((row) => [row.id, row]))
+    const rows: ChannelRow[] = page.threads.map((thread) => ({
+      ...existing.get(thread.id), id: thread.id, serverId: page.serverId, categoryId: null, type: "thread", name: thread.name ?? "Post", creatorId: thread.creatorId,
+      parentChannelId: forumChannelId, parentMessageId: thread.parentMessageId, position: existing.get(thread.id)?.position ?? 0,
+      tags: page.included.tags.filter((tag) => tag.messageId === thread.parentMessageId).map((tag) => tag.tag),
+      archived: page.included.tags.some((tag) => tag.messageId === thread.parentMessageId && tag.tag === FORUM_ARCHIVE_TAG), muted: existing.get(thread.id)?.muted ?? false, unread: existing.get(thread.id)?.unread ?? false, pending: false,
+      createdAt: thread.createdAt, messageCount: thread.messageCount ?? 0, lastMessageAt: thread.activityAt,
+      preview: page.included.firstMessages.find((message) => message.channelId === thread.id)?.content.slice(0, 100) ?? "",
+      participantCount: page.included.participants.find((participant) => participant.channelId === thread.id)?.participantCount ?? 0,
+    }))
+    upsertRows(registry, "channels", channelSchema, (row) => row.id, rows)
+    ingestMessages(registry, forumChannelId, page.included.parentMessages.map((message) => ({ ...message, type: "chat", authorAvatar: canonicalUserImage(message.authorId, message.authorImage, message.authorAvatarVersion) ?? undefined })))
+    upsertRows(registry, "channelMemberships", channelMembershipSchema, (row) => row.id, page.included.participants.map((participant) => ({ id: channelMembershipKey(participant.channelId, participant.userId, "notify"), channelId: participant.channelId, userId: participant.userId, relation: "notify", source: "explicit" })))
+  }))
+}
+
+export function publishCommunityForumTags(queryClient: QueryClient, threadId: string, tags: string[], proof: CommunityFreshQueryProof) {
+  return publishConfirmedFields<ChannelRow>(queryClient, "channels", channelSchema, threadId, { tags }, proof)
+}
+
+export function publishCommunityNotificationSetting(queryClient: QueryClient, target: Pick<NotificationSettingRow, "serverId" | "channelId">, level: string | null, proof: CommunityFreshQueryProof) {
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
+  const registry = proof.token.registry!, id = notificationSettingKey(target)
+  if ((canonicalRevisionState(queryClient).entityRevisions.get(canonicalEntityKey("notificationSettings", id)) ?? 0) > proof.token.canonicalRevision) return false
+  return withCanonicalWriteContext(queryClient, { kind: "event" }, () => {
+    if (level === null) deleteRows(registry, "notificationSettings", notificationSettingSchema, (row) => row.id === id, [id])
+    else upsertRows(registry, "notificationSettings", notificationSettingSchema, (row) => row.id, [{ id, ...target, level }])
+    return true
+  })
+}
+
+export function publishCommunityFriendships(queryClient: QueryClient, rows: FriendshipRow[], proof: CommunityFreshQueryProof) {
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
+  const state = canonicalRevisionState(queryClient), registry = proof.token.registry!
+  return withCanonicalWriteContext(queryClient, { kind: "query", requestRevision: proof.token.canonicalRevision, profileSnapshot: proof.token.profileSnapshot }, () => notifyManager.batch(() => {
+    const previous = collectionRows(registry, "friendships", friendshipSchema).filter((row) => row.kind === "incoming" || row.kind === "outgoing")
+    replaceRows(registry, "friendships", friendshipSchema, (row) => row.id, rows.filter((row) => (state.entityRevisions.get(canonicalEntityKey("friendships", `user:${row.userId}`)) ?? 0) <= proof.token.canonicalRevision), () => true)
+    const pending = new Set(collectionRows(registry, "friendships", friendshipSchema).filter((row) => row.kind === "incoming" || row.kind === "outgoing").map((row) => row.id))
+    retireCanonicalFriendRequests(registry, previous.filter((row) => !pending.has(row.id)).map((row) => row.id))
+  }))
+}
+
+export function removeSettledCommunityFriendCommands(queryClient: QueryClient, ids: readonly string[]) {
+  const cache = queryClient.getMutationCache()
+  for (const mutation of cache.findAll({ mutationKey: ["community", "friend-request"], predicate: (entry) => entry.state.status !== "pending" && ids.includes((entry.state.variables as { friendshipId?: string } | undefined)?.friendshipId ?? "") })) cache.remove(mutation)
+}
+
+function retireCanonicalFriendRequests(registry: CommunityDbRegistry, ids: readonly string[]) {
+  const eligible = new Set(ids.filter((id) => !isProtectedFromQueryWrite(registry, "friendships", id)))
+  if (!eligible.size) return
+  const items = collectionRows(registry, "attentionItems", attentionItemSchema).filter((row) => row.kind === "friend_request" && eligible.has(row.sourceId) && !isProtectedFromQueryWrite(registry, "attentionItems", row.id))
+  const present = new Set(collectionRows(registry, "friendships", friendshipSchema).filter((row) => eligible.has(row.id) && row.kind === "accepted").map((row) => row.id))
+  withCanonicalWriteContext(registry.queryClient, { kind: "event" }, () => {
+    deleteRows(registry, "friendships", friendshipSchema, (row) => eligible.has(row.id) && (row.kind === "incoming" || row.kind === "outgoing"), [...eligible].filter((id) => !present.has(id)))
+    recordEventPatches<FriendshipRow>(registry, "friendships", present, (row) => ({ ...row, kind: "accepted" }), present, ["kind"])
+    const attentionIds = new Set([...items.map((row) => row.id), ...[...eligible].map((id) => `friend_request:${id}`)])
+    deleteRows(registry, "attentionItems", attentionItemSchema, (row) => attentionIds.has(row.id), attentionIds)
+  })
+  removeSettledCommunityFriendCommands(registry.queryClient, [...eligible])
+}
+
+export function publishCommunityFriendDecision(queryClient: QueryClient, friendshipId: string, action: "accept" | "reject" | "remove", proof: CommunityFreshQueryProof) {
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
+  const registry = proof.token.registry!
+  if (action === "accept") publishConfirmedFields<FriendshipRow>(queryClient, "friendships", friendshipSchema, friendshipId, { kind: "accepted" as const, needsOwnerApproval: null }, proof)
+  else if ((canonicalRevisionState(queryClient).entityRevisions.get(canonicalEntityKey("friendships", friendshipId)) ?? 0) <= proof.token.canonicalRevision) withCanonicalWriteContext(queryClient, { kind: "event" }, () => deleteRows(registry, "friendships", friendshipSchema, (row) => row.id === friendshipId, [friendshipId]))
+  withCanonicalWriteContext(queryClient, { kind: "event" }, () => deleteRows(registry, "attentionItems", attentionItemSchema, (row) => row.kind === "friend_request" && row.sourceId === friendshipId))
+  removeSettledCommunityFriendCommands(queryClient, [friendshipId])
+}
+
+export function publishCommunityFriendBlock(queryClient: QueryClient, userId: string, blocked: boolean, proof: CommunityFreshQueryProof) {
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
+  const registry = proof.token.registry!, state = canonicalRevisionState(queryClient)
+  if ((state.entityRevisions.get(canonicalEntityKey("friendships", `user:${userId}`)) ?? 0) > proof.token.canonicalRevision) return
+  const retired = blocked ? collectionRows(registry, "friendships", friendshipSchema).filter((row) => row.userId === userId).map((row) => row.id) : []
+  withCanonicalWriteContext(queryClient, { kind: "event" }, () => notifyManager.batch(() => {
+    recordEventWrites(registry, "friendships", [`user:${userId}`])
+    deleteRows(registry, "friendships", friendshipSchema, (row) => row.userId === userId && (blocked || row.kind === "blocked"))
+    if (blocked) {
+      upsertRows(registry, "friendships", friendshipSchema, (row) => row.id, [{ id: `blocked:${userId}`, userId, kind: "blocked" }])
+      deleteRows(registry, "attentionItems", attentionItemSchema, (row) => row.kind === "friend_request" && row.actorUserId === userId)
+    }
+  }))
+  removeSettledCommunityFriendCommands(queryClient, retired)
+}
+
+function publishCreatedTreeRow<T extends { id: string }>(
+  queryClient: QueryClient,
+  name: "channels" | "categories",
+  schema: z.ZodType<T>,
+  row: T,
+  proof: CommunityFreshQueryProof,
+) {
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
+  const registry = proof.token.registry!
+  const existing = collectionRows(registry, name, schema).find((current) => current.id === row.id)
+  if (!existing) withCanonicalWriteContext(queryClient, { kind: "query", requestRevision: proof.token.canonicalRevision, profileSnapshot: proof.token.profileSnapshot }, () => {
+    upsertRows(registry, name, schema, (value) => value.id, [row])
+  })
+  if (collectionRows(registry, name, schema).some((current) => current.id === row.id)) {
+    withCanonicalWriteContext(queryClient, { kind: "event" }, () => recordEventWrites(registry, name, [row.id]))
+  }
+}
+
+export function publishCommunityCreatedChannel(queryClient: QueryClient, row: ChannelRow, proof: CommunityFreshQueryProof) {
+  publishCreatedTreeRow(queryClient, "channels", channelSchema, row, proof)
+  const registry = proof.token.registry!
+  if (!registry.accountId || !collectionRows(registry, "channels", channelSchema).some((current) => current.id === row.id)) return
+  withCanonicalWriteContext(queryClient, { kind: "event" }, () => upsertRows(
+    registry, "channelMemberships", channelMembershipSchema, (value) => value.id,
+    [{ id: channelMembershipKey(row.id, registry.accountId!, "access"), channelId: row.id, userId: registry.accountId!, relation: "access", source: "inherited" }],
+  ))
+}
+
+export function publishCommunityCreatedCategory(queryClient: QueryClient, row: CategoryRow, proof: CommunityFreshQueryProof) {
+  publishCreatedTreeRow(queryClient, "categories", categorySchema, row, proof)
+}
+
+export function publishCommunityDeletedCategory(queryClient: QueryClient, categoryId: string, proof: CommunityFreshQueryProof) {
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
+  withCanonicalWriteContext(queryClient, { kind: "event" }, () => deleteRows(proof.token.registry!, "categories", categorySchema, (row) => row.id === categoryId, [categoryId]))
+}
+
+export function publishCommunityServerMembershipRemoval(queryClient: QueryClient, serverId: string, proof: CommunityFreshQueryProof) {
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
+  const registry = proof.token.registry!
+  withCanonicalWriteContext(queryClient, { kind: "event" }, () => deleteRows(
+    registry, "serverMemberships", serverMembershipSchema,
+    (row) => row.serverId === serverId && row.viewer && row.userId === registry.accountId,
+  ))
 }
 
 export function patchCanonicalCommunityMessage(
@@ -2265,18 +2510,6 @@ export function patchCanonicalCommunityMessage(
       (row) => row.id === messageId,
     )
   ))
-}
-
-export function removeCanonicalCommunityChannel(
-  queryClient: QueryClient,
-  channelId: string,
-) {
-  const registry = getCommunityDbRegistry(queryClient)
-  if (!registry) return false
-  const exists = collectionRows(registry, "channels", channelSchema)
-    .some((row) => row.id === channelId)
-  if (exists) purgeCommunityChannel(registry, channelId)
-  return exists
 }
 
 export function removeCanonicalCommunityChannelMembership(
@@ -2306,26 +2539,37 @@ export function setCanonicalCommunityChannelMembership(
 ) {
   const registry = getCommunityDbRegistry(queryClient)
   if (!registry?.accountId) return false
-  if (!present) {
-    return removeCanonicalCommunityChannelMembership(queryClient, channelId, relation)
-  }
-  const viewerId = registry.accountId
+  return setCanonicalCommunityChannelMember(queryClient, channelId, registry.accountId, relation, present, options)
+}
+
+export function setCanonicalCommunityChannelMember(queryClient: QueryClient, channelId: string, userId: string, relation: "access" | "notify", present: boolean, options?: { event?: boolean; proof?: CommunityFreshQueryProof }) {
+  if (options?.proof) assertCommunityLiveSnapshotTokenCurrent(queryClient, options.proof.token, options.proof.signal)
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry?.runtime.lifecycle.get().active) return false
+  const id = channelMembershipKey(channelId, userId, relation)
   const write = () => {
+    if (!present) {
+      deleteRows(registry, "channelMemberships", channelMembershipSchema, (row) => row.id === id, [id])
+      return true
+    }
+    const previous = collectionRows(registry, "channelMemberships", channelMembershipSchema).find((row) => row.id === id)
     upsertRows(
       registry,
       "channelMemberships",
       channelMembershipSchema,
       (row) => row.id,
       [{
-        id: channelMembershipKey(channelId, viewerId, relation),
+        ...previous,
+        id,
         channelId,
-        userId: viewerId,
+        userId,
         relation,
         source: "explicit",
       }],
     )
     return true
   }
+  if (options?.proof) return withCanonicalWriteContext(queryClient, { kind: "query", requestRevision: options.proof.token.canonicalRevision, profileSnapshot: options.proof.token.profileSnapshot }, () => isProtectedFromQueryWrite(registry, "channelMemberships", id) ? false : withCanonicalWriteContext(queryClient, { kind: "event" }, write))
   return options?.event
     ? withCanonicalWriteContext(queryClient, { kind: "event" }, write)
     : write()
@@ -2334,6 +2578,16 @@ export function setCanonicalCommunityChannelMembership(
 export function getCanonicalCommunityChannels(queryClient: QueryClient) {
   const registry = getCommunityDbRegistry(queryClient)
   return registry ? collectionRows(registry, "channels", channelSchema) : []
+}
+
+export function getCanonicalCommunityAttentionScopes(queryClient: QueryClient) {
+  const registry = getCommunityDbRegistry(queryClient)
+  return registry ? collectionRows(registry, "attentionScopes", attentionScopeSchema) : []
+}
+
+export function getCanonicalCommunityAttentionItems(queryClient: QueryClient) {
+  const registry = getCommunityDbRegistry(queryClient)
+  return registry ? collectionRows(registry, "attentionItems", attentionItemSchema) : []
 }
 
 export function getCanonicalCommunityChannelMemberships(queryClient: QueryClient) {
@@ -2365,15 +2619,14 @@ export function purgeCommunityServer(registry: CommunityDbRegistry, serverId: st
     serverId,
   })
   clearLastChannel(serverId)
-  useCommunityWsStore.getState().revokeServerAccess(serverId)
-  useMessageStreamStore.getState().removeServer(serverId)
-  void registry.queryClient.cancelQueries({ queryKey: communityKeys.server(serverId) })
+  registry.runtime.ws.actions.revokeServerAccess(serverId)
+  registry.runtime.messageStream.actions.removeServer(serverId)
+  void registry.queryClient.cancelQueries({ queryKey: communityKeys.server(serverId) }, { revert: false })
   registry.queryClient.removeQueries({ queryKey: communityKeys.server(serverId) })
-  const community = useCommunityStore.getState()
+  const community = registry.runtime.ui.get()
   if (community.currentServerId === serverId) {
-    community.setCurrentChannelMeta(null)
-    community.setCurrentChannelId(null)
-    community.setCurrentServerId(null)
+    registry.runtime.ui.actions.setCurrentChannelId(null)
+    registry.runtime.ui.actions.setCurrentServerId(null)
   }
   notifyManager.batch(() => {
     deleteRows(registry, "servers", serverSchema, (row) => row.id === serverId, [serverId])
@@ -2397,7 +2650,7 @@ export function purgeCommunityServer(registry: CommunityDbRegistry, serverId: st
   })
 }
 
-export function purgeCommunityChannel(registry: CommunityDbRegistry, channelId: string) {
+export function purgeCommunityChannel(registry: CommunityDbRegistry, channelId: string, clearTransient = true) {
   if (isProtectedFromQueryWrite(registry, "channels", channelId)) return
   const channels = collectionRows(registry, "channels", channelSchema)
   const root = channels.find((row) => row.id === channelId)
@@ -2407,7 +2660,7 @@ export function purgeCommunityChannel(registry: CommunityDbRegistry, channelId: 
       .filter((row) => row.id === channelId || row.parentChannelId === channelId)
       .map((row) => row.id),
   ])
-  clearChannelTransientState(registry, removed, root?.serverId ?? null)
+  if (clearTransient) clearChannelTransientState(registry, removed, root?.serverId ?? null)
   notifyManager.batch(() => {
     deleteRows(registry, "channels", channelSchema, (row) => removed.has(row.id), [channelId])
     deleteRows(registry, "channelMemberships", channelMembershipSchema, (row) => removed.has(row.channelId))
@@ -2422,6 +2675,22 @@ export function purgeCommunityChannel(registry: CommunityDbRegistry, channelId: 
     ))
     garbageCollectCommunityProfiles(registry)
   })
+}
+
+export function purgeCommunityForumPost(registry: CommunityDbRegistry, unit: { childChannelId: string; openerMessageId: string }, clearTransient = true) {
+  withCanonicalWriteContext(registry.queryClient, { kind: "event" }, () => notifyManager.batch(() => {
+    purgeCommunityChannel(registry, unit.childChannelId, clearTransient)
+    deleteRows(registry, "messages", messageSchema, (row) => row.id === unit.openerMessageId, [unit.openerMessageId])
+    deleteRows(registry, "attentionItems", attentionItemSchema, (row) => row.childChannelId === unit.childChannelId || row.messageId === unit.openerMessageId)
+  }))
+}
+
+export function publishCommunityDeletedForumPost(queryClient: QueryClient, unit: { childChannelId: string; openerMessageId: string }, proof: CommunityFreshQueryProof) {
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
+  const state = canonicalRevisionState(queryClient)
+  if ((state.entityRevisions.get(canonicalEntityKey("channels", unit.childChannelId)) ?? 0) > proof.token.canonicalRevision || (state.entityRevisions.get(canonicalEntityKey("messages", unit.openerMessageId)) ?? 0) > proof.token.canonicalRevision) return false
+  purgeCommunityForumPost(proof.token.registry!, unit, false)
+  return true
 }
 
 function projectProfilePatch(
@@ -2446,6 +2715,34 @@ export function projectCommunityWsEventToDb(
   if (!registry) return
   return withCanonicalWriteContext(queryClient, { kind: "event" }, () => {
     switch (event.type) {
+    case "community:friend.request": {
+      const row = event.friendship
+      const otherId = row.requesterId === registry.accountId ? row.addresseeId : row.requesterId
+      if (collectionRows(registry, "friendships", friendshipSchema).some((friendship) => friendship.kind === "blocked" && friendship.userId === otherId)) break
+      const outgoing = row.requesterId === registry.accountId
+      upsertRows(registry, "friendships", friendshipSchema, (friendship) => friendship.id, [{ id: row.id, userId: outgoing ? row.addresseeId : row.requesterId, kind: outgoing ? "outgoing" : "incoming" }])
+      return
+    }
+    case "community:friend.accept":
+      patchRows(registry, "friendships", friendshipSchema, (row) => row.id, (row) => ({ ...row, kind: "accepted" as const, needsOwnerApproval: null }), (row) => row.id === event.friendshipId, [event.friendshipId], ["kind", "needsOwnerApproval"])
+      deleteRows(registry, "attentionItems", attentionItemSchema, (row) => row.kind === "friend_request" && row.sourceId === event.friendshipId)
+      removeSettledCommunityFriendCommands(queryClient, [event.friendshipId])
+      return
+    case "community:friend.reject":
+    case "community:friend.remove":
+      deleteRows(registry, "friendships", friendshipSchema, (row) => row.id === event.friendshipId, [event.friendshipId])
+      deleteRows(registry, "attentionItems", attentionItemSchema, (row) => row.kind === "friend_request" && row.sourceId === event.friendshipId)
+      removeSettledCommunityFriendCommands(queryClient, [event.friendshipId])
+      return
+    case "community:friend.block": {
+      const retired = collectionRows(registry, "friendships", friendshipSchema).filter((row) => row.userId === event.userId).map((row) => row.id)
+      recordEventWrites(registry, "friendships", [`user:${event.userId}`])
+      deleteRows(registry, "friendships", friendshipSchema, (row) => row.userId === event.userId)
+      upsertRows(registry, "friendships", friendshipSchema, (row) => row.id, [{ id: `blocked:${event.userId}`, userId: event.userId, kind: "blocked" }])
+      deleteRows(registry, "attentionItems", attentionItemSchema, (row) => row.kind === "friend_request" && row.actorUserId === event.userId)
+      removeSettledCommunityFriendCommands(queryClient, retired)
+      return
+    }
     case "community:message.create":
       ingestMessages(registry, event.channelId, [projectCommunityMessageCreate(event.message)])
       if (event.message.createdAt) {
@@ -2469,6 +2766,7 @@ export function projectCommunityWsEventToDb(
         (row) => ({ ...row, content: event.content }),
         (row) => row.id === event.messageId,
         [event.messageId],
+        ["content"],
       )
       return
     case "community:message.updated":
@@ -2480,6 +2778,7 @@ export function projectCommunityWsEventToDb(
         (row) => ({ ...row, approval: event.approval }),
         (row) => row.id === event.messageId,
         [event.messageId],
+        ["approval"],
       )
       return
     case "community:reaction.add":
@@ -2518,6 +2817,7 @@ export function projectCommunityWsEventToDb(
         },
         (row) => row.id === event.messageId,
         [event.messageId],
+        ["reactions", `reaction:${event.emoji}:${event.userId}`],
       )
       return
     case "community:channel.child_create": {
@@ -2571,9 +2871,11 @@ export function projectCommunityWsEventToDb(
           ...(event.changes.archived === undefined ? {} : { archived: event.changes.archived }),
           ...(event.changes.tags === undefined ? {} : { tags: event.changes.tags ?? [] }),
           ...(event.changes.lastMessageAt === undefined ? {} : { lastMessageAt: event.changes.lastMessageAt }),
+          ...(event.changes.messageCount === undefined ? {} : { messageCount: event.changes.messageCount }),
         }),
         (row) => row.id === event.channelId,
         [event.channelId],
+        Object.keys(event.changes),
       )
       return
     case "community:server.update":
@@ -2585,9 +2887,11 @@ export function projectCommunityWsEventToDb(
         (row) => ({ ...row, ...event.changes }),
         (row) => row.id === event.serverId,
         [event.serverId],
+        Object.keys(event.changes),
       )
       return
     case "community:server.delete":
+      if (isOwnerServerDeleteScopeEvictionBlocked(registry.queryClient, event.serverId)) return
       purgeCommunityServer(registry, event.serverId)
       return
     case "community:channel.create":
@@ -2618,10 +2922,13 @@ export function projectCommunityWsEventToDb(
         (row) => ({ ...row, ...event.changes }),
         (row) => row.id === event.channelId,
         [event.channelId],
+        Object.keys(event.changes),
       )
       return
     case "community:channel.delete":
-      purgeCommunityChannel(registry, event.channelId)
+      if (event.parentChannelId && event.parentMessageId) {
+        purgeCommunityForumPost(registry, { childChannelId: event.channelId, openerMessageId: event.parentMessageId })
+      } else purgeCommunityChannel(registry, event.channelId)
       return
     case "community:channel.reorder": {
       const positionById = new Map(event.channels.map((row) => [row.id, row.position]))
@@ -2633,6 +2940,7 @@ export function projectCommunityWsEventToDb(
         (row) => ({ ...row, position: positionById.get(row.id) ?? row.position }),
         (row) => row.serverId === event.serverId && positionById.has(row.id),
         positionById.keys(),
+        ["position"],
       )
       return
     }
@@ -2661,6 +2969,7 @@ export function projectCommunityWsEventToDb(
         (row) => ({ ...row, ...event.changes }),
         (row) => row.id === event.categoryId,
         [event.categoryId],
+        Object.keys(event.changes),
       )
       return
     case "community:category.delete":
@@ -2682,6 +2991,7 @@ export function projectCommunityWsEventToDb(
         (row) => ({ ...row, position: positionById.get(row.id) ?? row.position }),
         (row) => row.serverId === event.serverId && positionById.has(row.id),
         positionById.keys(),
+        ["position"],
       )
       return
     }
@@ -2711,6 +3021,7 @@ export function projectCommunityWsEventToDb(
           "serverMemberships",
           serverMembershipSchema,
           (row) => row.serverId === event.serverId && row.userId === event.userId,
+          [serverMembershipKey(event.serverId, event.userId)],
         )
       }
       return
@@ -2723,6 +3034,8 @@ export function projectCommunityWsEventToDb(
         (row) => ({ ...row, ...event.changes }),
         (row) => row.serverId === event.serverId
           && (row.memberId === event.memberId || Boolean(event.userId && row.userId === event.userId)),
+        event.userId ? [serverMembershipKey(event.serverId, event.userId)] : undefined,
+        Object.keys(event.changes),
       )
       return
     case "community:unread.bump":
@@ -2795,6 +3108,14 @@ export function installCommunityDbSync(
   // Canonical collections hydrate themselves. Raw Query payloads are never
   // replayed into DB: a cache notification does not prove request freshness.
   void queryClient
-  void registry.preload()
+  void registry.preload().catch((error: unknown) => {
+    if (isAbortError(error)) return
+    console.error("Community collection preload failed", error)
+  })
   return () => {}
+}
+
+export function communityRequestOptions(queryClient: QueryClient, signal?: AbortSignal) {
+  const token = captureCommunityLiveSnapshotToken(queryClient)
+  return qualifiedCommunityRequestOptions(queryClient, token, signal)
 }

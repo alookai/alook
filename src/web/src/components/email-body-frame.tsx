@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useEffect, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useRef, useEffect } from "react";
 import { useTheme } from "next-themes";
 
 interface EmailBodyFrameProps {
@@ -84,7 +85,7 @@ export function buildSrcDoc(html: string, isDark: boolean): string {
 export function EmailBodyFrame({ html, className }: EmailBodyFrameProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const { resolvedTheme } = useTheme();
-  const [height, setHeight] = useState(200);
+  const [height, setHeight] = useAtom(useCreateAtom(200));
   const isDark = resolvedTheme === "dark";
 
   useEffect(() => {
@@ -115,7 +116,7 @@ export function EmailBodyFrame({ html, className }: EmailBodyFrameProps) {
       iframe.removeEventListener("load", onLoad);
       ro?.disconnect();
     };
-  }, [html, isDark]);
+  }, [html, isDark, setHeight]);
 
   return (
     <iframe

@@ -1,38 +1,27 @@
 "use client"
 
+import { createStore, useSelector } from "@tanstack/react-store"
+import { useMutation, useMutationState, useQueryClient } from "@tanstack/react-query"
 import type React from "react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo } from "react"
 import { Loader2, Search } from "lucide-react"
 import { toast } from "sonner"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Avatar } from "../avatar"
-import {
-  PeoplePickerBody,
-  PeoplePickerHeader,
-  PeoplePickerRowsSkeleton,
-  resolvePeoplePickerViewState,
-} from "../people-picker"
+import { PeoplePickerBody, PeoplePickerHeader, PeoplePickerRowsSkeleton, resolvePeoplePickerViewState } from "../people-picker"
 import { hasStatus } from "./status-presets"
 import { useInvitableFriends } from "@/hooks/community/use-invitable-friends"
-import {
-  useResolveOrCreateInvite,
-  useCreateOrGetDm,
-} from "@/hooks/community/mutations"
+import { useResolveOrCreateInvite, useCreateOrGetDm } from "@/hooks/community/mutations"
 import { useFriendsPresence } from "@/hooks/community/use-friends"
-import {
-  useDmMessageSender,
-  type DmSendReceipt,
-} from "@/hooks/community/use-dm-message-sender"
+import { useDmMessageSender, type DmSendReceipt } from "@/hooks/community/use-dm-message-sender"
 import { useCurrentUser } from "@/contexts/community/current-user"
+import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
+import { useInvites } from "@/hooks/community/use-server-panels"
+import { isAbortError } from "@/lib/errors"
 import type { Friend } from "@/lib/community/models/people"
-import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
-import { readCommunityProfile } from "@/lib/community/profile-read"
-import {
-  trackHumanInvitationCopied,
-  trackHumanInvitationSent,
-} from "@/lib/analytics"
+import { trackHumanInvitationCopied, trackHumanInvitationSent } from "@/lib/analytics"
 
 const INVITE_ORIGIN =
   typeof window !== "undefined" ? window.location.origin : ""
@@ -160,86 +149,69 @@ export function InviteDialog({
   serverName: string
 }) {
   const currentUser = useCurrentUser()
+  const client = useQueryClient()
+  const view = useCommunityViewSource("server-invite:" + serverId, open)
+  const ui = useMemo(() => ({ scope: [serverId, currentUser.id, open], store: createStore({ query: "", invitedUserIds: new Set<string>() }) }), [serverId, currentUser.id, open]).store
+  const query = useSelector(ui, (state) => state.query)
+  const invitedUserIds = useSelector(ui, (state) => state.invitedUserIds)
+  const setQuery = (query: string) => ui.setState((state) => ({ ...state, query }))
   useFriendsPresence(open)
-  const profilesByUserId = useCanonicalProfilesByUserId()
-  // Only friends who are NOT already members of `serverId` — server-side
-  // filter so a stale local members cache can't leak already-joined rows.
   const friendsQuery = useInvitableFriends(serverId, open)
+  const invitesQuery = useInvites(serverId, open)
   const { friends } = friendsQuery
-  const resolveOrCreate = useResolveOrCreateInvite(serverId)
+  const resolver = useResolveOrCreateInvite(serverId)
   const createOrGetDm = useCreateOrGetDm()
   const { accept: acceptDmMessage } = useDmMessageSender()
-
-  const [token, setToken] = useState<string | null>(null)
-  const [resolveError, setResolveError] = useState<string | null>(null)
-  const [invitedUserIds, setInvitedUserIds] = useState<Set<string>>(new Set())
-  const [invitingUserIds, setInvitingUserIds] = useState<Set<string>>(new Set())
-  const inFlightUserIdsRef = useRef<Set<string>>(new Set())
-  const [query, setQuery] = useState("")
-
-  // Resolve on open. Only depends on `open` + `token` — resolveOrCreate is a
-  // hook that captures a fresh mutation object each render, so including it in
-  // deps would loop. We read its latest identity via a closure at call time
-  // instead, which is safe because we only need the "current" version.
+  const currentResolution = resolver.variables?.assert.signal === view.signal
+  const selectedCode = currentResolution ? resolver.data?.token : undefined
+  const token = invitesQuery.invites.find((row) => row.code === selectedCode)?.code
+  const resolveError = currentResolution && resolver.error && !isAbortError(resolver.error) ? resolver.error.message : null
+  const resolveInvite = resolver.mutate
   useEffect(() => {
-    if (!open || token) return
-    let cancelled = false
-    setResolveError(null)
-    resolveOrCreate(currentUser.id, currentUser.name)
-      .then((iv) => {
-        if (!cancelled) setToken(iv.token)
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return
-        const msg = err instanceof Error ? err.message : "Couldn't create an invite"
-        setResolveError(msg)
-      })
-    return () => {
-      cancelled = true
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, token])
+    if (!open || currentResolution) return
+    const assert = view.capture()
+    resolveInvite({ currentUserId: currentUser.id, assert })
+  }, [open, currentResolution, view, currentUser.id, resolveInvite])
 
-  // Reset local per-open state when the dialog closes — wrapping the caller's
-  // onOpenChange keeps this in the click handler path (not an effect), so
-  // there's no dependency-array churn like the previous useEffect implementation.
+  type SendIntent = { userId: string; token: string; author: { id: string; name: string; avatar: string }; assert: ReturnType<typeof view.capture> }
+  const sendKey = ["community", "invite-send", serverId]
+  const sender = useMutation({
+    mutationKey: sendKey,
+    gcTime: 0,
+    mutationFn: async ({ userId, token, author, assert }: SendIntent) => {
+      assert()
+      const { conversation } = await createOrGetDm.mutateAsync({ userId, assertActive: assert })
+      assert()
+      const receipt = acceptDmMessage({ dmId: conversation.id, content: inviteUrl(token), author, assertActive: assert })
+      await awaitCommittedInvite(receipt, () => { assert(); trackHumanInvitationSent() })
+      assert()
+      ui.setState((state) => ({ ...state, invitedUserIds: new Set(state.invitedUserIds).add(userId) }))
+    },
+    onError: (error, intent) => {
+      try { intent.assert() } catch { return }
+      if (!isAbortError(error)) toast(error instanceof Error ? error.message : "Couldn't send invite")
+    },
+  })
+  const pending = useMutationState({ filters: { mutationKey: sendKey, status: "pending" }, select: (mutation) => mutation.state.variables as SendIntent | undefined })
+  const invitingUserIds = new Set(pending.filter((intent) => intent?.assert.signal === view.signal).map((intent) => intent!.userId))
+  const copier = useMutation({
+    gcTime: 0,
+    mutationFn: async ({ token, assert }: { token: string; assert: ReturnType<typeof view.capture> }) => {
+      assert()
+      await copyInviteLink(inviteUrl(token), (value) => { assert(); return navigator.clipboard.writeText(value) }, () => { assert(); trackHumanInvitationCopied() })
+      assert()
+      toast("Invite link copied")
+    },
+    onError: (_error, intent) => { try { intent.assert(); toast("Couldn't copy — copy manually") } catch {} },
+  })
   const handleOpenChange = (next: boolean) => {
-    if (!next) {
-      setInvitedUserIds(new Set())
-      setQuery("")
-    }
+    if (!next) view.retire()
     onOpenChange(next)
   }
-
   const eligibleFriends = useMemo<Friend[]>(() => {
-    const q = query.trim().toLowerCase()
-    return friends
-      .map((friend) => {
-        const userId = friend.userId ?? friend.id
-        const canonical = profilesByUserId.get(userId)
-        const profile = canonical
-          ? readCommunityProfile(canonical, userId)
-          : { ...friend, presence: friend.status }
-        return {
-          ...friend,
-          name: profile.name,
-          discriminator: profile.discriminator,
-          avatar: profile.avatar,
-          avatarVersion: profile.avatarVersion,
-          status: profile.presence,
-          statusEmoji: profile.statusEmoji,
-          statusText: profile.statusText,
-        }
-      })
-      .filter((f) => {
-        if (!q) return true
-        return (
-          f.name.toLowerCase().includes(q) ||
-          (f.sub ?? "").toLowerCase().includes(q)
-        )
-      })
-  }, [friends, profilesByUserId, query])
-
+    const normalized = query.trim().toLowerCase()
+    return friends.filter((friend) => !normalized || friend.name.toLowerCase().includes(normalized) || friend.sub.toLowerCase().includes(normalized))
+  }, [friends, query])
   const pickerState = resolvePeoplePickerViewState({
     resolved: friendsQuery.data !== undefined,
     loading: friendsQuery.isLoading,
@@ -248,46 +220,14 @@ export function InviteDialog({
     visibleCount: eligibleFriends.length,
     query,
   })
-
-  const inviteFriend = async (friend: Friend) => {
-    if (!token || !friend.userId) return
-    const userId = friend.userId
-    await runInviteFriend(
-      userId,
-      inFlightUserIdsRef.current,
-      async () => {
-        const { conversation } = await createOrGetDm.mutateAsync({ userId })
-        const receipt = acceptDmMessage({
-          dmId: conversation.id,
-          content: inviteUrl(token),
-          author: {
-            id: currentUser.id,
-            name: currentUser.name,
-            avatar: currentUser.avatar,
-          },
-        })
-        await awaitCommittedInvite(receipt)
-      },
-      (invitedUserId) => {
-        setInvitedUserIds((prev) => {
-          const next = new Set(prev)
-          next.add(invitedUserId)
-          return next
-        })
-      },
-      setInvitingUserIds,
-    )
+  const inviteFriend = (friend: Friend) => {
+    if (!token || !friend.userId || ui.get().invitedUserIds.has(friend.userId)) return
+    const assert = view.capture()
+    const pending = client.getMutationCache().findAll({ mutationKey: sendKey, status: "pending" })
+    if (pending.some((mutation) => { const intent = mutation.state.variables as SendIntent | undefined; return intent && intent.userId === friend.userId && intent.assert.signal === assert.signal })) return
+    sender.mutate({ userId: friend.userId, token, author: { id: currentUser.id, name: currentUser.name, avatar: currentUser.avatar }, assert })
   }
-
-  const copyLink = async () => {
-    if (!token) return
-    try {
-      await copyInviteLink(inviteUrl(token), (value) => navigator.clipboard.writeText(value))
-      toast("Invite link copied")
-    } catch {
-      toast("Couldn't copy — copy manually")
-    }
-  }
+  const copyLink = () => { if (token && !copier.isPending) copier.mutate({ token, assert: view.capture() }) }
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>

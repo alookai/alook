@@ -92,10 +92,10 @@ describe("onboarding preview flow", () => {
 
   it("keeps onboarding mounted until shell navigation commits the new room", () => {
     expect(onboardingFormSource).toMatch(
-      /onContinue=\{\(\) => \{[\s\S]*?pendingCompletionDestinationRef\.current = destination[\s\S]*?navigate\(initializationResult\.serverId, initializationResult\.publicChannelId\)/,
+      /onContinue=\{\(\) => \{[\s\S]*?pendingDestination: destination[\s\S]*?navigate\(initializationResult\.serverId, initializationResult\.publicChannelId\)/,
     )
     expect(onboardingFormSource).toMatch(
-      /const pendingDestination = pendingCompletionDestinationRef\.current[\s\S]*?pathname !== pendingDestination[\s\S]*?pendingCompletionDestinationRef\.current = null[\s\S]*?completeCommunityOnboarding\(\)/,
+      /const pendingDestination = protocol\?\.pendingDestination[\s\S]*?pathname !== pendingDestination[\s\S]*?completeCommunityOnboarding\(communityRuntime\)/,
     )
   })
 })

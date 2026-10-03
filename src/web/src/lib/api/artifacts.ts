@@ -1,12 +1,15 @@
 import type { Artifact } from "@alook/shared";
-import { apiFetch, wsQuery } from "./client";
+import type { ApiRequestOptions } from "./client";
+import { apiFetch, apiFetchResponse, wsQuery } from "./client";
 
-export const listArtifacts = (conversationId: string, workspaceId: string) =>
-  apiFetch<Artifact[]>(`/api/artifacts${wsQuery(workspaceId, { conversation_id: conversationId })}`);
+export const listArtifacts = (conversationId: string, workspaceId: string, options?: ApiRequestOptions) =>
+  apiFetch<Artifact[]>(`/api/artifacts${wsQuery(workspaceId, { conversation_id: conversationId })}`, options);
 
-export const getArtifactContent = async (id: string, workspaceId: string): Promise<string> => {
+export const getArtifactContent = async (id: string, workspaceId: string, options?: ApiRequestOptions): Promise<string> => {
   const params = new URLSearchParams({ workspace_id: workspaceId });
-  const res = await fetch(`/api/artifacts/${id}/content?${params}`, { credentials: "include" });
-  if (!res.ok) return "(content not available)";
-  return res.text();
+  const res = await apiFetchResponse(`/api/artifacts/${id}/content?${params}`, options);
+  const text = await res.text();
+  options?.assertActive?.();
+  if (options?.signal?.aborted) throw new DOMException("Retired artifact content", "AbortError");
+  return text;
 };

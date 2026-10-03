@@ -1,6 +1,11 @@
 "use client"
+import { useCommunityRuntime } from "@/stores/community/runtime"
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { createStore, useSelector, useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useMutationState, useQueryClient } from "@tanstack/react-query"
+import { communityKeys } from "@/lib/query-keys"
+import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { isPresenceOnline } from "@alook/shared"
 import { toast } from "sonner"
@@ -15,6 +20,7 @@ import {
   useResetMachineAgents,
   useSetBotActive,
   type BotSummary,
+  type BotsResourceResponse,
 } from "@/hooks/community/use-bots"
 import { useCreateOrGetDm } from "@/hooks/community/mutations"
 import { useUiHandlers } from "@/stores/community"
@@ -29,13 +35,18 @@ import {
 import type { BotListController } from "./bot-list-types"
 
 export function useBotListController(): BotListController {
+  const communityRuntime = useCommunityRuntime()
+  const client = useQueryClient()
+  const protocol = useMemo(() => createStore({ scrolledFor: null as string | null, suppressedAudit: null as string | null, targetAudit: null as string | null, activityOpen: false, activityGeneration: 0 }), [])
+  const patchProtocol = useCallback((patch: Partial<ReturnType<typeof protocol.get>>) => protocol.setState((state) => ({ ...state, ...patch })), [protocol])
   const router = useRouter()
+  const source = useCommunityViewSource("bot-list")
   const uiHandlers = useUiHandlers()
   const searchParams = useSearchParams()
   const botsQuery = useBots()
   const { bots, isLoading } = botsQuery
   const botsResolved = botsQuery.data !== undefined
-  const [billingOpen, setBillingOpen] = useState(false)
+  const [billingOpen, setBillingOpen] = useAtom(useCreateAtom(false))
   const canShowLimit = botsResolved
   const viewPlan = () => {
     const next = new URL(window.location.href)
@@ -44,25 +55,34 @@ export function useBotListController(): BotListController {
     window.history.pushState(null, "", `${next.pathname}${next.search}${next.hash}`)
   }
   const { machines, isLoading: machinesLoading } = useMachines()
-  const profilesByUserId = useCanonicalProfilesByUserId()
-  const [createOpen, setCreateOpen] = useState(false)
-  const [editingBot, setEditingBot] = useState<BotSummary | null>(null)
-  const [editOpen, setEditOpen] = useState(false)
-  const [activityBot, setActivityBot] = useState<BotSummary | null>(null)
-  const [activityOpen, setActivityOpen] = useState(false)
-  const [activityGeneration, setActivityGeneration] = useState(0)
-  const [bugReportBot, setBugReportBot] = useState<Pick<BotSummary, "id" | "name"> | null>(null)
-  const [bugReportOpen, setBugReportOpen] = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState<BotSummary | null>(null)
-  const [confirmReset, setConfirmReset] = useState<BotSummary | null>(null)
-  const [confirmResetMachine, setConfirmResetMachine] = useState<string | null>(null)
-  const [collapsedMachines, setCollapsedMachines] = useState<Set<string>>(
-    () => new Set(),
-  )
-  const [helpOpen, setHelpOpen] = useState(false)
-  const [pendingActiveBotIds, setPendingActiveBotIds] = useState<Set<string>>(
-    () => new Set(),
-  )
+  const profilesByUserId = useCanonicalProfilesByUserId(bots.map((bot) => bot.id))
+  const [createOpen, setCreateOpen] = useAtom(useCreateAtom(false))
+  const [editingBotId, setEditingBotId] = useAtom(useCreateAtom<string | null>(null))
+  const editingBot = bots.find((bot) => bot.id === editingBotId) ?? null
+  const setEditingBot = (bot: BotSummary | null) => setEditingBotId(bot?.id ?? null)
+  const [editOpen, setEditOpen] = useAtom(useCreateAtom(false))
+  const [activityBotId, setActivityBotId] = useAtom(useCreateAtom<string | null>(null))
+  const activityBot = bots.find((bot) => bot.id === activityBotId) ?? null
+  const setActivityBot = useCallback((bot: BotSummary | null) => setActivityBotId(bot?.id ?? null), [setActivityBotId])
+  const activityOpen = useSelector(protocol, (state) => state.activityOpen)
+  const activityGeneration = useSelector(protocol, (state) => state.activityGeneration)
+  const setActivityOpen = useCallback((activityOpen: boolean) => patchProtocol({ activityOpen }), [patchProtocol])
+  const setActivityGeneration = useCallback((activityGeneration: number) => patchProtocol({ activityGeneration }), [patchProtocol])
+  const [bugReportBotId, setBugReportBotId] = useAtom(useCreateAtom<string | null>(null))
+  const bugReportBot = bots.find((bot) => bot.id === bugReportBotId) ?? null
+  const setBugReportBot = (bot: Pick<BotSummary, "id" | "name"> | null) => setBugReportBotId(bot?.id ?? null)
+  const [bugReportOpen, setBugReportOpen] = useAtom(useCreateAtom(false))
+  const [deleteBotId, setDeleteBotId] = useAtom(useCreateAtom<string | null>(null))
+  const [resetBotId, setResetBotId] = useAtom(useCreateAtom<string | null>(null))
+  const confirmDelete = bots.find((bot) => bot.id === deleteBotId) ?? null
+  const confirmReset = bots.find((bot) => bot.id === resetBotId) ?? null
+  const setConfirmDelete = (bot: BotSummary | null) => setDeleteBotId(bot?.id ?? null)
+  const setConfirmReset = (bot: BotSummary | null) => setResetBotId(bot?.id ?? null)
+  const [confirmResetMachine, setConfirmResetMachine] = useAtom(useCreateAtom<string | null>(null))
+  const [collapsedMachines, setCollapsedMachines] = useAtom(useCreateAtom<Set<string>>(new Set<string>()))
+  const [helpOpen, setHelpOpen] = useAtom(useCreateAtom(false))
+  const pendingBotIds = useMutationState({ filters: { mutationKey: [...communityKeys.bots(), "active-command"], status: "pending" }, select: (mutation) => (mutation.state.variables as { input: { id: string } }).input.id })
+  const pendingActiveBotIds = useMemo(() => new Set(pendingBotIds), [pendingBotIds])
   const del = useDeleteBot()
   const resetSession = useResetBotSession()
   const resetMachineAgents = useResetMachineAgents()
@@ -93,41 +113,47 @@ export function useBotListController(): BotListController {
   const isCreateDisabled = isAtCapacity && guidedCreateLabel === "Create a bot"
 
   const chatWithBot = async (bot: BotSummary) => {
+    const assert = source.capture()
+    assert()
     uiHandlers.cancelPendingNavigation?.()
     try {
-      const data = await createOrGetDm.mutateAsync({ userId: bot.id })
+      const data = await createOrGetDm.mutateAsync({ userId: bot.id, assertActive: assert })
+      assert()
       router.push(`/c/me/${data.conversation.id}`)
     } catch (e) {
-      toastApiError(e, "Failed to open chat")
+      toastApiError(e, "Failed to open chat", assert)
     }
   }
 
   const openGuidedBotDm = async (botId: string) => {
+    const assert = source.capture()
+    assert()
     uiHandlers.cancelPendingNavigation?.()
     try {
-      const data = await createOrGetDm.mutateAsync({ userId: botId })
-      advanceCommunityOnboarding("bot", "dm", {
+      const data = await createOrGetDm.mutateAsync({ userId: botId, assertActive: assert })
+      assert()
+      advanceCommunityOnboarding(communityRuntime, "bot", "dm", {
         botId,
         dmId: data.conversation.id,
       })
       router.push(`/c/me/${data.conversation.id}`)
     } catch (e) {
-      toastApiError(e, "Bot created, but the chat couldn't open")
+      toastApiError(e, "Bot created, but the chat couldn't open", assert)
     }
   }
 
   const onBotCreated = async (bot: BotSummary) => {
-    const state = readCommunityOnboardingState()
+    const state = readCommunityOnboardingState(communityRuntime)
     if (state?.status !== "active" || state.stage !== "bot") return
-    updateCommunityOnboardingResources({ botId: bot.id })
+    updateCommunityOnboardingResources(communityRuntime, { botId: bot.id })
     await openGuidedBotDm(bot.id)
   }
 
   const openGuidedCreate = () => {
-    const state = readCommunityOnboardingState()
+    const state = readCommunityOnboardingState(communityRuntime)
     const hasUsableMachine = machines.some((machine) => isPresenceOnline(machine.status))
     if (state?.status === "active" && state.stage === "bot" && !hasUsableMachine) {
-      recoverCommunityOnboardingMachine()
+      recoverCommunityOnboardingMachine(communityRuntime)
       uiHandlers.cancelPendingNavigation?.()
       router.push("/c/me/machines")
       return
@@ -144,12 +170,15 @@ export function useBotListController(): BotListController {
   }
 
   const setBotActive = async (bot: BotSummary, active: boolean) => {
-    if (pendingActiveBotIds.has(bot.id) || bot.isActive === active) return
-    setPendingActiveBotIds((current) => new Set(current).add(bot.id))
+    if (pendingActiveBotIds.has(bot.id) || bot.isActive === active || client.getMutationCache().findAll({ mutationKey: [...communityKeys.bots(), "active-command"], status: "pending" }).some((mutation) => (mutation.state.variables as { input: { id: string } }).input.id === bot.id)) return
+    const assert = source.capture()
+    assert()
     try {
-      await setActive.mutateAsync({ id: bot.id, active })
+      await setActive.mutateAsync({ id: bot.id, active, assertActive: assert })
+      assert()
       toast.success(`${bot.name} is now ${active ? "Active" : "Inactive"}`)
     } catch (error) {
+      try { assert() } catch { return }
       const status = (error as { status?: number } | undefined)?.status
       const message = (error as { message?: string } | undefined)?.message ?? ""
       if (status === 409 && message === "BOT_ACTIVE_LIMIT_REACHED") {
@@ -157,12 +186,6 @@ export function useBotListController(): BotListController {
       } else {
         toastApiError(error, `Couldn't make ${bot.name} ${active ? "active" : "inactive"}`)
       }
-    } finally {
-      setPendingActiveBotIds((current) => {
-        const next = new Set(current)
-        next.delete(bot.id)
-        return next
-      })
     }
   }
 
@@ -192,20 +215,11 @@ export function useBotListController(): BotListController {
 
   const targetMachineId = searchParams.get("machineId")
   const targetAuditBotId = searchParams.get("audit")
-  const [highlightId, setHighlightId] = useState<string | null>(null)
+  const [highlightId, setHighlightId] = useAtom(useCreateAtom<string | null>(null))
   const groupRefs = useRef<Record<string, HTMLDivElement | null>>({})
-  const scrolledForRef = useRef<string | null>(null)
-  const suppressedAuditRef = useRef<string | null>(null)
-  const activityGenerationRef = useRef(0)
-  const activityOpenRef = useRef(activityOpen)
-  const targetAuditBotIdRef = useRef(targetAuditBotId)
-  const botsRef = useRef(bots)
   useLayoutEffect(() => {
-    activityGenerationRef.current = activityGeneration
-    activityOpenRef.current = activityOpen
-    targetAuditBotIdRef.current = targetAuditBotId
-    botsRef.current = bots
-  }, [activityGeneration, activityOpen, bots, targetAuditBotId])
+    patchProtocol({ targetAudit: targetAuditBotId })
+  }, [patchProtocol, protocol, targetAuditBotId])
   useEffect(() => {
     if (!targetMachineId || bots.length === 0) return
     setCollapsedMachines((current) => {
@@ -214,31 +228,30 @@ export function useBotListController(): BotListController {
       next.delete(targetMachineId)
       return next
     })
-    if (scrolledForRef.current === targetMachineId) return
-    scrolledForRef.current = targetMachineId
+    if (protocol.get().scrolledFor === targetMachineId) return
+    const assert = source.capture()
+    patchProtocol({ scrolledFor: targetMachineId })
     groupRefs.current[targetMachineId]?.scrollIntoView({ behavior: "smooth", block: "start" })
     setHighlightId(targetMachineId)
-    const timer = setTimeout(() => setHighlightId(null), 2000)
+    const timer = setTimeout(() => { try { assert(); setHighlightId(null) } catch {} }, 2000)
     return () => clearTimeout(timer)
-  }, [targetMachineId, bots.length])
+  }, [targetMachineId, bots.length, setCollapsedMachines, protocol, source, patchProtocol, setHighlightId])
 
   useEffect(() => {
     if (!botsResolved) return
     if (!targetAuditBotId) {
-      suppressedAuditRef.current = null
+      patchProtocol({ suppressedAudit: null })
       if (activityOpen) {
-        activityOpenRef.current = false
         setActivityOpen(false)
       }
       return
     }
-    if (suppressedAuditRef.current === targetAuditBotId) return
+    if (protocol.get().suppressedAudit === targetAuditBotId) return
 
     const targetBot = bots.find((bot) => bot.id === targetAuditBotId)
     if (!targetBot) {
-      suppressedAuditRef.current = targetAuditBotId
+      patchProtocol({ suppressedAudit: targetAuditBotId })
       if (activityOpen) {
-        activityOpenRef.current = false
         setActivityOpen(false)
       }
       const query = searchParams.toString()
@@ -246,23 +259,21 @@ export function useBotListController(): BotListController {
       return
     }
 
-    suppressedAuditRef.current = null
+    patchProtocol({ suppressedAudit: null })
     const targetChanged = activityBot?.id !== targetBot.id
     if (!activityOpen || targetChanged) {
-      const nextGeneration = activityGenerationRef.current + 1
-      activityGenerationRef.current = nextGeneration
+      const nextGeneration = protocol.get().activityGeneration + 1
       setActivityGeneration(nextGeneration)
     }
     if (targetChanged) setActivityBot(targetBot)
     if (!activityOpen) {
-      activityOpenRef.current = true
       setActivityOpen(true)
     }
-  }, [activityBot, activityOpen, bots, botsResolved, router, searchParams, targetAuditBotId])
+  }, [activityBot, activityOpen, bots, botsResolved, patchProtocol, protocol, router, searchParams, setActivityBot, setActivityGeneration, setActivityOpen, targetAuditBotId])
 
   const openActivity = (bot: BotSummary) => {
     uiHandlers.cancelPendingNavigation?.()
-    suppressedAuditRef.current = null
+    patchProtocol({ suppressedAudit: null })
     const next = new URLSearchParams(searchParams.toString())
     next.set("audit", bot.id)
     router.push(`/c/me/bots?${next.toString()}`)
@@ -270,20 +281,20 @@ export function useBotListController(): BotListController {
 
   const onActivityOpenChange = (open: boolean) => {
     if (open) return
-    if (targetAuditBotId) suppressedAuditRef.current = targetAuditBotId
-    activityOpenRef.current = false
+    if (targetAuditBotId) patchProtocol({ suppressedAudit: targetAuditBotId })
     setActivityOpen(false)
     const query = searchParams.toString()
     router.replace(removeCommunityParam(`/c/me/bots${query ? `?${query}` : ""}`, "audit"))
   }
 
   const onActivityOpenChangeComplete = (open: boolean, generation: number) => {
-    if (open || generation !== activityGenerationRef.current || activityOpenRef.current) return
-    const targetId = targetAuditBotIdRef.current
+    try { source.capture()() } catch { return }
+    if (open || generation !== protocol.get().activityGeneration || protocol.get().activityOpen) return
+    const targetId = protocol.get().targetAudit
     const hasUnsuppressedValidTarget = Boolean(
       targetId &&
-      suppressedAuditRef.current !== targetId &&
-      botsRef.current.some((bot) => bot.id === targetId),
+      protocol.get().suppressedAudit !== targetId &&
+      client.getQueryData<BotsResourceResponse>(communityKeys.bots())?.bots.some((bot) => bot.id === targetId),
     )
     if (hasUnsuppressedValidTarget) return
     setActivityBot(null)
@@ -300,23 +311,30 @@ export function useBotListController(): BotListController {
 
   const deleteConfirmedBot = async () => {
     if (!confirmDelete) return
+    const assert = source.capture(), id = confirmDelete.id
+    assert()
     const name = confirmDelete.name
     try {
-      await del.mutateAsync(confirmDelete.id)
+      await del.mutateAsync({ id: confirmDelete.id, assertActive: assert })
+      assert()
       toast.success(`Deleted ${name}`)
     } catch (e) {
-      toastApiError(e, "Couldn't delete the bot")
+      toastApiError(e, "Couldn't delete the bot", assert)
     } finally {
-      setConfirmDelete(null)
+      try { assert(); setDeleteBotId((current) => current === id ? null : current) } catch {}
     }
   }
 
   const resetConfirmedBot = async () => {
     if (!confirmReset) return
+    const assert = source.capture(), id = confirmReset.id
+    assert()
     try {
-      await resetSession.mutateAsync(confirmReset.id)
+      await resetSession.mutateAsync({ id: confirmReset.id, assertActive: assert })
+      assert()
       toast.success("Session reset.")
     } catch (e) {
+      try { assert() } catch { return }
       const status = (e as { status?: number } | undefined)?.status
       const message = (e as { message?: string } | undefined)?.message ?? ""
       if (status === 409 && message.toLowerCase().includes("offline")) {
@@ -325,19 +343,23 @@ export function useBotListController(): BotListController {
         toastApiError(e, "Couldn't reset the bot's session")
       }
     } finally {
-      setConfirmReset(null)
+      try { assert(); setResetBotId((current) => current === id ? null : current) } catch {}
     }
   }
 
   const resetConfirmedMachine = async () => {
     if (!confirmResetMachine) return
+    const assert = source.capture(), id = confirmResetMachine
+    assert()
     const name = machineName(confirmResetMachine)
     try {
-      const { dispatched } = await resetMachineAgents.mutateAsync(confirmResetMachine)
+      const { dispatched } = await resetMachineAgents.mutateAsync({ id: confirmResetMachine, assertActive: assert })
+      assert()
       toast.success(
         `Dispatched reset to ${dispatched} agent${dispatched === 1 ? "" : "s"} on ${name}.`,
       )
     } catch (e) {
+      try { assert() } catch { return }
       const status = (e as { status?: number } | undefined)?.status
       const message = (e as { message?: string } | undefined)?.message ?? ""
       if (status === 409 && message.toLowerCase().includes("offline")) {
@@ -346,7 +368,7 @@ export function useBotListController(): BotListController {
         toastApiError(e, "Couldn't reset the machine's agents")
       }
     } finally {
-      setConfirmResetMachine(null)
+      try { assert(); setConfirmResetMachine((current) => current === id ? null : current) } catch {}
     }
   }
 

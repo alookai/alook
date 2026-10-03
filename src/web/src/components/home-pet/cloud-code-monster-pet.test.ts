@@ -610,7 +610,6 @@ describe("production workspace PET mounting", () => {
     expect(workspacePetLayer).toContain("petSettings.enabled");
     expect(workspacePetLayer).toContain("dynamic<CloudCodeMonsterPetProps>");
     expect(inboxCountContext).toContain("notificationToken");
-    expect(inboxCountContext).toContain("setNotificationToken((token) => token + 1)");
     expect(inboxCountContext).not.toContain("prevCountRef.current = next");
     expect(workspacePetLayer).toContain("useInboxCount");
     expect(workspacePetLayer).toContain("notificationToken={notificationToken}");
@@ -621,13 +620,13 @@ describe("production workspace PET mounting", () => {
     expect(petComponent).toContain("function usePetTimers()");
     expect(petComponent).toContain("setPetTimer(\"peek\"");
     expect(petComponent).toContain("usePetDrag({");
-    expect(petComponent).toContain("useInboxCount");
+    expect(petComponent).not.toContain("useInboxCount");
     expect(petComponent).toContain("lastNotificationTokenRef");
     expect(petComponent).toContain("notificationToken === lastNotificationTokenRef.current");
     expect(petComponent).toContain("isDragging || fainted || notificationActive");
     expect(petComponent).toContain("useWalkToTarget");
-    expect(petComponent).toContain("useAgentContextSafe");
-    expect(petComponent).toContain("activeTaskDetails");
+    expect(petComponent).toContain("activeAgentTaskCount = 0");
+    expect(workspacePetLayer).toContain("activeTaskDetails");
     expect(petComponent).toContain("hasRunningTasks");
     expect(petComponent).toContain("activeAgentTaskCountRef.current");
     expect(petComponent).toContain('clearPetTimer("attention")');
@@ -701,9 +700,9 @@ describe("production workspace PET mounting", () => {
     // Landing page renders pet for logged-in users
     expect(landingPage).toContain("CloudCodeMonsterPet");
     expect(landingPage).toContain("isLoggedIn && petSettings.enabled");
-    // Context hooks are safe outside providers
-    expect(inboxCountContext).toContain("FALLBACK_INBOX_COUNT");
-    expect(agentContext).toContain("useAgentContextSafe");
+    // Public pet receives facts through props from the workspace owner.
+    expect(inboxCountContext).toContain("useQuery");
+    expect(agentContext).toContain("useAgentContext");
     for (const sensitiveShapeId of sensitiveShapeIds) {
       expect(clientPetSources).not.toContain(`"${sensitiveShapeId}"`);
     }

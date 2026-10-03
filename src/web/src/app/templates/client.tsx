@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { PublicLayout } from "@/components/public-layout";
 import { TemplateCard } from "./_components/template-card";
@@ -18,7 +19,7 @@ export function TemplatesClient({
   isLoggedIn: boolean;
   workspaceId?: string;
 }) {
-  const [activeCategory, setActiveCategory] = useState<"All" | TemplateCategory>("All");
+  const [activeCategory, setActiveCategory] = useAtom(useCreateAtom<"All" | TemplateCategory>("All"));
   const tracked = useRef(false);
 
   useEffect(() => {

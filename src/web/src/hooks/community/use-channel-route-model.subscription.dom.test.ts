@@ -1,8 +1,10 @@
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { getCommunityRuntime } from "@/stores/community/runtime"
 import React from "react"
-import { QueryClient } from "@tanstack/react-query"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, render } from "@/test/react-dom-harness"
-import { useCommunityStore } from "@/stores/community"
+import { type QueryClient } from "@tanstack/react-query"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { act, render as renderDom } from "@/test/react-dom-harness"
 
 const mocks = vi.hoisted(() => ({
   subscribe: vi.fn(),
@@ -23,15 +25,13 @@ const mocks = vi.hoisted(() => ({
   purgeCommunityChannel: vi.fn(),
 }))
 
-const queryClient = new QueryClient()
+let queryClient: QueryClient
+function NativeOwner({ children }: { children: React.ReactNode }) { return React.createElement(CommunityTestProvider, { client: queryClient }, children) }
+function render(node: React.ReactNode) { return renderDom(node, { wrapper: NativeOwner }) }
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mocks.replace }),
 }))
-vi.mock("@tanstack/react-query", async () => {
-  const actual = await vi.importActual<typeof import("@tanstack/react-query")>("@tanstack/react-query")
-  return { ...actual, useQueryClient: () => queryClient }
-})
 vi.mock("./use-servers", () => ({
   useServer: () => ({ server: mocks.server }),
 }))
@@ -51,11 +51,10 @@ vi.mock("@/lib/community/last-community-route", () => ({
   COMMUNITY_COLD_ENTRY_FALLBACK: "/c/me/machines",
   consumeCommunityColdEntryFailure: (...args: unknown[]) => mocks.consumeColdEntryFailure(...args),
 }))
-vi.mock("@/lib/community-db/projections", () => ({
-  useOptionalCommunityDbRegistry: () => mocks.communityDb.current,
+vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
   useRouteChannelProjection: () => mocks.dbChannel,
 }))
-vi.mock("@/lib/community-db/sync", () => ({
+vi.mock("@/lib/community-db/sync", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/sync")>(),
   purgeCommunityChannel: (...args: unknown[]) => mocks.purgeCommunityChannel(...args),
   patchCanonicalCommunityChannel: vi.fn(() => true),
   removeCanonicalCommunityChannel: vi.fn(),
@@ -68,6 +67,9 @@ function Harness({ channelId = "post-1" }: { channelId?: string }) {
   return React.createElement("span", {
     "data-lifecycle": result.routeLifecycle,
     "data-skeleton-subtype": result.skeletonSubtype,
+    "data-parent-channel": result.currentChannelMeta?.parentChannelId ?? "",
+    "data-creator-id": result.currentChannelMeta?.creatorId ?? "",
+    "data-activity-at": result.currentChannelMeta?.activityAt ?? "",
   })
 }
 
@@ -75,16 +77,16 @@ function lifecycle(renderer: ReturnType<typeof render>) {
   return renderer.container.querySelector("span")?.getAttribute("data-lifecycle")
 }
 
-beforeEach(() => {
-  queryClient.clear()
-  useCommunityStore.getState().reset()
+beforeEach(async () => {
+  const owner = await createCommunityQueryOwner()
+  queryClient = owner.client
   mocks.subscribe.mockClear()
   mocks.unsubscribe.mockClear()
   mocks.replace.mockClear()
   mocks.clearLastChannel.mockClear()
   mocks.consumeColdEntryFailure.mockReset()
   mocks.consumeColdEntryFailure.mockReturnValue(false)
-  mocks.communityDb.current = {}
+  mocks.communityDb.current = owner.registry as unknown as Record<string, unknown>
   mocks.purgeCommunityChannel.mockClear()
   mocks.lastChannel = null
   mocks.server = {
@@ -98,9 +100,6 @@ beforeEach(() => {
   mocks.dbChannel = undefined
 })
 
-afterEach(() => {
-  useCommunityStore.getState().reset()
-})
 
 describe("useChannelRouteModel subscription ownership", () => {
   it("moves a top-level channel from pending to ready when server categories hydrate", () => {
@@ -177,12 +176,13 @@ describe("useChannelRouteModel subscription ownership", () => {
     const renderer = render(React.createElement(Harness))
 
     expect(renderer.container.querySelector("span")).toHaveAttribute("data-lifecycle", "pending")
-    expect(useCommunityStore.getState().currentChannelMeta).toBeNull()
+    expect(renderer.container.querySelector("span")).toHaveAttribute("data-parent-channel", "")
     mocks.metaQuery = { data: { ...mocks.dbChannel, creatorId: null, lastMessageAt: null, createdAt: "", archived: false },
       error: null, isVerified: true, isError: false }
     act(() => renderer.rerender(React.createElement(Harness)))
     expect(renderer.container.querySelector("span")).toHaveAttribute("data-lifecycle", "ready")
-    expect(useCommunityStore.getState().currentChannelMeta).toMatchObject({ creatorId: null, activityAt: "" })
+    expect(renderer.container.querySelector("span")).toHaveAttribute("data-creator-id", "")
+    expect(renderer.container.querySelector("span")).toHaveAttribute("data-activity-at", "")
     act(() => renderer.unmount())
   })
 
@@ -240,10 +240,7 @@ describe("useChannelRouteModel subscription ownership", () => {
 
     expect(mocks.subscribe).toHaveBeenCalledTimes(1)
     expect(mocks.unsubscribe).not.toHaveBeenCalled()
-    expect(useCommunityStore.getState().currentChannelMeta).toMatchObject({
-      parentChannelId: "forum-1",
-      parentMessageId: "opener-1",
-    })
+    expect(renderer!.container.querySelector("span")).toHaveAttribute("data-parent-channel", "forum-1")
     expect(lifecycle(renderer!)).toBe("ready")
 
     act(() => renderer!.unmount())
@@ -265,7 +262,7 @@ describe("useChannelRouteModel subscription ownership", () => {
     }
     mocks.metaQuery = { data: meta, error: null, isVerified: true, isError: false }
     const storeListener = vi.fn()
-    const unsubscribeStore = useCommunityStore.subscribe(storeListener)
+    const subscription = getCommunityRuntime(queryClient).ui.subscribe(storeListener)
     const renderer = render(React.createElement(Harness))
     const writesAfterFirstPublish = storeListener.mock.calls.length
 
@@ -278,7 +275,7 @@ describe("useChannelRouteModel subscription ownership", () => {
     act(() => renderer.rerender(React.createElement(Harness)))
 
     expect(storeListener).toHaveBeenCalledTimes(writesAfterFirstPublish)
-    unsubscribeStore()
+    subscription.unsubscribe()
     act(() => renderer.unmount())
   })
 

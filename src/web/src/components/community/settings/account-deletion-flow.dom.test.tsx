@@ -1,4 +1,7 @@
-import { act, fireEvent, render, screen, setupUser, waitFor } from "@/test/react-dom-harness"
+import React from "react"
+import { QueryClient } from "@tanstack/react-query"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { act, fireEvent, render as renderDom, screen, setupUser, waitFor } from "@/test/react-dom-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { tid } from "@/lib/community/testids"
 import { AccountDeletionFlow } from "./account-deletion-flow"
@@ -8,16 +11,22 @@ const authTransition = vi.hoisted(() => ({
   cancel: vi.fn(),
 }))
 
-vi.mock("@/lib/api/client", () => ({
-  ACCOUNT_DELETED_SIGN_IN_PATH: "/sign-in?account_deleted=1",
-  beginAccountDeletionAuthTransition: authTransition.begin,
-  cancelAccountDeletionAuthTransition: authTransition.cancel,
-}))
+vi.mock("@/lib/api/client", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api/client")>("@/lib/api/client")
+  authTransition.begin.mockImplementation(actual.beginAccountDeletionAuthTransition)
+  authTransition.cancel.mockImplementation(actual.cancelAccountDeletionAuthTransition)
+  return { ...actual, beginAccountDeletionAuthTransition: authTransition.begin, cancelAccountDeletionAuthTransition: authTransition.cancel }
+})
+function render(element: React.ReactNode) {
+  const client = new QueryClient()
+  return renderDom(element, { wrapper: ({ children }: { children: React.ReactNode }) => <CommunityTestProvider client={client} userId="owner">{children}</CommunityTestProvider> })
+}
 
 describe("AccountDeletionFlow", () => {
   beforeEach(() => {
-    authTransition.begin.mockReset()
-    authTransition.cancel.mockReset()
+    vi.stubGlobal("location", { replace: vi.fn() })
+    authTransition.begin.mockClear()
+    authTransition.cancel.mockClear()
     vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.stubGlobal("ResizeObserver", class {
       observe() {}
@@ -126,5 +135,25 @@ describe("AccountDeletionFlow", () => {
 
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/sign-in?account_deleted=1"))
     expect(authTransition.cancel).not.toHaveBeenCalled()
+  })
+})
+
+describe("retired deletion UI commands", () => {
+  beforeEach(() => { vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} }); document.elementFromPoint = vi.fn(() => null) })
+  afterEach(() => vi.unstubAllGlobals())
+  it("held code result after view retirement cannot advance or navigate", async () => {
+    let complete!: (response: Response) => void; let signal!: AbortSignal
+    vi.stubGlobal("fetch", vi.fn((_path, options) => { signal = options.signal; return new Promise<Response>((resolve) => { complete = resolve }) }))
+    const onDeleted = vi.fn(); const mounted = render(<AccountDeletionFlow email="owner@example.com" onCancel={vi.fn()} onDeleted={onDeleted} />)
+    fireEvent.click(screen.getByTestId(tid.accountDeletionSendCode)); await waitFor(() => expect(complete).toBeTypeOf("function")); mounted.rerender(<output>Current screen</output>)
+    await act(async () => complete(Response.json({}, { status: 401 }))); expect(signal.aborted).toBe(true); expect(onDeleted).not.toHaveBeenCalled(); expect(screen.queryByTestId(tid.accountDeletionOtp)).not.toBeInTheDocument()
+  })
+  it("held failed delete after view retirement cannot publish its old error or invoke completion", async () => {
+    let complete!: (response: Response) => void; let signal!: AbortSignal
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(Response.json({ resend_after: 0 })).mockImplementationOnce((_path, options) => { signal = options.signal; return new Promise<Response>((resolve) => { complete = resolve }) }))
+    const onDeleted = vi.fn(); const mounted = render(<AccountDeletionFlow email="owner@example.com" onCancel={vi.fn()} onDeleted={onDeleted} />)
+    fireEvent.click(screen.getByTestId(tid.accountDeletionSendCode)); const input = await screen.findByTestId(tid.accountDeletionOtp); fireEvent.change(input, { target: { value: "123456" } }); fireEvent.click(screen.getByTestId(tid.accountDeletionSubmit))
+    await waitFor(() => expect(complete).toBeTypeOf("function")); mounted.rerender(<output>Current screen</output>)
+    await act(async () => complete(Response.json({ error: "ACCOUNT_DELETION_FAILED" }, { status: 500 }))); expect(signal.aborted).toBe(true); expect(onDeleted).not.toHaveBeenCalled(); expect(screen.queryByRole("alert")).not.toBeInTheDocument()
   })
 })

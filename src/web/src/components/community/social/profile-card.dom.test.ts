@@ -2,6 +2,7 @@ import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, describe, it, expect, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
@@ -23,7 +24,7 @@ const mocks = vi.hoisted(() => ({
   interruptAgent: vi.fn(),
 }))
 
-vi.mock("@/lib/community-db/projections", () => ({
+vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
   useCanonicalCommunityProfile: () => mocks.profile,
 }))
 
@@ -122,7 +123,7 @@ function interactiveProfile(
     statusText: activityStatus.text,
   }
   return createElement(
-    QueryClientProvider,
+    CommunityTestProvider,
     { client: queryClient },
     createElement(ProfileCard, {
       embedded: true,
@@ -246,7 +247,7 @@ describe("ProfileCard contextual metadata", () => {
     await act(async () => findInterruptButton(renderer.container)?.click())
 
     expect(mocks.interruptAgent).toHaveBeenCalledTimes(1)
-    expect(mocks.interruptAgent).toHaveBeenCalledWith("agent_1")
+    expect(mocks.interruptAgent).toHaveBeenCalledWith(expect.objectContaining({ lifecycle: expect.any(Object) }), "agent_1")
     expect(findInterruptButton(renderer.container)?.disabled).toBe(true)
     expect(renderer.container.textContent).toContain("Stopping…")
 
@@ -337,7 +338,7 @@ describe("ProfileCard contextual metadata", () => {
     expect(source).toContain("<BotMarkSticker")
     expect(source).toContain("onOpenActivity={() => onOpenBotAudit?.(data.userId!)}")
     expect(source).toContain("onStop={interruptAgent}")
-    expect(source).toContain("communityWsInterruptAgent(data.userId)")
+    expect(source).toContain("communityWsInterruptAgent(registry.runtime, data.userId)")
   })
 })
 

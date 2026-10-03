@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useEffect, useRef } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { Settings, Users, Link2, Bell, Trash2, X, Shield, Search, Camera, Hash } from "lucide-react"
 import {
@@ -78,7 +79,7 @@ export function ServerSettings({
   notifLevel?: string
   onSetNotifLevel?: (l: string) => void
 }) {
-  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useAtom(useCreateAtom(false))
   const visibleSection = section === "channels" && !isAdmin ? "overview" : section
 
   // Invites are low-frequency, admin-only panel data. Fetch them only when
@@ -129,11 +130,11 @@ function SettingsOverview({ serverId, serverName, serverDescription, serverIcon,
   // with the new initial values. Syncing props into draft state via useEffect
   // would also fire on WS-driven server renames, clobbering the user's
   // in-progress edits — keep it simple and let mount handle it.
-  const [name, setName] = useState(serverName)
-  const [desc, setDesc] = useState(serverDescription ?? "")
+  const [name, setName] = useAtom(useCreateAtom(serverName))
+  const [desc, setDesc] = useAtom(useCreateAtom(serverDescription ?? ""))
   // Saved baseline is mount-only (same rationale as the draft above): a WS
   // rename must not reset it mid-edit. Advances only on a successful save.
-  const [baseline, setBaseline] = useState({ name: serverName, desc: serverDescription ?? "" })
+  const [baseline, setBaseline] = useAtom(useCreateAtom({ name: serverName, desc: serverDescription ?? "" }))
   const namePreview = previewSlug(name)
   const dirty = name !== baseline.name || desc !== baseline.desc
   const save = () => {
@@ -221,7 +222,7 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
   onKickMember?: (memberId: string) => void
   onSetRole?: (memberId: string, role: Role) => void
 }) {
-  const [query, setQuery] = useState("")
+  const [query, setQuery] = useAtom(useCreateAtom(""))
   const scrollRef = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
 
@@ -349,7 +350,7 @@ function SettingsInvites({ invites, loading, onRevokeInvite, onCopyInvite }: {
   onRevokeInvite?: (code: string) => void
   onCopyInvite?: (code: string) => void
 }) {
-  const [revokingCode, setRevokingCode] = useState<string | null>(null)
+  const [revokingCode, setRevokingCode] = useAtom(useCreateAtom<string | null>(null))
   if (loading && invites.length === 0) return <SettingsInvitesSkeleton />
   return (
     <div className="mx-auto max-w-xl space-y-2">
@@ -381,7 +382,7 @@ function SettingsInvites({ invites, loading, onRevokeInvite, onCopyInvite }: {
 
 export function SettingsNotifications({ serverId, level, onSetLevel }: { serverId: string; level?: string; onSetLevel?: (l: string) => void }) {
   const { bots } = useBots()
-  const [botId, setBotId] = useState<string | null>(null)
+  const [botId, setBotId] = useAtom(useCreateAtom<string | null>(null))
   const botSetting = useBotNotificationSetting(botId, { kind: "server", id: serverId })
   const setBotSetting = useSetBotNotificationSetting()
   const selectedLevel = botId

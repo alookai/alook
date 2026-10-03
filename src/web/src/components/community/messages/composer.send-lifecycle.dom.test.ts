@@ -1,6 +1,9 @@
-import React from "react"
+import React, { useLayoutEffect } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { act, render } from "@/test/react-dom-harness"
+import { act } from "@/test/react-dom-harness"
+import { renderCommunity as render } from "@/test/community-owner-harness"
+import { useCommunityRuntime, type CommunityRuntime } from "@/stores/community/runtime"
+import { acceptChannelMessage, runAcceptedMessageIntent } from "./message-channel-controller-send"
 
 const mocks = vi.hoisted(() => ({
   useEditor: vi.fn(),
@@ -56,6 +59,10 @@ vi.mock("./composer-ordered-list", () => ({
     mocks.preservePlainTextPaste(...args),
   serializeComposerDocument: (...args: unknown[]) =>
     mocks.serializeDocument(...args),
+}))
+vi.mock("@/hooks/community/mutations", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/hooks/community/mutations")>(),
+  sendNonce: () => "nonce_collision",
 }))
 
 import { Composer, type ComposerProps } from "./composer"
@@ -199,6 +206,70 @@ describe("Composer committed send lifecycle", () => {
     )
     expect(clearContent).toHaveBeenCalledOnce()
     expect(transferPendingFiles).toHaveBeenCalledOnce()
+  })
+
+  it("preserves the latest Composer draft when the real acceptor rejects a duplicate nonce", async () => {
+    let runtime!: CommunityRuntime
+    const messageScope = { kind: "channel" as const, id: "channel_1", serverId: "server_1" }
+    const viewer = { id: "viewer", name: "Viewer", avatar: "V" }
+    const replyTo = { id: "reply_1", authorName: "Latest reply", text: "Original target" }
+    const upload = vi.fn()
+    const post = vi.fn()
+    const clearReply = vi.fn()
+    const runner = vi.fn((nonce: string) => runAcceptedMessageIntent({
+      runtime, messageScope, nonce, uploadFileAsync: upload, sendMessageAsync: post,
+      channelId: messageScope.id, serverId: messageScope.serverId, viewer,
+    }))
+    const accept = vi.fn((...[markdown, attachments, mentionType]: Parameters<NonNullable<ComposerProps["onAcceptSend"]>>) => acceptChannelMessage({
+      runtime, markdown, attachments, mentionType, messageScope, viewer, replyTo,
+      runAcceptedIntent: runner, channelId: messageScope.id, clearReply,
+    }))
+    function ConnectedComposer() {
+      const value = useCommunityRuntime()
+      useLayoutEffect(() => { runtime = value }, [value])
+      return React.createElement(Composer, {
+        channel: "general", context: "channel", members: [], sendContract: "accepted",
+        hideAttach: true, hideEmoji: true, replyingTo: replyTo, onAcceptSend: accept,
+      } satisfies ComposerProps)
+    }
+    const createPreview = vi.fn(() => "blob:new-rejected")
+    const revokePreview = vi.fn()
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: createPreview, revokeObjectURL: revokePreview }))
+    const renderer = render(React.createElement(ConnectedComposer))
+    try {
+      const original = new File(["original"], "original.txt", { type: "text/plain" })
+      act(() => expect(runtime.messageStream.actions.accept(messageScope, {
+        nonce: "nonce_collision", tempId: "temp_original", message: { type: "chat", content: "original body" },
+        localUploads: [{ file: original, previewObjectUrl: "blob:original" }],
+      })).toBe(true))
+      const originalPayload = runtime.messageStream.actions.getRetryPayload(messageScope, "nonce_collision")
+      const file = new File(["keep me"], "rejected.txt", { type: "text/plain" })
+      const supplied = new File(["keep supplied"], "supplied.txt", { type: "text/plain" })
+      pendingFiles = [
+        { file, thumbnailUrl: null, thumbnailBlob: null },
+        { file: supplied, thumbnailUrl: "blob:supplied", thumbnailBlob: null },
+      ]
+      renderer.rerender(React.createElement(ConnectedComposer))
+      await act(async () => {
+        firstEditorOptions!.editorProps.handleKeyDown({} as never, {
+          key: "Enter", shiftKey: false, isComposing: false, preventDefault: vi.fn(),
+        } as unknown as KeyboardEvent)
+      })
+      expect(accept).toHaveReturnedWith(false)
+      expect(runtime.messageStream.actions.getRetryPayload(messageScope, "nonce_collision")).toEqual(originalPayload)
+      expect(runner).not.toHaveBeenCalled()
+      expect(upload).not.toHaveBeenCalled()
+      expect(post).not.toHaveBeenCalled()
+      expect(clearReply).not.toHaveBeenCalled()
+      expect(clearContent).not.toHaveBeenCalled()
+      expect(transferPendingFiles).not.toHaveBeenCalled()
+      expect(renderer.container.textContent).toContain("rejected.txt")
+      expect(renderer.container.textContent).toContain("supplied.txt")
+      expect(renderer.container.textContent).toContain("Latest reply")
+      expect(mocks.serializeDocument).toHaveReturnedWith("9. latest\n10. draft")
+      expect(createPreview).toHaveBeenCalledOnce()
+      expect(revokePreview.mock.calls).toEqual([["blob:new-rejected"]])
+    } finally { renderer.unmount(); vi.unstubAllGlobals() }
   })
 
   it("waits for same-tick file preparation and sends once with the exact thumbnail Blob", async () => {

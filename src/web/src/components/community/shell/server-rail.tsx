@@ -1,5 +1,7 @@
 "use client"
+import { useCommunityRuntime } from "@/stores/community/runtime"
 
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import {
   memo,
   useCallback,
@@ -7,7 +9,6 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
-  useState,
   type CSSProperties,
   type ReactNode,
   type Ref,
@@ -36,6 +37,7 @@ import {
 } from "@/lib/community/server-rail-model"
 import { useServerRailPdd } from "./use-server-rail-pdd"
 import { useServerRailCommit } from "@/hooks/community/mutations"
+import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
 import type { Server, CommunityFolder } from "@/lib/community/models/navigation"
 import type { View } from "@/components/community/shell/shell-types"
 import {
@@ -104,29 +106,6 @@ function ServerRailFrame({
   )
 }
 
-function reconcileCreatedFolders(
-  state: RailState,
-  createdFolderIds: Record<string, string>,
-  explicitlyCollapsed: ReadonlySet<string>,
-): RailState {
-  if (Object.keys(createdFolderIds).length === 0) return state
-  const expanded = new Set(state.expanded.map((id) => createdFolderIds[id] ?? id))
-  for (const [clientId, folderId] of Object.entries(createdFolderIds)) {
-    if (!explicitlyCollapsed.has(clientId) && !explicitlyCollapsed.has(folderId)) {
-      expanded.add(folderId)
-    }
-  }
-  return {
-    ...state,
-    folderOrder: state.folderOrder.map((id) => createdFolderIds[id] ?? id),
-    folders: Object.fromEntries(Object.entries(state.folders).map(([id, serverIds]) => [
-      createdFolderIds[id] ?? id,
-      serverIds,
-    ])),
-    expanded: [...expanded],
-  }
-}
-
 export const ServerRail = memo(function ServerRail({
   servers,
   folders,
@@ -156,89 +135,61 @@ export const ServerRail = memo(function ServerRail({
   onOpenSettings?: (serverId: string) => void
   onOpenInvitePopover?: (serverId: string) => void
 }) {
-  const [state, setState] = useState<RailState>(() =>
-    railStateFromData(servers.map((server) => server.id), folders, []),
-  )
-  const [preview, setPreview] = useState<RailInstruction | null>(null)
-  const [dragSource, setDragSource] = useState<RailEntity | null>(null)
-  const [createOpen, setCreateOpen] = useState(false)
+  const expandedAtom = useCreateAtom<string[]>([])
+  const [expanded, setExpanded] = useAtom(expandedAtom)
+  const collapsedAtom = useCreateAtom(new Set<string>())
+  const dragSnapshotAtom = useCreateAtom<RailState | null>(null)
+  const [preview, setPreview] = useAtom(useCreateAtom<RailInstruction | null>(null))
+  const [dragSource, setDragSource] = useAtom(useCreateAtom<RailEntity | null>(null))
+  const [createOpen, setCreateOpen] = useAtom(useCreateAtom(false))
   const scrollRef = useRef<HTMLDivElement>(null)
-  const dragSnapshotRef = useRef<RailState | null>(null)
-  const stateRef = useRef(state)
   const serverActivationRef = useRef({ onServer, onServerNavigate })
-  const mutationPendingRef = useRef(false)
-  const collapsedPendingFolderIdsRef = useRef(new Set<string>())
   const railMutation = useServerRailCommit()
-  const serverIdentityOrder = servers.map((server) => server.id).join("\0")
-  const serverIds = useMemo(
-    () => serverIdentityOrder ? serverIdentityOrder.split("\0") : [],
-    [serverIdentityOrder],
-  )
-  const railDataIdentity = useMemo(
-    () => JSON.stringify([
-      serverIds,
-      folders.map((folder) => [
-        folder.id,
-        folder.position,
-        folder.servers.map((server) => server.id),
-      ]),
-    ]),
-    [folders, serverIds],
-  )
-  const [stateDataIdentity, setStateDataIdentity] = useState(railDataIdentity)
-  const renderState = stateDataIdentity === railDataIdentity
-    ? state
-    : railStateFromData(serverIds, folders, state.expanded)
-
+  const communityRuntime = useCommunityRuntime()
+  const registry = useOptionalCommunityDbRegistry()
+  const viewLifecycle = useCreateAtom({ active: true, generation: 0 })
+  useLayoutEffect(() => {
+    viewLifecycle.set((state) => ({ ...state, active: true }))
+    return () => viewLifecycle.set((state) => ({ active: false, generation: state.generation + 1 }))
+  }, [viewLifecycle])
+  const captureUI = useCallback(() => {
+    const generation = viewLifecycle.get().generation
+    const ownerGeneration = registry?.runtime.lifecycle.get().generation
+    return () => {
+      const view = viewLifecycle.get(), owner = registry?.runtime.lifecycle.get()
+      if (!view.active || view.generation !== generation || (owner && (!owner.active || owner.generation !== ownerGeneration))) throw new DOMException("Retired server rail view", "AbortError")
+    }
+  }, [registry, viewLifecycle])
+  const storageKey = `alook:community:${registry?.accountId ?? "anon"}:rail-open-folders`
+  const renderState = useMemo(() => railStateFromData(servers.map((server) => server.id), folders, expanded), [servers, folders, expanded])
   const claimMutation = useCallback(() => {
-    if (mutationPendingRef.current) {
+    if (railMutation.isCommandPending()) {
       announce("A server rail move is already being saved")
       return false
     }
-    mutationPendingRef.current = true
     return true
-  }, [])
-  const releaseMutation = useCallback(() => {
-    mutationPendingRef.current = false
-    collapsedPendingFolderIdsRef.current.clear()
-  }, [])
-
-  useEffect(() => {
-    stateRef.current = state
-  }, [state])
-
+  }, [railMutation])
+  const releaseMutation = useCallback(() => collapsedAtom.set(() => new Set()), [collapsedAtom])
   useEffect(() => {
     try {
-      const saved = sessionStorage.getItem("rail-open-folders")
-      if (!saved) return
-      const expanded = JSON.parse(saved) as string[]
-      setState((current) => ({
-        ...current,
-        expanded: expanded.filter((folderId) => current.folderOrder.includes(folderId)),
-      }))
+      const saved = JSON.parse(sessionStorage.getItem(storageKey) ?? "[]") as unknown
+      if (Array.isArray(saved)) setExpanded(saved.filter((id): id is string => typeof id === "string"))
     } catch {}
-  }, [])
-
-  useLayoutEffect(() => {
-    if (stateDataIdentity === railDataIdentity) return
-    setState((current) => railStateFromData(serverIds, folders, current.expanded))
-    setStateDataIdentity(railDataIdentity)
-  }, [folders, railDataIdentity, serverIds, stateDataIdentity])
-
+  }, [storageKey, setExpanded])
   useLayoutEffect(() => {
     serverActivationRef.current = { onServer, onServerNavigate }
   }, [onServer, onServerNavigate])
 
   useEffect(() => {
-    sessionStorage.setItem("rail-open-folders", JSON.stringify(state.expanded))
-  }, [state.expanded])
+    sessionStorage.setItem(storageKey, JSON.stringify(expanded))
+  }, [expanded, storageKey])
 
   useEffect(() => () => cleanupLiveRegion(), [])
 
   const activeFromProps = activeServerIdProp ?? servers.find((server) => server.active)?.id ?? ""
-  const [localActiveId, setLocalActiveId] = useState(activeFromProps)
+  const [localActiveId, setLocalActiveId] = useAtom(useCreateAtom(activeFromProps))
   const activeId = activeFromProps || localActiveId
-  useEffect(() => { if (activeFromProps) setLocalActiveId(activeFromProps) }, [activeFromProps])
+  useEffect(() => { if (activeFromProps) setLocalActiveId(activeFromProps) }, [activeFromProps, setLocalActiveId])
   // SortableServer deliberately ignores callback identity to keep rail-wide
   // presence/roster ticks cheap. Keep the dispatcher stable while reading the
   // latest committed navigation semantics through a layout-synchronized ref.
@@ -246,7 +197,7 @@ export const ServerRail = memo(function ServerRail({
     setLocalActiveId(id)
     serverActivationRef.current.onServer?.()
     serverActivationRef.current.onServerNavigate?.(id)
-  }, [])
+  }, [setLocalActiveId])
 
   const serverById = useMemo(() => new Map(servers.map((server) => [server.id, server])), [servers])
   const serverNames = useMemo(
@@ -261,14 +212,18 @@ export const ServerRail = memo(function ServerRail({
   const focusEntity = useCallback((
     entity: RailEntity,
     options?: { preferred?: HTMLElement; afterReconcile?: boolean },
+    assertUI = captureUI(),
   ) => {
+    const current = () => { try { assertUI(); return true } catch { return false } }
     const focusCurrentEntity = () => {
+      if (!current()) return
       const testId = entity.kind === "server"
         ? tid.serverIcon(entity.id)
         : tid.serverRailFolder(entity.id)
       document.querySelector<HTMLElement>(`[data-testid="${testId}"]`)?.focus()
     }
     requestAnimationFrame(() => {
+      if (!current()) return
       if (options?.afterReconcile) {
         requestAnimationFrame(focusCurrentEntity)
         return
@@ -276,7 +231,7 @@ export const ServerRail = memo(function ServerRail({
       if (options?.preferred?.isConnected) options.preferred.focus()
       else focusCurrentEntity()
     })
-  }, [])
+  }, [captureUI])
 
   const applyInstruction = useCallback((
     rawInstruction: RailInstruction,
@@ -300,33 +255,38 @@ export const ServerRail = memo(function ServerRail({
     }
     if (!claimMutation()) return
     const label = railMoveAnnouncement(instruction, { servers: serverNames, folders: folderNames })
-    setState(result.state)
+    const assertUI = captureUI()
+    setExpanded(result.state.expanded)
     railMutation.mutate(
-      { before, after: result.state, commands: result.commands },
+      { before, after: result.state, commands: result.commands, assertUI },
       {
         onSuccess: (response) => {
-          setState((current) => reconcileCreatedFolders(
-            current,
-            response.createdFolderIds,
-            collapsedPendingFolderIdsRef.current,
-          ))
+          try { assertUI() } catch { return }
+          setExpanded((current) => {
+            const next = new Set(current.map((id) => response.createdFolderIds[id] ?? id))
+            for (const [clientId, id] of Object.entries(response.createdFolderIds)) if (!collapsedAtom.get().has(clientId) && !collapsedAtom.get().has(id)) next.add(id)
+            return [...next]
+          })
           announce(label)
         },
         onError: () => {
-          setState(before)
+          try { assertUI() } catch { return }
+          const created = new Set(result.commands.flatMap((command) => command.kind === "create-folder" ? [command.clientId] : []))
+          setExpanded((current) => current.filter((id) => !created.has(id)))
           announce(`${label} failed and was rolled back`)
         },
         onSettled: () => {
+          try { assertUI() } catch { return }
           releaseMutation()
-          focusEntity(instruction.source, { afterReconcile: true })
+          focusEntity(instruction.source, { afterReconcile: true }, assertUI)
         },
       },
     )
-  }, [claimMutation, focusEntity, folderNames, railMutation, releaseMutation, serverNames])
+  }, [captureUI, claimMutation, collapsedAtom, focusEntity, folderNames, railMutation, releaseMutation, serverNames, setExpanded])
 
   const ungroupFolder = useCallback((folderId: string) => {
-    const before = cloneRailState(stateRef.current)
-    const after = cloneRailState(stateRef.current)
+    const before = cloneRailState(renderState)
+    const after = cloneRailState(renderState)
     const firstServerId = before.folders[folderId]?.[0]
     delete after.folders[folderId]
     after.folderOrder = after.folderOrder.filter((id) => id !== folderId)
@@ -334,51 +294,52 @@ export const ServerRail = memo(function ServerRail({
     const commands = planRailPersistence(before, after)
     if (commands.length !== 1) return
     if (!claimMutation()) return
-    setState(after)
+    const assertUI = captureUI()
+    setExpanded(after.expanded)
     railMutation.mutate(
-      { before, after, commands },
+      { before, after, commands, assertUI },
       {
-        onSuccess: () => announce("Group removed"),
+        onSuccess: () => { try { assertUI() } catch { return }; announce("Group removed") },
         onError: () => {
-          setState(before)
+          try { assertUI() } catch { return }
+          if (before.expanded.includes(folderId)) setExpanded((current) => [...new Set([...current, folderId])])
           announce("Removing group failed and was rolled back")
         },
         onSettled: (_data, error) => {
+          try { assertUI() } catch { return }
           releaseMutation()
           focusEntity(error || !firstServerId
             ? { kind: "folder", id: folderId }
-            : { kind: "server", id: firstServerId }, { afterReconcile: true })
+            : { kind: "server", id: firstServerId }, { afterReconcile: true }, assertUI)
         },
       },
     )
-  }, [claimMutation, focusEntity, railMutation, releaseMutation])
+  }, [captureUI, claimMutation, focusEntity, railMutation, releaseMutation, renderState, setExpanded])
 
   const { registerItem } = useServerRailPdd({
     scrollRef,
-    getState: () => stateRef.current,
-    canStart: () => !mutationPendingRef.current,
+    getState: () => renderState,
+    canStart: () => !railMutation.isCommandPending(),
     getEntityLabel: (entity) => entity.kind === "server"
       ? serverNames.get(entity.id) ?? "Server"
       : folderNames.get(entity.id) ?? "Group",
     onDragStart: (source) => {
-      dragSnapshotRef.current = cloneRailState(stateRef.current)
+      dragSnapshotAtom.set(() => cloneRailState(renderState))
       setDragSource(source)
     },
     onPreview: setPreview,
     onDrop: (instruction) => {
-      const before = dragSnapshotRef.current ?? cloneRailState(state)
-      dragSnapshotRef.current = null
+      const before = dragSnapshotAtom.get() ?? cloneRailState(renderState)
+      dragSnapshotAtom.set(() => null)
       setDragSource(null)
       applyInstruction(instruction, before)
     },
     onCancel: () => {
-      dragSnapshotRef.current = null
+      dragSnapshotAtom.set(() => null)
       setDragSource(null)
     },
     onHoverExpand: (folderId) => {
-      setState((current) => current.expanded.includes(folderId)
-        ? current
-        : { ...current, expanded: [...current.expanded, folderId] })
+      setExpanded((current) => current.includes(folderId) ? current : [...current, folderId])
     },
     onAnnounce: announce,
   })
@@ -445,18 +406,15 @@ export const ServerRail = memo(function ServerRail({
               open={open}
               active={!open && serversInFolder.some((server) => server.id === activeId)}
               unread={!open && serversInFolder.some((server) => server.unread)}
-              onToggle={() => setState((current) => {
-                const collapsing = current.expanded.includes(folderId)
-                if (mutationPendingRef.current) {
-                  if (collapsing) collapsedPendingFolderIdsRef.current.add(folderId)
-                  else collapsedPendingFolderIdsRef.current.delete(folderId)
-                }
-                return {
-                  ...current,
-                  expanded: collapsing
-                    ? current.expanded.filter((id) => id !== folderId)
-                    : [...current.expanded, folderId],
-                }
+              onToggle={() => setExpanded((current) => {
+                const collapsing = current.includes(folderId)
+                if (railMutation.isCommandPending()) collapsedAtom.set((values) => {
+                  const next = new Set(values)
+                  if (collapsing) next.add(folderId)
+                  else next.delete(folderId)
+                  return next
+                })
+                return collapsing ? current.filter((id) => id !== folderId) : [...current, folderId]
               })}
               folderServers={serversInFolder}
               onUngroup={() => ungroupFolder(folderId)}
@@ -507,9 +465,9 @@ export const ServerRail = memo(function ServerRail({
           testId={tid.serverAdd}
           onboardingTarget="add-server"
           onClick={() => {
-            const guided = isCommunityOnboardingStage("server")
+            const guided = isCommunityOnboardingStage(communityRuntime, "server")
             setCreateOpen(true)
-            if (guided) completeCommunityOnboarding()
+            if (guided) completeCommunityOnboarding(communityRuntime)
           }}
         />
       )}

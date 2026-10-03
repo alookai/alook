@@ -1,14 +1,8 @@
 "use client";
 
-import {
-  type Dispatch,
-  type MutableRefObject,
-  type PointerEvent as ReactPointerEvent,
-  type RefObject,
-  type SetStateAction,
-  useCallback,
-  useRef,
-} from "react";
+import type { Atom } from "@tanstack/react-store";
+
+import { type MutableRefObject, type PointerEvent as ReactPointerEvent, type RefObject, useCallback, useRef } from "react";
 
 import {
   calculateMonsterWalkIntensity,
@@ -42,12 +36,12 @@ type UsePetDragParams = {
   activityState: StoredCloudCodeMonsterActivity | null;
   lastFootstepAtRef: MutableRefObject<number>;
   violentDragEventsRef: MutableRefObject<number[]>;
-  setIsDragging: Dispatch<SetStateAction<boolean>>;
-  setNotificationActive: Dispatch<SetStateAction<boolean>>;
-  setFainted: Dispatch<SetStateAction<boolean>>;
-  setWalkDirection: Dispatch<SetStateAction<"left" | "right">>;
-  setWalkIntensity: Dispatch<SetStateAction<number>>;
-  setPosition: Dispatch<SetStateAction<PetPoint | null>>;
+  setIsDragging: Atom<boolean>["set"];
+  setNotificationActive: Atom<boolean>["set"];
+  setFainted: Atom<boolean>["set"];
+  setWalkDirection: Atom<"left" | "right">["set"];
+  setWalkIntensity: Atom<number>["set"];
+  setPosition: Atom<PetPoint | null>["set"];
   clearPetTimer: (key: PetDragTimerKey) => void;
   setPetTimer: (
     key: PetDragTimerKey,

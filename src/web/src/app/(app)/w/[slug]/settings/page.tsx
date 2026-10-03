@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -23,7 +24,7 @@ const TABS = [
 type TabId = (typeof TABS)[number]["id"];
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<TabId>("general");
+  const [activeTab, setActiveTab] = useAtom(useCreateAtom<TabId>("general"));
 
   return (
     <>

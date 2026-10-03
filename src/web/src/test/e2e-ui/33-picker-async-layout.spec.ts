@@ -108,8 +108,6 @@ test.describe.serial("invite and participant picker async states", () => {
   test("Invite friends keeps cold data provisional, search local, row pending, and title clear", async ({ asUser }) => {
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 1280, height: 844 })
-    await page.goto(`/c/channels/${inviteServerId}`)
-    await expect(page.getByRole("button", { name: "Invite to server" })).toBeVisible({ timeout: 20_000 })
 
     const acceptedGate = deferred()
     let acceptedGets = 0
@@ -125,6 +123,9 @@ test.describe.serial("invite and participant picker async states", () => {
       await route.continue()
     })
 
+    await page.goto(`/c/channels/${inviteServerId}`)
+    await expect(page.getByRole("button", { name: "Invite to server" })).toBeVisible({ timeout: 20_000 })
+    await expect.poll(() => acceptedGets).toBe(1)
     await page.getByRole("button", { name: "Invite to server" }).click()
     const dialog = page.getByRole("dialog")
     await expect(dialog.locator('[data-slot="invite-friends-loading"]')).toBeVisible()
@@ -186,8 +187,6 @@ test.describe.serial("invite and participant picker async states", () => {
   test("Invite friends exposes one recoverable first-load error chain before resolved empty", async ({ asUser }) => {
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.goto(`/c/channels/${inviteServerId}`)
-    await expect(page.getByRole("button", { name: "Invite to server" })).toBeVisible({ timeout: 20_000 })
 
     let fail = true
     let acceptedGets = 0
@@ -201,6 +200,8 @@ test.describe.serial("invite and participant picker async states", () => {
       await route.fulfill({ status: 200, contentType: "application/json", body: '{"friends":[]}' })
     })
 
+    await page.goto(`/c/channels/${inviteServerId}`)
+    await expect(page.getByRole("button", { name: "Invite to server" })).toBeVisible({ timeout: 20_000 })
     await page.getByRole("button", { name: "Invite to server" }).click()
     const dialog = page.getByRole("dialog")
     await expect(dialog.getByText("Couldn't load friends.", { exact: true })).toBeVisible({ timeout: 20_000 })

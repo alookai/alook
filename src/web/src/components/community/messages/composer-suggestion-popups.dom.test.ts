@@ -15,7 +15,7 @@ vi.mock("@/lib/community/popup-scroll", () => ({
   nextListScrollTop: (...args: unknown[]) => mocks.nextScrollTop(...args),
 }))
 vi.mock("../avatar", () => ({
-  Avatar: (props: Record<string, unknown>) => createElement("span", { ...props, "data-avatar": "" }),
+  Avatar: ({ className }: Record<string, unknown>) => createElement("span", { className, "data-avatar": "" }),
 }))
 vi.mock("../channels/channel-icon", () => ({
   ChannelIcon: (props: Record<string, unknown>) =>

@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+import { useRef } from "react";
 import { Camera, Shuffle } from "lucide-react";
 import {
   Dialog,
@@ -31,7 +32,7 @@ interface BotAvatarPickerDialogProps {
 export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialogProps) {
   const isMobile = useIsMobile();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [pendingCropSrc, setPendingCropSrc] = useState<{ src: string; fileName: string } | null>(null);
+  const [pendingCropSrc, setPendingCropSrc] = useAtom(useCreateAtom<{ src: string; fileName: string } | null>(null));
   const picker = useAvatarDraftPicker(image, onChange);
 
   const pickPhoto = () => fileInputRef.current?.click();

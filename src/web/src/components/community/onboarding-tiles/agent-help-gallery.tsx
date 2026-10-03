@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store";
+
 import { ChevronLeft, ChevronRight, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -47,7 +48,7 @@ export function AgentHelpGallery({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const [i, setI] = useState(0)
+  const [i, setI] = useAtom(useCreateAtom(0))
   const slide = SLIDES[i]
   const Tile = slide.tile
   const go = (dir: 1 | -1) => setI((n) => (n + dir + SLIDES.length) % SLIDES.length)
