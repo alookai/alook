@@ -114,6 +114,15 @@ async function mountHook({
   }
   const listeners = new Map<string, EventListener>()
   const scrollWrites: number[] = []
+  let rows: HTMLElement[] = []
+  const setRows = (positions: { id: string; top: number; height?: number }[]) => {
+    rows = positions.map(({ id, top, height = 80 }) => {
+      const row = document.createElement("div")
+      row.dataset.msgId = id
+      row.getBoundingClientRect = () => DOMRect.fromRect({ y: top, height })
+      return row
+    })
+  }
   let clientHeight = initialClientHeight
   let scrollHeight = initialScrollHeight
   let scrollTop = Math.max(0, scrollHeight - clientHeight - distanceToEnd)
@@ -121,7 +130,7 @@ async function mountHook({
     addEventListener: (type: string, listener: EventListener) => listeners.set(type, listener),
     removeEventListener: vi.fn(),
     closest: () => ({ querySelector: () => ({}) }),
-    querySelectorAll: () => [],
+    querySelectorAll: () => rows,
     getBoundingClientRect: () => ({ top: 0, bottom: clientHeight }),
     get clientHeight() {
       return clientHeight
@@ -187,6 +196,7 @@ async function mountHook({
   return {
     listeners,
     scrollWrites,
+    setRows,
     scroller,
     result,
     dispatchScroll,
@@ -642,6 +652,7 @@ describe("message positioning owner", () => {
     const oldInitialFrame = frames.shift()!
     virtualizer.scrollToEnd.mockClear()
     mounted.rerender({ scrollToMessageId: "m2", initialScrollReady: true, newDividerBefore: "m1" })
+    mounted.setRows([{ id: "m2", top: 160 }])
     expect(virtualizer.scrollToIndex).toHaveBeenCalledExactlyOnceWith(1, { align: "center", behavior: "auto" })
     expect(virtualizer.scrollToEnd).not.toHaveBeenCalled()
     act(() => oldInitialFrame(0))
@@ -658,6 +669,7 @@ describe("message positioning owner", () => {
     const mounted = await mountHook({ items: [messageItem("m1"), messageItem("m2")], heroMeasured: true, scrollToMessageId: "m1", onScrollTargetPositioned: positioned })
     const oldTarget = frames.shift()!
     mounted.rerender({ scrollToMessageId: "m2" })
+    mounted.setRows([{ id: "m2", top: 160 }])
     act(() => oldTarget(0))
     expect(positioned).not.toHaveBeenCalled()
     act(() => frames.shift()?.(0))
@@ -677,6 +689,162 @@ describe("message positioning owner", () => {
     expect(virtualizer.scrollToEnd).not.toHaveBeenCalled()
     expect(positioned).not.toHaveBeenCalled()
     expect(settled).toHaveBeenCalledOnce()
+  })
+
+  it("waits for the actual target row to enter the viewport before consuming its native request", async () => {
+    const frames = captureFrames()
+    const positioned = vi.fn()
+    const settled = vi.fn()
+    const mounted = await mountHook({ items: [messageItem("m1")], heroMeasured: true, scrollToMessageId: "m1", onScrollTargetPositioned: positioned, onInitialPositionSettled: settled })
+    act(() => frames.shift()?.(0))
+    expect(positioned).not.toHaveBeenCalled()
+    mounted.setRows([{ id: "m1", top: 900 }])
+    act(() => frames.shift()?.(0))
+    expect(positioned).not.toHaveBeenCalled()
+    act(() => mounted.result.captureOlderPageAnchor())
+    expect(mounted.result.isOlderPageAnchorSettling).toBe(false)
+    mounted.setRows([{ id: "m1", top: 160 }])
+    act(() => frames.shift()?.(0))
+    expect(positioned).toHaveBeenCalledExactlyOnceWith("m1")
+    act(() => frames.shift()?.(0))
+    expect(settled).toHaveBeenCalledOnce()
+    expect(virtualizer.scrollToIndex).toHaveBeenCalledOnce()
+  })
+
+  it("keeps the original first-display deadline when pagination takes a pending reveal", async () => {
+    vi.useFakeTimers()
+    const frames = captureFrames()
+    const settled = vi.fn()
+    const mounted = await mountHook({ items: [messageItem("m1")], heroMeasured: true, onInitialPositionSettled: settled })
+    const retiredReveal = frames.shift()!
+    mounted.setRows([{ id: "m1", top: 120 }])
+    act(() => vi.advanceTimersByTime(1_800))
+    act(() => mounted.result.captureOlderPageAnchor())
+    mounted.rerender({ isFetchingOlder: true })
+    act(() => retiredReveal(0))
+    expect(settled).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(199))
+    expect(settled).not.toHaveBeenCalled()
+    const writes = [...mounted.scrollWrites]
+    act(() => vi.advanceTimersByTime(1))
+    expect(settled).toHaveBeenCalledOnce()
+    expect(mounted.scrollWrites).toEqual(writes)
+    mounted.unmount()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("retains the first-display deadline after target geometry completes and pagination cancels its reveal", async () => {
+    vi.useFakeTimers()
+    const frames = captureFrames()
+    const settled = vi.fn()
+    const positioned = vi.fn()
+    const mounted = await mountHook({ items: [messageItem("m1")], heroMeasured: true, scrollToMessageId: "m1", onInitialPositionSettled: settled, onScrollTargetPositioned: positioned })
+    mounted.setRows([{ id: "m1", top: 120 }])
+    act(() => frames.shift()?.(0))
+    expect(positioned).toHaveBeenCalledOnce()
+    const retiredReveal = frames.shift()!
+    act(() => mounted.result.captureOlderPageAnchor())
+    act(() => retiredReveal(0))
+    expect(settled).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(2_000))
+    expect(settled).toHaveBeenCalledOnce()
+    mounted.unmount()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("bounds native target geometry waiting and discards its late mounted row", async () => {
+    vi.useFakeTimers()
+    const frames = captureFrames()
+    const settled = vi.fn()
+    const positioned = vi.fn()
+    const mounted = await mountHook({ items: [messageItem("m1")], heroMeasured: true, scrollToMessageId: "m1", onInitialPositionSettled: settled, onScrollTargetPositioned: positioned })
+    mounted.setRows([{ id: "m1", top: 900 }])
+    act(() => frames.shift()?.(0))
+    const retiredPoll = frames.shift()!
+    act(() => vi.advanceTimersByTime(2_000))
+    expect(settled).toHaveBeenCalledOnce()
+    mounted.setRows([{ id: "m1", top: 120 }])
+    act(() => retiredPoll(0))
+    expect(positioned).not.toHaveBeenCalled()
+    expect(virtualizer.scrollToIndex).toHaveBeenCalledOnce()
+    mounted.unmount()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("settles the first display when older pagination completes before the original reveal", async () => {
+    const frames = captureFrames()
+    const settled = vi.fn()
+    const initial = [messageItem("m1")]
+    const mounted = await mountHook({ items: initial, heroMeasured: true, onInitialPositionSettled: settled })
+    const retiredReveal = frames.shift()!
+    mounted.setRows([{ id: "m1", top: 120 }])
+    act(() => mounted.result.captureOlderPageAnchor())
+    mounted.rerender({ isFetchingOlder: true })
+    mounted.rerender({ items: [messageItem("older"), ...initial], isFetchingOlder: false })
+    act(() => retiredReveal(0))
+    expect(settled).not.toHaveBeenCalled()
+    act(() => { while (frames.length) frames.shift()!(0) })
+    expect(settled).toHaveBeenCalledOnce()
+    expect(mounted.rerender({}).isOlderPageAnchorSettling).toBe(false)
+    mounted.unmount()
+  })
+
+  it("bounds first-display waiting when a pagination fetching render was never observed", async () => {
+    vi.useFakeTimers()
+    const frames = captureFrames()
+    const settled = vi.fn()
+    const initial = [messageItem("m1")]
+    const mounted = await mountHook({ items: initial, heroMeasured: true, onInitialPositionSettled: settled })
+    const retiredReveal = frames.shift()!
+    mounted.setRows([{ id: "m1", top: 120 }])
+    act(() => mounted.result.captureOlderPageAnchor())
+    mounted.rerender({ items: [messageItem("older"), ...initial], isFetchingOlder: false })
+    act(() => retiredReveal(0))
+    expect(settled).not.toHaveBeenCalled()
+    virtualizer.scrollToIndex.mockClear()
+    act(() => vi.advanceTimersByTime(2_000))
+    expect(settled).toHaveBeenCalledOnce()
+    expect(virtualizer.scrollToIndex).not.toHaveBeenCalled()
+    mounted.unmount()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("does not let an old deadline or delayed target frame expire a newer target", async () => {
+    vi.useFakeTimers()
+    const frames = captureFrames()
+    const settled = vi.fn()
+    const positioned = vi.fn()
+    const mounted = await mountHook({ items: [messageItem("m1"), messageItem("m2")], heroMeasured: true, scrollToMessageId: "m1", onInitialPositionSettled: settled, onScrollTargetPositioned: positioned })
+    const retiredTarget = frames.shift()!
+    act(() => vi.advanceTimersByTime(1_800))
+    mounted.rerender({ scrollToMessageId: "m2" })
+    mounted.setRows([{ id: "m1", top: 120 }])
+    act(() => retiredTarget(0))
+    act(() => vi.advanceTimersByTime(200))
+    expect(settled).not.toHaveBeenCalled()
+    expect(positioned).not.toHaveBeenCalled()
+    mounted.setRows([{ id: "m2", top: 120 }])
+    act(() => frames.shift()?.(0))
+    act(() => frames.shift()?.(0))
+    expect(positioned).toHaveBeenCalledExactlyOnceWith("m2")
+    expect(settled).toHaveBeenCalledOnce()
+    mounted.unmount()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("retires target geometry polling on wheel without a late callback or scroll", async () => {
+    const frames = captureFrames()
+    const positioned = vi.fn()
+    const mounted = await mountHook({ items: [messageItem("m1")], heroMeasured: true, scrollToMessageId: "m1", onScrollTargetPositioned: positioned })
+    act(() => frames.shift()?.(0))
+    const retiredPoll = frames.shift()!
+    act(() => mounted.listeners.get("wheel")?.(new WheelEvent("wheel", { deltaY: -60 })))
+    const nativeWrites = virtualizer.scrollToIndex.mock.calls.length
+    mounted.setRows([{ id: "m1", top: 120 }])
+    act(() => retiredPoll(0))
+    expect(positioned).not.toHaveBeenCalled()
+    expect(virtualizer.scrollToIndex).toHaveBeenCalledTimes(nativeWrites)
+    mounted.unmount()
   })
 
   it("bounds a target missing from a readable window without a late target yank", async () => {

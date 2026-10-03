@@ -540,6 +540,7 @@ export function useScrollAnchor({
   const initialDeadlineRef = useRef<number | null>(null)
   const initialRetiredRef = useRef(false)
   const positionBudgetStartedRef = useRef(false)
+  const positionBudgetEpochRef = useRef(0)
   const targetIntentRef = useRef<string | null>(null)
   const positionedTargetRef = useRef<string | null>(null)
   const consumedPresentVersionRef = useRef(0)
@@ -587,24 +588,33 @@ export function useScrollAnchor({
     window.cancelAnimationFrame(initialSettleFrameRef.current)
     initialSettleFrameRef.current = null
   }, [])
+  const settleInitialPosition = useCallback(() => {
+    if (!positionOwnerRef.current.active || initialPositionSettledRef.current) return
+    cancelInitialSettleFrame()
+    initialPositionSettledRef.current = true
+    if (initialDeadlineRef.current !== null) window.clearTimeout(initialDeadlineRef.current)
+    initialDeadlineRef.current = null
+    onInitialPositionSettled?.()
+  }, [cancelInitialSettleFrame, onInitialPositionSettled])
   const scheduleInitialPositionSettled = useCallback(() => {
     if (initialPositionSettledRef.current || initialSettleFrameRef.current !== null) return
     const epoch = positionOwnerRef.current.epoch
     initialSettleFrameRef.current = window.requestAnimationFrame(() => {
       initialSettleFrameRef.current = null
       if (!positionOwnerRef.current.active || positionOwnerRef.current.epoch !== epoch) return
-      if (initialPositionSettledRef.current) return
-      initialPositionSettledRef.current = true
-      onInitialPositionSettled?.()
+      settleInitialPosition()
     })
-  }, [onInitialPositionSettled])
+  }, [settleInitialPosition])
   const claimPosition = useCallback((kind: typeof positionOwnerRef.current.kind) => {
     const owner = positionOwnerRef.current
     owner.epoch += 1
     owner.kind = kind
     cancelInitialSettleFrame()
-    if (initialDeadlineRef.current !== null) window.clearTimeout(initialDeadlineRef.current)
-    initialDeadlineRef.current = null
+    if (!owner.active || initialPositionSettledRef.current) {
+      positionBudgetEpochRef.current += 1
+      if (initialDeadlineRef.current !== null) window.clearTimeout(initialDeadlineRef.current)
+      initialDeadlineRef.current = null
+    }
     if (targetPositionFrameRef.current !== null) window.cancelAnimationFrame(targetPositionFrameRef.current)
     if (paginationAnchorFrameRef.current !== null) window.cancelAnimationFrame(paginationAnchorFrameRef.current)
     if (repinFrameRef.current !== null) window.cancelAnimationFrame(repinFrameRef.current)
@@ -772,6 +782,9 @@ export function useScrollAnchor({
       return
     }
     claimPosition("target")
+    positionBudgetEpochRef.current += 1
+    if (initialDeadlineRef.current !== null) window.clearTimeout(initialDeadlineRef.current)
+    initialDeadlineRef.current = null
     positionBudgetStartedRef.current = false
     retireInitialPosition()
     positionedTargetRef.current = null
@@ -780,14 +793,17 @@ export function useScrollAnchor({
   }, [claimPosition, releasePosition, retireInitialPosition, scrollToMessageId, virtualizer])
 
   useLayoutEffect(() => {
-    if (messages.length === 0 || positionBudgetStartedRef.current || !["initial", "target"].includes(positionOwnerRef.current.kind)) return
+    if (messages.length === 0 || positionBudgetStartedRef.current
+      || (initialPositionSettledRef.current && positionOwnerRef.current.kind !== "target")) return
     positionBudgetStartedRef.current = true
+    const budgetEpoch = positionBudgetEpochRef.current
     initialDeadlineRef.current = window.setTimeout(() => {
+      if (!positionOwnerRef.current.active || positionBudgetEpochRef.current !== budgetEpoch) return
       initialDeadlineRef.current = null
-      if (!positionOwnerRef.current.active) return
       if (["initial", "target"].includes(positionOwnerRef.current.kind)) releasePosition()
+      settleInitialPosition()
     }, INITIAL_POSITION_TIMEOUT_MS)
-  }, [messages.length, releasePosition, scrollToMessageId])
+  }, [messages.length, releasePosition, scrollToMessageId, settleInitialPosition])
 
   useLayoutEffect(() => {
     if (!scrollToMessageId || positionedTargetRef.current === scrollToMessageId
@@ -796,15 +812,32 @@ export function useScrollAnchor({
     if (index === null) return
     const epoch = positionOwnerRef.current.epoch
     const id = scrollToMessageId
-    positionedTargetRef.current = id
+    if (targetPositionFrameRef.current !== null) window.cancelAnimationFrame(targetPositionFrameRef.current)
     virtualizer.scrollToIndex(index, { align: "center", behavior: "auto" })
-    targetPositionFrameRef.current = window.requestAnimationFrame(() => {
+    const settle = () => {
       targetPositionFrameRef.current = null
-      if (!positionOwnerRef.current.active || positionOwnerRef.current.epoch !== epoch) return
+      if (!positionOwnerRef.current.active || positionOwnerRef.current.epoch !== epoch
+        || positionOwnerRef.current.kind !== "target" || targetIntentRef.current !== id) return
+      const root = scrollRef.current
+      const row = root && Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]"))
+        .find((candidate) => candidate.dataset.msgId === id)
+      const viewport = root?.getBoundingClientRect()
+      const rect = row?.getBoundingClientRect()
+      if (!viewport || !rect || rect.bottom <= viewport.top + 1 || rect.top >= viewport.bottom - 1
+        || rect.bottom <= rect.top || viewport.bottom <= viewport.top) {
+        targetPositionFrameRef.current = window.requestAnimationFrame(settle)
+        return
+      }
+      positionedTargetRef.current = id
       positionOwnerRef.current.kind = "idle"
+      if (initialPositionSettledRef.current) {
+        if (initialDeadlineRef.current !== null) window.clearTimeout(initialDeadlineRef.current)
+        initialDeadlineRef.current = null
+      }
       onTargetPositionedRef.current?.(id)
       scheduleInitialPositionSettled()
-    })
+    }
+    targetPositionFrameRef.current = window.requestAnimationFrame(settle)
   }, [heroMeasured, items, scheduleInitialPositionSettled, scrollToMessageId, virtualizer])
 
   const capturePageAnchor = useCallback((direction: "older" | "newer") => {
@@ -812,7 +845,7 @@ export function useScrollAnchor({
     claimPosition("pagination")
     retireInitialPosition()
     const root = scrollRef.current
-    if (!root) { positionOwnerRef.current.kind = "idle"; return }
+    if (!root) { positionOwnerRef.current.kind = "idle"; scheduleInitialPositionSettled(); return }
     const rootRect = root.getBoundingClientRect()
     const row = Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]"))
       .find((candidate) => {
@@ -824,7 +857,7 @@ export function useScrollAnchor({
     // inserted above the viewport. Newer pages append below it, so the exact
     // scrollTop is itself a stable anchor and also covers the brief moment
     // where the virtualizer has not mounted the newly visible end rows yet.
-    if (direction === "older" && (!row || !messageId)) { positionOwnerRef.current.kind = "idle"; return }
+    if (direction === "older" && (!row || !messageId)) { positionOwnerRef.current.kind = "idle"; scheduleInitialPositionSettled(); return }
     if (paginationAnchorFrameRef.current !== null) {
       window.cancelAnimationFrame(paginationAnchorFrameRef.current)
       paginationAnchorFrameRef.current = null
@@ -838,7 +871,7 @@ export function useScrollAnchor({
     paginationFetchObservedRef.current = false
     newerPageFetchActiveRef.current = direction === "newer"
     setPaginationDirection(direction)
-  }, [claimPosition, retireInitialPosition, setPaginationDirection])
+  }, [claimPosition, retireInitialPosition, scheduleInitialPositionSettled, setPaginationDirection])
   const captureOlderPageAnchor = useCallback(
     () => capturePageAnchor("older"),
     [capturePageAnchor],
@@ -866,6 +899,7 @@ export function useScrollAnchor({
       paginationAnchorRef.current = null
       positionOwnerRef.current.kind = "idle"
       setPaginationDirection(null)
+      scheduleInitialPositionSettled()
       return
     }
     const acceptGeometry = () => {
@@ -915,6 +949,7 @@ export function useScrollAnchor({
         paginationAnchorRef.current = null
         positionOwnerRef.current.kind = "idle"
         setPaginationDirection(null)
+        scheduleInitialPositionSettled()
         return
       }
       paginationAnchorFrameRef.current = window.requestAnimationFrame(restore)
@@ -926,7 +961,7 @@ export function useScrollAnchor({
         paginationAnchorFrameRef.current = null
       }
     }
-  }, [isFetchingNewer, isFetchingOlder, items, setPaginationDirection, virtualizer])
+  }, [isFetchingNewer, isFetchingOlder, items, scheduleInitialPositionSettled, setPaginationDirection, virtualizer])
 
   useLayoutEffect(() => () => {
     if (paginationAnchorFrameRef.current !== null) {
