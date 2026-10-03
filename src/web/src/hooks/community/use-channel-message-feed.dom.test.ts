@@ -119,6 +119,18 @@ describe("useChannelMessageFeed", () => {
     expect(mocks.readState.retry).not.toHaveBeenCalled()
   })
 
+  it("retries a read snapshot failure without refetching usable cached messages", () => {
+    const failure = new Error("Read snapshot unavailable")
+    mocks.readState.error = failure
+    let latest!: ReturnType<typeof useChannelMessageFeed>
+    render(createElement(Capture, { onResult: (result) => { latest = result } }))
+    expect(latest.initialLoadError).toBe(failure)
+    expect(latest.messages).toEqual(mocks.messages.messages)
+    act(() => latest.retryInitialLoad())
+    expect(mocks.readState.retry).toHaveBeenCalledOnce()
+    expect(mocks.messages.refetch).not.toHaveBeenCalled()
+  })
+
   it("seeds the frozen mount snapshot from the canonical read projection", () => {
     mocks.canonicalReadSnapshot = {
       lastReadMessageId: "authoritative-anchor",

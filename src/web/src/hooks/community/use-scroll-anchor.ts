@@ -1099,8 +1099,11 @@ export function useScrollAnchor({
   ])
 
   useLayoutEffect(() => {
-    if (!isFetchingNewer && !paginationAnchorRef.current) newerPageFetchActiveRef.current = false
-  }, [isFetchingNewer, items, paginationDirection])
+    if (!isFetchingNewer && !paginationAnchorRef.current) {
+      if (newerPageFetchActiveRef.current) stateRef.current = { ...stateRef.current, lastTailId: tailId }
+      newerPageFetchActiveRef.current = false
+    }
+  }, [isFetchingNewer, items, paginationDirection, tailId])
 
   useLayoutEffect(() => {
     if (!presentVersion || !tailId || hasMoreNewer) return

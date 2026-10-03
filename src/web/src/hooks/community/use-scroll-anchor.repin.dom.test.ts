@@ -769,4 +769,20 @@ describe("message positioning owner", () => {
     mounted.rerender({ items: [...newestWindow, messageItem("new-send", "viewer")] })
     expect(virtualizer.scrollToEnd).toHaveBeenCalledOnce()
   })
+
+  it("accepts a newer page arriving before its replacement target settles without following its historical self tail", async () => {
+    const frames = captureFrames()
+    const mounted = await mountHook({ distanceToEnd: 300, items: [messageItem("old-window", "peer")], initialScrollReady: true, heroMeasured: true, hasMoreNewer: true, viewerUserId: "viewer" })
+    act(() => mounted.result.captureNewerPageAnchor())
+    mounted.rerender({ isFetchingNewer: true })
+    act(() => mounted.result.jumpTo("old-window", "smooth"))
+    const completed = [messageItem("old-window", "peer"), messageItem("historical-self", "viewer")]
+    virtualizer.scrollToEnd.mockClear()
+    mounted.rerender({ items: completed, isFetchingNewer: false, hasMoreNewer: false })
+    act(() => { while (frames.length) frames.shift()!(0) })
+    mounted.rerender({ items: [...completed], newDividerBefore: "historical-self" })
+    expect(virtualizer.scrollToEnd).not.toHaveBeenCalled()
+    mounted.rerender({ items: [...completed, messageItem("new-send", "viewer")] })
+    expect(virtualizer.scrollToEnd).toHaveBeenCalledOnce()
+  })
 })
