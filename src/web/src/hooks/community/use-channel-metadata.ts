@@ -37,10 +37,12 @@ export function useChannelMetadata(serverId: string | null, channelId: string | 
   }, [accessEpoch, accountEpoch, viewerId, generation, channelId, revoked, query.data, queryClient, serverId])
   const denied = typeof query.error === "object" && query.error !== null && "status" in query.error
     && (query.error.status === 403 || query.error.status === 404)
-  const isVerified = !!query.data && query.data.id === channelId
+  const hasCurrentVerification = !!query.data && query.data.id === channelId
     && canonical?.serverId === serverId && query.data.verifiedEpoch === accessEpoch
     && !!query.data.verification && isChannelMetadataTokenCurrent(query.data.verification)
-    && !revoked && !denied && !canonical?.archived && !canonical?.pending
+    && !revoked && !denied && !canonical?.pending
+  const isArchived = hasCurrentVerification && !!canonical?.archived
+  const isVerified = hasCurrentVerification && !canonical?.archived
   const data = useMemo(() => canonical && canonical.id === channelId && canonical.serverId === serverId
     ? { ...canonical,
         serverId,
@@ -54,5 +56,5 @@ export function useChannelMetadata(serverId: string | null, channelId: string | 
         creatorId: canonical.creatorId ?? null,
         lastMessageAt: canonical.lastMessageAt ?? null }
     : undefined, [canonical, channelId, query.data, serverId])
-  return { ...query, data, isVerified, denied, canonical }
+  return { ...query, data, isVerified, isArchived, denied, canonical }
 }

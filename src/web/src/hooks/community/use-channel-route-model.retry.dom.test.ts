@@ -190,6 +190,26 @@ describe("unresolved metadata terminal error and retry", () => {
     if (status !== 401) expect(mocks.replace).toHaveBeenCalledWith("/c/channels/server-1")
   })
 
+  it("keeps a legacy tag-derived archive bit pending without purging or revoking access", async () => {
+    const owner = getCommunityDbRegistry(client)!
+    owner.collections.channels.utils.writeUpsert([{ ...payload(), type: "thread", archived: true, tags: ["archived"], position: 0, muted: false, unread: false, pending: false }])
+    owner.collections.messages.utils.writeUpsert([{ id: "reply-1", channelId: "post-1", type: "chat", content: "kept" }])
+    const held = deferred()
+    mocks.apiFetch.mockReturnValue(held.promise)
+    await mount()
+    await until(() => mocks.apiFetch.mock.calls.length > 0)
+    expect(current.routeLifecycle).toBe("pending")
+    expect(mocks.replace).not.toHaveBeenCalled()
+    expect(owner.runtime.ws.actions.isChannelAccessRevoked("post-1", "server-1")).toBe(false)
+    expect(owner.collections.messages.get("reply-1")?.content).toBe("kept")
+    await act(async () => held.resolve(payload()))
+    await until(() => current.routeHydrated)
+    expect(owner.collections.channels.get("post-1")?.archived).toBe(false)
+    expect(owner.collections.channels.get("post-1")?.tags).toEqual(["archived"])
+    expect(mocks.replace).not.toHaveBeenCalled()
+    expect(owner.collections.messages.get("reply-1")?.content).toBe("kept")
+  })
+
   it("does not retain a trusted route after an archived metadata response", async () => {
     mocks.apiFetch.mockResolvedValue(payload())
     await mount()
@@ -198,6 +218,8 @@ describe("unresolved metadata terminal error and retry", () => {
     await act(async () => { await reconcileCommunityWsReconnect(client, 60_000) })
     await until(() => !current.routeHydrated)
     expect(current.routeLifecycle).not.toBe("ready")
+    expect(mocks.replace).toHaveBeenCalledOnce()
+    expect(getCommunityDbRegistry(client)!.runtime.ws.actions.isChannelAccessRevoked("post-1", "server-1")).toBe(true)
   })
 
   it("requires fresh metadata after reauthorization and can exit again on a later denial", async () => {
