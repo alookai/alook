@@ -532,7 +532,9 @@ export function useScrollAnchor({
   isNewerPageAnchorSettling: boolean
 } {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const virtualizerRef = useRef<ReactVirtualizer<HTMLDivElement, Element> | null>(null)
   const positionOwnerRef = useRef({ epoch: 0, kind: "initial" as "initial" | "target" | "pagination" | "present" | "idle", active: true })
+  const presentIntentEpochRef = useRef<number | null>(null)
   const targetPositionFrameRef = useRef<number | null>(null)
   const repinFrameRef = useRef<number | null>(null)
   const initialDeadlineRef = useRef<number | null>(null)
@@ -612,6 +614,8 @@ export function useScrollAnchor({
     bottomRepinQueuedRef.current = false
     paginationAnchorRef.current = null
     setPaginationDirection(null)
+    const root = scrollRef.current
+    if (root) virtualizerRef.current?.scrollToOffset(root.scrollTop, { behavior: "auto" })
     return owner.epoch
   }, [cancelInitialSettleFrame, setPaginationDirection])
   useLayoutEffect(() => {
@@ -718,6 +722,7 @@ export function useScrollAnchor({
     paddingEnd: tailPaddingEnd,
     overscan: 8,
   })
+  virtualizerRef.current = virtualizer
   // virtual-core exposes this predicate on the instance (and `resizeItem`
   // reads it there), not through VirtualizerOptions. Assign during render so
   // it is already installed when React attaches row refs in the commit.
@@ -753,11 +758,9 @@ export function useScrollAnchor({
     claimPosition("idle")
     retireInitialPosition()
     positionedTargetRef.current = targetIntentRef.current
-    const root = scrollRef.current
-    if (root) virtualizer.scrollToOffset?.(root.scrollTop, { behavior: "auto" })
     scheduleInitialPositionSettled()
     if (cancelledTarget) onTargetCancelledRef.current?.(cancelledTarget)
-  }, [claimPosition, retireInitialPosition, scheduleInitialPositionSettled, virtualizer])
+  }, [claimPosition, retireInitialPosition, scheduleInitialPositionSettled])
 
   useLayoutEffect(() => {
     const target = scrollToMessageId ?? null
@@ -1103,7 +1106,9 @@ export function useScrollAnchor({
     if (!presentVersion || !tailId || hasMoreNewer) return
     if (consumedPresentVersionRef.current === presentVersion) return
     consumedPresentVersionRef.current = presentVersion
-    claimPosition("present")
+    if (!positionOwnerRef.current.active || positionOwnerRef.current.kind !== "present"
+      || presentIntentEpochRef.current !== positionOwnerRef.current.epoch) return
+    presentIntentEpochRef.current = null
     retireInitialPosition()
     stateRef.current = {
       didInitialScroll: true,
@@ -1116,7 +1121,7 @@ export function useScrollAnchor({
     virtualizer.options.anchorTo = "end"
     virtualizer.scrollToEnd()
     scheduleInitialPositionSettled()
-  }, [claimPosition, hasMoreNewer, presentVersion, retireInitialPosition, scheduleInitialPositionSettled, tailId, virtualizer])
+  }, [hasMoreNewer, presentVersion, retireInitialPosition, scheduleInitialPositionSettled, tailId, virtualizer])
 
   // Hero-swap compensation — NOT delegated to `scrollMargin` (verified it
   // never triggers a `scrollOffset` write on its own). Tracks the hero's
@@ -1215,7 +1220,7 @@ export function useScrollAnchor({
   const belowCount = virtualizer.isAtEnd(NEAR_BOTTOM_PX) ? 0 : computeBelowCount(items, lastVisibleIndex)
 
   const requestPresentPosition = useCallback(() => {
-    claimPosition("present")
+    presentIntentEpochRef.current = claimPosition("present")
     retireInitialPosition()
     scheduleInitialPositionSettled()
   }, [claimPosition, retireInitialPosition, scheduleInitialPositionSettled])

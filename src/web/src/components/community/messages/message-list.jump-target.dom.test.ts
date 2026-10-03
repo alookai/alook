@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => {
       options: { anchorTo: "end" },
       scrollToIndex,
       scrollToEnd,
+      scrollToOffset: vi.fn(),
       isAtEnd: () => true,
       range: null,
     },

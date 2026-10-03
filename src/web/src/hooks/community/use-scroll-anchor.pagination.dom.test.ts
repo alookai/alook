@@ -17,6 +17,7 @@ const harness = vi.hoisted(() => ({
     isAtEnd: vi.fn(() => false),
     scrollToEnd: vi.fn(),
     scrollToIndex: vi.fn(),
+    scrollToOffset: vi.fn(),
     range: null,
     shouldAdjustScrollPositionOnItemSizeChange: undefined,
   },

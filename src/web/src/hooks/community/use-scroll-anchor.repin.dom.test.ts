@@ -564,11 +564,14 @@ describe("useScrollAnchor semantic viewport resize anchoring", () => {
   })
 
   it("restores the latch for an explicit present action", async () => {
-    const { geometry, resizeViewport } = await mountHook({
+    const { geometry, resizeViewport, result, rerender, dispatchScroll } = await mountHook({
       distanceToEnd: 300,
       items: [messageItem("m1")],
-      presentVersion: 1,
+      presentVersion: 0,
     })
+    act(() => result.requestPresentPosition())
+    rerender({ presentVersion: 1 })
+    dispatchScroll()
 
     expect(virtualizer.scrollToEnd).toHaveBeenCalledTimes(1)
     expect(virtualizer.options.anchorTo).toBe("end")
@@ -711,5 +714,38 @@ describe("message positioning owner", () => {
     mounted.unmount()
     act(() => { for (const frame of frames) frame(0) })
     expect(positioned).not.toHaveBeenCalled()
+  })
+
+  it.each(["wheel", "target"])("keeps a late present completion retired after %s supersedes its intent", async (intent) => {
+    const mounted = await mountHook({
+      distanceToEnd: 300,
+      items: [messageItem("m1"), messageItem("m2")],
+      initialScrollReady: true,
+      heroMeasured: true,
+      hasMoreNewer: true,
+      presentVersion: 0,
+    })
+    act(() => mounted.result.requestPresentPosition())
+    if (intent === "wheel") act(() => mounted.listeners.get("wheel")?.({ deltaY: -40 } as WheelEvent))
+    else mounted.rerender({ scrollToMessageId: "m1" })
+    virtualizer.scrollToEnd.mockClear()
+    const before = mounted.geometry().scrollTop
+    mounted.rerender({ presentVersion: 1, hasMoreNewer: false })
+    expect(virtualizer.scrollToEnd).not.toHaveBeenCalled()
+    expect(mounted.geometry().scrollTop).toBe(before)
+    expect(virtualizer.options.anchorTo).toBe("start")
+    mounted.rerender({ items: [messageItem("m1"), messageItem("m2")], presentVersion: 1 })
+    expect(virtualizer.scrollToEnd).not.toHaveBeenCalled()
+  })
+
+  it("retires a native index request immediately when an unloaded target or pending present takes ownership", async () => {
+    const mounted = await mountHook({ items: [messageItem("m1")], heroMeasured: true })
+    act(() => mounted.result.jumpTo("m1", "smooth"))
+    virtualizer.scrollToOffset.mockClear()
+    mounted.rerender({ scrollToMessageId: "not-loaded" })
+    expect(virtualizer.scrollToOffset).toHaveBeenCalledExactlyOnceWith(mounted.geometry().scrollTop, { behavior: "auto" })
+    virtualizer.scrollToOffset.mockClear()
+    act(() => mounted.result.requestPresentPosition())
+    expect(virtualizer.scrollToOffset).toHaveBeenCalledExactlyOnceWith(mounted.geometry().scrollTop, { behavior: "auto" })
   })
 })
