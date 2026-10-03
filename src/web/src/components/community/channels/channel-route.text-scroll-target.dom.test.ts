@@ -7,6 +7,7 @@ import { ForumChannelSurface } from "./forum-channel-surface"
 import { MessageList } from "../messages/message-list"
 import { useChannelMemberViewModel } from "../members/channel-member-view-model"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
+import type { ConversationNavigationTarget } from "@/lib/community/conversation-navigation-proof"
 
 const {
   mockRouteModel,
@@ -42,7 +43,7 @@ const {
   mockCommitLastCommunityRoute: vi.fn(),
   mockSetLastChannel: vi.fn(),
   mockClearLastChannel: vi.fn(),
-  mockNavigationGate: { allowed: true },
+  mockNavigationGate: { allowed: true, target: null as ConversationNavigationTarget | null },
   mockCurrentChannelId: { value: "channel_1" as string | null },
   mockCanManageServer: vi.fn((role?: string | null) => role === "owner" || role === "admin"),
   mockDismissConversation: vi.fn(),
@@ -96,7 +97,7 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(mockSearchParams.value),
 }))
 vi.mock("@/lib/community/conversation-navigation-proof", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community/conversation-navigation-proof")>(),
-  useConversationNavigationGate: () => ({ required: false, allowed: mockNavigationGate.allowed }),
+  useConversationNavigationGate: () => ({ required: false, allowed: mockNavigationGate.allowed, target: mockNavigationGate.target }),
 }))
 vi.mock("sonner", () => ({ toast: vi.fn() }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn(), toastApiError: vi.fn() }))
@@ -367,6 +368,7 @@ describe("ChannelRoute message surface ownership", () => {
     mockClearLastChannel.mockClear()
     mockDismissConversation.mockClear()
     mockNavigationGate.allowed = true
+    mockNavigationGate.target = null
     mockCurrentChannelId.value = "channel_1"
     mockMemberViewModel.myRole = "member"
     Object.assign(mockRouteModel, {
@@ -840,6 +842,35 @@ describe("ChannelRoute message surface ownership", () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.clearAllMocks()
+  })
+
+  it.each(["text", "thread"])("hands the current Marked anchor to the %s feed before mount revalidation", (kind) => {
+    if (kind === "thread") configureThreadRoute()
+    mockSearchParams.value = "keep=1"
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+    const route = () => React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" })
+    const renderer = render(route())
+    for (const anchorMessageId of ["first-marked", "second-marked", "second-marked"]) {
+      mockNavigationGate.allowed = false
+      mockNavigationGate.target = { href: "/c/channels/server_1/channel_1?seq=7",
+        viewerId: "viewer_1", channelId: "channel_1", serverId: "server_1", scopeKind: "channel", anchorMessageId }
+      renderer.rerender(route())
+      mockedUseChannelMessageFeed.mockClear()
+      mockNavigationGate.allowed = true
+      renderer.rerender(route())
+      expect(mockedUseChannelMessageFeed.mock.calls[0]?.[0].anchorMessageId).toBe(anchorMessageId)
+      mockNavigationGate.target = null
+      renderer.rerender(route())
+      expect(mockedUseChannelMessageFeed.mock.lastCall?.[0].anchorMessageId).toBe(anchorMessageId)
+    }
+    mockNavigationGate.target = { href: "/c/channels/server_1/channel_1",
+      viewerId: "viewer_1", channelId: "channel_1", serverId: "server_1", scopeKind: "channel" }
+    renderer.rerender(route())
+    expect(mockedUseChannelMessageFeed.mock.lastCall?.[0].anchorMessageId).toBeNull()
+    mockNavigationGate.target = null
+    renderer.rerender(route())
+    expect(mockedUseChannelMessageFeed.mock.lastCall?.[0].anchorMessageId).toBeNull()
+    expect(mockRouter.replace).not.toHaveBeenCalled()
   })
 
   it("keeps the route anchor until MessageList reports a successful jump", async () => {

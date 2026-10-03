@@ -275,7 +275,7 @@ describe("conversation navigation proof", () => {
       proof.epoch,
     )
     commitConversationNavigationProof(queryClient, "c1", 9)
-    const gates: Array<{ required: boolean; allowed: boolean }> = []
+    const gates: Array<ReturnType<typeof useConversationNavigationGate>> = []
 
     function Gate() {
       gates.push(useConversationNavigationGate(queryClient, "viewer", "c1", 9))
@@ -283,8 +283,9 @@ describe("conversation navigation proof", () => {
     }
 
     const renderer = render(createElement(Gate))
-    expect(gates).toContainEqual(expect.objectContaining({ required: true, allowed: true }))
+    expect(gates).toContainEqual(expect.objectContaining({ required: true, allowed: true, target }))
     expect(getConversationNavigationProof(queryClient)).toBeNull()
+    expect(gates.at(-1)?.target).toBeNull()
     await act(async () => renderer.unmount())
   })
 

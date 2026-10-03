@@ -60,12 +60,7 @@ export function ChannelRoute({ serverParam, channelId }: {
   const searchParams = useSearchParams()
   const serverId = decodeURIComponent(serverParam)
   const currentUser = useCurrentUser()
-  // Cross-channel "jump to message" target, captured ONCE at mount from `?msg=`.
-  // `ChannelView` is keyed by `serverId/channelId`, so a fresh jump remounts and
-  // re-reads this. The param is stripped from the URL right after (below) so a
-  // refresh/back doesn't re-trigger the jump; this frozen copy still drives the
-  // anchor + scroll for this mount.
-const [jumpTargetId] = useAtom(useCreateAtom<string | null>((() => searchParams.get("msg"))()))
+  const [jumpTargetId, setJumpTargetId] = useAtom(useCreateAtom<string | null>((() => searchParams.get("msg"))()))
   const queryClient = useQueryClient()
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const navigationGate = useConversationNavigationGate(
@@ -74,6 +69,12 @@ const [jumpTargetId] = useAtom(useCreateAtom<string | null>((() => searchParams.
     channelId,
     accessEpoch,
   )
+  const navigationTarget = navigationGate.target
+  const currentAnchorMessageId = navigationTarget
+    ? navigationTarget.anchorMessageId ?? null : jumpTargetId
+  useLayoutEffect(() => {
+    if (navigationTarget) setJumpTargetId(navigationTarget.anchorMessageId ?? null)
+  }, [navigationTarget, setJumpTargetId])
   const uiHandlers = useUiHandlers()
   const currentChannelId = useCurrentChannelId()
   const routeModel = useChannelRouteModel(serverId, serverParam, channelId, currentUser.id)
@@ -204,11 +205,8 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
     })
   }, [channelId, setChannelNotif])
 
-  // Strip `?msg=` from the URL right after mount so a refresh/back doesn't
-  // re-trigger the jump. The frozen `jumpTargetId` still seeds the mounted
-  // message controller for this mount; this only cleans the address.
   useEffect(() => {
-    if (!jumpTargetId || searchParams.has(THREAD_OPENER_HANDOFF_PARAM)) return
+    if (!jumpTargetId || !searchParams.has("msg") || searchParams.has(THREAD_OPENER_HANDOFF_PARAM)) return
     const search = searchParams.toString()
     const routePath = channelHref(serverParam, channelId)
     const href = `${routePath}${search ? `?${search}` : ""}`
@@ -365,7 +363,7 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
             channelName={channelName}
             viewer={currentUser}
             canManagePins={canManageServer(myRole)}
-            anchorMessageId={jumpTargetId}
+            anchorMessageId={currentAnchorMessageId}
             parentChannelId={currentChannelMeta?.parentChannelId ?? null}
             parentMessageId={currentChannelMeta?.parentMessageId ?? null}
             parentIsForum={isForumPostChild}
@@ -426,7 +424,7 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
       channelName={channelName}
       viewer={currentUser}
       canManagePins={canManageServer(myRole)}
-      anchorMessageId={jumpTargetId}
+        anchorMessageId={currentAnchorMessageId}
       onNavigateParent={navigateServerRoot}
       notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
       onSetNotificationLevel={setNotificationLevel}

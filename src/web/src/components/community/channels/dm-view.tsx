@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useCommunityRuntime } from "@/stores/community/runtime"
-import { useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { DmHeader } from "@/components/community/channels/dm-header"
@@ -70,6 +69,7 @@ import { useChannelMetadata } from "@/hooks/community/use-channel-metadata"
 import { isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
 import { ConversationResolutionErrorFrame } from "./conversation-resolution-error-frame"
 import { isConversationAccessError } from "@/lib/community/conversation-read"
+import { useDmSeqContext } from "./use-dm-seq-context"
 
 function resolveDmLoadingOwnership({
   hasDm,
@@ -181,18 +181,11 @@ export function DmView({ dmId }: { dmId: string }) {
   const initialLoadError = isConversationAccessError(messagesLoadError)
     ? messagesLoadError : readError ?? messagesLoadError
 
-  // Cross-navigation deep-link: a Marked-tab row for a DM message navigates
-  // here with `?seq=<n>` and we open the context sheet on that message. Read
-  // once at mount (frozen), mirroring the channel page's `?msg=` — a
-  // refresh/back doesn't re-trigger it. The DM view has no in-place scroll
-  // anchor, so the context sheet (seq → id + surrounding window) is the jump.
-  const searchParams = useSearchParams()
-  const [initialSeq] = useState<number | null>(() => {
-    const raw = searchParams.get("seq")
-    const n = raw ? Number(raw) : NaN
-    return Number.isFinite(n) ? n : null
+  const [contextSheetSeq, setContextSheetSeq] = useAtom(useCreateAtom<number | null>(null))
+  useDmSeqContext({ dmId, historyAllowed,
+    navigationAllowed: navigationGate.allowed && !navigationBlocked,
+    setContextSeq: setContextSheetSeq,
   })
-  const [contextSheetSeq, setContextSheetSeq] = useAtom(useCreateAtom<number | null>(initialSeq))
   // DM composer has no "current server" — flatten every member server's
   // channels into one cross-server candidate list so a `/`-ref can be
   // dropped into a DM (see plan community-channel-ref.md §6).

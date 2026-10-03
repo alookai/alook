@@ -36,6 +36,8 @@ const {
 vi.mock("next/navigation", () => ({
   useParams: () => ({ dmId: "dm_1" }),
   useSearchParams: () => new URLSearchParams(),
+  usePathname: () => "/c/me/dm_1",
+  useRouter: () => ({ replace: vi.fn() }),
 }))
 vi.mock("sonner", () => ({ toast: vi.fn() }))
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop" }))

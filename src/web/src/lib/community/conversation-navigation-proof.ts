@@ -294,7 +294,7 @@ export function useConversationNavigationGate(
   viewerId: string,
   channelId: string,
   accessEpoch: number,
-): { required: boolean; allowed: boolean; failed: boolean; retry: () => void } {
+): { required: boolean; allowed: boolean; failed: boolean; retry: () => void; target: ConversationNavigationTarget | null } {
   const store = getStore(queryClient)
   const proof = useSelector(store, (state) => state.proof)
   const matching = proof?.target.viewerId === viewerId
@@ -330,6 +330,8 @@ export function useConversationNavigationGate(
   }, [accessEpoch, matching, proof, queryClient])
 
   return { required, allowed,
+    target: required && isCurrentConversationNavigation(queryClient, proof.epoch, accessEpoch)
+      ? proof.target : null,
     failed: required && proof.accessEpoch === accessEpoch && proof.status === "failed" && proof.manualRetry === true,
     retry: () => { if (proof && matching) recoverConversationNavigationProof(queryClient, proof.epoch, accessEpoch) },
   }
