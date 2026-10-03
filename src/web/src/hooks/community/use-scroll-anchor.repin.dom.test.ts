@@ -748,4 +748,25 @@ describe("message positioning owner", () => {
     act(() => mounted.result.requestPresentPosition())
     expect(virtualizer.scrollToOffset).toHaveBeenCalledExactlyOnceWith(mounted.geometry().scrollTop, { behavior: "auto" })
   })
+
+  it("accepts a canceled present window's historical self tail without following it when a late divider lands, then follows a genuine send", async () => {
+    const mounted = await mountHook({
+      distanceToEnd: 300,
+      items: [messageItem("old-window", "peer")],
+      initialScrollReady: true,
+      heroMeasured: true,
+      hasMoreNewer: true,
+      viewerUserId: "viewer",
+      presentVersion: 0,
+    })
+    act(() => mounted.result.requestPresentPosition())
+    act(() => mounted.listeners.get("wheel")?.({ deltaY: -40 } as WheelEvent))
+    const newestWindow = [messageItem("old-window", "peer"), messageItem("historical-self", "viewer")]
+    virtualizer.scrollToEnd.mockClear()
+    mounted.rerender({ items: newestWindow, presentVersion: 1, hasMoreNewer: false })
+    mounted.rerender({ items: [...newestWindow], newDividerBefore: "historical-self" })
+    expect(virtualizer.scrollToEnd).not.toHaveBeenCalled()
+    mounted.rerender({ items: [...newestWindow, messageItem("new-send", "viewer")] })
+    expect(virtualizer.scrollToEnd).toHaveBeenCalledOnce()
+  })
 })

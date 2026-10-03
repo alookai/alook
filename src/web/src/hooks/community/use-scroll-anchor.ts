@@ -1106,6 +1106,7 @@ export function useScrollAnchor({
     if (!presentVersion || !tailId || hasMoreNewer) return
     if (consumedPresentVersionRef.current === presentVersion) return
     consumedPresentVersionRef.current = presentVersion
+    stateRef.current = { ...stateRef.current, lastTailId: tailId }
     if (!positionOwnerRef.current.active || positionOwnerRef.current.kind !== "present"
       || presentIntentEpochRef.current !== positionOwnerRef.current.epoch) return
     presentIntentEpochRef.current = null
