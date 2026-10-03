@@ -71,8 +71,17 @@ describe("Web workerd runtime", () => {
       expect(response.headers.get("x-runtime-pathname")).toBe(pathname)
       expect(response.headers.get("x-runtime-upgrade")).toBe("websocket")
       expect(response.webSocket).not.toBeNull()
-      response.webSocket?.accept()
-      response.webSocket?.close(1000, "runtime test complete")
+      const client = response.webSocket!
+      client.accept()
+      const closed = new Promise<CloseEvent>((resolve) => {
+        client.addEventListener("close", resolve, { once: true })
+      })
+      client.close(1000, "runtime test complete")
+      await expect(closed).resolves.toMatchObject({
+        code: 1000,
+        reason: "runtime test complete",
+        wasClean: true,
+      })
     },
   )
 

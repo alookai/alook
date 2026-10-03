@@ -665,6 +665,9 @@ export function useForumSidebarProjection(
       ))
       .map((membership) => membership.channelId))
     const messageById = new Map(rows.messages.map((message) => [message.id, message]))
+    const forumParentIds = new Set(rows.channels
+      .filter((channel) => channel.serverId === serverId && channel.type === "forum")
+      .map((channel) => channel.id))
     const candidates: CanonicalForumSidebarThread[] = rows.channels
       .filter((channel) => (
         channel.serverId === serverId
@@ -672,6 +675,7 @@ export function useForumSidebarProjection(
         && !channel.archived
         && participating.has(channel.id)
         && channel.parentChannelId
+        && forumParentIds.has(channel.parentChannelId)
         && channel.parentMessageId
       ))
       .map((channel) => {
@@ -732,6 +736,7 @@ export function useForumSidebarProjection(
         && child.type === "thread"
         && child.unread
         && child.parentChannelId
+        && forumParentIds.has(child.parentChannelId)
         && !renderedIds.has(child.id)
       ) {
         parentUnread[child.parentChannelId] = true

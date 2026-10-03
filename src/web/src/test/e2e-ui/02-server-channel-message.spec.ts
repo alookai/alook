@@ -230,6 +230,18 @@ test("server → channel → message", async ({ asUser }) => {
 
   const rejectedDraft = `rejected draft ${Date.now()}`
   await restored.pressSequentially(rejectedDraft)
+  await page.evaluate(() => {
+    const created: string[] = [], revoked: string[] = []
+    const create = URL.createObjectURL.bind(URL), revoke = URL.revokeObjectURL.bind(URL)
+    Object.defineProperty(window, "__attachmentDraftUrls", { configurable: true, value: { created, revoked } })
+    URL.createObjectURL = (object) => { const url = create(object); created.push(url); return url }
+    URL.revokeObjectURL = (url) => { revoked.push(url); revoke(url) }
+  })
+  const previewBytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64")
+  await page.getByTestId(tid.composerFileInput).setInputFiles({ name: "retry-preview.png", mimeType: "image/png", buffer: previewBytes })
+  await expect(page.getByText("retry-preview.png", { exact: true })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __attachmentDraftUrls: { created: string[] } }).__attachmentDraftUrls.created.length)).toBeGreaterThanOrEqual(2)
+  const currentPreview = await page.evaluate(() => (window as unknown as { __attachmentDraftUrls: { created: string[] } }).__attachmentDraftUrls.created.at(-1)!)
   await expect.poll(() => pendingPostCount).toBe(1)
   await expect(restored).toContainText(rejectedDraft)
 
@@ -252,10 +264,31 @@ test("server → channel → message", async ({ asUser }) => {
   await expectMessageVisible(page, pendingBody)
   await expect(page.getByRole("button", { name: "Message failed to send. Click to retry." })).toHaveCount(0)
   await expect(restored).toContainText(rejectedDraft)
+  await expect(page.getByText("retry-preview.png", { exact: true })).toBeVisible()
+  expect(await page.evaluate((url) => (window as unknown as { __attachmentDraftUrls: { revoked: string[] } }).__attachmentDraftUrls.revoked.includes(url), currentPreview)).toBe(false)
+  expect(await page.evaluate(async (url) => Array.from(new Uint8Array(await (await fetch(url)).arrayBuffer())), currentPreview)).toEqual(Array.from(previewBytes))
+  const previewUploadResponsePromise = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === `/api/community/channels/${channelId}/attachments`)
+  const previewMessageResponsePromise = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`)
+  await restored.click()
+  await expect.poll(() => restored.evaluate((element) => document.activeElement === element)).toBe(true)
+  await page.keyboard.press("Enter")
+  const previewUpload = await previewUploadResponsePromise
+  expect(previewUpload.ok()).toBe(true)
+  const previewAttachment = await previewUpload.json() as { id: string; filename: string; contentType: string; size: number }
+  expect(previewAttachment).toMatchObject({ filename: "retry-preview.png", contentType: "image/png", size: previewBytes.length })
+  const previewMessage = await previewMessageResponsePromise
+  expect(previewMessage.status()).toBe(201)
+  expect(previewMessage.request().postDataJSON()).toMatchObject({ content: rejectedDraft, attachments: [previewAttachment.id] })
+  const downloadedPreview = await page.request.get(`/api/community/channels/${channelId}/attachments/${previewAttachment.id}`)
+  expect(downloadedPreview.status()).toBe(200)
+  expect(await downloadedPreview.body()).toEqual(previewBytes)
+  await expect(restored).toHaveText("")
+  const attachmentDraft = `${rejectedDraft} next attachment`
+  await restored.pressSequentially(attachmentDraft)
   await page.goto("/c/me", { waitUntil: "commit" })
   await page.goto(channelUrl, { waitUntil: "commit" })
   const persisted = composerEditable(page)
-  await expect(persisted).toContainText(rejectedDraft)
+  await expect(persisted).toContainText(attachmentDraft)
 
   await page.getByTestId(tid.composerFileInput).setInputFiles({
     name: "accepted.txt",
@@ -302,7 +335,7 @@ test("server → channel → message", async ({ asUser }) => {
   expect(persistedAttachment.status()).toBe(200)
   expect(persistedAttachment.headers()["content-type"]).toContain("text/plain")
   expect((await persistedAttachment.body()).toString()).toBe("transfer me")
-  await expectMessageVisible(page, rejectedDraft)
+  await expectMessageVisible(page, attachmentDraft)
   const acceptedMessage = page.getByTestId(tid.message(acceptedPayload.message.id))
   await expect(acceptedMessage).toHaveCount(1)
   await expect(acceptedMessage.getByText("accepted.txt", { exact: true })).toBeVisible()

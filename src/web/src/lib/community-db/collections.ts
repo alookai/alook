@@ -65,10 +65,11 @@ function migrateLegacyServerPositions(queryClient: QueryClient, accountId: strin
   const key = collectionQueryKey(accountId, "servers")
   const rows = queryClient.getQueryData<ServerRow[]>(key)
   if (!rows?.some((row) => row.position === undefined)) return
+  const updatedAt = queryClient.getQueryState(key)!.dataUpdatedAt
   queryClient.setQueryData(key, rows.map((row, position) => ({
     ...row,
     position: row.position ?? position,
-  })))
+  })), { updatedAt })
 }
 
 function buildCommunityDbRegistry(
@@ -338,8 +339,9 @@ function buildCommunityDbRegistry(
       let hasData = false
       migrateLegacyServerPositions(queryClient, scopeId)
       for (const name of Object.keys(collections) as CollectionName[]) {
-        const data = queryClient.getQueryData(collectionQueryKey(scopeId, name))
-        if (data !== undefined) {
+        const snapshot = queryClient.getQueryState(collectionQueryKey(scopeId, name))
+        const data = snapshot?.data
+        if (snapshot && data !== undefined && snapshot.dataUpdatedAt > 0) {
           names.add(name)
           if (Array.isArray(data) && data.length > 0) hasData = true
         }

@@ -5,7 +5,7 @@ import { act, renderHook } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
 import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
-import { captureCommunityLiveSnapshotToken, publishCommunityForumSidebar } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken, ingestServerDetail, publishCommunityForumSidebar } from "@/lib/community-db/sync"
 import { getAccountUnreadProjection } from "./account-unread-projection"
 import { getForumSidebarBase } from "./use-forum-sidebar-threads"
 import { useAddThreadParticipant, useRemoveThreadParticipant } from "./use-thread-participants"
@@ -28,6 +28,7 @@ function Owner({ children }: PropsWithChildren) {
   return createElement(QueryClientProvider, { client }, createElement(CommunityDbProvider, { registry }, children))
 }
 function seedSidebar() {
+  ingestServerDetail(registry, { id: "server_1", name: "Server", discriminator: "0001", description: "", icon: null, ownerId: "viewer_1", categories: [{ id: "category", name: "Channels", channels: [{ id: "forum_1", name: "Forum", type: "forum", active: false, unread: false }] }] })
   const key = communityKeys.forumSidebarThreads("server_1")
   client.setQueryData(key, { ids: ["post_1"], serverNow: "2026-08-08T00:00:00.000Z", serverClockOffsetMs: 0 })
   publishCommunityForumSidebar(client, {

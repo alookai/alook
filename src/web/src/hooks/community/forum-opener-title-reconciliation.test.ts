@@ -10,6 +10,7 @@ import {
 import {
   captureCommunityLiveSnapshotToken,
   getCanonicalCommunityMessages,
+  ingestServerDetail,
   publishCommunityForumSidebar,
   projectCommunityWsEventToDb,
 } from "@/lib/community-db/sync"
@@ -40,6 +41,7 @@ afterEach(async () => {
 })
 
 function seedCanonicalCaches() {
+  ingestServerDetail(registry, { id: "server_1", name: "Server", discriminator: "0001", description: "", icon: null, ownerId: "viewer", categories: [{ id: "category", name: "Channels", channels: [{ id: "forum_1", name: "Forum", type: "forum", active: false, unread: false }] }] })
   publishCommunityForumSidebar(queryClient, {
     serverId: "server_1",
     channels: [{

@@ -5,6 +5,7 @@ import { runInNewContext } from "node:vm"
 import {
   dehydrate,
   QueryClient,
+  useIsRestoring,
   useQueryClient,
 } from "@tanstack/react-query"
 import type { PersistedClient } from "@tanstack/react-query-persist-client"
@@ -42,7 +43,8 @@ vi.mock("@/lib/query-persister", async (importOriginal) => {
 })
 
 import { QueryProvider } from "./QueryProvider"
-import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { CommunityRestoreBoundary } from "@/components/community/shell/community-restore-bootstrap"
+import { createCommunityDbRegistry, getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { getCommunityRuntime, useCommunityRuntime } from "@/stores/community/runtime"
 import { applyTypingIndicator } from "@/hooks/community/community-ws/typing"
 import { useCommunityStore } from "@/stores/community"
@@ -69,6 +71,48 @@ beforeEach(() => {
 })
 
 describe("QueryProvider persistence ordering", () => {
+  it.each([0, 1_000])("preserves the original server snapshot timestamp through legacy position migration (%s)", async (updatedAt) => {
+    const client = new QueryClient()
+    const key = communityKeys.communityDbCollection("restore-order-viewer", "servers")
+    client.setQueryData(key, [{ id: "legacy-server", name: "Legacy", discriminator: "0001", description: "", ownerId: "restore-order-viewer", icon: null, official: false, isOwner: true, unread: false, mentions: 0 }], { updatedAt })
+    const registry = createCommunityDbRegistry(client, "restore-order-viewer")
+    registry.captureRestoredCollections()
+    expect(client.getQueryState(key)?.dataUpdatedAt).toBe(updatedAt)
+    expect(client.getQueryData(key)).toEqual([expect.objectContaining({ id: "legacy-server", position: 0 })])
+    expect(registry.hasRestoredCollection("servers")).toBe(updatedAt > 0)
+    expect(registry.hasRestoredData()).toBe(updatedAt > 0)
+    await registry.cleanup()
+    client.clear()
+  })
+  it.each([false, true])("distinguishes the SSR self profile from an actual restored profile (%s)", async (hasDiskSnapshot) => {
+    const viewerId = "restore-order-viewer"
+    const profileKey = communityKeys.communityDbCollection(viewerId, "profiles")
+    const seed = new QueryClient()
+    seed.setQueryData(profileKey, [{ userId: viewerId, name: "Disk viewer", discriminator: "0001", avatar: "D", avatarVersion: 1 }], { updatedAt: Date.now() - 60_000 })
+    persister.restoreClient.mockResolvedValue(hasDiskSnapshot ? { buster: PERSIST_BUSTER, timestamp: Date.now(), clientState: dehydrate(seed) } : undefined)
+    const mark = vi.spyOn(performance, "mark")
+    mark.mockClear()
+    let registry!: NonNullable<ReturnType<typeof useOptionalCommunityDbRegistry>>
+    let restoring = true
+    function Probe() {
+      const current = useOptionalCommunityDbRegistry()!
+      const pending = useIsRestoring()
+      React.useLayoutEffect(() => { registry = current; restoring = pending })
+      return null
+    }
+    const renderer = render(<QueryProvider userId={viewerId} initialUser={{ id: viewerId, name: "SSR viewer", email: "viewer@example.test", avatar: "S", avatarVersion: 0 }}>
+      <CommunityRestoreBoundary><Probe /></CommunityRestoreBoundary>
+    </QueryProvider>)
+    await waitFor(() => expect(restoring).toBe(false))
+    expect(registry.hasRestoredData()).toBe(hasDiskSnapshot)
+    expect(registry.hasRestoredCollection("profiles")).toBe(hasDiskSnapshot)
+    await waitFor(() => expect(registry.collections.profiles.get(viewerId)?.name).toBe(hasDiskSnapshot ? "Disk viewer" : "SSR viewer"))
+    expect(mark.mock.calls.filter(([name]) => name === "alook:restore:first-cached-paint")).toHaveLength(hasDiskSnapshot ? 1 : 0)
+    mark.mockRestore()
+    renderer.unmount()
+    await waitFor(() => expect(registry.collections.profiles.status).toBe("cleaned-up"))
+    seed.clear()
+  })
   it("hydrates canonical rows before collection preload can publish an empty snapshot", async () => {
     const viewerId = "restore-order-viewer"
     const message = {

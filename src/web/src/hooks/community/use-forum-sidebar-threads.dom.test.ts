@@ -8,6 +8,7 @@ import { CommunityDbProvider, useForumSidebarProjection } from "@/lib/community-
 import {
   captureCommunityLiveSnapshotToken,
   ingestAttentionSnapshot,
+  ingestMessages,
   ingestServerDetail,
   ingestServers,
   getCanonicalCommunityChannels,
@@ -180,6 +181,30 @@ function publish(queryClient: QueryClient, data = envelope()) {
 }
 
 describe("forum sidebar canonical projection", () => {
+  it("keeps a notified text reply outside the forum sidebar after its message read", async () => {
+    const { queryClient, registry, wrapper } = await setup()
+    act(() => ingestServerDetail(registry, {
+      id: "server-1", name: "Server", discriminator: "0001", description: "", icon: null, ownerId: "viewer",
+      categories: [{ id: "cat-1", name: "Channels", channels: [
+        { id: "forum-1", name: "forum", active: false, unread: false, type: "forum" },
+        { id: "text-1", name: "text", active: false, unread: false, type: "text" },
+      ] }],
+    }))
+    apiFetchMock.mockResolvedValue(envelope())
+    const rendered = renderHook(() => useForumSidebarThreads("server-1", null), { wrapper })
+    await waitFor(() => expect(rendered.result.current.threads.map((row) => row.id)).toEqual(["post-1"]))
+    act(() => {
+      ingestMessages(registry, "text-1", [{ id: "text-opener", type: "chat", content: "Text reply opener", seq: 1,
+        thread: { id: "text-child", name: "Text reply", messageCount: 1, lastReplyAt: new Date().toISOString() } }])
+      setCanonicalCommunityChannelMembership(queryClient, "text-child", "notify", true)
+    })
+    await waitFor(() => expect(getCanonicalCommunityChannels(queryClient).some((row) => row.id === "text-child")).toBe(true))
+    expect(getCanonicalCommunityMessages(queryClient).find((row) => row.id === "text-opener")?.content).toBe("Text reply opener")
+    expect(rendered.result.current.threads.map((row) => row.id)).toEqual(["post-1"])
+    expect(getForumSidebarBase(queryClient, "server-1").threads.map((row) => row.id)).toEqual(["post-1"])
+    expect(registry.collections.channelMemberships.get("text-child:viewer:notify")).toBeDefined()
+    rendered.unmount()
+  })
   it("hands a fresh sidebar child and opener to the shared qualified route without another GET", async () => {
     const { queryClient, wrapper } = await setup()
     apiFetchMock.mockResolvedValueOnce(envelope())

@@ -31,6 +31,9 @@ export default defineProject({
             fetch(request) {
               const pair = new WebSocketPair()
               pair[1].accept()
+              pair[1].addEventListener("close", (event) => {
+                pair[1].close(event.code, event.reason)
+              })
               return new Response(null, {
                 status: 101,
                 headers: {

@@ -345,6 +345,10 @@ function publishNormalizedForumSidebar(
 }
 
 function canonicalSidebarBase(queryClient: QueryClient, serverId: string) {
+  const channels = getCanonicalCommunityChannels(queryClient)
+  const forumParentIds = new Set(channels
+    .filter((channel) => channel.serverId === serverId && channel.type === "forum")
+    .map((channel) => channel.id))
   const participating = new Set(
     getCanonicalCommunityChannelMemberships(queryClient)
       .filter((membership) => membership.relation === "notify")
@@ -357,13 +361,14 @@ function canonicalSidebarBase(queryClient: QueryClient, serverId: string) {
     communityKeys.forumSidebarThreads(serverId),
   )
   return {
-    threads: getCanonicalCommunityChannels(queryClient)
+    threads: channels
       .filter((channel) => (
         channel.serverId === serverId
         && channel.type === "thread"
         && !channel.archived
         && participating.has(channel.id)
         && channel.parentChannelId
+        && forumParentIds.has(channel.parentChannelId)
         && channel.parentMessageId
       ))
       .map((channel) => {
