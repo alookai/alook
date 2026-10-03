@@ -46,6 +46,7 @@ import {
   captureCommunityLiveSnapshotToken,
   publishCommunityMessages,
 } from "@/lib/community-db/sync"
+import { ConversationReadTimeoutError, conversationReadRetryPolicy, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { messageReconcileOptions } from "./community-ws/reconnect-messages"
 
 /**
@@ -153,11 +154,11 @@ async function fetchMessagesTransport(
   signal: AbortSignal | undefined,
   options: MessagesTransportOptions | undefined,
 ): Promise<WireMessagesPage> {
-  const transport = await apiFetchProfiles<MessagesTransportPage>(
+  const transport = await withConversationReadDeadline(signal, (readSignal) => apiFetchProfiles<MessagesTransportPage>(
     url,
     (page) => messageProfilePatches(page.messages),
-    signal ? { signal } : undefined, getCommunityDbRegistry(queryClient),
-  )
+    { signal: readSignal }, getCommunityDbRegistry(queryClient),
+  ))
   const { surfaceReceipt, ...page } = transport
   if (isMessageSurfaceReceipt(surfaceReceipt)) {
     options?.onSurfaceReceipt?.(surfaceReceipt)
@@ -515,6 +516,8 @@ function useMessagesInner(
       }
     },
     initialPageParam,
+    retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey }).retry),
+    networkMode: "always",
     // "next" = older side. `fetchNextPage` appends to `data.pages`, so the
     // LAST entry in `pages` is the oldest window we've loaded — that's the
     // page whose cursor gets consulted for the next older fetch.
@@ -759,7 +762,7 @@ function useMessagesInner(
     const repairOptions = { queryKey: [...queryKey, "anchor-repair", anchorId, accessIdentity], queryFn: ({ signal }: { signal: AbortSignal }) => {
       if (!isChannelMetadataTokenCurrent(accessToken) || queryClient.getQueryCache().find({ queryKey, exact: true }) !== currentQuery) throw new DOMException("Retired message window", "AbortError")
       return queryFn({ pageParam: anchorPageParam, signal })
-    }, staleTime: 0, retry: (attempt: number, error: unknown) => !(error instanceof DOMException && error.name === "AbortError") && attempt < 2, retryDelay: (attempt: number) => 1000 * 2 ** attempt }
+    }, staleTime: 0, networkMode: "always" as const, retry: (attempt: number, error: unknown) => !(error instanceof ConversationReadTimeoutError) && !(error instanceof DOMException && error.name === "AbortError") && attempt < 2, retryDelay: (attempt: number) => 1000 * 2 ** attempt }
     const lease = new QueryObserver(queryClient, { ...repairOptions, enabled: false })
     const unsubscribe = lease.subscribe(() => undefined)
     const releaseOnRemoval = queryClient.getQueryCache().subscribe((event) => {

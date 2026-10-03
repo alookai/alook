@@ -63,9 +63,13 @@ import {
 } from "@/lib/community-db/projections"
 import { useNativeSystemNotificationConversationDismissal } from "@/hooks/community/use-native-system-notifications"
 import { commitCommunityChannelRoute } from "@/lib/community/last-community-route"
+import { useQueryClient } from "@tanstack/react-query"
+import { useConversationNavigationGate } from "@/lib/community/conversation-navigation-proof"
+import { useCommunityWsStore } from "@/stores/community/ws"
 import { useChannelMetadata } from "@/hooks/community/use-channel-metadata"
 import { isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
 import { ConversationResolutionErrorFrame } from "./conversation-resolution-error-frame"
+import { isConversationAccessError } from "@/lib/community/conversation-read"
 
 function resolveDmLoadingOwnership({
   hasDm,
@@ -87,6 +91,9 @@ export function DmView({ dmId }: { dmId: string }) {
   const communityRuntime = useCommunityRuntime()
   const bp = useBreakpoint()
   const currentUser = useCurrentUser()
+  const queryClient = useQueryClient()
+  const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
+  const navigationGate = useConversationNavigationGate(queryClient, currentUser.id, dmId, accessEpoch)
   const metadata = useChannelMetadata(null, dmId)
   const uiHandlers = useUiHandlers()
   const notifications = useNotificationSettings()
@@ -152,6 +159,8 @@ export function DmView({ dmId }: { dmId: string }) {
     latestSeq,
     isPending: messagesPending,
     isError: messagesError,
+    error: messagesLoadError,
+    isFetching: messagesFetching,
     refetch: refetchMessages,
     navigationBlocked,
     anchorReconciled,
@@ -169,6 +178,8 @@ export function DmView({ dmId }: { dmId: string }) {
     viewerUserId: currentUser.id,
   })
   const messages = useMemo(() => historyAllowed ? fetchedMessages : [], [fetchedMessages, historyAllowed])
+  const initialLoadError = isConversationAccessError(messagesLoadError)
+    ? messagesLoadError : readError ?? messagesLoadError
 
   // Cross-navigation deep-link: a Marked-tab row for a DM message navigates
   // here with `?seq=<n>` and we open the context sheet on that message. Read
@@ -429,6 +440,9 @@ export function DmView({ dmId }: { dmId: string }) {
     channelId: dmId,
   }, routeReady)
 
+  if (navigationGate.failed) {
+    return <ConversationResolutionErrorFrame retrying={false} onRetry={navigationGate.retry} />
+  }
   if (navigationBlocked) {
     return <DmLoadingFrame reserveBackSlot={bp === "mobile"} />
   }
@@ -464,6 +478,9 @@ export function DmView({ dmId }: { dmId: string }) {
             channel={dm.name}
             messages={messages}
             loading={!historyAllowed || loadingOwnership.messageBodyLoading}
+            initialLoadError={initialLoadError}
+            retryingInitialLoad={retryingRead || messagesFetching}
+            onRetryInitialLoad={() => { if (initialLoadError && initialLoadError === messagesLoadError) void refetchMessages({ cancelRefetch: false }); else retryRead() }}
             newDividerBefore={newDividerBefore}
             onOpenThread={() => { }}
             onToggleReaction={dmBlocked ? undefined : messageActions.onToggleReaction}

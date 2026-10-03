@@ -241,7 +241,7 @@ describe("conversation navigation proof", () => {
     }
 
     const renderer = render(createElement(Gate, { accessEpoch: 8 }))
-    expect(latestGate).toEqual({ required: true, allowed: false })
+    expect(latestGate).toMatchObject({ required: true, allowed: false })
     expect(restart).toHaveBeenCalledWith(8, 0)
 
     let retry!: ReturnType<typeof beginConversationNavigationProof>
@@ -283,7 +283,7 @@ describe("conversation navigation proof", () => {
     }
 
     const renderer = render(createElement(Gate))
-    expect(gates).toContainEqual({ required: true, allowed: true })
+    expect(gates).toContainEqual(expect.objectContaining({ required: true, allowed: true }))
     expect(getConversationNavigationProof(queryClient)).toBeNull()
     await act(async () => renderer.unmount())
   })
@@ -298,4 +298,25 @@ describe("conversation navigation proof", () => {
 
     expect(renderToString(createElement(Gate))).toContain("false:true")
   })
+  it("keeps a message timeout failed until manual retry and refuses retry after retirement", async () => {
+    vi.useFakeTimers()
+    const queryClient = createClient()
+    const proof = beginConversationNavigationProof(queryClient, target, 1)
+    const restart = vi.fn()
+    registerConversationNavigationRecovery(queryClient, proof.epoch, restart)
+    failConversationNavigationProof(queryClient, proof.epoch, 1, false, true)
+    let gate!: ReturnType<typeof useConversationNavigationGate>
+    function Gate() { gate = useConversationNavigationGate(queryClient, "viewer", "c1", 1); return null }
+    const view = render(createElement(Gate))
+    expect(gate).toMatchObject({ required: true, allowed: false, failed: true })
+    await act(async () => { vi.advanceTimersByTime(60_000) })
+    expect(restart).not.toHaveBeenCalled()
+    act(() => gate.retry())
+    expect(restart).toHaveBeenCalledExactlyOnceWith(1, 1)
+    cancelActiveConversationNavigationProof(queryClient)
+    act(() => gate.retry())
+    expect(restart).toHaveBeenCalledOnce()
+    view.unmount()
+  })
+
 })

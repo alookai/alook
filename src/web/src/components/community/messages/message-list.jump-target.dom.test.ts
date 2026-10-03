@@ -127,11 +127,8 @@ describe("MessageList pending jump target", () => {
     expect(mocks.onScrollTargetConsumed).not.toHaveBeenCalled()
 
     renderer.rerender(view([unrelated, target], "m_target", false, false))
-    expect(mocks.scrollToEnd).toHaveBeenCalledOnce()
+    expect(mocks.scrollToEnd).not.toHaveBeenCalled()
     expect(mocks.scrollToIndex).toHaveBeenCalledOnce()
-    expect(mocks.scrollToEnd.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.scrollToIndex.mock.invocationCallOrder[0],
-    )
     expect(mocks.scrollToIndex).toHaveBeenCalledWith(2, { align: "center", behavior: "auto" })
     expect(mocks.onScrollTargetConsumed).toHaveBeenCalledOnce()
     expect(mocks.onScrollTargetConsumed).toHaveBeenCalledWith("m_target")
@@ -154,4 +151,17 @@ describe("MessageList pending jump target", () => {
     act(() => vi.advanceTimersByTime(1))
     expect(highlighted(renderer.container)).toBe(false)
   })
+  it("withholds cached message rows after definitive access denial", () => {
+    const retry = vi.fn()
+    const renderer = render(React.createElement(MessageList, {
+      channel: "general", messages: [target], loading: false, onOpenThread: vi.fn(),
+      initialLoadError: Object.assign(new Error("Forbidden"), { status: 403 }),
+      onRetryInitialLoad: retry,
+    }))
+    expect(renderer.getByRole("alert")).toBeInTheDocument()
+    expect(renderer.container.querySelector('[data-msg-id="m_target"]')).toBeNull()
+    expect(renderer.queryByText(/Beginning of the channel/)).toBeNull()
+    expect(renderer.getByRole("button", { name: "Retry" })).toBeInTheDocument()
+  })
+
 })

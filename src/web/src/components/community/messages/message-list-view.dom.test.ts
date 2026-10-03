@@ -1,6 +1,6 @@
 import React from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { render } from "@/test/react-dom-harness"
+import { fireEvent, render } from "@/test/react-dom-harness"
 import { MessageListSkeleton, renderMessageListView } from "./message-list-view"
 import { ComposerAccessoryRail } from "./composer-accessory-rail"
 import { MessageShareDialog } from "./message-share-dialog"
@@ -385,4 +385,24 @@ describe("renderMessageListView", () => {
     expect(renderer.container.querySelectorAll(".flex.h-8")).toHaveLength(0)
     expect(renderer.container.querySelectorAll(".mt-6.flex.h-8")).toHaveLength(0)
   })
+  it("keeps the original scroller mounted through a cold error and retry, without rendering an empty hero", () => {
+    const retry = vi.fn()
+    const renderRows = vi.fn(() => React.createElement("virtual-rows"))
+    const state = controller({ initialPosition: initialPosition({ phase: "skeleton", showSkeleton: true, contentVisible: false, contentInteractive: false }) })
+    const input = props({ messages: [], initialLoadError: new Error("timeout"), onRetryInitialLoad: retry })
+    const view = render(renderMessageListView(input, state, renderRows))
+    const scroller = view.container.querySelector('[data-testid="community-message-scroller"]') ?? view.container.querySelector('.thin-scrollbar')
+    fireEvent.click(view.getByRole("button", { name: "Retry" }))
+    expect(retry).toHaveBeenCalledOnce()
+    expect(renderRows).not.toHaveBeenCalled()
+    expect(view.queryByText(/Beginning of the channel/)).toBeNull()
+    view.rerender(renderMessageListView({ ...input, retryingInitialLoad: true }, state, renderRows))
+    expect(view.getByRole("button", { name: "Retrying…" })).toBeDisabled()
+    expect(view.container.querySelector('.thin-scrollbar')).toBe(scroller)
+    view.rerender(renderMessageListView(props({ loading: false }), controller(), renderRows))
+    expect(view.container.querySelector('.thin-scrollbar')).toBe(scroller)
+    expect(view.queryByRole("alert")).toBeNull()
+    expect(renderRows).toHaveBeenCalledOnce()
+  })
+
 })

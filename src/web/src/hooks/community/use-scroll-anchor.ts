@@ -4,6 +4,8 @@ import { useVirtualizer, type ReactVirtualizer, type VirtualItem } from "@tansta
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "./virtualizer-react-options"
 import { estimateRowHeight, computeBelowCount, type FlatItem } from "@/lib/community/message-list-items"
 
+export const INITIAL_POSITION_TIMEOUT_MS = 2_000
+
 // Virtualized rewrite of message-list's scroll-anchoring logic. The
 // pre-virtualization version (see git history) hand-rolled 4 branches —
 // mount / self-send-peer-follow / older-prepend-compensation / hero-swap-
@@ -41,6 +43,7 @@ import { estimateRowHeight, computeBelowCount, type FlatItem } from "@/lib/commu
 // cosmetic: `scrollEndThreshold` independently gates the library's native
 // `resizeItem` above-viewport compensation (defaults to 1px otherwise).
 export const NEAR_BOTTOM_PX = 100
+
 
 // Reserve exactly the 32px pill plus its responsive bottom offset. The owner
 // intentionally does not want additional visual clearance below messages.
@@ -477,6 +480,9 @@ export function useScrollAnchor({
   items,
   newDividerBefore,
   initialScrollReady,
+  scrollToMessageId,
+  onScrollTargetPositioned,
+  onScrollTargetCancelled,
   hasMoreNewer,
   isFetchingOlder,
   isFetchingNewer,
@@ -490,6 +496,9 @@ export function useScrollAnchor({
   items: FlatItem[]
   newDividerBefore?: string
   initialScrollReady: boolean
+  scrollToMessageId?: string | null
+  onScrollTargetPositioned?: (id: string) => void
+  onScrollTargetCancelled?: (id: string) => void
   hasMoreNewer?: boolean
   isFetchingOlder?: boolean
   isFetchingNewer?: boolean
@@ -514,6 +523,7 @@ export function useScrollAnchor({
   virtualizer: ReactVirtualizer<HTMLDivElement, Element>
   belowCount: number
   scrollToBottom: () => void
+  requestPresentPosition: () => void
   jumpTo: (messageId: string, behavior?: ScrollBehavior) => void
   onImageLoad: () => void
   captureOlderPageAnchor: () => void
@@ -522,6 +532,19 @@ export function useScrollAnchor({
   isNewerPageAnchorSettling: boolean
 } {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const positionOwnerRef = useRef({ epoch: 0, kind: "initial" as "initial" | "target" | "pagination" | "present" | "idle", active: true })
+  const targetPositionFrameRef = useRef<number | null>(null)
+  const repinFrameRef = useRef<number | null>(null)
+  const initialDeadlineRef = useRef<number | null>(null)
+  const initialRetiredRef = useRef(false)
+  const positionBudgetStartedRef = useRef(false)
+  const targetIntentRef = useRef<string | null>(null)
+  const positionedTargetRef = useRef<string | null>(null)
+  const consumedPresentVersionRef = useRef(0)
+  const onTargetPositionedRef = useRef(onScrollTargetPositioned)
+  onTargetPositionedRef.current = onScrollTargetPositioned
+  const onTargetCancelledRef = useRef(onScrollTargetCancelled)
+  onTargetCancelledRef.current = onScrollTargetCancelled
   const stateRef = useRef<ScrollAnchorState>(createScrollAnchorState())
   const initialSettleFrameRef = useRef<number | null>(null)
   const initialPositionSettledRef = useRef(false)
@@ -564,14 +587,45 @@ export function useScrollAnchor({
   }, [])
   const scheduleInitialPositionSettled = useCallback(() => {
     if (initialPositionSettledRef.current || initialSettleFrameRef.current !== null) return
+    const epoch = positionOwnerRef.current.epoch
     initialSettleFrameRef.current = window.requestAnimationFrame(() => {
       initialSettleFrameRef.current = null
+      if (!positionOwnerRef.current.active || positionOwnerRef.current.epoch !== epoch) return
       if (initialPositionSettledRef.current) return
       initialPositionSettledRef.current = true
       onInitialPositionSettled?.()
     })
   }, [onInitialPositionSettled])
-  useLayoutEffect(() => cancelInitialSettleFrame, [cancelInitialSettleFrame])
+  const claimPosition = useCallback((kind: typeof positionOwnerRef.current.kind) => {
+    const owner = positionOwnerRef.current
+    owner.epoch += 1
+    owner.kind = kind
+    cancelInitialSettleFrame()
+    if (initialDeadlineRef.current !== null) window.clearTimeout(initialDeadlineRef.current)
+    initialDeadlineRef.current = null
+    if (targetPositionFrameRef.current !== null) window.cancelAnimationFrame(targetPositionFrameRef.current)
+    if (paginationAnchorFrameRef.current !== null) window.cancelAnimationFrame(paginationAnchorFrameRef.current)
+    if (repinFrameRef.current !== null) window.cancelAnimationFrame(repinFrameRef.current)
+    targetPositionFrameRef.current = null
+    paginationAnchorFrameRef.current = null
+    repinFrameRef.current = null
+    bottomRepinQueuedRef.current = false
+    paginationAnchorRef.current = null
+    setPaginationDirection(null)
+    return owner.epoch
+  }, [cancelInitialSettleFrame, setPaginationDirection])
+  useLayoutEffect(() => {
+    const owner = positionOwnerRef.current
+    owner.active = true
+    owner.kind = targetIntentRef.current && positionedTargetRef.current !== targetIntentRef.current
+      ? "target" : initialRetiredRef.current ? "idle" : "initial"
+    return () => {
+      owner.active = false
+      positionBudgetStartedRef.current = false
+      claimPosition("idle")
+      if (initialDeadlineRef.current !== null) window.clearTimeout(initialDeadlineRef.current)
+    }
+  }, [claimPosition])
 
   // eslint-disable-next-line react-hooks/incompatible-library -- library limitation, same as member-list.tsx
   const virtualizer = useVirtualizer({
@@ -609,9 +663,12 @@ export function useScrollAnchor({
         && wasExactlyPinnedRef.current
         && !userScrolledAwayRef.current
         && !bottomRepinQueuedRef.current
+        && !["target", "pagination"].includes(positionOwnerRef.current.kind)
       ) {
         bottomRepinQueuedRef.current = true
+        const epoch = positionOwnerRef.current.epoch
         queueMicrotask(() => {
+          if (!positionOwnerRef.current.active || positionOwnerRef.current.epoch !== epoch) return
           if (
             element.isConnected
             && wasExactlyPinnedRef.current
@@ -627,7 +684,9 @@ export function useScrollAnchor({
           // non-virtualized hero above the rows; `scrollToEnd()` operates in
           // the virtualizer's scroll-margin coordinate system and can stop by
           // exactly that hero height after a row-only resize.
-          element.ownerDocument.defaultView?.requestAnimationFrame(() => {
+          repinFrameRef.current = (element.ownerDocument.defaultView ?? window).requestAnimationFrame(() => {
+            repinFrameRef.current = null
+            if (!positionOwnerRef.current.active || positionOwnerRef.current.epoch !== epoch) return
             bottomRepinQueuedRef.current = false
             if (
               element.isConnected
@@ -685,9 +744,72 @@ export function useScrollAnchor({
   // prepend anchoring before this assignment restores the live resize mode.
   virtualizer.options.anchorTo = liveResizeAnchor
 
-  const capturePageAnchor = useCallback((direction: "older" | "newer") => {
+  const retireInitialPosition = useCallback(() => {
+    initialRetiredRef.current = true
+    stateRef.current = { ...stateRef.current, didInitialScroll: true, didDividerConverge: true }
+  }, [])
+  const releasePosition = useCallback(() => {
+    const cancelledTarget = positionOwnerRef.current.kind === "target" ? targetIntentRef.current : null
+    claimPosition("idle")
+    retireInitialPosition()
+    positionedTargetRef.current = targetIntentRef.current
     const root = scrollRef.current
-    if (!root) return
+    if (root) virtualizer.scrollToOffset?.(root.scrollTop, { behavior: "auto" })
+    scheduleInitialPositionSettled()
+    if (cancelledTarget) onTargetCancelledRef.current?.(cancelledTarget)
+  }, [claimPosition, retireInitialPosition, scheduleInitialPositionSettled, virtualizer])
+
+  useLayoutEffect(() => {
+    const target = scrollToMessageId ?? null
+    if (targetIntentRef.current === target) return
+    targetIntentRef.current = target
+    if (!target) {
+      if (positionOwnerRef.current.kind === "target") releasePosition()
+      positionedTargetRef.current = null
+      return
+    }
+    claimPosition("target")
+    positionBudgetStartedRef.current = false
+    retireInitialPosition()
+    positionedTargetRef.current = null
+    wasExactlyPinnedRef.current = false
+    virtualizer.options.anchorTo = "start"
+  }, [claimPosition, releasePosition, retireInitialPosition, scrollToMessageId, virtualizer])
+
+  useLayoutEffect(() => {
+    if (messages.length === 0 || positionBudgetStartedRef.current || !["initial", "target"].includes(positionOwnerRef.current.kind)) return
+    positionBudgetStartedRef.current = true
+    initialDeadlineRef.current = window.setTimeout(() => {
+      initialDeadlineRef.current = null
+      if (!positionOwnerRef.current.active) return
+      if (["initial", "target"].includes(positionOwnerRef.current.kind)) releasePosition()
+    }, INITIAL_POSITION_TIMEOUT_MS)
+  }, [messages.length, releasePosition, scrollToMessageId])
+
+  useLayoutEffect(() => {
+    if (!scrollToMessageId || positionedTargetRef.current === scrollToMessageId
+      || positionOwnerRef.current.kind !== "target" || !heroMeasured) return
+    const index = findMessageIndex(items, scrollToMessageId)
+    if (index === null) return
+    const epoch = positionOwnerRef.current.epoch
+    const id = scrollToMessageId
+    positionedTargetRef.current = id
+    virtualizer.scrollToIndex(index, { align: "center", behavior: "auto" })
+    targetPositionFrameRef.current = window.requestAnimationFrame(() => {
+      targetPositionFrameRef.current = null
+      if (!positionOwnerRef.current.active || positionOwnerRef.current.epoch !== epoch) return
+      positionOwnerRef.current.kind = "idle"
+      onTargetPositionedRef.current?.(id)
+      scheduleInitialPositionSettled()
+    })
+  }, [heroMeasured, items, scheduleInitialPositionSettled, scrollToMessageId, virtualizer])
+
+  const capturePageAnchor = useCallback((direction: "older" | "newer") => {
+    if (positionOwnerRef.current.kind === "target") return
+    claimPosition("pagination")
+    retireInitialPosition()
+    const root = scrollRef.current
+    if (!root) { positionOwnerRef.current.kind = "idle"; return }
     const rootRect = root.getBoundingClientRect()
     const row = Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]"))
       .find((candidate) => {
@@ -699,7 +821,7 @@ export function useScrollAnchor({
     // inserted above the viewport. Newer pages append below it, so the exact
     // scrollTop is itself a stable anchor and also covers the brief moment
     // where the virtualizer has not mounted the newly visible end rows yet.
-    if (direction === "older" && (!row || !messageId)) return
+    if (direction === "older" && (!row || !messageId)) { positionOwnerRef.current.kind = "idle"; return }
     if (paginationAnchorFrameRef.current !== null) {
       window.cancelAnimationFrame(paginationAnchorFrameRef.current)
       paginationAnchorFrameRef.current = null
@@ -713,7 +835,7 @@ export function useScrollAnchor({
     paginationFetchObservedRef.current = false
     newerPageFetchActiveRef.current = direction === "newer"
     setPaginationDirection(direction)
-  }, [setPaginationDirection])
+  }, [claimPosition, retireInitialPosition, setPaginationDirection])
   const captureOlderPageAnchor = useCallback(
     () => capturePageAnchor("older"),
     [capturePageAnchor],
@@ -725,7 +847,8 @@ export function useScrollAnchor({
 
   useLayoutEffect(() => {
     const anchor = paginationAnchorRef.current
-    if (!anchor) return
+    const epoch = positionOwnerRef.current.epoch
+    if (!anchor || positionOwnerRef.current.kind !== "pagination") return
     const isFetching = anchor.direction === "older" ? isFetchingOlder : isFetchingNewer
     if (isFetching) {
       paginationFetchObservedRef.current = true
@@ -738,6 +861,7 @@ export function useScrollAnchor({
     const index = anchor.messageId === null ? null : findMessageIndex(items, anchor.messageId)
     if (!root || (anchor.direction === "older" && index === null)) {
       paginationAnchorRef.current = null
+      positionOwnerRef.current.kind = "idle"
       setPaginationDirection(null)
       return
     }
@@ -759,7 +883,7 @@ export function useScrollAnchor({
     let stableFrames = 0
     const restore = () => {
       paginationAnchorFrameRef.current = null
-      if (paginationAnchorRef.current !== anchor) return
+      if (!positionOwnerRef.current.active || positionOwnerRef.current.epoch !== epoch || paginationAnchorRef.current !== anchor) return
       const row = anchor.messageId === null
         ? undefined
         : Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]"))
@@ -786,6 +910,7 @@ export function useScrollAnchor({
       attempts += 1
       if (stableFrames >= 2 || attempts >= 12) {
         paginationAnchorRef.current = null
+        positionOwnerRef.current.kind = "idle"
         setPaginationDirection(null)
         return
       }
@@ -874,7 +999,14 @@ export function useScrollAnchor({
         ? "end"
         : "start"
     }
+    const onUserIntent = () => {
+      wasExactlyPinnedRef.current = false
+      userScrolledAwayRef.current = true
+      virtualizer.options.anchorTo = "start"
+      releasePosition()
+    }
     const onWheel = (event: WheelEvent) => {
+      if (event.deltaY !== 0) onUserIntent()
       if (event.deltaY < 0) {
         wasExactlyPinnedRef.current = false
         userScrolledAwayRef.current = true
@@ -882,6 +1014,7 @@ export function useScrollAnchor({
       }
     }
     const onKeyDown = (event: KeyboardEvent) => {
+      if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) onUserIntent()
       if (["ArrowUp", "PageUp", "Home"].includes(event.key)) {
         wasExactlyPinnedRef.current = false
         userScrolledAwayRef.current = true
@@ -891,14 +1024,20 @@ export function useScrollAnchor({
     el.addEventListener("scroll", onScroll, { passive: true })
     el.addEventListener("wheel", onWheel, { passive: true })
     el.addEventListener("keydown", onKeyDown)
+    el.addEventListener("touchmove", onUserIntent, { passive: true })
+    el.addEventListener("pointerdown", onUserIntent)
     return () => {
       el.removeEventListener("scroll", onScroll)
       el.removeEventListener("wheel", onWheel)
       el.removeEventListener("keydown", onKeyDown)
+      el.removeEventListener("touchmove", onUserIntent)
+      el.removeEventListener("pointerdown", onUserIntent)
     }
-  }, [virtualizer])
+  }, [releasePosition, virtualizer])
 
   useLayoutEffect(() => {
+    if (["target", "pagination"].includes(positionOwnerRef.current.kind) || (presentVersion && consumedPresentVersionRef.current !== presentVersion)) return
+    if (initialRetiredRef.current) stateRef.current = { ...stateRef.current, didInitialScroll: true, didDividerConverge: true }
     const { action, nextState } = decideScrollAction({
       state: stateRef.current,
       messages,
@@ -906,12 +1045,13 @@ export function useScrollAnchor({
       initialScrollReady,
       heroMeasured,
       hasMoreNewer,
-      isPaginatingNewer: isNewerPageAnchorSettling,
+      isPaginatingNewer: isNewerPageAnchorSettling || newerPageFetchActiveRef.current || !!isFetchingNewer,
       viewerUserId,
       isAtEnd: wasAtEndRef.current,
       userScrolledAway: userScrolledAwayRef.current,
     })
-    stateRef.current = nextState
+    stateRef.current = initialRetiredRef.current
+      ? { ...nextState, didInitialScroll: true, didDividerConverge: true } : nextState
     const initialSequenceComplete = nextState.didInitialScroll && nextState.didDividerConverge
     if (!initialSequenceComplete) cancelInitialSettleFrame()
 
@@ -935,7 +1075,7 @@ export function useScrollAnchor({
       case "none":
         break
     }
-    if (initialSequenceComplete) scheduleInitialPositionSettled()
+    if (initialSequenceComplete || (nextState.didInitialScroll && !hasMoreNewer)) scheduleInitialPositionSettled()
     // messages/items share identity per render (extractScrollAnchorMessages
     // derives from items) — `items` alone is the correct dep, not a
     // secondary `messages` dep, avoiding a re-derivation-triggered re-fire.
@@ -947,17 +1087,24 @@ export function useScrollAnchor({
     heroMeasured,
     hasMoreNewer,
     isNewerPageAnchorSettling,
+    isFetchingNewer,
     viewerUserId,
+    presentVersion,
     virtualizer,
     cancelInitialSettleFrame,
     scheduleInitialPositionSettled,
   ])
 
-  const consumedPresentVersionRef = useRef(0)
+  useLayoutEffect(() => {
+    if (!isFetchingNewer && !paginationAnchorRef.current) newerPageFetchActiveRef.current = false
+  }, [isFetchingNewer, items, paginationDirection])
+
   useLayoutEffect(() => {
     if (!presentVersion || !tailId || hasMoreNewer) return
     if (consumedPresentVersionRef.current === presentVersion) return
     consumedPresentVersionRef.current = presentVersion
+    claimPosition("present")
+    retireInitialPosition()
     stateRef.current = {
       didInitialScroll: true,
       didDividerConverge: true,
@@ -969,7 +1116,7 @@ export function useScrollAnchor({
     virtualizer.options.anchorTo = "end"
     virtualizer.scrollToEnd()
     scheduleInitialPositionSettled()
-  }, [hasMoreNewer, presentVersion, scheduleInitialPositionSettled, tailId, virtualizer])
+  }, [claimPosition, hasMoreNewer, presentVersion, retireInitialPosition, scheduleInitialPositionSettled, tailId, virtualizer])
 
   // Hero-swap compensation — NOT delegated to `scrollMargin` (verified it
   // never triggers a `scrollOffset` write on its own). Tracks the hero's
@@ -1067,13 +1214,21 @@ export function useScrollAnchor({
   const lastVisibleIndex = virtualizer.range?.endIndex ?? -1
   const belowCount = virtualizer.isAtEnd(NEAR_BOTTOM_PX) ? 0 : computeBelowCount(items, lastVisibleIndex)
 
+  const requestPresentPosition = useCallback(() => {
+    claimPosition("present")
+    retireInitialPosition()
+    scheduleInitialPositionSettled()
+  }, [claimPosition, retireInitialPosition, scheduleInitialPositionSettled])
+
   const scrollToBottom = useCallback(() => {
+    claimPosition("present")
+    retireInitialPosition()
     userScrolledAwayRef.current = false
     wasAtEndRef.current = true
     wasExactlyPinnedRef.current = true
     virtualizer.options.anchorTo = "end"
     virtualizer.scrollToEnd({ behavior: "smooth" })
-  }, [virtualizer])
+  }, [claimPosition, retireInitialPosition, virtualizer])
 
   // Re-pin after an attachment image finishes loading, but only if the
   // viewer was exactly pinned before that growth — restores the deleted
@@ -1083,7 +1238,7 @@ export function useScrollAnchor({
   // yanking a reader even 2px away. Instant (no smooth) so it doesn't animate
   // on every image load.
   const onImageLoad = useCallback(() => {
-    if (wasExactlyPinnedRef.current && !userScrolledAwayRef.current) {
+    if (!["target", "pagination"].includes(positionOwnerRef.current.kind) && wasExactlyPinnedRef.current && !userScrolledAwayRef.current) {
       wasExactlyPinnedRef.current = true
       virtualizer.options.anchorTo = "end"
       virtualizer.scrollToEnd()
@@ -1096,14 +1251,25 @@ export function useScrollAnchor({
     // pre-virtualization `querySelector` lookup had (it also required the
     // row to be loaded); documented no-op, not a new failure mode.
     if (idx === null) return
+    const epoch = claimPosition("target")
+    retireInitialPosition()
+    wasExactlyPinnedRef.current = false
+    virtualizer.options.anchorTo = "start"
     virtualizer.scrollToIndex(idx, { align: "center", behavior })
-  }, [items, virtualizer])
+    targetPositionFrameRef.current = window.requestAnimationFrame(() => {
+      targetPositionFrameRef.current = null
+      if (!positionOwnerRef.current.active || positionOwnerRef.current.epoch !== epoch) return
+      positionOwnerRef.current.kind = "idle"
+      scheduleInitialPositionSettled()
+    })
+  }, [claimPosition, items, retireInitialPosition, scheduleInitialPositionSettled, virtualizer])
 
   return {
     scrollRef,
     virtualizer,
     belowCount,
     scrollToBottom,
+    requestPresentPosition,
     jumpTo,
     onImageLoad,
     captureOlderPageAnchor,

@@ -88,6 +88,7 @@ describe("useScrollAnchor older-page message anchoring", () => {
     harness.scroller = null
     harness.scrollToIndex.mockClear()
     harness.virtualizer.scrollToEnd.mockClear()
+    harness.virtualizer.isAtEnd.mockReturnValue(false)
     harness.virtualizer.options.anchorTo = "end"
     cancelFrame = vi.fn()
     vi.stubGlobal("ResizeObserver", class {
@@ -365,4 +366,46 @@ describe("useScrollAnchor older-page message anchoring", () => {
     rendered.unmount()
     expect(cancelFrame).toHaveBeenCalledWith(2)
   })
+  it("yields a queued pagination restore to a later explicit target and user input", () => {
+    const onResult = (value: AnchorResult) => { latest = value }
+    const initial = [message("m1"), message("m2")]
+    const rendered = render(createElement(Harness, { items: initial, isFetchingOlder: false, onResult }))
+    const scroller = screen.getByTestId("scroll") as HTMLDivElement
+    harness.scroller = scroller
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 600 })
+    vi.spyOn(scroller, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ height: 600 }))
+    const row = scroller.querySelector<HTMLElement>('[data-msg-id="m1"]')!
+    vi.spyOn(row, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ y: 20, height: 80 }))
+    act(() => latest.captureOlderPageAnchor())
+    rendered.rerender(createElement(Harness, { items: initial, isFetchingOlder: true, onResult }))
+    rendered.rerender(createElement(Harness, { items: [message("older"), ...initial], isFetchingOlder: false, onResult }))
+    const oldRestore = frames.at(-1)!
+    act(() => latest.jumpTo("m2", "auto"))
+    const writes = harness.scrollToIndex.mock.calls.length
+    act(() => oldRestore(0))
+    expect(harness.scrollToIndex).toHaveBeenCalledTimes(writes)
+    act(() => scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -40 })))
+    const position = scroller.scrollTop
+    act(() => { for (const frame of frames) frame(0) })
+    expect(scroller.scrollTop).toBe(position)
+    expect(latest.isOlderPageAnchorSettling).toBe(false)
+  })
+
+  it("resumes live tail-follow after a newer-page fetch finishes with its anchor canceled", () => {
+    const onResult = (value: AnchorResult) => { latest = value }
+    const initial = [message("anchor")]
+    const rendered = render(createElement(Harness, { items: initial, isFetchingOlder: false, onResult }))
+    harness.scroller = screen.getByTestId("scroll") as HTMLDivElement
+    act(() => latest.captureNewerPageAnchor())
+    rendered.rerender(createElement(Harness, { items: initial, isFetchingOlder: false, isFetchingNewer: true, onResult }))
+    act(() => harness.scroller!.dispatchEvent(new WheelEvent("wheel", { deltaY: -40 })))
+    const completed = [...initial, message("historical")]
+    rendered.rerender(createElement(Harness, { items: completed, isFetchingOlder: false, onResult }))
+    expect(harness.virtualizer.scrollToEnd).not.toHaveBeenCalled()
+    harness.virtualizer.isAtEnd.mockReturnValue(true)
+    act(() => harness.scroller!.dispatchEvent(new Event("scroll")))
+    rendered.rerender(createElement(Harness, { items: [...completed, message("live")], isFetchingOlder: false, onResult }))
+    expect(harness.virtualizer.scrollToEnd).toHaveBeenCalledOnce()
+  })
+
 })

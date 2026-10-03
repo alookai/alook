@@ -1,9 +1,10 @@
 import { createElement, type PropsWithChildren } from "react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { QueryClient, QueryClientProvider, onlineManager } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
+import { CONVERSATION_READ_TIMEOUT_MS, ConversationReadTimeoutError } from "@/lib/community/conversation-read"
 import { communityKeys } from "@/lib/query-keys"
 import { useChannelReadStateSnapshot, type ChannelReadStateSnapshot } from "./use-channel-read-state"
 
@@ -22,6 +23,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await act(async () => {
     await client.cancelQueries(); await registry.cleanup(); client.clear()
+    vi.useRealTimers(); onlineManager.setOnline(true)
   })
 })
 function Owner({ children }: PropsWithChildren) { return createElement(QueryClientProvider, { client }, createElement(CommunityDbProvider, { registry }, children)) }
@@ -128,4 +130,34 @@ describe("native channel read-state snapshot", () => {
     await waitFor(() => expect(second.result.current.snapshot).toEqual(fresh))
     expect(api).toHaveBeenCalledTimes(2)
   })
+  it("turns a held cold read into a manual retryable timeout and fences its late result", async () => {
+    vi.useFakeTimers()
+    const pending = held(), rendered = mount()
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(api).toHaveBeenCalledOnce()
+    const signal = api.mock.calls[0][1].signal as AbortSignal
+    await act(async () => { await vi.advanceTimersByTimeAsync(CONVERSATION_READ_TIMEOUT_MS + 1) })
+    expect(rendered.result.current.error).toBeInstanceOf(ConversationReadTimeoutError)
+    expect(rendered.result.current.snapshot).toBeNull()
+    expect(rendered.result.current.isFetching).toBe(false)
+    expect(signal.aborted).toBe(true)
+    await act(async () => { pending.resolve(original); await vi.advanceTimersByTimeAsync(0) })
+    expect(rendered.result.current.snapshot).toBeNull()
+    api.mockResolvedValueOnce(fresh)
+    await act(async () => { rendered.result.current.retry(); await vi.advanceTimersByTimeAsync(1) })
+    expect(rendered.result.current.snapshot).toEqual(fresh)
+    expect(api).toHaveBeenCalledTimes(2)
+  })
+
+  it("runs the bounded first read even when Query's online manager is offline", async () => {
+    vi.useFakeTimers()
+    onlineManager.setOnline(false)
+    held()
+    const rendered = mount()
+    await act(async () => { await vi.advanceTimersByTimeAsync(CONVERSATION_READ_TIMEOUT_MS + 1) })
+    expect(api).toHaveBeenCalledOnce()
+    expect(rendered.result.current.error).toBeInstanceOf(ConversationReadTimeoutError)
+    expect(rendered.result.current.isFetching).toBe(false)
+  })
+
 })

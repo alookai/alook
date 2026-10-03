@@ -240,6 +240,9 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
     isForum,
     structuralHint: routeModel.skeletonSubtype,
   })
+  if (navigationGate.failed) {
+    return <ConversationResolutionErrorFrame retrying={false} onRetry={navigationGate.retry} />
+  }
   if (routeModel.metadataError) {
     return <ConversationResolutionErrorFrame
       retrying={routeModel.retryingMetadata}

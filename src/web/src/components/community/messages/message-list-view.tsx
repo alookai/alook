@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
 import { createPortal } from "react-dom"
+import { ConversationResolutionErrorFrame } from "../channels/conversation-resolution-error-frame"
 import { Skeleton } from "@/components/ui/skeleton"
 import { tid } from "@/lib/community/testids"
 import { ChannelIcon } from "../channels/channel-icon"
@@ -58,7 +59,10 @@ export function renderMessageListView(
                   : "pointer-events-none opacity-0"
             }`}
           >
-          {controller.initialPosition.showSkeleton ? (
+          {props.messages.length === 0 && props.initialLoadError ? (
+            <ConversationResolutionErrorFrame as="div" retrying={!!props.retryingInitialLoad}
+              onRetry={props.onRetryInitialLoad ?? (() => {})} />
+          ) : controller.initialPosition.showSkeleton ? (
             <MessageListSkeletonContent variant={props.variant} />
           ) : (
             <>

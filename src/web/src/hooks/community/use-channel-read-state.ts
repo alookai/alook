@@ -5,6 +5,7 @@ import { createStore, useSelector } from "@tanstack/react-store"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { captureChannelMetadataToken, isChannelMetadataTokenCurrent, type ChannelMetadataResource } from "./channel-metadata"
+import { retryConversationRead, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 
@@ -71,7 +72,7 @@ export function useChannelReadStateSnapshot(
         if (metadataQuery && client.getQueryCache().find({ queryKey: metadataKey, exact: true }) === metadataQuery) client.setQueryData<ChannelMetadataResource>(metadataKey, (metadata) => metadata ? { ...metadata, historyVerification } : metadata)
       }
       try {
-        const snapshot = await apiFetch<ChannelReadStateSnapshot>(`/api/community/channels/${channelId}/read-state`, communityRequestOptions(client, token, signal, assert))
+        const snapshot = await withConversationReadDeadline(signal, (readSignal) => apiFetch<ChannelReadStateSnapshot>(`/api/community/channels/${channelId}/read-state`, communityRequestOptions(client, token, readSignal, assert)))
         assert()
         updateHistory(token)
         return snapshot
@@ -96,7 +97,8 @@ export function useChannelReadStateSnapshot(
     refetchOnReconnect: false,
     // Snapshot is one-shot; even if TanStack retries a failed fetch, the
     // Store latches only the FIRST resolved value we see.
-    retry: kind === "dm" ? (failureCount, error) => error.name !== "AbortError" && !("status" in error && [403, 404].includes(Number(error.status))) && failureCount < 1 : 1,
+    retry: retryConversationRead,
+    networkMode: "always",
   })
 
   useLayoutEffect(() => {

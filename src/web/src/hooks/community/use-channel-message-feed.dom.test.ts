@@ -1,6 +1,6 @@
 import { createElement } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { render } from "@/test/react-dom-harness"
+import { act, render } from "@/test/react-dom-harness"
 import { useChannelMessageFeed } from "./use-channel-message-feed"
 
 const mocks = vi.hoisted(() => ({
@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
       lastReadSeq: 2,
     } as { lastReadMessageId: string | null; lastReadSeq: number } | null,
     isFetching: false,
+    error: null as unknown,
+    retry: vi.fn(),
   },
   messages: {
     messages: [
@@ -23,6 +25,7 @@ const mocks = vi.hoisted(() => ({
     isError: false,
     hasMoreNewer: false,
     refetch: vi.fn(),
+    error: null as unknown,
   },
   useMessages: vi.fn(),
   watermark: vi.fn(),
@@ -53,7 +56,7 @@ vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await 
   useReadStateProjection: () => mocks.canonicalReadSnapshot,
 }))
 
-function Capture() {
+function Capture({ onResult }: { onResult?: (result: ReturnType<typeof useChannelMessageFeed>) => void }) {
   const result = useChannelMessageFeed({
     channelId: "channel",
     serverId: "server",
@@ -61,6 +64,7 @@ function Capture() {
     isChildChannel: false,
     anchorMessageId: null,
   })
+  onResult?.(result)
   return createElement("output", {
     "data-divider": result.newDividerBefore,
     "data-anchor-found": result.anchorInCache,
@@ -75,6 +79,10 @@ describe("useChannelMessageFeed", () => {
       lastReadSeq: 2,
     }
     mocks.readState.isFetching = false
+    mocks.readState.error = null
+    mocks.readState.retry.mockReset()
+    mocks.messages.error = null
+    mocks.messages.refetch.mockReset()
     mocks.messages.messages = [
       { id: "self", authorId: "viewer" },
       { id: "authoritative-anchor", authorId: "viewer" },
@@ -97,6 +105,18 @@ describe("useChannelMessageFeed", () => {
     expect(renderer.container.querySelector("output")).toHaveAttribute("data-divider", "peer")
     expect(renderer.container.querySelector("output")).toHaveAttribute("data-unread", "3")
     renderer.unmount()
+  })
+
+  it("prioritizes a definitive message denial over a simultaneous transient read failure", () => {
+    const denied = Object.assign(new Error("Forbidden"), { status: 403 })
+    mocks.readState.error = new Error("Read unavailable")
+    mocks.messages.error = denied
+    let latest!: ReturnType<typeof useChannelMessageFeed>
+    render(createElement(Capture, { onResult: (result) => { latest = result } }))
+    expect(latest.initialLoadError).toBe(denied)
+    act(() => latest.retryInitialLoad())
+    expect(mocks.messages.refetch).toHaveBeenCalledWith({ cancelRefetch: false })
+    expect(mocks.readState.retry).not.toHaveBeenCalled()
   })
 
   it("seeds the frozen mount snapshot from the canonical read projection", () => {

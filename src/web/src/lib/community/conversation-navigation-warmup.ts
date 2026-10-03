@@ -5,6 +5,7 @@ import { getCommunityRuntime } from "@/stores/community/runtime"
 
 import { QueryObserver, type QueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
+import { ConversationReadTimeoutError, conversationReadRetryPolicy, withConversationReadDeadline } from "./conversation-read"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import type { MessagesPageParam } from "@/lib/community/models/message"
@@ -90,6 +91,8 @@ export function startConversationNavigationWarmup(
     queryKey: messagesKey,
     queryFn,
     initialPageParam: pageParam,
+    retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey: messagesKey }).retry),
+    networkMode: "always",
     // A persisted/memory-warm page is only a hint. Force this click-owned
     // query through the canonical door so a fresh receipt is always emitted.
     staleTime: 0,
@@ -102,7 +105,7 @@ export function startConversationNavigationWarmup(
       if (signal.aborted || !isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) return
       const definitive = isDefinitiveAccessFailure(error)
       if (definitive) clearDeniedTarget(queryClient, target)
-      failConversationNavigationProof(queryClient, epoch, accessEpoch, definitive)
+      failConversationNavigationProof(queryClient, epoch, accessEpoch, definitive, error instanceof ConversationReadTimeoutError)
     })
 
   const readKey = target.scopeKind === "dm"
@@ -113,14 +116,15 @@ export function startConversationNavigationWarmup(
     queryKey: readKey,
     staleTime: 0,
     retry: false,
+    networkMode: "always",
     queryFn: async ({ signal: querySignal }) => {
       await registry.ready
-      return apiFetch<ReadSnapshot>(`/api/community/channels/${target.channelId}/read-state`, {
-        signal: querySignal,
+      return withConversationReadDeadline(querySignal, (readSignal) => apiFetch<ReadSnapshot>(`/api/community/channels/${target.channelId}/read-state`, {
+        signal: readSignal,
         assertActive: () => {
           if (!isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) throw new DOMException("Retired conversation warmup", "AbortError")
         },
-      })
+      }))
     },
   }).catch(() => undefined)
 

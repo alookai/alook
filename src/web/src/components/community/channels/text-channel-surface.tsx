@@ -140,6 +140,9 @@ export function TextChannelSurface({
                   channel={channelName}
                   messages={feed.messages}
                   loading={feed.isLoading}
+                  initialLoadError={feed.initialLoadError}
+                  retryingInitialLoad={feed.retryingInitialLoad}
+                  onRetryInitialLoad={feed.retryInitialLoad}
                   pinnedIds={controller.pinnedIds}
                   newDividerBefore={feed.newDividerBefore}
                   onOpenThread={onOpenThread}

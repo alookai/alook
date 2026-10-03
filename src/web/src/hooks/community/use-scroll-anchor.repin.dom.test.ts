@@ -18,6 +18,7 @@ const virtualizer = {
   isAtEnd: vi.fn(() => true),
   scrollToEnd: vi.fn(),
   scrollToIndex: vi.fn(),
+  scrollToOffset: vi.fn(),
   range: null,
   shouldAdjustScrollPositionOnItemSizeChange: undefined,
 }
@@ -38,6 +39,7 @@ function resetHarness() {
   virtualizer.isAtEnd.mockReturnValue(true)
   virtualizer.scrollToEnd.mockReset()
   virtualizer.scrollToIndex.mockReset()
+  virtualizer.scrollToOffset.mockReset()
   stubWindow({
     requestAnimationFrame: vi.fn(() => 1),
     cancelAnimationFrame: vi.fn(),
@@ -75,6 +77,8 @@ async function mountHook({
   viewerUserId,
   onInitialPositionSettled,
   tailPaddingEnd = 48,
+  scrollToMessageId,
+  onScrollTargetPositioned,
 }: {
   distanceToEnd?: number
   initialClientHeight?: number
@@ -88,6 +92,8 @@ async function mountHook({
   viewerUserId?: string
   onInitialPositionSettled?: () => void
   tailPaddingEnd?: number
+  scrollToMessageId?: string | null
+  onScrollTargetPositioned?: (id: string) => void
 } = {}) {
   const { useScrollAnchor } = await import("./use-scroll-anchor")
   const hookInput = {
@@ -101,6 +107,8 @@ async function mountHook({
     viewerUserId,
     onInitialPositionSettled,
     tailPaddingEnd,
+    scrollToMessageId,
+    onScrollTargetPositioned,
     isFetchingOlder: false,
     isFetchingNewer: false,
   }
@@ -225,7 +233,7 @@ function growingRow(requestFrame: (callback: FrameRequestCallback) => void, inde
 }
 
 beforeEach(resetHarness)
-afterEach(() => { vi.unstubAllGlobals() })
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
 
 describe("useScrollAnchor delayed row-growth re-pin", () => {
   it("puts the fixed rail clearance inside the virtual total", async () => {
@@ -245,7 +253,7 @@ describe("useScrollAnchor delayed row-growth re-pin", () => {
     expect(window.cancelAnimationFrame).toHaveBeenCalledWith(42)
   })
 
-  it("publishes settlement one frame after the final initial convergence action", async () => {
+  it("publishes warm-tail usability without waiting for the read snapshot", async () => {
     const frameCallbacks: FrameRequestCallback[] = []
     const cancelFrame = vi.fn()
     const settled = vi.fn()
@@ -264,8 +272,9 @@ describe("useScrollAnchor delayed row-growth re-pin", () => {
       onInitialPositionSettled: settled,
     })
     expect(virtualizer.scrollToEnd).toHaveBeenCalledOnce()
-    expect(frameCallbacks).toHaveLength(0)
-    expect(settled).not.toHaveBeenCalled()
+    expect(frameCallbacks).toHaveLength(1)
+    frameCallbacks[0](0)
+    expect(settled).toHaveBeenCalledOnce()
 
     mounted.rerender({
       initialScrollReady: true,
@@ -273,7 +282,7 @@ describe("useScrollAnchor delayed row-growth re-pin", () => {
     })
     expect(virtualizer.scrollToIndex).toHaveBeenCalledOnce()
     expect(frameCallbacks).toHaveLength(1)
-    expect(settled).not.toHaveBeenCalled()
+    expect(settled).toHaveBeenCalledOnce()
 
     frameCallbacks[0](0)
     expect(settled).toHaveBeenCalledOnce()
@@ -596,5 +605,111 @@ describe("useScrollAnchor semantic viewport resize anchoring", () => {
     await Promise.resolve()
 
     expect(scrollWrites).toEqual([])
+  })
+})
+
+
+describe("message positioning owner", () => {
+  function captureFrames() {
+    const frames: FrameRequestCallback[] = []
+    stubWindow({ requestAnimationFrame: (frame) => { frames.push(frame); return frames.length }, cancelAnimationFrame: vi.fn() })
+    return frames
+  }
+
+  it("releases an unavailable initial anchor after two seconds and never revives it on a late snapshot", async () => {
+    vi.useFakeTimers()
+    const frames = captureFrames()
+    const settled = vi.fn()
+    const mounted = await mountHook({ items: [messageItem("m1")], hasMoreNewer: true, onInitialPositionSettled: settled })
+    act(() => vi.advanceTimersByTime(2_000))
+    act(() => frames.shift()?.(0))
+    expect(settled).toHaveBeenCalledOnce()
+    mounted.rerender({ heroMeasured: true, initialScrollReady: true, newDividerBefore: "m1" })
+    expect(virtualizer.scrollToIndex).not.toHaveBeenCalled()
+    expect(virtualizer.scrollToEnd).not.toHaveBeenCalled()
+    mounted.unmount()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("gives an explicit target the first write and discards the old initial settlement frame", async () => {
+    const frames = captureFrames()
+    const settled = vi.fn()
+    const positioned = vi.fn()
+    const mounted = await mountHook({ items: [messageItem("m1"), messageItem("m2")], heroMeasured: true, onInitialPositionSettled: settled, onScrollTargetPositioned: positioned })
+    const oldInitialFrame = frames.shift()!
+    virtualizer.scrollToEnd.mockClear()
+    mounted.rerender({ scrollToMessageId: "m2", initialScrollReady: true, newDividerBefore: "m1" })
+    expect(virtualizer.scrollToIndex).toHaveBeenCalledExactlyOnceWith(1, { align: "center", behavior: "auto" })
+    expect(virtualizer.scrollToEnd).not.toHaveBeenCalled()
+    act(() => oldInitialFrame(0))
+    expect(settled).not.toHaveBeenCalled()
+    act(() => frames.shift()?.(0))
+    expect(positioned).toHaveBeenCalledExactlyOnceWith("m2")
+    act(() => frames.shift()?.(0))
+    expect(settled).toHaveBeenCalledOnce()
+  })
+
+  it("fences a target callback when a newer target owns the session", async () => {
+    const frames = captureFrames()
+    const positioned = vi.fn()
+    const mounted = await mountHook({ items: [messageItem("m1"), messageItem("m2")], heroMeasured: true, scrollToMessageId: "m1", onScrollTargetPositioned: positioned })
+    const oldTarget = frames.shift()!
+    mounted.rerender({ scrollToMessageId: "m2" })
+    act(() => oldTarget(0))
+    expect(positioned).not.toHaveBeenCalled()
+    act(() => frames.shift()?.(0))
+    expect(positioned).toHaveBeenCalledExactlyOnceWith("m2")
+    expect(virtualizer.scrollToEnd).not.toHaveBeenCalled()
+  })
+
+  it("retires a pending target on user wheel input and does not revive it when rows arrive", async () => {
+    const frames = captureFrames()
+    const positioned = vi.fn()
+    const settled = vi.fn()
+    const mounted = await mountHook({ items: [messageItem("m1")], heroMeasured: true, scrollToMessageId: "m2", onScrollTargetPositioned: positioned, onInitialPositionSettled: settled })
+    act(() => mounted.listeners.get("wheel")?.(new WheelEvent("wheel", { deltaY: -60 })))
+    mounted.rerender({ items: [messageItem("m1"), messageItem("m2")], initialScrollReady: true, newDividerBefore: "m1" })
+    act(() => frames.shift()?.(0))
+    expect(virtualizer.scrollToIndex).not.toHaveBeenCalled()
+    expect(virtualizer.scrollToEnd).not.toHaveBeenCalled()
+    expect(positioned).not.toHaveBeenCalled()
+    expect(settled).toHaveBeenCalledOnce()
+  })
+
+  it("bounds a target missing from a readable window without a late target yank", async () => {
+    vi.useFakeTimers()
+    const frames = captureFrames()
+    const settled = vi.fn()
+    const mounted = await mountHook({ items: [messageItem("m1")], heroMeasured: true, scrollToMessageId: "missing", onInitialPositionSettled: settled })
+    act(() => vi.advanceTimersByTime(2_000))
+    act(() => frames.shift()?.(0))
+    expect(settled).toHaveBeenCalledOnce()
+    mounted.rerender({ items: [messageItem("m1"), messageItem("missing")] })
+    expect(virtualizer.scrollToIndex).not.toHaveBeenCalled()
+    mounted.unmount()
+  })
+
+  it("suppresses a queued resize re-pin after an explicit target replaces it", async () => {
+    const mounted = await mountHook({ items: [messageItem("m1"), messageItem("m2")] })
+    let lateRepin!: FrameRequestCallback
+    const row = growingRow((frame) => { lateRepin = frame })
+    virtualizerOptions!.measureElement!(row.element, undefined, virtualizer as never)
+    row.growTo(900)
+    virtualizerOptions!.measureElement!(row.element, undefined, virtualizer as never)
+    await Promise.resolve()
+    const before = [...mounted.scrollWrites]
+    mounted.rerender({ scrollToMessageId: "m2", heroMeasured: true })
+    lateRepin(0)
+    expect(mounted.scrollWrites).toEqual(before)
+    expect(virtualizer.scrollToIndex).toHaveBeenCalledExactlyOnceWith(1, { align: "center", behavior: "auto" })
+  })
+
+  it("ignores target settlement and queued repins after the conversation unmounts", async () => {
+    const frames = captureFrames()
+    const positioned = vi.fn()
+    const mounted = await mountHook({ items: [messageItem("m1")], scrollToMessageId: "m1", heroMeasured: true, onScrollTargetPositioned: positioned })
+    mounted.unmount()
+    act(() => { for (const frame of frames) frame(0) })
+    expect(positioned).not.toHaveBeenCalled()
   })
 })
