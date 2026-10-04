@@ -1,91 +1,51 @@
-import { afterEach, describe, it, expect, vi } from "vitest"
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest"
 import React from "react"
 import { MessageList } from "./message-list"
 import { render } from "@/test/react-dom-harness"
+import { installMessageScrollFixture, restoreMessageScrollFixture, resize, scrollFixture } from "@/test/message-scroll-fixture"
+import { tid } from "@/lib/community/testids"
 
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop" }))
+vi.mock("./message-row", () => ({ MessageRow: () => React.createElement("div") }))
+vi.mock("@/components/ui/number-ticker", () => ({ NumberTicker: ({ value }: { value: number }) => React.createElement("span", null, value) }))
 
-vi.mock("@/components/ui/number-ticker", () => ({
-  NumberTicker: ({ value }: { value: number }) => React.createElement("span", null, value),
-}))
-let scrollToDescriptor: PropertyDescriptor | undefined
-
-// Confirms Phase 4's core claim with an automated test rather than relying
-// solely on manual DevTools inspection: a `<MessageList>` mount effect
-// fires exactly once across a `loading: true → false` prop transition on
-// the SAME rendered DOM instance — i.e. the loading→loaded transition is a
-// props change, not an unmount/remount.
-describe("MessageList — loading→loaded mount identity (Phase 4)", () => {
-  afterEach(() => {
-    if (scrollToDescriptor) {
-      Object.defineProperty(HTMLElement.prototype, "scrollTo", scrollToDescriptor)
-    } else {
-      delete (HTMLElement.prototype as unknown as { scrollTo?: unknown }).scrollTo
-    }
-    vi.restoreAllMocks()
-    vi.unstubAllGlobals()
-  })
-
-  it("does not re-fire the mount-time scroll effect when transitioning loading:true → loading:false on one instance", () => {
-    const scrollTo = vi.fn()
-    scrollToDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo")
-    Object.defineProperty(HTMLElement.prototype, "scrollTo", {
-      configurable: true,
-      value: scrollTo,
-    })
-    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(1000)
-    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(500)
-    vi.stubGlobal("ResizeObserver", class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    })
-    vi.stubGlobal("IntersectionObserver", class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    })
+describe("MessageList loading-to-loaded mount identity", () => {
+  beforeEach(installMessageScrollFixture)
+  afterEach(restoreMessageScrollFixture)
+  it("keeps the scroller and settles the first real row once across the prop transition", () => {
     const messages = [{ id: "m1", authorName: "Alice", content: "hi", createdAt: new Date(0).toISOString() }]
-    const renderer = render(
-      React.createElement(MessageList, {
-        channel: "general",
-        messages: [],
-        loading: true,
-        onOpenThread: vi.fn(),
-      }),
-    )
-
-    // The initial mount has no messages, so the one-shot action bails.
-    const callsBeforeLoaded = scrollTo.mock.calls.length
-
-    renderer.rerender(
-      React.createElement(MessageList, {
-        channel: "general",
-        messages,
-        loading: false,
-        onOpenThread: vi.fn(),
-      }),
-    )
-
-    expect(scrollTo).toHaveBeenCalledTimes(callsBeforeLoaded + 1)
-    const positionedContent = renderer.container.querySelector(
-      "[data-message-list-content]",
-    )
-    expect(positionedContent).toHaveAttribute("data-initial-position-phase", "positioning")
-    expect(positionedContent).toHaveAttribute("aria-hidden", "true")
-    expect(positionedContent).toHaveAttribute("inert")
-    expect(positionedContent).toHaveClass("pointer-events-none", "opacity-0")
-    expect(renderer.container.querySelector("[data-message-positioning-skeleton]"))
-      .toBeInTheDocument()
-
-    renderer.rerender(
-      React.createElement(MessageList, {
-        channel: "general",
-        messages,
-        loading: false,
-        onOpenThread: vi.fn(),
-      }),
-    )
-    expect(scrollTo).toHaveBeenCalledTimes(callsBeforeLoaded + 1)
+    const view = (loading: boolean) => React.createElement(MessageList, { channel: "general", messages: loading ? [] : messages, loading, newDividerBefore: "m1", onOpenThread: vi.fn() })
+    const renderer = render(view(true))
+    resize()
+    const root = renderer.getByTestId(tid.messageScroller)
+    renderer.rerender(view(false))
+    resize()
+    expect(renderer.getByTestId(tid.messageScroller)).toBe(root)
+    expect(renderer.container.querySelector('[data-msg-id="m1"]')).toBeInTheDocument()
+    expect(renderer.container.querySelector('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "true")
+    expect(renderer.container.querySelector('[data-message-list-content]')).toHaveAttribute("aria-hidden", "false")
+    const calls = scrollFixture.scrollCalls.length
+    renderer.rerender(view(false))
+    resize()
+    expect(renderer.getByTestId(tid.messageScroller)).toBe(root)
+    expect(scrollFixture.scrollCalls).toHaveLength(calls)
+  })
+  it("keeps true-empty typing clearance and removes that spacer when the first native row arrives", () => {
+    const messages = [{ id: "m1", authorName: "Alice", content: "hi", createdAt: new Date(0).toISOString() }]
+    const view = (empty: boolean) => React.createElement(MessageList, { channel: "general", messages: empty ? [] : messages, loading: false, typingUsers: ["Alice"], onOpenThread: vi.fn() })
+    const renderer = render(view(true))
+    resize()
+    expect(renderer.container.querySelector('[data-msg-id]')).toBeNull()
+    expect(renderer.container.querySelector('[data-message-empty-tail]')).toHaveClass("h-10", "sm:h-12")
+    expect(renderer.getByTestId(tid.composerAccessoryRail)).toBeInTheDocument()
+    expect(renderer.getByTestId(tid.typingIndicator)).toHaveTextContent("Alice is typing")
+    const root = renderer.getByTestId(tid.messageScroller)
+    renderer.rerender(view(false))
+    resize()
+    expect(renderer.getByTestId(tid.messageScroller)).toBe(root)
+    expect(renderer.container.querySelector('[data-message-empty-tail]')).toBeNull()
+    expect(renderer.container.querySelectorAll('[data-index]')).toHaveLength(1)
+    expect(root.querySelector<HTMLElement>('[data-message-list-content] > div')?.style.height).toBe("500px")
+    expect(root.querySelector('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "true")
   })
 })

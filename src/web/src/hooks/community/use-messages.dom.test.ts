@@ -1,9 +1,11 @@
 import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { createElement, type PropsWithChildren } from "react"
 import { type InfiniteData } from "@tanstack/react-query"
-import { renderHook, waitFor } from "@/test/react-dom-harness"
+import { act, renderHook, waitFor } from "@/test/react-dom-harness"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { CONVERSATION_READ_TIMEOUT_MS, ConversationReadTimeoutError } from "@/lib/community/conversation-read"
 import { communityKeys } from "@/lib/query-keys"
 import type { Msg } from "@/lib/community/models/message"
 
@@ -16,6 +18,8 @@ beforeEach(() => {
   apiFetchMock.mockReset()
 
 })
+
+afterEach(() => vi.useRealTimers())
 
 // Load *after* the mock is set up so the queryFn resolves the mocked import.
 async function loadHook() {
@@ -389,5 +393,30 @@ describe("mergeMessagesPages", () => {
   it("handles empty pages array", async () => {
     const { mergeMessagesPages } = await loadHook()
     expect(mergeMessagesPages([])).toEqual([])
+  })
+})
+
+
+describe("bounded messages publication", () => {
+  it("does not publish a late message, profile or navigation receipt after deadline failure", async () => {
+    const { channelMessagesQueryFn } = await loadHook()
+    const { client } = await createCommunityQueryOwner()
+    let resolve!: (value: unknown) => void
+    apiFetchMock.mockImplementationOnce(() => new Promise((done) => { resolve = done }))
+    const receipt = vi.fn()
+    vi.useFakeTimers()
+    const request = channelMessagesQueryFn("ch_deadline", null, { queryClient: client, onSurfaceReceipt: receipt })({ client, signal: new AbortController().signal, pageParam: { mode: "newest" } })
+    const rejected = expect(request).rejects.toBeInstanceOf(ConversationReadTimeoutError)
+    await act(async () => { await vi.advanceTimersByTimeAsync(CONVERSATION_READ_TIMEOUT_MS) })
+    await rejected
+    expect(apiFetchMock.mock.calls[0][1].signal.aborted).toBe(true)
+    await act(async () => {
+      resolve({ messages: [{ id: "late_message", type: "chat", seq: 1, authorId: "late_author", authorName: "Late", content: "late" }], hasMore: false, latestSeq: 1, surfaceReceipt: { channelId: "ch_deadline", surfaceKind: "channel" } })
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    const registry = getCommunityDbRegistry(client)!
+    expect(registry.collections.messages.get("late_message")).toBeUndefined()
+    expect(registry.collections.profiles.get("late_author")).toBeUndefined()
+    expect(receipt).not.toHaveBeenCalled()
   })
 })

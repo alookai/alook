@@ -30,6 +30,7 @@ export type ConversationNavigationProof = {
   recoveryAttempt: number
   target: ConversationNavigationTarget
   status: ProofStatus
+  manualRetry?: boolean
 }
 
 type ConversationNavigationRecovery = (
@@ -210,6 +211,7 @@ export function failConversationNavigationProof(
   epoch: number,
   accessEpoch: number,
   definitive: boolean,
+  manualRetry = false,
 ) {
   const store = getStore(queryClient)
   const current = store.get()
@@ -231,7 +233,7 @@ export function failConversationNavigationProof(
       activeEpoch: state.nextEpoch + 1,
       recovery: null,
     } : {}),
-    proof: { ...proof, status: definitive ? "denied" : "failed" },
+    proof: { ...proof, status: definitive ? "denied" : "failed", manualRetry },
   }))
 }
 
@@ -292,7 +294,7 @@ export function useConversationNavigationGate(
   viewerId: string,
   channelId: string,
   accessEpoch: number,
-): { required: boolean; allowed: boolean } {
+): { required: boolean; allowed: boolean; failed: boolean; retry: () => void; target: ConversationNavigationTarget | null } {
   const store = getStore(queryClient)
   const proof = useSelector(store, (state) => state.proof)
   const matching = proof?.target.viewerId === viewerId
@@ -309,7 +311,7 @@ export function useConversationNavigationGate(
       recoverConversationNavigationProof(queryClient, proof.epoch, accessEpoch)
       return
     }
-    if (proof.status !== "failed") return
+    if (proof.status !== "failed" || proof.manualRetry) return
     const delay = Math.min(250 * (2 ** proof.recoveryAttempt), 5_000)
     const timeout = setTimeout(() => {
       recoverConversationNavigationProof(queryClient, proof.epoch, accessEpoch)
@@ -327,5 +329,10 @@ export function useConversationNavigationGate(
     consumeConversationNavigationProof(queryClient, proof.epoch)
   }, [accessEpoch, matching, proof, queryClient])
 
-  return { required, allowed }
+  return { required, allowed,
+    target: required && isCurrentConversationNavigation(queryClient, proof.epoch, accessEpoch)
+      ? proof.target : null,
+    failed: required && proof.accessEpoch === accessEpoch && proof.status === "failed" && proof.manualRetry === true,
+    retry: () => { if (proof && matching) recoverConversationNavigationProof(queryClient, proof.epoch, accessEpoch) },
+  }
 }

@@ -7,7 +7,7 @@ type RowRect = { top: number; bottom: number; height: number }
 
 async function messageRowRect(page: Page, messageId: string): Promise<RowRect> {
   return page.locator(`[data-msg-id="${messageId}"]`).evaluate((message) => {
-    const row = message.parentElement
+    const row = message.closest("[data-index]")
     if (!row?.hasAttribute("data-index")) throw new Error("virtual message row not found")
     const rect = row.getBoundingClientRect()
     return { top: rect.top, bottom: rect.bottom, height: rect.height }
@@ -29,7 +29,7 @@ async function waitForStableScrollerFrames(page: Page, messageId: string): Promi
       let observedFrames = 0
       const sample = () => {
         const message = document.querySelector<HTMLElement>(`[data-msg-id="${CSS.escape(targetMessageId)}"]`)
-        const row = message?.parentElement
+        const row = message?.closest("[data-index]")
         if (!row) {
           rejectStable(new Error(`message row ${targetMessageId} disappeared`))
           return

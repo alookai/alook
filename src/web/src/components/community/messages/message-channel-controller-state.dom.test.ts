@@ -363,6 +363,56 @@ describe("useMessageChannelController", () => {
     )
   })
 
+  it("gives a split route URL seq only to the child while preserving parent local jumps", () => {
+    mocks.pathname = "/c/channels/server_1/child"
+    mocks.seq = "7"
+    const controllers = new Map<string, MessageChannelControllerValue>()
+    function Pane({ channelId }: { channelId: string }) {
+      const controller = useMessageChannelController(props({ channelId }))
+      React.useLayoutEffect(() => { controllers.set(channelId, controller) }, [channelId, controller])
+      return null
+    }
+    const panes = React.createElement(React.Fragment, null,
+      React.createElement(Pane, { channelId: "parent" }),
+      React.createElement(Pane, { channelId: "child" }),
+    )
+    const view = rtlRender(panes)
+    expect(controllers.get("parent")!.contextTarget).toBeNull()
+    expect(controllers.get("child")!.contextTarget).toMatchObject({ channelId: "child", seq: 7 })
+    expect(mocks.router.replace).toHaveBeenCalledOnce()
+    expect(mocks.router.replace).toHaveBeenCalledWith("/c/channels/server_1/child?keep=1", { scroll: false })
+    mocks.seq = null
+    view.rerender(panes)
+    act(() => controllers.get("child")!.setContextTarget(null))
+    act(() => controllers.get("parent")!.jumpToSeq(99))
+    expect(controllers.get("parent")!.contextTarget).toMatchObject({ channelId: "parent", seq: 99 })
+    expect(controllers.get("child")!.contextTarget).toBeNull()
+    mocks.seq = "7"
+    view.rerender(React.createElement(React.Fragment, null,
+      React.createElement(Pane, { channelId: "parent" }),
+      React.createElement(Pane, { channelId: "child" }),
+    ))
+    expect(controllers.get("parent")!.contextTarget).toMatchObject({ channelId: "parent", seq: 99 })
+    expect(controllers.get("child")!.contextTarget).toMatchObject({ channelId: "child", seq: 7 })
+    expect(mocks.router.replace).toHaveBeenCalledTimes(2)
+  })
+
+  it("renews a loaded URL target after Close and scroll consumption without a remount", () => {
+    mocks.seq = "1"
+    const value = props({ anchorMessageId: null })
+    const view = rtlRender(React.createElement(Probe, { value }))
+    expect(latest.contextTarget).toMatchObject({ channelId: "channel_1", seq: 1 })
+    expect(latest.scrollTargetId).toBe("m1")
+    mocks.seq = null
+    view.rerender(React.createElement(Probe, { value }))
+    act(() => { latest.setContextTarget(null); latest.consumeScrollTarget("m1") })
+    expect(latest.scrollTargetId).toBeNull()
+    mocks.seq = "1"
+    view.rerender(React.createElement(Probe, { value }))
+    expect(latest.scrollTargetId).toBe("m1")
+    expect(latest.contextTarget).toMatchObject({ channelId: "channel_1", seq: 1 })
+  })
+
   it("clears missing anchors only on authoritative error and consumes only the matching target", () => {
     const missingFeed = { ...feed, messages: [], isError: false }
     let renderer: ReturnType<typeof rtlRender>

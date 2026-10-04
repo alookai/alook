@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
 import {
   INITIAL_POSITION_CROSSFADE_MS,
-  INITIAL_POSITION_TIMEOUT_MS,
   useInitialPositionTransition,
 } from "./initial-position-transition"
+import { INITIAL_POSITION_TIMEOUT_MS } from "@/hooks/community/use-scroll-anchor"
 
 type Input = {
   firstWindowReady: boolean
@@ -121,8 +121,10 @@ describe("useInitialPositionTransition", () => {
     expect(latest).toMatchObject({ phase: "revealed" })
   })
 
-  it("cleans the timeout timer when a keyed mount leaves", () => {
+  it("has no independent position timer and cleans the crossfade when a keyed mount leaves", () => {
     const renderer = render(React.createElement(Probe, pending()))
+    expect(vi.getTimerCount()).toBe(0)
+    renderer.rerender(React.createElement(Probe, { ...pending(), positionSettled: true }))
     expect(vi.getTimerCount()).toBe(1)
     renderer.unmount()
     expect(vi.getTimerCount()).toBe(0)

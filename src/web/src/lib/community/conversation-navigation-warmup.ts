@@ -3,17 +3,19 @@ import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { getCommunityRuntime } from "@/stores/community/runtime"
 
 
-import { QueryObserver, type QueryClient } from "@tanstack/react-query"
+import { InfiniteQueryObserver, QueryObserver, type InfiniteData, type QueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
+import { conversationReadRetryPolicy, withConversationReadDeadline } from "./conversation-read"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
-import type { MessagesPageParam } from "@/lib/community/models/message"
+import type { MessagesPage, MessagesPageParam } from "@/lib/community/models/message"
 import { channelMessagesQueryFn, dmMessagesQueryFn } from "@/hooks/community/use-messages"
 import { serverProjectedQueryFn } from "@/hooks/community/use-servers"
 import {
   beginConversationNavigationProof,
   commitConversationNavigationProof,
   failConversationNavigationProof,
+  getConversationNavigationProof,
   isCurrentConversationNavigation,
   recordConversationNavigationReceipt,
   registerConversationNavigationRecovery,
@@ -86,24 +88,41 @@ export function startConversationNavigationWarmup(
         },
       })
 
-  void queryClient.fetchInfiniteQuery({
+  void queryClient.cancelQueries({ queryKey: messagesKey, exact: true })
+  queryClient.setQueryData<InfiniteData<MessagesPage, MessagesPageParam>>(messagesKey, (current) => current
+    ? { ...current, pageParams: [pageParam, ...current.pageParams.slice(1)] }
+    : current)
+  const messagesOptions = {
     queryKey: messagesKey,
     queryFn,
     initialPageParam: pageParam,
+    pages: 1,
+    getNextPageParam: () => undefined,
+    retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey: messagesKey }).retry),
+    networkMode: "always" as const,
     // A persisted/memory-warm page is only a hint. Force this click-owned
     // query through the canonical door so a fresh receipt is always emitted.
     staleTime: 0,
+  }
+  const messagesObserver = new InfiniteQueryObserver(queryClient, {
+    ...messagesOptions, enabled: false,
   })
+  const releaseMessages = messagesObserver.subscribe(() => undefined)
+  void queryClient.fetchInfiniteQuery(messagesOptions)
     .then(() => {
       if (!isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) return
       commitConversationNavigationProof(queryClient, target.channelId, accessEpoch)
+      if (getConversationNavigationProof(queryClient)?.status === "warming") {
+        failConversationNavigationProof(queryClient, epoch, accessEpoch, false, true)
+      }
     })
     .catch((error) => {
       if (signal.aborted || !isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) return
       const definitive = isDefinitiveAccessFailure(error)
       if (definitive) clearDeniedTarget(queryClient, target)
-      failConversationNavigationProof(queryClient, epoch, accessEpoch, definitive)
+      failConversationNavigationProof(queryClient, epoch, accessEpoch, definitive, true)
     })
+    .finally(releaseMessages)
 
   const readKey = target.scopeKind === "dm"
     ? communityKeys.dmReadStateSnapshot(target.channelId)
@@ -113,20 +132,25 @@ export function startConversationNavigationWarmup(
     queryKey: readKey,
     staleTime: 0,
     retry: false,
+    networkMode: "always",
     queryFn: async ({ signal: querySignal }) => {
-      await registry.ready
-      return apiFetch<ReadSnapshot>(`/api/community/channels/${target.channelId}/read-state`, {
-        signal: querySignal,
+      return withConversationReadDeadline(querySignal, async (readSignal) => {
+        await registry.ready
+        readSignal.throwIfAborted()
+        return apiFetch<ReadSnapshot>(`/api/community/channels/${target.channelId}/read-state`, {
+        signal: readSignal,
         assertActive: () => {
           if (!isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) throw new DOMException("Retired conversation warmup", "AbortError")
         },
+        })
       })
     },
   }).catch(() => undefined)
 
   if (target.serverId) {
     const serverId = target.serverId
-    const options = { queryKey: communityKeys.server(serverId), queryFn: ({ signal }: { signal: AbortSignal }) => serverProjectedQueryFn(queryClient, serverId, signal)(), staleTime: Infinity }
+    const queryKey = communityKeys.server(serverId)
+    const options = { queryKey, queryFn: ({ signal }: { signal: AbortSignal }) => serverProjectedQueryFn(queryClient, serverId, signal)(), staleTime: Infinity, networkMode: "always" as const, retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey }).retry) }
     const observer = new QueryObserver(queryClient, { ...options, enabled: false })
     const release = observer.subscribe(() => undefined)
     void queryClient.fetchQuery(options).finally(release).catch(() => undefined)

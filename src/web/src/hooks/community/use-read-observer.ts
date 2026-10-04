@@ -31,6 +31,7 @@ function readPresentationReadable(scrollRootEl: HTMLElement) {
   if (!content) return true
   return content.getAttribute("aria-hidden") === "false"
     && !content.hasAttribute("inert")
+    && content.getAttribute("data-read-position-ready") !== "false"
 }
 
 export type ReadCandidate = {
@@ -172,11 +173,11 @@ export function useTimelineReadObserver({
     if (!readLease || !reservationLease) return
     let observerGeneration = 0
     let presentationReadable = readPresentationReadable(scrollRootEl)
-    const bindings = new WeakMap<Element, { id: string; generation: number }>()
+    const bindings = new WeakMap<Element, { id: string; generation: number; observedAt: number }>()
     const bind = (node: Element) => {
       const id = (node as HTMLElement).dataset.msgId
       if (!id) return
-      bindings.set(node, { id, generation: observerGeneration })
+      bindings.set(node, { id, generation: observerGeneration, observedAt: performance.now() })
       observer.observe(node)
     }
     const observer = new IntersectionObserver((entries) => {
@@ -188,7 +189,7 @@ export function useTimelineReadObserver({
       }
       for (const entry of entries) {
         const binding = bindings.get(entry.target)
-        if (!binding || binding.generation !== observerGeneration) continue
+        if (!binding || binding.generation !== observerGeneration || entry.time < binding.observedAt) continue
         if (!scrollRootEl.contains(entry.target)) continue
         if ((entry.target as HTMLElement).dataset.msgId !== binding.id) continue
         const message = protocol.get().visibleIds.has(binding.id) ? getCommunityDbRegistry(queryClient)?.collections.messages.get(binding.id) : undefined
@@ -235,12 +236,16 @@ export function useTimelineReadObserver({
       : new MutationObserver((records) => {
           const nextPresentationReadable = readPresentationReadable(scrollRootEl)
           const presentationRevealed = !presentationReadable && nextPresentationReadable
-          presentationReadable = nextPresentationReadable
-          if (presentationRevealed) {
-            scrollRootEl.querySelectorAll<HTMLElement>("[data-msg-id]").forEach((node) => {
-              observer.unobserve(node)
-            })
+          const presentationChanged = presentationReadable !== nextPresentationReadable
+            || records.some((record) => record.type === "attributes"
+              && record.attributeName === "data-read-position-ready" && record.oldValue === "false")
+          if (presentationChanged) {
+            observerGeneration += 1
+            scrollRootEl.querySelectorAll<HTMLElement>("[data-msg-id]").forEach((node) => observer.unobserve(node))
             observer.takeRecords()
+          }
+          presentationReadable = nextPresentationReadable
+          if (presentationRevealed || (presentationChanged && nextPresentationReadable)) {
             sample()
             if (document.visibilityState === "visible") classifyCandidateRef.current()
             return
@@ -256,7 +261,8 @@ export function useTimelineReadObserver({
         })
     mutations?.observe(scrollRootEl, {
       attributes: true,
-      attributeFilter: ["aria-hidden", "inert"],
+      attributeFilter: ["aria-hidden", "inert", "data-read-position-ready"],
+      attributeOldValue: true,
       childList: true,
       subtree: true,
     })

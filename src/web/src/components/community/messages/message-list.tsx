@@ -1,5 +1,6 @@
 "use client"
 
+import { isConversationAccessError } from "@/lib/community/conversation-read"
 import { useLayoutEffect } from "react"
 import { useMessageListController } from "./message-list-controller"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
@@ -17,6 +18,7 @@ export function MessageList({
   const hoverCapable = useHoverCapable()
   const resolvedProps: ResolvedMessageListProps = {
     ...props,
+    messages: isConversationAccessError(props.initialLoadError) ? [] : props.messages,
     variant,
     initialScrollReady,
     hoverCapable,
@@ -33,7 +35,7 @@ export function MessageList({
       items={controller.items}
       virtualizer={controller.virtualizer}
       itemKey={(item) => item.key}
-      renderItem={(item) => renderMessageListRow(item, resolvedProps, controller)}
+      renderItem={(item, index) => renderMessageListRow(item, resolvedProps, controller, index)}
     />
   ), footerSlot?.target ?? null)
 }

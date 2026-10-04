@@ -6,6 +6,9 @@ export type MessageListProps = {
   channel: string
   messages: Msg[]
   loading?: boolean
+  initialLoadError?: Error | null
+  retryingInitialLoad?: boolean
+  onRetryInitialLoad?: () => void
   pinnedIds?: Set<string>
   newDividerBefore?: string
   typingUsers?: string[]

@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test"
+import { tid } from "./_fixtures/testids"
 
 test("main and Blog navigate across Workers through one public origin", async ({ page }) => {
   const documentRequests: string[] = []
@@ -9,6 +10,10 @@ test("main and Blog navigate across Workers through one public origin", async ({
   })
 
   await page.goto("/")
+  const banner = page.getByTestId(tid.analyticsConsentBanner)
+  await expect(banner).toBeVisible()
+  await banner.getByRole("button", { name: "Only necessary", exact: true }).click()
+  await expect(banner).toHaveCount(0)
   const publicOrigin = new URL(page.url()).origin
   await page.locator(".hero-section").evaluate((hero) => {
     window.scrollTo(0, hero.getBoundingClientRect().bottom + window.scrollY + 1)

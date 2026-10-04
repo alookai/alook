@@ -70,7 +70,7 @@ describe("MessageList facade contract", () => {
     expect(text).toContain("virtualizer={controller.virtualizer}")
     expect(text).toContain("itemKey={(item) => item.key}")
     expect(text).toContain(
-      "renderItem={(item) => renderMessageListRow(item, resolvedProps, controller)}",
+      "renderItem={(item, index) => renderMessageListRow(item, resolvedProps, controller, index)}",
     )
     expect(text).not.toMatch(/<MessageListView\b|createElement\(MessageListView/)
     expect(text).not.toMatch(/forwardRef|useImperativeHandle/)
