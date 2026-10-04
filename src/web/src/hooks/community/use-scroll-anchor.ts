@@ -297,6 +297,7 @@ export function useScrollAnchor({
   const geometrySampleRef = useRef<{ value: string; frames: number } | null>(null)
   const geometryFrameRef = useRef<number | null>(null)
   const scheduleGeometryRef = useRef<() => void>(() => {})
+  const reconcileViewportRef = useRef<() => void>(() => {})
   const userInputRef = useRef({ at: -Infinity, scrollAt: -Infinity, touch: false, pointers: new Set<number>(), handover: false })
   const tailKeyRef = useRef<string | null>(null)
   const messages = useMemo(() => extractScrollAnchorMessages(items), [items])
@@ -383,7 +384,7 @@ export function useScrollAnchor({
     paddingStart: shortGap,
     paddingEnd: tailPaddingEnd,
     overscan: 8,
-    onChange: () => { scheduleGeometryRef.current() },
+    onChange: () => { reconcileViewportRef.current(); scheduleGeometryRef.current() },
   })
   virtualizerRef.current = virtualizer
 
@@ -533,13 +534,17 @@ export function useScrollAnchor({
     } else if (owner.kind === "initial") armBudget()
   }, [armBudget, items, scheduleInitialPositionSettled, startIntent])
 
-  const readGeometry = useCallback((): Geometry | null => {
+  const readGeometry = useCallback((viewportTransition = false): Geometry | null => {
     const root = scrollRef.current
     const native = virtualizerRef.current
     const owner = positionOwnerRef.current
+    const previous = acceptedGeometryRef.current
+    const pendingViewportRect = viewportTransition && previous?.epoch === owner.epoch
+      && previous.clientHeight !== root?.clientHeight
+      && Math.abs((native?.scrollRect?.height ?? 0) - previous.clientHeight) <= 1
     if (!owner.active || !root || !native || root.clientHeight <= 0
       || Math.abs((native.scrollOffset ?? 0) - root.scrollTop) > 1
-      || Math.abs((native.scrollRect?.height ?? 0) - root.clientHeight) > 1) return null
+      || (!pendingViewportRect && Math.abs((native.scrollRect?.height ?? 0) - root.clientHeight) > 1)) return null
     const total = native.getTotalSize()
     const max = Math.max(0, root.scrollHeight - root.clientHeight)
     if (root.scrollTop < 0 || root.scrollTop > max + 1) return null
@@ -577,15 +582,25 @@ export function useScrollAnchor({
         && previous.total === next.total && previous.paddingEnd === next.paddingEnd
         && previousFold?.start === previous.itemStart
         && (previous.key !== next.key || previous.prefix === next.prefix)))) {
-      acceptedGeometryRef.current = next
+      const unchangedPosition = previous?.epoch === next.epoch
+        && previous.clientHeight === next.clientHeight && previous.scrollHeight === next.scrollHeight
+        && virtualizerRef.current?.scrollOffset === previous.scrollTop
+        && Math.abs(previous.scrollTop - next.scrollTop) <= 1
+      acceptedGeometryRef.current = {
+        ...next, isScrolling: next.isScrolling && unchangedPosition ? previous.isScrolling : next.isScrolling,
+      }
     }
   }, [])
 
-  const reconcileGeometry = useCallback(() => {
+  const reconcileGeometry = useCallback((viewportOnly = false) => {
     const root = scrollRef.current
     const native = virtualizerRef.current
     const owner = positionOwnerRef.current
     if (!owner.active || !root || !native) return false
+    if (viewportOnly && (owner.kind !== "idle" || !readReadyRef.current
+      || acceptedGeometryRef.current?.epoch !== owner.epoch
+      || (acceptedGeometryRef.current.clientHeight === root.clientHeight
+        && acceptedGeometryRef.current.paddingEnd === (native.options.paddingEnd ?? 0)))) return false
     const total = native.getTotalSize()
     const gap = Math.max(0, root.clientHeight - (total - (native.options.paddingStart ?? 0)))
     if (Math.abs(gap - (native.options.paddingStart ?? 0)) > 1) {
@@ -593,7 +608,7 @@ export function useScrollAnchor({
       return true
     }
     if (owner.kind !== "idle" || (!readReadyRef.current && !userInputRef.current.handover)) return false
-    const next = readGeometry()
+    const next = readGeometry(viewportOnly)
     if (next) observeGeometry(next)
     const input = userInputRef.current
     const max = Math.max(0, root.scrollHeight - root.clientHeight)
@@ -634,7 +649,10 @@ export function useScrollAnchor({
       }
     }
     offset = Math.max(0, Math.min(offset, max))
-    acceptedGeometryRef.current = { ...next, scrollTop: offset, exactlyPinned: max - offset <= 1 }
+    acceptedGeometryRef.current = {
+      ...next, scrollTop: offset, exactlyPinned: max - offset <= 1,
+      isScrolling: clampedByResize ? previous.isScrolling : next.isScrolling,
+    }
     wasAtEndRef.current = max - offset <= NEAR_BOTTOM_PX
     if (input.handover) {
       input.handover = false
@@ -644,6 +662,7 @@ export function useScrollAnchor({
     if (Math.abs(offset - root.scrollTop) > 0.5) native.scrollToOffset(offset, { behavior: "auto" })
     return false
   }, [observeGeometry, readGeometry, setReadPositionReady, setShortGap])
+  reconcileViewportRef.current = () => { reconcileGeometry(true) }
 
   const scheduleGeometry = useCallback(() => {
     if (geometryFrameRef.current !== null || !positionOwnerRef.current.active) return
@@ -661,7 +680,13 @@ export function useScrollAnchor({
     if (!root) return
     const onScroll = () => {
       const input = userInputRef.current
-      input.scrollAt = performance.now()
+      const previous = acceptedGeometryRef.current
+      const unchanged = previous?.epoch === positionOwnerRef.current.epoch
+        && previous.clientHeight === root.clientHeight && previous.scrollHeight === root.scrollHeight
+        && virtualizerRef.current?.scrollOffset === previous.scrollTop
+        && Math.abs(previous.scrollTop - root.scrollTop) <= 1
+      if (!unchanged) input.scrollAt = performance.now()
+      reconcileGeometry(true)
       const distance = Math.max(0, root.scrollHeight - root.clientHeight - root.scrollTop)
       wasAtEndRef.current = distance <= NEAR_BOTTOM_PX
       if (wasAtEndRef.current) userScrolledAwayRef.current = false
@@ -687,7 +712,7 @@ export function useScrollAnchor({
     }
     const onPointerDown = (event: PointerEvent) => { userInputRef.current.pointers.add(event.pointerId); onUserIntent() }
     const onPointerUp = (event: PointerEvent) => {
-      userInputRef.current.pointers.delete(event.pointerId)
+      if (!userInputRef.current.pointers.delete(event.pointerId)) return
       userInputRef.current.at = performance.now()
       scheduleGeometry()
     }
@@ -707,7 +732,7 @@ export function useScrollAnchor({
     root.ownerDocument.addEventListener("pointerup", onPointerUp)
     root.ownerDocument.addEventListener("pointercancel", onPointerUp)
     root.ownerDocument.defaultView?.addEventListener("blur", onBlur)
-    const ro = new ResizeObserver(scheduleGeometry)
+    const ro = new ResizeObserver(() => { reconcileGeometry(true); scheduleGeometry() })
     ro.observe(root)
     const footer = root.closest<HTMLElement>('[data-slot="community-conversation-surface"]')
       ?.querySelector<HTMLElement>('[data-slot="community-conversation-footer"]')
@@ -727,8 +752,10 @@ export function useScrollAnchor({
       root.ownerDocument.defaultView?.removeEventListener("blur", onBlur)
       ro.disconnect()
       mo?.disconnect()
+      userInputRef.current.touch = false
+      userInputRef.current.pointers.clear()
     }
-  }, [observeGeometry, readGeometry, releasePosition, scheduleGeometry])
+  }, [observeGeometry, readGeometry, reconcileGeometry, releasePosition, scheduleGeometry])
 
   const capturePageAnchor = useCallback((direction: "older" | "newer") => {
     if (positionOwnerRef.current.kind === "idle" && readReadyRef.current) {

@@ -342,6 +342,117 @@ describe("locked native adapter and existing message scroll owner", () => {
     resize(2)
     expect(offset).not.toHaveBeenCalled()
   })
+  it.each(["document", "footer"])("keeps a settled viewport anchor after an unregistered %s pointer release", target => {
+    const h = mount()
+    h.move(h.root.scrollHeight - scrollFixture.height - 2)
+    const footer = h.root.closest('[data-slot="community-conversation-surface"]')!
+      .querySelector('[data-slot="community-conversation-footer"]')!
+    const release = new Event("pointerup", { bubbles: true })
+    Object.defineProperty(release, "pointerId", { value: 41 })
+    fireEvent(target === "document" ? document : footer, release)
+    scrollFixture.height += 100
+    resize(2)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(2)
+  })
+  it("keeps a real scroller pointer protected when released outside the scroller", () => {
+    const h = mount()
+    h.move(h.root.scrollHeight - scrollFixture.height - 2)
+    const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
+    const down = new Event("pointerdown", { bubbles: true })
+    Object.defineProperty(down, "pointerId", { value: 41 })
+    fireEvent(h.root, down)
+    const up = new Event("pointerup", { bubbles: true })
+    Object.defineProperty(up, "pointerId", { value: 41 })
+    fireEvent(document, up)
+    scrollFixture.height += 100
+    resize(2)
+    expect(offset).not.toHaveBeenCalled()
+  })
+  it("does not release an active scroller pointer when another pointer ends outside", () => {
+    const h = mount()
+    h.move(h.root.scrollHeight - scrollFixture.height - 2)
+    const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
+    const down = new Event("pointerdown", { bubbles: true })
+    Object.defineProperty(down, "pointerId", { value: 41 })
+    fireEvent(h.root, down)
+    const up = new Event("pointerup", { bubbles: true })
+    Object.defineProperty(up, "pointerId", { value: 42 })
+    fireEvent(document, up)
+    runFrames(13)
+    scrollFixture.height += 100
+    resize(2)
+    expect(offset).not.toHaveBeenCalled()
+  })
+  it.each([0, 1])("preserves a settled viewport tail distance after ResizeObserver and %i later RAFs", frames => {
+    const h = mount()
+    h.move(h.root.scrollHeight - scrollFixture.height - 2)
+    scrollFixture.height += 100
+    act(() => {
+      h.root.scrollTop = h.root.scrollHeight - h.root.clientHeight
+      h.root.dispatchEvent(new Event("scroll"))
+    })
+    resize(0)
+    runFrames(frames)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(2)
+  })
+  it.each([0, 2, 8, 100, 300])("preserves the %ipx footer policy in the first RAF before native ResizeObserver", distance => {
+    const h = mount()
+    h.move(h.root.scrollHeight - scrollFixture.height - distance)
+    const before = h.root.scrollTop
+    scrollFixture.height += 200
+    runFrames(1)
+    expect(h.root.scrollTop).toBe(before - (distance <= 100 ? 200 : 0))
+    resize(0)
+    expect(h.root.scrollTop).toBe(before - (distance <= 100 ? 200 : 0))
+  })
+  it("retains a settled viewport owner through successive first-RAF composer clamps", () => {
+    const h = mount()
+    h.move(h.root.scrollHeight - scrollFixture.height - 2)
+    for (let i = 0; i < 3; i++) {
+      scrollFixture.height += 50
+      runFrames(1)
+      expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(2)
+      resize(0)
+      expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(2)
+      runFrames(1)
+      expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(2)
+    }
+  })
+  it("keeps a registered pointer cancellation protected outside the scroller", () => {
+    const h = mount()
+    h.move(h.root.scrollHeight - scrollFixture.height - 2)
+    const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
+    const down = new Event("pointerdown", { bubbles: true })
+    Object.defineProperty(down, "pointerId", { value: 41 })
+    fireEvent(h.root, down)
+    const cancel = new Event("pointercancel", { bubbles: true })
+    Object.defineProperty(cancel, "pointerId", { value: 41 })
+    fireEvent(document, cancel)
+    scrollFixture.height += 100
+    resize(2)
+    expect(offset).not.toHaveBeenCalled()
+  })
+  it("retires a held scroller pointer after window blur and the input quiet window", () => {
+    const h = mount()
+    h.move(h.root.scrollHeight - scrollFixture.height - 2)
+    const down = new Event("pointerdown", { bubbles: true })
+    Object.defineProperty(down, "pointerId", { value: 41 })
+    fireEvent(h.root, down)
+    fireEvent(window, new Event("blur"))
+    runFrames(13)
+    scrollFixture.height += 100
+    resize(2)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(2)
+  })
+  it("rejects an unrelated native rectangle during a first-RAF viewport handoff", () => {
+    const h = mount()
+    h.move(h.root.scrollHeight - scrollFixture.height - 2)
+    const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
+    scrollFixture.latest.virtualizer.scrollRect = { width: 320, height: 300 }
+    scrollFixture.height += 100
+    runFrames(1)
+    expect(offset).not.toHaveBeenCalled()
+  })
   it("fills a true single short message through native padding and crosses short/long normally", () => {
     const h = mount({ items: [message("m0")] })
     expect(h.root.scrollTop).toBe(0)
