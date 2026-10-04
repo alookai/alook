@@ -13,84 +13,53 @@ function msg(overrides: Partial<Msg> & { id: string }): Msg {
 }
 
 describe("flattenMessageItems", () => {
-  it("emits one 'message' item per message, plus a date-divider before the first message of a new day", () => {
+  it("has exactly one stable virtual row per actual message", () => {
     const items = flattenMessageItems([msg({ id: "m1" })], undefined)
-    expect(items.map((i) => i.kind)).toEqual(["date-divider", "message"])
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ kind: "message", key: "msg:id:m1", dateLabel: expect.any(String) })
   })
 
-  it("does not emit a date-divider between two messages on the same day", () => {
-    const items = flattenMessageItems(
-      [
-        msg({ id: "m1", createdAt: "2026-01-01T10:00:00.000Z" }),
-        msg({ id: "m2", createdAt: "2026-01-01T10:01:00.000Z" }),
-      ],
-      undefined,
-    )
-    expect(items.map((i) => i.kind)).toEqual(["date-divider", "message", "message"])
+  it("adds date metadata only at the first message of each day", () => {
+    const items = flattenMessageItems([
+      msg({ id: "m1" }),
+      msg({ id: "m2", createdAt: "2026-01-01T10:01:00.000Z" }),
+      msg({ id: "m3", createdAt: "2026-01-02T12:00:00.000Z" }),
+    ], undefined)
+    expect(items.map(item => !!item.dateLabel)).toEqual([true, false, true])
+    expect(items.map(item => item.m.id)).toEqual(["m1", "m2", "m3"])
   })
 
-  it("emits a second date-divider when the day changes", () => {
-    const items = flattenMessageItems(
-      [
-        msg({ id: "m1", createdAt: "2026-01-01T10:00:00.000Z" }),
-        msg({ id: "m2", createdAt: "2026-01-02T10:00:00.000Z" }),
-      ],
-      undefined,
-    )
-    expect(items.map((i) => i.kind)).toEqual(["date-divider", "message", "date-divider", "message"])
+  it("puts same-day New metadata on its owning message without a second key", () => {
+    const messages = [msg({ id: "m1" }), msg({ id: "m2" })]
+    const items = flattenMessageItems(messages, "m2")
+    expect(items).toHaveLength(2)
+    expect(items[1]).toMatchObject({ newDivider: true, m: { id: "m2" } })
+    expect(items[1].dateLabel).toBeUndefined()
+    expect(items.map(item => item.key)).toEqual(flattenMessageItems(messages, undefined).map(item => item.key))
   })
 
-  it("emits a new-divider item immediately before the message matching newDividerBefore", () => {
-    const items = flattenMessageItems(
-      [
-        msg({ id: "m1", createdAt: "2026-01-01T10:00:00.000Z" }),
-        msg({ id: "m2", createdAt: "2026-01-01T10:01:00.000Z" }),
-      ],
-      "m2",
-    )
-    expect(items.map((i) => i.kind)).toEqual(["date-divider", "message", "new-divider", "message"])
+  it("merges date and New metadata in one actual message row", () => {
+    const items = flattenMessageItems([
+      msg({ id: "m1", createdAt: "2026-01-01T12:00:00.000Z" }),
+      msg({ id: "m2", createdAt: "2026-01-02T12:00:00.000Z" }),
+    ], "m2")
+    expect(items).toHaveLength(2)
+    expect(items[1]).toMatchObject({ newDivider: true, dateLabel: expect.any(String) })
+    expect(items[0].newDivider).toBeUndefined()
   })
 
-  it("emits a same-day new-divider with no dateLabel (no merge)", () => {
-    const items = flattenMessageItems(
-      [
-        msg({ id: "m1", createdAt: "2026-01-01T10:00:00.000Z" }),
-        msg({ id: "m2", createdAt: "2026-01-01T10:01:00.000Z" }),
-      ],
-      "m2",
-    )
-    const newDivider = items.find((i) => i.kind === "new-divider")!
-    expect(newDivider.dateLabel).toBeUndefined()
+  it("does not invent a New row for an absent anchor", () => {
+    expect(flattenMessageItems([msg({ id: "m1" })], "absent").some(item => item.newDivider)).toBe(false)
   })
 
-  it("merges into ONE new-divider carrying a dateLabel when the unread anchor is the first message of a new day", () => {
-    const items = flattenMessageItems(
-      [
-        msg({ id: "m1", createdAt: "2026-01-01T12:00:00.000Z" }),
-        msg({ id: "m2", createdAt: "2026-01-02T12:00:00.000Z" }),
-      ],
-      "m2",
-    )
-    // No separate date-divider precedes the merged row — just message, then
-    // the single new-divider carrying the day's label, then the message.
-    expect(items.map((i) => i.kind)).toEqual(["date-divider", "message", "new-divider", "message"])
-    const dividers = items.filter((i) => i.kind === "date-divider")
-    expect(dividers).toHaveLength(1)
-    const newDivider = items.find((i) => i.kind === "new-divider")!
-    expect(typeof newDivider.dateLabel).toBe("string")
-    expect(newDivider.dateLabel!.length).toBeGreaterThan(0)
-  })
-
-  it("emits a plain date-divider (no new-divider) when there is no unread anchor", () => {
-    const items = flattenMessageItems(
-      [
-        msg({ id: "m1", createdAt: "2026-01-01T12:00:00.000Z" }),
-        msg({ id: "m2", createdAt: "2026-01-02T12:00:00.000Z" }),
-      ],
-      undefined,
-    )
-    expect(items.some((i) => i.kind === "new-divider")).toBe(false)
-    expect(items.filter((i) => i.kind === "date-divider")).toHaveLength(2)
+  it("keeps the old first message key when a same-day prepend removes its date prefix", () => {
+    const anchor = msg({ id: "anchor", createdAt: "2026-01-01T12:01:00.000Z" })
+    const original = flattenMessageItems([anchor], "anchor")[0]
+    const next = flattenMessageItems([msg({ id: "older", createdAt: "2026-01-01T12:00:00.000Z" }), anchor], undefined)[1]
+    expect(next.key).toBe(original.key)
+    expect(next.dateLabel).toBeUndefined()
+    expect(next.newDivider).toBeUndefined()
+    expect(next.m.grouped).toBe(true)
   })
 
   it("marks a message 'grouped' when it's a same-author chat reply within the grouping window on the same day", () => {
@@ -252,41 +221,11 @@ describe("flattenMessageItems", () => {
 })
 
 describe("estimateRowHeight", () => {
-  it("returns a fixed constant for a date-divider row", () => {
-    const items = flattenMessageItems([msg({ id: "m1" })], undefined)
-    const divider = items.find((i) => i.kind === "date-divider")!
-    expect(estimateRowHeight(divider)).toBeGreaterThan(0)
-    expect(estimateRowHeight(divider)).toBe(estimateRowHeight(divider))
-  })
-
-  it("returns a fixed constant for a new-divider row, distinct in value from an empty message row (dividers are shorter)", () => {
-    const items = flattenMessageItems(
-      [msg({ id: "m1" }), msg({ id: "m2" })],
-      "m2",
-    )
-    const newDivider = items.find((i) => i.kind === "new-divider")!
-    const message = items.find((i) => i.kind === "message")!
-    expect(estimateRowHeight(newDivider)).toBeLessThan(estimateRowHeight(message))
-  })
-
-  it("estimates a merged new-divider (with dateLabel) taller than a bare one, matching the date-divider height", () => {
-    const merged = flattenMessageItems(
-      [
-        msg({ id: "m1", createdAt: "2026-01-01T12:00:00.000Z" }),
-        msg({ id: "m2", createdAt: "2026-01-02T12:00:00.000Z" }),
-      ],
-      "m2",
-    ).find((i) => i.kind === "new-divider")!
-    const bare = flattenMessageItems(
-      [
-        msg({ id: "m1", createdAt: "2026-01-01T10:00:00.000Z" }),
-        msg({ id: "m2", createdAt: "2026-01-01T10:01:00.000Z" }),
-      ],
-      "m2",
-    ).find((i) => i.kind === "new-divider")!
-    const dateDivider = flattenMessageItems([msg({ id: "m1" })], undefined).find((i) => i.kind === "date-divider")!
-    expect(estimateRowHeight(merged)).toBeGreaterThan(estimateRowHeight(bare))
-    expect(estimateRowHeight(merged)).toBe(estimateRowHeight(dateDivider))
+  it("estimates date and New prefixes once within the message", () => {
+    const body = flattenMessageItems([msg({ id: "m1", createdAt: undefined })], undefined)[0]
+    expect(estimateRowHeight({ ...body, dateLabel: "Today" }) - estimateRowHeight(body)).toBe(32)
+    expect(estimateRowHeight({ ...body, newDivider: true }) - estimateRowHeight(body)).toBe(24)
+    expect(estimateRowHeight({ ...body, dateLabel: "Today", newDivider: true }) - estimateRowHeight(body)).toBe(32)
   })
 
   it("scales up with longer text content", () => {
@@ -358,7 +297,7 @@ describe("computeBelowCount", () => {
 
   it("counts only message rows strictly after the last visible index", () => {
     // lastVisibleIndex 1 (first message) → m2, m3 remain below = 2
-    expect(computeBelowCount(items, 1)).toBe(2)
+    expect(computeBelowCount(items, 0)).toBe(2)
   })
 
   it("excludes divider rows below the fold from the count", () => {
@@ -372,8 +311,8 @@ describe("computeBelowCount", () => {
       ],
       undefined,
     )
-    expect(twoDay.map((i) => i.kind)).toEqual(["date-divider", "message", "date-divider", "message"])
-    expect(computeBelowCount(twoDay, 1)).toBe(1)
+    expect(twoDay.map((i) => i.kind)).toEqual(["message", "message"])
+    expect(computeBelowCount(twoDay, 0)).toBe(1)
   })
 
   it("returns 0 for an empty list", () => {

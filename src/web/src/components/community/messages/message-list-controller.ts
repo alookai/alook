@@ -30,7 +30,6 @@ export function useMessageListController({
   presentVersion,
   unreadCount,
   viewerUserId,
-  hero,
   onScrollRoot,
   onScrollTargetConsumed,
 }: ResolvedMessageListProps) {
@@ -86,26 +85,9 @@ export function useMessageListController({
     })
   }, [items, selectedIds])
 
-  const heroRef = useRef<HTMLDivElement>(null)
-  const [heroHeight, setHeroHeight] = useAtom(useCreateAtom(0))
-  const [heroMeasured, setHeroMeasured] = useAtom(useCreateAtom(false))
   const isLoading = (!!loading || !!initialLoadError) && messages.length === 0
   const authoritativeEmpty = !loading && !initialLoadError && messages.length === 0
   const settleAnchorPosition = useCallback(() => setAnchorPositionSettled(true), [setAnchorPositionSettled])
-  useEffect(() => {
-    const element = heroRef.current
-    if (!element) return
-    const observer = new ResizeObserver((entries) => {
-      const height = entries[0]?.borderBoxSize?.[0]?.blockSize ?? element.offsetHeight
-      setHeroHeight(height)
-      setHeroMeasured(true)
-    })
-    observer.observe(element)
-    setHeroHeight(element.offsetHeight)
-    setHeroMeasured(true)
-    return () => observer.disconnect()
-  }, [isLoading, hasMore, hero, setHeroHeight, setHeroMeasured])
-
   const {
     scrollRef,
     virtualizer,
@@ -113,7 +95,7 @@ export function useMessageListController({
     scrollToBottom,
     requestPresentPosition,
     jumpTo: jumpToIndex,
-    onImageLoad,
+    readPositionReady,
     captureOlderPageAnchor,
     isOlderPageAnchorSettling,
     captureNewerPageAnchor,
@@ -130,8 +112,7 @@ export function useMessageListController({
     isFetchingNewer,
     presentVersion,
     viewerUserId,
-    heroHeight,
-    heroMeasured,
+    hasMoreOlder: hasMore,
     tailPaddingEnd,
     onInitialPositionSettled: settleAnchorPosition,
   })
@@ -247,12 +228,11 @@ export function useMessageListController({
     closeShare,
     onEnterSelectId,
     onToggleSelectId,
-    heroRef,
     scrollRef,
     virtualizer,
     topSentinelRef,
     bottomSentinelRef,
-    onImageLoad,
+    readPositionReady,
     jumpTo,
     pillCount,
     pillMode: jumpMode ? "jump" as const : "scroll" as const,

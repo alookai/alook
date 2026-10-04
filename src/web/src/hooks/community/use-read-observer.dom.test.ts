@@ -146,6 +146,7 @@ function takeUnmounts() { return unmounts.splice(0) }
 function trigger(record: ObserverRecord, target: Element, ratio = 1) {
   const entry = {
     target,
+    time: performance.now(),
     isIntersecting: true,
     intersectionRatio: ratio,
   } as IntersectionObserverEntry
@@ -155,6 +156,7 @@ function trigger(record: ObserverRecord, target: Element, ratio = 1) {
 function queueEntry(record: ObserverRecord, target: Element, ratio = 1) {
   record.queued.push({
     target,
+    time: performance.now(),
     isIntersecting: true,
     intersectionRatio: ratio,
   } as IntersectionObserverEntry)
@@ -166,7 +168,7 @@ function deliverQueued(record: ObserverRecord) {
 
 function presentationAttributeRecord(
   boundary: ContentBoundary,
-  attributeName: "aria-hidden" | "inert",
+  attributeName: "aria-hidden" | "inert" | "data-read-position-ready",
 ) {
   return {
     type: "attributes",
@@ -178,7 +180,7 @@ function presentationAttributeRecord(
 
 function setPresentationAttributeReadable(
   boundary: ContentBoundary,
-  attributeName: "aria-hidden" | "inert",
+  attributeName: "aria-hidden" | "inert" | "data-read-position-ready",
 ) {
   if (attributeName === "aria-hidden") boundary.setAriaHidden(false)
   else boundary.setInert(false)
@@ -387,6 +389,31 @@ describe("useTimelineReadObserver", () => {
     expect(coordinator.resume).not.toHaveBeenCalled()
   })
 
+  it("keeps revealed semantic-pending content silent, drains old records, and opens on fresh geometry", () => {
+    hookState.candidate = { channelId: "channel-1", lastMessageAt: "t4", fingerprint: "semantic-t4", openerUnread: false }
+    const row = makeRow("message-4")
+    const boundary = makeContentBoundary(true)
+    boundary.setAttribute("data-read-position-ready", "false")
+    useTestRender({ scrollRootEl: makeRoot([row], boundary) })
+    takeUnmounts()
+    const record = observers[0]!
+    trigger(record, row)
+    queueEntry(record, row)
+    const stale = record.queued[0]!
+    expect(coordinator.submit).not.toHaveBeenCalled()
+    expect(projection.recordOptimisticRead).not.toHaveBeenCalled()
+    expect(reservation.promote).not.toHaveBeenCalled()
+    boundary.setAttribute("data-read-position-ready", "true")
+    act(() => mutationCallback!([presentationAttributeRecord(boundary, "data-read-position-ready")], {} as MutationObserver))
+    expect(record.queued).toHaveLength(0)
+    act(() => record.callback([stale], {} as IntersectionObserver))
+    expect(coordinator.submit).not.toHaveBeenCalled()
+    trigger(record, row)
+    expect(coordinator.submit).toHaveBeenCalledOnce()
+    expect(projection.recordOptimisticRead).toHaveBeenCalledOnce()
+    expect(reservation.promote).toHaveBeenCalledOnce()
+  })
+
   it.each([
     { snapshotStatus: "error" as const },
     { feedStatus: "error" as const },
@@ -553,7 +580,8 @@ describe("useTimelineReadObserver", () => {
     expect(mutationObservedTarget).toBe(root)
     expect(mutationObserveOptions).toEqual({
       attributes: true,
-      attributeFilter: ["aria-hidden", "inert"],
+      attributeFilter: ["aria-hidden", "inert", "data-read-position-ready"],
+      attributeOldValue: true,
       childList: true,
       subtree: true,
     })

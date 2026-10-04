@@ -16,7 +16,7 @@ describe("community virtualizer direct DOM contract", () => {
 
     expect(messageList).toContain("<VirtualRows")
     expect(scrollAnchor).toContain("...COMMUNITY_VIRTUALIZER_REACT_OPTIONS")
-    expect(scrollAnchor).toContain("const size = measureMessageRow(element)")
+    expect(scrollAnchor).toContain("measureElement: measureMessageRow")
     expect(virtualRows).toContain("ref={virtualizer.containerRef}")
     expect(virtualRows).toContain("ref={virtualizer.measureElement}")
     expect(virtualRows).not.toContain("virtualizer.getTotalSize()")

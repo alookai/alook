@@ -1,412 +1,184 @@
-import { createElement, useLayoutEffect } from "react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, render, screen } from "@/test/react-dom-harness"
-import type { FlatItem } from "@/lib/community/message-list-items"
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest"
+import { act, fireEvent } from "@/test/react-dom-harness"
+import { bodyTop, installMessageScrollFixture, restoreMessageScrollFixture, message, mount, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
 
-const harness = vi.hoisted(() => ({
-  absoluteTops: new Map<string, number>(),
-  scroller: null as HTMLDivElement | null,
-  scrollToIndex: vi.fn((index: number) => {
-    if (!harness.scroller) return
-    const row = harness.scroller.querySelector<HTMLElement>(`[data-index="${index}"]`)
-    const id = row?.dataset.msgId
-    if (id) harness.scroller.scrollTop = harness.absoluteTops.get(id) ?? 0
-  }),
-  virtualizer: {
-    options: { anchorTo: "end" },
-    isAtEnd: vi.fn(() => false),
-    scrollToEnd: vi.fn(),
-    scrollToIndex: vi.fn(),
-    scrollToOffset: vi.fn(),
-    range: null,
-    shouldAdjustScrollPositionOnItemSizeChange: undefined,
-  },
-}))
+beforeEach(installMessageScrollFixture)
+afterEach(restoreMessageScrollFixture)
 
-harness.virtualizer.scrollToIndex = harness.scrollToIndex
-
-vi.mock("@tanstack/react-virtual", () => ({
-  useVirtualizer: () => harness.virtualizer,
-}))
-
-import { useScrollAnchor } from "./use-scroll-anchor"
-
-type AnchorResult = ReturnType<typeof useScrollAnchor>
-
-function message(id: string): FlatItem {
-  return {
-    kind: "message",
-    m: { id, type: "chat", grouped: false },
-    key: `msg:${id}`,
-  }
-}
-
-const day = (key: string): FlatItem => ({ kind: "date-divider", label: key, key: `date:${key}` })
-
-function Harness({
-  items,
-  isFetchingOlder,
-  isFetchingNewer = false,
-  onResult,
-}: {
-  items: FlatItem[]
-  isFetchingOlder: boolean
-  isFetchingNewer?: boolean
-  onResult: (result: AnchorResult) => void
-}) {
-  const result = useScrollAnchor({
-    items,
-    initialScrollReady: false,
-    isFetchingOlder,
-    isFetchingNewer,
-    heroHeight: 0,
-    heroMeasured: false,
+describe("native pagination and original semantic epoch", () => {
+  it("restores initial New intent and bounded settling after StrictMode effect replay", () => {
+    const shown = vi.fn()
+    const items = Array.from({ length: 14 }, (_, i) => ({ ...message(`m${i}`), newDivider: i === 4 }))
+    const h = mount({ items, newDividerBefore: "m4", onInitialPositionSettled: shown }, true)
+    const marker = h.root.querySelector('[data-new-divider]')!.getBoundingClientRect()
+    expect((marker.top + marker.bottom) / 2).toBeCloseTo(scrollFixture.height / 2, 0)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    expect(shown).toHaveBeenCalledOnce()
   })
-  useLayoutEffect(() => onResult(result), [onResult, result])
-  return createElement(
-    "div",
-    { ref: result.scrollRef, "data-testid": "scroll" },
-    ...items.map((item, index) => createElement("div", {
-      key: item.key,
-      "data-index": index,
-      "data-msg-id": item.kind === "message" ? item.m.id : undefined,
-    })),
-  )
-}
-
-describe("useScrollAnchor older-page message anchoring", () => {
-  let frames: FrameRequestCallback[]
-  let resizeCallbacks: ResizeObserverCallback[]
-  let clientHeight: number
-  let cancelFrame: ReturnType<typeof vi.fn>
-  let latest: AnchorResult
-
-  beforeEach(() => {
-    frames = []
-    resizeCallbacks = []
-    clientHeight = 600
-    harness.absoluteTops.clear()
-    harness.scroller = null
-    harness.scrollToIndex.mockClear()
-    harness.virtualizer.scrollToEnd.mockClear()
-    harness.virtualizer.isAtEnd.mockReturnValue(false)
-    harness.virtualizer.options.anchorTo = "end"
-    cancelFrame = vi.fn()
-    vi.stubGlobal("ResizeObserver", class {
-      constructor(callback: ResizeObserverCallback) {
-        resizeCallbacks.push(callback)
-      }
-
-      observe() {}
-      disconnect() {}
+  it("restores an explicit target after StrictMode replay and consumes only its current proof", () => {
+    const consumed = vi.fn()
+    const h = mount({ scrollToMessageId: "m4", onScrollTargetPositioned: consumed }, true)
+    expect(consumed).toHaveBeenCalledExactlyOnceWith("m4")
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    expect(bodyTop(h.root, "m4")).toBeGreaterThanOrEqual(0)
+    expect(bodyTop(h.root, "m4")).toBeLessThan(scrollFixture.height)
+  })
+  it("rebinds a pending Present requested by a layout consumer across StrictMode replay", () => {
+    let requested = false
+    const h = mount({ hasMoreNewer: true }, true, result => {
+      if (requested) return
+      requested = true
+      result.requestPresentPosition()
     })
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
-      frames.push(callback)
-      return frames.length
-    })
-    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(cancelFrame)
-    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => clientHeight)
-    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(5_000)
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
-      const element = this as HTMLElement
-      if (element.dataset.testid === "scroll") {
-        return DOMRect.fromRect({ y: 0, height: 600 })
-      }
-      const id = element.dataset.msgId
-      const top = id ? (harness.absoluteTops.get(id) ?? 0) - (harness.scroller?.scrollTop ?? 0) : 0
-      return DOMRect.fromRect({ y: top, height: 80 })
-    })
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    const end = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToEnd")
+    h.update({ hasMoreNewer: false, presentVersion: 1, items: [...h.input.items, message("current-tail")] })
+    expect(end).toHaveBeenCalledOnce()
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    expect(h.root.scrollTop).toBe(h.root.scrollHeight - scrollFixture.height)
   })
-
-  afterEach(() => {
-    vi.restoreAllMocks()
-    vi.unstubAllGlobals()
+  it("uses native same-key preservation for newer append and head trim", () => {
+    const h = mount()
+    h.move(650)
+    const before = bodyTop(h.root, "m7")
+    const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
+    const index = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToIndex")
+    act(() => scrollFixture.latest.captureNewerPageAnchor())
+    h.update({ isFetchingNewer: true })
+    h.update({ items: [...h.input.items.slice(2), message("newer1"), message("newer2")], isFetchingNewer: false })
+    expect(bodyTop(h.root, "m7")).toBeCloseTo(before, 0)
+    expect(offset).not.toHaveBeenCalled()
+    expect(index).not.toHaveBeenCalled()
+    expect(scrollFixture.latest.isNewerPageAnchorSettling).toBe(false)
   })
-
-  function runCase(initialItems: FlatItem[], nextItems: FlatItem[], nextAnchorTop: number) {
-    const onResult = (result: AnchorResult) => { latest = result }
-    harness.absoluteTops.set("anchor", 120)
-    const rendered = render(createElement(Harness, {
-      items: initialItems,
-      isFetchingOlder: false,
-      onResult,
-    }))
-    harness.scroller = screen.getByTestId("scroll") as HTMLDivElement
-
-    act(() => latest.captureOlderPageAnchor())
-    rendered.rerender(createElement(Harness, {
-      items: initialItems,
-      isFetchingOlder: true,
-      onResult,
-    }))
-    harness.absoluteTops.set("anchor", nextAnchorTop)
-    rendered.rerender(createElement(Harness, {
-      items: nextItems,
-      isFetchingOlder: false,
-      onResult,
-    }))
-    act(() => {
-      while (frames.length > 0) frames.shift()!(0)
-    })
-
-    const anchor = rendered.container.querySelector<HTMLElement>('[data-msg-id="anchor"]')!
-    expect(anchor.getBoundingClientRect().top).toBe(120)
-    expect(latest.isOlderPageAnchorSettling).toBe(false)
-    return rendered
-  }
-
-  function runNewerCase(initialItems: FlatItem[], nextItems: FlatItem[], nextAnchorTop: number) {
-    const onResult = (result: AnchorResult) => { latest = result }
-    harness.absoluteTops.set("anchor", 120)
-    const rendered = render(createElement(Harness, {
-      items: initialItems,
-      isFetchingOlder: false,
-      onResult,
-    }))
-    harness.scroller = screen.getByTestId("scroll") as HTMLDivElement
-
-    act(() => latest.captureNewerPageAnchor())
-    expect(latest.isNewerPageAnchorSettling).toBe(true)
-    expect(harness.virtualizer.options.anchorTo).toBe("start")
-    rendered.rerender(createElement(Harness, {
-      items: initialItems,
-      isFetchingOlder: false,
-      isFetchingNewer: true,
-      onResult,
-    }))
-    harness.scroller.scrollTop = 96
-    harness.scroller.dispatchEvent(new Event("scroll"))
-    harness.absoluteTops.set("anchor", nextAnchorTop)
-    rendered.rerender(createElement(Harness, {
-      items: nextItems,
-      isFetchingOlder: false,
-      isFetchingNewer: false,
-      onResult,
-    }))
-    act(() => {
-      while (frames.length > 0) frames.shift()!(0)
-    })
-
-    const anchor = rendered.container.querySelector<HTMLElement>('[data-msg-id="anchor"]')!
-    expect(anchor.getBoundingClientRect().top).toBe(24)
-    expect(latest.isNewerPageAnchorSettling).toBe(false)
-    return rendered
-  }
-
-  it("preserves the real message across same-day and cross-day divider shapes", () => {
-    const initial = [day("2026-09-18"), message("anchor")]
-    const sameDay = [day("2026-09-18"), message("older"), message("anchor")]
-    let rendered = runCase(initial, sameDay, 520)
-    expect(harness.scrollToIndex).toHaveBeenLastCalledWith(2, { align: "start" })
-    rendered.unmount()
-
-    harness.scrollToIndex.mockClear()
-    const crossDay = [
-      day("2026-09-17"),
-      message("older"),
-      day("2026-09-18"),
-      message("anchor"),
-    ]
-    rendered = runCase(initial, crossDay, 720)
-    expect(harness.scrollToIndex).toHaveBeenLastCalledWith(3, { align: "start" })
-    rendered.unmount()
+  it("does not treat a divider update as observed fetch completion", () => {
+    const h = mount()
+    act(() => scrollFixture.latest.captureOlderPageAnchor())
+    h.update({ items: [...h.input.items] })
+    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(true)
+    h.update({ isFetchingOlder: true })
+    h.update({ isFetchingOlder: false })
+    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(false)
   })
-
-  it("settles an empty or fully overlapping page without moving the anchor", () => {
-    const items = [day("2026-09-18"), message("anchor")]
-    const rendered = runCase(items, items.slice(), 120)
-    expect(harness.scrollToIndex).toHaveBeenLastCalledWith(1, { align: "start" })
-    rendered.unmount()
+  it("finishes a replacement window without inventing preservation of a removed key or following its historical tail", () => {
+    const h = mount({ viewerUserId: "me" })
+    h.move(500)
+    const end = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToEnd")
+    act(() => scrollFixture.latest.captureNewerPageAnchor())
+    h.update({ isFetchingNewer: true })
+    h.update({ items: Array.from({ length: 12 }, (_, i) => message(`replacement${i}`, "me")), isFetchingNewer: false })
+    expect(scrollFixture.latest.isNewerPageAnchorSettling).toBe(false)
+    expect(h.root.querySelector('[data-msg-id="m5"]')).toBeNull()
+    expect(end).not.toHaveBeenCalled()
   })
-
-  it("keeps a settled older-page anchor through the following viewport resize", () => {
-    const initial = [day("2026-09-18"), message("anchor")]
-    const prepended = [day("2026-09-18"), message("older"), message("anchor")]
-    const rendered = runCase(initial, prepended, 520)
-    const anchor = rendered.container.querySelector<HTMLElement>('[data-msg-id="anchor"]')!
-
-    expect(harness.scroller!.scrollTop).toBe(400)
-    clientHeight = 500
-    act(() => resizeCallbacks.at(-1)?.([], {} as ResizeObserver))
-
-    expect(harness.scroller!.scrollTop).toBe(400)
-    expect(anchor.getBoundingClientRect().top).toBe(120)
-    rendered.unmount()
+  it("keeps the original initial New intent while an older page moves its numeric index", () => {
+    const items = Array.from({ length: 14 }, (_, i) => ({ ...message(`m${i}`), newDivider: i === 4 }))
+    const h = mount({ items, newDividerBefore: "m4", initialScrollReady: false, hasMoreNewer: true })
+    act(() => scrollFixture.latest.captureOlderPageAnchor())
+    h.update({ isFetchingOlder: true })
+    h.update({ items: [message("older"), ...h.input.items], isFetchingOlder: false, initialScrollReady: true })
+    const marker = h.root.querySelector('[data-new-divider]')!.getBoundingClientRect()
+    expect((marker.top + marker.bottom) / 2).toBeCloseTo(scrollFixture.height / 2, 0)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
-
-  it("preserves the real message while a newer page appends at the loaded-window tail", () => {
-    const initial = [day("2026-09-18"), message("anchor")]
-    const appended = [
-      day("2026-09-18"),
-      message("anchor"),
-      message("newer"),
-    ]
-    const rendered = runNewerCase(initial, appended, 120)
-    expect(harness.scrollToIndex).toHaveBeenLastCalledWith(1, { align: "start" })
-    expect(harness.virtualizer.scrollToEnd).not.toHaveBeenCalled()
-    rendered.unmount()
+  it("retires the old native index once on replacement and rejects its canceled frame", () => {
+    const consumed = vi.fn()
+    const h = mount({ onScrollTargetPositioned: consumed })
+    h.stage({ scrollToMessageId: "m12" })
+    const stale = [...scrollFixture.frames.values()]
+    const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
+    h.stage({ scrollToMessageId: "unloaded" })
+    expect(offset).toHaveBeenCalledTimes(1)
+    act(() => stale.forEach(callback => callback(performance.now())))
+    expect(consumed).not.toHaveBeenCalled()
+    h.update({ items: [...h.input.items, message("unloaded")] })
+    expect(consumed).toHaveBeenCalledExactlyOnceWith("unloaded")
   })
-
-  it("captures newer-page scrollTop even when virtual rows lag the end intersection", () => {
-    const onResult = (result: AnchorResult) => { latest = result }
-    harness.absoluteTops.set("anchor", 2_000)
-    const initial = [message("anchor")]
-    const rendered = render(createElement(Harness, {
-      items: initial,
-      isFetchingOlder: false,
-      onResult,
-    }))
-    harness.scroller = screen.getByTestId("scroll") as HTMLDivElement
-    harness.scroller.scrollTop = 300
-
-    act(() => latest.captureNewerPageAnchor())
-    expect(latest.isNewerPageAnchorSettling).toBe(true)
-    rendered.rerender(createElement(Harness, {
-      items: initial,
-      isFetchingOlder: false,
-      isFetchingNewer: true,
-      onResult,
-    }))
-    harness.scroller.scrollTop = 1_000
-    harness.scroller.dispatchEvent(new Event("scroll"))
-    harness.scroller.scrollTop = 1_400
-    rendered.rerender(createElement(Harness, {
-      items: [...initial, message("newer")],
-      isFetchingOlder: false,
-      isFetchingNewer: false,
-      onResult,
-    }))
-    expect(harness.scroller.scrollTop).toBe(1_000)
-    // A virtualizer/browser write can land between the synchronous restore
-    // and its first reconciliation frame. The numeric fallback must repair
-    // that drift even though no real row was visible at capture time.
-    harness.scroller.scrollTop = 1_400
-    act(() => {
-      while (frames.length > 0) frames.shift()!(0)
-    })
-
-    expect(harness.scroller.scrollTop).toBe(1_000)
-    expect(latest.isNewerPageAnchorSettling).toBe(false)
-    rendered.unmount()
+  it("cancels an owned native index on user takeover without canceling ordinary native compensation", () => {
+    const h = mount()
+    h.stage({ scrollToMessageId: "m12" })
+    const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
+    fireEvent.wheel(h.root, { deltaY: -20 })
+    expect(offset).toHaveBeenCalledTimes(1)
+    runFrames()
+    offset.mockClear()
+    fireEvent.wheel(h.root, { deltaY: -20 })
+    runFrames()
+    expect(offset).not.toHaveBeenCalled()
   })
-
-  it("cancels a pending reconciliation before capturing a replacement anchor", () => {
-    const onResult = (result: AnchorResult) => { latest = result }
-    const initial = [message("anchor")]
-    const prepended = [message("older"), message("anchor")]
-    harness.absoluteTops.set("anchor", 120)
-    const rendered = render(createElement(Harness, {
-      items: initial,
-      isFetchingOlder: false,
-      onResult,
-    }))
-    harness.scroller = screen.getByTestId("scroll") as HTMLDivElement
-
-    act(() => latest.captureOlderPageAnchor())
-    rendered.rerender(createElement(Harness, { items: initial, isFetchingOlder: true, onResult }))
-    harness.absoluteTops.set("anchor", 520)
-    rendered.rerender(createElement(Harness, { items: prepended, isFetchingOlder: false, onResult }))
-    expect(frames).toHaveLength(1)
-
-    act(() => latest.captureOlderPageAnchor())
-    expect(cancelFrame).toHaveBeenCalledWith(1)
-    expect(latest.isOlderPageAnchorSettling).toBe(true)
-    rendered.unmount()
+  it("does not consume a previously completed external target when canceling a local reply jump", () => {
+    const consumed = vi.fn()
+    const cancelled = vi.fn()
+    const h = mount({ onScrollTargetPositioned: consumed, onScrollTargetCancelled: cancelled })
+    h.update({ scrollToMessageId: "m4" })
+    expect(consumed).toHaveBeenCalledExactlyOnceWith("m4")
+    act(() => scrollFixture.latest.jumpTo("m10", "auto"))
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    fireEvent.wheel(h.root, { deltaY: -20 })
+    runFrames()
+    expect(cancelled).not.toHaveBeenCalled()
+    expect(consumed).toHaveBeenCalledOnce()
   })
-
-  it("clears settlement when the captured anchor disappears from the loaded window", () => {
-    const onResult = (result: AnchorResult) => { latest = result }
-    const initial = [message("anchor")]
-    harness.absoluteTops.set("anchor", 120)
-    const rendered = render(createElement(Harness, {
-      items: initial,
-      isFetchingOlder: false,
-      onResult,
-    }))
-    harness.scroller = screen.getByTestId("scroll") as HTMLDivElement
-
-    act(() => latest.captureOlderPageAnchor())
-    rendered.rerender(createElement(Harness, { items: initial, isFetchingOlder: true, onResult }))
-    rendered.rerender(createElement(Harness, {
-      items: [day("2026-09-17")],
-      isFetchingOlder: false,
-      onResult,
-    }))
-
-    expect(harness.scrollToIndex).not.toHaveBeenCalled()
-    expect(latest.isOlderPageAnchorSettling).toBe(false)
-    rendered.unmount()
+  it("retires pending frames and target callbacks on actual unmount", () => {
+    const consumed = vi.fn()
+    const shown = vi.fn()
+    const h = mount({ onScrollTargetPositioned: consumed, onInitialPositionSettled: shown })
+    shown.mockClear()
+    h.stage({ scrollToMessageId: "m12" })
+    const stale = [...scrollFixture.frames.values()]
+    h.view.unmount()
+    act(() => stale.forEach(callback => callback(performance.now())))
+    act(() => vi.advanceTimersByTime(2500))
+    expect(consumed).not.toHaveBeenCalled()
+    expect(shown).not.toHaveBeenCalled()
   })
-
-  it("cancels pending reconciliation on effect replacement and unmount", () => {
-    const onResult = (result: AnchorResult) => { latest = result }
-    const initial = [message("anchor")]
-    const prepended = [message("older"), message("anchor")]
-    harness.absoluteTops.set("anchor", 120)
-    const rendered = render(createElement(Harness, {
-      items: initial,
-      isFetchingOlder: false,
-      onResult,
-    }))
-    harness.scroller = screen.getByTestId("scroll") as HTMLDivElement
-
-    act(() => latest.captureOlderPageAnchor())
-    rendered.rerender(createElement(Harness, { items: initial, isFetchingOlder: true, onResult }))
-    harness.absoluteTops.set("anchor", 520)
-    rendered.rerender(createElement(Harness, { items: prepended, isFetchingOlder: false, onResult }))
-    expect(frames).toHaveLength(1)
-
-    rendered.rerender(createElement(Harness, {
-      items: prepended.slice(),
-      isFetchingOlder: false,
-      onResult,
-    }))
-    expect(cancelFrame).toHaveBeenCalledWith(1)
-    expect(frames).toHaveLength(2)
-
-    rendered.unmount()
-    expect(cancelFrame).toHaveBeenCalledWith(2)
+  it("retires an unsettled native end request on user takeover before late tail measurements", () => {
+    const h = mount()
+    const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
+    act(() => scrollFixture.latest.scrollToBottom())
+    fireEvent.wheel(h.root, { deltaY: -20 })
+    expect(offset).toHaveBeenCalledOnce()
+    act(() => h.root.scrollTo({ top: 300 }))
+    runFrames()
+    scrollFixture.bodyHeights.set("m13", 240)
+    h.update({ items: [...h.input.items] })
+    expect(h.root.scrollTop).toBe(300)
+    expect(offset).toHaveBeenCalledOnce()
   })
-  it("yields a queued pagination restore to a later explicit target and user input", () => {
-    const onResult = (value: AnchorResult) => { latest = value }
-    const initial = [message("m1"), message("m2")]
-    const rendered = render(createElement(Harness, { items: initial, isFetchingOlder: false, onResult }))
-    const scroller = screen.getByTestId("scroll") as HTMLDivElement
-    harness.scroller = scroller
-    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 600 })
-    vi.spyOn(scroller, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ height: 600 }))
-    const row = scroller.querySelector<HTMLElement>('[data-msg-id="m1"]')!
-    vi.spyOn(row, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ y: 20, height: 80 }))
-    act(() => latest.captureOlderPageAnchor())
-    rendered.rerender(createElement(Harness, { items: initial, isFetchingOlder: true, onResult }))
-    rendered.rerender(createElement(Harness, { items: [message("older"), ...initial], isFetchingOlder: false, onResult }))
-    const oldRestore = frames.at(-1)!
-    act(() => latest.jumpTo("m2", "auto"))
-    const writes = harness.scrollToIndex.mock.calls.length
-    act(() => oldRestore(0))
-    expect(harness.scrollToIndex).toHaveBeenCalledTimes(writes)
-    act(() => scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -40 })))
-    const position = scroller.scrollTop
-    act(() => { for (const frame of frames) frame(0) })
-    expect(scroller.scrollTop).toBe(position)
-    expect(latest.isOlderPageAnchorSettling).toBe(false)
+  it("replaces an unsettled native end request immediately while the new target is absent", () => {
+    const h = mount()
+    const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
+    act(() => scrollFixture.latest.scrollToBottom())
+    h.stage({ scrollToMessageId: "unloaded" })
+    const before = h.root.scrollTop
+    expect(offset).toHaveBeenCalledOnce()
+    scrollFixture.bodyHeights.set("m13", 240)
+    h.update({ items: [...h.input.items] })
+    expect(h.root.scrollTop).toBe(before)
+    expect(offset).toHaveBeenCalledOnce()
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
   })
-
-  it("resumes live tail-follow after a newer-page fetch finishes with its anchor canceled", () => {
-    const onResult = (value: AnchorResult) => { latest = value }
-    const initial = [message("anchor")]
-    const rendered = render(createElement(Harness, { items: initial, isFetchingOlder: false, onResult }))
-    harness.scroller = screen.getByTestId("scroll") as HTMLDivElement
-    act(() => latest.captureNewerPageAnchor())
-    rendered.rerender(createElement(Harness, { items: initial, isFetchingOlder: false, isFetchingNewer: true, onResult }))
-    act(() => harness.scroller!.dispatchEvent(new WheelEvent("wheel", { deltaY: -40 })))
-    const completed = [...initial, message("historical")]
-    rendered.rerender(createElement(Harness, { items: completed, isFetchingOlder: false, onResult }))
-    expect(harness.virtualizer.scrollToEnd).not.toHaveBeenCalled()
-    harness.virtualizer.isAtEnd.mockReturnValue(true)
-    act(() => harness.scroller!.dispatchEvent(new Event("scroll")))
-    rendered.rerender(createElement(Harness, { items: [...completed, message("live")], isFetchingOlder: false, onResult }))
-    expect(harness.virtualizer.scrollToEnd).toHaveBeenCalledOnce()
+  it("waits for an absent explicit target, closes read, and finishes through its finite deadline", () => {
+    const consumed = vi.fn()
+    const h = mount({ onScrollTargetPositioned: consumed })
+    h.update({ scrollToMessageId: "not-loaded" })
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    expect(consumed).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(2000))
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    h.update({ items: [...h.input.items, message("not-loaded")] })
+    expect(consumed).not.toHaveBeenCalled()
   })
-
+  it("opens an explicit target only after its actual body geometry and ignores target data arriving after user takeover", () => {
+    const consumed = vi.fn()
+    const h = mount({ onScrollTargetPositioned: consumed })
+    h.update({ scrollToMessageId: "m4" })
+    expect(consumed).toHaveBeenCalledWith("m4")
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    h.update({ scrollToMessageId: "unloaded" })
+    fireEvent.wheel(h.root, { deltaY: -20 })
+    runFrames()
+    h.update({ items: [...h.input.items, message("unloaded")] })
+    expect(consumed).toHaveBeenCalledTimes(1)
+  })
 })
