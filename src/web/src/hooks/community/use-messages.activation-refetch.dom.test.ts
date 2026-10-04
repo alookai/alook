@@ -147,14 +147,16 @@ function PaginatingChannelCapture({ lastReadMessageId, onRender }: {
   return null
 }
 
-function RefetchingPaginationCapture({ onRender }: {
+function RefetchingPaginationCapture({ channelId = "ch_activation", onRender }: {
+  channelId?: string | null
   onRender: (
     snapshot: Snapshot,
     refetch: () => Promise<unknown>,
     fetchOlder: () => void,
+    fetchNewer: () => void,
   ) => void
 }) {
-  const result = useMessages("ch_activation", {
+  const result = useMessages(channelId, {
     serverId: "server_1",
     lastReadMessageId: "m_anchor",
     revalidateOnMount: false,
@@ -164,7 +166,7 @@ function RefetchingPaginationCapture({ onRender }: {
     hasMoreNewer: result.hasMoreNewer,
     ids: result.messages.map((message) => message.id),
     isFetching: result.isFetching,
-  }, result.refetch, result.fetchOlder)
+  }, result.refetch, result.fetchOlder, result.fetchNewer)
   return null
 }
 
@@ -1610,6 +1612,79 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
       ([url]) => url.includes("cursor=persisted-cursor"),
     )).toBe(false)
     renderer.unmount()
+  })
+
+  it.each(["older", "newer"] as const)("serializes the opposite page behind an in-flight %s read without aborting it", async firstDirection => {
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
+    seedCommunityMessageWindow(queryClient, communityKeys.channelMessages("ch_activation"), {
+      pages: [{
+        messages: [{ id: "m_anchor", seq: 2, createdAt: "2026-08-09T00:00:01.000Z" }],
+        hasMoreOlder: true, hasMoreNewer: true, olderCursor: "older-cursor", newerCursor: "newer-cursor", latestSeq: 3,
+      }],
+      pageParams: [{ mode: "anchor", anchor: "m_anchor" }],
+    })
+    const held = deferred<MessagesPage>()
+    const olderPage: MessagesPage = { messages: [{ id: "m_old", seq: 1, createdAt: "2026-08-09T00:00:00.000Z" }], hasMoreOlder: false, hasMoreNewer: true, newerCursor: "newer-cursor", latestSeq: 3 }
+    const newerPage: MessagesPage = { messages: [{ id: "m_new", seq: 3, createdAt: "2026-08-09T00:00:02.000Z" }], hasMoreOlder: true, hasMoreNewer: false, olderCursor: "older-cursor", latestSeq: 3 }
+    const firstUrl = firstDirection === "older" ? "?cursor=older-cursor" : "?since=newer-cursor"
+    apiFetchMock.mockImplementation((url: string) => url.endsWith(firstUrl)
+      ? held.promise : Promise.resolve(url.includes("?cursor=") ? olderPage : newerPage))
+    const snapshots: Snapshot[] = []
+    let older = () => {}
+    let newer = () => {}
+    const renderer = renderCapture(queryClient, React.createElement(RefetchingPaginationCapture, {
+      onRender: (snapshot, _refetch, nextOlder, nextNewer) => { snapshots.push(snapshot); older = nextOlder; newer = nextNewer },
+    }))
+    try {
+      act(() => firstDirection === "older" ? older() : newer())
+      await waitFor(() => snapshots.at(-1)?.isFetching === true)
+      expect(apiFetchMock).toHaveBeenCalledOnce()
+      const firstSignal = apiFetchMock.mock.calls[0]?.[1]?.signal as AbortSignal
+      act(() => firstDirection === "older" ? newer() : older())
+      expect(firstSignal.aborted).toBe(false)
+      expect(apiFetchMock).toHaveBeenCalledOnce()
+      held.resolve(firstDirection === "older" ? olderPage : newerPage)
+      await waitFor(() => snapshots.at(-1)?.ids.length === 3)
+      expect(snapshots.at(-1)?.ids).toEqual(["m_old", "m_anchor", "m_new"])
+      expect(apiFetchMock).toHaveBeenCalledTimes(2)
+    } finally {
+      held.resolve(firstDirection === "older" ? olderPage : newerPage)
+      renderer.unmount()
+    }
+  })
+
+  it.each(["unmount", "disable", "remove"] as const)("retires a queued opposite page after %s", async retirement => {
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { retry: false } } })
+    const key = communityKeys.channelMessages("ch_activation")
+    seedCommunityMessageWindow(queryClient, key, {
+      pages: [{ messages: [{ id: "m_anchor", seq: 2 }], hasMoreOlder: true, hasMoreNewer: true, olderCursor: "older-cursor", newerCursor: "newer-cursor", latestSeq: 3 }],
+      pageParams: [{ mode: "anchor", anchor: "m_anchor" }],
+    })
+    const held = deferred<MessagesPage>()
+    apiFetchMock.mockImplementation(() => held.promise)
+    let older = () => {}
+    let newer = () => {}
+    const onRender = (_snapshot: Snapshot, _refetch: () => Promise<unknown>, nextOlder: () => void, nextNewer: () => void) => { older = nextOlder; newer = nextNewer }
+    const renderer = renderCapture(queryClient, React.createElement(RefetchingPaginationCapture, { onRender }))
+    let unmounted = false
+    try {
+      act(() => older())
+      await waitFor(() => apiFetchMock.mock.calls.length === 1)
+      act(() => newer())
+      if (retirement === "unmount") { renderer.unmount(); unmounted = true }
+      else if (retirement === "disable") updateCapture(renderer, queryClient, React.createElement(RefetchingPaginationCapture, { channelId: null, onRender }))
+      else act(() => queryClient.removeQueries({ queryKey: key, exact: true }))
+      await act(async () => {
+        held.resolve({ messages: [{ id: "m_old", seq: 1 }], hasMoreOlder: false, hasMoreNewer: true, newerCursor: "newer-cursor", latestSeq: 3 })
+        await held.promise
+        await new Promise(resolve => setTimeout(resolve, 10))
+      })
+      expect(apiFetchMock).toHaveBeenCalledOnce()
+      if (retirement === "remove") expect(queryClient.getQueryCache().find({ queryKey: key, exact: true })).toBeUndefined()
+    } finally {
+      held.resolve({ messages: [], hasMoreOlder: false, hasMoreNewer: false, latestSeq: 3 })
+      if (!unmounted) renderer.unmount()
+    }
   })
 
   it("ignores an old view's pagination callback after the conversation changes", async () => {
