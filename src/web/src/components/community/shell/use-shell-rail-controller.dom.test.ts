@@ -200,6 +200,20 @@ describe("useShellRailController", () => {
     expect(mocks.markSwitch).toHaveBeenLastCalledWith("channel", "c1")
   })
 
+  it("keeps active-server overlays on their current leaf without a direct opener", async () => {
+    const hook = await renderController()
+    hook.navigation.publishedHref = "/c/channels/s1/c1?keep=1#message_1"
+    await hook.rerender()
+    await act(async () => {
+      hook.current.railProps.onOpenSettings("s1")
+      hook.current.railProps.onOpenInvitePopover("s1")
+    })
+    expect(hook.pushed).toEqual([
+      "/c/channels/s1/c1?keep=1&settings=1#message_1",
+      "/c/channels/s1/c1?keep=1&invite=1#message_1",
+    ])
+  })
+
   it("keeps settings and invite actions synchronous and scoped to their target", async () => {
     const openSettings = vi.fn()
     const openInvite = vi.fn()

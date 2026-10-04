@@ -5,6 +5,7 @@ import { renderCommunity as render } from "@/test/community-owner-harness"
 import { ServerRail, ServerRailPending, ServerRailSkeleton } from "./server-rail"
 import { tid } from "@/lib/community/testids"
 import type { RailInstruction } from "@/lib/community/server-rail-model"
+import { resolveServerRailOverlayAction } from "./server-rail-actions"
 
 const mocks = vi.hoisted(() => ({
   mutate: vi.fn(),
@@ -289,6 +290,44 @@ describe("ServerRail one-in-flight structural guard", () => {
       expect(settledNavigation).toHaveBeenNthCalledWith(1, "a")
       expect(settledNavigation).toHaveBeenNthCalledWith(2, "a")
       expect(activationHrefs).toEqual(["/c/channels/a", "/c/channels/a"])
+    },
+  )
+
+  it.each(["top-level", "folder"] as const)(
+    "keeps retained %s menu callbacks on the latest committed server leaf",
+    async (placement) => {
+      const hrefs: string[] = []
+      const openAt = (activeServerId: string, publishedHref: string, overlay: "settings" | "invite") => (id?: string) => {
+        const action = resolveServerRailOverlayAction({
+          targetServerId: id!,
+          activeServerId,
+          publishedHref,
+          hasActiveOpener: false,
+          overlay,
+        })
+        if (action.kind === "navigate") hrefs.push(action.href)
+      }
+      const menuFolders = placement === "folder" ? [{
+        id: "menu-folder", name: "Menu", position: 0, servers: [servers[0]],
+      }] : []
+      const element = (committed: string) => createElement(ServerRail, {
+        servers, folders: menuFolders, view: "server", activeServerId: "a",
+        onHome: vi.fn(),
+        onOpenSettings: openAt(committed, `/c/channels/${committed}/channel`, "settings"),
+        onOpenInvitePopover: openAt(committed, `/c/channels/${committed}/channel`, "invite"),
+      })
+      const renderer = render(element("b"))
+      if (placement === "folder") {
+        await act(async () => (latestFolderProps("menu-folder").onToggle as () => void)())
+      }
+      const settings = latestSortableProps("a").onOpenSettings as () => void
+      const invite = latestSortableProps("a").onOpenInvitePopover as () => void
+      renderer.rerender(element("a"))
+      await act(async () => { settings(); invite() })
+      expect(hrefs).toEqual([
+        "/c/channels/a/channel?settings=1",
+        "/c/channels/a/channel?invite=1",
+      ])
     },
   )
 

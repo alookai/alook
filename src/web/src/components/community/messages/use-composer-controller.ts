@@ -16,6 +16,7 @@ import { DOMParser as PMDOMParser } from "@tiptap/pm/model"
 import { MAX_ATTACHMENTS_PER_MESSAGE, MAX_ATTACHMENT_SIZE_BYTES } from "@alook/shared"
 import { useFileAttachments } from "@/hooks/use-file-attachments"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
+import { tid } from "@/lib/community/testids"
 import {
   clearComposerDraft,
   readComposerDraft,
@@ -315,6 +316,7 @@ export function useComposerController(
 
   useEffect(() => {
     if (!autoFocus || !editor || isForumThreadBody) return
+    if (document.activeElement?.closest(`[data-testid="${tid.serverRailScroll}"]`)) return
     editor.commands.focus("end")
   }, [autoFocus, editor, channel, isForumThreadBody])
 

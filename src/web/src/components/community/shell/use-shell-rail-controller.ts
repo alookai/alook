@@ -164,6 +164,7 @@ export function useShellRailController({
       activeServerId,
       overlay: "settings",
       hasActiveOpener: !!onOpenActiveServerSettings,
+      publishedHref: navigation.publishedHref,
     })
     if (action.kind === "open-active") onOpenActiveServerSettings?.()
     else navigation.push(action.href)
@@ -175,6 +176,7 @@ export function useShellRailController({
       activeServerId,
       overlay: "invite",
       hasActiveOpener: !!onOpenActiveServerInvite,
+      publishedHref: navigation.publishedHref,
     })
     if (action.kind === "open-active") onOpenActiveServerInvite?.()
     else navigation.push(action.href)

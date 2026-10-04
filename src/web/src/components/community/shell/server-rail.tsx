@@ -143,7 +143,7 @@ export const ServerRail = memo(function ServerRail({
   const [dragSource, setDragSource] = useAtom(useCreateAtom<RailEntity | null>(null))
   const [createOpen, setCreateOpen] = useAtom(useCreateAtom(false))
   const scrollRef = useRef<HTMLDivElement>(null)
-  const serverActivationRef = useRef({ onServer, onServerNavigate })
+  const serverActivationRef = useRef({ onServer, onServerNavigate, onOpenSettings, onOpenInvitePopover })
   const railMutation = useServerRailCommit()
   const communityRuntime = useCommunityRuntime()
   const registry = useOptionalCommunityDbRegistry()
@@ -177,8 +177,8 @@ export const ServerRail = memo(function ServerRail({
     } catch {}
   }, [storageKey, setExpanded])
   useLayoutEffect(() => {
-    serverActivationRef.current = { onServer, onServerNavigate }
-  }, [onServer, onServerNavigate])
+    serverActivationRef.current = { onServer, onServerNavigate, onOpenSettings, onOpenInvitePopover }
+  }, [onServer, onServerNavigate, onOpenSettings, onOpenInvitePopover])
 
   useEffect(() => {
     sessionStorage.setItem(storageKey, JSON.stringify(expanded))
@@ -385,8 +385,8 @@ export const ServerRail = memo(function ServerRail({
             active={view !== "dm" && activeId === serverId}
             onClick={() => pickServer(serverId)}
             onLeave={() => onLeaveServer?.(serverId)}
-            onOpenSettings={() => onOpenSettings?.(serverId)}
-            onOpenInvitePopover={onOpenInvitePopover ? () => onOpenInvitePopover(serverId) : undefined}
+            onOpenSettings={() => serverActivationRef.current.onOpenSettings?.(serverId)}
+            onOpenInvitePopover={onOpenInvitePopover ? () => serverActivationRef.current.onOpenInvitePopover?.(serverId) : undefined}
             dragging={dragging({ kind: "server", id: serverId })}
             preview={previewFor({ kind: "server", id: serverId })}
             registerItem={registerItem}
@@ -432,8 +432,8 @@ export const ServerRail = memo(function ServerRail({
                     server={server}
                     active={view !== "dm" && activeId === server.id}
                     onClick={() => pickServer(server.id)}
-                    onOpenSettings={() => onOpenSettings?.(server.id)}
-                    onOpenInvitePopover={onOpenInvitePopover ? () => onOpenInvitePopover(server.id) : undefined}
+                    onOpenSettings={() => serverActivationRef.current.onOpenSettings?.(server.id)}
+                    onOpenInvitePopover={onOpenInvitePopover ? () => serverActivationRef.current.onOpenInvitePopover?.(server.id) : undefined}
                     inFolder
                     dragging={dragging({ kind: "server", id: server.id })}
                     preview={previewFor({ kind: "server", id: server.id })}
