@@ -6,6 +6,7 @@ import type {
   CapabilitiesOf,
   ConfigOf,
 } from "./contract.js";
+import { AntigravityDriver } from "./adapters/antigravity/index.js";
 import { ClaudeDriver } from "./adapters/claude/index.js";
 import { CodexDriver } from "./adapters/codex/index.js";
 import { CursorDriver } from "./adapters/cursor/index.js";
@@ -183,9 +184,13 @@ export function assertAdapterCompatibility(
   }
 }
 
-export const BUILTIN_BACKEND_IDS = ["claude", "codex", "cursor", "grok", "opencode", "pi"] as const;
+export const BUILTIN_BACKEND_IDS = ["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity"] as const;
 
 const capabilities = {
+  antigravity: {
+    modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false,
+    disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "next_turn_queue", interrupt: true,
+  },
   claude: {
     modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: true,
     disallowedTools: true, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "safe_boundary_queue", interrupt: true,
@@ -220,6 +225,7 @@ export function createBuiltinAgentDriverRegistry(): AgentDriverRegistry<BuiltinB
     { id: "grok", contractVersion: 1, capabilities: capabilities.grok, createAdapter: () => new GrokDriver() },
     { id: "opencode", contractVersion: 1, capabilities: capabilities.opencode, createAdapter: () => new OpenCodeDriver() },
     { id: "pi", contractVersion: 1, capabilities: capabilities.pi, createAdapter: () => new PiDriver() },
+    { id: "antigravity", contractVersion: 1, capabilities: capabilities.antigravity, createAdapter: () => new AntigravityDriver() },
   ]);
 }
 

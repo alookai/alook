@@ -1,7 +1,7 @@
 # @alook/agent-driver
 
-Repository-private logical-session drivers for Claude, Codex, Cursor, OpenCode,
-and Pi.
+Repository-private logical-session drivers for Claude, Codex, Cursor, Grok,
+OpenCode, Pi, and Antigravity.
 
 The package's exported contract owns backend lifecycle, message admission,
 buffering, queueing, interrupts, stop deadlines, and normalized events. The
@@ -206,3 +206,44 @@ affected backend or leave it incompatible/unhealthy if ACP or v2 is unavailable;
 it must not ship, retain, or automatically select the restored one-shot path.
 Do not fall back to `cursor-agent --print` or `opencode run`. Verify the
 unaffected backends and the capability probe before resuming rollout.
+
+
+## Antigravity (native ACP)
+
+The `antigravity` backend uses Google's native `agy_acp_server.par` (`agy_acp_server.exe`
+on Windows), not the one-shot `agy --print` command. It keeps one process and one
+provider session across turns. Busy input queues until the current prompt returns;
+concurrent steering is not advertised. Restart uses `session/load` with the stored
+provider session ID. An unavailable session requires an explicit reset.
+
+Install the native distribution listed in the
+[ACP registry](https://github.com/agentclientprotocol/registry/blob/main/antigravity-acp/agent.json).
+Version 1.3.0 was used for protocol validation. Keep `localharness_external` beside
+the server executable. Put an executable wrapper named `agy_acp_server.par` on PATH,
+which execs the absolute server path, or set the runtime's `command` override to
+that path. Linux adds the registry's `--uid=` argument; Windows uses the `.exe` name.
+Do not substitute a third-party ACP wrapper around print mode.
+
+For example, after extracting the macOS arm64 archive into
+`$HOME/.local/share/alook/runtimes/antigravity-acp/1.3.0`, a PATH wrapper contains:
+
+```sh
+#!/bin/sh
+exec "$HOME/.local/share/alook/runtimes/antigravity-acp/1.3.0/agy_acp_server.par" "$@"
+```
+
+Authentication is local to Google's ACP server. Complete Google sign-in using an
+ACP client's `authenticate` request with `methodId: "oauth-personal"` before
+launching an agent. The provider's settings live under
+`~/.gemini/antigravity-acp/`; leave credentials there and never put them in agent
+instructions. Runtime detection only initializes the protocol: healthy means the
+native binary is compatible, not that an account is signed in. Launch reports an
+explicit authentication failure if credentials are missing; it never opens a
+browser implicitly on a daemon wake.
+
+Standing instructions accompany the first prompt of every physical session,
+including resumed sessions. Later prompts reuse its context. Tools use ACP
+permission requests scoped to the active session and prompt, choosing only a
+provider-offered `allow_once` option. Models must be present in the native session's
+advertised model catalog before they can be selected. Quota, token telemetry,
+reasoning settings, and recent-history import are not advertised by this adapter.

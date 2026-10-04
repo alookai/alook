@@ -32,6 +32,7 @@ const configs: Record<BuiltinBackendId, unknown> = {
   claude: { model: { kind: "default" }, provider: { kind: "default" }, mode: "default" },
   codex: { model: { kind: "default" }, mode: "default" },
   cursor: { model: { kind: "default" } },
+  antigravity: { model: { kind: "default" } },
   grok: { model: { kind: "default" } },
   opencode: { model: { kind: "default" } },
   pi: { model: { kind: "default" }, provider: { kind: "default" } },

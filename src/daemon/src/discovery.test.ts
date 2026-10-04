@@ -12,7 +12,7 @@ import {
 } from "./discovery";
 import * as drivers from "./drivers/index";
 
-const EXPECTED_RUNTIMES = ["claude", "codex", "cursor", "grok", "opencode", "pi"];
+const EXPECTED_RUNTIMES = ["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity"];
 
 const tmpDirs: string[] = [];
 function mkTmp(): string {
@@ -175,7 +175,7 @@ describe("detectRuntimes", () => {
     }
   });
 
-  it("advertises exactly the six supported runtimes", () => {
+  it("advertises exactly the supported runtimes", () => {
     const advertised = runtimes.map((r) => r.id).sort();
     expect(advertised).toEqual([...EXPECTED_RUNTIMES].sort());
   });
@@ -226,12 +226,12 @@ describe("detectRuntimes", () => {
 });
 
 describe("driver registry", () => {
-  it("contains exactly the six supported runtimes", () => {
+  it("contains exactly the supported runtimes", () => {
     expect(drivers.listRuntimeIds().slice().sort()).toEqual([...EXPECTED_RUNTIMES].sort());
   });
 
   it("rejects removed and unknown runtimes", () => {
-    for (const removed of ["antigravity", "copilot", "gemini", "kimi", "unknown-runtime"]) {
+    for (const removed of ["copilot", "gemini", "kimi", "unknown-runtime"]) {
       expect(() => drivers.getDriver(removed)).toThrow(/Unknown runtime/);
     }
   });

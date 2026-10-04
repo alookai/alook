@@ -2,7 +2,7 @@ export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | readonly JsonValue[];
 export type JsonObject = { readonly [key: string]: JsonValue };
 
-export type BuiltinBackendId = "claude" | "codex" | "cursor" | "grok" | "opencode" | "pi";
+export type BuiltinBackendId = "claude" | "codex" | "cursor" | "grok" | "opencode" | "pi" | "antigravity";
 export type ReasoningEffort =
   | "minimal"
   | "low"
@@ -76,6 +76,7 @@ export interface ModelBackendConfig extends BaseBackendConfig {
   readonly model: ModelSelection;
 }
 
+export type AntigravityConfig = ModelBackendConfig;
 export type CursorConfig = ModelBackendConfig;
 export interface GrokConfig extends ModelBackendConfig {
   readonly reasoningEffort?: ReasoningEffort;
@@ -122,6 +123,7 @@ export type FixedCapabilities<
   readonly interrupt: true;
 };
 
+export type AntigravityCapabilities = FixedCapabilities<false, false, false, false, true, "next_turn_queue", "persistent">;
 export type ClaudeCapabilities = FixedCapabilities<true, true, true, true, true, "safe_boundary_queue", "persistent">;
 export type CodexCapabilities = FixedCapabilities<false, true, true, false, true, "safe_boundary_queue", "persistent">;
 export type CursorCapabilities = FixedCapabilities<false, false, false, false, true, "steer", "persistent">;
@@ -142,6 +144,7 @@ export interface BackendTypeSpec<Config, Capabilities, Extensions, ExtraEvent> {
 }
 
 export interface BuiltinBackendSpecs {
+  readonly antigravity: BackendTypeSpec<AntigravityConfig, AntigravityCapabilities, {}, never>;
   readonly claude: BackendTypeSpec<ClaudeConfig, ClaudeCapabilities, {}, never>;
   readonly codex: BackendTypeSpec<CodexConfig, CodexCapabilities, {}, never>;
   readonly cursor: BackendTypeSpec<CursorConfig, CursorCapabilities, {}, never>;

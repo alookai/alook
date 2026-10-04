@@ -3,7 +3,7 @@ import { runtimeModelName, toAgentBackendSelection } from "./runtimeConfig";
 import { makeRuntimeConfig } from "./runtimeConfig";
 
 describe("runtimeModelName", () => {
-  for (const runtime of ["claude", "codex", "cursor", "grok", "opencode", "pi"]) {
+  for (const runtime of ["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity"]) {
     it(`${runtime}: projects a named model without interpreting the backend`, () => {
       expect(runtimeModelName(makeRuntimeConfig({ runtime, model: { kind: "named", name: "opus" } })))
         .toBe("opus");
