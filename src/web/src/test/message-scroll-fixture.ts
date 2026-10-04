@@ -1,0 +1,160 @@
+import { createElement, StrictMode, useLayoutEffect } from "react"
+import { vi } from "vitest"
+import { act, render, fireEvent } from "@/test/react-dom-harness"
+import { VirtualRows } from "@/components/community/messages/virtual-cursor-list"
+import type { FlatItem } from "@/lib/community/message-list-items"
+import { useScrollAnchor } from "@/hooks/community/use-scroll-anchor"
+
+export const message = (id: string, authorId = "peer"): FlatItem => ({ kind: "message", key: `msg:${id}`, m: { id, type: "chat", authorId, grouped: false } })
+type Input = Parameters<typeof useScrollAnchor>[0]
+type Result = ReturnType<typeof useScrollAnchor>
+let latest: Result
+let height: number
+let firstPrefix: number
+let bodyHeights: Map<string, number>
+let frames: Map<number, FrameRequestCallback>
+let frameId: number
+let resizeObservers: Array<{ callback: ResizeObserverCallback; elements: Set<Element> }>
+let scrollCalls: number[]
+let scrollDescriptor: PropertyDescriptor | undefined
+
+function prefix(item: FlatItem, index: number) {
+  return (index === 0 ? firstPrefix : 0) + (item.dateLabel ? 32 : item.newDivider ? 24 : 0)
+}
+const ROOT_SELECTOR = '[data-testid="scroll"], [data-testid="community-message-scroller"]'
+function isScrollRoot(node: HTMLElement) { return node.matches(ROOT_SELECTOR) }
+function rootFor(node: HTMLElement) { return node.closest<HTMLElement>(ROOT_SELECTOR) }
+function rowGeometry(node: HTMLElement) {
+  const wrapper = node.matches('[data-index]') ? node : node.closest<HTMLElement>('[data-index]')
+  const root = rootFor(node)
+  const content = wrapper?.querySelector<HTMLElement>('[data-msg-id]')
+  const size = content ? bodyHeights.get(content.dataset.msgId!) ?? 100 : 0
+  const actualRow = wrapper?.querySelector<HTMLElement>("[data-message-row-key]")
+  const before = content?.dataset.prefix !== undefined ? Number(content.dataset.prefix)
+    : (wrapper?.dataset.index === "0" ? firstPrefix : 0)
+      + (actualRow?.querySelector("[data-new-divider]") ? 24
+        : actualRow?.querySelector("span.text-xs") ? 32 : 0)
+  const translation = wrapper?.style.transform.match(/translate3d\(0,\s*(-?[\d.]+)px/)
+  const start = Number.parseFloat(translation?.[1] ?? wrapper?.style.top ?? "0") || 0
+  const y = start - (root?.scrollTop ?? 0)
+  if (node.matches('[data-msg-id]')) return DOMRect.fromRect({ y: y + before, width: 320, height: size })
+  if (node.matches('[data-new-divider]')) return DOMRect.fromRect({ y: y + before - 24, width: 320, height: 24 })
+  return DOMRect.fromRect({ y, width: 320, height: size + before })
+}
+function Probe({ input, onLayout }: { input: Input; onLayout?: (result: Result) => void }) {
+  const result = useScrollAnchor(input)
+  useLayoutEffect(() => { latest = result; onLayout?.(result) })
+  return createElement("div", { "data-slot": "community-conversation-surface" },
+    createElement("div", { ref: result.scrollRef, "data-testid": "scroll" },
+      createElement("div", { "data-message-list-content": "", "data-read-position-ready": String(result.readPositionReady) },
+        createElement(VirtualRows<FlatItem>, {
+          items: input.items, virtualizer: result.virtualizer, itemKey: (item) => item.key,
+          renderItem: (item, index) => createElement("div", null,
+            item.newDivider ? createElement("div", { "data-new-divider": "" }) : null,
+            createElement("div", { "data-msg-id": item.m.id, "data-prefix": prefix(item, index) }),
+          ),
+        }),
+      ),
+    ),
+    createElement("div", { "data-slot": "community-conversation-footer" }),
+  )
+}
+export function runFrames(count = 26) {
+  for (let i = 0; i < count; i++) {
+    act(() => {
+      vi.advanceTimersByTime(16)
+      for (const root of document.querySelectorAll<HTMLElement>(ROOT_SELECTOR)) {
+        const clamped = Math.max(0, Math.min(root.scrollTop, root.scrollHeight - root.clientHeight))
+        if (root.scrollTop !== clamped) {
+          root.scrollTop = clamped
+          root.dispatchEvent(new Event("scroll"))
+        }
+      }
+      const pending = [...frames]
+      frames.clear()
+      for (const [, callback] of pending) callback(performance.now())
+    })
+  }
+}
+export function resize(frameCount = 26) {
+  act(() => {
+    for (const observer of [...resizeObservers]) {
+      const entries = [...observer.elements].filter(element => element.isConnected).map(target => ({
+        target, borderBoxSize: [{ blockSize: (target as HTMLElement).offsetHeight, inlineSize: 320 }],
+      } as unknown as ResizeObserverEntry))
+      if (entries.length) observer.callback(entries, {} as ResizeObserver)
+    }
+  })
+  runFrames(frameCount)
+}
+export function mount(overrides: Partial<Input> = {}, strict = false, onLayout?: (result: Result) => void) {
+  const input: Input = { items: Array.from({ length: 14 }, (_, i) => message(`m${i}`)), initialScrollReady: true, hasMoreOlder: true, ...overrides }
+  const element = () => strict ? createElement(StrictMode, null, createElement(Probe, { input, onLayout })) : createElement(Probe, { input, onLayout })
+  const view = render(element())
+  const root = view.getByTestId("scroll") as HTMLElement
+  resize()
+  const stage = (next: Partial<Input>) => { Object.assign(input, next); view.rerender(element()) }
+  const update = (next: Partial<Input>) => { stage(next); resize() }
+  const move = (offset: number) => {
+    fireEvent.wheel(root, { deltaY: offset < root.scrollTop ? -20 : 20 })
+    act(() => root.scrollTo({ top: offset }))
+    runFrames()
+  }
+  return { view, root, input, stage, update, move }
+}
+export function bodyTop(root: HTMLElement, id: string) { return root.querySelector<HTMLElement>(`[data-msg-id="${id}"]`)!.getBoundingClientRect().top }
+
+export function installMessageScrollFixture() {
+  height = 500
+  firstPrefix = 88
+  bodyHeights = new Map()
+  frames = new Map()
+  frameId = 0
+  resizeObservers = []
+  scrollCalls = []
+  vi.useFakeTimers()
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation(callback => { frames.set(++frameId, callback); return frameId })
+  vi.spyOn(window, "cancelAnimationFrame").mockImplementation(id => { frames.delete(id) })
+  vi.stubGlobal("ResizeObserver", class {
+    private record: typeof resizeObservers[number]
+    constructor(callback: ResizeObserverCallback) { this.record = { callback, elements: new Set() }; resizeObservers.push(this.record) }
+    observe(element: Element) { this.record.elements.add(element) }
+    unobserve(element: Element) { this.record.elements.delete(element) }
+    disconnect() { this.record.elements.clear() }
+  })
+  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) { return isScrollRoot(this) ? height : rowGeometry(this).height })
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) { return this.clientHeight })
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(320)
+  vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
+    return isScrollRoot(this)
+      ? Math.max(height, Number.parseFloat(this.querySelector<HTMLElement>('[data-message-list-content] > div')?.style.height ?? "0") || 0)
+      : rowGeometry(this).height
+  })
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    return isScrollRoot(this) ? DOMRect.fromRect({ width: 320, height }) : rowGeometry(this)
+  })
+  scrollDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo")
+  Object.defineProperty(HTMLElement.prototype, "scrollTo", { configurable: true, value(this: HTMLElement, options: ScrollToOptions) {
+    this.scrollTop = Math.max(0, Math.min(options.top ?? this.scrollTop, this.scrollHeight - this.clientHeight))
+    scrollCalls.push(this.scrollTop)
+    this.dispatchEvent(new Event("scroll"))
+  } })
+}
+export function restoreMessageScrollFixture() {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+  vi.useRealTimers()
+  if (scrollDescriptor) Object.defineProperty(HTMLElement.prototype, "scrollTo", scrollDescriptor)
+  else Reflect.deleteProperty(HTMLElement.prototype, "scrollTo")
+}
+
+export const scrollFixture = {
+  get latest() { return latest },
+  get height() { return height },
+  set height(value: number) { height = value },
+  get firstPrefix() { return firstPrefix },
+  set firstPrefix(value: number) { firstPrefix = value },
+  get bodyHeights() { return bodyHeights },
+  get frames() { return frames },
+  get scrollCalls() { return scrollCalls },
+}

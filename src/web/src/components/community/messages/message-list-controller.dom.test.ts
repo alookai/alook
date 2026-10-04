@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   virtualizer: { scrollToOffset: vi.fn(), containerRef: { current: null } },
   jumpToIndex: vi.fn(),
   scrollToBottom: vi.fn(),
+  requestPresentPosition: vi.fn(),
   onImageLoad: vi.fn(),
   captureOlderPageAnchor: vi.fn(),
   captureNewerPageAnchor: vi.fn(),
@@ -32,7 +33,16 @@ vi.mock("@/hooks/use-mobile", () => ({
 
 vi.mock("@/hooks/community/use-scroll-anchor", () => ({
   resolveMessageRailTailPaddingEnd: (breakpoint: string) => breakpoint === "mobile" ? 40 : 48,
-  useScrollAnchor: (input: unknown) => {
+  useScrollAnchor: (input: { scrollToMessageId?: string | null; items: Array<{ kind: string; m?: { id: string } }>; onScrollTargetPositioned: (id: string) => void; onInitialPositionSettled: () => void }) => {
+    const consumed = React.useRef<string | null>(null)
+    const loaded = input.items.some((item) => item.m?.id === input.scrollToMessageId)
+    React.useLayoutEffect(() => {
+      if (!input.scrollToMessageId) consumed.current = null
+      if (input.scrollToMessageId && consumed.current !== input.scrollToMessageId && input.items.some((item) => item.m?.id === input.scrollToMessageId)) {
+        consumed.current = input.scrollToMessageId
+        input.onScrollTargetPositioned(input.scrollToMessageId)
+      }
+    }, [input, loaded])
     mocks.hookOrder.push("anchor")
     mocks.scrollInputs.push(input)
     return {
@@ -40,8 +50,9 @@ vi.mock("@/hooks/community/use-scroll-anchor", () => ({
       virtualizer: mocks.virtualizer,
       belowCount: 2,
       scrollToBottom: mocks.scrollToBottom,
+      requestPresentPosition: mocks.requestPresentPosition,
       jumpTo: mocks.jumpToIndex,
-      onImageLoad: mocks.onImageLoad,
+      readPositionReady: false,
       captureOlderPageAnchor: mocks.captureOlderPageAnchor,
       isOlderPageAnchorSettling: false,
       captureNewerPageAnchor: mocks.captureNewerPageAnchor,
@@ -80,7 +91,6 @@ function props(overrides: Partial<ResolvedMessageListProps> = {}): ResolvedMessa
 }
 
 let latest: MessageListController
-let currentHeroNode: HTMLDivElement
 let currentScrollNode: HTMLDivElement
 function assignRef<T>(ref: { current: T | null }, value: T | null) {
   ref.current = value
@@ -93,9 +103,6 @@ function Probe({
   attachHero?: boolean
 }) {
   const controller = useMessageListController(value)
-  const attachHeroNode = React.useCallback((node: HTMLDivElement | null) => {
-    assignRef(controller.heroRef, node ? currentHeroNode : null)
-  }, [controller.heroRef])
   const attachScrollNode = React.useCallback((node: HTMLDivElement | null) => {
     assignRef(controller.scrollRef, node ? currentScrollNode : null)
   }, [controller.scrollRef])
@@ -103,7 +110,7 @@ function Probe({
   return React.createElement(
     React.Fragment,
     null,
-    attachHero ? React.createElement("div", { id: "hero", ref: attachHeroNode }) : null,
+    attachHero ? React.createElement("div", { id: "hero" }) : null,
     React.createElement("div", { id: "scroll", ref: attachScrollNode }),
   )
 }
@@ -116,7 +123,6 @@ describe("useMessageListController", () => {
   let cancelFrame: ReturnType<typeof vi.fn>
   let visibleMessageIds: string[]
   const disconnect = vi.fn()
-  const heroNode = { offsetHeight: 0 }
   const scrollNode = {
     scrollTop: 0,
     scrollHeight: 3206,
@@ -131,7 +137,6 @@ describe("useMessageListController", () => {
 
   beforeEach(() => {
     mocks.breakpoint = "desktop"
-    currentHeroNode = heroNode as HTMLDivElement
     currentScrollNode = scrollNode as unknown as HTMLDivElement
     resizeCallback = null
     disconnect.mockClear()
@@ -148,7 +153,6 @@ describe("useMessageListController", () => {
     visibleMessageIds = ["m1"]
     scrollNode.scrollTop = 0
     scrollNode.clientHeight = 692
-    heroNode.offsetHeight = 0
     requestFrame = vi.fn((callback: FrameRequestCallback) => {
       const id = ++nextFrameId
       frameCallbacks.set(id, callback)
@@ -200,10 +204,12 @@ describe("useMessageListController", () => {
       isFetchingNewer: undefined,
       presentVersion: undefined,
       viewerUserId: undefined,
-      heroHeight: 0,
-      heroMeasured: false,
+      hasMoreOlder: undefined,
       tailPaddingEnd: 48,
       onInitialPositionSettled: expect.any(Function),
+      scrollToMessageId: undefined,
+      onScrollTargetCancelled: undefined,
+      onScrollTargetPositioned: expect.any(Function),
     })
     expect(mocks.sentinelInputs.slice(0, 2)).toEqual([
       {
@@ -229,7 +235,7 @@ describe("useMessageListController", () => {
     expect(latest.virtualizer).toBe(mocks.virtualizer)
     expect(latest.topSentinelRef).toBe(mocks.sentinelRefs.at(-2))
     expect(latest.bottomSentinelRef).toBe(mocks.sentinelRefs.at(-1))
-    expect(latest.onImageLoad).toBe(mocks.onImageLoad)
+    expect(latest.readPositionReady).toBe(false)
     expect(latest.pillCount).toBe(2)
     expect(latest.pillMode).toBe("scroll")
     expect(latest.pillOnClick).toBe(mocks.scrollToBottom)
@@ -340,10 +346,12 @@ describe("useMessageListController", () => {
       isFetchingNewer: true,
       presentVersion: 7,
       viewerUserId: "viewer_1",
-      heroHeight: 0,
-      heroMeasured: true,
+      hasMoreOlder: true,
       tailPaddingEnd: 48,
       onInitialPositionSettled: expect.any(Function),
+      scrollToMessageId: undefined,
+      onScrollTargetCancelled: undefined,
+      onScrollTargetPositioned: expect.any(Function),
     })
     expect(mocks.sentinelInputs.slice(-2)).toEqual([
       {
@@ -367,49 +375,26 @@ describe("useMessageListController", () => {
     ])
     expect(latest.pillCount).toBe(9)
     expect(latest.pillMode).toBe("jump")
-    expect(latest.pillOnClick).toBe(jumpToPresent)
+    expect(latest.pillOnClick).toBeTypeOf("function")
     act(() => latest.pillOnClick())
     expect(jumpToPresent).toHaveBeenCalledOnce()
   })
 
-  it("publishes scroll roots cleanup-first and measures zero-height heroes immediately", () => {
-    const first = vi.fn()
-    const second = vi.fn()
-    let renderer: ReturnType<typeof rtlRender>
-    act(() => {
-      renderer = rtlRender(
-        React.createElement(Probe, { value: props({ onScrollRoot: first }) })
-      )
-    })
-    expect((mocks.scrollInputs.at(-1) as { heroHeight: number; heroMeasured: boolean }))
-      .toEqual(expect.objectContaining({ heroHeight: 0, heroMeasured: true }))
+  it("publishes scroll roots cleanup-first without a hero measurement prerequisite", () => {
+    const first = vi.fn(), second = vi.fn()
+    const renderer = rtlRender(React.createElement(Probe, { value: props({ onScrollRoot: first }), attachHero: false }))
     expect(first).toHaveBeenCalledWith(scrollNode)
-
-    act(() => {
-      renderer!.rerender(React.createElement(Probe, { value: props({ onScrollRoot: second }) }))
-    })
+    expect(mocks.scrollInputs.at(-1)).not.toHaveProperty("heroHeight")
+    expect(mocks.scrollInputs.at(-1)).not.toHaveProperty("heroMeasured")
+    renderer.rerender(React.createElement(Probe, { value: props({ onScrollRoot: second }), attachHero: false }))
     expect(first.mock.calls.at(-1)).toEqual([null])
     expect(second).toHaveBeenCalledWith(scrollNode)
     expect(first.mock.invocationCallOrder.at(-1)!).toBeLessThan(second.mock.invocationCallOrder[0])
-
-    act(() => resizeCallback?.([{ borderBoxSize: [{ blockSize: 42 }] }]))
-    expect((mocks.scrollInputs.at(-1) as { heroHeight: number; heroMeasured: boolean }))
-      .toEqual(expect.objectContaining({ heroHeight: 42, heroMeasured: true }))
-    heroNode.offsetHeight = 17
-    act(() => resizeCallback?.([{}]))
-    expect((mocks.scrollInputs.at(-1) as { heroHeight: number; heroMeasured: boolean }))
-      .toEqual(expect.objectContaining({ heroHeight: 17, heroMeasured: true }))
-    act(() => {
-      renderer!.rerender(React.createElement(Probe, {
-        value: props({ loading: true, messages: [], onScrollRoot: second, hero: "changed" }),
-      }))
-    })
-    expect((mocks.scrollInputs.at(-1) as { heroMeasured: boolean }).heroMeasured).toBe(true)
-    act(() => renderer!.unmount())
-    expect(disconnect).toHaveBeenCalled()
+    renderer.unmount()
+    expect(second.mock.calls.at(-1)).toEqual([null])
   })
 
-  it("combines initial readiness with loaded-target readiness and preserves state across channel-only changes", () => {
+  it("delegates explicit-target readiness to the scroll owner and preserves state across channel-only changes", () => {
     const consumed = vi.fn()
     let renderer: ReturnType<typeof rtlRender>
     act(() => {
@@ -417,7 +402,7 @@ describe("useMessageListController", () => {
         value: props({ scrollToMessageId: "m2", onScrollTargetConsumed: consumed }),
       }))
     })
-    expect((mocks.scrollInputs.at(-1) as { initialScrollReady: boolean }).initialScrollReady).toBe(false)
+    expect((mocks.scrollInputs.at(-1) as { initialScrollReady: boolean }).initialScrollReady).toBe(true)
     expect(latest.initialPosition.phase).toBe("positioning")
     act(() => {
       renderer!.rerender(React.createElement(Probe, {
@@ -434,10 +419,8 @@ describe("useMessageListController", () => {
       onInitialPositionSettled: () => void
     }).onInitialPositionSettled
     act(() => settleAnchor())
-    expect(latest.initialPosition.phase).toBe("positioning")
+    expect(latest.initialPosition.phase).toBe("revealing")
     visibleMessageIds = ["m2"]
-    runNextFrame()
-    expect(latest.initialPosition.phase).toBe("positioning")
     runNextFrame()
     expect(latest.initialPosition.phase).toBe("revealing")
     act(() => vi.advanceTimersByTime(INITIAL_POSITION_CROSSFADE_MS))
@@ -586,7 +569,7 @@ describe("useMessageListController", () => {
     expect(source).not.toContain("[data-selection=\"active\"]")
   })
 
-  it("consumes a loaded target after zero-height measurement and clears highlight after visibility", () => {
+  it("uses owner completion and clears highlight after actual visibility", () => {
     const consumed = vi.fn()
     let renderer: ReturnType<typeof rtlRender>
     act(() => {
@@ -596,7 +579,7 @@ describe("useMessageListController", () => {
         })
       )
     })
-    expect(mocks.jumpToIndex).toHaveBeenCalledWith("m1", "auto")
+    expect(mocks.jumpToIndex).not.toHaveBeenCalled()
     expect(consumed).toHaveBeenCalledWith("m1")
     expect(latest.jumped).toBe("m1")
     runNextFrame()
@@ -607,7 +590,7 @@ describe("useMessageListController", () => {
     act(() => renderer!.unmount())
   })
 
-  it("does not consume a loaded target until the hero ref has been measured", () => {
+  it("delegates a loaded target to the owner even when its hero is virtualized away", () => {
     const consumed = vi.fn()
     let renderer: ReturnType<typeof rtlRender>
     act(() => {
@@ -619,7 +602,7 @@ describe("useMessageListController", () => {
       )
     })
     expect(mocks.jumpToIndex).not.toHaveBeenCalled()
-    expect(consumed).not.toHaveBeenCalled()
+    expect(consumed).toHaveBeenCalledWith("m1")
 
     act(() => {
       renderer!.rerender(React.createElement(Probe, {
@@ -631,7 +614,7 @@ describe("useMessageListController", () => {
         }),
       }))
     })
-    expect(mocks.jumpToIndex).toHaveBeenCalledWith("m1", "auto")
+    expect(mocks.jumpToIndex).not.toHaveBeenCalled()
     expect(consumed).toHaveBeenCalledWith("m1")
     act(() => renderer!.unmount())
   })
@@ -644,8 +627,8 @@ describe("useMessageListController", () => {
       }))
     })
     const pendingFrames = [...frameCallbacks.keys()]
-    expect(pendingFrames).toHaveLength(2)
-    expect(vi.getTimerCount()).toBe(1)
+    expect(pendingFrames).toHaveLength(1)
+    expect(vi.getTimerCount()).toBe(0)
 
     act(() => renderer!.unmount())
     for (const frame of pendingFrames) expect(cancelFrame).toHaveBeenCalledWith(frame)

@@ -5,7 +5,6 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, useLayoutEffect, useRef } from "react"
 
 export const INITIAL_POSITION_CROSSFADE_MS = 300
-export const INITIAL_POSITION_TIMEOUT_MS = 2_000
 
 export type InitialPositionPhase =
   | "skeleton"
@@ -27,12 +26,10 @@ export function useInitialPositionTransition({
     !firstWindowReady ? "skeleton" : initiallyRevealed ? "revealed" : "positioning"
   ), [firstWindowReady, initiallyRevealed])))
   const revealedRef = useRef(initiallyRevealed)
-  const startedAtRef = useRef<number | null>(null)
 
   useLayoutEffect(() => {
     if (revealedRef.current) return
     if (!firstWindowReady) {
-      startedAtRef.current = null
       setPhase("skeleton")
       return
     }
@@ -46,7 +43,6 @@ export function useInitialPositionTransition({
       setPhase("revealing")
       return
     }
-    if (startedAtRef.current === null) startedAtRef.current = Date.now()
     if (phase === "skeleton") setPhase("positioning")
   }, [authoritativeEmpty, firstWindowReady, phase, positionSettled, setPhase])
 
@@ -58,22 +54,7 @@ export function useInitialPositionTransition({
       )
       return () => window.clearTimeout(crossfadeTimer)
     }
-    if (revealedRef.current || !firstWindowReady || authoritativeEmpty) return
-
-    const startedAt = startedAtRef.current ?? Date.now()
-    startedAtRef.current = startedAt
-    const timeoutRemaining = Math.max(
-      0,
-      INITIAL_POSITION_TIMEOUT_MS - (Date.now() - startedAt),
-    )
-    const timeoutTimer = window.setTimeout(() => {
-      if (revealedRef.current || !positionSettled) return
-      revealedRef.current = true
-      setPhase("revealing")
-    }, timeoutRemaining)
-
-    return () => window.clearTimeout(timeoutTimer)
-  }, [authoritativeEmpty, firstWindowReady, phase, positionSettled, setPhase])
+  }, [phase, setPhase])
 
   // The first renderable window must mount its real DOM in the same commit
   // that clears loading. Waiting for the layout effect above to persist the
@@ -81,7 +62,7 @@ export function useInitialPositionTransition({
   // controller's one-shot hero measurement effect would observe no node and
   // initial anchoring would never arm. This projection changes presentation
   // only; settlement still comes exclusively from the action-owned callback.
-  const renderedPhase = phase === "skeleton" && firstWindowReady
+  const renderedPhase = !firstWindowReady ? "skeleton" : phase === "skeleton"
     ? authoritativeEmpty || positionSettled ? "revealed" : "positioning"
     : phase
 

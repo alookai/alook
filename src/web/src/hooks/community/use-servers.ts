@@ -1,5 +1,6 @@
 "use client"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
+import { conversationReadRetryPolicy, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { useSelector } from "@tanstack/react-store"
 
 
@@ -308,33 +309,35 @@ export const serverProjectedQueryFn = (
   const family = `server-detail:${serverId}` as const
   const token = projection.beginSnapshot(family, "channels")
   try {
-    await structuralToken.registry?.ready
-    assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, signal)
-    await Promise.all([
-      structuralToken.registry!.collections.categories.preload(),
-      structuralToken.registry!.collections.channels.preload(),
-      structuralToken.registry!.collections.channelMemberships.preload(),
-    ])
-    assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, signal)
-    const data = await serverQueryFn(queryClient, serverId, signal)()
-    assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, signal)
-    const confirmedAccessScopes: AccountUnreadScope[] = [
-      { kind: "server", serverId },
-      ...data.categories.flatMap((category) => category.channels.map((channel) => ({
-        kind: "channel" as const,
-        channelId: channel.id,
-      }))),
-    ]
-    projection.absorbSnapshot(
-      token,
-      [],
-      { confirmedAccessScopes },
-    )
-    publishCommunityLiveSnapshot(queryClient, {
-      snapshot: { kind: "server-detail", data },
-      proof: { kind: "structural", token: structuralToken, signal },
+    return await withConversationReadDeadline(signal, async (readSignal) => {
+      await structuralToken.registry?.ready
+      assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, readSignal)
+      await Promise.all([
+        structuralToken.registry!.collections.categories.preload(),
+        structuralToken.registry!.collections.channels.preload(),
+        structuralToken.registry!.collections.channelMemberships.preload(),
+      ])
+      assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, readSignal)
+      const data = await serverQueryFn(queryClient, serverId, readSignal)()
+      assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, readSignal)
+      const confirmedAccessScopes: AccountUnreadScope[] = [
+        { kind: "server", serverId },
+        ...data.categories.flatMap((category) => category.channels.map((channel) => ({
+          kind: "channel" as const,
+          channelId: channel.id,
+        }))),
+      ]
+      projection.absorbSnapshot(
+        token,
+        [],
+        { confirmedAccessScopes },
+      )
+      publishCommunityLiveSnapshot(queryClient, {
+        snapshot: { kind: "server-detail", data },
+        proof: { kind: "structural", token: structuralToken, signal: readSignal },
+      })
+      return data.id
     })
-    return data.id
   } catch (error) {
     projection.cancelSnapshot(token)
     if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
@@ -368,6 +371,9 @@ export function useServer(
     enabled,
     staleTime: Infinity,
     refetchOnReconnect: true,
+    retryOnMount: false,
+    retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey: communityKeys.server(serverId ?? "__none__") }).retry),
+    networkMode: "always",
   })
   const projectedServer = useMemo(() => {
     const source = dbServer

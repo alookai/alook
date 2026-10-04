@@ -1,9 +1,11 @@
 import React from "react"
 import { QueryClient } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { renderHook, waitFor } from "@/test/react-dom-harness"
+import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { useServer, useServers } from "./use-servers"
+import { CONVERSATION_READ_TIMEOUT_MS } from "@/lib/community/conversation-read"
+import { communityKeys } from "@/lib/query-keys"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 const api = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({ apiFetch: api }))
@@ -16,6 +18,29 @@ function respond(path: string) {
   return list
 }
 describe("actual cold server native read", () => {
+  it("settles a server detail while a shared identity read remains useful to the rail, then retries", async () => {
+    let release!: (value: typeof list) => void
+    let identitySignal!: AbortSignal
+    api.mockImplementation((path: string, options: { signal: AbortSignal }) => path === "/api/community/servers" ? new Promise((done) => { release = done; identitySignal = options.signal }) : Promise.resolve(respond(path)))
+    const qc = client()
+    const wrapper = ({ children }: { children: React.ReactNode }) => <CommunityTestProvider client={qc}>{children}</CommunityTestProvider>
+    vi.useFakeTimers()
+    let view!: ReturnType<typeof renderHook<{ server: ReturnType<typeof useServer>; rail: ReturnType<typeof useServers> }, unknown>>
+    try {
+      view = renderHook(() => ({ server: useServer("srv"), rail: useServers() }), { wrapper })
+      await vi.waitFor(() => expect(api.mock.calls.filter(([path]) => path === "/api/community/servers")).toHaveLength(1))
+      await act(async () => { await vi.advanceTimersByTimeAsync(CONVERSATION_READ_TIMEOUT_MS) })
+      expect(qc.getQueryState(communityKeys.server("srv"))?.error).toMatchObject({ name: "ConversationReadTimeoutError" })
+      expect(identitySignal.aborted).toBe(false)
+    } finally { vi.useRealTimers() }
+    await act(async () => { release(list) })
+    await waitFor(() => expect(view.result.current.rail.servers[0]?.name).toBe("Cold"))
+    expect(view.result.current.server.server).toBeNull()
+    await act(async () => { await view.result.current.server.refetch() })
+    await waitFor(() => expect(view.result.current.server.server?.name).toBe("Cold"))
+    view.unmount()
+  })
+
   it("loads identity without a rail observer and publishes canonical DB", async () => {
     api.mockImplementation(async (path: string) => respond(path))
     const qc = client()

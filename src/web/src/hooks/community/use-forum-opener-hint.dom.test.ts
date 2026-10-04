@@ -3,6 +3,7 @@ import { createElement, type PropsWithChildren } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
+import { CONVERSATION_READ_TIMEOUT_MS } from "@/lib/community/conversation-read"
 import { communityKeys } from "@/lib/query-keys"
 import {
   createCommunityDbRegistry,
@@ -11,6 +12,7 @@ import {
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import {
   captureCommunityLiveSnapshotToken,
+  getCanonicalCommunityMessages,
   publishCommunityMessages,
 } from "@/lib/community-db/sync"
 import { useCommunityWsStore } from "@/stores/community/ws"
@@ -54,6 +56,41 @@ async function canonicalSetup() {
 }
 
 describe("useForumOpenerHint", () => {
+  it("times out a cold opener, rejects its late publication, and recovers through refetch", async () => {
+    const { queryClient, wrapper } = await canonicalSetup()
+    let release!: (value: unknown) => void
+    const payload = { id: "opener-1", content: "Recovered title", seq: 7, channelId: "forum-1", type: "chat" }
+    apiFetchMock.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
+    vi.useFakeTimers()
+    let rendered!: ReturnType<typeof renderHook<ReturnType<typeof useForumOpenerHint>, unknown>>
+    try {
+      rendered = renderHook(() => useForumOpenerHint("server-1", "opener-1", true), { wrapper })
+      await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+      await act(async () => { await vi.advanceTimersByTimeAsync(CONVERSATION_READ_TIMEOUT_MS) })
+      expect(queryClient.getQueryState(communityKeys.message("opener-1"))?.error).toMatchObject({ name: "ConversationReadTimeoutError" })
+      expect(apiFetchMock.mock.calls[0]![1].signal.aborted).toBe(true)
+    } finally { vi.useRealTimers() }
+    await waitFor(() => expect(rendered.result.current.isError).toBe(true))
+    expect(rendered.result.current.isLoading).toBe(false)
+    await act(async () => { release(payload) })
+    expect(getCanonicalCommunityMessages(queryClient)).toEqual([])
+    apiFetchMock.mockResolvedValueOnce(payload)
+    await act(async () => { await rendered.result.current.refetch() })
+    await waitFor(() => expect(rendered.result.current.data?.content).toBe("Recovered title"))
+    rendered.unmount()
+  })
+
+  it("keeps a readable canonical opener after a transient background failure", async () => {
+    const { queryClient, wrapper } = await canonicalSetup()
+    publishCommunityMessages(queryClient, { channelId: "forum-1", messages: [{ id: "opener-1", channelId: "forum-1", type: "chat", content: "Warm title", seq: 7 }], proof: { token: captureCommunityLiveSnapshotToken(queryClient), signal: undefined } })
+    apiFetchMock.mockRejectedValue(new Error("offline"))
+    const rendered = renderHook(() => useForumOpenerHint("server-1", "opener-1", true), { wrapper })
+    await waitFor(() => expect(rendered.result.current.isError).toBe(true))
+    expect(rendered.result.current.data?.content).toBe("Warm title")
+    expect(rendered.result.current.isLoading).toBe(false)
+    rendered.unmount()
+  })
+
   it("does not fetch or authorize content before the route metadata is verified", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     renderHook(() => useForumOpenerHint("server-1", "opener-1", false), {

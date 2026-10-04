@@ -46,6 +46,7 @@ import {
   captureCommunityLiveSnapshotToken,
   publishCommunityMessages,
 } from "@/lib/community-db/sync"
+import { ConversationReadTimeoutError, conversationReadRetryPolicy, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { messageReconcileOptions } from "./community-ws/reconnect-messages"
 
 /**
@@ -153,11 +154,11 @@ async function fetchMessagesTransport(
   signal: AbortSignal | undefined,
   options: MessagesTransportOptions | undefined,
 ): Promise<WireMessagesPage> {
-  const transport = await apiFetchProfiles<MessagesTransportPage>(
+  const transport = await withConversationReadDeadline(signal, (readSignal) => apiFetchProfiles<MessagesTransportPage>(
     url,
     (page) => messageProfilePatches(page.messages),
-    signal ? { signal } : undefined, getCommunityDbRegistry(queryClient),
-  )
+    { signal: readSignal }, getCommunityDbRegistry(queryClient),
+  ))
   const { surfaceReceipt, ...page } = transport
   if (isMessageSurfaceReceipt(surfaceReceipt)) {
     options?.onSurfaceReceipt?.(surfaceReceipt)
@@ -515,6 +516,8 @@ function useMessagesInner(
       }
     },
     initialPageParam,
+    retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey }).retry),
+    networkMode: "always",
     // "next" = older side. `fetchNextPage` appends to `data.pages`, so the
     // LAST entry in `pages` is the oldest window we've loaded — that's the
     // page whose cursor gets consulted for the next older fetch.
@@ -710,6 +713,13 @@ function useMessagesInner(
   }, [jumpPending, presentOverride, query.isError, queryClient, queryKey, setPresentOverride, viewKey])
 
   const messageQuery = queryClient.getQueryCache().find({ queryKey, exact: true })
+  const paginationOwnerRef = useRef<{ activationKey: string; query: typeof messageQuery } | null>(null)
+  useLayoutEffect(() => {
+    if (!enabled || !messageQuery) { paginationOwnerRef.current = null; return }
+    const owner = { activationKey, query: messageQuery }
+    paginationOwnerRef.current = owner
+    return () => { if (paginationOwnerRef.current === owner) paginationOwnerRef.current = null }
+  }, [activationKey, enabled, messageQuery])
   useLayoutEffect(() => {
     if (!enabled || !messageQuery) return
     // A native observer spans the route's commit gap. The next mount joins
@@ -759,7 +769,7 @@ function useMessagesInner(
     const repairOptions = { queryKey: [...queryKey, "anchor-repair", anchorId, accessIdentity], queryFn: ({ signal }: { signal: AbortSignal }) => {
       if (!isChannelMetadataTokenCurrent(accessToken) || queryClient.getQueryCache().find({ queryKey, exact: true }) !== currentQuery) throw new DOMException("Retired message window", "AbortError")
       return queryFn({ pageParam: anchorPageParam, signal })
-    }, staleTime: 0, retry: (attempt: number, error: unknown) => !(error instanceof DOMException && error.name === "AbortError") && attempt < 2, retryDelay: (attempt: number) => 1000 * 2 ** attempt }
+    }, staleTime: 0, networkMode: "always" as const, retry: (attempt: number, error: unknown) => !(error instanceof ConversationReadTimeoutError) && !(error instanceof DOMException && error.name === "AbortError") && attempt < 2, retryDelay: (attempt: number) => 1000 * 2 ** attempt }
     const lease = new QueryObserver(queryClient, { ...repairOptions, enabled: false })
     const unsubscribe = lease.subscribe(() => undefined)
     const releaseOnRemoval = queryClient.getQueryCache().subscribe((event) => {
@@ -856,43 +866,31 @@ function useMessagesInner(
   const hasMoreOlder = (oldestPage?.hasMoreOlder ?? oldestPage?.hasMore) ?? false
   const hasMoreNewer = newestPage?.hasMoreNewer ?? false
 
-  // Callbacks depend on `query.*` fields that TanStack refreshes on every
-  // internal state change — closing over the whole query object keeps the
-  // exhaustive-deps rule happy without spelling every subfield.
-  const fetchOlder = useCallback(() => {
-    if (!enabled) return
-    if (!query.hasNextPage) return
-    if (query.isFetchingNextPage) return
-    const activationState = activationRevalidationRef.current
-    if (activationState.activationKey !== activationKey) return
-    const activationRequest = activationState.pending
-    if (activationRequest) {
-      void activationRequest.then(() => {
-        if (activationRevalidationRef.current.activationKey !== activationKey) return
-        void query.fetchNextPage({ cancelRefetch: false })
-      })
-      return
+  const fetchPage = useCallback((direction: "older" | "newer") => {
+    const owner = paginationOwnerRef.current
+    if (!enabled || !scopeId || !owner?.query || owner.activationKey !== activationKey) return
+    if (direction === "older" ? !query.hasNextPage || query.isFetchingNextPage
+      : !query.hasPreviousPage || query.isFetchingPreviousPage) return
+    const currentQuery = owner.query
+    const accessToken = captureChannelMetadataToken(queryClient, scopeId)
+    const isCurrent = () => paginationOwnerRef.current === owner
+      && activationRevalidationRef.current.activationKey === activationKey
+      && queryClient.getQueryCache().find({ queryKey, exact: true }) === currentQuery
+      && isChannelMetadataTokenCurrent(accessToken)
+    const fetch = async () => {
+      const activationRequest = activationRevalidationRef.current.pending
+      if (activationRequest) await activationRequest
+      while (isCurrent() && currentQuery.state.fetchStatus !== "idle") {
+        await query.refetch({ cancelRefetch: false })
+      }
+      if (!isCurrent()) return
+      if (direction === "older") await query.fetchNextPage({ cancelRefetch: false })
+      else await query.fetchPreviousPage({ cancelRefetch: false })
     }
-    // Initial-position sentinels can intersect while a retained-mount
-    // revalidation is still in flight. Queue their pagination behind that
-    // semantic request instead of letting fetchNextPage cancel it and make a
-    // cursor GET the first completed request for the mount.
-    if (query.isFetching) {
-      void query.refetch({ cancelRefetch: false }).then(() => {
-        // The observer method reads the just-refreshed page/cursor state. If
-        // that page has no older cursor, TanStack resolves without a request.
-        void query.fetchNextPage({ cancelRefetch: false })
-      })
-      return
-    }
-    void query.fetchNextPage()
-  }, [activationKey, enabled, query])
-
-  const fetchNewer = useCallback(() => {
-    if (!query.hasPreviousPage) return
-    if (query.isFetchingPreviousPage) return
-    void query.fetchPreviousPage()
-  }, [query])
+    void fetch()
+  }, [activationKey, enabled, query, queryClient, queryKey, scopeId])
+  const fetchOlder = useCallback(() => fetchPage("older"), [fetchPage])
+  const fetchNewer = useCallback(() => fetchPage("newer"), [fetchPage])
 
   const jumpToPresent = useCallback(() => {
     if (!enabled || forceNewest) return

@@ -45,7 +45,7 @@ import {
   acceptChannelMessage,
   runAcceptedMessageIntent,
 } from "./message-channel-controller-send"
-import { removeCommunityParam } from "@/lib/community/community-route"
+import { channelHref, removeCommunityParam } from "@/lib/community/community-route"
 import type {
   MessageChannelControllerProps,
   MessageChannelControllerValue,
@@ -56,6 +56,7 @@ import type {
 export function useMessageChannelController({
   channelId,
   serverId,
+  serverParam,
   channelName,
   forumParentChannelId,
   viewer,
@@ -219,13 +220,15 @@ export function useMessageChannelController({
   const seqParam = searchParams.get("seq")
   const searchParamsString = searchParams.toString()
   useEffect(() => {
-    if (!seqParam) return
+    if (pathname !== channelHref(serverParam, channelId) || !seqParam) return
     const seq = Number(seqParam)
-    if (!Number.isFinite(seq)) return
+    if (!Number.isSafeInteger(seq) || seq < 1) return
+    const message = actionContext.get().messageIds.map(getMessage).find((item) => item?.seq === seq)
+    if (message) setScrollTargetId(message.id)
     setContextTarget({ serverId, channelId, label: channelName, seq })
     const href = `${pathname}${searchParamsString ? `?${searchParamsString}` : ""}`
     router.replace(removeCommunityParam(href, "seq"), { scroll: false })
-  }, [seqParam, serverId, channelId, channelName, pathname, router, searchParamsString, setContextTarget])
+  }, [seqParam, serverId, serverParam, channelId, channelName, pathname, router, searchParamsString, actionContext, getMessage, setContextTarget, setScrollTargetId])
 
   const messageScope = useMemo(
     () => ({ kind: "channel" as const, id: channelId, serverId }),

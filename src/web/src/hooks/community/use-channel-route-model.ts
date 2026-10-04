@@ -76,7 +76,8 @@ export function useChannelRouteModel(
   const queryClient = useQueryClient()
   const runtime = useCommunityRuntime()
   const communityDb = useOptionalCommunityDbRegistry()
-  const { server } = useServer(serverId)
+  const serverQuery = useServer(serverId)
+  const { server, isFetching: fetchingServer, refetch: refetchServer } = serverQuery
   const dbChannel = useRouteChannelProjection(channelId)
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const topLevelChannel = server?.categories
@@ -92,6 +93,21 @@ export function useChannelRouteModel(
         activityAt: metaQuery.data.lastMessageAt ?? metaQuery.data.createdAt }
     : null, [isChild, metaQuery.data, metaQuery.isVerified, serverId])
   const retryScope = JSON.stringify([accountId, serverId, channelId, accessEpoch])
+  const [serverRetryAttempt, setServerRetryAttempt] = useAtom(useCreateAtom<{ scope: string } | null>(null))
+  const serverRetryRef = useRef<{ scope: string } | null>(null)
+  const retryingServer = serverRetryAttempt?.scope === retryScope
+  const serverError = !server?.categories && (serverQuery.isError || retryingServer)
+  const retryServer = useCallback(async () => {
+    if (!serverError || fetchingServer || serverRetryRef.current?.scope === retryScope) return
+    const attempt = { scope: retryScope }
+    serverRetryRef.current = attempt
+    setServerRetryAttempt(attempt)
+    try { await refetchServer({ cancelRefetch: false }) }
+    finally {
+      if (serverRetryRef.current === attempt) serverRetryRef.current = null
+      setServerRetryAttempt((current) => current === attempt ? null : current)
+    }
+  }, [retryScope, serverError, fetchingServer, refetchServer, setServerRetryAttempt])
   const exitScope = JSON.stringify([accountId, serverId, channelId])
   const [exitedMetadata, setExitedMetadata] = useAtom(useCreateAtom<{ owner: typeof communityDb; scope: string } | null>(null))
   const freshMetadata = metaQuery.isVerified && !metaQuery.data?.archived
@@ -137,7 +153,7 @@ export function useChannelRouteModel(
     [channelId, isChild, metaQuery.isVerified, renderableChannelMeta, server],
   )
   const routeLifecycle = !server?.categories
-    ? "pending" as const
+    ? serverError ? "terminal-error" as const : "pending" as const
     : !isChild && metaQuery.isVerified
       ? "ready" as const
       : metadataExit || (metaQuery.isError && !metaQuery.isVerified)
@@ -205,6 +221,9 @@ export function useChannelRouteModel(
     routeLifecycle,
     skeletonSubtype,
     metadataError,
+    serverError,
+    retryingServer,
+    retryServer,
     retryingMetadata,
     retryMetadata,
   }

@@ -2,6 +2,7 @@ import { createCommunityDbRegistry } from "@/lib/community-db/collections"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClient, QueryObserver } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import { ConversationReadTimeoutError, withConversationReadDeadline } from "@/lib/community/conversation-read"
 
 const apiFetch = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({
@@ -149,6 +150,7 @@ describe("account read-state reconciliation", () => {
       queryKey: communityKeys.servers(),
       exact: true,
       refetchType: "active",
+      predicate: expect.any(Function),
     }, { throwOnError: true, cancelRefetch: true })
   })
 
@@ -216,7 +218,7 @@ describe("account read-state reconciliation", () => {
     expect(serverFetches).toBe(2)
     expect(directoryFetches).toBe(1)
     expect(invalidate).toHaveBeenCalledWith(
-      { queryKey: communityKeys.server("server-1"), exact: true, refetchType: "active" },
+      { queryKey: communityKeys.server("server-1"), exact: true, refetchType: "active", predicate: expect.any(Function) },
       { throwOnError: true, cancelRefetch: true },
     )
     expect(invalidate).not.toHaveBeenCalledWith(
@@ -714,5 +716,220 @@ describe("account read-state reconciliation", () => {
     ])
     expect(apiFetch).toHaveBeenCalledTimes(2)
     expect(invalidate).toHaveBeenCalledTimes(6)
+  })
+
+  it("keeps a necessary cold deadline terminal through retained surface work", async () => {
+    vi.useFakeTimers()
+    apiFetch.mockResolvedValue({ revision: 1, readStates: [] })
+    let reads = 0
+    const observer = new QueryObserver(queryClient, {
+      queryKey: communityKeys.server("cold"),
+      queryFn: ({ signal }) => {
+        reads += 1
+        return withConversationReadDeadline(signal, () => new Promise<never>(() => {}))
+      },
+      retryOnMount: false,
+    })
+    const unsubscribe = observer.subscribe(() => {})
+    const failure = reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox", targetRevision: 1 })
+      .catch((error: unknown) => error)
+    await vi.advanceTimersByTimeAsync(15_000)
+    const error = await failure
+    expect(error).toBeInstanceOf(AggregateError)
+    expect((error as AggregateError).errors).toEqual([expect.any(ConversationReadTimeoutError)])
+    expect(observer.getCurrentResult()).toMatchObject({ status: "error", fetchStatus: "idle", data: undefined })
+    expect(queryClient.getQueryData(communityKeys.accountReadStateSnapshot())).toMatchObject({ revision: 1 })
+    await vi.advanceTimersByTimeAsync(20_000)
+    await expect(reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox", targetRevision: 1 }))
+      .rejects.toThrow("read-state surface reconciliation failed")
+    expect(reads).toBe(1)
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    unsubscribe()
+    disposeAccountReadStateReconciliation(queryClient)
+    vi.useRealTimers()
+  })
+
+  it("retries only failed cached targets beside a terminal cold target", async () => {
+    vi.useFakeTimers()
+    apiFetch.mockResolvedValue({ revision: 1, readStates: [] })
+    const reads = { cold: 0, cached: 0, healthy: 0 }
+    const observers = [
+      new QueryObserver(queryClient, {
+        queryKey: communityKeys.server("cold"),
+        queryFn: ({ signal }) => {
+          reads.cold += 1
+          return withConversationReadDeadline(signal, () => new Promise<never>(() => {}))
+        },
+      }),
+      new QueryObserver(queryClient, {
+        queryKey: communityKeys.server("cached"),
+        initialData: { id: "cached" },
+        staleTime: Infinity,
+        queryFn: async () => {
+          reads.cached += 1
+          if (reads.cached === 1) throw new Error("temporary cached failure")
+          return { id: "cached" }
+        },
+      }),
+      new QueryObserver(queryClient, {
+        queryKey: communityKeys.server("healthy"),
+        initialData: { id: "healthy" },
+        staleTime: Infinity,
+        queryFn: async () => { reads.healthy += 1; return { id: "healthy" } },
+      }),
+    ]
+    const unsubscribes = observers.map((observer) => observer.subscribe(() => {}))
+    const failure = reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox", targetRevision: 1 })
+      .catch((error: unknown) => error)
+    await vi.advanceTimersByTimeAsync(15_000)
+    const error = await failure
+    expect((error as AggregateError).errors).toEqual(expect.arrayContaining([
+      expect.any(ConversationReadTimeoutError), expect.objectContaining({ message: "temporary cached failure" }),
+    ]))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(reads).toEqual({ cold: 1, cached: 2, healthy: 1 })
+    expect(observers[0]!.getCurrentResult()).toMatchObject({ status: "error", fetchStatus: "idle" })
+    expect(observers[1]!.getCurrentResult().status).toBe("success")
+    await vi.advanceTimersByTimeAsync(20_000)
+    expect(reads).toEqual({ cold: 1, cached: 2, healthy: 1 })
+    unsubscribes.forEach((unsubscribe) => unsubscribe())
+    disposeAccountReadStateReconciliation(queryClient)
+    vi.useRealTimers()
+  })
+
+  it.each(["native Retry", "new authoritative generation"])("recovers cold pending work through %s", async (recovery) => {
+    vi.useFakeTimers()
+    apiFetch.mockImplementation(async () => ({ revision: apiFetch.mock.calls.length, readStates: [] }))
+    let reads = 0
+    const observer = new QueryObserver(queryClient, {
+      queryKey: communityKeys.server("cold"),
+      queryFn: ({ signal }) => {
+        reads += 1
+        return reads === 1
+          ? withConversationReadDeadline(signal, () => new Promise<never>(() => {}))
+          : Promise.resolve({ id: "cold" })
+      },
+    })
+    const unsubscribe = observer.subscribe(() => {})
+    const failure = reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox", targetRevision: 1 })
+      .catch((error: unknown) => error)
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(await failure).toBeInstanceOf(AggregateError)
+    if (recovery === "native Retry") await observer.refetch({ cancelRefetch: false })
+    await expect(reconcileAccountReadState(queryClient, {
+      surfaceMode: "non-inbox", targetRevision: recovery === "native Retry" ? 1 : 2,
+    })).resolves.toMatchObject({ revision: recovery === "native Retry" ? 1 : 2 })
+    expect(reads).toBe(2)
+    expect(observer.getCurrentResult().status).toBe("success")
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(reads).toBe(2)
+    unsubscribe()
+    disposeAccountReadStateReconciliation(queryClient)
+    vi.useRealTimers()
+  })
+
+  it.each(["removed", "replaced", "inactive", "disposed", "account", "access"])("does not revive a %s retry target", async (retirement) => {
+    vi.useFakeTimers()
+    apiFetch.mockResolvedValue({ revision: 1, readStates: [] })
+    let reads = 0
+    const observer = new QueryObserver(queryClient, {
+      queryKey: communityKeys.server("cached"),
+      initialData: { id: "cached" },
+      staleTime: Infinity,
+      queryFn: async () => { reads += 1; throw new Error("temporary failure") },
+    })
+    const unsubscribe = observer.subscribe(() => {})
+    await expect(reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox", targetRevision: 1 }))
+      .rejects.toThrow("read-state surface reconciliation failed")
+    let replacementUnsubscribe: (() => void) | undefined
+    const replacementRead = vi.fn(async () => ({ id: "replacement" }))
+    if (retirement === "disposed") disposeAccountReadStateReconciliation(queryClient)
+    else if (retirement === "inactive") unsubscribe()
+    else if (retirement === "account") createCommunityDbRegistry(queryClient, "viewer").runtime.ws.actions.activateProfileAccount("next-viewer")
+    else if (retirement === "access") createCommunityDbRegistry(queryClient, "viewer").runtime.ws.setState((state) => ({ ...state, accessEpoch: state.accessEpoch + 1 }))
+    else {
+      queryClient.removeQueries({ queryKey: communityKeys.server("cached"), exact: true })
+      if (retirement === "replaced") {
+        const replacement = new QueryObserver(queryClient, {
+          queryKey: communityKeys.server("cached"),
+          initialData: { id: "replacement" },
+          staleTime: Infinity,
+          queryFn: replacementRead,
+        })
+        replacementUnsubscribe = replacement.subscribe(() => {})
+      }
+    }
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(reads).toBe(1)
+    expect(replacementRead).not.toHaveBeenCalled()
+    if (retirement === "removed") expect(queryClient.getQueryState(communityKeys.server("cached"))).toBeUndefined()
+    if (retirement === "replaced") expect(queryClient.getQueryData(communityKeys.server("cached"))).toEqual({ id: "replacement" })
+    if (retirement === "inactive") {
+      await expect(reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox", targetRevision: 1 }))
+        .rejects.toThrow("read-state surface reconciliation failed")
+      expect(reads).toBe(1)
+    }
+    unsubscribe()
+    replacementUnsubscribe?.()
+    disposeAccountReadStateReconciliation(queryClient)
+    vi.useRealTimers()
+  })
+
+  it("joins an explicit Retry without cancelling its in-flight cached read", async () => {
+    vi.useFakeTimers()
+    apiFetch.mockResolvedValue({ revision: 1, readStates: [] })
+    let reads = 0
+    let release!: (data: { id: string }) => void
+    let retrySignal: AbortSignal | undefined
+    const observer = new QueryObserver(queryClient, {
+      queryKey: communityKeys.server("cached"),
+      initialData: { id: "cached" },
+      staleTime: Infinity,
+      queryFn: ({ signal }) => {
+        reads += 1
+        if (reads === 1) return Promise.reject(new Error("temporary background failure"))
+        retrySignal = signal
+        return new Promise<{ id: string }>((resolve) => { release = resolve })
+      },
+    })
+    const unsubscribe = observer.subscribe(() => {})
+    await expect(reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox", targetRevision: 1 }))
+      .rejects.toThrow("read-state surface reconciliation failed")
+    const retry = observer.refetch({ cancelRefetch: false })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(reads).toBe(2)
+    expect(retrySignal?.aborted).toBe(false)
+    release({ id: "recovered" })
+    await retry
+    await vi.advanceTimersByTimeAsync(100)
+    expect(observer.getCurrentResult()).toMatchObject({ status: "success", data: { id: "recovered" } })
+    expect(reads).toBe(2)
+    unsubscribe()
+    disposeAccountReadStateReconciliation(queryClient)
+    vi.useRealTimers()
+  })
+
+  it("keeps access failure dirty without retrying it on a read-state revision", async () => {
+    vi.useFakeTimers()
+    apiFetch.mockImplementation(async () => ({ revision: apiFetch.mock.calls.length, readStates: [] }))
+    const denied = Object.assign(new Error("Forbidden"), { status: 403 })
+    const read = vi.fn(async () => { throw denied })
+    const observer = new QueryObserver(queryClient, {
+      queryKey: communityKeys.server("denied"),
+      initialData: { id: "denied" },
+      staleTime: Infinity,
+      queryFn: read,
+    })
+    const unsubscribe = observer.subscribe(() => {})
+    await expect(reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox", targetRevision: 1 }))
+      .rejects.toMatchObject({ errors: [denied] })
+    await vi.advanceTimersByTimeAsync(10_000)
+    await expect(reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox", targetRevision: 2 }))
+      .rejects.toMatchObject({ errors: [denied] })
+    expect(read).toHaveBeenCalledOnce()
+    expect(queryClient.getQueryData(communityKeys.accountReadStateSnapshot())).toMatchObject({ revision: 2 })
+    unsubscribe()
+    disposeAccountReadStateReconciliation(queryClient)
+    vi.useRealTimers()
   })
 })
