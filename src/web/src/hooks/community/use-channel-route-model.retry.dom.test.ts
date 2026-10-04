@@ -9,6 +9,7 @@ import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityStore } from "@/stores/community"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import { runAuthoritativeServerEject } from "@/lib/community/eject-server"
 
 const mocks = vi.hoisted(() => ({ apiFetch: vi.fn(), replace: vi.fn(), toast: vi.fn(),
   server: { server: { id: "server-1", categories: [{ channels: [{ id: "parent-1", name: "parent", type: "text" }] }] } as { id: string; categories: { channels: { id: string; name: string; type: string }[] }[] } | null,
@@ -178,6 +179,25 @@ describe("unresolved metadata terminal error and retry", () => {
     await until(() => current.routeLifecycle === "terminal-error")
 
     expect(mocks.replace).not.toHaveBeenCalled()
+  })
+
+  it("does not overwrite a server eject with the denied channel's server root", async () => {
+    const owner = getCommunityDbRegistry(client)!
+    owner.runtime.ws.actions.revokeServerAccess("server-1")
+    client.getQueryCache().build(client, {
+      queryKey: communityKeys.channelMeta("server-1", "post-1"),
+    }).setState({ error: new ApiError("denied", 403), status: "error", fetchStatus: "idle" })
+    expect(runAuthoritativeServerEject({
+      serverId: "server-1", servers: [], isSuccess: true, isFetching: false,
+      consumeVoluntaryLeave: () => false, clearLastChannel: vi.fn(),
+      toast: mocks.toast, replace: mocks.replace,
+    })).toBe(true)
+    await mount()
+    await until(() => current.routeLifecycle === "terminal-error")
+
+    expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/me")
+    expect(owner.runtime.ws.actions.isChannelAccessRevoked("post-1", "server-1")).toBe(true)
+    expect(current.metadataError).toBe(false)
   })
 
   it.each([0, 500])("keeps a verified thread ready through disconnect, failed %s revalidation, and recovery", async (status) => {
