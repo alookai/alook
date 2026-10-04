@@ -492,7 +492,7 @@ describe("createDaemon", () => {
     }
   });
 
-  it.each(["codex", "grok"] as const)("re-emits enriched idle when terminal %s telemetry arrives after turn completion", async (backendId) => {
+  it.each(["codex", "grok", "antigravity"] as const)("re-emits enriched idle when terminal %s telemetry arrives after turn completion", async (backendId) => {
     const sockets: FakeSocket[] = [];
     const sessions: DaemonFakeSession[] = [];
     const workingDirectoryBase = mkdtempSync(join(tmpdir(), "daemon-provider-telemetry-"));
@@ -518,6 +518,7 @@ describe("createDaemon", () => {
         sessions.push(session);
         return session;
       },
+      providerQuotaReader: async () => null,
       capabilities: [],
       workingDirectoryBase,
     });
@@ -547,12 +548,14 @@ describe("createDaemon", () => {
         type: "token_usage",
         turnId: "daemon-test-turn",
         source: `${backendId}_settled_usage`,
+        ...(backendId === "antigravity" ? { identity: { source: "native:test", index: 0, occurredAt: new Date().toISOString() } } : {}),
         usage: {
           input: 20,
           output: 5,
           cache: null,
         },
       });
+      if (backendId === "antigravity") await sessions[0]!.fire("agent_event", { type: "token_usage", source: "native:replay", usage: { input: 20, output: 5, cache: null }, identity: { source: "native:test", index: 0, occurredAt: new Date().toISOString() } });
       await sessions[0]!.fire("agent_event", {
         type: "rate_limits",
         source: `${backendId}_rate_limits_updated`,
@@ -585,6 +588,19 @@ describe("createDaemon", () => {
       )).toBe(true));
       expect(existsSync(join(workingDirectoryBase, ".telemetry", "daily-token-usage.json"))).toBe(true);
 
+      if (backendId === "antigravity") {
+        await sessions[0]!.fire("agent_event", { type: "token_usage_status", source: "native", status: "unavailable" });
+        await vi.waitFor(() => expect(frames().filter((frame) => frame.type === "agent_activity" && frame.state === "idle").at(-1)?.dailyUsage?.at(-1)?.metrics).toEqual({ input: null, output: null, cache: null }));
+        const stored = () => JSON.parse(readFileSync(join(workingDirectoryBase, ".telemetry", "daily-token-usage.json"), "utf8"));
+        expect(stored().bots.bot_1[0].metrics.input).toBe(20);
+        const switched = vi.spyOn(AgentProcessManager.prototype, "agentBackendId").mockReturnValue("codex");
+        await sessions[0]!.fire("agent_event", { type: "token_usage_status", source: "native", status: "unavailable" });
+        await vi.waitFor(() => expect(frames().filter((frame) => frame.type === "agent_activity" && frame.state === "idle").at(-1)?.dailyUsage?.at(-1)?.metrics.input).toBe(20));
+        switched.mockRestore();
+        await sessions[0]!.fire("agent_event", { type: "token_usage_status", source: "native", status: "available" });
+        await vi.waitFor(() => expect(frames().filter((frame) => frame.type === "agent_activity" && frame.state === "idle").at(-1)?.dailyUsage?.at(-1)?.metrics.input).toBe(20));
+        expect(stored().bots.bot_1[0].metrics.input).toBe(20);
+      }
       const readyBefore = frames().filter((frame) => frame.type === "ready").length;
       await sessions[0]!.fire("agent_event", {
         type: "rate_limits",

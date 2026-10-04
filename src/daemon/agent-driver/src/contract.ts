@@ -76,7 +76,9 @@ export interface ModelBackendConfig extends BaseBackendConfig {
   readonly model: ModelSelection;
 }
 
-export type AntigravityConfig = ModelBackendConfig;
+export interface AntigravityConfig extends ModelBackendConfig {
+  readonly reasoningEffort?: ReasoningEffort;
+}
 export type CursorConfig = ModelBackendConfig;
 export interface GrokConfig extends ModelBackendConfig {
   readonly reasoningEffort?: ReasoningEffort;
@@ -123,7 +125,7 @@ export type FixedCapabilities<
   readonly interrupt: true;
 };
 
-export type AntigravityCapabilities = FixedCapabilities<false, false, false, false, true, "next_turn_queue", "persistent">;
+export type AntigravityCapabilities = FixedCapabilities<false, true, false, false, true, "next_turn_queue", "persistent">;
 export type ClaudeCapabilities = FixedCapabilities<true, true, true, true, true, "safe_boundary_queue", "persistent">;
 export type CodexCapabilities = FixedCapabilities<false, true, true, false, true, "safe_boundary_queue", "persistent">;
 export type CursorCapabilities = FixedCapabilities<false, false, false, false, true, "steer", "persistent">;
@@ -302,6 +304,8 @@ export type AgentTurnResult =
   | { readonly outcome: "interrupted"; readonly backendSessionId?: string }
   | { readonly outcome: "failed"; readonly backendSessionId?: string; readonly error: AgentDriverError };
 
+export type TokenUsageIdentity = { readonly source: string; readonly index: number; readonly occurredAt: string };
+
 export type TokenMetricDelta = number | null;
 
 export interface TokenUsageDelta {
@@ -439,6 +443,13 @@ export type CoreAgentEventPayload =
       readonly turnId?: string;
       readonly source: string;
       readonly usage: TokenUsageDelta;
+      readonly identity?: TokenUsageIdentity;
+    }
+  | {
+      readonly type: "token_usage_status";
+      readonly turnId?: string;
+      readonly source: string;
+      readonly status: "available" | "unavailable";
     }
   | {
       readonly type: "rate_limits";

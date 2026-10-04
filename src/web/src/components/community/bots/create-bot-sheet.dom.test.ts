@@ -10,7 +10,7 @@ import {
   firstHealthyRuntimeId,
   firstOnlineMachineId,
 } from "./create-bot-sheet"
-import type { CommunityMachineSummary } from "@alook/shared"
+import type { CommunityMachineSummary, RuntimeReasoningCatalog } from "@alook/shared"
 
 function machine(over: Partial<CommunityMachineSummary>): CommunityMachineSummary {
   return {
@@ -142,21 +142,22 @@ vi.mock("./bot-form-fields", () => ({
 const modelFieldRenders: Array<{ runtime: { id: string; reasoning?: unknown } | null; value: string | null }> = []
 const reasoningDaemonVersionRenders: Array<string | undefined> = []
 vi.mock("./model-field", () => ({
-  ModelField: ({ runtime, value }: { runtime: { id: string; reasoning?: unknown } | null; value: string | null }) => {
+  ModelField: ({ runtime, value, onChange }: { runtime: { id: string; reasoning?: RuntimeReasoningCatalog } | null; value: string | null; onChange: (value: string | null) => void }) => {
     modelFieldRenders.push({ runtime, value })
-    return React.createElement("div", { "data-mock": "model-field", "data-value": value ?? "" })
+    return React.createElement("button", { "data-mock": "model-field", "data-value": value ?? "", "data-testid": "set-model", onClick: () => onChange(runtime?.reasoning?.defaultModelId ?? null) })
   },
 }))
 
 vi.mock("./reasoning-effort-field", () => ({
-  ReasoningEffortField: ({ onChange, daemonVersion }: {
+  ReasoningEffortField: ({ onChange, daemonVersion, runtime }: {
+    runtime: { reasoning?: RuntimeReasoningCatalog } | null
     onChange: (value: string | null) => void
     daemonVersion?: string
   }) => {
     reasoningDaemonVersionRenders.push(daemonVersion)
     return React.createElement("button", {
       "data-testid": "set-reasoning-effort",
-      onClick: () => onChange("xhigh"),
+      onClick: () => onChange(runtime?.reasoning?.models[0]?.supportedReasoningEfforts[0]?.value ?? "xhigh"),
     })
   },
 }))
@@ -353,6 +354,45 @@ describe("CreateBotSheet — auto-select defaults", () => {
     )!
     fireEvent.click(machineA)
     expect(modelFieldRenders.at(-1)?.runtime?.reasoning).toEqual(catalog("a-model"))
+  })
+
+  it("creates Antigravity with exact native model/effort and keeps Default null", async () => {
+    const reasoning: RuntimeReasoningCatalog = {
+      updateMode: "live_next_turn",
+      defaultModelId: "gemini-3.1-pro-high",
+      models: [{ id: "gemini-3.1-pro-high", displayName: "Gemini 3.1 Pro (High)",
+        supportedReasoningEfforts: [{ value: "high" }, { value: "low" }] }],
+    }
+    useMachinesMock.mockReturnValue({ machines: [machine({
+      id: "mac", daemonVersion: "0.1.43",
+      availableRuntimes: [{ id: "antigravity", status: "healthy", reasoning }],
+    })] })
+    const renderer = render()
+    expect(modelFieldRenders.at(-1)?.runtime).toEqual({ id: "antigravity", unhealthy: false, reasoning })
+    expect(modelFieldRenders.at(-1)?.value).toBeNull()
+    fireEvent.click(renderer.getByTestId("set-model"))
+    fireEvent.click(renderer.getByTestId("set-reasoning-effort"))
+    await act(async () => {
+      fireEvent.click(renderer.getByRole("button", { name: "Create bot" }))
+      await Promise.resolve()
+    })
+    expect(createMutateAsync).toHaveBeenCalledWith(expect.objectContaining({
+      machineId: "mac", runtime: "antigravity", model: "gemini-3.1-pro-high", reasoningEffort: "high",
+    }))
+  })
+
+  it("creates Antigravity Default without inventing a catalog or effort override", async () => {
+    useMachinesMock.mockReturnValue({ machines: [machine({
+      id: "mac", availableRuntimes: [{ id: "antigravity", status: "healthy" }],
+    })] })
+    const renderer = render()
+    await act(async () => {
+      fireEvent.click(renderer.getByRole("button", { name: "Create bot" }))
+      await Promise.resolve()
+    })
+    expect(createMutateAsync).toHaveBeenCalledWith(expect.objectContaining({
+      machineId: "mac", runtime: "antigravity", model: null, reasoningEffort: null,
+    }))
   })
 
   it("includes the selected runtime-reported reasoning effort in create", async () => {

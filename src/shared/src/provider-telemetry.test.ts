@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   DailyUsageSnapshotSchema,
   ProviderQuotaObservationSchema,
+  ProviderQuotaSnapshotSchema,
 } from "./provider-telemetry.js"
 
 function quotaLimit() {
@@ -18,6 +19,10 @@ function quotaLimit() {
 }
 
 describe("provider telemetry schemas", () => {
+  it("accepts Antigravity quota without a schema or DB migration", () => {
+    expect(ProviderQuotaSnapshotSchema.safeParse({ agentBackendId: "antigravity", observation: { status: "error", sourceEpoch: "A".repeat(22), code: "unauthorized", retryable: false } }).success).toBe(true)
+  })
+
   it("accepts exact zero and unavailable usage without conflating them", () => {
     expect(DailyUsageSnapshotSchema.parse({
       botId: "bot_1",

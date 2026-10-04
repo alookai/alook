@@ -26,6 +26,7 @@ import type {
   RuntimeSettingsUpdateResult,
   ProviderQuotaObservation,
   TokenUsageDelta,
+  TokenUsageIdentity,
 } from "@alook/agent-driver";
 import type { HostLaunchContext } from "./hostContext.js";
 import { runtimeModelName, type RuntimeConfig } from "../runtimeConfig.js";
@@ -232,7 +233,8 @@ export interface ManagerRuntimeOpts {
   now?: () => number;
   onAgentSession?: (info: { agentId: string; sessionId: string; launchId: string }) => void;
   onAgentActivity?: (info: { agentId: string; state: AgentActivityState }) => void;
-  onTokenUsage?: (info: { agentId: string; backendId: BuiltinBackendId; usage: TokenUsageDelta }) => void;
+  onTokenUsageStatus?: (info: { agentId: string; backendId: BuiltinBackendId; status: "available" | "unavailable" }) => void;
+  onTokenUsage?: (info: { agentId: string; backendId: BuiltinBackendId; usage: TokenUsageDelta; identity?: TokenUsageIdentity }) => void;
   onProviderQuota?: (info: { agentId: string; backendId: BuiltinBackendId; quota: ProviderQuotaObservation }) => void;
   onBotAuditEvent?: (
     agentId: string,
@@ -475,6 +477,7 @@ export class AgentProcessManager {
       | "credentialProxy"
       | "onAgentSession"
       | "onAgentActivity"
+      | "onTokenUsageStatus"
       | "onTokenUsage"
       | "onProviderQuota"
       | "onBotAuditEvent"
@@ -495,6 +498,7 @@ export class AgentProcessManager {
       | "credentialProxy"
       | "onAgentSession"
       | "onAgentActivity"
+      | "onTokenUsageStatus"
       | "onTokenUsage"
       | "onProviderQuota"
       | "onBotAuditEvent"
@@ -1970,8 +1974,9 @@ export class AgentProcessManager {
         runtime: runtimeId,
       });
     }
+    if (event.type === "token_usage_status") this.opts.onTokenUsageStatus?.({ agentId, backendId: runtimeId, status: event.status });
     if (event.type === "token_usage") {
-      this.opts.onTokenUsage?.({ agentId, backendId: runtimeId, usage: event.usage });
+      this.opts.onTokenUsage?.({ agentId, backendId: runtimeId, usage: event.usage, ...(event.identity ? { identity: event.identity } : {}) });
     }
     if (event.type === "rate_limits") {
       this.opts.onProviderQuota?.({ agentId, backendId: runtimeId, quota: event.quota });

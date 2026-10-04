@@ -246,3 +246,90 @@ describe("DailyTokenUsageStore", () => {
     expect(persisted.bots.bot?.at(-1)?.day).toBe("2026-08-30");
   });
 });
+
+describe("native generation recovery", () => {
+  const sample = (index: number, occurredAt = "2026-10-03T23:59:59Z", source = "provider:session") => ({ source, index, occurredAt });
+  function setupRecovery() {
+    const root = mkdtempSync(join(tmpdir(), "alook-native-recovery-")); roots.push(root);
+    const now = () => new Date("2026-10-04T10:00:00Z");
+    return { root, store: new DailyTokenUsageStore(root, now, "UTC"), restart: () => new DailyTokenUsageStore(root, now, "UTC") };
+  }
+  it("recovers native writes before accounting and suppresses replay after accounting across midnight", async () => {
+    const h = setupRecovery();
+    await h.store.record("bot", delta(90, 24, 23), sample(0));
+    const recovered = h.restart();
+    await recovered.record("bot", delta(90, 24, 23), sample(0));
+    await recovered.record("bot", delta(90, 24, 23), sample(1, "2026-10-04T00:00:00Z"));
+    expect(await recovered.snapshots("bot")).toMatchObject([
+      { day: "2026-10-03", metrics: { input: 90, output: 24, cache: 23 } },
+      { day: "2026-10-04", metrics: { input: 90, output: 24, cache: 23 } },
+    ]);
+    await recovered.record("other", delta(90, 24, 23), sample(0));
+    expect((await recovered.snapshots("other"))[0].metrics.input).toBe(90);
+  });
+  it("recovers a failed lower generation after a higher generation commits", async () => {
+    const h = setupRecovery();
+    await h.store.record("bot", delta(1, 2, 3), sample(0));
+    const path = join(h.root, ".telemetry", "daily-token-usage.json");
+    rmSync(path); mkdirSync(path);
+    await expect(h.store.record("bot", delta(10, 20, 30), sample(1))).rejects.toThrow();
+    rmSync(path, { recursive: true });
+    await h.store.record("bot", delta(100, 200, 300), sample(2));
+    expect((await h.store.snapshots("bot"))[0].metrics).toEqual({ input: 111, output: 222, cache: 333 });
+    const recovered = h.restart();
+    await recovered.record("bot", delta(10, 20, 30), sample(1));
+    await recovered.record("bot", delta(100, 200, 300), sample(2));
+    expect((await recovered.snapshots("bot"))[0].metrics).toEqual({ input: 111, output: 222, cache: 333 });
+    expect(JSON.parse(readFileSync(path, "utf8")).sources.bot["provider:session"].ranges).toEqual([[0, 2]]);
+  });
+  it("does not assign old or undated native records to today", async () => {
+    const h = setupRecovery();
+    await h.store.record("bot", delta(1, 2, 3), sample(0, "2026-01-01T00:00:00Z"));
+    expect(await h.store.snapshots("bot")).toEqual([]);
+    await expect(h.store.record("bot", delta(1, 2, 3), sample(1, "unknown"))).rejects.toThrow("identity");
+    await expect(h.store.record("bot", delta(1, 2, 3), sample(-1))).rejects.toThrow("identity");
+  });
+  it("keeps sources isolated and missing metrics unknown on replay", async () => {
+    const h = setupRecovery();
+    await h.store.record("bot", delta(1, 2, 3), sample(0));
+    await h.store.record("bot", { input: 90, output: 24, cache: null }, sample(0, undefined, "provider:other"));
+    await h.restart().record("bot", delta(90, 24, 23), sample(0, undefined, "provider:other"));
+    expect((await h.restart().snapshots("bot"))[0].metrics).toEqual({ input: 91, output: 26, cache: null });
+  });
+});
+
+it("retries a failed native sample on the next telemetry read without restart or new generation", async () => {
+  const root = mkdtempSync(join(tmpdir(), "alook-native-retry-")); roots.push(root);
+  const store = new DailyTokenUsageStore(root, () => new Date("2026-10-04T10:00:00Z"), "UTC");
+  await store.snapshots("bot");
+  const directory = join(root, ".telemetry"); mkdirSync(directory);
+  const path = join(directory, "daily-token-usage.json"); mkdirSync(path);
+  await expect(store.record("bot", delta(90, 24, 23), { source: "native:session", index: 0, occurredAt: "2026-10-04T09:00:00Z" })).rejects.toThrow();
+  rmSync(path, { recursive: true });
+  expect((await store.snapshots("bot"))[0].metrics).toEqual({ input: 90, output: 24, cache: 23 });
+  expect((await new DailyTokenUsageStore(root, () => new Date("2026-10-04T10:00:00Z"), "UTC").snapshots("bot"))[0].metrics.input).toBe(90);
+});
+
+it.each([
+  { version: 2, bots: {} },
+  { version: 1, bots: [] },
+  { version: 1, bots: { bot: [{}] } },
+  { version: 1, bots: {}, sources: [] },
+  { version: 1, bots: {}, sources: { bot: [] } },
+  { version: 1, bots: {}, sources: { bot: { source: { ranges: [[2, 1]], day: "2026-10-04" } } } },
+])("rejects corrupt accounting rather than silently losing deduplication metadata: %j", async (contents) => {
+  const root = mkdtempSync(join(tmpdir(), "alook-usage-corrupt-")); roots.push(root);
+  const directory = join(root, ".telemetry"); mkdirSync(directory);
+  writeFileSync(join(directory, "daily-token-usage.json"), JSON.stringify(contents));
+  await expect(new DailyTokenUsageStore(root).snapshots("bot")).rejects.toThrow();
+});
+
+it("expires old source ranges together with retained daily counts", async () => {
+  const root = mkdtempSync(join(tmpdir(), "alook-source-retention-")); roots.push(root);
+  let now = new Date("2026-10-04T10:00:00Z");
+  const store = new DailyTokenUsageStore(root, () => now, "UTC");
+  await store.record("bot", delta(90, 24, 23), { source: "native:session", index: 0, occurredAt: now.toISOString() });
+  now = new Date("2026-11-20T10:00:00Z");
+  expect(await store.snapshots("bot")).toEqual([]);
+  expect(JSON.parse(readFileSync(join(root, ".telemetry", "daily-token-usage.json"), "utf8")).sources).toEqual({});
+});

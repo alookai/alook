@@ -188,7 +188,7 @@ export const BUILTIN_BACKEND_IDS = ["claude", "codex", "cursor", "grok", "openco
 
 const capabilities = {
   antigravity: {
-    modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false,
+    modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false,
     disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "next_turn_queue", interrupt: true,
   },
   claude: {

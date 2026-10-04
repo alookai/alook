@@ -1,12 +1,14 @@
 import React from "react"
 import { describe, expect, it, vi } from "vitest"
-import { render, screen } from "@/test/react-dom-harness"
+import { act, render, screen } from "@/test/react-dom-harness"
 import { ReasoningEffortField } from "./reasoning-effort-field"
 
 vi.mock("@/components/ui/label", () => ({
   Label: ({ children }: { children?: React.ReactNode }) =>
     React.createElement("label", null, children),
 }))
+
+let selectOnChange: ((value: string | null) => void) | undefined
 
 vi.mock("@/components/ui/select", () => ({
   Select: ({ children, disabled, items, value, onValueChange }: {
@@ -15,12 +17,15 @@ vi.mock("@/components/ui/select", () => ({
     items?: unknown[]
     value?: string
     onValueChange?: (value: string | null) => void
-  }) => React.createElement("select", {
-    disabled,
-    value,
-    "data-items": JSON.stringify(items),
-    onChange: (event: React.ChangeEvent<HTMLSelectElement>) => onValueChange?.(event.target.value),
-  }, children),
+  }) => {
+    selectOnChange = onValueChange
+    return React.createElement("select", {
+      disabled,
+      value,
+      "data-items": JSON.stringify(items),
+      onChange: (event: React.ChangeEvent<HTMLSelectElement>) => onValueChange?.(event.target.value),
+    }, children)
+  },
   SelectContent: ({ children }: { children?: React.ReactNode }) =>
     React.createElement("div", null, children),
   SelectItem: ({ children, value }: { children?: React.ReactNode; value: string }) =>
@@ -114,5 +119,46 @@ describe("ReasoningEffortField", () => {
   it("resets an incompatible selected value to Default", () => {
     const { onChange } = renderField({ value: "ultra" })
     expect(onChange).toHaveBeenCalledWith(null)
+  })
+
+  it("clears an override when the reported model has no effort options", () => {
+    const { renderer, onChange } = renderField({
+      runtime: { reasoning: { updateMode: "live_next_turn", models: [
+        { id: "claude-sonnet-4-6", supportedReasoningEfforts: [] },
+      ] } },
+      model: "claude-sonnet-4-6",
+      value: "high",
+    })
+    expect(renderer.container.querySelector("select")).toBeDisabled()
+    expect(onChange).toHaveBeenCalledWith(null)
+  })
+
+  it("preserves an override for a custom model absent from the catalog", () => {
+    const { onChange } = renderField({ model: "custom-model", value: "high" })
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it("exposes only Antigravity's reported variants for its default model", () => {
+    const { renderer, onChange } = renderField({
+      runtime: { reasoning: {
+        updateMode: "live_next_turn",
+        defaultModelId: "gemini-3.1-pro-high",
+        models: [{
+          id: "gemini-3.1-pro-high",
+          supportedReasoningEfforts: [{ value: "high" }, { value: "low" }],
+          defaultReasoningEffort: "high",
+        }],
+      } },
+      model: null,
+    })
+    const select = renderer.container.querySelector("select")!
+    expect(select).toBeEnabled()
+    expect([...renderer.container.querySelectorAll("option")].map((node) => node.value))
+      .toEqual(["__default__", "high", "low"])
+    expect(onChange).not.toHaveBeenCalled()
+    act(() => selectOnChange?.("low"))
+    expect(onChange).toHaveBeenLastCalledWith("low")
+    act(() => selectOnChange?.("__default__"))
+    expect(onChange).toHaveBeenLastCalledWith(null)
   })
 })

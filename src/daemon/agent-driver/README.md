@@ -236,8 +236,10 @@ Authentication is local to Google's ACP server. Complete Google sign-in using an
 ACP client's `authenticate` request with `methodId: "oauth-personal"` before
 launching an agent. The provider's settings live under
 `~/.gemini/antigravity-acp/`; leave credentials there and never put them in agent
-instructions. Runtime detection only initializes the protocol: healthy means the
-native binary is compatible, not that an account is signed in. Launch reports an
+instructions. Runtime detection initializes the protocol and requests a session catalog without
+authenticating or sending a prompt. Healthy means the native binary is compatible,
+not that an account is signed in; unauthenticated discovery has no model catalog.
+The catalog probe can create an empty provider session. Launch reports an
 explicit authentication failure if credentials are missing; it never opens a
 browser implicitly on a daemon wake.
 
@@ -245,5 +247,29 @@ Standing instructions accompany the first prompt of every physical session,
 including resumed sessions. Later prompts reuse its context. Tools use ACP
 permission requests scoped to the active session and prompt, choosing only a
 provider-offered `allow_once` option. Models must be present in the native session's
-advertised model catalog before they can be selected. Quota, token telemetry,
-reasoning settings, and recent-history import are not advertised by this adapter.
+advertised model catalog before they can be selected. Discovery publishes the
+native model catalog through the existing machine model/effort controls. Gemini
+high/medium/low variants are offered as effort choices only when the same model
+family's exact variant IDs are returned by the server. Effort changes select that
+native variant on the same idle session; unsupported values fail explicitly.
+
+Native 1.3.0 exposes model/mode config options but no independent effort option.
+The adapter reads generation usage from the exact session's native SQLite WAL view;
+input already excludes cache and output includes thinking. Missing fields stay null.
+Native session/home plus generation index deduplicates accounting across reloads.
+Dates use the native invocation start timestamp. The daemon commits counts and
+processed generation ranges in one atomic daily store, retries transient write
+failures on subsequent telemetry reads, and recovers native records after restart.
+Reading requires Node's built-in SQLite (Node 22.13+) or the system sqlite3 CLI;
+if neither is available, conversations continue and metrics remain unknown.
+Child trajectories are not yet aggregated: their presence makes session metrics
+unknown rather than presenting partial root usage as complete.
+
+Personal OAuth quota uses the official loadCodeAssist and retrieveUserQuotaSummary
+endpoints with the native credential storage. Reading never starts onboarding or
+interactive authentication. API-key/business modes and absent credentials report
+unavailable/unauthorized. Native bucket identity, remainingFraction and resetTime
+are preserved; provider-defined windows are not guessed. ACP usage_update is
+context occupancy and is never counted. Recent-history import remains unavailable.
+Real authenticated execution and account quota remain blocked by native Google
+location eligibility and require independent validation before acceptance.

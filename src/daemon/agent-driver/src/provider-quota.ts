@@ -1,3 +1,4 @@
+import { readAntigravityQuota } from "./adapters/antigravity/quota.js";
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -161,5 +162,5 @@ export async function readBuiltinProviderQuota(
   backend: BuiltinBackendId,
   options: QuotaReaderOptions = {},
 ): Promise<ProviderQuotaObservation | null> {
-  return backend === "claude" ? readClaudeQuota(options) : null;
+  return backend === "claude" ? readClaudeQuota(options) : backend === "antigravity" ? readAntigravityQuota(options) : null;
 }

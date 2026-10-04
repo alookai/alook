@@ -11,7 +11,7 @@ export type {
   GrokCapabilities, OpenCodeCapabilities, PiCapabilities, BackendExtensionSpec, BackendTypeSpec, BuiltinBackendSpecs, BackendId,
   FixedCapabilities, ConfigOf, CapabilitiesOf, ExtensionsOf, ExtraEventOf, AgentInstructions, AgentLaunchContext, AgentMessage,
   AgentDriverError, OpenSessionResult, DeliveryReceipt, InterruptResult, StopInput, StopReceipt, HostCleanupResult,
-  AgentSessionResult, AgentTurnResult, TokenMetricDelta, TokenUsageDelta, QuotaErrorCode,
+  AgentSessionResult, AgentTurnResult, TokenMetricDelta, TokenUsageDelta, TokenUsageIdentity, QuotaErrorCode,
   QuotaProductIdentity, QuotaModelIdentity, QuotaWindowIdentity, QuotaLimit,
   ProviderQuotaObservation, CoreAgentEventPayload, AgentEventEnvelope, AgentEvent,
   AgentSessionSnapshot, AgentEventStream, ExtensionNames, ExtensionInput, ExtensionOutput, ExtensionResult,

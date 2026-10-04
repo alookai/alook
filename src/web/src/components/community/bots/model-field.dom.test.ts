@@ -15,7 +15,12 @@ vi.mock("@/components/ui/select", () => {
   const React = require("react")
   return {
     Select: ({ value, onValueChange, onOpenChange, items, children }: any) => {
-      selectCalls.push({ value, onValueChange, onOpenChange, items })
+      selectCalls.push({
+        value,
+        onValueChange: (next) => onValueChange(next, { reason: "item-press", cancel: vi.fn() }),
+        onOpenChange,
+        items,
+      })
       return React.createElement("div", { "data-mock": "select", "data-value": value }, children)
     },
     SelectTrigger: ({ children, ...props }: any) =>
@@ -289,5 +294,38 @@ describe("ModelField", () => {
     expect(preventDefault).toHaveBeenCalledOnce()
     expect(stopPropagation).toHaveBeenCalledOnce()
     expect(highlighted.click).toHaveBeenCalledOnce()
+  })
+
+  it("uses exact Antigravity native IDs and labels from the machine catalog", () => {
+    const onChange = vi.fn()
+    const renderer = render({
+      runtime: {
+        id: "antigravity",
+        reasoning: {
+          updateMode: "live_next_turn",
+          defaultModelId: "gemini-3.1-pro-high",
+          models: [{
+            id: "gemini-3.1-pro-high",
+            displayName: "Gemini 3.1 Pro (High)",
+            supportedReasoningEfforts: [{ value: "high" }, { value: "low" }],
+          }, {
+            id: "claude-sonnet-4-6",
+            displayName: "Claude Sonnet 4.6",
+            supportedReasoningEfforts: [],
+          }],
+        },
+      },
+      value: null,
+      onChange,
+    })
+    expect(itemValues(renderer)).toEqual([
+      "__default__", "__custom__", "gemini-3.1-pro-high", "claude-sonnet-4-6",
+    ])
+    expect(itemText(renderer, "gemini-3.1-pro-high")).toContain("Gemini 3.1 Pro (High)")
+    expect(onChange).not.toHaveBeenCalled()
+    act(() => selectCalls.at(-1)!.onValueChange("gemini-3.1-pro-high"))
+    expect(onChange).toHaveBeenLastCalledWith("gemini-3.1-pro-high")
+    act(() => selectCalls.at(-1)!.onValueChange("__default__"))
+    expect(onChange).toHaveBeenLastCalledWith(null)
   })
 })

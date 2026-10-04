@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
 import {
+  HostReadyMessageSchema,
   CommunityBotCreateRequestSchema,
   CommunityBotPatchRequestSchema,
   CommunityServerOnboardRequestSchema,
@@ -358,4 +359,10 @@ describe("BotAuditEventSchema — error", () => {
   it("BotAuditEventKindSchema includes error", () => {
     expect(BotAuditEventKindSchema.safeParse("error").success).toBe(true)
   })
+})
+
+it("accepts the four supported provider quotas in a ready snapshot and bounds extra entries", () => {
+  const providerQuotas = ["claude", "codex", "grok", "antigravity"].map((agentBackendId) => ({ agentBackendId, observation: { status: "error", sourceEpoch: "A".repeat(22), code: "unavailable", retryable: false } }))
+  expect(HostReadyMessageSchema.safeParse({ type: "ready", runtimeReport: [], providerQuotas }).success).toBe(true)
+  expect(HostReadyMessageSchema.safeParse({ type: "ready", runtimeReport: [], providerQuotas: [...providerQuotas, providerQuotas[0]] }).success).toBe(false)
 })

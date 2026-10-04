@@ -1471,7 +1471,7 @@ describe("backend-owned delivery behavior", () => {
     circular.self = circular;
     await emit(driver, { kind: "internal_progress", source: "pi", itemType: "working", payloadBytes: 12 });
     await emit(driver, { kind: "runtime_diagnostic", severity: "notice", source: "pi", message: "heads up" });
-    await emit(driver, { kind: "telemetry", name: "token_usage", source: "pi", attrs: circular } as never);
+    await emit(driver, { kind: "telemetry", name: "token_usage", source: "pi", usage: { input: 90, output: 24, cache: null }, identity: { source: "native:session", index: 0, occurredAt: "2026-10-04T08:00:00Z" }, attrs: circular } as never);
     await emit(driver, {
       kind: "telemetry",
       name: "rate_limits",
@@ -1483,7 +1483,8 @@ describe("backend-owned delivery behavior", () => {
         retryable: false,
       },
     });
-    const events = await take(iterator as never, 7);
+    await emit(driver, { kind: "telemetry", name: "token_usage_status", source: "native", status: "unavailable" });
+    const events = await take(iterator as never, 8);
     expect(events.map((event) => event.type)).toEqual([
       "command_accepted",
       "turn_started",
@@ -1492,8 +1493,11 @@ describe("backend-owned delivery behavior", () => {
       "diagnostic",
       "token_usage",
       "rate_limits",
+      "token_usage_status",
     ]);
     expect(events[4]).toMatchObject({ severity: "info", message: "heads up" });
+    expect(events[5]).toMatchObject({ usage: { input: 90, output: 24, cache: null }, identity: { source: "native:session", index: 0 } });
+    expect(events[7]).toMatchObject({ type: "token_usage_status", status: "unavailable" });
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 

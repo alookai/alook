@@ -60,3 +60,9 @@ describe("readBuiltinProviderQuota", () => {
     expect(first?.sourceEpoch).not.toBe(second?.sourceEpoch)
   })
 })
+
+it("dispatches Antigravity account quota without interactive onboarding", async () => {
+  const fetchUsage = vi.fn();
+  expect(await readBuiltinProviderQuota("antigravity", { platform: "linux", env: {}, readCredentialsFile: async () => JSON.stringify({ auth: { type: "api-key" } }), fetchUsage })).toMatchObject({ status: "error", code: "unavailable" });
+  expect(fetchUsage).not.toHaveBeenCalled();
+});

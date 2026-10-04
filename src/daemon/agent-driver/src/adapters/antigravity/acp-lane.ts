@@ -1,3 +1,6 @@
+import { NativeUsageReader } from "./usage.js";
+import type { RuntimeSettingsUpdate, RuntimeSettingsUpdateResult } from "../../contract.js";
+import { parseAntigravityCatalog, antigravityModelForEffort, type AntigravityCatalog } from "./catalog.js";
 import { EventEmitter } from "node:events";
 import type {
   AdapterEvent,
@@ -57,12 +60,13 @@ interface PromptRequest {
 }
 
 interface AntigravityAcpProcessFactory {
-  spawn(ctx: AdapterLaunchContext): Promise<SpawnedProcess>;
+  spawn(ctx: AdapterLaunchContext): Promise<SpawnedProcess & { usageHome?: string }>;
 }
 
 interface AntigravityAcpLaneOptions {
   readonly onRawStdoutLine?: (line: string) => void;
   readonly handshakeTimeoutMs?: number;
+  readonly usageReader?: Pick<NativeUsageReader, "read">;
 }
 
 class AntigravityAcpResetRequiredError extends Error {}
@@ -110,7 +114,11 @@ export class AntigravityAcpLane implements RuntimeLane {
   private readonly pending = new Map<number, PendingRequest>();
   private readonly openToolCalls = new Set<string>();
   private readonly seenToolCalls = new Set<string>();
+  private catalog?: AntigravityCatalog;
+  private baselineModelId?: string;
   private cancelling = false;
+  private usageHome?: string;
+  private usageReader?: Pick<NativeUsageReader, "read">;
   private process: SpawnedProcessHandle | null = null;
   private stdoutBuffer = "";
   private requestSequence = 0;
@@ -120,7 +128,7 @@ export class AntigravityAcpLane implements RuntimeLane {
   private currentPromptRequestId: number | null = null;
   private terminalOwner: string | null = null;
   private requestedStopReason?: string;
-  private spawnPromise?: Promise<SpawnedProcess>;
+  private spawnPromise?: Promise<SpawnedProcess & { usageHome?: string }>;
   private stopPromise?: Promise<void>;
   private suppressExit = false;
   private processTerminal = false;
@@ -156,6 +164,7 @@ export class AntigravityAcpLane implements RuntimeLane {
     };
     try {
       this.spawnPromise = this.factory.spawn(launchCtx).then((spawned) => {
+        this.usageHome = spawned.usageHome;
         this.process = spawned.process;
         this.attachProcess(spawned.process);
         return spawned;
@@ -176,6 +185,7 @@ export class AntigravityAcpLane implements RuntimeLane {
       }
       const sessionId = this.sessionId;
       if (!sessionId) throw new Error("Antigravity ACP handshake completed without a session id");
+      this.usageReader = this.options.usageReader ?? (this.usageHome ? new NativeUsageReader(this.usageHome, sessionId) : undefined);
       this.processActivated = true;
       this.ready = true;
       this.events.emit("runtime_event", { kind: "session_init", sessionId } satisfies AdapterEvent);
@@ -300,14 +310,47 @@ export class AntigravityAcpLane implements RuntimeLane {
   }
 
   private async configureModel(session: JsonRecord, ctx: AdapterLaunchContext): Promise<void> {
-    const requestedModel = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig).model;
-    if (!requestedModel) return;
-    const models = record(session.models);
-    const available = Array.isArray(models?.availableModels) ? models.availableModels : [];
-    if (!available.some((model) => record(model)?.modelId === requestedModel)) {
-      throw new AntigravityAcpIncompatibleError(`Configured Antigravity model is unavailable: ${requestedModel}`);
+    this.catalog = parseAntigravityCatalog(session);
+    const configured = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig);
+    this.baselineModelId = configured.model ?? this.catalog?.currentModelId;
+    if (!configured.model && !configured.reasoningEffort) return;
+    const modelId = this.catalog && this.baselineModelId
+      ? antigravityModelForEffort(this.catalog, this.baselineModelId, configured.reasoningEffort)
+      : undefined;
+    if (!modelId) throw new AntigravityAcpIncompatibleError("Configured Antigravity model or reasoning effort is unavailable");
+    await this.setModel(modelId);
+  }
+
+  private async setModel(modelId: string): Promise<void> {
+    if (this.catalog?.configId) {
+      const response = await this.call("session/set_config_option", {
+        sessionId: this.sessionId, configId: this.catalog.configId, value: modelId,
+      });
+      const catalog = parseAntigravityCatalog(response);
+      if (!catalog || catalog.currentModelId !== modelId) throw new Error("Antigravity did not confirm the selected model");
+      this.catalog = catalog;
+    } else {
+      await this.call("session/set_model", { sessionId: this.sessionId, modelId });
+      if (this.catalog) this.catalog = { ...this.catalog, currentModelId: modelId };
     }
-    await this.call("session/set_model", { sessionId: this.sessionId, modelId: requestedModel });
+  }
+
+  async updateSettings(input: RuntimeSettingsUpdate): Promise<RuntimeSettingsUpdateResult> {
+    const failed = (code: string, message: string, retryable = false): RuntimeSettingsUpdateResult => ({
+      status: "failed", error: { category: "configuration", code, message, retryable },
+    });
+    if (!this.ready || this.isClosed()) return failed("settings_session_unavailable", "Antigravity session is unavailable", true);
+    if (this.currentPromptRequestId !== null) return failed("settings_runtime_busy", "Antigravity settings require an idle session", true);
+    const modelId = this.catalog && this.baselineModelId
+      ? antigravityModelForEffort(this.catalog, this.baselineModelId, input.reasoningEffort ?? undefined)
+      : undefined;
+    if (!modelId) return failed("unsupported_reasoning_effort", "Antigravity did not offer the requested model/effort variant");
+    try {
+      await this.setModel(modelId);
+      return { status: "applied" };
+    } catch {
+      return failed("settings_update_failed", "Antigravity rejected the settings update", true);
+    }
   }
 
   private admitPrompt(text: string): LaneAdmission {
@@ -542,25 +585,48 @@ export class AntigravityAcpLane implements RuntimeLane {
     }
     if (pending.kind === "prompt") {
       this.pending.delete(id);
-      if (message.error !== undefined) {
-        const payload = record(message.error);
-        const rpcCode = typeof payload?.code === "number" && Number.isSafeInteger(payload.code)
-          ? payload.code
-          : undefined;
-        this.failPrompt(
-          pending.prompt,
-          new AntigravityAcpRpcError(pending.method, rpcCode, rpcErrorMessage(message.error)),
-          rpcCode === undefined ? "antigravity.rpc_error" : `antigravity.rpc.${rpcCode}`,
-        );
-      } else if (!("result" in message)) {
-        this.failPrompt(
-          pending.prompt,
-          new Error("Antigravity ACP response omitted result"),
-          "antigravity.invalid_response",
-        );
-      } else {
-        this.completePrompt(pending.prompt, message.result);
-      }
+      const finish = () => {
+        if (message.error !== undefined) {
+          const payload = record(message.error);
+          const rpcCode = typeof payload?.code === "number" && Number.isSafeInteger(payload.code)
+            ? payload.code
+            : undefined;
+          this.failPrompt(
+            pending.prompt,
+            new AntigravityAcpRpcError(pending.method, rpcCode, rpcErrorMessage(message.error)),
+            rpcCode === undefined ? "antigravity.rpc_error" : `antigravity.rpc.${rpcCode}`,
+          );
+        } else if (!("result" in message)) {
+          this.failPrompt(
+            pending.prompt,
+            new Error("Antigravity ACP response omitted result"),
+            "antigravity.invalid_response",
+          );
+        } else {
+          this.completePrompt(pending.prompt, message.result);
+        }
+      };
+      if (this.usageReader) {
+        void (async () => {
+          const deadline = Date.now() + 5_000;
+          for (let batch = 0; batch < 16; batch++) {
+            const result = await this.usageReader!.read();
+            if (this.currentPromptRequestId !== pending.prompt.requestId || this.isClosed() || this.requestedStopReason) return;
+            for (const sample of result.samples) this.events.emit("runtime_event", { kind: "telemetry", name: "token_usage", source: "antigravity.native", ...sample } satisfies AdapterEvent);
+            if (result.incompleteScope) throw new Error("Child trajectory accounting unavailable");
+            if (result.complete) {
+              this.events.emit("runtime_event", { kind: "telemetry", name: "token_usage_status", source: "antigravity.native", status: "available" } satisfies AdapterEvent);
+              return;
+            }
+            if (Date.now() >= deadline) break;
+          }
+          throw new Error("Native accounting backlog remains");
+        })().catch(() => {
+          if (this.currentPromptRequestId !== pending.prompt.requestId || this.isClosed() || this.requestedStopReason) return;
+          this.diagnostic("warning", "Antigravity native token usage unavailable: SQLite reader, record or timestamp missing");
+          this.events.emit("runtime_event", { kind: "telemetry", name: "token_usage_status", source: "antigravity.native", status: "unavailable" } satisfies AdapterEvent);
+        }).finally(finish);
+      } else finish();
       return;
     }
     if (message.error !== undefined) {
@@ -638,6 +704,11 @@ export class AntigravityAcpLane implements RuntimeLane {
       this.diagnostic("warning", "Antigravity ACP emitted an update for a different session");
       return;
     }
+    const configuration = record(payload.update);
+    if (configuration?.sessionUpdate === "config_option_update") {
+      this.catalog = parseAntigravityCatalog(configuration) ?? this.catalog;
+      return;
+    }
     if (!this.ready || this.currentPromptRequestId === null) {
       this.diagnostic("warning", "Antigravity ACP emitted a session update without an active prompt");
       return;
@@ -660,6 +731,7 @@ export class AntigravityAcpLane implements RuntimeLane {
         return;
       }
       case "user_message_chunk":
+      case "usage_update":
         return;
       case "tool_call": {
         if (typeof update.toolCallId !== "string" || typeof update.title !== "string") {

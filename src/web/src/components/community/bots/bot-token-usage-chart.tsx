@@ -99,7 +99,7 @@ function UsageDayDetail({ day, includeTotal = false }: { day: BotUsageDay; inclu
       <span className="font-medium">{fullDayLabel(day)}</span>
       {includeTotal && (
         <span className="flex items-center justify-between gap-4 font-medium">
-          <span>Total</span>
+          <span>Known total</span>
           <span className="font-mono tabular-nums">
             {presentation.unavailable ? "Unavailable" : TOKEN_FMT.format(presentation.knownTotal)}
           </span>
@@ -224,7 +224,7 @@ export function BotTokenUsageHeatmap({
         <DialogContent data-testid={tid.botUsageDialog(botId)} className="gap-4">
           <DialogHeader>
             <DialogTitle>Token usage</DialogTitle>
-            <DialogDescription>Choose a date to view exact token totals.</DialogDescription>
+            <DialogDescription>Choose a date to view token usage. Known total excludes unavailable values.</DialogDescription>
           </DialogHeader>
           <div
             data-testid={tid.botUsageDateRail(botId)}

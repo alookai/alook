@@ -14,7 +14,7 @@ import type {
   RecentContextDiscoveryData,
   RecentContextDiscoveryRequest,
 } from "../contract.js";
-import type { ProviderQuotaObservation, TokenUsageDelta } from "../contract.js";
+import type { ProviderQuotaObservation, TokenUsageDelta, TokenUsageIdentity } from "../contract.js";
 
 export type BackendConfig = ClaudeConfig | CodexConfig | CursorConfig | GrokConfig | OpenCodeConfig | PiConfig;
 
@@ -77,7 +77,8 @@ export type AdapterEvent =
   | { kind: "turn_owner"; receipt: string; nativeTurnId?: string }
   | { kind: "turn_end"; sessionId?: string; turnOwner?: string; pendingContent?: "discard" }
   | { kind: "error"; code?: string; message: string }
-  | { kind: "telemetry"; name: "token_usage"; source: string; usage: TokenUsageDelta }
+  | { kind: "telemetry"; name: "token_usage"; source: string; usage: TokenUsageDelta; identity?: TokenUsageIdentity }
+  | { kind: "telemetry"; name: "token_usage_status"; source: string; status: "available" | "unavailable" }
   | { kind: "telemetry"; name: "rate_limits"; source: string; quota: ProviderQuotaObservation };
 
 export interface LaneStartInput {
