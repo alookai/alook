@@ -50,7 +50,7 @@ const user = {
 function renderLayout(currentUser: typeof user | null = null) {
   return render(createElement(
     CommunityLayoutClient,
-    { currentUser },
+    { currentUser, sidebar: null },
     createElement("div", { "data-testid": "child" }),
   ))
 }
@@ -110,7 +110,7 @@ describe("CommunityLayout session boundary", () => {
       "src/app/c/layout.tsx",
     ), "utf8")
     expect(source).toContain("await getSession()")
-    expect(source).toContain("<CommunityLayoutClient currentUser={currentUser}>")
+    expect(source).toContain("<CommunityLayoutClient currentUser={currentUser} sidebar={sidebar}>")
     expect(source).not.toContain("useSession")
   })
 

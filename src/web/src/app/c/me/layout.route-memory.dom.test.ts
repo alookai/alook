@@ -111,7 +111,18 @@ vi.mock("@/lib/community/last-community-route", () => ({
   consumeCommunityColdEntryFailure: (...args: unknown[]) => mocks.consumeColdEntryFailure(...args),
 }))
 
-import MeLayout from "./layout"
+import MeContent from "./layout"
+import { DmSidebarSlot } from "@/components/community/shell/dm-sidebar-slot"
+import { CommunityRouteContext } from "@/components/community/shell/community-route-context"
+import { normalizeCommunityHref } from "@/lib/community/community-route"
+
+function MeLayout({ children }: { children?: React.ReactNode }) {
+  return createElement(CommunityRouteContext, { value: {
+    frame: { ...normalizeCommunityHref(mocks.pathname), revision: 0 },
+    navigation: {} as never,
+    ownerDeleteRouteScope: undefined,
+  } }, createElement(DmSidebarSlot), createElement(MeContent, null, children))
+}
 
 let layoutClient: QueryClient
 function renderLayout(queryClient = layoutClient) {

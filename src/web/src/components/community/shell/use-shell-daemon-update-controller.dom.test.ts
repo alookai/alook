@@ -1,6 +1,8 @@
 import { createElement, useReducer } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render as rtlRender } from "@/test/react-dom-harness"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import type { MachineSummary } from "@/hooks/community/use-machines"
 import {
   daemonUpdateCollapseStorageKey,
@@ -49,6 +51,9 @@ function machine(
   }
 }
 
+let owner: Awaited<ReturnType<typeof createCommunityQueryOwner>>
+const render: typeof rtlRender = (node, options) => rtlRender(node, { ...options, wrapper: ({ children }) => createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "user-1", retainOwner: true }, children) })
+
 type Controller = ReturnType<typeof useShellDaemonUpdateController>
 type Snapshot = { state: UserBarExtensionState; controller: Controller }
 
@@ -93,11 +98,14 @@ async function renderController({
     onResult: (snapshot) => { current = snapshot },
   })
   await act(async () => {
-    renderer = rtlRender(element())
+    renderer = render(element())
   })
   return {
     get current() { return current },
-    rerender: async () => act(async () => renderer.rerender(element())),
+    rerender: async (nextVersion?: string) => {
+      if (nextVersion !== undefined) version = nextVersion
+      await act(async () => renderer.rerender(element()))
+    },
     unmount: () => renderer.unmount(),
   }
 }
@@ -117,7 +125,8 @@ function activeUpdate(values: Partial<NonNullable<UserBarExtensionState["update"
 }
 
 describe("useShellDaemonUpdateController", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    owner = await createCommunityQueryOwner("user-1")
     window.localStorage.clear()
     mocks.warn.mockReset()
     mocks.machines = { machines: [], isSuccess: true }
@@ -136,7 +145,7 @@ describe("useShellDaemonUpdateController", () => {
     let renderer!: ReturnType<typeof rtlRender>
 
     await act(async () => {
-      renderer = rtlRender(createElement(Capture, {
+      renderer = render(createElement(Capture, {
         initialState: initialUserBarExtensionState,
         onResult: (snapshot) => { current = snapshot },
       }))
@@ -229,6 +238,32 @@ describe("useShellDaemonUpdateController", () => {
       failedMachineIds: [],
       pendingMachineIds: [],
     })
+  })
+
+  it.each(["release", "authentication"] as const)("retires a late batch on %s replacement", async (retirement) => {
+    mocks.machines = { machines: [machine("machine-1")], isSuccess: true }
+    let resolve!: () => void
+    const held = new Promise<void>((done) => { resolve = done })
+    const hook = await renderController({ initialState: activeUpdate(), requestUpdate: () => held })
+    let request!: Promise<void>
+    act(() => { request = hook.current.controller.request() })
+    if (retirement === "release") await hook.rerender("0.1.36")
+    else act(() => owner.registry.authenticationView.setState((state) => ({ active: false, generation: state.generation + 1 })))
+    await act(async () => { resolve(); await request })
+    expect(hook.current.state.update?.acceptedMachineIds ?? []).toEqual([])
+    if (retirement === "release") expect(hook.current.state.update?.pendingMachineIds).toEqual([])
+  })
+
+  it("settles its same-account batch across unrelated community permission changes", async () => {
+    mocks.machines = { machines: [machine("machine-1")], isSuccess: true }
+    let resolve!: () => void
+    const held = new Promise<void>((done) => { resolve = done })
+    const hook = await renderController({ initialState: activeUpdate(), requestUpdate: () => held })
+    let request!: Promise<void>
+    act(() => { request = hook.current.controller.request() })
+    act(() => owner.registry.runtime.ws.setState((state) => ({ ...state, accessEpoch: state.accessEpoch + 1 })))
+    await act(async () => { resolve(); await request })
+    expect(hook.current.state.update?.acceptedMachineIds).toEqual(["machine-1"])
   })
 
   it("does not dispatch without update state, with pending requests, or with no requestable target", async () => {

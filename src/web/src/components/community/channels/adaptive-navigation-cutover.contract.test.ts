@@ -7,7 +7,7 @@ const readSource = (relativePath: string) =>
 describe("adaptive navigation cutover contracts", () => {
   it("uses the one flat route builder while preserving parent-aware sidebar callbacks", () => {
     const contextSheet = readSource("../messages/message-context-sheet.tsx")
-    const layout = readSource("../../../app/c/channels/layout.tsx")
+    const layout = readSource("../shell/server-sidebar-slot.tsx")
     const sidebar = readSource("./channel-sidebar.tsx")
 
     expect(contextSheet).toContain(
@@ -31,7 +31,7 @@ describe("adaptive navigation cutover contracts", () => {
     expect(layout).toContain(
       'import { ChannelRoute } from "@/components/community/channels/channel-route"',
     )
-    expect(layout).toContain("key={`${serverId}/${routeChannelId}`}")
+    expect(layout).toContain("key={`${currentUser.id}/${serverId}/${routeChannelId}`}")
     expect(layout).not.toContain("parentChannelId={routeParent" + "ChannelId}")
     expect(flatPage).toContain("return null")
     expect(flatPage).not.toContain("<ChannelRoute")

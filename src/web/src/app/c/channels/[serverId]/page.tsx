@@ -1,17 +1,17 @@
 "use client"
 
+import { useCommunityServerRoute } from "@/components/community/shell/community-route-context"
 import { useEffect, useRef } from "react"
-import { useParams, useRouter, useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { ServerLandingPendingFrame } from "@/components/community/shell/server-landing-pending-frame"
 import { useServer } from "@/hooks/community/use-servers"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { getLastChannel, resolveCommunityLandingHref } from "@/lib/community/last-channel"
 
 export default function ServerDefaultPage() {
-  const params = useParams<{ serverId: string }>()
+  const { serverId } = useCommunityServerRoute()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const serverId = decodeURIComponent(params.serverId)
   const { server: currentServer } = useServer(serverId)
   const breakpoint = useBreakpoint()
   const replacingHrefRef = useRef<string | null>(null)

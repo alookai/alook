@@ -737,10 +737,10 @@ describe("ShellFrameView", () => {
       profile,
       inbox,
     }, createElement("main-content")))
-    expect(renderer.container.querySelectorAll("[data-server-rail]")).toHaveLength(0)
-    expect(renderer.container.querySelectorAll("[data-user-bar]")).toHaveLength(0)
-    expect(renderer.container.querySelectorAll('[data-slot="community-user-bar-overlay"]')).toHaveLength(0)
-    expect(renderer.container.querySelectorAll('[data-slot="community-user-bar-underlay"]')).toHaveLength(0)
+    expect(renderer.container.querySelectorAll("[data-server-rail]")).toHaveLength(1)
+    expect(renderer.container.querySelectorAll("[data-user-bar]")).toHaveLength(1)
+    expect(renderer.container.querySelectorAll('[data-slot="community-user-bar-overlay"]')).toHaveLength(1)
+    expect(renderer.container.querySelectorAll('[data-slot="community-user-bar-underlay"]')).toHaveLength(1)
     expect(renderer.container.querySelectorAll("[data-app-surface]")).toHaveLength(1)
     expect(renderer.container.querySelector("[data-app-surface]")?.className).toContain("rounded-none")
     expect(renderer.container.querySelectorAll("main-content")).toHaveLength(1)
@@ -898,6 +898,7 @@ describe("ShellFrameView", () => {
     expect(dndOwner.dataset.owner).toBe("stable")
     expect(sidebarMounts).toBe(1)
   })
+
 
   it("preserves child component identity across the 639 to 640 breakpoint", async () => {
     let mounts = 0
@@ -1229,8 +1230,10 @@ describe("ShellFrameView", () => {
       createElement("old-main"),
     ))
 
-    expect(sidebar).not.toHaveBeenCalled()
-    expect(renderer.container.querySelectorAll("old-sidebar")).toHaveLength(0)
+    expect(sidebar).toHaveBeenCalled()
+    expect(renderer.container.querySelectorAll("old-sidebar")).toHaveLength(1)
+    expect(renderer.container.querySelector("old-sidebar")?.parentElement).toHaveAttribute("hidden")
+    expect(renderer.container.querySelector("old-sidebar")?.parentElement).toHaveAttribute("inert")
     expect(latestProps(mocks.channelSkeletonProps).targetServerId).toBe("s2")
     expect(latestProps(mocks.pendingProps).href).toBe("/c/channels/s2")
 
@@ -1246,7 +1249,7 @@ describe("ShellFrameView", () => {
     expect(renderer.container.querySelector(
       '[data-slot="community-main-panel-content"]',
     )).toHaveAttribute("hidden")
-    expect(sidebar).not.toHaveBeenCalled()
+    expect(sidebar).toHaveBeenCalled()
   })
 
   it("renders an inert me sidebar checkpoint for a cold server-to-home target", async () => {
@@ -1273,8 +1276,10 @@ describe("ShellFrameView", () => {
       createElement("old-main"),
     ))
 
-    expect(sidebar).not.toHaveBeenCalled()
-    expect(renderer.container.querySelectorAll("old-sidebar")).toHaveLength(0)
+    expect(sidebar).toHaveBeenCalled()
+    expect(renderer.container.querySelectorAll("old-sidebar")).toHaveLength(1)
+    expect(renderer.container.querySelector("old-sidebar")?.parentElement).toHaveAttribute("hidden")
+    expect(renderer.container.querySelector("old-sidebar")?.parentElement).toHaveAttribute("inert")
     expect(renderer.container.querySelectorAll("old-main")).toHaveLength(0)
     expect(renderer.container.querySelectorAll("[data-dm-sidebar-skeleton]")).toHaveLength(1)
     expect(latestProps(mocks.pendingProps).href).toBe("/c/me")

@@ -19,6 +19,7 @@ import { communityKeys } from "@/lib/query-keys"
 
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { useCurrentUser } from "@/contexts/community/current-user"
+import { CommunityRouteContext } from "./community-route-context"
 import { ShellFrameView } from "./shell-frame-view"
 import { useShellRailController } from "./use-shell-rail-controller"
 import { useShellProfileController } from "./use-shell-profile-controller"
@@ -208,11 +209,16 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
       extension: userBarExtension.active,
     })
   }, [daemonUpdate, dispatchUserBarExtension, inbox, profile, userBarExtension.active])
+  useEffect(() => {
+    if (breakpoint !== "mobile" || checkpoint.surface !== "detail" || userBarExtension.active === "none") return
+    dismissUserBarExtension()
+  }, [breakpoint, checkpoint.surface, dismissUserBarExtension, userBarExtension.active])
   const dismissNativeBackShellOverlay = useCallback(() => {
+    if (breakpoint === "mobile" && checkpoint.surface === "detail") return false
     if (userBarExtension.active === "none") return false
     dismissUserBarExtension()
     return true
-  }, [dismissUserBarExtension, userBarExtension.active])
+  }, [breakpoint, checkpoint.surface, dismissUserBarExtension, userBarExtension.active])
   const goBackMobile = useCallback(() => {
     if (route.parentPath) navigation.replace(route.parentPath)
   }, [navigation, route.parentPath])
@@ -260,6 +266,7 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
   }, [goBackMobile, profile.openProfile, profile.previewAttachment, profile.previewImage, rail.navigate, navigation.cancelPendingNavigation, navigation.push, navigation.replace, queryClient])
 
   return (
+    <CommunityRouteContext value={{ frame: committedFrame, navigation, ownerDeleteRouteScope }}>
     <ShellFrameView
       breakpoint={breakpoint}
       checkpoint={checkpoint}
@@ -277,5 +284,6 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     >
       {children}
     </ShellFrameView>
+    </CommunityRouteContext>
   )
 }

@@ -82,6 +82,7 @@ async function renderController(overrides: Record<string, unknown> = {}) {
     prefetch: (href: string) => { prefetched.push(href) },
   }
   const navigation = {
+    captureIntent: () => () => true,
     publishedHref: "/c/channels/s1",
     navigationPending: false,
     pendingHref: null,
@@ -382,17 +383,18 @@ describe("useShellRailController", () => {
     expect(mocks.toastApiError).toHaveBeenCalledWith(
       iconError,
       "Server created, but the icon failed to upload",
+      expect.any(Function),
     )
 
     const createError = new Error("create")
     mocks.createServer.mockRejectedValueOnce(createError)
     await act(async () => hook.current.railProps.onCreateServer("Broken"))
-    expect(mocks.toastApiError).toHaveBeenCalledWith(createError, "Failed to create server")
+    expect(mocks.toastApiError).toHaveBeenCalledWith(createError, "Failed to create server", expect.any(Function))
 
     await act(async () => hook.current.railProps.onLeaveServer("s2"))
     const leaveError = new Error("leave")
     mocks.leaveServer.mock.calls.at(-1)![1].onError(leaveError)
-    expect(mocks.toastApiError).toHaveBeenCalledWith(leaveError, "Failed to leave server")
+    expect(mocks.toastApiError).toHaveBeenCalledWith(leaveError, "Failed to leave server", expect.any(Function))
   })
 
   it("passes complete memberships to the normalized rail and no legacy mutation callbacks", async () => {

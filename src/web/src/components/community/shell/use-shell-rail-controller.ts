@@ -8,6 +8,7 @@ import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { communityServerId } from "@/lib/community/community-route"
 import { markSwitch } from "@/lib/perf/switch-mark"
 import { markVoluntaryLeave, pickPostEjectDestination } from "@/lib/community/eject-server"
+import { useCommunityMutationOrigin } from "@/hooks/community/community-origin"
 import { useServers } from "@/hooks/community/use-servers"
 import { useFolders } from "@/hooks/community/use-folders"
 import {
@@ -53,6 +54,7 @@ export function useShellRailController({
   accountId,
 }: Options) {
   const communityDb = useOptionalCommunityDbRegistry()
+  const origin = useCommunityMutationOrigin()
   const serversQuery = useServers()
   const foldersQuery = useFolders()
   const servers = serversQuery.servers
@@ -66,6 +68,24 @@ export function useShellRailController({
   useLayoutEffect(() => { viewOwner.set((state) => ({ ...state, navigation })) }, [navigation, viewOwner])
   const viewCurrent = useCallback((generation: number) => viewOwner.get().active && viewOwner.get().generation === generation
     && !!communityDb?.runtime.lifecycle.get().active && getCommunityDbRegistry(queryClient) === communityDb, [communityDb, queryClient, viewOwner])
+  const captureOperation = useCallback(() => {
+    const generation = viewOwner.get().generation
+    const token = origin.begin().token
+    const authentication = communityDb!.authenticationView.get()
+    const intentCurrent = navigation.captureIntent()
+    const assertAccount = () => {
+      origin.assertOwner(token)
+      const current = communityDb!.authenticationView.get()
+      if (!viewCurrent(generation) || !current.active || current.generation !== authentication.generation) {
+        throw new DOMException("Retired rail account", "AbortError")
+      }
+    }
+    const assertUi = () => {
+      assertAccount()
+      if (!intentCurrent()) throw new DOMException("Retired rail intent", "AbortError")
+    }
+    return { assertAccount, assertUi }
+  }, [communityDb, navigation, origin, viewCurrent, viewOwner])
   const { mutateAsync: createServerAsync } = useCreateServer()
   const { mutate: leaveServerMutate } = useLeaveServer()
   const { mutate: uploadServerIconMutate } = useUploadServerIcon()
@@ -96,32 +116,36 @@ export function useShellRailController({
   const onCreateServer = useCallback(async (name: string, icon?: File) => {
     const generation = viewOwner.get().generation
     if (!viewCurrent(generation)) return
+    const { assertAccount, assertUi } = captureOperation()
     try {
+      assertAccount()
       const data = await createServerAsync({ name })
-      if (!viewCurrent(generation)) return
+      assertUi()
       const newId = data.server.id
       toast(`Server "${name}" created`)
       if (icon) {
         uploadServerIconMutate(
           { serverId: newId, file: icon },
-          { onError: (error) => { if (viewCurrent(generation)) toastApiError(error, "Server created, but the icon failed to upload") } },
+          { onError: (error) => toastApiError(error, "Server created, but the icon failed to upload", assertUi) },
         )
       }
       navigation.push(`/c/channels/${newId}`)
     } catch (error) {
-      if (viewCurrent(generation)) toastApiError(error, "Failed to create server")
+      toastApiError(error, "Failed to create server", assertUi)
     }
-  }, [createServerAsync, navigation, uploadServerIconMutate, viewOwner, viewCurrent])
+  }, [captureOperation, createServerAsync, navigation, uploadServerIconMutate, viewOwner, viewCurrent])
   const onLeaveServer = useCallback((id: string) => {
     const generation = viewOwner.get().generation
     if (!viewCurrent(generation)) return
+    const { assertAccount, assertUi } = captureOperation()
+    try { assertAccount() } catch { return }
     markVoluntaryLeave(queryClient, id)
     leaveServerMutate(
       { serverId: id },
       {
         onSuccess: () => {
-          if (!viewCurrent(generation)) return
-          toast("Left server")
+          try { assertAccount() } catch { return }
+          try { assertUi(); toast("Left server") } catch {}
           const currentNavigation = viewOwner.get().navigation
           if (currentNavigation && communityServerId(currentNavigation.pendingHref ?? currentNavigation.publishedHref) === id) {
             const allowed = new Set([...communityDb!.collections.serverMemberships.values()].filter((row) => row.viewer && row.userId === communityDb!.accountId).map((row) => row.serverId))
@@ -129,10 +153,10 @@ export function useShellRailController({
             currentNavigation.replace(pickPostEjectDestination(remaining, id))
           }
         },
-        onError: (error) => { if (viewCurrent(generation)) toastApiError(error, "Failed to leave server") },
+        onError: (error) => toastApiError(error, "Failed to leave server", assertUi),
       },
     )
-  }, [communityDb, leaveServerMutate, queryClient, viewCurrent, viewOwner])
+  }, [captureOperation, communityDb, leaveServerMutate, queryClient, viewCurrent, viewOwner])
   const onOpenSettings = useCallback((id?: string) => {
     if (!id) return
     const action = resolveServerRailOverlayAction({
