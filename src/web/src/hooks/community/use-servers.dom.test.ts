@@ -4,11 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
-import { captureCommunityLiveSnapshotToken, publishAccountAttentionSnapshot, publishCommunityLiveSnapshot } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken, publishAccountAttentionSnapshot, publishCommunityLiveSnapshot, projectCommunityWsEventToDb, publishCommunityChannelDirectory } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
 import { ApiError } from "@/lib/errors"
 import { AccountUnreadProjection, getActiveAccountUnreadProjection } from "./account-unread-projection"
-import { serversQueryFn, serversProjectedQueryFn, serverProjectedQueryFn, useServers, useServer, type ServersResponse, type ServerDetail } from "./use-servers"
+import { serversQueryFn, serversProjectedQueryFn, serverProjectedQueryFn, useServers, useServer, useViewerServerRole, type ServersResponse, type ServerDetail } from "./use-servers"
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetchMock(...args) }))
@@ -452,5 +452,54 @@ describe("useServer / projected canonical detail", () => {
     apiFetchMock.mockImplementation(detailApi)
     await expect(fetchDetail()).resolves.toBe(identity.id)
     expect(apiFetchMock.mock.calls.some(([url]) => String(url).endsWith("/unreads"))).toBe(false)
+  })
+})
+
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => { resolve = done })
+  return { promise, resolve }
+}
+
+describe("qualified viewer server role", () => {
+  it("uses the live own membership before roster pagination and follows member-id-only demotion", async () => {
+    apiFetchMock.mockResolvedValue({ servers: [{ ...identity, role: "admin", memberId: "own-member" }] })
+    await fetchList()
+    const view = renderHook(() => useViewerServerRole(identity.id, "viewer"), { wrapper: Owner })
+    await waitFor(() => expect(view.result.current).toBe("admin"))
+    expect(apiFetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/community/servers"])
+    act(() => publishCommunityChannelDirectory(client, { directory: [{ id: identity.id, name: identity.name, discriminator: identity.discriminator, channels: [] }], proof: { token: captureCommunityLiveSnapshotToken(client), signal: undefined } }))
+    expect(registry.collections.serverMemberships.get("srv_1:viewer")).toMatchObject({ role: "admin", memberId: "own-member" })
+    act(() => projectCommunityWsEventToDb(client, { type: "community:member.update", serverId: identity.id, memberId: "own-member", changes: { role: "member" } }))
+    await waitFor(() => expect(view.result.current).toBe("member"))
+    view.unmount()
+  })
+
+  it("retains a current own role when access to an unrelated channel is revoked", async () => {
+    apiFetchMock.mockResolvedValue({ servers: [{ ...identity, role: "admin", memberId: "own-member" }] })
+    await fetchList()
+    const view = renderHook(() => useViewerServerRole(identity.id, "viewer"), { wrapper: Owner })
+    await waitFor(() => expect(view.result.current).toBe("admin"))
+    act(() => registry.runtime.ws.actions.revokeChannelAccess("other-server", "other-channel"))
+    expect(view.result.current).toBe("admin")
+    view.unmount()
+  })
+
+  it("does not authorize a restored role, a revoked server or another viewer", async () => {
+    seedList()
+    registry.collections.serverMemberships.utils.writeUpsert([{ ...registry.collections.serverMemberships.get("srv_1:viewer")!, role: "admin" }])
+    const held = deferred<{ servers: Array<typeof identity & { role: string; memberId: string }> }>()
+    apiFetchMock.mockReturnValue(held.promise)
+    const view = renderHook(({ viewerId }) => useViewerServerRole(identity.id, viewerId), { wrapper: Owner, initialProps: { viewerId: "viewer" } })
+    expect(view.result.current).toBeUndefined()
+    await act(async () => { const request = fetchList(); held.resolve({ servers: [{ ...identity, role: "admin", memberId: "own-member" }] }); await request })
+    await waitFor(() => expect(view.result.current).toBe("admin"))
+    view.rerender({ viewerId: "other-account" })
+    expect(view.result.current).toBeUndefined()
+    view.rerender({ viewerId: "viewer" })
+    act(() => registry.runtime.ws.actions.revokeServerAccess(identity.id))
+    expect(view.result.current).toBeUndefined()
+    view.unmount()
   })
 })

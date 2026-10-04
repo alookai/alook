@@ -19,6 +19,7 @@ import {
   useRemoveChannelMember,
 } from "@/hooks/community/use-channel-members"
 import { useServerMembers } from "@/hooks/community/use-server-members"
+import { useViewerServerRole } from "@/hooks/community/use-servers"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import {
   useAddThreadParticipant,
@@ -96,6 +97,7 @@ export function useChannelMemberViewModel({
   myRole: Role | undefined
 } {
   const membersHook = useServerMembers(accessAllowed && currentServer ? serverId : null)
+  const myRole = useViewerServerRole(accessAllowed && currentServer ? serverId : null, currentUser.id)
   const source = useCommunityViewSource(`channel-members:${serverId}:${channelId}`, accessAllowed)
   const originalView = useCallback((caller?: MemberOriginalView) => {
     const local = source.capture()
@@ -312,7 +314,6 @@ export function useChannelMemberViewModel({
     ],
   )
 
-  const myRole = members.find((member) => member.userId === currentUser.id)?.role
   const unitCreatorId = isChildChannel
     ? currentChannelMeta?.creatorId
     : channelInServer?.creatorId

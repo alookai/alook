@@ -2712,3 +2712,16 @@ describe("community DB sync", () => {
     uninstall()
   })
 })
+
+
+describe("forum archive channel semantics", () => {
+  it("keeps opener archive tags separate when publishing embedded thread previews", async () => {
+    const db = await registry()
+    const message = { id: "opener", type: "chat" as const, content: "Post", thread: { id: "post", name: "Post", messageCount: 1, tags: ["archived"], participants: [] } }
+    ingestMessages(db, "forum", [message])
+    expect(db.collections.channels.get("post")).toMatchObject({ archived: false, tags: ["archived"] })
+    db.collections.channels.utils.writeUpsert([{ ...db.collections.channels.get("post")!, archived: true }])
+    ingestMessages(db, "forum", [{ ...message, thread: { ...message.thread, tags: [] } }])
+    expect(db.collections.channels.get("post")).toMatchObject({ archived: true, tags: [] })
+  })
+})

@@ -632,7 +632,8 @@ export function ingestServers(
         id: serverMembershipKey(server.id, viewerId),
         serverId: server.id,
         userId: viewerId,
-        role: server.isOwner ? "owner" : "member",
+        role: server.role ?? (server.isOwner ? "owner" : "member"),
+        ...(server.memberId ? { memberId: server.memberId } : {}),
         viewer: true,
       }))
     : []
@@ -1069,7 +1070,7 @@ export function ingestMessages(
       if (thread) {
         const existing = collectionRows(registry, "channels", channelSchema).find((row) => row.id === thread.id)
         const parent = collectionRows(registry, "channels", channelSchema).find((row) => row.id === channelId)
-        upsertRows(registry, "channels", channelSchema, (row) => row.id, [{ ...existing, id: thread.id, serverId: existing?.serverId ?? parent?.serverId, categoryId: null, name: thread.name, type: "thread", parentChannelId: channelId, parentMessageId: message.id, creatorId: existing?.creatorId ?? null, position: existing?.position ?? 0, archived: thread.tags?.includes(FORUM_ARCHIVE_TAG) ?? existing?.archived ?? false, tags: thread.tags ?? existing?.tags ?? [], muted: existing?.muted ?? false, unread: existing?.unread ?? false, pending: false, messageCount: thread.messageCount, ...(thread.lastReplyAt ? { lastMessageAt: thread.lastReplyAt } : {}), ...(thread.preview !== undefined ? { preview: thread.preview } : {}), ...(thread.participantCount !== undefined ? { participantCount: thread.participantCount } : {}) }])
+        upsertRows(registry, "channels", channelSchema, (row) => row.id, [{ ...existing, id: thread.id, serverId: existing?.serverId ?? parent?.serverId, categoryId: null, name: thread.name, type: "thread", parentChannelId: channelId, parentMessageId: message.id, creatorId: existing?.creatorId ?? null, position: existing?.position ?? 0, archived: existing?.archived ?? false, tags: thread.tags ?? existing?.tags ?? [], muted: existing?.muted ?? false, unread: existing?.unread ?? false, pending: false, messageCount: thread.messageCount, ...(thread.lastReplyAt ? { lastMessageAt: thread.lastReplyAt } : {}), ...(thread.preview !== undefined ? { preview: thread.preview } : {}), ...(thread.participantCount !== undefined ? { participantCount: thread.participantCount } : {}) }])
       }
       return { ...fields, type: message.type ?? "chat", channelId, replyToId: message.replyTo?.id }
     })
@@ -1109,6 +1110,7 @@ function ingestAttentionIncluded(
     collectionRows(registry, "channels", channelSchema).map((row) => [row.id, row]),
   )
   const viewerId = registry.accountId
+  const existingMemberships = new Map(collectionRows(registry, "serverMemberships", serverMembershipSchema).map((row) => [row.id, row]))
   const servers: ServerRow[] = (included?.servers ?? []).map((owner, position) => {
     const existing = existingServers.get(owner.id)
     return {
@@ -1158,10 +1160,11 @@ function ingestAttentionIncluded(
       serverMembershipSchema,
       (row) => row.id,
       servers.map((server) => ({
+        ...existingMemberships.get(serverMembershipKey(server.id, viewerId)),
         id: serverMembershipKey(server.id, viewerId),
         serverId: server.id,
         userId: viewerId,
-        role: server.isOwner ? "owner" : "member",
+        role: existingMemberships.get(serverMembershipKey(server.id, viewerId))?.role ?? (server.isOwner ? "owner" : "member"),
         viewer: true,
       })),
     )
@@ -1993,6 +1996,7 @@ export function publishCommunityChannelDirectory(
     collectionRows(registry, "channels", channelSchema).map((row) => [row.id, row]),
   )
   const viewerId = registry.accountId
+  const existingMemberships = new Map(collectionRows(registry, "serverMemberships", serverMembershipSchema).map((row) => [row.id, row]))
   const servers: ServerRow[] = publication.directory.map((server, position) => ({
     id: server.id,
     position: existingServers.get(server.id)?.position ?? position,
@@ -2043,10 +2047,11 @@ export function publishCommunityChannelDirectory(
         serverMembershipSchema,
         (row) => row.id,
         servers.map((server) => ({
+          ...existingMemberships.get(serverMembershipKey(server.id, viewerId)),
           id: serverMembershipKey(server.id, viewerId),
           serverId: server.id,
           userId: viewerId,
-          role: server.isOwner ? "owner" : "member",
+          role: existingMemberships.get(serverMembershipKey(server.id, viewerId))?.role ?? (server.isOwner ? "owner" : "member"),
           viewer: true,
         })),
       )
@@ -2366,7 +2371,7 @@ export function publishCommunityForumFeed(queryClient: QueryClient, forumChannel
       ...existing.get(thread.id), id: thread.id, serverId: page.serverId, categoryId: null, type: "thread", name: thread.name ?? "Post", creatorId: thread.creatorId,
       parentChannelId: forumChannelId, parentMessageId: thread.parentMessageId, position: existing.get(thread.id)?.position ?? 0,
       tags: page.included.tags.filter((tag) => tag.messageId === thread.parentMessageId).map((tag) => tag.tag),
-      archived: page.included.tags.some((tag) => tag.messageId === thread.parentMessageId && tag.tag === FORUM_ARCHIVE_TAG), muted: existing.get(thread.id)?.muted ?? false, unread: existing.get(thread.id)?.unread ?? false, pending: false,
+      archived: existing.get(thread.id)?.archived ?? false, muted: existing.get(thread.id)?.muted ?? false, unread: existing.get(thread.id)?.unread ?? false, pending: false,
       createdAt: thread.createdAt, messageCount: thread.messageCount ?? 0, lastMessageAt: thread.activityAt,
       preview: page.included.firstMessages.find((message) => message.channelId === thread.id)?.content.slice(0, 100) ?? "",
       participantCount: page.included.participants.find((participant) => participant.channelId === thread.id)?.participantCount ?? 0,

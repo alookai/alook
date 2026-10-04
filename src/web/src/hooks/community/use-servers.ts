@@ -19,7 +19,7 @@ import type { ServerRow } from "@/lib/community-db/schema"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
-import { isServerOwner,UNCATEGORIZED_CATEGORY_ID } from "@alook/shared"
+import { isServerOwner,UNCATEGORIZED_CATEGORY_ID, type CommunityRole } from "@alook/shared"
 import type { Server,Category,Channel } from "@/lib/community/models/navigation"
 import {
 getActiveAccountUnreadProjection,
@@ -29,6 +29,7 @@ type AccountUnreadScope,
 type AccountUnreadSource,
 } from "./account-unread-projection"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import { useCommunityRuntime } from "@/stores/community/runtime"
 import { ApiError } from "@/lib/errors"
 import { evictServerChannelScopes } from "./community-ws/scope-eviction"
 import {
@@ -36,6 +37,7 @@ useAttentionScopes,
 useOptionalCommunityDbRegistry,
 useServerRailProjection,
 useServerTreeProjection,
+useServerMemberRows,
 } from "@/lib/community-db/projections"
 import {
 assertCommunityLiveSnapshotTokenCurrent,
@@ -58,6 +60,7 @@ type RawServerRow = {
   icon: string | null
   official?: boolean
   role?: string
+  memberId?: string
   mentions?: number
   unread?: boolean
   description?: string | null
@@ -93,6 +96,8 @@ export const serversQueryFn = async (
     // absent — treat it as 0 rather than NaN.
     mentions: s.mentions ?? 0,
     isOwner: isServerOwner(s.role),
+    ...(["owner", "admin", "member"].includes(s.role ?? "") ? { role: s.role as CommunityRole } : {}),
+    ...(s.memberId ? { memberId: s.memberId } : {}),
     icon: s.icon ?? null,
     official: s.official === true,
     ...(s.unreadSources ? { unreadSources: s.unreadSources } : {}),
@@ -209,6 +214,25 @@ export function useServers(): UseQueryResult<string[]> & { servers: Server[]; is
 }
 
 // ── Single-server detail ─────────────────────────────────────────────────────
+
+export function useViewerServerRole(serverId: string | null, viewerId: string): CommunityRole | undefined {
+  const registry = useOptionalCommunityDbRegistry()
+  const runtime = useCommunityRuntime()
+  const { servers } = useServers()
+  const authority = useSelector(registry?.serverListAuthority ?? absentAuthority, (value) => value)
+  const ownerGeneration = useSelector(runtime.lifecycle, (state) => state.active ? state.generation : -1)
+  const memberships = useServerMemberRows(serverId, [viewerId])
+  const qualified = useCommunityWsStore((state) => !!authority
+    && authority.viewerId === viewerId && state.profileViewerId === viewerId
+    && authority.accountEpoch === state.profileAccountEpoch
+    && authority.ownerGeneration === ownerGeneration
+    && !!serverId && !state.revokedServerIds.has(serverId))
+  if (!qualified || viewerId !== registry?.accountId
+    || !servers.some((server) => server.id === serverId)) return undefined
+  const membership = memberships.find((row) => row.viewer && row.userId === viewerId)
+  const role = membership?.role
+  return role === "owner" || role === "admin" || role === "member" ? role : undefined
+}
 
 export type ServerDetail = {
   id: string

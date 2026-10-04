@@ -107,11 +107,12 @@ describe("forumFeedPageQueryFn", () => {
   })
 
   it("uses the archive tag as its own feed query", async () => {
-    apiFetchMock.mockResolvedValue({ serverId: "server_1", parentType: "forum", threads: [], included: emptyIncluded, hasMore: false })
+    apiFetchMock.mockResolvedValue({ serverId: "server_1", parentType: "forum", threads: [{ id: "archived-post", name: "Post", creatorId: "author", messageCount: 1, parentMessageId: "opener", lastMessageAt: null, createdAt: "2026-10-04T00:00:00Z", activityAt: "2026-10-04T00:00:00Z" }], included: { ...emptyIncluded, tags: [{ messageId: "opener", tag: "archived" }] }, hasMore: false })
     await forumFeedPageQueryFn("forum_one", "archived", client)({ pageParam: null })
 
     const url = apiFetchMock.mock.calls[0]![0] as string
     expect(new URL(url, "http://localhost").searchParams.get("tag")).toBe("archived")
+    expect(getCanonicalCommunityChannels(client).find((row) => row.id === "archived-post")).toMatchObject({ archived: false, tags: ["archived"] })
   })
 
   it("passes the query abort signal through to the request", async () => {

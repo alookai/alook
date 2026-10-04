@@ -319,3 +319,23 @@ describe("DM history permission stays separate from metadata identity", () => {
     route.unmount()
   })
 })
+
+
+describe("restored forum archive ambiguity", () => {
+  it("waits for current metadata instead of treating a persisted opener tag as channel denial", async () => {
+    const client = new QueryClient()
+    const post = { ...metadata, id: "post-1", serverId: "server-1", type: "thread", name: "Post", parentChannelId: "forum-1", parentMessageId: "opener-1" }
+    client.setQueryData(communityKeys.communityDbCollection("viewer", "channels"), [{ ...post, archived: true, tags: ["archived"], position: 0, muted: false, unread: false, pending: false }])
+    const { registry, wrapper } = await fixture(client)
+    const held = deferred<typeof post>()
+    apiFetch.mockReturnValue(held.promise)
+    const route = renderHook(() => useChannelMetadata("server-1", post.id), { wrapper })
+    expect(route.result.current.data?.archived).toBe(true)
+    expect(route.result.current.isArchived).toBe(false)
+    expect(route.result.current.isVerified).toBe(false)
+    await act(async () => held.resolve(post))
+    await waitFor(() => expect(route.result.current.isVerified).toBe(true))
+    expect(registry.collections.channels.get(post.id)).toMatchObject({ archived: false, tags: ["archived"] })
+    route.unmount()
+  })
+})
