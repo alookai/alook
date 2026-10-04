@@ -204,6 +204,8 @@ export function useServerRailPdd({
     identifier: number
     startX: number
     startY: number
+    startScrollTop: number
+    startScrollLeft: number
     clientX: number
     clientY: number
     armX: number
@@ -479,6 +481,8 @@ export function useServerRailPdd({
         identifier: touch.identifier,
         startX: touch.clientX,
         startY: touch.clientY,
+        startScrollTop: scrollRef.current?.scrollTop ?? 0,
+        startScrollLeft: scrollRef.current?.scrollLeft ?? 0,
         clientX: touch.clientX,
         clientY: touch.clientY,
         armX: touch.clientX,
@@ -641,7 +645,7 @@ export function useServerRailPdd({
       cleanupTarget()
       cleanupDraggable()
     }
-  }, [begin, cancelActive, clearTouch, finishDrop, handleKeyboardCommand, itemAtPoint, runTouchFrame, setPreview])
+  }, [begin, cancelActive, clearTouch, finishDrop, handleKeyboardCommand, itemAtPoint, runTouchFrame, scrollRef, setPreview])
 
   useEffect(() => monitorForElements({
     canMonitor: ({ source }) => railEntityFromData(source.data) !== null,
@@ -669,7 +673,10 @@ export function useServerRailPdd({
     if (!element) return
     const cancelPendingTouchForNativeScroll = () => {
       const pending = touchRef.current
-      if (pending && !pending.dragging) clearTouch()
+      if (pending && !pending.dragging && (
+        element.scrollTop !== pending.startScrollTop
+        || element.scrollLeft !== pending.startScrollLeft
+      )) clearTouch()
     }
     element.addEventListener("scroll", cancelPendingTouchForNativeScroll, { passive: true })
     const cleanupAutoScroll = autoScrollForElements({
