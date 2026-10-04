@@ -905,6 +905,11 @@ implements AgentSession<Specs, Id> {
         });
         return;
       case "turn_end":
+        if (!this.activeTurn?.terminalOwner || event.turnOwner !== this.activeTurn.terminalOwner) return;
+        if (event.pendingContent === "discard") {
+          this.activeTurn.pendingReasoning = emptySemanticAssembler();
+          this.activeTurn.pendingMessage = emptySemanticAssembler();
+        }
         if (turnId && this.activeTurn?.turnId === turnId) {
           const reasoning = finishSemanticAssembler(this.activeTurn.pendingReasoning);
           const message = finishSemanticAssembler(this.activeTurn.pendingMessage);

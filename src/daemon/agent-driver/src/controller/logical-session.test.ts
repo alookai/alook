@@ -479,6 +479,47 @@ describe("root-turn text assembly", () => {
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 
+  it("discards only pending fragments on an owned terminal, preserving prior completions", async () => {
+    const lane = new ControlledRuntimeLane();
+    const { session } = makeSession("claude", { lane });
+    const observed: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];
+    const collecting = (async () => { for await (const event of session.events) observed.push(event); })();
+    await session.start({ id: "one", kind: "user", text: "start" });
+    lane.emit({ kind: "assistant_message_completed", text: "complete message" });
+    lane.emit({ kind: "assistant_reasoning_completed", text: "complete reasoning" });
+    lane.emit({ kind: "assistant_message_delta", text: "partial message" });
+    lane.emit({ kind: "assistant_reasoning_delta", text: "partial reasoning" });
+    lane.emit({ kind: "turn_end", turnOwner: "claude:test:1", pendingContent: "discard" });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    await collecting;
+    expect(observed.filter((event) => event.type === "assistant_message_completed"))
+      .toMatchObject([{ text: "complete message" }]);
+    expect(observed.filter((event) => event.type === "assistant_reasoning_completed"))
+      .toMatchObject([{ text: "complete reasoning" }]);
+    expect(observed.filter((event) => event.type === "turn_completed")).toHaveLength(1);
+  });
+
+  it.each([undefined, "discard"] as const)("ignores unowned terminals before touching pending content (%s)", async (pendingContent) => {
+    const lane = new ControlledRuntimeLane();
+    const { session } = makeSession("claude", { lane });
+    const observed: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];
+    const collecting = (async () => { for await (const event of session.events) observed.push(event); })();
+    await session.start({ id: "one", kind: "user", text: "start" });
+    lane.emit({ kind: "assistant_message_delta", text: "still " });
+    lane.emit({ kind: "assistant_reasoning_delta", text: "thinking " });
+    lane.emit({ kind: "turn_end", turnOwner: "stale-owner", pendingContent });
+    lane.emit({ kind: "assistant_message_delta", text: "working" });
+    lane.emit({ kind: "assistant_reasoning_delta", text: "now" });
+    lane.emit({ kind: "turn_end", turnOwner: "claude:test:1" });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    await collecting;
+    expect(observed.filter((event) => event.type === "assistant_message_completed"))
+      .toMatchObject([{ text: "still working" }]);
+    expect(observed.filter((event) => event.type === "assistant_reasoning_completed"))
+      .toMatchObject([{ text: "thinking now" }]);
+    expect(observed.filter((event) => event.type === "turn_completed")).toHaveLength(1);
+  });
+
   it("drops an unfinished delta buffer when the runtime crashes before a boundary", async () => {
     const { session, driver } = makeSession("claude");
     const observed: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];

@@ -75,7 +75,7 @@ export type AdapterEvent =
   | { kind: "runtime_recovery"; stage: "retrying" | "recovered"; source?: string }
   | { kind: "runtime_metric"; name: "sse_reconnect"; increment: 1 }
   | { kind: "turn_owner"; receipt: string; nativeTurnId?: string }
-  | { kind: "turn_end"; sessionId?: string; turnOwner?: string }
+  | { kind: "turn_end"; sessionId?: string; turnOwner?: string; pendingContent?: "discard" }
   | { kind: "error"; code?: string; message: string }
   | { kind: "telemetry"; name: "token_usage"; source: string; usage: TokenUsageDelta }
   | { kind: "telemetry"; name: "rate_limits"; source: string; quota: ProviderQuotaObservation };
