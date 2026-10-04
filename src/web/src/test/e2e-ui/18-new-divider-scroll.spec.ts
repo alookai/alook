@@ -3,6 +3,11 @@ import { tid } from "./_fixtures/testids"
 import { seedChannel, seedJoinServer, seedMessage, seedServer } from "./_fixtures/seed"
 import { WEB_URL } from "./_setup/paths"
 
+type BodySample = {
+  scrollTop: number
+  bodies: Array<{ id: string; top: number; bottom: number; height: number }>
+}
+
 test("NEW divider does not fight upward scrolling while a peer message arrives", async ({ asUser }) => {
   test.setTimeout(120_000)
   const serverId = await seedServer("alice", `NEW scroll ${Date.now()}`)
@@ -50,36 +55,75 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
   expect(box).not.toBeNull()
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2)
 
-  await scroller.evaluate((element) => {
-    const samples: number[] = [element.scrollTop]
-    Object.defineProperty(window, "__newDividerScrollEvents", {
-      configurable: true,
-      value: samples,
-    })
-    element.addEventListener("scroll", () => samples.push(element.scrollTop), { passive: true })
+  const recorder = await scroller.evaluateHandle((element) => {
+    const root = element as HTMLElement
+    const samples: BodySample[] = []
+    const sample = () => {
+      const viewport = root.getBoundingClientRect()
+      const bodies = Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]"))
+        .flatMap((body) => {
+          const rect = body.getBoundingClientRect()
+          const id = body.dataset.msgId
+          return id && rect.height > 0 && rect.width > 0
+            && rect.bottom > viewport.top + 1 && rect.top < viewport.bottom - 1
+            ? [{ id, top: rect.top - viewport.top, bottom: rect.bottom - viewport.top, height: rect.height }]
+            : []
+        })
+      samples.push({ scrollTop: root.scrollTop, bodies })
+    }
+    let frame: number
+    const onFrame = () => {
+      sample()
+      frame = requestAnimationFrame(onFrame)
+    }
+    sample()
+    root.addEventListener("scroll", sample, { passive: true })
+    frame = requestAnimationFrame(onFrame)
+    return {
+      sample,
+      finish: () => {
+        cancelAnimationFrame(frame)
+        root.removeEventListener("scroll", sample)
+        sample()
+        return samples
+      },
+    }
   })
 
-  const samples: number[] = [await scroller.evaluate((element) => element.scrollTop)]
-  const liveAppend = (async () => {
-    await page.waitForTimeout(250) // inject the append during the upward-scroll gesture
-    return seedMessage("bob", channelId, `live during upward scroll ${Date.now()}`)
-  })()
-  for (let index = 0; index < 60; index++) {
-    await page.mouse.wheel(0, -24)
-    await page.waitForTimeout(24) // fixed wheel-event cadence under test
-    samples.push(await scroller.evaluate((element) => element.scrollTop))
+  let bodySamples: BodySample[] = []
+  try {
+    const liveAppend = (async () => {
+      await page.waitForTimeout(250) // inject the append during the upward-scroll gesture
+      return seedMessage("bob", channelId, `live during upward scroll ${Date.now()}`)
+    })()
+    for (let index = 0; index < 60; index++) {
+      await page.mouse.wheel(0, -24)
+      await page.waitForTimeout(24) // fixed wheel-event cadence under test
+      await recorder.evaluate((recording) => recording.sample())
+    }
+    await liveAppend
+    await page.waitForTimeout(250) // post-append scroll-correction exclusion window
+  } finally {
+    bodySamples = await recorder.evaluate((recording) => recording.finish())
+    await recorder.dispose()
   }
-  await liveAppend
-  await page.waitForTimeout(250) // post-append scroll-correction exclusion window
-  samples.push(await scroller.evaluate((element) => element.scrollTop))
-  const scrollEvents = await page.evaluate(() => (
-    window as unknown as { __newDividerScrollEvents: number[] }
-  ).__newDividerScrollEvents)
 
-  const start = samples[0]!
-  const end = samples.at(-1)!
-  expect(end).toBeLessThan(start - 600)
-  for (let index = 1; index < scrollEvents.length; index++) {
-    expect(scrollEvents[index]!).toBeLessThanOrEqual(scrollEvents[index - 1]! + 4)
+  expect(bodySamples.length).toBeGreaterThan(1)
+  let upwardProgress = 0
+  for (let index = 1; index < bodySamples.length; index++) {
+    const before = bodySamples[index - 1]!
+    const after = bodySamples[index]!
+    const common = before.bodies.flatMap((body) => {
+      const next = after.bodies.find((candidate) => candidate.id === body.id)
+      return next ? [{ id: body.id, delta: next.top - body.top }] : []
+    })
+    const diagnostic = JSON.stringify({ index, before, after, common })
+    expect(common.length, diagnostic).toBeGreaterThan(0)
+    for (const body of common) {
+      expect(body.delta, diagnostic).toBeGreaterThanOrEqual(-4)
+    }
+    const deltas = common.map((body) => body.delta).sort((a, b) => a - b)
+    upwardProgress += deltas[Math.floor(deltas.length / 2)]!
   }
+  expect(upwardProgress).toBeGreaterThan(600)
 })

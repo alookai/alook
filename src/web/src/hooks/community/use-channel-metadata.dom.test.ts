@@ -10,6 +10,7 @@ import { channelMetadataOptions, captureChannelMetadataToken, isChannelMetadataT
 import { useChannelMetadata } from "./use-channel-metadata"
 import { useDmRouteVerification } from "./use-dm-route-verification"
 import { useDmReadStateSnapshot } from "./use-dm-read-state"
+import { startConversationNavigationWarmup } from "@/lib/community/conversation-navigation-warmup"
 
 const apiFetch = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }))
@@ -24,8 +25,9 @@ const registries: CommunityDbRegistry[] = []
 const unregisters: Array<() => void> = []
 function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((done) => { resolve = done })
-  return { promise, resolve }
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
 }
 async function fixture(client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })) {
   const registry = createCommunityDbRegistry(client, "viewer")
@@ -124,6 +126,128 @@ describe("shared Channel resource and canonical DM publication", () => {
 })
 
 describe("DM history permission stays separate from metadata identity", () => {
+  it("keeps an early warm-read receipt unverified and stale until the mounted metadata request succeeds", async () => {
+    const { client, registry, wrapper } = await fixture()
+    ingestDms(registry, dms)
+    const detail = deferred<typeof metadata>()
+    apiFetch.mockImplementation((path: string) => path.endsWith("/messages")
+      ? Promise.resolve({ messages: [], hasMore: false, surfaceReceipt: { channelId: metadata.id, surfaceKind: "dm" } })
+      : path.endsWith("/read-state") ? Promise.resolve(readState) : detail.promise)
+    act(() => { startConversationNavigationWarmup(client, {
+      href: `/c/me/${metadata.id}`, viewerId: "viewer", channelId: metadata.id, scopeKind: "dm",
+    }, registry.runtime.ws.get().accessEpoch) })
+    await waitFor(() => expect(client.getQueryData<{ historyVerification?: unknown }>(metadataKey)?.historyVerification).toBeDefined())
+    expect(client.getQueryData<{ verification?: unknown }>(metadataKey)?.verification).toBeUndefined()
+    expect(client.getQueryState(metadataKey)?.isInvalidated).toBe(true)
+    const originalResource = client.getQueryCache().find({ queryKey: metadataKey, exact: true })
+    const route = renderHook(() => useChannelMetadata(null, metadata.id), { wrapper })
+    expect(route.result.current.isVerified).toBe(false)
+    await waitFor(() => expect(apiFetch.mock.calls.filter(([path]) => path === `/api/community/channels/${metadata.id}`)).toHaveLength(1))
+    await act(async () => detail.resolve(metadata))
+    await waitFor(() => expect(route.result.current.isVerified).toBe(true))
+    expect(isChannelMetadataTokenCurrent(route.result.current.data!.historyVerification!)).toBe(true)
+    expect(client.getQueryCache().find({ queryKey: metadataKey, exact: true })).toBe(originalResource)
+    expect(apiFetch.mock.calls.filter(([path]) => path.endsWith("/read-state"))).toHaveLength(1)
+    route.unmount()
+  })
+
+  it.each(["absent", "pending"] as const)("retains a read-first Inbox receipt on the original %s Channel resource until metadata settles", async (order) => {
+    const { client, registry, wrapper } = await fixture()
+    ingestDms(registry, dms)
+    if (order === "pending") client.getQueryCache().build(client, client.defaultQueryOptions(channelMetadataOptions(client, null, metadata.id)))
+    expect(client.getQueryData(metadataKey)).toBeUndefined()
+    expect(!!client.getQueryCache().find({ queryKey: metadataKey, exact: true })).toBe(order === "pending")
+    const read = deferred<typeof readState>()
+    const detail = deferred<typeof metadata>()
+    apiFetch.mockImplementation((path: string) => path.endsWith("/messages")
+      ? Promise.resolve({ messages: [], hasMore: false, surfaceReceipt: { channelId: metadata.id, surfaceKind: "dm" } })
+      : path.endsWith("/read-state") ? read.promise : detail.promise)
+    act(() => { startConversationNavigationWarmup(client, {
+      href: `/c/me/${metadata.id}`, viewerId: "viewer", channelId: metadata.id, scopeKind: "dm",
+    }, registry.runtime.ws.get().accessEpoch) })
+    await waitFor(() => expect(apiFetch.mock.calls.filter(([path]) => path.endsWith("/read-state"))).toHaveLength(1))
+    const route = renderHook(() => ({ metadata: useChannelMetadata(null, metadata.id), read: useDmReadStateSnapshot(metadata.id) }), { wrapper })
+    await waitFor(() => expect(apiFetch.mock.calls.filter(([path]) => path === `/api/community/channels/${metadata.id}`)).toHaveLength(1))
+    const originalResource = client.getQueryCache().find({ queryKey: metadataKey, exact: true })
+    await act(async () => read.resolve(readState))
+    await waitFor(() => expect(route.result.current.read.snapshot).toEqual(readState))
+    expect(route.result.current.metadata.isVerified).toBe(false)
+    expect(client.getQueryData<{ historyVerification?: unknown }>(metadataKey)?.historyVerification).toBeDefined()
+    await act(async () => detail.resolve(metadata))
+    await waitFor(() => expect(route.result.current.metadata.isVerified).toBe(true))
+    expect(isChannelMetadataTokenCurrent(route.result.current.metadata.data!.historyVerification!)).toBe(true)
+    expect(client.getQueryCache().find({ queryKey: metadataKey, exact: true })).toBe(originalResource)
+    expect(apiFetch.mock.calls.filter(([path]) => path.endsWith("/read-state"))).toHaveLength(1)
+    expect(apiFetch.mock.calls.filter(([path]) => path === `/api/community/channels/${metadata.id}`)).toHaveLength(1)
+    route.unmount()
+  })
+
+  it("qualifies the same pending Inbox DM read joined by the mounted route", async () => {
+    const { client, registry, wrapper } = await fixture()
+    publishDms(registry)
+    const request = deferred<typeof readState>()
+    apiFetch.mockImplementation((path: string) => path.endsWith("/messages")
+      ? Promise.resolve({ messages: [], hasMore: false, surfaceReceipt: { channelId: metadata.id, surfaceKind: "dm" } })
+      : request.promise)
+    act(() => { startConversationNavigationWarmup(client, {
+      href: `/c/me/${metadata.id}`, viewerId: "viewer", channelId: metadata.id, scopeKind: "dm",
+    }, registry.runtime.ws.get().accessEpoch) })
+    await waitFor(() => expect(apiFetch.mock.calls.filter(([path]) => path.endsWith("/read-state"))).toHaveLength(1))
+    const route = renderHook(() => ({ metadata: useChannelMetadata(null, metadata.id), read: useDmReadStateSnapshot(metadata.id) }), { wrapper })
+    expect(route.result.current.metadata.isVerified).toBe(true)
+    expect(route.result.current.metadata.data?.historyVerification).toBeUndefined()
+    await act(async () => request.resolve(readState))
+    await waitFor(() => expect(route.result.current.read.snapshot).toEqual(readState))
+    expect(route.result.current.metadata.data?.historyVerification).toBeDefined()
+    expect(isChannelMetadataTokenCurrent(route.result.current.metadata.data!.historyVerification!)).toBe(true)
+    expect(apiFetch.mock.calls.filter(([path]) => path.endsWith("/read-state"))).toHaveLength(1)
+    route.unmount()
+  })
+
+  it.each((["published", "absent", "pending"] as const).flatMap((order) =>
+    (["denial403", "denial404", "account", "access", "replacement"] as const).map((race) => ({ order, race })),
+  ))("cannot grant $order Channel history from the shared Inbox read after $race", async ({ order, race }) => {
+    const { client, registry, wrapper } = await fixture()
+    if (order === "published") publishDms(registry)
+    else {
+      ingestDms(registry, dms)
+      if (order === "pending") client.getQueryCache().build(client, client.defaultQueryOptions(channelMetadataOptions(client, null, metadata.id)))
+    }
+    const request = deferred<typeof readState>()
+    if (order === "published" && race.startsWith("denial")) {
+      client.setQueryData(metadataKey, (previous: object | undefined) => ({ ...previous, historyVerification: captureChannelMetadataToken(client, metadata.id) }))
+    }
+    apiFetch.mockImplementation((path: string) => path.endsWith("/messages")
+      ? Promise.resolve({ messages: [], hasMore: false, surfaceReceipt: { channelId: metadata.id, surfaceKind: "dm" } })
+      : request.promise)
+    act(() => { startConversationNavigationWarmup(client, {
+      href: `/c/me/${metadata.id}`, viewerId: "viewer", channelId: metadata.id, scopeKind: "dm",
+    }, registry.runtime.ws.get().accessEpoch) })
+    await waitFor(() => expect(apiFetch.mock.calls.filter(([path]) => path.endsWith("/read-state"))).toHaveLength(1))
+    const route = renderHook(() => useDmReadStateSnapshot(metadata.id), { wrapper })
+    act(() => {
+      if (race === "account") {
+        registry.runtime.ws.actions.activateProfileAccount("other")
+        registry.runtime.ws.actions.activateProfileAccount("viewer")
+      } else if (race === "access") {
+        registry.runtime.ws.setState((state) => ({ ...state, accessEpoch: state.accessEpoch + 1 }))
+      } else if (race === "replacement") {
+        client.removeQueries({ queryKey: metadataKey, exact: true })
+        publishDms(registry)
+      }
+    })
+    await act(async () => {
+      if (race.startsWith("denial")) request.reject(Object.assign(new Error("denied"), { status: Number(race.slice(6)) }))
+      else request.resolve(readState)
+    })
+    if (race === "replacement") await waitFor(() => expect(route.result.current.snapshot).toEqual(readState))
+    else await waitFor(() => expect(route.result.current.error).toMatchObject(race.startsWith("denial")
+      ? { status: Number(race.slice(6)) } : { name: "AbortError" }))
+    expect(client.getQueryData<{ historyVerification?: unknown }>(metadataKey)?.historyVerification).toBeUndefined()
+    expect(apiFetch.mock.calls.filter(([path]) => path.endsWith("/read-state"))).toHaveLength(1)
+    route.unmount()
+  })
+
   it("keeps a transient read error local and grants history after explicit Retry succeeds", async () => {
     const { registry, wrapper } = await fixture(new QueryClient({
       defaultOptions: { queries: { retryDelay: 0, gcTime: Infinity } },

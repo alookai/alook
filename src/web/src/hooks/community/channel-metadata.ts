@@ -33,7 +33,7 @@ export function isChannelMetadataTokenCurrent(token: ReturnType<typeof captureCh
 export type ChannelMetadataResource = {
   id: string
   verifiedEpoch: number
-  verification: ReturnType<typeof captureChannelMetadataToken>
+  verification?: ReturnType<typeof captureChannelMetadataToken>
   historyVerification?: ReturnType<typeof captureChannelMetadataToken>
 }
 

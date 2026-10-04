@@ -1,15 +1,14 @@
 "use client"
-import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { getCommunityRuntime } from "@/stores/community/runtime"
 
 
 import { InfiniteQueryObserver, QueryObserver, type InfiniteData, type QueryClient } from "@tanstack/react-query"
-import { apiFetch } from "@/lib/api/client"
-import { conversationReadRetryPolicy, withConversationReadDeadline } from "./conversation-read"
+import { conversationReadRetryPolicy } from "./conversation-read"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import type { MessagesPage, MessagesPageParam } from "@/lib/community/models/message"
 import { channelMessagesQueryFn, dmMessagesQueryFn } from "@/hooks/community/use-messages"
+import { channelReadStateSnapshotQueryFn } from "@/hooks/community/use-channel-read-state"
 import { serverProjectedQueryFn } from "@/hooks/community/use-servers"
 import {
   beginConversationNavigationProof,
@@ -21,12 +20,6 @@ import {
   registerConversationNavigationRecovery,
   type ConversationNavigationTarget,
 } from "./conversation-navigation-proof"
-
-type ReadSnapshot = {
-  lastReadMessageId: string | null
-  lastReadAt: string | null
-  lastReadSeq: number
-}
 
 function isDefinitiveAccessFailure(error: unknown): boolean {
   return error instanceof ApiError && (error.status === 403 || error.status === 404)
@@ -127,24 +120,17 @@ export function startConversationNavigationWarmup(
   const readKey = target.scopeKind === "dm"
     ? communityKeys.dmReadStateSnapshot(target.channelId)
     : communityKeys.channelReadStateSnapshot(target.channelId)
-  const registry = getCommunityDbRegistry(queryClient)!
   void queryClient.fetchQuery({
     queryKey: readKey,
     staleTime: 0,
     retry: false,
     networkMode: "always",
-    queryFn: async ({ signal: querySignal }) => {
-      return withConversationReadDeadline(querySignal, async (readSignal) => {
-        await registry.ready
-        readSignal.throwIfAborted()
-        return apiFetch<ReadSnapshot>(`/api/community/channels/${target.channelId}/read-state`, {
-        signal: readSignal,
-        assertActive: () => {
-          if (!isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) throw new DOMException("Retired conversation warmup", "AbortError")
-        },
-        })
-      })
-    },
+    queryFn: channelReadStateSnapshotQueryFn(target.channelId, target.scopeKind, {
+      waitForRegistryReady: true,
+      assertNavigationCurrent: () => {
+        if (!isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) throw new DOMException("Retired conversation warmup", "AbortError")
+      },
+    }),
   }).catch(() => undefined)
 
   if (target.serverId) {

@@ -258,6 +258,8 @@ describe("warmup original owner and complete intent resources", () => {
 
   it.each([401, 403, 200])("current owner late %i retains ordinary behavior", async (status) => {
     const owner = createClient()
+    owner.registry.authenticationView.setState((state) => ({ ...state, active: true }))
+    const retireDisk = vi.spyOn(owner.registry, "retireDisk").mockResolvedValue(undefined)
     startConversationNavigationWarmup(owner.client, target, 0)
     await waitFor(() => expect(releases).toHaveLength(1))
     await waitFor(() => expect(getConversationNavigationProof(owner.client)?.status).toBe("proven"))
@@ -267,12 +269,19 @@ describe("warmup original owner and complete intent resources", () => {
     const settled = request.catch((error: unknown) => error)
     releases[0](response(status))
     const result = await settled
-    await waitFor(() => expect(owner.client.getQueryState(readKey)?.fetchStatus).toBe("idle"))
     expect(vi.mocked(apiFetch).mock.calls.filter(([path]) => path.endsWith("/read-state"))).toHaveLength(1)
-    if (status !== 200) {
+    if (status === 401) {
+      expect(result).toMatchObject({ status })
+      expect(owner.client.getQueryState(readKey)).toBeUndefined()
+      expect(owner.registry.runtime.lifecycle.get().active).toBe(false)
+      expect(retireDisk).toHaveBeenCalledOnce()
+      expect(assign).toHaveBeenCalledOnce()
+    } else if (status !== 200) {
+      await waitFor(() => expect(owner.client.getQueryState(readKey)?.fetchStatus).toBe("idle"))
       expect(result).toMatchObject({ status })
       expect(owner.client.getQueryState(readKey)?.error).toMatchObject({ status })
-      expect(assign).toHaveBeenCalledTimes(status === 401 ? 1 : 0)
+      expect(retireDisk).not.toHaveBeenCalled()
+      expect(assign).not.toHaveBeenCalled()
     } else {
       await waitFor(() => expect(owner.client.getQueryData(readKey)).toMatchObject({ lastReadSeq: 5 }))
       expect(assign).not.toHaveBeenCalled()
