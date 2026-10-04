@@ -256,6 +256,7 @@ export function useScrollAnchor({
     scrollHeight: number
     scrollTop: number
     total: number
+    paddingEnd: number
     exactlyPinned: boolean
   }
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -559,7 +560,7 @@ export function useScrollAnchor({
       epoch: owner.epoch, key: fold.key, prefix: bodyRect.top - wrapperRect.top,
       itemStart: fold.start, clientHeight: root.clientHeight,
       scrollHeight: root.scrollHeight, scrollTop: root.scrollTop,
-      total, exactlyPinned: max - root.scrollTop <= 1,
+      total, paddingEnd: native.options.paddingEnd ?? 0, exactlyPinned: max - root.scrollTop <= 1,
     }
     const value = JSON.stringify(next)
     const sample = geometrySampleRef.current
@@ -567,21 +568,24 @@ export function useScrollAnchor({
     if (geometrySampleRef.current.frames < 2) return true
     const previous = acceptedGeometryRef.current
     let offset = root.scrollTop
-    if (previous?.epoch === owner.epoch && previous.key === next.key && readReadyRef.current) {
-      const prefixDelta = previous.exactlyPinned ? 0 : next.prefix - previous.prefix
+    if (previous?.epoch === owner.epoch && readReadyRef.current) {
+      const prefixDelta = previous.key === next.key && !previous.exactlyPinned ? next.prefix - previous.prefix : 0
       offset += prefixDelta
-      if (previous.clientHeight !== next.clientHeight) {
-        const totalDelta = next.total - previous.total
-        const adjustedPreviousOffset = previous.scrollTop
-          + (previous.exactlyPinned ? totalDelta : next.itemStart - previous.itemStart)
-        const resized = resolveViewportResizeAnchor({
-          previousClientHeight: previous.clientHeight,
-          nextClientHeight: next.clientHeight,
-          previousScrollHeight: previous.scrollHeight + totalDelta,
-          nextScrollHeight: next.scrollHeight,
-          previousScrollTop: adjustedPreviousOffset,
-        })
-        offset = resized.scrollTop + (resized.anchor === "start" ? prefixDelta : 0)
+      if (previous.clientHeight !== next.clientHeight || previous.paddingEnd !== next.paddingEnd) {
+        const previousFold = virtualItems.find((candidate) => candidate.key === previous.key)
+        if (previousFold) {
+          const totalDelta = next.total - previous.total - (next.paddingEnd - previous.paddingEnd)
+          const adjustedPreviousOffset = previous.scrollTop
+            + (previous.exactlyPinned ? totalDelta : previousFold.start - previous.itemStart)
+          const resized = resolveViewportResizeAnchor({
+            previousClientHeight: previous.clientHeight,
+            nextClientHeight: next.clientHeight,
+            previousScrollHeight: previous.scrollHeight + totalDelta,
+            nextScrollHeight: next.scrollHeight,
+            previousScrollTop: adjustedPreviousOffset,
+          })
+          offset = resized.scrollTop + (resized.anchor === "start" ? prefixDelta : 0)
+        }
       }
     }
     offset = Math.max(0, Math.min(offset, max))
@@ -616,6 +620,17 @@ export function useScrollAnchor({
       const distance = Math.max(0, root.scrollHeight - root.clientHeight - root.scrollTop)
       wasAtEndRef.current = distance <= NEAR_BOTTOM_PX
       if (wasAtEndRef.current) userScrolledAwayRef.current = false
+      const previous = acceptedGeometryRef.current
+      const native = virtualizerRef.current
+      const previousFold = previous && native?.getVirtualItems().find((item) => item.key === previous.key)
+      if (previous && previous.epoch === positionOwnerRef.current.epoch && readReadyRef.current
+        && previous.clientHeight === root.clientHeight && previous.scrollHeight === root.scrollHeight
+        && native?.getTotalSize() === previous.total && (native.options.paddingEnd ?? 0) === previous.paddingEnd
+        && previousFold?.start === previous.itemStart
+        && Math.abs((native.scrollOffset ?? 0) - root.scrollTop) <= 1
+        && Math.abs((native.scrollRect?.height ?? 0) - root.clientHeight) <= 1) {
+        acceptedGeometryRef.current = { ...previous, scrollTop: root.scrollTop, exactlyPinned: distance <= 1 }
+      }
       scheduleGeometry()
     }
     const onUserIntent = () => {

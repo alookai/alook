@@ -215,6 +215,40 @@ describe("locked native adapter and existing message scroll owner", () => {
     resize()
     expect(offset).toHaveBeenCalledTimes(calls)
   })
+  it.each([0, 2, 100, 300])("preserves the footer policy at %ipx when viewport growth changes the folded row", distance => {
+    const h = mount()
+    h.move(h.root.scrollHeight - scrollFixture.height - distance)
+    const before = h.root.scrollTop
+    scrollFixture.height += 200
+    resize()
+    expect(h.root.scrollTop).toBe(before - (distance <= 100 ? 200 : 0))
+    if (distance <= 100) expect(h.root.scrollHeight - scrollFixture.height - h.root.scrollTop).toBe(distance)
+  })
+  it("preserves a current two-pixel tail distance when the footer grows before the scroll quiet period", () => {
+    const h = mount()
+    act(() => h.root.scrollTo({ top: h.root.scrollHeight - scrollFixture.height - 2 }))
+    runFrames(2)
+    scrollFixture.height += 200
+    resize()
+    expect(h.root.scrollHeight - scrollFixture.height - h.root.scrollTop).toBe(2)
+  })
+  it.each([0, 2, 100, 101])("preserves the footer policy at %ipx across native mobile/desktop tail padding", distance => {
+    const h = mount({ tailPaddingEnd: 40 })
+    h.move(h.root.scrollHeight - scrollFixture.height - distance)
+    const before = h.root.scrollTop
+    const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
+    h.update({ tailPaddingEnd: 48 })
+    expect(h.root.scrollTop).toBe(before + (distance <= 100 ? 8 : 0))
+    const calls = offset.mock.calls.length
+    h.update({ items: [...h.input.items] })
+    expect(offset).toHaveBeenCalledTimes(calls)
+    if (distance === 0) {
+      scrollFixture.bodyHeights.set("m13", 240)
+      h.update({ items: [...h.input.items] })
+      expect(h.root.scrollTop).toBe(h.root.scrollHeight - scrollFixture.height)
+      expect(offset).toHaveBeenCalledTimes(calls)
+    }
+  })
   it("fills a true single short message through native padding and crosses short/long normally", () => {
     const h = mount({ items: [message("m0")] })
     expect(h.root.scrollTop).toBe(0)
