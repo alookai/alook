@@ -326,7 +326,7 @@ function ServerSidebar({ serverId }: { serverId: string }) {
     // wins. Mobile intentionally remains on the server root and must consume
     // the one-shot marker there instead of waiting for a redirect that never
     // runs.
-    if (communityServerId(pathname) !== serverId) return
+    if (ownerDeleteRouteProtected || communityServerId(pathname) !== serverId) return
     const search = searchParams.toString()
     const currentHref = `${pathname}${search ? `?${search}` : ""}`
     const cleanupHref = serverModalMarkerCleanupHref(currentHref, {
@@ -349,6 +349,7 @@ function ServerSidebar({ serverId }: { serverId: string }) {
     router,
     hasChannel,
     currentServer,
+    ownerDeleteRouteProtected,
   ])
 
   const categories = useMemo(() => sidebarCategories.map((category) => ({

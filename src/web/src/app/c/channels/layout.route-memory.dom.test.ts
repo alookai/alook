@@ -11,6 +11,11 @@ import { registerOwnerServerDeleteRoute, type OwnerServerDeleteRouteToken } from
 
 const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
+  search: { current: "" },
+  captureIntent: vi.fn(() => () => true),
+  serverSnapshot: { current: null as null | {
+    categories: Array<{ channels: Array<{ id: string; pending?: boolean }> }>
+  } },
   navigatePath: vi.fn(),
   cancelPendingNavigation: vi.fn(),
   setCurrentServerId: vi.fn(),
@@ -47,7 +52,7 @@ vi.mock("next/navigation", () => ({
   useSelectedLayoutSegments: () => ["missing-server", "missing-channel"],
   usePathname: () => "/c/channels/missing-server/missing-channel",
   useRouter: () => ({ replace: mocks.replace, prefetch: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(mocks.search.current),
 }))
 vi.mock("sonner", () => ({ toast: mocks.toast }))
 vi.mock("@/lib/api/client", () => ({ toastApiError: mocks.toastApiError }))
@@ -84,7 +89,6 @@ vi.mock("@/lib/community/community-route", async (importOriginal) => ({
   channelHref: (serverId: string, channelId: string) => `/c/channels/${serverId}/${channelId}`,
   communityServerId: (pathname: string) => mocks.communityServerId(pathname),
   serverRootHref: (serverId: string) => `/c/channels/${serverId}`,
-  serverModalMarkerCleanupHref: () => null,
 }))
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop" }))
 vi.mock("@/components/community/channels/channel-sidebar", () => ({ ChannelSidebar: () => null, ChannelSidebarSkeleton: () => null }))
@@ -132,7 +136,7 @@ vi.mock("@/hooks/community/use-servers", () => ({
   serverProjectedQueryFn: () => vi.fn(),
   useServer: (serverId: string | null) => {
     mocks.useServer(serverId)
-    return { server: undefined }
+    return { server: serverId ? mocks.serverSnapshot.current ?? undefined : undefined }
   },
   useServers: () => ({
     servers: mocks.servers.current,
@@ -252,7 +256,7 @@ function ServerLayout({ children }: { children?: React.ReactNode }) {
   }, [scope.serverId, scope.token])
   return createElement(CommunityRouteContext, { value: {
     frame: { ...normalizeCommunityHref("/c/channels/missing-server/missing-channel"), revision: 0 },
-    navigation: { captureIntent: () => () => true } as never,
+    navigation: { captureIntent: mocks.captureIntent } as never,
     ownerDeleteRouteScope: scope,
   } }, createElement(ServerSidebarSlot, { serverId: scope.serverId }), createElement(ServerContent, null, children))
 }
@@ -273,6 +277,10 @@ describe("ServerLayout deletion routing", () => {
     vi.spyOn(client, "fetchQuery")
     window.history.replaceState({}, "", "/c/channels/missing-server/missing-channel")
     mocks.replace.mockClear()
+    mocks.search.current = ""
+    mocks.serverSnapshot.current = null
+    mocks.captureIntent.mockReset()
+    mocks.captureIntent.mockImplementation(() => () => true)
     mocks.navigatePath.mockClear()
     mocks.cancelPendingNavigation.mockClear()
     mocks.setCurrentServerId.mockClear()
@@ -310,6 +318,32 @@ describe("ServerLayout deletion routing", () => {
       Promise.resolve(mocks.serverDetails.get(String(queryKey.at(-1))))
     ))
     mocks.runEject.mockReturnValue(false)
+  })
+
+  it("keeps the original delete navigation qualified while its protected route still has a modal marker", async () => {
+    mocks.search.current = "settings=1"
+    mocks.serverSnapshot.current = { categories: [] }
+    const view = render(createElement(ServerLayout))
+    expect(mocks.cancelPendingNavigation).toHaveBeenCalled()
+    expect(mocks.replace).toHaveBeenCalledWith("/c/channels/missing-server/missing-channel")
+    mocks.replace.mockClear()
+    mocks.cancelPendingNavigation.mockClear()
+    mocks.captureIntent.mockImplementation(() => {
+      const cancellations = mocks.cancelPendingNavigation.mock.calls.length
+      return () => mocks.cancelPendingNavigation.mock.calls.length === cancellations
+    })
+
+    await act(async () => { await mocks.deleteServerAction.current!() })
+    expect(getCommunityDbRegistry(mocks.queryClient)!.runtime.serverEject.get()
+      .transactions.get("missing-server")?.request).toBe("pending")
+    expect(mocks.cancelPendingNavigation).not.toHaveBeenCalled()
+    expect(mocks.replace).not.toHaveBeenCalled()
+
+    await act(async () => {
+      mocks.deleteServer.mock.calls[0]![1].onSuccess()
+    })
+    expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/me")
+    view.unmount()
   })
 
   it("checks the current pathname before running the generic eject", () => {

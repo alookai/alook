@@ -211,11 +211,15 @@ test("deleting the only Server replaces once to Home", async ({ asUser }) => {
       && new URL(candidate.url()).pathname === `/api/community/servers/${route.serverId}`
   ))
 
-  await clickDeleteServer(dave.page, route.serverId, () => resetHistoryRecorder(dave.page))
+  await clickDeleteServer(dave.page, route.serverId, async () => {
+    await expect(dave.page).toHaveURL(`/c/channels/${route.serverId}/${route.channelId}`)
+    await resetHistoryRecorder(dave.page)
+  })
 
   expect((await response).status()).toBe(204)
   await expect(dave.page).toHaveURL("/c/me")
   await expect(dave.page.getByTestId(tid.serverIcon(route.serverId))).toHaveCount(0)
+  await expect(dave.page.getByText("Server deleted", { exact: true })).toBeVisible()
   expect(await divergentHistoryWrites(dave.page, "/c/me")).toEqual([])
 })
 
@@ -248,7 +252,8 @@ for (const testCase of [
 
     expect((await deletion.response).status()).toBe(204)
     await expect(page).toHaveURL(safePathname)
-    await expect(page.getByText("Server deleted", { exact: true })).toBeVisible()
+    await expect(page.getByTestId(tid.serverIcon(deleted.serverId))).toHaveCount(0)
+    await expect(page.getByText("Server deleted", { exact: true })).toHaveCount(0)
     expect(await divergentHistoryWrites(page, safePathname)).toEqual([])
     await deletion.cleanup()
   })
@@ -344,7 +349,8 @@ test("a Back visit after terminal cleanup is an ordinary missing route", async (
   deletion.release()
   expect((await deletion.response).status()).toBe(204)
   await expect(page).toHaveURL(safePathname)
-  await expect(page.getByText("Server deleted", { exact: true })).toBeVisible()
+  await expect(page.getByTestId(tid.serverIcon(deleted.serverId))).toHaveCount(0)
+  await expect(page.getByText("Server deleted", { exact: true })).toHaveCount(0)
   await page.goBack({ waitUntil: "commit" })
 
   await expect(page).not.toHaveURL(new RegExp(`/c/channels/${deleted.serverId}(?:/|$)`))
