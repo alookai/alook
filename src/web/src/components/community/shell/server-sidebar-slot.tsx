@@ -257,6 +257,8 @@ function ServerSidebar({ serverId }: { serverId: string }) {
   const ejectedRef = useRef(false)
   useEffect(() => {
     if (ejectedRef.current) return
+    if (navigation.navigationPending
+      && communityServerId(navigation.pendingHref ?? "") !== serverId) return
     if (typeof window !== "undefined"
       && communityServerId(window.location.pathname) !== serverId) return
     ejectedRef.current = runAuthoritativeServerEject({
@@ -281,7 +283,7 @@ function ServerSidebar({ serverId }: { serverId: string }) {
         router.replace(destination)
       },
     })
-  }, [cancelPendingNavigation, currentUser.id, pathname, serverAccessRevoked, serverId, serversList.isLiveAuthoritative, serversList.isSuccess, serversList.isFetching, serversList.servers, router, searchParams, queryClient])
+  }, [cancelPendingNavigation, currentUser.id, navigation.navigationPending, navigation.pendingHref, pathname, serverAccessRevoked, serverId, serversList.isLiveAuthoritative, serversList.isSuccess, serversList.isFetching, serversList.servers, router, searchParams, queryClient])
   // Reset the guard when the URL changes to a NEW server id — otherwise
   // navigating server → dangling-server → server would leave the ref
   // latched and skip the eject.

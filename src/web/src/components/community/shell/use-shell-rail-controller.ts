@@ -147,7 +147,9 @@ export function useShellRailController({
           try { assertAccount() } catch { return }
           try { assertUi(); toast("Left server") } catch {}
           const currentNavigation = viewOwner.get().navigation
-          if (currentNavigation && communityServerId(currentNavigation.pendingHref ?? currentNavigation.publishedHref) === id) {
+          if (currentNavigation && communityServerId(currentNavigation.navigationPending
+            ? currentNavigation.pendingHref ?? ""
+            : currentNavigation.publishedHref) === id) {
             const allowed = new Set([...communityDb!.collections.serverMemberships.values()].filter((row) => row.viewer && row.userId === communityDb!.accountId).map((row) => row.serverId))
             const remaining = [...communityDb!.collections.servers.values()].filter((row) => allowed.has(row.id)).sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
             currentNavigation.replace(pickPostEjectDestination(remaining, id))
