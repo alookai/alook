@@ -1,9 +1,12 @@
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { afterEach, describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
+import { join, resolve } from "node:path";
+import { tmpdir, homedir } from "node:os";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as localData from "./local-data.js";
 import { NativeUsageReader, nativeUsageHome, parseNativeGeneration, queryNativeRowsWithCli, queryNativeRows } from "./usage.js";
 
+const hasSqliteCli = spawnSync("sqlite3", ["-version"], { timeout: 3_000 }).status === 0;
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { force: true, recursive: true }); });
 function varint(value: bigint | number): number[] {
@@ -54,9 +57,9 @@ describe("Antigravity native accounting", () => {
     await expect(new NativeUsageReader("/fixture", "native", async () => [{ idx: 0, data: "", has_children: 0 }]).read()).rejects.toThrow("timestamp");
   });
   it("resolves the actual transport home, including relative and tilde overrides", () => {
-    expect(nativeUsageHome({ GEMINI_HOME: "private" }, "/work")).toBe("/work/private");
-    expect(nativeUsageHome({ GEMINI_HOME: "~/private" }, "/work")).toMatch(/\/private$/);
-    expect(nativeUsageHome({}, "/work")).toMatch(/\/\.gemini$/);
+    expect(nativeUsageHome({ GEMINI_HOME: "private" }, "/work")).toBe(resolve("/work", "private"));
+    expect(nativeUsageHome({ GEMINI_HOME: "~/private" }, "/work")).toBe(join(homedir(), "private"));
+    expect(nativeUsageHome({}, "/work")).toBe(join(homedir(), ".gemini"));
   });
   it("reads the live SQLite WAL view without modifying the provider database", async () => {
     const module = "node:sqlite";
@@ -68,11 +71,6 @@ describe("Antigravity native accounting", () => {
     try {
       db.exec("PRAGMA journal_mode=WAL; CREATE TABLE gen_metadata(idx INTEGER PRIMARY KEY, data BLOB); CREATE TABLE steps(has_subtrajectory INTEGER)");
       db.prepare("INSERT INTO gen_metadata VALUES(?,?)").run(0, generation());
-      expect(await queryNativeRowsWithCli(join(directory, "native.db"), -1)).toMatchObject([{ idx: 0 }]);
-      expect(await queryNativeRowsWithCli(join(directory, "native.db"), 0)).toEqual([]);
-      const fallback = new NativeUsageReader(home, "native", (path, cursor) => queryNativeRows(path, cursor, async () => { throw new Error("Node 20 has no node:sqlite"); }));
-      expect((await fallback.read()).samples).toMatchObject([{ usage: { input: 90, output: 24, cache: 23 } }]);
-      expect(await fallback.read()).toEqual({ samples: [], complete: true });
       expect((await new NativeUsageReader(home, "native").read()).samples).toMatchObject([{ usage: { input: 90, output: 24, cache: 23 } }]);
     } finally { db.close(); }
   });
@@ -95,4 +93,27 @@ it("reports incomplete bounded scans and drains seventeen batches without losing
 it("bounds overlong varints and unsupported wire groups", () => {
   expect(() => parseNativeGeneration(Buffer.from(Array(10).fill(128)))).toThrow("varint");
   expect(() => parseNativeGeneration(Buffer.from([11]))).toThrow("Unsupported");
+});
+
+it.skipIf(!hasSqliteCli)("reads the live WAL through the optional CLI and handles empty fallback batches", async () => {
+  const module = "node:sqlite";
+  let sqlite: { DatabaseSync: new(path: string) => { exec(sql: string): void; prepare(sql: string): { run(...args: unknown[]): void }; close(): void } };
+  try { sqlite = await import(module); } catch { return; }
+  const home = mkdtempSync(join(tmpdir(), "native-cli-usage-")); roots.push(home);
+  const directory = join(home, "antigravity-acp", "conversations"); mkdirSync(directory, { recursive: true });
+  const path = join(directory, "native.db"); const db = new sqlite.DatabaseSync(path);
+  try {
+    db.exec("PRAGMA journal_mode=WAL; CREATE TABLE gen_metadata(idx INTEGER PRIMARY KEY, data BLOB); CREATE TABLE steps(has_subtrajectory INTEGER)");
+    db.prepare("INSERT INTO gen_metadata VALUES(?,?)").run(0, generation());
+    expect(await queryNativeRowsWithCli(path, -1)).toMatchObject([{ idx: 0 }]);
+    expect(await queryNativeRowsWithCli(path, 0)).toEqual([]);
+    const fallback = new NativeUsageReader(home, "native", (file, cursor) => queryNativeRows(file, cursor, async () => { throw new Error("Node 20 has no node:sqlite"); }));
+    expect((await fallback.read()).samples).toMatchObject([{ usage: { input: 90, output: 24, cache: 23 } }]);
+    expect(await fallback.read()).toEqual({ samples: [], complete: true });
+  } finally { db.close(); }
+});
+it("reports a missing optional CLI reader explicitly when built-in SQLite is absent", async () => {
+  const command = vi.spyOn(localData, "readLocalCommand").mockRejectedValue(new Error("Local data read failed"));
+  try { await expect(queryNativeRows("native.db", -1, async () => { throw new Error("No built-in SQLite"); })).rejects.toThrow("Local data read failed"); }
+  finally { command.mockRestore(); }
 });

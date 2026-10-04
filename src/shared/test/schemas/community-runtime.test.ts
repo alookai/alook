@@ -308,7 +308,7 @@ describe("HostReadyMessageSchema", () => {
   });
 
   it("accepts one quota snapshot for each supported provider backend", () => {
-    const providerQuotas = (["claude", "codex", "grok"] as const).map((agentBackendId) => ({
+    const providerQuotas = (["claude", "codex", "grok", "antigravity"] as const).map((agentBackendId) => ({
       agentBackendId,
       observation: {
         status: "error" as const,

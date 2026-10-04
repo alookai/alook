@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as localData from "./local-data.js";
 import { parseAntigravityQuota, readAntigravityQuota } from "./quota.js";
@@ -59,7 +60,7 @@ describe("Antigravity official account quota", () => {
     const readKeychain = vi.fn(async () => JSON.stringify(h.credentials));
     expect(await readAntigravityQuota({ ...h.options, readKeychain })).toMatchObject({ status: "available" });
     expect(readKeychain).toHaveBeenCalledOnce();
-    expect(h.options.readCredentialsFile.mock.calls.map(([path]) => path)).toEqual(["/test-home/isolated/antigravity-acp/settings.json"]);
+    expect(h.options.readCredentialsFile.mock.calls.map(([path]) => path)).toEqual([join("/test-home", "isolated", "antigravity-acp", "settings.json")]);
     const f = fixture({ platform: "darwin", env: { AGY_ACP_FORCE_FILE_STORAGE: "1" } });
     expect(await readAntigravityQuota({ ...f.options, readKeychain })).toMatchObject({ status: "available" });
     expect(readKeychain).toHaveBeenCalledOnce();
