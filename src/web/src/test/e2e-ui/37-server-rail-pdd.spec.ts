@@ -1,6 +1,7 @@
 import { devices, type Locator, type Page } from "@playwright/test"
 import { expect, test, userId } from "./_fixtures/community-fixture"
 import { seedChannel, seedDm, seedJoinServer, seedServer } from "./_fixtures/seed"
+import { composerEditable, waitForElementMotion } from "./_fixtures/actions"
 import { tid } from "./_fixtures/testids"
 
 const RAIL_ENDPOINT = "/api/community/users/me/server-rail"
@@ -214,6 +215,7 @@ async function touchDrag(
   }
   await scrollIntoView(source)
   await scrollIntoView(target)
+  await waitForElementMotion(source)
   const sourceTestId = await source.getAttribute("data-testid")
   const sourceBox = await source.boundingBox()
   const targetBox = await target.boundingBox()
@@ -671,6 +673,10 @@ test("server rail keeps scroll separate from native, touch, and keyboard drag", 
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.emulateMedia({ colorScheme: "dark" })
   await expect(page.locator("html")).toHaveClass(/dark/)
+  const desktopComposer = composerEditable(page)
+  await expect(desktopComposer).toBeVisible()
+  await expect(desktopComposer).toBeFocused()
+  await waitForElementMotion(desktopComposer)
   const darkKeyboardSource = page.getByTestId(tid.serverIcon(first))
   await darkKeyboardSource.focus()
   await page.keyboard.press("Space")
