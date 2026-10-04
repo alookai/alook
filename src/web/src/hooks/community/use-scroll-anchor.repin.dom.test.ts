@@ -292,6 +292,56 @@ describe("locked native adapter and existing message scroll owner", () => {
       expect(offset).toHaveBeenCalledTimes(calls)
     }
   })
+  it("preserves a two-pixel DM tail distance through consecutive composer resizes", () => {
+    const h = mount()
+    scrollFixture.height -= 100
+    resize(2)
+    act(() => h.root.scrollTo({ top: h.root.scrollHeight - scrollFixture.height - 2 }))
+    runFrames(2)
+    scrollFixture.height += 100
+    resize()
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(2)
+  })
+  it.each([0, 2, 8, 100, 300])("preserves the %ipx footer policy in the first two resize frames", distance => {
+    const h = mount()
+    h.move(h.root.scrollHeight - scrollFixture.height - distance)
+    const before = h.root.scrollTop
+    scrollFixture.height += 200
+    resize(2)
+    if (distance <= 100) expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(distance)
+    else expect(h.root.scrollTop).toBe(before)
+  })
+  it.each([[40, 48], [48, 40]])("retains an explicit present scroll after padding changes from %i to %i", (from, to) => {
+    const h = mount({ tailPaddingEnd: from })
+    h.move(300)
+    h.stage({ tailPaddingEnd: to })
+    act(() => h.root.scrollTo({ top: h.root.scrollHeight }))
+    resize()
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(0)
+    expect(scrollFixture.latest.belowCount).toBe(0)
+  })
+  it.each(["wheel", "touch", "pointer"])("keeps footer clamp compensation behind active %s input", input => {
+    const h = mount()
+    h.move(h.root.scrollHeight - scrollFixture.height - 2)
+    const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
+    if (input === "wheel") fireEvent.wheel(h.root, { deltaY: -2 })
+    if (input === "touch") fireEvent.touchStart(h.root, { touches: [{ clientY: 200 }] })
+    if (input === "pointer") fireEvent.pointerDown(h.root, { pointerId: 9 })
+    scrollFixture.height += 100
+    resize(2)
+    expect(offset).not.toHaveBeenCalled()
+  })
+  it("does not treat a resize clamp during ongoing native scrolling as a settled footer", () => {
+    const h = mount()
+    h.move(h.root.scrollHeight - scrollFixture.height - 8)
+    act(() => h.root.scrollTo({ top: h.root.scrollTop + 6 }))
+    runFrames(2)
+    expect(scrollFixture.latest.virtualizer.isScrolling).toBe(true)
+    const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
+    scrollFixture.height += 100
+    resize(2)
+    expect(offset).not.toHaveBeenCalled()
+  })
   it("fills a true single short message through native padding and crosses short/long normally", () => {
     const h = mount({ items: [message("m0")] })
     expect(h.root.scrollTop).toBe(0)

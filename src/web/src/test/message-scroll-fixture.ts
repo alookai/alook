@@ -76,7 +76,7 @@ export function runFrames(count = 26) {
     })
   }
 }
-export function resize() {
+export function resize(frameCount = 26) {
   act(() => {
     for (const observer of [...resizeObservers]) {
       const entries = [...observer.elements].filter(element => element.isConnected).map(target => ({
@@ -85,7 +85,7 @@ export function resize() {
       if (entries.length) observer.callback(entries, {} as ResizeObserver)
     }
   })
-  runFrames()
+  runFrames(frameCount)
 }
 export function mount(overrides: Partial<Input> = {}, strict = false, onLayout?: (result: Result) => void) {
   const input: Input = { items: Array.from({ length: 14 }, (_, i) => message(`m${i}`)), initialScrollReady: true, hasMoreOlder: true, ...overrides }
