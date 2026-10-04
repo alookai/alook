@@ -121,7 +121,7 @@ describe("CommunityLayout session boundary", () => {
       "src/app/c/me/layout.tsx",
     ), "utf8")
     expect(source).not.toContain("useDmRouteVerification")
-    expect(source).toContain('<DmRoute key={`${currentUser.id}/${params.dmId}`} dmId={params.dmId} />')
+    expect(source).toContain('<DmRoute key={`${currentUser.id}/${dmId}`} dmId={dmId} />')
     expect(source).not.toMatch(/isFetching:\s*dmsFetching/)
   })
 
