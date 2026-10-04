@@ -494,8 +494,7 @@ function workspaceMemorySection(config: HostLaunchConfig): string {
       '"Owner: @alice#0001", "Alook codebase: /Users/alice/alook/"',
     "",
     "Record the agreed division of work and responsibility boundaries in `memory.md`. " +
-      "Fulfill your own responsibilities; do not take over someone else's work unless it is " +
-      "explicitly reassigned to you.",
+      "Fulfill your own responsibilities.",
     "",
     "Learn your voice and taste over time. Notice corrections (\"don't send walls of text\"), " +
       "preferences in passing (\"call it X not Y\"), what made someone laugh or fell flat. Write " +
