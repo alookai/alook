@@ -38,6 +38,24 @@ export async function seedServer(owner: UserKey, name: string): Promise<string> 
   return data.server.id
 }
 
+export async function retireSeedServers(owner: UserKey, serverIds: readonly string[]): Promise<void> {
+  const errors: unknown[] = []
+  for (const serverId of serverIds) {
+    try {
+      const response = await retrySeedRequest(() => fetch(`${WEB_URL}/api/community/servers/${serverId}`, {
+        method: "DELETE",
+        headers: { Cookie: sessionCookie(owner), Origin: WEB_URL },
+      }))
+      if (response.status !== 204 && response.status !== 404) {
+        throw new Error(`DELETE fixture server ${serverId} failed (${response.status})`)
+      }
+    } catch (error) {
+      errors.push(error)
+    }
+  }
+  if (errors.length > 0) throw new AggregateError(errors, "Fixture server retirement failed")
+}
+
 export async function seedChannel(
   owner: UserKey,
   serverId: string,

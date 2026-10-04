@@ -14,6 +14,7 @@ import {
   COMMUNITY_SURFACE_BORDER_WIDTH,
 } from "@/components/community/shell/shell-frame-geometry"
 import {
+  retireSeedServers,
   seedChannel,
   seedDm,
   seedForumThread,
@@ -433,11 +434,16 @@ async function visibleSkeletonAnimationProperties(page: Page) {
   )).sort())
 }
 
-export async function seedGeometryRoutes(): Promise<Omit<MatrixCase, "width">[]> {
+export async function cleanupGeometryServers(serverIds: readonly string[]): Promise<void> {
+  await retireSeedServers(ISOLATED_GEOMETRY_USER, serverIds)
+}
+
+export async function seedGeometryRoutes(serverIds: string[]): Promise<Omit<MatrixCase, "width">[]> {
   const stamp = Date.now()
     const serverId = await seedServer(ISOLATED_GEOMETRY_USER, `Geometry ${stamp}`)
+    serverIds.push(serverId)
     for (let index = 1; index < RAIL_OVERFLOW_SERVER_COUNT; index += 1) {
-      await seedServer(ISOLATED_GEOMETRY_USER, `Geometry rail ${stamp}-${index}`)
+      serverIds.push(await seedServer(ISOLATED_GEOMETRY_USER, `Geometry rail ${stamp}-${index}`))
     }
     const textId = await seedChannel(ISOLATED_GEOMETRY_USER, serverId, `geometry-text-${stamp}`)
     const forumId = await seedChannel(
