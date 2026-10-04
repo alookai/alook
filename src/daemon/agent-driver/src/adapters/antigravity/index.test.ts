@@ -257,6 +257,29 @@ describe("Antigravity native ACP", () => {
     await h.lane.stop();
   });
 
+  it("rejects a configured launch when the native session offers no catalog", async () => {
+    const h = setup({ catalog: { models: undefined } });
+    h.ctx.config.runtimeConfig = { model: { kind: "default" }, reasoningEffort: "low" };
+    expect(await h.lane.start({ text: "first" })).toMatchObject({ ok: false, reason: "incompatible_configuration" });
+    expect(h.prompts()).toEqual([]);
+    expect(h.messages.some((message) => message.method?.startsWith("session/set_"))).toBe(false);
+    expect(h.proc.kill).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps native defaults usable but rejects idle effort updates without a catalog", async () => {
+    const h = setup({ catalog: { models: undefined } });
+    expect(await h.lane.start({ text: "first" })).toMatchObject({ ok: true });
+    h.emit({ id: h.prompts()[0]!.id, result: { stopReason: "end_turn" } });
+    expect(await h.lane.updateSettings({ reasoningEffort: "low" })).toMatchObject({
+      status: "failed", error: { category: "configuration", code: "unsupported_reasoning_effort" },
+    });
+    expect(h.messages.some((message) => message.method?.startsWith("session/set_"))).toBe(false);
+    expect(await h.lane.send({ text: "next", mode: "idle" })).toMatchObject({ ok: true });
+    expect(h.spawn).toHaveBeenCalledTimes(1);
+    expect(h.prompts()).toHaveLength(2);
+    await h.lane.stop();
+  });
+
   it("uses the native server and Linux uid flag, never print mode", () => {
     expect(antigravitySpawnSpec("/custom/native", "linux")).toMatchObject({ command: "/custom/native", args: ["--uid="] });
     expect(antigravitySpawnSpec("/custom/native", "darwin")).toMatchObject({ command: "/custom/native", args: [] });

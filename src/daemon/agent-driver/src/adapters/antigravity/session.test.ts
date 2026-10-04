@@ -6,7 +6,7 @@ import { createBuiltinAgentDriverSdk, type AgentEvent, type BuiltinBackendSpecs 
 import { createFakeAgentDriverHost } from "../../testing/fake-host.js";
 
 describe.skipIf(process.platform === "win32")("Antigravity SDK prompt completion", () => {
-  it.each(["error", "invalid", "cancelled", "interrupt", "end_turn", "max_tokens", "refusal", "max_turn_requests"])(
+  it.each(["error", "error-without-code", "error-string-code", "invalid", "cancelled", "interrupt", "end_turn", "max_tokens", "refusal", "max_turn_requests"])(
     "settles %s once, preserves queued work, and publishes only completed content",
     async (terminal) => {
       const directory = mkdtempSync(join(tmpdir(), "alook-antigravity-sdk-"));
@@ -34,7 +34,11 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   const timer = setInterval(() => {
     if (!existsSync(${JSON.stringify(release)})) return;
     clearInterval(timer);
-    const reply = ${JSON.stringify(terminal)} === "error" ? { error: { code: -32603, message: "injected failure" } } : { result: { stopReason: ${JSON.stringify(terminal)} } };
+    const terminal = ${JSON.stringify(terminal)};
+    const reply = terminal === "error" ? { error: { code: -32603, message: "injected failure" } }
+      : terminal === "error-without-code" ? { error: { message: "injected failure" } }
+      : terminal === "error-string-code" ? { error: { code: "invalid", message: "injected failure" } }
+      : { result: { stopReason: terminal } };
     send({ id: request.id, ...reply });
     send({ id: request.id, ...reply });
   }, 5);
