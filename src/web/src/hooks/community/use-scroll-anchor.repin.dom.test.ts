@@ -19,6 +19,7 @@ const virtualizer = {
   scrollToEnd: vi.fn(),
   scrollToIndex: vi.fn(),
   scrollToOffset: vi.fn(),
+  getTotalSize: vi.fn(() => 1_600),
   range: null,
   shouldAdjustScrollPositionOnItemSizeChange: undefined,
 }
@@ -40,6 +41,7 @@ function resetHarness() {
   virtualizer.scrollToEnd.mockReset()
   virtualizer.scrollToIndex.mockReset()
   virtualizer.scrollToOffset.mockReset()
+  virtualizer.getTotalSize.mockReset().mockReturnValue(1_600)
   stubWindow({
     requestAnimationFrame: vi.fn(() => 1),
     cancelAnimationFrame: vi.fn(),
@@ -115,10 +117,11 @@ async function mountHook({
   const listeners = new Map<string, EventListener>()
   const scrollWrites: number[] = []
   let rows: HTMLElement[] = []
-  const setRows = (positions: { id: string; top: number; height?: number }[]) => {
-    rows = positions.map(({ id, top, height = 80 }) => {
+  const setRows = (positions: { id?: string; boundary?: boolean; top: number; height?: number }[]) => {
+    rows = positions.map(({ id, boundary, top, height = 80 }) => {
       const row = document.createElement("div")
-      row.dataset.msgId = id
+      if (id) row.dataset.msgId = id
+      if (boundary) row.dataset.newDivider = ""
       row.getBoundingClientRect = () => DOMRect.fromRect({ y: top, height })
       return row
     })
@@ -130,7 +133,8 @@ async function mountHook({
     addEventListener: (type: string, listener: EventListener) => listeners.set(type, listener),
     removeEventListener: vi.fn(),
     closest: () => ({ querySelector: () => ({}) }),
-    querySelectorAll: () => rows,
+    querySelectorAll: () => rows.filter((row) => row.dataset.msgId !== undefined),
+    querySelector: () => rows.find((row) => row.hasAttribute("data-new-divider")) ?? null,
     getBoundingClientRect: () => ({ top: 0, bottom: clientHeight }),
     get clientHeight() {
       return clientHeight
@@ -149,6 +153,7 @@ async function mountHook({
   virtualizer.scrollToEnd.mockImplementation(() => {
     scrollTop = Math.max(0, scrollHeight - clientHeight)
   })
+  virtualizer.scrollToOffset.mockImplementation((offset: number) => { scrollTop = offset })
 
   let result!: ReturnType<typeof useScrollAnchor>
   function Probe() {
@@ -628,6 +633,182 @@ describe("message positioning owner", () => {
     stubWindow({ requestAnimationFrame: (frame) => { frames.push(frame); return frames.length }, cancelAnimationFrame: vi.fn() })
     return frames
   }
+
+  it("settles initial unread positioning only after its own NEW boundary and actual message stay visible", async () => {
+    const frames = captureFrames()
+    const settled = vi.fn()
+    const mounted = await mountHook({ items: [{ kind: "new-divider", key: "new-divider" }, messageItem("unread")],
+      heroMeasured: true, initialScrollReady: true, newDividerBefore: "unread", hasMoreNewer: true, onInitialPositionSettled: settled })
+    act(() => frames.shift()?.(0))
+    expect(settled).not.toHaveBeenCalled()
+    mounted.setRows([{ boundary: true, top: 390, height: 20 }])
+    act(() => frames.shift()?.(0))
+    expect(settled).not.toHaveBeenCalled()
+    mounted.setRows([{ boundary: true, top: 390, height: 20 }, { id: "unread", top: 420 }])
+    act(() => frames.shift()?.(0))
+    expect(settled).not.toHaveBeenCalled()
+    act(() => frames.shift()?.(0))
+    expect(settled).toHaveBeenCalledOnce()
+    expect(virtualizer.scrollToIndex).toHaveBeenCalledExactlyOnceWith(0, { align: "center" })
+    expect(virtualizer.scrollToOffset).not.toHaveBeenCalled()
+    mounted.unmount()
+  })
+
+  it("corrects measured initial unread drift before revealing instead of accepting the first stable frame", async () => {
+    const frames = captureFrames()
+    const settled = vi.fn()
+    const mounted = await mountHook({ distanceToEnd: 400, items: [{ kind: "new-divider", key: "new-divider" }, messageItem("unread")],
+      heroMeasured: true, initialScrollReady: true, newDividerBefore: "unread", hasMoreNewer: true, onInitialPositionSettled: settled })
+    mounted.setRows([{ boundary: true, top: 390, height: 20 }, { id: "unread", top: 420 }])
+    act(() => frames.shift()?.(0))
+    mounted.setRows([{ boundary: true, top: 490, height: 20 }, { id: "unread", top: 520 }])
+    act(() => frames.shift()?.(0))
+    expect(virtualizer.scrollToOffset).toHaveBeenCalledExactlyOnceWith(500, { behavior: "auto" })
+    expect(settled).not.toHaveBeenCalled()
+    mounted.setRows([{ boundary: true, top: 390, height: 20 }, { id: "unread", top: 420 }])
+    act(() => frames.shift()?.(0))
+    expect(settled).not.toHaveBeenCalled()
+    act(() => frames.shift()?.(0))
+    expect(settled).toHaveBeenCalledOnce()
+    expect(virtualizer.scrollToIndex).toHaveBeenCalledOnce()
+    mounted.unmount()
+  })
+
+  it("retargets the native initial unread index only when the current layout or estimate changes", async () => {
+    const frames = captureFrames()
+    const settled = vi.fn()
+    const mounted = await mountHook({ items: [messageItem("unread")], heroMeasured: true, initialScrollReady: true,
+      newDividerBefore: "unread", hasMoreNewer: true, onInitialPositionSettled: settled })
+    act(() => frames.shift()?.(0))
+    expect(virtualizer.scrollToIndex).toHaveBeenCalledOnce()
+    virtualizer.getTotalSize.mockReturnValue(1_700)
+    act(() => frames.shift()?.(0))
+    expect(virtualizer.scrollToIndex).toHaveBeenCalledTimes(2)
+    act(() => frames.shift()?.(0))
+    expect(virtualizer.scrollToIndex).toHaveBeenCalledTimes(2)
+    mounted.rerender({ items: [messageItem("older"), messageItem("unread")] })
+    act(() => frames.shift()?.(0))
+    expect(virtualizer.scrollToIndex).toHaveBeenLastCalledWith(1, { align: "center", behavior: "auto" })
+    mounted.setRows([{ id: "unread", top: 360 }])
+    act(() => frames.shift()?.(0))
+    act(() => frames.shift()?.(0))
+    expect(settled).toHaveBeenCalledOnce()
+    mounted.unmount()
+  })
+
+  it.each([{ distanceToEnd: 800, top: 20 }, { distanceToEnd: 0, top: 700 }])(
+    "accepts a visible unread boundary at the browser edge clamp instead of waiting for impossible centering ($top)",
+    async ({ distanceToEnd, top }) => {
+      const frames = captureFrames()
+      const settled = vi.fn()
+      const mounted = await mountHook({ distanceToEnd, items: [messageItem("unread")], heroMeasured: true,
+        initialScrollReady: true, newDividerBefore: "unread", hasMoreNewer: true, onInitialPositionSettled: settled })
+      mounted.setRows([{ id: "unread", top }])
+      act(() => frames.shift()?.(0))
+      expect(settled).not.toHaveBeenCalled()
+      act(() => frames.shift()?.(0))
+      expect(settled).toHaveBeenCalledOnce()
+      expect(virtualizer.scrollToOffset).not.toHaveBeenCalled()
+      mounted.unmount()
+    },
+  )
+
+  it("retires delayed initial unread correction on wheel and reveals without a later native write", async () => {
+    const frames = captureFrames()
+    const settled = vi.fn()
+    const mounted = await mountHook({ items: [messageItem("unread")], heroMeasured: true, initialScrollReady: true,
+      newDividerBefore: "unread", hasMoreNewer: true, onInitialPositionSettled: settled })
+    act(() => frames.shift()?.(0))
+    const oldPoll = frames.shift()!
+    act(() => mounted.listeners.get("wheel")?.(new WheelEvent("wheel", { deltaY: -80 })))
+    const writes = virtualizer.scrollToOffset.mock.calls.length
+    mounted.setRows([{ id: "unread", top: 900 }])
+    act(() => oldPoll(0))
+    expect(virtualizer.scrollToOffset).toHaveBeenCalledTimes(writes)
+    act(() => frames.shift()?.(0))
+    expect(settled).toHaveBeenCalledOnce()
+    mounted.unmount()
+  })
+
+  it("gives a replacement explicit target precedence over an unresolved initial unread boundary", async () => {
+    const frames = captureFrames()
+    const settled = vi.fn()
+    const positioned = vi.fn()
+    const mounted = await mountHook({ items: [messageItem("unread"), messageItem("target")], heroMeasured: true,
+      initialScrollReady: true, newDividerBefore: "unread", hasMoreNewer: true,
+      onInitialPositionSettled: settled, onScrollTargetPositioned: positioned })
+    act(() => frames.shift()?.(0))
+    const oldPoll = frames.shift()!
+    mounted.rerender({ scrollToMessageId: "target" })
+    const writes = virtualizer.scrollToOffset.mock.calls.length
+    mounted.setRows([{ id: "unread", top: 900 }, { id: "target", top: 160 }])
+    act(() => oldPoll(0))
+    expect(virtualizer.scrollToOffset).toHaveBeenCalledTimes(writes)
+    act(() => frames.shift()?.(0))
+    act(() => frames.shift()?.(0))
+    expect(positioned).toHaveBeenCalledExactlyOnceWith("target")
+    expect(settled).toHaveBeenCalledOnce()
+    mounted.unmount()
+  })
+
+  it("keeps the original unread deadline when pagination takes over its unresolved geometry", async () => {
+    vi.useFakeTimers()
+    const frames = captureFrames()
+    const settled = vi.fn()
+    const mounted = await mountHook({ items: [messageItem("anchor"), messageItem("unread")], heroMeasured: true,
+      initialScrollReady: true, newDividerBefore: "unread", hasMoreNewer: true, onInitialPositionSettled: settled })
+    act(() => frames.shift()?.(0))
+    const oldPoll = frames.shift()!
+    act(() => vi.advanceTimersByTime(1_800))
+    mounted.setRows([{ id: "anchor", top: 120 }])
+    act(() => mounted.result.captureOlderPageAnchor())
+    mounted.rerender({ isFetchingOlder: true })
+    const writes = virtualizer.scrollToOffset.mock.calls.length
+    mounted.setRows([{ id: "unread", top: 900 }])
+    act(() => oldPoll(0))
+    expect(virtualizer.scrollToOffset).toHaveBeenCalledTimes(writes)
+    act(() => vi.advanceTimersByTime(200))
+    expect(settled).toHaveBeenCalledOnce()
+    mounted.unmount()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("bounds unresolved initial unread geometry and never corrects a row arriving after expiry", async () => {
+    vi.useFakeTimers()
+    const frames = captureFrames()
+    const settled = vi.fn()
+    const mounted = await mountHook({ items: [messageItem("unread")], heroMeasured: true, initialScrollReady: true,
+      newDividerBefore: "unread", hasMoreNewer: true, onInitialPositionSettled: settled })
+    act(() => frames.shift()?.(0))
+    const oldPoll = frames.shift()!
+    act(() => vi.advanceTimersByTime(1_999))
+    expect(settled).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(1))
+    expect(settled).toHaveBeenCalledOnce()
+    const writes = virtualizer.scrollToOffset.mock.calls.length
+    mounted.setRows([{ id: "unread", top: 900 }])
+    act(() => oldPoll(0))
+    expect(virtualizer.scrollToOffset).toHaveBeenCalledTimes(writes)
+    expect(virtualizer.scrollToIndex).toHaveBeenCalledOnce()
+    mounted.unmount()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("retires initial unread geometry and its timer on unmount", async () => {
+    vi.useFakeTimers()
+    const frames = captureFrames()
+    const settled = vi.fn()
+    const mounted = await mountHook({ items: [messageItem("unread")], heroMeasured: true, initialScrollReady: true,
+      newDividerBefore: "unread", hasMoreNewer: true, onInitialPositionSettled: settled })
+    act(() => frames.shift()?.(0))
+    const oldPoll = frames.shift()!
+    mounted.unmount()
+    const writes = virtualizer.scrollToOffset.mock.calls.length
+    act(() => oldPoll(0))
+    expect(virtualizer.scrollToOffset).toHaveBeenCalledTimes(writes)
+    expect(settled).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+  })
 
   it("releases an unavailable initial anchor after two seconds and never revives it on a late snapshot", async () => {
     vi.useFakeTimers()

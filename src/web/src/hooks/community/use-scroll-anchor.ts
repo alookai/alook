@@ -551,6 +551,9 @@ export function useScrollAnchor({
   const stateRef = useRef<ScrollAnchorState>(createScrollAnchorState())
   const initialSettleFrameRef = useRef<number | null>(null)
   const initialPositionSettledRef = useRef(false)
+  const initialUnreadRef = useRef<{ id: string; stableFrames: number; requestedIndex: number; requestedSize: number } | null>(null)
+  const currentItemsRef = useRef(items)
+  currentItemsRef.current = items
   const messages = extractScrollAnchorMessages(items)
   const tailId = messages[messages.length - 1]?.id ?? null
   const wasAtEndRef = useRef(true)
@@ -591,6 +594,7 @@ export function useScrollAnchor({
   const settleInitialPosition = useCallback(() => {
     if (!positionOwnerRef.current.active || initialPositionSettledRef.current) return
     cancelInitialSettleFrame()
+    initialUnreadRef.current = null
     initialPositionSettledRef.current = true
     if (initialDeadlineRef.current !== null) window.clearTimeout(initialDeadlineRef.current)
     initialDeadlineRef.current = null
@@ -599,17 +603,62 @@ export function useScrollAnchor({
   const scheduleInitialPositionSettled = useCallback(() => {
     if (initialPositionSettledRef.current || initialSettleFrameRef.current !== null) return
     const epoch = positionOwnerRef.current.epoch
-    initialSettleFrameRef.current = window.requestAnimationFrame(() => {
+    const settle = () => {
       initialSettleFrameRef.current = null
       if (!positionOwnerRef.current.active || positionOwnerRef.current.epoch !== epoch) return
+      const unread = initialUnreadRef.current
+      const root = scrollRef.current
+      const native = virtualizerRef.current
+      if (unread && positionOwnerRef.current.kind === "initial") {
+        const index = findMountScrollTargetIndex(currentItemsRef.current, unread.id)
+        const row = root && Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]"))
+          .find((candidate) => candidate.dataset.msgId === unread.id)
+        const boundary = index !== null && currentItemsRef.current[index]?.kind === "new-divider"
+          ? root?.querySelector<HTMLElement>("[data-new-divider]")
+          : row
+        const viewport = root?.getBoundingClientRect()
+        const rect = boundary?.getBoundingClientRect()
+        const rowRect = row?.getBoundingClientRect()
+        if (root && native && viewport && rect && rect.bottom > rect.top && viewport.bottom > viewport.top) {
+          const delta = (rect.top + rect.bottom - viewport.top - viewport.bottom) / 2
+          const offset = Math.max(0, Math.min(root.scrollTop + delta, Math.max(0, root.scrollHeight - root.clientHeight)))
+          if (Math.abs(offset - root.scrollTop) > 1) {
+            unread.stableFrames = 0
+            native.scrollToOffset(offset, { behavior: "auto" })
+          } else if (rowRect && rowRect.bottom > rowRect.top
+            && rowRect.bottom > viewport.top + 1 && rowRect.top < viewport.bottom - 1
+            && rect.bottom > viewport.top + 1 && rect.top < viewport.bottom - 1) {
+            unread.stableFrames += 1
+            if (unread.stableFrames >= 2) {
+              settleInitialPosition()
+              return
+            }
+          } else {
+            unread.stableFrames = 0
+          }
+        } else {
+          unread.stableFrames = 0
+          const size = native?.getTotalSize()
+          if (native && index !== null && size !== undefined
+            && (index !== unread.requestedIndex || size !== unread.requestedSize)) {
+            unread.requestedIndex = index
+            unread.requestedSize = size
+            native.scrollToIndex(index, { align: "center", behavior: "auto" })
+          }
+        }
+        initialSettleFrameRef.current = window.requestAnimationFrame(settle)
+        return
+      }
       settleInitialPosition()
-    })
+    }
+    initialSettleFrameRef.current = window.requestAnimationFrame(settle)
   }, [settleInitialPosition])
   const claimPosition = useCallback((kind: typeof positionOwnerRef.current.kind) => {
     const owner = positionOwnerRef.current
     owner.epoch += 1
     owner.kind = kind
     cancelInitialSettleFrame()
+    initialUnreadRef.current = null
     if (!owner.active || initialPositionSettledRef.current) {
       positionBudgetEpochRef.current += 1
       if (initialDeadlineRef.current !== null) window.clearTimeout(initialDeadlineRef.current)
@@ -1097,6 +1146,10 @@ export function useScrollAnchor({
       case "mount": {
         const idx = action.newDividerBefore ? findMountScrollTargetIndex(items, action.newDividerBefore) : null
         if (idx !== null) {
+          if (!initialPositionSettledRef.current) initialUnreadRef.current = {
+            id: action.newDividerBefore!, stableFrames: 0,
+            requestedIndex: idx, requestedSize: virtualizer.getTotalSize(),
+          }
           virtualizer.scrollToIndex(idx, { align: "center" })
         } else {
           wasExactlyPinnedRef.current = true
