@@ -792,7 +792,15 @@ export async function runRouteLoadingGeometry(
           expect(await railScroll.evaluate((element) => element.scrollHeight > element.clientHeight))
             .toBe(true)
         } else {
-          await expect(loadedAdd).toHaveCount(0)
+          await expect(loadedAdd).toHaveCount(1)
+          await expect(loadedAdd).toBeHidden()
+          expect(await loadedAdd.evaluate((element) => (
+            element.closest('[inert][aria-hidden="true"]') !== null
+          ))).toBe(true)
+          expect(await loadedAdd.evaluate((element) => {
+            element.focus()
+            return document.activeElement === element
+          })).toBe(false)
         }
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth))
           .toBe(true)

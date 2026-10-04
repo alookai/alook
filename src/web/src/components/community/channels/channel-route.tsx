@@ -185,7 +185,8 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
     uiHandlers.replacePath?.(serverRootHref(serverParam))
   }, [serverParam, uiHandlers])
   useEffect(() => {
-    if (!routeWasTopLevel || channelInServer !== null) return
+    if (!routeWasTopLevel || channelInServer !== null
+      || getCommunityRuntime(queryClient).ws.get().revokedServerIds.has(serverId)) return
     clearLastChannel(serverId)
     const survivor = currentServer?.categories
       .flatMap((category) => category.channels)
@@ -193,7 +194,7 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
     router.replace(survivor
       ? channelHref(serverParam, survivor.id)
       : serverRootHref(serverParam))
-  }, [channelId, channelInServer, currentServer, routeWasTopLevel, router, serverId, serverParam])
+  }, [channelId, channelInServer, currentServer, queryClient, routeWasTopLevel, router, serverId, serverParam])
   const navigateParent = useCallback(() => {
     const parentChannelId = currentChannelMeta?.parentChannelId
     if (!parentChannelId) return

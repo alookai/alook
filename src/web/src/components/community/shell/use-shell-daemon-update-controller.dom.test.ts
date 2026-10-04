@@ -254,6 +254,35 @@ describe("useShellDaemonUpdateController", () => {
     if (retirement === "release") expect(hook.current.state.update?.pendingMachineIds).toEqual([])
   })
 
+  it("retires an ineligible target from its original pending batch even if it becomes eligible again", async () => {
+    mocks.machines = { machines: [machine("machine-1"), machine("machine-2")], isSuccess: true }
+    let resolve!: () => void
+    const held = new Promise<void>((done) => { resolve = done })
+    const requestUpdate = vi.fn((_machineId: string) => held)
+    const hook = await renderController({
+      initialState: activeUpdate({ targetMachineIds: ["machine-1", "machine-2"] }),
+      requestUpdate,
+    })
+    let request!: Promise<void>
+    act(() => { request = hook.current.controller.request() })
+    expect(hook.current.state.update?.pendingMachineIds).toEqual(["machine-1", "machine-2"])
+
+    mocks.machines = { machines: [machine("machine-2")], isSuccess: true }
+    await hook.rerender()
+    expect(hook.current.state.update?.pendingMachineIds).toEqual(["machine-2"])
+    mocks.machines = { machines: [machine("machine-1"), machine("machine-2")], isSuccess: true }
+    await hook.rerender()
+    await act(async () => { resolve(); await request })
+
+    expect(requestUpdate.mock.calls).toEqual([["machine-1"], ["machine-2"]])
+    expect(hook.current.state.update?.acceptedMachineIds).toEqual(["machine-2"])
+    expect(hook.current.state.update?.failedMachineIds).toEqual([])
+    expect(hook.current.state.update?.pendingMachineIds).toEqual([])
+    expect(hook.current.state.update?.targetMachineIds).toEqual(["machine-1", "machine-2"])
+    expect(mocks.warn).not.toHaveBeenCalled()
+    hook.unmount()
+  })
+
   it("settles its same-account batch across unrelated community permission changes", async () => {
     mocks.machines = { machines: [machine("machine-1")], isSuccess: true }
     let resolve!: () => void

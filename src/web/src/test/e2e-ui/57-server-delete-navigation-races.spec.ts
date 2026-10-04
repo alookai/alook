@@ -77,11 +77,17 @@ async function seedServerRoute(
   return { serverId, channelId }
 }
 
-async function clickDeleteServer(page: Page, serverId: string): Promise<void> {
+async function clickDeleteServer(
+  page: Page,
+  serverId: string,
+  beforeConfirm?: () => Promise<void>,
+): Promise<void> {
   await page.getByTestId(tid.serverIcon(serverId)).click({ button: "right" })
   await page.getByTestId(tid.serverSettingsOpen).click()
   await expect(page.getByTestId(tid.settingsShell)).toBeVisible()
   await page.getByRole("button", { name: "Delete Server", exact: true }).click()
+  await expect(page.getByRole("dialog")).toBeVisible()
+  await beforeConfirm?.()
   await page.getByRole("dialog").getByRole("button", {
     name: "Delete Server",
     exact: true,
@@ -200,13 +206,12 @@ test("deleting the only Server replaces once to Home", async ({ asUser }) => {
     `/c/channels/${route.serverId}/${route.channelId}`,
   )
   await installHistoryRecorder(dave.page)
-  await resetHistoryRecorder(dave.page)
   const response = dave.page.waitForResponse((candidate) => (
     candidate.request().method() === "DELETE"
       && new URL(candidate.url()).pathname === `/api/community/servers/${route.serverId}`
   ))
 
-  await clickDeleteServer(dave.page, route.serverId)
+  await clickDeleteServer(dave.page, route.serverId, () => resetHistoryRecorder(dave.page))
 
   expect((await response).status()).toBe(204)
   await expect(dave.page).toHaveURL("/c/me")
