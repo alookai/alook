@@ -453,6 +453,21 @@ describe("locked native adapter and existing message scroll owner", () => {
     runFrames(1)
     expect(offset).not.toHaveBeenCalled()
   })
+  it.each([0, 2, 8, 100, 300])("preserves the %ipx footer policy before native RO when composer growth does not clamp", async distance => {
+    const h = mount()
+    h.move(h.root.scrollHeight - scrollFixture.height - distance)
+    const before = h.root.scrollTop
+    const footer = h.root.closest('[data-slot="community-conversation-surface"]')!
+      .querySelector('[data-slot="community-conversation-footer"]')!
+    await act(async () => {
+      scrollFixture.height -= 100
+      footer.textContent = "growing draft"
+    })
+    runFrames(1)
+    expect(h.root.scrollTop).toBe(before + (distance <= 100 ? 100 : 0))
+    resize(0)
+    expect(h.root.scrollTop).toBe(before + (distance <= 100 ? 100 : 0))
+  })
   it("fills a true single short message through native padding and crosses short/long normally", () => {
     const h = mount({ items: [message("m0")] })
     expect(h.root.scrollTop).toBe(0)

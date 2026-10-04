@@ -736,7 +736,8 @@ export function useScrollAnchor({
     ro.observe(root)
     const footer = root.closest<HTMLElement>('[data-slot="community-conversation-surface"]')
       ?.querySelector<HTMLElement>('[data-slot="community-conversation-footer"]')
-    const mo = footer && typeof MutationObserver !== "undefined" ? new MutationObserver(scheduleGeometry) : null
+    const mo = footer && typeof MutationObserver !== "undefined"
+      ? new MutationObserver(() => { reconcileGeometry(true); scheduleGeometry() }) : null
     mo?.observe(footer!, { attributes: true, characterData: true, childList: true, subtree: true })
     return () => {
       root.removeEventListener("scroll", onScroll)
