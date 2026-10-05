@@ -198,6 +198,36 @@ describe("Shell input and explicit navigation ownership", () => {
     expect(mocks.push).toHaveBeenCalledExactlyOnceWith(nextTarget)
   })
 
+  it("retires a captured UI intent on any newer intent and does not revive it at the same URL", () => {
+    const shell = renderShell("desktop")
+    const current = shell.navigation.captureIntent()
+    expect(current()).toBe(true)
+    act(() => shell.navigation.push(nextTarget))
+    expect(current()).toBe(false)
+    shell.commit(nextTarget, 1)
+    shell.commit("/c/channels/s1/a", 2)
+    expect(current()).toBe(false)
+    const returned = shell.navigation.captureIntent()
+    expect(returned()).toBe(true)
+    shell.commit("/c/me/friends", 3)
+    expect(returned()).toBe(false)
+  })
+
+  it("does not clear a newer pending checkpoint when an older resolver rejects", async () => {
+    const shell = renderShell("desktop")
+    let reject!: (error: Error) => void
+    const delayed = new Promise<string>((_, fail) => { reject = fail })
+    let result!: Promise<boolean>
+    act(() => { result = shell.navigation.resolveAndPush(() => delayed) })
+    fireEvent.click(screen.getByRole("button", { name: "New destination" }))
+    await act(async () => {
+      reject(new Error("old resolver failed"))
+      await expect(result).rejects.toThrow("old resolver failed")
+    })
+    expect(shell.navigation.pendingHref).toBe(nextTarget)
+    expect(shell.navigation.navigationPending).toBe(true)
+  })
+
   it("settles an exact frame without an extra click while retaining the independent proof", () => {
     const shell = renderShell()
     const proof = beginInboxNavigation(shell)

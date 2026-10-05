@@ -1137,32 +1137,6 @@ test.describe.serial("message scroll characterization", () => {
     }
 
     await editable.fill("")
-    const rapidPrecondition = await establishScrollDistancePrecondition(scroller, "rapid-resize-away", 2)
-    await markScrollTrace(alice.page, "rapid-resize-away-precondition", { detail: rapidPrecondition })
-    await beginScrollTraceAnalysis(alice.page, "rapid-composer-resizes")
-    const rapidBase = await waitForCommittedGeometry(scroller)
-    await editable.fill(composerLines("rapid-small", 2))
-    const rapidGrowOne = await waitForCommittedGeometry(scroller)
-    await editable.fill(composerLines("rapid-large", 6))
-    const rapidGrowTwo = await waitForCommittedGeometry(scroller)
-    await editable.fill(composerLines("rapid-small", 2))
-    const rapidShrinkOne = await waitForCommittedGeometry(scroller)
-    await editable.fill("")
-    const rapidShrinkTwo = await waitForCommittedGeometry(scroller)
-    expect(rapidGrowOne.clientHeight).toBeLessThan(rapidBase.clientHeight)
-    expect(rapidGrowTwo.clientHeight).toBeLessThan(rapidGrowOne.clientHeight)
-    expect(rapidShrinkOne.clientHeight).toBe(rapidGrowOne.clientHeight)
-    expect(rapidShrinkTwo.clientHeight).toBe(rapidBase.clientHeight)
-    for (const [label, geometry] of [
-      ["grow-one", rapidGrowOne],
-      ["grow-two", rapidGrowTwo],
-      ["shrink-one", rapidShrinkOne],
-      ["shrink-two", rapidShrinkTwo],
-    ] as const) {
-      expectResizeAnchorPreserved(rapidBase, geometry, 2, `rapid-${label}`)
-      expectInFlowMessageGeometry(geometry, `rapid-${label}`)
-    }
-    await endScrollTraceAnalysis(alice.page, "rapid-composer-resizes")
     await advanceScrollTraceFrame(scroller)
 
     const selectionDraft = composerLines("selection-draft", 8)

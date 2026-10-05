@@ -111,6 +111,7 @@ function rect(top: number, bottom: number, left = 0, right = 40): Rect {
 
 class FakeElement extends FakeEventTarget {
   scrollTop = 0
+  scrollLeft = 0
   isConnected = true
   clickCount = 0
   lastClickEvent: FakeMouseEvent | null = null
@@ -541,6 +542,7 @@ describe("useServerRailPdd behavior", () => {
     expect(scrollMove.defaultPrevented).toBe(false)
 
     touch(a.handle, "touchstart", [point(3, 10, 10)])
+    hook.scroll.scrollTop += 1
     hook.scroll.dispatch("scroll")
     touch(a.handle, "touchmove", [point(3, 10, 30)])
     expect(hook.callbacks.onDragStart).not.toHaveBeenCalled()
@@ -648,6 +650,38 @@ describe("useServerRailPdd behavior", () => {
     a.handle.click()
     expect(a.handle.clickCount).toBe(1)
     expect(a.handle.lastClickEvent?.defaultPrevented).toBe(false)
+  })
+
+  it("keeps a stationary hold when a prior scroll notification arrives after touchstart", async () => {
+    const hook = await renderHook()
+    const a = register(hook.current, { kind: "server", id: "a" }, rect(0, 40))
+    const b = register(hook.current, { kind: "server", id: "b" }, rect(80, 120))
+    hook.scroll.scrollTop = 349
+    touch(a.handle, "touchstart", [point(1, 20, 10)])
+    hook.scroll.dispatch("scroll")
+    await act(async () => vi.advanceTimersByTime(SERVER_RAIL_TOUCH_HOLD_MS))
+    fakeDocument.points = [b.element]
+    const move = touch(a.handle, "touchmove", [point(1, 20, 100)])
+    expect(move.defaultPrevented).toBe(true)
+    expect(hook.callbacks.onDragStart).toHaveBeenCalledWith(a.entity)
+    expect(fakeDocument.body.children.filter((element) => !element.removed)).toHaveLength(1)
+    touch(a.handle, "touchend", [], [point(1, 20, 100)])
+    expect(hook.callbacks.onDrop).toHaveBeenCalled()
+  })
+
+  it.each(["scrollTop", "scrollLeft"] as const)("cancels a hold when %s changes after touchstart", async (offset) => {
+    const hook = await renderHook()
+    const a = register(hook.current, { kind: "server", id: "a" }, rect(0, 40))
+    register(hook.current, { kind: "server", id: "b" }, rect(80, 120))
+    hook.scroll[offset] = 349
+    touch(a.handle, "touchstart", [point(1, 20, 10)])
+    hook.scroll[offset] += 1
+    hook.scroll.dispatch("scroll")
+    await act(async () => vi.advanceTimersByTime(SERVER_RAIL_TOUCH_HOLD_MS))
+    const move = touch(a.handle, "touchmove", [point(1, 20, 100)])
+    expect(move.defaultPrevented).toBe(false)
+    expect(hook.callbacks.onDragStart).not.toHaveBeenCalled()
+    expect(fakeDocument.body.children).toHaveLength(0)
   })
 
   it("drags by touch through every hit region and owns edge scroll only after hold", async () => {

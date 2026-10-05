@@ -1,16 +1,17 @@
 "use client"
 
+import { useCommunityServerRoute } from "@/components/community/shell/community-route-context"
 import { useEffect } from "react"
-import { useParams, useRouter, useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 
 export default function ServerSettingsRedirect() {
-  const params = useParams<{ serverId: string }>()
+  const { serverId } = useCommunityServerRoute()
   const router = useRouter()
   const searchParams = useSearchParams()
   useEffect(() => {
     const nextSearchParams = new URLSearchParams(searchParams.toString())
     nextSearchParams.set("settings", "1")
-    router.replace(`/c/channels/${params.serverId}?${nextSearchParams.toString()}`)
-  }, [params.serverId, router, searchParams])
+    router.replace(`/c/channels/${encodeURIComponent(serverId)}?${nextSearchParams.toString()}`)
+  }, [serverId, router, searchParams])
   return null
 }

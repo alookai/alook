@@ -737,6 +737,11 @@ test("short server rail keeps Add adjacent and desktop geometry stable", async (
   expect(mobile.targetOwnsCenter).toBe(true)
 
   await page.setViewportSize({ width: 1280, height: 844 })
+  await expect(page).toHaveURL(new RegExp(`/c/channels/${serverId}/[^/]+$`))
+  const channelId = new URL(page.url()).pathname.split("/").at(-1)!
+  await expect(page.locator(
+    `[data-slot="community-conversation-surface"][data-channel-id="${channelId}"]`,
+  ).getByTestId(tid.composerInput)).toBeVisible()
   const desktop = await railGeometry(page, serverId)
   expect(desktop.rootScrollTop).toBe(0)
   expect(desktop.target).toEqual(mobile.target)

@@ -40,4 +40,30 @@ describe("resolveServerRailOverlayAction", () => {
       href: "/c/channels/server_1?settings=1",
     })
   })
+
+  it.each(["settings", "invite"] as const)(
+    "keeps the committed active leaf and unrelated URL state for %s",
+    (overlay) => {
+      expect(resolveServerRailOverlayAction({
+        targetServerId: "server_1",
+        activeServerId: "server_1",
+        overlay,
+        hasActiveOpener: false,
+        publishedHref: "/c/channels/server_1/channel_1?keep=1#message_1",
+      })).toEqual({
+        kind: "navigate",
+        href: `/c/channels/server_1/channel_1?keep=1&${overlay}=1#message_1`,
+      })
+    },
+  )
+
+  it("does not borrow a published leaf from another server", () => {
+    expect(resolveServerRailOverlayAction({
+      targetServerId: "server_1",
+      activeServerId: "server_1",
+      overlay: "settings",
+      hasActiveOpener: false,
+      publishedHref: "/c/channels/server_2/channel_2?keep=1",
+    })).toEqual({ kind: "navigate", href: "/c/channels/server_1?settings=1" })
+  })
 })

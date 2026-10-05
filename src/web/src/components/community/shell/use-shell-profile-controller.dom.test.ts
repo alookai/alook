@@ -117,10 +117,11 @@ function Capture({ options, onResult }: {
 }
 
 const realDocument = document
-async function renderController() {
+async function renderController(overrides: Partial<Parameters<typeof useShellProfileController>[0]> = {}) {
   const rtlContainer = realDocument.createElement("div")
   const pushed: string[] = []
   const router = {
+    captureIntent: () => () => true,
     push: vi.fn((href: string) => { pushed.push(href) }),
     replace: vi.fn(),
     prefetch: vi.fn(),
@@ -139,6 +140,7 @@ async function renderController() {
       cancelPendingNavigation,
       view: "server",
       activeServerId: "s1",
+      ...overrides,
     } as never,
     onResult: (result) => { current = result },
   })
@@ -445,6 +447,21 @@ describe("useShellProfileController", () => {
     expect(hook.cancelPendingNavigation).toHaveBeenCalledOnce()
   })
 
+  it("passes the captured intent through deferred DM error display within the same view", async () => {
+    const hook = await renderController()
+    let current = true
+    hook.router.captureIntent = () => () => current
+    const error = new Error("DM rejected")
+    mocks.createDm.mockRejectedValueOnce(error)
+    await act(async () => hook.current.profileMessage("remote", ""))
+    expect(mocks.toastApiError).toHaveBeenLastCalledWith(error, "Failed to open DM", expect.any(Function))
+    const assert = mocks.toastApiError.mock.calls.at(-1)![2] as () => void
+    expect(() => assert()).not.toThrow()
+    current = false
+    expect(() => assert()).toThrow("Retired profile navigation")
+    expect(hook.router.push).not.toHaveBeenCalled()
+  })
+
   it("opens empty-text DMs, does not await accepted commits, and blocks rejected sends", async () => {
     mocks.createDm.mockResolvedValue({ conversation: { id: "dm1" } })
     const hook = await renderController()
@@ -608,6 +625,63 @@ describe("useShellProfileController", () => {
       "Failed to upload avatar",
       expect.any(Function),
     )
+  })
+
+  it("retires the original crop across server scopes without granting a new source", async () => {
+    let input!: { files?: File[]; onchange?: () => void; click: () => void }
+    vi.stubGlobal("document", { createElement: () => (input = { click: vi.fn() }) })
+    const revoke = vi.fn()
+    let id = 0
+    vi.stubGlobal("URL", { createObjectURL: () => `blob:avatar-${++id}`, revokeObjectURL: revoke })
+    const options = { activeServerId: "s1" }
+    const hook = await renderController(options)
+    const select = async () => {
+      await act(async () => hook.current.userSettingsProps.onUploadAvatar())
+      input.files = [new File(["image"], "avatar.png", { type: "image/png" })]
+      await act(async () => input.onchange?.())
+    }
+    await select()
+    const original = hook.current.pendingAvatarCrop!
+    options.activeServerId = "s2"
+    await hook.rerender()
+    expect(hook.current.pendingAvatarCrop).toBeNull()
+    expect(revoke).toHaveBeenCalledExactlyOnceWith("blob:avatar-1")
+    await select()
+    const replacement = hook.current.pendingAvatarCrop!
+    await act(async () => {
+      original.onCropped(new File(["crop"], "old.png"))
+      original.onCancel()
+    })
+    expect(mocks.uploadAvatar).not.toHaveBeenCalled()
+    expect(hook.current.pendingAvatarCrop?.imageSrc).toBe(replacement.imageSrc)
+    expect(revoke).toHaveBeenCalledTimes(1)
+    await act(async () => replacement.onCropped(new File(["crop"], "new.png")))
+    expect(mocks.uploadAvatar).toHaveBeenCalledOnce()
+    expect(revoke.mock.calls).toEqual([["blob:avatar-1"], ["blob:avatar-2"]])
+  })
+
+  it("an older same-source completion and cancel cannot clear or upload the replacement crop", async () => {
+    let input!: { files?: File[]; onchange?: () => void; click: () => void }
+    vi.stubGlobal("document", { createElement: () => (input = { click: vi.fn() }) })
+    const revoke = vi.fn()
+    let id = 0
+    vi.stubGlobal("URL", { createObjectURL: () => `blob:avatar-${++id}`, revokeObjectURL: revoke })
+    const hook = await renderController()
+    const select = async () => {
+      await act(async () => hook.current.userSettingsProps.onUploadAvatar())
+      input.files = [new File(["image"], "avatar.png", { type: "image/png" })]
+      await act(async () => input.onchange?.())
+    }
+    await select()
+    const original = hook.current.pendingAvatarCrop!
+    await select()
+    const replacement = hook.current.pendingAvatarCrop!
+    await act(async () => { original.onCancel(); original.onCropped(new File(["old"], "old.png")) })
+    expect(hook.current.pendingAvatarCrop?.imageSrc).toBe(replacement.imageSrc)
+    expect(mocks.uploadAvatar).not.toHaveBeenCalled()
+    await act(async () => replacement.onCropped(new File(["new"], "new.png")))
+    expect(mocks.uploadAvatar).toHaveBeenCalledOnce()
+    expect(revoke.mock.calls).toEqual([["blob:avatar-1"], ["blob:avatar-2"]])
   })
 
   it("rejects invalid avatar files before object URL creation", async () => {

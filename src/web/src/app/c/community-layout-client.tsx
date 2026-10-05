@@ -3,6 +3,7 @@
 import { useEffect, type ReactNode } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { CommunityShell } from "./community-shell"
+import { CommunityRouteFrame } from "@/components/community/shell/community-route-frame"
 import { SignupTracker } from "@/components/signup-tracker"
 import { CommunitySessionPendingFrame } from "@/components/community/shell/community-session-pending-frame"
 import { resolveCommunityModulePlan } from "@/lib/community/community-route"
@@ -20,9 +21,11 @@ function isPublicCommunityPath(pathname: string): boolean {
 
 export function CommunityLayoutClient({
   children,
+  sidebar,
   currentUser,
 }: {
   children: ReactNode
+  sidebar: ReactNode
   currentUser: CurrentUser | null
 }) {
   const router = useRouter()
@@ -49,7 +52,7 @@ export function CommunityLayoutClient({
       <AuthenticatedNativeOauthCleanup />
       <CommunityShell currentUser={currentUser}>
         <SignupTracker redirectTo="/c/me/machines" />
-        {children}
+        <CommunityRouteFrame sidebar={sidebar}>{children}</CommunityRouteFrame>
       </CommunityShell>
     </AuthenticatedContextMenuBoundary>
   )

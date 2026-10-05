@@ -203,7 +203,7 @@ export function useChannelRouteModel(
       // A top-level delete clears the live pointer and starts its survivor
       // navigation before this fallback metadata request can settle. Do not
       // let the late 403/404 supersede that newer navigation with the root.
-      if (!routeStillCurrent) return
+      if (!routeStillCurrent || runtime.ws.get().revokedServerIds.has(serverId)) return
       const destination = consumeCommunityColdEntryFailure(
         accountId,
         `/c/channels/${serverParam}/${channelId}`,
@@ -214,7 +214,7 @@ export function useChannelRouteModel(
     } else if (metaQuery.error) {
       toastApiError(metaQuery.error, "Failed to load channel")
     }
-  }, [accountId, channelId, communityDb, isChild, metaQuery.data, metaQuery.error, metaQuery.isVerified, metaQuery.isArchived, queryClient, renderableChannelMeta, router, runtime.ui, runtime.ws.actions, serverId, serverParam, metadataExited, exitScope, setExitedMetadata])
+  }, [accountId, channelId, communityDb, isChild, metaQuery.data, metaQuery.error, metaQuery.isVerified, metaQuery.isArchived, queryClient, renderableChannelMeta, router, runtime.ui, runtime.ws, runtime.ws.actions, serverId, serverParam, metadataExited, exitScope, setExitedMetadata])
   return {
     ...model,
     routeHydrated: model.routeHydrated && metaQuery.isVerified,

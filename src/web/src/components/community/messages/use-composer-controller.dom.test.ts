@@ -961,6 +961,37 @@ describe("useComposerController", () => {
     expect(focus).not.toHaveBeenCalled()
   })
 
+  it("leaves a focused persistent rail item in charge when a conversation mounts", async () => {
+    const rail = document.createElement("div")
+    rail.setAttribute("data-testid", "community-server-rail-scroll")
+    const button = document.createElement("button")
+    rail.append(button)
+    document.body.append(rail)
+    button.focus()
+    let renderer!: ReturnType<typeof render>
+    try {
+      await act(async () => {
+        renderer = render(createElement(Harness, {
+          ...acceptedProps(vi.fn(() => true)),
+          autoFocus: true,
+        }))
+      })
+      expect(document.activeElement).toBe(button)
+      expect(focus).not.toHaveBeenCalled()
+      button.blur()
+      await act(async () => {
+        renderer.rerender(createElement(Harness, {
+          ...acceptedProps(vi.fn(() => true)),
+          channel: "random",
+          autoFocus: true,
+        }))
+      })
+      expect(focus).toHaveBeenCalledWith("end")
+    } finally {
+      rail.remove()
+    }
+  })
+
   it("preserves autofocus, reply edge, drop, dropdown, upload, and emoji timing", async () => {
     const accept = vi.fn(() => true)
     let renderer!: ReturnType<typeof render>

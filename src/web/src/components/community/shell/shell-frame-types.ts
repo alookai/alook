@@ -18,6 +18,7 @@ export type ShellFrameProps = {
 }
 
 export type ShellRouter = {
+  captureIntent?: () => () => boolean
   push: (href: string) => void
   pushImmediate?: (href: string) => void
   replace: (href: string) => void

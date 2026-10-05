@@ -145,6 +145,8 @@ export function useUpdatePostTags() {
       transaction.mutate(() => { const thread = registry.collections.channels.get(args.threadId); if (thread?.parentMessageId === args.openerMessageId) registry.collections.channels.update(args.threadId, (row) => { row.tags = tags }) })
       try { if (transaction.mutations.length) await transaction.commit(); else await persist() } catch (error) { assert(); throw error }
       assert()
+      await queryClient.cancelQueries({ queryKey: communityKeys.forumTags(args.forumChannelId), exact: true, predicate: (query) => resources.has(query) })
+      assert()
       for (const query of args.resources) if (queryClient.getQueryCache().find({ queryKey: query.queryKey, exact: true }) === query) void queryClient.invalidateQueries({ queryKey: query.queryKey, exact: true }, { cancelRefetch: false }).catch(() => undefined)
       return result
     },

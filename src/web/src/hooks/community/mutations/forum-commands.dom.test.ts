@@ -9,6 +9,7 @@ import { getMessageOverlay } from "@/stores/community/message-stream"
 import { useCanonicalChannelsById, useCanonicalMessagesById, useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { captureCommunityLiveSnapshotToken, projectCommunityWsEventToDb, publishCommunityForumSidebar, publishCommunityForumFeed, publishCommunityForumTags, getCanonicalCommunityChannelMemberships, removeCanonicalCommunityChannelMembership } from "@/lib/community-db/sync"
 import { mapForumFeedPages } from "../use-forum-feed"
+import { useForumTags } from "../use-channel-panels"
 import { forumFeedWindow, forumFeedMatchesTags, type ForumFeedPage, type ForumFeedTransportPage } from "../forum-feed-window"
 import { getForumSidebarBase } from "../use-forum-sidebar-threads"
 import { getActiveAccountUnreadProjection } from "../account-unread-projection"
@@ -39,19 +40,20 @@ function wire(ids: string[]): ForumFeedTransportPage {
 }
 const tagInput = { serverId: "server_1", forumChannelId: "forum_1", threadId: "p2", openerMessageId: "opener_p2", previousTags: ["bug"], tags: ["bug", "archived"] }
 const deleteInput = { serverId: "server_1", forumChannelId: "forum_1", threadId: "p2", openerMessageId: "opener_p2" }
-async function setup(ids = ["before", "p2", "after"]) {
+async function setup(ids = ["before", "p2", "after"], observeCatalog = false) {
   const owner = await createCommunityQueryOwner(), navigate = vi.fn()
   const frames: Array<{ pending: boolean; all: string[]; archived: string[] }> = []
   const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, retainOwner: true }, children)
   const view = renderHook(() => {
     const create = useCreateForumThread(), tags = useUpdatePostTags(), remove = useDeleteForumThread()
+    const catalog = useForumTags("forum_1", observeCatalog)
     const channels = useCanonicalChannelsById(), messages = useCanonicalMessagesById(), profiles = useCanonicalProfilesByUserId()
     const all = useQuery<InfiniteData<ForumFeedPage>>({ queryKey: communityKeys.forumFeed("forum_1", null), queryFn: skipToken, enabled: false }).data
     const bug = useQuery<InfiniteData<ForumFeedPage>>({ queryKey: communityKeys.forumFeed("forum_1", "bug"), queryFn: skipToken, enabled: false }).data
     const archived = useQuery<InfiniteData<ForumFeedPage>>({ queryKey: communityKeys.forumFeed("forum_1", "archived"), queryFn: skipToken, enabled: false }).data
     const windows = new Map<string | null, InfiniteData<ForumFeedPage> | undefined>([[null, all], ["bug", bug], ["archived", archived]])
     const posts = (filter: string | null) => mapForumFeedPages(windows.get(filter)?.pages ?? [], messages ?? new Map(), channels, profiles, filter)
-    const result = { create, tags, remove, channels, messages, all: posts(null), bug: posts("bug"), archived: posts("archived") }
+    const result = { create, tags, remove, catalog, channels, messages, all: posts(null), bug: posts("bug"), archived: posts("archived") }
     useLayoutEffect(() => { frames.push({ pending: tags.isPending, all: result.all.map(({ id }) => id), archived: result.archived.map(({ id }) => id) }) })
     return result
   }, { wrapper })
@@ -66,7 +68,7 @@ async function setup(ids = ["before", "p2", "after"]) {
     seed(ids)
     owner.client.setQueryData(communityKeys.channelMessages("forum_1"), { pages: [{ messages: ids.map((id) => ({ id: `opener_${id}` })) }], pageParams: [null] })
     owner.client.setQueryData([...communityKeys.channelMessages("forum_1"), "tag", "bug"], { pages: [], pageParams: [null] })
-    owner.client.setQueryData(communityKeys.forumTags("forum_1"), { tags: ["bug"] })
+    if (!observeCatalog) owner.client.setQueryData(communityKeys.forumTags("forum_1"), { tags: ["bug"] })
     owner.client.setQueryData(communityKeys.forumSidebarThreads("server_1"), { serverNow: new Date().toISOString(), serverClockOffsetMs: 0, threads: [] })
   })
   await waitFor(() => expect(view.result.current.all).toHaveLength(ids.length))
@@ -110,6 +112,71 @@ describe("Native forum creation", () => {
 })
 
 describe("Native forum tag transactions", () => {
+  it.each(["refetch", "initial"] as const)("refreshes the catalog when an older %s read spans an archive ACK", async (kind) => {
+    const stale = deferred()
+    let reads = 0, oldSignal: AbortSignal | undefined
+    mocks.api.mockImplementation((path, options) => {
+      if (path === "/api/community/channels/forum_1/messages/tags") {
+        reads += 1
+        if (reads === (kind === "initial" ? 1 : 2)) {
+          oldSignal = options?.signal
+          return stale.promise
+        }
+        return Promise.resolve({ tags: kind === "refetch" && reads === 1 ? ["bug"] : ["archived", "bug"] })
+      }
+      if (options?.method === "PUT") return Promise.resolve({ tags: ["bug", "archived"] })
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    const view = await setup(undefined, true)
+    let oldRead: Promise<void> | undefined
+    if (kind === "refetch") {
+      await waitFor(() => expect(view.view.result.current.catalog.data?.tags).toEqual(["bug"]))
+      act(() => { oldRead = view.client.refetchQueries({ queryKey: communityKeys.forumTags("forum_1"), exact: true }) })
+      await waitFor(() => expect(reads).toBe(2))
+    } else {
+      await waitFor(() => expect(reads).toBe(1))
+      expect(view.view.result.current.catalog.data).toBeUndefined()
+    }
+    await act(async () => { await view.view.result.current.tags.mutateAsync(tagInput) })
+    await act(async () => { stale.resolve({ tags: ["bug"] }); await oldRead })
+    await waitFor(() => expect(view.view.result.current.catalog.data?.tags).toEqual(["archived", "bug"]))
+    expect(oldSignal?.aborted).toBe(true)
+    expect(view.view.result.current.all.map(({ id }) => id)).not.toContain("p2")
+  })
+
+  it("does not cancel or invalidate a replacement catalog read after an older command ACK", async () => {
+    mocks.api.mockResolvedValue({ tags: ["bug"] })
+    const view = await setup(undefined, true)
+    await waitFor(() => expect(view.view.result.current.catalog.data?.tags).toEqual(["bug"]))
+    const pending = await begin(view, "tags"), key = communityKeys.forumTags("forum_1"), held = deferred()
+    let replacementSignal: AbortSignal | undefined, replacementRead!: Promise<{ tags: string[] }>
+    act(() => {
+      view.client.removeQueries({ queryKey: key, exact: true })
+      replacementRead = view.client.fetchQuery({ queryKey: key, queryFn: ({ signal }) => {
+        replacementSignal = signal
+        return held.promise as Promise<{ tags: string[] }>
+      } })
+    })
+    const replacement = view.client.getQueryCache().find({ queryKey: key, exact: true })
+    await act(async () => { pending.held.resolve({ tags: ["bug", "archived"] }); await pending.request })
+    expect(replacementSignal?.aborted).toBe(false)
+    expect(replacement?.state.isInvalidated).toBe(false)
+    await act(async () => { held.resolve({ tags: ["replacement"] }); await replacementRead })
+    expect(view.client.getQueryCache().find({ queryKey: key, exact: true })).toBe(replacement)
+    expect(view.client.getQueryData(key)).toEqual({ tags: ["replacement"] })
+  })
+
+  it("does not refresh a catalog after its command view retires", async () => {
+    mocks.api.mockResolvedValue({ tags: ["bug"] })
+    const view = await setup(undefined, true)
+    await waitFor(() => expect(view.view.result.current.catalog.data?.tags).toEqual(["bug"]))
+    const pending = await begin(view, "tags")
+    act(() => view.view.unmount())
+    await act(async () => { pending.held.resolve({ tags: ["bug", "archived"] }); await pending.request })
+    expect(mocks.api.mock.calls.filter(([path]) => path.endsWith("/messages/tags"))).toHaveLength(1)
+    expect(view.client.getQueryData(communityKeys.forumTags("forum_1"))).toEqual({ tags: ["bug"] })
+  })
+
   it("does not publish an old opener ACK onto a reused child identity", async () => {
     const view = await setup(["p2"]), { held, request } = await begin(view, "tags", { ...tagInput, openerMessageId: "retired_opener" })
     expect(view.registry.collections.channels.get("p2")).toMatchObject({ parentMessageId: "opener_p2", tags: ["bug"] })

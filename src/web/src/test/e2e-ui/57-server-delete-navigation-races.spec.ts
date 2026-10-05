@@ -1,5 +1,5 @@
 import type { Page, WebSocket } from "@playwright/test"
-import { expect, sessionCookie, test } from "./_fixtures/community-fixture"
+import { expect, sessionCookie, test, userId } from "./_fixtures/community-fixture"
 import { gotoAfterUserWsAuth, openServer } from "./_fixtures/actions"
 import { seedChannel, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
@@ -77,11 +77,17 @@ async function seedServerRoute(
   return { serverId, channelId }
 }
 
-async function clickDeleteServer(page: Page, serverId: string): Promise<void> {
+async function clickDeleteServer(
+  page: Page,
+  serverId: string,
+  beforeConfirm?: () => Promise<void>,
+): Promise<void> {
   await page.getByTestId(tid.serverIcon(serverId)).click({ button: "right" })
   await page.getByTestId(tid.serverSettingsOpen).click()
   await expect(page.getByTestId(tid.settingsShell)).toBeVisible()
   await page.getByRole("button", { name: "Delete Server", exact: true }).click()
+  await expect(page.getByRole("dialog")).toBeVisible()
+  await beforeConfirm?.()
   await page.getByRole("dialog").getByRole("button", {
     name: "Delete Server",
     exact: true,
@@ -193,25 +199,36 @@ async function expectServerLeaf(page: Page, serverId: string): Promise<string> {
 test.describe.configure({ mode: "serial" })
 
 test("deleting the only Server replaces once to Home", async ({ asUser }) => {
-  const route = await seedServerRoute("dave", `delete-only-${Date.now()}`)
-  const dave = await asUser("dave")
+  const key = "sole-delete"
+  expect(await serverIds(key)).toEqual([])
+  const route = await seedServerRoute(key, `delete-only-${Date.now()}`)
+  const page = (await asUser(key)).page
   await gotoAfterUserWsAuth(
-    dave.page,
+    page,
     `/c/channels/${route.serverId}/${route.channelId}`,
   )
-  await installHistoryRecorder(dave.page)
-  await resetHistoryRecorder(dave.page)
-  const response = dave.page.waitForResponse((candidate) => (
+  await installHistoryRecorder(page)
+  const response = page.waitForResponse((candidate) => (
     candidate.request().method() === "DELETE"
       && new URL(candidate.url()).pathname === `/api/community/servers/${route.serverId}`
   ))
 
-  await clickDeleteServer(dave.page, route.serverId)
+  await clickDeleteServer(page, route.serverId, async () => {
+    expect(await serverIds(key)).toEqual([route.serverId])
+    const membershipResponse = await page.request.get(`/api/community/servers/${route.serverId}/members`)
+    expect(membershipResponse.status()).toBe(200)
+    const body = await membershipResponse.json() as { members: Array<{ userId: string }> }
+    expect(body.members.map((member) => member.userId)).toContain(userId(key))
+    await expect(page).toHaveURL(`/c/channels/${route.serverId}/${route.channelId}`)
+    await resetHistoryRecorder(page)
+  })
 
   expect((await response).status()).toBe(204)
-  await expect(dave.page).toHaveURL("/c/me")
-  await expect(dave.page.getByTestId(tid.serverIcon(route.serverId))).toHaveCount(0)
-  expect(await divergentHistoryWrites(dave.page, "/c/me")).toEqual([])
+  await expect(page).toHaveURL("/c/me")
+  await expect(page.getByTestId(tid.serverIcon(route.serverId))).toHaveCount(0)
+  await expect(page.getByText("Server deleted", { exact: true })).toBeVisible()
+  expect(await divergentHistoryWrites(page, "/c/me")).toEqual([])
+  expect(await serverIds(key)).toEqual([])
 })
 
 for (const testCase of [
@@ -243,7 +260,8 @@ for (const testCase of [
 
     expect((await deletion.response).status()).toBe(204)
     await expect(page).toHaveURL(safePathname)
-    await expect(page.getByText("Server deleted", { exact: true })).toBeVisible()
+    await expect(page.getByTestId(tid.serverIcon(deleted.serverId))).toHaveCount(0)
+    await expect(page.getByText("Server deleted", { exact: true })).toHaveCount(0)
     expect(await divergentHistoryWrites(page, safePathname)).toEqual([])
     await deletion.cleanup()
   })
@@ -339,7 +357,8 @@ test("a Back visit after terminal cleanup is an ordinary missing route", async (
   deletion.release()
   expect((await deletion.response).status()).toBe(204)
   await expect(page).toHaveURL(safePathname)
-  await expect(page.getByText("Server deleted", { exact: true })).toBeVisible()
+  await expect(page.getByTestId(tid.serverIcon(deleted.serverId))).toHaveCount(0)
+  await expect(page.getByText("Server deleted", { exact: true })).toHaveCount(0)
   await page.goBack({ waitUntil: "commit" })
 
   await expect(page).not.toHaveURL(new RegExp(`/c/channels/${deleted.serverId}(?:/|$)`))

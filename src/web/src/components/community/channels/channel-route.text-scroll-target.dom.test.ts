@@ -8,6 +8,8 @@ import { MessageList } from "../messages/message-list"
 import { useChannelMemberViewModel } from "../members/channel-member-view-model"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 import type { ConversationNavigationTarget } from "@/lib/community/conversation-navigation-proof"
+import { useCommunityRuntime } from "@/stores/community/runtime"
+import { runAuthoritativeServerEject } from "@/lib/community/eject-server"
 
 const {
   mockRouteModel,
@@ -670,6 +672,35 @@ describe("ChannelRoute message surface ownership", () => {
       { kind: "server", serverId: "server_1", channelId: "channel_1" },
       true,
     )
+  })
+
+  it("keeps server ejection when revocation removes the former top-level channel", () => {
+    mockSearchParams.value = ""
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+    let runtime!: ReturnType<typeof useCommunityRuntime>
+    function Route() {
+      runtime = useCommunityRuntime()
+      return React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" })
+    }
+    const renderer = render(React.createElement(Route))
+    mockRouter.replace.mockClear()
+    mockedUseChannelMessageFeed.mockClear()
+
+    act(() => {
+      runtime.ws.actions.revokeServerAccess("server_1")
+      expect(runAuthoritativeServerEject({
+        serverId: "server_1", servers: [], isSuccess: true, isFetching: false,
+        consumeVoluntaryLeave: () => false, clearLastChannel: mockClearLastChannel,
+        toast: vi.fn(), replace: mockRouter.replace,
+      })).toBe(true)
+      Object.assign(mockRouteModel, { server: null, channel: null, isChild: false,
+        routeHydrated: false, routeLifecycle: "pending" })
+      renderer.rerender(React.createElement(Route))
+    })
+
+    expect(mockRouter.replace).toHaveBeenCalledExactlyOnceWith("/c/me")
+    expect(mockClearLastChannel).toHaveBeenCalledExactlyOnceWith("server_1")
+    expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
   })
 
   it("commits and dismisses only a ready top-level channel for the active account", async () => {

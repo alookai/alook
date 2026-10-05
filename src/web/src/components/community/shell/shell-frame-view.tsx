@@ -97,11 +97,20 @@ export function ShellFrameView({
       breakpoint={breakpoint}
       surface={surface}
       rail={<ServerRail {...rail.railProps} bottomInset={60} />}
-      sidebar={checkpoint.sidebar.kind === "server-skeleton"
+      preserveHiddenMobileModules
+      sidebar={<>
+        <div
+          hidden={checkpoint.sidebar.kind !== "keep"}
+          inert={checkpoint.sidebar.kind !== "keep"}
+          aria-hidden={checkpoint.sidebar.kind !== "keep" || undefined}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          {breakpoint === "desktop" ? sidebar() : sidebar({ noHeader: false })}
+        </div>
+        {checkpoint.sidebar.kind === "server-skeleton"
           ? <ChannelSidebarSkeleton targetServerId={checkpoint.sidebar.serverId} />
-          : checkpoint.sidebar.kind === "me-skeleton"
-            ? <DmSidebarSkeleton />
-            : breakpoint === "desktop" ? sidebar() : sidebar({ noHeader: false })}
+          : checkpoint.sidebar.kind === "me-skeleton" ? <DmSidebarSkeleton /> : null}
+      </>}
       main={checkpoint.main.kind === "target-skeleton" ? (
         <CommunityPendingFrame
           href={checkpoint.targetHref}

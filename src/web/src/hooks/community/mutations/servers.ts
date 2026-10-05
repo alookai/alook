@@ -83,13 +83,14 @@ export function useJoinServer() {
 // ── Leave / delete server ──────────────────────────────────────────────────
 
 export type LeaveServerArgs = { serverId: string }
+type DeleteServerArgs = LeaveServerArgs & { isUiCurrent?: () => boolean }
 type DeleteServerCallbacks = {
   routeToken: OwnerServerDeleteRouteToken
   onSuccess?: (
-    args: LeaveServerArgs,
+    args: DeleteServerArgs,
     result: { needsNavigation: boolean },
   ) => void
-  onError?: (error: Error, args: LeaveServerArgs) => void
+  onError?: (error: Error, args: DeleteServerArgs) => void
 }
 
 function mutateViewerMembership(registry: NonNullable<ReturnType<typeof useCommunityMutationOrigin>["registry"]>, serverId: string) {
@@ -141,7 +142,7 @@ export function useLeaveServer() {
 export function useDeleteServer(callbacks: DeleteServerCallbacks) {
   const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
   const unreadProjection = getActiveAccountUnreadProjection(queryClient)
-  return useCommunityCommandMutation<void, Error, LeaveServerArgs, { token: AccountUnreadScopeToken; proof: CommunityLiveSnapshotToken } & DeleteServerCallbacks>(origin, {
+  return useCommunityCommandMutation<void, Error, DeleteServerArgs, { token: AccountUnreadScopeToken; proof: CommunityLiveSnapshotToken } & DeleteServerCallbacks>(origin, {
     scope: { id: "community-server-membership" },
     onMutate: async (args) => {
       const token = args.original

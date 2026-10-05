@@ -15,27 +15,16 @@ describe("ShellFrame public contract", () => {
     expectTypeOf<ComponentProps<typeof ShellFrame>>().toEqualTypeOf<ShellFrameProps>()
   })
 
-  it("keeps both layout importers on the one public ShellFrame API", () => {
-    const channels = readWeb("src/app/c/channels/layout.tsx")
-    const dm = readWeb("src/app/c/me/layout.tsx")
-
-    for (const source of [channels, dm]) {
-      expect(source).toContain(
-        'import { ShellFrame } from "@/components/community/shell/shell-frame"',
-      )
-      expect(source).toContain("<ShellFrame")
-      expect(source).toContain("sidebar={sidebar}")
-      expect(source).not.toContain("mobileZone={mobileZone}")
-      expect(source).not.toContain("setMobileZone={setMobileZone}")
-      expect(source).not.toContain("useState<MobileZone>")
+  it("keeps the one frame above both native slots and content layouts", () => {
+    const frame = readWeb("src/components/community/shell/community-route-frame.tsx")
+    expect(frame).toContain("useSelectedLayoutSegments()")
+    expect(frame).toContain("<ShellFrame")
+    expect(readWeb("src/app/c/community-layout-client.tsx")).toContain("<CommunityRouteFrame")
+    for (const path of ["src/app/c/channels/layout.tsx", "src/app/c/me/layout.tsx"]) {
+      expect(readWeb(path)).not.toContain("<ShellFrame")
     }
-    expect(channels).toContain('view="server"')
-    expect(channels).toContain("activeServerId={serverId}")
-    expect(channels).toContain("frameHref={structuralFrameHref}")
-    expect(dm).toContain('view="dm"')
-    expect(dm).toContain("activeServerId={undefined}")
-    expect(dm).toContain("useSelectedLayoutSegments")
-    expect(dm).toContain("frameHref={structuralFrameHref}")
+    expect(readWeb("src/app/c/@sidebar/me/layout.tsx")).toContain("<DmSidebarSlot")
+    expect(readWeb("src/app/c/@sidebar/channels/[serverId]/layout.tsx")).toContain("serverId={serverId}")
   })
 
   it("keeps shell-frame as orchestration with one public component", () => {

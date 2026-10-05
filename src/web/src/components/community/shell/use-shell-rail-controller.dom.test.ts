@@ -82,6 +82,7 @@ async function renderController(overrides: Record<string, unknown> = {}) {
     prefetch: (href: string) => { prefetched.push(href) },
   }
   const navigation = {
+    captureIntent: () => () => true,
     publishedHref: "/c/channels/s1",
     navigationPending: false,
     pendingHref: null,
@@ -197,6 +198,20 @@ describe("useShellRailController", () => {
     expect(hook.pushed).toEqual(["/c/channels/s2", "/c/channels/s1/c1"])
     expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
     expect(mocks.markSwitch).toHaveBeenLastCalledWith("channel", "c1")
+  })
+
+  it("keeps active-server overlays on their current leaf without a direct opener", async () => {
+    const hook = await renderController()
+    hook.navigation.publishedHref = "/c/channels/s1/c1?keep=1#message_1"
+    await hook.rerender()
+    await act(async () => {
+      hook.current.railProps.onOpenSettings("s1")
+      hook.current.railProps.onOpenInvitePopover("s1")
+    })
+    expect(hook.pushed).toEqual([
+      "/c/channels/s1/c1?keep=1&settings=1#message_1",
+      "/c/channels/s1/c1?keep=1&invite=1#message_1",
+    ])
   })
 
   it("keeps settings and invite actions synchronous and scoped to their target", async () => {
@@ -382,17 +397,18 @@ describe("useShellRailController", () => {
     expect(mocks.toastApiError).toHaveBeenCalledWith(
       iconError,
       "Server created, but the icon failed to upload",
+      expect.any(Function),
     )
 
     const createError = new Error("create")
     mocks.createServer.mockRejectedValueOnce(createError)
     await act(async () => hook.current.railProps.onCreateServer("Broken"))
-    expect(mocks.toastApiError).toHaveBeenCalledWith(createError, "Failed to create server")
+    expect(mocks.toastApiError).toHaveBeenCalledWith(createError, "Failed to create server", expect.any(Function))
 
     await act(async () => hook.current.railProps.onLeaveServer("s2"))
     const leaveError = new Error("leave")
     mocks.leaveServer.mock.calls.at(-1)![1].onError(leaveError)
-    expect(mocks.toastApiError).toHaveBeenCalledWith(leaveError, "Failed to leave server")
+    expect(mocks.toastApiError).toHaveBeenCalledWith(leaveError, "Failed to leave server", expect.any(Function))
   })
 
   it("passes complete memberships to the normalized rail and no legacy mutation callbacks", async () => {

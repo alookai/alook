@@ -12,6 +12,7 @@ type SidebarFrame = {
   pathname: string
   ownerId: number | null
   scope: string | null
+  retainedOwner: { scope: string | null; hidden: boolean; inert: boolean } | null
   pendingServer: string | null
   skeleton: boolean
   rows: string[]
@@ -56,7 +57,18 @@ async function installSidebarFrameProbe(page: Page) {
     const sample = () => {
       const surface = document.querySelector<HTMLElement>('[data-community-mobile-surface="list"]')
       const sidebar = surface ?? document.querySelector<HTMLElement>("#sidebar")
-      const owner = sidebar?.querySelector<HTMLElement>("[data-community-channel-tree-scope]") ?? null
+      const retainedOwner = sidebar?.querySelector<HTMLElement>("[data-community-channel-tree-scope]") ?? null
+      const ownerStyle = retainedOwner ? getComputedStyle(retainedOwner) : null
+      const ownerHasLayout = retainedOwner !== null && (
+        retainedOwner.getClientRects().length > 0
+        || Array.from(retainedOwner.children).some((child) => child.getClientRects().length > 0)
+      )
+      const ownerHidden = retainedOwner !== null && (
+        ownerStyle?.display === "none" || ownerStyle?.visibility === "hidden"
+        || !ownerHasLayout
+      )
+      const ownerInert = retainedOwner !== null && retainedOwner.closest("[inert]") !== null
+      const owner = ownerHidden || ownerInert ? null : retainedOwner
       let ownerId: number | null = null
       if (owner) {
         ownerId = ownerIds.get(owner) ?? ++nextOwnerId
@@ -73,6 +85,11 @@ async function installSidebarFrameProbe(page: Page) {
         pathname: location.pathname,
         ownerId,
         scope: owner?.dataset.communityChannelTreeScope ?? null,
+        retainedOwner: retainedOwner ? {
+          scope: retainedOwner.dataset.communityChannelTreeScope ?? null,
+          hidden: ownerHidden,
+          inert: ownerInert,
+        } : null,
         pendingServer: sidebar?.querySelector<HTMLElement>("[data-pending-server-id]")
           ?.dataset.pendingServerId ?? null,
         skeleton: sidebar?.querySelector('[data-slot="skeleton"]') !== null,
@@ -377,6 +394,8 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   expect(coldPendingFrames.length).toBeGreaterThan(0)
   expect(coldPendingFrames.every((frame) => frame.ownerId === null && frame.rows.length === 0))
     .toBe(true)
+  expect(coldPendingFrames.every((frame) => !frame.retainedOwner
+    || frame.retainedOwner.hidden && frame.retainedOwner.inert)).toBe(true)
   expectAtomicTargetFrames(coldFrames, `server:${serverC}`, channelC, [channelA])
 
   await clickServer(page, serverA)
