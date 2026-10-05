@@ -60,7 +60,7 @@ export default async function BlogPostPage({
 
   return (
     <>
-      <ObservedStaticContent />
+      <ObservedStaticContent key={slug} pathname={`/blog/${slug}`} />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(blogPostingJsonLd) }}

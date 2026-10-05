@@ -54,7 +54,8 @@ function RouteCommit() {
 }
 export function ObservedRouteCommit() { return <Suspense fallback={null}><RouteCommit /></Suspense> }
 
-export function ObservedStaticContent() {
-  useObservedRegion("page", true, { source: "unknown", version: "ssr_committed", freshness: "unknown", count: 1 })
+export function ObservedStaticContent({ pathname }: { pathname?: string }) {
+  const ready = pathname === undefined || (typeof window !== "undefined" && pathname === window.location.pathname)
+  useObservedRegion("page", ready, { source: "unknown", version: "ssr_committed", freshness: "unknown", count: 1 })
   return null
 }
