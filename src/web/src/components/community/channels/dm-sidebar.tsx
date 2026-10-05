@@ -1,5 +1,7 @@
 "use client"
 
+import { CommunityNavigationLink } from "../shell/community-navigation-link"
+import { dmHref } from "@/lib/community/community-route"
 import { memo } from "react"
 import { Users, Ban, Monitor, Bot } from "lucide-react"
 import { Avatar } from "../avatar"
@@ -32,11 +34,14 @@ export const DmSidebar = memo(function DmSidebar({
   return (
     <aside className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div data-slot="dm-sidebar-shortcuts" className="shrink-0 px-2 pt-4">
-        <button
+        <CommunityNavigationLink
           aria-label={requestCount ? `Friends, ${friendRequestCount} new requests` : "Friends"}
-          onClick={onShowFriends}
+          href="/c/me/friends"
+          prefetchMode="visible"
+          active={isFriendsActive}
+          onActivate={onShowFriends}
           className={[
-            "mb-1 flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium",
+            "mb-1 flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
             isFriendsActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
           ].join(" ")}
         >
@@ -49,29 +54,35 @@ export const DmSidebar = memo(function DmSidebar({
               {requestCount}
             </span>
           )}
-        </button>
+        </CommunityNavigationLink>
         {onShowMachines && (
-          <button
+          <CommunityNavigationLink
             data-testid={tid.machineGuideIntroSource}
-            onClick={onShowMachines}
+            href="/c/me/machines"
+            prefetchMode="visible"
+            active={machinesActive}
+            onActivate={onShowMachines}
             className={[
-              "mb-1 flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium",
+              "mb-1 flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
               machinesActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
             ].join(" ")}
           >
             <Monitor className="size-5" /> Machines
-          </button>
+          </CommunityNavigationLink>
         )}
         {onShowBots && (
-          <button
-            onClick={onShowBots}
+          <CommunityNavigationLink
+            href="/c/me/bots"
+            prefetchMode="visible"
+            active={botsActive}
+            onActivate={onShowBots}
             className={[
-              "mb-2 flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium",
+              "mb-2 flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
               botsActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
             ].join(" ")}
           >
             <Bot className="size-5" /> My Bots
-          </button>
+          </CommunityNavigationLink>
         )}
         <div className="my-2 h-px bg-border" />
       </div>
@@ -93,12 +104,14 @@ export const DmSidebar = memo(function DmSidebar({
             muted: isBlocked,
           })
           return (
-            <button
+            <CommunityNavigationLink
               key={d.id}
               data-testid={tid.dmRow(d.id)}
-              onClick={() => onPickDm(d.id)}
+              href={dmHref(d.id)}
+              active={active}
+              onActivate={() => onPickDm(d.id)}
               className={[
-                "flex w-full items-center gap-3 rounded-md px-2 py-2",
+                "flex w-full items-center gap-3 rounded-md px-2 py-2 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                 active ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
               ].join(" ")}
             >
@@ -109,7 +122,7 @@ export const DmSidebar = memo(function DmSidebar({
               </div>
               {isBlocked && <Ban className="size-4 shrink-0 text-destructive" />}
               {unread.showDot && <span className="size-2 shrink-0 rounded-full bg-primary" />}
-            </button>
+            </CommunityNavigationLink>
           )
         })}
       </div>

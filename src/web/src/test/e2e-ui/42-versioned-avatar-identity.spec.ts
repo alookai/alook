@@ -180,8 +180,10 @@ test("versioned avatars converge across live, stale, reconnect, cold, and concur
   await gotoAfterUserWsAuth(observer.page, "/c/me")
   await expectPhoto(observer.page.getByTestId(tid.dmRow(dmId)), second.url)
   await gotoAfterUserWsAuth(observer.page, "/c/me/friends")
-  const friendRow = observer.page.getByText(userName("alice"), { exact: true })
-    .locator("xpath=ancestor::button[1]")
+  const friendName = userName("alice").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const friendRow = observer.page.getByRole("tabpanel", { name: "All", exact: true })
+    .getByRole("button", { name: new RegExp(`^${friendName}\\s*#\\d{4,18}(?:\\s|$)`) })
+  await expect(friendRow).toHaveCount(1, { timeout: 20_000 })
   await expectPhoto(friendRow, second.url)
 
   await observer.context.setOffline(true)

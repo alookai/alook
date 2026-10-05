@@ -619,3 +619,5 @@ describe("ServerRail one-in-flight structural guard", () => {
     },
   )
 })
+
+vi.mock("next/link", async () => ({ default: (await import("@/test/community-link-mock")).CommunityLinkMock }))

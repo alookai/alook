@@ -21,7 +21,7 @@ describe("DmSidebar navigation intent", () => {
     const badge = renderer.queryByTestId(tid.friendsShortcutBadge)
     if (label === null) expect(badge).toBeNull()
     else expect(badge).toHaveTextContent(label)
-    expect(renderer.getByRole("button", { name: count ? `Friends, ${count} new requests` : "Friends" }))
+    expect(renderer.getByRole("link", { name: count ? `Friends, ${count} new requests` : "Friends" }))
       .toBeInTheDocument()
   })
 
@@ -65,7 +65,7 @@ describe("DmSidebar navigation intent", () => {
       onShowBots,
     }))
 
-    const [friends, machines, bots] = renderer.container.querySelectorAll("button")
+    const [friends, machines, bots] = renderer.container.querySelectorAll("a")
     fireEvent.pointerEnter(friends!)
     fireEvent.focus(machines!)
     fireEvent.pointerEnter(bots!)
@@ -147,3 +147,5 @@ describe("DmSidebar navigation intent", () => {
     expect(unreadDots()).toHaveLength(1)
   })
 })
+
+vi.mock("next/link", async () => ({ default: (await import("@/test/community-link-mock")).CommunityLinkMock }))

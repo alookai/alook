@@ -2,10 +2,12 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { OfficialServerBadge } from "../official-server-badge"
-import { Fragment, memo, useRef } from "react"
+import { CommunityNavigationLink } from "../shell/community-navigation-link"
+import { channelHref } from "@/lib/community/community-route"
+import { Fragment, memo, useRef, type MouseEvent } from "react"
 import { Settings, Users, Link2, Bell, ChevronDown, UserPlus } from "lucide-react"
 import {
-  DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors,
+  DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors, useDndContext,
   type CollisionDetection,
 } from "@dnd-kit/core"
 import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable"
@@ -165,7 +167,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates, keyboardCodes: { start: ["Space"], cancel: ["Escape"], end: ["Space", "Enter", "Tab"] } }),
   )
   const [dialog, setDialog] = useAtom(useCreateAtom<Dialog>(null))
   const withMute = (ch: Channel): Channel => mutedChannels && ch.id in mutedChannels ? { ...ch, muted: mutedChannels[ch.id] } : ch
@@ -204,6 +206,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
           <ForumSidebarThreadRow
             key={thread.id}
             thread={thread}
+            href={serverId ? channelHref(serverId, thread.id) : undefined}
             active={thread.id === activeThreadId}
             muted={!!mutedChannels?.[parentId]}
             onClick={() => onSelectForumThread?.(parentId, thread.id)}
@@ -244,6 +247,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
               <Fragment key={ch.id}>
                 <SortableChannel
                   ch={withMute(ch)}
+                  href={serverId ? channelHref(serverId, ch.id) : undefined}
                   active={ch.id === activeChannel && !hasActiveSidebarThread}
                   canReorder={isAdmin}
                   onClick={() => setActiveChannel(ch.id)}
@@ -284,6 +288,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
                     <Fragment key={ch.id}>
                       <SortableChannel
                         ch={withMute(ch)}
+                        href={serverId ? channelHref(serverId, ch.id) : undefined}
                         active={ch.id === activeChannel && !hasActiveSidebarThread}
                         canReorder={isAdmin}
                         onClick={() => setActiveChannel(ch.id)}
@@ -420,47 +425,55 @@ export const ChannelSidebar = memo(function ChannelSidebar({
 
 function ForumSidebarThreadRow({
   thread,
+  href,
   active,
   muted,
   onClick,
 }: {
   thread: ForumSidebarThread
+  href?: string
   active: boolean
   muted: boolean
   onClick: () => void
 }) {
+  const { active: dragActive } = useDndContext()
   const unread = selectUnreadPresentation({
     accountUnread: thread.unread,
     active,
     muted,
   })
+  const rowProps = {
+    "data-testid": tid.forumSidebarThread(thread.id),
+    "aria-current": active ? "page" as const : undefined,
+    onContextMenu: (event: MouseEvent<HTMLElement>) => {
+      event.preventDefault()
+      event.stopPropagation()
+    },
+    className: [
+      "ml-4 flex h-7 w-[calc(100%-1rem)] min-w-0 items-center rounded-md px-2 text-left text-xs font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+      active
+        ? "bg-sidebar-accent text-foreground"
+        : muted
+          ? "text-muted-foreground/50 hover:bg-sidebar-accent/60 hover:text-muted-foreground"
+          : unread.emphasize
+            ? "text-foreground hover:bg-sidebar-accent/60"
+            : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+    ].join(" "),
+  }
+  const content = (<>
+    <span className="truncate">{thread.title}</span>
+    {unread.showDot && <span className="ml-auto size-2 shrink-0 rounded-full bg-primary" />}
+  </>)
   return (
     <div className="relative h-7">
-      <button
-        type="button"
-        data-testid={tid.forumSidebarThread(thread.id)}
-        aria-current={active ? "page" : undefined}
-        onClick={onClick}
-        onContextMenu={(event) => {
-          event.preventDefault()
-          event.stopPropagation()
-        }}
-        className={[
-          "ml-4 flex h-7 w-[calc(100%-1rem)] min-w-0 items-center rounded-md px-2 text-left text-xs font-medium",
-          active
-            ? "bg-sidebar-accent text-foreground"
-            : muted
-              ? "text-muted-foreground/50 hover:bg-sidebar-accent/60 hover:text-muted-foreground"
-              : unread.emphasize
-                ? "text-foreground hover:bg-sidebar-accent/60"
-            : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
-        ].join(" ")}
-      >
-        <span className="truncate">{thread.title}</span>
-        {unread.showDot ? (
-          <span className="ml-auto size-2 shrink-0 rounded-full bg-primary" />
-        ) : null}
-      </button>
+      {href ? (
+        <CommunityNavigationLink {...rowProps} href={href} active={active} onActivate={onClick}
+          navigationDisabled={dragActive !== null}>
+          {content}
+        </CommunityNavigationLink>
+      ) : (
+        <button {...rowProps} type="button" onClick={onClick}>{content}</button>
+      )}
     </div>
   )
 }
