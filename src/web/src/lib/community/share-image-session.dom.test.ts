@@ -526,6 +526,35 @@ describe("prepareShareImageSession", () => {
     expect(document.querySelector("[data-share-detached-tree]")).toBeNull()
   })
 
+  it("resolves inline font variables before the embedder collects font families", async () => {
+    const source = sourceCard('<span style="font-family:var(--font-body)">Message</span>')
+    const brand = source.querySelector<HTMLElement>("[data-share-brand]")!
+    brand.style.fontFamily = "var(--font-brand)"
+    const nativeComputedStyle = window.getComputedStyle.bind(window)
+    vi.spyOn(window, "getComputedStyle").mockImplementation((element, pseudo) => {
+      const computed = nativeComputedStyle(element, pseudo)
+      if (element instanceof HTMLElement && element.style.fontFamily.startsWith("var(")) {
+        return new Proxy(computed, {
+          get(target, key) {
+            if (key === "fontFamily") return element.hasAttribute("data-share-brand") ? "Brand" : "Body"
+            const value = Reflect.get(target, key)
+            return typeof value === "function" ? value.bind(target) : value
+          },
+        })
+      }
+      return computed
+    })
+    const getFontCSS = vi.fn(async (card: HTMLElement) => {
+      expect(card.querySelector<HTMLElement>("[data-share-brand]")!.style.fontFamily).toBe("Brand")
+      expect(card.querySelector<HTMLElement>("span")!.style.fontFamily).toBe("Body")
+      return FONT_CSS
+    })
+    await expect(prepareShareImageSession(source, { getFontCSS, waitForPaint: async () => undefined }))
+      .resolves.toMatchObject({ fontEmbedCSS: FONT_CSS })
+    expect(brand.style.fontFamily).toBe("var(--font-brand)")
+    expect(getFontCSS).toHaveBeenCalledTimes(1)
+  })
+
   it("treats an empty font embed as a hard preparation failure", async () => {
     const source = sourceCard("<span>hello</span>")
 
@@ -950,6 +979,53 @@ describe("prepareShareImageSession", () => {
 })
 
 describe("capturePreparedShareImage", () => {
+  const webkitUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148"
+
+  beforeEach(() => {
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("AppleWebKit/537.36 Chrome/146.0 Safari/537.36")
+  })
+
+  it("returns the second WebKit rasterization after warming the same frozen resources", async () => {
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue(webkitUserAgent)
+    const preview = sourceCard('<img src="data:image/png;base64,AQID">')
+    const warmup = new Blob(["missing image"], { type: "image/png" })
+    const final = new Blob(["complete image"], { type: "image/png" })
+    const rasterize = vi.fn().mockResolvedValueOnce(warmup).mockResolvedValueOnce(final)
+
+    await expect(capturePreparedShareImage(preview, FONT_CSS, rasterize)).resolves.toBe(final)
+    expect(rasterize).toHaveBeenCalledTimes(2)
+    expect(rasterize.mock.calls[0]).toEqual(rasterize.mock.calls[1])
+    expect(document.querySelector("[data-share-detached-tree]")).toBeNull()
+  })
+
+  it("does not start the final rasterization after cancelling WebKit warmup", async () => {
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue(webkitUserAgent)
+    const controller = new AbortController()
+    const warmup = deferred<Blob>()
+    const rasterize = vi.fn(() => warmup.promise)
+    const pending = capturePreparedShareImage(sourceCard("ready"), FONT_CSS, rasterize, { signal: controller.signal })
+    const assertion = expect(pending).rejects.toMatchObject({ name: "AbortError" })
+    await vi.waitFor(() => expect(rasterize).toHaveBeenCalledTimes(1))
+    controller.abort()
+    warmup.resolve(new Blob(["warmup"], { type: "image/png" }))
+    await assertion
+    await Promise.resolve()
+    expect(rasterize).toHaveBeenCalledTimes(1)
+    expect(document.querySelector("[data-share-detached-tree]")).toBeNull()
+  })
+
+  it("keeps WebKit warmup within the capture deadline", async () => {
+    vi.useFakeTimers()
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue(webkitUserAgent)
+    const rasterize = vi.fn(() => new Promise<Blob>(() => {}))
+    const pending = capturePreparedShareImage(sourceCard("ready"), FONT_CSS, rasterize, { timeoutMs: 25 })
+    const assertion = expect(pending).rejects.toMatchObject({ stage: "rasterize", timedOut: true })
+    await act(async () => vi.advanceTimersByTimeAsync(25))
+    await assertion
+    expect(rasterize).toHaveBeenCalledTimes(1)
+    expect(document.querySelector("[data-share-detached-tree]")).toBeNull()
+  })
+
   it("rasterizes a detached byte-backed clone with the prepared font CSS", async () => {
     const preview = sourceCard('<img src="data:image/png;base64,AQID">')
     preview.removeAttribute("data-share-card-source")
