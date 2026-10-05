@@ -1,5 +1,8 @@
 "use client";
 
+import { useObservedRegion } from "@/lib/observability/regions";
+import { viewEvidence } from "@/lib/observability/data-source";
+
 import { useSelector } from "@tanstack/react-store";
 import { useApplicationOwner } from "@/lib/application-owner";
 import { useCallback, useRef } from "react";
@@ -121,6 +124,7 @@ export default function InboxPage() {
   const markAll = useMarkAllInboxRead();
   const application = useApplicationOwner();
   const filterTypes = useSelector(application.preferences, (state) => state.inboxFilterTypes);
+  useObservedRegion("inbox", !loading, viewEvidence(items));
   const scrollRef = useRef<HTMLDivElement>(null);
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;

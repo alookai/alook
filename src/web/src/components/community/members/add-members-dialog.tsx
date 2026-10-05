@@ -112,7 +112,7 @@ export function AddMembersDialog({
   const source = useCommunityViewSource("add-members:" + scopeId)
   const key = ["community", "member-picker", scopeId]
   type Intent = { userId: string; candidate: AddableCandidate; assert: ReturnType<typeof source.capture> }
-  const command = useMutation({
+  const command = useMutation({ meta: { observabilityAction: "channel.members.add" },
     mutationKey: key,
     gcTime: 0,
     mutationFn: async ({ userId, assert }: Intent) => { assert(); await onAdd(userId, assert); assert() },

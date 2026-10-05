@@ -1,5 +1,7 @@
 "use client";
 
+import { useObservedQueryRegion } from "@/lib/observability/query-regions";
+
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -63,6 +65,7 @@ function StudioOnboardingInner({
     refetchInterval: 30_000, refetchIntervalInBackground: false,
   });
   const runtimes = runtimesQuery.data ?? [];
+  useObservedQueryRegion("runtimes", runtimesQuery);
   const loadingRuntimes = runtimesQuery.isPending;
   const [scenarioId, setScenarioId] = useAtom(useCreateAtom<ScenarioId | null>(initialTemplate ? initialTemplate.baseScenario : null));
   const [memberDrafts, setMembers] = useAtom(useCreateAtom<TeamMember[]>([]));
@@ -152,7 +155,7 @@ function StudioOnboardingInner({
     setMembers((previous) => previous.map((member, index) => index === memberIndex ? { ...member, runtimeId } : member));
   };
 
-  const createCommand = useMutation({ gcTime: 0, mutationKey: owner.key("studio-create"), scope: { id: JSON.stringify(owner.key("studio-create")) },
+  const createCommand = useMutation({ meta: { observabilityAction: "studio.agent.create" }, gcTime: 0, mutationKey: owner.key("studio-create"), scope: { id: JSON.stringify(owner.key("studio-create")) },
     mutationFn: async ({ scenario, members, token }: { scenario: ScenarioId; members: TeamMember[]; token: ReturnType<typeof captureWorkspaceOwner> }) => {
       const assert = () => assertWorkspaceOwner(token);
       assert();
@@ -210,7 +213,7 @@ function StudioOnboardingInner({
   };
 
 
-  const finishCommand = useMutation({ mutationKey: owner.key("studio-finish"), gcTime: 0,
+  const finishCommand = useMutation({ meta: { observabilityAction: "studio.onboarding.finish" }, mutationKey: owner.key("studio-finish"), gcTime: 0,
     mutationFn: async (intent: ReturnType<typeof source.capture> & { resources: import("@tanstack/react-query").Query[] }) => {
       intent.assert();
       await apiFetch(`/api/workspaces/${workspaceId}/onboarded`, { ...workspaceRequestOptions(intent.token, intent.signal, intent.assert), method: "POST" });

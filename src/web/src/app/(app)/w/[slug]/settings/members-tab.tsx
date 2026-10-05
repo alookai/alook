@@ -1,5 +1,7 @@
 "use client";
 
+import { useObservedQueryRegion } from "@/lib/observability/query-regions"
+
 
 import { useQuery, useMutation, type Query } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -28,12 +30,13 @@ export function MembersTab() {
   const currentUserId = owner.application.userId;
   const memberQuery = useQuery(workspaceMembersOptions(owner));
   const members = memberQuery.data ?? [];
+  useObservedQueryRegion("settings", memberQuery, members.length);
   const isOwner = members.find((member) => member.user_id === currentUserId)?.role === "owner";
   const invitesQuery = useQuery({ ...workspaceInvitesOptions(owner), enabled: isOwner, subscribed: isOwner, gcTime: 0 });
   const invites = isOwner ? invitesQuery.data ?? [] : [];
   const loading = memberQuery.isPending || isOwner && invitesQuery.isPending;
   type OriginalIntent = { token: ReturnType<typeof captureWorkspaceOwner>; view: ReturnType<typeof source.capture>; resources: Query[] };
-  const native = useMutation({ mutationKey: owner.key("workspace-members-command"), scope: { id: JSON.stringify(owner.key("workspace-members-command")) }, gcTime: 0,
+  const native = useMutation({ meta: { observabilityAction: "workspace.members.command" }, mutationKey: owner.key("workspace-members-command"), scope: { id: JSON.stringify(owner.key("workspace-members-command")) }, gcTime: 0,
     mutationFn: async ({ action, token, view, resources }: { action: { kind: "create-invite" } | { kind: "revoke-invite" | "remove-member"; id: string }; token: ReturnType<typeof captureWorkspaceOwner> } & OriginalIntent) => {
       const assert = () => { assertWorkspaceOwner(token, view.signal); view.assert(); }, qc = owner.queryClient;
       const key = action.kind === "remove-member" ? workspaceMembersOptions(owner).queryKey : workspaceInvitesOptions(owner).queryKey;

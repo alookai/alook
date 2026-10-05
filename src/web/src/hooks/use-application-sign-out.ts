@@ -7,7 +7,7 @@ import { applicationKey, assertApplicationOwner, captureApplicationOwner, retire
 
 export function useApplicationSignOut() {
   const owner = useApplicationOwner()
-  const native = useMutation({ mutationKey: applicationKey(owner, "sign-out"), scope: { id: "account-sign-out" }, gcTime: 0, mutationFn: async (token: ReturnType<typeof captureApplicationOwner>) => {
+  const native = useMutation({ meta: { observabilityAction: "account.sign_out" }, mutationKey: applicationKey(owner, "sign-out"), scope: { id: "account-sign-out" }, gcTime: 0, mutationFn: async (token: ReturnType<typeof captureApplicationOwner>) => {
     assertApplicationOwner(token)
     const controller = new AbortController()
     const subscription = owner.lifecycle.subscribe(() => {

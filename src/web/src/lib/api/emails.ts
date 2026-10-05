@@ -1,3 +1,4 @@
+import { readApiResponse } from "./client";
 import type { Email } from "@alook/shared";
 import { ApiError } from "@/lib/errors";
 import { apiFetch, apiFetchResponse, wsQuery, type ApiRequestOptions } from "./client";
@@ -13,14 +14,14 @@ export const getEmailThread = (id: string, workspaceId: string, options?: ApiReq
 
 export const getEmailBody = async (id: string, workspaceId: string, options?: ApiRequestOptions): Promise<{ content: string; isHtml: boolean }> => {
   let res: Response;
-  try { res = await apiFetchResponse(`/api/email/${id}/body${wsQuery(workspaceId)}`, options); }
+  try { res = await apiFetchResponse(`/api/email/${id}/body${wsQuery(workspaceId)}`, options, true); }
   catch (error) {
     options?.assertActive?.();
     if (error instanceof ApiError && error.status !== 401) return { content: "(body not available)", isHtml: false };
     throw error;
   }
   const contentType = res.headers.get("Content-Type") ?? "";
-  const content = await res.text();
+  const content = await readApiResponse<string>(res, "text", options);
   options?.assertActive?.();
   if (options?.signal?.aborted) throw new DOMException("Cancelled request", "AbortError");
   return { content, isHtml: contentType.includes("text/html") };
@@ -54,7 +55,7 @@ export const uploadEmailAttachment = async (
     body: fd,
   });
   if (!res.ok) {
-    const msg = await res.text().catch(() => "Upload failed");
+    const msg = await readApiResponse<string>(res, "text").catch(() => "Upload failed");
     throw new ApiError(msg, res.status);
   }
   return res.json();

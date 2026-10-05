@@ -1,3 +1,4 @@
+import { ObservedStaticContent } from "@/lib/observability/regions";
 import type { Metadata } from "next";
 import { getSession } from "@/lib/session";
 import { TEMPLATES, TEMPLATE_CATEGORIES } from "@/lib/templates";
@@ -45,7 +46,7 @@ export default async function TemplatesPage({
   const session = await getSession();
   const params = await searchParams;
   return (
-    <>
+    <><ObservedStaticContent /><>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListJsonLd) }}
@@ -56,6 +57,6 @@ export default async function TemplatesPage({
         isLoggedIn={!!session}
         workspaceId={params.workspace_id}
       />
-    </>
+    </></>
   );
 }

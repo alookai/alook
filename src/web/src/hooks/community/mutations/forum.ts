@@ -49,7 +49,7 @@ export function useCreateForumThread() {
   const origin = useCommunityMutationOrigin()
   const queryClient = useQueryClient()
   type Intent = CreateForumThreadArgs & { original: ReturnType<typeof origin.begin>["token"]; resources: Query[] }
-  const native = useMutation<CreateForumThreadResult, Error, Intent>({
+  const native = useMutation<CreateForumThreadResult, Error, Intent>({ meta: { observabilityAction: "forum.thread.create" },
     mutationFn: async ({ nonce, channelId, name, content, attachments, mentionType, original: token, resources, assertActive }) => {
       const assert = () => { origin.assert(token); assertActive?.() }
       assert()
@@ -113,7 +113,7 @@ export function useUpdatePostTags() {
         && next.threadId === args.threadId && next.openerMessageId === args.openerMessageId
     })
   }, [queryClient])
-  const native = useMutation<{ tags: string[] }, Error, Intent>({
+  const native = useMutation<{ tags: string[] }, Error, Intent>({ meta: { observabilityAction: "forum.tags.update" },
     mutationKey: ["community", "forum-tag-command"], gcTime: 0,
     mutationFn: async (args) => {
       const registry = origin.registry!, assert = () => { origin.assert(args.original); args.view(); args.assertActive?.() }
@@ -202,7 +202,7 @@ export function useDeleteForumThread() {
   const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
   const source = useCommunityViewSource("forum-post-delete")
   type Intent = DeleteForumThreadArgs & { original: ReturnType<typeof origin.begin>["token"]; view: ReturnType<typeof source.capture>; resources: Query[] }
-  const native = useMutation<void, Error, Intent>({
+  const native = useMutation<void, Error, Intent>({ meta: { observabilityAction: "forum.thread.delete" },
     mutationKey: ["community", "forum-post-delete"], gcTime: 0,
     scope: { id: "community-forum-post-commands" },
     mutationFn: async (args) => {

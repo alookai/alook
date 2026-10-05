@@ -1,5 +1,6 @@
 "use client"
 
+import { deriveView, valueEvidence, viewEvidence } from "@/lib/observability/data-source"
 import { useCallback, useEffect, useMemo } from "react"
 import { createStore, useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useInfiniteQuery, useQueryClient, type Query } from "@tanstack/react-query"
@@ -80,13 +81,13 @@ export function mapForumFeedPages(pages: ForumFeedPage[], messages: ReadonlyMap<
     if (byId.has(window.id)) continue
     const thread = channels.get(window.id), opener = window.openerMessageId ? messages.get(window.openerMessageId) : undefined
     if (!thread || !opener || thread.parentMessageId !== opener.id || !forumFeedMatchesTags(filter, thread.tags)) continue
-    byId.set(thread.id, {
+    byId.set(thread.id, deriveView({
       id: thread.id, name: opener.content?.trim() ? opener.content : thread.name || "Post", messageCount: thread.messageCount ?? 0, lastMessageAt: thread.lastMessageAt ?? "",
       parent: { authorId: opener.authorId, authorName: opener.authorName ?? "", text: thread.preview ?? "" }, authorId: opener.authorId ?? thread.creatorId ?? "",
       authorAvatar: opener.authorAvatar ?? avatarInitial(opener.authorName ?? ""), authorAvatarVersion: opener.authorAvatarVersion ?? 0,
       openerMessageId: opener.id, ...(opener.createdAt === undefined ? {} : { openerCreatedAt: opener.createdAt }), ...(opener.seq === undefined ? {} : { parentSeq: opener.seq }), tags: thread.tags, preview: thread.preview ?? "",
       participants: window.participantIds.map((id) => { const profile = readCommunityProfile(profiles.get(id), id); return { id, name: profile.name, avatar: profile.avatar, avatarVersion: profile.avatarVersion } }), participantCount: thread.participantCount ?? 0,
-    })
+    }, [viewEvidence(thread), viewEvidence(opener), ...window.participantIds.map(id => viewEvidence(profiles.get(id)))]))
   }
   return [...byId.values()].sort((a, b) => compareAsciiSqliteBinary(channels.get(b.id)?.createdAt ?? "", channels.get(a.id)?.createdAt ?? "") || compareAsciiSqliteBinary(b.id, a.id))
 }
@@ -104,5 +105,6 @@ export function useForumFeed(_serverId: string, channelId: string) {
   const query = useInfiniteQuery({ queryKey, queryFn: forumFeedPageQueryFn(channelId, selectedTag, queryClient), initialPageParam: null as string | null, getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.nextCursor : undefined,
     retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey }).retry), networkMode: "always" })
   const posts = useMemo(() => mapForumFeedPages(query.data?.pages ?? [], messages ?? new Map(), channels, profiles, selectedTag), [query.data?.pages, messages, channels, profiles, selectedTag])
+  deriveView(posts, [valueEvidence(queryClient, query.data), ...posts.map(viewEvidence)], posts.length)
   return { ...query, posts, tag, selectTag, availableTags: tagsQuery.data?.tags ?? [], hasMoreOlder: query.hasNextPage, isFetchingOlder: query.isFetchingNextPage, fetchOlder: () => { void query.fetchNextPage() } }
 }

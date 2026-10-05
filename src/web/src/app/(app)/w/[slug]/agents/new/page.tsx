@@ -1,5 +1,7 @@
 "use client";
 
+import { useObservedQueryRegion } from "@/lib/observability/query-regions";
+
 import { useRef, useCallback, type ComponentProps } from "react";
 import { useRouter } from "next/navigation";
 import { useAgentContext } from "@/contexts/agent-context";
@@ -36,7 +38,8 @@ export default function CreateAgentPage() {
     queryFn: ({ signal }) => runApplicationRequest(workspace.application, (options) => fetchModelOptions(options), signal),
   });
   const modelOptions = modelQuery.data ?? EMPTY_MODELS;
-  const create = useMutation({
+  useObservedQueryRegion("agents", modelQuery);
+  const create = useMutation({ meta: { observabilityAction: "agent.create" },
     mutationKey: workspace.key("agents", "create-with-email"),
     mutationFn: async ({ data, token, agentCount }: { data: CreateAgentInput; token: ReturnType<typeof captureWorkspaceOwner>; agentCount: number }) => {
       assertWorkspaceOwner(token);

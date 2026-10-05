@@ -1,5 +1,7 @@
 "use client"
 
+import { deriveView, valueEvidence, viewEvidence } from "@/lib/observability/data-source"
+import { resolveActionName } from "@/lib/observability/actions"
 import { useQuery,useMutation,useQueryClient,type UseQueryResult,type Query,type QueryKey,type MutateOptions } from "@tanstack/react-query"
 import type { ApiRequestOptions } from "@/lib/api/client"
 import {
@@ -84,6 +86,7 @@ function botProfilePatch(bot: Pick<BotSummary, "id" | "name" | "image" | "avatar
 }
 
 export function useBots(): UseQueryResult<BotsResourceResponse> & { bots: BotSummary[] } {
+  const queryClient = useQueryClient()
   const query = useQuery({
     queryKey: communityKeys.bots(),
     queryFn: async ({ client, signal }): Promise<BotsResourceResponse> => {
@@ -94,8 +97,9 @@ export function useBots(): UseQueryResult<BotsResourceResponse> & { bots: BotSum
   const profiles = useCanonicalProfilesByUserId(query.data?.bots.map((bot) => bot.id) ?? [])
   const bots = useMemo(() => (query.data?.bots ?? []).map((bot) => {
     const profile = readCommunityProfile(profiles.get(bot.id), bot.id)
-    return { ...bot, name: profile.name, description: profile.aboutMe, image: profile.avatar, avatarVersion: profile.avatarVersion, presence: profile.presence }
-  }), [profiles, query.data?.bots])
+    return deriveView({ ...bot, name: profile.name, description: profile.aboutMe, image: profile.avatar, avatarVersion: profile.avatarVersion, presence: profile.presence }, [valueEvidence(queryClient, query.data), viewEvidence(profile)])
+  }), [profiles, query.data, queryClient])
+  deriveView(bots, [valueEvidence(queryClient, query.data), ...bots.map(viewEvidence)])
   return { ...query, bots }
 }
 
@@ -117,7 +121,7 @@ const noBotKeys = () => []
 function useBotCommand<TInput extends BotViewInput, TResult>(kind: string, execute: (input: TInput, context: BotCommandContext) => Promise<TResult>, keys: (input: TInput) => QueryKey[]) {
   const client = useQueryClient(), origin = useBotMutationOrigin()
   type Intent = { input: TInput; original: ReturnType<typeof origin.begin>["token"]; resources: Query[] }
-  const native = useMutation<TResult, Error, Intent>({
+  const native = useMutation<TResult, Error, Intent>({ meta: { observabilityAction: resolveActionName("bot.command", { kind }) },
     mutationKey: [...communityKeys.bots(), kind],
     scope: { id: "community-bot-command" },
     gcTime: 0,

@@ -1,3 +1,4 @@
+import { ObservedStaticContent } from "@/lib/observability/regions";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
@@ -59,6 +60,7 @@ export default async function BlogPostPage({
 
   return (
     <>
+      <ObservedStaticContent />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(blogPostingJsonLd) }}

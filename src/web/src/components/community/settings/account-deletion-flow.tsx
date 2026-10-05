@@ -97,7 +97,7 @@ export function AccountDeletionFlow({ email, onCancel, onDeleted }: Props) {
     const viewSubscription = view.subscribe(abort), accountSubscription = registry.runtime.lifecycle.subscribe(abort)
     return { registry, generation, controller, assertActive, options: communityRequestOptions(queryClient, token, controller.signal, assertActive), release: () => { viewSubscription.unsubscribe(); accountSubscription.unsubscribe() } }
   }
-  const request = useMutation({ mutationFn: async ({ action, body, source }: { action: "code" | "delete"; body: string; source: ReturnType<typeof capture> }) => {
+  const request = useMutation({ meta: { observabilityAction: "account.deletion.command" }, mutationFn: async ({ action, body, source }: { action: "code" | "delete"; body: string; source: ReturnType<typeof capture> }) => {
     source.assertActive()
     const response = await fetch(`/api/community/users/me/account-deletion${action === "code" ? "/code" : ""}`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body, signal: source.controller.signal })
     if (action === "code" || !response.ok) source.assertActive()

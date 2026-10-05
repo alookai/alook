@@ -1,5 +1,6 @@
 "use client"
 
+import { startAction, finishAction, type Action } from "@/lib/observability/context"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import { useEffect, useRef } from "react"
@@ -32,19 +33,26 @@ export function SocialSignIn({
   postLoginUrl: string
   appleEnabled?: boolean
 }) {
+  const observed = useRef<Action | undefined>(undefined)
   const controller = useRef<ReturnType<typeof createNativeOauthController> | null>(null)
   const [native, setNative] = useAtom(useCreateAtom<NativeOauthView | null>(null))
   const lastProvider = useRef<NativeOauthProvider>("github")
   useEffect(() => {
     if (!isTauri()) return
-    const instance = createNativeOauthController(nativeOauthBrowserDeps, setNative)
+    const instance = createNativeOauthController(nativeOauthBrowserDeps, view => {
+      setNative(view)
+      if (["waiting", "error", "unsupported", "idle"].includes(view.phase)) finishAction(observed.current, view.phase === "error" ? "error" : view.phase === "idle" ? "cancelled" : "observed")
+    })
     controller.current = instance
     void instance.connect()
     return () => { instance.dispose(); if (controller.current === instance) controller.current = null }
   }, [setNative])
   const begin = (provider: NativeOauthProvider) => {
+    finishAction(observed.current, "superseded")
+    observed.current = startAction("auth_social", { capability: "limited", phase: "auth" })
     lastProvider.current = provider
-    if (!isTauri()) { void signIn.social({ provider, callbackURL: postLoginUrl }); return }
+    const action = observed.current
+    if (!isTauri()) { void signIn.social({ provider, callbackURL: postLoginUrl }).then(result => finishAction(action, result.error ? "error" : "observed"), () => finishAction(action, "error")); return }
     if (controller.current) void controller.current.start(provider, safeRedirectPath(postLoginUrl))
   }
   const busy = native?.phase === "initializing" || native?.phase === "preparing" || native?.phase === "exchanging" || native?.phase === "checking_status"

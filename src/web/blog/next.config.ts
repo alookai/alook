@@ -9,6 +9,11 @@ const blogRedirectRules = JSON.parse(
 ) as Array<{ source: string; destination: string; statusCode: 301 }>;
 
 const nextConfig: NextConfig = {
+	env: {
+		NEXT_PUBLIC_FARO_COLLECTOR_URL: process.env.NEXT_PUBLIC_FARO_COLLECTOR_URL ?? "",
+		NEXT_PUBLIC_FARO_ENVIRONMENT: process.env.NEXT_PUBLIC_FARO_ENVIRONMENT ?? "",
+		NEXT_PUBLIC_FARO_RELEASE: process.env.NEXT_PUBLIC_FARO_RELEASE ?? "",
+	},
 	assetPrefix: "/blog-static",
 	images: { unoptimized: true },
 	pageExtensions: ["js", "jsx", "md", "mdx", "ts", "tsx"],

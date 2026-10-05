@@ -16,7 +16,7 @@ export type KickMemberArgs = { serverId: string; memberId: string; assertActive?
 function useMemberCommand<TInput extends KickMemberArgs>(kind: "role" | "kick") {
   const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
   type Intent = { kind: typeof kind; input: SetMemberRoleArgs | KickMemberArgs; original: ReturnType<typeof origin.begin>["token"]; resources: Query[] }
-  const native = useMutation({
+  const native = useMutation({ meta: { observabilityAction: "server.member.command" },
     mutationKey: ["community", "member-command"], scope: { id: "community-member-command" }, gcTime: 0,
     mutationFn: async ({ kind, input, original, resources }: Intent) => {
       origin.assert(original)

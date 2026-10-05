@@ -27,7 +27,7 @@ export function useAgentPermissionCommand(owner: WorkspaceOwner, agentId: string
   const key = owner.key("agent-permission-command", agentId)
   const source = useWorkspaceViewSource(owner, `agent-permissions:${agentId}`, true)
   type NativeIntent = Command & { view: ReturnType<typeof source.capture>; resources: Query[] }
-  const native = useMutation({ mutationKey: key, scope: { id: JSON.stringify(key) },
+  const native = useMutation({ meta: { observabilityAction: "agent.permission.command" }, mutationKey: key, scope: { id: JSON.stringify(key) },
     mutationFn: async ({ action, token, view, resources, assertActive }: NativeIntent) => {
       const assert = () => { assertWorkspaceOwner(token, assertActive?.signal ?? view.signal); view.assert(); assertActive?.() }
       const qc = owner.queryClient, whitelistKey = owner.key("agent-whitelist", agentId), accessKey = owner.key("agent-access", agentId), agentsKey = owner.key("agents")

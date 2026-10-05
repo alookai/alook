@@ -1,5 +1,7 @@
 "use client"
 
+import { deriveView, valueEvidence, viewEvidence } from "@/lib/observability/data-source"
+
 import { useEffect, useMemo } from "react"
 import { createStore, useSelector } from "@tanstack/react-store"
 import { useInfiniteQuery, useMutationState, useQueryClient, replaceEqualDeep, type InfiniteData, type Query, type QueryKey, type QueryClient } from "@tanstack/react-query"
@@ -429,9 +431,10 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
       const row = byUser.get(identity.userId)
       if (!row || row.memberId !== identity.id) return []
       const profile = readCommunityProfile(profiles.get(identity.userId), identity.userId)
-      return [{ id: identity.id, userId: identity.userId, name: row.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, role: row.role as CommunityRole, status: row.viewer ? "online" as const : profile.presence, sub: "", statusEmoji: profile.statusEmoji, statusText: profile.statusText }]
+      return [deriveView({ id: identity.id, userId: identity.userId, name: row.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, role: row.role as CommunityRole, status: row.viewer ? "online" as const : profile.presence, sub: "", statusEmoji: profile.statusEmoji, statusText: profile.statusText }, [viewEvidence(row), viewEvidence(profile)])]
     })
   }, [identities, memberships, profiles])
+  deriveView(members, [valueEvidence(queryClient, data), ...members.map(viewEvidence)], members.length)
   const active = searching ? search : infinite
   const pendingKicks = useMutationState({ filters: { mutationKey: ["community", "member-command"], status: "pending" }, select: (mutation) => {
     const variables = mutation.state.variables as { kind: string; input: { serverId: string; memberId: string } }

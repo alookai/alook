@@ -1,5 +1,7 @@
 "use client"
 
+import { commandObservation } from "@/lib/observability/context"
+
 import { UnauthorizedError } from "@/lib/errors"
 import { useEffect, useLayoutEffect, useState, type ReactNode } from "react"
 import { createStore, createStoreContext } from "@tanstack/react-store"
@@ -41,7 +43,7 @@ export function assertWorkspaceOwner(token: ReturnType<typeof captureWorkspaceOw
   }
 }
 export function workspaceRequestOptions(token: ReturnType<typeof captureWorkspaceOwner>, signal?: AbortSignal, assertActive = () => assertWorkspaceOwner(token, signal)): ApiRequestOptions & { assertActive: () => void } {
-  return { authenticationAccount: token.owner.application.userId, signal, assertActive, onUnauthorized: () => { assertActive(); return invalidateApplicationAuthentication(token.application, signal) } }
+  return { observation: commandObservation(token), authenticationAccount: token.owner.application.userId, signal, assertActive, onUnauthorized: () => { assertActive(); return invalidateApplicationAuthentication(token.application, signal) } }
 }
 export async function runWorkspaceRequest<T>(owner: WorkspaceOwner, load: (options: ApiRequestOptions) => Promise<T>, signal?: AbortSignal) {
   const token = captureWorkspaceOwner(owner)

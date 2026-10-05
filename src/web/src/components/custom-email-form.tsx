@@ -227,7 +227,7 @@ export function CustomEmailForm({ agentId, workspaceId, onDataChange, getDataRef
     queryFn: ({ signal }) => runWorkspaceRequest(owner, (options) => listEmailAccounts(agentId!, workspaceId, options), signal),
   });
   type Command = { kind: "create"; data: CustomEmailData } | { kind: "delete" | "sync"; id: string };
-  const command = useMutation({ mutationKey: [...queryKey, "command"], scope: { id: JSON.stringify(queryKey) },
+  const command = useMutation({ meta: { observabilityAction: "email.account.command" }, mutationKey: [...queryKey, "command"], scope: { id: JSON.stringify(queryKey) },
     gcTime: 0,
     mutationFn: async ({ action, token, assertView, signal, resource: original }: { action: Command; token: ReturnType<typeof captureWorkspaceOwner>; assertView: () => void; signal: AbortSignal; resource: Query | undefined }) => {
       const assert = () => { assertWorkspaceOwner(token, signal); assertView(); };

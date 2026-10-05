@@ -1,3 +1,4 @@
+import { ObservedStaticContent } from "@/lib/observability/regions";
 import type { Metadata } from "next"
 import {
   PRIVACY_POLICY,
@@ -22,11 +23,11 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <main className="mx-auto max-w-3xl px-6 pt-12 pb-28 sm:pt-24">
+    <><ObservedStaticContent /><main className="mx-auto max-w-3xl px-6 pt-12 pb-28 sm:pt-24">
       <h1 className="mb-4 text-4xl font-semibold tracking-tight sm:text-5xl">
         {PRIVACY_POLICY.title}
       </h1>
       <PrivacyPolicyContent />
-    </main>
+    </main></>
   )
 }

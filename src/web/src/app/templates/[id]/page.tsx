@@ -1,3 +1,4 @@
+import { ObservedStaticContent } from "@/lib/observability/regions";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getSession } from "@/lib/session";
@@ -78,7 +79,7 @@ export default async function TemplateDetailPage({
   ];
 
   return (
-    <>
+    <><ObservedStaticContent /><>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
@@ -88,6 +89,6 @@ export default async function TemplateDetailPage({
         isLoggedIn={!!session}
         workspaceId={sp.workspace_id}
       />
-    </>
+    </></>
   );
 }

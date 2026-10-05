@@ -17,7 +17,7 @@ function current(assert?: OriginalView) { try { assert?.(); return true } catch 
 function usePinCommand(action: "pin" | "unpin") {
   const origin = useCommunityMutationOrigin(), client = useQueryClient()
   type Intent = PinMessageArgs & { original: ReturnType<typeof origin.begin>["token"]; resource: Query | undefined }
-  const native = useMutation<void, Error, Intent>({
+  const native = useMutation<void, Error, Intent>({ meta: { observabilityAction: action === "pin" ? "message.pin" : "message.unpin" },
     mutationKey: ["community", "pin-command", action], scope: { id: "community-pin-commands" }, gcTime: 0,
     mutationFn: async ({ channelId, messageId, original, resource, assertActive }) => {
       const assert = () => { origin.assert(original); assertActive?.() }
@@ -44,7 +44,7 @@ export function useUnpinMessage() { return usePinCommand("unpin") }
 function useMarkCommand<T extends { messageId: string; channelId?: string; assertActive?: OriginalView }>(marked: boolean) {
   const origin = useCommunityMutationOrigin(), client = useQueryClient()
   type Intent = T & { original: ReturnType<typeof origin.begin>["token"]; resources: Array<Query> }
-  const native = useMutation<void, Error, Intent>({
+  const native = useMutation<void, Error, Intent>({ meta: { observabilityAction: marked ? "message.mark" : "message.unmark" },
     mutationKey: ["community", "mark-command", marked], scope: { id: "community-mark-commands" }, gcTime: 0,
     mutationFn: async ({ messageId, channelId, original, resources, assertActive }) => {
       const assert = () => { origin.assert(original); assertActive?.() }

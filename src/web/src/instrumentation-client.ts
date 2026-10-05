@@ -8,6 +8,10 @@
 // NEXT_PUBLIC_PERF_TRACE=1 in a non-production build.
 
 import { installReactScan } from "@/lib/perf/react-scan-install"
+import { bootstrapObservability, onObservedRouterTransition } from "@/lib/observability/client"
+
+bootstrapObservability("web")
+export function onRouterTransitionStart(url: string) { onObservedRouterTransition(url) }
 
 // Fire-and-forget: the guard inside is synchronous, only the dynamic
 // react-scan import is async. Any failure is swallowed so instrumentation can

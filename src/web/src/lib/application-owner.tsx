@@ -14,6 +14,9 @@ import { DEFAULT_INBOX_TYPES, readStoredInboxFilterTypes } from "@/lib/inbox-fil
 import { createQueryClient } from "@/lib/query-client"
 import { getNotificationEnabled, getNotificationEvents, NOTIFICATION_EVENTS, type NotificationEvent } from "@/lib/browser-notification"
 import type { ApiRequestOptions } from "@/lib/api/client"
+import { observeHydration, discardHydration } from "@/lib/observability/restore"
+import { disposeQueryDiagnostics } from "@/lib/observability/query-observer"
+import { setTelemetryUser } from "@/lib/observability/client"
 
 export function createApplicationOwner(userId: string, queryClient = createQueryClient()) {
   const bindings = createStore({ retireDisk: () => clearPersistedCache(userId), sessionViewer: () => userId as string | null | undefined })
@@ -82,6 +85,7 @@ function ScopedApplicationQueryProvider({ userId, children, session, sessionView
   const [owner] = useState(() => createApplicationOwner(userId))
   const [handles] = useState(() => ({ owner }))
   const [persister] = useState(() => createIdbPersister(userId, "application"))
+  useLayoutEffect(() => { setTelemetryUser(userId) }, [userId])
   const disposeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
     const hydrate = () => {
@@ -124,13 +128,14 @@ function ScopedApplicationQueryProvider({ userId, children, session, sessionView
     else router.refresh()
   }, [identityChanged, owner, router, session.data?.user.id])
   return <StoreProvider value={handles}>
-    <PersistQueryClientProvider client={owner.queryClient} onSuccess={() => { if (!owner.lifecycle.get().active) owner.queryClient.clear() }} persistOptions={{ persister, buster: `${PERSIST_BUSTER}-application`, maxAge: PERSIST_MAX_AGE_MS, dehydrateOptions: { shouldDehydrateQuery: (query) => query.state.status === "success" && shouldPersistApplicationQuery(query.queryKey), shouldDehydrateMutation: () => false } }}>
+    <PersistQueryClientProvider client={owner.queryClient} onSuccess={() => { if (!owner.lifecycle.get().active) { discardHydration(persister); owner.queryClient.clear(); return } observeHydration(persister, owner.queryClient) }} persistOptions={{ persister, buster: `${PERSIST_BUSTER}-application`, maxAge: PERSIST_MAX_AGE_MS, dehydrateOptions: { shouldDehydrateQuery: (query) => query.state.status === "success" && shouldPersistApplicationQuery(query.queryKey), shouldDehydrateMutation: () => false } }}>
       {active && !identityChanged ? children : null}
     </PersistQueryClientProvider>
   </StoreProvider>
 }
 
 export function retireApplicationOwner(owner: ApplicationOwner) {
+  disposeQueryDiagnostics(owner.queryClient)
   owner.preferences.setState((state) => ({ ...state, localValues: new Map() }))
   owner.lifecycle.setState((state) => state.active ? { active: false, generation: state.generation + 1 } : state)
   void owner.queryClient.cancelQueries()

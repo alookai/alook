@@ -36,6 +36,8 @@ import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { installCommunityDbSync } from "@/lib/community-db/sync"
 import { profileSchema } from "@/lib/community-db/schema"
 import type { CurrentUser } from "@/contexts/community/current-user"
+import { observeHydration, discardHydration } from "@/lib/observability/restore"
+import { setTelemetryUser } from "@/lib/observability/client"
 
 function createRestoreGate() {
   let release!: () => void
@@ -168,6 +170,7 @@ function ScopedQueryProvider({
   const active = useSelector(communityDb.runtime.lifecycle, (state) => state.active)
   const router = useRouter()
   useLayoutEffect(() => { communityDb.bindAuthentication(sessionViewer, persister.retireAccount) }, [communityDb, sessionViewer, persister])
+  useLayoutEffect(() => { setTelemetryUser(userId) }, [userId])
   const identityRetired = useRef(false)
   const identityChanged = !session.isPending && !session.error && session.data?.user.id !== userId
   useLayoutEffect(() => {
@@ -212,6 +215,8 @@ function ScopedQueryProvider({
     <PersistQueryClientProvider
       client={queryClient}
       onSuccess={() => {
+        if (communityDb.runtime.lifecycle.get().active) observeHydration(persister, queryClient)
+        else discardHydration(persister)
         // `onSuccess` runs after hydrate and before `isRestoring` becomes
         // false. Freeze which canonical collections came from that restore so
         // later network results can never be misclassified as persisted.
@@ -242,7 +247,7 @@ function ScopedQueryProvider({
       // A failed IndexedDB read still completes the identity handoff. The
       // account gate remains visible until this atomically clears any previous
       // viewer state, then the new account mounts against an empty live cache.
-      onError={settleRestoredAccount}
+      onError={() => { discardHydration(persister); settleRestoredAccount() }}
       persistOptions={{
         persister,
         maxAge: PERSIST_MAX_AGE_MS,

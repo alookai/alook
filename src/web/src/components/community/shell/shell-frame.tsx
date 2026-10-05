@@ -1,4 +1,6 @@
 "use client"
+
+import { commitNavigation } from "@/lib/observability/context"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { getCommunityRuntime } from "@/stores/community/runtime"
 
@@ -75,6 +77,7 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
   }, [setCommittedFrame])
   useLayoutEffect(() => {
     commitFrame(frameHref)
+    commitNavigation(frameHref)
     if (ownerDeleteRouteScope) {
       registerOwnerServerDeleteRoute(queryClient,
         ownerDeleteRouteScope.serverId,

@@ -59,7 +59,7 @@ export function useChannel() {
   const commandKey = [...owner.key, "command"]
   type Action = { kind: "create"; name: string } | { kind: "rename"; id: string; name: string } | { kind: "delete"; id: string } | { kind: "reorder"; ids: string[] }
   type Intent = { action: Action; token: ReturnType<typeof captureWorkspaceOwner>; view: ReturnType<typeof source.capture>; resource: Query | undefined; selection: number; targetName?: string }
-  const native = useMutation({ mutationKey: commandKey, scope: { id: JSON.stringify(commandKey) }, gcTime: 0,
+  const native = useMutation({ meta: { observabilityAction: "workspace.channel.command" }, mutationKey: commandKey, scope: { id: JSON.stringify(commandKey) }, gcTime: 0,
     mutationFn: async ({ action, token, view, resource, selection, targetName }: Intent) => {
       const assert = () => { assertWorkspaceOwner(token, view.signal); view.assert() }
       const original = () => resource && qc.getQueryCache().find({ queryKey: owner.key, exact: true }) === resource

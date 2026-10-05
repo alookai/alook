@@ -1,4 +1,6 @@
 "use client";
+import { useObservedRegion } from "@/lib/observability/regions";
+import { mergeEvidence, sourceEvidence, valueEvidence } from "@/lib/observability/data-source";
 
 import { useSelector } from "@tanstack/react-store";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -22,7 +24,8 @@ export function NotificationTab() {
   });
   const notifSupported = permission.data?.supported ?? true;
   const notifDenied = permission.data?.denied ?? false;
-  const command = useMutation({ mutationKey: applicationKey(owner, "browser-notification-permission", "request"),
+  useObservedRegion("settings", !permission.isPending, { ...mergeEvidence([sourceEvidence(preferences, "unknown"), valueEvidence(owner.queryClient, permission.data)]), count: 1 });
+  const command = useMutation({ meta: { observabilityAction: "notification.permission.request" }, mutationKey: applicationKey(owner, "browser-notification-permission", "request"),
     mutationFn: async (original: ReturnType<typeof source.capture>) => {
       original.assert();
       const granted = await requestNotificationPermission();

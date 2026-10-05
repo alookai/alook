@@ -25,7 +25,7 @@ export function useMessageFlags(owner: WorkspaceOwner, view: ChatView, conversat
     },
   })
   const { begin, rollback, refresh } = useFlagCount()
-  const mutation = useMutation({ scope: { id: `${owner.application.userId}:${owner.workspaceId}:flags:${conversationId}` },
+  const mutation = useMutation({ meta: { observabilityAction: "message.flag.toggle" }, scope: { id: `${owner.application.userId}:${owner.workspaceId}:flags:${conversationId}` },
     mutationFn: async ({ messageId, intent }: { messageId: string; intent: ReturnType<typeof captureChatIntent> }) => {
       assertChatIntent(intent)
       await owner.queryClient.cancelQueries({ queryKey: key, exact: true })

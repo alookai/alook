@@ -67,7 +67,7 @@ export function useFileAttachments(opts: UseFileAttachmentsOptions = {}) {
     };
   }, [protocol]);
   type Preparation = { drafts: readonly AttachmentDraftFile[]; generation: number; policy: "legacy" | "community"; scope?: string; signal: AbortSignal };
-  const preparation = useMutation({ mutationKey: key, scope: { id }, gcTime: 0,
+  const preparation = useMutation({ meta: { observabilityAction: "attachment.prepare" }, mutationKey: key, scope: { id }, gcTime: 0,
     mutationFn: async ({ drafts, generation, policy, scope, signal }: Preparation) => {
       const eligible = () => protocol.get().active && protocol.get().generation === generation && !signal.aborted;
       if (!eligible()) return;

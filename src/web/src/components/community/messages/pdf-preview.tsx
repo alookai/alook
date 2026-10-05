@@ -12,6 +12,8 @@ import {
   type PDFPageProxy,
   type RenderTask,
 } from "pdfjs-dist/legacy/build/pdf.mjs"
+import { useObservedRegion } from "@/lib/observability/regions"
+import { viewEvidence, type Evidence } from "@/lib/observability/data-source"
 import { tid } from "@/lib/community/testids"
 
 export const MAX_PDF_CANVAS_PIXELS = 4_000_000
@@ -85,10 +87,12 @@ function PdfPage({
   document,
   pageNumber,
   availableWidth,
+  evidence,
 }: {
   document: PDFDocumentProxy
   pageNumber: number
   availableWidth: number
+  evidence: Evidence
 }) {
   const containerRef = useRef<HTMLElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -167,6 +171,8 @@ function PdfPage({
     }
   }, [availableWidth, document, nearby, pageNumber, setAspectRatio, setStatus])
 
+  useObservedRegion("file_preview", pageNumber === 1 && status === "ready", { ...evidence, count: 1 })
+
   return (
     <section
       ref={containerRef}
@@ -195,7 +201,7 @@ function PdfPage({
   )
 }
 
-function PdfPages({ document }: { document: PDFDocumentProxy }) {
+function PdfPages({ document, evidence }: { document: PDFDocumentProxy; evidence: Evidence }) {
   const pagesRef = useRef<HTMLDivElement>(null)
   const availableWidth = useElementWidth(pagesRef)
 
@@ -208,6 +214,7 @@ function PdfPages({ document }: { document: PDFDocumentProxy }) {
             document={document}
             pageNumber={index + 1}
             availableWidth={availableWidth}
+            evidence={evidence}
           />
         ))}
       </div>
@@ -285,7 +292,7 @@ export function PdfPreview({ data }: { data: Uint8Array<ArrayBuffer> }) {
         </div>
       )}
       {state.status === "ready" && (
-        <PdfPages document={state.document} />
+        <PdfPages document={state.document} evidence={viewEvidence(data)} />
       )}
     </div>
   )

@@ -1,5 +1,8 @@
 "use client"
 
+import { useObservedRegion } from "@/lib/observability/regions"
+import { viewEvidence } from "@/lib/observability/data-source"
+
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { ChevronDown, Lock } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -22,6 +25,7 @@ function groupChannels(channels: AdminChannel[]) {
 export function ServerSettingsChannels({ serverId }: { serverId: string }) {
   const [collapsed, setCollapsed] = useAtom(useCreateAtom<Set<string>>(new Set<string>()))
   const { channels, isError, isFetching, refetch, forbidden } = useServerAdminChannels(serverId, true)
+  useObservedRegion("settings", !!channels && !forbidden, { ...viewEvidence(channels), count: channels?.length ?? 0 })
   const retry = () => { void refetch() }
   if (forbidden) return <p role="alert" className="text-sm text-muted-foreground">Only server administrators can view channels.</p>
 

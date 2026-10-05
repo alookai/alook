@@ -1,5 +1,7 @@
 "use client";
 
+import { useObservedQueryRegion } from "@/lib/observability/query-regions"
+
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { workspaceTraceOptions } from "@/hooks/workspace/issue-query-options";
@@ -161,6 +163,7 @@ export default function TraceDetailPage() {
   const traceId = params.traceId as string;
   const source = useWorkspaceViewSource(owner, traceId, true);
   const resource = useQuery(workspaceTraceOptions(owner, traceId));
+  useObservedQueryRegion("trace_detail", resource);
   const tasks = resource.data?.tasks ?? [];
   const channel = resource.data?.channel ?? "default";
   const loading = resource.isPending;

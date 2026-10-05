@@ -1,5 +1,6 @@
 "use client"
 
+import { ObservedRegionVisibility } from "@/lib/observability/regions"
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs"
 import { cva, type VariantProps } from "class-variance-authority"
 
@@ -74,6 +75,7 @@ function TabsContent({ className, ...props }: TabsPrimitive.Panel.Props) {
     <TabsPrimitive.Panel
       data-slot="tabs-content"
       className={cn("flex-1 text-sm outline-none", className)}
+      render={(panel, state) => <div {...panel}><ObservedRegionVisibility visible={!state.hidden}>{panel.children}</ObservedRegionVisibility></div>}
       {...props}
     />
   )

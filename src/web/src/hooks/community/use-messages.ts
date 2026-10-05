@@ -1,4 +1,5 @@
 "use client"
+import { deriveView, mergeEvidence, valueEvidence, viewEvidence } from "@/lib/observability/data-source"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 
@@ -163,7 +164,7 @@ async function fetchMessagesTransport(
   if (isMessageSurfaceReceipt(surfaceReceipt)) {
     options?.onSurfaceReceipt?.(surfaceReceipt)
   }
-  return page
+  return deriveView(page, [viewEvidence(transport)])
 }
 
 export const channelMessagesQueryFn =
@@ -847,8 +848,11 @@ function useMessagesInner(
   const messages = useMemo<Msg[]>(() => {
     if (!query.data) return []
     const byId = new Map((canonicalRows ?? []).map((message) => [message.id, message]))
-    return mergeMessagesPages(query.data.pages).flatMap((window) => { const message = byId.get(window.id); return message ? [message] : [] })
-  }, [query.data, canonicalRows])
+    const selected = mergeMessagesPages(query.data.pages).flatMap((window) => { const message = byId.get(window.id); return message ? [message] : [] })
+    const root = valueEvidence(queryClient, query.data)
+    const window = root.source === "unknown" ? mergeEvidence(query.data.pages.map(viewEvidence)) : root
+    return deriveView(selected, [window, ...selected.map(viewEvidence)])
+  }, [query.data, canonicalRows, queryClient])
 
   const latestSeq = useMemo<number>(() => {
     if (!query.data) return 0
@@ -1020,6 +1024,7 @@ export function useMessages(
       messageMatchesTag(message, opts.tag)),
     [canonicalBase, opts.tag, overlay],
   )
+  deriveView(messages, messages.length ? [viewEvidence(dbMessages), viewEvidence(base.messages), ...messages.map(viewEvidence)] : [viewEvidence(base.data === undefined ? dbMessages : base.messages)])
   useEffect(() => {
     if (!channelId || base.data === undefined) return
     commitConversationNavigationProof(queryClient, channelId, accessEpoch)
@@ -1111,6 +1116,7 @@ export function useDmMessages(
     () => materializeMessageStream(canonicalBase, overlay),
     [canonicalBase, overlay],
   )
+  deriveView(messages, messages.length ? [viewEvidence(dbMessages), viewEvidence(base.messages), ...messages.map(viewEvidence)] : [viewEvidence(base.data === undefined ? dbMessages : base.messages)])
   useEffect(() => {
     if (!dmId || base.data === undefined) return
     commitConversationNavigationProof(queryClient, dmId, accessEpoch)

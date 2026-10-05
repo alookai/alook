@@ -1,4 +1,5 @@
 "use client"
+import { emitTelemetry, isTelemetryEligible, telemetryGeneration } from "@/lib/observability/telemetry"
 import { useEffect, useRef, useCallback } from "react"
 import {
   COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES,
@@ -50,6 +51,7 @@ type PendingTokenAttempt = {
   generation: number
   startedAt: number
   reported: boolean
+  observationGeneration: number
 }
 
 function isPageHidden(): boolean {
@@ -233,11 +235,14 @@ export function useUserWs(
     requestDaemonStatusOnAuthRef.current = options?.requestDaemonStatusOnAuth ?? true
   }, [options?.requestDaemonStatusOnAuth])
 
+  const observedSockets = useRef(new WeakMap<WebSocket, { generation: number; start: number }>())
   const connectRef = useRef<(() => Promise<void>) | null>(null)
 
   const publishConnectionPhase = useCallback((phase: UserWsConnectionPhase) => {
     if (lastConnectionPhaseRef.current === phase) return
     lastConnectionPhaseRef.current = phase
+    const observed = wsRef.current ? observedSockets.current.get(wsRef.current) : undefined
+    if (phase === "authenticated" && observed?.generation === telemetryGeneration()) emitTelemetry("ws.ready", { phase: "auth", outcome: "success", duration_ms: performance.now() - observed.start })
     runLifecycleCallback("connection-state", () =>
       onConnectionStateChangeRef.current?.(phase))
   }, [])
@@ -273,6 +278,7 @@ export function useUserWs(
   ) => {
     if (attempt.reported) return
     attempt.reported = true
+    if (attempt.observationGeneration === telemetryGeneration()) emitTelemetry("ws.connect", { phase: "token", outcome: result === "success" ? "success" : result === "aborted" ? "cancelled" : result === "timeout" ? "timeout" : "error", duration_ms: boundedDurationMs(attempt.startedAt) })
     trackCommunityWsLifecycleStage({
       stage: "token",
       result,
@@ -317,6 +323,8 @@ export function useUserWs(
         : "remote")
     if (!reportedCloseSocketsRef.current.has(ws)) {
       reportedCloseSocketsRef.current.add(ws)
+      const observed = observedSockets.current.get(ws)
+      if (observed?.generation === telemetryGeneration()) emitTelemetry("ws.close", { phase: "transport", outcome: "observed", duration_ms: performance.now() - observed.start, status: code })
       trackCommunityWsLifecycleClose({
         initiator,
         code,
@@ -453,6 +461,7 @@ export function useUserWs(
     const attempt = reconnectAttemptRef.current + 1
     reconnectAttemptRef.current = attempt
     reconnectDelay.current = Math.min(windowMs * 2, WS_RECONNECT_MAX)
+    emitTelemetry("ws.reconnect", { phase: "transport", attempt, duration_ms: delayMs, outcome: "observed" })
     trackCommunityWsRetryScheduled({ attempt, delayMs, windowMs })
     reconnectTimerRef.current = setTimeout(() => {
       reconnectTimerRef.current = null
@@ -495,7 +504,9 @@ export function useUserWs(
       generation,
       startedAt: Date.now(),
       reported: false,
+      observationGeneration: telemetryGeneration(),
     }
+    if (isTelemetryEligible()) emitTelemetry("ws.connect", { phase: "token", start_ms: performance.now(), outcome: "observed" })
     pendingTokenRef.current = tokenAttempt
     let tokenTimedOut = false
     tokenTimeoutRef.current = setTimeout(() => {
@@ -610,6 +621,8 @@ export function useUserWs(
       scheduleReconnect(generation)
       return
     }
+    observedSockets.current.set(ws, { generation: tokenAttempt.observationGeneration, start: performance.now() })
+    if (tokenAttempt.observationGeneration === telemetryGeneration()) emitTelemetry("ws.connect", { phase: "transport", outcome: "observed" })
     wsRef.current = ws
     connectStartedAtRef.current = Date.now()
     connectTimeoutRef.current = setTimeout(() => {

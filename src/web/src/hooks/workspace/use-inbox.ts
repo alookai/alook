@@ -1,5 +1,7 @@
 "use client"
 
+import { deriveView, valueEvidence } from "@/lib/observability/data-source"
+
 import { useCallback,useMemo } from "react"
 import { useSelector } from "@tanstack/react-store"
 import { infiniteQueryOptions,useInfiniteQuery,useMutation,type InfiniteData } from "@tanstack/react-query"
@@ -42,13 +44,14 @@ export function useWorkspaceInbox(enabled = true) {
   const query = useInfiniteQuery({ ...options, enabled: enabled && hydrated })
   const items = useMemo(() => firstRows(query.data?.pages), [query.data])
   const refresh = useCallback(() => workspace.queryClient.invalidateQueries({ queryKey: workspace.key("inbox") }), [workspace])
+  deriveView(items, [valueEvidence(workspace.queryClient, query.data)])
   return { ...query, items, refresh }
 }
 export function useMarkAllInboxRead() {
   const workspace = useWorkspaceOwner()
   const qc = workspace.queryClient
   const mutationKey = workspace.key("inbox", "read-all")
-  return useMutation({
+  return useMutation({ meta: { observabilityAction: "inbox.read_all" },
     mutationKey,
     scope: { id: JSON.stringify(mutationKey) },
     mutationFn: () => runWorkspaceRequest(workspace, (options) => markAllInboxRead(workspace.workspaceId, options)),
@@ -80,6 +83,7 @@ export function useWorkspaceFlags(enabled = true) {
   const options = workspaceFlagOptions(workspace)
   const query = useInfiniteQuery({ ...options, enabled })
   const items = useMemo(() => firstRows(query.data?.pages), [query.data])
+  deriveView(items, [valueEvidence(workspace.queryClient, query.data)])
   return { ...query, items }
 }
 export function useUnflagWorkspaceMessage() {
@@ -87,7 +91,7 @@ export function useUnflagWorkspaceMessage() {
   const qc = workspace.queryClient
   const options = workspaceFlagOptions(workspace)
   const mutationKey = workspace.key("flagged-items", "remove")
-  return useMutation({
+  return useMutation({ meta: { observabilityAction: "message.flag.remove" },
     mutationKey, scope: { id: JSON.stringify(mutationKey) },
     mutationFn: (messageId: string) => runWorkspaceRequest(workspace, (request) => unflagMessage(workspace.workspaceId, messageId, request)),
     onMutate: async (messageId) => {

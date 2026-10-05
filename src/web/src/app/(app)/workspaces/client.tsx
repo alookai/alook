@@ -1,5 +1,7 @@
 "use client"
 
+import { useObservedQueryRegion } from "@/lib/observability/query-regions"
+
 import { useMutation, useQuery, type Query } from "@tanstack/react-query"
 import type { Workspace } from "@alook/shared"
 import { applicationWorkspacesOptions } from "@/hooks/workspace/settings-query-options"
@@ -26,9 +28,10 @@ export function WorkspaceListClient({
   const source = useApplicationViewSource("workspace-list")
   const options = applicationWorkspacesOptions(applicationOwner)
   const resource = useQuery({ ...options, initialData: initialWorkspaces, initialDataUpdatedAt: 0 })
+  useObservedQueryRegion("workspaces", resource)
   const workspaces = resource.data
   type Intent = { original: ReturnType<typeof source.capture>; resource: Query | undefined }
-  const command = useMutation({ mutationKey: [...options.queryKey, "create"], gcTime: 0,
+  const command = useMutation({ meta: { observabilityAction: "workspace.create" }, mutationKey: [...options.queryKey, "create"], gcTime: 0,
     mutationFn: async ({ original, resource }: Intent) => {
       original.assert()
       const current = () => resource && applicationOwner.queryClient.getQueryCache().find({ queryKey: options.queryKey, exact: true }) === resource

@@ -1,4 +1,5 @@
 "use client"
+import { deriveView, valueEvidence, viewEvidence } from "@/lib/observability/data-source"
 import { useAtom,useCreateAtom } from "@tanstack/react-store"
 import { useTrustedRestoredForumProjection } from "@/lib/community-db/projections"
 import { getCommunityRuntime } from "@/stores/community/runtime"
@@ -827,6 +828,7 @@ export function useForumSidebarThreads(
     return () => globalThis.clearTimeout(timeout)
   }, [projection.threads, retainId, serverNowMs, setClockNowMs])
 
+  deriveView(projection.threads, [registry ? viewEvidence(canonical?.threads) : valueEvidence(queryClient, query.data), viewEvidence(attentionScopes)])
   return {
     ...query,
     threads: projection.threads,

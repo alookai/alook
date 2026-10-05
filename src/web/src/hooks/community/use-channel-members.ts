@@ -1,5 +1,7 @@
 "use client"
 
+import { deriveView, valueEvidence, viewEvidence } from "@/lib/observability/data-source"
+
 import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
 
 import { useCallback,useMemo } from "react"
@@ -102,14 +104,16 @@ export function useChannelMembers(channelId: string, enabled = true, serverId?: 
       const member = byUser.get(participant.userId)
       if (!member?.memberId) return []
       const profile = readCommunityProfile(profiles.get(participant.userId), participant.userId)
-      return [{ id: member.memberId, userId: participant.userId, name: member.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, role: member.role as CommunityRole, sub: "", status: member.viewer ? "online" : profile.presence, statusEmoji: profile.statusEmoji ?? null, statusText: profile.statusText ?? "", source: participant.source ?? "explicit", isCreator: participant.isCreator ?? false }]
+      return [deriveView({ id: member.memberId, userId: participant.userId, name: member.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, role: member.role as CommunityRole, sub: "", status: member.viewer ? "online" : profile.presence, statusEmoji: profile.statusEmoji ?? null, statusText: profile.statusText ?? "", source: participant.source ?? "explicit", isCreator: participant.isCreator ?? false }, [viewEvidence(member), viewEvidence(participant), viewEvidence(profile)])]
     })
   }, [profiles, memberships, roster])
+  deriveView(members, [valueEvidence(client, query.data), ...members.map(viewEvidence)], members.length)
   const data = useMemo(() => query.data ? { members } : undefined, [query.data, members])
   return { ...query, data, members } as UseQueryResult<{ members: ChannelMember[] }> & { members: ChannelMember[] }
 }
 
 export function useAddableMembers(serverId: string, channelId: string, enabled = true): UseQueryResult<{ members: AddableMember[] }> & { members: AddableMember[] } {
+  const client = useQueryClient()
   const active = enabled && !!serverId && !!channelId
   const query = useQuery({ queryKey: communityKeys.channelAddableMembers(channelId), queryFn: (context) => addableMembersQueryFn(serverId, channelId, context), enabled: active, subscribed: active })
   const ids = useMemo(() => query.data?.members ?? [], [query.data?.members])
@@ -126,6 +130,7 @@ export function useAddableMembers(serverId: string, channelId: string, enabled =
       return [{ userId: identity.userId, name: member.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion }]
     })
   }, [ids, profiles, memberships, roster])
+  deriveView(members, [valueEvidence(client, query.data), ...members.map(viewEvidence)], members.length)
   const data = useMemo(() => query.data ? { members } : undefined, [query.data, members])
   return { ...query, data, members } as UseQueryResult<{ members: AddableMember[] }> & { members: AddableMember[] }
 }
@@ -136,7 +141,7 @@ export function useChannelMemberCommand(channelId: string, kind: "add" | "remove
   const origin = useCommunityMutationOrigin(), client = useQueryClient()
   const source = useCommunityViewSource(`channel-member-command:${channelId}`)
   type Intent = ChannelMemberCommandInput & { view: ReturnType<typeof source.capture>; original: ReturnType<typeof origin.begin>["token"]; resources: ReturnType<ReturnType<typeof client.getQueryCache>["findAll"]> }
-  const native = useMutation({
+  const native = useMutation({ meta: { observabilityAction: kind === "add" ? "channel.member.add" : "channel.member.remove" },
     mutationKey: ["community", "channel-member-command", channelId], scope: { id: "channel-member-command:" + channelId },
     mutationFn: async ({ userId, original, resources, assertActive, view }: Intent) => {
       const assert = Object.assign(() => { origin.assert(original); view(); assertActive?.() }, { signal: assertActive?.signal ?? view.signal })

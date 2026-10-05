@@ -1,6 +1,7 @@
 "use client"
 
-import { useQuery, type QueryFunctionContext, type UseQueryResult, type UseQueryOptions } from "@tanstack/react-query"
+import { deriveView, valueEvidence } from "@/lib/observability/data-source"
+import { useQueryClient, useQuery, type QueryFunctionContext, type UseQueryResult, type UseQueryOptions } from "@tanstack/react-query"
 import { isPresenceOnline } from "@alook/shared"
 import { communityRequestOptions } from "@/lib/community-db/sync"
 import { apiFetch } from "@/lib/api/client"
@@ -74,13 +75,13 @@ export const machinesQueryFn = (context: QueryFunctionContext) =>
 export function useMachines(options?: Pick<UseQueryOptions<MachinesResponse>, "enabled" | "subscribed" | "refetchInterval">): UseQueryResult<MachinesResponse> & {
   machines: MachineSummary[]
 } {
+  const client = useQueryClient()
   const query = useQuery({
     queryKey: communityKeys.machines(),
     queryFn: machinesQueryFn,
     ...options,
   })
-  return {
-    ...query,
-    machines: query.data?.machines ?? (EMPTY_MACHINES as MachineSummary[]),
-  }
+  const machines = query.data?.machines ?? (EMPTY_MACHINES as MachineSummary[])
+  deriveView(machines, [valueEvidence(client, query.data)])
+  return { ...query, machines }
 }

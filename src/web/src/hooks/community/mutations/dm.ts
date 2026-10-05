@@ -21,7 +21,7 @@ export function useCreateOrGetDm() {
   const origin = useCommunityMutationOrigin()
   const queryClient = useQueryClient()
   type Intent = CreateOrGetDmArgs & { original: ReturnType<typeof origin.begin>["token"] }
-  const native = useMutation<CreateOrGetDmResult, Error, Intent>({
+  const native = useMutation<CreateOrGetDmResult, Error, Intent>({ meta: { observabilityAction: "dm.open" },
     mutationFn: async ({ userId, original, assertActive }) => {
       // Unified create door (route/disc create-door step): POST /channels with
       // {type:"dm", userId} → get-or-create DM by peer identity.
