@@ -50,18 +50,18 @@
   },
   "dependencies": {
     "commander": "^15.0.0",
-    "sharp": "^0.35.4",
-    "ws": "^8.21.3"
+    "sharp": "^0.35.5",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@alook/agent-driver": "workspace:*",
     "@alook/shared": "workspace:*",
     "@types/node": "^20.0.0",
-    "@types/ws": "^8.18.1",
+    "@types/ws": "^8.18.2",
     "eslint": "^9.39.5",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.70.1",
+    "typescript-eslint": "^8.71.0",
     "vitest": "4.1.11"
   }
 }

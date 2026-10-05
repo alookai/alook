@@ -10,6 +10,6 @@
     "android": "tauri android dev --config src-tauri/tauri.dev.conf.json"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.11.5"
+    "@tauri-apps/cli": "^2.12.1"
   }
 }
