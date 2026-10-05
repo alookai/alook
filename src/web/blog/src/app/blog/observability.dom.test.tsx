@@ -2,7 +2,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ComponentProps } from "react";
 import { act, render, screen, waitFor } from "@/test/react-dom-harness";
 import { beginNavigation, clearActions, commitNavigation } from "@/lib/observability/context";
-import { configureTelemetry, installTelemetrySink, notifyObservation, retireTelemetry } from "@/lib/observability/telemetry";
+import { configureTelemetry, installTelemetrySink, retireTelemetry } from "@/lib/observability/telemetry";
+import { ObservedRouteCommit } from "@/lib/observability/regions";
 import type { BlogPost } from "@blog/lib/blog/types";
 import BlogPage from "./(index)/page";
 import BlogPostPage, { generateMetadata, generateStaticParams } from "./[slug]/page";
@@ -74,7 +75,6 @@ it("does not certify a retained old index after the URL commits while the actual
   await act(async () => {
     window.history.pushState(null, "", "/blog/introducing-alook");
     commitNavigation(window.location.pathname, "page");
-    notifyObservation();
   });
   expect(screen.getByRole("heading", { level: 1, name: "Blog" })).toBeVisible();
   expect(ready(navigation.id)).toHaveLength(0);
@@ -97,7 +97,6 @@ it("finishes the new article navigation but rejects a late previous article tree
   await act(async () => {
     window.history.pushState(null, "", "/blog/local-ai-agents");
     commitNavigation(window.location.pathname, "page");
-    notifyObservation();
   });
   expect(ready(navigation.id)).toHaveLength(0);
   await act(async () => { view.rerender(await BlogPostPage({ params: Promise.resolve({ slug: "local-ai-agents" }) })); });
@@ -114,4 +113,34 @@ it("uses canonical post metadata/static params and invokes actual not-found for 
   expect(await generateMetadata({ params: Promise.resolve({ slug: "introducing-alook" }) })).toMatchObject({ title: posts[0]!.title, alternates: { canonical: "https://alook.ai/blog/introducing-alook" } });
   expect(await generateMetadata({ params: Promise.resolve({ slug: "missing" }) })).toEqual({});
   await expect(BlogPostPage({ params: Promise.resolve({ slug: "missing" }) })).rejects.toThrow("404");
+});
+
+it("settles actual content mounted before the URL only after the independent router commit", async () => {
+  const content = render(await BlogPage());
+  const route = render(<ObservedRouteCommit />);
+  let first!: NonNullable<ReturnType<typeof beginNavigation>>;
+  await act(async () => { first = beginNavigation("/blog/introducing-alook")!; });
+  await act(async () => { content.rerender(await BlogPostPage({ params: Promise.resolve({ slug: "introducing-alook" }) })); });
+  expect(screen.getByRole("heading", { level: 1, name: posts[0]!.title })).toBeVisible();
+  expect(ready(first.id)).toHaveLength(0);
+  await act(async () => {
+    window.history.pushState(null, "", "/blog/introducing-alook");
+    route.rerender(<ObservedRouteCommit />);
+  });
+  expect(forAction(first.id).filter(event => event.name === "navigation.commit")).toHaveLength(1);
+  expect(ready(first.id)).toHaveLength(1);
+  expect(first.done).toBe(true);
+
+  let second!: NonNullable<ReturnType<typeof beginNavigation>>;
+  await act(async () => { second = beginNavigation("/blog/local-ai-agents")!; });
+  await act(async () => { content.rerender(await BlogPostPage({ params: Promise.resolve({ slug: "local-ai-agents" }) })); });
+  expect(ready(second.id)).toHaveLength(0);
+  await act(async () => {
+    window.history.pushState(null, "", "/blog/local-ai-agents");
+    route.rerender(<ObservedRouteCommit />);
+  });
+  expect(ready(second.id)).toHaveLength(1);
+  expect(forAction(second.id).filter(event => event.name === "action.finish").map(event => event.attributes.outcome)).toEqual(["success"]);
+  await act(async () => { commitNavigation(window.location.pathname, "page"); });
+  expect(ready(second.id)).toHaveLength(1);
 });

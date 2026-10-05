@@ -258,13 +258,15 @@ export function useScrollAnchor({
     scrollTop: number
     total: number
     paddingEnd: number
-    exactlyPinned: boolean
+    pinEligible: boolean
     isScrolling: boolean
   }
   const scrollRef = useRef<HTMLDivElement>(null)
   const virtualizerRef = useRef<ReactVirtualizer<HTMLDivElement, Element> | null>(null)
   const positionOwnerRef = useRef({ epoch: 0, kind: "initial" as Kind, active: true, nativeIndex: false })
   const [ownerKind, setOwnerKind] = useAtom(useCreateAtom<Kind>("initial"))
+  const [nativeOriginKey, setNativeOriginKey] = useAtom(useCreateAtom<string | number | bigint | null>(null))
+  const nativeOriginKeyRef = useRef<string | number | bigint | null>(null)
   const [readPositionReady, setReadPositionReady] = useAtom(useCreateAtom(false))
   const [shortGap, setShortGap] = useAtom(useCreateAtom(0))
   const [paginationDirection, setPaginationDirection] = useAtom(useCreateAtom<"older" | "newer" | null>(null))
@@ -303,6 +305,12 @@ export function useScrollAnchor({
   const tailKeyRef = useRef<string | null>(null)
   const messages = useMemo(() => extractScrollAnchorMessages(items), [items])
   const tailId = messages.at(-1)?.id ?? null
+  const holdNativeOrigin = useCallback((key: string | number | bigint | null) => {
+    nativeOriginKeyRef.current = key
+    setNativeOriginKey(key)
+    const native = virtualizerRef.current
+    if (key !== null && native) native.setOptions({ ...native.options, anchorTo: "start" })
+  }, [setNativeOriginKey])
   const cancelFrame = useCallback(() => {
     if (initialSettleFrameRef.current !== null) window.cancelAnimationFrame(initialSettleFrameRef.current)
     initialSettleFrameRef.current = null
@@ -330,12 +338,13 @@ export function useScrollAnchor({
     clearBudget()
     semanticIntentRef.current = null
     acceptedGeometryRef.current = null
+    holdNativeOrigin(null)
     geometrySampleRef.current = null
     presentIntentEpochRef.current = null
     readReadyRef.current = false
     setReadPositionReady(false)
     return owner.epoch
-  }, [cancelFrame, clearBudget, setOwnerKind, setReadPositionReady])
+  }, [cancelFrame, clearBudget, holdNativeOrigin, setOwnerKind, setReadPositionReady])
   const retireInitialPosition = useCallback(() => {
     initialRetiredRef.current = true
     stateRef.current = { ...stateRef.current, didInitialScroll: true, didDividerConverge: true }
@@ -378,7 +387,8 @@ export function useScrollAnchor({
       + (index === items.length - 1 && hasMoreNewer ? 56 : 0),
     measureElement: measureMessageRow,
     getItemKey: (index) => items[index].key,
-    anchorTo: ownerKind === "idle" && readPositionReady && !awaitingTarget ? "end" : "start",
+    anchorTo: ownerKind === "idle" && readPositionReady && !awaitingTarget
+      && (nativeOriginKey === null || nativeOriginKey !== items[0]?.key || paginationDirection !== null) ? "end" : "start",
     followOnAppend: false,
     scrollEndThreshold: 1,
     scrollMargin: 0,
@@ -568,7 +578,9 @@ export function useScrollAnchor({
       epoch: owner.epoch, key: fold.key, prefix: bodyRect.top - wrapperRect.top,
       itemStart: fold.start, clientHeight: root.clientHeight, clientWidth: root.clientWidth,
       scrollHeight: root.scrollHeight, scrollTop: root.scrollTop,
-      total, paddingEnd: native.options.paddingEnd ?? 0, exactlyPinned: max - root.scrollTop <= 1,
+      total, paddingEnd: native.options.paddingEnd ?? 0,
+      pinEligible: max - root.scrollTop <= 1 && !userScrolledAwayRef.current
+        && nativeOriginKeyRef.current !== currentItemsRef.current[0]?.key,
       isScrolling: native.isScrolling,
     }
   }, [])
@@ -595,8 +607,9 @@ export function useScrollAnchor({
       acceptedGeometryRef.current = {
         ...next, isScrolling: next.isScrolling && unchangedPosition ? previous.isScrolling : next.isScrolling,
       }
+      holdNativeOrigin(next.scrollTop <= 1 && !next.pinEligible ? currentItemsRef.current[0]?.key ?? null : null)
     }
-  }, [])
+  }, [holdNativeOrigin])
 
   const reconcileGeometry = useCallback((viewportOnly = false) => {
     const root = scrollRef.current
@@ -635,15 +648,19 @@ export function useScrollAnchor({
     geometrySampleRef.current = { value, frames: sample?.value === value ? sample.frames + 1 : 1 }
     if (!viewportResized && geometrySampleRef.current.frames < 2) return true
     let offset = root.scrollTop
+    let originHeld = false
     if (previous?.epoch === owner.epoch && readReadyRef.current) {
-      const prefixDelta = previous.key === next.key && !previous.exactlyPinned ? next.prefix - previous.prefix : 0
+      originHeld = !previous.pinEligible && previous.scrollTop <= 1
+        && previous.key === currentItemsRef.current[0]?.key && previous.itemStart <= 1
+      const prefixDelta = previous.key === next.key && !previous.pinEligible && !originHeld ? next.prefix - previous.prefix : 0
       offset += prefixDelta
-      if (previous.clientHeight !== next.clientHeight || previous.clientWidth !== next.clientWidth || previous.paddingEnd !== next.paddingEnd) {
+      if (originHeld) offset = previous.scrollTop
+      else if (previous.clientHeight !== next.clientHeight || previous.clientWidth !== next.clientWidth || previous.paddingEnd !== next.paddingEnd) {
         const previousFold = virtualItems.find((candidate) => candidate.key === previous.key)
         if (previousFold) {
           const totalDelta = next.total - previous.total - (next.paddingEnd - previous.paddingEnd)
           const adjustedPreviousOffset = previous.scrollTop
-            + (previous.exactlyPinned ? totalDelta : previousFold.start - previous.itemStart)
+            + (previous.pinEligible ? totalDelta : previousFold.start - previous.itemStart)
           const resized = resolveViewportResizeAnchor({
             previousClientHeight: previous.clientHeight,
             nextClientHeight: next.clientHeight,
@@ -657,23 +674,24 @@ export function useScrollAnchor({
     }
     offset = Math.max(0, Math.min(offset, max))
     acceptedGeometryRef.current = {
-      ...next, scrollTop: offset, exactlyPinned: max - offset <= 1,
+      ...next, scrollTop: offset, pinEligible: !originHeld && next.pinEligible && max - offset <= 1,
       isScrolling: clampedByResize ? previous.isScrolling : next.isScrolling,
     }
+    holdNativeOrigin(originHeld || (offset <= 1 && !acceptedGeometryRef.current.pinEligible) ? currentItemsRef.current[0]?.key ?? null : null)
     wasAtEndRef.current = max - offset <= NEAR_BOTTOM_PX
     if (input.handover) {
       input.handover = false
       readReadyRef.current = true
       setReadPositionReady(true)
     }
-    if (viewportResized && previous.exactlyPinned && previous.clientWidth !== next.clientWidth) {
+    if (viewportResized && previous.pinEligible && previous.clientWidth !== next.clientWidth) {
       owner.nativeIndex = true
       native.scrollToEnd({ behavior: "auto" })
       return true
     }
     if (Math.abs(offset - root.scrollTop) > 0.5) native.scrollToOffset(offset, { behavior: "auto" })
     return false
-  }, [observeGeometry, readGeometry, setReadPositionReady, setShortGap])
+  }, [holdNativeOrigin, observeGeometry, readGeometry, setReadPositionReady, setShortGap])
   reconcileViewportRef.current = () => { reconcileGeometry(true) }
 
   const scheduleGeometry = useCallback(() => {
@@ -711,6 +729,8 @@ export function useScrollAnchor({
       userInputRef.current.at = performance.now()
       userScrolledAwayRef.current = true
       releasePosition(true)
+      userScrolledAwayRef.current = true
+      if (root.scrollTop <= 1) holdNativeOrigin(currentItemsRef.current[0]?.key ?? null)
     }
     const onWheel = (event: WheelEvent) => { if (event.deltaY !== 0) onUserIntent() }
     const onKeyDown = (event: KeyboardEvent) => {
@@ -769,7 +789,7 @@ export function useScrollAnchor({
       userInputRef.current.touch = false
       userInputRef.current.pointers.clear()
     }
-  }, [observeGeometry, readGeometry, reconcileGeometry, releasePosition, scheduleGeometry])
+  }, [holdNativeOrigin, observeGeometry, readGeometry, reconcileGeometry, releasePosition, scheduleGeometry])
 
   const capturePageAnchor = useCallback((direction: "older" | "newer") => {
     if (positionOwnerRef.current.kind === "idle" && readReadyRef.current) {

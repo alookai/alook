@@ -6,6 +6,62 @@ beforeEach(installMessageScrollFixture)
 afterEach(restoreMessageScrollFixture)
 
 describe("locked native adapter and existing message scroll owner", () => {
+  it.each(["programmatic", "wheel"])("keeps the absolute content origin after responsive hero growth and %s top positioning without typing", input => {
+    scrollFixture.width = 906
+    scrollFixture.firstPrefix = 193
+    const h = mount()
+    h.move(0)
+    scrollFixture.width = 390
+    scrollFixture.firstPrefix = 213
+    h.stage({ items: [...h.input.items] })
+    if (input === "wheel") fireEvent.wheel(h.root, { deltaY: -20 })
+    act(() => h.root.scrollTo({ top: 0 }))
+    resize(2)
+    const before = { height: h.root.clientHeight, total: h.root.scrollHeight, top: h.root.scrollTop, body: bodyTop(h.root, "m0") }
+    expect(before.top).toBe(0)
+    expect(before.body).toBe(213)
+    runFrames()
+    expect(h.root.clientHeight).toBe(before.height)
+    expect(h.root.scrollHeight).toBe(before.total)
+    expect(h.root.scrollTop).toBe(0)
+    expect(bodyTop(h.root, "m0")).toBe(before.body)
+  })
+  it("keeps an existing short-list pin at the new maximum after responsive body growth", () => {
+    scrollFixture.width = 906
+    scrollFixture.firstPrefix = 193
+    const h = mount({ items: [message("m0")], hasMoreOlder: false })
+    expect(h.root.scrollHeight).toBe(h.root.clientHeight)
+    expect(h.root.scrollTop).toBe(0)
+    scrollFixture.width = 390
+    scrollFixture.firstPrefix = 213
+    scrollFixture.bodyHeights.set("m0", 800)
+    h.stage({ items: [...h.input.items] })
+    resize()
+    expect(h.root.scrollHeight).toBeGreaterThan(h.root.clientHeight)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+    expect(scrollFixture.latest.belowCount).toBe(0)
+  })
+  it.each(["wheel", "target"])("retires a short-list pin when %s takes ownership before overflow", input => {
+    const h = mount({ items: [message("m0"), message("m1")], hasMoreOlder: false })
+    expect(h.root.scrollHeight).toBe(h.root.clientHeight)
+    if (input === "wheel") fireEvent.wheel(h.root, { deltaY: -20 })
+    else h.stage({ scrollToMessageId: "m0" })
+    scrollFixture.bodyHeights.set("m1", 900)
+    h.stage({ items: [...h.input.items] })
+    resize()
+    expect(h.root.scrollHeight).toBeGreaterThan(h.root.clientHeight)
+    expect(h.root.scrollTop).toBeLessThan(100)
+    expect(bodyTop(h.root, "m0")).toBeGreaterThanOrEqual(0)
+  })
+  it("keeps the existing first-message body when history is prepended at the content origin", () => {
+    const h = mount()
+    h.move(0)
+    const before = bodyTop(h.root, "m0")
+    act(() => scrollFixture.latest.captureOlderPageAnchor())
+    h.update({ isFetchingOlder: true })
+    h.update({ items: [message("older"), ...h.input.items], isFetchingOlder: false })
+    expect(bodyTop(h.root, "m0")).toBeCloseTo(before, 0)
+  })
   it("unifies native total and DOM max while keeping 40/48px rail clearance", () => {
     const h = mount()
     expect(scrollFixture.latest.readPositionReady).toBe(true)

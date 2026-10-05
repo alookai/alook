@@ -36,18 +36,19 @@ it("boots the actual Blog entry with the native resumed session and exports its 
   const { navigationForHref } = await import("@/lib/observability/context");
   const { ObservedStaticContent, ObservedRouteCommit } = await import("@/lib/observability/regions");
   await vi.waitFor(() => expect(sent.some(body => body.events?.some(event => event.name === "session_resume"))).toBe(true), { timeout: 5000 });
-  const view = render(<><ObservedStaticContent key="/blog" pathname="/blog" /><ObservedRouteCommit /></>);
+  const view = render(<ObservedStaticContent key="/blog" pathname="/blog" />);
+  const route = render(<ObservedRouteCommit />);
   await act(async () => { onRouterTransitionStart("/blog/introducing-alook?private=article-title"); });
   const navigation = navigationForHref("/blog/introducing-alook?private=article-title")!;
   expect(navigation).toBeDefined();
   expect(navigation.done).toBe(false);
   await act(async () => {
-    window.history.pushState(null, "", "/blog/introducing-alook?private=article-title");
-    view.rerender(<><ObservedStaticContent key="/blog" pathname="/blog" /><ObservedRouteCommit /></>);
+    view.rerender(<ObservedStaticContent key="introducing-alook" pathname="/blog/introducing-alook" />);
   });
   expect(navigation.done).toBe(false);
   await act(async () => {
-    view.rerender(<><ObservedStaticContent key="introducing-alook" pathname="/blog/introducing-alook" /><ObservedRouteCommit /></>);
+    window.history.pushState(null, "", "/blog/introducing-alook?private=article-title");
+    route.rerender(<ObservedRouteCommit />);
   });
   await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
   const exported = sent.flatMap(body => body.events ?? []).filter(event => event.attributes?.action_id === navigation.id);

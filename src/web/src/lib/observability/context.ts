@@ -90,6 +90,7 @@ export function commitNavigation(href: string, region: "shell" | "page" = "shell
   committedHref = normalizedHref(href)
   const matched = navigationHref === committedHref && navigation && !navigation.done ? navigation : undefined
   emitTelemetry("navigation.commit", { ...actionAttributes(matched), route_template: routeTemplate(href, typeof window === "undefined" ? "https://alook.ai" : window.location.origin), region, phase: "commit" })
+  notifyObservation()
 }
 export function navigationForHref(href: string) {
   return navigation && !navigation.done && navigationHref === normalizedHref(href) ? navigation : undefined
