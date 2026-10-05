@@ -151,6 +151,22 @@ async function settledRailMetrics(page: Page, finalMessageId?: string): Promise<
   return settled!
 }
 
+async function setSettledViewport(
+  page: Page,
+  width: number,
+  height: number,
+  finalMessageId?: string,
+): Promise<void> {
+  await page.setViewportSize({ width, height })
+  await expect.poll(() => page.getByTestId(tid.channelComposerShell).evaluate((element, viewportWidth) => {
+    const rect = element.getBoundingClientRect()
+    return viewportWidth < 640
+      ? Math.abs(rect.left) <= 1 && Math.abs(rect.right - viewportWidth) <= 1
+      : rect.left > 1 && Math.abs(rect.right - viewportWidth) <= 1
+  }, width)).toBe(true)
+  await settledRailMetrics(page, finalMessageId)
+}
+
 function expectContained(metrics: RailMetrics, state: string, width: number): void {
   const evidence = `${state}@${width}: ${JSON.stringify(metrics)}`
   expect(metrics.documentScrollWidth, evidence).toBe(metrics.documentClientWidth)
@@ -246,16 +262,8 @@ async function captureState(args: {
   } = args
   const evidence: Record<number, RailMetrics> = {}
   for (const width of widths) {
-    await page.setViewportSize({ width, height: width >= 768 ? 900 : 844 })
+    await setSettledViewport(page, width, width >= 768 ? 900 : 844, finalMessageId)
     const scrollRoot = page.getByTestId(tid.messageScroller)
-    const composer = page.getByTestId(tid.channelComposerShell)
-    await expect.poll(() => composer.evaluate((element, viewportWidth) => {
-      const rect = element.getBoundingClientRect()
-      return viewportWidth < 640
-        ? Math.abs(rect.left) <= 1 && Math.abs(rect.right - viewportWidth) <= 1
-        : rect.left > 1 && Math.abs(rect.right - viewportWidth) <= 1
-    }, width)).toBe(true)
-    await settledRailMetrics(page, finalMessageId)
     await scrollRoot.evaluate((element, showScrollControl) => {
       element.scrollTop = showScrollControl ? 0 : element.scrollHeight
       element.dispatchEvent(new Event("scroll"))
@@ -333,7 +341,7 @@ async function captureEmptyState(
   finalMessageId: string,
 ): Promise<void> {
   for (const width of VIEWPORT_WIDTHS) {
-    await page.setViewportSize({ width, height: 844 })
+    await setSettledViewport(page, width, 844, finalMessageId)
     await page.getByTestId(tid.messageScroller).evaluate((element) => {
       element.scrollTop = element.scrollHeight
       element.dispatchEvent(new Event("scroll"))
@@ -342,6 +350,9 @@ async function captureEmptyState(
     await expect(page.getByTestId(tid.composerAccessoryRail)).toHaveCount(0)
     await expect(page.getByTestId(tid.channelComposerShell)).toBeVisible()
     const metrics = await settledRailMetrics(page, finalMessageId)
+    expect(metrics.scroller.scrollHeight - metrics.scroller.clientHeight - metrics.scroller.scrollTop)
+      .toBeLessThanOrEqual(1)
+    await expect(page.getByTestId(tid.scrollToPresent)).toHaveCount(0)
     const expectedTailGap = width < 640 ? 40 : 48
     expect(metrics.contentPaddingBottom).toBe(0)
     expect(metrics.scroller.bottom - metrics.finalMessage!.bottom)
