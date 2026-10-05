@@ -283,9 +283,20 @@ async function comparePreviewToCapture(
   page: Page,
   card: Locator,
   captureIndex: number,
+  regionSelector?: string,
 ) {
+  const region = await card.evaluate((node, selector) => {
+    const cardRect = node.getBoundingClientRect()
+    const rect = selector ? node.querySelector(selector)!.getBoundingClientRect() : cardRect
+    return {
+      left: (rect.left - cardRect.left) / cardRect.width,
+      top: (rect.top - cardRect.top) / cardRect.height,
+      right: (rect.right - cardRect.left) / cardRect.width,
+      bottom: (rect.bottom - cardRect.top) / cardRect.height,
+    }
+  }, regionSelector)
   const screenshot = await card.screenshot({ animations: "disabled" })
-  return page.evaluate(async ({ previewBase64, index }) => {
+  return page.evaluate(async ({ previewBase64, index, region }) => {
     const captured = (window as typeof window & {
       __shareCaptures?: { clipboard: Blob[] }
     }).__shareCaptures?.clipboard[index]
@@ -311,8 +322,8 @@ async function comparePreviewToCapture(
     const exportPixels = exportContext.getImageData(0, 0, exported.width, exported.height).data
     let difference = 0
     let samples = 0
-    for (let y = 0; y < exported.height; y += 4) {
-      for (let x = 0; x < exported.width; x += 4) {
+    for (let y = Math.ceil(region.top * exported.height); y < region.bottom * exported.height; y += 1) {
+      for (let x = Math.ceil(region.left * exported.width); x < region.right * exported.width; x += 1) {
         const offset = (y * exported.width + x) * 4
         difference += Math.abs(previewPixels[offset]! - exportPixels[offset]!)
         difference += Math.abs(previewPixels[offset + 1]! - exportPixels[offset + 1]!)
@@ -330,7 +341,7 @@ async function comparePreviewToCapture(
     preview.close()
     exported.close()
     return result
-  }, { previewBase64: screenshot.toString("base64"), index: captureIndex })
+  }, { previewBase64: screenshot.toString("base64"), index: captureIndex, region })
 }
 
 function sampleCenter(card: Locator, selector: string): Promise<SamplePoint> {
@@ -687,7 +698,8 @@ test("light and dark desktop and narrow previews match their frozen full PNG", a
   const { page } = await asUser("alice")
   const route = `/c/channels/${serverId}/${channelId}`
   await gotoAfterUserWsAuth(page, route)
-  const seeded = await seedMessage(page, channelId, "Frozen theme, font, logo, geometry, and full-card pixels")
+  const attachmentId = await uploadAttachment(page, channelId)
+  const seeded = await seedMessage(page, channelId, "Frozen theme, font, logo, geometry, and full-card pixels", [attachmentId])
   await installShareCapture(page)
 
   const observations: Array<{
@@ -733,6 +745,15 @@ test("light and dark desktop and narrow previews match their frozen full PNG", a
       expect(Math.abs(comparison.exportWidth - comparison.previewWidth * 2)).toBeLessThanOrEqual(2)
       expect(Math.abs(comparison.exportHeight - comparison.previewHeight * 2)).toBeLessThanOrEqual(2)
       expect(comparison.meanChannelDifference).toBeLessThan(28)
+      const brandComparison = await comparePreviewToCapture(page, card, captureIndex, "[data-share-brand]")
+      expect(brandComparison.meanChannelDifference).toBeLessThan(20)
+      const point = await sampleCenter(card, `[data-testid="${tid.messageShareImage(seeded.id, 0)}"]`)
+      expect((await capturePixel(page, "clipboard", captureIndex, point)).pixel[2]).toBeGreaterThan(180)
+      const downloadStarted = page.waitForEvent("download")
+      await dialog.getByRole("button", { name: "Download" }).click()
+      await downloadStarted
+      expect((await capturePixel(page, "download", captureIndex, point)).pixel[2]).toBeGreaterThan(180)
+      expect(await captureDigest(page, "clipboard", captureIndex)).toBe(await captureDigest(page, "download", captureIndex))
       observations.push({
         scheme,
         viewport,
