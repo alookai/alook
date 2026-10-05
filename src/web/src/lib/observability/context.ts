@@ -1,7 +1,7 @@
 import type { Span } from "@opentelemetry/api"
 import { routeTemplate, actionNames } from "./coverage"
 import { emitTelemetry, isTelemetryEligible, isNativeSessionContinuation, telemetryGeneration, notifyObservation } from "./telemetry"
-import type { Attributes } from "./schema"
+import { cleanAttributes, type Attributes } from "./schema"
 
 export type Action = { id: string; navigationId?: string; name: string; route: string; start: number; generation: number; done: boolean; span?: Span; timer?: ReturnType<typeof setTimeout> }
 let makeSpan: ((name: string, attributes: Record<string, string>) => Span | undefined) | undefined
@@ -23,7 +23,7 @@ export function startAction(name: string, attributes: Attributes = {}): Action |
   const action: Action = { id: telemetryId(), name, route: String(attributes.route_template ?? currentRoute()), start: performance.now(), generation: telemetryGeneration(), done: false }
   if (name === "navigation") action.navigationId = telemetryId()
   const fields = actionAttributes(action)
-  try { action.span = makeSpan?.(name, Object.fromEntries(Object.entries(fields).map(([k,v]) => [k, String(v)]))) } catch {}
+  try { action.span = makeSpan?.(name, cleanAttributes(fields)) } catch {}
   if (!isTelemetryEligible() || (action.generation !== telemetryGeneration() && !isNativeSessionContinuation(action.generation))) {
     try { action.span?.end() } catch {}
     return
@@ -47,7 +47,10 @@ export function finishAction(action: Action | undefined, outcome: Attributes["ou
   live.delete(action)
   if (action.generation === telemetryGeneration()) {
     emitTelemetry("action.finish", { ...actionAttributes(action), ...fields, outcome, duration_ms: performance.now() - action.start })
-    try { action.span?.setAttribute("outcome", String(outcome)) } catch {}
+    const safeOutcome = cleanAttributes({ outcome }).outcome
+    if (safeOutcome !== undefined) {
+      try { action.span?.setAttribute("outcome", safeOutcome) } catch {}
+    }
   }
   try { action.span?.end() } catch {}
   if (action === navigation) notifyObservation()

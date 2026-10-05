@@ -8,6 +8,15 @@ vi.mock("@/lib/auth-client", () => ({ useSession: () => ({ data: { user: { id: "
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }) }))
 vi.mock("@tanstack/react-query-devtools", () => ({ ReactQueryDevtools: () => null }))
 vi.mock("@/lib/perf/react-scan-install", () => ({ installReactScan: vi.fn(async () => {}) }))
+const tracingImport = vi.hoisted(() => {
+  let release!: () => void
+  const ready = new Promise<void>(resolve => { release = resolve })
+  return { ready, release }
+})
+vi.mock("@grafana/faro-web-tracing", async importOriginal => {
+  await tracingImport.ready
+  return importOriginal<typeof import("@grafana/faro-web-tracing")>()
+})
 let mounted: ReturnType<typeof render> | undefined
 afterEach(async () => {
   await act(async () => { mounted?.unmount(); mounted = undefined; document.cookie = "alook_analytics_consent=v1.denied; path=/"; announceAnalyticsConsent("denied"); await vi.advanceTimersByTimeAsync(0) })
@@ -41,9 +50,11 @@ it("the actual early instrumentation entry waits for the first actual account Pr
   expect(VolatileSessionsManager.fetchUserSession()!.sessionId).toBe(prior.sessionId)
   const { QueryProvider } = await import("@/app/c/QueryProvider")
   await act(async () => { mounted = render(<QueryProvider userId="account-a"><p>Account content</p></QueryProvider>) })
-  for (let i = 0; i < 20; i++) await act(async () => vi.advanceTimersByTimeAsync(0))
-  expect(isTelemetryEligible()).toBe(true)
+  await vi.waitFor(() => expect(isTelemetryEligible()).toBe(true), { timeout: 5000 })
   await act(async () => vi.advanceTimersByTimeAsync(1500))
+  expect(sent).toHaveLength(0)
+  tracingImport.release()
+  await vi.waitFor(() => expect(sent.some(body => body.events?.some(event => event.name === "session_resume"))).toBe(true), { timeout: 5000 })
   expect(VolatileSessionsManager.fetchUserSession()!.sessionId).toBe(prior.sessionId)
   expect(VolatileSessionsManager.fetchUserSession()!.started).toBe(prior.started)
   expect(sent.some(body => body.events?.some(event => event.name === "session_resume"))).toBe(true)

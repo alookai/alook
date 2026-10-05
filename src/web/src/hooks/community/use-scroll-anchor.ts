@@ -253,6 +253,7 @@ export function useScrollAnchor({
     prefix: number
     itemStart: number
     clientHeight: number
+    clientWidth: number
     scrollHeight: number
     scrollTop: number
     total: number
@@ -540,11 +541,13 @@ export function useScrollAnchor({
     const owner = positionOwnerRef.current
     const previous = acceptedGeometryRef.current
     const pendingViewportRect = viewportTransition && previous?.epoch === owner.epoch
-      && previous.clientHeight !== root?.clientHeight
+      && (previous.clientHeight !== root?.clientHeight || previous.clientWidth !== root?.clientWidth)
       && Math.abs((native?.scrollRect?.height ?? 0) - previous.clientHeight) <= 1
+      && Math.abs((native?.scrollRect?.width ?? 0) - previous.clientWidth) <= 1
     if (!owner.active || !root || !native || root.clientHeight <= 0
       || Math.abs((native.scrollOffset ?? 0) - root.scrollTop) > 1
-      || (!pendingViewportRect && Math.abs((native.scrollRect?.height ?? 0) - root.clientHeight) > 1)) return null
+      || (!pendingViewportRect && (Math.abs((native.scrollRect?.height ?? 0) - root.clientHeight) > 1
+        || Math.abs((native.scrollRect?.width ?? 0) - root.clientWidth) > 1))) return null
     const total = native.getTotalSize()
     const max = Math.max(0, root.scrollHeight - root.clientHeight)
     if (root.scrollTop < 0 || root.scrollTop > max + 1) return null
@@ -563,7 +566,7 @@ export function useScrollAnchor({
       || Math.abs(wrapperRect.top - viewport.top + root.scrollTop - fold.start) > 1) return null
     return {
       epoch: owner.epoch, key: fold.key, prefix: bodyRect.top - wrapperRect.top,
-      itemStart: fold.start, clientHeight: root.clientHeight,
+      itemStart: fold.start, clientHeight: root.clientHeight, clientWidth: root.clientWidth,
       scrollHeight: root.scrollHeight, scrollTop: root.scrollTop,
       total, paddingEnd: native.options.paddingEnd ?? 0, exactlyPinned: max - root.scrollTop <= 1,
       isScrolling: native.isScrolling,
@@ -573,17 +576,20 @@ export function useScrollAnchor({
     const previous = acceptedGeometryRef.current
     const previousFold = previous && virtualizerRef.current?.getVirtualItems().find((item) => item.key === previous.key)
     const scrolledAfterResize = scrollEvent && previous?.epoch === next.epoch
+      && previous.clientWidth === next.clientWidth
       && (previous.clientHeight !== next.clientHeight || previous.paddingEnd !== next.paddingEnd)
       && previous.scrollTop <= Math.max(0, next.scrollHeight - next.clientHeight) + 1
       && previous.scrollTop !== next.scrollTop
     if (positionOwnerRef.current.kind === "idle" && readReadyRef.current
       && (!previous || scrolledAfterResize || (previous.epoch === next.epoch
-        && previous.clientHeight === next.clientHeight && previous.scrollHeight === next.scrollHeight
+        && previous.clientHeight === next.clientHeight && previous.clientWidth === next.clientWidth
+        && previous.scrollHeight === next.scrollHeight
         && previous.total === next.total && previous.paddingEnd === next.paddingEnd
         && previousFold?.start === previous.itemStart
         && (previous.key !== next.key || previous.prefix === next.prefix)))) {
       const unchangedPosition = previous?.epoch === next.epoch
-        && previous.clientHeight === next.clientHeight && previous.scrollHeight === next.scrollHeight
+        && previous.clientHeight === next.clientHeight && previous.clientWidth === next.clientWidth
+        && previous.scrollHeight === next.scrollHeight
         && virtualizerRef.current?.scrollOffset === previous.scrollTop
         && Math.abs(previous.scrollTop - next.scrollTop) <= 1
       acceptedGeometryRef.current = {
@@ -600,6 +606,7 @@ export function useScrollAnchor({
     if (viewportOnly && (owner.kind !== "idle" || !readReadyRef.current
       || acceptedGeometryRef.current?.epoch !== owner.epoch
       || (acceptedGeometryRef.current.clientHeight === root.clientHeight
+        && acceptedGeometryRef.current.clientWidth === root.clientWidth
         && acceptedGeometryRef.current.paddingEnd === (native.options.paddingEnd ?? 0)))) return false
     const total = native.getTotalSize()
     const gap = Math.max(0, root.clientHeight - (total - (native.options.paddingStart ?? 0)))
@@ -614,7 +621,7 @@ export function useScrollAnchor({
     const max = Math.max(0, root.scrollHeight - root.clientHeight)
     const previous = acceptedGeometryRef.current
     const viewportResized = !!next && previous?.epoch === owner.epoch
-      && (previous.clientHeight !== next.clientHeight || previous.paddingEnd !== next.paddingEnd)
+      && (previous.clientHeight !== next.clientHeight || previous.clientWidth !== next.clientWidth || previous.paddingEnd !== next.paddingEnd)
     const clampedByResize = viewportResized && !previous.isScrolling && previous.scrollTop > max
       && Math.abs(root.scrollTop - max) <= 1
     if (input.touch || input.pointers.size > 0 || (native.isScrolling && !clampedByResize)
@@ -631,7 +638,7 @@ export function useScrollAnchor({
     if (previous?.epoch === owner.epoch && readReadyRef.current) {
       const prefixDelta = previous.key === next.key && !previous.exactlyPinned ? next.prefix - previous.prefix : 0
       offset += prefixDelta
-      if (previous.clientHeight !== next.clientHeight || previous.paddingEnd !== next.paddingEnd) {
+      if (previous.clientHeight !== next.clientHeight || previous.clientWidth !== next.clientWidth || previous.paddingEnd !== next.paddingEnd) {
         const previousFold = virtualItems.find((candidate) => candidate.key === previous.key)
         if (previousFold) {
           const totalDelta = next.total - previous.total - (next.paddingEnd - previous.paddingEnd)
@@ -659,6 +666,11 @@ export function useScrollAnchor({
       readReadyRef.current = true
       setReadPositionReady(true)
     }
+    if (viewportResized && previous.exactlyPinned && previous.clientWidth !== next.clientWidth) {
+      owner.nativeIndex = true
+      native.scrollToEnd({ behavior: "auto" })
+      return true
+    }
     if (Math.abs(offset - root.scrollTop) > 0.5) native.scrollToOffset(offset, { behavior: "auto" })
     return false
   }, [observeGeometry, readGeometry, setReadPositionReady, setShortGap])
@@ -682,7 +694,8 @@ export function useScrollAnchor({
       const input = userInputRef.current
       const previous = acceptedGeometryRef.current
       const unchanged = previous?.epoch === positionOwnerRef.current.epoch
-        && previous.clientHeight === root.clientHeight && previous.scrollHeight === root.scrollHeight
+        && previous.clientHeight === root.clientHeight && previous.clientWidth === root.clientWidth
+        && previous.scrollHeight === root.scrollHeight
         && virtualizerRef.current?.scrollOffset === previous.scrollTop
         && Math.abs(previous.scrollTop - root.scrollTop) <= 1
       if (!unchanged) input.scrollAt = performance.now()

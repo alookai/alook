@@ -292,6 +292,41 @@ describe("locked native adapter and existing message scroll owner", () => {
       expect(offset).toHaveBeenCalledTimes(calls)
     }
   })
+  it("keeps a settled tail through width wrapping and later native row measurements", () => {
+    scrollFixture.width = 639
+    const h = mount({ tailPaddingEnd: 40 })
+    scrollFixture.width = 266
+    for (const item of h.input.items) scrollFixture.bodyHeights.set(item.m.id, 190)
+    h.stage({ tailPaddingEnd: 48 })
+    resize()
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(0)
+    scrollFixture.bodyHeights.set("m13", 420)
+    resize()
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(0)
+    expect(scrollFixture.latest.belowCount).toBe(0)
+  })
+  it("preserves an away reader through width wrapping without an end command", () => {
+    scrollFixture.width = 639
+    const h = mount({ tailPaddingEnd: 40 })
+    h.move(300)
+    const top = bodyTop(h.root, "m2")
+    scrollFixture.width = 266
+    for (const item of h.input.items) scrollFixture.bodyHeights.set(item.m.id, 190)
+    h.update({ tailPaddingEnd: 48 })
+    expect(bodyTop(h.root, "m2")).toBe(top)
+  })
+  it("retires width-triggered native end positioning when the user takes over", () => {
+    scrollFixture.width = 639
+    const h = mount({ tailPaddingEnd: 40 })
+    scrollFixture.width = 266
+    h.stage({ tailPaddingEnd: 48 })
+    resize(2)
+    h.move(300)
+    const before = h.root.scrollTop
+    scrollFixture.bodyHeights.set("m13", 420)
+    resize()
+    expect(h.root.scrollTop).toBe(before)
+  })
   it("preserves a two-pixel DM tail distance through consecutive composer resizes", () => {
     const h = mount()
     scrollFixture.height -= 100

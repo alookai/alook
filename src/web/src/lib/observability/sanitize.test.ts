@@ -51,6 +51,31 @@ describe("outbound whitelist", () => {
     expect(JSON.stringify(clean)).toContain("/api/community/messages/[id]")
     expect(sanitizeTrace({ resourceSpans: [{ scopeSpans: [{ spans: [span] }] }] }, "new-session", origin)).toBeNull()
   })
+  it("omits unknown HTTP methods without changing internal or real HTTP span identity", () => {
+    const base = { traceId: "a".repeat(32), spanId: "b".repeat(16), name: "dm.message.send", kind: 1, startTimeUnixNano: "1000000000", endTimeUnixNano: "2000000000" }
+    const clean = (method?: unknown, legacy = false) => sanitizeTrace({ resourceSpans: [{ scopeSpans: [{ spans: [{
+      ...base, attributes: [
+        { key: "session.id", value: { stringValue: session } },
+        { key: "http.url", value: { stringValue: origin + "/api/community/channels/PRIVATE/messages" } },
+        { key: "route_template", value: { stringValue: "/PRIVATE" } },
+        ...(method === undefined ? [] : [{ key: legacy ? "http.method" : "http.request.method", value: { stringValue: method } }]),
+      ],
+    }] }] }] }, session, origin)!.resourceSpans[0]!.scopeSpans[0]!.spans[0]!
+    for (const method of [undefined, null, "", "undefined", "PRIVATE", "CONNECT"]) {
+      const span = clean(method)
+      expect(span.name).toBe("dm.message.send")
+      expect(span.kind).toBe(1)
+      expect(span.traceId).toBe(base.traceId)
+      expect(span.spanId).toBe(base.spanId)
+      expect(span.attributes).toContainEqual({ key: "route_template", value: { stringValue: "/api/community/channels/[id]/messages" } })
+      expect(JSON.stringify(span)).not.toContain("PRIVATE")
+      expect(span.attributes.some(attribute => attribute.key === "http.request.method")).toBe(false)
+    }
+    for (const legacy of [false, true]) {
+      const span = clean("POST", legacy)
+      expect(span.attributes).toContainEqual({ key: "http.request.method", value: { stringValue: "POST" } })
+    }
+  })
   it("accepts installed native HTTP mirror names and rejects old span-start sessions", () => {
     const item = { type: "event", meta, payload: { name: "faro.tracing.fetch", timestamp: "2026-10-05T00:00:00Z", attributes: { "session.id": session, "http.url": origin + "/api/community/messages/SECRET?token=SECRET", "http.method": "PATCH", duration_ns: "2000000" } } } as TransportItem
     const clean = sanitizeItem(item, session, origin)

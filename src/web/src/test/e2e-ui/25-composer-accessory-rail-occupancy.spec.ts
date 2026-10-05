@@ -248,11 +248,6 @@ async function captureState(args: {
   for (const width of widths) {
     await page.setViewportSize({ width, height: width >= 768 ? 900 : 844 })
     const scrollRoot = page.getByTestId(tid.messageScroller)
-    await scrollRoot.evaluate((element, showScrollControl) => {
-      element.scrollTop = showScrollControl ? 0 : element.scrollHeight
-      element.dispatchEvent(new Event("scroll"))
-    }, center && !selection)
-    await expect(page.getByTestId(tid.scrollToPresent)).toHaveCount(center && !selection ? 1 : 0)
     const composer = page.getByTestId(tid.channelComposerShell)
     await expect.poll(() => composer.evaluate((element, viewportWidth) => {
       const rect = element.getBoundingClientRect()
@@ -260,6 +255,12 @@ async function captureState(args: {
         ? Math.abs(rect.left) <= 1 && Math.abs(rect.right - viewportWidth) <= 1
         : rect.left > 1 && Math.abs(rect.right - viewportWidth) <= 1
     }, width)).toBe(true)
+    await settledRailMetrics(page, finalMessageId)
+    await scrollRoot.evaluate((element, showScrollControl) => {
+      element.scrollTop = showScrollControl ? 0 : element.scrollHeight
+      element.dispatchEvent(new Event("scroll"))
+    }, center && !selection)
+    await expect(page.getByTestId(tid.scrollToPresent)).toHaveCount(center && !selection ? 1 : 0)
     const rail = page.getByTestId(tid.composerAccessoryRail)
     await expect(rail).toHaveCount((center || typing) && !selection ? 1 : 0)
     if ((center || typing) && !selection) await expect(rail).toHaveAttribute("data-layout", layout!)
@@ -480,6 +481,14 @@ test("composer accessory rail reallocates every occupied slot without overflow",
   await expect(alice.page.getByTestId(tid.scrollToPresent)).toHaveCount(0)
   await expect(alice.page.locator("[data-e2e-node-identity='typing-survived']")).toHaveCount(1)
   await expect(alice.page.locator("[data-e2e-dot-identity='dot-survived']")).toHaveCount(1)
+  for (const width of [639, 640]) {
+    await alice.page.setViewportSize({ width, height: 844 })
+    await expect.poll(() => scrollRoot.evaluate((element) =>
+      Math.abs(element.scrollHeight - element.clientHeight - element.scrollTop),
+    )).toBeLessThanOrEqual(1)
+    await expect(alice.page.getByTestId(tid.scrollToPresent)).toHaveCount(0)
+    await expect(alice.page.getByTestId(tid.message(finalMessageId))).toBeVisible()
+  }
   const leftOnly = await captureState({
     page: alice.page,
     testInfo,

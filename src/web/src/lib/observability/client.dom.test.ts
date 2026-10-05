@@ -18,7 +18,11 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   Object.defineProperty(performance, "getEntriesByType", { configurable: true, value: () => [] })
   sessionStorage.setItem("com.grafana.faro.session", JSON.stringify({ sessionId: "previous-document", lastActivity: Date.now(), started: Date.now(), isSampled: true, sessionMeta: { id: "previous-document", attributes: { isSampled: "true" } } }))
   const sent: unknown[] = []
-  vi.stubGlobal("fetch", vi.fn(async (_url: unknown, options?: RequestInit) => { if (options?.body) sent.push(JSON.parse(String(options.body))); return new Response(null, { status: 204 }) }))
+  vi.stubGlobal("fetch", vi.fn(async (_url: unknown, options?: RequestInit) => {
+    const url = String(_url instanceof Request ? _url.url : _url)
+    if (url === "https://collector.example/collect/public" && options?.body) sent.push(JSON.parse(String(options.body)))
+    return url.endsWith("/api/community/channels/private/messages") ? new Response("{}", { status: 201 }) : new Response(null, { status: 204 })
+  }))
   const { bootstrapObservability, setTelemetryUser } = await import("./client")
   const { emitTelemetry, telemetryGeneration, isTelemetryEligible } = await import("./telemetry")
   const { beginNavigation, navigationForHref, finishAction, startAction } = await import("./context")
@@ -97,6 +101,25 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   expect(children(secondContext)).toHaveLength(1)
   expect(children(firstContext)[0]?.name).toBe("GET /api/agents")
   expect(children(secondContext)[0]?.name).toBe("GET /api/workspaces")
+  const beforeDm = sent.length
+  const dm = startAction("dm.message.send")!
+  const dmContext = dm.span!.spanContext()
+  await apiFetchResponse("/api/community/channels/private/messages", { method: "POST", body: JSON.stringify({ text: "fixture-private-body" }), observation: { action: dm, reason: "command" } })
+  finishAction(dm, "success")
+  await vi.advanceTimersByTimeAsync(3000)
+  spans.length = 0
+  visit(sent.slice(beforeDm))
+  const parent = spans.find(span => span.spanId === dmContext.spanId)!
+  const child = children(dmContext)[0]!
+  const attributes = (span: Record<string, unknown>) => Object.fromEntries((span.attributes as Array<{ key: string; value: { stringValue: string } }>).map(attribute => [attribute.key, attribute.value.stringValue]))
+  expect(parent).toMatchObject({ name: "dm.message.send", kind: 1, traceId: dmContext.traceId })
+  expect(attributes(parent)).toMatchObject({ action_id: dm.id, session_id: extended, "session.id": extended })
+  expect(attributes(parent)).not.toHaveProperty("navigation_id")
+  expect(attributes(parent)).not.toHaveProperty("http.request.method")
+  expect(Object.values(attributes(parent))).not.toContain("undefined")
+  expect(child).toMatchObject({ name: "POST /api/community/channels/[id]/messages", kind: 3, traceId: dmContext.traceId, parentSpanId: dmContext.spanId })
+  expect(attributes(child)).toMatchObject({ "http.request.method": "POST", "http.response.status_code": "201", session_id: extended })
+  expect(JSON.stringify(sent.slice(beforeDm))).not.toContain("fixture-private-body")
   for (const body of sent) expect(body).toMatchObject({ meta: { sdk: { name: "faro-web", version: "2.12.1" } } })
   consent("denied")
   const size = sent.length

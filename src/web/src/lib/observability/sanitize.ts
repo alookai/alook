@@ -23,20 +23,21 @@ export function sanitizeTrace(input: unknown, sessionId: string, origin: string)
         }))
         if (fields["session.id"] !== sessionId) return []
         const url = String(fields["url.full"] ?? fields["http.url"] ?? "")
-        const method = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].includes(String(fields["http.request.method"] ?? fields["http.method"])) ? String(fields["http.request.method"] ?? fields["http.method"]) : "GET"
-        const template = fields.route_template ?? routeTemplate(url, origin)
+        const rawMethod = fields["http.request.method"] ?? fields["http.method"]
+        const method = typeof rawMethod === "string" && ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].includes(rawMethod) ? rawMethod : undefined
+        const template = cleanAttributes({ route_template: fields.route_template }).route_template ?? routeTemplate(url, origin)
         const attributes = cleanAttributes({ ...fields, route_template: template, session_id: sessionId })
         for (const key of ["http.status_code", "http.response.status_code"]) {
           if (numeric(Number(fields[key])) && Number(fields[key]) <= 599) attributes[key] = String(fields[key])
         }
-        attributes["http.request.method"] = method
+        if (method !== undefined) attributes["http.request.method"] = method
         attributes["session.id"] = sessionId
         const traceId = hex(span.traceId, 32), spanId = hex(span.spanId, 16)
         const startTimeUnixNano = nano(span.startTimeUnixNano), endTimeUnixNano = nano(span.endTimeUnixNano)
         if (!traceId || !spanId || !startTimeUnixNano || !endTimeUnixNano) return []
         return [{
           traceId, spanId, parentSpanId: hex(span.parentSpanId, 16),
-          name: actions.has(String(span.name)) ? String(span.name) : method + " " + String(template),
+          name: actions.has(String(span.name)) ? String(span.name) : (method ? method + " " : "") + String(template),
           kind: (Number(span.kind) >= 0 && Number(span.kind) <= 5 ? Number(span.kind) : 0) as 0 | 1 | 2 | 3 | 4 | 5,
           startTimeUnixNano,
           endTimeUnixNano,

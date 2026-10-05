@@ -34,6 +34,24 @@ describe("original observation ownership", () => {
     expect(end).toHaveBeenCalledTimes(1)
     expect(events.filter(event => event.name.startsWith("action."))).toEqual([])
   })
+  it("passes only present whitelisted attributes to native action spans", () => {
+    const factory = vi.fn((_name: string, _fields: Record<string, string>) => ({ end: vi.fn(), setAttribute: vi.fn() } as unknown as Span))
+    installActionSpans(factory)
+    const dm = startAction("dm.message.send")!
+    const navigation = beginNavigation("/c/me/bots")!
+    const dmFields = factory.mock.calls[0]![1] as Record<string, string>
+    const navigationFields = factory.mock.calls[1]![1] as Record<string, string>
+    expect(dmFields).toMatchObject({ action_id: dm.id, action_name: "dm.message.send", start_ms: String(dm.start) })
+    expect(dmFields).not.toHaveProperty("navigation_id")
+    expect(dmFields).not.toHaveProperty("trace_id")
+    expect(dmFields).not.toHaveProperty("span_id")
+    expect(Object.values(dmFields)).not.toContain("undefined")
+    expect(navigationFields.navigation_id).toBe(navigation.navigationId)
+    finishAction(dm, undefined)
+    expect(dm.span!.setAttribute).not.toHaveBeenCalled()
+    finishAction(navigation, "success")
+    expect(navigation.span!.setAttribute).toHaveBeenCalledWith("outcome", "success")
+  })
   it("keeps concurrent commands and their requests on their original tokens", async () => {
     const one = { original: {} }, two = { original: {} }
     const a = startAction("message.edit")!, b = startAction("message.pin")!

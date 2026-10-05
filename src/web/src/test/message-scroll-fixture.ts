@@ -10,6 +10,7 @@ type Input = Parameters<typeof useScrollAnchor>[0]
 type Result = ReturnType<typeof useScrollAnchor>
 let latest: Result
 let height: number
+let width: number
 let firstPrefix: number
 let bodyHeights: Map<string, number>
 let frames: Map<number, FrameRequestCallback>
@@ -37,9 +38,9 @@ function rowGeometry(node: HTMLElement) {
   const translation = wrapper?.style.transform.match(/translate3d\(0,\s*(-?[\d.]+)px/)
   const start = Number.parseFloat(translation?.[1] ?? wrapper?.style.top ?? "0") || 0
   const y = start - (root?.scrollTop ?? 0)
-  if (node.matches('[data-msg-id]')) return DOMRect.fromRect({ y: y + before, width: 320, height: size })
-  if (node.matches('[data-new-divider]')) return DOMRect.fromRect({ y: y + before - 24, width: 320, height: 24 })
-  return DOMRect.fromRect({ y, width: 320, height: size + before })
+  if (node.matches('[data-msg-id]')) return DOMRect.fromRect({ y: y + before, width, height: size })
+  if (node.matches('[data-new-divider]')) return DOMRect.fromRect({ y: y + before - 24, width, height: 24 })
+  return DOMRect.fromRect({ y, width, height: size + before })
 }
 function Probe({ input, onLayout }: { input: Input; onLayout?: (result: Result) => void }) {
   const result = useScrollAnchor(input)
@@ -80,7 +81,7 @@ export function resize(frameCount = 26) {
   act(() => {
     for (const observer of [...resizeObservers]) {
       const entries = [...observer.elements].filter(element => element.isConnected).map(target => ({
-        target, borderBoxSize: [{ blockSize: (target as HTMLElement).offsetHeight, inlineSize: 320 }],
+        target, borderBoxSize: [{ blockSize: (target as HTMLElement).offsetHeight, inlineSize: width }],
       } as unknown as ResizeObserverEntry))
       if (entries.length) observer.callback(entries, {} as ResizeObserver)
     }
@@ -106,6 +107,7 @@ export function bodyTop(root: HTMLElement, id: string) { return root.querySelect
 
 export function installMessageScrollFixture() {
   height = 500
+  width = 320
   firstPrefix = 88
   bodyHeights = new Map()
   frames = new Map()
@@ -124,14 +126,15 @@ export function installMessageScrollFixture() {
   })
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) { return isScrollRoot(this) ? height : rowGeometry(this).height })
   vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) { return this.clientHeight })
-  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(320)
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(() => width)
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => width)
   vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
     return isScrollRoot(this)
       ? Math.max(height, Number.parseFloat(this.querySelector<HTMLElement>('[data-message-list-content] > div')?.style.height ?? "0") || 0)
       : rowGeometry(this).height
   })
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-    return isScrollRoot(this) ? DOMRect.fromRect({ width: 320, height }) : rowGeometry(this)
+    return isScrollRoot(this) ? DOMRect.fromRect({ width, height }) : rowGeometry(this)
   })
   scrollDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo")
   Object.defineProperty(HTMLElement.prototype, "scrollTo", { configurable: true, value(this: HTMLElement, options: ScrollToOptions) {
@@ -150,6 +153,8 @@ export function restoreMessageScrollFixture() {
 
 export const scrollFixture = {
   get latest() { return latest },
+  get width() { return width },
+  set width(value: number) { width = value },
   get height() { return height },
   set height(value: number) { height = value },
   get firstPrefix() { return firstPrefix },

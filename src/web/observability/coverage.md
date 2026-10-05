@@ -1,6 +1,6 @@
 # Frontend observability candidate coverage
 
-`W` means connected at the named production owner. `B` means a concrete capability boundary. Neither means a real journey or Grafana ingestion passed. Independent runtime, main/Blog production builds, collector ingestion and Cloudflare correlation remain **NOT RUN** at the first implementation handoff. All route rows await independent journey verification; unit/DOM contract checks are listed separately below.
+`W` means source wiring at the named owner; it does not establish that the owner is mounted or reachable. `B` means a concrete capability boundary. Neither means a real journey or Grafana ingestion passed. Independent d185 runtime and received collector samples are qualified separately below; the follow-up correction still awaits its own exact-source builds and runtime verification. Unit/DOM contracts do not close those gaps.
 
 ## Build and collection contract
 
@@ -38,7 +38,7 @@ Every content route has navigation intent/commit and a supplemental fixed `ui_in
 | /pricing-concept | W navigation → destination | W transport, B server redirect internals | B no independent content | destination owner | redirect has no independent readable content |
 | /privacy | W navigation/gesture | W API/HTTP/resource; B RSC owner attribution | W unknown SSR | W mounted content | `src/web/src/app/privacy/page.tsx` — static content marker |
 | /sign-in | W navigation/gesture + semantic operations | W API/HTTP/resource; B RSC owner attribution | W actual view version/source | W qualified owner gate | `src/web/src/app/(auth)/sign-in/sign-in-client.tsx; app/(auth)/sign-in/social-sign-in.tsx` — mounted form; OTP verification result; provider/native handoff boundary |
-| /studio/new | W navigation/gesture + semantic operations | W API/HTTP/resource; B RSC owner attribution | W actual view version/source | W qualified owner gate | `src/web/src/app/(app)/studio/new/client.tsx` — runtimes Query ready |
+| /studio/new | W source navigation/semantic operations | W source API/HTTP/resource; B RSC owner attribution | W source view version/source | W source owner gate | `src/web/src/app/(app)/studio/new/client.tsx` — requires an authenticated existing workspace_id, membership and workspace; current runtime journey BLOCKED without a verified fixture |
 | /templates | W navigation/gesture | W API/HTTP/resource; B RSC owner attribution | W unknown SSR | W mounted content | `src/web/src/app/templates/page.tsx` — static content marker |
 | /templates/[id] | W navigation/gesture | W API/HTTP/resource; B RSC owner attribution | W unknown SSR | W mounted content | `src/web/src/app/templates/[id]/page.tsx` — static content marker |
 | /w/[slug] | W navigation → destination | W transport, B server redirect internals | B no independent content | destination owner | existing Query/owner pending state and actual rendered data, including legal empty |
@@ -61,7 +61,13 @@ Every content route has navigation intent/commit and a supplemental fixed `ui_in
 | /w/[slug]/traces | W navigation/gesture + semantic operations | W API/HTTP/resource; B RSC owner attribution | W actual view version/source | W qualified owner gate | `src/web/src/app/(app)/w/[slug]/traces/page.tsx` — existing Query/owner pending state and actual rendered data, including legal empty |
 | /w/[slug]/traces/[traceId] | W navigation/gesture + semantic operations | W API/HTTP/resource; B RSC owner attribution | W actual view version/source | W qualified owner gate | `src/web/src/app/(app)/w/[slug]/traces/[traceId]/page.tsx` — existing Query/owner pending state and actual rendered data, including legal empty |
 | /w/[slug]/unread | W navigation/gesture + semantic operations | W API/HTTP/resource; B RSC owner attribution | W actual view version/source | W qualified owner gate | `src/web/src/app/(app)/w/[slug]/unread/page.tsx` — existing Query/owner pending state and actual rendered data, including legal empty |
-| /workspaces | W navigation/gesture + semantic operations | W API/HTTP/resource; B RSC owner attribution | W actual view version/source | W qualified owner gate | `src/web/src/app/(app)/workspaces/client.tsx` — existing Query loaded list, including legal empty |
+| /workspaces | W navigation → /c/me | W transport; B server redirect internals | B no independent content | destination owner | `src/web/src/app/(app)/workspaces/page.tsx` unconditionally redirects; WorkspaceListClient source wiring is unmounted and does not cover a runtime workspace list/create journey |
+
+### Reachability qualification
+
+At d185, /workspaces unconditionally redirects to /c/me. WorkspaceListClient has no current mounting import; its workspace list/read/ready and workspace.create command are source wiring only, **runtime BLOCKED / NOT RUN**. An existing POST /api/workspaces handler is not a normal creation entry or an authorized fixture. /studio/new requires an existing workspace_id plus membership; /w/[slug] requires an existing workspace plus membership and redirects a non-onboarded workspace into studio. Thus all /w rows below describe source wiring or redirect ownership, not currently verified runtime coverage. These entry paths match the d8 baseline; the blocker is not attributed to Faro. No retired entry or hidden mutation is revived for QA.
+
+The Application Provider has controlled integration/DOM checks, but its actual non-community account/reload/logout/restore journey remains **BLOCKED / NOT RUN** for this round without a verified usable workspace entry. Community Provider runtime results do not qualify the Application Provider.
 
 ## Exact page inventory
 
@@ -145,7 +151,7 @@ Every content route has navigation intent/commit and a supplemental fixed `ui_in
 | `src/web/src/app/(app)/w/[slug]/settings/instruction-tab.tsx` | InstructionTab | `workspace.instruction.save` |
 | `src/web/src/app/(app)/w/[slug]/settings/members-tab.tsx` | MembersTab | `workspace.members.command` |
 | `src/web/src/app/(app)/w/[slug]/settings/notification-tab.tsx` | NotificationTab | `notification.permission.request` |
-| `src/web/src/app/(app)/workspaces/client.tsx` | WorkspaceListClient | `workspace.create` |
+| `src/web/src/app/(app)/workspaces/client.tsx` | WorkspaceListClient — source only, unmounted; runtime BLOCKED / NOT RUN | `workspace.create` |
 | `src/web/src/app/c/invite/[token]/invite-accept-client.tsx` | InviteAcceptInner | `server.invite.accept` |
 | `src/web/src/app/device/page.tsx` | DeviceAuthPageInner | `device.authorization.command` |
 | `src/web/src/components/agent-chat/agent-chat-view.tsx` | AgentChatView | `chat.control.command` |
@@ -230,6 +236,8 @@ Friend facade callees in `src/web/src/hooks/community/mutations/friends.ts`: `us
 
 Additional controlled operations outside native mutations: `app/(auth)/sign-in/{sign-in-client,social-sign-in}.tsx` records OTP/dev/social intent and result/handoff; `lib/file-download.ts` records browser initiation or resolved native save boundary; `hooks/community/use-billing.ts` records qualified checkout return; `stores/community/message-stream-store.ts` joins accepted optimistic send/upload/post acknowledgment on the original action. Other local toggles, filters, dialogs, selection and static controls have supplemental gesture coverage; their generic action does not assert a specific business result.
 
+Action-owner inventory above is source wiring. In particular, the unmounted WorkspaceListClient is not a runtime-covered workspace.create operation; workspace and Application Provider journeys retain the reachability qualification above.
+
 ## Data and readiness boundaries
 
 - `lib/community-db/{collections,sync,write,projections}.ts`: diagnostic WeakMaps follow the existing QueryClient/canonical owner and actual row references; no separate business cache. Unchanged restored rows keep version/source through network validation; changed fields merge origins conservatively. Selected message IDs, joined children/profiles/presence, forum threads, rail/sidebar and optimistic overlays contribute to the rendered version. Unknown contributors remain unknown/mixed.
@@ -242,7 +250,7 @@ Additional controlled operations outside native mutations: `app/(auth)/sign-in/{
 
 ## Privacy and delivery boundaries
 
-Only fixed event/action/route/method/region/outcome enums, bounded numbers, release, generated diagnostic IDs and the consent-scoped opaque internal account ID leave through custom events. Absent IDs are omitted. Native metadata, spans, mirror events, web vitals and errors are rebuilt by `sanitize.ts`; collector-required SDK name/version are retained from validated native `faro-web` metadata, while arbitrary integration metadata is removed. No dynamic DOM text, message content, emails, auth tickets, query values, exception messages, raw log args or arbitrary span events/links. Original span-start session identity is required; late mirror events/spans/actions are discarded across retirement. Trace propagation is restricted to own origin and excludes the collector.
+Only fixed event/action/route/method/region/outcome enums, bounded numbers, release, generated diagnostic IDs and the consent-scoped opaque internal account ID leave through custom events. Absent IDs are omitted before native action span creation as well as final export. Unknown or absent HTTP methods are omitted; INTERNAL action/navigation spans do not acquire a guessed GET. Actual known CLIENT request methods, status, trace IDs and parent relationships are retained. Native metadata, spans, mirror events, web vitals and errors are rebuilt by `sanitize.ts`; collector-required SDK name/version are retained from validated native `faro-web` metadata, while arbitrary integration metadata is removed. No dynamic DOM text, message content, emails, auth tickets, query values, exception messages, raw log args or arbitrary span events/links. Original span-start session identity is required; late mirror events/spans/actions are discarded across retirement. Trace propagation is restricted to own origin and excludes the collector.
 
 Own early queue: 256. Live actions: 64 with 30s terminal timeout. Native batch: 40/1s. Collector transport: queue 16, concurrency 2, retries 2, timeout 5s, abortable and credentials omitted. Delivery failures count failed deliveries, not guessed dropped events; retained original transport session prevents delayed failure attribution to a new session. Own queue/sink are cleared at retirement. The pinned SDK has no public signal-buffer clear method: its bounded paused buffer remains and is filtered at final `beforeSend`, while old transport is removed/aborted. Do not claim every private native buffer was physically cleared.
 
@@ -256,7 +264,7 @@ Correction regressions: `virtual-window.dom.test.tsx` uses installed React Virtu
 
 First initialization aligns the current eligible unsent provisional queue to the validated native same-owner session without retiring its generation/actions. The real reload test requires an accepted early action/start/finish and business event to survive this alignment. `context.test.ts` additionally checks original request ownership/timestamps, and rejects alignment after sink installation, a different queued identity or retirement. Initial SDK import has no installed action-span factory yet; these early action events do not certify an exported action span. Actual consent/account/expiry boundaries still retire prior work, and final sanitizer accepts only the current native session.
 
-`client-account-reload.dom.test.tsx` executes actual early instrumentation-client → actual QueryProvider, against a real previous same-account native SDK document. Account-owned routes wait for first Provider identity; first confirmation preserves resume eligibility, while true owner changes retire it. No telemetry-only auth request is added. Public community invite uses the existing module-plan classification.
+`client-account-reload.dom.test.tsx` executes actual early instrumentation-client → actual QueryProvider, against a real previous same-account native SDK document. Its follow-up regression holds the real tracing import until after the eligible Provider and the former fixed 1500ms wait, then waits for the required actual session_resume export. This reproduces an asynchronous export race, not a uniquely established cause of the historical Ubuntu failure. Account-owned routes wait for first Provider identity; first confirmation preserves resume eligibility, while true owner changes retire it. No telemetry-only auth request is added. Public community invite uses the existing module-plan classification.
 
 `auth-client-observability.dom.test.tsx` executes actual BetterAuth/public sign-out, the Application Provider and sign-out facade, with real native Faro and a controlled fetch backend. Failed logout retains the owner/session; a held A completion after real sign-in and Provider replacement by B cannot retire B; successful current B logout clears user metadata and creates anonymous identity. The existing IO owner check and captured diagnostic identity revision guard the actual success boundary. Native user metadata changes before new session lifecycle metadata. This is integration evidence, not a browser logout or received collector result.
 
@@ -265,11 +273,13 @@ Both existing account Providers also invoke their captured diagnostic retirement
 | Evidence dimension | Handoff state | Owner / next proof |
 |---|---|---|
 | Local unit/DOM + normal root hooks | first candidate terminal checks supplied; correction terminal checks in the follow-up handoff | Samara; checks are tied to their source, not runtime acceptance |
-| Main + independent Blog exact-release production build/journeys | d9 builds exit 0; corrected builds/journeys pending | Madox; compile same public profile and corrected full SHA into both builds |
-| Local Workers/D1/WS product journeys | d9 scoped UI/API/DO baseline reported; current live D1 emptiness BLOCKED, browser WS and telemetry NOT RUN/BLOCKED | Madox; #57 first-round report preserves immutable-query/WAL limits; corrected checklist rerun pending |
-| Actual Grafana ingestion/session/actions/spans | d9 FAIL: actual collector HTTP400, `no SDK version`; correction rerun pending | Madox + Jarvis; exact corrected SHA, actual session ID, UTC window and safe received samples |
+| Main + independent Blog exact-release production build/journeys | independent d185 journeys reported; follow-up correction builds/journeys pending | Madox; retain d185 build receipts and compile the same public profile plus the new full SHA into both new builds |
+| Local Workers/D1/WS product journeys | d185 scoped community UI/API/DO results reported; raw browser WS proof and live D1 qualifications remain separate; native upload and non-community entry BLOCKED | Madox; preserve original failures and backend boundaries; rerun the correction checklist on the new source |
+| Actual Grafana ingestion/session/actions/spans | historical d9 HTTP400 retained; d185 HTTP202 and bounded received main/Blog/session/navigation/DM/viewport samples qualified independently; d185 INTERNAL span absent-ID/guessed-method defect observed, follow-up source has local native-export regressions only | Madox + Jarvis; new full SHA, actual session/action/trace IDs, UTC window and received samples must verify the correction; HTTP202 alone is not complete ingestion proof |
+| Workspace list/create and Application Provider real journey | BLOCKED / NOT RUN; unmounted list/create source, no verified existing workspace fixture | keep source wiring and actual entry reachability separate; no hidden mutation or retired entry revival |
+| CI37341839062 | terminal FAIL: Ubuntu session_resume and UI shard 9 resize; both gates FAIL; coverage qualification incomplete | retain original CI; new candidate remote CI and exact composer occupancy runtime remain pending |
 | Cloudflare execution/ray/log/backend same-trace correlation | NOT RUN | requires the same candidate deployed to Cloudflare; local --local is not this proof |
 | Native OS internals / Auth HTML / external OAuth or Stripe page internals | B capability boundary | controlled in-app handoff/result only; no capture on ticket-bearing Auth HTML |
 | Arbitrary SSR/RSC per-view cache origin / Resource Timing cache hit | B unknown | no owner evidence; transferSize=0 is not cache proof |
 
-Grafana native session, action, error, performance and trace views are the first inspection path. Custom dashboards/queries will be added only if those fail the agreed inspection needs; actual ingested field paths have not yet been verified.
+Grafana native session, action, error, performance and trace views are the first inspection path. Custom dashboards/queries will be added only if those fail the agreed inspection needs; d185 received field paths have been sampled for the stated windows; unsampled journeys and the follow-up correction retain their own pending qualifications.
