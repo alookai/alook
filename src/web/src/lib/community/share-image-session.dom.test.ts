@@ -998,6 +998,15 @@ describe("capturePreparedShareImage", () => {
     expect(document.querySelector("[data-share-detached-tree]")).toBeNull()
   })
 
+  it("rejects an empty WebKit warmup without publishing or retrying it", async () => {
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue(webkitUserAgent)
+    const rasterize = vi.fn().mockResolvedValue(null)
+    await expect(capturePreparedShareImage(sourceCard("ready"), FONT_CSS, rasterize))
+      .rejects.toMatchObject({ stage: "rasterize", cause: { message: "Rasterizer returned no warmup image" } })
+    expect(rasterize).toHaveBeenCalledTimes(1)
+    expect(document.querySelector("[data-share-detached-tree]")).toBeNull()
+  })
+
   it("does not start the final rasterization after cancelling WebKit warmup", async () => {
     vi.spyOn(navigator, "userAgent", "get").mockReturnValue(webkitUserAgent)
     const controller = new AbortController()
