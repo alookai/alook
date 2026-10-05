@@ -131,4 +131,13 @@ describe("original observation ownership", () => {
     expect(resolveActionName("issue.command", { action: { kind: "comment" } })).toBe("issue.comment.create")
     expect(resolveActionName("billing.redirect", { action: { kind: "PRIVATE" } })).toBe("command.unknown")
   })
+  it("adopts a gesture into router transport on the same action without a duplicate start", () => {
+    const action = beginNavigation("/c/me/machines", "gesture")!
+    expect(beginNavigation("/c/me/machines", "transport")).toBe(action)
+    expect(events.filter(event => event.name === "action.start")).toHaveLength(1)
+    expect(events.filter(event => event.name === "navigation.intent").map(event => event.attributes.phase)).toEqual(["intent", "transport"])
+    finishAction(action, "success")
+    expect(events.filter(event => event.name === "action.finish")).toHaveLength(1)
+  })
+
 })

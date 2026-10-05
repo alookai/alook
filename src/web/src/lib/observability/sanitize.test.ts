@@ -86,4 +86,23 @@ describe("outbound whitelist", () => {
     expect(sanitizeItem(old, session, origin)).toBeNull()
   })
 
+  it("retains only known native action names and finite nonnegative action timings", () => {
+    const item = (attributes: Record<string, string>) => ({ type: "event", meta, payload: { name: "faro.user.action", timestamp: "2026-10-05T00:00:00Z", attributes } }) as TransportItem
+    const clean = sanitizeItem(item({ userActionName: "ui_interaction", userActionDuration: "12", userActionStartTime: "0", userActionEndTime: "Infinity", private: "SECRET" }), session, origin)!
+    expect(clean.payload).toMatchObject({ attributes: { userActionName: "ui_interaction", userActionDuration: "12", userActionStartTime: "0" } })
+    expect(JSON.stringify(clean)).not.toContain("Infinity")
+    expect(JSON.stringify(clean)).not.toContain("SECRET")
+    expect(sanitizeItem(item({ userActionName: "SECRET" }), session, origin)).toBeNull()
+    expect(sanitizeItem(item({}), session, origin)).toBeNull()
+  })
+  it("accepts whitelisted web vitals, rejects arbitrary measurements and invalid stack URLs", () => {
+    const measurement = (type: string, values: Record<string, number>) => ({ type: "measurement", meta, payload: { type, timestamp: "2026-10-05T00:00:00Z", values } }) as TransportItem
+    expect(sanitizeItem(measurement("web-vitals", { LCP: 10, cls: 0, SECRET: 1, inp: NaN, fcp: -1 }), session, origin)?.payload).toEqual({ type: "web-vitals", timestamp: "2026-10-05T00:00:00Z", values: { LCP: 10, cls: 0 } })
+    expect(sanitizeItem(measurement("arbitrary", { LCP: 10 }), session, origin)).toBeNull()
+    expect(sanitizeItem(measurement("web-vitals", { SECRET: 1 }), session, origin)).toBeNull()
+    const exception = { type: "exception", meta, payload: { type: "Error", value: "SECRET", stacktrace: { frames: [{ filename: "http://[", lineno: 3 }] } } } as TransportItem
+    expect(sanitizeItem(exception, session, origin)?.payload).toMatchObject({ value: "[redacted]", stacktrace: { frames: [] } })
+    expect(sanitizeItem({ type: "unknown", meta, payload: {} } as unknown as TransportItem, session, origin)).toBeNull()
+  })
+
 })

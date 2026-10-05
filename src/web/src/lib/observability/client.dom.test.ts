@@ -3,11 +3,11 @@ import { act } from "@/test/react-dom-harness"
 import type { Faro } from "@grafana/faro-web-sdk"
 import { announceAnalyticsConsent } from "../analytics-consent"
 
-const native = vi.hoisted(() => ({ faro: undefined as Faro | undefined, release: undefined as (() => void) | undefined }))
+const native = vi.hoisted(() => ({ faro: undefined as Faro | undefined, release: undefined as (() => void) | undefined, vitals: undefined as unknown }))
 vi.mock("@grafana/faro-web-sdk", async importOriginal => {
   const real = await importOriginal<typeof import("@grafana/faro-web-sdk")>()
   await new Promise<void>(resolve => { native.release = resolve })
-  return { ...real, initializeFaro: (...args: Parameters<typeof real.initializeFaro>) => { native.faro = real.initializeFaro(...args); return native.faro } }
+  return { ...real, getWebInstrumentations: (...args: Parameters<typeof real.getWebInstrumentations>) => { const all = real.getWebInstrumentations(...args); native.vitals = all.find(item => item.name.endsWith("instrumentation-web-vitals")); return all }, initializeFaro: (...args: Parameters<typeof real.initializeFaro>) => { native.faro = real.initializeFaro(...args); return native.faro } }
 })
 afterEach(() => { document.cookie = "alook_analytics_consent=v1.denied; path=/"; announceAnalyticsConsent("denied"); vi.useRealTimers(); vi.unstubAllEnvs(); vi.unstubAllGlobals() })
 it("real Faro sessions align after interrupted import, regrant, account changes, expiry and reload metadata", async () => {
@@ -18,9 +18,11 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   Object.defineProperty(performance, "getEntriesByType", { configurable: true, value: () => [] })
   sessionStorage.setItem("com.grafana.faro.session", JSON.stringify({ sessionId: "previous-document", lastActivity: Date.now(), started: Date.now(), isSampled: true, sessionMeta: { id: "previous-document", attributes: { isSampled: "true" } } }))
   const sent: unknown[] = []
+  let collectorStatus = 204
   vi.stubGlobal("fetch", vi.fn(async (_url: unknown, options?: RequestInit) => {
     const url = String(_url instanceof Request ? _url.url : _url)
     if (url === "https://collector.example/collect/public" && options?.body) sent.push(JSON.parse(String(options.body)))
+    if (url === "https://collector.example/collect/public") return new Response(null, { status: collectorStatus })
     return url.endsWith("/api/community/channels/private/messages") ? new Response("{}", { status: 201 }) : new Response(null, { status: 204 })
   }))
   const { bootstrapObservability, setTelemetryUser } = await import("./client")
@@ -43,6 +45,38 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   expect(sent.length).toBeGreaterThan(0)
   expect(sent.some(body => (body as { events?: Array<{ name: string }> }).events?.some(event => event.name === "session_start"))).toBe(true)
   for (const body of sent) expect(body).toMatchObject({ meta: { sdk: { name: "faro-web", version: "2.12.1" } } })
+  const controls = document.createElement("div")
+  controls.innerHTML = '<a href="/c/me/machines">Machines</a><button>Command</button>'
+  document.body.append(controls)
+  const firstLink = controls.querySelector("a")!, button = controls.querySelector("button")!
+  firstLink.addEventListener("click", event => event.preventDefault())
+  const beforeGesture = sent.length
+  firstLink.click()
+  const router = await import("@/instrumentation-client")
+  router.onRouterTransitionStart("/c/me/machines")
+  const gesture = navigationForHref("/c/me/machines")!
+  finishAction(gesture, "success")
+  button.click()
+  await vi.advanceTimersByTimeAsync(1500)
+  expect(JSON.stringify(sent.slice(beforeGesture))).toContain("ui_interaction")
+  expect(JSON.stringify(sent.slice(beforeGesture))).toContain(gesture.id)
+  document.dispatchEvent(new Event("visibilitychange"))
+  const vitals = native.vitals as { api: { pushMeasurement: Faro["api"]["pushMeasurement"] } }
+  const beforeVitals = sent.length
+  vitals.api.pushMeasurement({ type: "web-vitals", values: { lcp: 12, cls: 0, private: 88, inp: Infinity } })
+  await vi.advanceTimersByTimeAsync(1500)
+  expect(JSON.stringify(sent.slice(beforeVitals))).toContain('"lcp":12')
+  expect(JSON.stringify(sent.slice(beforeVitals))).not.toContain('"private":88')
+  collectorStatus = 429
+  emitTelemetry("business.result", { outcome: "error" })
+  await vi.advanceTimersByTimeAsync(12000)
+  collectorStatus = 204
+  const beforeRecovery = sent.length
+  emitTelemetry("business.result", { outcome: "success" })
+  await vi.advanceTimersByTimeAsync(3000)
+  expect(JSON.stringify(sent.slice(beforeRecovery))).toContain("delivery_failure_count")
+  expect(JSON.stringify(sent.slice(beforeRecovery))).toContain("rate_limit")
+  controls.remove()
   const generation = telemetryGeneration()
   emitTelemetry("business.result", { action_name: "message.edit", outcome: "success" })
   const beforeAccount = sent.length

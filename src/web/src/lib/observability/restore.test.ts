@@ -42,4 +42,16 @@ describe("restore observation admission", () => {
     expect(events).toEqual([])
     expect(client.getQueryData(["community", "db", "account-a", "messages"])).toEqual([{ id: "new" }])
   })
+  it("preserves original read/decode failures and records only eligible error phases", async () => {
+    const failure = new Error("private-storage-error"), persister = {}
+    await expect(observeRestoreRead(async () => { throw failure }, persister)).rejects.toBe(failure)
+    expect(() => observeRestoreDecode(persister, () => { throw failure }, "current", 10000)).toThrow(failure)
+    expect(events.filter(event => event.name === "cache.restore.finish").map(event => [event.attributes.phase, event.attributes.outcome])).toEqual([["idb_read", "error"], ["deserialize", "error"]])
+    expect(JSON.stringify(events)).not.toContain(failure.message)
+    retireTelemetry(); events.length = 0
+    await expect(observeRestoreRead(async () => { throw failure })).rejects.toBe(failure)
+    expect(() => observeRestoreDecode({}, () => { throw failure }, "current", 10000)).toThrow(failure)
+    expect(events).toEqual([])
+  })
+
 })

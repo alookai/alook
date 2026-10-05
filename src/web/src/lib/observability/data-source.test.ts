@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
-import { collectionEvidence, recordRows, disposeSources, tagView, viewEvidence, mergeEvidence, withSource, sourceEvidence } from "./data-source"
+import { collectionEvidence, recordRows, disposeSources, tagView, viewEvidence, mergeEvidence, observedValueSource, withSource, sourceEvidence } from "./data-source"
 import { configureTelemetry, retireTelemetry } from "./telemetry"
 
 describe("actual row and window provenance", () => {
@@ -61,4 +61,12 @@ describe("actual row and window provenance", () => {
     disposeSources(client)
     expect(collectionEvidence(client,"profiles",[]).source).toBe("unknown")
   })
+  it("classifies a composed response by its actual child view evidence", () => {
+    const cached = tagView([], sourceEvidence({}, "restored_idb"))
+    const live = tagView({}, sourceEvidence({}, "network"))
+    expect(observedValueSource({ cached })).toBe("restored_idb")
+    expect(observedValueSource({ cached, live })).toBe("mixed")
+    expect(observedValueSource({ cached, untracked: {} })).toBe("mixed")
+  })
+
 })
