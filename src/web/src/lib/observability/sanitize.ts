@@ -55,7 +55,10 @@ export function sanitizeTrace(input: unknown, sessionId: string, origin: string)
 
 export function sanitizeItem(item: TransportItem, sessionId: string, origin: string): TransportItem | null {
   if (item.meta.session?.id !== sessionId) return null
+  const sdk = item.meta.sdk
+  if (sdk?.name !== "faro-web" || !/^\d{1,3}\.\d{1,3}\.\d{1,3}(?:-[a-zA-Z0-9.-]{1,32})?$/.test(sdk.version ?? "")) return null
   const meta = {
+    sdk: { name: sdk.name, version: sdk.version },
     app: { name: "alook-web", version: item.meta.app?.release, ...cleanAttributes({ release: item.meta.app?.release, environment: item.meta.app?.environment }) },
     session: { id: sessionId, attributes: { isSampled: "true" } },
     page: { id: item.meta.page?.id, url: origin + routeTemplate(item.meta.page?.url ?? "/", origin) },

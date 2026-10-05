@@ -3,9 +3,10 @@ import type { getDefaultOTELInstrumentations } from "@grafana/faro-web-tracing"
 import { ANALYTICS_CONSENT_CHANGE_EVENT, hasAnalyticsConsent } from "../analytics-consent"
 import { capabilityLimits, routeTemplate } from "./coverage"
 import { actionSequence, beginNavigation, clearActions, finishAction, installActionSpans, startAction, telemetryId } from "./context"
-import { configureTelemetry, emitTelemetry, installTelemetrySink, isTelemetryEligible, telemetryGeneration, reportTelemetryDrops, retireTelemetry } from "./telemetry"
+import { alignInitialTelemetrySession, configureTelemetry, emitTelemetry, installTelemetrySink, isTelemetryEligible, telemetryGeneration, reportTelemetryDrops, retireTelemetry } from "./telemetry"
 import { sanitizeItem } from "./sanitize"
 import { installBrowserObservers } from "./browser"
+import { resolveCommunityModulePlan } from "../community/community-route"
 
 type BuildProfile = { url?: string; environment?: string; release?: string }
 function validBuildProfile(profile: BuildProfile) {
@@ -34,6 +35,10 @@ let eligibleSince = 0
 let vitalsInitialized = false
 let surface: "web" | "blog" = "web"
 let userKey: string | undefined
+let identityEstablished = false
+let identityRevision = 0
+let mayResumeNativeSession = hasAnalyticsConsent()
+let clearNativeSession: (() => void) | undefined
 let httpInstrumentations: ReturnType<typeof getDefaultOTELInstrumentations> = []
 let webInstrumentations: Instrumentation[] = []
 const pageId = telemetryId()
@@ -58,13 +63,20 @@ function configure() {
 }
 async function activate() {
   if (!hasAnalyticsConsent() || !validBuildProfile(build)) return
+  const route = routeTemplate(window.location.href, window.location.origin)
+  const communityOwner = (route === "/c" || route.startsWith("/c/")) && resolveCommunityModulePlan(window.location.pathname).route !== "public-invite"
+  const applicationOwner = route.startsWith("/w/") || ["/workspaces", "/studio/new", "/invite/[token]"].includes(route)
+  if (!identityEstablished && (communityOwner || applicationOwner)) return
+  const mayResume = mayResumeNativeSession
   sessionId = telemetryId()
   configure()
   const capturedSession = sessionId
-  const [{ initializeFaro, FetchTransport: NativeFetchTransport, getWebInstrumentations, InternalLoggerLevel }, { TracingInstrumentation, getDefaultOTELInstrumentations: createHttp }] = await Promise.all([
+  const [{ initializeFaro, FetchTransport: NativeFetchTransport, getWebInstrumentations, InternalLoggerLevel, VolatileSessionsManager }, { TracingInstrumentation, getDefaultOTELInstrumentations: createHttp }] = await Promise.all([
     import("@grafana/faro-web-sdk"), import("@grafana/faro-web-tracing"),
   ])
+  clearNativeSession = () => VolatileSessionsManager.removeUserSession()
   if (!hasAnalyticsConsent() || capturedSession !== sessionId || !isTelemetryEligible()) return
+  mayResumeNativeSession = false
   makeTransport = () => {
     controller = new AbortController()
     const ownerSession = sessionId
@@ -80,6 +92,10 @@ async function activate() {
   }
   transport = makeTransport()
   if (!faro) {
+    const accountScope = userKey ?? "anon"
+    let storedScope: string | undefined
+    try { storedScope = VolatileSessionsManager.fetchUserSession()?.sessionMeta?.attributes?.alook_account } catch { clearNativeSession() }
+    if (!mayResume || storedScope !== accountScope) clearNativeSession()
     httpInstrumentations = createHttp({ ignoreUrls: [build.url!], propagateTraceHeaderCorsUrls: [new RegExp("^" + window.location.origin.replace(/[.*+?^$(){}|[\]\\]/g, "\\$&") + "/")] })
     const defaults = getWebInstrumentations({ captureConsole: false, enableContentSecurityPolicyInstrumentation: false, enablePerformanceInstrumentation: false })
     const vitals = defaults.find(instrumentation => instrumentation.name.endsWith("instrumentation-web-vitals"))
@@ -98,6 +114,7 @@ async function activate() {
       }
     }
     webInstrumentations = defaults.filter(instrumentation => !instrumentation.name.endsWith("instrumentation-errors") && !instrumentation.name.endsWith("instrumentation-navigation"))
+    const initialTransport = transport
     faro = initializeFaro({
       app: { name: "alook-web", version: build.release, release: build.release, environment: build.environment },
       preventGlobalExposure: true,
@@ -105,21 +122,33 @@ async function activate() {
       internalLoggerLevel: InternalLoggerLevel.OFF,
       transports: [transport],
       instrumentations: [...webInstrumentations, new TracingInstrumentation({ instrumentations: httpInstrumentations })],
-      sessionTracking: { enabled: true, persistent: false, samplingRate: 1, generateSessionId: telemetryId, onSessionChange: (_previous, next) => { if (next.id) adoptNativeSession(next.id) } },
+      sessionTracking: { enabled: true, persistent: false, samplingRate: 1, generateSessionId: telemetryId, session: { attributes: { alook_account: accountScope } }, onSessionChange: (_previous, next) => { if (next.id) adoptNativeSession(next.id) } },
       pageTracking: { generatePageId: () => pageId },
       trackGeolocation: false,
       webVitalsInstrumentation: { trackAttributionSources: false },
       batching: { enabled: true, itemLimit: 40, sendTimeout: 1000 },
       beforeSend: item => hasAnalyticsConsent() && isTelemetryEligible() ? sanitizeItem(item, sessionId, window.location.origin) : null,
     })
+    const initialized = faro?.api.getSession()
+    if (!faro || !initialized?.id || !/^[a-zA-Z0-9_-]{1,80}$/.test(initialized.id) || initialized.attributes?.alook_account !== accountScope) { deactivate(); return }
+    if (initialized.id !== capturedSession) {
+      if (!alignInitialTelemetrySession(capturedSession, initialized.id)) { deactivate(); return }
+      sessionId = initialized.id
+      configure()
+      faro.transports.remove(initialTransport)
+      controller?.abort()
+      transport = makeTransport()
+      faro.transports.add(transport)
+    }
+    faro.api.setUser(userKey ? { id: userKey } : undefined)
   } else {
     faro.transports.add(transport)
     for (const instrumentation of httpInstrumentations.flat()) instrumentation.enable()
+    faro.api.setUser(userKey ? { id: userKey } : undefined)
     faro.unpause()
+    faro.api.setSession({ id: capturedSession, attributes: { isSampled: "true", alook_account: userKey ?? "anon" } })
   }
   if (!faro) { deactivate(); return }
-  faro.api.setUser(userKey ? { id: userKey } : undefined)
-  faro.api.setSession({ id: capturedSession, attributes: { isSampled: "true" } })
   installActionSpans((name, attributes) => {
     if (!isTelemetryEligible()) return
     return faro?.api.getOTEL()?.trace.getTracer("alook.frontend").startSpan(name, { attributes })
@@ -159,7 +188,7 @@ function adoptNativeSession(next: string) {
   emitTelemetry("telemetry.coverage", { eligibility: "eligible", capability: "available", phase: "auth" })
 }
 function reconcile() {
-  if (!hasAnalyticsConsent()) { deactivate(); return }
+  if (!hasAnalyticsConsent()) { mayResumeNativeSession = false; clearNativeSession?.(); deactivate(); return }
   if (load) { pendingReconcile = true; return }
   if (isTelemetryEligible()) return
   load = activate().catch(() => { deactivate() }).finally(() => {
@@ -169,12 +198,20 @@ function reconcile() {
 }
 export function setTelemetryUser(key: string | null) {
   const next = key && /^[a-zA-Z0-9_-]{8,64}$/.test(key) ? key : undefined
-  if (userKey === next) return
+  const firstIdentity = !identityEstablished
+  identityEstablished = true
+  if (userKey === next) { if (firstIdentity && started) reconcile(); return }
+  identityRevision++
+  if (!firstIdentity || faro) { mayResumeNativeSession = false; clearNativeSession?.() }
   const wasEligible = isTelemetryEligible()
   deactivate()
   userKey = next
   sessionId = telemetryId()
   if (wasEligible || hasAnalyticsConsent()) reconcile()
+}
+export function captureTelemetryIdentityRetirement() {
+  const original = userKey, revision = identityRevision
+  return () => { if (original && original === userKey && revision === identityRevision) setTelemetryUser(null) }
 }
 export function bootstrapObservability(nextSurface: "web" | "blog") {
   if (started || typeof window === "undefined") return

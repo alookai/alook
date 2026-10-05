@@ -29,6 +29,13 @@ export function configureTelemetry(attributes: Attributes, enabled: boolean) {
   eligible = enabled
   notifyObservation()
 }
+export function alignInitialTelemetrySession(previous: string, next: string) {
+  if (!eligible || sink || base.session_id !== previous || !/^[a-zA-Z0-9_-]{1,80}$/.test(next) || queue.some(event => event.attributes.session_id !== previous)) return false
+  base = { ...base, session_id: next }
+  queue = queue.map(event => ({ ...event, attributes: { ...event.attributes, session_id: next } }))
+  notifyObservation()
+  return true
+}
 export function retireTelemetry(reason: "boundary" | "native_session" = "boundary") {
   eligible = false
   nativeContinuationFrom = reason === "native_session" ? generation : -1

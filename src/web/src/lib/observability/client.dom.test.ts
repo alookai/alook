@@ -36,6 +36,9 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   await vi.advanceTimersByTimeAsync(1500)
   expect(JSON.stringify(sent)).toContain(session)
   expect(JSON.stringify(sent)).toContain("business.result")
+  expect(sent.length).toBeGreaterThan(0)
+  expect(sent.some(body => (body as { events?: Array<{ name: string }> }).events?.some(event => event.name === "session_start"))).toBe(true)
+  for (const body of sent) expect(body).toMatchObject({ meta: { sdk: { name: "faro-web", version: "2.12.1" } } })
   const generation = telemetryGeneration()
   emitTelemetry("business.result", { action_name: "message.edit", outcome: "success" })
   const beforeAccount = sent.length
@@ -94,6 +97,7 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   expect(children(secondContext)).toHaveLength(1)
   expect(children(firstContext)[0]?.name).toBe("GET /api/agents")
   expect(children(secondContext)[0]?.name).toBe("GET /api/workspaces")
+  for (const body of sent) expect(body).toMatchObject({ meta: { sdk: { name: "faro-web", version: "2.12.1" } } })
   consent("denied")
   const size = sent.length
   emitTelemetry("business.result", { outcome: "success" })

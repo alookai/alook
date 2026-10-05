@@ -37,7 +37,7 @@ import { installCommunityDbSync } from "@/lib/community-db/sync"
 import { profileSchema } from "@/lib/community-db/schema"
 import type { CurrentUser } from "@/contexts/community/current-user"
 import { observeHydration, discardHydration } from "@/lib/observability/restore"
-import { setTelemetryUser } from "@/lib/observability/client"
+import { captureTelemetryIdentityRetirement, setTelemetryUser } from "@/lib/observability/client"
 
 function createRestoreGate() {
   let release!: () => void
@@ -170,7 +170,8 @@ function ScopedQueryProvider({
   const active = useSelector(communityDb.runtime.lifecycle, (state) => state.active)
   const router = useRouter()
   useLayoutEffect(() => { communityDb.bindAuthentication(sessionViewer, persister.retireAccount) }, [communityDb, sessionViewer, persister])
-  useLayoutEffect(() => { setTelemetryUser(userId) }, [userId])
+  const retireTelemetryIdentity = useRef<() => void>(() => undefined)
+  useLayoutEffect(() => { setTelemetryUser(userId); retireTelemetryIdentity.current = captureTelemetryIdentityRetirement() }, [userId])
   const identityRetired = useRef(false)
   const identityChanged = !session.isPending && !session.error && session.data?.user.id !== userId
   useLayoutEffect(() => {
@@ -186,14 +187,16 @@ function ScopedQueryProvider({
     }
   }, [communityDb, restoreGate])
   useLayoutEffect(() => {
-    if (!identityChanged || identityRetired.current) return
+    if (!identityChanged) return
+    if (!session.data?.user.id && sessionViewer?.() === null) retireTelemetryIdentity.current()
+    if (identityRetired.current) return
     identityRetired.current = true
     restoreGate.release()
     retireCommunityAccount(communityDb)
     void communityDb.retireDisk().catch(() => undefined)
     if (session.data?.user.id) router.refresh()
     else router.replace("/sign-in")
-  }, [communityDb, identityChanged, restoreGate, router, session.data?.user.id, userId])
+  }, [communityDb, identityChanged, restoreGate, router, session.data?.user.id, sessionViewer, userId])
   const onRetired = useCallback(() => {
     if (!communityDb.runtime.lifecycle.get().active) return
     retireCommunityAccount(communityDb)

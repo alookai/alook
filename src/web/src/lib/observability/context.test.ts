@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { bindCommandAction, beginNavigation, clearActions, commandObservation, finishAction, startAction, installActionSpans, navigationForHref } from "./context"
-import { configureTelemetry, emitTelemetry, installTelemetrySink, retireTelemetry, telemetryGeneration } from "./telemetry"
+import { alignInitialTelemetrySession, configureTelemetry, emitTelemetry, installTelemetrySink, retireTelemetry, telemetryGeneration } from "./telemetry"
 import type { Span } from "@opentelemetry/api"
 import { startRequest, requestHeaders, readObservedResponse } from "./requests"
 import { resolveActionName } from "./actions"
@@ -71,6 +71,41 @@ describe("original observation ownership", () => {
     installTelemetrySink(event => events.push(event))
     expect(events).toHaveLength(257)
     expect(events.at(-1)?.attributes).toMatchObject({ drop_count: "44", drop_reason: "early_queue_full" })
+  })
+  it("preserves an accepted unsent intent, request ownership and timestamp across initial native identity alignment", async () => {
+    retireTelemetry(); clearActions(); configureTelemetry({ session_id: "provisional" }, true)
+    const generation = telemetryGeneration(), timestamp = Date.now()
+    const action = startAction("message.edit")!
+    const request = startRequest("/api/community/messages/private", { observation: { action, reason: "command" } })
+    const response = new Response("{}")
+    vi.setSystemTime(timestamp + 500)
+    expect(alignInitialTelemetrySession("provisional", "native-session")).toBe(true)
+    expect(telemetryGeneration()).toBe(generation)
+    expect(action.done).toBe(false)
+    requestHeaders(request, response)
+    await readObservedResponse(response, () => response.json())
+    finishAction(action, "success")
+    const pending: Array<{ name: string; timestamp: number; attributes: Record<string, string> }> = []
+    installTelemetrySink(event => pending.push(event))
+    expect(pending[0]).toMatchObject({ name: "action.start", timestamp, attributes: { session_id: "native-session", action_id: action.id } })
+    expect(pending.every(event => event.attributes.session_id === "native-session" && event.attributes.action_id === action.id)).toBe(true)
+    expect(pending.some(event => event.name === "request.body_parsed")).toBe(true)
+    expect(pending.at(-1)?.name).toBe("action.finish")
+  })
+  it("does not align a live sink, a different pending identity, or retired work", () => {
+    expect(alignInitialTelemetrySession("session-a", "native-session")).toBe(false)
+    retireTelemetry(); configureTelemetry({ session_id: "provisional" }, true)
+    emitTelemetry("business.result", { session_id: "different" })
+    expect(alignInitialTelemetrySession("provisional", "native-session")).toBe(false)
+    retireTelemetry(); configureTelemetry({ session_id: "account-b" }, true)
+    expect(alignInitialTelemetrySession("provisional", "native-session")).toBe(false)
+    emitTelemetry("business.result", { action_name: "message.pin" })
+    expect(alignInitialTelemetrySession("account-b", "native-session")).toBe(true)
+    installTelemetrySink(event => events.push(event))
+    expect(events).toHaveLength(1)
+    expect(events[0]?.attributes).toMatchObject({ action_name: "message.pin", session_id: "native-session" })
+    retireTelemetry()
+    expect(alignInitialTelemetrySession("native-session", "another-session")).toBe(false)
   })
   it("uses business enums and labels unsupported command kinds as a gap", () => {
     expect(resolveActionName("billing.redirect", { action: { kind: "checkout", priceId: "PRIVATE" } })).toBe("billing.checkout.start")

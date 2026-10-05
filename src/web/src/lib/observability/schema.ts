@@ -38,6 +38,7 @@ const idFields = new Set(["ws_event_id", "session_id", "page_instance_id", "acti
 export function cleanAttributes(input: Record<string, unknown>): Record<string, string> {
   const result: Record<string, string> = {}
   for (const [key, value] of Object.entries(input)) {
+    if (value === undefined || value === null) continue
     const text = String(value)
     if (enumValues[key]?.has(text)) result[key] = text
     else if (numberFields.has(key) && value !== undefined && text.trim() !== "" && Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 1e15) result[key] = text

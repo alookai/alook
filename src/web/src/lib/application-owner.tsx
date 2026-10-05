@@ -16,7 +16,7 @@ import { getNotificationEnabled, getNotificationEvents, NOTIFICATION_EVENTS, typ
 import type { ApiRequestOptions } from "@/lib/api/client"
 import { observeHydration, discardHydration } from "@/lib/observability/restore"
 import { disposeQueryDiagnostics } from "@/lib/observability/query-observer"
-import { setTelemetryUser } from "@/lib/observability/client"
+import { captureTelemetryIdentityRetirement, setTelemetryUser } from "@/lib/observability/client"
 
 export function createApplicationOwner(userId: string, queryClient = createQueryClient()) {
   const bindings = createStore({ retireDisk: () => clearPersistedCache(userId), sessionViewer: () => userId as string | null | undefined })
@@ -85,7 +85,8 @@ function ScopedApplicationQueryProvider({ userId, children, session, sessionView
   const [owner] = useState(() => createApplicationOwner(userId))
   const [handles] = useState(() => ({ owner }))
   const [persister] = useState(() => createIdbPersister(userId, "application"))
-  useLayoutEffect(() => { setTelemetryUser(userId) }, [userId])
+  const retireTelemetryIdentity = useRef<() => void>(() => undefined)
+  useLayoutEffect(() => { setTelemetryUser(userId); retireTelemetryIdentity.current = captureTelemetryIdentityRetirement() }, [userId])
   const disposeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
     const hydrate = () => {
@@ -119,14 +120,16 @@ function ScopedApplicationQueryProvider({ userId, children, session, sessionView
     }
   }, [owner])
   useLayoutEffect(() => {
-    if (!identityChanged || !owner.lifecycle.get().active) return
+    if (!identityChanged) return
+    if (!session.data?.user.id && sessionViewer?.() === null) retireTelemetryIdentity.current()
+    if (!owner.lifecycle.get().active) return
     retireApplicationOwner(owner)
     void owner.queryClient.cancelQueries()
     owner.queryClient.clear()
     void owner.retireDisk().catch(() => undefined)
     if (!session.data?.user.id) router.replace("/sign-in")
     else router.refresh()
-  }, [identityChanged, owner, router, session.data?.user.id])
+  }, [identityChanged, owner, router, session.data?.user.id, sessionViewer])
   return <StoreProvider value={handles}>
     <PersistQueryClientProvider client={owner.queryClient} onSuccess={() => { if (!owner.lifecycle.get().active) { discardHydration(persister); owner.queryClient.clear(); return } observeHydration(persister, owner.queryClient) }} persistOptions={{ persister, buster: `${PERSIST_BUSTER}-application`, maxAge: PERSIST_MAX_AGE_MS, dehydrateOptions: { shouldDehydrateQuery: (query) => query.state.status === "success" && shouldPersistApplicationQuery(query.queryKey), shouldDehydrateMutation: () => false } }}>
       {active && !identityChanged ? children : null}

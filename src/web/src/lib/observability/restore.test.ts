@@ -32,7 +32,7 @@ describe("restore observation admission", () => {
     expect(events).toEqual([])
     expect(valueEvidence(client, client.getQueryData(["community", "db", "account-a", "messages"])).source).toBe("unknown")
   })
-  it("rejects an old Provider callback and preserves a fresh replacement query", async () => {
+  it("rejects an old hydration-helper callback and preserves a fresh replacement query", async () => {
     const persister = {}, data = snapshot()
     await observeRestoreRead(async () => JSON.stringify(data), persister)
     observeRestoreDecode(persister, () => data, "current", 10000)

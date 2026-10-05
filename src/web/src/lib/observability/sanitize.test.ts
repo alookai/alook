@@ -5,7 +5,7 @@ import { cleanAttributes } from "./schema"
 import { routeTemplate } from "./coverage"
 
 const origin = "https://alook.ai", session = "safe-session"
-const meta = { session: { id: session }, page: { url: origin + "/c/invite/SECRET?token=SECRET#SECRET" }, user: { email: "private@example.com", fullName: "SECRET" } }
+const meta = { sdk: { name: "faro-web", version: "2.12.1", integrations: [{ name: "SECRET", version: "SECRET" }] }, session: { id: session }, page: { url: origin + "/c/invite/SECRET?token=SECRET#SECRET" }, user: { email: "private@example.com", fullName: "SECRET" } }
 describe("outbound whitelist", () => {
   it("templates IDs, never exposes query or external arbitrary URLs", () => {
     expect(routeTemplate("/c/invite/SECRET?token=SECRET", origin)).toBe("/c/invite/[token]")
@@ -16,6 +16,18 @@ describe("outbound whitelist", () => {
   it("drops console text and all arbitrary business attributes", () => {
     expect(sanitizeItem({ type: "log", meta, payload: { message: "SECRET" } } as TransportItem, session, origin)).toBeNull()
     expect(cleanAttributes({ content: "SECRET", filename: "SECRET", token: "SECRET", action_name: "SECRET", route_template: "/c/SECRET" })).toEqual({})
+  })
+  it("omits absent IDs rather than manufacturing undefined or null receipts", () => {
+    expect(cleanAttributes({ ws_event_id: undefined, action_id: null, request_id: "real-receipt" })).toEqual({ request_id: "real-receipt" })
+  })
+  it("retains the collector-required native SDK contract while rejecting missing or arbitrary SDK metadata", () => {
+    const item = { type: "event", meta, payload: { name: "business.result", timestamp: "2026-10-05T00:00:00Z", attributes: { outcome: "success" } } } as TransportItem
+    const clean = sanitizeItem(item, session, origin)!
+    expect(clean.meta.sdk).toEqual({ name: "faro-web", version: "2.12.1" })
+    expect(JSON.stringify(clean)).not.toContain("SECRET")
+    for (const sdk of [undefined, { name: "faro-web" }, { name: "SECRET", version: "2.12.1" }, { name: "faro-web", version: "SECRET" }]) {
+      expect(sanitizeItem({ ...item, meta: { ...meta, sdk } }, session, origin)).toBeNull()
+    }
   })
   it("rebuilds automatic errors and metadata", () => {
     const item = { type: "exception", meta, payload: { type: "TypeError", value: "SECRET", timestamp: "2026-10-05T00:00:00Z", context: { token: "SECRET" }, originalError: new Error("SECRET"), stacktrace: { frames: [
