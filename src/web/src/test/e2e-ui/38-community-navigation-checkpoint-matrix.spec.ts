@@ -188,10 +188,10 @@ test("community checkpoint shows target pending for detail and keeps list surfac
   await rootGate.release()
   await expect(channelHeader(page, channelBName)).toBeVisible({ timeout: 30_000 })
 
+  const machinesGate = await holdRoute(page, "/c/me/machines")
   await page.goto("/c/me/friends")
   await expect(page.getByPlaceholder("Search friends")).toBeVisible({ timeout: 30_000 })
-  const machinesGate = await holdRoute(page, "/c/me/machines")
-  await page.getByRole("button", { name: "Machines", exact: true }).click({ noWaitAfter: true })
+  await page.getByRole("link", { name: "Machines", exact: true }).click({ noWaitAfter: true })
   await expect.poll(machinesGate.held).toBeGreaterThan(0)
   await expect(page.getByLabel("Resolving conversation")).toHaveCount(0)
   await expect(page.getByPlaceholder("Search friends")).toBeVisible()

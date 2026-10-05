@@ -391,6 +391,10 @@ export function serverRootHref(serverId: string): string {
   return `/c/channels/${serverId}`
 }
 
+export function dmHref(dmId: string): string {
+  return `/c/me/${encodeURIComponent(dmId)}`
+}
+
 export function channelHref(serverId: string, channelId: string): string {
   return `${serverRootHref(serverId)}/${channelId}`
 }

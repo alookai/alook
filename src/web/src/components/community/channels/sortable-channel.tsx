@@ -1,5 +1,6 @@
 "use client"
 
+import { CommunityNavigationLink } from "../shell/community-navigation-link"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import { BellOff, Loader2, Pencil, Trash2, Users } from "lucide-react"
@@ -39,8 +40,9 @@ export function PendingChannelRow({ ch }: { ch: Channel }) {
 // A single drag-sortable channel row. The whole row is the drag surface (no handle);
 // mouse movement or a touch long-press distinguishes navigation from reorder.
 // Right-click opens an edit/mute/delete menu.
-export function SortableChannel({ ch, active, onClick, onEdit, onDelete, onManageMembers, canReorder = true }: {
+export function SortableChannel({ ch, href, active, onClick, onEdit, onDelete, onManageMembers, canReorder = true }: {
   ch: Channel
+  href?: string
   active: boolean
   onClick: () => void
   onEdit?: () => void
@@ -49,7 +51,7 @@ export function SortableChannel({ ch, active, onClick, onEdit, onDelete, onManag
   canReorder?: boolean
 }) {
   const [confirmingDelete, setConfirmingDelete] = useAtom(useCreateAtom(false))
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver, activeIndex, index } = useSortable({ id: ch.id, disabled: !canReorder })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver, activeIndex, index, active: dragActive } = useSortable({ id: ch.id, disabled: !canReorder })
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1, zIndex: isDragging ? 10 : undefined }
   const showLine = isOver && !isDragging
   const lineSide: "top" | "bottom" = activeIndex !== -1 && activeIndex < index ? "bottom" : "top"
@@ -58,37 +60,45 @@ export function SortableChannel({ ch, active, onClick, onEdit, onDelete, onManag
     active,
     muted: ch.muted === true,
   })
-  const row = (
-    <div
-      ref={setNodeRef}
-      style={style}
-      onClick={onClick}
-      data-testid={tid.channelRow(ch.id)}
-      {...attributes}
-      {...listeners}
-      className={[
-        "group relative flex h-8 w-full cursor-pointer touch-manipulation items-center gap-2 rounded-md px-2 text-sm select-none",
-        canReorder ? "active:cursor-grabbing" : "",
-        active
-          ? "bg-sidebar-accent text-foreground"
-          : ch.muted
-            ? "text-muted-foreground/50 hover:bg-sidebar-accent/60 hover:text-muted-foreground"
-            : unread.emphasize
-              ? "text-foreground hover:bg-sidebar-accent/60"
-              : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
-      ].join(" ")}
-    >
+  const rowProps = {
+    ref: setNodeRef,
+    style,
+    "data-testid": tid.channelRow(ch.id),
+    ...attributes,
+    ...listeners,
+    className: [
+      "group relative flex h-8 w-full cursor-pointer touch-manipulation items-center gap-2 rounded-md px-2 text-sm select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+      canReorder ? "active:cursor-grabbing" : "",
+      active
+        ? "bg-sidebar-accent text-foreground"
+        : ch.muted
+        ? "text-muted-foreground/50 hover:bg-sidebar-accent/60 hover:text-muted-foreground"
+        : unread.emphasize
+          ? "text-foreground hover:bg-sidebar-accent/60"
+          : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+    ].join(" "),
+  }
+  const content = (
+    <>
       {showLine && <DropLine side={lineSide} />}
       <span className="grid size-5 shrink-0 place-items-center opacity-70">
-        <EntityIcon kind={ch.type} className="size-4" />
+      <EntityIcon kind={ch.type} className="size-4" />
       </span>
       <span className="truncate font-semibold">{ch.name}</span>
       {ch.muted ? (
-        <BellOff className="ml-auto size-4 shrink-0 opacity-70" />
+      <BellOff className="ml-auto size-4 shrink-0 opacity-70" />
       ) : unread.showDot ? (
-        <span className="ml-auto size-2 rounded-full bg-primary" />
+      <span className="ml-auto size-2 rounded-full bg-primary" />
       ) : null}
-    </div>
+    </>
+  )
+  const row = href ? (
+    <CommunityNavigationLink {...rowProps} role="link" href={href} active={active}
+      draggable={false} navigationDisabled={dragActive !== null} onActivate={onClick}>
+      {content}
+    </CommunityNavigationLink>
+  ) : (
+    <div {...rowProps} onClick={onClick}>{content}</div>
   )
   if (!hasChannelMenu({ onEdit, onManageMembers, onDelete })) return row
   return (

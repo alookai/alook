@@ -106,7 +106,7 @@ test("server unread owns exact rail geometry, folder aggregation, read clear, an
   const folderId = folderTestId.slice(tid.serverRailFolder("").length)
   const folderIndicator = page.getByTestId(tid.serverRailFolderIndicator(folderId))
   await page.mouse.move(300, 300)
-  await page.getByRole("button", { name: "Home" }).focus()
+  await page.getByRole("link", { name: "Home" }).focus()
   await expectIndicatorHeight(folderIndicator, 0)
   await page.getByTestId(tid.serverIcon(foregroundServer)).focus()
   await expectIndicatorHeight(backgroundIndicator, 10)

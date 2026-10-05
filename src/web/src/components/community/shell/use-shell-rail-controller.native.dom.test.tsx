@@ -233,3 +233,5 @@ describe("actual native Rail controller continuation", () => {
     expect(getCommunityRuntime(client).ws.get().revokedServerIds.has("s2")).toBe(true)
   })
 })
+
+vi.mock("next/link", async () => ({ default: (await import("@/test/community-link-mock")).CommunityLinkMock }))

@@ -15,6 +15,11 @@ const base = {
 }
 
 describe("SortableServer unread memo boundary", () => {
+  it("rerenders for changed href and drag qualification while ignoring callbacks", () => {
+    expect(serverPropsEqual({ ...base, href: "/c/channels/server/a" }, { ...base, href: "/c/channels/server/b" })).toBe(false)
+    expect(serverPropsEqual(base, { ...base, navigationDisabled: true })).toBe(false)
+  })
+
   it("rerenders when official status changes", () => {
     const official = { ...base, server: { ...base.server, official: true } }
     expect(serverPropsEqual(base, official)).toBe(false)

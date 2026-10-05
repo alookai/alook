@@ -45,13 +45,32 @@ function renderServer(
     dragDescriptionId: "rail-help",
     ...extraProps,
   }))
-  const button = () => renderer.container.querySelector<HTMLButtonElement>("button")!
+  const button = () => renderer.container.querySelector<HTMLAnchorElement>("a")!
   const activationRoot = () => button().closest("div.group") as HTMLDivElement
   return { ...renderer, button, activationRoot }
 }
 
 describe("SortableServer stable menu trigger", () => {
   afterEach(() => vi.restoreAllMocks())
+
+  it("updates href on the same registered anchor with the committed activation dispatcher", async () => {
+    const registerItem = vi.fn(() => vi.fn())
+    const current = { activate: vi.fn() }
+    const dispatch = () => current.activate()
+    const props = { server, onClick: dispatch, registerItem, href: "/c/channels/a/first" }
+    const result = render(createElement(SortableServer, props))
+    const anchor = result.getByTestId(tid.serverIcon("a"))
+    const originalActivate = current.activate
+    current.activate = vi.fn()
+    result.rerender(createElement(SortableServer, { ...props, href: "/c/channels/a/latest" }))
+    expect(result.getByTestId(tid.serverIcon("a"))).toBe(anchor)
+    expect(anchor).toHaveAttribute("href", "/c/channels/a/latest")
+    expect(registerItem).toHaveBeenCalledTimes(1)
+    expect(registerItem).toHaveBeenCalledWith({ kind: "server", id: "a" }, expect.any(HTMLElement), anchor)
+    await setupUser().click(anchor)
+    expect(originalActivate).not.toHaveBeenCalled()
+    expect(current.activate).toHaveBeenCalledTimes(1)
+  })
 
   it("announces official status without changing ordinary server labels", () => {
     const ordinary = renderServer()
@@ -149,3 +168,5 @@ describe("SortableServer stable menu trigger", () => {
       .toHaveLength(0)
   })
 })
+
+vi.mock("next/link", async () => ({ default: (await import("@/test/community-link-mock")).CommunityLinkMock }))

@@ -1823,7 +1823,7 @@ describe("community DB sync", () => {
   it("cascades roots removed by authoritative server, tree, and DM replacement", async () => {
     const db = await registry()
     const navigationMemory = new Map<string, string>()
-    vi.stubGlobal("window", {})
+    vi.stubGlobal("window", new EventTarget())
     vi.stubGlobal("localStorage", {
       getItem: (key: string) => navigationMemory.get(key) ?? null,
       setItem: (key: string, value: string) => navigationMemory.set(key, value),
@@ -2139,7 +2139,7 @@ describe("community DB sync", () => {
   it("purges durable rows and transient owners for channel and server scopes", async () => {
     const db = await registry()
     const navigationMemory = new Map<string, string>()
-    vi.stubGlobal("window", {})
+    vi.stubGlobal("window", new EventTarget())
     vi.stubGlobal("localStorage", {
       getItem: (key: string) => navigationMemory.get(key) ?? null,
       setItem: (key: string, value: string) => navigationMemory.set(key, value),

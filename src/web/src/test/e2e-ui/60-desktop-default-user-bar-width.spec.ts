@@ -855,7 +855,7 @@ test.describe.serial("desktop default User Bar width", () => {
     await saved.page.setViewportSize({ width: 390, height: 844 })
     await installLayoutState(saved.page, seededLayout)
     await gotoAfterUserWsAuth(saved.page, "/c/me")
-    await expect(saved.page.getByRole("button", { name: "Friends", exact: true })).toBeVisible()
+    await expect(saved.page.getByRole("link", { name: "Friends", exact: true })).toBeVisible()
     await saved.page.setViewportSize({ width: 639, height: 844 })
     await expect(shellPanel(saved.page, "sidebar")).toBeVisible()
     const firstSampleCursor = await saved.page.evaluate(() => (
@@ -883,7 +883,7 @@ test.describe.serial("desktop default User Bar width", () => {
     await saved.page.setViewportSize({ width: 639, height: 844 })
     await expect(shellPanel(saved.page, "sidebar")).toBeHidden()
     await saved.page.goto("/c/me")
-    await expect(saved.page.getByRole("button", { name: "Friends", exact: true })).toBeVisible()
+    await expect(saved.page.getByRole("link", { name: "Friends", exact: true })).toBeVisible()
     await expect(shellPanel(saved.page, "sidebar")).toBeVisible()
     const secondSampleCursor = await saved.page.evaluate(() => (
       Reflect.get(window, "__desktopWidthSamples") as LayoutSample[]

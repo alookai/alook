@@ -26,6 +26,8 @@ import type { CommunityNavigationController } from "./use-community-navigation-c
 import type { QueryClient } from "@tanstack/react-query"
 import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
 
+import { communityServerLandingHref, useCommunityRailHrefs } from "./use-community-rail-hrefs"
+
 type Options = Pick<
   ShellFrameProps,
   | "view"
@@ -95,12 +97,9 @@ export function useShellRailController({
     [projectedActiveServerId, servers],
   )
 
+  const { homeHref, serverHrefs } = useCommunityRailHrefs(servers, breakpoint)
   const serverDestination = useCallback((id: string) => {
-    const complete = communityDb?.collections.servers.get(id)?.detailComplete === true
-    const channelIds = communityDb && complete
-      ? Array.from(communityDb.collections.channels.values()).filter((channel) => channel.serverId === id && channel.type !== "thread" && !channel.pending).map((channel) => channel.id)
-      : []
-    return resolveCommunityLandingHref({ serverId: id, channelIds, last: getLastChannel(id), breakpoint })
+    return communityServerLandingHref(communityDb, id, getLastChannel(id), breakpoint)
   }, [breakpoint, communityDb])
   const onServerNavigate = useCallback((id: string) => {
     markSwitch("server", id)
@@ -195,6 +194,8 @@ export function useShellRailController({
   return {
     railProps: {
       servers: railServers,
+      homeHref,
+      serverHrefs,
       folders,
       activeServerId: projectedActiveServerId,
       serversLoading: serversQuery.isPending && servers.length === 0,

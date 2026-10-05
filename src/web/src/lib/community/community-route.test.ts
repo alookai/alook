@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   advanceCommunityCommittedFrame,
   channelHref,
+  dmHref,
   isPublishedNonStructuralCommit,
   isStructuralFrameCommit,
   normalizeCommunityHref,
@@ -19,6 +20,11 @@ const removedNestedChannelPath = (...segments: string[]) => (
 )
 
 describe("community route", () => {
+  it("formats the same direct-message href for preview and activation", () => {
+    expect(dmHref("dm_1")).toBe("/c/me/dm_1")
+    expect(dmHref("dm/id")).toBe("/c/me/dm%2Fid")
+  })
+
   it.each([
     ["/c", "community-root-redirect", "neutral", "none", "route-resolution"],
     ["/c/me", "me-root", "list", "me", "me-root"],

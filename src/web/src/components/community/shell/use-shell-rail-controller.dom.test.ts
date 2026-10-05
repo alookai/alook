@@ -18,8 +18,8 @@ const mocks = vi.hoisted(() => ({
   lastChannel: { current: null as string | null },
   lastMeLeaf: { current: null as string | null },
   communityDb: { current: null as null | { collections: {
-    servers: { get: (id: string) => { detailComplete?: boolean } | undefined }
-    channels: { values: () => IterableIterator<Record<string, unknown>> }
+    servers: { get: (id: string) => { detailComplete?: boolean } | undefined; subscribeChanges: (notify: () => void) => { unsubscribe: () => void } }
+    channels: { values: () => IterableIterator<Record<string, unknown>>; subscribeChanges: (notify: () => void) => { unsubscribe: () => void } }
   } } },
 }))
 
@@ -56,7 +56,8 @@ vi.mock("@/lib/community/last-channel", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/community/last-channel")>(),
   getLastChannel: () => mocks.lastChannel.current,
 }))
-vi.mock("@/lib/community/last-me-location", () => ({
+vi.mock("@/lib/community/last-me-location", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/community/last-me-location")>(),
   ME_ROOT: "/c/me",
   getLastMeLeaf: () => mocks.lastMeLeaf.current,
   pickMeLandingLocation: (leaf: string | null) => `/c/me/${leaf ?? "friends"}`,
@@ -280,8 +281,8 @@ describe("useShellRailController", () => {
       ["foreign", { id: "foreign", serverId: "s2", type: "text", pending: false }],
     ])
     mocks.communityDb.current = { collections: {
-      servers: { get: (id) => servers.get(id) },
-      channels: { values: () => channels.values() },
+      servers: { get: (id) => servers.get(id), subscribeChanges: () => ({ unsubscribe: vi.fn() }) },
+      channels: { values: () => channels.values(), subscribeChanges: () => ({ unsubscribe: vi.fn() }) },
     } }
     const hook = await renderController()
 

@@ -2,6 +2,7 @@
 import { useCommunityRuntime } from "@/stores/community/runtime"
 
 
+import { dmHref } from "@/lib/community/community-route"
 import { useCallback, useMemo } from "react"
 import { useCommunityRouteFrame } from "./community-route-context"
 import { DmSidebar } from "@/components/community/channels/dm-sidebar"
@@ -40,7 +41,7 @@ function MeSidebar() {
   // Navigation is intentionally read-neutral. The visible-row observer owns
   // both optimistic clearing and the durable cursor write.
   const enterDm = useCallback((id: string) => {
-    communityRuntime.ui.get().uiHandlers.navigatePath?.(`/c/me/${id}`)
+    communityRuntime.ui.get().uiHandlers.navigatePath?.(dmHref(id))
   }, [communityRuntime.ui])
 
   const onShowFriends = useCallback(() => {

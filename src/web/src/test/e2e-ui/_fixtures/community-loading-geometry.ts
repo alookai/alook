@@ -480,7 +480,7 @@ export async function seedGeometryRoutes(serverIds: string[]): Promise<Omit<Matr
       .getByTestId(tid.threadSplitPanel)
       .getByTestId(tid.composerInput)
   return [
-      { name: "me-list", pathname: "/c/me", mobileRail: true, ready: (page) => page.getByRole("button", { name: "Friends", exact: true }) },
+      { name: "me-list", pathname: "/c/me", mobileRail: true, ready: (page) => page.getByRole("link", { name: "Friends", exact: true }) },
       { name: "friends", pathname: "/c/me/friends", ready: (page) => page.getByPlaceholder("Search friends") },
       { name: "machines", pathname: "/c/me/machines", ready: (page) => page.getByTestId(tid.machinePairOpen) },
       { name: "bots", pathname: "/c/me/bots", ready: (page) => page.getByRole("button", { name: /Create a bot|Connect a machine/ }) },
@@ -559,7 +559,7 @@ export async function runAndroidLoadingGeometry(asUser: CommunityAsUser, testInf
             communityReads.release()
             await expect(
               pathname === "/c/me"
-                ? page.getByRole("button", { name: "Friends", exact: true })
+                ? page.getByRole("link", { name: "Friends", exact: true })
                 : page.getByTestId(tid.machinePairOpen),
             ).toBeVisible({ timeout: 30_000 })
             if (pendingHeading) {
