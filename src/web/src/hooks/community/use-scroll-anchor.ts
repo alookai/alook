@@ -464,6 +464,7 @@ export function useScrollAnchor({
         if (owner.kind === "initial" && !initialScrollReadyRef.current) return
         semanticIntentRef.current = null
         owner.nativeIndex = false
+        if (intent.type !== "end" && root.scrollTop <= 1) holdNativeOrigin(currentItemsRef.current[0]?.key ?? null)
         owner.kind = "idle"
         setOwnerKind("idle")
         readReadyRef.current = true
@@ -479,7 +480,7 @@ export function useScrollAnchor({
       initialSettleFrameRef.current = window.requestAnimationFrame(settle)
     }
     initialSettleFrameRef.current = window.requestAnimationFrame(settle)
-  }, [clearBudget, setOwnerKind, setReadPositionReady, settlePresentation])
+  }, [clearBudget, holdNativeOrigin, setOwnerKind, setReadPositionReady, settlePresentation])
 
   const startIntent = useCallback((type: Intent["type"], id: string | null, behavior: ScrollBehavior = "auto", notifyTarget = false) => {
     const owner = positionOwnerRef.current
