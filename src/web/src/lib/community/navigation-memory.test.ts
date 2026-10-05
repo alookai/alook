@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   clearNavigationMemory,
   readNavigationMemory,
+  subscribeNavigationMemory,
   writeNavigationMemory,
 } from "./navigation-memory"
 
@@ -22,6 +23,7 @@ describe("navigation-memory", () => {
       }),
     })
   })
+  afterEach(() => { vi.unstubAllGlobals() })
 
   it("round-trips and clears a value", () => {
     writeNavigationMemory("nav:key", "/c/me/machines")
@@ -43,8 +45,35 @@ describe("navigation-memory", () => {
 
   it("is SSR-safe", () => {
     vi.stubGlobal("window", undefined)
+    const notify = vi.fn()
+    const unsubscribe = subscribeNavigationMemory(notify)
+    expect(() => unsubscribe()).not.toThrow()
     expect(readNavigationMemory("nav:key")).toBeNull()
     expect(() => writeNavigationMemory("nav:key", "value")).not.toThrow()
     expect(() => clearNavigationMemory("nav:key")).not.toThrow()
+    expect(notify).not.toHaveBeenCalled()
+    expect(localStorage.getItem).not.toHaveBeenCalled()
+    expect(localStorage.setItem).not.toHaveBeenCalled()
+    expect(localStorage.removeItem).not.toHaveBeenCalled()
+  })
+
+  it("notifies browser changes and native storage events only until unsubscribe", () => {
+    const notify = vi.fn()
+    const unsubscribe = subscribeNavigationMemory(notify)
+    writeNavigationMemory("nav:key", "value")
+    expect(notify).toHaveBeenCalledTimes(1)
+    writeNavigationMemory("nav:key", "value")
+    expect(notify).toHaveBeenCalledTimes(1)
+    window.dispatchEvent(new Event("storage"))
+    expect(notify).toHaveBeenCalledTimes(2)
+    clearNavigationMemory("nav:key")
+    expect(notify).toHaveBeenCalledTimes(3)
+    clearNavigationMemory("nav:key")
+    expect(notify).toHaveBeenCalledTimes(3)
+    unsubscribe()
+    writeNavigationMemory("nav:key", "after-cleanup")
+    clearNavigationMemory("nav:key")
+    window.dispatchEvent(new Event("storage"))
+    expect(notify).toHaveBeenCalledTimes(3)
   })
 })

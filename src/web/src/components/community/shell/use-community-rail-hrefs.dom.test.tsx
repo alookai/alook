@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { createElement } from "react"
+import { renderToString } from "react-dom/server"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook } from "@/test/react-dom-harness"
 import { clearLastChannel, setLastChannel } from "@/lib/community/last-channel"
 import { setLastMeLocation } from "@/lib/community/last-me-location"
@@ -23,8 +25,49 @@ function collection<T>(initial: readonly [string, T][]) {
 }
 
 beforeEach(() => { localStorage.clear(); owner.registry = null })
+afterEach(() => { vi.restoreAllMocks() })
 
 describe("rail hrefs derived from canonical rows and existing navigation memory", () => {
+  it.each(["desktop", "mobile", "unknown"] as const)("server-renders deterministic %s links without reading client memory or subscribing", (breakpoint) => {
+    const servers = collection([["s", { detailComplete: true }], ["other", { detailComplete: true }]])
+    const channels = collection([
+      ["first", { id: "first", serverId: "s", type: "text" }],
+      ["second", { id: "second", serverId: "other", type: "text" }],
+    ])
+    owner.registry = { collections: { servers, channels } } as unknown as CommunityDbRegistry
+    setLastMeLocation("/c/me/machines")
+    setLastChannel("s", "remembered")
+    setLastChannel("other", "other-remembered")
+    const getItem = vi.spyOn(Storage.prototype, "getItem")
+    const setItem = vi.spyOn(Storage.prototype, "setItem")
+    const removeItem = vi.spyOn(Storage.prototype, "removeItem")
+    const getServer = vi.spyOn(servers, "get")
+    const channelValues = vi.spyOn(channels, "values")
+
+    function Rail() {
+      const { homeHref, serverHrefs } = useCommunityRailHrefs([{ id: "s" }, { id: "other" }], breakpoint)
+      return createElement("nav", null,
+        Object.entries({ home: homeHref, ...serverHrefs }).map(([id, href]) => createElement("a", { key: id, href }, id)))
+    }
+    const markup = document.createElement("div")
+    markup.innerHTML = renderToString(createElement(Rail))
+    expect(Object.fromEntries(Array.from(markup.querySelectorAll("a"), (link) => [link.textContent, link.getAttribute("href")]))).toEqual({
+      home: breakpoint === "desktop" ? "/c/me/friends" : "/c/me",
+      s: "/c/channels/s",
+      other: "/c/channels/other",
+    })
+    expect(getItem).not.toHaveBeenCalled()
+    expect(setItem).not.toHaveBeenCalled()
+    expect(removeItem).not.toHaveBeenCalled()
+    expect(getServer).not.toHaveBeenCalled()
+    expect(channelValues).not.toHaveBeenCalled()
+    expect(servers.listenerCount()).toBe(0)
+    expect(channels.listenerCount()).toBe(0)
+    expect(localStorage.getItem("community:lastChannel:me")).toBe("machines")
+    expect(localStorage.getItem("community:lastChannel:s")).toBe("remembered")
+    expect(localStorage.getItem("community:lastChannel:other")).toBe("other-remembered")
+  })
+
   it("updates remembered Home leaves after commit for each non-DM page", () => {
     const view = renderHook(() => useCommunityRailHrefs([], "desktop"))
     expect(view.result.current.homeHref).toBe("/c/me/friends")
