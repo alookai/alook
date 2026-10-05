@@ -209,7 +209,8 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(bodyTop(h.root, "m5")).toBeCloseTo(top, 0)
     expect(offset).not.toHaveBeenCalled()
   })
-  it("settles same-anchor hero growth once after native layout", () => {
+  it.each([0, 11])("settles same-anchor hero growth once with a %ipx scrollbar after native layout", gutter => {
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => scrollFixture.width - gutter)
     scrollFixture.bodyHeights.set("m0", 1200)
     const h = mount()
     h.move(400)
@@ -362,10 +363,13 @@ describe("locked native adapter and existing message scroll owner", () => {
       expect(offset).toHaveBeenCalledTimes(calls)
     }
   })
-  it("keeps a settled tail through width wrapping and later native row measurements", () => {
+  it.each([0, 11])("keeps a settled tail with a %ipx scrollbar through width wrapping and later native row measurements", gutter => {
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => scrollFixture.width - gutter)
     scrollFixture.width = 639
+    scrollFixture.height = 736
     const h = mount({ tailPaddingEnd: 40 })
     scrollFixture.width = 266
+    scrollFixture.height = 727
     for (const item of h.input.items) scrollFixture.bodyHeights.set(item.m.id, 190)
     h.stage({ tailPaddingEnd: 48 })
     resize()
@@ -557,6 +561,16 @@ describe("locked native adapter and existing message scroll owner", () => {
     scrollFixture.height += 100
     runFrames(1)
     expect(offset).not.toHaveBeenCalled()
+  })
+  it("keeps the content viewport anchor while native border-box delivery is pending with a scrollbar", () => {
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => scrollFixture.width - 11)
+    const h = mount()
+    h.move(h.root.scrollHeight - scrollFixture.height - 2)
+    scrollFixture.height += 100
+    runFrames(1)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(2)
+    resize(0)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(2)
   })
   it.each([0, 2, 8, 100, 300])("preserves the %ipx footer policy before native RO when composer growth does not clamp", async distance => {
     const h = mount()

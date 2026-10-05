@@ -254,6 +254,8 @@ export function useScrollAnchor({
     itemStart: number
     clientHeight: number
     clientWidth: number
+    outerHeight: number
+    outerWidth: number
     scrollHeight: number
     scrollTop: number
     total: number
@@ -553,12 +555,12 @@ export function useScrollAnchor({
     const previous = acceptedGeometryRef.current
     const pendingViewportRect = viewportTransition && previous?.epoch === owner.epoch
       && (previous.clientHeight !== root?.clientHeight || previous.clientWidth !== root?.clientWidth)
-      && Math.abs((native?.scrollRect?.height ?? 0) - previous.clientHeight) <= 1
-      && Math.abs((native?.scrollRect?.width ?? 0) - previous.clientWidth) <= 1
+      && Math.abs((native?.scrollRect?.height ?? 0) - previous.outerHeight) <= 1
+      && Math.abs((native?.scrollRect?.width ?? 0) - previous.outerWidth) <= 1
     if (!owner.active || !root || !native || root.clientHeight <= 0
       || Math.abs((native.scrollOffset ?? 0) - root.scrollTop) > 1
-      || (!pendingViewportRect && (Math.abs((native.scrollRect?.height ?? 0) - root.clientHeight) > 1
-        || Math.abs((native.scrollRect?.width ?? 0) - root.clientWidth) > 1))) return null
+      || (!pendingViewportRect && (Math.abs((native.scrollRect?.height ?? 0) - root.offsetHeight) > 1
+        || Math.abs((native.scrollRect?.width ?? 0) - root.offsetWidth) > 1))) return null
     const total = native.getTotalSize()
     const max = Math.max(0, root.scrollHeight - root.clientHeight)
     if (root.scrollTop < 0 || root.scrollTop > max + 1) return null
@@ -578,6 +580,7 @@ export function useScrollAnchor({
     return {
       epoch: owner.epoch, key: fold.key, prefix: bodyRect.top - wrapperRect.top,
       itemStart: fold.start, clientHeight: root.clientHeight, clientWidth: root.clientWidth,
+      outerHeight: root.offsetHeight, outerWidth: root.offsetWidth,
       scrollHeight: root.scrollHeight, scrollTop: root.scrollTop,
       total, paddingEnd: native.options.paddingEnd ?? 0,
       pinEligible: max - root.scrollTop <= 1 && !userScrolledAwayRef.current
