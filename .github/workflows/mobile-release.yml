@@ -130,6 +130,7 @@ jobs:
           unset IOS_CERTIFICATE IOS_CERTIFICATE_PASSWORD
           pnpm tauri ios build \
             --export-method app-store-connect \
+            --config src-tauri/tauri.ios.release.conf.json \
             --config "{\"bundle\":{\"iOS\":{\"bundleVersion\":\"${GITHUB_RUN_NUMBER}\"}}}"
 
       - name: Locate and verify IPA
@@ -160,6 +161,7 @@ jobs:
               entitlements = plistlib.load(entitlements_file)
 
           assert info["CFBundleIdentifier"] == "ai.alook.ios"
+          assert info["WKAppBoundDomains"] == ["localhost", "alook.ai"]
           assert info["CFBundleURLTypes"] == [
               {"CFBundleURLName": "ai.alook", "CFBundleURLSchemes": ["ai.alook"]}
           ]

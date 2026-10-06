@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 import path from "node:path";
 import { readFileSync } from "node:fs";
+import { withSerwist } from "@serwist/turbopack";
 
 const pkg = JSON.parse(readFileSync(path.resolve(__dirname, "package.json"), "utf-8"));
 const daemonPkg = JSON.parse(readFileSync(path.resolve(__dirname, "../daemon/package.json"), "utf-8"));
@@ -20,7 +21,7 @@ const nextConfig: NextConfig = {
 	},
 };
 
-export default nextConfig;
+export default withSerwist(nextConfig);
 
 // Enable calling `getCloudflareContext()` in `next dev`.
 // See https://opennext.js.org/cloudflare/bindings#local-access-to-bindings.
