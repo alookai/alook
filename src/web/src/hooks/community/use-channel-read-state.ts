@@ -2,9 +2,10 @@
 
 import { useLayoutEffect, useMemo } from "react"
 import { createStore, useSelector } from "@tanstack/react-store"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient, type QueryFunctionContext } from "@tanstack/react-query"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
-import { captureChannelMetadataToken, isChannelMetadataTokenCurrent, type ChannelMetadataResource } from "./channel-metadata"
+import { channelMetadataOptions, captureChannelMetadataToken, isChannelMetadataTokenCurrent, type ChannelMetadataResource } from "./channel-metadata"
+import { retryConversationRead, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 
@@ -21,6 +22,47 @@ export type ChannelReadStateSnapshot = {
   // this channel; consumers subtract from `latestSeq` for the unread-count
   // pill without needing to walk loaded rows.
   lastReadSeq: number
+}
+
+export function channelReadStateSnapshotQueryFn(
+  channelId: string,
+  kind: "channel" | "dm",
+  options?: { assertNavigationCurrent: () => void; waitForRegistryReady: boolean },
+) {
+  return async ({ client, signal }: QueryFunctionContext): Promise<ChannelReadStateSnapshot> => {
+    const token = captureChannelMetadataToken(client, channelId)
+    const metadataKey = communityKeys.channelMeta(null, channelId)
+    const assert = () => {
+      if (signal.aborted || !isChannelMetadataTokenCurrent(token)) throw new DOMException("Stale read-state owner", "AbortError")
+      options?.assertNavigationCurrent()
+    }
+    assert()
+    const metadataQuery = kind === "dm"
+      ? client.getQueryCache().build(client, client.defaultQueryOptions(channelMetadataOptions(client, null, channelId)))
+      : undefined
+    const updateHistory = (historyVerification?: ChannelMetadataResource["historyVerification"]) => {
+      if (!metadataQuery || !Object.is(client.getQueryCache().find({ queryKey: metadataKey, exact: true }), metadataQuery)) return
+      const metadata = client.setQueryData<ChannelMetadataResource>(metadataKey, (previous) => previous
+        ? { ...previous, historyVerification }
+        : historyVerification ? { id: channelId, verifiedEpoch: -1, historyVerification } : undefined)
+      if (metadata && !metadata.verification) metadataQuery.invalidate()
+    }
+    try {
+      const snapshot = await withConversationReadDeadline(signal, async (readSignal) => {
+        if (options?.waitForRegistryReady) await token.registry!.ready
+        readSignal.throwIfAborted()
+        assert()
+        return apiFetch<ChannelReadStateSnapshot>(`/api/community/channels/${channelId}/read-state`, communityRequestOptions(client, token, readSignal, assert))
+      })
+      assert()
+      updateHistory(token)
+      return snapshot
+    } catch (error) {
+      assert()
+      if (typeof error === "object" && error !== null && "status" in error && [403, 404].includes(Number(error.status))) updateHistory()
+      throw error
+    }
+  }
 }
 
 /**
@@ -62,25 +104,7 @@ export function useChannelReadStateSnapshot(
     queryKey: channelId
       ? kind === "dm" ? communityKeys.dmReadStateSnapshot(channelId) : communityKeys.channelReadStateSnapshot(channelId)
       : ["community", kind, "__none__", "read-state-snapshot"],
-    queryFn: async ({ client, signal }) => {
-      const token = captureChannelMetadataToken(client, channelId!)
-      const metadataKey = communityKeys.channelMeta(null, channelId!)
-      const metadataQuery = kind === "dm" ? client.getQueryCache().find({ queryKey: metadataKey, exact: true }) : undefined
-      const assert = () => { if (signal.aborted || !isChannelMetadataTokenCurrent(token)) throw new DOMException("Stale read-state owner", "AbortError") }
-      const updateHistory = (historyVerification?: ChannelMetadataResource["historyVerification"]) => {
-        if (metadataQuery && client.getQueryCache().find({ queryKey: metadataKey, exact: true }) === metadataQuery) client.setQueryData<ChannelMetadataResource>(metadataKey, (metadata) => metadata ? { ...metadata, historyVerification } : metadata)
-      }
-      try {
-        const snapshot = await apiFetch<ChannelReadStateSnapshot>(`/api/community/channels/${channelId}/read-state`, communityRequestOptions(client, token, signal, assert))
-        assert()
-        updateHistory(token)
-        return snapshot
-      } catch (error) {
-        assert()
-        if (typeof error === "object" && error !== null && "status" in error && [403, 404].includes(Number(error.status))) updateHistory()
-        throw error
-      }
-    },
+    queryFn: channelReadStateSnapshotQueryFn(channelId ?? "__none__", kind),
     enabled: !!channelId,
     subscribed: !!channelId,
     staleTime: Infinity,
@@ -96,7 +120,8 @@ export function useChannelReadStateSnapshot(
     refetchOnReconnect: false,
     // Snapshot is one-shot; even if TanStack retries a failed fetch, the
     // Store latches only the FIRST resolved value we see.
-    retry: kind === "dm" ? (failureCount, error) => error.name !== "AbortError" && !("status" in error && [403, 404].includes(Number(error.status))) && failureCount < 1 : 1,
+    retry: retryConversationRead,
+    networkMode: "always",
   })
 
   useLayoutEffect(() => {

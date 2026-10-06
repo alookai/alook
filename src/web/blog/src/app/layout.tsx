@@ -1,3 +1,4 @@
+import { ObservedRouteCommit } from "@/lib/observability/regions";
 import type { Metadata, Viewport } from "next";
 import { AnalyticsConsent } from "@/components/analytics-consent";
 import { caveat, dmMono, dmSans, instrumentSerif, literata, vt323 } from "@/app/fonts";
@@ -33,7 +34,8 @@ export default function BlogRootLayout({
 				<ThemeProvider attribute="class" defaultTheme="system" enableSystem>
 					<ThemeColorSync />
 					{children}
-					<AnalyticsConsent />
+					<ObservedRouteCommit />
+        <AnalyticsConsent />
 				</ThemeProvider>
 			</body>
 		</html>

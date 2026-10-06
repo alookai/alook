@@ -1,7 +1,9 @@
 "use client"
 
+import { beginNavigation, navigationNoop } from "@/lib/observability/context"
+
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useCallback, useEffect, useRef } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react"
 import { flushSync } from "react-dom"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
@@ -20,6 +22,7 @@ import type { ShellRouter } from "./shell-frame-types"
 import { cancelActiveConversationNavigationProof } from "@/lib/community/conversation-navigation-proof"
 
 export type CommunityNavigationController = {
+  captureIntent: () => () => boolean
   publishedHref: string
   navigationPending: boolean
   pendingHref: string | null
@@ -40,6 +43,19 @@ export function useCommunityNavigationController(
   const publishedHref = search ? `${pathname}?${search}` : pathname
   const queryClient = useQueryClient()
   const gateRef = useRef(createNavigationIntentGate())
+  const mountedRef = useRef(false)
+  useLayoutEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
+  const committedFrameRef = useRef(committedFrame)
+  useLayoutEffect(() => { committedFrameRef.current = committedFrame }, [committedFrame])
+  const captureIntent = useCallback(() => {
+    const revision = gateRef.current.revision
+    const frameRevision = committedFrameRef.current.revision
+    return () => mountedRef.current && revision === gateRef.current.revision
+      && frameRevision === committedFrameRef.current.revision
+  }, [])
   const pendingBaselineRevisionRef = useRef(committedFrame.revision)
   const pendingBaselineLeafRef = useRef(committedFrame.leafKey)
   const [navigationPending, setNavigationPending] = useAtom(useCreateAtom(false))
@@ -78,7 +94,8 @@ export function useCommunityNavigationController(
   }, [cancelPendingNavigation])
 
   const push = useCallback((href: string) => {
-    if (href === publishedHref && !navigationPending) return
+    if (href === publishedHref && !navigationPending) { navigationNoop(href); return }
+    beginNavigation(href)
     supersedeNavigationIntent(gateRef.current)
     cancelActiveConversationNavigationProof(queryClient)
     pendingBaselineRevisionRef.current = committedFrame.revision
@@ -94,7 +111,8 @@ export function useCommunityNavigationController(
   }, [committedFrame.leafKey, committedFrame.revision, navigationPending, publishedHref, queryClient, router, setNavigationPending, setPendingHref])
 
   const pushImmediate = useCallback((href: string) => {
-    if (href === publishedHref && !navigationPending) return
+    if (href === publishedHref && !navigationPending) { navigationNoop(href); return }
+    beginNavigation(href)
     supersedeNavigationIntent(gateRef.current)
     pendingBaselineRevisionRef.current = committedFrame.revision
     pendingBaselineLeafRef.current = committedFrame.leafKey
@@ -108,7 +126,8 @@ export function useCommunityNavigationController(
   }, [committedFrame.leafKey, committedFrame.revision, navigationPending, publishedHref, router, setNavigationPending, setPendingHref])
 
   const replace = useCallback((href: string) => {
-    if (href === publishedHref && !navigationPending) return
+    if (href === publishedHref && !navigationPending) { navigationNoop(href); return }
+    beginNavigation(href)
     supersedeNavigationIntent(gateRef.current)
     cancelActiveConversationNavigationProof(queryClient)
     pendingBaselineRevisionRef.current = committedFrame.revision
@@ -124,24 +143,31 @@ export function useCommunityNavigationController(
     pendingBaselineLeafRef.current = committedFrame.leafKey
     setNavigationPending(true)
     setPendingHref(null)
-    try {
-      return await commitLatestNavigationIntent(gateRef.current, resolve, (href) => {
+    const operation = commitLatestNavigationIntent(gateRef.current, resolve, (href) => {
         if (href === publishedHref) {
+          navigationNoop(href)
           setNavigationPending(false)
           setPendingHref(null)
           return
         }
+        beginNavigation(href)
         setPendingHref(href)
         router.push(href)
-      })
+    })
+    const revision = gateRef.current.revision
+    try {
+      return await operation
     } catch (error) {
-      setNavigationPending(false)
-      setPendingHref(null)
+      if (gateRef.current.revision === revision) {
+        setNavigationPending(false)
+        setPendingHref(null)
+      }
       throw error
     }
   }, [committedFrame.leafKey, committedFrame.revision, publishedHref, queryClient, router, setNavigationPending, setPendingHref])
 
   return {
+    captureIntent,
     publishedHref,
     navigationPending,
     pendingHref,

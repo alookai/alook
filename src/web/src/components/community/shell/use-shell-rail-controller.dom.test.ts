@@ -18,8 +18,8 @@ const mocks = vi.hoisted(() => ({
   lastChannel: { current: null as string | null },
   lastMeLeaf: { current: null as string | null },
   communityDb: { current: null as null | { collections: {
-    servers: { get: (id: string) => { detailComplete?: boolean } | undefined }
-    channels: { values: () => IterableIterator<Record<string, unknown>> }
+    servers: { get: (id: string) => { detailComplete?: boolean } | undefined; subscribeChanges: (notify: () => void) => { unsubscribe: () => void } }
+    channels: { values: () => IterableIterator<Record<string, unknown>>; subscribeChanges: (notify: () => void) => { unsubscribe: () => void } }
   } } },
 }))
 
@@ -56,7 +56,8 @@ vi.mock("@/lib/community/last-channel", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/community/last-channel")>(),
   getLastChannel: () => mocks.lastChannel.current,
 }))
-vi.mock("@/lib/community/last-me-location", () => ({
+vi.mock("@/lib/community/last-me-location", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/community/last-me-location")>(),
   ME_ROOT: "/c/me",
   getLastMeLeaf: () => mocks.lastMeLeaf.current,
   pickMeLandingLocation: (leaf: string | null) => `/c/me/${leaf ?? "friends"}`,
@@ -82,6 +83,7 @@ async function renderController(overrides: Record<string, unknown> = {}) {
     prefetch: (href: string) => { prefetched.push(href) },
   }
   const navigation = {
+    captureIntent: () => () => true,
     publishedHref: "/c/channels/s1",
     navigationPending: false,
     pendingHref: null,
@@ -199,6 +201,20 @@ describe("useShellRailController", () => {
     expect(mocks.markSwitch).toHaveBeenLastCalledWith("channel", "c1")
   })
 
+  it("keeps active-server overlays on their current leaf without a direct opener", async () => {
+    const hook = await renderController()
+    hook.navigation.publishedHref = "/c/channels/s1/c1?keep=1#message_1"
+    await hook.rerender()
+    await act(async () => {
+      hook.current.railProps.onOpenSettings("s1")
+      hook.current.railProps.onOpenInvitePopover("s1")
+    })
+    expect(hook.pushed).toEqual([
+      "/c/channels/s1/c1?keep=1&settings=1#message_1",
+      "/c/channels/s1/c1?keep=1&invite=1#message_1",
+    ])
+  })
+
   it("keeps settings and invite actions synchronous and scoped to their target", async () => {
     const openSettings = vi.fn()
     const openInvite = vi.fn()
@@ -265,8 +281,8 @@ describe("useShellRailController", () => {
       ["foreign", { id: "foreign", serverId: "s2", type: "text", pending: false }],
     ])
     mocks.communityDb.current = { collections: {
-      servers: { get: (id) => servers.get(id) },
-      channels: { values: () => channels.values() },
+      servers: { get: (id) => servers.get(id), subscribeChanges: () => ({ unsubscribe: vi.fn() }) },
+      channels: { values: () => channels.values(), subscribeChanges: () => ({ unsubscribe: vi.fn() }) },
     } }
     const hook = await renderController()
 
@@ -382,17 +398,18 @@ describe("useShellRailController", () => {
     expect(mocks.toastApiError).toHaveBeenCalledWith(
       iconError,
       "Server created, but the icon failed to upload",
+      expect.any(Function),
     )
 
     const createError = new Error("create")
     mocks.createServer.mockRejectedValueOnce(createError)
     await act(async () => hook.current.railProps.onCreateServer("Broken"))
-    expect(mocks.toastApiError).toHaveBeenCalledWith(createError, "Failed to create server")
+    expect(mocks.toastApiError).toHaveBeenCalledWith(createError, "Failed to create server", expect.any(Function))
 
     await act(async () => hook.current.railProps.onLeaveServer("s2"))
     const leaveError = new Error("leave")
     mocks.leaveServer.mock.calls.at(-1)![1].onError(leaveError)
-    expect(mocks.toastApiError).toHaveBeenCalledWith(leaveError, "Failed to leave server")
+    expect(mocks.toastApiError).toHaveBeenCalledWith(leaveError, "Failed to leave server", expect.any(Function))
   })
 
   it("passes complete memberships to the normalized rail and no legacy mutation callbacks", async () => {

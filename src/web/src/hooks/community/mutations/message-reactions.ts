@@ -26,7 +26,7 @@ function useReactionIntent(intent: "toggle" | "add") {
   const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
   const assert = (args: Intent) => { origin.assert(args.token); args.assertActive?.() }
   const pending = useCallback((args: ReactionArgs) => queryClient.getMutationCache().findAll({ mutationKey: key, status: "pending", predicate: (mutation) => same(mutation.state.variables as Intent, args) }).map((mutation) => mutation.state.variables as Intent), [queryClient])
-  const mutation = useMutation<void, Error, Intent>({
+  const mutation = useMutation<void, Error, Intent>({ meta: { observabilityAction: intent === "add" ? "message.reaction.add" : "message.reaction.toggle" },
     mutationKey: key, scope: { id: "community-reaction-commands" }, gcTime: 0,
     onMutate: async (args) => {
       await origin.registry?.ready

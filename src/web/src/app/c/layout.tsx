@@ -3,7 +3,7 @@ import { getSession } from "@/lib/session"
 import { avatarInitial } from "@/lib/community/avatar"
 import { CommunityLayoutClient } from "./community-layout-client"
 
-export default async function CommunityLayout({ children }: { children: ReactNode }) {
+export default async function CommunityLayout({ children, sidebar }: { children: ReactNode; sidebar: ReactNode }) {
   const session = await getSession()
   const currentUser = session
     ? {
@@ -16,7 +16,7 @@ export default async function CommunityLayout({ children }: { children: ReactNod
     : null
 
   return (
-    <CommunityLayoutClient currentUser={currentUser}>
+    <CommunityLayoutClient currentUser={currentUser} sidebar={sidebar}>
       {children}
     </CommunityLayoutClient>
   )

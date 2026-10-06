@@ -56,7 +56,9 @@ const controller = {
   selectMode: true,
   selectedIds: new Set(["m1"]),
   jumpTo: vi.fn(),
-  onImageLoad: vi.fn(),
+  items: [null],
+  topSentinelRef: vi.fn(),
+  bottomSentinelRef: vi.fn(),
   onToggleSelectId: vi.fn(),
   onEnterSelectId: vi.fn(),
 } as unknown as MessageListController
@@ -64,20 +66,17 @@ const controller = {
 describe("renderMessageListRow", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("renders divider branches without mounting MessageRow", () => {
-    const date = render(renderMessageListRow(
-      { kind: "date-divider", key: "d", label: "Today" } as FlatItem,
-      props,
-      controller,
-    ))
-    const unread = render(renderMessageListRow(
-      { kind: "new-divider", key: "n", dateLabel: "Today" } as FlatItem,
-      props,
-      controller,
-    ))
-    expect(date.getByTestId("date-divider")).toHaveAttribute("data-label", "Today")
-    expect(unread.getByTestId("new-divider")).toHaveAttribute("data-date-label", "Today")
-    expect(mockedMessageRow).not.toHaveBeenCalled()
+  it("keeps merged New/date and edge decorations outside the actual body", () => {
+    const item: FlatItem = { kind: "message", key: "m1", dateLabel: "Today", newDivider: true, m: { id: "m1", type: "chat" } }
+    const view = render(renderMessageListRow(item, { ...props, hasMore: true, hasMoreNewer: true }, controller, 0))
+    const body = view.container.querySelector('[data-msg-id="m1"]')!
+    expect(view.getByTestId("new-divider")).toHaveAttribute("data-date-label", "Today")
+    expect(body.querySelector('[data-testid="new-divider"]')).toBeNull()
+    expect(view.queryByTestId("date-divider")).toBeNull()
+    expect(view.container.firstElementChild).toHaveClass("flow-root")
+    expect(controller.topSentinelRef).toHaveBeenCalled()
+    expect(controller.bottomSentinelRef).toHaveBeenCalled()
+    expect(mockedMessageRow).toHaveBeenCalledOnce()
   })
 
   it("projects every row identity/action prop and gates edit to the viewer", () => {
@@ -94,6 +93,7 @@ describe("renderMessageListRow", () => {
       { kind: "message", key: "m1", m: message } as FlatItem,
       props,
       controller,
+      0,
     ))
     expect(renderer.container.querySelector('[data-msg-id="m1"]'))
       .toHaveAttribute("data-testid", "community-message-m1")
@@ -120,7 +120,6 @@ describe("renderMessageListRow", () => {
       onPreviewImage: callbacks.onPreviewImage,
       onPreviewAttachment: callbacks.onPreviewAttachment,
       resolveUserName: callbacks.resolveUserName,
-      onImageLoad: controller.onImageLoad,
       selectMode: true,
       selected: true,
       onToggleSelectId: controller.onToggleSelectId,
@@ -131,7 +130,9 @@ describe("renderMessageListRow", () => {
       { kind: "message", key: "m1", m: { ...message, authorId: "peer_1" } } as FlatItem,
       props,
       controller,
+      0,
     ))
     expect(mockedMessageRow.mock.calls.at(-1)?.[0].onEditId).toBeUndefined()
+    expect(mockedMessageRow.mock.calls.at(-1)?.[0].onImageLoad).toBeUndefined()
   })
 })

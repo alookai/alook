@@ -15,7 +15,7 @@ describe("channel sidebar touch drag contracts", () => {
       "useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } })",
     )
     expect(sidebar).toContain(
-      "useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })",
+      "useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates, keyboardCodes: { start: [\"Space\"], cancel: [\"Escape\"], end: [\"Space\", \"Enter\", \"Tab\"] } })",
     )
     expect(sidebar).toContain("collisionDetection={channelSidebarCollisionDetection}")
     expect(sidebar).toContain('activeData?.kind !== "category"')
@@ -29,6 +29,7 @@ describe("channel sidebar touch drag contracts", () => {
     const category = readSource("./sortable-category.tsx")
 
     expect(channel).toContain("onClick={onClick}")
+    expect(channel).toContain("onActivate={onClick}")
     expect(category).toContain("onClick: onToggle")
     expect(category).toContain('data: { kind: "category" }')
     expect(category).toContain("ref: setActivatorNodeRef")

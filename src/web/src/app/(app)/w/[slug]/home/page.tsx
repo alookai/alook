@@ -1,5 +1,8 @@
 "use client";
 
+import { useObservedRegion } from "@/lib/observability/regions"
+import { viewEvidence, mergeEvidence } from "@/lib/observability/data-source"
+
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -113,6 +116,7 @@ function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }
   const router = useRouter();
   const { agents, runtimes, loading, activeTaskCounts, agentLinks, pendingNewAgent, clearPendingNewAgent } = useAgentContext();
   const owner = useWorkspaceOwner();
+  useObservedRegion("agents", !loading, mergeEvidence([viewEvidence(agents), viewEvidence(agentLinks), viewEvidence(runtimes)]));
   const { slug, workspaceId } = owner;
   const source = useWorkspaceViewSource(owner, "canvas", true);
   const { zoomIn, zoomOut, fitView } = useReactFlow();
@@ -331,7 +335,7 @@ function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }
   }, [canvasScope, setNodes]);
 
   const linkKey = owner.key("agent-links");
-  const linkCommand = useMutation({ mutationKey: owner.key("agent-link-command"), scope: { id: JSON.stringify(owner.key("agent-link-command")) },
+  const linkCommand = useMutation({ meta: { observabilityAction: "agent.link.command" }, mutationKey: owner.key("agent-link-command"), scope: { id: JSON.stringify(owner.key("agent-link-command")) },
     mutationFn: async ({ action, token }: { action: { kind: "create"; source: string; target: string } | { kind: "update"; id: string; instruction: string } | { kind: "delete"; id: string }; token: ReturnType<typeof captureWorkspaceOwner> }) => {
       const assert = () => assertWorkspaceOwner(token), qc = owner.queryClient;
       assert();

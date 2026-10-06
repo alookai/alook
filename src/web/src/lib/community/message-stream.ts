@@ -1,3 +1,4 @@
+import { deriveView, sourceEvidence, viewEvidence } from "@/lib/observability/data-source"
 import type { Msg } from "@/lib/community/models/message"
 import type { MentionType } from "@alook/shared"
 import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
@@ -144,7 +145,7 @@ function upsertLiveCanonical(
       if (id !== message.id && compoundIdentity(current) === identity) liveById.delete(id)
     }
   }
-  liveById.set(message.id, { ...message, failed: false })
+  liveById.set(message.id, deriveView({ ...message, failed: false }, [viewEvidence(message)]))
 }
 
 function mergeCanonicalAttachments(
@@ -154,17 +155,17 @@ function mergeCanonicalAttachments(
   if (canonical.attachments !== undefined || !current.attachments?.length) {
     return canonical
   }
-  return { ...canonical, attachments: current.attachments }
+  return deriveView({ ...canonical, attachments: current.attachments }, [viewEvidence(canonical), viewEvidence(current)])
 }
 
 function materializeIntent(intent: OutboxIntent): Msg {
-  return {
+  return deriveView({
     ...intent.message,
     id: intent.serverMessageId ?? intent.tempId,
     ...(intent.serverSeq !== undefined ? { seq: intent.serverSeq } : {}),
     clientNonce: intent.nonce,
     failed: intent.status === "failed" || intent.uploadStatus === "failed",
-  }
+  }, [sourceEvidence(intent, "local_mutation"), ...(intent.status === "acked" ? [viewEvidence(intent.message)] : [])])
 }
 
 function localUploadAttachments(
@@ -437,7 +438,8 @@ export function reduceMessageOverlay(
       const liveById = new Map(state.liveById)
       const live = liveById.get(event.messageId)
       if (live) {
-        liveById.set(event.messageId, { ...live, content: event.content })
+        const edited = { ...live, content: event.content }
+        liveById.set(event.messageId, deriveView(edited, [viewEvidence(live), sourceEvidence(edited, "local_mutation")]))
         changed = true
       }
       const outboxByNonce = new Map(state.outboxByNonce)

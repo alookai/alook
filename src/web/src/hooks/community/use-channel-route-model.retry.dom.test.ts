@@ -9,15 +9,16 @@ import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityStore } from "@/stores/community"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import { runAuthoritativeServerEject } from "@/lib/community/eject-server"
 
-const mocks = vi.hoisted(() => ({ apiFetch: vi.fn(), replace: vi.fn(), toast: vi.fn() }))
+const mocks = vi.hoisted(() => ({ apiFetch: vi.fn(), replace: vi.fn(), toast: vi.fn(),
+  server: { server: { id: "server-1", categories: [{ channels: [{ id: "parent-1", name: "parent", type: "text" }] }] } as { id: string; categories: { channels: { id: string; name: string; type: string }[] }[] } | null,
+    isError: false, isFetching: false, refetch: vi.fn(() => Promise.resolve()) },
+}))
 vi.mock("@/lib/api/client", () => ({ apiFetch: mocks.apiFetch, toastApiError: mocks.toast }))
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: mocks.replace }) }))
 vi.mock("./use-servers", () => ({
-  useServer: () => ({ server: {
-    id: "server-1",
-    categories: [{ channels: [{ id: "parent-1", name: "parent", type: "text" }] }],
-  } }),
+  useServer: () => mocks.server,
 }))
 vi.mock("./use-community-ws", () => ({ communityWsSubscribe: vi.fn(), communityWsUnsubscribe: vi.fn() }))
 vi.mock("./use-forum-sidebar-threads", () => ({
@@ -69,6 +70,8 @@ function payload(id = "post-1") {
 
 beforeEach(async () => {
   mocks.apiFetch.mockReset()
+  Object.assign(mocks.server, { server: { id: "server-1", categories: [{ channels: [{ id: "parent-1", name: "parent", type: "text" }] }] }, isError: false, isFetching: false })
+  mocks.server.refetch.mockReset().mockResolvedValue(undefined)
   mocks.replace.mockClear()
   mocks.toast.mockClear()
   client = (await createCommunityQueryOwner("viewer-1", { defaultOptions: { queries: { retry: 1, retryDelay: 0, gcTime: Infinity } } })).client
@@ -80,6 +83,28 @@ afterEach(async () => {
 })
 
 describe("unresolved metadata terminal error and retry", () => {
+  it("keeps a missing server dependency retryable until its own read settles", async () => {
+    mocks.apiFetch.mockResolvedValue(payload())
+    Object.assign(mocks.server, { server: null, isError: true })
+    await mount()
+    await until(() => current.serverError)
+    expect(current.routeLifecycle).toBe("terminal-error")
+    let release!: () => void
+    mocks.server.refetch.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve }))
+    let request!: Promise<void>
+    await act(async () => { request = current.retryServer(); void current.retryServer() })
+    expect(mocks.server.refetch).toHaveBeenCalledOnce()
+    Object.assign(mocks.server, { isError: false, isFetching: true })
+    renderer!.rerender(tree())
+    expect(current.serverError).toBe(true)
+    expect(current.retryingServer).toBe(true)
+    await act(async () => { release(); await request })
+    Object.assign(mocks.server, { server: { id: "server-1", categories: [{ channels: [{ id: "parent-1", name: "parent", type: "text" }] }] }, isFetching: false })
+    renderer!.rerender(tree())
+    await until(() => current.routeHydrated)
+    expect(current.serverError).toBe(false)
+  })
+
   it("waits for the original automatic retries before showing a persistent error", async () => {
     const first = deferred()
     const second = deferred()
@@ -156,6 +181,25 @@ describe("unresolved metadata terminal error and retry", () => {
     expect(mocks.replace).not.toHaveBeenCalled()
   })
 
+  it("does not overwrite a server eject with the denied channel's server root", async () => {
+    const owner = getCommunityDbRegistry(client)!
+    owner.runtime.ws.actions.revokeServerAccess("server-1")
+    client.getQueryCache().build(client, {
+      queryKey: communityKeys.channelMeta("server-1", "post-1"),
+    }).setState({ error: new ApiError("denied", 403), status: "error", fetchStatus: "idle" })
+    expect(runAuthoritativeServerEject({
+      serverId: "server-1", servers: [], isSuccess: true, isFetching: false,
+      consumeVoluntaryLeave: () => false, clearLastChannel: vi.fn(),
+      toast: mocks.toast, replace: mocks.replace,
+    })).toBe(true)
+    await mount()
+    await until(() => current.routeLifecycle === "terminal-error")
+
+    expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/me")
+    expect(owner.runtime.ws.actions.isChannelAccessRevoked("post-1", "server-1")).toBe(true)
+    expect(current.metadataError).toBe(false)
+  })
+
   it.each([0, 500])("keeps a verified thread ready through disconnect, failed %s revalidation, and recovery", async (status) => {
     mocks.apiFetch.mockResolvedValue(payload())
     await mount()
@@ -190,6 +234,26 @@ describe("unresolved metadata terminal error and retry", () => {
     if (status !== 401) expect(mocks.replace).toHaveBeenCalledWith("/c/channels/server-1")
   })
 
+  it("keeps a legacy tag-derived archive bit pending without purging or revoking access", async () => {
+    const owner = getCommunityDbRegistry(client)!
+    owner.collections.channels.utils.writeUpsert([{ ...payload(), type: "thread", archived: true, tags: ["archived"], position: 0, muted: false, unread: false, pending: false }])
+    owner.collections.messages.utils.writeUpsert([{ id: "reply-1", channelId: "post-1", type: "chat", content: "kept" }])
+    const held = deferred()
+    mocks.apiFetch.mockReturnValue(held.promise)
+    await mount()
+    await until(() => mocks.apiFetch.mock.calls.length > 0)
+    expect(current.routeLifecycle).toBe("pending")
+    expect(mocks.replace).not.toHaveBeenCalled()
+    expect(owner.runtime.ws.actions.isChannelAccessRevoked("post-1", "server-1")).toBe(false)
+    expect(owner.collections.messages.get("reply-1")?.content).toBe("kept")
+    await act(async () => held.resolve(payload()))
+    await until(() => current.routeHydrated)
+    expect(owner.collections.channels.get("post-1")?.archived).toBe(false)
+    expect(owner.collections.channels.get("post-1")?.tags).toEqual(["archived"])
+    expect(mocks.replace).not.toHaveBeenCalled()
+    expect(owner.collections.messages.get("reply-1")?.content).toBe("kept")
+  })
+
   it("does not retain a trusted route after an archived metadata response", async () => {
     mocks.apiFetch.mockResolvedValue(payload())
     await mount()
@@ -198,6 +262,8 @@ describe("unresolved metadata terminal error and retry", () => {
     await act(async () => { await reconcileCommunityWsReconnect(client, 60_000) })
     await until(() => !current.routeHydrated)
     expect(current.routeLifecycle).not.toBe("ready")
+    expect(mocks.replace).toHaveBeenCalledOnce()
+    expect(getCommunityDbRegistry(client)!.runtime.ws.actions.isChannelAccessRevoked("post-1", "server-1")).toBe(true)
   })
 
   it("requires fresh metadata after reauthorization and can exit again on a later denial", async () => {

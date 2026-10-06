@@ -1,5 +1,7 @@
 "use client"
+import { deriveView, viewEvidence } from "@/lib/observability/data-source"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
+import { conversationReadRetryPolicy, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { useSelector } from "@tanstack/react-store"
 
 
@@ -18,7 +20,7 @@ import type { ServerRow } from "@/lib/community-db/schema"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
-import { isServerOwner,UNCATEGORIZED_CATEGORY_ID } from "@alook/shared"
+import { isServerOwner,UNCATEGORIZED_CATEGORY_ID, type CommunityRole } from "@alook/shared"
 import type { Server,Category,Channel } from "@/lib/community/models/navigation"
 import {
 getActiveAccountUnreadProjection,
@@ -28,6 +30,7 @@ type AccountUnreadScope,
 type AccountUnreadSource,
 } from "./account-unread-projection"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import { useCommunityRuntime } from "@/stores/community/runtime"
 import { ApiError } from "@/lib/errors"
 import { evictServerChannelScopes } from "./community-ws/scope-eviction"
 import {
@@ -35,6 +38,7 @@ useAttentionScopes,
 useOptionalCommunityDbRegistry,
 useServerRailProjection,
 useServerTreeProjection,
+useServerMemberRows,
 } from "@/lib/community-db/projections"
 import {
 assertCommunityLiveSnapshotTokenCurrent,
@@ -57,6 +61,7 @@ type RawServerRow = {
   icon: string | null
   official?: boolean
   role?: string
+  memberId?: string
   mentions?: number
   unread?: boolean
   description?: string | null
@@ -92,6 +97,8 @@ export const serversQueryFn = async (
     // absent — treat it as 0 rather than NaN.
     mentions: s.mentions ?? 0,
     isOwner: isServerOwner(s.role),
+    ...(["owner", "admin", "member"].includes(s.role ?? "") ? { role: s.role as CommunityRole } : {}),
+    ...(s.memberId ? { memberId: s.memberId } : {}),
     icon: s.icon ?? null,
     official: s.official === true,
     ...(s.unreadSources ? { unreadSources: s.unreadSources } : {}),
@@ -194,6 +201,7 @@ export function useServers(): UseQueryResult<string[]> & { servers: Server[]; is
       return unread === server.unread && mentions === server.mentions ? server : { ...server, unread, mentions }
     })
   }, [attentionScopes, dbRail?.servers, serverAccess])
+  deriveView(servers, [viewEvidence(dbRail?.servers), viewEvidence(attentionScopes)])
   void structuralGeneration
   const state = registry?.runtime.ws.get()
   return {
@@ -208,6 +216,25 @@ export function useServers(): UseQueryResult<string[]> & { servers: Server[]; is
 }
 
 // ── Single-server detail ─────────────────────────────────────────────────────
+
+export function useViewerServerRole(serverId: string | null, viewerId: string): CommunityRole | undefined {
+  const registry = useOptionalCommunityDbRegistry()
+  const runtime = useCommunityRuntime()
+  const { servers } = useServers()
+  const authority = useSelector(registry?.serverListAuthority ?? absentAuthority, (value) => value)
+  const ownerGeneration = useSelector(runtime.lifecycle, (state) => state.active ? state.generation : -1)
+  const memberships = useServerMemberRows(serverId, [viewerId])
+  const qualified = useCommunityWsStore((state) => !!authority
+    && authority.viewerId === viewerId && state.profileViewerId === viewerId
+    && authority.accountEpoch === state.profileAccountEpoch
+    && authority.ownerGeneration === ownerGeneration
+    && !!serverId && !state.revokedServerIds.has(serverId))
+  if (!qualified || viewerId !== registry?.accountId
+    || !servers.some((server) => server.id === serverId)) return undefined
+  const membership = memberships.find((row) => row.viewer && row.userId === viewerId)
+  const role = membership?.role
+  return role === "owner" || role === "admin" || role === "member" ? role : undefined
+}
 
 export type ServerDetail = {
   id: string
@@ -308,33 +335,35 @@ export const serverProjectedQueryFn = (
   const family = `server-detail:${serverId}` as const
   const token = projection.beginSnapshot(family, "channels")
   try {
-    await structuralToken.registry?.ready
-    assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, signal)
-    await Promise.all([
-      structuralToken.registry!.collections.categories.preload(),
-      structuralToken.registry!.collections.channels.preload(),
-      structuralToken.registry!.collections.channelMemberships.preload(),
-    ])
-    assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, signal)
-    const data = await serverQueryFn(queryClient, serverId, signal)()
-    assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, signal)
-    const confirmedAccessScopes: AccountUnreadScope[] = [
-      { kind: "server", serverId },
-      ...data.categories.flatMap((category) => category.channels.map((channel) => ({
-        kind: "channel" as const,
-        channelId: channel.id,
-      }))),
-    ]
-    projection.absorbSnapshot(
-      token,
-      [],
-      { confirmedAccessScopes },
-    )
-    publishCommunityLiveSnapshot(queryClient, {
-      snapshot: { kind: "server-detail", data },
-      proof: { kind: "structural", token: structuralToken, signal },
+    return await withConversationReadDeadline(signal, async (readSignal) => {
+      await structuralToken.registry?.ready
+      assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, readSignal)
+      await Promise.all([
+        structuralToken.registry!.collections.categories.preload(),
+        structuralToken.registry!.collections.channels.preload(),
+        structuralToken.registry!.collections.channelMemberships.preload(),
+      ])
+      assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, readSignal)
+      const data = await serverQueryFn(queryClient, serverId, readSignal)()
+      assertCommunityLiveSnapshotTokenCurrent(queryClient, structuralToken, readSignal)
+      const confirmedAccessScopes: AccountUnreadScope[] = [
+        { kind: "server", serverId },
+        ...data.categories.flatMap((category) => category.channels.map((channel) => ({
+          kind: "channel" as const,
+          channelId: channel.id,
+        }))),
+      ]
+      projection.absorbSnapshot(
+        token,
+        [],
+        { confirmedAccessScopes },
+      )
+      publishCommunityLiveSnapshot(queryClient, {
+        snapshot: { kind: "server-detail", data },
+        proof: { kind: "structural", token: structuralToken, signal: readSignal },
+      })
+      return data.id
     })
-    return data.id
   } catch (error) {
     projection.cancelSnapshot(token)
     if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
@@ -368,6 +397,9 @@ export function useServer(
     enabled,
     staleTime: Infinity,
     refetchOnReconnect: true,
+    retryOnMount: false,
+    retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey: communityKeys.server(serverId ?? "__none__") }).retry),
+    networkMode: "always",
   })
   const projectedServer = useMemo(() => {
     const source = dbServer
@@ -389,7 +421,8 @@ export function useServer(
       changed = true
       return { ...category, channels }
     })
-    return changed ? { ...source, categories } : source
+    deriveView(categories, [viewEvidence(source.categories), viewEvidence(attentionScopes)])
+    return changed ? deriveView({ ...source, categories }, [viewEvidence(source), viewEvidence(categories)]) : source
   }, [attentionScopes, dbServer, serverId])
   return {
     ...query,

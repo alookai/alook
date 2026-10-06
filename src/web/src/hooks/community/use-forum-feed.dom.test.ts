@@ -8,6 +8,7 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { getCanonicalCommunityMessages, getCanonicalCommunityChannels } from "@/lib/community-db/sync"
 import { forumFeedWindow, type ForumFeedTransportPage } from "./forum-feed-window"
+import { CONVERSATION_READ_TIMEOUT_MS } from "@/lib/community/conversation-read"
 import { communityKeys } from "@/lib/query-keys"
 
 const apiFetchMock = vi.fn()
@@ -48,6 +49,44 @@ const emptyIncluded = {
 }
 
 describe("forumFeedPageQueryFn", () => {
+  it.each(["deadline", "cancellation"])("retires a hanging feed on %s without late profiles or canonical writes", async (reason) => {
+    let release!: (value: unknown) => void
+    apiFetchMock.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
+    const controller = new AbortController()
+    vi.useFakeTimers()
+    try {
+      const result = forumFeedPageQueryFn("forum_1", null, client)({ pageParam: null, signal: controller.signal })
+      const rejected = expect(result).rejects.toMatchObject({ name: reason === "deadline" ? "ConversationReadTimeoutError" : "AbortError" })
+      await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+      if (reason === "deadline") await vi.advanceTimersByTimeAsync(CONVERSATION_READ_TIMEOUT_MS)
+      else controller.abort(new DOMException("Retired", "AbortError"))
+      await rejected
+      expect(apiFetchMock.mock.calls[0]![1].signal.aborted).toBe(true)
+      release({ serverId: "server_1", parentType: "forum", threads: [], included: { ...emptyIncluded, parentMessages: [{ id: "late-opener", channelId: "forum_1", seq: 1, content: "late", authorId: "late-author", authorName: "Late", authorImage: null, authorAvatarVersion: 1 }] }, hasMore: false })
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(getCanonicalCommunityMessages(client)).toEqual([])
+      expect(getCommunityDbRegistry(client)!.collections.profiles.get("late-author")).toBeUndefined()
+      apiFetchMock.mockResolvedValueOnce({ serverId: "server_1", parentType: "forum", threads: [], included: emptyIncluded, hasMore: false })
+      await expect(forumFeedPageQueryFn("forum_1", null, client)({ pageParam: null })).resolves.toMatchObject({ threads: [], hasMore: false })
+    } finally { vi.useRealTimers() }
+  })
+
+  it("includes feed collection preloads in the deadline", async () => {
+    let release!: () => void
+    vi.spyOn(getCommunityDbRegistry(client)!.collections.messages, "preload").mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve }))
+    vi.useFakeTimers()
+    try {
+      const result = forumFeedPageQueryFn("forum_1", null, client)({ pageParam: null })
+      const rejected = expect(result).rejects.toMatchObject({ name: "ConversationReadTimeoutError" })
+      await vi.advanceTimersByTimeAsync(CONVERSATION_READ_TIMEOUT_MS)
+      await rejected
+      release()
+      await Promise.resolve()
+      expect(apiFetchMock).not.toHaveBeenCalled()
+    } finally { vi.useRealTimers() }
+  })
+
   beforeEach(() => {
     apiFetchMock.mockReset()
 
@@ -68,11 +107,12 @@ describe("forumFeedPageQueryFn", () => {
   })
 
   it("uses the archive tag as its own feed query", async () => {
-    apiFetchMock.mockResolvedValue({ serverId: "server_1", parentType: "forum", threads: [], included: emptyIncluded, hasMore: false })
+    apiFetchMock.mockResolvedValue({ serverId: "server_1", parentType: "forum", threads: [{ id: "archived-post", name: "Post", creatorId: "author", messageCount: 1, parentMessageId: "opener", lastMessageAt: null, createdAt: "2026-10-04T00:00:00Z", activityAt: "2026-10-04T00:00:00Z" }], included: { ...emptyIncluded, tags: [{ messageId: "opener", tag: "archived" }] }, hasMore: false })
     await forumFeedPageQueryFn("forum_one", "archived", client)({ pageParam: null })
 
     const url = apiFetchMock.mock.calls[0]![0] as string
     expect(new URL(url, "http://localhost").searchParams.get("tag")).toBe("archived")
+    expect(getCanonicalCommunityChannels(client).find((row) => row.id === "archived-post")).toMatchObject({ archived: false, tags: ["archived"] })
   })
 
   it("passes the query abort signal through to the request", async () => {
@@ -86,7 +126,7 @@ describe("forumFeedPageQueryFn", () => {
 
     expect(apiFetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/api/community/channels/forum_one/threads?"),
-      expect.objectContaining({ signal: controller.signal, authenticationAccount: "viewer" }),
+      expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
     )
   })
 

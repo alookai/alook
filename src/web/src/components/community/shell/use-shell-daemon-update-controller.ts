@@ -1,11 +1,12 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, type Dispatch } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type Dispatch } from "react"
 import { parseReleaseVersion } from "@alook/shared"
 import {
   eligibleDaemonUpdateMachines,
   requestMachineUpdate,
 } from "@/components/daemon-update-notice"
+import { useCommunityMutationOrigin } from "@/hooks/community/community-origin"
 import { useMachines } from "@/hooks/community/use-machines"
 import { log } from "@/lib/logger"
 import type {
@@ -91,6 +92,9 @@ export function useShellDaemonUpdateController({
   latestDaemonVersion?: string
   requestUpdate?: (machineId: string) => Promise<unknown>
 }) {
+  const origin = useCommunityMutationOrigin()
+  const batchRef = useRef<{ machineIds: Set<string> } | null>(null)
+  useLayoutEffect(() => () => { batchRef.current = null }, [origin.registry, userId, latestDaemonVersion])
   const machines = useMachines()
   const eligibleMachines = useMemo(() => (
     latestDaemonVersion
@@ -101,6 +105,19 @@ export function useShellDaemonUpdateController({
     () => eligibleMachines.map((machine) => machine.id),
     [eligibleMachines],
   )
+  useLayoutEffect(() => {
+    const eligible = new Set(eligibleMachineIds)
+    for (const id of batchRef.current?.machineIds ?? []) {
+      if (!eligible.has(id)) batchRef.current?.machineIds.delete(id)
+    }
+  }, [eligibleMachineIds])
+  const updateScope = useMemo(() => ({ registry: origin.registry, userId, latestDaemonVersion }), [origin.registry, userId, latestDaemonVersion])
+  const previousScope = useRef(updateScope)
+  useEffect(() => {
+    if (previousScope.current === updateScope) return
+    previousScope.current = updateScope
+    dispatch({ type: "update.clear" })
+  }, [dispatch, updateScope])
   const update = extensionState.update
 
   useEffect(() => {
@@ -139,13 +156,25 @@ export function useShellDaemonUpdateController({
     if (!current || current.pendingMachineIds.length > 0) return
     const machineIds = daemonUpdateRequestMachineIds(current, eligibleMachineIds)
     if (machineIds.length === 0) return
+    const token = origin.begin().token
+    const authentication = origin.registry!.authenticationView.get()
+    origin.assertOwner(token)
+    const batch = { machineIds: new Set(machineIds) }
+    batchRef.current = batch
     dispatch({ type: "update.dispatch", machineIds })
     const result = await dispatchMachineUpdateRequests(machineIds, requestUpdate)
+    try { origin.assertOwner(token) } catch { return }
+    const currentAuthentication = origin.registry!.authenticationView.get()
+    if (!currentAuthentication.active || currentAuthentication.generation !== authentication.generation) return
+    if (batchRef.current !== batch) return
+    const pending = batch.machineIds
+    result.acceptedMachineIds = result.acceptedMachineIds.filter((id) => pending.has(id))
+    result.failedMachineIds = result.failedMachineIds.filter((id) => pending.has(id))
     for (const machineId of result.failedMachineIds) {
       log.warn("daemon update request failed", { machineId })
     }
     dispatch({ type: "update.settle", ...result })
-  }, [dispatch, eligibleMachineIds, extensionState.update, requestUpdate])
+  }, [dispatch, eligibleMachineIds, extensionState.update, requestUpdate, origin])
 
   return {
     eligibleMachines,

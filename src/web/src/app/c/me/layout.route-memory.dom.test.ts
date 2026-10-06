@@ -10,6 +10,7 @@ import { ingestAttentionSnapshot, publishCommunityFriendDecision, captureCommuni
 const mocks = vi.hoisted(() => ({
   pathname: "/c/me/friends",
   dmId: undefined as string | undefined,
+  childSegments: null as string[] | null,
   dmStatus: "idle" as "idle" | "pending" | "present" | "missing" | "error",
   locationStatus: "remember" as "ignore" | "wait" | "remember" | "stale",
   replace: vi.fn(),
@@ -32,7 +33,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mocks.replace, prefetch: vi.fn() }),
   usePathname: () => mocks.pathname,
   useParams: () => ({ dmId: mocks.dmId }),
-  useSelectedLayoutSegments: () => mocks.pathname.slice("/c/me/".length).split("/").filter(Boolean),
+  useSelectedLayoutSegments: () => mocks.childSegments ?? mocks.pathname.slice("/c/me/".length).split("/").filter(Boolean),
 }))
 vi.mock("@/contexts/community/current-user", () => ({
   useCurrentUser: () => ({ id: "viewer-1" }),
@@ -111,14 +112,25 @@ vi.mock("@/lib/community/last-community-route", () => ({
   consumeCommunityColdEntryFailure: (...args: unknown[]) => mocks.consumeColdEntryFailure(...args),
 }))
 
-import MeLayout from "./layout"
+import MeContent from "./layout"
+import { DmSidebarSlot } from "@/components/community/shell/dm-sidebar-slot"
+import { CommunityRouteContext } from "@/components/community/shell/community-route-context"
+import { normalizeCommunityHref } from "@/lib/community/community-route"
+
+function MeLayout({ children }: { children?: React.ReactNode }) {
+  return createElement(CommunityRouteContext, { value: {
+    frame: { ...normalizeCommunityHref(mocks.pathname), revision: 0 },
+    navigation: {} as never,
+    ownerDeleteRouteScope: undefined,
+  } }, createElement(DmSidebarSlot), createElement(MeContent, null, children))
+}
 
 let layoutClient: QueryClient
 function renderLayout(queryClient = layoutClient) {
   return render(createElement(
     QueryClientProvider,
     { client: queryClient, userId: "viewer-1" },
-    createElement(MeLayout, null, createElement("div")),
+    createElement(MeLayout, null, createElement("div", { "data-testid": "static-content" })),
   ))
 }
 
@@ -127,6 +139,7 @@ describe("MeLayout route memory", () => {
     layoutClient = (await createCommunityQueryOwner("viewer-1")).client
     mocks.pathname = "/c/me/friends"
     mocks.dmId = undefined
+    mocks.childSegments = null
     mocks.dmStatus = "idle"
     mocks.locationStatus = "remember"
     mocks.replace.mockClear()
@@ -147,6 +160,36 @@ describe("MeLayout route memory", () => {
       "/c/me/friends",
     )
     expect(mocks.replace).not.toHaveBeenCalled()
+  })
+
+  it.each(["friends", "machines", "bots"])("keeps its own %s child when another slot exposes a DM param", (leaf) => {
+    mocks.pathname = `/c/me/${leaf}`
+    mocks.childSegments = [leaf]
+    mocks.dmId = "foreign-slot-dm"
+    const rendered = renderLayout()
+    expect(rendered.queryByTestId("target-dm")).toBeNull()
+    expect(rendered.getByTestId("static-content")).toBeVisible()
+    expect(mocks.setLastMeLocation).toHaveBeenCalledWith(`/c/me/${leaf}`)
+  })
+
+  it("uses its own committed DM child instead of another slot's DM param", () => {
+    mocks.pathname = "/c/me/own-dm"
+    mocks.childSegments = ["own-dm"]
+    mocks.dmId = "foreign-slot-dm"
+    const rendered = renderLayout()
+    expect(rendered.getByTestId("target-dm")).toHaveAttribute("data-channel-id", "own-dm")
+    expect(mocks.setLastMeLocation).not.toHaveBeenCalled()
+  })
+
+  it("does not mount a foreign DM while its own children remain at the root", () => {
+    mocks.pathname = "/c/me/dm-pending"
+    mocks.childSegments = []
+    mocks.dmId = "foreign-slot-dm"
+    const rendered = renderLayout()
+    expect(rendered.queryByTestId("target-dm")).toBeNull()
+    expect(rendered.getByTestId("static-content")).toBeVisible()
+    expect(mocks.setLastMeLocation).not.toHaveBeenCalled()
+    expect(mocks.commitLastCommunityRoute).not.toHaveBeenCalled()
   })
 
   it.each(["wait", "ignore"] as const)("does not write a %s route", (status) => {
@@ -181,6 +224,7 @@ describe("MeLayout route memory", () => {
   it("does not commit a DM pathname while its layout params are still unresolved", () => {
     mocks.pathname = "/c/me/dm-pending"
     mocks.dmId = undefined
+    mocks.childSegments = null
     mocks.locationStatus = "remember"
     renderLayout()
     expect(mocks.setLastMeLocation).not.toHaveBeenCalled()

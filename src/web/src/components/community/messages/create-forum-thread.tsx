@@ -74,7 +74,7 @@ export function CreateForumThread({
     for (const mutation of client.getMutationCache().findAll({ mutationKey: ["community", "file-upload"], predicate: (mutation) => (mutation.state.variables as UploadFileArgs | undefined)?.receiptScope === scopeId })) client.getMutationCache().remove(mutation)
   }, [client, scopeId])
   useEffect(() => () => clearUploadReceipts(), [clearUploadReceipts])
-  const command = useMutation({ mutationKey: key, gcTime: 0,
+  const command = useMutation({ meta: { observabilityAction: "forum.thread.create" }, mutationKey: key, gcTime: 0,
     mutationFn: async ({ markdown, title, attachments, mentionType, nonce, original }: { markdown: string; title: string; attachments: SendAttachment[]; mentionType?: MentionType; nonce: string; original: ReturnType<typeof source.capture> }) => {
       original()
       const results = await Promise.all(attachments.map(async (attachment) => {

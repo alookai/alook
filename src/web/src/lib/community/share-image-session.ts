@@ -680,6 +680,9 @@ async function loadAndEmbedFonts(
   if (loadedFaces.length === 0) throw new Error("Brand font is unavailable")
   await document.fonts.ready
   throwIfAborted(signal)
+  for (const element of [card, ...card.querySelectorAll<HTMLElement>("*")]) {
+    element.style.fontFamily = getComputedStyle(element).fontFamily
+  }
   const css = await getFontCSS(card)
   if (!css.trim()) throw new Error("Share-card fonts could not be embedded")
   return css
@@ -799,13 +802,19 @@ export async function capturePreparedShareImage(
         element.style.setProperty("transition", "none", "important")
       }
       throwIfAborted(signal)
-      const blob = await rasterize(card, {
+      const rasterizeOptions = {
         pixelRatio: SHARE_IMAGE_PIXEL_RATIO,
         backgroundColor: getComputedStyle(card).getPropertyValue("--card").trim() || undefined,
         fontEmbedCSS,
         includeQueryParams: true,
         cacheBust: false,
-      })
+      }
+      if (/AppleWebKit/.test(navigator.userAgent) && !/Chrome|Chromium|Android|Edg\/|OPR\//.test(navigator.userAgent)) {
+        const warmup = await rasterize(card, rasterizeOptions)
+        throwIfAborted(signal)
+        if (!warmup) throw new Error("Rasterizer returned no warmup image")
+      }
+      const blob = await rasterize(card, rasterizeOptions)
       throwIfAborted(signal)
       if (!blob) throw new Error("Rasterizer returned no image")
       return blob

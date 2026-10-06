@@ -1,5 +1,6 @@
 import { QueryClient } from "@tanstack/react-query"
 import { PERSIST_MAX_AGE_MS } from "@/lib/query-persister"
+import { observeQueryClient } from "@/lib/observability/query-observer"
 
 /**
  * Factory for a QueryClient with app defaults.
@@ -16,7 +17,7 @@ import { PERSIST_MAX_AGE_MS } from "@/lib/query-persister"
  * caches for anything the user hasn't touched in the current session.
  */
 export function createQueryClient(): QueryClient {
-  return new QueryClient({
+  return observeQueryClient(new QueryClient({
     defaultOptions: {
       queries: {
         staleTime: 5_000,
@@ -25,5 +26,5 @@ export function createQueryClient(): QueryClient {
         retry: 1,
       },
     },
-  })
+  }))
 }

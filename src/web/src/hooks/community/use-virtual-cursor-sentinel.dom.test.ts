@@ -1,9 +1,12 @@
-import { createElement, useLayoutEffect, useRef } from "react"
+import { createElement, useCallback, useRef } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render } from "@/test/react-dom-harness"
 import { useVirtualCursorSentinel } from "./use-virtual-cursor-sentinel"
 
 type Props = {
+  showSentinel?: boolean
+  elementRevision?: number
+  rootRevision?: number
   edge: "start" | "end"
   hasMore: boolean
   isFetching: boolean
@@ -19,18 +22,12 @@ let observed: Element | undefined
 function Harness(props: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const sentinelRef = useVirtualCursorSentinel({ scrollRef, ...props })
-  useLayoutEffect(() => {
-    scrollRef.current = document.querySelector('[data-testid="scroll"]')
-    sentinelRef.current = document.querySelector('[data-testid="sentinel"]')
-    return () => {
-      scrollRef.current = null
-      sentinelRef.current = null
-    }
-  }, [sentinelRef])
+  const bindRoot = useCallback((node: HTMLDivElement | null) => { scrollRef.current = node }, [])
   return createElement(
     "div",
-    { "data-testid": "scroll" },
-    createElement("div", { "data-testid": "sentinel" }),
+    // eslint-disable-next-line react-hooks/refs -- React DOM invokes these ref callbacks during commit.
+    { "data-testid": "scroll", key: props.rootRevision ?? 0, ref: bindRoot },
+    props.showSentinel === false ? null : createElement("div", { "data-testid": "sentinel", key: props.elementRevision ?? 0, ref: sentinelRef }),
   )
 }
 
@@ -281,5 +278,87 @@ describe.each(["start", "end"] as const)("useVirtualCursorSentinel (%s edge)", (
 
     view.unmount()
     expect(disconnect).toHaveBeenCalled()
+  })
+
+  it("preserves the demanded intersection and rejects the detached observer callback", () => {
+    const onLoad = vi.fn()
+    const base = { edge, hasMore: true, isFetching: false, onLoad }
+    const view = renderView(base)
+    intersect(true)
+    const retiredCallback = intersectionCallback
+    const retiredElement = observed
+    view.rerender({ ...base, isFetching: true, showSentinel: false })
+    view.rerender({ ...base, elementRevision: 1 })
+    act(() => retiredCallback([{ isIntersecting: false, target: retiredElement } as IntersectionObserverEntry], {} as IntersectionObserver))
+    intersect(true)
+    expect(onLoad).toHaveBeenCalledOnce()
+    intersect(false)
+    intersect(true)
+    expect(onLoad).toHaveBeenCalledTimes(2)
+  })
+
+  it("keeps the load locked through detach until its fetch is actually observed", () => {
+    vi.useFakeTimers()
+    const onLoad = vi.fn()
+    const base = { edge, hasMore: true, isFetching: false, onLoad }
+    const view = renderView(base)
+    intersect(true)
+    view.rerender({ ...base, showSentinel: false })
+    view.rerender({ ...base, elementRevision: 1 })
+    intersect(false)
+    intersect(true)
+    const scroll = document.querySelector<HTMLElement>('[data-testid="scroll"]')!
+    fireEvent.wheel(scroll, { deltaY: edge === "start" ? -20 : 20 })
+    expect(onLoad).toHaveBeenCalledOnce()
+    view.rerender({ ...base, isFetching: true, elementRevision: 1 })
+    view.rerender({ ...base, elementRevision: 1 })
+    act(() => vi.advanceTimersByTime(181))
+    fireEvent.wheel(scroll, { deltaY: edge === "start" ? -20 : 20 })
+    expect(onLoad).toHaveBeenCalledTimes(2)
+  })
+
+  it("preserves held keys, touch budget, and wheel idle timer across element replacement", () => {
+    vi.useFakeTimers()
+    const onLoad = vi.fn()
+    const base = { edge, hasMore: true, isFetching: false, onLoad }
+    const view = renderView(base)
+    const scroll = document.querySelector<HTMLElement>('[data-testid="scroll"]')!
+    const key = edge === "start" ? "PageUp" : "PageDown"
+    fireEvent.touchStart(scroll, { touches: [{ clientY: 100 }] })
+    fireEvent.wheel(scroll, { deltaY: edge === "start" ? -20 : 20 })
+    fireEvent.keyDown(scroll, { key })
+    intersect(true)
+    view.rerender({ ...base, isFetching: true, showSentinel: false })
+    view.rerender({ ...base, elementRevision: 1 })
+    intersect(true)
+    expect(vi.getTimerCount()).toBe(1)
+    fireEvent.keyDown(scroll, { key })
+    fireEvent.touchMove(scroll, { touches: [{ clientY: edge === "start" ? 130 : 70 }] })
+    fireEvent.wheel(scroll, { deltaY: edge === "start" ? -20 : 20 })
+    expect(onLoad).toHaveBeenCalledOnce()
+    fireEvent.keyUp(scroll, { key })
+    fireEvent.keyDown(scroll, { key })
+    expect(onLoad).toHaveBeenCalledTimes(2)
+  })
+
+  it("retires the root timer and gesture listeners when the actual scroller is replaced", () => {
+    vi.useFakeTimers()
+    const onLoad = vi.fn()
+    const base = { edge, hasMore: true, isFetching: false, onLoad }
+    const view = renderView(base)
+    const oldRoot = document.querySelector<HTMLElement>('[data-testid="scroll"]')!
+    fireEvent.wheel(oldRoot, { deltaY: edge === "start" ? 20 : -20 })
+    expect(vi.getTimerCount()).toBe(1)
+    view.rerender({ ...base, rootRevision: 1 })
+    expect(vi.getTimerCount()).toBe(0)
+    intersect(true)
+    expect(onLoad).toHaveBeenCalledOnce()
+    view.rerender({ ...base, rootRevision: 1, isFetching: true })
+    view.rerender({ ...base, rootRevision: 1 })
+    fireEvent.wheel(oldRoot, { deltaY: edge === "start" ? -20 : 20 })
+    expect(onLoad).toHaveBeenCalledOnce()
+    const current = document.querySelector<HTMLElement>('[data-testid="scroll"]')!
+    fireEvent.wheel(current, { deltaY: edge === "start" ? -20 : 20 })
+    expect(onLoad).toHaveBeenCalledTimes(2)
   })
 })

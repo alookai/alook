@@ -12,7 +12,7 @@ export function communityCommandInput<Input extends object>({ original: _origina
 }
 
 export function useCommunityCommandMutation<Data = unknown, Error = globalThis.Error, Input extends object = object, Result = unknown>(origin: Origin, options: UseMutationOptions<Data, Error, CommunityCommandArgs<Input>, Result>, assertSuccess?: (args: CommunityCommandArgs<Input>) => void) {
-  const native = useMutation<Data, Error, CommunityCommandArgs<Input>, Result>({ gcTime: 0, ...options,
+  const native = useMutation<Data, Error, CommunityCommandArgs<Input>, Result>({ meta: { observabilityAction: "community.command" }, gcTime: 0, ...options,
     onSuccess: async (data, args, result, context) => { try { origin.assert(args.original) } catch { return } await options.onSuccess?.(data, args, result, context) },
     onError: async (error, args, result, context) => { try { origin.assert(args.original) } catch { return } await options.onError?.(error, args, result, context) },
     onSettled: async (data, error, args, result, context) => { try { origin.assert(args.original) } catch { return } await options.onSettled?.(data, error, args, result, context) },

@@ -1,3 +1,4 @@
+import { ObservedStaticContent } from "@/lib/observability/regions";
 import type { Metadata } from "next";
 import {
   LANDING_META_DESCRIPTION,
@@ -29,5 +30,5 @@ export const metadata: Metadata = {
 
 export default async function Page() {
   const session = await getSession();
-  return <LandingPage isLoggedIn={!!session} />;
+  return <><ObservedStaticContent /><LandingPage isLoggedIn={!!session} /></>;
 }

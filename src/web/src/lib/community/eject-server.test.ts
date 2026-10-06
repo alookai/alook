@@ -296,7 +296,7 @@ describe("runAuthoritativeServerEject", () => {
 
   it("clears a matching cold-entry route and falls back once to Machines", () => {
     const storage: Record<string, string> = {}
-    vi.stubGlobal("window", {})
+    vi.stubGlobal("window", new EventTarget())
     vi.stubGlobal("localStorage", {
       getItem: vi.fn((key: string) => storage[key] ?? null),
       setItem: vi.fn((key: string, value: string) => { storage[key] = value }),

@@ -1,5 +1,7 @@
 "use client";
 
+import { useObservedQueryRegion } from "@/lib/observability/query-regions"
+
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useArtifactClick } from "@/components/use-artifact-click";
 import { useCallback, useEffect, useMemo } from "react";
@@ -254,6 +256,8 @@ export default function IssuesPage() {
   const activeTask = useQuery({ ...workspaceTaskOptions(owner, taskId ?? "__none__"), enabled: sheetOpen && !!taskId }).data ?? null;
   const traceTasks = useQuery({ ...workspaceTraceOptions(owner, traceId ?? "__none__"), enabled: sheetOpen && !!traceId }).data?.tasks ?? null;
   const loading = listQuery.isPending;
+  useObservedQueryRegion("issues", listQuery, issues.length);
+  useObservedQueryRegion("issue_detail", issueQuery, undefined, sheetOpen && !!selectedId);
   const creating = pending.some((action) => action.kind === "create");
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   const agentsById = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);

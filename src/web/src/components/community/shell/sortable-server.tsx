@@ -24,7 +24,12 @@ import { tid } from "@/lib/community/testids";
 import type { Server } from "@/lib/community/models/navigation"
 import type { RailEntity, RailOperation } from "@/lib/community/server-rail-model"
 
+import { CommunityNavigationLink } from "./community-navigation-link"
+import { serverRootHref } from "@/lib/community/community-route"
+
 type SortableServerProps = {
+  href?: string;
+  navigationDisabled?: boolean;
   server: Server;
   active?: boolean;
   onClick: () => void;
@@ -44,6 +49,8 @@ type SortableServerProps = {
 
 function SortableServerImpl({
   server,
+  href = serverRootHref(server.id),
+  navigationDisabled,
   active,
   onClick,
   onLeave,
@@ -56,15 +63,15 @@ function SortableServerImpl({
   dragDescriptionId,
 }: SortableServerProps) {
   const rootRef = useRef<HTMLDivElement>(null)
-  const buttonRef = useRef<HTMLButtonElement>(null)
+  const linkRef = useRef<HTMLAnchorElement>(null)
   const [confirmLeave, setConfirmLeave] = useAtom(useCreateAtom(false));
   const [activated, setActivated] = useAtom(useCreateAtom(false));
   useLayoutEffect(() => {
-    if (!registerItem || !rootRef.current || !buttonRef.current) return
+    if (!registerItem || !rootRef.current || !linkRef.current) return
     return registerItem(
       { kind: "server", id: server.id },
       rootRef.current,
-      buttonRef.current,
+      linkRef.current,
     )
   }, [registerItem, server.id])
   const activate = activated ? undefined : () => setActivated(true);
@@ -98,15 +105,19 @@ function SortableServerImpl({
           isDragActive ? "rounded-xl border-2 border-dashed border-muted-foreground/40" : "",
         ].join(" ")}
       >
-        <button
-          ref={buttonRef}
+        <CommunityNavigationLink
+          href={href}
+          active={active}
+          navigationDisabled={navigationDisabled}
+          draggable={false}
+          ref={linkRef}
           data-testid={tid.serverIcon(server.id)}
           data-dragging={isDragActive || undefined}
           data-rail-preview={preview ?? undefined}
           aria-label={server.official ? `${server.name}, Official server` : server.name}
           aria-describedby={dragDescriptionId}
           aria-keyshortcuts="Space ArrowUp ArrowDown ArrowLeft ArrowRight Escape"
-          onClick={active ? undefined : onClick}
+          onActivate={() => { if (!active) onClick() }}
           className={[
             "group/server absolute left-1/2 top-1/2 z-1 grid size-11 -translate-x-1/2 -translate-y-1/2 place-items-center focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:cursor-grabbing [-webkit-touch-callout:none]",
             active ? "cursor-default" : "cursor-pointer",
@@ -132,7 +143,7 @@ function SortableServerImpl({
           ].join(" ")}
           />
           <OfficialServerBadge official={server.official} className="absolute -left-1 -top-1 z-2" />
-        </button>
+        </CommunityNavigationLink>
         {server.mentions > 0 && (
           <span
             data-testid={tid.railUnreadBadge(server.id)}
@@ -230,6 +241,8 @@ export function serverPropsEqual(prev: SortableServerProps, next: SortableServer
     a.unread === b.unread &&
     a.mentions === b.mentions &&
     a.isOwner === b.isOwner &&
+    prev.href === next.href &&
+    prev.navigationDisabled === next.navigationDisabled &&
     prev.active === next.active &&
     prev.inFolder === next.inFolder &&
     prev.dragging === next.dragging &&

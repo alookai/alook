@@ -1,4 +1,7 @@
 "use client"
+
+import { useObservedRegion } from "@/lib/observability/regions"
+import { viewEvidence, mergeEvidence } from "@/lib/observability/data-source"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
@@ -20,6 +23,8 @@ import { AnimatedAlookLogo } from "./animated-alook-logo"
 import { tid } from "@/lib/community/testids"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { Skeleton } from "@/components/ui/skeleton"
+import { CommunityNavigationLink } from "./community-navigation-link"
+import { serverRootHref } from "@/lib/community/community-route"
 import { SortableServer } from "./sortable-server"
 import { RailFolder } from "./rail-folder"
 import { RailIndicator } from "./rail-indicator"
@@ -108,6 +113,8 @@ function ServerRailFrame({
 
 export const ServerRail = memo(function ServerRail({
   servers,
+  homeHref = "/c/me",
+  serverHrefs = {},
   folders,
   activeServerId: activeServerIdProp,
   serversLoading,
@@ -122,6 +129,8 @@ export const ServerRail = memo(function ServerRail({
   onOpenInvitePopover,
 }: {
   servers: Server[]
+  homeHref?: string
+  serverHrefs?: Readonly<Record<string, string>>
   folders: CommunityFolder[]
   activeServerId?: string
   serversLoading?: boolean
@@ -135,6 +144,7 @@ export const ServerRail = memo(function ServerRail({
   onOpenSettings?: (serverId: string) => void
   onOpenInvitePopover?: (serverId: string) => void
 }) {
+  useObservedRegion("rail", !serversLoading, { ...mergeEvidence([viewEvidence(servers), viewEvidence(folders)]), count: servers.length + folders.length })
   const expandedAtom = useCreateAtom<string[]>([])
   const [expanded, setExpanded] = useAtom(expandedAtom)
   const collapsedAtom = useCreateAtom(new Set<string>())
@@ -143,7 +153,7 @@ export const ServerRail = memo(function ServerRail({
   const [dragSource, setDragSource] = useAtom(useCreateAtom<RailEntity | null>(null))
   const [createOpen, setCreateOpen] = useAtom(useCreateAtom(false))
   const scrollRef = useRef<HTMLDivElement>(null)
-  const serverActivationRef = useRef({ onServer, onServerNavigate })
+  const serverActivationRef = useRef({ onServer, onServerNavigate, onOpenSettings, onOpenInvitePopover })
   const railMutation = useServerRailCommit()
   const communityRuntime = useCommunityRuntime()
   const registry = useOptionalCommunityDbRegistry()
@@ -177,8 +187,8 @@ export const ServerRail = memo(function ServerRail({
     } catch {}
   }, [storageKey, setExpanded])
   useLayoutEffect(() => {
-    serverActivationRef.current = { onServer, onServerNavigate }
-  }, [onServer, onServerNavigate])
+    serverActivationRef.current = { onServer, onServerNavigate, onOpenSettings, onOpenInvitePopover }
+  }, [onServer, onServerNavigate, onOpenSettings, onOpenInvitePopover])
 
   useEffect(() => {
     sessionStorage.setItem(storageKey, JSON.stringify(expanded))
@@ -358,14 +368,17 @@ export const ServerRail = memo(function ServerRail({
     <Tooltip>
       <TooltipTrigger render={<div className="group relative flex w-full justify-center" />}>
         <RailIndicator active={view === "dm"} />
-        <button
-          onClick={onHome}
+        <CommunityNavigationLink
+          href={homeHref}
+          active={view === "dm"}
+          onActivate={onHome}
+          navigationDisabled={dragSource !== null}
           aria-label="Home"
           data-testid={tid.homeButton}
           className="group/alook grid size-10 shrink-0 place-items-center rounded-[20px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         >
           <AnimatedAlookLogo className="size-10" />
-        </button>
+        </CommunityNavigationLink>
       </TooltipTrigger>
       <TooltipContent side="right" sideOffset={8}>Home</TooltipContent>
     </Tooltip>
@@ -382,11 +395,13 @@ export const ServerRail = memo(function ServerRail({
           <SortableServer
             key={serverId}
             server={server}
+            href={serverHrefs[serverId] ?? serverRootHref(serverId)}
+            navigationDisabled={dragSource !== null}
             active={view !== "dm" && activeId === serverId}
             onClick={() => pickServer(serverId)}
             onLeave={() => onLeaveServer?.(serverId)}
-            onOpenSettings={() => onOpenSettings?.(serverId)}
-            onOpenInvitePopover={onOpenInvitePopover ? () => onOpenInvitePopover(serverId) : undefined}
+            onOpenSettings={() => serverActivationRef.current.onOpenSettings?.(serverId)}
+            onOpenInvitePopover={onOpenInvitePopover ? () => serverActivationRef.current.onOpenInvitePopover?.(serverId) : undefined}
             dragging={dragging({ kind: "server", id: serverId })}
             preview={previewFor({ kind: "server", id: serverId })}
             registerItem={registerItem}
@@ -430,10 +445,12 @@ export const ServerRail = memo(function ServerRail({
                   <SortableServer
                     key={server.id}
                     server={server}
+                    href={serverHrefs[server.id] ?? serverRootHref(server.id)}
+                    navigationDisabled={dragSource !== null}
                     active={view !== "dm" && activeId === server.id}
                     onClick={() => pickServer(server.id)}
-                    onOpenSettings={() => onOpenSettings?.(server.id)}
-                    onOpenInvitePopover={onOpenInvitePopover ? () => onOpenInvitePopover(server.id) : undefined}
+                    onOpenSettings={() => serverActivationRef.current.onOpenSettings?.(server.id)}
+                    onOpenInvitePopover={onOpenInvitePopover ? () => serverActivationRef.current.onOpenInvitePopover?.(server.id) : undefined}
                     inFolder
                     dragging={dragging({ kind: "server", id: server.id })}
                     preview={previewFor({ kind: "server", id: server.id })}

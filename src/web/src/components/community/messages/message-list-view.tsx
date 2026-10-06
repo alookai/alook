@@ -1,8 +1,9 @@
 import type { ReactNode } from "react"
 import { createPortal } from "react-dom"
+import { ConversationResolutionErrorFrame } from "../channels/conversation-resolution-error-frame"
 import { Skeleton } from "@/components/ui/skeleton"
 import { tid } from "@/lib/community/testids"
-import { ChannelIcon } from "../channels/channel-icon"
+import { renderMessageListHero } from "./message-list-row"
 import { ComposerAccessoryRail, MessageSelectionFooter } from "./composer-accessory-rail"
 import { MessageShareDialog } from "./message-share-dialog"
 import type { MessageListController } from "./message-list-controller"
@@ -48,9 +49,10 @@ export function renderMessageListView(
           <div
             data-message-list-content
             data-initial-position-phase={controller.initialPosition.phase}
+            data-read-position-ready={controller.readPositionReady ? "true" : "false"}
             aria-hidden={!controller.initialPosition.showSkeleton && !controller.initialPosition.contentVisible}
             inert={!controller.initialPosition.showSkeleton && !controller.initialPosition.contentInteractive}
-            className={`flex min-h-full flex-col justify-end px-4 pt-8 ${
+            className={`${props.messages.length === 0 ? "flex min-h-full flex-col justify-end pt-8" : ""} px-4 ${
               controller.initialPosition.phase === "revealing" && controller.initialPosition.contentVisible
                 ? "opacity-100 transition-opacity duration-300 ease-linear motion-reduce:transition-opacity"
                 : controller.initialPosition.showSkeleton || controller.initialPosition.contentVisible
@@ -58,43 +60,19 @@ export function renderMessageListView(
                   : "pointer-events-none opacity-0"
             }`}
           >
-          {controller.initialPosition.showSkeleton ? (
+          {props.messages.length === 0 && props.initialLoadError ? (
+            <ConversationResolutionErrorFrame as="div" retrying={!!props.retryingInitialLoad}
+              onRetry={props.onRetryInitialLoad ?? (() => {})} />
+          ) : controller.initialPosition.showSkeleton ? (
             <MessageListSkeletonContent variant={props.variant} />
           ) : (
             <>
-              <div ref={controller.heroRef} className="mb-6">
-                {props.hasMore ? (
-                  <div
-                    ref={controller.topSentinelRef}
-                    className="flex h-8 items-center justify-center text-xs text-muted-foreground"
-                  >
-                    {props.isFetchingOlder ? "Loading older messages…" : ""}
-                  </div>
-                ) : (
-                  props.hero ?? (
-                    <>
-                      <div className="mb-2 grid size-12 place-items-center rounded-full bg-muted/60">
-                        <ChannelIcon className="text-xl text-muted-foreground" />
-                      </div>
-                      <h2 className="text-xl font-semibold leading-tight">{props.channel}</h2>
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        Beginning of the channel. Say hello, share what you&apos;re working on, or drop a link.
-                      </p>
-                    </>
-                  )
-                )}
-              </div>
-
-              {renderRows()}
-
-              {props.hasMoreNewer && (
-                <div
-                  ref={controller.bottomSentinelRef}
-                  className="mt-6 flex h-8 items-center justify-center text-xs text-muted-foreground"
-                >
-                  {props.isFetchingNewer ? "Loading newer messages…" : ""}
-                </div>
-              )}
+              {props.messages.length === 0
+                ? <>
+                    <div className="mb-6">{renderMessageListHero(props)}</div>
+                    <div aria-hidden="true" data-message-empty-tail className="h-10 shrink-0 sm:h-12" />
+                  </>
+                : renderRows()}
             </>
           )}
           </div>

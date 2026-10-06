@@ -1,7 +1,7 @@
 import { apiFetch } from "@/lib/api/client"
 import { queryOptions, type QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
-import { ApiError } from "@/lib/errors"
+import { retryConversationRead, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent, publishCommunityChannelMetadata } from "@/lib/community-db/sync"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 
@@ -33,7 +33,7 @@ export function isChannelMetadataTokenCurrent(token: ReturnType<typeof captureCh
 export type ChannelMetadataResource = {
   id: string
   verifiedEpoch: number
-  verification: ReturnType<typeof captureChannelMetadataToken>
+  verification?: ReturnType<typeof captureChannelMetadataToken>
   historyVerification?: ReturnType<typeof captureChannelMetadataToken>
 }
 
@@ -44,28 +44,30 @@ export async function fetchChannelMetadata(
   signal?: AbortSignal,
   token = captureChannelMetadataToken(queryClient, channelId),
 ) {
-  const assertActive = () => {
-    if (signal?.aborted || !isChannelMetadataTokenCurrent(token)) throw new DOMException("Stale channel metadata", "AbortError")
-  }
-  assertActive()
-  await token.registry!.ready
-  assertActive()
-  await token.registry!.collections.channels.preload()
-  assertActive()
-  let meta: ChannelMetadata
-  try {
-    meta = await apiFetch<ChannelMetadata>(`/api/community/channels/${encodeURIComponent(channelId)}`, communityRequestOptions(queryClient, token, signal, assertActive))
+  return withConversationReadDeadline(signal, async (readSignal) => {
+    const assertActive = () => {
+      if (readSignal.aborted || !isChannelMetadataTokenCurrent(token)) throw new DOMException("Stale channel metadata", "AbortError")
+    }
     assertActive()
-  } catch (error) { assertActive(); throw error }
-  if (meta.id !== channelId || meta.serverId !== serverId
-    || !(serverId === null ? meta.type === "dm" : ["text", "forum", "thread"].includes(meta.type))
-    || !(typeof meta.name === "string" || (serverId === null && meta.name === null))) throw new Error("Channel metadata scope mismatch")
-  if (serverId !== null) {
-    token.registry!.runtime.ws.actions.grantServerAccess(serverId)
-    token.registry!.runtime.ws.actions.rememberChannelAccess(serverId, channelId, meta.parentChannelId)
-  }
-  return { ...meta, name: meta.name ?? "", archived: meta.archived === true || meta.archived === 1,
-    activityAt: meta.lastMessageAt ?? meta.createdAt, verifiedEpoch: token.accessEpoch, verification: token }
+    await token.registry!.ready
+    assertActive()
+    await token.registry!.collections.channels.preload()
+    assertActive()
+    let meta: ChannelMetadata
+    try {
+      meta = await apiFetch<ChannelMetadata>(`/api/community/channels/${encodeURIComponent(channelId)}`, communityRequestOptions(queryClient, token, readSignal, assertActive))
+      assertActive()
+    } catch (error) { assertActive(); throw error }
+    if (meta.id !== channelId || meta.serverId !== serverId
+      || !(serverId === null ? meta.type === "dm" : ["text", "forum", "thread"].includes(meta.type))
+      || !(typeof meta.name === "string" || (serverId === null && meta.name === null))) throw new Error("Channel metadata scope mismatch")
+    if (serverId !== null) {
+      token.registry!.runtime.ws.actions.grantServerAccess(serverId)
+      token.registry!.runtime.ws.actions.rememberChannelAccess(serverId, channelId, meta.parentChannelId)
+    }
+    return { ...meta, name: meta.name ?? "", archived: meta.archived === true || meta.archived === 1,
+      activityAt: meta.lastMessageAt ?? meta.createdAt, verifiedEpoch: token.accessEpoch, verification: token }
+  })
 }
 
 export function channelMetadataOptions(queryClient: QueryClient, serverId: string | null, channelId: string) {
@@ -81,6 +83,7 @@ export function channelMetadataOptions(queryClient: QueryClient, serverId: strin
     },
     staleTime: Infinity,
     gcTime: 5 * 60 * 1000,
-    retry: (failureCount, error) => !(error instanceof ApiError && [401, 403, 404].includes(error.status)) && failureCount < 1,
+    retry: retryConversationRead,
+    networkMode: "always",
   })
 }

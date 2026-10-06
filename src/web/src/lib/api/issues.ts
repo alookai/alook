@@ -1,3 +1,4 @@
+import { readApiResponse } from "./client";
 import type {
 Artifact,
 Issue,
@@ -55,8 +56,8 @@ export const createIssue = async (
     fd.append("file", file);
   }
 
-  const res = await apiFetchResponse(`/api/issues${wsQuery(workspaceId)}`, { ...options, method: "POST", body: fd });
-  const data = await res.json() as { issue: Issue; message?: Message; task?: TaskApi };
+  const res = await apiFetchResponse(`/api/issues${wsQuery(workspaceId)}`, { ...options, method: "POST", body: fd }, true);
+  const data = await readApiResponse(res, "json", options) as { issue: Issue; message?: Message; task?: TaskApi };
   options?.assertActive?.();
   if (options?.signal?.aborted) throw new DOMException("Cancelled issue upload", "AbortError");
   return data;

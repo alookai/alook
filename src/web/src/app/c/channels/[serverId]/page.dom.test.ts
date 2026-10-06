@@ -2,6 +2,7 @@ import { createElement } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { render, screen } from "@/test/react-dom-harness"
 import ServerDefaultPage from "./page"
+import { CommunityServerRouteContext } from "@/components/community/shell/community-route-context"
 
 const mocks = vi.hoisted(() => ({
   breakpoint: { current: "mobile" as "mobile" | "desktop" | "unknown" },
@@ -18,7 +19,7 @@ vi.mock("@/components/brand/alook-loading/AlookLoading", () => ({
 }))
 
 vi.mock("next/navigation", () => ({
-  useParams: () => ({ serverId: "server_1" }),
+  useParams: () => ({ serverId: "wrong_sidebar_server" }),
   useRouter: () => ({ replace: mocks.replace }),
   useSearchParams: () => new URLSearchParams(mocks.search.current),
 }))
@@ -51,7 +52,7 @@ beforeEach(() => {
 describe("ServerDefaultPage checkpoint route contract", () => {
   it.each(["mobile", "unknown"] as const)("keeps the %s server root on the list route without rendering detail", async (breakpoint) => {
     mocks.breakpoint.current = breakpoint
-    const rendered = render(createElement(ServerDefaultPage))
+    const rendered = render(createElement(CommunityServerRouteContext, { value: { serverId: "server_1", serverParam: "server_1" } }, createElement(ServerDefaultPage)))
 
     expect(mocks.replace).not.toHaveBeenCalled()
     expect(rendered.container).toBeEmptyDOMElement()
@@ -60,7 +61,7 @@ describe("ServerDefaultPage checkpoint route contract", () => {
   it("keeps cold or incomplete detail on the root, then redirects only when canonical detail is known", async () => {
     mocks.breakpoint.current = "desktop"
     mocks.server.current = null
-    const rendered = render(createElement(ServerDefaultPage))
+    const rendered = render(createElement(CommunityServerRouteContext, { value: { serverId: "server_1", serverParam: "server_1" } }, createElement(ServerDefaultPage)))
 
     expect(mocks.replace).not.toHaveBeenCalled()
     expect(screen.getByRole("main", { name: "Loading server" })).toHaveAttribute("aria-busy", "true")
@@ -69,7 +70,7 @@ describe("ServerDefaultPage checkpoint route contract", () => {
     expect(rendered.container.querySelectorAll("header, button, form, textarea")).toHaveLength(0)
 
     mocks.server.current = { categories: [{ channels: [{ id: "channel_ready" }] }] }
-    rendered.rerender(createElement(ServerDefaultPage))
+    rendered.rerender(createElement(CommunityServerRouteContext, { value: { serverId: "server_1", serverParam: "server_1" } }, createElement(ServerDefaultPage)))
     expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/channels/server_1/channel_ready")
     expect(screen.getByRole("main", { name: "Loading server" })).toBeInTheDocument()
   })
@@ -78,7 +79,7 @@ describe("ServerDefaultPage checkpoint route contract", () => {
     mocks.breakpoint.current = "desktop"
     mocks.lastChannel.current = "channel_2"
     mocks.search.current = "settings=1"
-    render(createElement(ServerDefaultPage))
+    render(createElement(CommunityServerRouteContext, { value: { serverId: "server_1", serverParam: "server_1" } }, createElement(ServerDefaultPage)))
 
     expect(mocks.replace).toHaveBeenCalledWith(
       "/c/channels/server_1/channel_2?settings=1",
@@ -89,19 +90,19 @@ describe("ServerDefaultPage checkpoint route contract", () => {
   it("does not enqueue the same landing redirect again while restored detail reconciles", async () => {
     mocks.breakpoint.current = "desktop"
     mocks.lastChannel.current = "channel_2"
-    const rendered = render(createElement(ServerDefaultPage))
+    const rendered = render(createElement(CommunityServerRouteContext, { value: { serverId: "server_1", serverParam: "server_1" } }, createElement(ServerDefaultPage)))
 
     mocks.server.current = {
       categories: [{ channels: [{ id: "channel_1" }, { id: "channel_2" }] }],
     }
-    rendered.rerender(createElement(ServerDefaultPage))
+    rendered.rerender(createElement(CommunityServerRouteContext, { value: { serverId: "server_1", serverParam: "server_1" } }, createElement(ServerDefaultPage)))
     expect(mocks.replace).toHaveBeenCalledExactlyOnceWith(
       "/c/channels/server_1/channel_2",
     )
 
     mocks.lastChannel.current = null
     mocks.server.current = { categories: [{ channels: [{ id: "channel_3" }] }] }
-    rendered.rerender(createElement(ServerDefaultPage))
+    rendered.rerender(createElement(CommunityServerRouteContext, { value: { serverId: "server_1", serverParam: "server_1" } }, createElement(ServerDefaultPage)))
     expect(mocks.replace).toHaveBeenNthCalledWith(
       2,
       "/c/channels/server_1/channel_3",
@@ -111,7 +112,7 @@ describe("ServerDefaultPage checkpoint route contract", () => {
   it("falls back to the first top-level channel on desktop", async () => {
     mocks.breakpoint.current = "desktop"
 
-    render(createElement(ServerDefaultPage))
+    render(createElement(CommunityServerRouteContext, { value: { serverId: "server_1", serverParam: "server_1" } }, createElement(ServerDefaultPage)))
 
     expect(mocks.replace).toHaveBeenCalledWith(
       "/c/channels/server_1/channel_1",
@@ -121,7 +122,7 @@ describe("ServerDefaultPage checkpoint route contract", () => {
   it("keeps an empty desktop server on its root with an empty state", async () => {
     mocks.breakpoint.current = "desktop"
     mocks.server.current = { categories: [{ channels: [] }] }
-    const rendered = render(createElement(ServerDefaultPage))
+    const rendered = render(createElement(CommunityServerRouteContext, { value: { serverId: "server_1", serverParam: "server_1" } }, createElement(ServerDefaultPage)))
 
     expect(mocks.replace).not.toHaveBeenCalled()
     expect(rendered.container.querySelector("[aria-label='Loading server']")).not.toBeInTheDocument()

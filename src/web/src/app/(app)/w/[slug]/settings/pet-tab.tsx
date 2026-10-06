@@ -1,4 +1,7 @@
 "use client";
+import { useMemo } from "react";
+import { useObservedRegion } from "@/lib/observability/regions";
+import { sourceEvidence } from "@/lib/observability/data-source";
 
 import { Sparkles } from "lucide-react";
 
@@ -21,6 +24,8 @@ export function PetTab() {
   const { enabled } = useHomePetSettings();
   const selectedPresetId = useCloudCodeMonsterPetPresetId();
   const selectedPreset = getCloudCodeMonsterPreset(selectedPresetId);
+  const observedPreferences = useMemo(() => ({ enabled, selectedPresetId }), [enabled, selectedPresetId]);
+  useObservedRegion("settings", true, sourceEvidence(observedPreferences, "unknown"));
   const handleEnabledChange = (checked: boolean) => writeHomePetSettings({ enabled: checked });
 
   return (

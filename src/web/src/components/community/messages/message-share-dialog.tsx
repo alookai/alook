@@ -156,7 +156,7 @@ export function MessageShareDialog({ m, open, onClose }: {
   }
   useQuery({ ...pngOptions, enabled: false, subscribed: open })
   const exportKey = ["community", "share-image", scopeId, "export"]
-  const command = useMutation({ mutationKey: exportKey, gcTime: 0,
+  const command = useMutation({ meta: { observabilityAction: "message.export" }, mutationKey: exportKey, gcTime: 0,
     mutationFn: async ({ action, original }: { action: "copy" | "download"; original: ReturnType<typeof source.capture> }) => {
       original()
       const prepared = client.getQueryData<{ value: PreparedShareImageSession; filename: string }>(preparationKey)

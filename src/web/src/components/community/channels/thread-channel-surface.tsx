@@ -248,6 +248,9 @@ export function ThreadChannelSurface({
                   channel={displayName}
                   messages={controller.feed.messages}
                   loading={controller.feed.isLoading}
+                  initialLoadError={controller.feed.initialLoadError}
+                  retryingInitialLoad={controller.feed.retryingInitialLoad}
+                  onRetryInitialLoad={controller.feed.retryInitialLoad}
                   pinnedIds={controller.pinnedIds}
                   newDividerBefore={controller.feed.newDividerBefore}
                   onOpenThread={ignoreNestedThread}

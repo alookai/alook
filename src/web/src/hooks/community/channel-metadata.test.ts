@@ -1,7 +1,8 @@
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { CONVERSATION_READ_TIMEOUT_MS } from "@/lib/community/conversation-read"
 import { communityKeys } from "@/lib/query-keys"
-import { fetchChannelMetadata } from "./channel-metadata"
+import { channelMetadataOptions, fetchChannelMetadata } from "./channel-metadata"
 
 const fetchMock = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => fetchMock(...args) }))
@@ -19,6 +20,50 @@ beforeEach(() => {
 })
 
 describe("canonical channel metadata lifecycle", () => {
+  it.each(["text", "forum", "thread", "dm"])("settles hanging %s metadata without publishing a late grant, then retries", async (type) => {
+    const { client, runtime } = await createCommunityQueryOwner()
+    const serverId = type === "dm" ? null : "server"
+    const payload = { ...metadata, serverId, type, name: type === "dm" ? null : metadata.name }
+    let release!: (value: unknown) => void
+    fetchMock.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
+    vi.useFakeTimers()
+    try {
+      const options = channelMetadataOptions(client, serverId, "child")
+      const result = client.fetchQuery(options)
+      const rejected = expect(result).rejects.toMatchObject({ name: "ConversationReadTimeoutError" })
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+      const readSignal = fetchMock.mock.calls[0]![1].signal as AbortSignal
+      await vi.advanceTimersByTimeAsync(CONVERSATION_READ_TIMEOUT_MS)
+      await rejected
+      expect(readSignal.aborted).toBe(true)
+      release(payload)
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(runtime.ws.get().channelAccessScopes.has("child")).toBe(false)
+      expect(client.getQueryData(options.queryKey)).toBeUndefined()
+      fetchMock.mockResolvedValueOnce(payload)
+      await expect(client.fetchQuery(options)).resolves.toMatchObject({ id: "child" })
+      expect(runtime.ws.get().channelAccessScopes.has("child")).toBe(type !== "dm")
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    } finally { vi.useRealTimers() }
+  })
+
+  it("includes collection preload in the metadata deadline and never starts retired HTTP", async () => {
+    const { client, registry } = await createCommunityQueryOwner()
+    let release!: () => void
+    vi.spyOn(registry.collections.channels, "preload").mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve }))
+    vi.useFakeTimers()
+    try {
+      const result = client.fetchQuery(channelMetadataOptions(client, "server", "child"))
+      const rejected = expect(result).rejects.toMatchObject({ name: "ConversationReadTimeoutError" })
+      await vi.advanceTimersByTimeAsync(CONVERSATION_READ_TIMEOUT_MS)
+      await rejected
+      release()
+      await Promise.resolve()
+      expect(fetchMock).not.toHaveBeenCalled()
+    } finally { vi.useRealTimers() }
+  })
+
   it.each(["text", "forum", "thread", "dm"])("validates the exact %s resource with its nullable scope", async (type) => {
     const serverId = type === "dm" ? null : "server"
     fetchMock.mockResolvedValue({ ...metadata, serverId, type, name: type === "dm" ? null : metadata.name })

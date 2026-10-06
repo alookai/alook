@@ -1,5 +1,7 @@
 "use client";
 
+import { useObservedQueryRegion } from "@/lib/observability/query-regions";
+
 
 import { useQuery, useMutation, type Query } from "@tanstack/react-query";
 import { applicationKey, useApplicationOwner, runApplicationRequest } from "@/lib/application-owner";
@@ -21,7 +23,7 @@ export default function InvitePage() {
   const source = useApplicationViewSource(`workspace-invite:${token}`);
   const query = useQuery({ queryKey: applicationKey(owner, "workspace-invite", token), enabled: !!token, retry: false,
     queryFn: ({ signal }) => runApplicationRequest(owner, (options) => getInviteInfo(token, options), signal) });
-  const command = useMutation({ mutationKey: applicationKey(owner, "workspace-invite", token, "accept"), gcTime: 0,
+  const command = useMutation({ meta: { observabilityAction: "workspace.invite.accept" }, mutationKey: applicationKey(owner, "workspace-invite", token, "accept"), gcTime: 0,
     mutationFn: async ({ original, resources }: { original: ReturnType<typeof source.capture>; resources: Query[] }) => {
       original.assert();
       const result = await acceptInvite(token, { authenticationAccount: owner.userId, signal: original.signal, assertActive: original.assert, onUnauthorized: async () => { original.assert(); return false; } });
@@ -31,6 +33,7 @@ export default function InvitePage() {
       return result;
     } });
   const info = query.data;
+  useObservedQueryRegion("page", query);
   const error = command.error ?? query.error;
   const errorMsg = error instanceof Error ? error.message : "Invalid or expired invite link";
   const state: State = command.isPending ? "accepting" : command.isSuccess ? "done" : error ? "error" : query.isPending ? "loading" : "ready";

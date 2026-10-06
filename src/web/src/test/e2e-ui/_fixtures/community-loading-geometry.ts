@@ -14,6 +14,7 @@ import {
   COMMUNITY_SURFACE_BORDER_WIDTH,
 } from "@/components/community/shell/shell-frame-geometry"
 import {
+  retireSeedServers,
   seedChannel,
   seedDm,
   seedForumThread,
@@ -433,11 +434,16 @@ async function visibleSkeletonAnimationProperties(page: Page) {
   )).sort())
 }
 
-export async function seedGeometryRoutes(): Promise<Omit<MatrixCase, "width">[]> {
+export async function cleanupGeometryServers(serverIds: readonly string[]): Promise<void> {
+  await retireSeedServers(ISOLATED_GEOMETRY_USER, serverIds)
+}
+
+export async function seedGeometryRoutes(serverIds: string[]): Promise<Omit<MatrixCase, "width">[]> {
   const stamp = Date.now()
     const serverId = await seedServer(ISOLATED_GEOMETRY_USER, `Geometry ${stamp}`)
+    serverIds.push(serverId)
     for (let index = 1; index < RAIL_OVERFLOW_SERVER_COUNT; index += 1) {
-      await seedServer(ISOLATED_GEOMETRY_USER, `Geometry rail ${stamp}-${index}`)
+      serverIds.push(await seedServer(ISOLATED_GEOMETRY_USER, `Geometry rail ${stamp}-${index}`))
     }
     const textId = await seedChannel(ISOLATED_GEOMETRY_USER, serverId, `geometry-text-${stamp}`)
     const forumId = await seedChannel(
@@ -474,7 +480,7 @@ export async function seedGeometryRoutes(): Promise<Omit<MatrixCase, "width">[]>
       .getByTestId(tid.threadSplitPanel)
       .getByTestId(tid.composerInput)
   return [
-      { name: "me-list", pathname: "/c/me", mobileRail: true, ready: (page) => page.getByRole("button", { name: "Friends", exact: true }) },
+      { name: "me-list", pathname: "/c/me", mobileRail: true, ready: (page) => page.getByRole("link", { name: "Friends", exact: true }) },
       { name: "friends", pathname: "/c/me/friends", ready: (page) => page.getByPlaceholder("Search friends") },
       { name: "machines", pathname: "/c/me/machines", ready: (page) => page.getByTestId(tid.machinePairOpen) },
       { name: "bots", pathname: "/c/me/bots", ready: (page) => page.getByRole("button", { name: /Create a bot|Connect a machine/ }) },
@@ -553,7 +559,7 @@ export async function runAndroidLoadingGeometry(asUser: CommunityAsUser, testInf
             communityReads.release()
             await expect(
               pathname === "/c/me"
-                ? page.getByRole("button", { name: "Friends", exact: true })
+                ? page.getByRole("link", { name: "Friends", exact: true })
                 : page.getByTestId(tid.machinePairOpen),
             ).toBeVisible({ timeout: 30_000 })
             if (pendingHeading) {
@@ -792,7 +798,15 @@ export async function runRouteLoadingGeometry(
           expect(await railScroll.evaluate((element) => element.scrollHeight > element.clientHeight))
             .toBe(true)
         } else {
-          await expect(loadedAdd).toHaveCount(0)
+          await expect(loadedAdd).toHaveCount(1)
+          await expect(loadedAdd).toBeHidden()
+          expect(await loadedAdd.evaluate((element) => (
+            element.closest('[inert][aria-hidden="true"]') !== null
+          ))).toBe(true)
+          expect(await loadedAdd.evaluate((element) => {
+            element.focus()
+            return document.activeElement === element
+          })).toBe(false)
         }
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth))
           .toBe(true)

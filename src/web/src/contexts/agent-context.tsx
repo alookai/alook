@@ -1,5 +1,7 @@
 "use client"
 
+import { deriveView, valueEvidence, withSource } from "@/lib/observability/data-source"
+
 import { isAbortError } from "@/lib/errors"
 import { publishWorkspaceChatEvent } from "@/lib/workspace-chat-events"
 import { captureQueryReceipt, withQueryReceipt, reconcileQueryReceipt } from "@/lib/query-receipt"
@@ -120,7 +122,7 @@ export function useAgentContext({ poll = false }: { poll?: boolean } = {}): Agen
   const detailsQuery = useQuery({ ...owner.queries.tasks, enabled: hasActiveTasks, subscribed: hasActiveTasks, refetchInterval: poll && hasActiveTasks ? 15_000 : false })
   const pendingNewAgent = useSelector(owner.ui, (state) => state.pendingNewAgent)
   const workspace = owner.workspace
-  const mutation = useMutation({
+  const mutation = useMutation({ meta: { observabilityAction: "agent.update" },
     mutationFn: async ({ operation, token }: { operation: (options: ApiRequestOptions) => Promise<unknown>; token: ReturnType<typeof captureWorkspaceOwner> }) => {
       assertWorkspaceOwner(token)
       try {
@@ -132,7 +134,7 @@ export function useAgentContext({ poll = false }: { poll?: boolean } = {}): Agen
   })
   const pinMutationKey = [...owner.queries.pins.queryKey, "change"]
   type PinChange = { kind: "pin" | "unpin" | "reorder-pins" | "reorder-unpinned"; ids: string[]; token: ReturnType<typeof captureWorkspaceOwner> }
-  const pinMutation = useMutation({
+  const pinMutation = useMutation({ meta: { observabilityAction: "agent.rail.command" },
     mutationKey: pinMutationKey,
     scope: { id: JSON.stringify(pinMutationKey) },
     mutationFn: async (action: PinChange) => {
@@ -268,6 +270,9 @@ export function useAgentContext({ poll = false }: { poll?: boolean } = {}): Agen
     const pins = useMemo(() => new Map(pinData?.pins.map((pin) => [pin.agent_id, { created_at: pin.created_at, position: pin.position }])), [pinData])
     const unpinnedOrder = useMemo(() => new Map(pinData?.sidebar_order.map((entry) => [entry.agent_id, entry.position])), [pinData])
     const loading = results.slice(0, 4).some((result) => result.isPending)
+    deriveView(agents, [valueEvidence(owner.workspace.queryClient, results[0]?.data)])
+    deriveView(runtimes, [valueEvidence(owner.workspace.queryClient, results[1]?.data)])
+    deriveView(agentLinks, [valueEvidence(owner.workspace.queryClient, results[3]?.data)])
     return useMemo(() => ({
       ...operations, workspaceId: owner.workspace.workspaceId, agents, runtimes,
       agentLinks, activeTaskCounts, activeTaskDetails, pendingNewAgent,
@@ -280,9 +285,11 @@ function AgentBootstrap({ owner }: { owner: AgentOwner }) {
     const { workspace } = owner
     if (!workspace.lifecycle.get().active || !workspace.application.lifecycle.get().active) return
     if ("workspaceId" in message && message.workspaceId && message.workspaceId !== workspace.workspaceId) return
-    publishWorkspaceChatEvent(workspace, message)
-    publishWorkspaceIssueEvent(workspace, message)
-    owner.dispatch(message)
+    withSource(workspace.queryClient, "ws", () => {
+      publishWorkspaceChatEvent(workspace, message)
+      publishWorkspaceIssueEvent(workspace, message)
+      owner.dispatch(message)
+    })
     switch (message.type) {
       case "runtime.registered": case "runtime.deleted": void owner.reload(); break
       case "runtime.status":

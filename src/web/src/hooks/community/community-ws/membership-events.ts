@@ -103,6 +103,12 @@ export function handleChannelMemberEvent(
   }
   const knownType = canonicalType()
   if (knownType) {
+    if (viewerChange && knownType === "thread") {
+      projection.fence("channel-metadata", { queryKey: key, exact: true }, () => (
+        isChannelMetadataTokenCurrent(token)
+        && !getCommunityRuntime(queryClient).ws.actions.isChannelAccessRevoked(event.channelId, event.serverId)
+      ))
+    }
     apply(knownType)
     return
   }

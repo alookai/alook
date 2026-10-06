@@ -20,7 +20,7 @@ export function useWorkspaceMeetings(agentId: string) {
   const options = workspaceMeetingsOptions(owner, agentId)
   const query = useQuery(options)
   const mutationKey = [...options.queryKey, "change"]
-  const mutation = useMutation({
+  const mutation = useMutation({ meta: { observabilityAction: "meeting.command" },
     mutationKey,
     scope: { id: JSON.stringify(mutationKey) },
     mutationFn: async (action: MeetingAction) => {

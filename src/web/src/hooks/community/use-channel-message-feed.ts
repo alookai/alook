@@ -2,6 +2,7 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useMemo } from "react"
+import { isConversationAccessError } from "@/lib/community/conversation-read"
 import { useChannelReadStateSnapshot } from "./use-channel-read-state"
 import { useChannelWatermark } from "./use-channel-watermark"
 import { useMessages } from "./use-messages"
@@ -56,7 +57,9 @@ export function useChannelMessageFeed({
     channelId,
     messages: messagesQuery.messages,
     scrollRootEl,
-    snapshotStatus: readState.isFetching
+    snapshotStatus: isConversationAccessError(readState.error)
+      ? "error"
+      : readState.isFetching
       ? "pending"
       : readSnapshot
         ? "ready"
@@ -76,11 +79,19 @@ export function useChannelMessageFeed({
   }, [messagesQuery.latestSeq, readSnapshot])
   const threadsQuery = useThreads(channelId)
   const pinsQuery = usePins(channelId)
+  const initialLoadError = isConversationAccessError(messagesQuery.error)
+    ? messagesQuery.error : readState.error ?? messagesQuery.error
 
   return {
     ...messagesQuery,
     readSnapshot,
     readSnapshotFetching: readState.isFetching,
+    initialLoadError,
+    retryingInitialLoad: readState.retrying || messagesQuery.isFetching,
+    retryInitialLoad: () => {
+      if (initialLoadError && initialLoadError === messagesQuery.error) void messagesQuery.refetch({ cancelRefetch: false })
+      else readState.retry()
+    },
     newDividerBefore,
     anchorInCache: anchorFound,
     unreadCount,

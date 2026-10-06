@@ -1,5 +1,8 @@
 
 import { getCommunityRuntime } from "@/stores/community/runtime"
+import { telemetryId } from "@/lib/observability/context"
+import { withSource } from "@/lib/observability/data-source"
+import { emitTelemetry } from "@/lib/observability/telemetry"
 
 import type { CommunityWsEvent } from "@alook/shared"
 import type { CommunityWsReconcilePolicy } from "@/lib/analytics"
@@ -162,7 +165,8 @@ export function dispatchCommunityWsEvents(
       messageEvent: creates[0]!,
     })
   }
-  runCommunityWsProjectionTransaction(context.queryClient, (projection) => {
+  const receipts: Array<{ id: string; start: number; type: CommunityEventType }> = []
+  try { withSource(context.queryClient, "ws", () => runCommunityWsProjectionTransaction(context.queryClient, (projection) => {
     const handlerContext: CommunityWsHandlerContext = {
       ...context,
       projection,
@@ -181,8 +185,12 @@ export function dispatchCommunityWsEvents(
         && getCommunityRuntime(context.queryClient).ws.actions.isChannelAccessRevoked(channelId, serverId, parentChannelId ?? undefined)) continue
       if (channelId && serverId) getCommunityRuntime(context.queryClient).ws.actions.observeChannelScope(serverId, channelId, parentChannelId)
       const entry = communityWsRegistry[event.type] as RegistryEntry<typeof event.type>
-      entry.handler(event, handlerContext)
-      projectCommunityWsEventToDb(context.queryClient, event)
+      const receipt = { id: telemetryId(), start: performance.now(), type: event.type }
+      receipts.push(receipt)
+      withSource(context.queryClient, "ws", () => {
+        entry.handler(event, handlerContext)
+        projectCommunityWsEventToDb(context.queryClient, event)
+      }, receipt)
       if ([
         "community:server.delete",
         "community:channel.delete",
@@ -192,7 +200,11 @@ export function dispatchCommunityWsEvents(
         scheduleAccountAttentionReconcile(context.queryClient)
       }
     }
-  })
+  })) } catch (error) {
+    for (const receipt of receipts) emitTelemetry("ws.event_applied", { ws_event_id: receipt.id, event_type: receipt.type, duration_ms: performance.now() - receipt.start, source: "ws", outcome: "partial", eligibility: "unknown" })
+    throw error
+  }
+  for (const receipt of receipts) emitTelemetry("ws.event_applied", { ws_event_id: receipt.id, event_type: receipt.type, duration_ms: performance.now() - receipt.start, source: "ws", outcome: "success", eligibility: "eligible" })
 }
 
 export const communityWsReconnectPolicies = Array.from(new Set(

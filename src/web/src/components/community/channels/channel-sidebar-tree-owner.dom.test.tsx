@@ -214,3 +214,5 @@ describe("ChannelSidebarScope", () => {
     expect(screen.getByTestId(tid.channelRow("target-two"))).toBeInTheDocument()
   })
 })
+
+vi.mock("next/link", async () => ({ default: (await import("@/test/community-link-mock")).CommunityLinkMock }))

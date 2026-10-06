@@ -1,5 +1,7 @@
 "use client";
 
+import { useObservedQueryRegion } from "@/lib/observability/query-regions"
+
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { FileDownloadButton } from "@/components/file-download-button"
 import { useEffect, useCallback, useMemo } from "react";
@@ -88,6 +90,8 @@ function AgentEmailSurface({ agentId }: { agentId: string }) {
   const body = bodyQuery.data ?? (bodyQuery.isError ? { content: "(body not available)", isHtml: false } : null);
   const threadBodies = expandedThreadId && expandedBody.data ? { [expandedThreadId]: expandedBody.data } : {};
   const loading = list.isPending;
+  useObservedQueryRegion("email", list, emails.length);
+  useObservedQueryRegion("email_body", bodyQuery, undefined, !!selectedId);
   const bodyLoading = !!selectedId && bodyQuery.isPending;
   const switchFolder = useCallback((next: Folder) => {
     _setFolder(next);
@@ -102,7 +106,7 @@ function AgentEmailSurface({ agentId }: { agentId: string }) {
   };
   type Input = { action: Action; token: ReturnType<typeof captureWorkspaceOwner> };
   type Intent = Input & { view: ReturnType<typeof source.capture>; resources: Query[] };
-  const native = useMutation({ gcTime: 0, mutationKey: commandKey, scope: { id: JSON.stringify(commandKey) },
+  const native = useMutation({ meta: { observabilityAction: "email.command" }, gcTime: 0, mutationKey: commandKey, scope: { id: JSON.stringify(commandKey) },
     mutationFn: async ({ action, token, view, resources }: Intent) => {
       const assert = () => { assertWorkspaceOwner(token, view.signal); view.assert(); };
       assert();

@@ -1,7 +1,7 @@
 "use client"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
+import { useCallback, useEffect, useMemo, useRef } from "react"
 import type { RenderMsg } from "@/lib/community/models/message"
 import { flattenMessageItems } from "@/lib/community/message-list-items"
 import {
@@ -16,6 +16,7 @@ import type { ResolvedMessageListProps } from "./message-list-types"
 export function useMessageListController({
   messages,
   loading,
+  initialLoadError,
   newDividerBefore,
   scrollToMessageId,
   initialScrollReady,
@@ -29,25 +30,19 @@ export function useMessageListController({
   presentVersion,
   unreadCount,
   viewerUserId,
-  hero,
   onScrollRoot,
   onScrollTargetConsumed,
 }: ResolvedMessageListProps) {
   const breakpoint = useBreakpoint()
   const tailPaddingEnd = resolveMessageRailTailPaddingEnd(breakpoint)
+  const [jumpRevision, setJumpRevision] = useAtom(useCreateAtom(0))
   const [jumped, setJumped] = useAtom(useCreateAtom<string | null>(null))
   const [anchorPositionSettled, setAnchorPositionSettled] = useAtom(useCreateAtom(false))
-  const [targetPositionSettled, setTargetPositionSettled] = useAtom(useCreateAtom(!scrollToMessageId))
-  const targetSettleFrameRef = useRef<number | null>(null)
-  const consumedScrollTargetRef = useRef<string | null>(null)
 
   const items = useMemo(
     () => flattenMessageItems(messages, newDividerBefore, !!hasMore),
     [messages, newDividerBefore, hasMore],
   )
-  const scrollTargetLoaded = !!scrollToMessageId
-    && messages.some((message) => message.id === scrollToMessageId)
-  const scrollAnchorReady = scrollToMessageId ? scrollTargetLoaded : initialScrollReady
 
   const [selectMode, setSelectMode] = useAtom(useCreateAtom(false))
   const [selectedIds, setSelectedIds] = useAtom(useCreateAtom<Set<string>>(useMemo<Set<string>>(() => new Set<string>(), [])))
@@ -90,33 +85,17 @@ export function useMessageListController({
     })
   }, [items, selectedIds])
 
-  const heroRef = useRef<HTMLDivElement>(null)
-  const [heroHeight, setHeroHeight] = useAtom(useCreateAtom(0))
-  const [heroMeasured, setHeroMeasured] = useAtom(useCreateAtom(false))
-  const isLoading = !!loading && messages.length === 0
-  const authoritativeEmpty = !loading && messages.length === 0
+  const isLoading = (!!loading || !!initialLoadError) && messages.length === 0
+  const authoritativeEmpty = !loading && !initialLoadError && messages.length === 0
   const settleAnchorPosition = useCallback(() => setAnchorPositionSettled(true), [setAnchorPositionSettled])
-  useEffect(() => {
-    const element = heroRef.current
-    if (!element) return
-    const observer = new ResizeObserver((entries) => {
-      const height = entries[0]?.borderBoxSize?.[0]?.blockSize ?? element.offsetHeight
-      setHeroHeight(height)
-      setHeroMeasured(true)
-    })
-    observer.observe(element)
-    setHeroHeight(element.offsetHeight)
-    setHeroMeasured(true)
-    return () => observer.disconnect()
-  }, [isLoading, hasMore, hero, setHeroHeight, setHeroMeasured])
-
   const {
     scrollRef,
     virtualizer,
     belowCount,
     scrollToBottom,
+    requestPresentPosition,
     jumpTo: jumpToIndex,
-    onImageLoad,
+    readPositionReady,
     captureOlderPageAnchor,
     isOlderPageAnchorSettling,
     captureNewerPageAnchor,
@@ -124,21 +103,23 @@ export function useMessageListController({
   } = useScrollAnchor({
     items,
     newDividerBefore,
-    initialScrollReady: scrollAnchorReady,
+    initialScrollReady,
+    scrollToMessageId,
+    onScrollTargetCancelled: onScrollTargetConsumed,
+    onScrollTargetPositioned: (id) => { setJumped(id); setJumpRevision((value) => value + 1); onScrollTargetConsumed?.(id) },
     hasMoreNewer,
     isFetchingOlder,
     isFetchingNewer,
     presentVersion,
     viewerUserId,
-    heroHeight,
-    heroMeasured,
+    hasMoreOlder: hasMore,
     tailPaddingEnd,
     onInitialPositionSettled: settleAnchorPosition,
   })
   const initialPosition = useInitialPositionTransition({
-    firstWindowReady: !isLoading,
+    firstWindowReady: !isLoading && (messages.length > 0 || !initialLoadError),
     authoritativeEmpty,
-    positionSettled: anchorPositionSettled && targetPositionSettled,
+    positionSettled: anchorPositionSettled,
   })
 
   useEffect(() => {
@@ -169,22 +150,29 @@ export function useMessageListController({
   const jumpClearTimerRef = useRef<number | null>(null)
   const jumpVisibilityFrameRef = useRef<number | null>(null)
   const jumpTo = useCallback((id: string, behavior: ScrollBehavior = "smooth") => {
-    if (jumpClearTimerRef.current !== null) clearTimeout(jumpClearTimerRef.current)
-    if (jumpVisibilityFrameRef.current !== null) {
-      window.cancelAnimationFrame(jumpVisibilityFrameRef.current)
-    }
     setJumped(id)
+    setJumpRevision((value) => value + 1)
     jumpToIndex(id, behavior)
+  }, [jumpToIndex, setJumped, setJumpRevision])
+  useEffect(() => {
+    if (!jumped) return
+    const id = jumped
+    let active = true
+    if (jumpClearTimerRef.current !== null) clearTimeout(jumpClearTimerRef.current)
+    if (jumpVisibilityFrameRef.current !== null) window.cancelAnimationFrame(jumpVisibilityFrameRef.current)
     let attempts = 0
     const armClear = () => {
+      if (!active) return
       jumpVisibilityFrameRef.current = null
       const timeout = window.setTimeout(() => {
+        if (!active) return
         setJumped((value) => (value === id ? null : value))
         if (jumpClearTimerRef.current === timeout) jumpClearTimerRef.current = null
       }, 1600)
       jumpClearTimerRef.current = timeout
     }
     const waitUntilVisible = () => {
+      if (!active) return
       const root = scrollRef.current
       const row = root
         ? Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]"))
@@ -206,48 +194,20 @@ export function useMessageListController({
       jumpVisibilityFrameRef.current = window.requestAnimationFrame(waitUntilVisible)
     }
     jumpVisibilityFrameRef.current = window.requestAnimationFrame(waitUntilVisible)
-  }, [jumpToIndex, scrollRef, setJumped])
-  useEffect(() => () => {
-    if (jumpClearTimerRef.current !== null) clearTimeout(jumpClearTimerRef.current)
-    if (jumpVisibilityFrameRef.current !== null) {
-      window.cancelAnimationFrame(jumpVisibilityFrameRef.current)
+    return () => {
+      active = false
+      if (jumpClearTimerRef.current !== null) clearTimeout(jumpClearTimerRef.current)
+      if (jumpVisibilityFrameRef.current !== null) window.cancelAnimationFrame(jumpVisibilityFrameRef.current)
     }
-  }, [])
-
-  useLayoutEffect(() => {
-    if (!scrollToMessageId) return
-    setTargetPositionSettled(false)
-  }, [scrollToMessageId, setTargetPositionSettled])
-
-  useEffect(() => {
-    if (!scrollToMessageId) {
-      consumedScrollTargetRef.current = null
-      return
-    }
-    if (consumedScrollTargetRef.current === scrollToMessageId) return
-    if (!scrollTargetLoaded || !heroMeasured) return
-    consumedScrollTargetRef.current = scrollToMessageId
-    jumpTo(scrollToMessageId, "auto")
-    onScrollTargetConsumed?.(scrollToMessageId)
-    if (targetSettleFrameRef.current !== null) {
-      window.cancelAnimationFrame(targetSettleFrameRef.current)
-    }
-    targetSettleFrameRef.current = window.requestAnimationFrame(() => {
-      targetSettleFrameRef.current = null
-      setTargetPositionSettled(true)
-    })
-  }, [scrollToMessageId, scrollTargetLoaded, heroMeasured, jumpTo, onScrollTargetConsumed, setTargetPositionSettled])
-  useLayoutEffect(() => () => {
-    if (targetSettleFrameRef.current !== null) {
-      window.cancelAnimationFrame(targetSettleFrameRef.current)
-    }
-  }, [])
+  }, [jumped, jumpRevision, scrollRef, setJumped])
 
   const jumpMode = !!hasMoreNewer
   const pillCount = jumpMode ? ((unreadCount ?? belowCount) || 0) : belowCount
-  const pillOnClick = jumpMode
-    ? (onJumpToPresent ?? scrollToBottom)
-    : scrollToBottom
+  const jumpToPresent = useCallback(() => {
+    requestPresentPosition()
+    onJumpToPresent?.()
+  }, [onJumpToPresent, requestPresentPosition])
+  const pillOnClick = jumpMode && onJumpToPresent ? jumpToPresent : scrollToBottom
 
   const closeShare = useCallback(() => {
     setShareOpen(false)
@@ -268,12 +228,11 @@ export function useMessageListController({
     closeShare,
     onEnterSelectId,
     onToggleSelectId,
-    heroRef,
     scrollRef,
     virtualizer,
     topSentinelRef,
     bottomSentinelRef,
-    onImageLoad,
+    readPositionReady,
     jumpTo,
     pillCount,
     pillMode: jumpMode ? "jump" as const : "scroll" as const,

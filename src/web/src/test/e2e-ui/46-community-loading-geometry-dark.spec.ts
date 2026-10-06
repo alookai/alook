@@ -1,5 +1,6 @@
 import { test } from "./_fixtures/community-fixture"
 import {
+  cleanupGeometryServers,
   runDesktopPersistedPendingGeometry,
   runNeutralRootGeometry,
   runRouteLoadingGeometry,
@@ -8,10 +9,15 @@ import {
 
 test.describe.serial("community dark loading geometry", () => {
   let routes!: Awaited<ReturnType<typeof seedGeometryRoutes>>
+  const serverIds: string[] = []
 
   test.beforeAll(async () => {
     test.setTimeout(120_000)
-    routes = await seedGeometryRoutes()
+    routes = await seedGeometryRoutes(serverIds)
+  })
+
+  test.afterAll(async () => {
+    await cleanupGeometryServers(serverIds)
   })
 
   test("dark: neutral root owns two viewport cold restores", async ({ asUser }, testInfo) => {

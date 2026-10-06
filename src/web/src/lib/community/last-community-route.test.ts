@@ -20,7 +20,7 @@ describe("last-community-route", () => {
     storage = {}
     clearCommunityColdEntryAttempts()
     vi.unstubAllGlobals()
-    vi.stubGlobal("window", {})
+    vi.stubGlobal("window", new EventTarget())
     vi.stubGlobal("localStorage", {
       getItem: vi.fn((key: string) => storage[key] ?? null),
       setItem: vi.fn((key: string, value: string) => { storage[key] = value }),

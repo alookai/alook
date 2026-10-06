@@ -247,7 +247,7 @@ test.describe.serial("actionable Inbox friend requests", () => {
       await expectNoInboxUnreadCount(bob.page)
 
       await bob.page.getByTestId(tid.inboxTrigger).click()
-      await bob.page.getByRole("button", { name: "Friends", exact: true }).click()
+      await bob.page.getByRole("link", { name: "Friends", exact: true }).click()
       const accepted = await bob.page.request.get("/api/community/friends/accepted")
       expect(accepted.ok()).toBe(true)
       const acceptedBody = await accepted.json() as { friends: Array<{ userId: string; name: string }> }

@@ -387,7 +387,7 @@ export function CommunityShellLayout({
       data-slot="community-shell-root"
     >
       {(!isMobileDetail || preserveHiddenMobileModules) && (
-        <div className={cn(
+        <div inert={isMobileDetail} aria-hidden={isMobileDetail || undefined} className={cn(
           "flex min-h-0",
           isInitialDetail && "hidden sm:contents",
           isMobileDetail && preserveHiddenMobileModules && "hidden",
@@ -450,6 +450,8 @@ export function CommunityShellLayout({
                 data-slot="community-sidebar-panel-content"
                 data-community-mobile-surface={isMobileList ? "list" : undefined}
                 hidden={isMobileDetail}
+                inert={isMobileDetail}
+                aria-hidden={isMobileDetail || undefined}
                 className={cn(
                   "flex min-h-0 min-w-0 flex-1 flex-col",
                   isInitialDetail && "max-sm:hidden",
@@ -479,6 +481,8 @@ export function CommunityShellLayout({
                 data-slot="community-main-panel-content"
                 data-community-mobile-surface={isMobileDetail ? "detail" : undefined}
                 hidden={isMobileList}
+                inert={isMobileList}
+                aria-hidden={isMobileList || undefined}
                 className={cn(
                   "flex min-h-0 flex-1 flex-col",
                   isInitial && surface === "list" && "max-sm:hidden",
@@ -494,6 +498,8 @@ export function CommunityShellLayout({
           <div
             ref={userBarOverlayRef}
             data-slot="community-user-bar-overlay"
+            inert={isMobileDetail}
+            aria-hidden={isMobileDetail || undefined}
             className={cn(
               "absolute bottom-0 left-0 z-10",
               isDesktop && "w-(--community-desktop-user-bar-width)",

@@ -1,4 +1,5 @@
 import { clearPersistedCache } from "@/lib/query-persister"
+import { disposeQueryDiagnostics } from "@/lib/observability/query-observer"
 import {
   DbClient,
   BasicIndex,
@@ -311,7 +312,7 @@ function buildCommunityDbRegistry(
   type CollectionName = keyof typeof collections
   const restoration = createStore({ captured: false, names: new Set<string>(), hasData: false })
   const runtime = {
-    ui: createCommunityStore(), ws: createCommunityWsStore(accountId), messageStream: createMessageStreamStore(() => new Map(Array.from(messages.values()).flatMap((message) => typeof message.seq === "number" ? [[message.id, message as CanonicalMessage] as const] : []))),
+    ui: createCommunityStore(), ws: createCommunityWsStore(accountId), messageStream: createMessageStreamStore(() => new Map(Array.from(messages.values()).flatMap((message) => typeof message.seq === "number" ? [[message.id, message as CanonicalMessage] as const] : [])), queryClient),
     serverEject: createOwnerServerDeleteStore(),
     lifecycle: createStore({ active: true, generation: 0 }), transport: { send: null as ((message: object) => void) | null },
   }
@@ -352,6 +353,7 @@ function buildCommunityDbRegistry(
     hasRestoredData: () => restoration.get().hasData,
     preload: () => Promise.all(Object.values(collections).map((collection) => collection.preload())),
     cleanup: () => {
+      disposeQueryDiagnostics(queryClient)
       cancelActiveConversationNavigationProof(queryClient)
       if (registryByQueryClient.get(queryClient) === registry) registryByQueryClient.delete(queryClient)
       runtime.lifecycle.setState((state) => ({ active: false, generation: state.generation + 1 }))

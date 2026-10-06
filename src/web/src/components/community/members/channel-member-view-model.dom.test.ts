@@ -8,6 +8,7 @@ import { useAddableMembers, useChannelMembers } from "@/hooks/community/use-chan
 
 const mocks = vi.hoisted(() => ({
   serverMembers: [] as Array<Record<string, unknown>>,
+  viewerRole: "admin" as "owner" | "admin" | "member" | undefined,
   serverMemberArgs: [] as Array<string | null>,
   channelMembers: new Map<string, Array<Record<string, unknown>>>(),
   channelQueryState: new Map<string, {
@@ -52,6 +53,9 @@ vi.mock("@/hooks/community/use-server-members", () => ({
       searchMembers: mocks.serverSearch,
     }
   },
+}))
+vi.mock("@/hooks/community/use-servers", () => ({
+  useViewerServerRole: (serverId: string | null) => serverId ? mocks.viewerRole : undefined,
 }))
 vi.mock("@/hooks/community/use-channel-members", () => ({
   useChannelMembers: vi.fn((channelId: string, enabled = true) => {
@@ -189,6 +193,7 @@ function latestModel(): ReturnType<typeof useChannelMemberViewModel> {
 
 describe("useChannelMemberViewModel", () => {
   beforeEach(() => {
+    mocks.viewerRole = "admin"
     mocks.serverMembers = [
       member("viewer_1", "Viewer", { role: "admin" }),
       member("alice_1", "Alice"),
@@ -261,6 +266,16 @@ describe("useChannelMemberViewModel", () => {
 
   afterEach(() => {
     vi.clearAllMocks()
+  })
+
+  it("reads the qualified own role even when the member window excludes the viewer", () => {
+    mocks.serverMembers = [member("alice_1", "Alice")]
+    const renderer = rtlRender(renderHarness(props()))
+    expect(latestModel().myRole).toBe("admin")
+    mocks.viewerRole = undefined
+    renderer.rerender(renderHarness(props()))
+    expect(latestModel().myRole).toBeUndefined()
+    renderer.unmount()
   })
 
   it("uses the public server roster, excludes self, and keeps the raw-roster resolver stable across presence ticks", () => {

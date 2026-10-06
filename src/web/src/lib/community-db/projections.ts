@@ -17,6 +17,7 @@ import type { ChannelRefDirectory } from "@/lib/community/channel-ref"
 import type { CommunityDbRegistry } from "./collections"
 import { useCommunityPreviewProfiles } from "@/stores/community/profile-preview"
 import { MAX_PERSISTED_MESSAGES_PER_SCOPE } from "@/lib/query-persister"
+import { collectionEvidence, deriveView, sourceEvidence, tagView, viewEvidence } from "@/lib/observability/data-source"
 
 import type {
   AttentionItemRow,
@@ -34,6 +35,30 @@ import type {
   ServerMembershipRow,
   ServerRow,
 } from "./schema"
+
+function annotateRows<T extends object>(registry: CommunityDbRegistry | null, collection: string, rows: T[] | undefined): T[] | undefined {
+  if (!registry || !rows) return rows
+  const key = (row: T) => String((row as Record<string, unknown>).id ?? (row as Record<string, unknown>).userId ?? (row as Record<string, unknown>).scopeId)
+  for (const row of rows) tagView(row, collectionEvidence(registry.queryClient, collection, [key(row)], [row]))
+  return tagView(rows, collectionEvidence(registry.queryClient, collection, rows.map(key), rows))
+}
+
+const presenceVersions = new WeakMap<CommunityDbRegistry, Map<string, { value: string; token: object }>>()
+function presenceVersion(registry: CommunityDbRegistry, userId: string, value: string) {
+  let entries = presenceVersions.get(registry)
+  if (!entries) { entries = new Map(); presenceVersions.set(registry, entries) }
+  const old = entries.get(userId)
+  const token = old?.value === value ? old.token : {}
+  entries.set(userId, { value, token })
+  if (entries.size > 2048) entries.delete(entries.keys().next().value!)
+  return sourceEvidence(token, "ws")
+}
+
+function projectedMessage(registry: CommunityDbRegistry | null, message: MessageRow, child?: ChannelRow): Msg {
+  const { channelId: _channelId, replyToId: _replyToId, ...model } = message
+  const value = { ...model, ...(child ? { thread: { id: child.id, name: child.name, messageCount: child.messageCount ?? 0, lastReplyAt: child.lastMessageAt ?? undefined, tags: child.tags, preview: child.preview, participantCount: child.participantCount } } : {}) } as Msg
+  return registry ? deriveView(value, [collectionEvidence(registry.queryClient, "messages", [message.id], [message]), ...(child ? [collectionEvidence(registry.queryClient, "channels", [child.id], [child])] : [])]) : value
+}
 
 let communityDbContext: Context<CommunityDbRegistry | null> | null = null
 
@@ -98,61 +123,67 @@ export function CommunityDbProvider({
 
 function useServerRows(serverId?: string) {
   const registry = useOptionalCommunityDbRegistry()
-  return useLiveQuery({
+  const data = useLiveQuery({
     query: (q) => registry
       ? q.from({ server: registry.collections.servers }).where(({ server }) => serverId === undefined ? eq(1, 1) : eq(server.id, serverId))
       : undefined,
   }).data as ServerRow[] | undefined
+  return annotateRows(registry, "servers", data)
 }
 
 function useCategoryRows(serverId?: string) {
   const registry = useOptionalCommunityDbRegistry()
-  return useLiveQuery({
+  const data = useLiveQuery({
     query: (q) => registry
       ? q.from({ category: registry.collections.categories }).where(({ category }) => serverId === undefined ? eq(1, 1) : eq(category.serverId, serverId))
       : undefined,
   }).data as CategoryRow[] | undefined
+  return annotateRows(registry, "categories", data)
 }
 
 function useServerMembershipRows() {
   const registry = useOptionalCommunityDbRegistry()
-  return useLiveQuery({
+  const data = useLiveQuery({
     query: (q) => registry
       ? q.from({ membership: registry.collections.serverMemberships })
       : undefined,
   }).data as ServerMembershipRow[] | undefined
+  return annotateRows(registry, "serverMemberships", data)
 }
 
 function useFolderRows() {
   const registry = useOptionalCommunityDbRegistry()
-  return useLiveQuery({
+  const data = useLiveQuery({
     query: (q) => registry
       ? q.from({ folder: registry.collections.folders })
       : undefined,
   }).data as FolderRow[] | undefined
+  return annotateRows(registry, "folders", data)
 }
 
 function useFolderItemRows() {
   const registry = useOptionalCommunityDbRegistry()
-  return useLiveQuery({
+  const data = useLiveQuery({
     query: (q) => registry
       ? q.from({ item: registry.collections.folderItems })
       : undefined,
   }).data as FolderItemRow[] | undefined
+  return annotateRows(registry, "folderItems", data)
 }
 
 function useNotificationSettingRows() {
   const registry = useOptionalCommunityDbRegistry()
-  return useLiveQuery({
+  const data = useLiveQuery({
     query: (q) => registry
       ? q.from({ setting: registry.collections.notificationSettings })
       : undefined,
   }).data as NotificationSettingRow[] | undefined
+  return annotateRows(registry, "notificationSettings", data)
 }
 
 function useChannelRows(serverId?: string, type?: ChannelRow["type"]) {
   const registry = useOptionalCommunityDbRegistry()
-  return useLiveQuery({
+  const data = useLiveQuery({
     query: (q) => {
       if (!registry) return undefined
       let query = q.from({ channel: registry.collections.channels })
@@ -161,25 +192,28 @@ function useChannelRows(serverId?: string, type?: ChannelRow["type"]) {
       return query
     },
   }).data as ChannelRow[] | undefined
+  return annotateRows(registry, "channels", data)
 }
 
 function useChannelMembershipRows(channelIds?: string[]) {
   const registry = useOptionalCommunityDbRegistry()
-  return useLiveQuery({
+  const data = useLiveQuery({
     query: (q) => registry
       ? q.from({ membership: registry.collections.channelMemberships })
         .where(({ membership }) => channelIds === undefined ? eq(1, 1) : inArray(membership.channelId, channelIds))
       : undefined,
   }).data as ChannelMembershipRow[] | undefined
+  return annotateRows(registry, "channelMemberships", data)
 }
 
 function useMessageRowsById(messageIds: string[]) {
   const registry = useOptionalCommunityDbRegistry()
-  return useLiveQuery({
+  const data = useLiveQuery({
     query: (q) => registry
       ? q.from({ message: registry.collections.messages }).where(({ message }) => inArray(message.id, messageIds))
       : undefined,
   }).data as MessageRow[] | undefined
+  return annotateRows(registry, "messages", data)
 }
 
 export function useServerRailProjection() {
@@ -246,11 +280,21 @@ export function useServerRailProjection() {
             }] : []
           }),
       }))
-    return { servers, folders }
+    deriveView(servers, [
+      collectionEvidence(rows.registry.queryClient, "servers", rows.servers.map(row => row.id), rows.servers),
+      collectionEvidence(rows.registry.queryClient, "serverMemberships", rows.serverMemberships.map(row => row.id), rows.serverMemberships),
+    ])
+    deriveView(folders, [
+      viewEvidence(servers),
+      collectionEvidence(rows.registry.queryClient, "folders", (rows.folders ?? []).map(row => row.id), rows.folders ?? []),
+      collectionEvidence(rows.registry.queryClient, "folderItems", (rows.folderItems ?? []).map(row => row.id), rows.folderItems ?? []),
+    ])
+    return deriveView({ servers, folders }, [viewEvidence(servers), viewEvidence(folders)], servers.length + folders.length)
   }, [rows.registry, rows.servers, rows.serverMemberships, rows.folders, rows.folderItems])
 }
 
 export function useServerTreeProjection(serverId: string | null) {
+  const registry = useOptionalCommunityDbRegistry()
   const rows = {
     servers: useServerRows(serverId ?? ""),
     categories: useCategoryRows(serverId ?? ""),
@@ -304,17 +348,18 @@ export function useServerTreeProjection(serverId: string | null) {
     if (uncategorized.length > 0) {
       categories.push({ id: "__uncategorized__", name: "", private: false, channels: uncategorized })
     }
-    return {
-      id: server.id,
-      name: server.name,
-      discriminator: server.discriminator,
-      description: server.description,
-      icon: server.icon,
-      official: server.official,
-      ownerId: server.ownerId,
-      categories,
+    if (registry) deriveView(categories, [collectionEvidence(registry.queryClient, "categories", rows.categories.map(row => row.id), rows.categories), collectionEvidence(registry.queryClient, "channels", channels.map(row => row.id), channels)], channels.length)
+    const view = {
+      id: server.id, name: server.name, discriminator: server.discriminator,
+      description: server.description, icon: server.icon, official: server.official,
+      ownerId: server.ownerId, categories,
     }
-  }, [rows.servers, rows.categories, rows.channels, serverId])
+    return registry ? deriveView(view, [
+      collectionEvidence(registry.queryClient, "servers", [server.id], [server]),
+      collectionEvidence(registry.queryClient, "categories", rows.categories.map(row => row.id), rows.categories),
+      collectionEvidence(registry.queryClient, "channels", channels.map(row => row.id), channels),
+    ], channels.length) : view
+  }, [rows.servers, rows.categories, rows.channels, serverId, registry])
 }
 
 export function useDmProjection() {
@@ -342,7 +387,7 @@ export function useDmProjection() {
     const channelMemberships = rows.channelMemberships
     const profileById = new Map(rows.profiles.map((profile) => [profile.userId, profile]))
     const readStateByChannel = new Map((rows.readStates ?? []).map((state) => [state.channelId, state]))
-    return sortDmsByActivity(rows.channels
+    const result = sortDmsByActivity(rows.channels
       .filter((channel) => channel.type === "dm")
       .flatMap((channel): DM[] => {
         const peerMembership = channelMemberships.find((membership) => (
@@ -370,7 +415,8 @@ export function useDmProjection() {
             : { lastUnreadSeq: channel.lastUnreadSeq ?? readState?.lastReadSeq }),
         }]
       }))
-  }, [rows.registry?.accountId, rows.channels, rows.channelMemberships, rows.profiles, rows.readStates])
+    return deriveView(result, [viewEvidence(rows.channels), viewEvidence(rows.channelMemberships), collectionEvidence(rows.registry!.queryClient, "profiles", rows.profiles.map(row => row.userId), rows.profiles), collectionEvidence(rows.registry!.queryClient, "readStates", (rows.readStates ?? []).map(row => row.channelId), rows.readStates)])
+  }, [rows.registry, rows.channels, rows.channelMemberships, rows.profiles, rows.readStates])
 }
 
 export function useRouteChannelProjection(channelId: string | null) {
@@ -418,13 +464,13 @@ export function useMessageProjection(channelId: string | null, ids?: readonly st
   })
   return useMemo(() => {
     if (!channelId || !result.data) return undefined
-    return (result.data as Array<{ message: MessageRow; child?: ChannelRow }>)
+    const messages = (result.data as Array<{ message: MessageRow; child?: ChannelRow }>)
       .sort((a, b) => (a.message.seq ?? 0) - (b.message.seq ?? 0))
       .map(({ message, child }) => {
-        const { channelId: _channelId, replyToId: _replyToId, ...model } = message
-        return { ...model, ...(child ? { thread: { id: child.id, name: child.name, messageCount: child.messageCount ?? 0, lastReplyAt: child.lastMessageAt ?? undefined, tags: child.tags, preview: child.preview, participantCount: child.participantCount } } : {}) } as Msg
+        return projectedMessage(registry, message, child)
       })
-  }, [channelId, result.data])
+    return deriveView(messages, messages.map(viewEvidence))
+  }, [channelId, result.data, registry])
 }
 
 export function useCanonicalMessagesById(ids?: readonly string[]): ReadonlyMap<string, Msg> | undefined {
@@ -439,8 +485,7 @@ export function useCanonicalMessagesById(ids?: readonly string[]): ReadonlyMap<s
   })
   return useMemo(() => !registry ? undefined : new Map(
     ((result.data ?? []) as Array<{ message: MessageRow; child?: ChannelRow }>).map(({ message, child }) => {
-      const { channelId: _channelId, replyToId: _replyToId, ...model } = message
-      return [message.id, { ...model, ...(child ? { thread: { id: child.id, name: child.name, messageCount: child.messageCount ?? 0, lastReplyAt: child.lastMessageAt ?? undefined, tags: child.tags, preview: child.preview, participantCount: child.participantCount } } : {}) } as Msg]
+      return [message.id, projectedMessage(registry, message, child)]
     }),
   ), [registry, result.data])
 }
@@ -464,8 +509,8 @@ export function useCanonicalChannelsById(): ReadonlyMap<string, ChannelRow> {
       : undefined,
   })
   return useMemo(() => new Map(
-    ((result.data ?? []) as ChannelRow[]).map((channel) => [channel.id, channel]),
-  ), [result.data])
+    (annotateRows(registry, "channels", (result.data ?? []) as ChannelRow[])!).map((channel) => [channel.id, channel]),
+  ), [result.data, registry])
 }
 
 export function useFriendshipRows(ids?: readonly string[]) {
@@ -481,8 +526,8 @@ export function useCanonicalServersById(): ReadonlyMap<string, ServerRow> {
       : undefined,
   })
   return useMemo(() => new Map(
-    ((result.data ?? []) as ServerRow[]).map((server) => [server.id, server]),
-  ), [result.data])
+    (annotateRows(registry, "servers", (result.data ?? []) as ServerRow[])!).map((server) => [server.id, server]),
+  ), [result.data, registry])
 }
 
 export function useCanonicalCommunityServer(serverId: string | null | undefined) {
@@ -552,24 +597,29 @@ export function useCanonicalProfilesByUserId(userIds?: readonly string[]): Reado
     if (previewProfiles) return previewProfiles
     const merged = new Map<string, CommunityProfile>()
     for (const [userId, profile] of canonicalProfiles) {
-      merged.set(userId, { ...profile, id: userId })
+      merged.set(userId, registry ? deriveView({ ...profile, id: userId }, [collectionEvidence(registry.queryClient, "profiles", [userId], [profile])]) : { ...profile, id: userId })
     }
     for (const [userId, presence] of livePresence ?? []) {
       if (presence === undefined) continue
-      merged.set(userId, { ...merged.get(userId), id: userId, presence })
+      const prior = merged.get(userId)
+      const value = { ...prior, id: userId, presence }
+      const presenceEvidence = registry ? presenceVersion(registry, userId, presence) : viewEvidence(value)
+      merged.set(userId, deriveView(value, [...(prior ? [viewEvidence(prior)] : []), presenceEvidence]))
     }
     return merged
-  }, [canonicalProfiles, livePresence, previewProfiles])
+  }, [canonicalProfiles, livePresence, previewProfiles, registry])
 }
 
 export function useServerMemberRows(serverId: string | null, userIds: readonly string[]) {
   const registry = useOptionalCommunityDbRegistry()
-  return (useLiveQuery({ query: (q) => registry && serverId ? q.from({ membership: registry.collections.serverMemberships }).where(({ membership }) => eq(membership.serverId, serverId)).where(({ membership }) => inArray(membership.userId, [...userIds])) : undefined }).data ?? []) as ServerMembershipRow[]
+  const data = (useLiveQuery({ query: (q) => registry && serverId ? q.from({ membership: registry.collections.serverMemberships }).where(({ membership }) => eq(membership.serverId, serverId)).where(({ membership }) => inArray(membership.userId, [...userIds])) : undefined }).data ?? []) as ServerMembershipRow[]
+  return annotateRows(registry, "serverMemberships", data)!
 }
 
 export function useChannelRosterRows(channelId: string, relation: "access" | "notify") {
   const registry = useOptionalCommunityDbRegistry()
-  return (useLiveQuery({ query: (q) => registry && channelId ? q.from({ membership: registry.collections.channelMemberships }).where(({ membership }) => eq(membership.channelId, channelId)).where(({ membership }) => eq(membership.relation, relation)) : undefined }).data ?? []) as ChannelMembershipRow[]
+  const data = (useLiveQuery({ query: (q) => registry && channelId ? q.from({ membership: registry.collections.channelMemberships }).where(({ membership }) => eq(membership.channelId, channelId)).where(({ membership }) => eq(membership.relation, relation)) : undefined }).data ?? []) as ChannelMembershipRow[]
+  return annotateRows(registry, "channelMemberships", data)!
 }
 
 export function useCanonicalCommunityProfile(userId: string | null | undefined) {
@@ -580,8 +630,12 @@ export function useCanonicalCommunityProfile(userId: string | null | undefined) 
   return useMemo(() => {
     if (!userId) return undefined
     if (preview) return preview.get(userId)
-    return profile || presence ? { ...profile, id: userId, ...(presence ? { presence } : {}) } : undefined
-  }, [userId, preview, profile, presence])
+    if (!profile && !presence) return undefined
+    return deriveView({ ...profile, id: userId, ...(presence ? { presence } : {}) }, [
+      ...(profile && registry ? [collectionEvidence(registry.queryClient, "profiles", [profile.userId], [profile])] : []),
+      ...(presence && registry ? [presenceVersion(registry, userId, presence)] : []),
+    ])
+  }, [userId, preview, profile, presence, registry])
 }
 
 export function useAttentionScopes(): readonly AttentionScopeRow[] {
@@ -591,7 +645,7 @@ export function useAttentionScopes(): readonly AttentionScopeRow[] {
       ? q.from({ scope: registry.collections.attentionScopes })
       : undefined,
   })
-  return (result.data ?? []) as AttentionScopeRow[]
+  return annotateRows(registry, "attentionScopes", (result.data ?? []) as AttentionScopeRow[])!
 }
 
 export function useAttentionItems(): readonly AttentionItemRow[] {
@@ -601,7 +655,7 @@ export function useAttentionItems(): readonly AttentionItemRow[] {
       ? q.from({ item: registry.collections.attentionItems })
       : undefined,
   })
-  return (result.data ?? []) as AttentionItemRow[]
+  return annotateRows(registry, "attentionItems", (result.data ?? []) as AttentionItemRow[])!
 }
 
 export function useChannelRefDirectoryProjection(): ChannelRefDirectory | undefined {
@@ -744,6 +798,7 @@ export function useForumSidebarProjection(
         parentUnread[child.parentChannelId] = true
       }
     }
-    return { threads, parentUnread }
+    deriveView(threads, [viewEvidence(rows.channels), viewEvidence(rows.channelMemberships), viewEvidence(rows.messages)])
+    return deriveView({ threads, parentUnread }, [viewEvidence(threads)], threads.length)
   }, [serverNowMs, rows.registry, rows.channels, rows.channelMemberships, rows.messages, serverId, retainId])
 }

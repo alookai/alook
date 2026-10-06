@@ -17,7 +17,7 @@ export function useAccountSignOut() {
     assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)
     return { registry, token, authenticationGeneration: registry.authenticationView.get().generation }
   }, [queryClient, registry])
-  const native = useMutation({ mutationKey: ["community", "sign-out"], scope: { id: "account-sign-out" }, gcTime: 0, mutationFn: async ({ registry, token }: ReturnType<typeof capture>) => {
+  const native = useMutation({ meta: { observabilityAction: "account.sign_out" }, mutationKey: ["community", "sign-out"], scope: { id: "account-sign-out" }, gcTime: 0, mutationFn: async ({ registry, token }: ReturnType<typeof capture>) => {
     const assertActive = () => assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)
     assertActive()
     const generation = registry.authenticationView.get().generation

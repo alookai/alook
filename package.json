@@ -51,12 +51,12 @@
   "devDependencies": {
     "@vitest/coverage-istanbul": "4.1.11",
     "badge-maker": "6.0.0",
-    "sharp": "^0.35.4",
+    "sharp": "^0.35.5",
     "simple-git-hooks": "^2.14.0",
-    "turbo": "^2.11.3",
+    "turbo": "^2.11.6",
     "typescript": "^6.0.3",
     "vitest": "4.1.11",
-    "wrangler": "4.137.0"
+    "wrangler": "4.146.0"
   },
   "pnpm": {
     "overrides": {

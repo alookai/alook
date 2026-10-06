@@ -1,5 +1,7 @@
 "use client";
 
+import { useObservedRegion } from "@/lib/observability/regions";
+import { viewEvidence } from "@/lib/observability/data-source";
 import { useArtifactClick } from "@/components/use-artifact-click";
 import { useMutation, useIsMutating } from "@tanstack/react-query";
 import { captureQueryReceipt, isQueryReceiptCurrent, type QueryReceipt } from "@/lib/query-receipt";
@@ -275,7 +277,7 @@ export function AgentChatView({
 
   const chatActionKey = useMemo(() => workspaceOwner.key("chat", "action", crypto.randomUUID()), [workspaceOwner]);
   type ChatAction = { original: ReturnType<typeof captureChatIntent>; conversationId: string; resources: Map<string, QueryReceipt> } & ({ kind: "thread"; messageId: string } | { kind: "stop" });
-  const chatAction = useMutation({ mutationKey: chatActionKey, gcTime: 0, scope: { id: JSON.stringify(chatActionKey) },
+  const chatAction = useMutation({ meta: { observabilityAction: "chat.control.command" }, mutationKey: chatActionKey, gcTime: 0, scope: { id: JSON.stringify(chatActionKey) },
     mutationFn: async (action: ChatAction) => {
       assertChatIntent(action.original);
       return runChatIntentRequest(action.original, async (options) => {
@@ -480,6 +482,7 @@ export function AgentChatView({
     isTaskActive,
   });
 
+  useObservedRegion("chat", !messagesLoading, viewEvidence(messages));
   if (messagesLoading) {
     return (
       <>

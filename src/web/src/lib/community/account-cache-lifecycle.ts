@@ -1,3 +1,4 @@
+import { commandObservation } from "@/lib/observability/context"
 import { clearComposerAttachmentSessionsForAccount } from "./composer-attachment-session"
 import type { ApiRequestOptions } from "@/lib/api/client"
 import { getCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
@@ -13,7 +14,7 @@ export function retireCommunityAccount(registry: CommunityDbRegistry) {
 }
 export function communityRequestOptions(queryClient: QueryClient, token: CommunityLiveSnapshotToken, signal?: AbortSignal, assertActive = () => assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)): ApiRequestOptions & { assertActive: () => void } {
   const registry = getCommunityDbRegistry(queryClient)
-  return { authenticationAccount: registry?.accountId ?? undefined, signal, assertActive, onUnauthorized: async () => {
+  return { observation: commandObservation(token), authenticationAccount: registry?.accountId ?? undefined, signal, assertActive, onUnauthorized: async () => {
     assertActive()
     if (!registry || getCommunityDbRegistry(queryClient) !== registry || !registry.authenticationView.get().active) return false
     const generation = registry.authenticationView.get().generation

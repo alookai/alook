@@ -31,7 +31,7 @@ export function useIssueCommand(owner: WorkspaceOwner) {
   const key = owner.key("issue-command")
   const source = useWorkspaceViewSource(owner, "issue-command", true)
   type NativeIntent = IssueIntent & { view: ReturnType<typeof source.capture>; resources: Query[] }
-  const native = useMutation({ mutationKey: key, scope: { id: JSON.stringify(key) }, gcTime: 0,
+  const native = useMutation({ meta: { observabilityAction: "issue.command" }, mutationKey: key, scope: { id: JSON.stringify(key) }, gcTime: 0,
     mutationFn: async ({ action, token, view, resources, assertActive }: NativeIntent) => {
       const qc = owner.queryClient, assert = () => { assertWorkspaceOwner(token, assertActive?.signal ?? view.signal); view.assert(); assertActive?.() }
       assert()

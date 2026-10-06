@@ -1,6 +1,6 @@
 import React from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { render } from "@/test/react-dom-harness"
+import { fireEvent, render } from "@/test/react-dom-harness"
 import { MessageListSkeleton, renderMessageListView } from "./message-list-view"
 import { ComposerAccessoryRail } from "./composer-accessory-rail"
 import { MessageShareDialog } from "./message-share-dialog"
@@ -80,12 +80,11 @@ function controller(overrides: Partial<MessageListController> = {}): MessageList
     closeShare: vi.fn(),
     onEnterSelectId: vi.fn(),
     onToggleSelectId: vi.fn(),
-    heroRef: { current: null },
     scrollRef: { current: null },
     virtualizer: {} as MessageListController["virtualizer"],
-    topSentinelRef: { current: null },
-    bottomSentinelRef: { current: null },
-    onImageLoad: vi.fn(),
+    topSentinelRef: vi.fn(),
+    bottomSentinelRef: vi.fn(),
+    readPositionReady: true,
     jumpTo: vi.fn(),
     pillCount: 3,
     pillMode: "jump",
@@ -112,7 +111,7 @@ describe("renderMessageListView", () => {
     expect(renderer.container.querySelectorAll("[data-message-typing-space]")).toHaveLength(0)
     expect(renderRows).toHaveBeenCalledOnce()
     expect(renderer.container.querySelectorAll("virtual-rows")).toHaveLength(1)
-    expect(renderer.container.querySelectorAll(".mb-6")).toHaveLength(1)
+    expect(renderer.container.querySelectorAll(".mb-6")).toHaveLength(0)
   })
 
   it("keeps the same wrappers while true empty loading omits the interactive accessory rail", () => {
@@ -323,66 +322,39 @@ describe("renderMessageListView", () => {
     footerSlot.remove()
   })
 
-  it("keeps both sentinels and the direct rows callback in the exact loaded DOM positions", () => {
-    const state = controller({
-      topSentinelRef: { current: null },
-      bottomSentinelRef: { current: null },
-      scrollRef: { current: null },
-      heroRef: { current: null },
-    })
-    const renderRows = vi.fn(() => React.createElement("virtual-rows", { marker: "rows" }))
-    const renderer = render(renderMessageListView(
-      props({
-        hasMore: true,
-        isFetchingOlder: true,
-        hasMoreNewer: true,
-        isFetchingNewer: true,
-      }),
-      state,
-      renderRows,
-    ))
-    const heroNode = renderer.container.querySelector(".mb-6")
-    const scrollNode = renderer.container.querySelector(".overflow-y-auto")
-    const topNode = renderer.container.querySelector(".flex.h-8")
-    const bottomNode = renderer.container.querySelector(".mt-6.flex.h-8")
-    expect(state.heroRef.current).toBe(heroNode)
-    expect(state.scrollRef.current).toBe(scrollNode)
-    expect(state.topSentinelRef.current).toBe(topNode)
-    expect(state.bottomSentinelRef.current).toBe(bottomNode)
-    expect(renderRows).toHaveBeenCalledOnce()
-    expect(renderer.container.querySelector('virtual-rows[marker="rows"]')).toBeInTheDocument()
-    expect(renderer.getByText("Loading older messages…")).toBeInTheDocument()
-    expect(renderer.getByText("Loading newer messages…")).toBeInTheDocument()
-
-    const content = renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
-    expect(content).not.toHaveClass("pb-4", "sm:pb-6")
-    const elementChildren = Array.from(content.children)
-    expect(elementChildren).toHaveLength(3)
-    expect(elementChildren[0]).toHaveClass("mb-6")
-    expect(elementChildren[1]?.localName).toBe("virtual-rows")
-    expect(elementChildren[2]).toHaveClass("mt-6")
-
-    renderer.rerender(renderMessageListView(
-      props({
-        hasMore: true,
-        isFetchingOlder: false,
-        hasMoreNewer: true,
-        isFetchingNewer: false,
-      }),
-      state,
-      renderRows,
-    ))
-    expect(renderer.queryAllByText("Loading older messages…")).toHaveLength(0)
-    expect(renderer.queryAllByText("Loading newer messages…")).toHaveLength(0)
-    expect(renderer.container.querySelectorAll(".flex.h-8")).toHaveLength(2)
-    expect(renderer.container.querySelectorAll(".mt-6.flex.h-8")).toHaveLength(1)
-
-    renderer.rerender(renderMessageListView(
-      props({ hasMore: false, hasMoreNewer: false }),
-      state,
-      renderRows,
-    ))
-    expect(renderer.container.querySelectorAll(".flex.h-8")).toHaveLength(0)
-    expect(renderer.container.querySelectorAll(".mt-6.flex.h-8")).toHaveLength(0)
+  it("keeps nonempty content at the native origin with edges delegated to rows", () => {
+    const state = controller({ readPositionReady: false })
+    const renderRows = vi.fn(() => React.createElement("virtual-rows"))
+    const renderer = render(renderMessageListView(props({ hasMore: true, hasMoreNewer: true }), state, renderRows))
+    const content = renderer.container.querySelector("[data-message-list-content]")!
+    expect(content.children).toHaveLength(1)
+    expect(content).not.toHaveClass("pt-8", "justify-end", "min-h-full")
+    expect(content).toHaveAttribute("data-read-position-ready", "false")
+    expect(renderer.queryByText(/Beginning of the channel/)).toBeNull()
+    expect(renderer.container.querySelectorAll(".h-8")).toHaveLength(0)
+    renderer.rerender(renderMessageListView(props({ messages: [] }), state, renderRows))
+    expect(content).toHaveClass("pt-8", "justify-end", "min-h-full")
+    expect(renderer.getByText(/Beginning of the channel/)).toBeInTheDocument()
   })
+
+  it("keeps the original scroller mounted through a cold error and retry, without rendering an empty hero", () => {
+    const retry = vi.fn()
+    const renderRows = vi.fn(() => React.createElement("virtual-rows"))
+    const state = controller({ initialPosition: initialPosition({ phase: "skeleton", showSkeleton: true, contentVisible: false, contentInteractive: false }) })
+    const input = props({ messages: [], initialLoadError: new Error("timeout"), onRetryInitialLoad: retry })
+    const view = render(renderMessageListView(input, state, renderRows))
+    const scroller = view.container.querySelector('[data-testid="community-message-scroller"]') ?? view.container.querySelector('.thin-scrollbar')
+    fireEvent.click(view.getByRole("button", { name: "Retry" }))
+    expect(retry).toHaveBeenCalledOnce()
+    expect(renderRows).not.toHaveBeenCalled()
+    expect(view.queryByText(/Beginning of the channel/)).toBeNull()
+    view.rerender(renderMessageListView({ ...input, retryingInitialLoad: true }, state, renderRows))
+    expect(view.getByRole("button", { name: "Retrying…" })).toBeDisabled()
+    expect(view.container.querySelector('.thin-scrollbar')).toBe(scroller)
+    view.rerender(renderMessageListView(props({ loading: false }), controller(), renderRows))
+    expect(view.container.querySelector('.thin-scrollbar')).toBe(scroller)
+    expect(view.queryByRole("alert")).toBeNull()
+    expect(renderRows).toHaveBeenCalledOnce()
+  })
+
 })

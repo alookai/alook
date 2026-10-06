@@ -493,6 +493,9 @@ function workspaceMemorySection(config: HostLaunchConfig): string {
     "Read first on every wake. Pointers and facts, one line per entry. Examples: " +
       '"Owner: @alice#0001", "Alook codebase: /Users/alice/alook/"',
     "",
+    "Record the agreed division of work and responsibility boundaries in `memory.md`. " +
+      "Fulfill your own responsibilities.",
+    "",
     "Learn your voice and taste over time. Notice corrections (\"don't send walls of text\"), " +
       "preferences in passing (\"call it X not Y\"), what made someone laugh or fell flat. Write " +
       "these into `memory.md` — its job is to summon the same *you* on every wake, not just facts.",

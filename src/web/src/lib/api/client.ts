@@ -1,5 +1,6 @@
 import { createStore } from "@tanstack/store";
 import { ApiError, UnauthorizedError, isAbortError } from "@/lib/errors";
+import { startRequest, requestHeaders, requestRejected, finishRequest, readObservedResponse, runObservedFetch, type RequestObservation } from "@/lib/observability/requests";
 
 const API_BASE = "";
 export const ACCOUNT_DELETED_SIGN_IN_PATH = "/sign-in?account_deleted=1";
@@ -68,13 +69,27 @@ export function redirectToSignIn(accountId?: string | null) {
   window.location.assign(new URL("/sign-in", window.location.origin));
 }
 
-export type ApiRequestOptions = RequestInit & { assertActive?: () => void; onUnauthorized?: () => Promise<boolean>; authenticationAccount?: string };
+export type ApiRequestOptions = RequestInit & { assertActive?: () => void; onUnauthorized?: () => Promise<boolean>; authenticationAccount?: string; observation?: Parameters<typeof startRequest>[1] extends infer O ? O extends { observation?: infer P } ? P : never : never };
 
-export async function apiFetchResponse(path: string, options?: ApiRequestOptions): Promise<Response> {
-  const { assertActive, onUnauthorized, authenticationAccount, ...request } = options ?? {};
+export async function apiFetchResponse(path: string, options?: ApiRequestOptions, bodyExpected = false): Promise<Response> {
+  const observation = startRequest(path, options);
+  try {
+    const response = await fetchQualifiedResponse(path, options, observation);
+    if (!bodyExpected) finishRequest(observation, "success", "headers", "eligible");
+    return response;
+  } catch (error) {
+    finishRequest(observation, isAbortError(error) ? "cancelled" : "error", "headers");
+    throw error;
+  }
+}
+
+async function fetchQualifiedResponse(path: string, options?: ApiRequestOptions, observation?: RequestObservation): Promise<Response> {
+  const { assertActive, onUnauthorized, authenticationAccount, observation: _observation, ...request } = options ?? {};
   const assertEligible = () => {
+    try {
     assertActive?.();
     if (request.signal?.aborted) throw new DOMException("Cancelled request", "AbortError");
+    } catch (error) { requestRejected(observation); throw error }
   };
   assertEligible();
   if (MOCK_NETWORK_ENABLED) {
@@ -90,11 +105,11 @@ export async function apiFetchResponse(path: string, options?: ApiRequestOptions
     assertEligible();
     const headers = new Headers(request.headers);
     if (!headers.has("Content-Type") && !(typeof FormData !== "undefined" && request.body instanceof FormData)) headers.set("Content-Type", "application/json");
-    res = await fetch(API_BASE + path, {
+    res = await runObservedFetch(observation, () => fetch(API_BASE + path, {
       ...request,
       credentials: "include",
       headers,
-    });
+    }));
   } catch (err) {
     assertEligible();
     if (err instanceof TypeError) {
@@ -103,6 +118,7 @@ export async function apiFetchResponse(path: string, options?: ApiRequestOptions
     throw err;
   }
 
+  requestHeaders(observation, res);
   assertEligible();
 
   if (res.status === 401) {
@@ -149,11 +165,12 @@ export async function apiFetchResponse(path: string, options?: ApiRequestOptions
 }
 
 export async function apiFetch<T>(path: string, options?: ApiRequestOptions): Promise<T> {
-  const res = await apiFetchResponse(path, options);
-  if (res.status === 204) return undefined as T;
-  const data = await res.json() as T;
-  options?.assertActive?.();
-  if (options?.signal?.aborted) throw new DOMException("Cancelled request", "AbortError");
+  const res = await apiFetchResponse(path, options, true);
+  if (res.status === 204) return readObservedResponse(res, async () => undefined as T);
+  const data = await readObservedResponse(res, () => res.json() as Promise<T>, () => {
+    options?.assertActive?.();
+    if (options?.signal?.aborted) throw new DOMException("Cancelled request", "AbortError");
+  });
   return data;
 }
 
@@ -193,4 +210,11 @@ export async function readUploadError(res: Response, fallback: string): Promise<
 export function wsQuery(workspaceId: string, extra?: Record<string, string>): string {
   const params = new URLSearchParams({ workspace_id: workspaceId, ...extra });
   return `?${params.toString()}`;
+}
+
+export async function readApiResponse<T>(response: Response, format: "json" | "text", options?: ApiRequestOptions): Promise<T> {
+  return readObservedResponse(response, () => format === "text" ? response.text() as Promise<T> : response.json() as Promise<T>, () => {
+    options?.assertActive?.();
+    if (options?.signal?.aborted) throw new DOMException("Cancelled request", "AbortError");
+  });
 }

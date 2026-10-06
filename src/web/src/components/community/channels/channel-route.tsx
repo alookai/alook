@@ -3,7 +3,7 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { getCommunityRuntime } from "@/stores/community/runtime"
 
 
-import { useCallback, useEffect, useLayoutEffect, useMemo } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toastApiError } from "@/lib/api/client"
 import { ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
@@ -40,6 +40,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { useConversationNavigationGate } from "@/lib/community/conversation-navigation-proof"
 import { resolveConversationSubtype } from "@/lib/community/conversation-subtype"
+import { isConversationAccessError } from "@/lib/community/conversation-read"
 import { useNativeSystemNotificationConversationDismissal } from "@/hooks/community/use-native-system-notifications"
 
 const THREAD_VIEW_PARAM = "threadView"
@@ -59,12 +60,7 @@ export function ChannelRoute({ serverParam, channelId }: {
   const searchParams = useSearchParams()
   const serverId = decodeURIComponent(serverParam)
   const currentUser = useCurrentUser()
-  // Cross-channel "jump to message" target, captured ONCE at mount from `?msg=`.
-  // `ChannelView` is keyed by `serverId/channelId`, so a fresh jump remounts and
-  // re-reads this. The param is stripped from the URL right after (below) so a
-  // refresh/back doesn't re-trigger the jump; this frozen copy still drives the
-  // anchor + scroll for this mount.
-const [jumpTargetId] = useAtom(useCreateAtom<string | null>((() => searchParams.get("msg"))()))
+  const [jumpTargetId, setJumpTargetId] = useAtom(useCreateAtom<string | null>((() => searchParams.get("msg"))()))
   const queryClient = useQueryClient()
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const navigationGate = useConversationNavigationGate(
@@ -73,6 +69,12 @@ const [jumpTargetId] = useAtom(useCreateAtom<string | null>((() => searchParams.
     channelId,
     accessEpoch,
   )
+  const navigationTarget = navigationGate.target
+  const currentAnchorMessageId = navigationTarget
+    ? navigationTarget.anchorMessageId ?? null : jumpTargetId
+  useLayoutEffect(() => {
+    if (navigationTarget) setJumpTargetId(navigationTarget.anchorMessageId ?? null)
+  }, [navigationTarget, setJumpTargetId])
   const uiHandlers = useUiHandlers()
   const currentChannelId = useCurrentChannelId()
   const routeModel = useChannelRouteModel(serverId, serverParam, channelId, currentUser.id)
@@ -108,6 +110,24 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
     currentChannelMeta?.parentMessageId,
     isForumPostChild && routeModel.routeHydrated && navigationGate.allowed,
   )
+  const { isFetching: fetchingOpener, refetch: refetchOpener } = forumPostOpener
+  const openerScope = JSON.stringify([currentUser.id, serverId, channelId, currentChannelMeta?.parentMessageId, accessEpoch])
+  const [openerRetryAttempt, setOpenerRetryAttempt] = useAtom(useCreateAtom<{ scope: string } | null>(null))
+  const openerRetryRef = useRef<{ scope: string } | null>(null)
+  const retryingOpener = openerRetryAttempt?.scope === openerScope
+  const openerError = isForumPostChild && (isConversationAccessError(forumPostOpener.error)
+    || (!forumPostOpener.data && (forumPostOpener.isError || retryingOpener)))
+  const retryOpener = useCallback(async () => {
+    if (!openerError || fetchingOpener || openerRetryRef.current?.scope === openerScope) return
+    const attempt = { scope: openerScope }
+    openerRetryRef.current = attempt
+    setOpenerRetryAttempt(attempt)
+    try { await refetchOpener({ cancelRefetch: false }) }
+    finally {
+      if (openerRetryRef.current === attempt) openerRetryRef.current = null
+      setOpenerRetryAttempt((current) => current === attempt ? null : current)
+    }
+  }, [fetchingOpener, refetchOpener, openerError, openerScope, setOpenerRetryAttempt])
   const threadOpenerHandoff = useThreadOpenerRouteGate({
     serverId,
     childChannelId: channelId,
@@ -165,7 +185,8 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
     uiHandlers.replacePath?.(serverRootHref(serverParam))
   }, [serverParam, uiHandlers])
   useEffect(() => {
-    if (!routeWasTopLevel || channelInServer !== null) return
+    if (!routeWasTopLevel || channelInServer !== null
+      || getCommunityRuntime(queryClient).ws.get().revokedServerIds.has(serverId)) return
     clearLastChannel(serverId)
     const survivor = currentServer?.categories
       .flatMap((category) => category.channels)
@@ -173,7 +194,7 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
     router.replace(survivor
       ? channelHref(serverParam, survivor.id)
       : serverRootHref(serverParam))
-  }, [channelId, channelInServer, currentServer, routeWasTopLevel, router, serverId, serverParam])
+  }, [channelId, channelInServer, currentServer, queryClient, routeWasTopLevel, router, serverId, serverParam])
   const navigateParent = useCallback(() => {
     const parentChannelId = currentChannelMeta?.parentChannelId
     if (!parentChannelId) return
@@ -185,11 +206,8 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
     })
   }, [channelId, setChannelNotif])
 
-  // Strip `?msg=` from the URL right after mount so a refresh/back doesn't
-  // re-trigger the jump. The frozen `jumpTargetId` still seeds the mounted
-  // message controller for this mount; this only cleans the address.
   useEffect(() => {
-    if (!jumpTargetId || searchParams.has(THREAD_OPENER_HANDOFF_PARAM)) return
+    if (!jumpTargetId || !searchParams.has("msg") || searchParams.has(THREAD_OPENER_HANDOFF_PARAM)) return
     const search = searchParams.toString()
     const routePath = channelHref(serverParam, channelId)
     const href = `${routePath}${search ? `?${search}` : ""}`
@@ -219,7 +237,7 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
     routeModel.routeLifecycle === "ready" &&
     currentChannelId === channelId &&
     routeModel.routeHydrated &&
-    (!isForumPostChild || !forumPostOpener.isLoading) &&
+    (!isForumPostChild || (!forumPostOpener.isLoading && !openerError)) &&
     navigationGate.allowed
   useNativeSystemNotificationConversationDismissal(currentUser.id, {
     kind: "server",
@@ -240,11 +258,22 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
     isForum,
     structuralHint: routeModel.skeletonSubtype,
   })
+  if (navigationGate.failed) {
+    return <ConversationResolutionErrorFrame retrying={false} onRetry={navigationGate.retry} />
+  }
+  if (routeModel.serverError) {
+    return <ConversationResolutionErrorFrame retrying={routeModel.retryingServer}
+      onRetry={() => { void routeModel.retryServer() }} />
+  }
   if (routeModel.metadataError) {
     return <ConversationResolutionErrorFrame
       retrying={routeModel.retryingMetadata}
       onRetry={() => { void routeModel.retryMetadata() }}
     />
+  }
+  if (openerError) {
+    return <ConversationResolutionErrorFrame retrying={retryingOpener}
+      onRetry={() => { void retryOpener() }} />
   }
   if (subtype === "unknown") {
     return <ConversationResolutionPendingFrame />
@@ -335,7 +364,7 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
             channelName={channelName}
             viewer={currentUser}
             canManagePins={canManageServer(myRole)}
-            anchorMessageId={jumpTargetId}
+            anchorMessageId={currentAnchorMessageId}
             parentChannelId={currentChannelMeta?.parentChannelId ?? null}
             parentMessageId={currentChannelMeta?.parentMessageId ?? null}
             parentIsForum={isForumPostChild}
@@ -396,7 +425,7 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
       channelName={channelName}
       viewer={currentUser}
       canManagePins={canManageServer(myRole)}
-      anchorMessageId={jumpTargetId}
+        anchorMessageId={currentAnchorMessageId}
       onNavigateParent={navigateServerRoot}
       notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
       onSetNotificationLevel={setNotificationLevel}

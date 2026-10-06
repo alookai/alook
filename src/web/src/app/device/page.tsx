@@ -1,5 +1,6 @@
 "use client"
 
+import { useObservedRegion } from "@/lib/observability/regions"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { Suspense, useEffect } from "react"
 import { useQuery, useMutation } from "@tanstack/react-query"
@@ -47,7 +48,7 @@ function DeviceAuthPageInner() {
       } catch (error) { assertApplicationOwner(token, signal); throw error }
     },
   })
-  const command = useMutation({
+  const command = useMutation({ meta: { observabilityAction: "device.authorization.command" },
     mutationKey: applicationKey(owner, "device-decision"),
     scope: { id: JSON.stringify(applicationKey(owner, "device-decision")) },
     mutationFn: async ({ kind, code, original }: { kind: "approve" | "deny"; code: string; original: ReturnType<typeof source.capture> }) => {
@@ -68,6 +69,7 @@ function DeviceAuthPageInner() {
   const step: Step = currentDecision?.isSuccess ? currentDecision.data === "approve" ? "done" : "denied"
     : verification.isFetching ? "loading" : verification.isSuccess ? "approve" : "code"
 
+  useObservedRegion("page", !isPending && !!session && step !== "loading", { source: "unknown", version: step, freshness: "unknown", count: 1 })
   useEffect(() => {
     if (!isPending && !session) {
       const original = source.capture()

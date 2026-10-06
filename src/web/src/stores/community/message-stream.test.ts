@@ -1,5 +1,7 @@
 
 import { createMessageStreamStore } from "./message-stream"
+import { configureTelemetry, installTelemetrySink, retireTelemetry } from "@/lib/observability/telemetry"
+import { clearActions } from "@/lib/observability/context"
 const nativeStore = createMessageStreamStore()
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { MessageScope } from "@/lib/community/message-stream"
@@ -64,6 +66,23 @@ describe("message stream store", () => {
     expect(getMessageOverlay(messageScope).outboxByNonce.has("failed")).toBe(false)
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:failed")
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1)
+  })
+
+  it("finishes the original send observation when a websocket echo acknowledges its client nonce", () => {
+    const owner = {}, store = createMessageStreamStore(() => new Map(), owner)
+    const events: Array<{ name: string; attributes: Record<string, string> }> = []
+    configureTelemetry({ session_id: "message-session" }, true)
+    installTelemetrySink(event => events.push(event))
+    try {
+      store.actions.accept(channel("c1"), { ...acceptedIntent("private-nonce"), message: { type: "chat", content: "private-body", authorId: "viewer-a" } })
+      store.actions.dispatch(channel("c1"), { type: "wsMessage", message: { id: "message-a", seq: 1, type: "chat", content: "private-body", authorId: "viewer-a", clientNonce: "private-nonce" } })
+      expect(store.get().entries.get("channel:c1")?.state.outboxByNonce.size).toBe(0)
+      expect(events.filter(event => event.name === "action.finish")).toHaveLength(1)
+      expect(events.filter(event => event.name === "message.milestone").map(event => event.attributes.phase)).toEqual(["optimistic", "ack"])
+      const started = events.find(event => event.name === "action.start")!
+      expect(events.filter(event => event.name === "message.milestone").every(event => event.attributes.action_id === started.attributes.action_id)).toBe(true)
+      expect(JSON.stringify(events)).not.toMatch(/private-(?:nonce|body)/)
+    } finally { store.actions.resetAll(); retireTelemetry(); clearActions() }
   })
 
 })

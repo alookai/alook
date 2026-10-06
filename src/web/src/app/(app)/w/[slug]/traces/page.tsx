@@ -1,5 +1,7 @@
 "use client";
 
+import { useObservedQueryRegion } from "@/lib/observability/query-regions"
+
 import { useCallback, useRef } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useAgentContext } from "@/contexts/agent-context";
@@ -167,6 +169,7 @@ export default function TracesPage() {
     seen.add(trace.trace_id); return true;
   });
   const loading = resource.isPending;
+  useObservedQueryRegion("traces", resource, traces.length);
   const hasMore = resource.hasNextPage;
   const loadingMore = resource.isFetchingNextPage;
   const loadInitial = async () => {

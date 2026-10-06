@@ -5,6 +5,7 @@ import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import {
   getConversationNavigationProof,
+  recordConversationNavigationReceipt,
   recoverConversationNavigationProof,
 } from "./conversation-navigation-proof"
 import { startConversationNavigationWarmup } from "./conversation-navigation-warmup"
@@ -128,6 +129,42 @@ describe("conversation navigation warmup", () => {
     mocks.apiFetch.mockReset()
   })
 
+  it.each(["channel", "thread", "forum", "dm"] as const)("starts a current %s receipt transport instead of joining an older-access target read", async (surfaceKind) => {
+    const queryClient = createClient()
+    const navigation = { ...target("active"), scopeKind: surfaceKind === "dm" ? "dm" as const : "channel" as const, expectedSurfaceKind: surfaceKind }
+    const key = surfaceKind === "dm" ? communityKeys.dmMessages("active") : communityKeys.channelMessages("active")
+    let release!: (value: Page) => void
+    let originalSignal!: AbortSignal
+    const existing = queryClient.fetchInfiniteQuery({ queryKey: key, initialPageParam: { mode: "newest" }, queryFn: ({ signal }) => {
+      originalSignal = signal
+      return new Promise<Page>((resolve) => { release = resolve }).then((page) => {
+        recordConversationNavigationReceipt(queryClient, { channelId: "active", surfaceKind }, 4)
+        return page
+      })
+    } }).catch((error: unknown) => error)
+    startConversationNavigationWarmup(queryClient, navigation, 5)
+    release({ messages: [], hasMore: false })
+    await existing
+    expect(getConversationNavigationProof(queryClient)?.status).toBe("warming")
+    await vi.waitFor(() => expect(mocks.requests).toHaveLength(1))
+    expect(originalSignal.aborted).toBe(true)
+    mocks.requests[0]!.receipt({ channelId: "active", surfaceKind })
+    mocks.requests[0]!.resolve({ messages: [], hasMore: false })
+    await vi.waitFor(() => expect(getConversationNavigationProof(queryClient)?.status).toBe(surfaceKind === "forum" ? "forum" : "proven"))
+  })
+
+  it.each(["channel", "thread", "forum", "dm"] as const)("makes a completed %s read without its receipt manually retryable", async (surfaceKind) => {
+    const queryClient = createClient()
+    const navigation = { ...target("missing-receipt"), scopeKind: surfaceKind === "dm" ? "dm" as const : "channel" as const, expectedSurfaceKind: surfaceKind }
+    const epoch = startConversationNavigationWarmup(queryClient, navigation, 5)
+    mocks.requests[0]!.resolve({ messages: [], hasMore: false })
+    await vi.waitFor(() => expect(getConversationNavigationProof(queryClient)).toMatchObject({ status: "failed", manualRetry: true }))
+    expect(recoverConversationNavigationProof(queryClient, epoch, 5)).toBe(true)
+    mocks.requests[1]!.receipt({ channelId: navigation.channelId, surfaceKind })
+    mocks.requests[1]!.resolve({ messages: [], hasMore: false })
+    await vi.waitFor(() => expect(getConversationNavigationProof(queryClient)?.status).toBe(surfaceKind === "forum" ? "forum" : "proven"))
+  })
+
   it("starts canonical work in parallel and prevents superseded A from seeding", async () => {
     const queryClient = createClient()
     startConversationNavigationWarmup(queryClient, target("a"), 4)
@@ -157,7 +194,9 @@ describe("conversation navigation warmup", () => {
 
   it("clears target caches and overlays on definitive denial", async () => {
     const queryClient = createClient()
-    queryClient.setQueryData(communityKeys.channelMessages("denied"), { stale: true })
+    queryClient.setQueryData(communityKeys.channelMessages("denied"), {
+      pages: [{ messages: [], hasMore: false }], pageParams: [{ mode: "newest" }],
+    })
     queryClient.setQueryData(communityKeys.channelReadStateSnapshot("denied"), { stale: true })
     queryClient.setQueryData(communityKeys.channelMeta("s1", "denied"), { stale: true })
     startConversationNavigationWarmup(queryClient, target("denied"), 9)
@@ -195,7 +234,9 @@ describe("conversation navigation warmup", () => {
       scopeKind: "dm" as const,
       expectedSurfaceKind: "dm" as const,
     }
-    queryClient.setQueryData(communityKeys.dmMessages("d1"), { stale: true })
+    queryClient.setQueryData(communityKeys.dmMessages("d1"), {
+      pages: [{ messages: [], hasMore: false }], pageParams: [{ mode: "newest" }],
+    })
     queryClient.setQueryData(communityKeys.dmReadStateSnapshot("d1"), { stale: true })
     queryClient.setQueryData(communityKeys.channelMeta(null, "d1"), "present")
     startConversationNavigationWarmup(queryClient, dmTarget, 2)

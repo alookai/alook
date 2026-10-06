@@ -1,5 +1,7 @@
 "use client";
 
+import { useObservedQueryRegion } from "@/lib/observability/query-regions"
+
 import { createStore, useSelector } from "@tanstack/react-store";
 import { useQuery, useMutation, type Query } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useLayoutEffect } from "react";
@@ -48,6 +50,7 @@ export function InstructionTab() {
   const source = useWorkspaceViewSource(owner, "workspace-instruction", true);
   const key = owner.key("member-instruction");
   const query = useQuery({ queryKey: key, queryFn: ({ signal }) => runWorkspaceRequest(owner, (options) => getMemberMe(workspaceId, options), signal) });
+  useObservedQueryRegion("settings", query);
   type SaveIntent = { value: string; token: ReturnType<typeof captureWorkspaceOwner>; assertView: () => void; signal: AbortSignal; resource: Query | undefined };
   const draft = useMemo(() => {
     const draftKey = JSON.stringify(owner.key("instruction-draft"));
@@ -61,7 +64,7 @@ export function InstructionTab() {
   const edits = useSelector(draft, (state) => state);
   const value = edits.value ?? query.data?.global_instruction ?? "";
   const loading = query.isPending;
-  const command = useMutation({ mutationKey: [...key, "command"], scope: { id: JSON.stringify(key) }, gcTime: 0,
+  const command = useMutation({ meta: { observabilityAction: "workspace.instruction.save" }, mutationKey: [...key, "command"], scope: { id: JSON.stringify(key) }, gcTime: 0,
     mutationFn: async ({ value, token, assertView, signal, resource: original }: SaveIntent) => {
       const assert = () => { assertWorkspaceOwner(token, signal); assertView(); };
       assert();

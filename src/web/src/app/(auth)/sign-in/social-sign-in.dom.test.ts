@@ -46,6 +46,7 @@ beforeEach(() => {
   mocks.tauri = false
   mocks.emit = undefined
   vi.clearAllMocks()
+  mocks.social.mockResolvedValue({ error: null })
 })
 
 function button(id: string): HTMLButtonElement {

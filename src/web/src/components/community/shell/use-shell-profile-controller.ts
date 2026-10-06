@@ -4,7 +4,7 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCommunityRuntime } from "@/stores/community/runtime"
 
 
-import { useCallback, useMemo, type ComponentProps } from "react"
+import { useCallback, useLayoutEffect, useMemo, type ComponentProps } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useCanonicalCommunityProfile } from "@/lib/community-db/projections"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
@@ -94,10 +94,28 @@ export function useShellProfileController({
   const [profileTarget, setProfile] = useAtom(useCreateAtom<ShellProfileState | null>(null))
   const [preview, setPreview] = useAtom(useCreateAtom<ImagePreview | null>(null))
   const [attachmentPreview, setAttachmentPreview] = useAtom(useCreateAtom<FileAttachment | null>(null))
-  const [pendingAvatarCrop, setPendingAvatarCrop] = useAtom(useCreateAtom<{
+  const avatarCropTask = useCreateAtom<{
     src: string
     fileName: string
-  } | null>(null))
+    assertActive: ReturnType<typeof source.capture>
+    release: () => void
+  } | null>(null)
+  const [pendingAvatarCrop, setPendingAvatarCrop] = useAtom(avatarCropTask)
+  const finishAvatarCrop = useCallback((task: NonNullable<typeof pendingAvatarCrop>) => {
+    task.release()
+    setPendingAvatarCrop((current) => current === task ? null : current)
+  }, [setPendingAvatarCrop])
+  useLayoutEffect(() => {
+    if (!pendingAvatarCrop) return
+    const task = pendingAvatarCrop
+    const retire = () => finishAvatarCrop(task)
+    if (task.assertActive.signal.aborted) retire()
+    else task.assertActive.signal.addEventListener("abort", retire, { once: true })
+    return () => {
+      task.assertActive.signal.removeEventListener("abort", retire)
+      task.release()
+    }
+  }, [finishAvatarCrop, pendingAvatarCrop])
   const profileUserId = profileTarget?.data.userId
   const canonicalProfile = useCanonicalCommunityProfile(profileUserId)
   useQuery({ queryKey: communityKeys.profile(profileUserId ?? "__none__"), enabled: !!profileUserId && profileUserId !== currentUser.id,
@@ -208,13 +226,18 @@ export function useShellProfileController({
       return
     }
     cancelPendingNavigation()
+    const intentCurrent = router.captureIntent?.() ?? (() => true)
+    const assertUi = () => {
+      assert()
+      if (!intentCurrent()) throw new DOMException("Retired profile navigation", "AbortError")
+    }
     let dmId: string
     try {
       const data = await createOrGetDm.mutateAsync({ userId, assertActive: assert })
-      assert()
+      assertUi()
       dmId = data.conversation.id
     } catch (error) {
-      toastApiError(error, "Failed to open DM", assert)
+      toastApiError(error, "Failed to open DM", assertUi)
       return
     }
     const trimmed = text.trim()
@@ -252,7 +275,15 @@ export function useShellProfileController({
         toast(check.error)
         return
       }
-      setPendingAvatarCrop({ src: URL.createObjectURL(file), fileName: file.name })
+      const src = URL.createObjectURL(file)
+      let released = false
+      const release = () => {
+        if (released) return
+        released = true
+        URL.revokeObjectURL(src)
+      }
+      avatarCropTask.get()?.release()
+      setPendingAvatarCrop({ src, fileName: file.name, assertActive: assert, release })
     }
     input.click()
   }
@@ -312,7 +343,10 @@ export function useShellProfileController({
       imageSrc: pendingAvatarCrop.src,
       originalFileName: pendingAvatarCrop.fileName,
       onCropped: (file) => {
-        const assert = source.capture()
+        const task = pendingAvatarCrop
+        const assert = task.assertActive
+        if (avatarCropTask.get() !== task) { task.release(); return }
+        try { assert() } catch { finishAvatarCrop(task); return }
         uploadUserAvatar.mutate(
           { file, assertActive: assert },
           {
@@ -323,12 +357,10 @@ export function useShellProfileController({
             onError: (error) => toastApiError(error, "Failed to upload avatar", assert),
           },
         )
-        URL.revokeObjectURL(pendingAvatarCrop.src)
-        setPendingAvatarCrop(null)
+        finishAvatarCrop(pendingAvatarCrop)
       },
       onCancel: () => {
-        URL.revokeObjectURL(pendingAvatarCrop.src)
-        setPendingAvatarCrop(null)
+        finishAvatarCrop(pendingAvatarCrop)
       },
     }
   }

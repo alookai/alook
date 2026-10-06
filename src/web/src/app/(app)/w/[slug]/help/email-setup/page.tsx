@@ -1,4 +1,6 @@
 "use client";
+import { ObservedStaticContent } from "@/lib/observability/regions";
+
 
 
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -118,7 +120,7 @@ const PROVIDERS = [
 
 export default function EmailSetupHelpPage() {
   return (
-    <>
+    <><ObservedStaticContent /><>
       <div className="flex items-center justify-between border-b border-border/50 px-3 sm:px-4 py-2 gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <h1 className="text-sm font-medium">Email Setup Guide</h1>
@@ -170,6 +172,6 @@ export default function EmailSetupHelpPage() {
           </Tabs>
         </div>
       </div>
-    </>
+    </></>
   );
 }

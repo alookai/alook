@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest"
 import {
   decideScrollAction,
   createScrollAnchorState,
-  computeHeroScrollCompensation,
   findMessageIndex,
   findMountScrollTargetIndex,
   extractScrollAnchorMessages,
@@ -11,12 +10,10 @@ import {
   NEAR_BOTTOM_PX,
   resolveMessageRailTailPaddingEnd,
   resolveViewportResizeAnchor,
-  shouldAdjustMessageScrollPosition,
   type ScrollAnchorState,
   type ScrollAnchorMessage,
 } from "./use-scroll-anchor"
 import type { FlatItem } from "@/lib/community/message-list-items"
-import type { VirtualItem } from "@tanstack/react-virtual"
 
 const msgs = (...ids: string[]): ScrollAnchorMessage[] => ids.map((id) => ({ id }))
 
@@ -78,7 +75,7 @@ function baseInput(overrides: Partial<Parameters<typeof decideScrollAction>[0]> 
     state: createScrollAnchorState(),
     messages: msgs("m1", "m2", "m3"),
     initialScrollReady: true,
-    heroMeasured: true,
+    viewportReady: true,
     isAtEnd: true,
     ...overrides,
   }
@@ -118,7 +115,7 @@ describe("decideScrollAction — mount (rewritten — neither case is free with 
     expect(nextState.didInitialScroll).toBe(false)
   })
 
-  it("does not fire (and does not consume the one-shot gate) until the hero has been measured at least once", () => {
+  it("does not fire (and does not consume the one-shot gate) until the actual viewport is ready", () => {
     // Regression: the hero's real height is only known after its own
     // ResizeObserver effect runs (a later commit than the one that first
     // renders real messages). scrollMargin defaults to 0 until then — if
@@ -129,19 +126,19 @@ describe("decideScrollAction — mount (rewritten — neither case is free with 
     // as: page loads, view flashes at the tail then snaps to the top hero,
     // and unread messages near the true tail never enter the viewport so
     // useChannelWatermark never advances the read pointer.
-    const { action, nextState } = decideScrollAction(baseInput({ heroMeasured: false }))
+    const { action, nextState } = decideScrollAction(baseInput({ viewportReady: false }))
     expect(action).toEqual({ type: "none" })
     expect(nextState.didInitialScroll).toBe(false)
   })
 
-  it("for a cold / mid-history window fires the full mount once both initialScrollReady and heroMeasured become true, even if one lagged", () => {
+  it("for a cold / mid-history window fires the full mount once both initialScrollReady and viewportReady become true, even if one lagged", () => {
     // hasMoreNewer keeps it off the early-bottom path so this still exercises
     // the "wait for both gates, then mount" sequence.
-    const notReady = decideScrollAction(baseInput({ initialScrollReady: false, heroMeasured: false, hasMoreNewer: true }))
+    const notReady = decideScrollAction(baseInput({ initialScrollReady: false, viewportReady: false, hasMoreNewer: true }))
     expect(notReady.action).toEqual({ type: "none" })
-    const heroOnly = decideScrollAction(baseInput({ state: notReady.nextState, initialScrollReady: false, heroMeasured: true, hasMoreNewer: true }))
+    const heroOnly = decideScrollAction(baseInput({ state: notReady.nextState, initialScrollReady: false, viewportReady: true, hasMoreNewer: true }))
     expect(heroOnly.action).toEqual({ type: "none" })
-    const bothReady = decideScrollAction(baseInput({ state: heroOnly.nextState, initialScrollReady: true, heroMeasured: true, hasMoreNewer: true }))
+    const bothReady = decideScrollAction(baseInput({ state: heroOnly.nextState, initialScrollReady: true, viewportReady: true, hasMoreNewer: true }))
     expect(bothReady.action.type).toBe("mount")
     // Full mount with the snapshot already resolved completes both phases.
     expect(bothReady.nextState.didDividerConverge).toBe(true)
@@ -353,102 +350,14 @@ describe("measureMessageRow", () => {
   })
 })
 
-describe("shouldAdjustMessageScrollPosition", () => {
-  const item: VirtualItem = {
-    key: "message:12",
-    index: 12,
-    start: 800,
-    end: 900,
-    size: 100,
-    lane: 0,
-  }
-
-  function instance(overrides: Partial<Parameters<typeof shouldAdjustMessageScrollPosition>[2]> = {}) {
-    return {
-      itemSizeCache: new Map(),
-      scrollAdjustments: 0,
-      scrollDirection: null,
-      scrollOffset: 1_000,
-      ...overrides,
-    }
-  }
-
-  it("does not compensate a first measurement while the user scrolls upward", () => {
-    expect(shouldAdjustMessageScrollPosition(item, 96, instance({ scrollDirection: "backward" }))).toBe(false)
-  })
-
-  it("compensates a measured row wholly above an away viewport", () => {
-    const measured = new Map([[item.key, item.size]])
-    expect(shouldAdjustMessageScrollPosition(
-      item,
-      240,
-      instance({ itemSizeCache: measured }),
-      true,
-    )).toBe(true)
-  })
-
-  it("does not compensate a measured row intersecting an away viewport", () => {
-    const measured = new Map([[item.key, item.size]])
-    expect(shouldAdjustMessageScrollPosition(
-      { ...item, end: 1_040 },
-      240,
-      instance({ itemSizeCache: measured }),
-      true,
-    )).toBe(false)
-  })
-
-  it("does not compensate an estimate-to-measure pass after the viewer leaves the bottom", () => {
-    expect(shouldAdjustMessageScrollPosition(item, 96, instance(), true)).toBe(false)
-  })
-
-  it("keeps first-measurement compensation above the fold while idle or scrolling forward", () => {
-    expect(shouldAdjustMessageScrollPosition(item, 96, instance())).toBe(true)
-    expect(shouldAdjustMessageScrollPosition(item, 96, instance({ scrollDirection: "forward" }))).toBe(true)
-  })
-
-  it("keeps remeasurement compensation only for rows entirely above the fold", () => {
-    const measured = new Map([[item.key, item.size]])
-    expect(shouldAdjustMessageScrollPosition(item, 20, instance({ itemSizeCache: measured }))).toBe(true)
-    expect(shouldAdjustMessageScrollPosition(
-      { ...item, end: 1_040 },
-      20,
-      instance({ itemSizeCache: measured }),
-    )).toBe(false)
-  })
-
-  it("includes pending virtualizer adjustments in the effective fold offset", () => {
-    expect(shouldAdjustMessageScrollPosition(
-      { ...item, start: 1_020, end: 1_120 },
-      20,
-      instance({ scrollAdjustments: 40 }),
-    )).toBe(true)
-  })
-})
-
-describe("computeHeroScrollCompensation", () => {
-  it("returns 0 when the hero's height is unchanged", () => {
-    expect(computeHeroScrollCompensation(80, 80)).toBe(0)
-  })
-
-  it("returns a positive delta when the hero grows (e.g. sentinel swaps for the full 'Beginning of channel' block)", () => {
-    expect(computeHeroScrollCompensation(0, 96)).toBe(96)
-  })
-
-  it("returns a negative delta when the hero shrinks", () => {
-    expect(computeHeroScrollCompensation(96, 40)).toBe(-56)
-  })
-})
-
 describe("findMountScrollTargetIndex", () => {
   const items: FlatItem[] = [
-    { kind: "date-divider", label: "Today", key: "d1" },
     { kind: "message", m: { id: "m1", type: "chat", grouped: false }, key: "msg:m1" },
-    { kind: "new-divider", key: "new-divider" },
     { kind: "message", m: { id: "m2", type: "chat", grouped: false }, key: "msg:m2" },
   ]
 
-  it("prefers the new-divider ROW itself over the message row it precedes — it's now its own flattened item, thin, not the whole message box", () => {
-    expect(findMountScrollTargetIndex(items, "m2")).toBe(2)
+  it("finds the message owning New so native can mount its actual prefix", () => {
+    expect(findMountScrollTargetIndex(items, "m2")).toBe(1)
   })
 
   it("falls back to the message's own index when no new-divider item exists (e.g. first-visit anchoring on a non-self message with no divider rendered)", () => {
@@ -466,13 +375,12 @@ describe("findMountScrollTargetIndex", () => {
 
 describe("findMessageIndex", () => {
   const items: FlatItem[] = [
-    { kind: "date-divider", label: "Today", key: "d1" },
     { kind: "message", m: { id: "m1", type: "chat", grouped: false }, key: "msg:m1" },
     { kind: "message", m: { id: "m2", type: "chat", grouped: true }, key: "msg:m2" },
   ]
 
   it("returns the item-array index of the message with the given id", () => {
-    expect(findMessageIndex(items, "m2")).toBe(2)
+    expect(findMessageIndex(items, "m2")).toBe(1)
   })
 
   it("returns null when the id isn't present (message not loaded)", () => {
@@ -487,10 +395,8 @@ describe("findMessageIndex", () => {
 describe("extractScrollAnchorMessages", () => {
   it("extracts only 'message' items' id/authorId, in order, skipping dividers", () => {
     const items: FlatItem[] = [
-      { kind: "date-divider", label: "Today", key: "d1" },
-      { kind: "message", m: { id: "m1", type: "chat", grouped: false, authorId: "u1" }, key: "msg:m1" },
-      { kind: "new-divider", key: "new-divider" },
-      { kind: "message", m: { id: "m2", type: "chat", grouped: false }, key: "msg:m2" },
+        { kind: "message", m: { id: "m1", type: "chat", grouped: false, authorId: "u1" }, key: "msg:m1" },
+        { kind: "message", m: { id: "m2", type: "chat", grouped: false }, key: "msg:m2" },
     ]
     expect(extractScrollAnchorMessages(items)).toEqual([
       { id: "m1", authorId: "u1" },
@@ -499,7 +405,7 @@ describe("extractScrollAnchorMessages", () => {
   })
 
   it("returns an empty array when there are no message items", () => {
-    const items: FlatItem[] = [{ kind: "date-divider", label: "Today", key: "d1" }]
+    const items: FlatItem[] = []
     expect(extractScrollAnchorMessages(items)).toEqual([])
   })
 })

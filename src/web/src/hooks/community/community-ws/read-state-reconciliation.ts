@@ -1,5 +1,5 @@
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
-import { notifyManager, type QueryClient, type QueryKey } from "@tanstack/react-query"
+import { notifyManager, type Query, type QueryClient, type QueryKey } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import {
   communityKeys,
@@ -7,7 +7,8 @@ import {
 } from "@/lib/query-keys"
 import { projectReadCoordinatorSnapshot } from "@/hooks/community/read-coordinator-snapshot-projection"
 import { acceptAccountUnreadPrimarySnapshot } from "@/hooks/community/account-unread-projection"
-import { captureCommunityLiveSnapshotToken, publishCommunityLiveSnapshot, type CommunityLiveSnapshotToken } from "@/lib/community-db/sync"
+import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken, publishCommunityLiveSnapshot, type CommunityLiveSnapshotToken } from "@/lib/community-db/sync"
+import { isConversationAccessError } from "@/lib/community/conversation-read"
 
 type AccountReadState = {
   channelId: string
@@ -26,6 +27,19 @@ export type ReadStateEnvelope = {
   inboxChanged: true
 }
 
+type ServerSurfaceTarget = {
+  queryKey: QueryKey
+  query: Query | undefined
+  failed: boolean
+  error: unknown
+}
+
+type ServerSurfaceWork = {
+  generation: number
+  targets: ServerSurfaceTarget[]
+  owner: CommunityLiveSnapshotToken
+}
+
 type ReconciliationState = {
   highestPendingTargetRevision: number | null
   snapshotRequestedGeneration: number
@@ -37,6 +51,7 @@ type ReconciliationState = {
   snapshotWorker: Promise<AccountReadStateSnapshot> | null
   inboxDmsWorker: Promise<void> | null
   serverWorker: Promise<void> | null
+  serverSurfaceWork: ServerSurfaceWork | null
   snapshotRetryTimer: ReturnType<typeof setTimeout> | null
   snapshotRetryDelayMs: number
   inboxDmsRetryTimer: ReturnType<typeof setTimeout> | null
@@ -145,26 +160,62 @@ async function invalidateInboxDmsSurfaces(queryClient: QueryClient) {
   }
 }
 
-async function invalidateServerSurfaces(queryClient: QueryClient) {
-  const serverIds = new Set<string>()
+function captureServerSurfaceWork(queryClient: QueryClient, generation: number): ServerSurfaceWork {
+  const keys: QueryKey[] = [communityKeys.servers()]
   for (const query of queryClient.getQueryCache().getAll()) {
     const key = query.queryKey
-    if (isCommunityServerDetailQueryKey(key)) serverIds.add(key[2])
+    if (isCommunityServerDetailQueryKey(key)) keys.push(key)
   }
+  return { generation, owner: captureCommunityLiveSnapshotToken(queryClient), targets: keys.map((queryKey) => {
+    const query = queryClient.getQueryCache().find({ queryKey, exact: true })
+    return { queryKey, query,
+      failed: isConversationAccessError(query?.state.error),
+      error: query?.state.error,
+    }
+  }) }
+}
+
+function isOriginalServerSurface(queryClient: QueryClient, target: ServerSurfaceTarget) {
+  return target.query !== undefined
+    && queryClient.getQueryCache().get(target.query.queryHash) === target.query
+}
+
+function canRetryServerSurface(queryClient: QueryClient, target: ServerSurfaceTarget) {
+  const query = target.query
+  return isOriginalServerSurface(queryClient, target) && query !== undefined
+    && query.isActive()
+    && !isConversationAccessError(query.state.error ?? target.error)
+    && !(query.state.data === undefined && query.state.status === "error")
+}
+
+async function invalidateServerSurfaces(queryClient: QueryClient, work: ServerSurfaceWork) {
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, work.owner, undefined)
+  work.targets = work.targets.filter((target) => !target.failed || (
+    isOriginalServerSurface(queryClient, target)
+    && target.query?.state.status !== "success"
+  ))
+  const attempted = work.targets.filter((target) => !target.failed || canRetryServerSurface(queryClient, target))
   const refetchOptions = { throwOnError: true, cancelRefetch: true }
-  const settled = await Promise.allSettled([
-    queryClient.invalidateQueries(
-      { queryKey: communityKeys.servers(), exact: true, refetchType: "active" },
-      refetchOptions,
-    ),
-    ...[...serverIds].map((serverId) => queryClient.invalidateQueries({
-      queryKey: communityKeys.server(serverId),
+  const settled = await Promise.allSettled(attempted.map((target) => {
+    assertCommunityLiveSnapshotTokenCurrent(queryClient, work.owner, undefined)
+    return queryClient.invalidateQueries({
+      queryKey: target.queryKey,
       exact: true,
       refetchType: "active",
-    }, refetchOptions)),
-  ])
-  if (settled.some((result) => result.status === "rejected")) {
-    throw new Error("read-state server reconciliation failed")
+      predicate: (query) => query === target.query,
+    }, target.failed ? { ...refetchOptions, cancelRefetch: false } : refetchOptions)
+  }))
+  settled.forEach((result, index) => {
+    const target = attempted[index]!
+    if (result.status === "rejected") {
+      target.failed = true
+      target.error = result.reason
+    } else {
+      work.targets = work.targets.filter((pending) => pending !== target)
+    }
+  })
+  if (work.targets.length > 0) {
+    throw new AggregateError(work.targets.map((target) => target.error), "read-state surface reconciliation failed")
   }
 }
 
@@ -264,6 +315,7 @@ function getReconciliationState(queryClient: QueryClient) {
     snapshotWorker: null,
     inboxDmsWorker: null,
     serverWorker: null,
+    serverSurfaceWork: null,
     snapshotRetryTimer: null,
     snapshotRetryDelayMs: INITIAL_RETRY_DELAY_MS,
     inboxDmsRetryTimer: null,
@@ -476,11 +528,20 @@ async function runServerWorker(queryClient: QueryClient, state: ReconciliationSt
     await ensureSnapshotWorker(queryClient, state)
     assertReconciliationActive(queryClient, state, epoch)
     const surfaceGeneration = state.serverRequestedGeneration
+    if (!state.serverSurfaceWork || state.serverSurfaceWork.generation < surfaceGeneration) {
+      state.serverSurfaceWork = captureServerSurfaceWork(queryClient, surfaceGeneration)
+    }
+    const work = state.serverSurfaceWork
     try {
-      await invalidateServerSurfaces(queryClient)
-    } catch {
-      scheduleReconciliationRetry(queryClient, state, "non-inbox")
-      throw new Error("read-state surface reconciliation failed")
+      await invalidateServerSurfaces(queryClient, work)
+    } catch (error) {
+      assertReconciliationActive(queryClient, state, epoch)
+      assertCommunityLiveSnapshotTokenCurrent(queryClient, work.owner, undefined)
+      if (surfaceGeneration < state.serverRequestedGeneration) continue
+      if (work.targets.some((target) => canRetryServerSurface(queryClient, target))) {
+        scheduleReconciliationRetry(queryClient, state, "non-inbox")
+      }
+      throw error
     }
     assertReconciliationActive(queryClient, state, epoch)
     state.serverCompletedGeneration = Math.max(
@@ -488,6 +549,7 @@ async function runServerWorker(queryClient: QueryClient, state: ReconciliationSt
       surfaceGeneration,
     )
     state.serverRetryDelayMs = INITIAL_RETRY_DELAY_MS
+    state.serverSurfaceWork = null
   }
 }
 
@@ -542,6 +604,7 @@ export function disposeAccountReadStateReconciliation(queryClient: QueryClient) 
   clearReconciliationRetry(state, "non-inbox")
   state.requestController?.abort()
   state.requestController = null
+  state.serverSurfaceWork = null
 }
 
 export function projectReadStateEnvelope(

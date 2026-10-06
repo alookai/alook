@@ -1,5 +1,8 @@
 "use client";
 
+import { useObservedRegion } from "@/lib/observability/regions";
+import { viewEvidence } from "@/lib/observability/data-source";
+
 import { useCallback, useRef } from "react";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { type FlaggedItem } from "@/lib/api";
@@ -103,6 +106,7 @@ export default function FlagsPage() {
 
   const { items, isPending: loading, hasNextPage: hasMore, isFetchingNextPage: loadingMore, fetchNextPage } = useWorkspaceFlags();
   const remove = useUnflagWorkspaceMessage();
+  useObservedRegion("inbox", !loading, viewEvidence(items));
   const scrollRef = useRef<HTMLDivElement>(null);
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;

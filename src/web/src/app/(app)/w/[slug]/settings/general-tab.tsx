@@ -7,6 +7,8 @@ import { useRouter } from "next/navigation";
 import { sanitizeSlug } from "@alook/shared";
 import { useWorkspaceOwner, captureWorkspaceOwner, assertWorkspaceOwner, workspaceRequestOptions } from "@/contexts/workspace-context";
 import { useWorkspaceViewSource } from "@/hooks/workspace/use-workspace-view-source";
+import { useObservedRegion } from "@/lib/observability/regions";
+import { mergeEvidence, valueEvidence } from "@/lib/observability/data-source";
 import { useQuery, useMutation, type Query } from "@tanstack/react-query";
 import { applicationWorkspacesOptions, workspaceMembersOptions } from "@/hooks/workspace/settings-query-options";
 
@@ -32,6 +34,7 @@ export function GeneralTab() {
   const current = workspacesQuery.data?.find((workspace) => workspace.id === workspaceId);
   const memberRole = membersQuery.data?.find((member) => member.user_id === owner.application.userId)?.role ?? "";
   const loading = membersQuery.isPending || workspacesQuery.isPending;
+  useObservedRegion("settings", !loading && !membersQuery.isError && !workspacesQuery.isError, mergeEvidence([valueEvidence(owner.queryClient, membersQuery.data), valueEvidence(owner.queryClient, workspacesQuery.data)]));
   const [nameDraft, setWorkspaceName] = useAtom(useCreateAtom<string | null>(null));
   const [slugDraft, setWorkspaceSlug] = useAtom(useCreateAtom<string | null>(null));
   const workspaceName = nameDraft ?? current?.name ?? "";
@@ -41,7 +44,7 @@ export function GeneralTab() {
   const [workspaceErrors, setWorkspaceErrors] = useAtom(useCreateAtom<WorkspaceFormErrors>({}));
   const [deleteConfirm, setDeleteConfirm] = useAtom(useCreateAtom(""));
   type OriginalIntent = { token: ReturnType<typeof captureWorkspaceOwner>; view: ReturnType<typeof source.capture>; resources: Query[] };
-  const native = useMutation({ mutationKey: owner.key("workspace-settings-command"), scope: { id: JSON.stringify(owner.key("workspace-settings-command")) }, gcTime: 0,
+  const native = useMutation({ meta: { observabilityAction: "workspace.settings.command" }, mutationKey: owner.key("workspace-settings-command"), scope: { id: JSON.stringify(owner.key("workspace-settings-command")) }, gcTime: 0,
     mutationFn: async ({ action, token, view, resources }: { action: { kind: "update"; name: string; slug: string } | { kind: "delete"; name: string }; token: ReturnType<typeof captureWorkspaceOwner> } & OriginalIntent) => {
       const assert = () => { assertWorkspaceOwner(token, view.signal); view.assert(); };
       const key = applicationWorkspacesOptions(owner.application).queryKey;
