@@ -566,12 +566,12 @@ mod tests {
             let candidate = registry
                 .unwrap()
                 .path()
-                .join("wry-0.55.1/src/android/kotlin/RustWebViewClient.kt");
+                .join("wry-0.57.0/src/android/kotlin/RustWebViewClient.kt");
             if candidate.is_file() {
                 return fs::read_to_string(candidate).unwrap();
             }
         }
-        panic!("locked Wry 0.55.1 source not found")
+        panic!("locked Wry 0.57.0 source not found")
     }
 
     #[test]
@@ -1013,7 +1013,7 @@ mod tests {
         assert!(helper.contains("return recoveryUrl(currentUrl)"));
 
         let lock = include_str!("../Cargo.lock");
-        assert!(lock.contains("name = \"wry\"\nversion = \"0.55.1\""));
+        assert!(lock.contains("name = \"wry\"\nversion = \"0.57.0\""));
         let wry = wry_android_client_source();
         assert!(wry.contains("request: WebResourceRequest"));
         assert!(wry.contains("request.isForMainFrame"));
