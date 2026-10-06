@@ -1,8 +1,17 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 
+const { mockBindingFetch, mockHttpFetch } = vi.hoisted(() => ({
+  mockBindingFetch: vi.fn(),
+  mockHttpFetch: vi.fn(),
+}));
+
 vi.mock("@opennextjs/cloudflare", () => ({
-  getCloudflareContext: vi.fn(async () => ({ env: { DB: {} } })),
+  getCloudflareContext: vi.fn(async () => ({ env: {
+    DB: {},
+    WS_DO_WORKER: { fetch: mockBindingFetch },
+    DEV_WS_DO_URL: "http://localhost:8789",
+  } })),
 }));
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
@@ -33,6 +42,12 @@ vi.mock("@alook/shared", async () => {
 });
 
 import { POST } from "./route";
+import { makeRuntimeConfig, sendWakeToMachine, type HostCommand } from "@alook/shared";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
 
 function req(headers: Record<string, string> = {}): NextRequest {
   return new NextRequest("http://localhost/api/community/daemon/resync-wakes", {
@@ -44,6 +59,9 @@ function req(headers: Record<string, string> = {}): NextRequest {
 describe("POST /api/community/daemon/resync-wakes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockDispatchOneUnreadWake.mockReset();
+    mockBindingFetch.mockReset();
+    mockHttpFetch.mockReset();
     mockFindCred.mockResolvedValue({
       credentialId: "cmk_ok",
       userId: "u_1",
@@ -138,5 +156,72 @@ describe("POST /api/community/daemon/resync-wakes", () => {
 
     expect(await res.json()).toEqual({ attempted: 0 });
     expect(mockDispatchOneUnreadWake).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("resync wake transport", () => {
+  const command: HostCommand = {
+    type: "agent:wake",
+    agentId: "bot_1",
+    config: makeRuntimeConfig({ runtime: "antigravity" }),
+    launchId: "launch_1",
+    unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
+  };
+  const path = "/community-machine/by-id/cm_1/forward-agent-wake";
+  const receipt = () => Response.json({ attempted: 1 });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockBindingFetch.mockReset();
+    mockHttpFetch.mockReset();
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubGlobal("fetch", mockHttpFetch);
+    mockFindCred.mockResolvedValue({ credentialId: "cmk_ok", userId: "u_1", machineId: "cm_1" });
+    mockListBotsForMachine.mockResolvedValue([{ id: "bot_1" }]);
+    mockGetLatestUnreadMessageForAgent.mockResolvedValue({ messageId: "msg_1" });
+    mockDispatchOneUnreadWake.mockImplementation(async (_db, env) => {
+      const { attempted } = await sendWakeToMachine(env, "cm_1", command);
+      return { outcome: attempted ? "attempted" : "attempted_nowhere" };
+    });
+  });
+
+  it.each(["503", "throw"])("development recovers a binding %s through the same worker path and wake body", async (failure) => {
+    if (failure === "503") mockBindingFetch.mockResolvedValue(new Response("unavailable", { status: 503 }));
+    else mockBindingFetch.mockRejectedValue(new Error("binding disconnected"));
+    mockHttpFetch.mockResolvedValue(receipt());
+
+    const res = await POST(req({ Authorization: "Bearer cmk_ok" }));
+
+    expect(await res.json()).toEqual({ attempted: 1 });
+    const init = { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(command) };
+    expect(mockBindingFetch).toHaveBeenCalledWith(`http://internal${path}`, init);
+    expect(mockHttpFetch).toHaveBeenCalledExactlyOnceWith(`http://localhost:8789${path}`, init);
+  });
+
+  it("successful binding stays binding-only", async () => {
+    mockBindingFetch.mockResolvedValue(receipt());
+    expect(await (await POST(req({ Authorization: "Bearer cmk_ok" }))).json()).toEqual({ attempted: 1 });
+    expect(mockHttpFetch).not.toHaveBeenCalled();
+  });
+
+  it("development preserves a binding 4xx without HTTP fallback", async () => {
+    mockBindingFetch.mockResolvedValue(new Response("bad request", { status: 400 }));
+    await expect(POST(req({ Authorization: "Bearer cmk_ok" }))).rejects.toThrow("ws-do route returned 400");
+    expect(mockHttpFetch).not.toHaveBeenCalled();
+  });
+
+  it.each(["503", "throw"])("production preserves binding %s failure without HTTP fallback", async (failure) => {
+    vi.stubEnv("NODE_ENV", "production");
+    if (failure === "503") mockBindingFetch.mockResolvedValue(new Response("unavailable", { status: 503 }));
+    else mockBindingFetch.mockRejectedValue(new Error("binding disconnected"));
+    await expect(POST(req({ Authorization: "Bearer cmk_ok" }))).rejects.toThrow(failure === "503" ? "ws-do route returned 503" : "binding disconnected");
+    expect(mockHttpFetch).not.toHaveBeenCalled();
+  });
+
+  it("failed development fallback remains a resync failure", async () => {
+    mockBindingFetch.mockResolvedValue(new Response("unavailable", { status: 503 }));
+    mockHttpFetch.mockResolvedValue(new Response("worker unavailable", { status: 502 }));
+    await expect(POST(req({ Authorization: "Bearer cmk_ok" }))).rejects.toThrow("ws-do route returned 502");
   });
 });
