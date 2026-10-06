@@ -41,6 +41,41 @@ describe("GET /api/community/machines — provider quota", () => {
     vi.clearAllMocks()
   })
 
+  it.each(["available", "error", "pending"] as const)("reports supported Antigravity quota with a %s snapshot", async (status) => {
+    const observedAt = new Date().toISOString()
+    const limits = [{
+      bucket: {
+        limitId: "gemini-weekly",
+        product: { kind: "reported", id: "antigravity", displayName: "Antigravity" },
+        model: { kind: "unknown" },
+        window: { kind: "provider_defined", id: "weekly", displayName: "Weekly limit" },
+      },
+      usedPercent: 12.5,
+    }]
+    mockListMachinesForUser.mockResolvedValue([{
+      id: "cm_1", status: "online", availableRuntimes: [{ id: "antigravity", status: "healthy" }],
+    }])
+    const observation = status === "available"
+      ? { status, sourceEpoch: "A".repeat(22), freshForSeconds: 300, limits }
+      : { status: "error", sourceEpoch: "A".repeat(22), code: "unavailable", retryable: true }
+    mockListMachineBackendQuotasForUser.mockResolvedValue(new Map([[
+      "cm_1", status === "pending" ? [] : [{ observedAt, quota: { agentBackendId: "antigravity", observation } }],
+    ]]))
+
+    const response = await GET(new NextRequest("http://localhost/api/community/machines"))
+    const body = await response.json()
+    expect(response.status).toBe(200)
+    expect(body.machines[0].quota).toEqual([{
+      scope: { kind: "machine_backend", machineId: "cm_1", agentBackendId: "antigravity" },
+      capability: "supported", runtimeState: "healthy",
+      snapshot: status === "available"
+        ? { status, observedAt, limits }
+        : status === "error" ? { status, code: "unavailable" } : { status },
+    }])
+    expect(JSON.stringify(body)).not.toContain("sourceEpoch")
+    expect(JSON.stringify(body)).not.toContain("retryable")
+  })
+
   it("keeps same-runtime catalogs isolated between machine rows", async () => {
     const runtime = (modelId: string) => ({
       id: "codex",
