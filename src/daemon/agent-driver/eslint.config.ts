@@ -4,6 +4,15 @@ import { defineConfig } from "eslint/config";
 export default defineConfig([
   ...baseConfig,
   {
+    files: ["**/*.{js,mjs,cjs,jsx,ts,mts,cts,tsx}"],
+    languageOptions: {
+      parserOptions: {
+        project: "./tsconfig.eslint.json",
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+  },
+  {
     files: ["src/adapters/**/*.ts"],
     rules: {
       "@typescript-eslint/no-explicit-any": "off",

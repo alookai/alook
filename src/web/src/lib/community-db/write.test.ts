@@ -114,7 +114,7 @@ describe("canonical collection publication", () => {
       writeCommunityProfilePatches([{ id: "alice", identityAbout: { name: "Alicia" } }], registry)
     } })
     transaction.mutate(() => registry.collections.profiles.update("alice", (row) => { row.name = "Alicia" }))
-    await transaction.isPersisted.promise
+    await transaction.when("settled")
     expect(registry.collections.profiles.get("alice")?.name).toBe("Alicia")
     expect(registry.queryClient.getQueryData(communityKeys.communityDbCollection("viewer", "profiles"))).toMatchObject([{ userId: "alice", name: "Alicia" }])
   })

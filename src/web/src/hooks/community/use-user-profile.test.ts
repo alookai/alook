@@ -18,7 +18,7 @@ describe("useUserProfile / userProfileQueryFn", () => {
     const { client, registry } = await createCommunityQueryOwner()
     apiFetchMock.mockResolvedValueOnce(profile)
     const key = communityKeys.profile(profile.id)
-    expect(await client.fetchQuery({ queryKey: key, queryFn: userProfileQueryFn(profile.id) })).toEqual({ id: profile.id })
+    expect(await client.query({ queryKey: key, queryFn: userProfileQueryFn(profile.id) })).toEqual({ id: profile.id })
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/u_1/profile", expect.objectContaining({ signal: expect.any(AbortSignal), assertActive: expect.any(Function) }))
     expect(registry.collections.profiles.get(profile.id)).toMatchObject({ userId: profile.id, name: "Alice", aboutMe: "about", mutualServers: 2, avatarVersion: 2 })
     expect(client.getQueryData(key)).toEqual({ id: profile.id })
@@ -28,7 +28,7 @@ describe("useUserProfile / userProfileQueryFn", () => {
     const { client } = await createCommunityQueryOwner()
     apiFetchMock.mockResolvedValueOnce(profile)
     const key = communityKeys.profile(profile.id)
-    await client.fetchQuery({ queryKey: key, queryFn: userProfileQueryFn(profile.id) })
+    await client.query({ queryKey: key, queryFn: userProfileQueryFn(profile.id) })
     await client.invalidateQueries({ queryKey: communityKeys.all })
     expect(client.getQueryState(key)?.isInvalidated).toBe(true)
   })
@@ -39,8 +39,8 @@ describe("useUserProfile / userProfileQueryFn", () => {
     const { client } = await createCommunityQueryOwner()
     apiFetchMock.mockResolvedValueOnce(profile)
     const options = { queryKey: communityKeys.profile(profile.id), queryFn: userProfileQueryFn(profile.id), staleTime: PROFILE_STALE_TIME_MS }
-    const first = await client.fetchQuery(options)
-    expect(await client.fetchQuery(options)).toEqual(first)
+    const first = await client.query(options)
+    expect(await client.query(options)).toEqual(first)
     expect(apiFetchMock).toHaveBeenCalledTimes(1)
   })
 
@@ -48,9 +48,9 @@ describe("useUserProfile / userProfileQueryFn", () => {
     const { client, registry } = await createCommunityQueryOwner()
     apiFetchMock.mockResolvedValueOnce(profile).mockResolvedValueOnce({ ...profile, aboutMe: "updated", mutualServers: 4 })
     const options = { queryKey: communityKeys.profile(profile.id), queryFn: userProfileQueryFn(profile.id), staleTime: 1 }
-    await client.fetchQuery(options)
+    await client.query(options)
     await new Promise((resolve) => setTimeout(resolve, 5))
-    await client.fetchQuery(options)
+    await client.query(options)
     expect(apiFetchMock).toHaveBeenCalledTimes(2)
     expect(registry.collections.profiles.get(profile.id)).toMatchObject({ aboutMe: "updated", mutualServers: 4 })
   })
@@ -60,7 +60,7 @@ describe("useUserProfile / userProfileQueryFn", () => {
     let release!: (data: typeof profile) => void
     apiFetchMock.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
     const key = communityKeys.profile(profile.id)
-    const result = client.fetchQuery({ queryKey: key, queryFn: userProfileQueryFn(profile.id) }).then(() => null, (error) => error)
+    const result = client.query({ queryKey: key, queryFn: userProfileQueryFn(profile.id) }).then(() => null, (error) => error)
     await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(1))
     const signal = apiFetchMock.mock.calls[0]![1].signal as AbortSignal
     await client.cancelQueries({ queryKey: key, exact: true })

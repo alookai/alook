@@ -5,7 +5,7 @@
  * contrast: pass (46–50)
  */
 
-import { useId, type FormEvent } from "react"
+import { useId, type SubmitEvent } from "react"
 import {
   CheckIcon,
   LoaderCircleIcon,
@@ -143,7 +143,7 @@ export function OnboardingSelectDialog({
     }
   }
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!canSubmit || locked) return
     onSubmit(submittedValue)

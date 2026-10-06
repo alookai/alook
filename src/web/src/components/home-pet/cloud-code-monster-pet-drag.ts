@@ -2,7 +2,7 @@
 
 import type { Atom } from "@tanstack/react-store";
 
-import { type MutableRefObject, type PointerEvent as ReactPointerEvent, type RefObject, useCallback, useRef } from "react";
+import { type RefObject, type PointerEvent as ReactPointerEvent, useCallback, useRef } from "react";
 
 import {
   calculateMonsterWalkIntensity,
@@ -34,8 +34,8 @@ type UsePetDragParams = {
   isDragging: boolean;
   fainted: boolean;
   activityState: StoredCloudCodeMonsterActivity | null;
-  lastFootstepAtRef: MutableRefObject<number>;
-  violentDragEventsRef: MutableRefObject<number[]>;
+  lastFootstepAtRef: RefObject<number>;
+  violentDragEventsRef: RefObject<number[]>;
   setIsDragging: Atom<boolean>["set"];
   setNotificationActive: Atom<boolean>["set"];
   setFainted: Atom<boolean>["set"];

@@ -152,7 +152,7 @@ describe("Native forum tag transactions", () => {
     let replacementSignal: AbortSignal | undefined, replacementRead!: Promise<{ tags: string[] }>
     act(() => {
       view.client.removeQueries({ queryKey: key, exact: true })
-      replacementRead = view.client.fetchQuery({ queryKey: key, queryFn: ({ signal }) => {
+      replacementRead = view.client.query({ queryKey: key, queryFn: ({ signal }) => {
         replacementSignal = signal
         return held.promise as Promise<{ tags: string[] }>
       } })

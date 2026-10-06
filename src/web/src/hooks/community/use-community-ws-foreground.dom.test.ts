@@ -103,7 +103,7 @@ describe("community foreground message reconciliation", () => {
       throw new Error(`unexpected fetch: ${String(path)}`)
     })
     const cancel = vi.spyOn(capturedQueryClient, "cancelQueries")
-    const reads = vi.spyOn(capturedQueryClient, "fetchQuery")
+    const reads = vi.spyOn(capturedQueryClient, "query")
     let foreground!: void | Promise<void>; act(() => { foreground = capturedUseUserWsOptions!.onForeground!() })
     await vi.waitFor(() => expect(release).toBeTypeOf("function"))
     let duplicate!: void | Promise<void>, reconnect!: void | Promise<void>

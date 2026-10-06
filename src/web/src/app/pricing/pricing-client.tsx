@@ -3,7 +3,7 @@
 import { useObservedRegion } from "@/lib/observability/regions"
 import { valueEvidence, mergeEvidence } from "@/lib/observability/data-source"
 
-import { useEffect, useRef, type MutableRefObject } from "react"
+import { useEffect, useRef, type RefObject } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useQuery } from "@tanstack/react-query"
 import { PublicPricingSchema, type PublicPricing, type BillingOffer } from "@alook/shared"
@@ -20,7 +20,7 @@ function PricingContent({ signedIn, sessionPending, sessionError, viewTrackedRef
   signedIn: boolean
   sessionPending: boolean
   sessionError: boolean
-  viewTrackedRef: MutableRefObject<boolean>
+  viewTrackedRef: RefObject<boolean>
 }) {
   const router = useRouter()
   const search = useSearchParams()
@@ -128,7 +128,7 @@ function PricingSession({ signedIn, sessionPending, sessionError, viewTrackedRef
   signedIn: boolean
   sessionPending: boolean
   sessionError: boolean
-  viewTrackedRef: MutableRefObject<boolean>
+  viewTrackedRef: RefObject<boolean>
 }) {
   return <PublicQueryProvider><PricingContent signedIn={signedIn} sessionPending={sessionPending} sessionError={sessionError} viewTrackedRef={viewTrackedRef} /></PublicQueryProvider>
 }

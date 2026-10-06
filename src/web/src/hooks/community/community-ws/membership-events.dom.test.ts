@@ -93,7 +93,7 @@ describe("useCommunityWs — member events", () => {
   it("evicts an unresolved reaction-details request when the viewer leaves", async () => {
     await mountHook({ viewerUserId: "u_me" })
     const key = communityKeys.reactionDetails("pending_message")
-    void capturedQueryClient.fetchQuery({
+    void capturedQueryClient.query({
       queryKey: key,
       queryFn: () => new Promise(() => undefined),
     }).catch(() => undefined)
@@ -201,8 +201,8 @@ describe("useCommunityWs — member events", () => {
       online: ["u_other"],
     }))
 
-    await capturedQueryClient.fetchQuery({ queryKey: affectedKey, queryFn: affectedQuery })
-    await capturedQueryClient.fetchQuery({ queryKey: otherKey, queryFn: otherQuery })
+    await capturedQueryClient.query({ queryKey: affectedKey, queryFn: affectedQuery })
+    await capturedQueryClient.query({ queryKey: otherKey, queryFn: otherQuery })
     const observer = new QueryObserver(capturedQueryClient, {
       queryKey: affectedKey,
       queryFn: affectedQuery,

@@ -171,13 +171,7 @@ describe("AttachmentPreviewSheet", () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response("# Hello", { status: 200 }))
       .mockResolvedValueOnce(new Response("download bytes", { status: 200 }))
-    const anchor = document.createElement("a")
-    const click = vi.spyOn(anchor, "click").mockImplementation(() => undefined)
-    vi.spyOn(anchor, "remove").mockImplementation(() => undefined)
-    const createElement = document.createElement.bind(document)
-    vi.spyOn(document, "createElement").mockImplementation((tagName, options) => (
-      tagName === "a" ? anchor : createElement(tagName, options)
-    ))
+    const click = vi.spyOn(window.HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined)
     vi.stubGlobal("fetch", fetchMock)
     vi.stubGlobal("URL", { createObjectURL: vi.fn(() => "blob:preview"), revokeObjectURL: vi.fn() })
     const renderer = render(React.createElement(AttachmentPreviewSheet, {
@@ -204,7 +198,7 @@ describe("AttachmentPreviewSheet", () => {
     })
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/attachments/a1", { credentials: "same-origin", signal: expect.any(AbortSignal) })
     await waitFor(() => expect(click).toHaveBeenCalledOnce())
-    expect(anchor).toEqual(expect.objectContaining({ href: "blob:preview", download: "notes.md" }))
+    expect(click.mock.contexts[0]).toEqual(expect.objectContaining({ href: "blob:preview", download: "notes.md" }))
     expect(click).toHaveBeenCalledOnce()
     await waitFor(() => expect(renderer.container.querySelector(
       '[data-testid="community-attachment-preview-download"]',

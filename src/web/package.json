@@ -17,7 +17,7 @@
     "verify:zone-output": "tsx scripts/verify-zone-output.ts",
     "preflight:bug-reports": "tsx scripts/preflight-bug-reports.ts",
     "start": "next start",
-    "lint": "eslint src/ blog/ auth/ scripts/",
+    "lint": "node --max-old-space-size=6144 node_modules/eslint/bin/eslint.js src/ blog/ auth/ scripts/",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "deploy:blog": "pnpm build:blog && opennextjs-cloudflare deploy --config blog/wrangler.toml",
     "deploy:auth": "wrangler deploy --config auth/wrangler.toml",
@@ -163,6 +163,7 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
+    "typescript-eslint": "8.71.0",
     "unified": "^11.0.5",
     "vitest": "4.1.11",
     "wrangler": "4.146.0"

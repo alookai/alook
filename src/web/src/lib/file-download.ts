@@ -3,7 +3,7 @@
 import { startAction, finishAction } from "./observability/context"
 import { useCallback, useLayoutEffect, useMemo } from "react"
 import { createStore } from "@tanstack/react-store"
-import { QueryObserver, queryOptions, useQuery, isCancelledError, type QueryKey } from "@tanstack/react-query"
+import { QueryObserver, queryOptions, useQuery, CancelledError, type QueryKey } from "@tanstack/react-query"
 import { applicationKey, useApplicationOwner, captureApplicationOwner, assertApplicationOwner, type ApplicationOwner } from "./application-owner"
 import { downloadUrl, fileSaveMessage, type FileSaveResult } from "./file-save"
 import { isAbortError } from "./errors"
@@ -57,13 +57,13 @@ export async function startFileDownload(owner: ApplicationOwner, target: FileDow
   signal?.addEventListener("abort", release, { once: true })
   try {
     assertApplicationOwner(token, signal)
-    const receipt = await owner.queryClient.fetchQuery(options)
+    const receipt = await owner.queryClient.query({ ...options, select: undefined })
     assertApplicationOwner(token, signal)
     finishAction(observation, receipt.status === "saved" ? "success" : receipt.status === "cancelled" ? "cancelled" : receipt.status === "error" ? "error" : "observed", { capability: receipt.status === "saved" ? "available" : "limited" })
     return receipt
   } catch (error) {
-    finishAction(observation, isCancelledError(error) || isAbortError(error) ? "cancelled" : "error")
-    if (isCancelledError(error) || isAbortError(error) || signal?.aborted) return { status: "cancelled" }
+    finishAction(observation, error instanceof CancelledError || isAbortError(error) ? "cancelled" : "error")
+    if (error instanceof CancelledError || isAbortError(error) || signal?.aborted) return { status: "cancelled" }
     throw error
   } finally {
     signal?.removeEventListener("abort", release)
@@ -96,7 +96,7 @@ export function useFileDownload(target: FileDownloadTarget) {
       onComplete?.(receipt)
       return receipt
     } catch (error) {
-      return isAbortError(error) || isCancelledError(error) ? { status: "cancelled" } as FileSaveResult : { status: "error", message: "Couldn’t save this file" } as FileSaveResult
+      return isAbortError(error) || error instanceof CancelledError ? { status: "cancelled" } as FileSaveResult : { status: "error", message: "Couldn’t save this file" } as FileSaveResult
     }
   }, [view, owner, target])
   const cancel = useCallback(() => { void cancelFileDownload(owner, fileDownloadKey(owner, target)).catch(() => undefined) }, [owner, target])

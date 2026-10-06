@@ -71,7 +71,7 @@ async function nativeRead<T>(client: QueryClient, key: readonly unknown[], origi
   const observer = new QueryObserver(client, { ...options, enabled: false })
   const release = observer.subscribe(() => undefined)
   original.signal.addEventListener("abort", release, { once: true })
-  try { const value = await client.fetchQuery(options); original(); return value }
+  try { const value = await client.query({ ...options, select: undefined }); original(); return value }
   finally { original.signal.removeEventListener("abort", release); release() }
 }
 

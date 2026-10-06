@@ -101,7 +101,7 @@ export function startConversationNavigationWarmup(
     ...messagesOptions, enabled: false,
   })
   const releaseMessages = messagesObserver.subscribe(() => undefined)
-  void queryClient.fetchInfiniteQuery(messagesOptions)
+  void queryClient.infiniteQuery({ ...messagesOptions, select: undefined })
     .then(() => {
       if (!isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) return
       commitConversationNavigationProof(queryClient, target.channelId, accessEpoch)
@@ -120,7 +120,7 @@ export function startConversationNavigationWarmup(
   const readKey = target.scopeKind === "dm"
     ? communityKeys.dmReadStateSnapshot(target.channelId)
     : communityKeys.channelReadStateSnapshot(target.channelId)
-  void queryClient.fetchQuery({
+  void queryClient.query({
     queryKey: readKey,
     staleTime: 0,
     retry: false,
@@ -131,6 +131,7 @@ export function startConversationNavigationWarmup(
         if (!isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) throw new DOMException("Retired conversation warmup", "AbortError")
       },
     }),
+    select: undefined,
   }).catch(() => undefined)
 
   if (target.serverId) {
@@ -139,7 +140,7 @@ export function startConversationNavigationWarmup(
     const options = { queryKey, queryFn: ({ signal }: { signal: AbortSignal }) => serverProjectedQueryFn(queryClient, serverId, signal)(), staleTime: Infinity, networkMode: "always" as const, retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey }).retry) }
     const observer = new QueryObserver(queryClient, { ...options, enabled: false })
     const release = observer.subscribe(() => undefined)
-    void queryClient.fetchQuery(options).finally(release).catch(() => undefined)
+    void queryClient.query({ ...options, select: undefined }).finally(release).catch(() => undefined)
   }
 
   return epoch

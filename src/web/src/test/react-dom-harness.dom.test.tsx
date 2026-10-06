@@ -14,7 +14,7 @@ function EffectFixture() {
   return <main>Harness fixture</main>
 }
 
-describe.sequential("react-dom harness lifecycle", () => {
+describe("react-dom harness lifecycle", { concurrent: false }, () => {
   it("enables the React act environment while rendering", () => {
     expect(reactActEnvironment.IS_REACT_ACT_ENVIRONMENT).toBe(true)
     render(<EffectFixture />)

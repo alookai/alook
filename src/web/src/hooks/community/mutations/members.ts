@@ -60,7 +60,7 @@ function useMemberCommand<TInput extends KickMemberArgs>(kind: "role" | "kick") 
           if (kind === "role") registry.collections.serverMemberships.update(memberKey, (row) => { row.role = (input as SetMemberRoleArgs).role })
           else registry.collections.serverMemberships.delete(memberKey)
         })
-        try { await transaction.isPersisted.promise } catch (error) { origin.assert(original); throw error }
+        try { await transaction.when("settled") } catch (error) { origin.assert(original); throw error }
       } else await persist()
       origin.assert(original)
       } finally { invalidateOriginal() }

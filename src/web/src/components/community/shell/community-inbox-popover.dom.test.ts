@@ -68,7 +68,7 @@ function popover(onOpenChannel: ReturnType<typeof vi.fn>, onOpenThread: ReturnTy
 
 describe("InboxPopover thread opener rows", () => {
   it("accepts the generic thread callback used by opener-backed buttons", () => {
-    expectTypeOf<Parameters<typeof InboxPopover>[0]>().toMatchTypeOf<{
+    expectTypeOf<Parameters<typeof InboxPopover>[0]>().toExtend<{
       onOpenThread?: (
         server: UnreadServer,
         parent: UnreadServer["channels"][number],

@@ -1,3 +1,4 @@
+import { flattenError } from "zod"
 import { NextResponse } from "next/server"
 import {
   queries,
@@ -33,7 +34,7 @@ export const POST = withCommunityPairingToken(async (req, ctx) => {
   const parsed = CommunityDaemonActivateRequestSchema.safeParse(raw)
   if (!parsed.success) {
     return NextResponse.json(
-      { error: "invalid payload", details: parsed.error.flatten(), sessionOutcome: "not_committed" },
+      { error: "invalid payload", details: flattenError(parsed.error), sessionOutcome: "not_committed" },
       { status: 400 }
     )
   }

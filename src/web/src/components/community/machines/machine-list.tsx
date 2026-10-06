@@ -382,7 +382,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     assert()
     closePair(false)
     try {
-      await queryClient.fetchQuery({ queryKey: communityKeys.machines(), queryFn: machinesQueryFn, staleTime: 0 })
+      await queryClient.query({ queryKey: communityKeys.machines(), queryFn: machinesQueryFn, staleTime: 0, select: undefined })
       assert()
       setLimitOpen(true)
     } catch {

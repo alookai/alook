@@ -121,7 +121,7 @@ export async function reconcileNotificationSettings(queryClient: QueryClient) {
   assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)
   const options = { queryKey, queryFn: notificationSettingsQueryFn, staleTime: 0 }
   const lease = new QueryObserver(queryClient, { ...options, enabled: false }).subscribe(() => undefined)
-  try { await queryClient.fetchQuery(options) } finally { lease() }
+  try { await queryClient.query({ ...options, select: undefined }) } finally { lease() }
   assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)
   const settings: NotificationSettings = { raw: [...token.registry!.collections.notificationSettings.values()], server: {}, channel: {} }
   for (const row of settings.raw) { if (row.channelId) settings.channel[row.channelId] = displayNotifLevel(row.level); else if (row.serverId) settings.server[row.serverId] = displayNotifLevel(row.level) }

@@ -116,10 +116,11 @@ export function handleChannelMemberEvent(
     await queryClient.cancelQueries({ queryKey: key, exact: true })
     if (!isChannelMetadataTokenCurrent(token)) return
     try {
-      await queryClient.fetchQuery({
+      await queryClient.query({
         ...channelMetadataOptions(queryClient, event.serverId, event.channelId),
         staleTime: 0,
         retry: false,
+        select: undefined,
       })
       if (!isChannelMetadataTokenCurrent(token)) return
       const type = canonicalType()

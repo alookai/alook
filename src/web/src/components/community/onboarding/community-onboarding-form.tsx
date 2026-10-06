@@ -78,7 +78,7 @@ export function CommunityOnboardingForm() {
             assert.signal.addEventListener("abort", unsubscribe, { once: true })
             try {
               assert()
-              await queryClient.fetchQuery(options)
+              await queryClient.query({ ...options, select: undefined })
               assert()
               return [...origin.registry!.collections.channels.values()].filter((channel) => channel.serverId === serverId && !channel.parentChannelId).map(({ id, name }) => ({ id, name }))
             } finally { assert.signal.removeEventListener("abort", unsubscribe); unsubscribe() }

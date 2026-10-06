@@ -619,8 +619,8 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const friendsKey = communityKeys.friends()
     const inboxKey = communityKeys.accountAttention()
     await Promise.all([
-      queryClient.fetchQuery({ queryKey: friendsKey, queryFn: friendsQuery }),
-      queryClient.fetchQuery({ queryKey: inboxKey, queryFn: inboxQuery }),
+      queryClient.query({ queryKey: friendsKey, queryFn: friendsQuery }),
+      queryClient.query({ queryKey: inboxKey, queryFn: inboxQuery }),
     ])
     const friendsObserver = new QueryObserver(queryClient, {
       queryKey: friendsKey,
@@ -761,7 +761,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       fetchCount += 1
       return { version }
     }
-    await queryClient.fetchQuery({ queryKey, queryFn })
+    await queryClient.query({ queryKey, queryFn })
     const observer = new QueryObserver(queryClient, { queryKey, queryFn, staleTime: Infinity })
     const unsubscribe = observer.subscribe(() => undefined)
     version = 2
@@ -803,7 +803,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     }
     for (const serverId of ["srv_a", "srv_b"] as const) {
       for (const queryKey of keys(serverId)) {
-        await queryClient.fetchQuery({ queryKey, queryFn: queryFn(serverId, queryKey) })
+        await queryClient.query({ queryKey, queryFn: queryFn(serverId, queryKey) })
       }
       queryClient.setQueryData(communityKeys.forumSidebarThreads(serverId), { seeded: true })
     }
@@ -831,7 +831,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     for (const queryKey of keys("srv_b")) {
       expect(queryClient.getQueryData(queryKey)).toMatchObject({ version: 1 })
       expect(queryClient.getQueryState(queryKey)?.isInvalidated).toBe(true)
-      await queryClient.fetchQuery({ queryKey, queryFn: queryFn("srv_b", queryKey) })
+      await queryClient.query({ queryKey, queryFn: queryFn("srv_b", queryKey) })
       expect(queryClient.getQueryData(queryKey)).toMatchObject({ version: 2 })
       expect(fetches.get(JSON.stringify(queryKey))).toBe(2)
     }

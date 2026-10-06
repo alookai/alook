@@ -218,7 +218,7 @@ describe("community DB sync", () => {
       expect(() => publishCommunityLiveSnapshotWithProof(db.queryClient, {
         snapshot: { kind: "dms", data: { conversations: [] } },
         proof: { kind: "structural", token, signal: controller.signal },
-      })).toThrowError(expect.objectContaining({ name: "AbortError" }))
+      })).toThrow(expect.objectContaining({ name: "AbortError" }))
       expect(db.collections.channels.get("dm-current")).toBeDefined()
     },
   )
@@ -528,7 +528,7 @@ describe("community DB sync", () => {
     expect(() => publishCommunityLiveSnapshotWithProof(db.queryClient, {
       snapshot: { kind: "server-detail", data: detail },
       proof: { kind: "structural", token, signal: undefined },
-    })).toThrowError(expect.objectContaining({ name: "AbortError" }))
+    })).toThrow(expect.objectContaining({ name: "AbortError" }))
     expect(db.collections.channels.get("c1")).toBeUndefined()
   })
 
