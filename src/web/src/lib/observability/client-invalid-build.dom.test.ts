@@ -1,9 +1,10 @@
-import { afterEach, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { act } from "@/test/react-dom-harness"
 import { announceAnalyticsConsent } from "../analytics-consent"
+beforeEach(() => { vi.resetModules() })
 afterEach(() => { document.cookie = "alook_analytics_consent=v1.denied; path=/"; announceAnalyticsConsent("denied"); vi.unstubAllEnvs(); vi.unstubAllGlobals() })
-it("rejects malformed collector build metadata before SDK startup or outbound telemetry", async () => {
-  vi.stubEnv("NEXT_PUBLIC_FARO_COLLECTOR_URL", "http://[")
+it.each([undefined, "http://["])("rejects absent or malformed Collector %s before SDK startup or outbound telemetry", async url => {
+  vi.stubEnv("NEXT_PUBLIC_FARO_COLLECTOR_URL", url)
   vi.stubEnv("NEXT_PUBLIC_FARO_ENVIRONMENT", "qa")
   vi.stubEnv("NEXT_PUBLIC_FARO_RELEASE", "a".repeat(40))
   const fetch = vi.fn(); vi.stubGlobal("fetch", fetch)

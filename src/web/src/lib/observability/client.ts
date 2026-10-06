@@ -7,18 +7,18 @@ import { alignInitialTelemetrySession, configureTelemetry, emitTelemetry, instal
 import { sanitizeItem } from "./sanitize"
 import { installBrowserObservers } from "./browser"
 import { resolveCommunityModulePlan } from "../community/community-route"
+import { cleanAttributes } from "./schema"
 
 type BuildProfile = { url?: string; environment?: string; release?: string }
 function validBuildProfile(profile: BuildProfile) {
   try {
     const url = new URL(profile.url ?? "")
-    return url.protocol === "https:" && !url.username && !url.password && !url.search && !url.hash && ["production", "qa"].includes(profile.environment ?? "") && /^[0-9a-f]{40}$/.test(profile.release ?? "")
+    return url.protocol === "https:" && !url.username && !url.password && !url.search && !url.hash
   } catch { return false }
 }
 const build: BuildProfile = {
   url: process.env.NEXT_PUBLIC_FARO_COLLECTOR_URL,
-  environment: process.env.NEXT_PUBLIC_FARO_ENVIRONMENT,
-  release: process.env.NEXT_PUBLIC_FARO_RELEASE,
+  ...cleanAttributes({ environment: process.env.NEXT_PUBLIC_FARO_ENVIRONMENT, release: process.env.NEXT_PUBLIC_FARO_RELEASE }),
 }
 let started = false
 let faro: Faro | undefined
