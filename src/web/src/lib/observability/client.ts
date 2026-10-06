@@ -21,6 +21,7 @@ const build: BuildProfile = {
   ...cleanAttributes({ environment: process.env.NEXT_PUBLIC_FARO_ENVIRONMENT, release: process.env.NEXT_PUBLIC_FARO_RELEASE }),
 }
 let started = false
+let documentSuspended = false
 let faro: Faro | undefined
 let transport: FetchTransport | undefined
 let controller: AbortController | undefined
@@ -63,7 +64,7 @@ function configure() {
   configureTelemetry({ release: build.release, environment: build.environment, frontend_surface: surface, page_instance_id: pageId, session_id: sessionId, user_key: userKey }, true)
 }
 async function activate() {
-  if (!hasAnalyticsConsent() || !validBuildProfile(build)) return
+  if (documentSuspended || !hasAnalyticsConsent() || !validBuildProfile(build)) return
   const route = routeTemplate(window.location.href, window.location.origin)
   const communityOwner = (route === "/c" || route.startsWith("/c/")) && resolveCommunityModulePlan(window.location.pathname).route !== "public-invite"
   const applicationOwner = route.startsWith("/w/") || ["/workspaces", "/studio/new", "/invite/[token]"].includes(route)
@@ -77,7 +78,7 @@ async function activate() {
     import("@grafana/faro-web-sdk"), import("@grafana/faro-web-tracing"),
   ])
   clearNativeSession = () => VolatileSessionsManager.removeUserSession()
-  if (!hasAnalyticsConsent() || capturedSession !== sessionId || !isTelemetryEligible()) return
+  if (documentSuspended || !hasAnalyticsConsent() || capturedSession !== sessionId || !isTelemetryEligible()) return
   mayResumeNativeSession = false
   makeTransport = () => {
     controller = new AbortController()
@@ -189,6 +190,7 @@ function adoptNativeSession(next: string) {
   emitTelemetry("telemetry.coverage", { eligibility: "eligible", capability: "available", phase: "auth" })
 }
 function reconcile() {
+  if (documentSuspended) return
   if (!hasAnalyticsConsent()) { mayResumeNativeSession = false; clearNativeSession?.(); deactivate(); return }
   if (load) { pendingReconcile = true; return }
   if (isTelemetryEligible()) return
@@ -224,7 +226,21 @@ export function bootstrapObservability(nextSurface: "web" | "blog") {
   document.addEventListener("visibilitychange", () => {
     if (isTelemetryEligible()) { reportTelemetryDrops("transport_failure"); emitTelemetry("telemetry.coverage", { visibility: document.visibilityState, capability: "limited" }) }
   })
-  window.addEventListener("pagehide", () => { if (isTelemetryEligible()) emitTelemetry("telemetry.coverage", { drop_reason: "unload_unknown", capability: "limited" }) })
+  window.addEventListener("pagehide", () => {
+    documentSuspended = true
+    pendingInitialNavigation = false
+    deactivate()
+  }, { capture: true })
+  window.addEventListener("pageshow", event => {
+    if (!event.persisted) return
+    documentSuspended = false
+    pendingInitialNavigation = false
+    mayResumeNativeSession = false
+    clearNativeSession?.()
+    eligibleSince = performance.now()
+    deactivate()
+    reconcile()
+  }, { capture: true })
   document.addEventListener("click", event => {
     if (!isTelemetryEligible() || !(event.target instanceof Element)) return
     const control = event.target.closest("a,button,[role=button],input[type=checkbox],select")
