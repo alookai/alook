@@ -14,18 +14,14 @@ export const pageRoutes = [
   "/c/me/machines",
   "/c/onboarding-preview",
   "/device",
-  "/invite/[token]",
   "/landing-legacy",
   "/onboarding-preview",
   "/pricing",
   "/pricing-concept",
   "/privacy",
   "/sign-in",
-  "/studio/new",
   "/templates",
   "/templates/[id]",
-  "/w/[[...path]]",
-  "/workspaces"
 ] as const
 
 export const apiRoutes = [

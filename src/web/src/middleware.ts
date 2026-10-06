@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { getAuth } from "@/lib/auth"
 import { safeRedirectPath } from "@/lib/safe-redirect"
-import { isRetiredWorkspacePath } from "@/lib/retired-workspace"
 
-const AUTH_REQUIRED_PREFIXES = ["/invite/", "/w/", "/workspaces", "/dashboard", "/c/"]
+const AUTH_REQUIRED_PREFIXES = ["/c/"]
 
 // Paths that stay public even though they'd otherwise match an auth-required
 // prefix. The invite landing page is preview-first: a logged-out user must be
@@ -28,8 +27,7 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl
   const isPublic = PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))
-  const retired = isRetiredWorkspacePath(pathname)
-  const needsAuth = !isPublic && (retired || pathname === "/c" || AUTH_REQUIRED_PREFIXES.some((p) => pathname.startsWith(p)))
+  const needsAuth = !isPublic && (pathname === "/c" || AUTH_REQUIRED_PREFIXES.some((p) => pathname.startsWith(p)))
 
   if (needsAuth) {
     const { env } = await getCloudflareContext({ async: true })
@@ -41,14 +39,11 @@ export async function middleware(request: NextRequest) {
 
     if (!result?.response) {
       const signInUrl = new URL("/sign-in", request.url)
-      const returnTo = retired ? "/c/me" : pathname + request.nextUrl.search
-      if (returnTo !== "/workspaces") {
-        signInUrl.searchParams.set("redirect", returnTo)
-      }
+      signInUrl.searchParams.set("redirect", pathname + request.nextUrl.search)
       return NextResponse.redirect(signInUrl)
     }
 
-    const res = retired ? NextResponse.redirect(new URL("/c/me", request.url)) : NextResponse.next()
+    const res = NextResponse.next()
     for (const cookie of result.headers.getSetCookie()) {
       res.headers.append("Set-Cookie", cookie)
     }
@@ -78,5 +73,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/w/:path*", "/((?!_next|favicon\\.ico|.*\\..*).*)"],
+  matcher: ["/((?!_next|favicon\\.ico|.*\\..*).*)"],
 }

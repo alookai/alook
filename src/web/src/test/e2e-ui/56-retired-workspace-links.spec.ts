@@ -1,41 +1,30 @@
+import type { Page } from "@playwright/test"
 import { test, expect } from "./_fixtures/community-fixture"
-import { tid } from "./_fixtures/testids"
 
-const retiredRoutes = ["/w", "/w/sample/home", "/w/sample.name/home", "/w/sample/agents/a/chat/b", "/studio/new"]
+const deletedRoutes = ["/w", "/w/sample/home", "/w/sample.name/home", "/w/sample/agents/a/chat/b", "/workspaces", "/studio/new", "/invite/not-a-community-token"]
 
-test("authenticated legacy links land in Community without legacy API calls", async ({ asUser }) => {
-  const { page } = await asUser("alice")
+async function expectDeletedFrontend(page: Page) {
   const legacyRequests: string[] = []
   page.on("request", request => {
     const path = new URL(request.url()).pathname
     if (/^\/api\/(?:workspaces|studios|invite|agents|conversations)(?:\/|$)/.test(path)) legacyRequests.push(path)
   })
-  for (const path of retiredRoutes) {
-    await page.goto(`${path}?token=private&workspace_id=private`, { waitUntil: "commit" })
-    await expect(page).toHaveURL(/\/c\/me$/)
-    await expect(page.locator("body")).toBeVisible()
+  for (const path of deletedRoutes) {
+    const response = await page.goto(`${path}?token=private&workspace_id=private`, { waitUntil: "commit" })
+    expect(response?.status()).toBe(404)
+    expect(response?.request().redirectedFrom()).toBeNull()
+    expect(new URL(page.url()).pathname).toBe(path)
+    await expect(page.getByText("The page you're looking for doesn't exist or has been moved. Check the address and try again.", { exact: true })).toBeVisible()
+    await expect(page.getByText("Workspace invitations have been retired", { exact: true })).toHaveCount(0)
   }
   expect(legacyRequests).toEqual([])
-})
+}
 
-test("anonymous legacy links sign in with a canonical Community return path", async ({ page }) => {
-  for (const path of retiredRoutes) {
-    await page.goto(`${path}?token=private&workspace_id=private`, { waitUntil: "commit" })
-    await expect(page).toHaveURL(/\/sign-in\?redirect=%2Fc%2Fme$/)
-    expect(page.url()).not.toContain("private")
-  }
-})
-
-test("legacy invitations show retirement without reading or accepting the token", async ({ asUser }) => {
+test("authenticated deleted workspace links return ordinary 404s without legacy API calls", async ({ asUser }) => {
   const { page } = await asUser("alice")
-  const legacyRequests: string[] = []
-  page.on("request", request => {
-    if (new URL(request.url()).pathname.startsWith("/api/invite/")) legacyRequests.push(request.method())
-  })
-  await page.goto("/invite/not-a-community-token", { waitUntil: "commit" })
-  await expect(page.getByTestId(tid.retiredWorkspaceInviteTitle)).toHaveText("Workspace invitations have been retired")
-  await expect(page.getByTestId(tid.retiredWorkspaceInviteCommunityLink)).toHaveAttribute("href", "/c/me")
-  await expect(page.getByTestId(tid.retiredWorkspaceInviteCommunityLink)).toHaveText("Open Community")
-  await expect(page.getByRole("button", { name: /accept|join/i })).toHaveCount(0)
-  expect(legacyRequests).toEqual([])
+  await expectDeletedFrontend(page)
+})
+
+test("anonymous deleted workspace links return ordinary 404s without a login redirect", async ({ page }) => {
+  await expectDeletedFrontend(page)
 })
