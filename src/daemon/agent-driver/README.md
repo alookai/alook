@@ -244,9 +244,11 @@ send an `authenticate` request during discovery or launch. It reports explicit
 provider authentication errors when returned. In native 1.3.0 testing, unreadable
 Keychain credentials with no valid file fallback left `session/load` waiting for
 login and discovery ended with `antigravity_acp_timeout` at the existing 10-second
-deadline. That run did not independently establish whether a browser window opened.
-Complete native sign-in before running the daemon; a timeout does not establish
-that credentials are valid.
+deadline. A separate 30-second diagnostic on the same credential condition was
+correlated with an opened Google sign-in page by its OAuth callback port. The
+native server can therefore start its own browser login flow during discovery,
+even though the adapter does not send `authenticate`. Complete native sign-in
+before running the daemon; a timeout does not establish that credentials are valid.
 
 Standing instructions accompany the first prompt of every physical session,
 including resumed sessions. Later prompts reuse its context. Tools use ACP
