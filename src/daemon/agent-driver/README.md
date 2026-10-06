@@ -239,9 +239,14 @@ launching an agent. The provider's settings live under
 instructions. Runtime detection initializes the protocol and requests a session catalog without
 authenticating or sending a prompt. Healthy means the native binary is compatible,
 not that an account is signed in; unauthenticated discovery has no model catalog.
-The catalog probe can create an empty provider session. Launch reports an
-explicit authentication failure if credentials are missing; it never opens a
-browser implicitly on a daemon wake.
+The catalog probe can create an empty provider session. The adapter does not
+send an `authenticate` request during discovery or launch. It reports explicit
+provider authentication errors when returned. In native 1.3.0 testing, unreadable
+Keychain credentials with no valid file fallback left `session/load` waiting for
+login and discovery ended with `antigravity_acp_timeout` at the existing 10-second
+deadline. That run did not independently establish whether a browser window opened.
+Complete native sign-in before running the daemon; a timeout does not establish
+that credentials are valid.
 
 Standing instructions accompany the first prompt of every physical session,
 including resumed sessions. Later prompts reuse its context. Tools use ACP
