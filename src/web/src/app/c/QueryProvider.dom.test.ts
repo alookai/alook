@@ -72,6 +72,48 @@ describe("QueryProvider profile account lifecycle", () => {
       expect(registry.runtime.lifecycle.get().active).toBe(false)
     } finally { vi.useRealTimers() }
   })
+  it("keeps the account owner alive while a revealed Suspense subtree is hidden", async () => {
+    vi.useFakeTimers()
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => { release = resolve })
+    function Child({ blocked }: { blocked: boolean }) {
+      if (blocked) throw pending
+      return React.createElement("span", null, "resolved account")
+    }
+    const tree = (blocked: boolean) => React.createElement(React.Suspense, {
+      fallback: React.createElement("div", { "data-testid": "session-pending" }, "pending"),
+    }, React.createElement(QueryProvider, { userId: "viewer-suspended" },
+      React.createElement(Child, { blocked })))
+    const renderer = render(tree(false))
+    const registry = getCommunityDbRegistry(queryClient)!
+    const cleanup = vi.spyOn(registry, "cleanup")
+    const key = communityKeys.bots()
+    queryClient.setQueryData(key, { bots: [{ id: "owned-bot" }] })
+    try {
+      await act(async () => vi.advanceTimersByTimeAsync(0))
+      act(() => renderer.rerender(tree(true)))
+      expect(renderer.container.querySelector('[data-testid="session-pending"]')).not.toBeNull()
+      await act(async () => vi.advanceTimersByTimeAsync(0))
+      expect(cleanup).not.toHaveBeenCalled()
+      expect(getCommunityDbRegistry(queryClient)).toBe(registry)
+      expect(registry.runtime.lifecycle.get().active).toBe(true)
+      expect(queryClient.getQueryData(key)).toEqual({ bots: [{ id: "owned-bot" }] })
+      await act(async () => { release(); renderer.rerender(tree(false)); await vi.advanceTimersByTimeAsync(300) })
+      expect(renderer.container.querySelector('[data-testid="session-pending"]')).toBeNull()
+      expect(getCommunityDbRegistry(queryClient)).toBe(registry)
+      expect(queryClient.getQueryData(key)).toEqual({ bots: [{ id: "owned-bot" }] })
+      expect(cleanup).not.toHaveBeenCalled()
+      act(() => renderer.unmount())
+      await act(async () => vi.advanceTimersByTimeAsync(0))
+      expect(cleanup).toHaveBeenCalledOnce()
+      expect(queryClient.getQueryCache().getAll()).toEqual([])
+    } finally {
+      release()
+      act(() => renderer.unmount())
+      await act(async () => vi.advanceTimersByTimeAsync(300))
+      vi.useRealTimers()
+    }
+  })
   it("owns the new account before restore while the prior owner remains isolated", async () => {
     const previous = await createCommunityQueryOwner("viewer-a")
     const observed: string[] = []
