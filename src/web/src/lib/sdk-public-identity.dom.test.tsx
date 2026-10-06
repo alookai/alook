@@ -38,12 +38,12 @@ beforeAll(async () => {
   Community = await import("@/app/c/QueryProvider")
 })
 afterAll(() => { vi.unstubAllGlobals(); for (const owner of Object.values(owners)) owner.queryClient.clear() })
-function Probe({ kind }: { kind: string }) { const owner = Application.useApplicationOwner(); const pending = useIsRestoring(); useLayoutEffect(() => { owners[kind] = owner; restoring[kind] = pending }); return <output>{owner.userId}</output> }
+function Probe() { const owner = Application.useApplicationOwner(); const kind = owner.userId; const pending = useIsRestoring(); useLayoutEffect(() => { owners[kind] = owner; restoring[kind] = pending }); return <output>{owner.userId}</output> }
 function CommunityProbe() { const current = getCommunityDbRegistry(useQueryClient())!; useLayoutEffect(() => { registry = current }); return <output>Community</output> }
-function Root({ id }: { id: string }) { return <Application.ApplicationQueryProvider userId={id}><Probe kind={id} /></Application.ApplicationQueryProvider> }
+function Root() { return <Application.PublicQueryProvider><Probe /></Application.PublicQueryProvider> }
 describe("real BetterAuth public session input", () => {
   it("public signIn.email updates real useSession and retires original account before B root mounts", async () => {
-    const view = render(<Root id="A" />)
+    const view = render(<Root />)
     await waitFor(() => expect(restoring.A).toBe(false))
     await waitFor(() => expect(auth.authClient.$store.atoms.session.get()).toMatchObject({ isPending: false, error: null, data: { user: { id: "A" } } }))
     const a = createIdbPersister("A"), b = createIdbPersister("B")
@@ -52,7 +52,7 @@ describe("real BetterAuth public session input", () => {
     await waitFor(() => expect(owners.A.sessionViewer()).toBe("B"))
     await waitFor(async () => expect(await a.isCurrent()).toBe(false))
     expect(await get("alook:qc:v2:A:client")).toBeUndefined(); expect(await get("alook:qc:v2:B:client")).toBe("old B")
-    await act(async () => view.rerender(<Root id="B" />))
+    await act(async () => view.rerender(<Root />))
     await waitFor(() => expect(restoring.B).toBe(false))
     await waitFor(() => expect(owners.B?.sessionViewer()).toBe("B")); expect(owners.B.lifecycle.get().active).toBe(true); expect(await b.isCurrent()).toBe(true)
   })

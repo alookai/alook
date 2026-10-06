@@ -28,11 +28,4 @@ describe("community avatar shape contract", () => {
     expect(picker).toContain('aria-label="Choose bot avatar"')
   })
 
-  it("leaves the workspace agent picker rounded-square", () => {
-    const picker = readWeb("src/components/avatar/avatar-picker-dialog.tsx")
-
-    expect(picker).toContain('className="block size-20 overflow-hidden rounded-2xl"')
-    expect(picker).not.toContain("rounded-full")
-    expect(picker).toContain('data-testid="workspace-agent-avatar-preview"')
-  })
 })

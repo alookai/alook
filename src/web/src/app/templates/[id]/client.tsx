@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { Check } from "lucide-react";
-import { buttonVariants } from "@/components/ui/button";
 import { PublicLayout } from "@/components/public-layout";
 import { MemberCard } from "./_components/member-card";
 import type { TemplatePreset } from "@/lib/templates";
@@ -17,19 +16,10 @@ const ROLE_LABELS: Record<string, string> = {
 export function TemplateDetailClient({
   template,
   isLoggedIn,
-  workspaceId,
 }: {
   template: TemplatePreset;
   isLoggedIn: boolean;
-  workspaceId?: string;
 }) {
-  const getUrl = workspaceId
-    ? `/studio/new?template=${template.id}&workspace_id=${workspaceId}`
-    : `/studio/new?template=${template.id}`;
-  const href = isLoggedIn
-    ? getUrl
-    : `/sign-in?redirect=${encodeURIComponent(getUrl)}`;
-
   return (
     <PublicLayout
       maxWidth="4xl"
@@ -106,15 +96,6 @@ export function TemplateDetailClient({
             </div>
           </div>
 
-          {/* CTA */}
-          <div className="shrink-0 sm:ml-8 sm:pt-2">
-            <Link href={href} className={buttonVariants({ size: "default" }) + " w-full sm:w-auto"}>
-              Use This Template
-            </Link>
-            <p className="mt-2 text-center text-xs text-muted-foreground sm:text-right">
-              Free to deploy
-            </p>
-          </div>
         </div>
 
         {/* Divider */}
@@ -166,18 +147,6 @@ export function TemplateDetailClient({
           </div>
         </section>
 
-        {/* Bottom CTA */}
-        <div className="mt-16 flex items-center justify-between rounded-xl bg-muted/40 p-6">
-          <div>
-            <p className="text-sm font-medium">Ready to deploy?</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Customize the agent instructions after setup.
-            </p>
-          </div>
-          <Link href={href} className={buttonVariants({ size: "sm" })}>
-            Get Started
-          </Link>
-        </div>
       </div>
     </PublicLayout>
   );

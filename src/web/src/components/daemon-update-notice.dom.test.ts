@@ -246,14 +246,12 @@ describe("DaemonUpdateNotice", () => {
     expect(mocks.notificationAdd).not.toHaveBeenCalled()
   })
 
-  it("keeps the legacy notice outside Community while Community owns its shell surface", () => {
-    const appLayout = readFileSync(resolve(webRoot, "src/app/(app)/layout.tsx"), "utf8")
+  it("keeps daemon updates in the Community shell after legacy pages retire", () => {
     const communityShell = readFileSync(resolve(webRoot, "src/app/c/community-shell.tsx"), "utf8")
     const shellFrame = readFileSync(resolve(
       webRoot,
       "src/components/community/shell/shell-frame.tsx",
     ), "utf8")
-    expect(appLayout).toContain("<DaemonUpdateNotice userId={session.user.id} />")
     expect(communityShell).not.toContain("DaemonUpdateNotice")
     expect(shellFrame).toContain("useShellDaemonUpdateController")
   })

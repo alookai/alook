@@ -17,26 +17,27 @@ afterEach(async () => {
   window.history.replaceState(null, "", "/")
   vi.unstubAllEnvs(); vi.unstubAllGlobals()
 })
-it("both actual account Providers retain pending/error and newer B, then retire telemetry on current confirmed SDK anonymous identity", async () => {
+it("public and community Providers retain pending/error and newer B, then retire telemetry on current confirmed SDK anonymous identity", async () => {
   vi.stubEnv("NEXT_PUBLIC_FARO_COLLECTOR_URL", "https://collector.example/collect/public")
   vi.stubEnv("NEXT_PUBLIC_FARO_ENVIRONMENT", "qa")
   vi.stubEnv("NEXT_PUBLIC_FARO_RELEASE", "a".repeat(40))
   Object.defineProperty(performance, "getEntriesByType", { configurable: true, value: () => [] })
   document.cookie = "alook_analytics_consent=v1.granted; path=/"
-  window.history.replaceState(null, "", "/workspaces")
+  window.history.replaceState(null, "", "/pricing")
   const sent: Array<{ meta: { session: { id: string }; user?: { id: string } } }> = []
   vi.stubGlobal("fetch", vi.fn(async (_url: unknown, init?: RequestInit) => { if (init?.body) sent.push(JSON.parse(String(init.body))); return new Response(null, { status: 204 }) }))
   const { bootstrapObservability } = await import("./client")
   const { QueryProvider } = await import("@/app/c/QueryProvider")
-  const { ApplicationQueryProvider } = await import("../application-owner")
+  const { PublicQueryProvider } = await import("../application-owner")
   const { VolatileSessionsManager } = await import("@grafana/faro-web-sdk")
   const { emitTelemetry, isTelemetryEligible } = await import("./telemetry")
   bootstrapObservability("web")
   const known = (id: string): Identity => ({ data: { user: { id } }, isPending: false, error: null })
   const restoring = new Map<string, boolean>()
   function Probe({ id }: { id: string }) { const pending = useIsRestoring(); useLayoutEffect(() => { restoring.set(id, pending) }, [id, pending]); return <p>{id}</p> }
-  for (const kind of ["application", "community"] as const) {
-    const Provider = kind === "application" ? ApplicationQueryProvider : QueryProvider
+  function PublicProvider({ children }: { userId: string; children: React.ReactNode }) { return <PublicQueryProvider>{children}</PublicQueryProvider> }
+  for (const kind of ["public", "community"] as const) {
+    const Provider = kind === "public" ? PublicProvider : QueryProvider
     function Root({ id, identity }: { id: string; identity: Identity }) { return <identityInput.Provider value={identity}><Provider userId={id}><Probe id={id} /></Provider></identityInput.Provider> }
     const a = kind + "-a", b = kind + "-b"
     viewer = a

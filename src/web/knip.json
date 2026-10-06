@@ -35,8 +35,7 @@
     "shiki"
   ],
   "ignore": [
-    "src/components/ui/**",
-    "src/app/(app)/workspaces/client.tsx"
+    "src/components/ui/**"
   ],
   "vitest": {
     "entry": ["src/**/*.test.{ts,tsx}", "blog/**/*.test.{ts,tsx}", "auth/**/*.test.ts", "scripts/**/*.test.ts", "src/test/**/*.{ts,tsx}", "test-runtime/**/*.test.ts"]

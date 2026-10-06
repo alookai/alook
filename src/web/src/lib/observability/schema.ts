@@ -26,7 +26,7 @@ const enumValues: Record<string, ReadonlySet<string>> = Object.fromEntries(Objec
   request_reason: ["foreground", "background", "restore_invalidate", "pagination", "command", "router", "unknown"],
   request_kind: ["api", "rsc", "resource", "document", "external", "unknown"],
   method: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
-  region: ["shell", "rail", "sidebar", "messages", "forum", "thread_opener", "friends", "bots", "machines", "members", "settings", "calendar", "billing", "workspaces", "files", "file_preview", "traces", "trace_detail", "agents", "issues", "email", "chat", "runtimes", "inbox", "activity", "meetings", "email_body", "issue_detail", "page"],
+  region: ["shell", "rail", "sidebar", "messages", "forum", "thread_opener", "friends", "bots", "machines", "members", "settings", "billing", "file_preview", "inbox", "page"],
   visibility: ["visible", "hidden", "unknown"],
   capability: ["available", "limited", "unavailable"],
   drop_reason: ["early_queue_full", "transport_failure", "withdrawal", "account_switch", "stale_session", "sdk_load", "invalid_config", "unload_unknown"],

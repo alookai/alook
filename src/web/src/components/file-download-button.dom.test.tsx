@@ -4,13 +4,12 @@ import { act, render as renderLeaf, waitFor } from "@/test/react-dom-harness"
 import { FileDownloadButton } from "./file-download-button"
 import { QueryClient } from "@tanstack/react-query"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
-import { WorkspaceProvider } from "@/contexts/workspace-context"
 const service = vi.hoisted(() => ({ download: vi.fn(), success: vi.fn(), error: vi.fn() }))
 vi.mock("@/lib/file-save", async importOriginal => ({ ...await importOriginal<object>(), downloadUrl: service.download }))
 vi.mock("sonner", () => ({ toast: { success: service.success, error: service.error } }))
 function render(node: React.ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return renderLeaf(<CommunityTestProvider client={client}><WorkspaceProvider workspaceId="workspace" slug="workspace">{node}</WorkspaceProvider></CommunityTestProvider>)
+  return renderLeaf(<CommunityTestProvider client={client}>{node}</CommunityTestProvider>)
 }
 afterEach(() => { vi.clearAllMocks() })
 describe("file download control", () => {

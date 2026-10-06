@@ -6,52 +6,17 @@ export const actionVariants = {
     "checkout": "billing.checkout.start",
     "portal": "billing.portal.open"
   },
-  "calendar.command": {
-    "create": "calendar.event.create",
-    "update": "calendar.event.update",
-    "delete": "calendar.event.delete"
-  },
   "machine.command": {
     "delete": "machine.delete",
     "update": "machine.update"
-  },
-  "workspace.settings.command": {
-    "update": "workspace.settings.update",
-    "delete": "workspace.delete"
-  },
-  "workspace.members.command": {
-    "create-invite": "workspace.invite.create",
-    "revoke-invite": "workspace.invite.revoke",
-    "remove-member": "workspace.member.remove"
   },
   "device.authorization.command": {
     "approve": "device.authorization.approve",
     "deny": "device.authorization.deny"
   },
-  "chat.control.command": {
-    "thread": "chat.thread.create",
-    "stop": "chat.task.stop"
-  },
   "account.deletion.command": {
     "code": "account.deletion.code.request",
     "delete": "account.delete"
-  },
-  "email.account.command": {
-    "create": "email.account.connect",
-    "delete": "email.account.delete",
-    "sync": "email.account.sync"
-  },
-  "agent.rail.command": {
-    "pin": "agent.pin",
-    "unpin": "agent.unpin",
-    "reorder-pins": "agent.pins.reorder",
-    "reorder-unpinned": "agent.list.reorder"
-  },
-  "workspace.channel.command": {
-    "create": "workspace.channel.create",
-    "rename": "workspace.channel.rename",
-    "delete": "workspace.channel.delete",
-    "reorder": "workspace.channel.reorder"
   },
   "server.member.command": {
     "role": "server.member.role.change",
@@ -70,35 +35,6 @@ export const actionVariants = {
     "add": "channel.member.add",
     "remove": "channel.member.remove"
   },
-  "chat.session.command": {
-    "nap": "chat.session.nap",
-    "retry": "chat.task.retry"
-  },
-  "agent.permission.command": {
-    "whitelist-add": "agent.whitelist.add",
-    "whitelist-remove": "agent.whitelist.remove",
-    "visibility": "agent.visibility.change",
-    "grant": "agent.access.grant",
-    "revoke": "agent.access.revoke"
-  },
-  "issue.command": {
-    "comment": "issue.comment.create",
-    "create": "issue.create",
-    "update": "issue.update",
-    "delete": "issue.delete"
-  },
-  "runtime.command": {
-    "update": "runtime.update",
-    "rescan": "runtime.rescan"
-  },
-  "agent.link.command": { "create": "agent.link.create", "update": "agent.link.update", "delete": "agent.link.delete" },
-  "email.command": { "send": "email.send", "read": "email.read", "delete": "email.delete", "trust": "email.sender.trust" },
-  "chat.command": { "persist": "chat.message.persist", "read": "chat.inbox.read" },
-  "meeting.command": { "stop": "meeting.stop", "approve": "meeting.approve",
-    "create": "meeting.create",
-    "update": "meeting.update",
-    "delete": "meeting.delete"
-  }
 } as const
 
 export function resolveActionName(base: string, variables: unknown): string {

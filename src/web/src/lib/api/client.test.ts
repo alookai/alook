@@ -116,9 +116,8 @@ vi.mock("@/lib/auth-client", () => { const sessionSDK = { useSession: vi.fn() };
 vi.mock("next/navigation", () => ({ useRouter: vi.fn() }))
 
 describe("apiFetch account-qualified authentication effects", () => {
-  it.each(["account", "workspace"] as const)("late 401 after %s retirement cannot redirect the next account", async (retirement) => {
-    const { createApplicationOwner, retireApplicationOwner } = await import("@/lib/application-owner")
-    const { createWorkspaceOwner, runWorkspaceRequest } = await import("@/contexts/workspace-context")
+  it("late 401 after account retirement cannot redirect the next account", async () => {
+    const { createApplicationOwner, retireApplicationOwner, runApplicationRequest } = await import("@/lib/application-owner")
     const { apiFetch } = await import("./client")
     let release!: (response: Response) => void
     const fetchMock = vi.fn(() => new Promise<Response>((resolve) => { release = resolve }))
@@ -126,12 +125,10 @@ describe("apiFetch account-qualified authentication effects", () => {
     vi.stubGlobal("fetch", fetchMock)
     vi.stubGlobal("window", { location: { origin: "https://alook.test", assign } })
     const application = createApplicationOwner("viewer-a")
-    const workspace = createWorkspaceOwner(application, "workspace-a", "a")
     try {
-      const request = runWorkspaceRequest(workspace, (options) => apiFetch("/api/test", options))
+      const request = runApplicationRequest(application, (options) => apiFetch("/api/test", options))
       const rejected = expect(request).rejects.toMatchObject({ name: "AbortError" })
-      if (retirement === "account") retireApplicationOwner(application)
-      else workspace.lifecycle.setState((state) => ({ active: false, generation: state.generation + 1 }))
+      retireApplicationOwner(application)
       release(new Response(null, { status: 401 }))
       await rejected
       expect(assign).not.toHaveBeenCalled()
@@ -143,15 +140,14 @@ describe("apiFetch account-qualified authentication effects", () => {
   })
 
   it("current owner 401 keeps the full-document sign-in navigation", async () => {
-    const { createApplicationOwner } = await import("@/lib/application-owner")
-    const { createWorkspaceOwner, runWorkspaceRequest } = await import("@/contexts/workspace-context")
+    const { createApplicationOwner, runApplicationRequest } = await import("@/lib/application-owner")
     const { apiFetch } = await import("./client")
     const assign = vi.fn()
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 401 })))
     vi.stubGlobal("window", { location: { origin: "https://alook.test", assign } })
     const application = createApplicationOwner("viewer-a")
     try {
-      await expect(runWorkspaceRequest(createWorkspaceOwner(application, "workspace-a", "a"), (options) => apiFetch("/api/test", options)))
+      await expect(runApplicationRequest(application, (options) => apiFetch("/api/test", options)))
         .rejects.toMatchObject({ status: 401 })
       expect(assign).toHaveBeenCalledOnce()
       expect(String(assign.mock.calls[0][0])).toBe("https://alook.test/sign-in")

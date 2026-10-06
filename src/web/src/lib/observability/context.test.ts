@@ -128,7 +128,7 @@ describe("original observation ownership", () => {
   it("uses business enums and labels unsupported command kinds as a gap", () => {
     expect(resolveActionName("billing.redirect", { action: { kind: "checkout", priceId: "PRIVATE" } })).toBe("billing.checkout.start")
     expect(resolveActionName("bot.command", { input: { kind: "delete-command" } })).toBe("bot.delete")
-    expect(resolveActionName("issue.command", { action: { kind: "comment" } })).toBe("issue.comment.create")
+    expect(resolveActionName("server.member.command", { action: { kind: "kick" } })).toBe("server.member.kick")
     expect(resolveActionName("billing.redirect", { action: { kind: "PRIVATE" } })).toBe("command.unknown")
   })
   it("adopts a gesture into router transport on the same action without a duplicate start", () => {

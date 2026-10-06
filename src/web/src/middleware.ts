@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { getAuth } from "@/lib/auth"
-import { isSafeRedirectPath } from "@/lib/safe-redirect"
+import { safeRedirectPath } from "@/lib/safe-redirect"
 
-const AUTH_REQUIRED_PREFIXES = ["/invite/", "/w/", "/workspaces", "/dashboard", "/c/"]
+const AUTH_REQUIRED_PREFIXES = ["/c/"]
 
 // Paths that stay public even though they'd otherwise match an auth-required
 // prefix. The invite landing page is preview-first: a logged-out user must be
@@ -39,10 +39,7 @@ export async function middleware(request: NextRequest) {
 
     if (!result?.response) {
       const signInUrl = new URL("/sign-in", request.url)
-      const returnTo = pathname + request.nextUrl.search
-      if (returnTo !== "/workspaces") {
-        signInUrl.searchParams.set("redirect", returnTo)
-      }
+      signInUrl.searchParams.set("redirect", pathname + request.nextUrl.search)
       return NextResponse.redirect(signInUrl)
     }
 
@@ -63,11 +60,7 @@ export async function middleware(request: NextRequest) {
 
     if (result?.response) {
       const redirect = request.nextUrl.searchParams.get("redirect")
-      const target = redirect && isSafeRedirectPath(redirect)
-        ? new URL(redirect, request.url)
-        // Default landing for an already-signed-in visitor hitting /sign-in:
-        // community home. `/workspaces` was the retired legacy (v0) surface.
-        : new URL("/c/me", request.url)
+      const target = new URL(safeRedirectPath(redirect), request.url)
       const res = NextResponse.redirect(target)
       for (const cookie of result.headers.getSetCookie()) {
         res.headers.append("Set-Cookie", cookie)

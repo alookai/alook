@@ -1,7 +1,6 @@
 import { clearLegacyChatCaches, getLegacyChatCacheSizeBytes } from "@/lib/legacy-chat-persistence"
 import { observeRestoreRead, observeRestoreDecode } from "@/lib/observability/restore"
 import { createStore as createNativeStore } from "@tanstack/store"
-import { scrubApplicationClient } from "@/lib/workspace-chat-persistence"
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister"
 import type {
   PersistedClient,
@@ -246,7 +245,7 @@ function namespaceFor(userId: string | null): string {
 }
 
 /** Storage sub-key for the persister blob within a user's namespace. */
-export type PersistDomain = "community" | "application"
+type PersistDomain = "community" | "application"
 export const CACHE_INVALIDATION_STORAGE_KEY = "alook:qc:invalidation"
 export const cacheInvalidation = createNativeStore(0)
 function publishCacheInvalidation() {
@@ -354,8 +353,8 @@ async function withEligiblePersister<T>(
 }
 
 /** Native TanStack persister, qualified against durable device/account epochs. */
-export function createIdbPersister(userId: string | null, domain: PersistDomain = "community"): QualifiedPersister {
-  const key = blobKeyFor(userId, domain)
+export function createIdbPersister(userId: string | null): QualifiedPersister {
+  const key = blobKeyFor(userId)
   const eligibility = qualifyPersister(key, userId)
   // An unavailable IDB must also fail restore through the provider's onError;
   // attach a handler immediately so qualification cannot reject unobserved.
@@ -376,8 +375,8 @@ export function createIdbPersister(userId: string | null, domain: PersistDomain 
       ),
     },
     key: "alook-query-cache",
-    serialize: (client) => JSON.stringify(domain === "application" ? scrubApplicationClient(client, userId) : scrubDehydratedClient(client, userId)),
-    deserialize: (raw) => observeRestoreDecode(persister, () => domain === "application" ? scrubApplicationClient(JSON.parse(raw) as PersistedClient, userId) : scrubDehydratedClient(JSON.parse(raw) as PersistedClient, userId), domain === "application" ? PERSIST_BUSTER + "-application" : PERSIST_BUSTER, PERSIST_MAX_AGE_MS),
+    serialize: (client) => JSON.stringify(scrubDehydratedClient(client, userId)),
+    deserialize: (raw) => observeRestoreDecode(persister, () => scrubDehydratedClient(JSON.parse(raw) as PersistedClient, userId), PERSIST_BUSTER, PERSIST_MAX_AGE_MS),
   })
   return Object.assign(persister, {
     isCurrent: () => withEligiblePersister(key, userId, eligibility, "readonly", false, async () => true),

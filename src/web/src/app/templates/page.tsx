@@ -38,13 +38,8 @@ const itemListJsonLd = {
   })),
 };
 
-export default async function TemplatesPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | undefined>>;
-}) {
+export default async function TemplatesPage() {
   const session = await getSession();
-  const params = await searchParams;
   return (
     <><ObservedStaticContent /><>
       <script
@@ -55,7 +50,6 @@ export default async function TemplatesPage({
         templates={TEMPLATES}
         categories={TEMPLATE_CATEGORIES}
         isLoggedIn={!!session}
-        workspaceId={params.workspace_id}
       />
     </></>
   );

@@ -3,6 +3,8 @@ export function GET() {
     "User-agent: *",
     "Allow: /",
     "Disallow: /w/",
+    "Disallow: /studio/new",
+    "Disallow: /invite/",
     "Disallow: /workspaces",
     "Disallow: /api/",
     "",
