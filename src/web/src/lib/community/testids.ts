@@ -84,6 +84,8 @@ export const tid = {
   statusPill: "community-status-pill",
   inviteToken: "community-invite-token",
   inviteCopy: "community-invite-copy",
+  retiredWorkspaceInviteTitle: "retired-workspace-invite-title",
+  retiredWorkspaceInviteCommunityLink: "retired-workspace-invite-community-link",
   inviteCard: (token: string) => `community-invite-card-${token}`,
   inviteCardAction: (token: string) => `community-invite-card-action-${token}`,
   machinePairOpen: "community-machine-pair-open",

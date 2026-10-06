@@ -61,8 +61,9 @@ export function PublicQueryProvider({ children }: { children: ReactNode }) {
 }
 
 function ScopedPublicQueryProvider({ userId, children }: { userId: string; children: ReactNode }) {
+  const accountId = userId === "__pending__" || userId === "__guest__" ? null : userId
   const [owner] = useState(() => createApplicationOwner(userId))
-  const [persister] = useState(() => createIdbPersister(userId === "__pending__" || userId === "__guest__" ? null : userId))
+  const [persister] = useState(() => createIdbPersister(accountId))
   useLayoutEffect(() => { owner.bindAuthentication(currentSessionViewer, persister.retireAccount) }, [owner, persister])
   const onRetired = useCallback(() => {
     if (!owner.lifecycle.get().active) return
@@ -85,10 +86,10 @@ function ScopedPublicQueryProvider({ userId, children }: { userId: string; child
       retireApplicationOwner(owner)
       const viewer = owner.sessionViewer()
       if (viewer === null) retireTelemetryIdentity.current()
-      if (viewer !== undefined && viewer !== owner.userId) void owner.retireDisk().catch(() => undefined)
+      if (accountId !== null && viewer !== undefined && viewer !== accountId) void owner.retireDisk().catch(() => undefined)
       disposeTimer.current = setTimeout(() => owner.queryClient.clear(), 0)
     }
-  }, [owner])
+  }, [accountId, owner])
   return <StoreProvider value={{ owner }}><QueryClientProvider client={owner.queryClient}>{children}</QueryClientProvider></StoreProvider>
 }
 export function retireApplicationOwner(owner: ApplicationOwner) {

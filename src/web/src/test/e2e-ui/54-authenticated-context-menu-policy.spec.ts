@@ -156,11 +156,18 @@ test("Community owns ordinary context menus and preserves native exceptions", as
 })
 
 test("public, auth, and invite routes remain browser owned", async ({ page, asUser }) => {
+  const invitePath = "/c/invite/not-a-real-token"
+  let inviteDocuments = 0
+  page.on("request", request => {
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame() && new URL(request.url()).pathname === invitePath) inviteDocuments += 1
+  })
   for (const route of ["/", "/sign-in", "/c/invite/not-a-real-token"]) {
     await page.goto(route, { waitUntil: "commit" })
     await expect(page.locator("body")).toBeVisible()
+    if (route === invitePath) await expect(page.getByRole("heading", { name: "This invite has expired" })).toBeVisible()
     await rightClickDisposition(page, await installOrdinaryProbe(page), false)
   }
+  expect(inviteDocuments).toBe(1)
 
   const authenticated = await asUser("alice")
   await authenticated.page.goto("/invite/not-a-real-token", { waitUntil: "commit" })

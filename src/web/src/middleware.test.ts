@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
+import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(async () => ({ env: {} })),
@@ -10,7 +11,7 @@ vi.mock("@/lib/auth", () => ({
   getAuth: vi.fn(() => ({ api: { getSession: mockGetSession } })),
 }));
 
-import { middleware } from "./middleware";
+import { config, middleware } from "./middleware";
 
 /** Build a request with controllable forwarded-proto + headers. */
 function makeReq(url: string, headers: Record<string, string> = {}) {
@@ -45,7 +46,7 @@ describe("middleware", () => {
   });
 
   describe("auth-required routes", () => {
-    it.each(["/w", "/w/sample/home", "/w/sample/agents/a/chat/b", "/w/sample/%broken", "/%77/sample/home", "/studio/new", "/studio/new/"])("authenticates the retired path %s without retaining its query or creating a loop", async path => {
+    it.each(["/w", "/w/sample/home", "/w/sample.name/home", "/w/sample/agents/a/chat/b", "/w/sample/%broken", "/%77/sample/home", "/studio/new", "/studio/new/"])("authenticates the retired path %s without retaining its query or creating a loop", async path => {
       mockGetSession.mockResolvedValue({ headers: new Headers(), response: null });
       const loggedOut = await middleware(makeReq(`https://app.com${path}?token=private&workspace_id=private`));
       const login = new URL(loggedOut.headers.get("location")!);
@@ -115,6 +116,15 @@ describe("middleware", () => {
       const loc = new URL(res.headers.get("location")!);
       expect(loc.pathname).toBe("/sign-in");
       expect(loc.searchParams.get("redirect")).toBe("/c/channels/s1");
+    });
+  });
+
+  describe("Next route matcher", () => {
+    it.each(["/w", "/w/sample.name/home", "/w/sample/agents/a.name/chat/b.json", "/studio/new"])("runs the canonical retirement branch for %s", url => {
+      expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url })).toBe(true);
+    });
+    it.each(["/favicon.ico", "/_next/static/chunk.js", "/images/logo.png", "/about.pdf"])("retains the public asset exclusion for %s", url => {
+      expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url })).toBe(false);
     });
   });
 

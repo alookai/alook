@@ -60,7 +60,7 @@ rewriteAbsolutePaths(webDest);
 cpSync(join(webSrc, "wrangler.toml"), join(webDest, "wrangler.toml"));
 cpSync(join(webSrc, "custom-worker.ts"), join(webDest, "custom-worker.ts"));
 mkdirSync(join(webDest, "src", "lib"), { recursive: true });
-for (const runtimeFile of ["worker-runtime.ts", "public-worker-response.ts"]) {
+for (const runtimeFile of ["worker-runtime.ts", "public-worker-response.ts", "retired-workspace.ts"]) {
   cpSync(
     join(webSrc, "src", "lib", runtimeFile),
     join(webDest, "src", "lib", runtimeFile),

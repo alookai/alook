@@ -1,6 +1,7 @@
 import { test, expect } from "./_fixtures/community-fixture"
+import { tid } from "./_fixtures/testids"
 
-const retiredRoutes = ["/w", "/w/sample/home", "/w/sample/agents/a/chat/b", "/studio/new"]
+const retiredRoutes = ["/w", "/w/sample/home", "/w/sample.name/home", "/w/sample/agents/a/chat/b", "/studio/new"]
 
 test("authenticated legacy links land in Community without legacy API calls", async ({ asUser }) => {
   const { page } = await asUser("alice")
@@ -32,8 +33,9 @@ test("legacy invitations show retirement without reading or accepting the token"
     if (new URL(request.url()).pathname.startsWith("/api/invite/")) legacyRequests.push(request.method())
   })
   await page.goto("/invite/not-a-community-token", { waitUntil: "commit" })
-  await expect(page.getByRole("heading", { name: "Workspace invitations have been retired" })).toBeVisible()
-  await expect(page.getByRole("link", { name: "Open Community" })).toHaveAttribute("href", "/c/me")
+  await expect(page.getByTestId(tid.retiredWorkspaceInviteTitle)).toHaveText("Workspace invitations have been retired")
+  await expect(page.getByTestId(tid.retiredWorkspaceInviteCommunityLink)).toHaveAttribute("href", "/c/me")
+  await expect(page.getByTestId(tid.retiredWorkspaceInviteCommunityLink)).toHaveText("Open Community")
   await expect(page.getByRole("button", { name: /accept|join/i })).toHaveCount(0)
   expect(legacyRequests).toEqual([])
 })

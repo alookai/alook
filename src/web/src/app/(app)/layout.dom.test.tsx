@@ -4,11 +4,12 @@ import AppLayout, { metadata } from "./layout"
 import WorkspacePage from "./w/[[...path]]/page"
 import StudioPage from "./studio/new/page"
 import InvitePage from "./invite/[token]/page"
+import { tid } from "@/lib/community/testids"
 
 const input = vi.hoisted(() => ({ authenticated: true, redirect: vi.fn() }))
 vi.mock("@/lib/session", () => ({ getSession: async () => input.authenticated ? { user: { id: "viewer" } } : null }))
 vi.mock("next/navigation", () => ({ usePathname: () => "/invite/retired", redirect: (url: string) => { input.redirect(url); throw new Error("NEXT_REDIRECT") } }))
-vi.mock("next/link", () => ({ default: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a> }))
+vi.mock("next/link", () => ({ default: ({ children, ...props }: React.ComponentProps<"a">) => <a {...props}>{children}</a> }))
 vi.mock("@/components/authenticated-native-oauth-cleanup", () => ({ AuthenticatedNativeOauthCleanup: () => null }))
 vi.mock("@/components/signup-tracker", () => ({ SignupTracker: () => null }))
 vi.mock("@/components/signin-tracker", () => ({ SigninTracker: () => null }))
@@ -29,8 +30,9 @@ it("explains the retired workspace invite without loading or accepting any token
   vi.stubGlobal("fetch", fetch)
   try {
     const view = render(await AppLayout({ children: <InvitePage /> }))
-    expect(view.getByRole("heading")).toHaveTextContent("Workspace invitations have been retired")
-    expect(view.getByRole("link", { name: "Open Community" })).toHaveAttribute("href", "/c/me")
+    expect(view.getByTestId(tid.retiredWorkspaceInviteTitle)).toHaveTextContent("Workspace invitations have been retired")
+    expect(view.getByTestId(tid.retiredWorkspaceInviteCommunityLink)).toHaveAttribute("href", "/c/me")
+    expect(view.getByTestId(tid.retiredWorkspaceInviteCommunityLink)).toHaveTextContent("Open Community")
     expect(view.queryByRole("button", { name: /join|accept/i })).toBeNull()
     expect(fetch).not.toHaveBeenCalled()
   } finally { vi.unstubAllGlobals() }
