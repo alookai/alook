@@ -3,7 +3,7 @@
 import { deriveView, valueEvidence, viewEvidence } from "@/lib/observability/data-source"
 import { useCallback, useEffect, useMemo } from "react"
 import { createStore, useAtom, useCreateAtom } from "@tanstack/react-store"
-import { useInfiniteQuery, useQueryClient, type Query } from "@tanstack/react-query"
+import { useInfiniteQuery, useIsMutating, useQueryClient, type Query } from "@tanstack/react-query"
 import { compareAsciiSqliteBinary, DEFAULT_MESSAGE_PAGE_SIZE } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
@@ -92,14 +92,18 @@ export function mapForumFeedPages(pages: ForumFeedPage[], messages: ReadonlyMap<
   return [...byId.values()].sort((a, b) => compareAsciiSqliteBinary(channels.get(b.id)?.createdAt ?? "", channels.get(a.id)?.createdAt ?? "") || compareAsciiSqliteBinary(b.id, a.id))
 }
 
-export function useForumFeed(_serverId: string, channelId: string) {
+export function useForumFeed(serverId: string, channelId: string) {
   const queryClient = useQueryClient(), messages = useCanonicalMessagesById(), channels = useCanonicalChannelsById(), profiles = useCanonicalProfilesByUserId()
   const readTag = () => { try { return readForumTagSelection(window.localStorage, channelId) } catch { return "All" } }
   const [selection, setSelection] = useAtom(useCreateAtom({ channelId, tag: readTag() }))
   const tag = selection.channelId === channelId ? selection.tag : readTag()
   const selectTag = useCallback((next: string) => { setSelection({ channelId, tag: next }); try { writeForumTagSelection(window.localStorage, channelId, next) } catch {} }, [channelId, setSelection])
   const tagsQuery = useForumTags(channelId, true)
-  useEffect(() => { if (tagsQuery.isSuccess && tag !== "All" && validateForumTagSelection(tag, tagsQuery.data.tags) === "All") selectTag("All") }, [tag, tagsQuery.isSuccess, tagsQuery.data, selectTag])
+  const pendingTagCommands = useIsMutating({ mutationKey: ["community", "forum-tag-command"], exact: true, predicate: (mutation) => {
+    const args = mutation.state.variables as { serverId?: string; forumChannelId?: string } | undefined
+    return args?.serverId === serverId && args.forumChannelId === channelId
+  } })
+  useEffect(() => { if (!pendingTagCommands && tagsQuery.isSuccess && tag !== "All" && validateForumTagSelection(tag, tagsQuery.data.tags) === "All") selectTag("All") }, [pendingTagCommands, tag, tagsQuery.isSuccess, tagsQuery.data, selectTag])
   const selectedTag = tag === "All" ? null : tag
   const queryKey = communityKeys.forumFeed(channelId, selectedTag)
   const query = useInfiniteQuery({ queryKey, queryFn: forumFeedPageQueryFn(channelId, selectedTag, queryClient), initialPageParam: null as string | null, getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.nextCursor : undefined,

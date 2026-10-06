@@ -6,6 +6,49 @@ beforeEach(installMessageScrollFixture)
 afterEach(restoreMessageScrollFixture)
 
 describe("locked native adapter and existing message scroll owner", () => {
+  it("keeps an explicit tail scroll when wrapped offscreen rows receive their later native measurements", () => {
+    scrollFixture.width = 639
+    scrollFixture.height = 736
+    scrollFixture.firstPrefix = 193
+    const h = mount({ items: Array.from({ length: 28 }, (_, i) => message(`m${i}`)), tailPaddingEnd: 40 })
+    act(() => h.root.scrollTo({ top: 0 }))
+    runFrames()
+    scrollFixture.width = 265
+    scrollFixture.height = 727
+    scrollFixture.firstPrefix = 233
+    for (const item of h.input.items) scrollFixture.bodyHeights.set(item.m.id, 190)
+    h.update({ tailPaddingEnd: 48 })
+    expect(h.root.scrollTop).toBe(0)
+    act(() => h.root.scrollTo({ top: h.root.scrollHeight }))
+    runFrames()
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+    resize()
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+    expect(scrollFixture.latest.belowCount).toBe(0)
+  })
+  it("keeps a newly selected content origin across a pending width measurement and later footer render", () => {
+    scrollFixture.width = 905
+    scrollFixture.height = 783
+    scrollFixture.firstPrefix = 193
+    const h = mount({ items: Array.from({ length: 28 }, (_, i) => message(`m${i}`)), tailPaddingEnd: 48 })
+    h.move(300)
+    scrollFixture.width = 390
+    scrollFixture.height = 736
+    scrollFixture.firstPrefix = 213
+    for (const item of h.input.items) scrollFixture.bodyHeights.set(item.m.id, 154)
+    h.stage({ tailPaddingEnd: 40 })
+    act(() => h.root.scrollTo({ top: 0 }))
+    resize(2)
+    expect(h.root.scrollTop).toBe(0)
+    const before = { height: h.root.clientHeight, total: h.root.scrollHeight, top: bodyTop(h.root, "m0") }
+    runFrames(8)
+    h.stage({ items: [...h.input.items] })
+    resize()
+    expect(h.root.clientHeight).toBe(before.height)
+    expect(h.root.scrollHeight).toBe(before.total)
+    expect(h.root.scrollTop).toBe(0)
+    expect(bodyTop(h.root, "m0")).toBe(before.top)
+  })
   it.each(["programmatic", "wheel"])("keeps the absolute content origin after responsive hero growth and %s top positioning without typing", input => {
     scrollFixture.width = 906
     scrollFixture.firstPrefix = 193

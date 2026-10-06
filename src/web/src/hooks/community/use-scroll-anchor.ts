@@ -715,6 +715,24 @@ export function useScrollAnchor({
     const onScroll = () => {
       const input = userInputRef.current
       const previous = acceptedGeometryRef.current
+      const native = virtualizerRef.current
+      if (positionOwnerRef.current.kind === "idle" && readReadyRef.current
+        && previous?.epoch === positionOwnerRef.current.epoch && previous.scrollTop > 1
+        && root.scrollTop <= 1 && root.scrollHeight - root.clientHeight > 1
+        && Math.abs((native?.scrollOffset ?? 0) - root.scrollTop) <= 1) {
+        acceptedGeometryRef.current = null
+        holdNativeOrigin(currentItemsRef.current[0]?.key ?? null)
+      } else if (positionOwnerRef.current.kind === "idle" && readReadyRef.current
+        && previous?.epoch === positionOwnerRef.current.epoch && previous.scrollTop <= 1
+        && nativeOriginKeyRef.current === currentItemsRef.current[0]?.key && root.scrollTop > 1
+        && root.scrollHeight - root.clientHeight - root.scrollTop <= 1
+        && previous.clientHeight === root.clientHeight && previous.clientWidth === root.clientWidth
+        && previous.scrollHeight === root.scrollHeight && previous.total === native?.getTotalSize()
+        && previous.paddingEnd === (native?.options.paddingEnd ?? 0)
+        && Math.abs((native?.scrollOffset ?? 0) - root.scrollTop) <= 1) {
+        acceptedGeometryRef.current = null
+        holdNativeOrigin(null)
+      }
       const unchanged = previous?.epoch === positionOwnerRef.current.epoch
         && previous.clientHeight === root.clientHeight && previous.clientWidth === root.clientWidth
         && previous.scrollHeight === root.scrollHeight
