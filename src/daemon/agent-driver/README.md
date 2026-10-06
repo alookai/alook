@@ -271,5 +271,12 @@ interactive authentication. API-key/business modes and absent credentials report
 unavailable/unauthorized. Native bucket identity, remainingFraction and resetTime
 are preserved; provider-defined windows are not guessed. ACP usage_update is
 context occupancy and is never counted. Recent-history import remains unavailable.
-Real authenticated execution and account quota remain blocked by native Google
-location eligibility and require independent validation before acceptance.
+On October 6, 2026, real authenticated execution with official ACP 1.3.0 passed
+on macOS, including native model/effort selection, persistent turns, daemon
+recovery and native/local/D1/API usage correlation. Real quota reading passed
+with the official isolated file credential store and with Keychain-first file
+fallback, using the reader's existing five-second request deadlines. The default
+Keychain store remained unreadable on the tested machine and had no file fallback;
+that condition reports retryable unavailable before HTTP, not an authentication
+refusal. These results supersede the earlier Google location-eligibility block
+and do not establish default Keychain access or acceptance on other platforms.
