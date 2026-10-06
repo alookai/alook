@@ -1,4 +1,5 @@
 "use client"
+import { deriveView, viewEvidence } from "@/lib/observability/data-source"
 import { useAtom, useCreateAtom, useSelector } from "@tanstack/react-store";
 import { getCommunityRuntime } from "@/stores/community/runtime"
 
@@ -362,6 +363,7 @@ function ServerSidebar({ serverId }: { serverId: string }) {
         : { ...channel, unread: forumSidebar.parentUnread[channel.id] },
     ),
   })), [forumSidebar.parentUnread, sidebarCategories])
+  deriveView(categories, [viewEvidence(sidebarCategories), viewEvidence(forumSidebar.threads)])
   const sidebarDataReady = Boolean(currentServer)
   const channelTreeScopeKey = `server:${serverId}`
 

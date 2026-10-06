@@ -1,5 +1,7 @@
 "use client";
 
+import { useObservedQueryRegion } from "@/lib/observability/query-regions"
+
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect } from "react";
 import { useParams } from "next/navigation";
@@ -54,6 +56,7 @@ function AgentMeetingsView({ agentId }: { agentId: string }) {
   const resource = useWorkspaceMeetings(agentId);
   const meetings = resource.data ?? [];
   const loading = resource.isPending;
+  useObservedQueryRegion("meetings", resource);
   const [createOpen, setCreateOpen] = useAtom(useCreateAtom(false));
   const [deleteId, setDeleteId] = useAtom(useCreateAtom<string | null>(null));
   const deleteTarget = meetings.find((meeting) => meeting.id === deleteId);

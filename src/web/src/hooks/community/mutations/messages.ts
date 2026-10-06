@@ -76,7 +76,7 @@ export function useEditMessage() {
   const origin = useCommunityMutationOrigin()
   const queryClient = useQueryClient()
   type Intent = EditMessageArgs & { original: ReturnType<typeof origin.begin>["token"] }
-  const native = useMutation<void, Error, Intent>({
+  const native = useMutation<void, Error, Intent>({ meta: { observabilityAction: "message.edit" },
     scope: { id: "community-message-field-commands" },
     mutationFn: async ({ channelId, messageId, content, original: token, assertActive }) => {
       origin.assert(token); assertActive?.()
@@ -211,7 +211,7 @@ export function useSendMessage() {
     SendMessageResult,
     Error,
     Intent
-  >({
+  >({ meta: { observabilityAction: "channel.message.send" },
     mutationFn: async ({ channelId, content, replyToId, replyTo, mentionType, attachments, nonce, original: token, assertActive }) => {
       origin.assert(token); assertActive?.()
       // Server receives only the attachment IDS (reserve-by-id); the rest of the
@@ -323,7 +323,7 @@ export function useSendDmMessage() {
     SendMessageResult,
     Error,
     Intent
-  >({
+  >({ meta: { observabilityAction: "dm.message.send" },
     mutationFn: async ({ dmId, content, replyToId, replyTo, attachments, nonce, original: token, assertActive }) => {
       origin.assert(token); assertActive?.()
       const attachmentIds = attachments?.map((a) => a.id)
@@ -413,7 +413,7 @@ export type CreateThreadResult = { id: string }
 export function useCreateThread() {
   const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
   type Intent = CreateThreadArgs & { original: ReturnType<typeof origin.begin>["token"]; resource: ReturnType<ReturnType<typeof queryClient.getQueryCache>["find"]> }
-  const native = useMutation<CreateThreadResult, Error, Intent>({
+  const native = useMutation<CreateThreadResult, Error, Intent>({ meta: { observabilityAction: "message.thread.create" },
     mutationFn: async (args) => {
       const token = args.original
       origin.assert(token); args.assertActive?.()
@@ -448,7 +448,7 @@ export function useMarkAllInboxRead() {
     snapshot?: AttentionOptimisticSnapshot
   }
   type Original = ReturnType<typeof origin.begin>["token"]
-  const mutation = useMutation<DomainResult[], Error, Original, MarkAllContext>({
+  const mutation = useMutation<DomainResult[], Error, Original, MarkAllContext>({ meta: { observabilityAction: "inbox.read_all" },
     scope: { id: "community-inbox-read-all" },
     mutationFn: async (original) => {
       const requests = [
@@ -558,7 +558,7 @@ export function useDeleteMention() {
       token?: AccountUnreadDismissToken
       attentionSnapshot?: AttentionItemsOptimisticSnapshot
     }
-  >({
+  >({ meta: { observabilityAction: "mention.dismiss" },
     scope: { id: "community-mention-delete" },
     mutationFn: async ({ input: { mentionId }, original }) => {
       return origin.request<{ revision: number }>(original,

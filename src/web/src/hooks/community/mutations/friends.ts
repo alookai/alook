@@ -1,4 +1,5 @@
 "use client"
+import { resolveActionName } from "@/lib/observability/actions"
 
 import { useQueryClient } from "@tanstack/react-query"
 import { useCommunityCommandMutation } from "../use-community-command-mutation"
@@ -18,7 +19,7 @@ type Command = { path: string; method: "POST" | "DELETE"; body?: string; friends
 
 function useFriendCommand<Args extends object>(action: string, build: (args: Args) => Command) {
   const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
-  return useCommunityCommandMutation<void, Error, Args>(origin, {
+  return useCommunityCommandMutation<void, Error, Args>(origin, { meta: { observabilityAction: resolveActionName("friend.command", { kind: action }) },
     mutationKey: action === "accept" || action === "reject" ? ["community", "friend-request", action] : ["community", "friends", action],
     gcTime: action === "accept" || action === "reject" ? Infinity : 0,
     onMutate: (args) => {

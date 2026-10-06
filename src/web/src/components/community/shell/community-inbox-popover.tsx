@@ -1,3 +1,5 @@
+import { useObservedRegion } from "@/lib/observability/regions"
+import { mergeEvidence, viewEvidence } from "@/lib/observability/data-source"
 import { Bookmark, Check, ChevronRight, Inbox, LoaderCircle, MoreHorizontal, Trash2, X } from "lucide-react"
 import { stripInlineMarkup } from "@alook/shared"
 import { EntityIcon } from "../entity-icon"
@@ -142,6 +144,7 @@ function UnreadsTab({ friendRequests, servers, dms, loading, error, onRetry, onO
   getScrollOffset?: (tab: InboxTab) => number
   onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
 }) {
+  useObservedRegion("inbox", !loading && !error, { ...mergeEvidence([viewEvidence(servers), viewEvidence(dms), viewEvidence(friendRequests)]), count: servers.length + dms.length + friendRequests.length })
   const visibleDms = dms
   const visibleServers = servers.map((server) => ({
     server,
@@ -311,6 +314,7 @@ function MentionsTab({ mentions, loading, error, onRetry, onOpenMention, onDelet
   getScrollOffset?: (tab: InboxTab) => number
   onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
 }) {
+  useObservedRegion("inbox", !loading && !error, viewEvidence(mentions))
   const visibleMentions = mentions
   return (
     <InboxScrollBody tab="mentions" getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
@@ -376,6 +380,7 @@ function MarkedTab({ marked, loading, onOpenMarked, onUnmark, profilesByUserId, 
   getScrollOffset?: (tab: InboxTab) => number
   onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
 }) {
+  useObservedRegion("inbox", !loading, viewEvidence(marked))
   return (
     <InboxScrollBody tab="marked" getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
       {loading && marked.length === 0 && <InboxRowsSkeleton />}

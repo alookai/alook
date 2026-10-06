@@ -42,7 +42,7 @@ export function CommunityOnboardingForm() {
   const [customIdentity, setCustomIdentity] = useAtom(useCreateAtom(""))
   const commandKey = ["community", "onboarding-initialization", journeyIdentity] as const
   const pending = useMutationState({ filters: { mutationKey: commandKey, status: "pending" }, select: (mutation) => mutation.mutationId })
-  const initialization = useMutation({
+  const initialization = useMutation({ meta: { observabilityAction: "community.onboarding.initialize" },
     mutationKey: commandKey,
     scope: { id: JSON.stringify(commandKey) },
     mutationFn: async ({ token, profileSnapshot, assert, input }: ReturnType<typeof origin.begin> & {

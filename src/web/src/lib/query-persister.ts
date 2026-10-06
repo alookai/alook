@@ -1,4 +1,5 @@
 import { clearLegacyChatCaches, getLegacyChatCacheSizeBytes } from "@/lib/legacy-chat-persistence"
+import { observeRestoreRead, observeRestoreDecode } from "@/lib/observability/restore"
 import { createStore as createNativeStore } from "@tanstack/store"
 import { scrubApplicationClient } from "@/lib/workspace-chat-persistence"
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister"
@@ -361,10 +362,10 @@ export function createIdbPersister(userId: string | null, domain: PersistDomain 
   void eligibility.catch(() => undefined)
   const persister = createAsyncStoragePersister({
     storage: {
-      getItem: () => withEligiblePersister(key, userId, eligibility, "readonly", null, async (store) => {
+      getItem: () => observeRestoreRead(() => withEligiblePersister(key, userId, eligibility, "readonly", null, async (store) => {
         const value = await promisifyRequest<unknown>(store.get(key))
         return typeof value === "string" ? value : null
-      }),
+      }), persister),
       setItem: (_k: string, value: string) => withEligiblePersister(
         key, userId, eligibility, "readwrite", undefined, async (store) => { store.put(value, key) },
       ),
@@ -376,7 +377,7 @@ export function createIdbPersister(userId: string | null, domain: PersistDomain 
     },
     key: "alook-query-cache",
     serialize: (client) => JSON.stringify(domain === "application" ? scrubApplicationClient(client, userId) : scrubDehydratedClient(client, userId)),
-    deserialize: (raw) => domain === "application" ? scrubApplicationClient(JSON.parse(raw) as PersistedClient, userId) : scrubDehydratedClient(JSON.parse(raw) as PersistedClient, userId),
+    deserialize: (raw) => observeRestoreDecode(persister, () => domain === "application" ? scrubApplicationClient(JSON.parse(raw) as PersistedClient, userId) : scrubDehydratedClient(JSON.parse(raw) as PersistedClient, userId), domain === "application" ? PERSIST_BUSTER + "-application" : PERSIST_BUSTER, PERSIST_MAX_AGE_MS),
   })
   return Object.assign(persister, {
     isCurrent: () => withEligiblePersister(key, userId, eligibility, "readonly", false, async () => true),

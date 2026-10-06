@@ -1,5 +1,7 @@
 "use client";
 
+import { useObservedQueryRegion } from "@/lib/observability/query-regions"
+
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -49,6 +51,8 @@ function AgentFilesSurface({ agentId }: { agentId: string }) {
   const fileQuery = useQuery({ ...workspaceFileOptions(owner, agentId, runtime?.id ?? null, "read", selectedFile ?? "", subscribeWs), enabled: isOnline && !!selectedFile });
   const rootNodes = (rootQuery.data?.entries ?? []).map((entry) => ({ entry }));
   const rootLoading = isOnline && rootQuery.isPending;
+  useObservedQueryRegion("files", rootQuery, rootNodes.length, isOnline);
+  useObservedQueryRegion("file_preview", fileQuery, undefined, isOnline && !!selectedFile);
   const rootError = rootQuery.error?.message ?? null;
   const fileContent = fileQuery.data?.content ?? null;
   const fileBinary = fileQuery.data?.isBinary ?? false;

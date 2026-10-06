@@ -14,6 +14,7 @@ import {
 } from "@/lib/community-db/collections"
 import { profileSchema, type ProfileRow } from "@/lib/community-db/schema"
 import { writeCommunityCollectionRows } from "@/lib/community-db/write"
+import { currentSource, withSource } from "@/lib/observability/data-source"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
 
 type ProfileFieldRevisions = {
@@ -212,7 +213,7 @@ export function writeCommunityProfilePatches(
   if (advanced && writeRevision !== null) revisions.revision = writeRevision
   if (advanced) revisionStore.setState(() => revisions)
   const rows = [...profiles.values()]
-  writeCommunityCollectionRows(registry, "profiles", rows, (row) => row.userId)
+  withSource(registry.queryClient, currentSource(registry.queryClient) === "ws" ? "ws" : options?.snapshot ? "network" : options?.command ? "local_mutation" : "unknown", () => writeCommunityCollectionRows(registry, "profiles", rows, (row) => row.userId))
 }
 
 export async function loadAndSeedProfiles<T>(

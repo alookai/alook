@@ -145,8 +145,8 @@ export function useAgentChat(
   const chatData = useChatData(workspaceOwner, chatViewIdentity, targetConvId);
   const chatActions = chatData.actions;
   const { conversation, setConversation, messages, setMessages, artifacts, activeTask, setActiveTask, taskMessages, hasMore, setHasMore, previousConversations, setPreviousConversations, hasMoreConversations, setHasMoreConversations } = chatData;
-  const { mutateAsync: mutateChatCommand } = useMutation({ mutationKey: workspaceOwner.key("chat", "command"), gcTime: 0, mutationFn: (operation: () => Promise<unknown>) => operation() });
-  const withChatOrigin = useCallback(<T,>(operation: (options: ApiRequestOptions) => Promise<T>, options?: ApiRequestOptions, mutation = false): Promise<T> => {
+  const { mutateAsync: mutateChatCommand } = useMutation({ meta: { observabilityAction: "chat.command" }, mutationKey: workspaceOwner.key("chat", "command"), gcTime: 0, mutationFn: ({ operation }: { operation: () => Promise<unknown>; kind: "persist" | "read" }) => operation() });
+  const withChatOrigin = useCallback(<T,>(operation: (options: ApiRequestOptions) => Promise<T>, options?: ApiRequestOptions, mutation: false | "persist" | "read" = false): Promise<T> => {
     const intent = captureChatIntent(workspaceOwner, chatActions.view);
     const controller = new AbortController();
     const signal = options?.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
@@ -159,7 +159,7 @@ export function useAgentChat(
       catch (error) { assertActive(); throw error; }
       finally { for (const subscription of subscriptions) subscription.unsubscribe(); }
     };
-    return mutation ? mutateChatCommand(load) as Promise<T> : load();
+    return mutation ? mutateChatCommand({ operation: load, kind: mutation }) as Promise<T> : load();
   }, [workspaceOwner, chatActions.view, mutateChatCommand]);
   const chatInit = useCallback(async (...args: Parameters<typeof chatInitApi>) => { const tickets = captureChatLoad(workspaceOwner); const data = await withChatOrigin((options) => chatInitApi(args[0], args[1], args[2], options), args[3], false); return settleChatLoad(workspaceOwner, data, tickets); }, [withChatOrigin, workspaceOwner]);
   const checkFreshness = useCallback((...args: Parameters<typeof checkFreshnessApi>) => withChatOrigin((options) => checkFreshnessApi(args[0], args[1], options), args[2], false), [withChatOrigin]);
@@ -215,12 +215,12 @@ export function useAgentChat(
     const index = data?.pageParams.indexOf(args[2].before) ?? -1;
     return data?.pages[index < 0 ? data.pages.length - 1 : index] ?? { conversations: [], has_more: false };
   }, [workspaceOwner, chatActions, chatViewIdentity]);
-  const sendMessage = useCallback((...args: Parameters<typeof sendMessageApi>) => withChatOrigin((options) => sendMessageApi(args[0], args[1], args[2], args[3], args[4], options), args[5], true), [withChatOrigin]);
+  const sendMessage = useCallback((...args: Parameters<typeof sendMessageApi>) => withChatOrigin((options) => sendMessageApi(args[0], args[1], args[2], args[3], args[4], options), args[5], "persist"), [withChatOrigin]);
   const getTask = useCallback(async (...args: Parameters<typeof getTaskApi>) => { const source = chatReadSource(workspaceOwner, chatActions.view, chatViewIdentity, args[2]); const options = chatTaskOptions(source, args[0]); const release = observeChatRead(source, new QueryObserver(workspaceOwner.queryClient, { ...options, enabled: false })); try { await workspaceOwner.queryClient.fetchQuery(options); } finally { release(); } source.assertActive(); return workspaceOwner.queryClient.getQueryData<Task>(options.queryKey)!; }, [workspaceOwner, chatActions.view, chatViewIdentity]);
   const getTaskMessages = useCallback(async (...args: Parameters<typeof getTaskMessagesApi>) => { const source = chatReadSource(workspaceOwner, chatActions.view, chatViewIdentity, args[3]); const options = chatTaskMessagesOptions(source, args[0]); const release = observeChatRead(source, new QueryObserver(workspaceOwner.queryClient, { ...options, enabled: false })); try { await workspaceOwner.queryClient.fetchQuery(options); } finally { release(); } source.assertActive(); return (workspaceOwner.queryClient.getQueryData<TaskMessageResponse[]>(options.queryKey) ?? []).filter((row) => args[2] === undefined || row.seq > args[2]); }, [workspaceOwner, chatActions.view, chatViewIdentity]);
   const listArtifacts = useCallback(async (...args: Parameters<typeof listArtifactsApi>) => { const source = chatReadSource(workspaceOwner, chatActions.view, chatViewIdentity, args[2]); const options = chatArtifactOptions(source, args[0]); const release = observeChatRead(source, new QueryObserver(workspaceOwner.queryClient, { ...options, enabled: false })); try { await workspaceOwner.queryClient.fetchQuery(options); } finally { release(); } source.assertActive(); return workspaceOwner.queryClient.getQueryData<ChatExtras>(options.queryKey)?.artifacts ?? []; }, [workspaceOwner, chatActions.view, chatViewIdentity]);
   const getActiveTask = useCallback(async (...args: Parameters<typeof getActiveTaskApi>) => { const source = chatReadSource(workspaceOwner, chatActions.view, chatViewIdentity, args[2]); const options = chatActiveTaskOptions(source, args[0]); const release = observeChatRead(source, new QueryObserver(workspaceOwner.queryClient, { ...options, enabled: false })); try { await workspaceOwner.queryClient.fetchQuery(options); } finally { release(); } source.assertActive(); const currentId = workspaceOwner.queryClient.getQueryData<{ id: string | null }>(options.queryKey)?.id; return currentId ? readChatTask(source, currentId) : undefined; }, [workspaceOwner, chatActions.view, chatViewIdentity]);
-  const markInboxRead = useCallback((...args: Parameters<typeof markInboxReadApi>) => withChatOrigin((options) => markInboxReadApi(args[0], args[1], options), args[2], true), [withChatOrigin]);
+  const markInboxRead = useCallback((...args: Parameters<typeof markInboxReadApi>) => withChatOrigin((options) => markInboxReadApi(args[0], args[1], options), args[2], "read"), [withChatOrigin]);
   const listFlaggedMessageIds = useCallback(async (...args: Parameters<typeof listFlaggedMessageIdsApi>) => { const source = chatReadSource(workspaceOwner, chatActions.view, chatViewIdentity, args[2]); const options = chatFlagsOptions(source, args[1]); const release = observeChatRead(source, new QueryObserver(workspaceOwner.queryClient, { ...options, enabled: false })); let ids; try { ids = await workspaceOwner.queryClient.fetchQuery(options); } finally { release(); } source.assertActive(); return { message_ids: ids.ids }; }, [workspaceOwner, chatActions.view, chatViewIdentity]);
   const [messagesLoading, setMessagesLoading] = useAtom(useCreateAtom(true));
   const [napMarkers, setNapMarkers] = useAtom(useCreateAtom<NapMarker[]>([]));
@@ -1553,7 +1553,7 @@ export function useAgentChat(
   const sendIdentity = useMemo(() => crypto.randomUUID(), []);
   const sendKey = workspaceOwner.key("chat", "send", sendIdentity);
   const sending = useIsMutating({ mutationKey: sendKey, exact: true }) > 0;
-  const sendCommand = useMutation<void, Error, SendIntent>({
+  const sendCommand = useMutation<void, Error, SendIntent>({ meta: { observabilityAction: "chat.message.send" },
     mutationKey: sendKey, gcTime: 0,
     mutationFn: async ({ original: intent, conversation, content, files, quote, retryId, rawInput, skillName }) => {
       const assertActive = () => assertChatIntent(intent);
@@ -1627,7 +1627,7 @@ export function useAgentChat(
 
   const sessionCommandKey = useMemo(() => workspaceOwner.key("chat", "session-command", crypto.randomUUID()), [workspaceOwner]);
   type SessionIntent = { original: ReturnType<typeof captureChatIntent>; conversation: Conversation; channel: string; agentName: string } & ({ kind: "nap" } | { kind: "retry"; taskId: string });
-  const sessionCommand = useMutation({ mutationKey: sessionCommandKey, gcTime: 0, scope: { id: JSON.stringify(sessionCommandKey) },
+  const sessionCommand = useMutation({ meta: { observabilityAction: "chat.session.command" }, mutationKey: sessionCommandKey, gcTime: 0, scope: { id: JSON.stringify(sessionCommandKey) },
     mutationFn: async (intent: SessionIntent) => {
       assertChatIntent(intent.original);
       if (intent.kind === "retry") {

@@ -249,7 +249,7 @@ export function useComposerController(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingFiles, editor])
 
-  const sendCommand = useMutation({ mutationKey: sendKey, gcTime: 0,
+  const sendCommand = useMutation({ meta: { observabilityAction: "message.compose.send" }, mutationKey: sendKey, gcTime: 0,
     mutationFn: async ({ generation, scopeVersion, editor }: { generation: number; scopeVersion: number; editor: Editor }) => {
       const assert = () => { const current = protocol.get(); if (!current.active || current.generation !== generation || current.scopeVersion !== scopeVersion) throw new DOMException("Retired composer send", "AbortError") }
       assert()

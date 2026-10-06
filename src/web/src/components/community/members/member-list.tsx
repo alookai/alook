@@ -1,5 +1,6 @@
 "use client"
 
+import { useObservedRegion, windowEvidence } from "@/lib/observability/regions"
 import { createStore, useSelector } from "@tanstack/react-store"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
@@ -131,6 +132,7 @@ export function MemberList({
   onSetRole?: (memberId: string, role: Role) => void
   onKick?: (memberId: string, assert?: MemberOriginalView) => Promise<unknown> | void
 }) {
+  useObservedRegion("members", !loading, windowEvidence(members, members))
   const source = useCommunityViewSource("member-list:" + scopeId)
   const client = useQueryClient()
   const commandKey = ["community", "member-list-command", scopeId]
@@ -144,7 +146,7 @@ export function MemberList({
   const kickTarget = members.find((member) => member.id === kickTargetId)
   const manageTarget = members.find((member) => member.id === manageConfirm?.memberId)
   type Intent = { kind: "kick" | "leave" | "remove"; memberId: string; userId: string; work: (id: string, assert?: MemberOriginalView) => Promise<unknown> | void; assert: ReturnType<typeof source.capture> }
-  const command = useMutation({
+  const command = useMutation({ meta: { observabilityAction: "member.management.command", observabilityDelegate: true },
     mutationKey: commandKey,
     gcTime: 0,
     mutationFn: async (intent: Intent) => {

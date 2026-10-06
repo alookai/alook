@@ -1,3 +1,4 @@
+import { readApiResponse } from "./client";
 import type {
 Artifact,
 Conversation,
@@ -157,8 +158,8 @@ export const sendMessage = async (
     if (blob) fd.append(`thumbnail:${i}`, blob, "thumbnail.jpg");
   }
 
-  const res = await apiFetchResponse(`/api/conversations/${conversationId}/messages${wsQuery(workspaceId)}`, { ...options, method: "POST", body: fd });
-  const data = await res.json() as { message: Message; task: TaskApi };
+  const res = await apiFetchResponse(`/api/conversations/${conversationId}/messages${wsQuery(workspaceId)}`, { ...options, method: "POST", body: fd }, true);
+  const data = await readApiResponse(res, "json", options) as { message: Message; task: TaskApi };
   options?.assertActive?.();
   if (options?.signal?.aborted) throw new DOMException("Cancelled chat upload", "AbortError");
   return data;

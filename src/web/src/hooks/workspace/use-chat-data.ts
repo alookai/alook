@@ -1,5 +1,6 @@
 "use client"
 
+import { deriveView, valueEvidence, sourceEvidence } from "@/lib/observability/data-source"
 import { useCallback, useMemo, useLayoutEffect } from "react"
 import { createStore, useSelector } from "@tanstack/react-store"
 import { useQueries, useQuery, skipToken, type InfiniteData, type UseQueryResult } from "@tanstack/react-query"
@@ -45,6 +46,7 @@ export function useChatData(owner: WorkspaceOwner, identity: string, targetConve
       return row ? [row] : []
     })
   }, [conversationIds, messageQueries, optimistic, refs])
+  deriveView(messages, [...messageQueries.map(value => valueEvidence(owner.queryClient, value)), ...(optimistic.size ? [sourceEvidence(optimistic, "local_mutation")] : [])], messages.length)
   const extrasKey = chatExtrasKey(owner, conversationId ?? "__none__")
   const extras = useQuery<ChatExtras>({ queryKey: extrasKey, queryFn: skipToken, enabled: false }).data
   const taskKey = owner.key("chat", "active-task", conversationId ?? "__none__")

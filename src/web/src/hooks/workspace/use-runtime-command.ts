@@ -17,7 +17,7 @@ export function useRuntimeCommand(owner: WorkspaceOwner) {
   const key = owner.key("runtime-command")
   const source = useWorkspaceViewSource(owner, "runtime-command", true)
   type NativeIntent = RuntimeIntent & { view: ReturnType<typeof source.capture>; resources: Query[] }
-  const native = useMutation({ mutationKey: key, scope: { id: JSON.stringify(key) },
+  const native = useMutation({ meta: { observabilityAction: "runtime.command" }, mutationKey: key, scope: { id: JSON.stringify(key) },
     mutationFn: async ({ kind, id, token, view, resources, assertActive }: NativeIntent) => {
       const assert = () => { assertWorkspaceOwner(token, assertActive?.signal ?? view.signal); view.assert(); assertActive?.() }, qc = owner.queryClient, resourceKey = owner.key("runtimes")
       assert()

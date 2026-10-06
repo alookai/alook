@@ -3,6 +3,7 @@ import { useSelector } from "@tanstack/react-store"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 
 
+import { deriveView, viewEvidence, valueEvidence } from "@/lib/observability/data-source"
 import { useMemo } from "react"
 import {
 keepPreviousData,
@@ -247,13 +248,9 @@ export function useInboxAttention() {
     for (const mention of mentions) conversations.add(mention.channelId ?? mention.id)
     const exactAttentionCount = conversations.size + friendRequests.length
 
-    return {
-      servers,
-      dms,
-      mentions,
-      friendRequests,
-      exactAttentionCount,
-    }
+    const inputs = [viewEvidence(query.scopes), viewEvidence(query.items), ...query.scopes.flatMap(scope => [viewEvidence(channelsById.get(scope.channelId)), viewEvidence(serversById.get(scope.serverId ?? ""))]), ...mentions.map(row => viewEvidence(messagesById?.get(row.m.id)))]
+    for (const values of [servers, dms, mentions, friendRequests]) deriveView(values, inputs, values.length)
+    return deriveView({ servers, dms, mentions, friendRequests, exactAttentionCount }, inputs, exactAttentionCount)
   }, [
     channelsById,
     dmProjection,
@@ -336,6 +333,7 @@ export function useInboxMarked(enabled: boolean): UseQueryResult<MarkedWindowRes
       return message ? [{ ...marked, m: message }] : []
     })
   }, [canonicalMessages, query.data?.marked, markedAccess, pendingMarks])
+  deriveView(marked, [valueEvidence(queryClient, query.data), ...marked.map(row => viewEvidence(row.m))], marked.length)
   return { ...query, marked }
 }
 

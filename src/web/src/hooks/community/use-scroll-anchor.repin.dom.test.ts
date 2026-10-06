@@ -6,6 +6,119 @@ beforeEach(installMessageScrollFixture)
 afterEach(restoreMessageScrollFixture)
 
 describe("locked native adapter and existing message scroll owner", () => {
+  it("keeps an explicit tail scroll when wrapped offscreen rows receive their later native measurements", () => {
+    scrollFixture.width = 639
+    scrollFixture.height = 736
+    scrollFixture.firstPrefix = 193
+    const h = mount({ items: Array.from({ length: 28 }, (_, i) => message(`m${i}`)), tailPaddingEnd: 40 })
+    act(() => h.root.scrollTo({ top: 0 }))
+    runFrames()
+    scrollFixture.width = 265
+    scrollFixture.height = 727
+    scrollFixture.firstPrefix = 233
+    for (const item of h.input.items) scrollFixture.bodyHeights.set(item.m.id, 190)
+    h.update({ tailPaddingEnd: 48 })
+    expect(h.root.scrollTop).toBe(0)
+    act(() => h.root.scrollTo({ top: h.root.scrollHeight }))
+    runFrames()
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+    resize()
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+    expect(scrollFixture.latest.belowCount).toBe(0)
+  })
+  it("keeps a newly selected content origin across a pending width measurement and later footer render", () => {
+    scrollFixture.width = 905
+    scrollFixture.height = 783
+    scrollFixture.firstPrefix = 193
+    const h = mount({ items: Array.from({ length: 28 }, (_, i) => message(`m${i}`)), tailPaddingEnd: 48 })
+    h.move(300)
+    scrollFixture.width = 390
+    scrollFixture.height = 736
+    scrollFixture.firstPrefix = 213
+    for (const item of h.input.items) scrollFixture.bodyHeights.set(item.m.id, 154)
+    h.stage({ tailPaddingEnd: 40 })
+    act(() => h.root.scrollTo({ top: 0 }))
+    resize(2)
+    expect(h.root.scrollTop).toBe(0)
+    const before = { height: h.root.clientHeight, total: h.root.scrollHeight, top: bodyTop(h.root, "m0") }
+    runFrames(8)
+    h.stage({ items: [...h.input.items] })
+    resize()
+    expect(h.root.clientHeight).toBe(before.height)
+    expect(h.root.scrollHeight).toBe(before.total)
+    expect(h.root.scrollTop).toBe(0)
+    expect(bodyTop(h.root, "m0")).toBe(before.top)
+  })
+  it.each(["programmatic", "wheel"])("keeps the absolute content origin after responsive hero growth and %s top positioning without typing", input => {
+    scrollFixture.width = 906
+    scrollFixture.firstPrefix = 193
+    const h = mount()
+    h.move(0)
+    scrollFixture.width = 390
+    scrollFixture.firstPrefix = 213
+    h.stage({ items: [...h.input.items] })
+    if (input === "wheel") fireEvent.wheel(h.root, { deltaY: -20 })
+    act(() => h.root.scrollTo({ top: 0 }))
+    resize(2)
+    const before = { height: h.root.clientHeight, total: h.root.scrollHeight, top: h.root.scrollTop, body: bodyTop(h.root, "m0") }
+    expect(before.top).toBe(0)
+    expect(before.body).toBe(213)
+    runFrames()
+    expect(h.root.clientHeight).toBe(before.height)
+    expect(h.root.scrollHeight).toBe(before.total)
+    expect(h.root.scrollTop).toBe(0)
+    expect(bodyTop(h.root, "m0")).toBe(before.body)
+  })
+  it("keeps an existing short-list pin at the new maximum after responsive body growth", () => {
+    scrollFixture.width = 906
+    scrollFixture.firstPrefix = 193
+    const h = mount({ items: [message("m0")], hasMoreOlder: false })
+    expect(h.root.scrollHeight).toBe(h.root.clientHeight)
+    expect(h.root.scrollTop).toBe(0)
+    scrollFixture.width = 390
+    scrollFixture.firstPrefix = 213
+    scrollFixture.bodyHeights.set("m0", 800)
+    h.stage({ items: [...h.input.items] })
+    resize()
+    expect(h.root.scrollHeight).toBeGreaterThan(h.root.clientHeight)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+    expect(scrollFixture.latest.belowCount).toBe(0)
+  })
+  it.each(["wheel", "target"])("retires a short-list pin when %s takes ownership before overflow", input => {
+    const h = mount({ items: [message("m0"), message("m1")], hasMoreOlder: false })
+    expect(h.root.scrollHeight).toBe(h.root.clientHeight)
+    if (input === "wheel") fireEvent.wheel(h.root, { deltaY: -20 })
+    else h.stage({ scrollToMessageId: "m0" })
+    scrollFixture.bodyHeights.set("m1", 900)
+    h.stage({ items: [...h.input.items] })
+    resize()
+    expect(h.root.scrollHeight).toBeGreaterThan(h.root.clientHeight)
+    expect(h.root.scrollTop).toBeLessThan(100)
+    expect(bodyTop(h.root, "m0")).toBeGreaterThanOrEqual(0)
+  })
+  it("keeps the existing first-message body when history is prepended at the content origin", () => {
+    const h = mount()
+    h.move(0)
+    const before = bodyTop(h.root, "m0")
+    act(() => scrollFixture.latest.captureOlderPageAnchor())
+    h.update({ isFetchingOlder: true })
+    h.update({ items: [message("older"), ...h.input.items], isFetchingOlder: false })
+    expect(bodyTop(h.root, "m0")).toBeCloseTo(before, 0)
+  })
+  it.each(["m0", "m1"])("keeps a settled %s target when a short list later grows beyond the viewport", id => {
+    const positioned = vi.fn()
+    const h = mount({ items: [message("m0"), message("m1"), message("m2")], hasMoreOlder: false, onScrollTargetPositioned: positioned })
+    h.update({ scrollToMessageId: id })
+    resize()
+    expect(positioned).toHaveBeenCalledWith(id)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    expect(h.root.scrollHeight).toBe(h.root.clientHeight)
+    scrollFixture.bodyHeights.set("m2", 900)
+    h.update({ items: [...h.input.items] })
+    expect(h.root.scrollHeight).toBeGreaterThan(h.root.clientHeight)
+    expect(h.root.scrollTop).toBeLessThan(100)
+    expect(bodyTop(h.root, id)).toBeGreaterThanOrEqual(0)
+  })
   it("unifies native total and DOM max while keeping 40/48px rail clearance", () => {
     const h = mount()
     expect(scrollFixture.latest.readPositionReady).toBe(true)
@@ -139,7 +252,8 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(bodyTop(h.root, "m5")).toBeCloseTo(top, 0)
     expect(offset).not.toHaveBeenCalled()
   })
-  it("settles same-anchor hero growth once after native layout", () => {
+  it.each([0, 11])("settles same-anchor hero growth once with a %ipx scrollbar after native layout", gutter => {
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => scrollFixture.width - gutter)
     scrollFixture.bodyHeights.set("m0", 1200)
     const h = mount()
     h.move(400)
@@ -291,6 +405,44 @@ describe("locked native adapter and existing message scroll owner", () => {
       expect(h.root.scrollTop).toBe(h.root.scrollHeight - scrollFixture.height)
       expect(offset).toHaveBeenCalledTimes(calls)
     }
+  })
+  it.each([0, 11])("keeps a settled tail with a %ipx scrollbar through width wrapping and later native row measurements", gutter => {
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => scrollFixture.width - gutter)
+    scrollFixture.width = 639
+    scrollFixture.height = 736
+    const h = mount({ tailPaddingEnd: 40 })
+    scrollFixture.width = 266
+    scrollFixture.height = 727
+    for (const item of h.input.items) scrollFixture.bodyHeights.set(item.m.id, 190)
+    h.stage({ tailPaddingEnd: 48 })
+    resize()
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(0)
+    scrollFixture.bodyHeights.set("m13", 420)
+    resize()
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(0)
+    expect(scrollFixture.latest.belowCount).toBe(0)
+  })
+  it("preserves an away reader through width wrapping without an end command", () => {
+    scrollFixture.width = 639
+    const h = mount({ tailPaddingEnd: 40 })
+    h.move(300)
+    const top = bodyTop(h.root, "m2")
+    scrollFixture.width = 266
+    for (const item of h.input.items) scrollFixture.bodyHeights.set(item.m.id, 190)
+    h.update({ tailPaddingEnd: 48 })
+    expect(bodyTop(h.root, "m2")).toBe(top)
+  })
+  it("retires width-triggered native end positioning when the user takes over", () => {
+    scrollFixture.width = 639
+    const h = mount({ tailPaddingEnd: 40 })
+    scrollFixture.width = 266
+    h.stage({ tailPaddingEnd: 48 })
+    resize(2)
+    h.move(300)
+    const before = h.root.scrollTop
+    scrollFixture.bodyHeights.set("m13", 420)
+    resize()
+    expect(h.root.scrollTop).toBe(before)
   })
   it("preserves a two-pixel DM tail distance through consecutive composer resizes", () => {
     const h = mount()
@@ -452,6 +604,16 @@ describe("locked native adapter and existing message scroll owner", () => {
     scrollFixture.height += 100
     runFrames(1)
     expect(offset).not.toHaveBeenCalled()
+  })
+  it("keeps the content viewport anchor while native border-box delivery is pending with a scrollbar", () => {
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => scrollFixture.width - 11)
+    const h = mount()
+    h.move(h.root.scrollHeight - scrollFixture.height - 2)
+    scrollFixture.height += 100
+    runFrames(1)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(2)
+    resize(0)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(2)
   })
   it.each([0, 2, 8, 100, 300])("preserves the %ipx footer policy before native RO when composer growth does not clamp", async distance => {
     const h = mount()

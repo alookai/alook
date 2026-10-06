@@ -35,6 +35,8 @@ import { machineName } from "@/lib/community/machine-name"
 import { MachineCard, MachineCardFrame } from "./machine-card"
 import { PairMachineSheet, type PairMachineSheetMode } from "./pair-machine-sheet"
 import { ConnectTile } from "@/components/community/onboarding-tiles/connect-tile"
+import { useObservedRegion } from "@/lib/observability/regions"
+import { viewEvidence } from "@/lib/observability/data-source"
 import { useMachines, machinesQueryFn, replaceMachines, type MachinesResponse } from "@/hooks/community/use-machines"
 import { useBots } from "@/hooks/community/use-bots"
 import { usePendingMachineTokenId } from "@/stores/community"
@@ -214,6 +216,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   const origin = useCommunityMutationOrigin()
   const source = useCommunityViewSource("machine-list")
   const { machines, data: machinesData, isLoading: machinesLoading } = useMachines()
+  useObservedRegion("machines", machinesData !== undefined && !machinesLoading, viewEvidence(machines))
   const capacity = machinesData?.machineCapacity ?? null
   const [limitOpen, setLimitOpen] = useAtom(useCreateAtom(false))
   const viewPlan = useCallback(() => {
@@ -243,7 +246,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     staleTime: 300_000, queryFn: ({ signal }) => origin.run((options) => fetchLatestDaemonVersion({ ...options, signal })),
   })
   const latestVersion = versionQuery.data?.version ?? null
-  const machineCommand = useMutation({ mutationKey: ["community", "machine-command"], scope: { id: "community-machine-command" },
+  const machineCommand = useMutation({ meta: { observabilityAction: "machine.command" }, mutationKey: ["community", "machine-command"], scope: { id: "community-machine-command" },
     mutationFn: async ({ kind, id, token, assert }: { kind: "delete" | "update"; id: string; token: ReturnType<typeof origin.begin>["token"]; assert: ReturnType<typeof source.capture> }) => {
       origin.assert(token)
       const key = communityKeys.machines()

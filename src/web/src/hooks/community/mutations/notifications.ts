@@ -20,7 +20,7 @@ function useNotificationCommand(kind: "server" | "channel") {
   const source = useCommunityViewSource("notification-setting:" + kind)
   type Input = SetServerNotifLevelArgs | SetChannelNotifArgs
   type Intent = { input: Input; id: string; original: ReturnType<typeof origin.begin>["token"]; view: ReturnType<typeof source.capture>; resources: Query[] }
-  const native = useMutation<void, Error, Intent>({
+  const native = useMutation<void, Error, Intent>({ meta: { observabilityAction: kind === "server" ? "notification.server.update" : "notification.channel.update" },
     mutationKey: ["community", "notification-setting-command", kind],
     scope: { id: "community-notification-setting-commands" },
     gcTime: 0,

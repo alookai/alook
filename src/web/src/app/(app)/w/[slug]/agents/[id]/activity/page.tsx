@@ -1,5 +1,7 @@
 "use client";
 
+import { useObservedQueryRegion } from "@/lib/observability/query-regions"
+
 import { useEffect, useCallback, useRef, useMemo } from "react";
 import { useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import { useWorkspaceViewSource } from "@/hooks/workspace/use-workspace-view-source";
@@ -116,7 +118,7 @@ function ActivityRow({ task, slug, agentId, workspaceId, onRetry }: { task: Acti
 
   const owner = useWorkspaceOwner();
   const source = useWorkspaceViewSource(owner, "activity-retry:" + task.id, true);
-  const retry = useMutation({
+  const retry = useMutation({ meta: { observabilityAction: "agent.task.retry" },
     mutationKey: owner.key("task-retry", task.id),
     mutationFn: async (token: ReturnType<typeof captureWorkspaceOwner>) => {
       const assertActive = () => assertWorkspaceOwner(token);
@@ -233,6 +235,7 @@ export default function AgentActivityPage() {
   });
   const tasks = useMemo(() => [...new Map((activity.data?.pages.toReversed().flatMap((page) => page.tasks) ?? []).map((task) => [task.id, task])).values()], [activity.data]);
   const loading = activity.isPending;
+  useObservedQueryRegion("activity", activity, tasks.length);
   const hasMore = activity.hasNextPage;
   const loadingMore = activity.isFetchingNextPage;
   const scrollRef = useRef<HTMLDivElement>(null);

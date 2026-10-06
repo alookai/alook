@@ -17,7 +17,7 @@ const mutationKey = ["community", "server-rail", "change"] as const
 export function useServerRailCommit() {
   const origin = useCommunityMutationOrigin(), queryClient = useQueryClient()
   const pending = useIsMutating({ mutationKey, exact: true }) > 0
-  const mutation = useCommunityCommandMutation<ServerRailCommitResponse, Error, ServerRailCommitArgs>(origin, {
+  const mutation = useCommunityCommandMutation<ServerRailCommitResponse, Error, ServerRailCommitArgs>(origin, { meta: { observabilityAction: "server.rail.reorder" },
     mutationKey,
     scope: { id: "server-rail-commit" },
     mutationFn: async ({ commands, assertUI, original, resources }) => {

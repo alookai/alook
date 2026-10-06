@@ -1,4 +1,5 @@
 import type { Transaction } from "@tanstack/react-db"
+import { currentSource, withSource } from "@/lib/observability/data-source"
 import { communityRequestOptions as qualifiedCommunityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { isAbortError } from "@/lib/errors"
 import { isOwnerServerDeleteScopeEvictionBlocked } from "@/lib/community/eject-server"
@@ -261,7 +262,7 @@ function withCanonicalWriteContext<T>(
   const previous = canonicalWriteContexts.get(queryClient)
   canonicalWriteContexts.set(queryClient, context)
   try {
-    return publish()
+    return withSource(queryClient, currentSource(queryClient) === "ws" ? "ws" : context.kind === "query" ? "network" : "local_mutation", publish)
   } finally {
     if (previous) canonicalWriteContexts.set(queryClient, previous)
     else canonicalWriteContexts.delete(queryClient)

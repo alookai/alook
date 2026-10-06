@@ -1,5 +1,7 @@
 "use client";
 
+import { useObservedQueryRegion } from "@/lib/observability/query-regions"
+
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useQuery, useMutation, skipToken, type QueryKey } from "@tanstack/react-query";
 import { useWorkspaceViewSource } from "@/hooks/workspace/use-workspace-view-source";
@@ -144,6 +146,7 @@ export default function CalendarPage() {
   const eventsQuery = useQuery({ queryKey: eventsKey, queryFn: ({ signal }) => listCalendarEvents(workspaceId, range, source.request(signal)) });
   const events = eventsQuery.data ?? EMPTY_EVENTS;
   const loading = eventsQuery.isPending;
+  useObservedQueryRegion("calendar", eventsQuery, events.length);
   const detail = useQuery({ queryKey: detailSelection?.key ?? owner.key("calendar", "range", "__none__"), queryFn: detailSelection ? ({ signal, queryKey }) => listCalendarEvents(workspaceId, { from: String(queryKey[6]), to: String(queryKey[7]) }, source.request(signal)) : skipToken, enabled: false,
     select: (rows: CalendarEvent[]) => rows.find((row) => row.id === detailSelection?.id && (row.occurrence_at ?? null) === detailSelection?.occurrence) ?? null,
   }).data ?? null;
@@ -157,7 +160,7 @@ export default function CalendarPage() {
     try { source.assertActive(); } catch { return; }
     if (message.type.startsWith("calendar.")) void owner.queryClient.invalidateQueries({ queryKey: owner.key("calendar") });
   }), [owner, subscribeWs, source.assertActive, source]);
-  const calendarMutation = useMutation({ mutationFn: ({ operation }: { operation: () => Promise<unknown>; kind: "create" | "update" | "delete"; id?: string; assertActive: () => void }) => operation() });
+  const calendarMutation = useMutation({ meta: { observabilityAction: "calendar.command" }, mutationFn: ({ operation }: { operation: () => Promise<unknown>; kind: "create" | "update" | "delete"; id?: string; assertActive: () => void }) => operation() });
   const currentMutation = calendarMutation.isPending && calendarMutation.variables.assertActive === source.assertActive;
   const submitting = currentMutation && calendarMutation.variables.kind === "create";
   const submittingEdit = currentMutation && calendarMutation.variables.kind === "update";

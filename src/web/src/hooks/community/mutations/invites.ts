@@ -16,7 +16,7 @@ type ResolveInviteArgs = { currentUserId: string; assert: OriginalView }
 export function useResolveOrCreateInvite(serverId: string) {
   const client = useQueryClient(), origin = useCommunityMutationOrigin()
   type Intent = ResolveInviteArgs & { original: ReturnType<typeof origin.begin>["token"] }
-  const native = useMutation({
+  const native = useMutation({ meta: { observabilityAction: "server.invite.resolve" },
     mutationKey: ["community", "invite-resolve", serverId],
     scope: { id: "community-invite-command" },
     gcTime: 0,
@@ -55,7 +55,7 @@ export type RevokeInviteArgs = { serverId: string; code: string; assertActive?: 
 export function useRevokeInvite() {
   const client = useQueryClient(), origin = useCommunityMutationOrigin()
   type Intent = RevokeInviteArgs & { original: ReturnType<typeof origin.begin>["token"]; resource: Query | undefined }
-  const native = useMutation({
+  const native = useMutation({ meta: { observabilityAction: "server.invite.revoke" },
     mutationKey: ["community", "invite-revoke"],
     scope: { id: "community-invite-command" }, gcTime: 0,
     mutationFn: async ({ serverId, code, original, resource, assertActive }: Intent) => {

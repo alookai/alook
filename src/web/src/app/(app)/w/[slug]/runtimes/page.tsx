@@ -1,5 +1,8 @@
 "use client";
 
+import { useObservedRegion } from "@/lib/observability/regions"
+import { viewEvidence } from "@/lib/observability/data-source"
+
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useRef, useEffect, useCallback } from "react";
@@ -45,6 +48,7 @@ export default function RuntimesPage() {
   const { runtimes, loading, handleDeleteMachine, subscribeWs, workspaceId } =
     useAgentContext();
   const owner = useWorkspaceOwner();
+  useObservedRegion("runtimes", !loading, viewEvidence(runtimes));
   const pageSource = useWorkspaceViewSource(owner, "runtimes", true);
   const searchParams = useSearchParams();
   const router = useRouter();

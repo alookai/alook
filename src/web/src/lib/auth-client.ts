@@ -1,6 +1,7 @@
 "use client"
 import { createAuthClient } from "better-auth/react"
 import { emailOTPClient, deviceAuthorizationClient } from "better-auth/client/plugins"
+import { captureTelemetryIdentityRetirement } from "@/lib/observability/client"
 import {
   resumeMobileSystemNotificationRegistration,
   suspendMobileSystemNotificationRegistration,
@@ -22,12 +23,14 @@ async function signOutOriginal(assertOriginal: () => void, args: Parameters<type
   const options = args[0]?.fetchOptions ?? args[1]
   const assertActive = () => { if (options?.signal?.aborted) throw new DOMException("Retired sign-out", "AbortError"); assertOriginal() }
   assertActive()
+  const finishTelemetrySignOut = captureTelemetryIdentityRetirement()
   suspendMobileSystemNotificationRegistration()
   try {
     await unregisterCurrentMobileSystemNotification(fetch, { signal: options?.signal ?? undefined, assertActive }).catch(() => { assertActive() })
     assertActive()
     const result = await authClient.signOut(...args)
     if ("error" in result && result.error) { assertActive(); resumeMobileSystemNotificationRegistration() }
+    else { assertActive(); finishTelemetrySignOut() }
     return result
   } catch (error) {
     try { assertActive(); resumeMobileSystemNotificationRegistration() } catch {}

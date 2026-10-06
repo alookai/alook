@@ -64,7 +64,7 @@ export function OnboardingMachineDialog({
     [harness, machines],
   )
   const autoMint = useCreateAtom<AbortSignal | null>(null)
-  const generation = useMutation({
+  const generation = useMutation({ meta: { observabilityAction: "machine.pair.generate" },
     mutationKey: ["community", "onboarding-machine-pair", harness], gcTime: 0,
     mutationFn: async ({ token, assert }: { token: ReturnType<typeof origin.begin>["token"]; assert: ReturnType<typeof source.capture> }) => {
       assert()

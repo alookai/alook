@@ -186,7 +186,7 @@ export function AgentEditForm({
       return { id: fresh.id };
     },
   });
-  const instructionMutation = useMutation({
+  const instructionMutation = useMutation({ meta: { observabilityAction: "agent.instruction.save" },
     mutationKey: owner.key("agent-instruction-command", agent.id),
     scope: { id: JSON.stringify(owner.key("agent-instruction-command", agent.id)) }, gcTime: 0,
     mutationFn: async ({ value, token, assertView, signal, resource: original }: InstructionIntent) => {

@@ -1,3 +1,4 @@
+import { ObservedStaticContent } from "@/lib/observability/regions";
 import type { Metadata } from "next";
 import dynamic from "next/dynamic";
 import { getSession } from "@/lib/session";
@@ -18,5 +19,5 @@ export const metadata: Metadata = {
 
 export default async function Page() {
   const session = await getSession();
-  return <HomePage isLoggedIn={!!session} />;
+  return <><ObservedStaticContent /><HomePage isLoggedIn={!!session} /></>;
 }

@@ -1,5 +1,7 @@
 "use client";
 
+import { useObservedQueryRegion } from "@/lib/observability/query-regions";
+
 import { useQuery } from "@tanstack/react-query";
 import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspaceOwner, runWorkspaceRequest } from "@/contexts/workspace-context";
@@ -17,6 +19,7 @@ export function UsagesTab() {
   const overviewQuery = useQuery({ queryKey: owner.key("overview"), enabled: !loading,
     queryFn: ({ signal }) => runWorkspaceRequest(owner, (options) => getWorkspaceOverview(owner.workspaceId, options), signal),
   });
+  useObservedQueryRegion("settings", overviewQuery);
   const overview = overviewQuery.data;
   const overviewLoading = overviewQuery.isPending;
 
