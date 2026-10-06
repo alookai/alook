@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, rmSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import adapterConfig from "../../eslint.config.js";
 
 const packageRoot = fileURLToPath(new URL("../../", import.meta.url));
 const token = randomUUID();
@@ -25,7 +26,15 @@ describe("adapter process-spawn authority lint", () => {
     for (const probe of cases) rmSync(probe.path, { force: true });
   });
   it.each(cases)("rejects the $label bypass", async ({ path }) => {
-    const eslint = new ESLint({ cwd: packageRoot });
+    const eslint = new ESLint({
+      cwd: packageRoot,
+      overrideConfigFile: true,
+      overrideConfig: adapterConfig,
+    });
+    const config = await eslint.calculateConfigForFile(path);
+    expect(config.rules["@typescript-eslint/no-deprecated"][0]).toBe(2);
+    expect(config.languageOptions.parserOptions.project).toBe("./tsconfig.eslint.json");
+    expect(config.languageOptions.parserOptions.tsconfigRootDir).toBe(resolve(packageRoot));
     const [result] = await eslint.lintFiles(path);
 
     expect(result?.fatalErrorCount).toBe(0);
