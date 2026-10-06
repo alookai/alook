@@ -44,17 +44,14 @@ export async function generateMetadata({
 
 export default async function TemplateDetailPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const { id } = await params;
   const template = getTemplateById(id);
   if (!template) notFound();
 
   const session = await getSession();
-  const sp = await searchParams;
 
   const jsonLd = [
     {
@@ -87,7 +84,6 @@ export default async function TemplateDetailPage({
       <TemplateDetailClient
         template={template}
         isLoggedIn={!!session}
-        workspaceId={sp.workspace_id}
       />
     </></>
   );

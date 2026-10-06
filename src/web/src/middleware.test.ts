@@ -45,13 +45,28 @@ describe("middleware", () => {
   });
 
   describe("auth-required routes", () => {
+    it.each(["/w", "/w/sample/home", "/w/sample/agents/a/chat/b", "/w/sample/%broken", "/%77/sample/home", "/studio/new", "/studio/new/"])("authenticates the retired path %s without retaining its query or creating a loop", async path => {
+      mockGetSession.mockResolvedValue({ headers: new Headers(), response: null });
+      const loggedOut = await middleware(makeReq(`https://app.com${path}?token=private&workspace_id=private`));
+      const login = new URL(loggedOut.headers.get("location")!);
+      expect(login.pathname).toBe("/sign-in");
+      expect(login.searchParams.get("redirect")).toBe("/c/me");
+      expect(login.href).not.toContain("private");
+      const headers = new Headers({ "set-cookie": "session=renewed; Path=/" });
+      mockGetSession.mockResolvedValue({ headers, response: { user: { id: "viewer" } } });
+      const loggedIn = await middleware(makeReq(`https://app.com${path}?token=private`));
+      expect(loggedIn.headers.get("location")).toBe("https://app.com/c/me");
+      expect(loggedIn.headers.get("set-cookie")).toContain("session=renewed");
+      const landed = await middleware(makeReq("https://app.com/c/me"));
+      expect(landed.headers.get("location")).toBeNull();
+    });
     it("redirects to /sign-in with redirect param when unauthenticated", async () => {
       mockGetSession.mockResolvedValue({ headers: new Headers(), response: null });
       const req = makeReq("https://app.com/w/foo?tab=x", { "x-forwarded-proto": "https" });
       const res = await middleware(req);
       const loc = new URL(res.headers.get("location")!);
       expect(loc.pathname).toBe("/sign-in");
-      expect(loc.searchParams.get("redirect")).toBe("/w/foo?tab=x");
+      expect(loc.searchParams.get("redirect")).toBe("/c/me");
     });
 
     it("omits redirect param when returnTo is /workspaces", async () => {
@@ -115,9 +130,9 @@ describe("middleware", () => {
       return new URL(res.headers.get("location")!);
     }
 
-    it("accepts a safe same-origin relative path (/w/foo)", async () => {
+    it("normalizes the retired return path without a second legacy hop", async () => {
       const loc = await signInWith("/w/foo");
-      expect(loc.pathname).toBe("/w/foo");
+      expect(loc.pathname).toBe("/c/me");
     });
 
     it("rejects protocol-relative //evil.com → falls back to /c/me", async () => {

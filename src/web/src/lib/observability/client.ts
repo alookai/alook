@@ -67,8 +67,7 @@ async function activate() {
   if (documentSuspended || !hasAnalyticsConsent() || !validBuildProfile(build)) return
   const route = routeTemplate(window.location.href, window.location.origin)
   const communityOwner = (route === "/c" || route.startsWith("/c/")) && resolveCommunityModulePlan(window.location.pathname).route !== "public-invite"
-  const applicationOwner = route.startsWith("/w/") || ["/workspaces", "/studio/new", "/invite/[token]"].includes(route)
-  if (!identityEstablished && (communityOwner || applicationOwner)) return
+  if (!identityEstablished && communityOwner) return
   const mayResume = mayResumeNativeSession
   sessionId = telemetryId()
   configure()

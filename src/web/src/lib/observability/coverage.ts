@@ -24,26 +24,7 @@ export const pageRoutes = [
   "/studio/new",
   "/templates",
   "/templates/[id]",
-  "/w/[slug]",
-  "/w/[slug]/agents",
-  "/w/[slug]/agents/[id]",
-  "/w/[slug]/agents/[id]/activity",
-  "/w/[slug]/agents/[id]/chat",
-  "/w/[slug]/agents/[id]/chat/[convId]",
-  "/w/[slug]/agents/[id]/email",
-  "/w/[slug]/agents/[id]/files",
-  "/w/[slug]/agents/[id]/meetings",
-  "/w/[slug]/agents/new",
-  "/w/[slug]/calendar",
-  "/w/[slug]/flags",
-  "/w/[slug]/help/email-setup",
-  "/w/[slug]/home",
-  "/w/[slug]/issues",
-  "/w/[slug]/runtimes",
-  "/w/[slug]/settings",
-  "/w/[slug]/traces",
-  "/w/[slug]/traces/[traceId]",
-  "/w/[slug]/unread",
+  "/w/[[...path]]",
   "/workspaces"
 ] as const
 
@@ -305,22 +286,6 @@ export const actionNames = [
   "account.deletion.code.request",
   "account.deletion.command",
   "account.sign_out",
-  "agent.access.grant",
-  "agent.access.revoke",
-  "agent.create",
-  "agent.instruction.save",
-  "agent.link.command",
-  "agent.list.reorder",
-  "agent.permission.command",
-  "agent.pin",
-  "agent.pins.reorder",
-  "agent.rail.command",
-  "agent.task.retry",
-  "agent.unpin",
-  "agent.update",
-  "agent.visibility.change",
-  "agent.whitelist.add",
-  "agent.whitelist.remove",
   "attachment.download",
   "attachment.prepare",
   "attachment.upload",
@@ -344,10 +309,6 @@ export const actionNames = [
   "bot.session.reset",
   "bot.update",
   "cache.clear",
-  "calendar.command",
-  "calendar.event.create",
-  "calendar.event.delete",
-  "calendar.event.update",
   "category.create",
   "category.delete",
   "category.reorder",
@@ -365,14 +326,6 @@ export const actionNames = [
   "channel.move",
   "channel.rename",
   "channel.reorder",
-  "chat.command",
-  "chat.control.command",
-  "chat.message.send",
-  "chat.session.command",
-  "chat.session.nap",
-  "chat.task.retry",
-  "chat.task.stop",
-  "chat.thread.create",
   "command.unknown",
   "community.command",
   "community.onboarding.initialize",
@@ -381,38 +334,22 @@ export const actionNames = [
   "device.authorization.deny",
   "dm.message.send",
   "dm.open",
-  "email.account.command",
-  "email.account.connect",
-  "email.account.delete",
-  "email.account.sync",
-  "email.send",
   "forum.tags.update",
   "forum.thread.create",
   "forum.thread.delete",
   "inbox.read_all",
   "invitation.copy",
   "invitation.send",
-  "issue.command",
-  "issue.comment.create",
-  "issue.create",
-  "issue.delete",
-  "issue.update",
   "machine.agents.reset",
   "machine.command",
   "machine.delete",
   "machine.pair.generate",
   "machine.pair.launch",
   "machine.update",
-  "meeting.command",
-  "meeting.create",
-  "meeting.delete",
-  "meeting.update",
   "mention.dismiss",
   "message.compose.send",
   "message.edit",
   "message.export",
-  "message.flag.remove",
-  "message.flag.toggle",
   "message.mark",
   "message.mark.command",
   "message.pin",
@@ -426,15 +363,11 @@ export const actionNames = [
   "message_send",
   "navigation",
   "notification.channel.update",
-  "notification.permission.request",
   "notification.server.update",
   "notification.settings.command",
   "profile.avatar.upload",
   "profile.update",
   "router_transition",
-  "runtime.command",
-  "runtime.rescan",
-  "runtime.update",
   "server.create",
   "server.delete",
   "server.icon.upload",
@@ -448,94 +381,21 @@ export const actionNames = [
   "server.member.role.change",
   "server.rail.reorder",
   "server.update",
-  "studio.agent.create",
-  "studio.onboarding.finish",
   "ui_interaction",
-  "workspace.channel.command",
-  "workspace.channel.create",
-  "workspace.channel.delete",
-  "workspace.channel.rename",
-  "workspace.channel.reorder",
-  "workspace.create",
-  "workspace.delete",
-  "workspace.instruction.save",
-  "workspace.invite.accept",
-  "workspace.invite.create",
-  "workspace.invite.revoke",
-  "workspace.member.remove",
-  "workspace.members.command",
-  "workspace.settings.command",
-  "workspace.settings.update"
-, "agent.link.create", "agent.link.update", "agent.link.delete", "email.command", "email.read", "email.delete", "email.sender.trust", "chat.message.persist", "chat.inbox.read", "meeting.stop", "meeting.approve"
-, "friend.command", "friend.owner_decision.command", "friend.request.send", "friend.request.accept", "friend.request.reject", "friend.remove", "friend.request.cancel", "friend.request.approve", "friend.request.deny", "user.block", "user.unblock"
+  "friend.command",
+  "friend.owner_decision.command",
+  "friend.request.send",
+  "friend.request.accept",
+  "friend.request.reject",
+  "friend.remove",
+  "friend.request.cancel",
+  "friend.request.approve",
+  "friend.request.deny",
+  "user.block",
+  "user.unblock"
 ] as const
 
 export const mutationCoverage = [
-  {
-    "file": "src/web/src/app/(app)/invite/[token]/page.tsx",
-    "owner": "InvitePage",
-    "action": "workspace.invite.accept"
-  },
-  {
-    "file": "src/web/src/app/(app)/studio/new/client.tsx",
-    "owner": "StudioOnboardingInner",
-    "action": "studio.agent.create"
-  },
-  {
-    "file": "src/web/src/app/(app)/studio/new/client.tsx",
-    "owner": "StudioOnboardingInner",
-    "action": "studio.onboarding.finish"
-  },
-  {
-    "file": "src/web/src/app/(app)/w/[slug]/agents/[id]/activity/page.tsx",
-    "owner": "ActivityRow",
-    "action": "agent.task.retry"
-  },
-  {
-    "file": "src/web/src/app/(app)/w/[slug]/agents/[id]/email/page.tsx",
-    "owner": "AgentEmailSurface",
-    "action": "email.send"
-  },
-  {
-    "file": "src/web/src/app/(app)/w/[slug]/agents/new/page.tsx",
-    "owner": "CreateAgentPage",
-    "action": "agent.create"
-  },
-  {
-    "file": "src/web/src/app/(app)/w/[slug]/calendar/page.tsx",
-    "owner": "CalendarPage",
-    "action": "calendar.command"
-  },
-  {
-    "file": "src/web/src/app/(app)/w/[slug]/home/page.tsx",
-    "owner": "AgentCanvas",
-    "action": "agent.link.command"
-  },
-  {
-    "file": "src/web/src/app/(app)/w/[slug]/settings/general-tab.tsx",
-    "owner": "GeneralTab",
-    "action": "workspace.settings.command"
-  },
-  {
-    "file": "src/web/src/app/(app)/w/[slug]/settings/instruction-tab.tsx",
-    "owner": "InstructionTab",
-    "action": "workspace.instruction.save"
-  },
-  {
-    "file": "src/web/src/app/(app)/w/[slug]/settings/members-tab.tsx",
-    "owner": "MembersTab",
-    "action": "workspace.members.command"
-  },
-  {
-    "file": "src/web/src/app/(app)/w/[slug]/settings/notification-tab.tsx",
-    "owner": "NotificationTab",
-    "action": "notification.permission.request"
-  },
-  {
-    "file": "src/web/src/app/(app)/workspaces/client.tsx",
-    "owner": "WorkspaceListClient",
-    "action": "workspace.create"
-  },
   {
     "file": "src/web/src/app/c/invite/[token]/invite-accept-client.tsx",
     "owner": "InviteAcceptInner",
@@ -545,16 +405,6 @@ export const mutationCoverage = [
     "file": "src/web/src/app/device/page.tsx",
     "owner": "DeviceAuthPageInner",
     "action": "device.authorization.command"
-  },
-  {
-    "file": "src/web/src/components/agent-chat/agent-chat-view.tsx",
-    "owner": "AgentChatView",
-    "action": "chat.control.command"
-  },
-  {
-    "file": "src/web/src/components/agent-edit-form.tsx",
-    "owner": "AgentEditForm",
-    "action": "agent.instruction.save"
   },
   {
     "file": "src/web/src/components/community/machines/machine-list.tsx",
@@ -625,26 +475,6 @@ export const mutationCoverage = [
     "file": "src/web/src/components/community/social/invite-dialog.tsx",
     "owner": "InviteDialog",
     "action": "invitation.copy"
-  },
-  {
-    "file": "src/web/src/components/custom-email-form.tsx",
-    "owner": "CustomEmailForm",
-    "action": "email.account.command"
-  },
-  {
-    "file": "src/web/src/contexts/agent-context.tsx",
-    "owner": "useAgentContext",
-    "action": "agent.update"
-  },
-  {
-    "file": "src/web/src/contexts/agent-context.tsx",
-    "owner": "useAgentContext",
-    "action": "agent.rail.command"
-  },
-  {
-    "file": "src/web/src/contexts/channel-context.tsx",
-    "owner": "useChannel",
-    "action": "workspace.channel.command"
   },
   {
     "file": "src/web/src/hooks/community/mutations/dm.ts",
@@ -787,64 +617,9 @@ export const mutationCoverage = [
     "action": "bot.notification.update"
   },
   {
-    "file": "src/web/src/hooks/use-agent-chat.ts",
-    "owner": "useAgentChat",
-    "action": "chat.command"
-  },
-  {
-    "file": "src/web/src/hooks/use-agent-chat.ts",
-    "owner": "useAgentChat",
-    "action": "chat.message.send"
-  },
-  {
-    "file": "src/web/src/hooks/use-agent-chat.ts",
-    "owner": "useAgentChat",
-    "action": "chat.session.command"
-  },
-  {
-    "file": "src/web/src/hooks/use-application-sign-out.ts",
-    "owner": "useApplicationSignOut",
-    "action": "account.sign_out"
-  },
-  {
     "file": "src/web/src/hooks/use-file-attachments.ts",
     "owner": "useFileAttachments",
     "action": "attachment.prepare"
-  },
-  {
-    "file": "src/web/src/hooks/use-message-flags.ts",
-    "owner": "useMessageFlags",
-    "action": "message.flag.toggle"
-  },
-  {
-    "file": "src/web/src/hooks/workspace/use-agent-permission-command.ts",
-    "owner": "useAgentPermissionCommand",
-    "action": "agent.permission.command"
-  },
-  {
-    "file": "src/web/src/hooks/workspace/use-inbox.ts",
-    "owner": "useMarkAllInboxRead",
-    "action": "inbox.read_all"
-  },
-  {
-    "file": "src/web/src/hooks/workspace/use-inbox.ts",
-    "owner": "useUnflagWorkspaceMessage",
-    "action": "message.flag.remove"
-  },
-  {
-    "file": "src/web/src/hooks/workspace/use-issue-command.ts",
-    "owner": "useIssueCommand",
-    "action": "issue.command"
-  },
-  {
-    "file": "src/web/src/hooks/workspace/use-runtime-command.ts",
-    "owner": "useRuntimeCommand",
-    "action": "runtime.command"
-  },
-  {
-    "file": "src/web/src/hooks/workspace/use-workspace-meetings.ts",
-    "owner": "useWorkspaceMeetings",
-    "action": "meeting.command"
   }
 ] as const
 
@@ -946,7 +721,10 @@ export const capabilityLimits = {
   ssr_source: "server-rendered source unknown unless an explicit owner supplies evidence",
 } as const
 
-const routeMatchers = [...pageRoutes, ...apiRoutes].sort((a,b) => b.split("/").length-a.split("/").length || b.split("/").filter(part => !part.startsWith("[")).length-a.split("/").filter(part => !part.startsWith("[")).length || a.localeCompare(b)).map(template => ({template, pattern:new RegExp("^" + template.split("/").map(part => part.startsWith("[...") ? ".+" : part.startsWith("[") ? "[^/]+" : part.replace(/[.*+?^$(){}|\\]/g, "\\$&")).join("/") + "/?$")}))
+const routeMatchers = [...pageRoutes, ...apiRoutes].sort((a,b) => b.split("/").length-a.split("/").length || b.split("/").filter(part => !part.startsWith("[")).length-a.split("/").filter(part => !part.startsWith("[")).length || a.localeCompare(b)).map(template => {
+  const pattern = template.split("/").slice(1).map(part => part.startsWith("[[...") ? "(?:/.*)?" : "/" + (part.startsWith("[...") ? ".+" : part.startsWith("[") ? "[^/]+" : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))).join("")
+  return { template, pattern: new RegExp("^" + pattern + "/?$") }
+})
 export function routeTemplate(input: string, origin = "https://alook.ai"): string {
   try {
     const url = new URL(input, origin)

@@ -4,7 +4,8 @@ import { startAction, finishAction, type Action } from "@/lib/observability/cont
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import { useEffect, useRef } from "react"
-import { isTauri, safeRedirectPath, type NativeOauthProvider } from "@alook/shared"
+import { safeRedirectPath } from "@/lib/safe-redirect"
+import { isTauri, type NativeOauthProvider } from "@alook/shared"
 import { SiGithub, SiGoogle } from "@icons-pack/react-simple-icons"
 import Image from "next/image"
 import { Button } from "@/components/ui/button"

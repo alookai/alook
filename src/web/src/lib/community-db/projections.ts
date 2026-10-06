@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, createElement, useContext, useMemo, useLayoutEffect, type Context, type ReactNode } from "react"
+import { createContext, createElement, useContext, useMemo, type Context, type ReactNode } from "react"
 import { ApplicationOwnerProvider, createApplicationOwner } from "@/lib/application-owner"
 import { DbProvider, collectionOptions, getLiveQueryHash, liveQueryCollectionOptions, prepareLiveQueryValue, eq, inArray, useLiveQuery as useNativeLiveQuery, type Context as QueryContext, type LiveQueryCollectionConfig } from "@tanstack/react-db"
 import { createStore, useSelector } from "@tanstack/react-store"
@@ -107,12 +107,6 @@ export function CommunityDbProvider({
     owner.bindAuthentication(() => registry.sessionViewer(), () => registry.retireDisk())
     return owner
   }, [registry])
-  useLayoutEffect(() => {
-    const subscription = registry.runtime.lifecycle.subscribe(() => {
-      if (!registry.runtime.lifecycle.get().active) application.preferences.setState((state) => ({ ...state, localValues: new Map() }))
-    })
-    return () => subscription.unsubscribe()
-  }, [application, registry])
   return createElement(
     ApplicationOwnerProvider, { owner: application },
     createElement(DbProvider, { client: registry.dbClient },

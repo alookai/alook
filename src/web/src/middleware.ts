@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { getAuth } from "@/lib/auth"
-import { isSafeRedirectPath } from "@/lib/safe-redirect"
+import { safeRedirectPath } from "@/lib/safe-redirect"
+import { isRetiredWorkspacePath } from "@/lib/retired-workspace"
 
 const AUTH_REQUIRED_PREFIXES = ["/invite/", "/w/", "/workspaces", "/dashboard", "/c/"]
 
@@ -27,7 +28,8 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl
   const isPublic = PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))
-  const needsAuth = !isPublic && (pathname === "/c" || AUTH_REQUIRED_PREFIXES.some((p) => pathname.startsWith(p)))
+  const retired = isRetiredWorkspacePath(pathname)
+  const needsAuth = !isPublic && (retired || pathname === "/c" || AUTH_REQUIRED_PREFIXES.some((p) => pathname.startsWith(p)))
 
   if (needsAuth) {
     const { env } = await getCloudflareContext({ async: true })
@@ -39,14 +41,14 @@ export async function middleware(request: NextRequest) {
 
     if (!result?.response) {
       const signInUrl = new URL("/sign-in", request.url)
-      const returnTo = pathname + request.nextUrl.search
+      const returnTo = retired ? "/c/me" : pathname + request.nextUrl.search
       if (returnTo !== "/workspaces") {
         signInUrl.searchParams.set("redirect", returnTo)
       }
       return NextResponse.redirect(signInUrl)
     }
 
-    const res = NextResponse.next()
+    const res = retired ? NextResponse.redirect(new URL("/c/me", request.url)) : NextResponse.next()
     for (const cookie of result.headers.getSetCookie()) {
       res.headers.append("Set-Cookie", cookie)
     }
@@ -63,11 +65,7 @@ export async function middleware(request: NextRequest) {
 
     if (result?.response) {
       const redirect = request.nextUrl.searchParams.get("redirect")
-      const target = redirect && isSafeRedirectPath(redirect)
-        ? new URL(redirect, request.url)
-        // Default landing for an already-signed-in visitor hitting /sign-in:
-        // community home. `/workspaces` was the retired legacy (v0) surface.
-        : new URL("/c/me", request.url)
+      const target = new URL(safeRedirectPath(redirect), request.url)
       const res = NextResponse.redirect(target)
       for (const cookie of result.headers.getSetCookie()) {
         res.headers.append("Set-Cookie", cookie)

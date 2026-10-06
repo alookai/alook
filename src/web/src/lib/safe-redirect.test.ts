@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { isSafeRedirectPath, safeRedirectPath } from "./safe-redirect";
 
 describe("safe redirect paths", () => {
+  it.each(["/w", "/%77/sample/home?token=private", "/w/sample/%broken?token=private", "/w/sample/home?token=private", "/w/sample/agents/a/chat/b?workspace_id=private", "/studio/new?template=a&workspace_id=private"])("normalizes a retired return path without its query: %s", path => {
+    expect(safeRedirectPath(path)).toBe("/c/me");
+  });
   it.each([
     "/c/me",
     "/c/me/machines?tab=active",

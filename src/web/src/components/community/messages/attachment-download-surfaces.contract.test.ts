@@ -34,14 +34,8 @@ describe("Community attachment download surface contract", () => {
     }
   })
 
-  it("routes Artifact, email, remote images and share images through the product owner", () => {
+  it("routes remote images and share images through the product owner", () => {
     for (const path of [
-      "src/components/agent-chat/artifact-sheet.tsx",
-      "src/components/agent-chat/image-lightbox.tsx",
-      "src/components/agent-chat/email-event-sheet.tsx",
-      "src/components/artifact-content-renderer.tsx",
-      "src/components/issues/issue-attachment-list.tsx",
-      "src/app/(app)/w/[slug]/agents/[id]/email/page.tsx",
       "src/components/remote-image/remote-markdown-image.tsx",
     ]) {
       const text = source(path)
@@ -54,16 +48,6 @@ describe("Community attachment download surface contract", () => {
     expect(share).toContain("saveFile(blob, filename")
     expect(share).toContain("saveMobileShareImage")
     expect(share).not.toMatch(/createElement\(["']a["']\)/)
-  })
-
-  it("keeps all artifact click controllers on the shared download routing", () => {
-    for (const path of ["src/components/agent-chat/agent-chat-view.tsx", "src/app/(app)/w/[slug]/issues/page.tsx"]) {
-      const text = source(path)
-      expect(text).toContain("useArtifactClick(workspaceId, previewArtifact")
-      expect(text).not.toMatch(/window\.open\(getArtifactUrl/)
-    }
-    expect(source("src/components/agent-chat/agent-chat-view.tsx")).toContain("const handleIssueArtifactClick = useArtifactClick")
-    expect(source("src/components/issues/issue-sheet.tsx")).toContain("<IssueAttachmentList")
   })
 
   it("renders representative message and thread attachments without a surface callback", () => {

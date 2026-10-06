@@ -27,6 +27,7 @@ import {
 import galleryStyles from "@/components/home/landing-shell-motion.module.css"
 import { DEV_PASSWORD } from "@alook/shared"
 import { CircleCheck } from "lucide-react"
+import { safeRedirectPath } from "@/lib/safe-redirect"
 
 // Default post-login landing when no explicit `?redirect=` is present. Points
 // at the community home (/c/me); the old `/workspaces` target was the legacy
@@ -34,10 +35,7 @@ import { CircleCheck } from "lucide-react"
 const DEFAULT_POST_LOGIN = "/c/me"
 
 function safeRedirectUrl(redirect: string | null): string {
-  if (redirect && redirect.startsWith("/") && !redirect.startsWith("//")) {
-    return redirect
-  }
-  return DEFAULT_POST_LOGIN
+  return safeRedirectPath(redirect, DEFAULT_POST_LOGIN)
 }
 
 function SignInForm({

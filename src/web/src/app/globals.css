@@ -1427,15 +1427,6 @@ body.driver-active .community-ws-reconnect-overlay * {
   }
 }
 
-@keyframes calendar-progress {
-  0% {
-    transform: translateX(-100%);
-  }
-
-  100% {
-    transform: translateX(400%);
-  }
-}
 
 /* iMessage-style typing dots for the presence line. */
 @keyframes typing-dot {
@@ -1625,14 +1616,6 @@ body.driver-active .community-ws-reconnect-overlay * {
   scrollbar-width: none;
 }
 
-/* Backdrop scrollbar: takes same space as thin-scrollbar but invisible */
-.mention-backdrop.thin-scrollbar {
-  scrollbar-color: transparent transparent;
-}
-
-.mention-backdrop.thin-scrollbar::-webkit-scrollbar-thumb {
-  background: transparent;
-}
 
 @layer base {
 
@@ -1946,21 +1929,6 @@ body.driver-active .community-ws-reconnect-overlay * {
   font-style: italic;
 }
 
-/* Textarea mention backdrop */
-.caret-foreground {
-  caret-color: var(--foreground);
-}
-
-.textarea-text-hidden {
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-  -webkit-font-smoothing: antialiased;
-}
-
-.textarea-text-hidden::placeholder {
-  -webkit-text-fill-color: var(--muted-foreground);
-  color: var(--muted-foreground);
-}
 
 .chat-input-line-height {
   line-height: 24px;
@@ -2966,29 +2934,9 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   animation: avatar-nod 500ms ease-in-out infinite;
 }
 
-/* ── Sidebar easter egg: logo click → agents pop ── */
-@keyframes sidebar-agent-pop {
-  0% {
-    transform: translateX(0) scale(1) rotate(0);
-  }
-
-  28% {
-    transform: translateX(25px) scale(1.08) rotate(-6deg);
-  }
-
-  100% {
-    transform: translateX(0) scale(1) rotate(0);
-  }
-}
-
-.sidebar-agent-pop {
-  animation: sidebar-agent-pop 500ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
-}
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebar-agent-pop {
-    animation: none !important;
-  }
+
 
   .avatar-anim-shape-bounce [data-avatar-shape],
   .avatar-anim-head-tilt [data-avatar-shape],

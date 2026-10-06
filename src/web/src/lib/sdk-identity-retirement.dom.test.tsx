@@ -5,7 +5,7 @@ import { QueryClient, useIsRestoring, useQueryClient } from "@tanstack/react-que
 import { get, set } from "idb-keyval"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render, waitFor } from "@/test/react-dom-harness"
-import { ApplicationQueryProvider, useApplicationOwner, type ApplicationOwner } from "./application-owner"
+import { PublicQueryProvider, useApplicationOwner, type ApplicationOwner } from "./application-owner"
 import { QueryProvider } from "@/app/c/QueryProvider"
 import { clearAllPersistedCaches, createIdbPersister } from "./query-persister"
 import { getCommunityDbRegistry, type CommunityDbRegistry } from "./community-db/collections"
@@ -19,7 +19,7 @@ function AppProbe() { const restoring = useIsRestoring(); const current = useApp
 function CommunityProbe() { const restoring = useIsRestoring(); const client = useQueryClient(); const current = getCommunityDbRegistry(client)!; useLayoutEffect(() => { community = current; clients.push(client) }); return <p data-restoring={String(restoring)}>Community</p> }
 function Root({ kind, id, show = true }: { kind: "application" | "community"; id: string; show?: boolean }) {
   if (!show) return <p>Other route</p>
-  return kind === "application" ? <ApplicationQueryProvider userId={id}><AppProbe /></ApplicationQueryProvider> : <QueryProvider userId={id}><CommunityProbe /></QueryProvider>
+  return kind === "application" ? <PublicQueryProvider><AppProbe /></PublicQueryProvider> : <QueryProvider userId={id}><CommunityProbe /></QueryProvider>
 }
 const payload = { timestamp: Date.now(), buster: "v3", clientState: { queries: [], mutations: [] } }
 beforeEach(async () => { await act(async () => { await clearAllPersistedCaches(); }) ; sdk.session = { data: { user: { id: "A" } }, isPending: false, error: null }; const real = window; vi.stubGlobal("window", new Proxy(real, { get: (target, key) => key === "location" ? { reload: vi.fn(), assign: vi.fn() } : Reflect.get(target, key, target) })) })
@@ -34,7 +34,7 @@ describe.each(["application", "community"] as const)("%s original public SDK ide
     await waitFor(() => expect(kind === "application" ? application?.userId : community?.accountId).toBe("A"))
     await waitFor(() => expect(view.getByText(kind === "application" ? "Application" : "Community")).toHaveAttribute("data-restoring", "false"))
     const old = kind === "application" ? application : community
-    const a = createIdbPersister("A"), b = createIdbPersister("B", "application")
+    const a = createIdbPersister("A"), b = createIdbPersister("B")
     await act(async () => { await a.persistClient(payload); }) ; await act(async () => { await b.persistClient(payload); }) ; await act(async () => { await set("alook:qc:v2:A:client", "old A"); }) ; await act(async () => { await set("alook:qc:v2:B:client", "old B") })
     sdk.session = { data: { user: { id: "B" } }, isPending: false, error: null }
     await act(async () => view.rerender(<Root kind={kind} id="B" />))

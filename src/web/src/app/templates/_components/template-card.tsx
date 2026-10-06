@@ -1,10 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowUpRight } from "lucide-react";
 import type { TemplatePreset } from "@/lib/templates";
-import { trackTemplateUsed } from "@/lib/analytics";
 
 const ROLE_DOT_COLORS: Record<string, string> = {
   leader: "bg-amber-500/70 dark:bg-amber-400/60",
@@ -15,28 +12,12 @@ const ROLE_DOT_COLORS: Record<string, string> = {
 
 export function TemplateCard({
   template,
-  isLoggedIn,
-  workspaceId,
 }: {
   template: TemplatePreset;
-  isLoggedIn: boolean;
-  workspaceId?: string;
 }) {
-  const router = useRouter();
-  const getUrl = workspaceId
-    ? `/studio/new?template=${template.id}&workspace_id=${workspaceId}`
-    : `/studio/new?template=${template.id}`;
-  const href = isLoggedIn
-    ? getUrl
-    : `/sign-in?redirect=${encodeURIComponent(getUrl)}`;
-
-  const detailUrl = workspaceId
-    ? `/templates/${template.id}?workspace_id=${workspaceId}`
-    : `/templates/${template.id}`;
-
   return (
     <Link
-      href={detailUrl}
+      href={`/templates/${template.id}`}
       className="group relative flex flex-col rounded-xl bg-card p-4 transition-all duration-200 hover:bg-accent/40 border border-transparent hover:border-border"
     >
       {/* Icon */}
@@ -68,19 +49,6 @@ export function TemplateCard({
           </span>
         </div>
 
-        <button
-          type="button"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            trackTemplateUsed({ template_id: template.id, template_name: template.name });
-            router.push(href);
-          }}
-          className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground opacity-0 transition-all duration-150 group-hover:opacity-100 group-hover:bg-foreground group-hover:text-background"
-        >
-          Use
-          <ArrowUpRight className="size-3" />
-        </button>
       </div>
     </Link>
   );

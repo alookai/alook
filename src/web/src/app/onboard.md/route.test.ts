@@ -34,7 +34,10 @@ describe("GET /onboard.md", () => {
     const body = await response.text();
     expect(body).toContain("npx @alook/cli login");
     expect(body).toContain("https://alook.ai/templates");
-    expect(body).toContain("https://alook.ai/w/{slug}/home");
+    expect(body).toContain("https://alook.ai/c/me");
+    expect(body).toContain("workspace init --json-file");
+    expect(body).toContain("old workspace web interface has been retired");
+    expect(body).not.toContain("/w/{slug}/home");
   });
 
   it("uses localhost in development mode when no URLs are set", async () => {
@@ -57,6 +60,6 @@ describe("GET /onboard.md", () => {
     const body = await response.text();
     expect(body).toContain("npx @alook/app cli login");
     expect(body).toContain("http://localhost:15210/templates");
-    expect(body).toContain("http://localhost:15210/w/{slug}/home");
+    expect(body).toContain("http://localhost:15210/c/me");
   });
 });

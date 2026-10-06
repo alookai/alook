@@ -8,6 +8,8 @@ const origin = "https://alook.ai", session = "safe-session"
 const meta = { sdk: { name: "faro-web", version: "2.12.1", integrations: [{ name: "SECRET", version: "SECRET" }] }, session: { id: session }, page: { url: origin + "/c/invite/SECRET?token=SECRET#SECRET" }, user: { email: "private@example.com", fullName: "SECRET" } }
 describe("outbound whitelist", () => {
   it("templates IDs, never exposes query or external arbitrary URLs", () => {
+    expect(routeTemplate("/w/private/agents/a/chat/b?token=SECRET", origin)).toBe("/w/[[...path]]")
+    expect(routeTemplate("/w", origin)).toBe("/w/[[...path]]")
     expect(routeTemplate("/c/invite/SECRET?token=SECRET", origin)).toBe("/c/invite/[token]")
     expect(routeTemplate("/api/community/messages/SECRET/reactions/PRIVATE", origin)).toBe("/api/community/messages/[id]/reactions/[emoji]")
     expect(routeTemplate("https://private.example/SECRET", origin)).toBe("/external")

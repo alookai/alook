@@ -1,13 +1,10 @@
 import { createElement, type PropsWithChildren } from "react"
-import { QueryClientProvider } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
-import { ApplicationOwnerProvider, createApplicationOwner, retireApplicationOwner } from "@/lib/application-owner"
 import { retireCommunityAccount } from "@/lib/community/account-cache-lifecycle"
 import { useAccountSignOut } from "./community/use-account-sign-out"
-import { useApplicationSignOut } from "./use-application-sign-out"
 
 const sdk = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/auth-client", () => ({ signOutWithOrigin: sdk }))
@@ -19,18 +16,15 @@ function deferred() {
   return { promise, resolve }
 }
 async function setup(domain: "community" | "application", disk = Promise.resolve()) {
-  const community = await createCommunityQueryOwner(), application = createApplicationOwner("viewer", community.client)
+  const community = await createCommunityQueryOwner()
   let viewer: string | null = "viewer"
   community.registry.bindAuthentication(() => viewer, () => disk)
-  application.bindAuthentication(() => viewer, () => disk)
-  const wrapper = ({ children }: PropsWithChildren) => domain === "community"
-    ? createElement(CommunityTestProvider, { client: community.client, registry: community.registry, retainOwner: true }, children)
-    : createElement(QueryClientProvider, { client: application.queryClient }, createElement(ApplicationOwnerProvider, { owner: application }, children))
-  const useCommand = domain === "community" ? useAccountSignOut : useApplicationSignOut
+  const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client: community.client, registry: community.registry, retainOwner: true }, children)
+  const useCommand = useAccountSignOut
   const view = renderHook(() => useCommand(), { wrapper })
-  return { view, changeViewer: () => { viewer = "replacement" }, retire: () => domain === "community" ? retireCommunityAccount(community.registry) : retireApplicationOwner(application), retired: () => domain === "community" ? !community.runtime.lifecycle.get().active : !application.lifecycle.get().active }
+  return { view, changeViewer: () => { viewer = "replacement" }, retire: () => retireCommunityAccount(community.registry), retired: () => !community.runtime.lifecycle.get().active }
 }
-describe.each(["community", "application"] as const)("Native %s sign-out facade", (domain) => {
+describe.each(["community"] as const)("Native %s sign-out facade", (domain) => {
   it("keeps public methods stable and delivers void input after its authorized retirement", async () => {
     const held = deferred(), owner = await setup(domain), onSuccess = vi.fn(), onSettled = vi.fn()
     sdk.mockImplementation(async (assert: () => void) => { assert(); await held.promise; assert(); return {} })

@@ -1,9 +1,10 @@
+import { isRetiredWorkspacePath } from "./retired-workspace"
 import { finalizePublicWorkerResponse } from "./public-worker-response"
 
 const PRIVATE_PREFIXES = ["/w/", "/workspaces", "/dashboard", "/invite/", "/api/", "/_next/"]
 
 function isPublicRoute(pathname: string): boolean {
-  return !PRIVATE_PREFIXES.some((prefix) => pathname.startsWith(prefix))
+  return !isRetiredWorkspacePath(pathname) && !PRIVATE_PREFIXES.some((prefix) => pathname.startsWith(prefix))
 }
 
 export function createWebWorkerHandler(

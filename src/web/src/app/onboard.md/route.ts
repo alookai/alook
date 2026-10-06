@@ -70,13 +70,9 @@ ${cliPrefix} workspace init --json-file <path_to_json>
 
 If the current workspace already has agents, a new workspace is created automatically.
 
-Your workspace is ready. Open it at:
+Workspace commands remain available in the CLI. The old workspace web interface has been retired.
 
-\`\`\`
-${baseUrl}/w/{slug}/home
-\`\`\`
-
-(Use the workspace slug from the \`workspace init\` output above.)
+Open the community at ${baseUrl}/c/me. Public template JSON remains available for reference.
 `;
 }
 

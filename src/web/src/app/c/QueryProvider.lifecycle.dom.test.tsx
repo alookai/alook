@@ -1,3 +1,4 @@
+import { get, set } from "idb-keyval"
 import { useLayoutEffect } from "react"
 import "fake-indexeddb/auto"
 import React from "react"
@@ -80,10 +81,10 @@ describe("actual native community account provider", () => {
   })
   it("current 401 retires canonical native facts and both disk domains before navigation", async () => {
     render(<App />); await waitFor(() => expect(registry?.authenticationView.get().active).toBe(true)); await waitFor(() => expect(restoring).toBe(false)); await act(async () => { await registry.preload() })
-    const old = registry, community = createIdbPersister("A"), application = createIdbPersister("A", "application"); await act(async () => { await community.persistClient(payload); }) ; await act(async () => { await application.persistClient(payload) })
+    const old = registry, community = createIdbPersister("A"); await act(async () => { await community.persistClient(payload); }) ; await act(async () => { await set("alook:qc:v3:A:application:client", JSON.stringify(payload)) })
     let done!: ReturnType<typeof command>; await act(async () => { done = command().catch((error) => error) }) ; await waitFor(() => expect(complete).toBeTypeOf("function")); await act(async () => { complete(new Response("{}", { status: 401 })); await done })
     await waitFor(() => expect(assign).toHaveBeenCalledOnce()); expect(old.runtime.lifecycle.get().active).toBe(false); expect(old.queryClient.getQueryCache().getAll()).toHaveLength(0)
-    expect(await community.isCurrent()).toBe(false); expect(await application.isCurrent()).toBe(false); expect(reload).not.toHaveBeenCalled()
+    expect(await community.isCurrent()).toBe(false); expect(await get("alook:qc:v3:A:application:client")).toBeUndefined(); expect(reload).not.toHaveBeenCalled()
   })
   it("direct provider identity change creates B rather than reusing A's native instances", async () => {
     const mounted = render(<App />); await waitFor(() => expect(registry?.authenticationView.get().active).toBe(true)); await waitFor(() => expect(restoring).toBe(false)); await act(async () => { await registry.preload() }); const old = registry

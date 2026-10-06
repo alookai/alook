@@ -62,7 +62,7 @@ describe("ApiError class", () => {
 // We dynamically import to get the patched fetch
 async function getApiFetch() {
   // Re-import to pick up mocked fetch
-  const mod = await import("./api");
+  const mod = await import("./api/client");
   return mod;
 }
 
@@ -74,9 +74,9 @@ describe("apiFetch", () => {
       json: async () => ({ error: "name is required" }),
     });
 
-    const { listAgents } = await getApiFetch();
+    const { apiFetch } = await getApiFetch();
     try {
-      await listAgents("w1");
+      await apiFetch("/api/community/bots");
     } catch (e) {
       expect(e).toBeInstanceOf(ApiError);
       expect((e as ApiError).message).toBe("name is required");
@@ -94,9 +94,9 @@ describe("apiFetch", () => {
       }),
     });
 
-    const { listAgents } = await getApiFetch();
+    const { apiFetch } = await getApiFetch();
     try {
-      await listAgents("w1");
+      await apiFetch("/api/community/bots");
     } catch (e) {
       expect(e).toBeInstanceOf(ApiError);
       expect((e as ApiError).message).toBe("Name is required");
@@ -114,9 +114,9 @@ describe("apiFetch", () => {
       }),
     });
 
-    const { listAgents } = await getApiFetch();
+    const { apiFetch } = await getApiFetch();
     try {
-      await listAgents("w1");
+      await apiFetch("/api/community/bots");
     } catch (e) {
       expect(e).toBeInstanceOf(ApiError);
       expect((e as ApiError).message).toBe("Runtime Id is required");
@@ -127,9 +127,9 @@ describe("apiFetch", () => {
   it("returns ApiError with status 0 on network TypeError", async () => {
     mockFetch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
 
-    const { listAgents } = await getApiFetch();
+    const { apiFetch } = await getApiFetch();
     try {
-      await listAgents("w1");
+      await apiFetch("/api/community/bots");
     } catch (e) {
       expect(e).toBeInstanceOf(ApiError);
       expect((e as ApiError).status).toBe(0);
@@ -145,9 +145,9 @@ describe("apiFetch", () => {
       json: async () => ({ error: "rate limited" }),
     });
 
-    const { listAgents } = await getApiFetch();
+    const { apiFetch } = await getApiFetch();
     try {
-      await listAgents("w1");
+      await apiFetch("/api/community/bots");
     } catch (e) {
       expect(e).toBeInstanceOf(ApiError);
       expect((e as ApiError).status).toBe(429);
@@ -163,9 +163,9 @@ describe("apiFetch", () => {
       json: async () => { throw new Error("not json"); },
     });
 
-    const { listAgents } = await getApiFetch();
+    const { apiFetch } = await getApiFetch();
     try {
-      await listAgents("w1");
+      await apiFetch("/api/community/bots");
     } catch (e) {
       expect(e).toBeInstanceOf(ApiError);
       expect((e as ApiError).status).toBe(500);
@@ -180,9 +180,9 @@ describe("apiFetch", () => {
       json: async () => ({ error: "database connection failed" }),
     });
 
-    const { listAgents } = await getApiFetch();
+    const { apiFetch } = await getApiFetch();
     try {
-      await listAgents("w1");
+      await apiFetch("/api/community/bots");
     } catch (e) {
       expect(e).toBeInstanceOf(ApiError);
       expect((e as ApiError).message).toBe("database connection failed");
@@ -196,9 +196,9 @@ describe("apiFetch", () => {
       json: async () => { throw new Error("empty"); },
     });
 
-    const { listAgents } = await getApiFetch();
+    const { apiFetch } = await getApiFetch();
     try {
-      await listAgents("w1");
+      await apiFetch("/api/community/bots");
     } catch (e) {
       expect(e).toBeInstanceOf(ApiError);
       expect((e as ApiError).status).toBe(502);
@@ -213,9 +213,9 @@ describe("apiFetch", () => {
       json: async () => ({ error: "unauthorized" }),
     });
 
-    const { listAgents } = await getApiFetch();
+    const { apiFetch } = await getApiFetch();
     try {
-      await listAgents("w1");
+      await apiFetch("/api/community/bots");
     } catch (e) {
       expect(e).toBeInstanceOf(ApiError);
       expect((e as ApiError).status).toBe(401);
@@ -232,50 +232,15 @@ describe("apiFetch", () => {
       json: async () => ({ error: "unauthorized" }),
     });
 
-    const { listAgents } = await getApiFetch();
+    const { apiFetch } = await getApiFetch();
     beginAccountDeletionAuthTransition();
 
-    await expect(listAgents("w1")).rejects.toMatchObject({ status: 401 });
+    await expect(apiFetch("/api/community/bots")).rejects.toMatchObject({ status: 401 });
     expect(locationAssignMock).not.toHaveBeenCalled();
 
     cancelAccountDeletionAuthTransition();
-    await expect(listAgents("w1")).rejects.toMatchObject({ status: 401 });
+    await expect(apiFetch("/api/community/bots")).rejects.toMatchObject({ status: 401 });
     expect(locationAssignMock).toHaveBeenCalledWith(new URL("/sign-in", "https://alook.test"));
-  });
-});
-
-describe("conversationInit — message_count serialization", () => {
-  function okJson() {
-    return { ok: true, status: 200, json: async () => ({}) };
-  }
-
-  function lastUrl(): string {
-    const call = mockFetch.mock.calls.at(-1);
-    return String(call?.[0] ?? "");
-  }
-
-  it("omits message_count when the count is 0 (treated as unknown)", async () => {
-    mockFetch.mockResolvedValueOnce(okJson());
-    const { conversationInit } = await getApiFetch();
-    await conversationInit("conv_1", "w1", { messageCount: 0 });
-    expect(lastUrl()).not.toContain("message_count");
-    // Critically: never sends the truthy string "0", which would make the
-    // server's `serverMessageCount === 0` compare fail for non-empty convs.
-    expect(lastUrl()).not.toContain("message_count=0");
-  });
-
-  it("includes message_count when the count is greater than 0", async () => {
-    mockFetch.mockResolvedValueOnce(okJson());
-    const { conversationInit } = await getApiFetch();
-    await conversationInit("conv_1", "w1", { messageCount: 12 });
-    expect(lastUrl()).toContain("message_count=12");
-  });
-
-  it("omits message_count when not provided", async () => {
-    mockFetch.mockResolvedValueOnce(okJson());
-    const { conversationInit } = await getApiFetch();
-    await conversationInit("conv_1", "w1");
-    expect(lastUrl()).not.toContain("message_count");
   });
 });
 
@@ -301,8 +266,8 @@ describe("apiFetch — mock network delay", () => {
     });
     vi.stubGlobal("fetch", localMockFetch);
 
-    const { listAgents } = await import("./api");
-    const promise = listAgents("w1");
+    const { apiFetch } = await import("./api/client");
+    const promise = apiFetch("/api/community/bots");
 
     expect(localMockFetch).not.toHaveBeenCalled();
 
@@ -324,8 +289,8 @@ describe("apiFetch — mock network delay", () => {
     });
     vi.stubGlobal("fetch", localMockFetch);
 
-    const { listAgents } = await import("./api");
-    const promise = listAgents("w1");
+    const { apiFetch } = await import("./api/client");
+    const promise = apiFetch("/api/community/bots");
 
     await vi.advanceTimersByTimeAsync(0);
 
@@ -348,8 +313,8 @@ describe("apiFetch — mock network delay", () => {
     });
     vi.stubGlobal("fetch", localMockFetch);
 
-    const { listAgents } = await import("./api");
-    const promise = listAgents("w1");
+    const { apiFetch } = await import("./api/client");
+    const promise = apiFetch("/api/community/bots");
 
     expect(localMockFetch).not.toHaveBeenCalled();
 

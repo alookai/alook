@@ -110,117 +110,8 @@ export function trackSignInSuccess(method: string) {
   sendConsentAwareGTMEvent({ event: "sign_in_success", method });
 }
 
-export function trackWorkspaceCreated(source: "onboarding" | "manual") {
-  sendConsentAwareGTMEvent({ event: "workspace_created", source });
-}
-
-export function trackAgentCreated(params: {
-  is_first_agent: boolean;
-  has_email: boolean;
-  template_id?: string;
-}) {
-  sendConsentAwareGTMEvent({ event: "agent_created", ...params });
-}
-
-export function trackOnboardingCompleted(params: {
-  template_used?: string;
-  agent_count: number;
-}) {
-  sendConsentAwareGTMEvent({ event: "onboarding_completed", ...params });
-}
-
-export function trackAgentChatOpened(params: {
-  agent_id: string;
-  is_first_chat: boolean;
-}) {
-  sendConsentAwareGTMEvent({ event: "agent_chat_opened", ...params });
-}
-
-export function trackMessageSent(params: {
-  agent_id: string;
-  message_length: number;
-}) {
-  sendConsentAwareGTMEvent({ event: "message_sent", ...params });
-}
-
-// ─── P1 — Feature Usage Events ─────────────────────────────────────────────
-
-export function trackEmailComposed(params: {
-  agent_id: string;
-  has_attachments: boolean;
-}) {
-  sendConsentAwareGTMEvent({ event: "email_composed", ...params });
-}
-
-export function trackEmailReceived(params: {
-  agent_id: string;
-  mailbox_type: "alook" | "imap";
-}) {
-  sendConsentAwareGTMEvent({ event: "email_received", ...params });
-}
-
-export function trackCalendarEventCreated(params: {
-  agent_id: string;
-  is_recurring: boolean;
-}) {
-  sendConsentAwareGTMEvent({ event: "calendar_event_created", ...params });
-}
-
-export function trackIssueCreated(params: { agent_id: string }) {
-  sendConsentAwareGTMEvent({ event: "issue_created", ...params });
-}
-
-export function trackIssueStatusChanged(params: {
-  from: string;
-  to: string;
-  method: "drag" | "button";
-}) {
-  sendConsentAwareGTMEvent({ event: "issue_status_changed", ...params });
-}
-
-export function trackThreadViewed(params: {
-  agent_count: number;
-  status: string;
-}) {
-  sendConsentAwareGTMEvent({ event: "thread_viewed", ...params });
-}
-
-export function trackTemplateUsed(params: {
-  template_id: string;
-  template_name: string;
-}) {
-  sendConsentAwareGTMEvent({ event: "template_used", ...params });
-}
-
-export function trackCustomEmailConnected(params: { email_domain: string }) {
-  sendConsentAwareGTMEvent({ event: "custom_email_connected", ...params });
-}
-
-// ─── P2 — Growth & Retention Signals ───────────────────────────────────────
-
-export function trackTeamMemberInvited(params: { workspace_id: string }) {
-  sendConsentAwareGTMEvent({ event: "team_member_invited", ...params });
-}
-
 export function trackInviteAccepted(params: { workspace_id: string }) {
   sendConsentAwareGTMEvent({ event: "invite_accepted", ...params });
-}
-
-export function trackSecondAgentCreated(params: { total_agents: number }) {
-  sendConsentAwareGTMEvent({ event: "second_agent_created", ...params });
-}
-
-export function trackAgentLinkCreated(params: {
-  source_agent: string;
-  target_agent: string;
-}) {
-  sendConsentAwareGTMEvent({ event: "agent_link_created", ...params });
-}
-
-export function trackRuntimeConnected(params: {
-  runtime_type: "desktop" | "cloud";
-}) {
-  sendConsentAwareGTMEvent({ event: "runtime_connected", ...params });
 }
 
 export type GithubOutboundSurface = "landing" | "blog" | "public_nav" | "public_footer"
@@ -516,12 +407,4 @@ export function trackLandingCtaClicked(params: { cta_name: string }) {
 
 export function trackTemplatesBrowsed(params: { category_filter: string }) {
   sendConsentAwareGTMEvent({ event: "templates_browsed", ...params });
-}
-
-export function trackSettingsUpdated(params: { setting_tab: string }) {
-  sendConsentAwareGTMEvent({ event: "settings_updated", ...params });
-}
-
-export function trackCanvasLayoutChanged(params: { layout_type: string }) {
-  sendConsentAwareGTMEvent({ event: "canvas_layout_changed", ...params });
 }

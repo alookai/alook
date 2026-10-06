@@ -12,12 +12,10 @@ export function TemplatesClient({
   templates,
   categories,
   isLoggedIn,
-  workspaceId,
 }: {
   templates: TemplatePreset[];
   categories: TemplateCategory[];
   isLoggedIn: boolean;
-  workspaceId?: string;
 }) {
   const [activeCategory, setActiveCategory] = useAtom(useCreateAtom<"All" | TemplateCategory>("All"));
   const tracked = useRef(false);
@@ -116,8 +114,6 @@ export function TemplatesClient({
             <TemplateCard
               key={template.id}
               template={template}
-              isLoggedIn={isLoggedIn}
-              workspaceId={workspaceId}
             />
           ))}
         </div>

@@ -78,7 +78,7 @@ export const SPEC_SECONDS = {
   "54-blog-multizone.spec.ts": 5.485,
   "55-message-scroll-characterization.spec.ts": 109.548,
   "56-inbox-friend-requests.spec.ts": 60,
-  "56-remote-image-state-contract.spec.ts": 3.122,
+  "56-retired-workspace-links.spec.ts": DEFAULT_SPEC_SECONDS,
   "57-server-delete-navigation-races.spec.ts": 55,
   "58-system-notifications.spec.ts": 46.600,
   "59-message-pagination-anchor.spec.ts": 45.600,

@@ -483,29 +483,9 @@ describe("Cloud Code monster PET helpers", () => {
   });
 });
 
-describe("production workspace PET mounting", () => {
+describe("production landing PET mounting", () => {
   it("mounts only production PET surfaces", () => {
     const root = webRoot();
-    const workspaceHomePage = readFileSync(
-      path.join(root, "src/app/(app)/w/[slug]/home/page.tsx"),
-      "utf8"
-    );
-    const settingsPage = readFileSync(
-      path.join(root, "src/app/(app)/w/[slug]/settings/page.tsx"),
-      "utf8"
-    );
-    const petTab = readFileSync(
-      path.join(root, "src/app/(app)/w/[slug]/settings/pet-tab.tsx"),
-      "utf8"
-    );
-    const workspaceShell = readFileSync(
-      path.join(root, "src/components/workspace-shell.tsx"),
-      "utf8"
-    );
-    const workspacePetLayer = readFileSync(
-      path.join(root, "src/components/home-pet/workspace-pet-layer.tsx"),
-      "utf8"
-    );
     const petComponent = readFileSync(
       path.join(root, "src/components/home-pet/cloud-code-monster-pet.tsx"),
       "utf8"
@@ -538,24 +518,8 @@ describe("production workspace PET mounting", () => {
       path.join(root, "src/components/home-pet/cloud-code-monster-pet-walk-target.ts"),
       "utf8"
     );
-    const agentNode = readFileSync(
-      path.join(root, "src/components/canvas/agent-node.tsx"),
-      "utf8"
-    );
-    const inboxPopover = readFileSync(
-      path.join(root, "src/components/inbox-popover.tsx"),
-      "utf8"
-    );
     const landingPage = readFileSync(
       path.join(root, "src/components/home/home-page.tsx"),
-      "utf8"
-    );
-    const inboxCountContext = readFileSync(
-      path.join(root, "src/contexts/inbox-count-context.tsx"),
-      "utf8"
-    );
-    const agentContext = readFileSync(
-      path.join(root, "src/contexts/agent-context.tsx"),
       "utf8"
     );
     const globalCss = readFileSync(path.join(root, "src/app/globals.css"), "utf8");
@@ -591,28 +555,7 @@ describe("production workspace PET mounting", () => {
     ];
 
     // Home page no longer renders pet directly
-    expect(workspaceHomePage).not.toContain("CloudCodeMonsterPet");
-    expect(workspaceHomePage).not.toContain("useHomePetSettings");
-    expect(settingsPage).toContain('{ id: "pet", label: "Pet" }');
-    expect(petTab).toContain("Enable pet");
-    expect(petTab).not.toContain("Homepage only");
-    expect(petTab).not.toContain("Global Display");
-    expect(petTab).toContain("CloudCodeMonsterPresetPreview");
-    expect(petTab).toContain("cloud-code-monster-pet-presets");
-    expect(petTab).not.toContain(
-      'from "@/components/home-pet/cloud-code-monster-pet";'
-    );
-    expect(workspaceShell).toContain("WorkspacePetLayer");
-    expect(workspaceShell).toContain("RuntimeVersionGate");
     // Pet layer renders on all pages — no displayScope or isHome check
-    expect(workspacePetLayer).not.toContain("displayScope");
-    expect(workspacePetLayer).not.toContain("isHome");
-    expect(workspacePetLayer).toContain("petSettings.enabled");
-    expect(workspacePetLayer).toContain("dynamic<CloudCodeMonsterPetProps>");
-    expect(inboxCountContext).toContain("notificationToken");
-    expect(inboxCountContext).not.toContain("prevCountRef.current = next");
-    expect(workspacePetLayer).toContain("useInboxCount");
-    expect(workspacePetLayer).toContain("notificationToken={notificationToken}");
     expect(petComponent).toContain("const EMPTY_PEEK_TARGETS");
     expect(petComponent).toContain("peekTargets = EMPTY_PEEK_TARGETS");
     expect(petComponent).toContain("peekTargetsRef.current = peekTargets");
@@ -626,7 +569,6 @@ describe("production workspace PET mounting", () => {
     expect(petComponent).toContain("isDragging || fainted || notificationActive");
     expect(petComponent).toContain("useWalkToTarget");
     expect(petComponent).toContain("activeAgentTaskCount = 0");
-    expect(workspacePetLayer).toContain("activeTaskDetails");
     expect(petComponent).toContain("hasRunningTasks");
     expect(petComponent).toContain("activeAgentTaskCountRef.current");
     expect(petComponent).toContain('clearPetTimer("attention")');
@@ -696,21 +638,16 @@ describe("production workspace PET mounting", () => {
     expect(petWalkTarget).toContain("createWalkToTargetVelocity");
     expect(petWalkTarget).toContain('data-pet-target-id');
     // Inbox button has pet target attribute
-    expect(inboxPopover).toContain('data-pet-target-id="inbox"');
     // Landing page renders pet for logged-in users
     expect(landingPage).toContain("CloudCodeMonsterPet");
     expect(landingPage).toContain("isLoggedIn && petSettings.enabled");
     // Public pet receives facts through props from the workspace owner.
-    expect(inboxCountContext).toContain("useQuery");
-    expect(agentContext).toContain("useAgentContext");
     for (const sensitiveShapeId of sensitiveShapeIds) {
       expect(clientPetSources).not.toContain(`"${sensitiveShapeId}"`);
     }
     expect(petPixelParts).toContain(
       'import("./cloud-code-monster-pet-direct-shapes")'
     );
-    expect(agentNode).toContain("data-agent-node-id={agent.id}");
-    expect(agentNode).toContain('data-agent-working={activeTaskCount > 0 ? "true" : "false"}');
     expect(petCssModule).toContain(".pet {");
     expect(petCssModule).toContain(".button {");
     expect(petCssModule).toContain(".footprint {");
