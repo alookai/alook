@@ -5,7 +5,7 @@ const OWNER_ID = "e2e_backend_quota_owner"
 const MACHINE_ID = "e2e_backend_quota_machine"
 const SOURCE_EPOCH = "a".repeat(22)
 const NOW = "2026-09-08T00:00:00.000Z"
-const SUPPORTED_BACKENDS = ["claude", "codex", "grok"] as const
+const SUPPORTED_BACKENDS = ["claude", "codex", "grok", "antigravity"] as const
 
 function insertQuota(agentBackendId: string): void {
   sqlRun(
