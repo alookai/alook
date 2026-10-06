@@ -76,6 +76,74 @@ describe("Antigravity official account quota", () => {
     expect(f.fetchUsage).not.toHaveBeenCalled();
   });
 
+  it.each(["timeout", "denied"])("keeps Keychain %s plus an absent file locally unavailable and retryable", async (reason) => {
+    const h = fixture({ platform: "darwin" });
+    h.options.readCredentialsFile.mockImplementation(async (path) => {
+      if (path.endsWith("settings.json")) return JSON.stringify({ auth: { type: "oauth-personal" } });
+      throw Object.assign(new Error("missing"), { code: "ENOENT" });
+    });
+    const result = await readAntigravityQuota({ ...h.options, readKeychain: async () => { throw new Error(reason); } });
+    expect(result).toMatchObject({ status: "error", code: "unavailable", retryable: true });
+    expect(h.fetchUsage).not.toHaveBeenCalled();
+  });
+
+  it("keeps unreadable credential storage distinct from readable incomplete or malformed credentials", async () => {
+    const h = fixture({ platform: "darwin" });
+    h.options.readCredentialsFile.mockImplementation(async (path) => {
+      if (path.endsWith("settings.json")) return JSON.stringify({ auth: { type: "oauth-personal" } });
+      throw Object.assign(new Error("denied"), { code: "EACCES" });
+    });
+    expect(await readAntigravityQuota({ ...h.options, readKeychain: async () => { throw new Error("timeout"); } }))
+      .toMatchObject({ status: "error", code: "unavailable", retryable: true });
+    expect(await readAntigravityQuota({ ...h.options, readKeychain: async () => JSON.stringify({ refresh_token: "incomplete" }) }))
+      .toMatchObject({ status: "error", code: "unauthorized", retryable: false });
+    h.options.readCredentialsFile.mockImplementation(async (path) => path.endsWith("settings.json") ? JSON.stringify({ auth: { type: "oauth-personal" } }) : "not-json");
+    expect(await readAntigravityQuota({ ...h.options, readKeychain: async () => "not-json" }))
+      .toMatchObject({ status: "error", code: "unauthorized", retryable: false });
+    expect(h.fetchUsage).not.toHaveBeenCalled();
+  });
+
+  it("uses a valid native file fallback after a Keychain timeout", async () => {
+    const h = fixture({ platform: "darwin" });
+    expect(await readAntigravityQuota({ ...h.options, readKeychain: async () => { throw new Error("timeout"); } }))
+      .toMatchObject({ status: "available" });
+    expect(h.calls.map((call) => call.url)).toEqual(["https://oauth2.googleapis.com/token", "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist", "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"]);
+  });
+
+  it("keeps a settings read failure retryable without attempting credentials or HTTP", async () => {
+    const h = fixture({ platform: "darwin" });
+    h.options.readCredentialsFile.mockRejectedValue(Object.assign(new Error("denied"), { code: "EACCES" }));
+    const readKeychain = vi.fn();
+    expect(await readAntigravityQuota({ ...h.options, readKeychain })).toMatchObject({ status: "error", code: "unavailable", retryable: true });
+    expect(readKeychain).not.toHaveBeenCalled();
+    expect(h.fetchUsage).not.toHaveBeenCalled();
+  });
+
+  it.each(["missing", "unreadable", "malformed"])("distinguishes a %s native file when file storage is selected", async (reason) => {
+    const h = fixture({ platform: "darwin", env: { AGY_ACP_FORCE_FILE_STORAGE: "1" } });
+    h.options.readCredentialsFile.mockImplementation(async (path) => {
+      if (path.endsWith("settings.json")) return JSON.stringify({ auth: { type: "oauth-personal" } });
+      if (reason === "malformed") return "not-json";
+      throw Object.assign(new Error(reason), { code: reason === "missing" ? "ENOENT" : "EACCES" });
+    });
+    const readKeychain = vi.fn();
+    expect(await readAntigravityQuota({ ...h.options, readKeychain })).toMatchObject({
+      status: "error", code: reason === "unreadable" ? "unavailable" : "unauthorized", retryable: reason === "unreadable",
+    });
+    expect(readKeychain).not.toHaveBeenCalled();
+    expect(h.fetchUsage).not.toHaveBeenCalled();
+  });
+
+  it.each(["missing", "malformed"])("does not claim transient storage failure for %s settings", async (reason) => {
+    const h = fixture();
+    h.options.readCredentialsFile.mockImplementation(async () => {
+      if (reason === "malformed") return "not-json";
+      throw Object.assign(new Error("missing"), { code: "ENOENT" });
+    });
+    expect(await readAntigravityQuota(h.options)).toMatchObject({ status: "error", code: "unavailable", retryable: false });
+    expect(h.fetchUsage).not.toHaveBeenCalled();
+  });
+
   it.each([400, 401, 403, 429, 500])("reports token refresh HTTP %s without returning error body", async (status) => {
     const h = fixture({ fetch: (async () => new Response("sensitive error detail", { status })) as typeof fetch });
     expect(await readAntigravityQuota(h.options)).toMatchObject({ status: "error", code: status < 429 ? "unauthorized" : "provider_error", retryable: status >= 429 });

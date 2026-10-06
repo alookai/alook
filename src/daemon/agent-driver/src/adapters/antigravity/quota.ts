@@ -84,20 +84,30 @@ export async function readAntigravityQuota(options: AntigravityQuotaReaderOption
   const read = options.readCredentialsFile ?? ((path: string) => readFile(path, "utf8"));
   let credentials: Record<string, unknown> | null = null;
   let authType: unknown;
+  let storageUnavailable = false;
+  const loadCredentials = async (load: () => Promise<string>) => {
+    let value: string;
+    try { value = await load(); }
+    catch (failure) {
+      if (asRecord(failure)?.code !== "ENOENT") storageUnavailable = true;
+      return null;
+    }
+    try { return asRecord(JSON.parse(value)); }
+    catch { return null; }
+  };
   try {
     authType = asRecord(asRecord(JSON.parse(await read(join(root, "antigravity-acp", "settings.json"))))?.auth)?.type;
     if (authType === "oauth-personal") {
       if ((options.platform ?? process.platform) === "darwin" && !/^(1|true|yes)$/i.test(env.AGY_ACP_FORCE_FILE_STORAGE ?? "")) {
-        try {
-          const value = options.readKeychain ? await options.readKeychain() : await readLocalCommand("security", ["find-generic-password", "-s", "gemini", "-a", "antigravity-acp", "-w"]);
-          credentials = asRecord(JSON.parse(value));
-        } catch { }
+        credentials = await loadCredentials(() => options.readKeychain ? options.readKeychain() : readLocalCommand("security", ["find-generic-password", "-s", "gemini", "-a", "antigravity-acp", "-w"]));
       }
       if (!credentials) {
-        try { credentials = asRecord(JSON.parse(await read(join(root, "antigravity-acp", "acp_token.json")))); } catch { }
+        credentials = await loadCredentials(() => read(join(root, "antigravity-acp", "acp_token.json")));
       }
     }
-  } catch { }
+  } catch (failure) {
+    if (!(failure instanceof SyntaxError) && asRecord(failure)?.code !== "ENOENT") storageUnavailable = true;
+  }
   const identity = createHash("sha256").update(JSON.stringify([root, authType, credentials?.client_id, credentials?.refresh_token, credentials?.project_id])).digest("hex");
   if (activeSource.identity !== identity) activeSource = { identity, epoch: randomBytes(16).toString("base64url") };
   const source = activeSource;
@@ -105,7 +115,8 @@ export async function readAntigravityQuota(options: AntigravityQuotaReaderOption
   const clientId = text(credentials?.client_id);
   const clientSecret = text(credentials?.client_secret);
   const refreshToken = text(credentials?.refresh_token);
-  if (authType !== "oauth-personal") return error("unavailable");
+  if (authType !== "oauth-personal") return error("unavailable", storageUnavailable);
+  if (!credentials && storageUnavailable) return error("unavailable", true);
   if (!clientId || !clientSecret || !refreshToken) return error("unauthorized");
   const fetchUsage = options.fetchUsage ?? fetch;
   const post = async (url: string, body: unknown, token: string) => {
