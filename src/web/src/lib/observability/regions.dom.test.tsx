@@ -12,13 +12,13 @@ vi.mock("next/navigation", () => ({ usePathname: () => "/", useSearchParams: () 
 const events: Array<{ name: string; attributes: Record<string, string> }> = []
 let client: QueryClient
 async function emptyResponse() {
-  const request = startRequest("/api/agents"), response = new Response("[]")
+  const request = startRequest("/api/community/bots"), response = new Response("[]")
   requestHeaders(request, response)
   return readObservedResponse(response, () => response.json()) as Promise<unknown[]>
 }
 function Panel({ name }: { name: string }) {
   const resource = useQuery({ queryKey: [name], queryFn: emptyResponse })
-  useObservedQueryRegion(name === "active" ? "files" : "settings", resource, resource.data?.length)
+  useObservedQueryRegion(name === "active" ? "messages" : "settings", resource, resource.data?.length)
   return <p>{name}: {resource.isPending ? "loading" : "empty"}</p>
 }
 afterEach(async () => { await act(async () => { retireTelemetry(); clearActions(); disposeQueryDiagnostics(client); client.clear() }) })
@@ -29,7 +29,7 @@ it("observes actual settled empty Query values only after a retained Base UI pan
   installTelemetrySink(event => events.push(event))
   const view = render(<QueryClientProvider client={client}><Tabs defaultValue="active"><TabsList><TabsTrigger value="active">Active</TabsTrigger><TabsTrigger value="retained">Retained</TabsTrigger></TabsList><TabsContent value="active" keepMounted><Panel name="active" /></TabsContent><TabsContent value="retained" keepMounted><Panel name="retained" /></TabsContent></Tabs></QueryClientProvider>)
   await waitFor(() => expect(client.getQueryData(["retained"])).toEqual([]))
-  await waitFor(() => expect(events.filter(event => event.name === "region.ready_commit" && event.attributes.region === "files")).toHaveLength(1))
+  await waitFor(() => expect(events.filter(event => event.name === "region.ready_commit" && event.attributes.region === "messages")).toHaveLength(1))
   expect(events.filter(event => event.name === "region.ready_commit" && event.attributes.region === "settings")).toHaveLength(0)
   const empty = events.find(event => event.name === "region.ready_commit")!
   expect(empty.attributes).toMatchObject({ row_count: "0", outcome: "empty", source: "network" })

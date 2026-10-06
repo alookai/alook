@@ -186,14 +186,10 @@ describe("cleanupAuthenticatedNativeOauthResidue", () => {
     ])
   })
 
-  it("mounts only behind both authenticated layout gates", () => {
-    const appLayout = readFileSync(new URL("../app/(app)/layout.tsx", import.meta.url), "utf8")
+  it("mounts only behind the authenticated Community layout gate", () => {
     const communityLayout = readFileSync(new URL("../app/c/layout.tsx", import.meta.url), "utf8")
     const communityClient = readFileSync(new URL("../app/c/community-layout-client.tsx", import.meta.url), "utf8")
 
-    expect(appLayout.indexOf("if (!session) redirect")).toBeLessThan(
-      appLayout.indexOf("<AuthenticatedNativeOauthCleanup />"),
-    )
     expect(communityLayout).toContain("await getSession()")
     expect(communityClient.indexOf("if (!currentUser)")).toBeLessThan(
       communityClient.indexOf("<AuthenticatedNativeOauthCleanup />"),

@@ -2,7 +2,7 @@ import type { ReactNode, HTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 
 type BubbleVariant = "agent" | "user";
-export type BubblePosition = "first" | "middle" | "last" | "single";
+type BubblePosition = "first" | "middle" | "last" | "single";
 
 interface MessageBubbleProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "children"> {

@@ -155,90 +155,22 @@ test("Community owns ordinary context menus and preserves native exceptions", as
   expect(writes).toEqual([])
 })
 
-test("workspace menus keep custom behavior while editors and escapes stay native", async ({ asUser }) => {
-  const { context, page } = await asUser("alice", { viewport: { width: 1280, height: 720 } })
-  const suffix = Date.now().toString(36)
-  const slug = `context-policy-${suffix}`
-  const workspaceResponse = await context.request.post("/api/workspaces", {
-    data: { name: `Context Policy ${suffix}`, slug },
-  })
-  expect(workspaceResponse.status()).toBe(201)
-  const workspace = await workspaceResponse.json() as { id: string; slug: string }
-  const onboardedResponse = await context.request.post(`/api/workspaces/${workspace.id}/onboarded`)
-  expect(onboardedResponse.status()).toBe(200)
-
-  const titles = [`Context alpha ${suffix}`, `Context beta ${suffix}`]
-  for (const title of titles) {
-    const issueResponse = await context.request.post(`/api/issues?workspace_id=${workspace.id}`, {
-      data: { title, description: "" },
-    })
-    expect(issueResponse.status()).toBe(201)
-  }
-
-  const writes: string[] = []
-  page.on("request", (request) => {
-    if (!["GET", "HEAD", "OPTIONS"].includes(request.method())) {
-      writes.push(`${request.method()} ${new URL(request.url()).pathname}`)
-    }
-  })
-  await page.goto(`/w/${workspace.slug}/issues`, { waitUntil: "commit" })
-  await expect(page.getByRole("heading", { name: "Issues" })).toBeVisible({ timeout: 20_000 })
-  const first = page.locator('[data-slot="context-menu-trigger"]').filter({ hasText: titles[0] }).first()
-  const second = page.locator('[data-slot="context-menu-trigger"]').filter({ hasText: titles[1] }).first()
-  await expect(first).toBeVisible()
-  await expect(second).toBeVisible()
-
-  await rightClickDisposition(page, first, true)
-  await expect(visibleContextMenu(page).getByRole("menuitem", { name: "Delete" })).toBeVisible()
-  await dismissContextMenu(page)
-
-  await first.evaluate((element) => element.setAttribute("data-native-context-menu", "true"))
-  await rightClickDisposition(page, first, false)
-  await expect(visibleContextMenu(page)).toHaveCount(0)
-
-  await first.evaluate((element) => element.setAttribute("data-native-context-menu", "true"))
-  await dispatchSecondaryPointer(first, "pointerdown", 41)
-  await page.waitForTimeout(50)
-  await page.evaluate(() => window.dispatchEvent(new Event("blur")))
-  await page.waitForTimeout(50)
-  await first.evaluate((element) => element.removeAttribute("data-native-context-menu"))
-  await rightClickDisposition(page, first, true)
-  await expect(visibleContextMenu(page).getByRole("menuitem", { name: "Delete" })).toBeVisible()
-  await dismissContextMenu(page)
-
-  await first.evaluate((element) => element.setAttribute("data-native-context-menu", "true"))
-  await dispatchSecondaryPointer(first, "pointerdown", 51)
-  await page.waitForTimeout(50)
-  await first.evaluate((element) => element.removeAttribute("data-native-context-menu"))
-  await rightClickDisposition(page, second, true)
-  await expect(visibleContextMenu(page).getByRole("menuitem", { name: "Delete" })).toBeVisible()
-  await dismissContextMenu(page)
-  await page.evaluate(() => window.dispatchEvent(new Event("blur")))
-  await page.waitForTimeout(50)
-
-  await rightClickDisposition(page, first, true)
-  await expect(visibleContextMenu(page).getByRole("menuitem", { name: "Delete" })).toBeVisible()
-  await dismissContextMenu(page)
-
-  await first.focus()
-  await page.keyboard.press("Shift+F10")
-  await expect(visibleContextMenu(page).getByRole("menuitem", { name: "Delete" })).toBeVisible()
-  await dismissContextMenu(page)
-
-  await page.getByRole("button", { name: "New issue" }).click()
-  const titleEditor = page.getByPlaceholder("New issue")
-  await expect(titleEditor).toBeVisible()
-  await rightClickDisposition(page, titleEditor, false)
-  await page.keyboard.press("Escape")
-  expect(writes).toEqual([])
-})
-
 test("public, auth, and invite routes remain browser owned", async ({ page, asUser }) => {
+  const invitePath = "/c/invite/not-a-real-token"
+  let inviteDocuments = 0
+  page.on("request", request => {
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame() && new URL(request.url()).pathname === invitePath) inviteDocuments += 1
+  })
   for (const route of ["/", "/sign-in", "/c/invite/not-a-real-token"]) {
     await page.goto(route, { waitUntil: "commit" })
     await expect(page.locator("body")).toBeVisible()
+    if (route === invitePath) {
+      await expect(page.getByTestId(tid.inviteExpiredTitle)).toBeVisible()
+      await expect(page.getByTestId(tid.inviteExpiredTitle)).toHaveText("This invite has expired")
+    }
     await rightClickDisposition(page, await installOrdinaryProbe(page), false)
   }
+  expect(inviteDocuments).toBe(1)
 
   const authenticated = await asUser("alice")
   await authenticated.page.goto("/invite/not-a-real-token", { waitUntil: "commit" })

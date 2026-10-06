@@ -14,13 +14,13 @@ afterEach(async () => {
   window.history.replaceState(null, "", "/")
   vi.unstubAllEnvs(); vi.unstubAllGlobals()
 })
-it("real auth and Application sign-out preserve failure/B ownership and clear only the current successful user's native metadata", async () => {
+it("real auth and community sign-out preserve failure/B ownership and clear only the current successful user's native metadata", async () => {
   vi.stubEnv("NEXT_PUBLIC_FARO_COLLECTOR_URL", "https://collector.example/collect/public")
   vi.stubEnv("NEXT_PUBLIC_FARO_ENVIRONMENT", "qa")
   vi.stubEnv("NEXT_PUBLIC_FARO_RELEASE", "a".repeat(40))
   Object.defineProperty(performance, "getEntriesByType", { configurable: true, value: () => [] })
   document.cookie = "alook_analytics_consent=v1.granted; path=/"
-  window.history.replaceState(null, "", "/workspaces")
+  window.history.replaceState(null, "", "/c/me")
   let selected: string | null = "account-a"
   let mode: "fail" | "hold" | "success" = "fail"
   let release!: (response: Response) => void
@@ -41,25 +41,26 @@ it("real auth and Application sign-out preserve failure/B ownership and clear on
     throw new Error("Unexpected auth fixture path " + url.pathname)
   })
   const auth = await import("../auth-client")
-  const Application = await import("../application-owner")
-  const { useApplicationSignOut } = await import("@/hooks/use-application-sign-out")
+  const { QueryProvider } = await import("@/app/c/QueryProvider")
+  const { useOptionalCommunityDbRegistry } = await import("@/lib/community-db/projections")
+  const { useAccountSignOut } = await import("@/hooks/community/use-account-sign-out")
   const { VolatileSessionsManager } = await import("@grafana/faro-web-sdk")
   const { emitTelemetry, isTelemetryEligible } = await import("./telemetry")
   let logout!: () => Promise<boolean>
-  let owner!: ReturnType<typeof Application.useApplicationOwner>
+  let owner!: NonNullable<ReturnType<typeof useOptionalCommunityDbRegistry>>
   function Probe() {
-    const current = Application.useApplicationOwner(), command = useApplicationSignOut()
+    const current = useOptionalCommunityDbRegistry()!, command = useAccountSignOut()
     useLayoutEffect(() => { owner = current; logout = () => command.mutateAsync() }, [current, command])
     return <p>Account content</p>
   }
-  function Root({ id }: { id: string }) { return <Application.ApplicationQueryProvider userId={id}><Probe /></Application.ApplicationQueryProvider> }
+  function Root({ id }: { id: string }) { return <QueryProvider userId={id}><Probe /></QueryProvider> }
   await act(async () => { await import("@/instrumentation-client"); mounted = render(<Root id="account-a" />) })
   await waitFor(() => expect(auth.currentSessionViewer()).toBe("account-a"))
   await waitFor(() => expect(isTelemetryEligible()).toBe(true))
   await waitFor(() => expect(sent.some(body => body.meta.user?.id === "account-a")).toBe(true), { timeout: 5000 })
   const aSession = VolatileSessionsManager.fetchUserSession()!.sessionId
   await act(async () => { await expect(logout()).rejects.toThrow("Auth failed") })
-  expect(owner.lifecycle.get().active).toBe(true)
+  expect(owner.runtime.lifecycle.get().active).toBe(true)
   expect(VolatileSessionsManager.fetchUserSession()!.sessionId).toBe(aSession)
   mode = "hold"
   let oldResult!: Promise<unknown>
@@ -68,12 +69,12 @@ it("real auth and Application sign-out preserve failure/B ownership and clear on
   await act(async () => { const result = await auth.authClient.signIn.email({ email: "b@example.test", password: "fixture-password" }); expect(result.error).toBeNull() })
   await waitFor(() => expect(auth.currentSessionViewer()).toBe("account-b"))
   await act(async () => mounted!.rerender(<Root id="account-b" />))
-  await waitFor(() => expect(owner.userId).toBe("account-b"))
+  await waitFor(() => expect(owner.accountId).toBe("account-b"))
   await waitFor(() => expect(isTelemetryEligible()).toBe(true))
   await waitFor(() => expect(VolatileSessionsManager.fetchUserSession()!.sessionId).not.toBe(aSession))
   const bSession = VolatileSessionsManager.fetchUserSession()!.sessionId
   await act(async () => { release(Response.json({ success: true })); expect(await oldResult).toMatchObject({ name: "AbortError" }) })
-  expect(owner.lifecycle.get().active).toBe(true)
+  expect(owner.runtime.lifecycle.get().active).toBe(true)
   expect(VolatileSessionsManager.fetchUserSession()!.sessionId).toBe(bSession)
   emitTelemetry("business.result", { outcome: "success" })
   await waitFor(() => expect(sent.some(body => body.meta.session.id === bSession && body.meta.user?.id === "account-b")).toBe(true), { timeout: 5000 })

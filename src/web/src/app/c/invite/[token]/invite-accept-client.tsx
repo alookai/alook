@@ -16,6 +16,7 @@ import { apiFetch } from "@/lib/api/client"
 import { ApiError } from "@/lib/errors"
 import { ServerIcon } from "@/components/community/server-icon"
 import { Avatar } from "@/components/community/avatar"
+import { tid } from "@/lib/community/testids"
 
 type InviteInfo = {
   serverId: string
@@ -148,7 +149,7 @@ function InviteAcceptInner({ token }: { token: string }) {
         <div className="grid size-16 place-items-center rounded-full bg-destructive/10 text-destructive">
           <CircleAlert className="size-7" />
         </div>
-        <h1 className="mt-5 text-2xl font-semibold">
+        <h1 data-testid={error.dead ? tid.inviteExpiredTitle : undefined} className="mt-5 text-2xl font-semibold">
           {error.dead ? "This invite has expired" : "This invite isn't working"}
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">

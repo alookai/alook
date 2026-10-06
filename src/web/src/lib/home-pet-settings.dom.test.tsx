@@ -1,9 +1,8 @@
 import React from "react"
 import { beforeEach, describe, expect, it } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
-import { PetTab } from "@/app/(app)/w/[slug]/settings/pet-tab"
 import { useHomePetSettings, writeHomePetSettings } from "./home-pet-settings"
-import { getCloudCodeMonsterPreset, readCloudCodeMonsterPetPresetId, useCloudCodeMonsterPetPresetId, writeCloudCodeMonsterPetPresetId } from "@/components/home-pet/cloud-code-monster-pet-presets"
+import { readCloudCodeMonsterPetPresetId, useCloudCodeMonsterPetPresetId, writeCloudCodeMonsterPetPresetId } from "@/components/home-pet/cloud-code-monster-pet-presets"
 import { CLOUD_CODE_MONSTER_PRESET_STORAGE_KEY } from "@/components/home-pet/cloud-code-monster-pet-constants"
 function Probe({ name }: { name: string }) {
   const { enabled } = useHomePetSettings()
@@ -12,14 +11,13 @@ function Probe({ name }: { name: string }) {
 }
 beforeEach(() => { localStorage.clear(); writeHomePetSettings({ enabled: false }); readCloudCodeMonsterPetPresetId() })
 describe("native device pet preferences", () => {
-  it("actual settings controls publish directly to every consumer", () => {
-    const mounted = render(<><PetTab /><Probe name="one" /><Probe name="two" /></>)
-    act(() => mounted.getByRole("switch", { name: "Enable pet" }).click())
+  it("device preference writes publish directly to every consumer", () => {
+    const mounted = render(<><Probe name="one" /><Probe name="two" /></>)
+    act(() => writeHomePetSettings({ enabled: true }))
     expect(mounted.getByTestId("one").textContent).toBe("true:pet-01")
     expect(mounted.getByTestId("two").textContent).toBe("true:pet-01")
     act(() => writeCloudCodeMonsterPetPresetId("pet-02"))
     expect(mounted.getByTestId("one").textContent).toBe("true:pet-02")
-    expect(mounted.getByRole("button", { pressed: true }).textContent).toBe(getCloudCodeMonsterPreset("pet-02").name)
   })
   it("cross-tab storage and clear update both native selectors", () => {
     const mounted = render(<><Probe name="one" /><Probe name="two" /></>)

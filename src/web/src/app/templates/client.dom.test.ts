@@ -6,7 +6,6 @@ import { devopsMonitor } from "@/lib/templates/presets/devops-monitor"
 
 vi.mock("@/lib/analytics", () => ({
   trackTemplatesBrowsed: vi.fn(),
-  trackTemplateUsed: vi.fn(),
 }))
 
 vi.mock("@/components/public-layout", () => ({

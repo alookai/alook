@@ -206,15 +206,3 @@ export async function readUploadError(res: Response, fallback: string): Promise<
   }
   return new ApiError(serverError || fallback, res.status);
 }
-
-export function wsQuery(workspaceId: string, extra?: Record<string, string>): string {
-  const params = new URLSearchParams({ workspace_id: workspaceId, ...extra });
-  return `?${params.toString()}`;
-}
-
-export async function readApiResponse<T>(response: Response, format: "json" | "text", options?: ApiRequestOptions): Promise<T> {
-  return readObservedResponse(response, () => format === "text" ? response.text() as Promise<T> : response.json() as Promise<T>, () => {
-    options?.assertActive?.();
-    if (options?.signal?.aborted) throw new DOMException("Cancelled request", "AbortError");
-  });
-}

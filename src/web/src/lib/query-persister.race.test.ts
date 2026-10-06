@@ -108,7 +108,7 @@ describe("qualified native owner disk retirement", () => {
     const original = createIdbPersister("A")
     await original.restoreClient()
     await original.retireAccount()
-    const fresh = createIdbPersister("A", "application")
+    const fresh = createIdbPersister("A")
     await fresh.restoreClient()
     await original.retireAccount()
     expect(await fresh.isCurrent()).toBe(true)

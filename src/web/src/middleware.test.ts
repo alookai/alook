@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
+import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(async () => ({ env: {} })),
@@ -10,7 +11,7 @@ vi.mock("@/lib/auth", () => ({
   getAuth: vi.fn(() => ({ api: { getSession: mockGetSession } })),
 }));
 
-import { middleware } from "./middleware";
+import { config, middleware } from "./middleware";
 
 /** Build a request with controllable forwarded-proto + headers. */
 function makeReq(url: string, headers: Record<string, string> = {}) {
@@ -22,15 +23,15 @@ describe("middleware", () => {
 
   describe("HTTPS enforcement", () => {
     it("301-redirects http → https for non-local hosts", async () => {
-      const req = makeReq("http://example.com/w/foo", { "x-forwarded-proto": "http" });
+      const req = makeReq("http://example.com/c/me", { "x-forwarded-proto": "http" });
       const res = await middleware(req);
       expect(res.status).toBe(301);
-      expect(res.headers.get("location")).toBe("https://example.com/w/foo");
+      expect(res.headers.get("location")).toBe("https://example.com/c/me");
     });
 
     it("does NOT force https for localhost", async () => {
       mockGetSession.mockResolvedValue({ headers: new Headers(), response: null });
-      const req = makeReq("http://localhost/w/foo", { "x-forwarded-proto": "http" });
+      const req = makeReq("http://localhost/c/me", { "x-forwarded-proto": "http" });
       const res = await middleware(req);
       // localhost is exempt → falls through to auth handling (sign-in redirect), not a 301 https redirect
       expect(res.headers.get("location")).not.toContain("https://localhost")
@@ -38,29 +39,30 @@ describe("middleware", () => {
 
     it("does NOT force https for 127.x", async () => {
       mockGetSession.mockResolvedValue({ headers: new Headers(), response: null });
-      const req = makeReq("http://127.0.0.1/w/foo", { "x-forwarded-proto": "http" });
+      const req = makeReq("http://127.0.0.1/c/me", { "x-forwarded-proto": "http" });
       const res = await middleware(req);
       expect(res.status).not.toBe(301);
     });
   });
 
   describe("auth-required routes", () => {
+    it.each(["/w", "/w/sample/home", "/w/sample.name/home", "/w/sample/agents/a/chat/b", "/w/sample/%broken", "/%77/sample/home", "/workspaces", "/dashboard", "/studio/new", "/studio/new/", "/invite/old-token"])("leaves deleted frontend path %s to ordinary route handling without looking up a session", async path => {
+      for (const response of [null, { user: { id: "viewer" } }]) {
+        mockGetSession.mockResolvedValue({ headers: new Headers({ "set-cookie": "session=renewed; Path=/" }), response });
+        const res = await middleware(makeReq(`https://app.com${path}?token=private&workspace_id=private`));
+        expect(res.headers.get("location")).toBeNull();
+        expect(res.headers.get("x-middleware-next")).toBe("1");
+        expect(res.headers.get("set-cookie")).toBeNull();
+        expect(mockGetSession).not.toHaveBeenCalled();
+      }
+    });
     it("redirects to /sign-in with redirect param when unauthenticated", async () => {
       mockGetSession.mockResolvedValue({ headers: new Headers(), response: null });
-      const req = makeReq("https://app.com/w/foo?tab=x", { "x-forwarded-proto": "https" });
+      const req = makeReq("https://app.com/c/me?tab=x", { "x-forwarded-proto": "https" });
       const res = await middleware(req);
       const loc = new URL(res.headers.get("location")!);
       expect(loc.pathname).toBe("/sign-in");
-      expect(loc.searchParams.get("redirect")).toBe("/w/foo?tab=x");
-    });
-
-    it("omits redirect param when returnTo is /workspaces", async () => {
-      mockGetSession.mockResolvedValue({ headers: new Headers(), response: null });
-      const req = makeReq("https://app.com/workspaces", { "x-forwarded-proto": "https" });
-      const res = await middleware(req);
-      const loc = new URL(res.headers.get("location")!);
-      expect(loc.pathname).toBe("/sign-in");
-      expect(loc.searchParams.get("redirect")).toBeNull();
+      expect(loc.searchParams.get("redirect")).toBe("/c/me?tab=x");
     });
 
     it("passes through authenticated requests and forwards refreshed cookies", async () => {
@@ -70,7 +72,7 @@ describe("middleware", () => {
         headers: setHeaders,
         response: { user: { id: "u1" } },
       });
-      const req = makeReq("https://app.com/dashboard", { "x-forwarded-proto": "https" });
+      const req = makeReq("https://app.com/c/me", { "x-forwarded-proto": "https" });
       const res = await middleware(req);
       // NextResponse.next() — no redirect location
       expect(res.headers.get("location")).toBeNull();
@@ -103,6 +105,15 @@ describe("middleware", () => {
     });
   });
 
+  describe("Next route matcher", () => {
+    it.each(["/c/me", "/sign-in", "/w", "/studio/new"])("runs the ordinary middleware matcher for %s", url => {
+      expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url })).toBe(true);
+    });
+    it.each(["/favicon.ico", "/_next/static/chunk.js", "/images/logo.png", "/about.pdf", "/w/sample.name/home", "/w/sample/agents/a.name/chat/b.json"])("retains the ordinary dotted-path exclusion for %s", url => {
+      expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url })).toBe(false);
+    });
+  });
+
   describe("sign-in redirect when already authenticated (isSafeRedirect guard)", () => {
     async function signInWith(redirectParam: string | null) {
       mockGetSession.mockResolvedValue({
@@ -115,9 +126,9 @@ describe("middleware", () => {
       return new URL(res.headers.get("location")!);
     }
 
-    it("accepts a safe same-origin relative path (/w/foo)", async () => {
-      const loc = await signInWith("/w/foo");
-      expect(loc.pathname).toBe("/w/foo");
+    it("keeps a supplied safe same-origin return path", async () => {
+      const loc = await signInWith("/removed/page");
+      expect(loc.pathname).toBe("/removed/page");
     });
 
     it("rejects protocol-relative //evil.com → falls back to /c/me", async () => {
