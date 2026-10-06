@@ -3,10 +3,11 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, CACHE_SHORT, createLogger } from "@alook/shared"
+import { queries, WS_EVENTS, createLogger } from "@alook/shared"
 import { requireServerAdmin } from "@/lib/community/permissions"
 import { handleServerIconUpload } from "@/lib/community/upload"
-import { isOwnedServerIconKey, serverIconUrl } from "@/lib/community/storage"
+import { ATTACHMENT_PRIVATE_IMMUTABLE_CACHE, isOwnedServerIconKey, serverIconUrl } from "@/lib/community/storage"
+import { fanOutToServerMembers } from "@/lib/community/fanout"
 import {
   communityMediaCleanupErrorCategory,
   deleteCommunityMediaObjects,
@@ -15,7 +16,7 @@ import {
 
 const log = createLogger({ service: "community-server-icon" })
 
-export const GET = withAuth(async (_req: NextRequest, ctx) => {
+export const GET = withAuth(async (req: NextRequest, ctx) => {
   const serverId = ctx.params?.id
   if (!serverId) return writeError("missing server id", 400)
 
@@ -23,14 +24,27 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const server = await queries.communityServer.getServer(db, serverId)
   if (!server?.icon) return writeError("no icon", 404)
 
+  if (req.nextUrl.searchParams.get("v") !== server.icon) {
+    return new Response(null, {
+      status: 307,
+      headers: { Location: serverIconUrl(server)!, "Cache-Control": "private, no-store" },
+    })
+  }
+
   const obj = await ctx.env.COMMUNITY_MEDIA.get(server.icon)
   if (!obj) return writeError("not found", 404)
 
+  const headers = new Headers({
+    "Content-Type": obj.httpMetadata?.contentType ?? "image/png",
+    "Cache-Control": ATTACHMENT_PRIVATE_IMMUTABLE_CACHE,
+  })
+  if (obj.httpEtag) headers.set("ETag", obj.httpEtag)
+  if (obj.httpEtag && req.headers.get("If-None-Match") === obj.httpEtag) {
+    return new Response(null, { status: 304, headers })
+  }
+
   return new Response(obj.body, {
-    headers: {
-      "Content-Type": obj.httpMetadata?.contentType ?? "image/png",
-      "Cache-Control": CACHE_SHORT,
-    },
+    headers,
   })
 })
 
@@ -113,7 +127,13 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     })
   }
 
-  return writeJSON({ url: serverIconUrl({ id: serverId, icon: iconKey }) })
+  const url = serverIconUrl({ id: serverId, icon: iconKey })!
+  void fanOutToServerMembers(serverId, {
+    type: WS_EVENTS.SERVER_UPDATE,
+    serverId,
+    changes: { icon: url },
+  })
+  return writeJSON({ url })
 })
 
 async function compensateServerIcon(

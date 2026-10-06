@@ -35,7 +35,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   return new Response(object.body, {
     headers: {
       "Content-Type": "image/jpeg",
-      "Cache-Control": "public, max-age=31536000, immutable",
+      "Cache-Control": "private, max-age=31536000, immutable",
     },
   });
 });

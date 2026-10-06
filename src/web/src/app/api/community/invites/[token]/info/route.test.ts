@@ -185,6 +185,6 @@ describe("GET /api/community/invites/[token]/info", () => {
 
     const res = await GET(req(), ctx())
     const body = await res.json() as { serverIcon: string | null }
-    expect(body.serverIcon).toBe("/api/community/servers/s1/icon")
+    expect(body.serverIcon).toBe("/api/community/servers/s1/icon?v=server-icon%2Fs1%2Fabc")
   })
 })

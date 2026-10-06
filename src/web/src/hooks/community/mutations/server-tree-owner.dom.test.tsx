@@ -324,7 +324,7 @@ describe("actual canonical server and tree command owner", () => {
     expect(getCommunityDbRegistry(original)!.collections.channels.has("c1")).toBe(outcome === "failure")
     expect(projection.projectUnread("servers", "c1", false)).toBe(outcome === "failure")
   })
-  it("publishes a cache-busted native icon through the original qualified FormData request", async () => {
+  it("publishes the canonical versioned native icon through the original qualified FormData request", async () => {
     const { resolve, original } = await mount()
     const file = new File(["icon"], "icon.png")
     let result!: Promise<unknown>; act(() => { result = icon.mutateAsync({ serverId: "s1", file }) })
@@ -332,8 +332,9 @@ describe("actual canonical server and tree command owner", () => {
     const post = api.mock.calls.find(([path]) => path.endsWith("/icon"))!
     expect(post[1]).toMatchObject({ method: "POST", authenticationAccount: "A", assertActive: expect.any(Function) })
     expect(post[1].body.get("file")).toBe(file)
-    await act(async () => { resolve({ url: "/icons/server.png" }); expect(await result).toEqual({ url: "/icons/server.png" }) })
-    expect(getCommunityDbRegistry(original)!.collections.servers.get("s1")?.icon).toMatch(/^\/icons\/server\.png\?t=\d+$/)
+    const url = "/api/community/servers/s1/icon?v=server-icon%2Fs1%2Fnew"
+    await act(async () => { resolve({ url }); expect(await result).toEqual({ url }) })
+    expect(getCommunityDbRegistry(original)!.collections.servers.get("s1")?.icon).toBe(url)
     expect(original.getQueryData(communityKeys.servers())).toEqual(["s1"])
   })
   it.each([ ["ws", "success"], ["ws", "failure"], ["empty-list", "success"], ["empty-list", "failure"] ] as const)("B %s evicts immediately while A DELETE is held; old A %s has no B or UI effect", async (delivery, outcome) => {

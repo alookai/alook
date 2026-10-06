@@ -43,7 +43,7 @@ import { GET } from "./route";
 beforeEach(() => vi.clearAllMocks());
 
 describe("GET /api/artifacts/[id]/thumbnail", () => {
-  it("serves thumbnail JPEG with aggressive cache headers", async () => {
+  it("serves authorized thumbnail bytes with a private immutable policy", async () => {
     mockGetArtifact.mockResolvedValue({
       id: "art_1",
       agentId: "ag1",
@@ -59,7 +59,7 @@ describe("GET /api/artifacts/[id]/thumbnail", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("image/jpeg");
-    expect(res.headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
+    expect(res.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable");
     expect(mockBucketGet).toHaveBeenCalledWith("artifacts/w1/ag1/c1/art_1/thumbnail.jpg");
   });
 

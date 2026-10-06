@@ -6,6 +6,7 @@ const pkg = JSON.parse(readFileSync(path.resolve(__dirname, "package.json"), "ut
 const daemonPkg = JSON.parse(readFileSync(path.resolve(__dirname, "../daemon/package.json"), "utf-8"));
 
 const nextConfig: NextConfig = {
+	images: { unoptimized: true },
 	env: {
 		NEXT_PUBLIC_APP_VERSION: pkg.version,
 		NEXT_PUBLIC_LATEST_DAEMON_VERSION: daemonPkg.version,
