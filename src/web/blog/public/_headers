@@ -1,13 +1,13 @@
 /_next/static/*
   Cache-Control: public, max-age=31536000, immutable
 
-/landing/*
+/blog-static/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/blog/*
   Cache-Control: public, max-age=300, must-revalidate
 
 /alook.svg
-  Cache-Control: public, max-age=300, must-revalidate
-
-/official-server-badge-flat.svg
   Cache-Control: public, max-age=300, must-revalidate
 
 /apple-touch-icon.png
@@ -16,5 +16,5 @@
 /icon-192.png
   Cache-Control: public, max-age=300, must-revalidate
 
-/icon-512.png
+/favicon.ico
   Cache-Control: public, max-age=300, must-revalidate

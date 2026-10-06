@@ -1,9 +1,9 @@
 import { finalizePublicWorkerResponse } from "./public-worker-response"
 
-const PRIVATE_PREFIXES = ["/w/", "/workspaces", "/dashboard", "/invite/", "/api/", "/_next/"]
+const PUBLIC_DOCUMENTS = new Set(["/", "/pricing", "/privacy", "/templates"])
 
 function isPublicRoute(pathname: string): boolean {
-  return !PRIVATE_PREFIXES.some((prefix) => pathname.startsWith(prefix))
+  return PUBLIC_DOCUMENTS.has(pathname) || /^\/templates\/[^/]+\/?$/.test(pathname)
 }
 
 export function createWebWorkerHandler(
@@ -20,7 +20,7 @@ export function createWebWorkerHandler(
       }
 
 			const response = await openNextHandler.fetch!(request, env, ctx)
-			return finalizePublicWorkerResponse(response, isPublicRoute(url.pathname))
+			return finalizePublicWorkerResponse(response, isPublicRoute(url.pathname), request)
 		},
 	}
 }

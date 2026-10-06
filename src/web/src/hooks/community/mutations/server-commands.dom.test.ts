@@ -36,7 +36,7 @@ async function setup() {
   api.mockImplementation((path: string, options?: { method?: string; body?: string }) => {
     if (options?.method) return held.promise.then((value) => {
       if (options.method === "PATCH") { const fields = JSON.parse(options.body!); remote = remote.map((server) => server.id === "srv_1" ? { ...server, ...fields } : server); return fields }
-      if (path.endsWith("/icon")) remote = remote.map((server) => server.id === "srv_1" ? { ...server, icon: `${(value as { url: string }).url}?t=${Date.now()}` } : server)
+      if (path.endsWith("/icon")) remote = remote.map((server) => server.id === "srv_1" ? { ...server, icon: (value as { url: string }).url } : server)
       if (options.method === "DELETE" || path.endsWith("/leave")) remote = remote.filter((server) => server.id !== "srv_1")
       return value
     })
@@ -174,12 +174,13 @@ describe("Native server field commands", () => {
     await act(async () => { view.held.resolve({ server: { id: "srv_new" } }); await request })
     await waitFor(() => expect(api.mock.calls.some(([path, options]) => path === "/api/community/servers" && !options?.method)).toBe(true))
   })
-  it("publishes the cache-busted icon to both canonical detail and rail", async () => {
+  it("publishes the same canonical versioned icon to detail and rail", async () => {
     const view = await setup(), file = new File(["icon"], "icon.png", { type: "image/png" }); let request!: Promise<unknown>
     act(() => { request = view.view.result.current.icon.mutateAsync({ serverId: "srv_1", file }) })
     await waitFor(() => expect(api.mock.calls.some(([path]) => path === "/api/community/servers/srv_1/icon")).toBe(true))
-    await act(async () => { view.held.resolve({ url: "https://cdn/x" }); await request })
-    await waitFor(() => { expect(view.view.result.current.detail.server?.icon).toMatch(/^https:\/\/cdn\/x\?t=/); expect(view.view.result.current.rail.servers[0]?.icon).toBe(view.view.result.current.detail.server?.icon) })
+    const url = "/api/community/servers/srv_1/icon?v=server-icon%2Fsrv_1%2Fobject-one"
+    await act(async () => { view.held.resolve({ url }); await request })
+    await waitFor(() => { expect(view.view.result.current.detail.server?.icon).toBe(url); expect(view.view.result.current.rail.servers[0]?.icon).toBe(url) })
     const options = api.mock.calls.find(([path]) => path.endsWith("/icon"))![1]
     expect(options.body.get("file")).toBe(file)
     expect(options.authenticationAccount).toBe("viewer")

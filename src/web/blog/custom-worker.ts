@@ -20,7 +20,8 @@ export default class BlogWorker extends WorkerEntrypoint<BlogCloudflareEnv> {
 		const pathname = new URL(request.url).pathname;
 		if (pathname === MANIFEST_PATH) return new Response("Not Found", { status: 404 });
 		const response = await fetchOpenNext(request, this.env, this.ctx);
-		return finalizePublicWorkerResponse(response, true);
+		const publicDocument = pathname === "/blog" || /^\/blog\/[^/.]+\/?$/.test(pathname);
+		return finalizePublicWorkerResponse(response, publicDocument, request);
 	}
 
 	async getDiscoveryManifest(): Promise<BlogDiscoveryManifestV1> {

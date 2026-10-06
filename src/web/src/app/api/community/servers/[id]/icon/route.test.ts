@@ -5,6 +5,7 @@ const mockGetServer = vi.fn()
 const mockUpdateServerIconIfCurrent = vi.fn()
 const mockGetMember = vi.fn()
 const mockHandleServerIconUpload = vi.fn()
+const mockFanOut = vi.fn()
 const { warn } = vi.hoisted(() => ({ warn: vi.fn() }))
 
 const mediaGet = vi.fn()
@@ -56,6 +57,10 @@ vi.mock("@/lib/community/upload", () => ({
   handleServerIconUpload: (...a: unknown[]) => mockHandleServerIconUpload(...a),
 }))
 
+vi.mock("@/lib/community/fanout", () => ({
+  fanOutToServerMembers: (...args: unknown[]) => mockFanOut(...args),
+}))
+
 // Flip between "authed" and "anonymous" per test to exercise `withAuth`.
 let isAuthed = true
 
@@ -93,8 +98,10 @@ vi.mock("@/lib/middleware/helpers", () => {
 
 import { GET, POST } from "./route"
 
-function getReq() {
-  return new NextRequest("http://localhost/api/community/servers/s1/icon", { method: "GET" })
+function getReq(version: string | null = "server-icon/s1/abc", headers?: HeadersInit) {
+  const url = new URL("http://localhost/api/community/servers/s1/icon")
+  if (version !== null) url.searchParams.set("v", version)
+  return new NextRequest(url, { method: "GET", headers })
 }
 function postReq() {
   return new NextRequest("http://localhost/api/community/servers/s1/icon", { method: "POST" })
@@ -120,6 +127,7 @@ describe("GET /api/community/servers/[id]/icon", () => {
     mediaGet.mockResolvedValue({
       body: new ReadableStream(),
       httpMetadata: { contentType: "image/webp" },
+      httpEtag: '"icon-abc"',
     })
   })
 
@@ -134,8 +142,26 @@ describe("GET /api/community/servers/[id]/icon", () => {
     const res = await GET(getReq(), ctx())
     expect(res.status).toBe(200)
     expect(res.headers.get("Content-Type")).toBe("image/webp")
+    expect(res.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable")
+    expect(res.headers.get("ETag")).toBe('"icon-abc"')
     expect(mediaGet).toHaveBeenCalledWith("server-icon/s1/abc")
     expect(mediaList).not.toHaveBeenCalled()
+  })
+
+  it.each([null, "server-icon/s1/old"])("redirects alias version %s without caching or reading bytes", async (version) => {
+    const res = await GET(getReq(version), ctx())
+    expect(res.status).toBe(307)
+    expect(res.headers.get("Location")).toBe("/api/community/servers/s1/icon?v=server-icon%2Fs1%2Fabc")
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
+    expect(mediaGet).not.toHaveBeenCalled()
+  })
+
+  it("returns a private 304 for the current unchanged object", async () => {
+    const res = await GET(getReq("server-icon/s1/abc", { "If-None-Match": '"icon-abc"' }), ctx())
+    expect(res.status).toBe(304)
+    expect(res.headers.get("ETag")).toBe('"icon-abc"')
+    expect(res.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable")
+    expect(await res.text()).toBe("")
   })
 
   it("returns 200 for any authed user (no membership check)", async () => {
@@ -186,7 +212,12 @@ describe("POST /api/community/servers/[id]/icon", () => {
     const res = await POST(postReq(), ctx())
     expect(res.status).toBe(200)
     const body = await res.json() as { url: string }
-    expect(body.url).toBe("/api/community/servers/s1/icon")
+    expect(body.url).toBe("/api/community/servers/s1/icon?v=server-icon%2Fs1%2Fnew-id")
+    expect(mockFanOut).toHaveBeenCalledWith("s1", {
+      type: "community:server.update",
+      serverId: "s1",
+      changes: { icon: body.url },
+    })
 
     expect(mockUpdateServerIconIfCurrent).toHaveBeenCalledTimes(1)
     expect(mockUpdateServerIconIfCurrent).toHaveBeenCalledWith(expect.anything(), {

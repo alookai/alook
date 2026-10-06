@@ -255,7 +255,7 @@ export function useUploadServerIcon() {
           ...communityRequestOptions(queryClient, token, undefined, () => origin.assert(token)),
         })
         origin.assert(token)
-        publishCommunityServerFields(queryClient, serverId, { icon: `${result.url}?t=${Date.now()}` }, { token, signal: undefined })
+        publishCommunityServerFields(queryClient, serverId, { icon: result.url }, { token, signal: undefined })
         return result
       } catch (error) { origin.assert(token); throw error }
     },

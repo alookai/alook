@@ -4,6 +4,7 @@ import { queries } from "@alook/shared"
 import { getDb, getPrimaryDb } from "@/lib/db"
 import { getAuth } from "@/lib/auth"
 import { getKV, cacheKeys, bindCacheKV } from "@/lib/cache"
+import { varyPrivateResponseByCredentials } from "./response-cache"
 
 export interface AuthContext {
   env: Env
@@ -401,7 +402,7 @@ export function withAuth(handler: AuthenticatedHandler) {
             email: mt.userEmail,
             workspaceId: mt.workspaceId ?? undefined,
           }
-          return handler(req, { ...authCtx, params: resolvedParams })
+          return handler(req, { ...authCtx, params: resolvedParams }).then(varyPrivateResponseByCredentials)
         } catch {
           // D1 query / getDb / getKV threw — transient infra failure, NOT an
           // invalid token. Mirror the session path's 503 so the daemon retries
@@ -439,7 +440,7 @@ export function withAuth(handler: AuthenticatedHandler) {
     const res = await handler(req, { ...authCtx, params: resolvedParams })
 
     // Forward Set-Cookie headers from Better Auth to refresh session_data cookie cache
-    return forwardSetCookies(res, session.setCookies)
+    return varyPrivateResponseByCredentials(forwardSetCookies(res, session.setCookies))
   }
 }
 

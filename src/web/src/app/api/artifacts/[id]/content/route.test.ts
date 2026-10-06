@@ -59,6 +59,7 @@ describe("GET /api/artifacts/[id]/content", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("text/markdown");
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
     expect(await res.text()).toBe("hello");
     expect(mockBucketGet).toHaveBeenCalledWith("artifacts/w1/ag1/c1/art_1/brief.md");
   });

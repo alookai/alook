@@ -6,7 +6,7 @@ const openNextNodeStub = {
 			return Response.json({ version: 1, posts: [] })
 		}
 		return new Response("node-open-next", {
-      headers: { "x-open-next": "node-stub" },
+      headers: { "x-open-next": "node-stub", "Content-Type": "text/html" },
     })
   },
 }

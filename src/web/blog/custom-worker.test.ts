@@ -29,7 +29,7 @@ describe("Blog Worker entrypoint", () => {
 			if (new URL(request.url).pathname === "/internal/blog-discovery") {
 				return Response.json({ version: 1, posts: [] });
 			}
-			return new Response("node-open-next", { headers: { "x-open-next": "node-stub" } });
+			return new Response("node-open-next", { headers: { "x-open-next": "node-stub", "Content-Type": "text/html" } });
 		});
 		worker = new BlogWorker({} as ExecutionContext, { ASSETS: {} as Fetcher });
 	});
@@ -43,6 +43,19 @@ describe("Blog Worker entrypoint", () => {
 	it("denies the internal manifest over HTTP", async () => {
 		const response = await worker.fetch(new Request("https://alook.ai/internal/blog-discovery"));
 		expect(response.status).toBe(404);
+	});
+
+	it.each(["/_next/static/chunks/app.js", "/blog-static/_next/static/chunks/app.js", "/blog/post/hero.webp", "/og/blog/post", "/unknown"])("does not apply document headers to %s", async (pathname) => {
+		const response = new Response("asset", { headers: { "Cache-Control": "public, max-age=31536000, immutable", "Content-Type": "image/webp" } });
+		mocks.openNextFetch.mockResolvedValueOnce(response);
+		expect(await worker.fetch(new Request(`https://alook.ai${pathname}`))).toBe(response);
+		expect(response.headers.get("CDN-Cache-Control")).toBeNull();
+	});
+
+	it("preserves a public article's existing revalidation policy", async () => {
+		const response = new Response("article", { headers: { "Content-Type": "text/html", "Cache-Control": "public, max-age=0, must-revalidate" } });
+		mocks.openNextFetch.mockResolvedValueOnce(response);
+		expect(await worker.fetch(new Request("https://alook.ai/blog/post"))).toBe(response);
 	});
 
 	it("returns the active static manifest over RPC", async () => {
