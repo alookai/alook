@@ -27,6 +27,7 @@ let controller: AbortController | undefined
 let sessionId = ""
 let load: Promise<void> | undefined
 let pendingReconcile = false
+let pendingInitialNavigation = false
 let deliveryFailures = 0
 let deliveryFailureReason = "unknown"
 let makeTransport: (() => FetchTransport) | undefined
@@ -70,6 +71,7 @@ async function activate() {
   const mayResume = mayResumeNativeSession
   sessionId = telemetryId()
   configure()
+  if (pendingInitialNavigation) { pendingInitialNavigation = false; beginNavigation(window.location.href, "document") }
   const capturedSession = sessionId
   const [{ initializeFaro, FetchTransport: NativeFetchTransport, getWebInstrumentations, InternalLoggerLevel, VolatileSessionsManager }, { TracingInstrumentation, getDefaultOTELInstrumentations: createHttp }] = await Promise.all([
     import("@grafana/faro-web-sdk"), import("@grafana/faro-web-tracing"),
@@ -149,13 +151,12 @@ async function activate() {
     faro.api.setSession({ id: capturedSession, attributes: { isSampled: "true", alook_account: userKey ?? "anon" } })
   }
   if (!faro) { deactivate(); return }
-  installActionSpans((name, attributes) => {
+  installActionSpans((name, attributes, startTime) => {
     if (!isTelemetryEligible()) return
-    return faro?.api.getOTEL()?.trace.getTracer("alook.frontend").startSpan(name, { attributes })
+    return faro?.api.getOTEL()?.trace.getTracer("alook.frontend").startSpan(name, { attributes, startTime })
   })
   connectSink()
   stopBrowser = installBrowserObservers(faro, build.url!, eligibleSince)
-  beginNavigation(window.location.href)
   emitTelemetry("telemetry.coverage", { collection_rate: 1, eligibility: "eligible", capability: "available", count: Object.keys(capabilityLimits).length })
 }
 function connectSink() {
@@ -217,7 +218,8 @@ export function bootstrapObservability(nextSurface: "web" | "blog") {
   if (started || typeof window === "undefined") return
   started = true
   surface = nextSurface
-  window.addEventListener(ANALYTICS_CONSENT_CHANGE_EVENT, () => { eligibleSince = performance.now(); reconcile() })
+  pendingInitialNavigation = hasAnalyticsConsent() && validBuildProfile(build)
+  window.addEventListener(ANALYTICS_CONSENT_CHANGE_EVENT, () => { eligibleSince = performance.now(); if (!hasAnalyticsConsent()) pendingInitialNavigation = false; reconcile() })
   window.addEventListener("popstate", () => { if (isTelemetryEligible()) beginNavigation(window.location.href) })
   document.addEventListener("visibilitychange", () => {
     if (isTelemetryEligible()) { reportTelemetryDrops("transport_failure"); emitTelemetry("telemetry.coverage", { visibility: document.visibilityState, capability: "limited" }) }

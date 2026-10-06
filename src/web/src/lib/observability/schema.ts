@@ -1,7 +1,7 @@
 import { actionNames, apiRoutes, pageRoutes } from "./coverage"
 
 export const eventNames = [
-  "action.start", "action.finish", "navigation.intent", "navigation.commit",
+  "action.start", "action.finish", "navigation.intent", "navigation.commit", "navigation.ready",
   "cache.restore.start", "cache.restore.finish", "region.read",
   "region.ready_commit", "region.frame_estimate", "request.start", "request.headers",
   "request.body_parsed", "request.finish", "data.publish", "data.response_rejected",
@@ -17,6 +17,7 @@ const routes = new Set<string>([...pageRoutes, ...apiRoutes, "/external", "/unma
 const enumValues: Record<string, ReadonlySet<string>> = Object.fromEntries(Object.entries({
   environment: ["production", "qa"],
   frontend_surface: ["web", "blog", "webview"],
+  navigation_kind: ["document", "route"],
   phase: ["intent", "headers", "body", "read", "primary", "background", "hydrate", "idb_read", "deserialize", "commit", "frame", "interaction", "optimistic", "ack", "upload", "transport", "auth", "token", "validation"],
   outcome: ["success", "error", "cancelled", "superseded", "timeout", "noop", "observed", "unknown", "empty", "miss", "hit", "expired", "buster", "rejected", "disabled", "unavailable", "partial"],
   source: ["restored_idb", "network", "ws", "local_mutation", "mixed", "unknown"],

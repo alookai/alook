@@ -36,6 +36,12 @@ export function alignInitialTelemetrySession(previous: string, next: string) {
   notifyObservation()
   return true
 }
+export function linkQueuedActionTrace(actionId: string, ownerGeneration: number, traceId: Attributes["trace_id"], spanId: Attributes["span_id"]) {
+  if (!eligible || sink || ownerGeneration !== generation) return
+  const fields = cleanAttributes({ trace_id: traceId, span_id: spanId })
+  if (!fields.trace_id || !fields.span_id) return
+  queue = queue.map(event => event.attributes.action_id === actionId ? { ...event, attributes: { ...event.attributes, ...fields } } : event)
+}
 export function retireTelemetry(reason: "boundary" | "native_session" = "boundary") {
   eligible = false
   nativeContinuationFrom = reason === "native_session" ? generation : -1

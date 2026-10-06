@@ -22,7 +22,8 @@ export function runObservedFetch<T>(request: RequestObservation | undefined, exe
     : execute()
 }
 function fields(request?: RequestObservation): Attributes {
-  return request ? { ...request.fields, request_id: request.id, start_ms: request.start, duration_ms: performance.now() - request.start } : {}
+  const current = request?.action?.generation === telemetryGeneration() ? actionAttributes(request.action) : {}
+  return request ? { ...request.fields, trace_id: current.trace_id ?? request.fields.trace_id, span_id: current.span_id ?? request.fields.span_id, request_id: request.id, start_ms: request.start, duration_ms: performance.now() - request.start } : {}
 }
 export function requestHeaders(request: RequestObservation | undefined, response: Response) {
   if (!request || request.generation !== telemetryGeneration()) return

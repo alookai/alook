@@ -140,4 +140,101 @@ describe("original observation ownership", () => {
     expect(events.filter(event => event.name === "action.finish")).toHaveLength(1)
   })
 
+  it("measures document visits from the document clock and later visits from their own intent", () => {
+    vi.advanceTimersByTime(400)
+    const document = beginNavigation("/c/me/bots", "document")!
+    vi.advanceTimersByTime(60)
+    finishAction(document, "success", { region: "bots", phase: "primary" })
+    finishAction(document, "success", { region: "bots", phase: "primary" })
+    vi.advanceTimersByTime(1000)
+    const route = beginNavigation("/c/me/friends", "gesture")!
+    vi.advanceTimersByTime(20)
+    expect(beginNavigation("/c/me/friends", "transport")).toBe(route)
+    vi.advanceTimersByTime(30)
+    finishAction(route, "success", { region: "friends", phase: "primary" })
+    const ready = events.filter(event => event.name === "navigation.ready")
+    expect(ready).toHaveLength(2)
+    expect(ready[0]?.attributes).toMatchObject({ navigation_kind: "document", start_ms: "0", duration_ms: "460", action_id: document.id, region: "bots" })
+    expect(ready[1]?.attributes).toMatchObject({ navigation_kind: "route", duration_ms: "50", action_id: route.id, region: "friends" })
+  })
+
+  it("does not turn unfinished or retired visits and non-content completion into ready metrics", () => {
+    beginNavigation("/c/me/bots")
+    const cancelled = beginNavigation("/c/me/friends")!
+    finishAction(cancelled, "cancelled", { region: "friends", phase: "primary" })
+    beginNavigation("/c/me/machines")
+    vi.advanceTimersByTime(30_000)
+    const shell = beginNavigation("/c/me/bots")!
+    finishAction(shell, "success", { region: "shell", phase: "commit" })
+    const old = beginNavigation("/c/me/friends")!
+    retireTelemetry(); clearActions(); configureTelemetry({ session_id: "session-b" }, true); installTelemetrySink(event => events.push(event))
+    finishAction(old, "success", { region: "friends", phase: "primary" })
+    expect(events.filter(event => event.name === "navigation.ready")).toEqual([])
+  })
+
+  it("binds completed and live deferred navigations with their original clocks and request trace fields", () => {
+    retireTelemetry(); clearActions(); configureTelemetry({ session_id: "pending" }, true); events.length = 0
+    const first = beginNavigation("/c/me/bots", "document")!
+    vi.advanceTimersByTime(240)
+    finishAction(first, "success", { phase: "primary", region: "bots" })
+    const second = beginNavigation("/c/me/friends")!
+    const request = startRequest("/api/agents", { observation: { action: second, reason: "router" } })
+    vi.advanceTimersByTime(660)
+    const spans = [first, second].map((_action, index) => ({ spanContext: () => ({ traceId: String(index + 1).repeat(32), spanId: String(index + 1).repeat(16) }), setAttribute: vi.fn(), end: vi.fn() }))
+    const factory = vi.fn((_name: string, _fields: Record<string, string>, _start: number) => spans[factory.mock.calls.length - 1] as unknown as Span)
+    installActionSpans(factory)
+    expect(factory.mock.calls.map(call => call[2])).toEqual([performance.timeOrigin, performance.timeOrigin + second.start])
+    expect(spans[0]!.end).toHaveBeenCalledWith(performance.timeOrigin + 240)
+    expect(spans[0]!.setAttribute).toHaveBeenCalledWith("outcome", "success")
+    expect(spans[1]!.end).not.toHaveBeenCalled()
+    requestHeaders(request, new Response(null, { status: 204 }))
+    finishAction(second, "success", { phase: "primary", region: "friends" })
+    installTelemetrySink(event => events.push(event))
+    for (const [index, action] of [first, second].entries()) {
+      const owned = events.filter(event => event.attributes.action_id === action.id)
+      expect(owned.length).toBeGreaterThan(0)
+      expect(owned.every(event => event.attributes.trace_id === String(index + 1).repeat(32) && event.attributes.span_id === String(index + 1).repeat(16))).toBe(true)
+    }
+    expect(spans[1]!.end).toHaveBeenCalledWith(performance.timeOrigin + 900)
+    installActionSpans(factory)
+    expect(factory).toHaveBeenCalledTimes(2)
+  })
+  it("bounds deferred navigations and discards completed and live references on retirement", () => {
+    retireTelemetry(); clearActions(); configureTelemetry({ session_id: "pending" }, true)
+    for (let i = 0; i < 80; i++) finishAction(beginNavigation("/c/me/bots"), "success", { phase: "primary", region: "bots" })
+    const factory = vi.fn(() => ({ end: vi.fn(), setAttribute: vi.fn() } as unknown as Span))
+    installActionSpans(factory)
+    expect(factory).toHaveBeenCalledTimes(64)
+    installActionSpans(undefined)
+    finishAction(beginNavigation("/c/me/bots"), "success", { phase: "primary", region: "bots" })
+    beginNavigation("/c/me/friends")
+    retireTelemetry(); clearActions(); configureTelemetry({ session_id: "account-b" }, true)
+    factory.mockClear(); installActionSpans(factory)
+    expect(factory).not.toHaveBeenCalled()
+    installTelemetrySink(event => events.push(event))
+    expect(events).toEqual([])
+  })
+  it("ends a completed deferred span even if setting its outcome fails", () => {
+    retireTelemetry(); clearActions(); configureTelemetry({ session_id: "pending" }, true)
+    const action = beginNavigation("/c/me/bots", "document")!
+    vi.advanceTimersByTime(50)
+    finishAction(action, "success", { phase: "primary", region: "bots" })
+    const end = vi.fn()
+    installActionSpans(() => ({ end, setAttribute: () => { throw new Error("unavailable") } } as unknown as Span))
+    expect(end).toHaveBeenCalledWith(performance.timeOrigin + 50)
+  })
+  it("discards deferred binding when the factory retires its original account", () => {
+    retireTelemetry(); clearActions(); configureTelemetry({ session_id: "pending" }, true)
+    const action = beginNavigation("/c/me/bots", "document")!
+    finishAction(action, "success", { phase: "primary", region: "bots" })
+    const end = vi.fn()
+    installActionSpans(() => {
+      retireTelemetry(); clearActions(); configureTelemetry({ session_id: "account-b" }, true)
+      return { end } as unknown as Span
+    })
+    expect(action.span).toBeUndefined()
+    expect(end).toHaveBeenCalledTimes(1)
+    installTelemetrySink(event => events.push(event))
+    expect(events).toEqual([])
+  })
 })
