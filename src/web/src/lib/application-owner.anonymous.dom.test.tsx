@@ -5,6 +5,7 @@ import { act, render, waitFor } from "@/test/react-dom-harness"
 import { InviteAcceptClient } from "@/app/c/invite/[token]/invite-accept-client"
 import { PublicQueryProvider, useApplicationOwner, type ApplicationOwner } from "./application-owner"
 import { CACHE_INVALIDATION_STORAGE_KEY, clearAllPersistedCaches, createIdbPersister } from "./query-persister"
+import { tid } from "@/lib/community/testids"
 
 type Identity = { data: { user: { id: string } } | null; isPending: boolean; error: Error | null }
 const identityInput = createContext<Identity>({ data: null, isPending: true, error: null })
@@ -62,7 +63,7 @@ it("settles a cold pending public invitation as guest without retiring shared an
   viewer = null
   await act(async () => mounted!.rerender(<Root identity={guest} invite />))
   await waitFor(() => expect(owner.userId).toBe("__guest__"))
-  await waitFor(() => expect(mounted!.getByRole("heading")).toHaveTextContent("This invite has expired"))
+  await waitFor(() => expect(mounted!.getByTestId(tid.inviteExpiredTitle)).toHaveTextContent("This invite has expired"))
   await act(async () => {
     window.dispatchEvent(new StorageEvent("storage", { key: CACHE_INVALIDATION_STORAGE_KEY }))
     window.dispatchEvent(new Event("pageshow"))

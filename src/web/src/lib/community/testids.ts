@@ -84,6 +84,7 @@ export const tid = {
   statusPill: "community-status-pill",
   inviteToken: "community-invite-token",
   inviteCopy: "community-invite-copy",
+  inviteExpiredTitle: "community-invite-expired-title",
   retiredWorkspaceInviteTitle: "retired-workspace-invite-title",
   retiredWorkspaceInviteCommunityLink: "retired-workspace-invite-community-link",
   inviteCard: (token: string) => `community-invite-card-${token}`,

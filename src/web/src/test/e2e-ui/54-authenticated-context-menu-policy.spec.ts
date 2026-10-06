@@ -164,7 +164,10 @@ test("public, auth, and invite routes remain browser owned", async ({ page, asUs
   for (const route of ["/", "/sign-in", "/c/invite/not-a-real-token"]) {
     await page.goto(route, { waitUntil: "commit" })
     await expect(page.locator("body")).toBeVisible()
-    if (route === invitePath) await expect(page.getByRole("heading", { name: "This invite has expired" })).toBeVisible()
+    if (route === invitePath) {
+      await expect(page.getByTestId(tid.inviteExpiredTitle)).toBeVisible()
+      await expect(page.getByTestId(tid.inviteExpiredTitle)).toHaveText("This invite has expired")
+    }
     await rightClickDisposition(page, await installOrdinaryProbe(page), false)
   }
   expect(inviteDocuments).toBe(1)
