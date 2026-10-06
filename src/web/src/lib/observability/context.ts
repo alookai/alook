@@ -87,7 +87,6 @@ export function clearActions() {
   deferred.clear()
   navigation = undefined
   navigationHref = undefined
-  committedHref = undefined
   gesturePending = false
 }
 function normalizedHref(href: string) {
@@ -114,12 +113,13 @@ export function beginNavigation(href: string, phase: "intent" | "transport" | "g
 }
 export function navigationNoop(href: string) { const action = beginNavigation(href); finishAction(action, "noop") }
 export function commitNavigation(href: string, region: "shell" | "page" = "shell") {
-  if (!isTelemetryEligible()) return
   committedHref = normalizedHref(href)
+  if (!isTelemetryEligible()) return
   const matched = navigationHref === committedHref && navigation && !navigation.done ? navigation : undefined
   emitTelemetry("navigation.commit", { ...actionAttributes(matched), route_template: routeTemplate(href, typeof window === "undefined" ? "https://alook.ai" : window.location.origin), region, phase: "commit" })
   notifyObservation()
 }
+export function committedNavigationPathname() { return committedHref?.split("?")[0] }
 export function navigationForHref(href: string) {
   return navigation && !navigation.done && navigationHref === normalizedHref(href) ? navigation : undefined
 }

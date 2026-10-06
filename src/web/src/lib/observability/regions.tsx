@@ -2,7 +2,7 @@
 
 import { createContext, useContext, type ReactNode, Suspense, useEffect, useMemo, useRef, useSyncExternalStore } from "react"
 import { usePathname, useSearchParams } from "next/navigation"
-import { commitNavigation, currentRoute, navigationForHref, finishAction, actionAttributes } from "./context"
+import { commitNavigation, committedNavigationPathname, currentRoute, navigationForHref, finishAction, actionAttributes } from "./context"
 import { emitTelemetry, isTelemetryEligible, telemetryGeneration, subscribeObservation, observationSnapshot } from "./telemetry"
 import { viewEvidence, mergeEvidence, type Evidence } from "./data-source"
 import type { Attributes } from "./schema"
@@ -21,10 +21,11 @@ export function useObservedRegion(region: Attributes["region"], ready: boolean, 
   const revision = useSyncExternalStore(subscribeObservation, observationSnapshot, () => 0)
   const href = typeof window === "undefined" ? "/" : window.location.pathname + window.location.search
   const signature = evidence.version + ":" + evidence.source + ":" + evidence.freshness + ":" + evidence.count + ":" + (evidence.wsEventId ?? "")
-  const rendered = useMemo(() => ({ ...evidence, signature, observationRevision: revision, route: currentRoute(), href, action: navigationForHref(href), generation: telemetryGeneration() }), [evidence, signature, href, revision])
+  const rendered = useMemo(() => ({ ...evidence, signature, observationRevision: revision, pathname: committedNavigationPathname(), route: currentRoute(), href, action: navigationForHref(href), generation: telemetryGeneration() }), [evidence, signature, href, revision])
   const emitted = useRef("")
   useEffect(() => {
     if (!visible || !ready || !isTelemetryEligible() || rendered.generation !== telemetryGeneration() || rendered.href !== window.location.pathname + window.location.search) return
+    if (rendered.pathname !== undefined && rendered.pathname !== window.location.pathname) return
     const action = rendered.action && !rendered.action.done ? rendered.action : undefined
     const baseIdentity = String(rendered.generation) + ":" + rendered.href + ":" + rendered.signature + ":"
     const identity = baseIdentity + (action?.id ?? "")

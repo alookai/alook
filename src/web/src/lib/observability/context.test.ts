@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { bindCommandAction, beginNavigation, clearActions, commandObservation, finishAction, startAction, installActionSpans, navigationForHref } from "./context"
+import { bindCommandAction, beginNavigation, clearActions, commandObservation, finishAction, startAction, installActionSpans, navigationForHref, commitNavigation, committedNavigationPathname } from "./context"
 import { alignInitialTelemetrySession, configureTelemetry, emitTelemetry, installTelemetrySink, retireTelemetry, telemetryGeneration } from "./telemetry"
 import type { Span } from "@opentelemetry/api"
 import { startRequest, requestHeaders, readObservedResponse } from "./requests"
@@ -138,6 +138,20 @@ describe("original observation ownership", () => {
     expect(events.filter(event => event.name === "navigation.intent").map(event => event.attributes.phase)).toEqual(["intent", "transport"])
     finishAction(action, "success")
     expect(events.filter(event => event.name === "action.finish")).toHaveLength(1)
+  })
+  it("keeps structural renderer ownership across retirement without emitting denied commits", () => {
+    commitNavigation("/c/channels/server-a/forum-a?tag=hello%20there")
+    const action = beginNavigation("/c/channels/server-a/text-a?q=hello+there")!
+    expect(committedNavigationPathname()).toBe("/c/channels/server-a/forum-a")
+    expect(beginNavigation("/c/channels/server-a/text-a?q=hello+there", "transport")).toBe(action)
+    commitNavigation("/c/channels/server-a/text-a")
+    expect(committedNavigationPathname()).toBe("/c/channels/server-a/text-a")
+    retireTelemetry(); clearActions()
+    expect(committedNavigationPathname()).toBe("/c/channels/server-a/text-a")
+    const count = events.length
+    commitNavigation("/c/me")
+    expect(committedNavigationPathname()).toBe("/c/me")
+    expect(events).toHaveLength(count)
   })
 
   it("measures document visits from the document clock and later visits from their own intent", () => {
