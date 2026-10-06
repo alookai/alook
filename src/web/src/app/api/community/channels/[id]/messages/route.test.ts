@@ -290,6 +290,50 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockGetDMBetween.mockResolvedValue(null)
   })
 
+  it.each([
+    {
+      name: "field types",
+      body: { channel: 42, content: { text: 17 } },
+      details: {
+        formErrors: [],
+        fieldErrors: {
+          channel: ["Invalid input: expected string, received number"],
+          content: ["Invalid input: expected string, received number"],
+        },
+      },
+    },
+    {
+      name: "empty message",
+      body: { channel: "/demo#0042/general", content: { text: " " } },
+      details: { formErrors: ["message must have text or attachments"], fieldErrors: {} },
+    },
+  ])("rejects bot schema-invalid $name with the original details wire before target or write work", async ({ body, details }) => {
+    const res = await POST(botPostReq(body), ctx)
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: "invalid payload", details })
+    expect(mockGetPrimaryDb).toHaveBeenCalledOnce()
+    for (const [name, mock] of Object.entries({
+      resolveServer: mockResolveServerByNameForMember,
+      getChannel: mockGetChannel,
+      getChannelForMember: mockGetChannelForMember,
+      createDm: mockCreateOrGetDM,
+      replay: mockGetMessageByAuthorAndNonce,
+      duplicate: mockDuplicateCheck,
+      rateLimit: mockCheckMessageRateLimit,
+      pendingAttachments: mockFindPendingAttachmentsForSender,
+      reserveAttachments: mockReserveAttachmentsForMessage,
+      createChannel: mockCreateChannel,
+      createMessage: mockCreateMessage,
+      createMentions: mockCreateMentions,
+      activity: mockBumpBotDailyActivityStatement,
+      agentProjection: mockToAgentMessage,
+      dispatch: mockDispatchCommittedMessage,
+      channelFanout: mockFanOutToChannel,
+      userBroadcast: mockBroadcastToUserSafe,
+    })) expect(mock, name).not.toHaveBeenCalled()
+  })
+
   it.each(["text", "forum", "thread"])("rejects a redundant bot send in %s before any message write", async (type) => {
     mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
     mockResolveChannelByNameForMember.mockResolvedValue([{ id: "c1", serverId: "s1", type: "text", parentChannelId: null }])
