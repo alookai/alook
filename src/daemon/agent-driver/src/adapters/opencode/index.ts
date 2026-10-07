@@ -38,7 +38,7 @@ export class OpenCodeDriver implements BackendAdapter, OpenCodeServiceProcessFac
   readonly instructionDelivery = { kind: "workspace_file", canonical: "AGENTS.md", aliases: ["CLAUDE.md"] } as const;
   readonly execution = {
     lifetime: "session",
-    transport: { kind: "http_sse", protocol: "opencode.v2.service.1.17.20" },
+    transport: { kind: "http_sse", protocol: "opencode.v2.service" },
     wakeStart: "immediate",
     terminalOwnership: "transport_request",
   } as const;

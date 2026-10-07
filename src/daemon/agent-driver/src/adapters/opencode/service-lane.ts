@@ -18,7 +18,6 @@ import { SettledUsageProjector } from "../../internal/token-usage.js";
 import { resolveLaunchFieldsOrDefault } from "../../internal/config.js";
 import { killProcessTree, SESSION_STOP_GRACE_MS } from "../../internal/killTree.js";
 
-const SUPPORTED_VERSION = "1.17.20";
 const HOST = "127.0.0.1";
 const START_TIMEOUT_MS = 15_000;
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -508,8 +507,8 @@ export class OpenCodeServiceLane implements RuntimeLane {
         );
         if (response.ok) {
           const health = record(body);
-          if (health?.healthy !== true || health.version !== SUPPORTED_VERSION) {
-            throw new OpenCodeIncompatibleError(`Installed OpenCode service must be version ${SUPPORTED_VERSION}`);
+          if (health?.healthy !== true) {
+            throw new OpenCodeIncompatibleError("Installed OpenCode service did not report healthy status");
           }
           await this.verifyOpenApi();
           return;
