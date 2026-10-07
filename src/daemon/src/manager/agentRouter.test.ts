@@ -432,6 +432,13 @@ describe("AgentRouter — agent:reset", () => {
     expect(resets[0].rewakePrompt).toContain("Communicate task-relevant results, questions, and blockers normally");
     expect(resets[0].rewakePrompt).toContain("If nothing needs a user-facing response, send no message");
     expect(resets[0].rewakePrompt).toContain("resume outstanding work and handle your inbox messages");
+    expect(resets[0].rewakePrompt).toContain("3. Learn: Use .context_timeline to find channels and threads you recently participated in");
+    expect(resets[0].rewakePrompt).toContain("the full history of each recent discussion, from the initial request through the work, intermediate corrections, and any final decisions");
+    expect(resets[0].rewakePrompt).toContain("the user's guidance on communication, collaboration, and how to do work");
+    expect(resets[0].rewakePrompt).toContain("the underlying goals, reasons, and constraints");
+    expect(resets[0].rewakePrompt).toContain("Preserve its scope and source links");
+    expect(resets[0].rewakePrompt).toContain("distinguish explicit user instructions from your own inferences");
+    expect(resets[0].rewakePrompt).toContain("Update or remove superseded notes");
     // Ordering: onBeforeAgent completes before resetSession fires.
     expect(order[0]).toBe("before:a1");
     expect(order[1]).toBe("reset:a1");
@@ -504,6 +511,13 @@ describe("AgentRouter — machine:reset_all (batch reset)", () => {
     // Every entry reset, once each; onBeforeAgent ran for each (gate inherited).
     expect(resets.map((r) => r.agentId)).toEqual(["a1", "a2", "a3"]);
     for (const { rewakePrompt } of resets) {
+      expect(rewakePrompt).toContain("3. Learn: Use .context_timeline to find channels and threads you recently participated in");
+      expect(rewakePrompt).toContain("the full history of each recent discussion, from the initial request through the work, intermediate corrections, and any final decisions");
+      expect(rewakePrompt).toContain("the user's guidance on communication, collaboration, and how to do work");
+      expect(rewakePrompt).toContain("the underlying goals, reasons, and constraints");
+      expect(rewakePrompt).toContain("Preserve its scope and source links");
+      expect(rewakePrompt).toContain("distinguish explicit user instructions from your own inferences");
+      expect(rewakePrompt).toContain("Update or remove superseded notes");
       expect(rewakePrompt).toContain("internal maintenance; perform it silently");
       expect(rewakePrompt).toContain("Do not proactively send the owner, users, or channels progress updates, completion notices, or details about your memory state");
     }

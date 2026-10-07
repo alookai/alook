@@ -480,6 +480,13 @@ describe("AgentProcessManager — idle memory maintenance", () => {
       await first.fire("runtime_event", { kind: "turn_end", sessionId: "saved-session" });
     }
     const deliveredPrompt = hibernated ? factory.mock.calls[1][0].ctx.prompt : send.mock.calls[0][0].text;
+    expect(deliveredPrompt).toContain("3. Learn: Use .context_timeline to find channels and threads you recently participated in");
+    expect(deliveredPrompt).toContain("the full history of each recent discussion, from the initial request through the work, intermediate corrections, and any final decisions");
+    expect(deliveredPrompt).toContain("the user's guidance on communication, collaboration, and how to do work");
+    expect(deliveredPrompt).toContain("the underlying goals, reasons, and constraints");
+    expect(deliveredPrompt).toContain("Preserve its scope and source links");
+    expect(deliveredPrompt).toContain("distinguish explicit user instructions from your own inferences");
+    expect(deliveredPrompt).toContain("Update or remove superseded notes");
     expect(deliveredPrompt).toContain("internal maintenance; perform it silently");
     expect(deliveredPrompt).toContain("Do not proactively send the owner, users, or channels progress updates, completion notices, or details about your memory state");
     expect(deliveredPrompt).toContain("Communicate task-relevant results, questions, and blockers normally");
