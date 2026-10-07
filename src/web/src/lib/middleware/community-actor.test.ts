@@ -98,6 +98,23 @@ describe("withCommunityActor", () => {
     expect(res.status).toBe(401)
     expect(handler).not.toHaveBeenCalled()
   })
+
+  it.each([200, 304])("varies private bot media status %s by credentials without changing actor resolution", async (status) => {
+    mockResolveBotActor.mockResolvedValue({
+      kind: "bot",
+      actor: { botUserId: "bot_1", ownerUserId: "owner_1", machineId: "m_1", isActive: true },
+    })
+    const original = new Response(status === 304 ? null : "media", {
+      status, headers: { "Cache-Control": "private, max-age=31536000, immutable", Vary: "Accept-Encoding" },
+    })
+    const mediaHandler = vi.fn(async (_request: NextRequest, _ctx: { actor: CommunityActor }) => original)
+    const res = await withCommunityActor(mediaHandler)(bearer("Bearer crk_abc"))
+    expect(res.status).toBe(status)
+    expect(res.headers.get("Vary")).toBe("Accept-Encoding, Cookie, Authorization")
+    expect(res.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable")
+    expect(res.body).toBe(original.body)
+    expect(mediaHandler.mock.calls[0]?.[1].actor.kind).toBe("bot")
+  })
 })
 
 describe("rejectBot / requireBot guards", () => {

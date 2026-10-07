@@ -4,9 +4,8 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import {
   useId,
   useRef,
-  type MutableRefObject,
-  type ReactNode,
   type RefObject,
+  type ReactNode,
 } from "react"
 import { CircleAlert, Download, LoaderCircle, Settings } from "lucide-react"
 import { InboxUnreadIndicator } from "./inbox-unread-indicator"
@@ -184,7 +183,7 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
   closeInboxForAction: () => void
   profileTriggerRef: RefObject<HTMLButtonElement | null>
   profileNameTriggerRef: RefObject<HTMLButtonElement | null>
-  lastProfileTriggerRef: MutableRefObject<HTMLButtonElement | null>
+  lastProfileTriggerRef: RefObject<HTMLButtonElement | null>
   inboxTriggerRef: RefObject<HTMLButtonElement | null>
   updateBadgeRef: RefObject<HTMLButtonElement | null>
   onRequestExtensionFocus: (extension: UserBarExtensionKind) => void

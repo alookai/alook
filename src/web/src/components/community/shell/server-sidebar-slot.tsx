@@ -193,7 +193,7 @@ function ServerSidebar({ serverId }: { serverId: string }) {
     const read = () => communityDb ? Array.from(communityDb.collections.channels.values()).filter((channel) => channel.serverId === id && channel.type !== "thread" && !channel.pending).map((channel) => channel.id) : []
     if (!communityDb?.collections.servers.get(id)?.detailComplete && !lastChannel && read().length === 0) {
       try {
-        await queryClient.fetchQuery({ queryKey: communityKeys.server(id), queryFn: ({ signal }) => serverProjectedQueryFn(queryClient, id, signal)(), staleTime: Infinity })
+        await queryClient.query({ queryKey: communityKeys.server(id), queryFn: ({ signal }) => serverProjectedQueryFn(queryClient, id, signal)(), staleTime: Infinity, select: undefined })
       } catch {}
     }
     const channelIds = read()

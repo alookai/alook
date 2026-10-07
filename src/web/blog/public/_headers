@@ -1,0 +1,20 @@
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/blog-static/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/blog/*
+  Cache-Control: public, max-age=300, must-revalidate
+
+/alook.svg
+  Cache-Control: public, max-age=300, must-revalidate
+
+/apple-touch-icon.png
+  Cache-Control: public, max-age=300, must-revalidate
+
+/icon-192.png
+  Cache-Control: public, max-age=300, must-revalidate
+
+/favicon.ico
+  Cache-Control: public, max-age=300, must-revalidate

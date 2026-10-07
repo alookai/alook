@@ -7,7 +7,7 @@ const openNextHandler: ExportedHandler<CloudflareEnv> = {
     const url = new URL(request.url)
     return new Response(`open-next:${url.pathname}`, {
       status: url.pathname === "/missing" ? 404 : 200,
-      headers: { "x-open-next": "test-entry" },
+      headers: { "x-open-next": "test-entry", "Content-Type": "text/html" },
     })
   },
 }

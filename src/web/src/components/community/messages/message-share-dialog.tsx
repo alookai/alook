@@ -161,7 +161,7 @@ export function MessageShareDialog({ m, open, onClose }: {
       original()
       const prepared = client.getQueryData<{ value: PreparedShareImageSession; filename: string }>(preparationKey)
       if (!prepared) throw new ShareImageSessionError("source")
-      const blob = await client.fetchQuery(pngOptions)
+      const blob = await client.query({ ...pngOptions, select: undefined })
       original()
       if (action === "copy") {
         if (mobileNative) {

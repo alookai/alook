@@ -1,3 +1,4 @@
+import { flattenError } from "zod"
 import { NextResponse, type NextRequest } from "next/server"
 import { nanoid } from "nanoid"
 import {
@@ -52,7 +53,7 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   }
   const parsed = CommunityAgentNapRequestSchema.safeParse(raw)
   if (!parsed.success) {
-    return NextResponse.json({ error: "invalid nap request", details: parsed.error.flatten() }, { status: 400 })
+    return NextResponse.json({ error: "invalid nap request", details: flattenError(parsed.error) }, { status: 400 })
   }
   const handoff = parsed.data.handoff
 

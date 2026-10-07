@@ -131,7 +131,7 @@ describe.each(["text", "forum"] as const)("%s canonical thread scope eviction", 
     })
     let release!: (value: typeof preview) => void
     let requestSignal!: AbortSignal
-    const pending = capturedQueryClient.fetchQuery({
+    const pending = capturedQueryClient.query({
       queryKey: pendingKey,
       queryFn: ({ signal }) => {
         requestSignal = signal
@@ -170,7 +170,7 @@ it("cancels an unresolved parent thread list before its child rows can arrive", 
   const key = communityKeys.threads("parent")
   let release!: (value: ThreadsResponse) => void
   let requestSignal!: AbortSignal
-  const pending = capturedQueryClient.fetchQuery({
+  const pending = capturedQueryClient.query({
     queryKey: key,
     queryFn: ({ signal }) => {
       requestSignal = signal

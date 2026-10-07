@@ -1,3 +1,4 @@
+import { flattenError } from "zod"
 import { NextResponse } from "next/server"
 import {
   queries,
@@ -28,7 +29,7 @@ export const POST = withCommunityDaemonAuth(async (req, ctx) => {
   const parsed = CommunityDaemonEnrollAgentRequestSchema.safeParse(raw)
   if (!parsed.success) {
     return NextResponse.json(
-      { error: "invalid payload", details: parsed.error.flatten() },
+      { error: "invalid payload", details: flattenError(parsed.error) },
       { status: 400 }
     )
   }

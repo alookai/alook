@@ -81,10 +81,11 @@ export function useAccountAttentionProjection() {
 export async function reconcileAccountAttention(
   registry: CommunityDbRegistry,
 ) {
-  const snapshot = await registry.queryClient.fetchQuery({
+  const snapshot = await registry.queryClient.query({
     queryKey: communityKeys.accountAttention(),
     queryFn: accountAttentionQueryFn(registry.queryClient),
     staleTime: 0,
+    select: undefined,
   })
   return snapshot
 }

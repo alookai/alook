@@ -123,7 +123,7 @@ export function useLeaveServer() {
         } catch (error) { origin.assert(token); throw error }
       } })
       transaction.mutate(() => mutateViewerMembership(registry, args.serverId))
-      try { await transaction.isPersisted.promise } catch (error) { origin.assert(token); throw error }
+      try { await transaction.when("settled") } catch (error) { origin.assert(token); throw error }
     },
     onError: (_error, _args, context) => {
       if (!context) return
@@ -165,7 +165,7 @@ export function useDeleteServer(callbacks: DeleteServerCallbacks) {
         } catch (error) { origin.assert(token); throw error }
       } })
       transaction.mutate(() => mutateViewerMembership(registry, args.serverId))
-      try { await transaction.isPersisted.promise } catch (error) { origin.assert(token); throw error }
+      try { await transaction.when("settled") } catch (error) { origin.assert(token); throw error }
     },
     onError: (error, args, context) => {
       cancelOwnerServerDelete(queryClient, args.serverId, context?.routeToken)
@@ -221,7 +221,7 @@ export function useUpdateServer() {
       if (!registry!.collections.servers.has(args.serverId)) return persist()
       const transaction = registry!.dbClient.createTransaction({ mutationFn: persist })
       transaction.mutate(() => registry!.collections.servers.update(args.serverId, (row) => { row.name = args.name.trim(); row.description = args.description }))
-      try { await transaction.isPersisted.promise } catch (error) { origin.assert(original); throw error }
+      try { await transaction.when("settled") } catch (error) { origin.assert(original); throw error }
     },
     onSettled: (_data, error, args) => {
       if (isAbortError(error) || !origin.registry?.runtime.lifecycle.get().active) return
@@ -255,7 +255,7 @@ export function useUploadServerIcon() {
           ...communityRequestOptions(queryClient, token, undefined, () => origin.assert(token)),
         })
         origin.assert(token)
-        publishCommunityServerFields(queryClient, serverId, { icon: `${result.url}?t=${Date.now()}` }, { token, signal: undefined })
+        publishCommunityServerFields(queryClient, serverId, { icon: result.url }, { token, signal: undefined })
         return result
       } catch (error) { origin.assert(token); throw error }
     },

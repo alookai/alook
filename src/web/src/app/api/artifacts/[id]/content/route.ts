@@ -31,6 +31,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   const download = req.nextUrl.searchParams.get("download");
   const headers: Record<string, string> = {
+    "Cache-Control": "private, no-store",
     "Content-Type": row.contentType,
     "Content-Length": String(row.size),
   };

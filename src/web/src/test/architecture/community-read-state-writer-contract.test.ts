@@ -110,7 +110,7 @@ describe("human account read-state writer contract", () => {
     )
     expect(projection).not.toMatch(/\b(?:apiFetch|fetch|setTimeout|setInterval)\s*\(/)
     expect(projection).not.toMatch(
-      /queryClient\.(?:setQueryData|invalidateQueries|fetchQuery|refetchQueries|cancelQueries)\s*\(/,
+      /queryClient\.(?:setQueryData|invalidateQueries|fetchQuery|query|fetchInfiniteQuery|infiniteQuery|refetchQueries|cancelQueries)\s*\(/,
     )
   })
 

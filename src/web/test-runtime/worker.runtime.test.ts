@@ -27,7 +27,7 @@ describe("Web workerd runtime", () => {
     await runtimeEnv.CACHE_KV.delete(kvKey)
   })
 
-  it.each(["/", "/pricing", "/apiary"])(
+  it.each(["/", "/pricing", "/privacy", "/templates", "/templates/example"])(
     "adds browser and CDN revalidation headers to public route %s",
     async (pathname) => {
       const publicResponse = await worker.fetch(new Request(`https://worker.test${pathname}`))
@@ -42,7 +42,7 @@ describe("Web workerd runtime", () => {
     },
   )
 
-  it.each(["/w/one", "/workspaces", "/dashboard/one", "/invite/one", "/api/one", "/_next/one"])(
+  it.each(["/w/one", "/workspaces", "/dashboard/one", "/invite/one", "/api/one", "/_next/one", "/c", "/c/me", "/c/channels/s1/c1", "/c/invite/token", "/sign-in", "/device", "/auth/native/start", "/apiary", "/unknown"])(
     "does not add public cache headers to private route %s",
     async (pathname) => {
       const privateResponse = await worker.fetch(new Request(`https://worker.test${pathname}`))

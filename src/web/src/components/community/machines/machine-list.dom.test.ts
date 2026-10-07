@@ -5,7 +5,7 @@ import { renderCommunity as render } from "@/test/community-owner-harness"
 
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
-  fetchQuery: vi.fn(),
+  query: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
   fetchLatestDaemonVersion: vi.fn(),
@@ -81,7 +81,7 @@ vi.mock("./machine-card", () => ({
 vi.mock("./pair-machine-sheet", () => ({ PairMachineSheet: ({ open, onLimitReached }: { open: boolean; onLimitReached: () => void }) => open ? React.createElement("button", { "data-testid": "test-pair-sheet", onClick: onLimitReached }, "Simulate server limit") : null }))
 vi.mock("@/components/community/onboarding-tiles/connect-tile", () => ({ ConnectTile: () => null }))
 vi.mock("@/hooks/community/use-machines", async (importOriginal) => ({ ...await importOriginal<typeof import("@/hooks/community/use-machines")>(),
-  machinesQueryFn: mocks.fetchQuery,
+  machinesQueryFn: mocks.query,
   useMachines: () => ({ machines: mocks.machines.current, isLoading: mocks.machinesLoading.current, data: { machineCapacity: mocks.capacity.current } }),
 }))
 vi.mock("@/hooks/community/use-bots", () => ({ useBots: () => ({ bots: [] }) }))
@@ -131,7 +131,7 @@ describe("machine daemon update UI", () => {
   beforeEach(() => {
     mocks.capacity.current = { plan: { id: "free", displayName: "Free" }, isFounder: false, limit: 1, ownedCount: 0, onlineCount: 0 }
     mocks.apiFetch.mockReset()
-    mocks.fetchQuery.mockReset()
+    mocks.query.mockReset()
     mocks.toastSuccess.mockReset()
     mocks.toastError.mockReset()
     mocks.fetchLatestDaemonVersion.mockReset()
@@ -167,7 +167,7 @@ describe("machine daemon update UI", () => {
   })
 
   it("refreshes the allowance before showing a server rejection", async () => {
-    mocks.fetchQuery.mockImplementation(async () => {
+    mocks.query.mockImplementation(async () => {
       mocks.capacity.current = { ...mocks.capacity.current, limit: 5, ownedCount: 5 }
       return { machines: mocks.machines.current, machineCapacity: mocks.capacity.current }
     })
@@ -175,12 +175,12 @@ describe("machine daemon update UI", () => {
     fireEvent.click(view.getByRole("button", { name: "Connect a machine" }))
     fireEvent.click(view.getByText("Simulate server limit"))
     expect(await view.findByText(/Your plan allows 5 machines/)).toBeInTheDocument()
-    expect(mocks.fetchQuery).toHaveBeenCalledOnce()
+    expect(mocks.query).toHaveBeenCalledOnce()
     expect(view.queryByTestId("test-pair-sheet")).not.toBeInTheDocument()
   })
 
   it("keeps a failed allowance refresh out of the limit dialog", async () => {
-    mocks.fetchQuery.mockRejectedValue(new Error("unavailable"))
+    mocks.query.mockRejectedValue(new Error("unavailable"))
     const view = render(React.createElement(MachineList))
     fireEvent.click(view.getByRole("button", { name: "Connect a machine" }))
     fireEvent.click(view.getByText("Simulate server limit"))

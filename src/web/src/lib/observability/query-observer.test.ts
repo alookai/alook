@@ -13,13 +13,13 @@ beforeEach(() => { client = observeQueryClient(new QueryClient()); events.length
 afterEach(() => { retireTelemetry(); clearActions(); disposeQueryDiagnostics(client); client.clear() })
 it("distinguishes actual HTTP values from local Query functions and manual WS writes", async () => {
   const queryKey = ["remote"]
-  const remote = await client.fetchQuery({ queryKey, queryFn: async () => {
+  const remote = await client.query({ queryKey, queryFn: async () => {
     const request = startRequest("/api/agents"), response = new Response('[{"id":"private"}]')
     requestHeaders(request, response)
     return readObservedResponse(response, () => response.json())
   } })
   expect(valueEvidence(client, remote).source).toBe("network")
-  const local = await client.fetchQuery({ queryKey: ["local"], queryFn: () => ({ status: "rendered" }) })
+  const local = await client.query({ queryKey: ["local"], queryFn: () => ({ status: "rendered" }) })
   expect(valueEvidence(client, local).source).toBe("unknown")
   withSource(client, "ws", () => client.setQueryData(queryKey, [{ id: "private", changed: true }]))
   expect(valueEvidence(client, client.getQueryData(queryKey)).source).toBe("mixed")

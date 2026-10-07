@@ -6,7 +6,7 @@
     "dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "build": "sh scripts/build.sh",
     "tauri": "tauri",
-    "ios": "tauri ios dev --config src-tauri/tauri.dev.conf.json",
+    "ios": "node scripts/ios-dev.mjs --config src-tauri/tauri.dev.conf.json",
     "android": "tauri android dev --config src-tauri/tauri.dev.conf.json"
   },
   "devDependencies": {

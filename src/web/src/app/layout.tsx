@@ -8,6 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { MockNetworkBanner } from "@/components/mock-network-banner";
 import { TauriThemeSync } from "@/components/tauri-theme-sync";
 import { ThemeColorSync } from "@/components/theme-color-sync";
+import { ServiceWorkerRegistration } from "@/components/service-worker-registration";
 import { siteMetadata, siteStructuredData, siteViewport } from "@/lib/seo/site-metadata";
 import { communityShellLayoutBootstrapScript } from "@/components/community/shell/shell-frame-geometry";
 import { caveat, dmMono, dmSans, instrumentSerif, literata, vt323 } from "./fonts";
@@ -40,6 +41,7 @@ export default function RootLayout({
         className="min-h-full flex flex-col"
       >
         <MockNetworkBanner />
+        <ServiceWorkerRegistration />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{

@@ -3,6 +3,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { getDb } from "@/lib/db"
 import { withAuth, type AuthContext } from "./auth"
 import { resolveBotActor } from "./community-agent-runner-auth"
+import { varyPrivateResponseByCredentials } from "./response-cache"
 
 /**
  * The unified community actor — the single identity a `/api/community/*` route
@@ -110,7 +111,7 @@ export function withCommunityActor(
         return NextResponse.json({ error: "invalid runner key" }, { status: 401 })
       }
 
-      return handler(req, {
+      return varyPrivateResponseByCredentials(await handler(req, {
         env: cloudflareEnv,
         actor: {
           kind: "bot",
@@ -120,7 +121,7 @@ export function withCommunityActor(
           isActive: resolved.actor.isActive,
         },
         params: resolvedParams,
-      })
+      }))
     }
 
     // Human path — delegate verbatim to withAuth, adapting its AuthContext into

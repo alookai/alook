@@ -782,7 +782,7 @@ function useMessagesInner(
     })
     const repair = () => {
       if (!isCurrent()) return
-      void queryClient.fetchQuery(repairOptions)
+      void queryClient.query({ ...repairOptions, select: undefined })
         .then((page) => {
           // Re-check right before the swap — a concurrent send/WS update or a
           // second re-anchor attempt in the interim shouldn't be clobbered by

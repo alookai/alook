@@ -60,7 +60,7 @@ describe("DM route uses the shared Channel metadata owner", () => {
   it("reuses the same metadata Query when another Channel consumer has already fetched it", async () => {
     const { client, registry, wrapper } = await fixture()
     apiFetch.mockResolvedValue(metadata)
-    await client.fetchQuery(channelMetadataOptions(client, null, dm.id))
+    await client.query(channelMetadataOptions(client, null, dm.id))
     const route = renderHook(() => useDmRouteVerification(dm.id), { wrapper })
     expect(route.result.current.status).toBe("present")
     await expect(startDmRouteVerification(client, dm.id)).resolves.toBe("present")

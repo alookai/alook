@@ -114,5 +114,5 @@ export function canonicalUserImage(
  */
 export function serverIconUrl(server: { id: string; icon: string | null }): string | null {
   if (!server.icon) return null
-  return `/api/community/servers/${server.id}/icon`
+  return `/api/community/servers/${server.id}/icon?v=${encodeURIComponent(server.icon)}`
 }

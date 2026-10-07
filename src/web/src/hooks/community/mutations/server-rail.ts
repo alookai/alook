@@ -59,7 +59,7 @@ export function useServerRailCommit() {
         } catch (error) { origin.assert(original); throw error }
       } })
       transaction.mutate(() => mutateCommunityServerRail(registry!, optimistic.value))
-      try { await transaction.isPersisted.promise } catch (error) { origin.assert(original); throw error }
+      try { await transaction.when("settled") } catch (error) { origin.assert(original); throw error }
       return response!
     },
     onSettled: (_response, error, args) => {

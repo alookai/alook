@@ -51,7 +51,7 @@ function warmLiveForumChildOwner(
     || !isForumSidebarParent(queryClient, event.serverId, event.parentChannelId)
     || hasForumSidebarOwnershipEvidence(queryClient, event.serverId, event.channelId)
   ) return
-  void queryClient.fetchQuery(channelMetadataOptions(queryClient, event.serverId, event.channelId))
+  void queryClient.query({ ...channelMetadataOptions(queryClient, event.serverId, event.channelId), select: undefined })
     .catch(() => undefined)
 }
 

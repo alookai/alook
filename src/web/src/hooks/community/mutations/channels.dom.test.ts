@@ -111,7 +111,7 @@ describe("canonical channel move and create", () => {
   it("physically cancels an in-flight server refetch before the optimistic write", async () => {
     seed()
     let signal!: AbortSignal
-    const read = client.fetchQuery({ queryKey: communityKeys.server("s1"), staleTime: 0, queryFn: (context) => { signal = context.signal; return new Promise<string>(() => {}) } }).catch((error) => error)
+    const read = client.query({ queryKey: communityKeys.server("s1"), staleTime: 0, queryFn: (context) => { signal = context.signal; return new Promise<string>(() => {}) } }).catch((error) => error)
     const held = deferred(), rendered = mount(commands.useCreateChannel), pending = start(rendered.result.current.command, create)
     await waitFor(() => expect(treeChannels(rendered.result.current.tree).some((row) => row.pending)).toBe(true))
     expect(signal.aborted).toBe(true)

@@ -85,6 +85,39 @@ describe("POST /api/community/users/me/inbox/pull — bot arm (folds inboxPull)"
     expect(res.status).toBe(400)
   })
 
+  it.each([
+    {
+      name: "max type",
+      body: { max: "5" },
+      details: {
+        formErrors: [],
+        fieldErrors: { max: ["Invalid input: expected number, received string"] },
+      },
+    },
+    {
+      name: "body type",
+      body: [],
+      details: {
+        formErrors: ["Invalid input: expected object, received array"],
+        fieldErrors: {},
+      },
+    },
+  ])("rejects schema-invalid $name with the original details wire before inbox work", async ({ body, details }) => {
+    const res = await POST(req(JSON.stringify(body), { Authorization: "Bearer crk_abc" }))
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: "invalid payload", details })
+    expect(mockFindActiveAgentRunnerKeyByBearer).toHaveBeenCalledOnce()
+    expect(mockGetBotBinding).toHaveBeenCalledOnce()
+    for (const [name, mock] of Object.entries({
+      visibility: mockListAccessVisibleChannelIdsForUser,
+      unread: mockListUnreadMessagesForAgent,
+      marks: mockCountMarksForUser,
+      attachments: mockListByMessageIds,
+      hydration: mockToAgentMessages,
+    })) expect(mock, name).not.toHaveBeenCalled()
+  })
+
   it("returns an empty page for an inactive bot without querying or hydrating inbox data", async () => {
     mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude", isActive: false })
 

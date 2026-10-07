@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => ({
     statusEmoji: "🙂",
     statusText: "Here",
   },
-  fetchQuery: vi.fn(),
+  query: vi.fn(),
   createDm: vi.fn(),
   acceptDm: vi.fn(),
   updateProfile: vi.fn(),
@@ -42,7 +42,7 @@ vi.mock("sonner", () => ({ toast: mocks.toast }))
 vi.mock("@/lib/api/client", () => ({
   ACCOUNT_DELETED_SIGN_IN_PATH: "/sign-in?account_deleted=1",
   toastApiError: mocks.toastApiError,
-  apiFetch: (path: string, options: { method?: string; body?: string }) => Promise.resolve(options?.method === "PATCH" ? mocks.updateProfile(JSON.parse(options.body!)) : mocks.fetchQuery(path, options)).then((data) => ({ id: path.split("/").at(-2), name: "Remote", discriminator: "0001", image: null, avatarVersion: 0, bannerColor: null, aboutMe: "", mutualServers: 0, statusEmoji: null, statusText: null, kind: "human", ...data })),
+  apiFetch: (path: string, options: { method?: string; body?: string }) => Promise.resolve(options?.method === "PATCH" ? mocks.updateProfile(JSON.parse(options.body!)) : mocks.query(path, options)).then((data) => ({ id: path.split("/").at(-2), name: "Remote", discriminator: "0001", image: null, avatarVersion: 0, bannerColor: null, aboutMe: "", mutualServers: 0, statusEmoji: null, statusText: null, kind: "human", ...data })),
 }))
 vi.mock("@/lib/community/image-crop", () => ({ validateIconSourceFile: mocks.validate }))
 vi.mock("@/contexts/community/current-user", () => ({
@@ -238,7 +238,7 @@ describe("useShellProfileController", () => {
     await act(async () => hook.current.openProfile("Self", { clientX: 2, clientY: 3 } as never, undefined, "self"))
     expect(hook.current.profile?.data.userId).toBe("self")
     expect(hook.current.profile?.x).toBe(2)
-    expect(mocks.fetchQuery).not.toHaveBeenCalled()
+    expect(mocks.query).not.toHaveBeenCalled()
   })
 
   it("does not infer self from matching name or discriminator", async () => {
@@ -251,7 +251,7 @@ describe("useShellProfileController", () => {
 
     expect(hook.current.profile?.data.name).toBe("Self")
     expect(hook.current.profile?.data.userId).toBeUndefined()
-    expect(mocks.fetchQuery).not.toHaveBeenCalled()
+    expect(mocks.query).not.toHaveBeenCalled()
   })
 
   it("opens a remote seed before fetch and hydrates only card state", async () => {
@@ -264,14 +264,14 @@ describe("useShellProfileController", () => {
       statusText: string | null
       kind: "human"
     }>()
-    mocks.fetchQuery.mockReturnValue(response.promise)
+    mocks.query.mockReturnValue(response.promise)
     const hook = await renderController()
     await act(async () => hook.current.openProfile("Remote", { clientX: 4, clientY: 5 } as never, undefined, "remote"))
     expect(hook.current.profile?.data).toMatchObject({
       userId: "remote",
       contextLabel: "Server member",
     })
-    expect(mocks.fetchQuery).toHaveBeenCalledWith("/api/community/users/remote/profile", expect.objectContaining({ authenticationAccount: "self" }))
+    expect(mocks.query).toHaveBeenCalledWith("/api/community/users/remote/profile", expect.objectContaining({ authenticationAccount: "self" }))
     expect(hook.queryClient.getQueryCache().find({ queryKey: ["community", "profile", "remote"], exact: true })?.options.staleTime).toBe(300_000)
 
     await act(async () => response.resolve({
@@ -291,7 +291,7 @@ describe("useShellProfileController", () => {
   })
 
   it("keeps identity fields out of controller state after an authoritative profile fetch", async () => {
-    mocks.fetchQuery.mockResolvedValue({
+    mocks.query.mockResolvedValue({
       id: "remote",
       aboutMe: "hydrated",
       mutualServers: 1,
@@ -322,7 +322,7 @@ describe("useShellProfileController", () => {
   })
 
   it("keeps open-card state limited to target and context metadata", async () => {
-    mocks.fetchQuery.mockReturnValue(new Promise(() => {}))
+    mocks.query.mockReturnValue(new Promise(() => {}))
     const hook = await renderController()
     await act(async () => hook.current.openProfile(
       "Remote",
@@ -340,7 +340,7 @@ describe("useShellProfileController", () => {
   it("does not let a slow profile response overwrite the next opened card", async () => {
     const first = deferred<Record<string, unknown>>()
     const second = deferred<Record<string, unknown>>()
-    mocks.fetchQuery
+    mocks.query
       .mockReturnValueOnce(first.promise)
       .mockReturnValueOnce(second.promise)
     const hook = await renderController()
@@ -385,7 +385,7 @@ describe("useShellProfileController", () => {
   })
 
   it("hydrates bot ownership, swaps to the exact owner, and routes audit preview", async () => {
-    mocks.fetchQuery.mockResolvedValueOnce({
+    mocks.query.mockResolvedValueOnce({
       id: "remote",
       aboutMe: "bot",
       mutualServers: 0,

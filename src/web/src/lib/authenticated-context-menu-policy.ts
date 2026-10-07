@@ -15,7 +15,6 @@ type CaretPositionDocument = Document & {
     offsetNode: Node
     offset: number
   } | null
-  caretRangeFromPoint?: (x: number, y: number) => Range | null
 }
 
 type PointInRange = Pick<Range, "getClientRects" | "isPointInRange">
@@ -99,11 +98,7 @@ function caretPointFromClientPoint(
 ): { node: Node; offset: number } | null {
   const caretDocument = ownerDocument as CaretPositionDocument
   const position = caretDocument.caretPositionFromPoint?.(point.clientX, point.clientY)
-  if (position) return { node: position.offsetNode, offset: position.offset }
-
-  const range = caretDocument.caretRangeFromPoint?.(point.clientX, point.clientY)
-  if (!range) return null
-  return { node: range.startContainer, offset: range.startOffset }
+  return position ? { node: position.offsetNode, offset: position.offset } : null
 }
 
 export function selectionContainsClientPoint(

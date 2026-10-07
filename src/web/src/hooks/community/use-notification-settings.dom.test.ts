@@ -40,7 +40,7 @@ describe("useNotificationSettings / notificationSettingsQueryFn", () => {
     ])
     const { notificationSettingsQueryFn } = await import("./use-notification-settings")
     const { client, registry } = await createCommunityQueryOwner()
-    const data = await client.fetchQuery({ queryKey: communityKeys.notificationSettings(), queryFn: notificationSettingsQueryFn })
+    const data = await client.query({ queryKey: communityKeys.notificationSettings(), queryFn: notificationSettingsQueryFn })
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/me/notifications", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
     expect(data.ids).toEqual(["server:srv_1", "channel:ch_1", "channel:ch_2"])
     expect([...registry.collections.notificationSettings.values()].map(({ id, level }) => ({ id, level })).sort((a, b) => a.id.localeCompare(b.id))).toEqual([
@@ -58,7 +58,7 @@ describe("useNotificationSettings / notificationSettingsQueryFn", () => {
     const { notificationSettingsQueryFn } = await import("./use-notification-settings")
     const queryClient = (await createCommunityQueryOwner()).client
     const key = communityKeys.notificationSettings()
-    await queryClient.fetchQuery({ queryKey: key, queryFn: notificationSettingsQueryFn })
+    await queryClient.query({ queryKey: key, queryFn: notificationSettingsQueryFn })
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/community/users/me/notifications",
       expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),

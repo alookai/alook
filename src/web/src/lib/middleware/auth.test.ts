@@ -161,6 +161,54 @@ describe("withAuth middleware", () => {
     expect(second.headers.get("Set-Cookie")).toContain("viewer=user-b");
   });
 
+  it.each([
+    [undefined, "Cookie, Authorization"],
+    ["Accept-Encoding", "Accept-Encoding, Cookie, Authorization"],
+    ["cOoKiE, Authorization", "cOoKiE, Authorization"],
+    ["*", "*"],
+  ])("keeps private cookie media credential-specific while preserving Vary %s", async (vary, expected) => {
+    mockGetSession.mockResolvedValue({
+      headers: new Headers({ "Set-Cookie": "viewer=refreshed; Path=/" }),
+      response: { user: { id: "A", email: "a@example.com" } },
+    });
+    const original = new Response("media", { headers: {
+      "Cache-Control": "private, max-age=31536000, immutable",
+      ETag: '"media-v1"',
+      ...(vary ? { Vary: vary } : {}),
+    } });
+    const res = await withAuth(async () => original)(new NextRequest("http://localhost/media", { headers: { Cookie: "viewer=A" } }));
+    expect(res.headers.get("Vary")).toBe(expected);
+    expect(res.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable");
+    expect(res.headers.get("ETag")).toBe('"media-v1"');
+    expect(res.headers.get("Set-Cookie")).toContain("viewer=refreshed");
+    expect(res.body).toBe(original.body);
+    expect(await res.text()).toBe("media");
+  });
+
+  it.each([200, 304])("varies private machine-token media status %s by both credential headers", async (status) => {
+    mockGetMachineTokenByHash.mockResolvedValue({ id: "mt-1", userId: "A", userEmail: "a@example.com", workspaceId: "ws-1" });
+    const res = await withAuth(async () => new Response(status === 304 ? null : "media", {
+      status, headers: { "Cache-Control": "private, max-age=31536000, immutable", Vary: "Accept-Encoding" },
+    }))(new NextRequest("http://localhost/media", { headers: { Authorization: "Bearer al_test" } }));
+    expect(res.status).toBe(status);
+    expect(res.headers.get("Vary")).toBe("Accept-Encoding, Cookie, Authorization");
+  });
+
+  it("preserves asynchronous machine handler error propagation", async () => {
+    mockGetMachineTokenByHash.mockResolvedValue({ id: "mt-1", userId: "A", userEmail: "a@example.com", workspaceId: "ws-1" });
+    const failure = new Error("route failed");
+    const res = withAuth(async () => { throw failure; })(new NextRequest("http://localhost/media", { headers: { Authorization: "Bearer al_test" } }));
+    await expect(res).rejects.toBe(failure);
+  });
+
+  it("preserves the declared public response policy", async () => {
+    mockGetSession.mockResolvedValue({ headers: new Headers(), response: { user: { id: "A", email: "a@example.com" } } });
+    const original = new Response("public", { headers: { "Cache-Control": "public, max-age=300", Vary: "Accept-Encoding" } });
+    const res = await withAuth(async () => original)(new NextRequest("http://localhost/public"));
+    expect(res).toBe(original);
+    expect(res.headers.get("Vary")).toBe("Accept-Encoding");
+  });
+
   it("rejects a session whose user carries isBot=true (guard reads it off the session user, no getUserInternal)", async () => {
     mockGetSession.mockResolvedValue({
       headers: new Headers(),

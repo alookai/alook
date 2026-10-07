@@ -95,7 +95,7 @@ async function renderController(overrides: Record<string, unknown> = {}) {
   }
   const cache = new Map<string, unknown>()
   const { client: queryClient, registry } = await createCommunityQueryOwner()
-  vi.spyOn(queryClient, "fetchQuery")
+  vi.spyOn(queryClient, "query")
   if (!mocks.communityDb.current) mocks.communityDb.current = registry
 
   const options = {
@@ -151,7 +151,7 @@ describe("useShellRailController", () => {
     })
 
     expect(hook.pushed).toEqual(["/c/channels/s1", "/c/channels/s2"])
-    expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
+    expect(hook.queryClient.query).not.toHaveBeenCalled()
     expect(mocks.markSwitch).toHaveBeenNthCalledWith(1, "server", "s1")
     expect(mocks.markSwitch).toHaveBeenNthCalledWith(2, "server", "s2")
 
@@ -197,7 +197,7 @@ describe("useShellRailController", () => {
       hook.current.navigate("s1", "c1")
     })
     expect(hook.pushed).toEqual(["/c/channels/s2", "/c/channels/s1/c1"])
-    expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
+    expect(hook.queryClient.query).not.toHaveBeenCalled()
     expect(mocks.markSwitch).toHaveBeenLastCalledWith("channel", "c1")
   })
 
@@ -255,7 +255,7 @@ describe("useShellRailController", () => {
       hook.current.railProps.onHome()
     })
     expect(hook.pushed).toEqual(["/c/channels/s2", "/c/me/friends"])
-    expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
+    expect(hook.queryClient.query).not.toHaveBeenCalled()
   })
 
   it("restores the remembered server target directly on desktop", async () => {
@@ -306,14 +306,14 @@ describe("useShellRailController", () => {
     await act(async () => hook.current.railProps.onServerNavigate("s1"))
     expect(hook.pushed).toEqual(["/c/channels/s1/cached"])
     expect(hook.prefetched).toEqual([])
-    expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
+    expect(hook.queryClient.query).not.toHaveBeenCalled()
 
     await act(async () => hook.current.railProps.onServerNavigate("s2"))
     expect(hook.pushed).toContain("/c/channels/s2/cached")
     expect(hook.prefetched).toEqual([])
     expect(hook.current.railProps).not.toHaveProperty("onServerPrefetch")
     expect(hook.current.railProps).not.toHaveProperty("onHomePrefetch")
-    expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
+    expect(hook.queryClient.query).not.toHaveBeenCalled()
   })
 
   it("uses the breakpoint-canonical Home destination only on activation", async () => {

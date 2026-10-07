@@ -1382,7 +1382,7 @@ function rebaseAttentionTransactions(registry: CommunityDbRegistry) {
         } finally { store.setState((state) => ({ ...state, rebasing: false })) }
       }
       const transaction = registry.dbClient.createTransaction({ autoCommit: false, mutationFn: persist })
-      void transaction.isPersisted.promise.catch(() => undefined)
+      void transaction.when("settled").catch(() => undefined)
       transaction.mutate(() => {
         const nextScopes = new Map(projected.scopes.map((scope) => [scope.scopeId, scope]))
         for (const scope of registry.collections.attentionScopes.values()) {

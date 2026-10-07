@@ -16,7 +16,17 @@ import {
   isOwnedUserAvatarObjectKey,
   isOwnedBotAvatarObjectKey,
   canonicalUserImage,
+  serverIconUrl,
 } from "./storage"
+
+describe("serverIconUrl", () => {
+  it("uses the persisted object identity as a stable URL version", () => {
+    const server = { id: "s1", icon: "server-icon/s1/object-one" }
+    expect(serverIconUrl(server)).toBe("/api/community/servers/s1/icon?v=server-icon%2Fs1%2Fobject-one")
+    expect(serverIconUrl({ ...server, icon: "server-icon/s1/object-two" })).not.toBe(serverIconUrl(server))
+    expect(serverIconUrl({ ...server, icon: null })).toBeNull()
+  })
+})
 
 describe("buildUserAvatarKey", () => {
   it("is deterministic (no randomness)", () => {

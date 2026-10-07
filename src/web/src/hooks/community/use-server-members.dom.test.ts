@@ -1,5 +1,5 @@
 import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
-import { createElement, useEffect, type MutableRefObject } from "react"
+import { createElement, useEffect, type RefObject } from "react"
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { type InfiniteData } from "@tanstack/react-query"
 import { act, render } from "@/test/react-dom-harness"
@@ -78,7 +78,7 @@ function deferred<T>(): Deferred<T> {
 
 function HookProbe({ serverId, resultRef }: {
   serverId: string | null
-  resultRef: MutableRefObject<ServerMembersResult | null>
+  resultRef: RefObject<ServerMembersResult | null>
 }) {
   const result = useServerMembers(serverId)
   useEffect(() => {
@@ -93,7 +93,7 @@ async function mountServerMembers(serverId = "srv_1") {
       queries: { retry: false, gcTime: Infinity },
     },
   })).client
-  const resultRef = { current: null } as MutableRefObject<ServerMembersResult | null>
+  const resultRef = { current: null } as RefObject<ServerMembersResult | null>
   const renderer = render(createElement(
     QueryClientProvider,
     { client: queryClient },
@@ -367,7 +367,7 @@ describe("membersPageQueryFn", () => {
     apiFetchMock.mockResolvedValueOnce({ members: [], hasMore: false, limit: 50, total: 0 })
     const qc = (await createCommunityQueryOwner()).client
     const key = communityKeys.members("srv_1")
-    await qc.fetchInfiniteQuery({
+    await qc.infiniteQuery({
       queryKey: key,
       queryFn: membersPageQueryFn("srv_1"),
       initialPageParam: null as string | null,
@@ -383,7 +383,7 @@ describe("membersPageQueryFn", () => {
       .mockResolvedValueOnce({ members: [m("b")], hasMore: false, limit: 50, total: 2 })
     const qc = (await createCommunityQueryOwner()).client
     const key = communityKeys.members("srv_1")
-    await qc.fetchInfiniteQuery({
+    await qc.infiniteQuery({
       queryKey: key,
       queryFn: membersPageQueryFn("srv_1"),
       initialPageParam: null as string | null,

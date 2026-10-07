@@ -113,13 +113,13 @@ export async function resolveDesktopSystemNotificationCandidate(
 
   const token = captureCommunityLiveSnapshotToken(queryClient)
   try {
-    await queryClient.fetchQuery(channelMetadataOptions(queryClient, create.serverId, create.channelId))
+    await queryClient.query({ ...channelMetadataOptions(queryClient, create.serverId, create.channelId), select: undefined })
     assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)
     const channel = getCommunityDbRegistry(queryClient)?.collections.channels.get(create.channelId)
     if (!channel) return fallback
     let parent: ChannelRow | undefined
     if (channel.parentChannelId) {
-      await queryClient.fetchQuery(channelMetadataOptions(queryClient, create.serverId, channel.parentChannelId))
+      await queryClient.query({ ...channelMetadataOptions(queryClient, create.serverId, channel.parentChannelId), select: undefined })
       assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)
       parent = getCommunityDbRegistry(queryClient)?.collections.channels.get(channel.parentChannelId)
     }

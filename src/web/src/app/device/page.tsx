@@ -79,7 +79,7 @@ function DeviceAuthPageInner() {
     }
   }, [isPending, session, router, userCode, source])
 
-  const handleVerifyCode = (e: React.FormEvent) => {
+  const handleVerifyCode = (e: React.SubmitEvent) => {
     e.preventDefault()
     const code = userCode.trim()
     command.reset()

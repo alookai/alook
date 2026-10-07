@@ -536,7 +536,7 @@ async function fetchForumSidebarBaseExact(
   const requestEpoch = getCommunityRuntime(queryClient).ws.get().accessEpoch
   let normalized: NormalizedForumSidebarEnvelope | undefined
   let proof: CommunityFreshQueryProof | undefined
-  await queryClient.fetchQuery({
+  await queryClient.query({
     queryKey,
     staleTime: 0,
     queryFn: async ({ signal }) => {
@@ -564,6 +564,7 @@ async function fetchForumSidebarBaseExact(
         verifiedEpoch: requestEpoch,
       }
     },
+    select: undefined,
   })
   if (!normalized || !proof) throw new Error("Forum sidebar base fetch did not settle")
   return { normalized, proof }
@@ -688,7 +689,7 @@ export async function grantForumSidebarChild(queryClient: QueryClient, serverId:
   const observer = new QueryObserver(queryClient, { ...options, enabled: false })
   const release = observer.subscribe(() => undefined)
   assertActive?.signal.addEventListener("abort", release, { once: true })
-  try { const value = await queryClient.fetchQuery(options); assertActive?.(); return value } finally { assertActive?.signal.removeEventListener("abort", release); release() }
+  try { const value = await queryClient.query({ ...options, select: undefined }); assertActive?.(); return value } finally { assertActive?.signal.removeEventListener("abort", release); release() }
 }
 
 export async function reconcileForumSidebarArchiveTag(

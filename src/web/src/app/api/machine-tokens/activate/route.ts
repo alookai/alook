@@ -1,3 +1,4 @@
+import { flattenError } from "zod"
 import { NextRequest } from "next/server";
 import { queries, ActivateTokenRequestSchema, createLogger } from "@alook/shared";
 import { getDb } from "@/lib/db"
@@ -20,7 +21,7 @@ export const POST = withEnv(async (req: NextRequest, ctx) => {
 
   const parsed = ActivateTokenRequestSchema.safeParse(raw);
   if (!parsed.success) {
-    return writeJSON({ error: "invalid payload", details: parsed.error.flatten() }, 400);
+    return writeJSON({ error: "invalid payload", details: flattenError(parsed.error) }, 400);
   }
 
   const { token, hostname, runtimes } = parsed.data;

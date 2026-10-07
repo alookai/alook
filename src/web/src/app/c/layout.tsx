@@ -1,9 +1,20 @@
-import type { ReactNode } from "react"
+import { Suspense, type ReactNode } from "react"
 import { getSession } from "@/lib/session"
 import { avatarInitial } from "@/lib/community/avatar"
 import { CommunityLayoutClient } from "./community-layout-client"
+import { CommunitySessionFallback } from "./community-session-fallback"
 
-export default async function CommunityLayout({ children, sidebar }: { children: ReactNode; sidebar: ReactNode }) {
+type CommunityLayoutProps = { children: ReactNode; sidebar: ReactNode }
+
+export default function CommunityLayout({ children, sidebar }: CommunityLayoutProps) {
+  return (
+    <Suspense fallback={<CommunitySessionFallback />}>
+      <CommunitySessionLayout sidebar={sidebar}>{children}</CommunitySessionLayout>
+    </Suspense>
+  )
+}
+
+async function CommunitySessionLayout({ children, sidebar }: CommunityLayoutProps) {
   const session = await getSession()
   const currentUser = session
     ? {

@@ -45,7 +45,7 @@ describe("useFolders / foldersQueryFn", () => {
     apiFetchMock.mockResolvedValueOnce({ folders: [] })
     const { foldersProjectedQueryFn } = await import("./use-folders")
     const key = communityKeys.folders()
-    await qc.fetchQuery({ queryKey: key, queryFn: foldersProjectedQueryFn(qc) })
+    await qc.query({ queryKey: key, queryFn: foldersProjectedQueryFn(qc) })
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/community/users/me/server-folders",
       expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
@@ -59,7 +59,7 @@ describe("useFolders / foldersQueryFn", () => {
     apiFetchMock.mockReturnValueOnce(new Promise((resolve) => { release = resolve }))
     const { foldersProjectedQueryFn } = await import("./use-folders")
 
-    const pending = qc.fetchQuery({ queryKey: communityKeys.folders(), queryFn: foldersProjectedQueryFn(qc) }).catch((error: unknown) => error)
+    const pending = qc.query({ queryKey: communityKeys.folders(), queryFn: foldersProjectedQueryFn(qc) }).catch((error: unknown) => error)
     await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
     registry.runtime.ws.actions.revokeServerAccess("server_1")
     release({ folders: [] })

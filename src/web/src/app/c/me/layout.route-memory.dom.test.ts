@@ -261,12 +261,12 @@ describe("MeLayout route memory", () => {
     const rendered = renderLayout(queryClient)
     await act(async () => {
       await Promise.allSettled([
-        queryClient.fetchQuery({
+        queryClient.query({
           queryKey: communityKeys.friends(),
           queryFn: async () => { throw new Error("friends refresh failed") },
           staleTime: 0,
         }),
-        queryClient.fetchQuery({
+        queryClient.query({
           queryKey: communityKeys.accountAttention(),
           queryFn: async () => { throw new Error("inbox refresh failed") },
           staleTime: 0,

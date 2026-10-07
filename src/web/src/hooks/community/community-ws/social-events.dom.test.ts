@@ -321,7 +321,7 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
   it("friend.block evicts an unresolved reaction-details request", async () => {
     await mountHook()
     const key = communityKeys.reactionDetails("pending_message")
-    void capturedQueryClient.fetchQuery({
+    void capturedQueryClient.query({
       queryKey: key,
       queryFn: () => new Promise(() => undefined),
     }).catch(() => undefined)

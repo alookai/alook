@@ -1,5 +1,5 @@
 import { createElement, type PropsWithChildren } from "react"
-import { QueryClient, QueryClientProvider, isCancelledError } from "@tanstack/react-query"
+import { QueryClient, QueryClientProvider, CancelledError } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
@@ -46,10 +46,10 @@ function attention(channelId: string, count = 1, parentChannelId: string | null 
   })
 }
 function fetchList(projection = getActiveAccountUnreadProjection(client)) {
-  return client.fetchQuery({ queryKey: communityKeys.servers(), queryFn: serversProjectedQueryFn(projection, client), staleTime: 0 })
+  return client.query({ queryKey: communityKeys.servers(), queryFn: serversProjectedQueryFn(projection, client), staleTime: 0 })
 }
 function fetchDetail() {
-  return client.fetchQuery({ queryKey: communityKeys.server(identity.id), queryFn: ({ signal }) => serverProjectedQueryFn(client, identity.id, signal)(), staleTime: 0 })
+  return client.query({ queryKey: communityKeys.server(identity.id), queryFn: ({ signal }) => serverProjectedQueryFn(client, identity.id, signal)(), staleTime: 0 })
 }
 function detailApi(url: string) {
   if (url === "/api/community/servers") return { servers: [identity] }
@@ -59,7 +59,7 @@ function detailApi(url: string) {
 }
 async function rawList() {
   let result!: ServersResponse
-  await client.fetchQuery({ queryKey: ["server-transform"], queryFn: async (context) => {
+  await client.query({ queryKey: ["server-transform"], queryFn: async (context) => {
     result = await serversQueryFn(context)
     return result.servers.map((server) => server.id)
   } })
@@ -84,7 +84,7 @@ describe("useServers / serversQueryFn", () => {
   it("passes TanStack's abort signal to the canonical request", async () => {
     apiFetchMock.mockResolvedValueOnce({ servers: [] })
     let signal!: AbortSignal
-    await client.fetchQuery({ queryKey: communityKeys.servers(), queryFn: async (context) => { signal = context.signal; return (await serversQueryFn(context)).servers.map((server) => server.id) } })
+    await client.query({ queryKey: communityKeys.servers(), queryFn: async (context) => { signal = context.signal; return (await serversQueryFn(context)).servers.map((server) => server.id) } })
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers", expect.objectContaining({ signal, assertActive: expect.any(Function) }))
   })
 
@@ -326,7 +326,7 @@ describe("useServer / projected canonical detail", () => {
   it.each([403, 404])("evicts live and persisted server state on definitive %s", async (status) => {
     seedDetail([{ id: "c1", name: "General", active: false, unread: false }])
     apiFetchMock.mockRejectedValue(new ApiError("denied", status))
-    await expect(fetchDetail()).rejects.toSatisfy(isCancelledError)
+    await expect(fetchDetail()).rejects.toBeInstanceOf(CancelledError)
     expect(client.getQueryState(communityKeys.server(identity.id))).toBeUndefined()
     expect(client.getQueryData(communityKeys.servers())).toEqual([])
     expect(registry.collections.servers.get(identity.id)).toBeUndefined()

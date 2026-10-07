@@ -59,7 +59,7 @@ function CommunityDbRuntime({
   const isRestoring = useIsRestoring()
   const disposeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (disposeTimer.current !== null) {
       clearTimeout(disposeTimer.current)
       disposeTimer.current = null

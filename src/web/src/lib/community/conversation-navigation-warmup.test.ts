@@ -135,7 +135,7 @@ describe("conversation navigation warmup", () => {
     const key = surfaceKind === "dm" ? communityKeys.dmMessages("active") : communityKeys.channelMessages("active")
     let release!: (value: Page) => void
     let originalSignal!: AbortSignal
-    const existing = queryClient.fetchInfiniteQuery({ queryKey: key, initialPageParam: { mode: "newest" }, queryFn: ({ signal }) => {
+    const existing = queryClient.infiniteQuery({ queryKey: key, initialPageParam: { mode: "newest" }, queryFn: ({ signal }) => {
       originalSignal = signal
       return new Promise<Page>((resolve) => { release = resolve }).then((page) => {
         recordConversationNavigationReceipt(queryClient, { channelId: "active", surfaceKind }, 4)

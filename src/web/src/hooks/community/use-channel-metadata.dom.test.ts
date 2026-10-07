@@ -84,7 +84,7 @@ describe("shared Channel resource and canonical DM publication", () => {
     const { client, registry, wrapper } = await fixture()
     ingestDms(registry, dms)
     apiFetch.mockResolvedValue(metadata)
-    await client.fetchQuery(channelMetadataOptions(client, null, metadata.id))
+    await client.query(channelMetadataOptions(client, null, metadata.id))
     const route = renderHook(() => ({ route: useDmRouteVerification(metadata.id), peers: useDmProjection() }), { wrapper })
     await waitFor(() => expect(route.result.current.route.status).toBe("present"))
     await waitFor(() => expect(route.result.current.peers?.[0]).toMatchObject({ id: metadata.id, name: "Peer", preview: "canonical preview" }))
