@@ -9,7 +9,39 @@ import { cleanAttributes } from "./schema"
 const events: Array<{ name: string; attributes: Record<string, string> }> = []
 let stop: (() => void) | undefined
 beforeEach(() => { events.length = 0; configureTelemetry({ session_id: "image-session", page_instance_id: "image-page" }, true); installTelemetrySink(event => events.push(event)) })
-afterEach(() => { stop?.(); stop = undefined; retireTelemetry(); document.body.replaceChildren(); vi.useRealTimers() })
+afterEach(() => { stop?.(); stop = undefined; retireTelemetry(); document.body.replaceChildren(); vi.useRealTimers(); vi.unstubAllGlobals() })
+it.each(["constructor", "observe"])("degrades safely and cleans up when MutationObserver %s fails", async (failure) => {
+  const disconnect = vi.fn()
+  vi.stubGlobal("MutationObserver", class {
+    constructor() { if (failure === "constructor") throw new Error("observer unavailable") }
+    observe() { throw new Error("observer unavailable") }
+    disconnect = disconnect
+  })
+  const image = document.createElement("img")
+  image.src = "/still-visible.png"
+  document.body.append(image)
+  stop = installImageObservers(isTelemetryEligible)
+  expect(events.find(event => event.name === "telemetry.coverage")!.attributes).toMatchObject({
+    capability: "unavailable", image_slot: "dom",
+  })
+  expect(events.find(event => event.attributes.image_phase === "snapshot")).toBeDefined()
+  image.dispatchEvent(new Event("load"))
+  expect(events.at(-1)!.attributes.image_phase).toBe("load")
+  image.dispatchEvent(new Event("error"))
+  expect(events.at(-1)!.attributes.image_phase).toBe("error")
+  window.dispatchEvent(new Event("click"))
+  expect(events.at(-1)!.name).toBe("image.operation")
+  stop()
+  stop = undefined
+  expect(disconnect).toHaveBeenCalledTimes(failure === "observe" ? 1 : 0)
+  const count = events.length
+  image.dispatchEvent(new Event("load"))
+  image.dispatchEvent(new Event("error"))
+  window.dispatchEvent(new Event("click"))
+  await act(async () => { image.src = "/changed.png"; image.remove(); await Promise.resolve() })
+  expect(events).toHaveLength(count)
+  expect(image.getAttribute("src")).toBe("/changed.png")
+})
 it("joins initial, replaced and srcset DOM nodes to resources without calling decode or exporting a URL", async () => {
   const one = document.createElement("img")
   one.src = "/api/community/users/private/avatar?v=3&token=private"

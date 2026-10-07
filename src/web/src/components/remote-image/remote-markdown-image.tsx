@@ -43,7 +43,7 @@ function MarkdownImageAttempt({
   if (!src) return null
 
   return (
-    <div
+    <span
       ref={eligibilityRef}
       data-streamdown="image-wrapper"
       data-remote-image-state={status}
@@ -78,7 +78,7 @@ function MarkdownImageAttempt({
         onError={onError}
       />
       {status === "error" && (
-        <div
+        <span
           role="status"
           data-streamdown="image-fallback"
           className="absolute inset-0 z-2 flex flex-col items-center justify-center gap-1 bg-muted px-2 text-center text-xs text-muted-foreground"
@@ -91,7 +91,7 @@ function MarkdownImageAttempt({
           >
             Retry
           </button>
-        </div>
+        </span>
       )}
       {status === "ready" && (
         <>
@@ -106,7 +106,7 @@ function MarkdownImageAttempt({
           </FileDownloadButton>
         </>
       )}
-    </div>
+    </span>
   )
 }
 

@@ -119,8 +119,8 @@ async function renderJpeg(
   width: number,
   height: number,
   quality: number,
-  signal?: AbortSignal,
-  generation = telemetryGeneration(),
+  signal: AbortSignal | undefined,
+  generation: number,
 ): Promise<Blob | null> {
   const canvas = document.createElement("canvas")
   canvas.width = width

@@ -22,6 +22,7 @@ import {
   type CapturedCommunityFrame,
 } from "./_fixtures/community-ws-proxy"
 import { tid } from "./_fixtures/testids"
+import { solidPngFixture } from "../fixtures/media"
 
 function frameHasMessage(
   frame: CapturedCommunityFrame,
@@ -208,15 +209,77 @@ async function expectTouchActionMenu(
     contextTriggerCount: await message.locator(
       '[data-slot="context-menu-trigger"]',
     ).count(),
+    contextPopupCount: await page.locator('[data-slot="context-menu-content"]').count(),
+    touchCallout: await message.locator('[data-slot="context-menu-trigger"]').evaluate((element) => (
+      (element as HTMLElement).style as CSSStyleDeclaration & { WebkitTouchCallout: string }
+    ).WebkitTouchCallout),
   }), {
     timeout: 3_000,
     message: "touch action menu state after same-row mouse then touch input",
   }).toEqual({
     menuVisible: true,
     touchTriggerCount: 1,
-    contextTriggerCount: 0,
+    contextTriggerCount: 1,
+    contextPopupCount: 0,
+    touchCallout: "default",
   })
   return action
+}
+
+async function captureMessageIdentity(message: Locator) {
+  const identity = await message.evaluateHandle((element) => {
+    const trigger = element.querySelector('[data-slot="context-menu-trigger"]')
+    if (!trigger) throw new Error("message context trigger missing")
+    const images = Array.from(trigger.querySelectorAll<HTMLImageElement>('[data-remote-image-kind="content"]'))
+    const ancestors = [trigger, ...images].map((start) => {
+      const chain: Element[] = []
+      for (let node: Element | null = start; node && node !== element; node = node.parentElement) chain.push(node)
+      return chain
+    })
+    return { row: element, trigger, images, ancestors }
+  })
+  return async () => {
+    expect(await message.evaluate((element, before) => ({
+      row: element === before.row && before.row.isConnected,
+      trigger: element.querySelector('[data-slot="context-menu-trigger"]') === before.trigger,
+      image: (() => {
+        const images = element.querySelectorAll('[data-slot="context-menu-trigger"] [data-remote-image-kind="content"]')
+        return images.length === before.images.length && before.images.every((image, index) => (
+          images[index] === image && image.isConnected && image.complete && image.naturalWidth > 0
+        ))
+      })(),
+      ancestors: before.ancestors.every((chain) => chain.every((node, index) => node.isConnected
+        && node.parentElement === (chain[index + 1] ?? before.row))),
+    }), identity)).toEqual({ row: true, trigger: true, image: true, ancestors: true })
+  }
+}
+
+async function expectTouchLongPressOwnership(page: Page, body: Locator): Promise<void> {
+  const ownership = await body.evaluate((element) => {
+    let bubbled = false
+    const probe = () => { bubbled = true }
+    document.addEventListener("touchstart", probe, { once: true })
+    const rect = element.getBoundingClientRect()
+    const touch = new Touch({ identifier: 31, target: element, clientX: rect.x + rect.width / 2, clientY: rect.y + rect.height / 2 })
+    const event = new TouchEvent("touchstart", {
+      bubbles: true, cancelable: true, touches: [touch], targetTouches: [touch], changedTouches: [touch],
+    })
+    element.dispatchEvent(event)
+    document.removeEventListener("touchstart", probe)
+    return { bubbled, defaultPrevented: event.defaultPrevented }
+  })
+  expect(ownership).toEqual({ bubbled: true, defaultPrevented: false })
+  await page.waitForTimeout(550)
+  await expect(page.getByRole("menuitem")).toHaveCount(0)
+  await body.dispatchEvent("touchend", { touches: [], targetTouches: [], changedTouches: [] })
+  await body.dispatchEvent("click")
+  await expect(page.getByRole("menuitem")).toHaveCount(0)
+  await body.selectText()
+  const selectedText = await body.textContent()
+  await body.dispatchEvent("click")
+  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe(selectedText)
+  await expect(page.getByRole("menuitem")).toHaveCount(0)
+  await page.evaluate(() => window.getSelection()?.removeAllRanges())
 }
 
 async function latestSeq(page: Page, channelId: string): Promise<number> {
@@ -350,20 +413,58 @@ async function expectRetainedMountGets(
 }
 
 test("same message row recovers its action menu from mouse to touch", async ({ asUser }) => {
+  test.setTimeout(120_000)
   const stamp = Date.now()
   const serverId = await seedServer("alice", `Pointer-modality-${stamp}`)
   const channelId = await seedChannel("alice", serverId, "pointer-modality")
-  const messageId = await seedMessage("alice", channelId, `pointer modality ${stamp}`)
   const alice = await asUser("alice", { hasTouch: true })
+  const hydrationErrors: string[] = []
+  alice.page.on("console", (message) => {
+    if (message.type() === "error" && /cannot be a descendant|cannot contain|hydration/i.test(message.text())) {
+      hydrationErrors.push(message.text())
+    }
+  })
+  alice.page.on("pageerror", error => hydrationErrors.push(error.message))
   await installInputCapability(alice.page, false)
   await alice.page.setViewportSize({ width: 390, height: 844 })
   const aliceProxy = await proxyCommunityWebSockets(alice.context)
   await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${channelId}`)
   await ignoreNextDevToolsPointerCapture(alice.page)
 
+  const text = `pointer modality ${stamp}`
+  const uploadPromise = alice.page.waitForResponse((response) => response.request().method() === "POST"
+    && new URL(response.url()).pathname === `/api/community/channels/${channelId}/attachments`)
+  const sendPromise = alice.page.waitForResponse((response) => response.request().method() === "POST"
+    && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`)
+  const editable = composerEditable(alice.page)
+  await editable.fill(`${text}\n\nBefore ![pointer raster](/icon-192.png) after`)
+  await alice.page.getByTestId(tid.composerFileInput).setInputFiles({
+    name: `pointer-${stamp}.png`, mimeType: "image/png", buffer: solidPngFixture(800, 450, [91, 110, 225]),
+  })
+  await alice.page.getByTestId(tid.composerSend).click()
+  const upload = await uploadPromise
+  expect(upload.ok()).toBe(true)
+  const attachment = await upload.json() as { id: string; hasThumbnail: boolean }
+  expect(attachment.hasThumbnail).toBe(true)
+  const sent = await sendPromise
+  expect(sent.status()).toBe(201)
+  expect(sent.request().postDataJSON().attachments).toEqual([attachment.id])
+  const messageId = ((await sent.json()) as { message: { id: string } }).message.id
+
   const message = alice.page.getByTestId(tid.message(messageId))
-  const body = message.getByText(`pointer modality ${stamp}`, { exact: true })
+  const body = message.getByText(text, { exact: true })
   await expect(body).toBeVisible()
+  const image = alice.page.getByTestId(tid.messageImage(messageId, 0))
+  await expect(image).toBeVisible()
+  await expect.poll(() => image.evaluate((element) => element instanceof HTMLImageElement
+    && element.complete && element.naturalWidth > 0)).toBe(true)
+  const markdownImage = message.locator('[data-streamdown="image"]')
+  await expect(markdownImage).toBeVisible()
+  await expect.poll(() => markdownImage.evaluate((element) => element instanceof HTMLImageElement
+    && element.complete && element.naturalWidth === 192 && element.closest("p") !== null
+    && element.parentElement?.tagName === "SPAN")).toBe(true)
+  await expect.poll(() => aliceProxy.frames.some(frame => frameHasMessage(frame, channelId, messageId))).toBe(true)
+  const expectIdentity = await captureMessageIdentity(message)
   const beforeSeq = await latestSeq(alice.page, channelId)
   const messageCreatesBefore = aliceProxy.frames.filter((frame) => (
     communityFrameEvents(frame).some((event) => event.type === "community:message.create")
@@ -371,15 +472,44 @@ test("same message row recovers its action menu from mouse to touch", async ({ a
 
   await body.click()
   await expect(alice.page.getByRole("menuitem")).toHaveCount(0, { timeout: 3_000 })
+  await expectIdentity()
   await body.tap()
   const copyAction = await expectTouchActionMenu(alice.page, message, "Copy")
+  await expectIdentity()
   await alice.page.keyboard.press("Escape")
   await expect(copyAction).toBeHidden({ timeout: 3_000 })
+  await expectTouchLongPressOwnership(alice.page, body)
+  await expectIdentity()
+  await body.tap()
+  const shareAction = await expectTouchActionMenu(alice.page, message, "Share as Image")
+  await shareAction.click()
+  await expect(alice.page.getByTestId(tid.messageSelectionToolbar)).toBeVisible()
+  await expectIdentity()
+  await alice.page.getByRole("button", { name: "Cancel message selection" }).click()
+  await expect(alice.page.getByTestId(tid.messageSelectionToolbar)).toHaveCount(0)
+  await expectIdentity()
 
   expect(await latestSeq(alice.page, channelId)).toBe(beforeSeq)
   expect(aliceProxy.frames.filter((frame) => (
     communityFrameEvents(frame).some((event) => event.type === "community:message.create")
   ))).toHaveLength(messageCreatesBefore)
+  await alice.page.reload()
+  await expect(body).toBeVisible()
+  await expect.poll(() => markdownImage.evaluate((element) => element instanceof HTMLImageElement
+    && element.complete && element.naturalWidth === 192 && element.closest("p") !== null
+    && element.parentElement?.tagName === "SPAN")).toBe(true)
+  await expect.poll(() => image.evaluate((element) => element instanceof HTMLImageElement
+    && element.complete && element.naturalWidth > 0)).toBe(true)
+  const expectRefreshedIdentity = await captureMessageIdentity(message)
+  await body.click()
+  await body.tap()
+  const refreshedCopy = await expectTouchActionMenu(alice.page, message, "Copy")
+  await expectRefreshedIdentity()
+  await alice.page.keyboard.press("Escape")
+  await expect(refreshedCopy).toBeHidden()
+  await expectRefreshedIdentity()
+  expect(await latestSeq(alice.page, channelId)).toBe(beforeSeq)
+  expect(hydrationErrors).toEqual([])
 })
 
 test("mobile reply, avatar mention, and typing rail keep exact backend and WS identity", async ({ asUser }) => {
@@ -693,6 +823,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await expect(alice.page.getByTestId(tid.typingIndicator)).toBeVisible({ timeout: 4_000 })
   const channelScrollerBeforeSelection = await settledScrollerGeometry(alice.page)
   const finalChannelMessage = alice.page.getByTestId(tid.message(typingWsReadyId))
+  const expectSelectionRowIdentity = await captureMessageIdentity(finalChannelMessage)
   await finalChannelMessage.getByText(`typing ws ready ${stamp}`, { exact: true }).tap()
   const shareAsImage = await expectTouchActionMenu(
     alice.page,
@@ -701,6 +832,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   )
   await shareAsImage.click({ timeout: 3_000 })
   await expect(alice.page.getByTestId(tid.messageSelectionToolbar)).toBeVisible()
+  await expectSelectionRowIdentity()
   const channelScrollerDuringSelection = await settledScrollerGeometry(alice.page)
   expectStableScroller(channelScrollerBeforeSelection, channelScrollerDuringSelection)
   const selectionTypingGeometry = await alice.page.evaluate((ids) => {
@@ -729,6 +861,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   expect(selectionTypingGeometry.finalMessage!.bottom).toBeLessThanOrEqual(selectionTypingGeometry.scroller!.bottom + 1)
   expect(selectionTypingGeometry.indicator).toBeNull()
   await alice.page.getByRole("button", { name: "Cancel message selection" }).click()
+  await expectSelectionRowIdentity()
   const channelScrollerAfterSelection = await settledScrollerGeometry(alice.page)
   expectStableScroller(channelScrollerBeforeSelection, channelScrollerAfterSelection)
 

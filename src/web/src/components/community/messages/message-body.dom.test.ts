@@ -1,7 +1,11 @@
 import { describe, it, expect, vi } from "vitest"
 import React from "react"
+import { renderToString } from "react-dom/server"
+import { hydrateRoot } from "react-dom/client"
 import { act, fireEvent } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -61,6 +65,52 @@ describe("MessageBody — theme contrast", () => {
 })
 
 describe("MessageBody — remote image geometry", () => {
+  it("parses and hydrates inline Markdown images without replacing their paragraph or media", async () => {
+    const owner = await createCommunityQueryOwner()
+    const view = React.createElement(CommunityTestProvider, { ...owner, retainOwner: true },
+      React.createElement(MessageBody, { text: "Before ![portrait](/photo.png) after" }))
+    const container = document.createElement("div")
+    container.innerHTML = renderToString(view)
+    document.body.append(container)
+    const image = container.querySelector<HTMLImageElement>('[data-streamdown="image"]')!
+    const wrapper = image.parentElement!
+    const paragraph = image.closest("p")
+    const errors: unknown[] = []
+    const warnings = vi.spyOn(console, "error")
+    let root: ReturnType<typeof hydrateRoot> | undefined
+    try {
+      expect(paragraph).not.toBeNull()
+      expect(paragraph).toHaveTextContent("Before")
+      expect(paragraph).toHaveTextContent("after")
+      expect(wrapper.tagName).toBe("SPAN")
+      await act(async () => { root = hydrateRoot(container, view, { onRecoverableError: error => errors.push(error) }) })
+      expect(container.querySelector('[data-streamdown="image"]')).toBe(image)
+      expect(image.parentElement).toBe(wrapper)
+      expect(image.closest("p")).toBe(paragraph)
+      fireEvent.error(image)
+      expect(image).toHaveAttribute("data-remote-image-state", "error")
+      expect(wrapper.querySelector('[data-streamdown="image-fallback"]')!.tagName).toBe("SPAN")
+      expect(paragraph!.querySelector("div")).toBeNull()
+      Object.defineProperties(image, {
+        decode: { configurable: true, value: () => Promise.resolve() },
+        naturalWidth: { configurable: true, value: 192 },
+        naturalHeight: { configurable: true, value: 192 },
+      })
+      await act(async () => fireEvent.load(image))
+      expect(image).toHaveAttribute("data-remote-image-state", "ready")
+      expect(container.querySelector('[data-streamdown="image"]')).toBe(image)
+      expect(image.parentElement).toBe(wrapper)
+      expect(image.closest("p")).toBe(paragraph)
+      expect(wrapper.querySelector('button[title="Download image"]')).not.toBeNull()
+      expect(errors).toEqual([])
+      expect(warnings).not.toHaveBeenCalled()
+    } finally {
+      if (root) await act(async () => root!.unmount())
+      warnings.mockRestore()
+      container.remove()
+    }
+  })
+
   it("keeps Streamdown's native image wrapper and download control", async () => {
     let renderer: ReturnType<typeof render>
     act(() => {
