@@ -51,8 +51,8 @@ objc2-user-notifications = { version = "=0.3.2", default-features = false, featu
 objc2-web-kit = { version = "=0.3.2", features = ["WKWebView"], default-features = false }
 
 [target."cfg(windows)".dependencies]
-webview2-com = "=0.38.2"
-windows = { version = "=0.61.3", features = ["Data_Xml_Dom", "UI_Notifications"] }
+webview2-com = "=0.39.1"
+windows = { version = "=0.62.2", features = ["Data_Xml_Dom", "UI_Notifications"] }
 
 [target."cfg(target_os = \"linux\")".dependencies]
 notify-rust = "=4.17.0"

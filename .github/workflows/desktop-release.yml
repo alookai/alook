@@ -141,6 +141,21 @@ jobs:
           projectPath: src/desktop
           args: --target ${{ matrix.target }}
 
+      - name: Notarize and staple final macOS DMG
+        if: runner.os == 'macOS'
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
+          TARGET: ${{ matrix.target }}
+          STAGE_TARGET: ${{ matrix.stage-target }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          node scripts/ci/notarize-desktop-dmg.mjs \
+            --target "$STAGE_TARGET" \
+            --version "$VERSION" \
+            --source "src/desktop/src-tauri/target/${TARGET}/release"
+
       - name: Stage exact release bytes
         shell: bash
         env:
