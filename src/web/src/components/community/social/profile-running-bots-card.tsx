@@ -54,16 +54,15 @@ function BotRow({ bot, onOpenBotAudit }: {
       data-testid={tid.profileRunningBotRow(bot.id)}
       onClick={() => onOpenBotAudit(bot.id)}
       aria-label={`Open ${bot.name} activity`}
-      className="flex min-h-11 w-full items-center gap-3 rounded-lg px-1 py-2 text-left transition-colors duration-150 hover:bg-accent/70 active:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      className="flex min-h-11 w-full items-center gap-3 rounded-lg px-1 py-2 text-left transition-colors duration-150 hover:bg-accent active:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
     >
       {content}
     </button>
   )
 }
 
-export function ProfileRunningBotsCard({ onOpenBotAudit, useBackdropEffect = true, showShadow = true }: {
+export function ProfileRunningBotsCard({ onOpenBotAudit, showShadow = true }: {
   onOpenBotAudit?: (botId: string) => void
-  useBackdropEffect?: boolean
   showShadow?: boolean
 }) {
   const titleId = useId()
@@ -76,11 +75,8 @@ export function ProfileRunningBotsCard({ onOpenBotAudit, useBackdropEffect = tru
       data-testid={tid.profileRunningBotsCard}
       aria-labelledby={titleId}
       className={[
-        "relative isolate flex h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-foreground/10 px-4 py-2 text-popover-foreground before:pointer-events-none before:absolute before:inset-x-5 before:top-0 before:z-20 before:h-px before:bg-linear-to-r before:from-transparent before:via-white/60 before:to-transparent before:content-[''] after:pointer-events-none after:absolute after:inset-0 after:z-0 after:bg-linear-to-br after:from-white/15 after:via-white/5 after:to-transparent after:content-['']",
+        "relative isolate flex h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-foreground/10 px-4 py-2 bg-popover text-popover-foreground",
         showShadow ? "shadow-2xl shadow-black/20" : "shadow-none",
-        useBackdropEffect
-          ? "bg-popover/70 backdrop-blur-2xl backdrop-saturate-150"
-          : "bg-popover/95",
       ].join(" ")}
     >
       <div className="relative z-10 flex h-6 shrink-0 items-center gap-2">

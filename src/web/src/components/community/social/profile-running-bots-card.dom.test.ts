@@ -142,7 +142,7 @@ describe("ProfileRunningBotsCard", () => {
     expect(renderToStaticMarkup(createElement(ProfileRunningBotsCard))).toBe("")
   })
 
-  it("keeps the liquid-glass and bounded-scroll surface contracts", () => {
+  it("keeps an opaque surface and bounded scrolling", () => {
     mocks.bots = [bot("one"), bot("two")]
     mocks.profiles = new Map([
       ["one", { id: "one", statusEmoji: "⚡", statusText: "Working on it" }],
@@ -150,12 +150,12 @@ describe("ProfileRunningBotsCard", () => {
     ])
     const html = renderToStaticMarkup(createElement(ProfileRunningBotsCard))
 
-    expect(html).toContain("bg-popover/70")
-    expect(html).toContain("backdrop-blur-2xl")
-    expect(html).toContain("backdrop-saturate-150")
+    expect(html).toContain("bg-popover")
+    expect(html).not.toMatch(/bg-popover\/\d+/)
+    expect(html).not.toContain("backdrop-")
     expect(html).toContain("border-foreground/10")
-    expect(html).toContain("after:bg-linear-to-br")
-    expect(html).toContain("before:via-white/60")
+    expect(html).not.toContain("after:bg-linear")
+    expect(html).not.toContain("before:via-white")
     expect(html).not.toContain("status-online")
     expect(html).not.toContain("Online ·")
     expect(html).not.toContain('presence="online"')
@@ -170,7 +170,7 @@ describe("ProfileRunningBotsCard", () => {
     expect(html).toContain('<span class="truncate">')
   })
 
-  it("uses a stable translucent surface when nested mobile backdrop composition is unavailable", () => {
+  it("keeps the mobile shadowless companion opaque", () => {
     mocks.bots = [bot("runner")]
     mocks.profiles = new Map([["runner", {
       id: "runner",
@@ -178,11 +178,11 @@ describe("ProfileRunningBotsCard", () => {
       statusText: "Working on it",
     }]])
     const html = renderToStaticMarkup(createElement(ProfileRunningBotsCard, {
-      useBackdropEffect: false,
       showShadow: false,
     }))
 
-    expect(html).toContain("bg-popover/95")
+    expect(html).toContain("bg-popover")
+    expect(html).not.toMatch(/bg-popover\/\d+/)
     expect(html).toContain("shadow-none")
     expect(html).not.toContain("shadow-2xl")
     expect(html).not.toContain("backdrop-blur-2xl")
