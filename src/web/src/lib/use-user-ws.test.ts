@@ -600,6 +600,41 @@ describe("useUserWs", () => {
     expect(MockWebSocket.instances).toHaveLength(2)
   })
 
+  it("manual Retry replaces a connecting online recovery and fences its late authentication", async () => {
+    setupTokenFetch()
+    const onAuthenticated = vi.fn()
+    await mountHook(vi.fn(), { onAuthenticated, requestDaemonStatusOnAuth: false })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    first.simulateMessage({ type: "auth.ok" })
+
+    mockNavigator.onLine = false
+    mockWindow.dispatch("offline")
+    first.simulateClose()
+    mockNavigator.onLine = true
+    mockWindow.dispatch("online")
+    await flushPromises()
+    const automatic = MockWebSocket.instances[1]!
+    expect(automatic.readyState).toBe(MockWebSocket.CONNECTING)
+
+    latestHookResult!.reconnectNow()
+    await flushPromises()
+    expect(automatic.closed).toBe(true)
+    expect(mockFetch).toHaveBeenCalledTimes(3)
+    expect(MockWebSocket.instances).toHaveLength(3)
+    const manual = MockWebSocket.instances[2]!
+    automatic.simulateOpen()
+    automatic.simulateMessage({ type: "auth.ok" })
+    expect(onAuthenticated).toHaveBeenCalledOnce()
+    manual.simulateOpen()
+    manual.simulateMessage({ type: "auth.ok" })
+    expect(onAuthenticated).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(mockFetch).toHaveBeenCalledTimes(3)
+    expect(MockWebSocket.instances).toHaveLength(3)
+    expect(manual.closed).toBe(false)
+  })
+
   it("reports local retirement and remote close exactly once per socket", async () => {
     setupTokenFetch()
     await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })

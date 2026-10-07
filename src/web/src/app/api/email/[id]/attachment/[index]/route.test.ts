@@ -44,11 +44,13 @@ describe("GET /api/email/[id]/attachment/[index]", () => {
   it("400 when email id missing", async () => {
     const res = await get({ index: "0" });
     expect(res.status).toBe(400);
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
   });
 
   it("400 when index is not a valid number", async () => {
     const res = await get({ id: "e1", index: "abc" });
     expect(res.status).toBe(400);
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
     expect((await res.json()).error).toBe("invalid attachment index");
   });
 
@@ -56,6 +58,7 @@ describe("GET /api/email/[id]/attachment/[index]", () => {
     mockGetById.mockResolvedValue(null);
     const res = await get({ id: "e1", index: "0" });
     expect(res.status).toBe(404);
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
     expect(mockGetById).toHaveBeenCalledWith({}, "e1", "w1");
   });
 
@@ -65,6 +68,7 @@ describe("GET /api/email/[id]/attachment/[index]", () => {
     mockBucketGet.mockResolvedValue(null);
     const res = await get({ id: "e1", index: "0" });
     expect(res.status).toBe(404);
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
     expect((await res.json()).error).toBe("email content not available");
   });
 
@@ -76,6 +80,7 @@ describe("GET /api/email/[id]/attachment/[index]", () => {
     mockFilter.mockReturnValue([]);
     const res = await get({ id: "e1", index: "0" });
     expect(res.status).toBe(404);
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
     expect((await res.json()).error).toBe("attachment not found");
   });
 
@@ -88,6 +93,7 @@ describe("GET /api/email/[id]/attachment/[index]", () => {
     mockFilter.mockReturnValue([{ filename, mimeType: "application/octet-stream", content: bytes.buffer }]);
     const res = await get({ id: "e1", index: "0" });
     expect(res.status).toBe(200);
+    expect(res.headers.get("Vary")).toBe("Authorization");
     expect(decodeURIComponent(res.headers.get("Content-Disposition")!.split("filename*=UTF-8''")[1])).toBe(filename);
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes);
   });
@@ -102,6 +108,7 @@ describe("GET /api/email/[id]/attachment/[index]", () => {
     ]);
     const res = await get({ id: "e1", index: "0" });
     expect(res.status).toBe(200);
+    expect(res.headers.get("Vary")).toBe("Authorization");
     expect(res.headers.get("Content-Type")).toBe("application/pdf");
     expect(res.headers.get("Content-Disposition")).toContain("report.pdf");
   });

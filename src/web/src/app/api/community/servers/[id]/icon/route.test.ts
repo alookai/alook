@@ -135,12 +135,14 @@ describe("GET /api/community/servers/[id]/icon", () => {
     isAuthed = false
     const res = await GET(getReq(), ctx())
     expect(res.status).toBe(401)
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
     expect(mediaGet).not.toHaveBeenCalled()
   })
 
   it("serves the icon by direct R2 key (no LIST)", async () => {
     const res = await GET(getReq(), ctx())
     expect(res.status).toBe(200)
+    expect(res.headers.get("Vary")).toBe("Authorization")
     expect(res.headers.get("Content-Type")).toBe("image/webp")
     expect(res.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable")
     expect(res.headers.get("ETag")).toBe('"icon-abc"')
@@ -159,6 +161,7 @@ describe("GET /api/community/servers/[id]/icon", () => {
   it("returns a private 304 for the current unchanged object", async () => {
     const res = await GET(getReq("server-icon/s1/abc", { "If-None-Match": '"icon-abc"' }), ctx())
     expect(res.status).toBe(304)
+    expect(res.headers.get("Vary")).toBe("Authorization")
     expect(res.headers.get("ETag")).toBe('"icon-abc"')
     expect(res.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable")
     expect(await res.text()).toBe("")
@@ -169,6 +172,7 @@ describe("GET /api/community/servers/[id]/icon", () => {
     // `media/[...key]` treatment of `server-icon`.
     const res = await GET(getReq(), ctx())
     expect(res.status).toBe(200)
+    expect(res.headers.get("Vary")).toBe("Authorization")
     expect(mockGetMember).not.toHaveBeenCalled()
   })
 
@@ -176,6 +180,7 @@ describe("GET /api/community/servers/[id]/icon", () => {
     mockGetServer.mockResolvedValue({ id: "s1", icon: null })
     const res = await GET(getReq(), ctx())
     expect(res.status).toBe(404)
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
     expect(mediaGet).not.toHaveBeenCalled()
   })
 
@@ -183,6 +188,7 @@ describe("GET /api/community/servers/[id]/icon", () => {
     mediaGet.mockResolvedValue(null)
     const res = await GET(getReq(), ctx())
     expect(res.status).toBe(404)
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
   })
 })
 

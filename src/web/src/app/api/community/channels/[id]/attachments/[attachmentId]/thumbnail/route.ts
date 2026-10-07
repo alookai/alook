@@ -2,12 +2,13 @@ import { NextResponse, type NextRequest } from "next/server"
 import { createLogger } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { withPrivateMediaCache } from "@/lib/middleware/private-media-cache"
 import { authorizeAttachment } from "@/lib/community/attachment-authorization"
 import { ATTACHMENT_PRIVATE_IMMUTABLE_CACHE } from "@/lib/community/storage"
 
 const log = createLogger({ service: "community-attachment-thumbnail-download" })
 
-export const GET = withCommunityActor(async (_req: NextRequest, ctx) => {
+export const GET = withPrivateMediaCache(withCommunityActor(async (_req: NextRequest, ctx) => {
   const attachmentId = ctx.params?.attachmentId
   if (!attachmentId) {
     return NextResponse.json({ error: "attachment not found" }, { status: 404 })
@@ -41,4 +42,4 @@ export const GET = withCommunityActor(async (_req: NextRequest, ctx) => {
     })
     return NextResponse.json({ error: "internal error", code: "internal" }, { status: 500 })
   }
-})
+}))
