@@ -109,16 +109,17 @@ test("homepage shares header and footer site links and collapses mobile header l
   await expect.poll(() => header.evaluate((element) => getComputedStyle(element).visibility)).toBe("visible")
 
   const inlineLinks = header.locator(".marketing-site-link")
-  await expect(inlineLinks).toHaveCount(2)
+  await expect(inlineLinks).toHaveCount(3)
   for (const link of await inlineLinks.all()) await expect(link).toBeHidden()
 
   const mobileMenu = header.locator("details")
   await mobileMenu.locator("summary").click()
   const mobileLinks = mobileMenu.locator(".marketing-mobile-site-link")
-  await expect(mobileLinks).toHaveCount(2)
+  await expect(mobileLinks).toHaveCount(3)
   const expectedLinks = [
     { href: "/pricing", label: "Pricing" },
     { href: "/blog", label: "Blog" },
+    { href: "/contact", label: "Contact" },
   ]
   const linkContract = (elements: Element[]) => elements.map((element) => ({
     href: element.getAttribute("href"),
@@ -189,3 +190,49 @@ test("desktop landing keeps the embedded phone Back control on true mobile geome
   expect(metrics?.backRect[1]).toBeCloseTo(44, 1)
   expect(metrics?.identityGap).toBeCloseTo(4, 1)
 })
+
+for (const width of [1440, 390]) {
+  test(`contact preserves its layout after client navigation at ${width}px`, async ({ page, context, baseURL }) => {
+    await context.addCookies([{ name: "alook_analytics_consent", value: "v1.denied", url: baseURL! }])
+    await page.setViewportSize({ width, height: 900 })
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    await page.goto("/contact")
+    await page.evaluate(() => document.fonts.ready)
+
+    const contactLayout = () => page.locator("main").evaluate((main) => {
+      const sheet = main.querySelector("section")!
+      const style = (element: Element, properties: string[]) => {
+        const computed = getComputedStyle(element)
+        return Object.fromEntries(properties.map((property) => [property, computed.getPropertyValue(property)]))
+      }
+      return {
+        background: getComputedStyle(main.parentElement!).backgroundColor,
+        sheet: style(sheet, ["padding", "min-height", "max-width"]),
+        paper: getComputedStyle(sheet, "::before").backgroundColor,
+        headings: Array.from(main.querySelectorAll("h1, h2")).map((heading) =>
+          style(heading, ["font-size", "line-height", "margin-top"])),
+        links: Array.from(main.querySelectorAll("a")).map((link) => {
+          const box = link.getBoundingClientRect()
+          return [box.x, box.y + window.scrollY, box.width, box.height].map((value) => Math.round(value))
+        }),
+      }
+    })
+    const direct = await contactLayout()
+
+    await page.getByRole("link", { name: "Back to home", exact: true }).click()
+    await expect(page).toHaveURL(/\/$/)
+    await page.locator(".hero-section").evaluate((hero) => window.scrollTo(0, hero.getBoundingClientRect().bottom + window.scrollY))
+    const nav = page.locator("nav.marketing-nav")
+    await expect(nav).toBeVisible()
+    if (width < 640) await nav.locator("summary").click()
+    await nav.getByRole("link", { name: "Contact", exact: true }).filter({ visible: true }).click()
+    await expect(page).toHaveURL(/\/contact$/)
+    await expect.poll(contactLayout).toEqual(direct)
+
+    await page.getByRole("link", { name: "Back to home", exact: true }).click()
+    await expect(page).toHaveURL(/\/$/)
+    await page.getByTestId(tid.landingFooterNavigation).getByRole("link", { name: "Contact", exact: true }).click()
+    await expect(page).toHaveURL(/\/contact$/)
+    await expect.poll(contactLayout).toEqual(direct)
+  })
+}

@@ -36,6 +36,7 @@ export function buildRootSitemap(manifest: BlogDiscoveryManifestV1 | null): Meta
 			}]
 			: []),
 		...blogEntries,
+		{ url: `${SITE_URL}/contact`, changeFrequency: "monthly", priority: 0.5 },
 		{ url: `${SITE_URL}/privacy`, changeFrequency: "yearly", priority: 0.3 },
 	];
 }
