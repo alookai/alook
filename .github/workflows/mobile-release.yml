@@ -279,6 +279,11 @@ jobs:
         working-directory: src/desktop
         run: pnpm tauri android init --ci --skip-targets-install
 
+      - name: Verify Android initialization and toolchain
+        run: |
+          git diff --exit-code -- src/desktop/src-tauri/gen/android
+          node scripts/ci/verify-android-project.mjs --project src/desktop/src-tauri/gen/android
+
       - name: Prepare Android Firebase configuration
         env:
           ANDROID_GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}

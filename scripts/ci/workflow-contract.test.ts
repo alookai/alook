@@ -688,6 +688,42 @@ describe("CI test budgets", () => {
 })
 
 describe("CI dependency setup", () => {
+  it("checks generated Android toolchain and tracked customization before credentials or signed builds", () => {
+    const init = mobileReleaseWorkflow.indexOf("- name: Generate Android project support files")
+    const verify = mobileReleaseWorkflow.indexOf("- name: Verify Android initialization and toolchain")
+    const firebase = mobileReleaseWorkflow.indexOf("- name: Prepare Android Firebase configuration")
+    const signing = mobileReleaseWorkflow.indexOf("- name: Prepare Android release signing")
+    expect(init).toBeGreaterThan(-1)
+    expect(verify).toBeGreaterThan(init)
+    expect(firebase).toBeGreaterThan(verify)
+    expect(signing).toBeGreaterThan(verify)
+    expect(mobileReleaseWorkflow.slice(verify, firebase)).toContain("git diff --exit-code -- src/desktop/src-tauri/gen/android")
+    expect(mobileReleaseWorkflow.slice(verify, firebase)).toContain("node scripts/ci/verify-android-project.mjs")
+    expect(mobileReleaseWorkflow.slice(verify, firebase)).not.toContain("continue-on-error")
+  })
+
+  it("compiles Windows consumers through the existing scoped Rust gate without release credentials", () => {
+    const desktopRust = ciJob("desktop-rust")
+    expect(desktopRust).toContain("platform: [ubuntu-latest, windows-latest]")
+    expect(desktopRust).toContain("if: needs.scope.outputs.run_rust == 'true'")
+    expect(desktopRust).toContain("cargo check --locked --target x86_64-pc-windows-msvc --all-targets")
+    expect(desktopRust).toContain("run: cargo test --locked")
+    expect(desktopRust).not.toContain("secrets.")
+    expect(desktopRust).not.toContain("tauri-action")
+  })
+
+  it("notarizes the final DMG before immutable staging and keeps the final macOS verifier", () => {
+    const submit = desktopReleaseWorkflow.indexOf("- name: Notarize and staple final macOS DMG")
+    const stage = desktopReleaseWorkflow.indexOf("- name: Stage exact release bytes")
+    const verify = desktopReleaseWorkflow.indexOf("- name: Verify staged macOS bytes")
+    expect(submit).toBeGreaterThan(-1)
+    expect(stage).toBeGreaterThan(submit)
+    expect(verify).toBeGreaterThan(stage)
+    expect(desktopReleaseWorkflow.slice(submit, stage)).toContain("if: runner.os == 'macOS'")
+    expect(desktopReleaseWorkflow.slice(submit, stage)).not.toContain("continue-on-error")
+    expect(desktopMacVerifier).toContain("stapler validate")
+  })
+
   it("installs cargo-machete from the pinned release action", () => {
     const desktopRust = ciJob("desktop-rust")
     expect(desktopRust).toContain(

@@ -165,8 +165,12 @@ android {
             )
         }
     }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "11"
     }
     buildFeatures {
         buildConfig = true
@@ -189,7 +193,7 @@ dependencies {
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.0")
 }
 
-apply(from = "tauri.build.gradle.kts")
+apply(from = file("tauri.build.gradle.kts"))
 
 listOf(
     "UniversalDebug",
