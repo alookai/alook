@@ -3,6 +3,7 @@ import type { TransportItem } from "@grafana/faro-web-sdk"
 import { sanitizeItem, sanitizeTrace } from "./sanitize"
 import { cleanAttributes } from "./schema"
 import { routeTemplate } from "./coverage"
+import { resolveFrontendIdentity } from "./runtime"
 
 const origin = "https://alook.ai", session = "safe-session"
 const meta = { sdk: { name: "faro-web", version: "2.12.1", integrations: [{ name: "SECRET", version: "SECRET" }] }, session: { id: session }, page: { url: origin + "/c/invite/SECRET?token=SECRET#SECRET" }, user: { email: "private@example.com", fullName: "SECRET" } }
@@ -106,6 +107,64 @@ describe("outbound whitelist", () => {
     const exception = { type: "exception", meta, payload: { type: "Error", value: "SECRET", stacktrace: { frames: [{ filename: "http://[", lineno: 3 }] } } } as TransportItem
     expect(sanitizeItem(exception, session, origin)?.payload).toMatchObject({ value: "[redacted]", stacktrace: { frames: [] } })
     expect(sanitizeItem({ type: "unknown", meta, payload: {} } as unknown as TransportItem, session, origin)).toBeNull()
+  })
+
+  it("preserves frontend package version independently of optional release while dropping arbitrary app and session metadata", () => {
+    const item = { type: "event", meta: { ...meta, app: { name: "SECRET", version: "0.1.44", release: "a".repeat(40), environment: "qa" }, session: { id: session, attributes: { private: "SECRET" } } }, payload: { name: "session_start", attributes: {} } } as TransportItem
+    expect(sanitizeItem(item, session, origin)?.meta.app).toEqual({ name: "alook-web", version: "0.1.44", release: "a".repeat(40), environment: "qa" })
+    for (const release of [undefined, "SECRET", "0.1.44"]) {
+      const clean = sanitizeItem({ ...item, meta: { ...item.meta, app: { ...item.meta.app, release } } }, session, origin)!
+      expect(clean.meta.app).toEqual({ name: "alook-web", version: "0.1.44", environment: "qa" })
+      expect(JSON.stringify(clean)).not.toContain("SECRET")
+    }
+    const invalid = sanitizeItem({ ...item, meta: { ...item.meta, app: { version: "SECRET" } } }, session, origin)!
+    expect(invalid.meta.app?.version).toBeUndefined()
+  })
+
+  it("carries canonical entry and frontend version on SDK events, vitals, errors and trace resources without accepting a spoofed payload", () => {
+    const identity = { frontend_surface: "webview", client_platform: "desktop", app_version: "0.1.44" } as const
+    const spoofed = { frontend_surface: "web", client_platform: "browser", app_version: "9.9.9", private: "SECRET" }
+    const span = { traceId: "a".repeat(32), spanId: "b".repeat(16), name: "dm.message.send", startTimeUnixNano: "1000000000", endTimeUnixNano: "2000000000", attributes: [{ key: "session.id", value: { stringValue: session } }, ...Object.entries(spoofed).map(([key, stringValue]) => ({ key, value: { stringValue } }))] }
+    const variants = [
+      { type: "event", payload: { name: "session_start", attributes: spoofed } },
+      { type: "event", payload: { name: "business.result", attributes: spoofed } },
+      { type: "measurement", payload: { type: "web-vitals", values: { lcp: 10 } } },
+      { type: "exception", payload: { type: "Error", value: "SECRET" } },
+      { type: "trace", payload: { resourceSpans: [{ scopeSpans: [{ spans: [span] }] }] } },
+    ]
+    for (const variant of variants) {
+      const item = { ...variant, meta } as unknown as TransportItem
+      const clean = sanitizeItem(item, session, origin, identity)!
+      expect(clean.meta.app?.version).toBe("0.1.44")
+      expect(clean.meta.session?.attributes).toEqual({ isSampled: "true", ...identity })
+      expect(JSON.stringify(clean)).not.toContain("SECRET")
+      expect(JSON.stringify(clean)).not.toContain("9.9.9")
+      if (variant.type === "event") expect(clean.payload).toMatchObject({ attributes: identity })
+      expect(sanitizeItem(item, "retired-session", origin, identity)).toBeNull()
+    }
+    const trace = sanitizeTrace(variants[4]!.payload, session, origin, identity)!
+    expect(trace.resourceSpans[0]!.resource.attributes).toContainEqual({ key: "service.version", value: { stringValue: "0.1.44" } })
+    for (const [key, stringValue] of Object.entries(identity)) {
+      expect(trace.resourceSpans[0]!.scopeSpans[0]!.spans[0]!.attributes).toContainEqual({ key, value: { stringValue } })
+    }
+    const invalid = sanitizeTrace(variants[4]!.payload, session, origin, { app_version: "SECRET" })!
+    expect(invalid.resourceSpans[0]!.resource.attributes.some(attribute => attribute.key === "service.version")).toBe(false)
+  })
+
+  it.each([undefined, "SECRET"])("does not manufacture a missing canonical frontend version from payload or SDK metadata (%s)", version => {
+    const identity = resolveFrontendIdentity("web", true, false, version)
+    const attributes = { app_version: "9.9.9", frontend_surface: "web", client_platform: "browser" }
+    const item = { type: "event", meta: { ...meta, app: { version: "9.9.9" } }, payload: { name: "business.result", attributes } } as TransportItem
+    const clean = sanitizeItem(item, session, origin, identity)!
+    expect(clean.meta.app?.version).toBeUndefined()
+    expect(clean.meta.session?.attributes).not.toHaveProperty("app_version")
+    expect(clean.payload).toMatchObject({ attributes: { frontend_surface: "webview", client_platform: "desktop" } })
+    expect(JSON.stringify(clean)).not.toContain("9.9.9")
+    const span = { traceId: "a".repeat(32), spanId: "b".repeat(16), name: "dm.message.send", startTimeUnixNano: "1000000000", endTimeUnixNano: "2000000000", attributes: [{ key: "session.id", value: { stringValue: session } }, ...Object.entries(attributes).map(([key, stringValue]) => ({ key, value: { stringValue } }))] }
+    const trace = sanitizeTrace({ resourceSpans: [{ scopeSpans: [{ spans: [span] }] }] }, session, origin, identity)!
+    expect(JSON.stringify(trace)).not.toContain("9.9.9")
+    expect(trace.resourceSpans[0]!.resource.attributes.some(attribute => attribute.key === "service.version")).toBe(false)
+    expect(trace.resourceSpans[0]!.scopeSpans[0]!.spans[0]!.attributes).toContainEqual({ key: "frontend_surface", value: { stringValue: "webview" } })
   })
 
 })

@@ -14,6 +14,7 @@ it("exports actual native Faro events while omitting invalid optional build labe
   vi.stubEnv("NEXT_PUBLIC_FARO_COLLECTOR_URL", "https://collector.example/collect/public")
   vi.stubEnv("NEXT_PUBLIC_FARO_ENVIRONMENT", "untrusted-label")
   vi.stubEnv("NEXT_PUBLIC_FARO_RELEASE", "untrusted-label")
+  vi.stubEnv("NEXT_PUBLIC_APP_VERSION", "0.1.44")
   Object.defineProperty(performance, "getEntriesByType", { configurable: true, value: () => [] })
   const sent: Array<{ meta: { app: Record<string, unknown>; sdk: { name: string; version: string } }; events?: Array<{ name: string; attributes?: Record<string, string> }> }> = []
   vi.stubGlobal("fetch", vi.fn(async (_url: unknown, options?: RequestInit) => {
@@ -33,7 +34,7 @@ it("exports actual native Faro events while omitting invalid optional build labe
     expect(body.meta.sdk).toEqual({ name: "faro-web", version: "2.12.1" })
     expect(body.meta.app).not.toHaveProperty("environment")
     expect(body.meta.app).not.toHaveProperty("release")
-    expect(body.meta.app).not.toHaveProperty("version")
+    expect(body.meta.app.version).toBe("0.1.44")
     for (const event of body.events ?? []) {
       expect(event.attributes).not.toHaveProperty("environment")
       expect(event.attributes).not.toHaveProperty("release")
