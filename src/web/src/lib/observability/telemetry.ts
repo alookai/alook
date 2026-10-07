@@ -1,4 +1,5 @@
 import { cleanAttributes, type Attributes, type TelemetryEvent } from "./schema"
+import { clearImageCorrelations } from "./image-correlation"
 
 type RecordEvent = { name: TelemetryEvent; attributes: Record<string, string>; timestamp: number }
 type Sink = (event: RecordEvent) => void
@@ -46,6 +47,7 @@ export function retireTelemetry(reason: "boundary" | "native_session" = "boundar
   eligible = false
   nativeContinuationFrom = reason === "native_session" ? generation : -1
   generation++
+  clearImageCorrelations()
   queue = []
   sink = undefined
   dropped = 0

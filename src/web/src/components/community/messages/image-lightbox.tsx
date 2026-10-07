@@ -27,7 +27,7 @@ function PreviewFrame({ image }: { image: ImagePreview }) {
     thumbnailRef,
     onThumbnailLoad,
     onThumbnailError,
-  ] = useRemoteImageAttempt({ eligible: !!image.thumbnailUrl })
+  ] = useRemoteImageAttempt({ eligible: !!image.thumbnailUrl, slot: "lightbox_thumbnail" })
   const [
     originalStatus,
     originalAttempt,
@@ -36,7 +36,7 @@ function PreviewFrame({ image }: { image: ImagePreview }) {
     onOriginalLoad,
     onOriginalError,
     retryOriginal,
-  ] = useRemoteImageAttempt()
+  ] = useRemoteImageAttempt({ slot: "lightbox_original" })
 
   const frameStyle = previewFrameStyle(dimensions)
   const thumbnailReady = !!image.thumbnailUrl && thumbnailStatus === "ready"

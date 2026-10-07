@@ -8,6 +8,7 @@ import { sanitizeItem } from "./sanitize"
 import { installBrowserObservers } from "./browser"
 import { resolveCommunityModulePlan } from "../community/community-route"
 import { cleanAttributes } from "./schema"
+import { isTauri, isMobile } from "@alook/shared"
 
 type BuildProfile = { url?: string; environment?: string; release?: string }
 function validBuildProfile(profile: BuildProfile) {
@@ -61,8 +62,9 @@ function deactivate() {
   for (const instrumentation of httpInstrumentations.flat()) instrumentation.disable()
 }
 function configure() {
-  configureTelemetry({ release: build.release, environment: build.environment, frontend_surface: surface, page_instance_id: pageId, session_id: sessionId, user_key: userKey }, true)
+  configureTelemetry({ release: build.release, environment: build.environment, frontend_surface: runtimeSurface(), runtime_platform: isTauri() ? isMobile() ? "mobile" : "desktop" : "browser", native_build_binding: isTauri() ? "unavailable" : undefined, page_instance_id: pageId, session_id: sessionId, user_key: userKey }, true)
 }
+function runtimeSurface() { return surface === "blog" ? "blog" : isTauri() ? "webview" : "web" }
 async function activate() {
   if (documentSuspended || !hasAnalyticsConsent() || !validBuildProfile(build)) return
   const route = routeTemplate(window.location.href, window.location.origin)
@@ -165,7 +167,7 @@ function connectSink() {
     if (deliveryFailures) {
       const count = deliveryFailures
       deliveryFailures = 0
-      faro?.api.pushEvent("telemetry.coverage", { delivery_failure_count: String(count), delivery_failure_reason: deliveryFailureReason, outcome: "error", capability: "limited", session_id: sessionId, frontend_surface: surface }, "alook.frontend", { skipDedupe: true })
+      faro?.api.pushEvent("telemetry.coverage", { delivery_failure_count: String(count), delivery_failure_reason: deliveryFailureReason, outcome: "error", capability: "limited", session_id: sessionId, frontend_surface: runtimeSurface() }, "alook.frontend", { skipDedupe: true })
     }
     faro?.api.pushEvent(event.name, event.attributes, "alook.frontend", { skipDedupe: true, timestampOverwriteMs: event.timestamp })
   })

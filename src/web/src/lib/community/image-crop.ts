@@ -2,6 +2,8 @@ import {
   MAX_ICON_SOURCE_FILE_SIZE_BYTES,
   ALLOWED_ICON_SOURCE_MIME_TYPES,
 } from "@alook/shared"
+import { observeImage } from "@/lib/observability/images"
+import { telemetryGeneration } from "@/lib/observability/telemetry"
 
 export type CropPixels = { x: number; y: number; width: number; height: number }
 
@@ -39,12 +41,13 @@ export async function getCroppedIconBlob(
   cropPixels: CropPixels,
   outputSize: number,
 ): Promise<Blob | null> {
+  const generation = telemetryGeneration()
   const img = await loadImage(imageSrc)
   const canvas = document.createElement("canvas")
   canvas.width = outputSize
   canvas.height = outputSize
   const ctx = canvas.getContext("2d")
-  if (!ctx) return null
+  if (!ctx) { if (generation === telemetryGeneration()) observeImage(img, "crop", "encode_error", img); return null }
   ctx.drawImage(
     img,
     cropPixels.x,
@@ -56,7 +59,8 @@ export async function getCroppedIconBlob(
     outputSize,
     outputSize,
   )
-  return new Promise((resolve) => canvas.toBlob(resolve, "image/webp", 0.9))
+  if (generation === telemetryGeneration()) observeImage(img, "crop", "encode_start", img)
+  return new Promise((resolve) => canvas.toBlob(blob => { if (generation === telemetryGeneration()) observeImage(img, "crop", blob ? "encode_ready" : "encode_error", img); resolve(blob) }, "image/webp", 0.9))
 }
 
 export function buildCroppedIconFile(blob: Blob, originalName: string): File {
@@ -66,8 +70,11 @@ export function buildCroppedIconFile(blob: Blob, originalName: string): File {
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image()
-    img.onload = () => resolve(img)
-    img.onerror = reject
+    const generation = telemetryGeneration()
+    const record = (phase: Parameters<typeof observeImage>[2]) => { if (generation === telemetryGeneration()) observeImage(img, "crop", phase, img) }
+    img.onload = () => { record("load"); resolve(img) }
+    img.onerror = error => { record("error"); reject(error) }
     img.src = src
+    record("source_change")
   })
 }

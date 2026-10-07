@@ -23,6 +23,7 @@ vi.mock("@/components/ui/dialog", () => ({
 
 import { ImageLightbox } from "./image-lightbox"
 import { previewFrameStyle } from "./image-lightbox-layout"
+import { configureTelemetry, installTelemetrySink, retireTelemetry } from "@/lib/observability/telemetry"
 
 function renderLightbox(image: React.ComponentProps<typeof ImageLightbox>["image"], onClose = vi.fn()) {
   return { renderer: render(React.createElement(ImageLightbox, { image, onClose })), onClose }
@@ -72,8 +73,26 @@ describe("ImageLightbox", () => {
   })
 
   afterEach(() => {
+    retireTelemetry()
     vi.useRealTimers()
     vi.unstubAllGlobals()
+  })
+
+  it("observes original timeout removal separately from the retained thumbnail attempt", async () => {
+    vi.useFakeTimers()
+    const events: Array<{ name: string; attributes: Record<string, string> }> = []
+    configureTelemetry({ session_id: "lightbox-session" }, true); installTelemetrySink(event => events.push(event))
+    const { renderer } = renderLightbox({ originalUrl: "/original.png", thumbnailUrl: "/thumbnail.png", name: "fixture", width: 800, height: 450 })
+    const original = image(renderer, tid.imageLightboxOriginal), thumbnail = image(renderer, tid.imageLightboxThumbnail)
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+    expect(original.isConnected).toBe(false)
+    expect(thumbnail.isConnected).toBe(true)
+    const originalEvents = events.filter(event => event.attributes.image_slot === "lightbox_original")
+    expect(originalEvents.some(event => event.attributes.image_phase === "timeout")).toBe(true)
+    expect(originalEvents.some(event => event.attributes.image_phase === "detach")).toBe(true)
+    expect(events.some(event => event.attributes.image_slot === "lightbox_thumbnail" && event.attributes.image_phase === "detach")).toBe(false)
+    expect(new Set(events.filter(event => event.attributes.image_phase === "attach").map(event => event.attributes.image_instance_id)).size).toBe(2)
+    renderer.unmount()
   })
 
   it("reserves the known frame and reveals the original only after decode", async () => {

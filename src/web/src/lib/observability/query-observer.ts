@@ -5,6 +5,7 @@ import { resolveActionName } from "./actions"
 import { startAction, finishAction, bindCommandAction, type Action } from "./context"
 import { currentSource, disposeSources, forgetCollection, tagValue, observedValueSource } from "./data-source"
 import { isTelemetryEligible, emitTelemetry } from "./telemetry"
+import { queryObservationFields, registerQueryObservationOwner } from "./cancellation"
 
 const clients = new WeakMap<QueryClient, () => void>()
 const allowed = new Set<string>(actionNames)
@@ -12,8 +13,14 @@ export function observeQueryClient(client: QueryClient) {
   if (clients.has(client)) return client
   const actions = new WeakMap<Mutation, Action>()
   const data = new WeakMap<Query, unknown>()
+  for (const query of client.getQueryCache().getAll()) registerQueryObservationOwner(query)
   const stopQueries = client.getQueryCache().subscribe(event => {
+    registerQueryObservationOwner(event.query)
     if (!isTelemetryEligible()) return
+    if (event.type === "observerAdded" || event.type === "observerRemoved" || event.type === "removed") {
+      const fields = queryObservationFields(event.query)
+      if (fields) emitTelemetry("query.boundary", { ...fields, query_boundary: event.type, observer_count: event.query.getObserversCount(), start_ms: performance.now(), outcome: "observed" })
+    }
     if (event.type === "removed") {
       data.delete(event.query)
       if (event.query.queryKey[0] === "community" && event.query.queryKey[1] === "db") forgetCollection(client, String(event.query.queryKey[3]))

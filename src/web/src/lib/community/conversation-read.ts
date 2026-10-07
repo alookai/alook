@@ -1,3 +1,5 @@
+import { abortObserved, linkObservedSignal, observeAbortDeadline } from "@/lib/observability/cancellation"
+
 export const CONVERSATION_READ_TIMEOUT_MS = 15_000
 
 export class ConversationReadTimeoutError extends Error {
@@ -24,12 +26,14 @@ export async function withConversationReadDeadline<T>(
   read: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
   const controller = new AbortController()
+  observeAbortDeadline(controller, CONVERSATION_READ_TIMEOUT_MS)
   const readSignal = signal && typeof AbortSignal.any === "function"
     ? AbortSignal.any([signal, controller.signal]) : controller.signal
+  if (readSignal !== controller.signal) linkObservedSignal(readSignal, [signal!, controller.signal])
   let rejectAborted!: (error: unknown) => void
   const aborted = new Promise<never>((_, reject) => { rejectAborted = reject })
   const cancel = (reason: unknown) => {
-    controller.abort(reason)
+    abortObserved(controller, reason instanceof ConversationReadTimeoutError ? "deadline" : "parent_signal", reason)
     rejectAborted(reason)
   }
   const onAbort = () => cancel(signal?.reason ?? new DOMException("Retired conversation read", "AbortError"))

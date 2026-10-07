@@ -5,10 +5,13 @@ import { getCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/communit
 import { assertCommunityLiveSnapshotTokenCurrent, type CommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 import type { QueryClient } from "@tanstack/react-query"
 
+import { observeAccountQueryCancellation } from "@/lib/observability/cancellation"
+
 export function retireCommunityAccount(registry: CommunityDbRegistry) {
   registry.runtime.lifecycle.setState((state) => state.active ? { active: false, generation: state.generation + 1 } : state)
   if (registry.accountId) clearComposerAttachmentSessionsForAccount(registry.accountId)
   registry.runtime.transport.send = null
+  observeAccountQueryCancellation(registry.queryClient.getQueryCache().getAll().filter(query => query.state.fetchStatus === "fetching"))
   void registry.queryClient.cancelQueries()
   registry.queryClient.clear()
 }

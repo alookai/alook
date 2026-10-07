@@ -28,6 +28,7 @@ import {
   type AttentionScopeOptimisticSnapshot,
 } from "@/lib/community-db/sync"
 import { reconcileAccountAttention } from "./use-account-attention"
+import { abortObserved, createObservedAbortController } from "@/lib/observability/cancellation"
 
 export const READ_COORDINATOR_DEBOUNCE_MS = 500
 
@@ -181,7 +182,7 @@ class ReadCoordinator {
       const cancelFlight = current.inFlight?.target.ownerToken === lease.token && current.inFlight.phase === "mutation"
       if (cancelFlight) canceled.add(current.inFlight!.target.generation)
       this.update(lease.key, (scope) => ({ ...scope, accepted, dirty, ...(cancelFlight ? { attemptEpoch: scope.attemptEpoch + 1, inFlight: null } : {}) }))
-      if (cancelFlight) current.inFlight!.controller.abort()
+      if (cancelFlight) abortObserved(current.inFlight!.controller, "view_retire")
       const remaining = this.scope(lease.key)!
       if (!remaining.accepted && remaining.timer !== null) {
         clearTimeout(remaining.timer)
@@ -254,7 +255,7 @@ class ReadCoordinator {
     for (const scope of scopes.values()) {
       if (scope.timer !== null) clearTimeout(scope.timer)
       if (scope.releaseTimer !== null) clearTimeout(scope.releaseTimer)
-      scope.inFlight?.controller.abort()
+      if (scope.inFlight) abortObserved(scope.inFlight.controller, "view_retire")
       if (scope.attentionOptimistic) commitAttentionScopeOptimisticSnapshot(scope.attentionOptimistic.registry, scope.attentionOptimistic.snapshot)
     }
   }
@@ -327,7 +328,7 @@ class ReadCoordinator {
       return Promise.resolve({ committed: false, reconciled: false })
     }
     this.beginAttentionOptimisticRead(key)
-    const controller = new AbortController(), attemptEpoch = scope.attemptEpoch + 1, identityEpoch = this.state.get().identityEpoch
+    const controller = createObservedAbortController(), attemptEpoch = scope.attemptEpoch + 1, identityEpoch = this.state.get().identityEpoch
     let resolve!: (outcome: ReadAttemptOutcome) => void
     const completion = new Promise<ReadAttemptOutcome>((done) => { resolve = done })
     const assertActive = () => {
@@ -441,7 +442,7 @@ class ReadCoordinator {
     const canceled = scope.inFlight?.phase === "mutation" && scope.confirmedSeq >= scope.inFlight.target.intent.seq
     if (!accepted && scope.timer !== null) clearTimeout(scope.timer)
     this.update(key, (current) => ({ ...current, accepted, dirty, timer: accepted ? current.timer : null, ...(canceled ? { attemptEpoch: current.attemptEpoch + 1, inFlight: null } : {}) }))
-    if (canceled) scope.inFlight!.controller.abort()
+    if (canceled) abortObserved(scope.inFlight!.controller, "read_superseded")
     const latest = this.scope(key)!
     if (accepted && !latest.inFlight) this.schedule(key, Math.max(0, accepted.dueAt - Date.now()))
     if (!accepted && !dirty && !latest.inFlight) {

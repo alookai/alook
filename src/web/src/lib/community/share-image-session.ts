@@ -1,6 +1,9 @@
 import type { Options as HtmlToImageOptions } from "html-to-image/lib/types"
 import { getFontEmbedCSS } from "html-to-image"
 import { renderFaceSvg } from "@/lib/avatar/face"
+import { observeImage } from "@/lib/observability/images"
+import { telemetryGeneration } from "@/lib/observability/telemetry"
+import { abortObserved, observeAbortDeadline } from "@/lib/observability/cancellation"
 
 const SHARE_IMAGE_ASSET_TIMEOUT_MS = 5_000
 const SHARE_IMAGE_RENDER_TIMEOUT_MS = 15_000
@@ -144,13 +147,18 @@ async function withDeadline<T>(
   timeoutMs: number,
   signal: AbortSignal | undefined,
   run: (deadlineSignal: AbortSignal) => Promise<T>,
+  generation = telemetryGeneration(),
 ): Promise<T> {
   throwIfAborted(signal)
   const controller = new AbortController()
+  observeAbortDeadline(controller, timeoutMs, generation)
+  const record = (phase: Parameters<typeof observeImage>[2], outcome?: "success" | "error" | "timeout" | "cancelled") => { if (generation === telemetryGeneration()) observeImage(controller, "share", phase, undefined, { share_stage: stage, timeout_ms: timeoutMs, outcome }) }
+  record("stage_start")
   let timedOut = false
   let rejectInterrupted: ((reason: unknown) => void) | null = null
   const abort = () => {
-    controller.abort()
+    record("abort", "cancelled")
+    abortObserved(controller, "parent_signal")
     rejectInterrupted?.(abortError())
   }
   signal?.addEventListener("abort", abort, { once: true })
@@ -159,12 +167,16 @@ async function withDeadline<T>(
   })
   const timer = setTimeout(() => {
     timedOut = true
-    controller.abort()
+    record("timeout", "timeout")
+    abortObserved(controller, "deadline")
     rejectInterrupted?.(new ShareImageSessionError(stage, true))
   }, timeoutMs)
   try {
-    return await Promise.race([run(controller.signal), interrupted])
+    const result = await Promise.race([run(controller.signal), interrupted])
+    record("stage_ready", "success")
+    return result
   } catch (error) {
+    record("stage_error", signal?.aborted ? "cancelled" : timedOut ? "timeout" : "error")
     if (signal?.aborted) throw abortError()
     if (timedOut) throw new ShareImageSessionError(stage, true, error)
     if (error instanceof ShareImageSessionError) throw error
@@ -172,7 +184,7 @@ async function withDeadline<T>(
   } finally {
     clearTimeout(timer)
     signal?.removeEventListener("abort", abort)
-    controller.abort()
+    abortObserved(controller, "share_cleanup")
   }
 }
 
@@ -488,33 +500,40 @@ function blobToDataUrl(blob: Blob, signal: AbortSignal): Promise<string> {
   })
 }
 
-function decodeDataUrl(dataUrl: string, signal: AbortSignal): Promise<void> {
+function decodeDataUrl(dataUrl: string, signal: AbortSignal, generation: number): Promise<void> {
   return new Promise((resolve, reject) => {
     const image = new Image()
+    let decodeCalled = false
+    const record = (phase: Parameters<typeof observeImage>[2], failure?: "decode_rejected" | "no_pixels" | "load_error" | "abort") => { if (generation === telemetryGeneration()) observeImage(image, "share", phase, image, { decode_called: decodeCalled, image_failure: failure }) }
     let settled = false
-    const finish = (error?: unknown) => {
+    const finish = (error?: unknown, failure?: "decode_rejected" | "no_pixels" | "load_error" | "abort") => {
       if (settled) return
       settled = true
       signal.removeEventListener("abort", abort)
       image.onload = null
       image.onerror = null
-      if (error) reject(error)
-      else resolve()
+      if (error) { record(failure === "decode_rejected" ? "decode_error" : failure === "abort" ? "abort" : "error", failure); reject(error) }
+      else { record(decodeCalled ? "decode_ready" : "pixels_ready"); resolve() }
     }
-    const abort = () => finish(abortError())
+    const abort = () => finish(abortError(), "abort")
     image.onload = () => {
+      record("load")
       if (image.naturalWidth <= 0 || image.naturalHeight <= 0) {
-        finish(new Error("Decoded image has no pixels"))
+        finish(new Error("Decoded image has no pixels"), "no_pixels")
         return
       }
-      Promise.resolve(image.decode?.()).then(
+      const decoder = image.decode
+      decodeCalled = typeof decoder === "function"
+      record(decodeCalled ? "decode_start" : "decode_unavailable")
+      Promise.resolve(decoder?.call(image)).then(
         () => finish(),
-        (error) => finish(error),
+        (error) => finish(error, "decode_rejected"),
       )
     }
-    image.onerror = () => finish(new Error("Image bytes could not be decoded"))
+    image.onerror = () => finish(new Error("Image bytes could not be decoded"), "load_error")
     signal.addEventListener("abort", abort, { once: true })
     image.src = dataUrl
+    record("source_change")
   })
 }
 
@@ -527,6 +546,7 @@ async function resolveImage(
   budget: ShareImageAssetBudget,
   staticizeAsset: ShareImageStaticizer,
   enqueueStaticize: ShareImageStaticizeQueue,
+  generation: number,
 ): Promise<string | null> {
   const kind = imageKind(image)
   try {
@@ -557,7 +577,7 @@ async function resolveImage(
       }
       consumeStaticBytes(budget, staticBlob.size)
       const dataUrl = await blobToDataUrl(staticBlob, signal)
-      await decodeDataUrl(dataUrl, signal)
+      await decodeDataUrl(dataUrl, signal, generation)
       return dataUrl
     })()
     assetCache.set(request.cacheKey, pending)
@@ -692,11 +712,12 @@ export async function prepareShareImageSession(
   source: HTMLElement,
   options: PrepareShareImageSessionOptions = {},
 ): Promise<PreparedShareImageSession> {
+  const generation = telemetryGeneration()
   const timeoutMs = options.timeoutMs ?? SHARE_IMAGE_ASSET_TIMEOUT_MS
   const waitForPaint = options.waitForPaint ?? nextPaint
   await withDeadline("source", timeoutMs, options.signal, (signal) => (
     waitForSource(source, signal, waitForPaint)
-  ))
+  ), generation)
   throwIfAborted(options.signal)
 
   const { host, card } = mountDetached(source)
@@ -740,8 +761,9 @@ export async function prepareShareImageSession(
         budget,
         options.staticizeAsset ?? staticizeImageBlob,
         enqueueStaticize,
+        generation,
       )))
-    })
+    }, generation)
     for (let index = 0; index < images.length; index += 1) {
       const image = images[index]!
       const dataUrl = resolved[index]
@@ -756,14 +778,14 @@ export async function prepareShareImageSession(
 
     const fontEmbedCSS = await withDeadline("fonts", timeoutMs, options.signal, (signal) => (
       loadAndEmbedFonts(card, options.getFontCSS ?? getFontEmbedCSS, signal)
-    ))
+    ), generation)
     const frozen = await withDeadline("freeze", timeoutMs, options.signal, async (signal) => {
       await waitForPaint()
       throwIfAborted(signal)
       card.removeAttribute("data-share-card-source")
       card.setAttribute("data-share-card", "")
       return freezeTree(card)
-    })
+    }, generation)
     return Object.freeze({
       markup: card.outerHTML,
       ...frozen,

@@ -3,14 +3,15 @@
 import { useLayoutEffect, useMemo } from "react"
 import { createStore, useSelector } from "@tanstack/react-store"
 import { useCommunityMutationOrigin } from "./community-origin"
+import { abortObserved, createObservedAbortController } from "@/lib/observability/cancellation"
 
 export function useCommunityViewSource(identity: string, enabled = true) {
   const origin = useCommunityMutationOrigin()
-  const view = useMemo(() => createStore({ identity, owner: origin.registry, active: enabled, generation: 0, controller: new AbortController() }), [origin.registry, identity, enabled])
+  const view = useMemo(() => createStore({ identity, owner: origin.registry, active: enabled, generation: 0, controller: createObservedAbortController() }), [origin.registry, identity, enabled])
   useLayoutEffect(() => {
-    view.setState((state) => ({ ...state, active: enabled, controller: state.controller.signal.aborted ? new AbortController() : state.controller }))
+    view.setState((state) => ({ ...state, active: enabled, controller: state.controller.signal.aborted ? createObservedAbortController() : state.controller }))
     const original = view.get().controller
-    return () => { view.setState((state) => ({ ...state, active: false, generation: state.generation + 1 })); original.abort() }
+    return () => { view.setState((state) => ({ ...state, active: false, generation: state.generation + 1 })); abortObserved(original, "view_cleanup") }
   }, [view, enabled])
   const signal = useSelector(view, (state) => state.controller.signal)
   return useMemo(() => {
@@ -27,7 +28,7 @@ export function useCommunityViewSource(identity: string, enabled = true) {
     const retire = () => {
       const controller = view.get().controller
       view.setState((state) => ({ ...state, active: false, generation: state.generation + 1 }))
-      controller.abort()
+      abortObserved(controller, "view_retire")
     }
     return { capture, signal, retire }
   }, [origin, signal, view])

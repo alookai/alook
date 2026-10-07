@@ -5,6 +5,7 @@ import {
   capturePreparedShareImage,
   prepareShareImageSession,
 } from "./share-image-session"
+import { configureTelemetry, installTelemetrySink, retireTelemetry } from "@/lib/observability/telemetry"
 
 const FONT_CSS = "@font-face{font-family:Brand;src:url(data:font/woff2;base64,AA==)}"
 
@@ -93,6 +94,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  retireTelemetry()
   document.body.replaceChildren()
   delete (document as Document & { fonts?: FontFaceSet }).fonts
   vi.restoreAllMocks()
@@ -101,6 +103,41 @@ afterEach(() => {
 })
 
 describe("prepareShareImageSession", () => {
+  it("distinguishes missing decode support, decode rejection and img load failure", async () => {
+    const events: Array<{ name: string; attributes: Record<string, string> }> = []
+    configureTelemetry({ session_id: "share-session" }, true); installTelemetrySink(event => events.push(event))
+    const source = sourceCard('<img data-remote-image-kind="content" src="/private.png">')
+    vi.stubGlobal("Image", function () { const image = new DecodableImage(); Object.defineProperty(image, "decode", { value: undefined }); return image })
+    await prepare(source, vi.fn().mockResolvedValue(imageResponse()))
+    expect(events.find(event => event.attributes.image_phase === "pixels_ready")!.attributes.decode_called).toBe("false")
+    expect(events.some(event => event.attributes.image_phase === "decode_ready")).toBe(false)
+    events.length = 0
+    vi.stubGlobal("Image", function () { const image = new DecodableImage(); image.decode = vi.fn().mockRejectedValue(new Error("private decode detail")); return image })
+    await expect(prepare(source, vi.fn().mockResolvedValue(imageResponse()))).rejects.toMatchObject({ stage: "assets" })
+    expect(events.find(event => event.attributes.image_phase === "decode_error")!.attributes.image_failure).toBe("decode_rejected")
+    events.length = 0
+    vi.stubGlobal("Image", class extends DecodableImage { set src(_value: string) { queueMicrotask(() => this.onerror?.(new Event("error"))) } })
+    await expect(prepare(source, vi.fn().mockResolvedValue(imageResponse()))).rejects.toMatchObject({ stage: "assets" })
+    expect(events.find(event => event.attributes.image_phase === "error")!.attributes.image_failure).toBe("load_error")
+    expect(events.some(event => event.attributes.image_phase === "decode_error")).toBe(false)
+    expect(JSON.stringify(events)).not.toContain("private")
+  })
+  it("reports safe stage boundaries without exposing prepared markup and retires the whole preparation clock", async () => {
+    const events: Array<{ name: string; attributes: Record<string, string> }> = []
+    configureTelemetry({ session_id: "share-session" }, true); installTelemetrySink(event => events.push(event))
+    const source = sourceCard("<span>private conversation</span>")
+    const prepared = await prepare(source)
+    expect(prepared.markup).toContain("private conversation")
+    expect(events.filter(event => event.attributes.image_phase === "stage_ready").map(event => event.attributes.share_stage)).toEqual(["source", "assets", "fonts", "freeze"])
+    expect(JSON.stringify(events)).not.toContain("private")
+    const waiting = deferred<void>()
+    const pending = prepareShareImageSession(source, { waitForPaint: () => waiting.promise, getFontCSS: async () => FONT_CSS })
+    retireTelemetry(); configureTelemetry({ session_id: "replacement-session" }, true); installTelemetrySink(event => events.push(event))
+    const count = events.length
+    waiting.resolve()
+    await pending
+    expect(events).toHaveLength(count)
+  })
   it("prepares an image-free source with default options", async () => {
     const requestFrame = vi.fn((callback: FrameRequestCallback) => {
       callback(1)

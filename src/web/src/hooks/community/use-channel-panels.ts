@@ -22,6 +22,7 @@ import {
 import { communityRequestOptions as qualifiedCommunityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import type { CommunityFreshQueryProof } from "@/lib/community-db/sync"
 import type { ChannelRow } from "@/lib/community-db/schema"
+import { observeQuerySignal } from "@/lib/observability/cancellation"
 
 /**
  * Fetches the thread list rendered in a channel's right rail (`?panel=threads`).
@@ -96,6 +97,8 @@ async function loadThreadResources(queryClient: QueryClient, channelId: string, 
 }
 
 export const threadsQueryFn = (channelId: string, queryClient: QueryClient) => async ({ signal }: { signal?: AbortSignal } = {}) => {
+  const stopObservation = observeQuerySignal(signal, queryClient.getQueryCache().find({ queryKey: communityKeys.threads(channelId), exact: true }))
+  try {
   const token = captureCommunityLiveSnapshotToken(queryClient), registry = getCommunityDbRegistry(queryClient)
   await registry?.ready
   assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
@@ -112,6 +115,7 @@ export const threadsQueryFn = (channelId: string, queryClient: QueryClient) => a
     },
   }, { token, signal })
   return { threads: data.threads.map((thread) => ({ id: thread.id, ...(thread.parentMessageId ? { openerMessageId: thread.parentMessageId } : {}) })), parentType: data.parentType, serverId: data.serverId, parentChannelId: channelId }
+  } finally { stopObservation() }
 }
 
 export function materializeThreadsResponse(data: ThreadsResponse | undefined, messages: ReadonlyMap<string, Msg> | undefined, channels: ReadonlyMap<string, ChannelRow>): Thread[] {

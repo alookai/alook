@@ -4,15 +4,27 @@ import { emitTelemetry, isTelemetryEligible, telemetryGeneration } from "./telem
 import { tagNetworkResponse } from "./data-source"
 import type { Attributes } from "./schema"
 import { context, trace } from "@opentelemetry/api"
+import { signalObservation, observeAbortSignal } from "./cancellation"
 
-export type RequestObservation = { id: string; start: number; generation: number; fields: Attributes; done: boolean; action?: Action }
+export type RequestObservation = { id: string; start: number; generation: number; fields: Attributes; done: boolean; action?: Action; stopAbort?: () => void }
 const responses = new WeakMap<Response, RequestObservation>()
-export function startRequest(path: string, options?: { method?: string; observation?: { action?: Action; reason?: Attributes["request_reason"] } }): RequestObservation | undefined {
+export function startRequest(path: string, options?: { method?: string; signal?: AbortSignal | null; observation?: { action?: Action; reason?: Attributes["request_reason"] } }): RequestObservation | undefined {
   if (!isTelemetryEligible()) return
   const origin = typeof window === "undefined" ? "https://alook.ai" : window.location.origin
   const fields = { ...actionAttributes(options?.observation?.action), route_template: routeTemplate(path, origin), method: options?.method ?? "GET", request_reason: options?.observation?.reason ?? "unknown", request_kind: "api", eligibility: "unknown" }
-  const request = { id: telemetryId(), start: performance.now(), generation: telemetryGeneration(), fields, done: false, action: options?.observation?.action }
-  emitTelemetry("request.start", { ...fields, request_id: request.id, start_ms: request.start })
+  const request: RequestObservation = { id: telemetryId(), start: performance.now(), generation: telemetryGeneration(), fields: { ...fields, ...signalObservation(options?.signal) }, done: false, action: options?.observation?.action }
+  emitTelemetry("request.start", { ...request.fields, request_id: request.id, start_ms: request.start })
+  if (options?.signal) {
+    const signal = options.signal
+    observeAbortSignal(signal)
+    const abort = () => {
+      request.fields = { ...request.fields, ...signalObservation(signal) }
+      if (!request.done && request.generation === telemetryGeneration()) emitTelemetry("request.abort", { ...request.fields, request_id: request.id, start_ms: performance.now(), duration_ms: performance.now() - request.start, outcome: "cancelled" })
+    }
+    signal.addEventListener("abort", abort, { once: true })
+    request.stopAbort = () => signal.removeEventListener("abort", abort)
+    if (signal.aborted) abort()
+  }
   return request
 }
 export function runObservedFetch<T>(request: RequestObservation | undefined, execute: () => T): T {
@@ -42,6 +54,7 @@ export function requestRejected(request: RequestObservation | undefined) {
 export function finishRequest(request: RequestObservation | undefined, outcome: Attributes["outcome"], phase: "body" | "headers", eligibility: Attributes["eligibility"] = "unknown") {
   if (!request || request.done) return
   request.done = true
+  request.stopAbort?.()
   if (request.generation === telemetryGeneration()) emitTelemetry("request.finish", { ...fields(request), outcome, phase, eligibility })
 }
 export async function readObservedResponse<T>(response: Response, read: () => Promise<T>, qualify?: () => void): Promise<T> {

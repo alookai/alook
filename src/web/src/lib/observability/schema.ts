@@ -7,6 +7,7 @@ export const eventNames = [
   "request.body_parsed", "request.finish", "data.publish", "data.response_rejected",
   "ws.connect", "ws.ready", "ws.close", "ws.reconnect", "ws.event_applied",
   "resource.finish", "main_thread.longtask", "telemetry.coverage", "telemetry.drop", "business.result", "message.milestone",
+  "image.lifecycle", "request.abort", "request.boundary", "query.boundary", "image.operation",
 ] as const
 export type TelemetryEvent = typeof eventNames[number]
 export type Attributes = Record<string, string | number | boolean | undefined>
@@ -29,12 +30,28 @@ const enumValues: Record<string, ReadonlySet<string>> = Object.fromEntries(Objec
   region: ["shell", "rail", "sidebar", "messages", "forum", "thread_opener", "friends", "bots", "machines", "members", "settings", "billing", "file_preview", "inbox", "page"],
   visibility: ["visible", "hidden", "unknown"],
   capability: ["available", "limited", "unavailable"],
-  drop_reason: ["early_queue_full", "transport_failure", "withdrawal", "account_switch", "stale_session", "sdk_load", "invalid_config", "unload_unknown"],
+  drop_reason: ["early_queue_full", "image_rate_limit", "transport_failure", "withdrawal", "account_switch", "stale_session", "sdk_load", "invalid_config", "unload_unknown"],
   delivery_failure_reason: ["queue_full", "retries_exhausted", "rate_limit", "http_error", "network", "timeout", "abort", "unknown"],
   cache_stage: ["idb", "query", "router", "http", "canonical"],
+  image_slot: ["identity", "content", "markdown", "lightbox_original", "lightbox_thumbnail", "thumbnail_prepare", "crop", "share", "dom"],
+  image_phase: ["attach", "detach", "snapshot", "source_change", "presentation_change", "effect_setup", "effect_cleanup", "eligible", "timer_start", "timer_clear", "timeout", "load", "error", "decode_start", "decode_ready", "decode_error", "decode_unavailable", "pixels_ready", "state", "ignored", "retry", "abort", "encode_start", "encode_ready", "encode_error", "stage_start", "stage_ready", "stage_error"],
+  image_state: ["pending", "ready", "error"], previous_state: ["pending", "ready", "error"],
+  image_parent: ["button", "other", "none"], loading: ["lazy", "eager"],
+  connected: ["true", "false"], complete: ["true", "false"], current_node: ["true", "false"], eligible: ["true", "false"],
+  decode_supported: ["true", "false"], decode_called: ["true", "false"], image_element: ["img", "svg_image"],
+  image_failure: ["decode_rejected", "no_pixels", "load_error", "abort"],
+  ignored_reason: ["inactive", "generation", "attempt", "terminal"],
+  delivery_type: ["cache", "prefetch", "unknown"],
+  abort_cause: ["unknown", "deadline", "parent_signal", "view_cleanup", "view_retire", "account_retire", "read_superseded", "query_signal", "share_cleanup"],
+  abort_phase: ["timer_start", "abort"],
+  query_boundary: ["observerAdded", "observerRemoved", "removed", "signal_abort", "account_cancel"],
+  image_operation: ["click", "pointerover", "focusin", "keydown", "scroll", "resize", "online"],
+  share_stage: ["source", "assets", "fonts", "freeze", "rasterize"],
+  operation_key: ["shift_f10", "context_menu", "other"],
+  runtime_platform: ["browser", "desktop", "mobile"], native_build_binding: ["unavailable"],
 }).map(([key, values]) => [key, new Set(values)]))
-const numberFields = new Set(["start_ms", "duration_ms", "ws_duration_ms", "count", "row_count", "changed_count", "removed_count", "status", "schema_version", "revision", "attempt", "collection_rate", "drop_count", "delivery_failure_count", "transfer_bytes", "encoded_bytes", "decoded_bytes"])
-const idFields = new Set(["ws_event_id", "session_id", "page_instance_id", "action_id", "navigation_id", "request_id", "data_version", "user_key"])
+const numberFields = new Set(["start_ms", "duration_ms", "ws_duration_ms", "count", "row_count", "changed_count", "removed_count", "status", "schema_version", "revision", "attempt", "collection_rate", "drop_count", "delivery_failure_count", "transfer_bytes", "encoded_bytes", "decoded_bytes", "image_generation", "telemetry_generation", "natural_width", "natural_height", "timeout_ms", "time_origin_ms", "fetch_start_ms", "request_start_ms", "response_start_ms", "response_end_ms", "observer_count", "operation_sequence", "correlation_evictions", "correlation_size"])
+const idFields = new Set(["ws_event_id", "session_id", "page_instance_id", "action_id", "navigation_id", "request_id", "resource_id", "data_version", "user_key", "image_instance_id", "image_node_id", "image_parent_id", "mutation_parent_id", "image_source_id", "declared_source_id", "query_id", "abort_owner_id", "operation_target_id"])
 
 export function cleanAttributes(input: Record<string, unknown>): Record<string, string> {
   const result: Record<string, string> = {}

@@ -31,6 +31,7 @@ function MarkdownImageAttempt({
   const [eligible, eligibilityRef] = useRemoteImageEligibility(true)
   const [status, attempt, , imageRef, onLoad, onError, retry] = useRemoteImageAttempt({
     eligible,
+    slot: "markdown",
   })
   const imageWidth = dimension(width)
   const imageHeight = dimension(height)

@@ -5,10 +5,13 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   type RefCallback,
   type SyntheticEvent,
 } from "react"
 import { createStore, useSelector, useAtom, useCreateAtom } from "@tanstack/react-store"
+import { observeImage, type ImageSlot } from "@/lib/observability/images"
+import { telemetryGeneration } from "@/lib/observability/telemetry"
 
 export const REMOTE_IMAGE_TIMEOUT_MS = 5_000
 
@@ -38,63 +41,95 @@ function reduceAttempt(state: AttemptState, action: AttemptAction): AttemptState
 type RemoteImageAttemptOptions = {
   eligible?: boolean
   timeoutMs?: number
+  slot?: ImageSlot
 }
 
 export function useRemoteImageAttempt({
   eligible = true,
   timeoutMs = REMOTE_IMAGE_TIMEOUT_MS,
+  slot = "content",
 }: RemoteImageAttemptOptions = {}) {
   const store = useMemo(() => createStore({ attempt: 0, status: "pending", active: true, generation: 0 } as AttemptState & { active: boolean; generation: number }), [])
   const state = useSelector(store, (value) => value)
-  const dispatch = useCallback((action: AttemptAction, generation = store.get().generation) => store.setState((current) => {
-    if (!current.active || current.generation !== generation) return current
-    const next = reduceAttempt(current, action)
-    return next === current ? current : { ...next, active: current.active, generation: current.generation }
-  }), [store])
+  const currentImage = useRef<HTMLImageElement | null>(null)
+  const record = useCallback((phase: Parameters<typeof observeImage>[2], image = currentImage.current, fields: Parameters<typeof observeImage>[4] = {}) => {
+    const current = store.get()
+    observeImage(store, slot, phase, image, { attempt: current.attempt, image_generation: current.generation, image_state: current.status, current_node: !!image && currentImage.current === image, ...fields })
+  }, [store, slot])
+  const dispatch = useCallback((action: AttemptAction, generation = store.get().generation, observationGeneration = telemetryGeneration()) => {
+    const before = store.get()
+    store.setState((current) => {
+      if (!current.active || current.generation !== generation) return current
+      const next = reduceAttempt(current, action)
+      return next === current ? current : { ...next, active: current.active, generation: current.generation }
+    })
+    const after = store.get()
+    const reason = !before.active ? "inactive" : before.generation !== generation ? "generation" : action.type !== "retry" && before.attempt !== action.attempt ? "attempt" : after === before ? "terminal" : undefined
+    if (observationGeneration === telemetryGeneration()) record(reason ? "ignored" : "state", action.type === "ready" ? action.image : currentImage.current, { previous_state: before.status, ignored_reason: reason, outcome: reason ? "rejected" : "observed", attempt: action.type === "retry" ? after.attempt : action.attempt, image_generation: generation })
+  }, [store, record])
   useLayoutEffect(() => {
     store.setState((current) => ({ ...current, active: true }))
-    return () => store.setState((current) => ({ ...current, active: false, generation: current.generation + 1 }))
-  }, [store])
+    record("effect_setup")
+    return () => {
+      record("effect_cleanup")
+      store.setState((current) => ({ ...current, active: false, generation: current.generation + 1 }))
+    }
+  }, [store, record])
   const decode = useCallback(async (image: HTMLImageElement, attempt: number) => {
     const generation = store.get().generation
+    const observationGeneration = telemetryGeneration()
+    let decodeCalled = false
     try {
-      await image.decode?.()
+      const decoder = image.decode
+      decodeCalled = typeof decoder === "function"
+      record(decodeCalled ? "decode_start" : "decode_unavailable", image, { attempt, image_generation: generation, decode_called: decodeCalled })
+      await decoder?.call(image)
     } catch {
-      dispatch({ type: "error", attempt }, generation)
+      if (observationGeneration === telemetryGeneration()) record("decode_error", image, { attempt, image_generation: generation, outcome: "error", image_failure: "decode_rejected", decode_called: decodeCalled })
+      dispatch({ type: "error", attempt }, generation, observationGeneration)
       return
     }
     if (image.naturalWidth <= 0 || image.naturalHeight <= 0) {
-      dispatch({ type: "error", attempt }, generation)
+      if (observationGeneration === telemetryGeneration()) record("error", image, { attempt, image_generation: generation, outcome: "empty", image_failure: "no_pixels", decode_called: decodeCalled })
+      dispatch({ type: "error", attempt }, generation, observationGeneration)
       return
     }
-    dispatch({ type: "ready", attempt, image }, generation)
-  }, [store, dispatch])
+    if (observationGeneration === telemetryGeneration()) record(decodeCalled ? "decode_ready" : "pixels_ready", image, { attempt, image_generation: generation, outcome: "success", decode_called: decodeCalled })
+    dispatch({ type: "ready", attempt, image }, generation, observationGeneration)
+  }, [store, dispatch, record])
 
   const imageRef = useCallback<RefCallback<HTMLImageElement>>((image) => {
+    if (currentImage.current && currentImage.current !== image) record("detach", currentImage.current)
+    currentImage.current = image
+    if (image) record("attach", image)
     if (!image?.complete) return
     if (image.naturalWidth <= 0 || image.naturalHeight <= 0) {
       dispatch({ type: "error", attempt: state.attempt })
       return
     }
     void decode(image, state.attempt)
-  }, [decode, dispatch, state.attempt])
+  }, [decode, dispatch, record, state.attempt])
 
   const onLoad = useCallback((event: SyntheticEvent<HTMLImageElement>) => {
+    record("load", event.currentTarget)
     void decode(event.currentTarget, state.attempt)
-  }, [decode, state.attempt])
+  }, [decode, record, state.attempt])
 
-  const onImageError = useCallback(() => {
+  const onImageError = useCallback((event: SyntheticEvent<HTMLImageElement>) => {
+    record("error", event.currentTarget, { outcome: "error", image_failure: "load_error" })
     dispatch({ type: "error", attempt: state.attempt })
-  }, [dispatch, state.attempt])
+  }, [dispatch, record, state.attempt])
 
-  const retry = useCallback(() => dispatch({ type: "retry" }), [dispatch])
+  const retry = useCallback(() => { record("retry"); dispatch({ type: "retry" }) }, [dispatch, record])
 
   useEffect(() => {
+    record("eligible", undefined, { eligible })
     if (!eligible || state.status !== "pending") return
     const attempt = state.attempt
-    const timeout = setTimeout(() => dispatch({ type: "error", attempt }), timeoutMs)
-    return () => clearTimeout(timeout)
-  }, [dispatch, eligible, state.attempt, state.status, timeoutMs])
+    record("timer_start", undefined, { timeout_ms: timeoutMs })
+    const timeout = setTimeout(() => { record("timeout", undefined, { attempt, timeout_ms: timeoutMs, outcome: "timeout" }); dispatch({ type: "error", attempt }) }, timeoutMs)
+    return () => { clearTimeout(timeout); record("timer_clear", undefined, { attempt }) }
+  }, [dispatch, record, eligible, state.attempt, state.status, timeoutMs])
 
   return [
     state.status,

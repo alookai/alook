@@ -35,7 +35,7 @@ function IdentityImageAttempt({
   timeoutMs,
   "data-testid": testId,
 }: IdentityImageProps) {
-  const [status, attempt, , imageRef, onLoad, onError, retry] = useRemoteImageAttempt({ timeoutMs })
+  const [status, attempt, , imageRef, onLoad, onError, retry] = useRemoteImageAttempt({ timeoutMs, slot: "identity" })
   const retryAfterReconnect = useEffectEvent(() => {
     if (status !== "ready") retry()
   })
@@ -130,6 +130,7 @@ function ContentImageAttempt({
   const [status, attempt, readyImage, imageRef, onLoad, onError, retry] = useRemoteImageAttempt({
     eligible,
     timeoutMs,
+    slot: "content",
   })
   const notifyReady = useEffectEvent((image: HTMLImageElement) => onReady?.(image))
 
