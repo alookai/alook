@@ -3,7 +3,13 @@ import { BRAND_DESCRIPTION, BRAND_SLOGAN, BRAND_TITLE } from "@/lib/brand-copy";
 import { ALOOK_ORGANIZATION } from "@/lib/seo/entities";
 
 export const SITE_URL = "https://alook.ai";
-export const SITE_OG_IMAGE_URL = "/og";
+export const SITE_OG_IMAGE_URL = "/social/readme-card-58c75311e5ba.png";
+export const SITE_OG_IMAGE = {
+	url: SITE_OG_IMAGE_URL,
+	width: 1200,
+	height: 630,
+	alt: BRAND_TITLE,
+};
 
 export const siteViewport: Viewport = {
 	width: "device-width",
@@ -35,14 +41,7 @@ export const siteMetadata: Metadata = {
 		title: BRAND_TITLE,
 		description: BRAND_DESCRIPTION,
 		url: SITE_URL,
-		images: [
-			{
-				url: SITE_OG_IMAGE_URL,
-				width: 1200,
-				height: 630,
-				alt: BRAND_TITLE,
-			},
-		],
+		images: [SITE_OG_IMAGE],
 	},
 	twitter: {
 		card: "summary_large_image",

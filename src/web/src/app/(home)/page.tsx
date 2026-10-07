@@ -6,6 +6,7 @@ import {
 } from "@/components/home/landing-content";
 import { LandingPage } from "@/components/home/landing-page";
 import { getSession } from "@/lib/session";
+import { SITE_OG_IMAGE } from "@/lib/seo/site-metadata";
 
 const title = LANDING_META_TITLE;
 const description = LANDING_META_DESCRIPTION;
@@ -19,12 +20,14 @@ export const metadata: Metadata = {
     title,
     description,
     url: "https://alook.ai",
+    images: [SITE_OG_IMAGE],
   },
   twitter: {
     card: "summary_large_image",
     site: "@alook_ai",
     title,
     description,
+    images: [SITE_OG_IMAGE],
   },
 };
 

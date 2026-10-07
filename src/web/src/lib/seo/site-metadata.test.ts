@@ -11,7 +11,7 @@ import {
 describe("canonical site metadata", () => {
   it("keeps the shared main and Blog shell defaults in one contract", () => {
     expect(SITE_URL).toBe("https://alook.ai")
-    expect(SITE_OG_IMAGE_URL).toBe("/og")
+    expect(SITE_OG_IMAGE_URL).toMatch(/^\/social\/readme-card-[a-f0-9]{12}\.png$/)
     expect(siteMetadata.metadataBase).toEqual(new URL(SITE_URL))
     expect(siteMetadata.title).toMatchObject({ default: BRAND_TITLE, template: "%s — Alook" })
     expect(siteMetadata.description).toBe(BRAND_DESCRIPTION)

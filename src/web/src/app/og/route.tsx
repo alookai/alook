@@ -1,16 +1,9 @@
-import { BRAND_SLOGAN } from "@/lib/brand-copy";
-import { renderOgImage } from "@/app/_og/render-og-image";
+import { SITE_OG_IMAGE_URL } from "@/lib/seo/site-metadata";
 
 /**
- * Fixed compatibility image for metadata inherited from the root layout.
- * Query parameters are intentionally ignored; route-owned image files provide
- * every page-specific title.
+ * Legacy brand-image URL; page-specific images retain their own routes.
+ * Query parameters cannot change the shared brand card.
  */
-export async function GET() {
-  try {
-    return await renderOgImage(BRAND_SLOGAN);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return new Response(`OG generation failed: ${message}`, { status: 500 });
-  }
+export function GET(request: Request) {
+  return Response.redirect(new URL(SITE_OG_IMAGE_URL, request.url), 308);
 }
