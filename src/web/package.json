@@ -1,6 +1,6 @@
 {
   "name": "@alook/web",
-  "version": "0.1.43",
+  "version": "0.1.44",
   "private": true,
   "scripts": {
     "dev": "node scripts/dev-zones.mjs",
@@ -17,7 +17,7 @@
     "verify:zone-output": "tsx scripts/verify-zone-output.ts",
     "preflight:bug-reports": "tsx scripts/preflight-bug-reports.ts",
     "start": "next start",
-    "lint": "node --max-old-space-size=6144 node_modules/eslint/bin/eslint.js src/ blog/ auth/ scripts/",
+    "lint": "node --max-old-space-size=8192 node_modules/eslint/bin/eslint.js src/ blog/ auth/ scripts/",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "deploy:blog": "pnpm build:blog && opennextjs-cloudflare deploy --config blog/wrangler.toml",
     "deploy:auth": "wrangler deploy --config auth/wrangler.toml",
