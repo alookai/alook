@@ -614,6 +614,9 @@ importers:
       serwist:
         specifier: 9.5.13
         version: 9.5.13(browserslist@4.29.3)(typescript@6.0.3)
+      sharp:
+        specifier: ^0.35.5
+        version: 0.35.5(@types/node@25.9.4)
       tailwindcss:
         specifier: ^4
         version: 4.3.3
@@ -19643,7 +19646,6 @@ snapshots:
       '@img/sharp-win32-ia32': 0.35.5
       '@img/sharp-win32-x64': 0.35.5
       '@types/node': 25.9.4
-    optional: true
 
   sharp@0.35.5(@types/node@26.6.4):
     dependencies:

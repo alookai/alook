@@ -1,5 +1,6 @@
 import type { Faro, Instrumentation, FetchTransport } from "@grafana/faro-web-sdk"
 import type { getDefaultOTELInstrumentations } from "@grafana/faro-web-tracing"
+import { isMobile, isTauri } from "@alook/shared"
 import { ANALYTICS_CONSENT_CHANGE_EVENT, hasAnalyticsConsent } from "../analytics-consent"
 import { capabilityLimits, routeTemplate } from "./coverage"
 import { actionSequence, beginNavigation, clearActions, finishAction, installActionSpans, startAction, telemetryId } from "./context"
@@ -8,6 +9,7 @@ import { sanitizeItem } from "./sanitize"
 import { installBrowserObservers } from "./browser"
 import { resolveCommunityModulePlan } from "../community/community-route"
 import { cleanAttributes } from "./schema"
+import { resolveFrontendIdentity } from "./runtime"
 
 type BuildProfile = { url?: string; environment?: string; release?: string }
 function validBuildProfile(profile: BuildProfile) {
@@ -35,7 +37,7 @@ let makeTransport: (() => FetchTransport) | undefined
 let stopBrowser: (() => void) | undefined
 let eligibleSince = 0
 let vitalsInitialized = false
-let surface: "web" | "blog" = "web"
+let identity = resolveFrontendIdentity("web", false, false, process.env.NEXT_PUBLIC_APP_VERSION)
 let userKey: string | undefined
 let identityEstablished = false
 let identityRevision = 0
@@ -61,7 +63,7 @@ function deactivate() {
   for (const instrumentation of httpInstrumentations.flat()) instrumentation.disable()
 }
 function configure() {
-  configureTelemetry({ release: build.release, environment: build.environment, frontend_surface: surface, page_instance_id: pageId, session_id: sessionId, user_key: userKey }, true)
+  configureTelemetry({ release: build.release, environment: build.environment, ...identity, page_instance_id: pageId, session_id: sessionId, user_key: userKey }, true)
 }
 async function activate() {
   if (documentSuspended || !hasAnalyticsConsent() || !validBuildProfile(build)) return
@@ -118,7 +120,7 @@ async function activate() {
     webInstrumentations = defaults.filter(instrumentation => !instrumentation.name.endsWith("instrumentation-errors") && !instrumentation.name.endsWith("instrumentation-navigation"))
     const initialTransport = transport
     faro = initializeFaro({
-      app: { name: "alook-web", version: build.release, release: build.release, environment: build.environment },
+      app: { name: "alook-web", version: identity.app_version, release: build.release, environment: build.environment },
       preventGlobalExposure: true,
       dedupe: false,
       internalLoggerLevel: InternalLoggerLevel.OFF,
@@ -129,7 +131,7 @@ async function activate() {
       trackGeolocation: false,
       webVitalsInstrumentation: { trackAttributionSources: false },
       batching: { enabled: true, itemLimit: 40, sendTimeout: 1000 },
-      beforeSend: item => hasAnalyticsConsent() && isTelemetryEligible() ? sanitizeItem(item, sessionId, window.location.origin) : null,
+      beforeSend: item => hasAnalyticsConsent() && isTelemetryEligible() ? sanitizeItem(item, sessionId, window.location.origin, identity) : null,
     })
     const initialized = faro?.api.getSession()
     if (!faro || !initialized?.id || !/^[a-zA-Z0-9_-]{1,80}$/.test(initialized.id) || initialized.attributes?.alook_account !== accountScope) { deactivate(); return }
@@ -165,7 +167,7 @@ function connectSink() {
     if (deliveryFailures) {
       const count = deliveryFailures
       deliveryFailures = 0
-      faro?.api.pushEvent("telemetry.coverage", { delivery_failure_count: String(count), delivery_failure_reason: deliveryFailureReason, outcome: "error", capability: "limited", session_id: sessionId, frontend_surface: surface }, "alook.frontend", { skipDedupe: true })
+      faro?.api.pushEvent("telemetry.coverage", { delivery_failure_count: String(count), delivery_failure_reason: deliveryFailureReason, outcome: "error", capability: "limited", session_id: sessionId, ...identity }, "alook.frontend", { skipDedupe: true })
     }
     faro?.api.pushEvent(event.name, event.attributes, "alook.frontend", { skipDedupe: true, timestampOverwriteMs: event.timestamp })
   })
@@ -218,7 +220,7 @@ export function captureTelemetryIdentityRetirement() {
 export function bootstrapObservability(nextSurface: "web" | "blog") {
   if (started || typeof window === "undefined") return
   started = true
-  surface = nextSurface
+  identity = resolveFrontendIdentity(nextSurface, isTauri(), isMobile(), process.env.NEXT_PUBLIC_APP_VERSION)
   pendingInitialNavigation = hasAnalyticsConsent() && validBuildProfile(build)
   window.addEventListener(ANALYTICS_CONSENT_CHANGE_EVENT, () => { eligibleSince = performance.now(); if (!hasAnalyticsConsent()) pendingInitialNavigation = false; reconcile() })
   window.addEventListener("popstate", () => { if (isTelemetryEligible()) beginNavigation(window.location.href) })

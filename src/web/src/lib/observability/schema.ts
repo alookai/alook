@@ -17,6 +17,7 @@ const routes = new Set<string>([...pageRoutes, ...apiRoutes, "/external", "/unma
 const enumValues: Record<string, ReadonlySet<string>> = Object.fromEntries(Object.entries({
   environment: ["production", "qa"],
   frontend_surface: ["web", "blog", "webview"],
+  client_platform: ["browser", "desktop", "mobile"],
   navigation_kind: ["document", "route"],
   phase: ["intent", "headers", "body", "read", "primary", "background", "hydrate", "idb_read", "deserialize", "commit", "frame", "interaction", "optimistic", "ack", "upload", "transport", "auth", "token", "validation"],
   outcome: ["success", "error", "cancelled", "superseded", "timeout", "noop", "observed", "unknown", "empty", "miss", "hit", "expired", "buster", "rejected", "disabled", "unavailable", "partial"],
@@ -45,6 +46,7 @@ export function cleanAttributes(input: Record<string, unknown>): Record<string, 
     else if (numberFields.has(key) && value !== undefined && text.trim() !== "" && Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 1e15) result[key] = text
     else if (idFields.has(key) && /^[a-zA-Z0-9_-]{1,80}$/.test(text)) result[key] = text
     else if (key === "release" && /^[0-9a-f]{40}$/.test(text)) result[key] = text
+    else if (key === "app_version" && /^(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})(?:-[a-zA-Z0-9.-]{1,32})?(?:\+[a-zA-Z0-9.-]{1,32})?$/.test(text)) result[key] = text
     else if (key === "route_template" && routes.has(text)) result[key] = text
     else if (key === "action_name" && names.has(text)) result[key] = text
     else if (key === "cf_ray" && /^[0-9a-f]{16}-[A-Z]{3}$/.test(text)) result[key] = text

@@ -7,8 +7,10 @@ import path from "node:path";
 const blogRedirectRules = JSON.parse(
 	readFileSync(path.resolve(__dirname, "src/lib/blog/redirects.json"), "utf8"),
 ) as Array<{ source: string; destination: string; statusCode: 301 }>;
+const pkg = JSON.parse(readFileSync(path.resolve(__dirname, "../package.json"), "utf8"));
 
 const nextConfig: NextConfig = {
+  env: { NEXT_PUBLIC_APP_VERSION: pkg.version },
 	assetPrefix: "/blog-static",
 	images: { unoptimized: true },
 	pageExtensions: ["js", "jsx", "md", "mdx", "ts", "tsx"],
