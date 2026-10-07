@@ -39,10 +39,27 @@ describe("post-init Android toolchain validation", () => {
     const app = readFileSync(join(root, "app/build.gradle.kts"))
     const manifest = readFileSync(join(root, "app/src/main/AndroidManifest.xml"))
     expect(verifyAndroidProject(root)).toEqual({
-      agp: "9.3.1", supportAgp: "9.3.1", kotlin: "2.2.10", gradle: "9.6.1", builtInKotlin: false, newDsl: false, failOnMissingProguardFiles: false, jvmTarget: "11",
+      agp: "9.3.1", supportAgp: "9.3.1", kotlin: "2.2.10", gradle: "9.6.1", builtInKotlin: false, newDsl: false, failOnMissingProguardFiles: false, jvmTarget: "11", tauriScriptFile: true, releaseLint: true,
     })
     expect(readFileSync(join(root, "app/build.gradle.kts"))).toEqual(app)
     expect(readFileSync(join(root, "app/src/main/AndroidManifest.xml"))).toEqual(manifest)
+  })
+
+  it.each([
+    'apply(from = "tauri.build.gradle.kts")',
+    "",
+    'apply(from = file("tauri.build.gradle.kts"))\napply(from = "tauri.build.gradle.kts")',
+    'apply(from = file("other.gradle.kts"))',
+  ])("rejects incompatible generated-script application: %s", after => {
+    const root = fixture()
+    change(root, "app/build.gradle.kts", 'apply(from = file("tauri.build.gradle.kts"))', after)
+    expect(() => verifyAndroidProject(root)).toThrow("must apply the generated Tauri script once through file()")
+  })
+
+  it.each(["checkReleaseBuilds", "abortOnError"])("rejects disabling %s to bypass release lint", name => {
+    const root = fixture()
+    change(root, "app/build.gradle.kts", "android {", `android {\n    lint {\n        ${name} = false\n    }`)
+    expect(() => verifyAndroidProject(root)).toThrow("must retain release lint and fatal error blocking")
   })
 
   it.each([
@@ -149,5 +166,15 @@ describe("post-init Android toolchain validation", () => {
     expect(invalid.status).not.toBe(0)
     expect(invalid.stdout).toBe("")
     expect(invalid.stderr).toContain("Android application requires explicit Java/Kotlin JVM target 11 (Kotlin target)")
+  })
+
+  it("rejects the original FIR-triggering script form through the prebuild CLI", () => {
+    const root = fixture()
+    const helper = resolve(import.meta.dirname, "verify-android-project.mjs")
+    change(root, "app/build.gradle.kts", 'apply(from = file("tauri.build.gradle.kts"))', 'apply(from = "tauri.build.gradle.kts")')
+    const invalid = spawnSync(process.execPath, [helper, "--project", root], { encoding: "utf8" })
+    expect(invalid.status).not.toBe(0)
+    expect(invalid.stdout).toBe("")
+    expect(invalid.stderr).toContain("must apply the generated Tauri script once through file()")
   })
 })

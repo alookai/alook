@@ -44,6 +44,17 @@ function applicationJvmTarget(app) {
   return "11"
 }
 
+function applicationLint(app) {
+  const scripts = [...app.matchAll(/^\s*apply\(\s*from\s*=\s*(.+)\)\s*$/gm)]
+  if (scripts.length !== 1 || scripts[0][1] !== 'file("tauri.build.gradle.kts")') {
+    throw new Error("Android application must apply the generated Tauri script once through file() for lint compatibility")
+  }
+  if (/^\s*(?:checkReleaseBuilds|abortOnError)\s*=\s*false\s*$/m.test(app)) {
+    throw new Error("Android application must retain release lint and fatal error blocking")
+  }
+  return { tauriScriptFile: true, releaseLint: true }
+}
+
 export function verifyAndroidProject(project) {
   const root = read(project, "build.gradle.kts")
   const buildSrc = read(project, "buildSrc/build.gradle.kts")
@@ -61,8 +72,10 @@ export function verifyAndroidProject(project) {
     if (config.get(name) !== "false") throw new Error(`Android compatibility requires ${name}=false`)
   }
   read(project, "app/proguard-rules.pro")
-  const jvmTarget = applicationJvmTarget(read(project, "app/build.gradle.kts"))
-  return { agp, supportAgp, kotlin, gradle: "9.6.1", builtInKotlin: false, newDsl: false, failOnMissingProguardFiles: false, jvmTarget }
+  const app = read(project, "app/build.gradle.kts")
+  const jvmTarget = applicationJvmTarget(app)
+  const lint = applicationLint(app)
+  return { agp, supportAgp, kotlin, gradle: "9.6.1", builtInKotlin: false, newDsl: false, failOnMissingProguardFiles: false, jvmTarget, ...lint }
 }
 
 export function main(argv = process.argv.slice(2), runtime = process) {
