@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server"
 import { createLogger } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
+import { withPrivateMediaCache } from "@/lib/middleware/private-media-cache"
 import { authorizeAttachment } from "@/lib/community/attachment-authorization"
 import { ATTACHMENT_PRIVATE_IMMUTABLE_CACHE } from "@/lib/community/storage"
 import { resolveAttachmentPresentation, resolveMediaContentType } from "@/lib/community/attachment-presentation"
@@ -56,7 +57,7 @@ function parseByteRange(value: string, size: number): ParsedByteRange | null {
  * when the DB row exists but R2 has drifted (infra fault, not a user-facing
  * gate). Response FORM forks by actor; the authz core is identical.
  */
-export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
+export const GET = withPrivateMediaCache(withCommunityActor(async (req: NextRequest, ctx) => {
   const attachmentId = ctx.params?.attachmentId
   if (!attachmentId) {
     return NextResponse.json({ error: "attachment not found" }, { status: 404 })
@@ -159,4 +160,4 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
     })
     return NextResponse.json({ error: "internal error", code: "internal" }, { status: 500 })
   }
-})
+}))

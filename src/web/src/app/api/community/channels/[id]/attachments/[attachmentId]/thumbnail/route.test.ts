@@ -31,6 +31,7 @@ describe("GET attachment thumbnail", () => {
     mockAuthorizeAttachment.mockResolvedValue(authz)
     const response = await GET(request, ctx)
     expect(response.status).toBe(404)
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store")
     expect(mockR2Get).not.toHaveBeenCalled()
   })
 
@@ -46,6 +47,7 @@ describe("GET attachment thumbnail", () => {
     mockR2Get.mockResolvedValue({ body })
     const response = await GET(request, ctx)
     expect(response.status).toBe(200)
+    expect(response.headers.get("Vary")).toBe("Authorization")
     expect(mockR2Get).toHaveBeenCalledWith("key.thumb")
     expect(response.headers.get("Content-Type")).toBe("image/jpeg")
     expect(response.headers.get("Content-Disposition")).toBe("inline")

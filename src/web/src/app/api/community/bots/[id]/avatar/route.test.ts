@@ -106,12 +106,14 @@ describe("GET /api/community/bots/[id]/avatar", () => {
     isAuthed = false
     const res = await GET(getReq(), ctx("b1"))
     expect(res.status).toBe(401)
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
     expect(mediaGet).not.toHaveBeenCalled()
   })
 
   it("serves a live canonical avatar by the deterministic key without an owner check", async () => {
     const res = await GET(getReq(), ctx("b1"))
     expect(res.status).toBe(200)
+    expect(res.headers.get("Vary")).toBe("Authorization")
     expect(res.headers.get("Content-Type")).toBe("image/webp")
     expect(mediaGet).toHaveBeenCalledWith("bot-avatar/b1")
     expect(mockGetBotOwnedBy).not.toHaveBeenCalled()
@@ -122,6 +124,7 @@ describe("GET /api/community/bots/[id]/avatar", () => {
     mockGetLiveBotAvatar.mockResolvedValue(null)
     const res = await GET(getReq(), ctx("b1"))
     expect(res.status).toBe(404)
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
     expect(mediaGet).not.toHaveBeenCalled()
   })
 
@@ -134,6 +137,7 @@ describe("GET /api/community/bots/[id]/avatar", () => {
     })
     const res = await GET(getReq(), ctx("b1"))
     expect(res.status).toBe(404)
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
     expect(mediaGet).not.toHaveBeenCalled()
   })
 
@@ -148,12 +152,14 @@ describe("GET /api/community/bots/[id]/avatar", () => {
     const res = await GET(getReq(4), ctx("b1"))
 
     expect(res.status).toBe(404)
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
     expect(mediaGet).not.toHaveBeenCalled()
   })
 
   it("returns 400 when the bot id route param is missing", async () => {
     const res = await GET(getReq(), ctx(undefined))
     expect(res.status).toBe(400)
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
     expect(mediaGet).not.toHaveBeenCalled()
   })
 
@@ -161,6 +167,7 @@ describe("GET /api/community/bots/[id]/avatar", () => {
     mediaGet.mockResolvedValue(null)
     const res = await GET(getReq(), ctx("b1"))
     expect(res.status).toBe(404)
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
   })
 
   it("redirects the stable route to the authoritative immutable version", async () => {
@@ -190,6 +197,7 @@ describe("GET /api/community/bots/[id]/avatar", () => {
     const res = await GET(getReq(4), ctx("b1"))
 
     expect(res.status).toBe(200)
+    expect(res.headers.get("Vary")).toBe("Authorization")
     expect(res.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable")
     expect(mediaGet).toHaveBeenCalledWith("bot-avatar/b1/objects/object-4")
   })
@@ -198,6 +206,7 @@ describe("GET /api/community/bots/[id]/avatar", () => {
     const res = await GET(getReq(4), ctx("b1"))
 
     expect(res.status).toBe(307)
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
     expect(res.headers.get("Location")).toBe("/api/community/bots/b1/avatar")
     expect(mediaGet).not.toHaveBeenCalled()
   })
@@ -215,6 +224,7 @@ describe("GET /api/community/bots/[id]/avatar", () => {
     })
     const res = await GET(req, ctx("b1"))
     expect(res.status).toBe(304)
+    expect(res.headers.get("Vary")).toBe("Authorization")
     expect(res.headers.get("ETag")).toBe('"etag-1"')
     expect(res.headers.get("Cache-Control")).toBe("private, max-age=0, stale-while-revalidate=31536000")
   })

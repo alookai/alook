@@ -7,7 +7,8 @@ const routeMocks = vi.hoisted(() => ({
 }))
 
 vi.mock("@/lib/db", () => ({ getDb: routeMocks.getDb }))
-vi.mock("@alook/shared", () => ({
+vi.mock("@alook/shared", async () => ({
+  ...(await vi.importActual<typeof import("@alook/shared")>("@alook/shared")),
   queries: {
     communityUserProfile: {
       getPublicProfileForViewer: (...args: unknown[]) => routeMocks.getPublicProfileForViewer(...args),
@@ -82,6 +83,7 @@ describe("GET /api/community/share-image/avatar/[userId]", () => {
     const response = await request("u2", "?url=http://169.254.169.254/latest/meta-data&token=leak")
 
     expect(response.status).toBe(200)
+    expect(response.headers.get("Vary")).toBe("Authorization")
     expect(routeMocks.getDb).toHaveBeenCalledWith("database")
     expect(routeMocks.getPublicProfileForViewer).toHaveBeenCalledWith(
       expect.anything(),
@@ -114,6 +116,7 @@ describe("GET /api/community/share-image/avatar/[userId]", () => {
     const response = await request()
 
     expect(response.status).toBe(404)
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store")
     expect(fetch).not.toHaveBeenCalled()
   })
 
@@ -126,6 +129,7 @@ describe("GET /api/community/share-image/avatar/[userId]", () => {
     const response = await request()
 
     expect(response.status).toBe(502)
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store")
     expect(await response.json()).toEqual({ error: "external avatar redirect rejected" })
   })
 
@@ -137,6 +141,7 @@ describe("GET /api/community/share-image/avatar/[userId]", () => {
     const response = await request()
 
     expect(response.status).toBe(502)
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store")
     expect(await response.json()).toEqual({ error: "external avatar unavailable" })
   })
 
@@ -148,6 +153,7 @@ describe("GET /api/community/share-image/avatar/[userId]", () => {
     const response = await request()
 
     expect(response.status).toBe(502)
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store")
     expect(await response.json()).toEqual({ error: "external avatar unavailable" })
   })
 
@@ -164,6 +170,7 @@ describe("GET /api/community/share-image/avatar/[userId]", () => {
     const response = await request()
 
     expect(response.status).toBe(502)
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store")
     expect(await response.json()).toEqual({ error: "external avatar unavailable" })
   })
 
@@ -180,6 +187,7 @@ describe("GET /api/community/share-image/avatar/[userId]", () => {
     const response = await pending
 
     expect(response.status).toBe(504)
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store")
     expect(await response.json()).toEqual({ error: "external avatar timed out" })
   })
 
@@ -192,6 +200,7 @@ describe("GET /api/community/share-image/avatar/[userId]", () => {
     const response = await request()
 
     expect(response.status).toBe(502)
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store")
     expect(log).not.toHaveBeenCalled()
     expect(warn).not.toHaveBeenCalled()
     expect(error).not.toHaveBeenCalled()
