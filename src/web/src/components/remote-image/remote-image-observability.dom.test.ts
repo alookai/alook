@@ -60,3 +60,13 @@ it("reports the dimension fallback without claiming a decode API call", async ()
   expect(events.find(event => event.attributes.image_phase === "pixels_ready")!.attributes).toMatchObject({ decode_supported: "false", decode_called: "false" })
   view.unmount()
 })
+it("keeps an old readiness timer out of a replacement telemetry session while preserving its UI transition", async () => {
+  vi.useFakeTimers()
+  const view = render(React.createElement(RemoteIdentityImage, { src: "/fixture.png", alt: "fixture", timeoutMs: 50 }))
+  retireTelemetry(); configureTelemetry({ session_id: "replacement-session" }, true); installTelemetrySink(event => events.push(event))
+  events.length = 0
+  await act(async () => { await vi.advanceTimersByTimeAsync(50) })
+  expect(view.container.querySelector("img")!.dataset.remoteImageState).toBe("error")
+  expect(events.some(event => ["timeout", "state", "timer_clear"].includes(event.attributes.image_phase))).toBe(false)
+  view.unmount()
+})

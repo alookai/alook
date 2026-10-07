@@ -126,9 +126,13 @@ export function useRemoteImageAttempt({
     record("eligible", undefined, { eligible })
     if (!eligible || state.status !== "pending") return
     const attempt = state.attempt
+    const observationGeneration = telemetryGeneration()
     record("timer_start", undefined, { timeout_ms: timeoutMs })
-    const timeout = setTimeout(() => { record("timeout", undefined, { attempt, timeout_ms: timeoutMs, outcome: "timeout" }); dispatch({ type: "error", attempt }) }, timeoutMs)
-    return () => { clearTimeout(timeout); record("timer_clear", undefined, { attempt }) }
+    const timeout = setTimeout(() => {
+      if (observationGeneration === telemetryGeneration()) record("timeout", undefined, { attempt, timeout_ms: timeoutMs, outcome: "timeout" })
+      dispatch({ type: "error", attempt }, undefined, observationGeneration)
+    }, timeoutMs)
+    return () => { clearTimeout(timeout); if (observationGeneration === telemetryGeneration()) record("timer_clear", undefined, { attempt }) }
   }, [dispatch, record, eligible, state.attempt, state.status, timeoutMs])
 
   return [

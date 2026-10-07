@@ -54,7 +54,7 @@ Paths below are relative to `src/web/src`, unless qualified. `image.lifecycle` r
 
 ## Consent, delivery and original WebView diagnosis
 
-Events use the existing eligibility, schema cleaning, queue, sink, Faro beforeSend and transport. Consent withdrawal, account replacement, pagehide and session retirement clear queued observations and source correlation. Late decode/preparation observations from the old telemetry generation are discarded. Early queue overflow is reported by telemetry.drop when an eligible sink becomes available; an event call is not proof of Collector ingestion.
+Events use the existing eligibility, schema cleaning, queue, sink, Faro beforeSend and transport. Consent withdrawal, account replacement, pagehide and session retirement clear queued observations and source correlation. Late decode/preparation and readiness timer observations from the old telemetry generation are discarded. Timer execution and UI transitions remain unchanged. Early queue overflow is reported by telemetry.drop when an eligible sink becomes available; an event call is not proof of Collector ingestion.
 
 1. Keep the original WebView window and failure node. Record installed binary/version/configuration separately and the current loaded web release; do not open Chrome or reload as a substitute for that instance.
 2. Verify ordinary analytics consent and valid public Collector configuration on that build. With consent granted, bind new image events to the actual page/session/environment/release and WebView hint. A release label is useful only when its compiled source and received payload are also checked.
