@@ -183,26 +183,25 @@ function ContentImageAttempt({
       className={cn("relative overflow-hidden bg-muted/30", frameClassName)}
       style={frameStyle}
     >
-      {onActivate && status !== "error" ? (
+      {media}
+      {onActivate && (
         <button
           type="button"
           aria-label={activateLabel ?? `Open ${alt}`}
           onClick={onActivate}
           className="absolute inset-0 z-1 block size-full cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-        >
-          {media}
-        </button>
-      ) : media}
+        />
+      )}
       {status === "error" && (
         <div
           role="status"
-          className="absolute inset-0 z-2 flex flex-col items-center justify-center gap-1 bg-muted px-2 text-center text-xs text-muted-foreground"
+          className="pointer-events-none absolute inset-0 z-2 flex flex-col items-center justify-center gap-1 bg-muted px-2 text-center text-xs text-muted-foreground"
         >
           <span>{errorLabel}</span>
           <button
             type="button"
             onClick={retry}
-            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-3 font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="pointer-events-auto inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-3 font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {retryLabel}
           </button>

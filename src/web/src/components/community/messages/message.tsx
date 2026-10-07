@@ -1,14 +1,15 @@
 "use client"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { memo, useRef } from "react"
+import { memo, useEffect, useRef } from "react"
+import { flushSync } from "react-dom"
 import { useMessageMarked } from "@/hooks/community/use-inbox"
 import type React from "react"
 import {
   MessagesSquare, UserPlus, SmilePlus, Reply,
   MoreHorizontal, X, Share, Check,
 } from "lucide-react"
-import { ContextMenu, ContextMenuTrigger, ContextMenuContent } from "@/components/ui/context-menu"
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, isKeyboardContextMenu } from "@/components/ui/context-menu"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from "@/components/ui/dropdown-menu"
 import { Avatar } from "../avatar"
 import { MessageBody } from "./message-body"
@@ -260,26 +261,10 @@ function MessageImpl({
   // while a menu that shows the item is open (never per-row on mount) — so a
   // channel scroll doesn't pre-load mark state for every row. Defaults to
   // "Mark"; flips to "Unmark" silently once the read resolves (no spinner).
-  const markMenuOpen = (toolbarOpen || contextOpen || touchMenuOpen) && !!onMark
+  const markMenuOpen = !compact && !m.failed && !selectMode && (toolbarOpen || contextOpen || touchMenuOpen) && !!onMark
   const { data: markedData } = useMessageMarked(m.id, markMenuOpen)
-  // Lazy-mount the row's Base UI overlay roots (ContextMenu / DropdownMenu /
-  // EmojiPicker Popover / reaction Tooltips). Eagerly mounting them per visible
-  // row was the bulk of the switch re-render storm (FloatingTree/MenuRoot ×1000s).
-  // Activate on the first
-  // hover OR focus OR keydown/contextmenu — focus/keydown are required for a11y
-  // (keyboard context menu / Tab-to-row have no pointerenter).
   const [activated, setActivated] = useAtom(useCreateAtom(false))
 
-  if (m.type === "system") {
-    const Icon = m.systemKind === "thread" ? MessagesSquare : UserPlus
-    return (
-      <div className="flex items-center gap-2 px-2 py-1 text-sm text-muted-foreground">
-        <Icon className="size-4 shrink-0" />
-        <span className="min-w-0 wrap-break-word">{m.content}</span>
-        <span className="shrink-0 text-xs" suppressHydrationWarning>{formatMessageTime(m.createdAt)}</span>
-      </div>
-    )
-  }
 
   // Share is only meaningful for a message with rendered text content (the card
   // mirrors avatar/name/content — an approval/attachment-only row has nothing to
@@ -313,6 +298,24 @@ function MessageImpl({
   // A hybrid device can alternate between mouse and touch. Switching the menu
   // shell after a mouse gesture must not remove the row's touch swipe handler.
   const swipeReplyEnabled = interactive && touchInputCapable && !selectMode && !!onReply
+  useEffect(() => {
+    if (interactive && !selectMode) return
+    setContextOpen(false)
+    setTouchMenuOpen(false)
+    setLinkTarget(null)
+  }, [interactive, selectMode, setContextOpen, setTouchMenuOpen, setLinkTarget])
+
+  if (m.type === "system") {
+    const Icon = m.systemKind === "thread" ? MessagesSquare : UserPlus
+    return (
+      <div className="flex items-center gap-2 px-2 py-1 text-sm text-muted-foreground">
+        <Icon className="size-4 shrink-0" />
+        <span className="min-w-0 wrap-break-word">{m.content}</span>
+        <span className="shrink-0 text-xs" suppressHydrationWarning>{formatMessageTime(m.createdAt)}</span>
+      </div>
+    )
+  }
+
   const activateOverlays = interactive && !activated
     ? (event: React.SyntheticEvent<HTMLElement>) => {
         if (shouldActivateMessageOverlays(event.target)) setActivated(true)
@@ -360,8 +363,15 @@ function MessageImpl({
           return
         }
         keyboardLinkActivationRef.current = false
-        setMenuInputModality("desktop")
-        activateLinkOrOverlays?.(event)
+        const activateDesktop = () => {
+          setMenuInputModality("desktop")
+          activateLinkOrOverlays?.(event)
+        }
+        if (!selectMode && touchFallbackActive && !touchMenuOpen && isKeyboardContextMenu(event.nativeEvent)) {
+          flushSync(activateDesktop)
+        } else {
+          activateDesktop()
+        }
       }
     : undefined
   // In select mode (multi-share), the whole row is a big toggle target and gets
@@ -893,46 +903,58 @@ function MessageImpl({
     </div>
   )
 
-  // Not interactive → render the bare row. In select mode the row itself is a
-  // toggle target, so no action-menu trigger is mounted.
-  if (!interactive || selectMode) return row
-
-  // Coarse/touch input: tap opens the existing dropdown menu. Deliberately do
-  // not mount ContextMenuTrigger here — its long-press gesture competes with
-  // native message-text selection on iOS/Android.
-  if (touchFallbackActive || touchMenuOpen) {
-    return (
-      <DropdownMenu
-        open={touchMenuOpen}
-        onOpenChange={(open) => {
-          setTouchMenuOpen(open)
-          if (!open) setLinkTarget(null)
-        }}
-      >
-        <div className="relative">
-          {swipeReplyEnabled && (
-            <div
-              aria-hidden
-              data-mobile-reply-affordance
-              data-threshold-crossed={swipeVisual.crossed || undefined}
-              className="absolute inset-y-0 left-0 z-0 flex w-14 items-center justify-center text-muted-foreground"
-              style={{ opacity: Math.min(1, swipeVisual.offset / 48) }}
-            >
-              <Reply className="size-5" />
-            </div>
-          )}
-          {row}
-          <DropdownMenuTrigger
-            render={(
-              <button
-                type="button"
-                aria-hidden
-                tabIndex={-1}
-                className={`pointer-events-none absolute right-0 size-0 overflow-hidden ${m.grouped ? "top-0" : "top-3"}`}
-              />
-            )}
+  const contextDisabled = !interactive || selectMode || touchFallbackActive || touchMenuOpen
+  return (
+    <DropdownMenu
+      open={touchMenuOpen && interactive && !selectMode}
+      onOpenChange={(open) => {
+        setTouchMenuOpen(open)
+        if (!open) setLinkTarget(null)
+      }}
+    >
+      <div className="relative">
+        {swipeReplyEnabled && (
+          <div
+            aria-hidden
+            data-mobile-reply-affordance
+            data-threshold-crossed={swipeVisual.crossed || undefined}
+            className="absolute inset-y-0 left-0 z-0 flex w-14 items-center justify-center text-muted-foreground"
+            style={{ opacity: Math.min(1, swipeVisual.offset / 48) }}
+          >
+            <Reply className="size-5" />
+          </div>
+        )}
+        <ContextMenu
+          disabled={contextDisabled}
+          open={contextOpen && !contextDisabled}
+          onOpenChange={(open) => {
+            setContextOpen(open)
+            if (!open) setLinkTarget(null)
+          }}
+        >
+          <ContextMenuTrigger
+            className="select-text"
+            style={{ WebkitTouchCallout: contextDisabled ? "default" : "none" }}
+            render={row}
           />
-        </div>
+          {contextOpen && !contextDisabled && (
+            <ContextMenuContent className="w-48">
+              <MessageContextItems {...menuHandlers} {...linkMenuHandlers} />
+            </ContextMenuContent>
+          )}
+        </ContextMenu>
+        <DropdownMenuTrigger
+          render={(
+            <button
+              type="button"
+              aria-hidden
+              tabIndex={-1}
+              className={`pointer-events-none absolute right-0 size-0 overflow-hidden ${m.grouped ? "top-0" : "top-3"}`}
+            />
+          )}
+        />
+      </div>
+      {touchMenuOpen && interactive && !selectMode && (
         <DropdownMenuContent
           anchor={touchMenuAnchor ?? undefined}
           positionMethod="fixed"
@@ -944,31 +966,8 @@ function MessageImpl({
         >
           <MessageDropdownItems {...menuHandlers} {...linkMenuHandlers} touch />
         </DropdownMenuContent>
-      </DropdownMenu>
-    )
-  }
-
-  // Not yet activated on desktop → render the bare row (which carries
-  // the pointerenter/focus/keydown activation handlers). The row's Base UI
-  // ContextMenu root is only mounted once hover/focus has activated it — and a
-  // right-click is always preceded by a pointerenter (mouse arriving on the
-  // row), and Shift+F10 by focus, so the menu is mounted before it's invoked.
-  // (The share-as-image dialog now lives in MessageList — the share button
-  // enters multi-select mode; the dialog opens from the select bar there.)
-  // In select mode the row is a toggle target — no context menu / toolbar.
-  if (!activated) return row
-  return (
-    <ContextMenu
-      onOpenChange={(open) => {
-        setContextOpen(open)
-        if (!open) setLinkTarget(null)
-      }}
-    >
-      <ContextMenuTrigger className="select-text" render={row} />
-      <ContextMenuContent className="w-48">
-        <MessageContextItems {...menuHandlers} {...linkMenuHandlers} />
-      </ContextMenuContent>
-    </ContextMenu>
+      )}
+    </DropdownMenu>
   )
 }
 

@@ -170,7 +170,7 @@ describe("ThreadOpener image attachment layout", () => {
     const image = renderer!.container.querySelector("img")!
     expect(image).toHaveAttribute("src", "/thumbnail")
     expect(image).toHaveAttribute("loading", "lazy")
-    fireEvent.click(image.parentElement!)
+    fireEvent.click(renderer!.getByRole("button", { name: "Open photo.png" }))
     expect(onPreviewImage).toHaveBeenCalledWith({
       originalUrl: "/original", thumbnailUrl: "/thumbnail", name: "photo.png",
       width: 640, height: 480,

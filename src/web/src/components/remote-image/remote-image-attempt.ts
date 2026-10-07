@@ -25,14 +25,15 @@ type AttemptState = {
 
 type AttemptAction =
   | { type: "ready"; attempt: number; image: HTMLImageElement }
-  | { type: "error"; attempt: number }
+  | { type: "error"; attempt: number; image?: HTMLImageElement }
   | { type: "retry" }
 
 function reduceAttempt(state: AttemptState, action: AttemptAction): AttemptState {
   if (action.type === "retry") {
     return { attempt: state.attempt + 1, status: "pending" }
   }
-  if (state.attempt !== action.attempt || state.status !== "pending") return state
+  if (state.attempt !== action.attempt || state.status === "ready") return state
+  if (action.type === "error" && state.status !== "pending") return state
   return action.type === "ready"
     ? { attempt: state.attempt, status: "ready", image: action.image }
     : { attempt: state.attempt, status: "error" }
@@ -60,24 +61,33 @@ export function useRemoteImageAttempt({
     const before = store.get()
     store.setState((current) => {
       if (!current.active || current.generation !== generation) return current
+      if (action.type !== "retry" && action.image && (currentImage.current !== action.image || !action.image.isConnected)) return current
       const next = reduceAttempt(current, action)
       return next === current ? current : { ...next, active: current.active, generation: current.generation }
     })
     const after = store.get()
-    const reason = !before.active ? "inactive" : before.generation !== generation ? "generation" : action.type !== "retry" && before.attempt !== action.attempt ? "attempt" : after === before ? "terminal" : undefined
-    if (observationGeneration === telemetryGeneration()) record(reason ? "ignored" : "state", action.type === "ready" ? action.image : currentImage.current, { previous_state: before.status, ignored_reason: reason, outcome: reason ? "rejected" : "observed", attempt: action.type === "retry" ? after.attempt : action.attempt, image_generation: generation })
+    const reason = !before.active ? "inactive" : before.generation !== generation ? "generation" : action.type !== "retry" && before.attempt !== action.attempt ? "attempt" : action.type !== "retry" && action.image && (currentImage.current !== action.image || !action.image.isConnected) ? "node" : after === before ? "terminal" : undefined
+    if (observationGeneration === telemetryGeneration()) record(reason ? "ignored" : "state", action.type !== "retry" && action.image ? action.image : currentImage.current, { previous_state: before.status, ignored_reason: reason, outcome: reason ? "rejected" : "observed", attempt: action.type === "retry" ? after.attempt : action.attempt, image_generation: generation })
   }, [store, record])
   useLayoutEffect(() => {
     store.setState((current) => ({ ...current, active: true }))
     record("effect_setup")
+    const image = currentImage.current
+    if (image?.complete && (image.naturalWidth <= 0 || image.naturalHeight <= 0)) {
+      dispatch({ type: "error", attempt: store.get().attempt, image })
+    }
     return () => {
       record("effect_cleanup")
       store.setState((current) => ({ ...current, active: false, generation: current.generation + 1 }))
     }
-  }, [store, record])
-  const decode = useCallback(async (image: HTMLImageElement, attempt: number) => {
-    const generation = store.get().generation
+  }, [store, record, dispatch])
+  const decode = useCallback(async (image: HTMLImageElement, attempt: number, generation = store.get().generation) => {
     const observationGeneration = telemetryGeneration()
+    const current = store.get()
+    if (current.generation !== generation || current.attempt !== attempt || currentImage.current !== image || !image.isConnected) {
+      dispatch({ type: "ready", attempt, image }, generation, observationGeneration)
+      return
+    }
     let decodeCalled = false
     try {
       const decoder = image.decode
@@ -86,12 +96,12 @@ export function useRemoteImageAttempt({
       await decoder?.call(image)
     } catch {
       if (observationGeneration === telemetryGeneration()) record("decode_error", image, { attempt, image_generation: generation, outcome: "error", image_failure: "decode_rejected", decode_called: decodeCalled })
-      dispatch({ type: "error", attempt }, generation, observationGeneration)
+      dispatch({ type: "error", attempt, image }, generation, observationGeneration)
       return
     }
     if (image.naturalWidth <= 0 || image.naturalHeight <= 0) {
       if (observationGeneration === telemetryGeneration()) record("error", image, { attempt, image_generation: generation, outcome: "empty", image_failure: "no_pixels", decode_called: decodeCalled })
-      dispatch({ type: "error", attempt }, generation, observationGeneration)
+      dispatch({ type: "error", attempt, image }, generation, observationGeneration)
       return
     }
     if (observationGeneration === telemetryGeneration()) record(decodeCalled ? "decode_ready" : "pixels_ready", image, { attempt, image_generation: generation, outcome: "success", decode_called: decodeCalled })
@@ -104,7 +114,7 @@ export function useRemoteImageAttempt({
     if (image) record("attach", image)
     if (!image?.complete) return
     if (image.naturalWidth <= 0 || image.naturalHeight <= 0) {
-      dispatch({ type: "error", attempt: state.attempt })
+      dispatch({ type: "error", attempt: state.attempt, image })
       return
     }
     void decode(image, state.attempt)
@@ -112,13 +122,13 @@ export function useRemoteImageAttempt({
 
   const onLoad = useCallback((event: SyntheticEvent<HTMLImageElement>) => {
     record("load", event.currentTarget)
-    void decode(event.currentTarget, state.attempt)
-  }, [decode, record, state.attempt])
+    void decode(event.currentTarget, state.attempt, state.generation)
+  }, [decode, record, state.attempt, state.generation])
 
   const onImageError = useCallback((event: SyntheticEvent<HTMLImageElement>) => {
     record("error", event.currentTarget, { outcome: "error", image_failure: "load_error" })
-    dispatch({ type: "error", attempt: state.attempt })
-  }, [dispatch, record, state.attempt])
+    dispatch({ type: "error", attempt: state.attempt, image: event.currentTarget }, state.generation)
+  }, [dispatch, record, state.attempt, state.generation])
 
   const retry = useCallback(() => { record("retry"); dispatch({ type: "retry" }) }, [dispatch, record])
 
@@ -126,14 +136,15 @@ export function useRemoteImageAttempt({
     record("eligible", undefined, { eligible })
     if (!eligible || state.status !== "pending") return
     const attempt = state.attempt
+    const generation = state.generation
     const observationGeneration = telemetryGeneration()
     record("timer_start", undefined, { timeout_ms: timeoutMs })
     const timeout = setTimeout(() => {
       if (observationGeneration === telemetryGeneration()) record("timeout", undefined, { attempt, timeout_ms: timeoutMs, outcome: "timeout" })
-      dispatch({ type: "error", attempt }, undefined, observationGeneration)
+      dispatch({ type: "error", attempt }, generation, observationGeneration)
     }, timeoutMs)
     return () => { clearTimeout(timeout); if (observationGeneration === telemetryGeneration()) record("timer_clear", undefined, { attempt }) }
-  }, [dispatch, record, eligible, state.attempt, state.status, timeoutMs])
+  }, [dispatch, record, eligible, state.attempt, state.generation, state.status, timeoutMs])
 
   return [
     state.status,

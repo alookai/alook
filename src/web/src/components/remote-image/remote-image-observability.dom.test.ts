@@ -8,27 +8,27 @@ const events: Array<{ name: string; attributes: Record<string, string> }> = []
 beforeEach(() => { events.length = 0; configureTelemetry({ session_id: "image-session" }, true); installTelemetrySink(event => events.push(event)) })
 afterEach(() => { retireTelemetry(); vi.useRealTimers() })
 function metrics(image: HTMLImageElement, decode: () => Promise<void>) { Object.defineProperties(image, { decode: { value: decode, configurable: true }, naturalWidth: { value: 320, configurable: true }, naturalHeight: { value: 200, configurable: true } }) }
-it("attributes timeout, same-attempt parent replacement and ignored old-node decode while preserving failure behavior", async () => {
+it("attributes timeout and a late current-node recovery without replacing its parent", async () => {
   vi.useFakeTimers()
   let finish!: () => void
   const waiting = new Promise<void>(resolve => { finish = resolve })
   const view = render(React.createElement(RemoteContentImage, { src: "/private-image.png", alt: "private caption", loading: "eager", onActivate: () => {}, timeoutMs: 50 }))
   const original = view.container.querySelector("img")!
+  const parent = original.parentElement
   metrics(original, () => waiting)
   fireEvent.load(original)
   await act(async () => { await vi.advanceTimersByTimeAsync(50) })
-  const replacement = view.container.querySelector("img")!
-  expect(replacement).not.toBe(original)
-  expect(replacement.dataset.remoteImageState).toBe("error")
+  expect(view.container.querySelector("img")).toBe(original)
+  expect(original.parentElement).toBe(parent)
+  expect(original.dataset.remoteImageState).toBe("error")
   await act(async () => { finish(); await waiting })
   const ready = events.find(event => event.attributes.image_phase === "decode_ready")!.attributes
-  const ignored = events.find(event => event.attributes.image_phase === "ignored" && event.attributes.ignored_reason === "terminal")!.attributes
-  expect(ready.current_node).toBe("false")
-  expect(ignored.image_node_id).toBe(ready.image_node_id)
-  expect(ignored.attempt).toBe("0")
-  expect(events.filter(event => event.attributes.image_phase === "attach").map(event => event.attributes.image_parent)).toEqual(["button", "other"])
-  expect(events.filter(event => event.attributes.image_phase === "attach").every(event => event.attributes.image_instance_id === ready.image_instance_id)).toBe(true)
-  expect(replacement.dataset.remoteImageState).toBe("error")
+  expect(ready.current_node).toBe("true")
+  expect(events.find(event => event.attributes.image_phase === "state" && event.attributes.previous_state === "error")!.attributes)
+    .toMatchObject({ image_state: "ready", image_node_id: ready.image_node_id, attempt: "0" })
+  expect(events.filter(event => event.attributes.image_phase === "attach")).toHaveLength(1)
+  expect(events.some(event => event.attributes.image_phase === "detach")).toBe(false)
+  expect(original.dataset.remoteImageState).toBe("ready")
   expect(JSON.stringify(events)).not.toContain("private")
   view.unmount()
 })

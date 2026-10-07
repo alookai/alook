@@ -21,6 +21,7 @@ type NativeContextGesture = {
 }
 
 type NativeContextGestureController = {
+  disabled: boolean
   current(): NativeContextGesture | null
   arm(event: React.PointerEvent<HTMLElement>): void
   clear(token: number): void
@@ -105,10 +106,11 @@ function ContextMenu({ disabled, ...props }: ContextMenuPrimitive.Root.Props) {
   }, [])
 
   const controller = React.useMemo<NativeContextGestureController>(() => ({
+    disabled: !!disabled || gesture !== null,
     current: () => gestureRef.current,
     arm,
     clear,
-  }), [arm, clear])
+  }), [arm, clear, disabled, gesture])
 
   return (
     <NativeContextGestureContext.Provider value={controller}>
@@ -166,7 +168,7 @@ function ContextMenuTrigger({
       }}
       onKeyDown={(event) => {
         onKeyDown?.(event)
-        if (event.defaultPrevented || !isKeyboardContextMenu(event.nativeEvent)) return
+        if (event.defaultPrevented || gestureController?.disabled || !isKeyboardContextMenu(event.nativeEvent)) return
         event.preventDefault()
         const rect = event.currentTarget.getBoundingClientRect()
         event.currentTarget.dispatchEvent(new MouseEvent("contextmenu", {

@@ -90,20 +90,18 @@ function PreviewFrame({ image }: { image: ImagePreview }) {
             Loading original image
           </div>
         )}
-        {originalStatus !== "error" && (
-          <img
-            key={`original-${originalAttempt}`}
-            ref={originalRef}
-            data-testid={tid.imageLightboxOriginal}
-            data-remote-image-kind="content"
-            data-remote-image-state={originalStatus}
-            src={image.originalUrl}
-            alt={image.name}
-            onLoad={onOriginalLoad}
-            onError={onOriginalError}
-            className={`absolute inset-0 size-full rounded-lg object-contain transition-opacity duration-150 ease-out motion-reduce:transition-none ${originalReady ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
-          />
-        )}
+        <img
+          key={`original-${originalAttempt}`}
+          ref={originalRef}
+          data-testid={tid.imageLightboxOriginal}
+          data-remote-image-kind="content"
+          data-remote-image-state={originalStatus}
+          src={image.originalUrl}
+          alt={image.name}
+          onLoad={onOriginalLoad}
+          onError={onOriginalError}
+          className={`absolute inset-0 size-full rounded-lg object-contain transition-opacity duration-150 ease-out motion-reduce:transition-none ${originalReady ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
+        />
       </div>
       {originalStatus === "error" && (
         <div

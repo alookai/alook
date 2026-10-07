@@ -74,9 +74,11 @@ vi.mock("@/components/ui/tooltip", async () => {
   }
 })
 
-vi.mock("@/components/ui/context-menu", async () => {
+vi.mock("@/components/ui/context-menu", async (importOriginal) => {
   const ReactModule = await import("react")
+  const actual = await importOriginal<typeof import("@/components/ui/context-menu")>()
   return {
+    isKeyboardContextMenu: actual.isKeyboardContextMenu,
     ContextMenu: ({ children, ...props }: { children: React.ReactNode }) =>
       ReactModule.createElement("mock-context-menu", props, children),
     ContextMenuTrigger: ({
@@ -87,6 +89,7 @@ vi.mock("@/components/ui/context-menu", async () => {
     }) => ReactModule.cloneElement(render, {
       ...props,
       className: [render.props.className, props.className].filter(Boolean).join(" "),
+      style: { ...render.props.style, ...props.style },
       "data-slot": "context-menu-trigger",
     } as React.HTMLAttributes<HTMLElement>),
     ContextMenuContent: ({ children }: { children: React.ReactNode }) =>
@@ -190,7 +193,7 @@ vi.mock("@/components/ui/number-ticker", () => ({
 // Message-row render-behavior tests:
 // - the custom memo comparator bails out despite the per-render `m` clone,
 // - but does NOT drop legit content/reaction/thread updates,
-// - and overlay roots are lazily mounted (bare row until activated).
+// - and closed menu contents and inactive toolbar overlays stay lazy.
 //
 // The small DOM adapter below keeps the behavioral assertions compact while
 // mounting through React DOM. Host props are read from React's attached DOM
@@ -756,6 +759,7 @@ describe("Message ordinary-link gesture ownership", () => {
     }))
     row = findRow(renderer!)
     act(() => row.props.onContextMenuCapture({ target: linkEventTarget }))
+    act(() => renderer!.root.findByType("mock-context-menu").props.onOpenChange(true))
 
     let items = renderer!.root.findAllByProps({ "data-slot": "context-menu-item" })
     expect(items.map((item) => textContent(item).trim()).slice(-3)).toEqual(["Share as Image", "Copy Link", "Open Link"])
@@ -796,6 +800,10 @@ describe("Message Pin menu capability", () => {
       )
       act(() => row.props.onPointerEnter({ target: { closest: () => null } }))
     }
+    const root = hoverCapable
+      ? renderer!.root.findByType("mock-context-menu")
+      : renderer!.root.findAllByType("mock-dropdown-menu").find((node) => typeof node.props.open === "boolean")!
+    act(() => root.props.onOpenChange(true))
     const labels = () => renderer!.root
       .findAllByProps({ "data-slot": slot })
       .map((item) => textContent(item).trim())
@@ -1059,6 +1067,8 @@ describe("Message reaction picker", () => {
       }), { createNodeMock: () => genericMock })
     })
 
+    act(() => renderer!.root.findAllByType("mock-dropdown-menu")
+      .find((node) => typeof node.props.open === "boolean")!.props.onOpenChange(true))
     const quickReaction = renderer!.root.findAllByProps({ "data-slot": "dropdown-menu-item" })
       .find((item) => textContent(item).includes("Add Reaction"))
     expect(quickReaction).toBeDefined()
@@ -1116,7 +1126,7 @@ describe("Message touch action menu", () => {
       currentTarget,
       nativeEvent: { type: "click" },
     }))
-    expect(findControlledTouchMenu(renderer!)).toBeUndefined()
+    expect(findControlledTouchMenu(renderer!)?.props.open).toBe(false)
 
     row = findMenuRow(renderer!)
     act(() => row.props.onPointerDownCapture({
@@ -1126,12 +1136,13 @@ describe("Message touch action menu", () => {
       nativeEvent: { type: "pointerdown", pointerType: "touch" },
     }))
     row = findMenuRow(renderer!)
-    expect(row.props["data-slot"]).toBeUndefined()
+    expect(row.props["data-slot"]).toBe("context-menu-trigger")
+    expect(renderer!.root.findByType("mock-context-menu").props.disabled).toBe(true)
     expect(row.props.onClick).toBeTypeOf("function")
     expect(renderer!.root.findAllByProps({ "data-slot": "dropdown-menu-trigger" })
       .filter((node) => node.props["aria-hidden"] === true)).toHaveLength(1)
     expect(renderer!.root.findAllByProps({ "data-slot": "context-menu-trigger" }))
-      .toHaveLength(0)
+      .toHaveLength(1)
 
     act(() => row.props.onTouchStart({ target: ownedTarget, currentTarget }))
     act(() => row.props.onTouchEnd({ target: ownedTarget, currentTarget }))
@@ -1156,8 +1167,8 @@ describe("Message touch action menu", () => {
     }))
     row = findMenuRow(renderer!)
     expect(row.props["data-slot"]).toBe("context-menu-trigger")
-    expect(renderer!.root.findAllByProps({ "data-slot": "dropdown-menu-trigger" }))
-      .toHaveLength(1)
+    expect(renderer!.root.findAllByProps({ "data-slot": "dropdown-menu-trigger" })
+      .filter((node) => node.props["aria-hidden"] === true)).toHaveLength(1)
   })
 
   it("uses the touch menu for a concrete body tap on a hover-capable hybrid", async () => {
@@ -1241,7 +1252,7 @@ describe("Message touch action menu", () => {
     expect(onReply).toHaveBeenCalledOnce()
     expect(vibrate).toHaveBeenCalledOnce()
     expect(currentTarget.setPointerCapture).toHaveBeenCalledWith(1)
-    expect(row.props.style).toBeUndefined()
+    expect(row.props.style.transform).toBeUndefined()
   })
 
   it("rejects vertical movement without replying or vibrating", async () => {
@@ -1419,7 +1430,7 @@ describe("Message touch action menu", () => {
     expect(trigger?.findAll((node) => node.type === "svg")).toHaveLength(0)
     expect(renderer!.root.findAll(
       (node) => node.props["data-slot"] === "context-menu-trigger",
-    )).toHaveLength(0)
+    )).toHaveLength(1)
 
     const row = renderer!.root.find(
       (node) => typeof node.props.className === "string"
@@ -1643,7 +1654,8 @@ describe("Message image attachment layout", () => {
     const image = renderer!.root.findByType("img")
     expect(image.props.src).toBe("/thumbnail")
     expect(image.props.loading).toBe("lazy")
-    act(() => image.parent!.props.onClick())
+    const preview = image.parent!.findAllByType("button").find((button) => button.props["aria-label"] === "Open photo.png")!
+    act(() => preview.props.onClick())
     expect(onPreviewImage).toHaveBeenCalledWith({
       originalUrl: "/original", thumbnailUrl: "/thumbnail", name: "photo.png",
       width: 640, height: 480,
@@ -1775,7 +1787,7 @@ describe("Message lazy overlays", () => {
     act(() => row.props.onPointerEnter({ target }))
     expect(renderer!.root.findAll(
       (node) => node.props["data-slot"] === "context-menu-trigger",
-    )).toHaveLength(0)
+    )).toHaveLength(1)
 
     const event = { clientX: 10, clientY: 20 }
     act(() => authorButton!.props.onClick(event))
@@ -1783,7 +1795,7 @@ describe("Message lazy overlays", () => {
     expect(onOpenProfile).toHaveBeenCalledWith("Alice", event, undefined, "u1")
   })
 
-  it("does not mount the ContextMenu root until the row is activated", () => {
+  it("keeps closed ContextMenu contents and toolbar lazy with a stable root", () => {
     const onOpenThread = vi.fn()
     let renderer: DomRenderer
     act(() => {
@@ -1793,11 +1805,8 @@ describe("Message lazy overlays", () => {
         { createNodeMock: () => genericMock },
       )
     })
-    // Before activation: the row renders but the ContextMenu content
-    // (MessageContextItems) is not in the tree. We assert no element carries the
-    // context-menu content marker by checking the rendered JSON has no
-    // "ContextMenu"-typed node. A cheap structural proxy: the "Add reaction"
-    // toolbar (only mounted when activated) is absent.
+    expect(renderer!.root.findAllByType("mock-context-menu")).toHaveLength(1)
+    expect(renderer!.root.findAllByType("mock-context-menu-content")).toHaveLength(0)
     const json = renderer!.toJSON()
     const tree = JSON.stringify(json)
     // The reaction-add testid only renders inside the activated toolbar.
@@ -1832,7 +1841,7 @@ describe("Message lazy overlays", () => {
     act(() => row.props.onPointerEnter?.())
     expect(renderer!.root.findAll(
       (node) => node.props["data-slot"] === "context-menu-trigger",
-    )).toHaveLength(0)
+    )).toHaveLength(1)
 
     const action = renderer!.root.findAllByType("button").find((button) =>
       label === "Dismiss"

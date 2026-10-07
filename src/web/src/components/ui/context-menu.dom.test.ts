@@ -236,6 +236,16 @@ describe("ContextMenu native gesture bypass", () => {
     handlers(renderer).trigger.props.onKeyDown(cancelledEvent)
     expect(callerCancelled).toHaveBeenCalledOnce()
     expect(source.dispatchEvent).toHaveBeenCalledOnce()
+    renderer.rerender(triggerTree(true))
+    const disabledPreventDefault = vi.fn()
+    handlers(renderer).trigger.props.onKeyDown({
+      currentTarget: source,
+      defaultPrevented: false,
+      nativeEvent: { key: "F10", shiftKey: true },
+      preventDefault: disabledPreventDefault,
+    })
+    expect(disabledPreventDefault).not.toHaveBeenCalled()
+    expect(source.dispatchEvent).toHaveBeenCalledOnce()
     renderer.unmount()
   })
 

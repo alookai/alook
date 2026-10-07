@@ -40,7 +40,7 @@ const enumValues: Record<string, ReadonlySet<string>> = Object.fromEntries(Objec
   connected: ["true", "false"], complete: ["true", "false"], current_node: ["true", "false"], eligible: ["true", "false"],
   decode_supported: ["true", "false"], decode_called: ["true", "false"], image_element: ["img", "svg_image"],
   image_failure: ["decode_rejected", "no_pixels", "load_error", "abort"],
-  ignored_reason: ["inactive", "generation", "attempt", "terminal"],
+  ignored_reason: ["inactive", "generation", "attempt", "node", "terminal"],
   delivery_type: ["cache", "prefetch", "unknown"],
   abort_cause: ["unknown", "deadline", "parent_signal", "view_cleanup", "view_retire", "account_retire", "read_superseded", "query_signal", "share_cleanup"],
   abort_phase: ["timer_start", "abort"],

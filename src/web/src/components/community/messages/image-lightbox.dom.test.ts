@@ -78,20 +78,36 @@ describe("ImageLightbox", () => {
     vi.unstubAllGlobals()
   })
 
-  it("observes original timeout removal separately from the retained thumbnail attempt", async () => {
+  it("retains both nodes through timeout and recovers the current original after decode", async () => {
     vi.useFakeTimers()
     const events: Array<{ name: string; attributes: Record<string, string> }> = []
     configureTelemetry({ session_id: "lightbox-session" }, true); installTelemetrySink(event => events.push(event))
     const { renderer } = renderLightbox({ originalUrl: "/original.png", thumbnailUrl: "/thumbnail.png", name: "fixture", width: 800, height: 450 })
     const original = image(renderer, tid.imageLightboxOriginal), thumbnail = image(renderer, tid.imageLightboxThumbnail)
+    await loadThumbnail(renderer, 800, 450)
+    let finish!: () => void
+    const pending = new Promise<void>(resolve => { finish = resolve })
+    prepareImage(original, 800, 450, () => pending)
+    fireEvent.load(original)
+    const parent = original.parentElement
     await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
-    expect(original.isConnected).toBe(false)
+    expect(original.isConnected).toBe(true)
+    expect(image(renderer, tid.imageLightboxOriginal)).toBe(original)
+    expect(original.parentElement).toBe(parent)
+    expect(thumbnail).toHaveClass("opacity-100")
     expect(thumbnail.isConnected).toBe(true)
     const originalEvents = events.filter(event => event.attributes.image_slot === "lightbox_original")
     expect(originalEvents.some(event => event.attributes.image_phase === "timeout")).toBe(true)
-    expect(originalEvents.some(event => event.attributes.image_phase === "detach")).toBe(true)
+    expect(originalEvents.some(event => event.attributes.image_phase === "detach")).toBe(false)
     expect(events.some(event => event.attributes.image_slot === "lightbox_thumbnail" && event.attributes.image_phase === "detach")).toBe(false)
     expect(new Set(events.filter(event => event.attributes.image_phase === "attach").map(event => event.attributes.image_instance_id)).size).toBe(2)
+    await act(async () => { finish(); await pending })
+    expect(image(renderer, tid.imageLightboxOriginal)).toBe(original)
+    expect(original).toHaveClass("opacity-0")
+    await act(async () => { await vi.advanceTimersByTimeAsync(20) })
+    expect(original).toHaveClass("opacity-100")
+    expect(renderer.queryByTestId(tid.imageLightboxError)).toBeNull()
+    expect(thumbnail).toHaveClass("opacity-0")
     renderer.unmount()
   })
 
@@ -163,9 +179,10 @@ describe("ImageLightbox", () => {
       height: 480,
     })
     await loadThumbnail(renderer, 640, 480)
-    fireEvent.error(image(renderer, tid.imageLightboxOriginal))
+    const failedOriginal = image(renderer, tid.imageLightboxOriginal)
+    fireEvent.error(failedOriginal)
 
-    expect(renderer.queryAllByTestId(tid.imageLightboxOriginal)).toHaveLength(0)
+    expect(image(renderer, tid.imageLightboxOriginal)).toBe(failedOriginal)
     expect(image(renderer, tid.imageLightboxThumbnail)).toHaveAttribute("src", "/thumbnail")
     expect(image(renderer, tid.imageLightboxThumbnail)).toHaveClass("pointer-events-auto")
     expect(renderer.getByTestId(tid.imageLightboxError))
@@ -174,6 +191,7 @@ describe("ImageLightbox", () => {
 
     fireEvent.click(renderer.getByTestId(tid.imageLightboxRetry))
     const retriedOriginal = image(renderer, tid.imageLightboxOriginal)
+    expect(retriedOriginal).not.toBe(failedOriginal)
     expect(retriedOriginal).toHaveAttribute("src", "/original")
     expect(renderer.queryAllByTestId(tid.imageLightboxError)).toHaveLength(0)
 
