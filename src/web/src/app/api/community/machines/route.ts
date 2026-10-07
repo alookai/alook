@@ -22,7 +22,7 @@ export const GET = withAuth(async (_req, ctx) => {
     const withQuota = machines.map((machine) => {
       const stored = quotaByMachine.get(machine.id) ?? []
       const quota = machine.availableRuntimes.map((runtime) => {
-        const capability = runtime.id === "claude" || runtime.id === "codex" || runtime.id === "grok"
+        const capability = runtime.id === "claude" || runtime.id === "codex" || runtime.id === "grok" || runtime.id === "antigravity"
           ? "supported" as const
           : runtime.id === "cursor" || runtime.id === "opencode" || runtime.id === "pi"
             ? "unsupported" as const

@@ -32,6 +32,7 @@ const configs: Record<BuiltinBackendId, unknown> = {
   claude: { model: { kind: "default" }, provider: { kind: "default" }, mode: "default" },
   codex: { model: { kind: "default" }, mode: "default" },
   cursor: { model: { kind: "default" } },
+  antigravity: { model: { kind: "default" } },
   grok: { model: { kind: "default" } },
   opencode: { model: { kind: "default" } },
   pi: { model: { kind: "default" }, provider: { kind: "default" } },
@@ -476,6 +477,47 @@ describe("root-turn text assembly", () => {
     expect(events.findIndex((event) => event.type === "assistant_message_completed"))
       .toBeLessThan(events.findIndex((event) => event.type === "turn_completed"));
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("discards only pending fragments on an owned terminal, preserving prior completions", async () => {
+    const lane = new ControlledRuntimeLane();
+    const { session } = makeSession("claude", { lane });
+    const observed: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];
+    const collecting = (async () => { for await (const event of session.events) observed.push(event); })();
+    await session.start({ id: "one", kind: "user", text: "start" });
+    lane.emit({ kind: "assistant_message_completed", text: "complete message" });
+    lane.emit({ kind: "assistant_reasoning_completed", text: "complete reasoning" });
+    lane.emit({ kind: "assistant_message_delta", text: "partial message" });
+    lane.emit({ kind: "assistant_reasoning_delta", text: "partial reasoning" });
+    lane.emit({ kind: "turn_end", turnOwner: "claude:test:1", pendingContent: "discard" });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    await collecting;
+    expect(observed.filter((event) => event.type === "assistant_message_completed"))
+      .toMatchObject([{ text: "complete message" }]);
+    expect(observed.filter((event) => event.type === "assistant_reasoning_completed"))
+      .toMatchObject([{ text: "complete reasoning" }]);
+    expect(observed.filter((event) => event.type === "turn_completed")).toHaveLength(1);
+  });
+
+  it.each([undefined, "discard"] as const)("ignores unowned terminals before touching pending content (%s)", async (pendingContent) => {
+    const lane = new ControlledRuntimeLane();
+    const { session } = makeSession("claude", { lane });
+    const observed: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];
+    const collecting = (async () => { for await (const event of session.events) observed.push(event); })();
+    await session.start({ id: "one", kind: "user", text: "start" });
+    lane.emit({ kind: "assistant_message_delta", text: "still " });
+    lane.emit({ kind: "assistant_reasoning_delta", text: "thinking " });
+    lane.emit({ kind: "turn_end", turnOwner: "stale-owner", pendingContent });
+    lane.emit({ kind: "assistant_message_delta", text: "working" });
+    lane.emit({ kind: "assistant_reasoning_delta", text: "now" });
+    lane.emit({ kind: "turn_end", turnOwner: "claude:test:1" });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    await collecting;
+    expect(observed.filter((event) => event.type === "assistant_message_completed"))
+      .toMatchObject([{ text: "still working" }]);
+    expect(observed.filter((event) => event.type === "assistant_reasoning_completed"))
+      .toMatchObject([{ text: "thinking now" }]);
+    expect(observed.filter((event) => event.type === "turn_completed")).toHaveLength(1);
   });
 
   it("drops an unfinished delta buffer when the runtime crashes before a boundary", async () => {
@@ -1429,7 +1471,7 @@ describe("backend-owned delivery behavior", () => {
     circular.self = circular;
     await emit(driver, { kind: "internal_progress", source: "pi", itemType: "working", payloadBytes: 12 });
     await emit(driver, { kind: "runtime_diagnostic", severity: "notice", source: "pi", message: "heads up" });
-    await emit(driver, { kind: "telemetry", name: "token_usage", source: "pi", attrs: circular } as never);
+    await emit(driver, { kind: "telemetry", name: "token_usage", source: "pi", usage: { input: 90, output: 24, cache: null }, identity: { source: "native:session", index: 0, occurredAt: "2026-10-04T08:00:00Z" }, attrs: circular } as never);
     await emit(driver, {
       kind: "telemetry",
       name: "rate_limits",
@@ -1441,7 +1483,8 @@ describe("backend-owned delivery behavior", () => {
         retryable: false,
       },
     });
-    const events = await take(iterator as never, 7);
+    await emit(driver, { kind: "telemetry", name: "token_usage_status", source: "native", status: "unavailable" });
+    const events = await take(iterator as never, 8);
     expect(events.map((event) => event.type)).toEqual([
       "command_accepted",
       "turn_started",
@@ -1450,8 +1493,11 @@ describe("backend-owned delivery behavior", () => {
       "diagnostic",
       "token_usage",
       "rate_limits",
+      "token_usage_status",
     ]);
     expect(events[4]).toMatchObject({ severity: "info", message: "heads up" });
+    expect(events[5]).toMatchObject({ usage: { input: 90, output: 24, cache: null }, identity: { source: "native:session", index: 0 } });
+    expect(events[7]).toMatchObject({ type: "token_usage_status", status: "unavailable" });
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 

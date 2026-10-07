@@ -54,4 +54,20 @@ describe("builtin config boundary", () => {
   it("rejects unknown runtime ids", () => {
     expect(() => toBuiltinBackendSelection(config("unknown"))).toThrow("Unknown runtime: unknown");
   });
+
+  it.each([{ kind: "default" } as const, { kind: "named", name: "gemini-3.8-flash-high" } as const])(
+    "forwards Antigravity native model, effort and launch fields for %j",
+    (model) => {
+      expect(toBuiltinBackendSelection(config("antigravity", {
+        model,
+        command: "native-acp",
+        envVars: { GEMINI_HOME: "native-home" },
+        reasoningEffort: "low",
+        provider: { kind: "custom", apiUrl: "https://example.invalid", apiKey: "foreign-provider" },
+      }))).toEqual({
+        backend: "antigravity",
+        config: { model, command: "native-acp", environment: { GEMINI_HOME: "native-home" }, reasoningEffort: "low" },
+      });
+    },
+  );
 });

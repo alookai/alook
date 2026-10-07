@@ -219,6 +219,32 @@ describe("MachineQuotaSummary", () => {
     expect(trigger).toHaveAttribute("aria-label", expect.stringContaining("Codex 62.5% left, stale"))
   })
 
+  it("exposes unavailable backend details alongside pending peers without inventing limits", () => {
+    const pending = { ...quotaEntry([]), snapshot: { status: "pending" as const } }
+    const unavailable = {
+      ...quotaEntry([], "available", "antigravity"),
+      snapshot: { status: "error" as const, code: "unavailable" as const },
+    }
+    const renderer = render([pending, unavailable])
+    const trigger = renderer.getByTestId("community-machine-quota-m1")
+    expect(text(trigger)).toBe("Quota pending")
+    expect(trigger).toHaveAttribute("aria-expanded", "false")
+    fireEvent.click(trigger)
+    const detail = renderer.getByTestId("community-machine-quota-detail-m1")
+    expect(text(detail.querySelector('[data-quota-backend="antigravity"]')!)).toBe("AntigravityUnavailable")
+    expect(text(detail.querySelector('[data-quota-backend="codex"]')!)).toBe("CodexPending")
+    expect(text(detail)).not.toMatch(/%|Resets|Updated/)
+  })
+
+  it("keeps an available backend with no reported limits visible in details", () => {
+    const renderer = render([quotaEntry([], "available", "antigravity")])
+    fireEvent.click(renderer.getByTestId("community-machine-quota-m1"))
+    const detail = renderer.getByTestId("community-machine-quota-detail-m1")
+    expect(text(detail)).toContain("Antigravity")
+    expect(text(detail)).toContain("Unavailable")
+    expect(text(detail)).not.toContain("%")
+  })
+
   it("renders honest fixed-height placeholders for missing capability states", () => {
     expect(text(render().container)).toContain("Quota unavailable")
     const unsupported = render([{

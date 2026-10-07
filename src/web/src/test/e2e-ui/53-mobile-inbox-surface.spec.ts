@@ -474,11 +474,14 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     await bob.page.getByRole("tab", { name: "Marked" }).click()
     const markedScroll = bob.page.getByTestId(tid.inboxTabScroll("marked"))
     await expect(markedScroll.getByText(`Marked ${stamp} 13`, { exact: true })).toBeAttached()
+    await waitForElementMotion(markedScroll)
     const priorScroll = await markedScroll.evaluate((element) => {
       element.scrollTop = element.scrollHeight
       return element.scrollTop
     })
     expect(priorScroll).toBeGreaterThan(0)
+    await waitForElementMotion(markedScroll)
+    await expect.poll(() => markedScroll.evaluate((element) => element.scrollTop)).toBe(priorScroll)
     const getsBeforeResize = inboxGets.length
 
     await bob.page.setViewportSize({ width: 640, height: 844 })
@@ -487,6 +490,7 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     await expect(bob.page.locator("[data-slot='popover-content']")).toHaveCount(1)
     await expect(bob.page.getByRole("tab", { name: "Marked" })).toHaveAttribute("aria-selected", "true")
     const desktopScroll = bob.page.getByTestId(tid.inboxTabScroll("marked"))
+    await waitForElementMotion(desktopScroll)
     await expect.poll(() => desktopScroll.evaluate((element) => element.scrollTop))
       .toBeGreaterThanOrEqual(priorScroll - 1)
 
@@ -494,6 +498,7 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     await expect(bob.page.getByTestId(tid.userBarExtension)).toBeVisible()
     await expect(bob.page.getByRole("tab", { name: "Marked" })).toHaveAttribute("aria-selected", "true")
     const mobileScroll = bob.page.getByTestId(tid.inboxTabScroll("marked"))
+    await waitForElementMotion(mobileScroll)
     const restoredMobileScroll = await mobileScroll.evaluate((element) => ({
       scrollTop: element.scrollTop,
       maxScrollTop: element.scrollHeight - element.clientHeight,

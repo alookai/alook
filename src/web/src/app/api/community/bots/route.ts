@@ -59,9 +59,9 @@ export const GET = withAuth(async (_req, ctx) => {
       image: canonicalUserImage(bot.id, bot.image, bot.avatarVersion),
       dailyActivity: activityByBot.get(bot.id) ?? [],
       usage: {
-        capability: (["claude", "codex", "grok", "opencode", "pi"] as string[]).includes(bot.runtime)
+        capability: (["claude", "codex", "grok", "opencode", "pi", "antigravity"] as string[]).includes(bot.runtime)
           ? "supported" as const
-          : bot.runtime === "cursor"
+          : ["cursor"].includes(bot.runtime)
             ? "unsupported" as const
             : "unknown" as const,
         days: usageDays.map((day, index) => {

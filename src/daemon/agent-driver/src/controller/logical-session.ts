@@ -882,7 +882,9 @@ implements AgentSession<Specs, Id> {
         return;
       case "telemetry": {
         if (event.name === "token_usage") {
-          this.emit({ type: "token_usage", turnId, source: event.source, usage: event.usage });
+          this.emit({ type: "token_usage", turnId, source: event.source, usage: event.usage, ...(event.identity ? { identity: event.identity } : {}) });
+        } else if (event.name === "token_usage_status") {
+          this.emit({ type: "token_usage_status", turnId, source: event.source, status: event.status });
         } else {
           this.emit({ type: "rate_limits", turnId, source: event.source, quota: event.quota });
         }
@@ -905,6 +907,11 @@ implements AgentSession<Specs, Id> {
         });
         return;
       case "turn_end":
+        if (!this.activeTurn?.terminalOwner || event.turnOwner !== this.activeTurn.terminalOwner) return;
+        if (event.pendingContent === "discard") {
+          this.activeTurn.pendingReasoning = emptySemanticAssembler();
+          this.activeTurn.pendingMessage = emptySemanticAssembler();
+        }
         if (turnId && this.activeTurn?.turnId === turnId) {
           const reasoning = finishSemanticAssembler(this.activeTurn.pendingReasoning);
           const message = finishSemanticAssembler(this.activeTurn.pendingMessage);

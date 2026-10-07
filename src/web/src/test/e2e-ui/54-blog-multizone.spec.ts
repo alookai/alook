@@ -10,10 +10,11 @@ test("main and Blog navigate across Workers through one public origin", async ({
   })
 
   await page.goto("/")
-  const banner = page.getByTestId(tid.analyticsConsentBanner)
-  await expect(banner).toBeVisible()
-  await banner.getByRole("button", { name: "Only necessary", exact: true }).click()
-  await expect(banner).toHaveCount(0)
+  const consentBanner = page.getByTestId(tid.analyticsConsentBanner)
+  await expect(consentBanner).toBeVisible()
+  await consentBanner.getByRole("button", { name: "Only necessary", exact: true }).click()
+  await expect(consentBanner).toHaveCount(0)
+  await expect(consentBanner).toBeHidden()
   const publicOrigin = new URL(page.url()).origin
   await page.locator(".hero-section").evaluate((hero) => {
     window.scrollTo(0, hero.getBoundingClientRect().bottom + window.scrollY + 1)

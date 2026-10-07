@@ -1,7 +1,7 @@
 # @alook/agent-driver
 
-Repository-private logical-session drivers for Claude, Codex, Cursor, OpenCode,
-and Pi.
+Repository-private logical-session drivers for Claude, Codex, Cursor, Grok,
+OpenCode, Pi, and Antigravity.
 
 The package's exported contract owns backend lifecycle, message admission,
 buffering, queueing, interrupts, stop deadlines, and normalized events. The
@@ -206,3 +206,84 @@ affected backend or leave it incompatible/unhealthy if ACP or v2 is unavailable;
 it must not ship, retain, or automatically select the restored one-shot path.
 Do not fall back to `cursor-agent --print` or `opencode run`. Verify the
 unaffected backends and the capability probe before resuming rollout.
+
+
+## Antigravity (native ACP)
+
+The `antigravity` backend uses Google's native `agy_acp_server.par` (`agy_acp_server.exe`
+on Windows), not the one-shot `agy --print` command. It keeps one process and one
+provider session across turns. Busy input queues until the current prompt returns;
+concurrent steering is not advertised. Restart uses `session/load` with the stored
+provider session ID. An unavailable session requires an explicit reset.
+
+Install the native distribution listed in the
+[ACP registry](https://github.com/agentclientprotocol/registry/blob/main/antigravity-acp/agent.json).
+Version 1.3.0 was used for protocol validation. Keep `localharness_external` beside
+the server executable. Put an executable wrapper named `agy_acp_server.par` on PATH,
+which execs the absolute server path, or set the runtime's `command` override to
+that path. Linux adds the registry's `--uid=` argument; Windows uses the `.exe` name.
+Do not substitute a third-party ACP wrapper around print mode.
+
+For example, after extracting the macOS arm64 archive into
+`$HOME/.local/share/alook/runtimes/antigravity-acp/1.3.0`, a PATH wrapper contains:
+
+```sh
+#!/bin/sh
+exec "$HOME/.local/share/alook/runtimes/antigravity-acp/1.3.0/agy_acp_server.par" "$@"
+```
+
+Authentication is local to Google's ACP server. Complete Google sign-in using an
+ACP client's `authenticate` request with `methodId: "oauth-personal"` before
+launching an agent. The provider's settings live under
+`~/.gemini/antigravity-acp/`; leave credentials there and never put them in agent
+instructions. Runtime detection initializes the protocol and requests a session catalog without
+authenticating or sending a prompt. Healthy means the native binary is compatible,
+not that an account is signed in; unauthenticated discovery has no model catalog.
+The catalog probe can create an empty provider session. The adapter does not
+send an `authenticate` request during discovery or launch. It reports explicit
+provider authentication errors when returned. In native 1.3.0 testing, unreadable
+Keychain credentials with no valid file fallback left `session/load` waiting for
+login and discovery ended with `antigravity_acp_timeout` at the existing 10-second
+deadline. A separate 30-second diagnostic on the same credential condition was
+correlated with an opened Google sign-in page by its OAuth callback port. The
+native server can therefore start its own browser login flow during discovery,
+even though the adapter does not send `authenticate`. Complete native sign-in
+before running the daemon; a timeout does not establish that credentials are valid.
+
+Standing instructions accompany the first prompt of every physical session,
+including resumed sessions. Later prompts reuse its context. Tools use ACP
+permission requests scoped to the active session and prompt, choosing only a
+provider-offered `allow_once` option. Models must be present in the native session's
+advertised model catalog before they can be selected. Discovery publishes the
+native model catalog through the existing machine model/effort controls. Gemini
+high/medium/low variants are offered as effort choices only when the same model
+family's exact variant IDs are returned by the server. Effort changes select that
+native variant on the same idle session; unsupported values fail explicitly.
+
+Native 1.3.0 exposes model/mode config options but no independent effort option.
+The adapter reads generation usage from the exact session's native SQLite WAL view;
+input already excludes cache and output includes thinking. Missing fields stay null.
+Native session/home plus generation index deduplicates accounting across reloads.
+Dates use the native invocation start timestamp. The daemon commits counts and
+processed generation ranges in one atomic daily store, retries transient write
+failures on subsequent telemetry reads, and recovers native records after restart.
+Reading requires Node's built-in SQLite (Node 22.13+) or the system sqlite3 CLI;
+if neither is available, conversations continue and metrics remain unknown.
+Child trajectories are not yet aggregated: their presence makes session metrics
+unknown rather than presenting partial root usage as complete.
+
+Personal OAuth quota uses the official loadCodeAssist and retrieveUserQuotaSummary
+endpoints with the native credential storage. Reading never starts onboarding or
+interactive authentication. API-key/business modes and absent credentials report
+unavailable/unauthorized. Native bucket identity, remainingFraction and resetTime
+are preserved; provider-defined windows are not guessed. ACP usage_update is
+context occupancy and is never counted. Recent-history import remains unavailable.
+On October 6, 2026, real authenticated execution with official ACP 1.3.0 passed
+on macOS, including native model/effort selection, persistent turns, daemon
+recovery and native/local/D1/API usage correlation. Real quota reading passed
+with the official isolated file credential store and with Keychain-first file
+fallback, using the reader's existing five-second request deadlines. The default
+Keychain store remained unreadable on the tested machine and had no file fallback;
+that condition reports retryable unavailable before HTTP, not an authentication
+refusal. These results supersede the earlier Google location-eligibility block
+and do not establish default Keychain access or acceptance on other platforms.

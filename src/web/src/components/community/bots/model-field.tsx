@@ -93,7 +93,11 @@ export function ModelField({
       <Select
         items={items}
         value={selectValue}
-        onValueChange={(next: string | null) => {
+        onValueChange={(next: string | null, details) => {
+          if (details.reason === "none" && normalizedFilter && modelIds.includes(selectValue)) {
+            details.cancel()
+            return
+          }
           // Base UI can emit `null` on clear — treat it as Default.
           const nextValue = next ?? MODEL_SELECT_DEFAULT
           setSelectValue(nextValue)

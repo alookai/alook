@@ -171,7 +171,7 @@ describe("BotTokenUsageHeatmap", () => {
       .toHaveLength(30)
   })
 
-  it("opens mobile details on the newest day with Total and all metric values", () => {
+  it("opens mobile details on the newest day with Known total and all metric values", () => {
     mocks.breakpoint = "mobile"
     const usage: BotTokenUsage = {
       capability: "supported",
@@ -194,7 +194,7 @@ describe("BotTokenUsageHeatmap", () => {
     expect(newest).toHaveClass("font-medium")
     const summary = renderer.getByTestId("community-bot-usage-dialog-summary-bot_1")
     expect(text(summary)).toContain("Aug 30")
-    expect(text(summary)).toContain("Total 20")
+    expect(text(summary)).toContain("Known total 20")
     expect(text(summary)).toContain("Input 8")
     expect(text(summary)).toContain("Output 2")
     expect(text(summary)).toContain("Cache 10")
@@ -217,7 +217,7 @@ describe("BotTokenUsageHeatmap", () => {
       .toHaveAttribute("aria-pressed", "false")
     const summary = renderer.getByTestId("community-bot-usage-dialog-summary-bot_1")
     expect(text(summary)).toContain("Aug 28")
-    expect(text(summary)).toContain("Total 9,000,000")
+    expect(text(summary)).toContain("Known total 9,000,000")
     expect(text(summary)).toContain("Cache Unavailable")
   })
 
@@ -226,7 +226,33 @@ describe("BotTokenUsageHeatmap", () => {
     const renderer = renderUsage({ capability: "supported", days: thirtyDays() })
     fireEvent.click(renderer.getByTestId("community-bot-usage-dialog-day-bot_1-2026-08-25"))
     const summary = renderer.getByTestId("community-bot-usage-dialog-summary-bot_1")
-    expect(text(summary)).toContain("Total Unavailable")
+    expect(text(summary)).toContain("Known total Unavailable")
     expect(text(summary).match(/Unavailable/g)).toHaveLength(4)
+  })
+
+  it.each([
+    { metrics: { input: 129, output: unavailable, cache: 1029 }, total: "1,158", missing: "Output" },
+    { metrics: { input: 90, output: 24, cache: unavailable }, total: "114", missing: "Cache" },
+    { metrics: { input: unavailable, output: 24, cache: 23 }, total: "47", missing: "Input" },
+  ])("labels partial usage as Known total with $missing unavailable", ({ metrics, total, missing }) => {
+    mocks.breakpoint = "mobile"
+    const renderer = renderUsage({ capability: "supported", days: thirtyDays({ 30: metrics }) })
+    const summary = renderer.getByTestId("community-bot-usage-dialog-summary-bot_1")
+    expect(text(summary)).toContain(`Known total ${total}`)
+    expect(text(summary)).toContain(`${missing} Unavailable`)
+    expect(renderer.container.querySelector("dialog-description")).toHaveTextContent(
+      "Choose a date to view token usage. Known total excludes unavailable values.",
+    )
+  })
+
+  it("retains a known zero total when every metric is reported as zero", () => {
+    mocks.breakpoint = "mobile"
+    const renderer = renderUsage({
+      capability: "supported",
+      days: thirtyDays({ 30: { input: 0, output: 0, cache: 0 } }),
+    })
+    const summary = renderer.getByTestId("community-bot-usage-dialog-summary-bot_1")
+    expect(text(summary)).toContain("Known total 0")
+    expect(text(summary)).not.toContain("Unavailable")
   })
 })

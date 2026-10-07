@@ -293,6 +293,7 @@ describe("daemon self-update real package/process handoff", () => {
         wsUrl: control.wsUrl,
         daemonVersion: "9.9.1",
       });
+      await waitFor(() => updateEvents(baseDir).includes("replacement_ready"));
       expect(updateEvents(baseDir)).toContain("replacement_ready");
       expect(fs.readFileSync(path.join(daemonDir(baseDir), "update.log"), "utf8")).not.toContain(credential);
     } finally {
@@ -319,6 +320,7 @@ describe("daemon self-update real package/process handoff", () => {
       expect(alive(oldOwner.pid)).toBe(false);
       expect(alive(newOwner.pid)).toBe(true);
       expect(newOwner.machineId).toBe(oldOwner.machineId);
+      await waitFor(() => updateEvents(baseDir).includes("replacement_ready"));
       expect(updateEvents(baseDir)).toContain("replacement_ready");
     } finally {
       await control.close();

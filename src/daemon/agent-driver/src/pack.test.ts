@@ -53,9 +53,17 @@ describe("packed @alook/agent-driver", () => {
       shell: process.platform === "win32",
     });
     writeFileSync(join(root, "usage.ts"), `
-import { createAgentDriverSdk } from "@alook/agent-driver";
+import { createAgentDriverSdk, type AntigravityConfig, type AntigravityCapabilities } from "@alook/agent-driver";
 
 const sdk = createAgentDriverSdk();
+const antigravityConfig: AntigravityConfig = { model: { kind: "default" } };
+const persistent = (value: AntigravityCapabilities): "persistent" => value.sessionLifetime;
+const queued = (value: AntigravityCapabilities): "next_turn_queue" => value.midTurnDelivery;
+const openAntigravity = () => sdk.open({
+  backend: "antigravity", config: antigravityConfig,
+  launch: { workingDirectory: ".", instructions: { format: "markdown", content: "" }, launchId: "antigravity-consumer" },
+});
+void { persistent, queued, openAntigravity };
 const opened = await sdk.open({
   backend: "codex",
   launch: {

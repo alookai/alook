@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { queries, dispatchOneUnreadWake, withD1Retry } from "@alook/shared"
 import { getDb } from "@/lib/db"
+import { wsDoFetch } from "@/lib/broadcast"
 import { withCommunityDaemonAuth } from "@/lib/middleware/community-daemon-auth"
 
 /**
@@ -24,6 +25,17 @@ import { withCommunityDaemonAuth } from "@/lib/middleware/community-daemon-auth"
  */
 export const POST = withCommunityDaemonAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
+  const wakeEnv = {
+    WS_DO_WORKER: {
+      fetch(input: string, init: RequestInit = {}) {
+        const url = new URL(input)
+        return wsDoFetch(ctx.env, url.pathname + url.search, init, {
+          label: ctx.machineId,
+          type: "agent:wake",
+        })
+      },
+    },
+  }
   const bots = await withD1Retry(
     () => queries.communityBot.listBotsForMachine(db, ctx.machineId),
     { route: "community/daemon/resync-wakes:list-bots" },
@@ -36,7 +48,7 @@ export const POST = withCommunityDaemonAuth(async (_req, ctx) => {
       { route: "community/daemon/resync-wakes:latest-unread" },
     )
     if (!latest) continue
-    const result = await dispatchOneUnreadWake(db, ctx.env, { messageId: latest.messageId, botUserId: bot.id })
+    const result = await dispatchOneUnreadWake(db, wakeEnv, { messageId: latest.messageId, botUserId: bot.id })
     if (result.outcome === "attempted") attempted++
   }
 

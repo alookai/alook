@@ -70,7 +70,7 @@ const RUNTIME_RAW_TRACE_MAX_BYTES = 8 * 1024 * 1024;
 export const RUNTIME_RAW_TRACE_AGENT_IDS_ENV = "ALOOK_RUNTIME_RAW_TRACE_AGENT_IDS";
 /** How often the daemon rewrites the `daemon status` snapshot file (batch E2). */
 const STATUS_WRITE_INTERVAL_MS = 5_000;
-const TOKEN_USAGE_BACKENDS = new Set<BuiltinBackendId>(["claude", "codex", "grok", "opencode", "pi"]);
+const TOKEN_USAGE_BACKENDS = new Set<BuiltinBackendId>(["claude", "codex", "grok", "opencode", "pi", "antigravity"]);
 const ONBOARDING_RECENT_SESSION_FILES_TOP_K = 10;
 const ONBOARDING_RECENT_PROJECTS_TOP_K = 5;
 
@@ -409,10 +409,10 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   const dailyTokenUsage = new DailyTokenUsageStore(workingDirectoryBase);
   const providerQuotaReader = opts.providerQuotaReader
     ?? (opts.sessionFactory ? async () => null : readBuiltinProviderQuota);
-  const providerQuotaByBackend = new Map<"claude" | "codex" | "grok", ProviderQuotaSnapshot>();
+  const providerQuotaByBackend = new Map<ProviderQuotaSnapshot["agentBackendId"], ProviderQuotaSnapshot>();
   let requestReadyQuotaResend = (): void => {};
   const recordProviderQuota = (
-    backendId: "claude" | "codex" | "grok",
+    backendId: ProviderQuotaSnapshot["agentBackendId"],
     quota: ProviderQuotaObservation,
   ): void => {
     const previous = providerQuotaByBackend.get(backendId);
@@ -456,21 +456,26 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   // `auditContext(agentId)` off it inside `onProxyRequest`.
   const providerQuotaSnapshots = (): ProviderQuotaSnapshot[] =>
     [...providerQuotaByBackend.values()].map((snapshot) => structuredClone(snapshot));
+  const tokenUsageAvailability = new Map<string, { backendId: BuiltinBackendId; status: "available" | "unavailable" }>();
   const activityPayload = async (
     info: { agentId: string; state: HostAgentActivity["state"] },
   ): Promise<HostAgentActivity> => {
     if (info.state !== "idle") return info;
     const backendId = managerRef?.agentBackendId(info.agentId);
-    if (backendId === "claude") {
-      const observed = await providerQuotaReader("claude");
-      if (observed) recordProviderQuota("claude", observed);
+    if (backendId === "claude" || backendId === "antigravity") {
+      const observed = await providerQuotaReader(backendId);
+      if (observed) recordProviderQuota(backendId, observed);
     }
-    const quota = backendId === "claude" || backendId === "codex" || backendId === "grok"
+    const quota = backendId === "claude" || backendId === "codex" || backendId === "grok" || backendId === "antigravity"
       ? providerQuotaByBackend.get(backendId)
       : undefined;
     const usageWindow = backendId && TOKEN_USAGE_BACKENDS.has(backendId)
       ? await dailyTokenUsage.usageWindow(info.agentId)
       : null;
+    if (usageWindow && tokenUsageAvailability.get(info.agentId)?.backendId === backendId && tokenUsageAvailability.get(info.agentId)?.status === "unavailable") {
+      usageWindow.snapshots = usageWindow.snapshots.filter((snapshot) => snapshot.day !== usageWindow.usageDay);
+      usageWindow.snapshots.push({ botId: info.agentId, day: usageWindow.usageDay, metrics: { input: null, output: null, cache: null } });
+    }
     return {
       ...info,
       ...(usageWindow ? {
@@ -998,7 +1003,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       ? { handshakeTimeoutMs: opts.handshakeTimeoutMs }
       : {}),
     tickIntervalMs: opts.tickIntervalMs ?? 2000,
-    onAgentSession: (info) => void channel.reportAgentSession(info),
+    onAgentSession: (info) => { tokenUsageAvailability.delete(info.agentId); void channel.reportAgentSession(info); },
     onAgentActivity: (info) => {
       selfSleepScheduler?.observeAgentActivity(info.agentId, info.state === "running");
       reportAgentActivity(info);
@@ -1019,15 +1024,16 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         emitTypingStopsAndClear(info.agentId);
       }
     },
-    onTokenUsage: ({ agentId, usage }) => {
-      void dailyTokenUsage.record(agentId, usage)
+    onTokenUsageStatus: ({ agentId, backendId, status }) => { tokenUsageAvailability.set(agentId, { backendId, status }); reportTelemetryForIdleAgent(agentId); },
+    onTokenUsage: ({ agentId, usage, identity }) => {
+      void dailyTokenUsage.record(agentId, usage, identity)
         .then(() => reportTelemetryForIdleAgent(agentId))
         .catch(() => {
           log.warn("daily token usage persistence failed", { agentId });
         });
     },
     onProviderQuota: ({ agentId, backendId, quota }) => {
-      if (backendId !== "claude" && backendId !== "codex" && backendId !== "grok") return;
+      if (backendId !== "claude" && backendId !== "codex" && backendId !== "grok" && backendId !== "antigravity") return;
       recordProviderQuota(backendId, quota);
       reportTelemetryForIdleAgent(agentId);
     },

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import React from "react"
 import { act, fireEvent } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
+import type { RuntimeReasoningCatalog } from "@alook/shared"
 import type { BotSummary } from "@/hooks/community/use-bots"
 
 // Online-only UI contract (Ruthann #1274/#1280 / Shelly gate):
@@ -136,13 +137,13 @@ vi.mock("./model-field", () => {
   const React = require("react")
   return {
     ModelField: ({ runtime, onChange }: {
-      runtime: { id: string; reasoning?: unknown } | null
+      runtime: { id: string; reasoning?: RuntimeReasoningCatalog } | null
       onChange: (v: string | null) => void
     }) => {
       modelFieldRenders.push({ runtime })
       return React.createElement("button", {
         "data-testid": "set-model",
-        onClick: () => onChange("claude-sonnet-4-6"),
+        onClick: () => onChange(runtime?.reasoning?.defaultModelId ?? "claude-sonnet-4-6"),
       })
     },
   }
@@ -150,7 +151,8 @@ vi.mock("./model-field", () => {
 vi.mock("./reasoning-effort-field", () => {
   const React = require("react")
   return {
-    ReasoningEffortField: ({ onChange, daemonVersion, value }: {
+    ReasoningEffortField: ({ onChange, daemonVersion, value, runtime }: {
+      runtime: { reasoning?: RuntimeReasoningCatalog } | null
       onChange: (value: string | null) => void
       daemonVersion?: string
       value: string | null
@@ -158,7 +160,7 @@ vi.mock("./reasoning-effort-field", () => {
       reasoningFieldRenders.push({ daemonVersion, value })
       return React.createElement("button", {
         "data-testid": "set-reasoning-effort",
-        onClick: () => onChange("xhigh"),
+        onClick: () => onChange(runtime?.reasoning?.models[0]?.supportedReasoningEfforts[0]?.value ?? "xhigh"),
       })
     },
   }
@@ -317,6 +319,29 @@ describe("EditBotSheet — reasoning effort", () => {
       expect.objectContaining({ id: "b1", description: "Updated description" }),
     )
     expect(updateMutateAsync.mock.calls[0]?.[0]).not.toHaveProperty("reasoningEffort")
+  })
+
+  it("edits an Antigravity native model/effort through the existing mutation", async () => {
+    const bot = { ...BOT, runtime: "antigravity", modelName: "gemini-3.1-pro-low", reasoningEffort: "low" }
+    const reasoning: RuntimeReasoningCatalog = {
+      updateMode: "live_next_turn", defaultModelId: "gemini-3.1-pro-high",
+      models: [{ id: "gemini-3.1-pro-high", supportedReasoningEfforts: [{ value: "high" }, { value: "low" }] }],
+    }
+    useMachinesMock.mockReturnValue({ machines: [{
+      id: "mac1", daemonVersion: "0.1.43",
+      availableRuntimes: [{ id: "antigravity", status: "healthy", reasoning }],
+    }] })
+    updateMutateAsync.mockResolvedValue({ bot, application: "next_turn" })
+    const renderer = renderSheet(bot)
+    expect(modelFieldRenders.at(-1)?.runtime?.reasoning).toEqual(reasoning)
+    fireEvent.click(renderer.getByTestId("set-model"))
+    fireEvent.click(renderer.getByTestId("set-reasoning-effort"))
+    act(() => fireEvent.click(saveButton(renderer)))
+    await flush()
+    expect(updateMutateAsync).toHaveBeenCalledWith(expect.objectContaining({
+      id: "b1", model: "gemini-3.1-pro-high", reasoningEffort: "high",
+    }))
+    expect(renderer.queryAllByTestId("provider-confirm")).toHaveLength(0)
   })
 
   it("PATCHes the explicit effort without provider confirmation and reports next-turn application", async () => {

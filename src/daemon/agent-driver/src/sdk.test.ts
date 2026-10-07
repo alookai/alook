@@ -58,7 +58,7 @@ function sdkTestLane(receipt = "fresh-receipt") {
 
 describe("createAgentDriverSdk", () => {
   it("exposes the built-ins with default options", () => {
-    expect(createAgentDriverSdk().backendIds).toEqual(["claude", "codex", "cursor", "grok", "opencode", "pi"]);
+    expect(createAgentDriverSdk().backendIds).toEqual(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity"]);
     expect(SESSION_FILE_DISCOVERY_CAPABILITIES).toEqual(["supported", "unavailable"]);
   });
 
@@ -95,7 +95,7 @@ describe("createAgentDriverSdk", () => {
   );
 
   it("public SDK factory delegates to the built-in logical SDK", () => {
-    expect(createPublicAgentDriverSdk().backendIds).toEqual(["claude", "codex", "cursor", "grok", "opencode", "pi"]);
+    expect(createPublicAgentDriverSdk().backendIds).toEqual(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity"]);
   });
 
   it.each(["claude", "codex", "cursor", "grok", "opencode", "pi"] as const)(
@@ -115,6 +115,11 @@ describe("createAgentDriverSdk", () => {
       });
     },
   );
+
+  it("reports Antigravity recent-context discovery as unsupported", async () => {
+    expect(await createAgentDriverSdk().discoverRecentContext({ backend: "antigravity", recentSessionFilesTopK: 0, recentProjectsTopK: 0 }))
+      .toMatchObject({ ok: false, error: { code: "recent_context_discovery_unsupported" } });
+  });
 
   it("validates independent Top-K values and dispatches discovery without leaking thrown details", async () => {
     const sdk = createAgentDriverSdk();
