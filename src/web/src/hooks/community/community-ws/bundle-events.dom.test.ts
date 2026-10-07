@@ -1,3 +1,4 @@
+import { act } from "@/test/react-dom-harness"
 import { getCapturedRuntime, seedCanonicalStream, canonicalMessage } from "./test-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
@@ -5,6 +6,7 @@ import {
   COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
   deriveCommunityDeliveryOperationId,
   encodeCommunityBrowserEventBatch,
+  encodeCommunityBrowserEventBatchForContract,
   prepareCommunityDeliveryEvents,
   type CommunityWsEvent,
 } from "@alook/shared"
@@ -30,6 +32,7 @@ import {
   mountHook,
   resetCommunityWsHarness,
   seedCanonicalForumSidebar,
+  seedCanonicalThread,
 } from "./test-harness"
 import { getCanonicalCommunityChannels, getCanonicalCommunityMessages } from "@/lib/community-db/sync"
 import * as canonicalSync from "@/lib/community-db/sync"
@@ -111,6 +114,47 @@ function attentionReconcileCount(): number {
 }
 
 describe("useCommunityWs — operation bundles", () => {
+  it("admits a v2 batch only after its exact wire digest verifies", async () => {
+    await mountHook()
+    const prepared = await prepareCommunityDeliveryEvents([message])
+    if (!prepared.ok) throw new Error("Invalid test event")
+    const frame = await encodeCommunityBrowserEventBatchForContract({ operationId: await deriveCommunityDeliveryOperationId("v2-wire"), prepared: prepared.prepared, contract: 2 })
+    if (!frame.ok) throw new Error("Invalid test batch")
+    const tampered = JSON.parse(frame.body)
+    tampered.events[0].message.content = "changed after encoding"
+    await act(async () => { await capturedOnMessage!(tampered) })
+    expect(getCapturedRuntime().ws.get().seenMessageIds.size).toBe(0)
+    expect(canonicalMessage(message.message.id)).toBeUndefined()
+    await act(async () => { await capturedOnMessage!(frame.batch) })
+    expect(canonicalMessage(message.message.id)?.content).toBe("hello")
+    expect(getCapturedRuntime().ws.get().seenDeliveryOperations.get(frame.batch.operationId)).toEqual({ digest: prepared.prepared.digest, completed: true })
+  })
+
+  it.each(["socket", "account"] as const)("drops a verified batch after original %s retirement during hashing", async (owner) => {
+    await mountHook()
+    const prepared = await prepareCommunityDeliveryEvents([message])
+    if (!prepared.ok) throw new Error("Invalid test event")
+    const frame = await encodeCommunityBrowserEventBatchForContract({ operationId: await deriveCommunityDeliveryOperationId("v2-retired"), prepared: prepared.prepared, contract: 2 })
+    if (!frame.ok) throw new Error("Invalid test batch")
+    let release!: () => void
+    let retired = false
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const digest = crypto.subtle.digest.bind(crypto.subtle)
+    const hashing = vi.spyOn(crypto.subtle, "digest").mockImplementation(async (algorithm, data) => { await gate; return digest(algorithm, data) })
+    try {
+      const pending = capturedOnMessage!(frame.batch, () => { if (retired) throw new DOMException("Retired socket", "AbortError") })
+      expect(getCapturedRuntime().ws.get().seenMessageIds.size).toBe(0)
+      await act(async () => {
+        if (owner === "socket") retired = true
+        else getCapturedRuntime().ws.actions.activateProfileAccount("other")
+        release()
+        await pending
+      })
+      expect(canonicalMessage(message.message.id)).toBeUndefined()
+      expect(getCapturedRuntime().ws.get().seenDeliveryOperations.size).toBe(0)
+    } finally { hashing.mockRestore() }
+  })
+
   it("applies archive and null-tag sidebar semantics inside committed batches", async () => {
     await mountHook()
     const baseKey = communityKeys.forumSidebarThreads("s1")
@@ -669,6 +713,7 @@ describe("useCommunityWs — operation bundles", () => {
       }],
       pageParams: [null],
     })
+    seedCanonicalThread("s1", "forum_1", "forum", "ch-1")
     const parentScope = { kind: "channel" as const, id: "forum_1", serverId: "s1" }
     seedCanonicalStream(parentScope, {
       type: "wsMessage",
@@ -683,6 +728,9 @@ describe("useCommunityWs — operation bundles", () => {
         thread: { id: "ch-1", name: "thread", messageCount: 1 },
       },
     })
+    const { captureChannelMetadataToken } = await import("@/hooks/community/channel-metadata")
+    const verification = captureChannelMetadataToken(capturedQueryClient, "ch-1")
+    capturedQueryClient.setQueryData(communityKeys.channelMeta("s1", "ch-1"), { id: "ch-1", serverId: "s1", verifiedEpoch: verification.accessEpoch, verification })
     vi.spyOn(capturedQueryClient, "invalidateQueries")
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     const originalPublish = canonicalSync.projectCommunityWsEventToDb
@@ -812,7 +860,10 @@ describe("useCommunityWs — operation bundles", () => {
         const unreadProjection = getActiveAccountUnreadProjection(capturedQueryClient)
         const recordArrival = vi.spyOn(unreadProjection, "recordArrival")
           .mockImplementationOnce(() => { throw new Error("later child fault") })
-        vi.spyOn(capturedQueryClient, "invalidateQueries")
+        const { captureChannelMetadataToken } = await import("@/hooks/community/channel-metadata")
+    const verification = captureChannelMetadataToken(capturedQueryClient, "ch-1")
+    capturedQueryClient.setQueryData(communityKeys.channelMeta("s1", "ch-1"), { id: "ch-1", serverId: "s1", verifiedEpoch: verification.accessEpoch, verification })
+    vi.spyOn(capturedQueryClient, "invalidateQueries")
         const messageId = `retry-${retryTiming}`
         const frame = await batchFor(messageId, [
           {

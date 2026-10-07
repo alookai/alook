@@ -18,6 +18,7 @@ export type ConnectionState =
     authenticated: boolean
     name?: string
     discriminator?: string
+    communityContract?: 1 | 2
     communityDeliveryProgress?: CompactCommunityDeliveryProgress[]
   }
   | { type: "daemon"; daemonId: string; userId: string; authenticated: boolean }

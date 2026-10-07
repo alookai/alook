@@ -9,10 +9,18 @@ import {
   isValidCommunityUserTarget,
 } from "@alook/shared"
 import { fetchViaBindingOrDevFallback } from "./dev-binding-fetch"
+import { projectCommunityProducerEvent } from "./community/producer-contract"
 
 const log = createLogger({ service: "broadcast" })
 const bulkBroadcastMaxUserIds = 1000
 const bulkBroadcastMaxActive = 3
+
+function encodeCommunityProducerEvent(message: unknown) {
+  const encoded = encodeCommunityBrowserEvent(message)
+  if (!encoded.ok || encoded.event.type !== "community:channel.membership.change") return encoded
+  const { env } = getCloudflareContext()
+  return encodeCommunityBrowserEvent(projectCommunityProducerEvent(encoded.event, env as Env))
+}
 
 /**
  * Fetch against the WS DO worker.
@@ -136,7 +144,7 @@ async function runBroadcastToUsers(
   )) {
     throw new Error("invalid community broadcast target")
   }
-  const encoded = community ? encodeCommunityBrowserEvent(message) : null
+  const encoded = community ? encodeCommunityProducerEvent(message) : null
   if (encoded && !encoded.ok) throw new Error(`invalid community event: ${encoded.reason}`)
   const wireMessage = encoded?.event ?? message
   const chunks: string[][] = []
@@ -220,7 +228,7 @@ export function broadcastToUser(userId: string, message: WsMessage): Promise<voi
     if (!isValidCommunityUserTarget(userId)) {
       return Promise.reject(new Error("invalid community broadcast target"))
     }
-    const encoded = encodeCommunityBrowserEvent(message)
+    const encoded = encodeCommunityProducerEvent(message)
     if (!encoded.ok) return Promise.reject(new Error(`invalid community event: ${encoded.reason}`))
     return sendBroadcast(
       `/broadcast/community/user/${encodeCommunityUserTargetPathSegment(userId)}`,

@@ -231,6 +231,15 @@ const communityChannelMemberRemoveSchema = z.strictObject({
   userId: string,
 })
 
+const communityChannelMembershipChangeSchema = z.strictObject({
+  type: z.literal("community:channel.membership.change"),
+  channelId: string,
+  serverId: string.nullable(),
+  userId: string,
+  relation: z.enum(["access", "notify"]),
+  present: z.boolean(),
+})
+
 const communityCategoryCreateSchema = z.strictObject({
   type: z.literal("community:category.create"),
   serverId: string,
@@ -492,6 +501,7 @@ const CommunityWsEventDiscriminatedSchema = z.discriminatedUnion("type", [
   communityChannelReorderSchema,
   communityChannelMemberAddSchema,
   communityChannelMemberRemoveSchema,
+  communityChannelMembershipChangeSchema,
   communityCategoryCreateSchema,
   communityCategoryUpdateSchema,
   communityCategoryDeleteSchema,
@@ -560,6 +570,7 @@ export type CommunityChannelDelete = Extract<CommunityWsEvent, { type: "communit
 export type CommunityChannelReorder = Extract<CommunityWsEvent, { type: "community:channel.reorder" }>
 export type CommunityChannelMemberAdd = Extract<CommunityWsEvent, { type: "community:channel.member_add" }>
 export type CommunityChannelMemberRemove = Extract<CommunityWsEvent, { type: "community:channel.member_remove" }>
+export type CommunityChannelMembershipChange = Extract<CommunityWsEvent, { type: "community:channel.membership.change" }>
 export type CommunityCategoryCreate = Extract<CommunityWsEvent, { type: "community:category.create" }>
 export type CommunityCategoryUpdate = Extract<CommunityWsEvent, { type: "community:category.update" }>
 export type CommunityCategoryDelete = Extract<CommunityWsEvent, { type: "community:category.delete" }>
@@ -634,6 +645,7 @@ export const WS_EVENTS = {
   CHANNEL_REORDER: "community:channel.reorder",
   CHANNEL_MEMBER_ADD: "community:channel.member_add",
   CHANNEL_MEMBER_REMOVE: "community:channel.member_remove",
+  CHANNEL_MEMBERSHIP_CHANGE: "community:channel.membership.change",
   CATEGORY_CREATE: "community:category.create",
   CATEGORY_UPDATE: "community:category.update",
   CATEGORY_DELETE: "community:category.delete",

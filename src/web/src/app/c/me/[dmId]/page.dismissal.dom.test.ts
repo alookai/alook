@@ -146,7 +146,8 @@ vi.mock("@/lib/community-onboarding", () => ({
   advanceCommunityOnboarding: vi.fn(),
   readCommunityOnboardingState: () => null,
 }))
-vi.mock("@alook/shared", () => ({ notifLevelDisplay: () => "all" }))
+vi.mock("@alook/shared", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@alook/shared")>(), notifLevelDisplay: () => "all" }))
 vi.mock("@/hooks/community/use-notification-settings", () => ({
   useNotificationSettings: () => ({ channel: {} }),
 }))

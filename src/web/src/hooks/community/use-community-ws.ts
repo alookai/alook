@@ -1,4 +1,5 @@
 "use client"
+import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
 import { useCommunityRuntime, type CommunityRuntime } from "@/stores/community/runtime"
 
 
@@ -36,6 +37,8 @@ import { flushPendingReadIntents } from "@/hooks/community/read-coordinator"
 import {
   decodeCommunityBrowserEvent,
   decodeCommunityBrowserEventBatch,
+  COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE,
+  verifyCommunityBrowserEventBatchV2,
   isCommunityBrowserEventBatchCandidate,
   isCommunityEventType,
   TYPING_INDICATOR_THROTTLE_MS,
@@ -348,9 +351,15 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
   }, [runInboxGeneration])
 
   const handleMessage = useCallback(
-    (msg: { type: string;[key: string]: unknown }) => {
+    async (msg: { type: string;[key: string]: unknown }, assertAdmissionCurrent?: () => void) => {
       if (!msg.type.startsWith("community:")) return
       if (!runtime.lifecycle.get().active) return
+      if (msg.type === COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE) {
+        const token = captureCommunityLiveSnapshotToken(queryClient)
+        if (!await verifyCommunityBrowserEventBatchV2(msg)) return
+        try { assertAdmissionCurrent?.(); assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined) } catch { return }
+        if (!runtime.lifecycle.get().active) return
+      }
       const communityStore = runtime.ui
       const sub = communityStore.get().subscription
       const wsStore = runtime.ws

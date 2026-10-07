@@ -12,7 +12,8 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
 }))
 
-vi.mock("@alook/shared", () => ({
+vi.mock("@alook/shared", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@alook/shared")>(),
   isDesktop: () => true,
   isTauri: mocks.isTauri,
   tauriInvoke: mocks.invoke,

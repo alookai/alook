@@ -61,10 +61,10 @@ async function fixture() {
     if (url.startsWith("/api/community/servers/server/members")) {
       return Promise.resolve({ members: parentMembers, hasMore: false, limit: 50, total: 3 })
     }
-    if (url === "/api/community/channels/parent/members") {
+    if (url === "/api/community/channels/parent/members?relation=access") {
       return Promise.resolve({ members: parentMembers })
     }
-    const match = /^\/api\/community\/channels\/(thread|other)\/(members|participants)$/.exec(url)
+    const match = /^\/api\/community\/channels\/(thread|other)\/(members|participants)(?:\?relation=(?:access|notify))?$/.exec(url)
     if (!match) throw new Error(`Unexpected request: ${url}`)
     const channelId = match[1]
     if (options?.method === "POST") {

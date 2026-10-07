@@ -72,7 +72,7 @@ export function handleMessageCreate(
   const hasSeenMessage = wsStore.actions.hasSeenMessage(event.message.id)
   const isForeignFocused = event.message.authorId !== viewerId
     && matchesFocus(event)
-  const projected = projectCommunityMessageCreate(event.message)
+  const projected = projectCommunityMessageCreate(event.message, event.channelId)
   writeCommunityProfilePatches(messageProfilePatches([projected]), getCommunityDbRegistry(queryClient), { event: true })
   if (isForeignFocused && !hasSeenMessage) {
     armInboxReadReservationCandidate(queryClient, {

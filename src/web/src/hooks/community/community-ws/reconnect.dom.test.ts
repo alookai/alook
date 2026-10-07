@@ -349,7 +349,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     )
     capturedQueryClient.setQueryData(
       communityKeys.channelMeta("srv_open", "post-a"),
-      { id: "post-a", verifiedEpoch: 0 },
+      { id: "post-a", serverId: "srv_open", verifiedEpoch: 0 },
     )
     capturedQueryClient.setQueryData(
       communityKeys.forumOpenerHint("srv_open", "opener-a"),
@@ -363,7 +363,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     )).toEqual({ id: "post-a" })
     expect(capturedQueryClient.getQueryData(
       communityKeys.channelMeta("srv_open", "post-a"),
-    )).toEqual({ id: "post-a", verifiedEpoch: 0 })
+    )).toEqual({ id: "post-a", serverId: "srv_open", verifiedEpoch: 0 })
     expect(capturedQueryClient.getQueryData(
       communityKeys.forumOpenerHint("srv_open", "opener-a"),
     )).toEqual({ id: "opener-a", content: "private title" })
@@ -385,6 +385,8 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const invalidatedKeys = spy.mock.calls.map(
       (c) => c[0]?.queryKey as unknown[] | undefined,
     )
+    expect(invalidatedKeys).toContainEqual(communityKeys.channelMembers("dm_focus"))
+    expect(invalidatedKeys).not.toContainEqual(communityKeys.dmReadStateSnapshot("dm_focus"))
     expect(
       invalidatedKeys.some(
         (k) =>
@@ -460,7 +462,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     }
     for (const serverId of ["srv_a", "srv_b"]) {
       capturedQueryClient.setQueryData(communityKeys.forumSidebarRetained(serverId, "child"), {})
-      capturedQueryClient.setQueryData(communityKeys.channelMeta(serverId, "child"), {})
+      capturedQueryClient.setQueryData(communityKeys.channelMeta(serverId, `${serverId}-child`), { id: `${serverId}-child`, serverId })
       capturedQueryClient.setQueryData(communityKeys.forumOpenerHint(serverId, "opener"), {})
       capturedQueryClient.setQueryData(communityKeys.forumSidebarUnreadFallbacks(serverId), {})
     }
@@ -487,11 +489,11 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       })
       for (const queryKey of [
         communityKeys.forumSidebarRetained(serverId, "child"),
-        communityKeys.channelMeta(serverId, "child"),
+        communityKeys.channelMeta(serverId, `${serverId}-child`),
         communityKeys.forumOpenerHint(serverId, "opener"),
         communityKeys.forumSidebarUnreadFallbacks(serverId),
       ]) {
-        expect(capturedQueryClient.getQueryData(queryKey)).toEqual({})
+        expect(capturedQueryClient.getQueryData(queryKey)).toEqual(queryKey[3] === "metadata" ? { id: `${serverId}-child`, serverId } : {})
         expect(capturedQueryClient.getQueryState(queryKey)?.isInvalidated).toBe(true)
       }
     }
@@ -808,7 +810,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       queryClient.setQueryData(communityKeys.forumSidebarThreads(serverId), { seeded: true })
     }
     queryClient.setQueryData(communityKeys.forumSidebarRetained("srv_b", "private-child"), { stale: true })
-    queryClient.setQueryData(communityKeys.channelMeta("srv_b", "private-child"), { stale: true })
+    queryClient.setQueryData(communityKeys.channelMeta("srv_b", "private-child"), { id: "private-child", serverId: "srv_b", stale: true })
     queryClient.setQueryData(communityKeys.forumOpenerHint("srv_b", "private-opener"), { stale: true })
     queryClient.setQueryData(communityKeys.forumSidebarUnreadFallbacks("srv_b"), { stale: true })
     const unsubscribes = keys("srv_a").map((queryKey) => {

@@ -1,4 +1,4 @@
-import type { CommunityMessageCreate } from "@alook/shared"
+import { normalizeCommunityMessageResource, type CommunityMessageCreate } from "@alook/shared"
 import type { Msg } from "@/lib/community/models/message"
 import { avatarInitial } from "@/lib/community/avatar"
 import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
@@ -94,6 +94,7 @@ function projectEmbed(value: unknown): UiEmbed | undefined {
 
 export function projectCommunityMessageCreate(
   message: CommunityMessageCreate["message"],
+  channelId: string,
 ): CanonicalMessage {
   const attachments = message.attachments?.map((attachment) => {
     if (isInlineAttachmentContentType(attachment.contentType)) {
@@ -121,7 +122,7 @@ export function projectCommunityMessageCreate(
     const projected = projectEmbed(embed)
     return projected ? [projected] : []
   })
-  return {
+  const projected: CanonicalMessage = {
     id: message.id,
     seq: message.seq,
     type: message.type,
@@ -138,6 +139,8 @@ export function projectCommunityMessageCreate(
     ...(embeds?.length ? { embeds } : {}),
     ...(attachments?.length ? { attachments } : {}),
   }
+  normalizeCommunityMessageResource(projected, channelId)
+  return projected
 }
 
 export function projectPostedMessage(

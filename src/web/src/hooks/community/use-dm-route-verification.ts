@@ -48,8 +48,13 @@ export async function startDmRouteVerification(
       staleTime: cached?.verification && isChannelMetadataTokenCurrent(cached.verification) ? Infinity : 0, select: undefined })
     return "present"
   } catch (error) {
+    if (classifyDmRouteAuthorityError(error) === "denied") {
+      assertCommunityLiveSnapshotTokenCurrent(queryClient, {
+        ...token, accessEpoch: captureCommunityLiveSnapshotToken(queryClient).accessEpoch,
+      }, undefined)
+      return "denied"
+    }
     assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)
-    if (classifyDmRouteAuthorityError(error) === "denied") return "denied"
     throw error
   } finally {
     release()

@@ -23,6 +23,7 @@ export const communityContentAccessKinds = {
   "community:member.leave": "control",
   "community:server.delete": "control",
   "community:channel.member_add": "control",
+  "community:channel.membership.change": "control",
   "community:member.join": "control",
   "community:server.update": "control",
   "community:channel.reorder": "control",

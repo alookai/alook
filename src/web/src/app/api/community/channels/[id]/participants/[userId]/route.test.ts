@@ -94,7 +94,7 @@ describe("DELETE /channels/[id]/participants/[userId] — leave", () => {
     const res = await DELETE(delReq(), { params: { id: "t1", userId: "u1" } } as any)
     expect(res.status).toBe(204)
     for (const [, event] of mockBroadcastToUserSafe.mock.calls) {
-      expect(Object.keys(event).sort()).toEqual(["channelId", "serverId", "type", "userId"])
+      expect(Object.keys(event).sort()).toEqual(["channelId", "present", "relation", "serverId", "type", "userId"])
       expect(decodeCommunityBrowserEvent(event).ok).toBe(true)
     }
     expect(mockDeleteThreadParticipantWithCreatorHandoff).toHaveBeenCalledWith(
@@ -103,13 +103,13 @@ describe("DELETE /channels/[id]/participants/[userId] — leave", () => {
       "u1",
     )
     expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("u1", {
-      type: "community:channel.member_remove",
+      type: "community:channel.membership.change", relation: "notify", present: false,
       serverId: "s1",
       channelId: "t1",
       userId: "u1",
     })
     expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("u3", expect.objectContaining({
-      type: "community:channel.member_remove",
+      type: "community:channel.membership.change", relation: "notify", present: false,
       userId: "u1",
     }))
   })
@@ -158,7 +158,7 @@ describe("DELETE /channels/[id]/participants/[userId] — leave", () => {
       "bot1",
     )
     expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("bot1", expect.objectContaining({
-      type: "community:channel.member_remove",
+      type: "community:channel.membership.change", relation: "notify", present: false,
       userId: "bot1",
     }))
   })

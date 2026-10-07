@@ -199,32 +199,7 @@ export const channelMessagesQueryFn =
 
 export const dmMessagesQueryFn =
   (dmId: string, options?: MessagesTransportOptions) =>
-  async ({
-    pageParam,
-    signal,
-    client,
-  }: {
-    pageParam: MessagesPageParam
-    signal?: AbortSignal
-    client?: QueryClient
-  }): Promise<MessagesPage> => {
-    const originalClient = options?.queryClient ?? client
-    if (!originalClient) throw new DOMException("Missing message query owner", "AbortError")
-    const publicationToken = captureCommunityLiveSnapshotToken(originalClient)
-    const url = buildMessagesUrl(
-      `/api/community/channels/${dmId}/messages`,
-      pageParam,
-    )
-    const page = await fetchMessagesTransport(originalClient, url, signal, options)
-    {
-      publishCommunityMessages(originalClient, {
-        channelId: dmId,
-        messages: page.messages,
-        proof: { token: publicationToken, signal },
-      })
-    }
-    return messageWindowPage(page)
-  }
+  channelMessagesQueryFn(dmId, undefined, options)
 
 export function messageMatchesTag(message: Msg, tag?: string | null): boolean {
   return !tag || message.thread?.tags?.includes(tag) === true

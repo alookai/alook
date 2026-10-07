@@ -46,7 +46,7 @@ describe("communityKeys", () => {
       ...server, "forum-sidebar-retained", "post_1",
     ])
     expect(communityKeys.channelMeta("s1", "post_1")).toEqual([
-      ...server, "channel-meta", "post_1",
+      "community", "channel", "post_1", "metadata",
     ])
     expect(communityKeys.forumOpenerHint("s1", "message_1")).toEqual([
       ...server, "forum-opener-hint", "message_1",
@@ -113,7 +113,7 @@ describe("communityKeys", () => {
 
   it("nests DM-scoped keys under a stable DM prefix", () => {
     const dmRoot = communityKeys.dmMessages("d1")
-    expect(dmRoot).toEqual(["community", "dm", "d1", "messages"])
+    expect(dmRoot).toEqual(["community", "channel", "d1", "messages"])
 
     expect(communityKeys.dmMessagesPage("d1", "cur-1")).toEqual([
       ...dmRoot,
@@ -171,16 +171,16 @@ describe("communityKeys", () => {
     ])
     expect(communityKeys.messageContext("dm", "d1", 7)).toEqual([
       "community",
-      "message-context",
-      "dm",
+      "channel",
       "d1",
+      "message-context",
       7,
     ])
     expect(communityKeys.messageContexts("dm", "d1")).toEqual([
       "community",
-      "message-context",
-      "dm",
+      "channel",
       "d1",
+      "message-context",
     ])
     expect(communityKeys.reactionDetails("m1")).toEqual([
       ...communityKeys.reactionDetailsAll(),

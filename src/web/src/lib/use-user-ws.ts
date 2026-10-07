@@ -2,6 +2,7 @@
 import { emitTelemetry, isTelemetryEligible, telemetryGeneration } from "@/lib/observability/telemetry"
 import { useEffect, useRef, useCallback } from "react"
 import {
+  COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE,
   COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES,
   COMMUNITY_BROWSER_EVENT_MAX_BYTES,
   isCommunityBrowserEventBatchCandidate,
@@ -168,7 +169,7 @@ function reportDroppedFrame(
 }
 
 export function useUserWs(
-  onMessage: (msg: WsMessageIncoming) => void,
+  onMessage: (msg: WsMessageIncoming, assertCurrent?: () => void) => void | Promise<void>,
   options?: UseUserWsOptions,
 ): { send: (msg: object) => void; reconnectNow: () => void } {
   const wsRef = useRef<WebSocket | null>(null)
@@ -608,6 +609,9 @@ export function useUserWs(
       trackCommunityWsAuthFailure({ failureClass })
     }
 
+    let communityContract: 1 | 2 = 1
+    let communityAdmission = Promise.resolve()
+    let pendingAdmissions = 0
     let ws: WebSocket
     try {
       if (generation !== connectionGenerationRef.current || isOffline()) return
@@ -645,7 +649,7 @@ export function useUserWs(
       openedAt = Date.now()
       reportOpenStage("success")
       try {
-        ws.send(JSON.stringify({ type: "auth", token: authToken }))
+        ws.send(JSON.stringify({ type: "auth", token: authToken, communityContract: 2 }))
       } catch {
         reportAuthStage("failure")
         reportAuthFailure("network")
@@ -710,6 +714,7 @@ export function useUserWs(
           reportDroppedFrame("duplicate-auth-ok", msg)
           return
         }
+        communityContract = msg.communityContract === 2 ? 2 : 1
         reportAuthStage("success")
         authenticatedGenerationRef.current = generation
         if (connectTimeoutRef.current !== null) {
@@ -763,8 +768,23 @@ export function useUserWs(
           return
         }
       }
+      const callback = onMessageRef.current
+      const assertAdmissionCurrent = () => {
+        if (!ownsAuthenticatedConnection(ws, generation) || isOffline() || callback !== onMessageRef.current) throw new DOMException("Retired WebSocket admission", "AbortError")
+      }
+      if (msg.type === COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE || pendingAdmissions > 0) {
+        if (msg.type === COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE && communityContract !== 2) { reportDroppedFrame("invalid-payload", msg); return }
+        if (pendingAdmissions >= 32) { ws.close(1011, "Community admission overloaded"); return }
+        pendingAdmissions++
+        communityAdmission = communityAdmission.then(async () => {
+          if (!ownsAuthenticatedConnection(ws, generation) || isOffline() || callback !== onMessageRef.current) return
+          await callback(msg as WsMessageIncoming, assertAdmissionCurrent)
+        }).catch(() => { reportDroppedFrame("invalid-payload", msg) }).finally(() => { pendingAdmissions-- })
+        return
+      }
       try {
-        onMessageRef.current(msg as WsMessageIncoming)
+        const callbackResult = callback(msg as WsMessageIncoming)
+        if (callbackResult) void callbackResult.catch(() => reportDroppedFrame("invalid-payload", msg))
       } catch {
         console.warn("[ws] message callback threw", {
           type: /^[a-z0-9_.:-]+$/i.test(msg.type) && msg.type.length <= 96 ? msg.type : "unknown",

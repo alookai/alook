@@ -1,4 +1,4 @@
-import { eq, and, asc, desc, exists, gt, lt, or, sql, inArray, isNull, count, type SQL } from "drizzle-orm";
+import { eq, and, asc, desc, exists, gt, lt, or, sql, inArray, isNull, count, min, type SQL } from "drizzle-orm";
 import {
   communityMessage,
   communityChannel,
@@ -1352,12 +1352,17 @@ export async function getMessageInScope(db: Database, messageId: string, scope: 
 
 /** Batched form of `getMessageInScope` — see its doc comment for the "why". */
 export async function getMessagesByIdsInScope(db: Database, ids: string[], scope: MessageScope) {
-  if (ids.length === 0) return [];
+  return getMessagesByIdsInChannels(db, ids, [scope.channelId]);
+}
+
+export async function getMessagesByIdsInChannels(db: Database, ids: string[], channelIds: string[]) {
+  if (ids.length === 0 || channelIds.length === 0) return [];
   // `ids` are the reply-target ids of a message page (up to ~200), so this
   // `inArray` is unbounded — chunk for D1's 100-param limit; no order/limit → concat.
   const rows = (
     await Promise.all(
-      chunk(ids, D1_MAX_IN_PARAMS).map((batch) =>
+      chunk([...new Set(channelIds)], Math.floor(D1_MAX_IN_PARAMS / 2)).flatMap((channels) =>
+      chunk([...new Set(ids)], D1_MAX_IN_PARAMS - channels.length).map((batch) =>
         db
           .select({
             id: communityMessage.id,
@@ -1368,6 +1373,7 @@ export async function getMessagesByIdsInScope(db: Database, ids: string[], scope
             replyToId: communityMessage.replyToId,
             embeds: communityMessage.embeds,
             seq: communityMessage.seq,
+            clientNonce: communityMessage.clientNonce,
             createdAt: communityMessage.createdAt,
             channelId: communityMessage.channelId,
             authorName: user.name,
@@ -1378,9 +1384,26 @@ export async function getMessagesByIdsInScope(db: Database, ids: string[], scope
           })
           .from(communityMessage)
           .innerJoin(user, eq(communityMessage.authorId, user.id))
-          .where(and(inArray(communityMessage.id, batch), scopeCondition(scope)))
-      )
+          .where(and(inArray(communityMessage.id, batch), inArray(communityMessage.channelId, channels)))
+      ))
     )
   ).flat();
   return rows.map((r) => ({ ...r, embeds: safeParseEmbeds(r.embeds, r.id) }));
+}
+
+export async function getFirstMessageResourcesByChannelIds(db: Database, channelIds: string[]) {
+  if (channelIds.length === 0) return [];
+  const rows = (await Promise.all(chunk([...new Set(channelIds)], D1_MAX_IN_PARAMS).map((ids) => {
+    const first = db.select({ channelId: communityMessage.channelId, seq: min(communityMessage.seq).as("first_seq") })
+      .from(communityMessage).where(inArray(communityMessage.channelId, ids)).groupBy(communityMessage.channelId).as("first_messages");
+    return db.select({ id: communityMessage.id, channelId: communityMessage.channelId, seq: communityMessage.seq,
+      authorId: communityMessage.authorId, content: communityMessage.content, type: communityMessage.type,
+      mentionType: communityMessage.mentionType, replyToId: communityMessage.replyToId,
+      embeds: communityMessage.embeds, createdAt: communityMessage.createdAt,
+      clientNonce: communityMessage.clientNonce, authorName: user.name, authorImage: user.image,
+      authorAvatarVersion: user.avatarVersion, })
+      .from(communityMessage).innerJoin(first, and(eq(communityMessage.channelId, first.channelId), eq(communityMessage.seq, first.seq)))
+      .innerJoin(user, eq(user.id, communityMessage.authorId));
+  }))).flat();
+  return rows.map((row) => ({ ...row, embeds: safeParseEmbeds(row.embeds, row.id) }));
 }

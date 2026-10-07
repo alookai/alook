@@ -25,7 +25,7 @@ export type ChannelMember = CommunityUserCore & {
   id: string
   userId: string
   sub: string
-  role: CommunityRole
+  role: CommunityRole | null
   status: "online" | "offline"
   statusEmoji: string | null
   statusText: string
@@ -33,10 +33,10 @@ export type ChannelMember = CommunityUserCore & {
   isCreator: boolean
 }
 export type AddableMember = { userId: string; name: string | null; discriminator: string | null; avatar: string; avatarVersion: number }
-type ChannelRosterWindow = { serverId: string; relation: "access" | "notify"; members: Array<{ id: string; userId: string }> }
+type ChannelRosterWindow = { serverId: string | null; relation: "access" | "notify"; members: Array<{ id: string; userId: string }> }
 
 function channelMembersOptions(client: QueryClient, channelId: string, serverId?: string, relation?: "access" | "notify") {
-  const queryKey = communityKeys.channelMembers(channelId)
+  const queryKey = communityKeys.channelMembers(channelId, relation ?? "access")
   return {
     queryKey,
     queryFn: async ({ signal }: { signal: AbortSignal }): Promise<ChannelRosterWindow> => {
@@ -52,10 +52,10 @@ function channelMembersOptions(client: QueryClient, channelId: string, serverId?
       await Promise.all([registry.collections.channelMemberships.preload(), registry.collections.serverMemberships.preload()])
       assert()
       const channel = registry.collections.channels.get(channelId)
-      const scopeId = serverId ?? channel?.serverId
-      if (!scopeId) throw new DOMException("Missing channel roster scope", "AbortError")
-      const dimension = relation ?? (channel?.type === "thread" ? "notify" : "access")
-      const response = await apiFetch<{ members: ChannelMember[] }>("/api/community/channels/" + encodeURIComponent(channelId) + "/members", communityRequestOptions(client, token, signal, assert))
+      const scopeId = serverId ?? channel?.serverId ?? (channel?.type === "dm" ? null : undefined)
+      if (scopeId === undefined) throw new DOMException("Missing channel roster scope", "AbortError")
+      const dimension = relation ?? "access"
+      const response = await apiFetch<{ members: ChannelMember[] }>("/api/community/channels/" + encodeURIComponent(channelId) + "/members?relation=" + dimension, communityRequestOptions(client, token, signal, assert))
       assert()
       writeCommunityProfilePatches(response.members.map((member) => communityUserProfilePatch(member.userId, member)), registry, { snapshot: profileSnapshot })
       publishCommunityChannelMembersSnapshot(client, scopeId, channelId, dimension, response.members, { token, signal })
@@ -102,11 +102,11 @@ export function useChannelMembers(channelId: string, enabled = true, serverId?: 
     const byUser = new Map(memberships.map((member) => [member.userId, member]))
     return roster.flatMap((participant) => {
       const member = byUser.get(participant.userId)
-      if (!member?.memberId) return []
+      if (query.data?.serverId !== null && !member?.memberId) return []
       const profile = readCommunityProfile(profiles.get(participant.userId), participant.userId)
-      return [deriveView({ id: member.memberId, userId: participant.userId, name: member.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, role: member.role as CommunityRole, sub: "", status: member.viewer ? "online" : profile.presence, statusEmoji: profile.statusEmoji ?? null, statusText: profile.statusText ?? "", source: participant.source ?? "explicit", isCreator: participant.isCreator ?? false }, [viewEvidence(member), viewEvidence(participant), viewEvidence(profile)])]
+      return [deriveView({ id: member?.memberId ?? participant.userId, userId: participant.userId, name: member?.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, role: member ? member.role as CommunityRole : null, sub: "", status: member?.viewer ? "online" : profile.presence, statusEmoji: profile.statusEmoji ?? null, statusText: profile.statusText ?? "", source: participant.source ?? "explicit", isCreator: participant.isCreator ?? false }, [viewEvidence(member), viewEvidence(participant), viewEvidence(profile)])]
     })
-  }, [profiles, memberships, roster])
+  }, [profiles, memberships, roster, query.data?.serverId])
   deriveView(members, [valueEvidence(client, query.data), ...members.map(viewEvidence)], members.length)
   const data = useMemo(() => query.data ? { members } : undefined, [query.data, members])
   return { ...query, data, members } as UseQueryResult<{ members: ChannelMember[] }> & { members: ChannelMember[] }
@@ -183,7 +183,7 @@ export function useChannelMemberCommand(channelId: string, kind: "add" | "remove
     value.assertActive?.()
     const view = source.capture()
     view()
-    return { ...value, view, original: origin.begin().token, resources: [communityKeys.channelMembers(channelId), communityKeys.channelAddableMembers(channelId)].flatMap((queryKey) => client.getQueryCache().findAll({ queryKey, exact: true })) }
+    return { ...value, view, original: origin.begin().token, resources: [communityKeys.channelMembers(channelId), communityKeys.channelAddableMembers(channelId)].flatMap((queryKey) => client.getQueryCache().findAll({ queryKey })) }
   }, [origin, client, channelId, source])
   const assertCurrent = useCallback((args: Intent) => { origin.assert(args.original); args.view(); args.assertActive?.() }, [origin])
   return useNativeMutationFacade(native, capture, assertCurrent)

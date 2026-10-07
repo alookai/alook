@@ -1,18 +1,21 @@
 import { flattenError } from "zod"
 import { NextRequest, NextResponse } from "next/server"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
-import { writeJSON, writeError } from "@/lib/middleware/helpers"
+import { writeError } from "@/lib/middleware/helpers"
 import { getDb, getPrimaryDb } from "@/lib/db"
 import { queries, withD1Retry, CommunityAgentSendRequestSchema, MAX_FORUM_TAG_LENGTH, utcDayKey, WS_EVENTS, PARTICIPANT_SOURCE } from "@alook/shared"
 import {
   parseCursor,
   parseAnchor,
   parsePageSize,
+  parseCommunityMessageWindow,
   buildPaginatedResponse,
   buildAnchorResponse,
   buildSinceResponse,
 } from "@/lib/community/messages"
 import { enrichMessages } from "@/lib/community/enrich-messages"
+import { requestsCommunityContractV2 } from "@alook/shared"
+import { writeCommunityMessagesRead } from "@/lib/community/read-contract"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { createCommunityMessage, getCommunityMessageReplay } from "@/lib/community/message-handler"
 import { createMessageWithThread } from "@/lib/community/create-channels"
@@ -102,7 +105,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
   // (set-equality) — only pagination-window + projection differ, no arm adds a where.
 
   // ── bot arm: seq-anchored window → agent-message projection → {items} ──
-  if (ctx.actor.kind === "bot") {
+  if (ctx.actor.kind === "bot" && !requestsCommunityContractV2(req.headers)) {
     const readParams = {
       before: parseIntParam(params.get("before")),
       after: parseIntParam(params.get("after")),
@@ -120,14 +123,16 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
 
   // ── human arm: createdAt-anchored window → enrich → {messages} ──
   const userId = ctx.actor.userId
-  const anchorId = parseAnchor(params.get("anchor"))
-  const since = parseCursor(params.get("since"))
-  const cursor = parseCursor(params.get("cursor"))
+  let window
+  try { window = requestsCommunityContractV2(req.headers) ? parseCommunityMessageWindow(params) : {
+    anchorId: parseAnchor(params.get("anchor")), since: parseCursor(params.get("since")),
+    cursor: parseCursor(params.get("cursor")), pageSize: parsePageSize(params.get("limit")),
+  } } catch (error) { return writeError(error instanceof Error ? error.message : "invalid message window", 400) }
+  const { anchorId, since, cursor, pageSize } = window
   const rawTag = params.get("tag")
   const tag = rawTag?.trim().toLowerCase()
   if (rawTag !== null && !tag) return writeError("tag must not be empty", 400)
   if (tag && tag.length > MAX_FORUM_TAG_LENGTH) return writeError(`tag must be ≤ ${MAX_FORUM_TAG_LENGTH} characters`, 400)
-  const pageSize = parsePageSize(params.get("limit"))
 
   if (anchorId) {
     const anchor = await queries.communityMessage.getMessageInScope(db, anchorId, { channelId })
@@ -147,7 +152,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
     )
 
     const { messages, latestSeq } = await enrichMessages(db, userId, { channelId, isDm, isForum }, items)
-    return writeJSON({ messages, hasMoreOlder, hasMoreNewer, olderCursor, newerCursor, latestSeq, surfaceReceipt })
+    return writeCommunityMessagesRead(req, channelId, { messages, hasMoreOlder, hasMoreNewer, olderCursor, newerCursor, latestSeq, surfaceReceipt })
   }
 
   if (since) {
@@ -159,7 +164,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
     })
     const { items, hasMoreNewer, newerCursor, hasMoreOlder, olderCursor } = buildSinceResponse(rows, pageSize)
     const { messages, latestSeq } = await enrichMessages(db, userId, { channelId, isDm, isForum }, items)
-    return writeJSON({ messages, hasMoreNewer, newerCursor, hasMoreOlder, olderCursor, latestSeq, surfaceReceipt })
+    return writeCommunityMessagesRead(req, channelId, { messages, hasMoreNewer, newerCursor, hasMoreOlder, olderCursor, latestSeq, surfaceReceipt })
   }
 
   const rows = await queries.communityMessage.listMessages(db, {
@@ -171,7 +176,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
 
   const { items, hasMore, cursor: nextCursor } = buildPaginatedResponse(rows, pageSize)
   const { messages, latestSeq } = await enrichMessages(db, userId, { channelId, isDm, isForum }, items.slice().reverse())
-  return writeJSON({ messages, hasMore, cursor: nextCursor, latestSeq, surfaceReceipt })
+  return writeCommunityMessagesRead(req, channelId, { messages, hasMore, cursor: nextCursor, latestSeq, surfaceReceipt })
 })
 
 /**
@@ -387,7 +392,9 @@ async function handleBotSend(
     )
     if (created) {
       const event = {
-        type: WS_EVENTS.CHANNEL_MEMBER_ADD,
+        type: WS_EVENTS.CHANNEL_MEMBERSHIP_CHANGE,
+    relation: "notify",
+    present: true,
         serverId: target.serverId,
         channelId,
         userId: botUserId,

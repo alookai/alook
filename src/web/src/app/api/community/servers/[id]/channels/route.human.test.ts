@@ -25,7 +25,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityMessage: {
         ...actual.queries.communityMessage,
-        getMessagesByIds: (...args: unknown[]) => mockGetMessagesByIds(...args),
+        getMessagesByIdsInChannels: (...args: unknown[]) => mockGetMessagesByIds(...args),
       },
       communityInbox: {
         ...actual.queries.communityInbox,
@@ -120,7 +120,7 @@ describe("GET /api/community/servers/[id]/channels — human resource", () => {
         serverNow: "2026-08-08T12:00:00.000Z",
       })
       expect(mockListEligibleUnreadChannels).toHaveBeenCalledWith(expect.anything(), "user_1", ["thread_1"])
-      expect(mockGetMessagesByIds).toHaveBeenCalledWith(expect.anything(), ["message_1"])
+      expect(mockGetMessagesByIds).toHaveBeenCalledWith(expect.anything(), ["message_1"], ["forum_visible"])
     } finally {
       vi.useRealTimers()
     }
@@ -193,7 +193,7 @@ describe("GET /api/community/servers/[id]/channels — human resource", () => {
       retainedDisposition: "opener-archived",
       included: { parentMessages: [] },
     })
-    expect(mockGetMessagesByIds).toHaveBeenCalledWith(expect.anything(), [])
+    expect(mockGetMessagesByIds).toHaveBeenCalledWith(expect.anything(), [], ["forum_visible"])
   })
 
   it("rejects a partial or oversized sidebar query without reading child threads", async () => {

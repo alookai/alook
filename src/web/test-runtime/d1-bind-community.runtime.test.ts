@@ -135,6 +135,21 @@ describe("community high-cardinality D1 queries", () => {
     expect(await queries.communityCategory.getCategoriesByIds(db, categoryIds)).toHaveLength(125);
     expect(await queries.communityReaction.listReactionsByMessageIds(db, messageIds, ownerId)).toHaveLength(125);
 
+    await run(
+      "INSERT INTO community_message (id, author_id, content, created_at, channel_id, seq, client_nonce) VALUES (?, ?, 'later sequence', ?, ?, 2, 'nonce')",
+      `${prefix}_second_message`, userIds[0], "2026-08-27T00:00:00.000Z", channelIds[0],
+    );
+    const scoped = await queries.communityMessage.getMessagesByIdsInChannels(
+      db, [...messageIds, messageIds[0], `${prefix}_second_message`], channelIds.slice(0, 124),
+    );
+    expect(scoped).toHaveLength(125);
+    expect(scoped.some((message) => message.channelId === channelIds[124])).toBe(false);
+    expect(scoped.find((message) => message.id === `${prefix}_second_message`)).toMatchObject({ seq: 2, clientNonce: "nonce" });
+    const firstMessages = await queries.communityMessage.getFirstMessageResourcesByChannelIds(db, [...channelIds, channelIds[0]]);
+    expect(firstMessages).toHaveLength(125);
+    expect(new Set(firstMessages.map((message) => message.id))).toEqual(new Set(messageIds));
+    expect(firstMessages.every((message) => message.seq === 1)).toBe(true);
+
     const submitted = categoryIds.slice(0, 100).reverse();
     expect(await queries.communityCategory.reorderCategories(db, serverId, submitted)).toHaveLength(100);
     const persisted = await rows<{ id: string; position: number }>(

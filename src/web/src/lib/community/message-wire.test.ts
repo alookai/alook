@@ -24,8 +24,8 @@ describe("projectCommunityMessageCreate", () => {
       friendshipId: "f1",
       status: "pending" as const,
       waitingOn: "you" as const,
-      otherProfile: { id: "u2", name: "Other", discriminator: "0002", image: null },
-      botProfile: { id: "b1", name: "Bot", discriminator: "0003", image: null },
+      otherProfile: { id: "u2", name: "Other", discriminator: "0002", image: null, avatarVersion: 0 },
+      botProfile: { id: "b1", name: "Bot", discriminator: "0003", image: null, avatarVersion: 0 },
     }
     const projected = projectCommunityMessageCreate(wire({
       clientNonce: "nonce",
@@ -34,7 +34,7 @@ describe("projectCommunityMessageCreate", () => {
       authorAvatar: "avatar",
       replyTo,
       approval,
-    }))
+    }), "channel-1")
     expect(projected).toEqual(expect.objectContaining({
       id: "m1",
       seq: 42,
@@ -59,7 +59,7 @@ describe("projectCommunityMessageCreate", () => {
         { id: "a2", filename: "doc.pdf", url: "/doc", contentType: "application/pdf", size: 2048 },
         { id: "a3", filename: "unsafe.svg", url: "/unsafe", contentType: "image/svg+xml", size: 1024 },
       ],
-    }))
+    }), "channel-1")
     expect(projected.embeds).toEqual([{ title: "Card", url: "https://example.com" }])
     expect(projected.attachments).toEqual([
       { kind: "image", name: "photo.png", url: "/photo", contentType: "image/png", sizeBytes: 2048, width: 640, height: 480 },

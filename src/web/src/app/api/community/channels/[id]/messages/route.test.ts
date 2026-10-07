@@ -746,13 +746,13 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(mockListThreadParticipantUserIds).toHaveBeenCalledWith({}, "thread_1")
     expect(mockBroadcastToUserSafe).toHaveBeenCalledTimes(2)
     expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("bot_1", {
-      type: WS_EVENTS.CHANNEL_MEMBER_ADD,
+      type: WS_EVENTS.CHANNEL_MEMBERSHIP_CHANGE, relation: "notify", present: true,
       serverId: "s1",
       channelId: "thread_1",
       userId: "bot_1",
     })
     expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("u2", expect.objectContaining({
-      type: WS_EVENTS.CHANNEL_MEMBER_ADD,
+      type: WS_EVENTS.CHANNEL_MEMBERSHIP_CHANGE, relation: "notify", present: true,
       channelId: "thread_1",
       userId: "bot_1",
     }))

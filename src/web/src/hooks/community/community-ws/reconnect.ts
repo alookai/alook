@@ -73,7 +73,14 @@ function isRecognizedServerQueryKey(key: QueryKey): key is ServerQueryKey {
     && key[4].length > 0
 }
 
-function isDerivedServerAccessQueryKey(key: QueryKey, serverId: string) {
+function metadataServerId(queryClient: QueryClient, key: QueryKey) {
+  if (key.length !== 4 || key[0] !== "community" || key[1] !== "channel" || typeof key[2] !== "string" || key[3] !== "metadata") return undefined
+  return queryClient.getQueryData<{ serverId?: string | null }>(key)?.serverId
+    ?? getCommunityRuntime(queryClient).ws.get().channelAccessScopes.get(key[2])?.serverId
+}
+
+function isDerivedServerAccessQueryKey(queryClient: QueryClient, key: QueryKey, serverId: string) {
+  if (metadataServerId(queryClient, key) === serverId) return true
   if (!isServerQueryPrefix(key, serverId)) return false
   if (key.length === 4) return key[3] === "forum-sidebar-unread-fallbacks"
   return key.length === 5
@@ -83,17 +90,19 @@ function isDerivedServerAccessQueryKey(key: QueryKey, serverId: string) {
     && key[4].length > 0
 }
 
-function cachedServerIds(queryKeys: readonly QueryKey[]) {
+function cachedServerIds(queryClient: QueryClient, queryKeys: readonly QueryKey[]) {
   const serverIds = new Set<string>()
   for (const key of queryKeys) {
     if (isRecognizedServerQueryKey(key)) serverIds.add(key[2])
+    const metadataServer = metadataServerId(queryClient, key)
+    if (metadataServer && isCommunityServerIdSegment(metadataServer)) serverIds.add(metadataServer)
   }
   return [...serverIds]
 }
 
 async function reconcileCachedServer(queryClient: QueryClient, serverId: string) {
   const derivedRevalidation = queryClient.invalidateQueries({
-    predicate: (query) => isDerivedServerAccessQueryKey(query.queryKey, serverId),
+    predicate: (query) => isDerivedServerAccessQueryKey(queryClient, query.queryKey, serverId),
     refetchType: "active",
   })
 
@@ -174,8 +183,7 @@ function policyExecutors(
       })
     },
     "focused-channel-roster": async () => {
-      if (!sub.channelId) return
-      const channelIds = [sub.channelId, sub.secondaryChannelId]
+      const channelIds = [sub.channelId, sub.secondaryChannelId, sub.dmConversationId]
         .filter((channelId): channelId is string => !!channelId)
       const settled = await Promise.allSettled([
         ...channelIds.map((channelId) => queryClient.invalidateQueries({
@@ -221,7 +229,7 @@ function policyExecutors(
       await reconcileAccountReadState(queryClient, { invalidateSurfaces: false })
     },
     "all-cached-servers": async () => {
-      const serverIds = cachedServerIds(queryKeys)
+      const serverIds = cachedServerIds(queryClient, queryKeys)
       const settled = await Promise.allSettled([
         queryClient.invalidateQueries({
           queryKey: communityKeys.servers(),

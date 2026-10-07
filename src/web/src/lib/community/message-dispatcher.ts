@@ -22,6 +22,7 @@ const log = createLogger({ service: "committed-message-dispatcher" })
 export type CommittedMessageStructuralOutcome = {
   /** A participant row inserted by this exact message write. */
   memberAddedUserId?: string
+  joinedParticipantUserIds?: string[]
   /** Existing thread-open collision suppression; no audience/policy input. */
   suppressParentProjection?: boolean
 }
@@ -221,6 +222,8 @@ async function planCommittedMessageBase(
       } as const
     : undefined
 
+  const joinedParticipantUserIds = [...new Set(structural.joinedParticipantUserIds ?? [])]
+  if (joinedParticipantUserIds.some((id) => !channel.serverId || !contentUserIds.includes(id))) throw new Error("committed participant outcome is outside message scope")
   if (
     structural.memberAddedUserId
     && (!channel.serverId || !contentUserIds.includes(structural.memberAddedUserId))
@@ -238,6 +241,7 @@ async function planCommittedMessageBase(
     mentionUserIds,
     wakeBotUserIds,
     pushUserIds,
+    ...(joinedParticipantUserIds.length ? { joinedParticipantUserIds, rosterRefreshUserId: joinedParticipantUserIds[0]! } : {}),
     ...(structural.memberAddedUserId && channel.serverId
       ? {
           memberAdded: {
@@ -280,6 +284,7 @@ async function runCommittedMessageDispatch(
     unreadMentionUserIds: plan.unreadMentionUserIds,
     mentionUserIds: plan.mentionUserIds,
     ...(plan.memberAdded ? { memberAdded: plan.memberAdded } : {}),
+    ...(plan.joinedParticipantUserIds ? { joinedParticipantUserIds: plan.joinedParticipantUserIds, rosterRefreshUserId: plan.rosterRefreshUserId } : {}),
     ...(plan.parentProjection
       ? {
           parentProjection: plan.parentProjection,

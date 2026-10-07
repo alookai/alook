@@ -12,6 +12,7 @@ import {
   type CommunityDeliveryOperationId,
 } from "@alook/shared"
 import { fetchViaBindingOrDevFallback } from "../dev-binding-fetch"
+import { projectCommunityProducerDelivery } from "./producer-contract"
 
 const log = createLogger({ service: "message-delivery-transport" })
 const maxAttempts = 3
@@ -40,6 +41,7 @@ function selectTargets(batch: MessageDeliveryBatch, selected: ReadonlySet<string
     unreadPlainUserIds: keep(batch.unreadPlainUserIds),
     unreadMentionUserIds: keep(batch.unreadMentionUserIds),
     mentionUserIds: keep(batch.mentionUserIds),
+    ...(batch.joinedParticipantUserIds ? { joinedParticipantUserIds: keep(batch.joinedParticipantUserIds), rosterRefreshUserId: batch.rosterRefreshUserId } : {}),
     ...(batch.memberAdded && selected.has(batch.memberAdded.userId)
       ? { memberAdded: batch.memberAdded }
       : {}),
@@ -176,15 +178,16 @@ async function settleChunks(
 }
 
 export async function sendMessageDeliveryBatch(
-  batch: MessageDeliveryBatch,
+  original: MessageDeliveryBatch,
   plannedOperationId?: CommunityDeliveryOperationId,
 ): Promise<void> {
-  const derivedOperationId = await deriveCommunityDeliveryOperationId(batch.messageId)
+  const derivedOperationId = await deriveCommunityDeliveryOperationId(original.messageId)
   if (plannedOperationId !== undefined && plannedOperationId !== derivedOperationId) {
     throw new Error("message delivery: operation ID does not match message")
   }
   const operationId = plannedOperationId ?? derivedOperationId
   const { env } = getCloudflareContext()
+  const batch = projectCommunityProducerDelivery(original, env as Env)
   const targets = allTargetUserIds(batch)
   const chunks: MessageDeliveryBatch[] = []
   let index = 0

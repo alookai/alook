@@ -35,7 +35,7 @@ describe("membership facade composition", () => {
     apiFetchMock.mockImplementation(async (url: string) => {
       if (new URL(url, "https://alook.test").searchParams.get("cursor") === "next") return { members: [bob], hasMore: false }
       if (url.includes("/servers/s1/members?")) return { members: [alice], hasMore: true, cursor: "next" }
-      if (url === "/api/community/channels/c1/members") return { members: [alice] }
+      if (url === "/api/community/channels/c1/members?relation=access") return { members: [alice] }
       return buckets(url)
     })
     const rendered = renderHook(() => useAddableMembers("s1", "c1"), { wrapper: Owner })

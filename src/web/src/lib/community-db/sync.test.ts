@@ -2368,7 +2368,7 @@ describe("community DB sync", () => {
       channelId: "c1",
       serverId: "s1",
       message: {
-        id: "m1",
+        id: "m1", seq: 1,
         type: "chat",
         authorId: "peer",
         authorName: "Peer",

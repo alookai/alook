@@ -250,7 +250,7 @@ describe("useUserWs", () => {
   })
 
   async function mountHook(
-    onMessage: (msg: WsMessage) => void,
+    onMessage: (msg: WsMessage, assertCurrent?: () => void) => void | Promise<void>,
     options?: UseUserWsOptions,
   ) {
     // Re-import to get fresh module with fresh mocks
@@ -260,6 +260,63 @@ describe("useUserWs", () => {
     await flushPromises()
     return mod
   }
+
+  it("requires protocol confirmation before a v2 batch reaches the callback", async () => {
+    setupTokenFetch()
+    const callback = vi.fn()
+    await mountHook(callback)
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "community:events.batch.v2", events: [] })
+    await flushPromises()
+    expect(callback).not.toHaveBeenCalled()
+  })
+
+  it("preserves frame order behind asynchronous v2 admission", async () => {
+    setupTokenFetch()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const received: string[] = []
+    await mountHook(async (message, assertCurrent) => {
+      if (message.type === "community:events.batch.v2") await gate
+      assertCurrent?.()
+      received.push(message.type)
+    })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok", communityContract: 2 })
+    ws.simulateMessage({ type: "community:events.batch.v2", events: [] })
+    ws.simulateMessage({ type: "runtime.status", status: "online" })
+    await flushPromises()
+    expect(received).toEqual([])
+    release()
+    await flushPromises()
+    await vi.waitFor(() => expect(received).toEqual(["community:events.batch.v2", "runtime.status"]))
+  })
+
+  it("retires an in-flight admission and queued frames with their original socket", async () => {
+    setupTokenFetch()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const received: string[] = []
+    await mountHook(async (message, assertCurrent) => {
+      await gate
+      assertCurrent?.()
+      received.push(message.type)
+    })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok", communityContract: 2 })
+    ws.simulateMessage({ type: "community:events.batch.v2", events: [] })
+    ws.simulateMessage({ type: "runtime.status", status: "online" })
+    await flushPromises()
+    mockNavigator.onLine = false
+    mockWindow.dispatch("offline")
+    release()
+    await flushPromises()
+    expect(received).toEqual([])
+  })
 
   it("connect memo is stable — changing onMessage does NOT create a new connect reference", async () => {
     setupTokenFetch()
@@ -307,7 +364,7 @@ describe("useUserWs", () => {
     ws.simulateMessage({ type: "auth.ok" })
 
     expect(ws.sent).toEqual([
-      JSON.stringify({ type: "auth", token: "tok-123" }),
+      JSON.stringify({ type: "auth", token: "tok-123", communityContract: 2 }),
       JSON.stringify({ type: "check_daemon_status" }),
     ])
     expect(onMsg).not.toHaveBeenCalled()
@@ -324,7 +381,7 @@ describe("useUserWs", () => {
     ws.simulateMessage({ type: "auth.ok" })
 
     expect(ws.sent).toEqual([
-      JSON.stringify({ type: "auth", token: "tok-123" }),
+      JSON.stringify({ type: "auth", token: "tok-123", communityContract: 2 }),
     ])
     expect(onMsg).not.toHaveBeenCalled()
   })
@@ -392,7 +449,7 @@ describe("useUserWs", () => {
 
     ws.simulateMessage({ type: "auth.ok" })
     expect(ws.sent).toEqual([
-      JSON.stringify({ type: "auth", token: "tok-123" }),
+      JSON.stringify({ type: "auth", token: "tok-123", communityContract: 2 }),
       JSON.stringify({ type: "check_daemon_status" }),
     ])
     expect(onMsg).not.toHaveBeenCalled()
@@ -1125,7 +1182,7 @@ describe("useUserWs", () => {
     await mountHook(vi.fn(), { onAuthenticated, requestDaemonStatusOnAuth: false })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    expect(first.sent).toContain(JSON.stringify({ type: "auth", token: "tok-123" }))
+    expect(first.sent).toContain(JSON.stringify({ type: "auth", token: "tok-123", communityContract: 2 }))
 
     mockNavigator.onLine = false
     mockWindow.dispatch("offline")
@@ -1571,7 +1628,7 @@ describe("useUserWs", () => {
     })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    expect(first.sent).toContain(JSON.stringify({ type: "auth", token: "tok-123" }))
+    expect(first.sent).toContain(JSON.stringify({ type: "auth", token: "tok-123", communityContract: 2 }))
 
     mockDocument.visibilityState = "hidden"
     mockDocument.dispatch("visibilitychange")

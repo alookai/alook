@@ -122,7 +122,7 @@ describe.each(["text", "forum"] as const)("%s canonical thread scope eviction", 
     const pendingKey = communityKeys.messageContext("channel", "preview_child", 2)
     const otherKey = communityKeys.messageContext("channel", "other_child", 1)
     const foreignKey = communityKeys.messageContext("channel", "foreign_child", 1)
-    const dmKey = communityKeys.messageContext("dm", "preview_child", 1)
+    const dmKey = communityKeys.messageContext("dm", "other_dm", 1)
     for (const key of [contextKey, otherKey, foreignKey, dmKey]) capturedQueryClient.setQueryData(key, preview)
     capturedQueryClient.setQueryData(communityKeys.channelMessages("preview_child"), { pages: [{ messages: preview.messages }] })
     capturedQueryClient.setQueryData(communityKeys.pins("preview_child"), { pins: preview.messages })
@@ -198,7 +198,7 @@ it("preserves readable previews when leaving only a thread's notify membership",
   capturedQueryClient.setQueryData(key, preview)
 
   capturedOnMessage!({
-    type: "community:channel.member_remove", serverId: "server", channelId: "preview_child", userId: "u_me",
+    type: "community:channel.membership.change", serverId: "server", channelId: "preview_child", userId: "u_me", relation: "notify", present: false,
   })
 
   expect(capturedQueryClient.getQueryData(key)).toEqual(preview)

@@ -46,11 +46,26 @@ describe("useChannelMembers", () => {
 
     await waitFor(() => {
       expect(apiFetchMock).toHaveBeenCalledWith(
-        "/api/community/channels/private%2Fchannel/members",
+        "/api/community/channels/private%2Fchannel/members?relation=access",
         expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }),
       )
     })
     await waitFor(() => expect(rendered.result.current.members).toHaveLength(1))
+  })
+
+  it("renders a DM access pair without inventing a server membership or role", async () => {
+    const { useChannelMembers } = await import("./use-channel-members")
+    const { publishCommunityChannelMetadata, captureCommunityLiveSnapshotToken } = await import("@/lib/community-db/sync")
+    const owner = await createCommunityQueryOwner()
+    publishCommunityChannelMetadata(owner.client, { metadata: { id: "dm", serverId: null, name: null, type: "dm", parentChannelId: null, parentMessageId: null, creatorId: null, archived: false, lastMessageAt: null }, proof: { token: captureCommunityLiveSnapshotToken(owner.client) } })
+    apiFetchMock.mockResolvedValue({ members: ["viewer", "peer"].map((userId) => ({ id: userId, userId, name: userId, discriminator: "0001", avatar: "", avatarVersion: 0, sub: "", role: null, status: "offline", statusEmoji: null, statusText: "", source: "explicit", isCreator: false })) })
+    const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client: owner.client }, children)
+    const rendered = renderHook(() => useChannelMembers("dm", true, undefined, "access"), { wrapper })
+    await waitFor(() => expect(rendered.result.current.members).toHaveLength(2))
+    expect(rendered.result.current.members.map((member) => member.role)).toEqual([null, null])
+    expect([...owner.registry.collections.serverMemberships.values()]).toEqual([])
+    expect(owner.client.getQueryData(["community", "channel", "dm", "members", "access"])).toMatchObject({ serverId: null, relation: "access" })
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/dm/members?relation=access", expect.anything())
   })
 
   it.each(Object.values(PARTICIPANT_SOURCE))(
@@ -76,13 +91,13 @@ describe("useChannelMembers", () => {
       let participantGets = 0
       let parentGets = 0
       apiFetchMock.mockImplementation((url: string) => {
-        if (url.endsWith("/thread/members")) {
+        if (url.endsWith("/thread/members?relation=notify")) {
           participantGets += 1
           return failParticipants
             ? Promise.reject(new Error("controlled first-load failure"))
             : Promise.resolve({ members: participants })
         }
-        if (url.endsWith("/parent/members")) {
+        if (url.endsWith("/parent/members?relation=access")) {
           parentGets += 1
           return Promise.resolve({ members: parentMembers })
         }

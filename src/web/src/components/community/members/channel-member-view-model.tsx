@@ -261,6 +261,7 @@ export function useChannelMemberViewModel({
     }
     const roster = isNotifyUnit ? parentChannelMembersHook.members : channelMembersHook.members
     return roster
+      .filter((member): member is typeof member & { role: Role } => member.role !== null)
       .filter((member) => member.userId !== currentUser.id)
       .map((member) => {
         const profile = readCommunityProfile(

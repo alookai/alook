@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from "vitest"
 import {
   COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES,
   COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
+  COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE,
+  encodeCommunityBrowserEventBatchForContract,
+  verifyCommunityBrowserEventBatchV2,
   COMMUNITY_BROWSER_EVENT_MAX_BYTES,
   COMMUNITY_DELIVERY_OPERATION_ID_BYTES,
   computeCommunityDeliveryDigestFromBodies,
@@ -44,6 +47,32 @@ function maximizeAuditPadding(): CommunityBotAuditEvent {
 }
 
 describe("community WS batch transport contract", () => {
+  it("keeps the source digest while projecting one strict format per connection", async () => {
+    const change = { type: WS_EVENTS.CHANNEL_MEMBERSHIP_CHANGE, channelId: "thread", serverId: "server", userId: "joined", relation: "notify", present: true } as const
+    const prepared = await prepareCommunityDeliveryEvents([change])
+    if (!prepared.ok) throw new Error("invalid fixture")
+    const operationId = await deriveCommunityDeliveryOperationId("joined-message")
+    for (const contract of [1, 2] as const) {
+      await expect(encodeCommunityBrowserEventBatchForContract({ operationId, prepared: { ...prepared.prepared, digest: "0".repeat(64) }, contract }))
+        .resolves.toMatchObject({ ok: false, reason: "digest-mismatch" })
+    }
+    const old = await encodeCommunityBrowserEventBatchForContract({ operationId, prepared: prepared.prepared, contract: 1 })
+    const current = await encodeCommunityBrowserEventBatchForContract({ operationId, prepared: prepared.prepared, contract: 2 })
+    if (!old.ok || !current.ok) throw new Error("invalid projection")
+    expect(old.batch.type).toBe(COMMUNITY_BROWSER_EVENT_BATCH_TYPE)
+    expect(Object.keys(old.batch)).toHaveLength(4)
+    expect(old.batch.events).toEqual([{ type: WS_EVENTS.CHANNEL_MEMBER_ADD, serverId: "server", channelId: "thread", userId: "joined" }])
+    expect(old.batch.operationDigest).not.toBe(prepared.prepared.digest)
+    expect(current.batch).toMatchObject({ type: COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE, operationDigest: prepared.prepared.digest, wireDigest: prepared.prepared.digest })
+    expect(await verifyCommunityBrowserEventBatchV2(JSON.parse(current.body))).toBe(true)
+    expect(decodeCommunityBrowserEventBatch({ ...old.batch, wireDigest: current.batch.wireDigest }).ok).toBe(false)
+    const tampered = JSON.parse(current.body)
+    tampered.events[0].present = false
+    expect(await verifyCommunityBrowserEventBatchV2(tampered)).toBe(false)
+    const invalid = JSON.parse(current.body)
+    invalid.events[0].extra = true
+    expect(await verifyCommunityBrowserEventBatchV2(invalid)).toBe(false)
+  })
   const children: CommunityWsEvent[] = [
     communityWsEventFixtures["community:message.create"],
     communityWsEventFixtures["community:unread.bump"],
@@ -88,7 +117,7 @@ describe("community WS batch transport contract", () => {
     expect(isCommunityDeliveryDigest("a".repeat(63))).toBe(false)
   })
 
-  it("round-trips one strict outer frame without entering the 45-event union", async () => {
+  it("round-trips one strict outer frame without entering the 46-event union", async () => {
     const operationId = await deriveCommunityDeliveryOperationId("message-1")
     const prepared = await prepareCommunityDeliveryEvents(children)
     expect(prepared.ok).toBe(true)
@@ -116,7 +145,7 @@ describe("community WS batch transport contract", () => {
     })
     expect(isCommunityBrowserEventBatchCandidate(encoded.batch)).toBe(true)
     expect(Object.values(WS_EVENTS)).not.toContain(COMMUNITY_BROWSER_EVENT_BATCH_TYPE)
-    expect(Object.values(WS_EVENTS)).toHaveLength(45)
+    expect(Object.values(WS_EVENTS)).toHaveLength(46)
   })
 
   it("rejects invalid count, child, operation metadata, digest mismatch, and strict outer keys", async () => {

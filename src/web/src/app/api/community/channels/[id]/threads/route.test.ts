@@ -37,7 +37,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityMessage: {
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
-        getMessagesByIds: (...a: unknown[]) => mockGetMessagesByIds(...a),
+        getMessagesByIdsInScope: (...a: unknown[]) => mockGetMessagesByIds(...a),
         getFirstMessageByChannelIds: (...a: unknown[]) => mockGetFirstMessageByChannelIds(...a),
         listMessages: (...a: unknown[]) => mockListMessages(...a),
       },
@@ -266,7 +266,7 @@ describe("GET /api/community/channels/[id]/threads", () => {
       parentChannelId: "c1",
       limit: 3,
     })
-    expect(mockGetMessagesByIds).toHaveBeenCalledWith(expect.anything(), ["m3", "m2"])
+    expect(mockGetMessagesByIds).toHaveBeenCalledWith(expect.anything(), ["m3", "m2"], { channelId: "c1" })
     expect(mockGetFirstMessageByChannelIds).toHaveBeenCalledWith(expect.anything(), ["t3", "t2"])
     expect(mockListParticipantsForChannels).toHaveBeenCalledWith(expect.anything(), ["t3", "t2"], 5)
 

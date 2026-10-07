@@ -529,6 +529,7 @@ function clearChannelTransientState(
   registry: CommunityDbRegistry,
   channelIds: ReadonlySet<string>,
   serverId: string | null,
+  preserveQuery?: Query,
 ) {
   const messageIds = new Set([
     ...takeMessageIdsForAccessScope(registry.queryClient, channelIds, serverId),
@@ -572,7 +573,7 @@ function clearChannelTransientState(
     const remembered = getLastMeLeaf()
     if (remembered && channelIds.has(remembered)) clearLastMeLocation()
   }
-  if (community.currentChannelId && channelIds.has(community.currentChannelId)) {
+  if (!preserveQuery && community.currentChannelId && channelIds.has(community.currentChannelId)) {
     registry.runtime.ui.actions.setCurrentChannelId(null)
   }
   const subscription = { ...community.subscription }
@@ -589,6 +590,7 @@ function clearChannelTransientState(
     registry.runtime.ui.actions.setPendingReply(null)
   }
   const predicate = (query: Query) => {
+    if (query === preserveQuery) return false
     const key = query.queryKey
     if (key[0] !== "community" || key[1] === "db") return false
     if ((key[1] === "channel" || key[1] === "dm") && channelIds.has(String(key[2]))) return true
@@ -1073,7 +1075,7 @@ export function ingestMessages(
         const parent = collectionRows(registry, "channels", channelSchema).find((row) => row.id === channelId)
         upsertRows(registry, "channels", channelSchema, (row) => row.id, [{ ...existing, id: thread.id, serverId: existing?.serverId ?? parent?.serverId, categoryId: null, name: thread.name, type: "thread", parentChannelId: channelId, parentMessageId: message.id, creatorId: existing?.creatorId ?? null, position: existing?.position ?? 0, archived: existing?.archived ?? false, tags: thread.tags ?? existing?.tags ?? [], muted: existing?.muted ?? false, unread: existing?.unread ?? false, pending: false, messageCount: thread.messageCount, ...(thread.lastReplyAt ? { lastMessageAt: thread.lastReplyAt } : {}), ...(thread.preview !== undefined ? { preview: thread.preview } : {}), ...(thread.participantCount !== undefined ? { participantCount: thread.participantCount } : {}) }])
       }
-      return { ...fields, type: message.type ?? "chat", channelId, replyToId: message.replyTo?.id }
+      return { ...fields, type: message.type ?? "chat", channelId, replyToId: message.replyTo?.id ?? null }
     })
   upsertRows(registry, "messages", messageSchema, (row) => row.id, rows)
   writeCanonicalProfilePatches(registry, messageProfilePatches(messages))
@@ -1686,9 +1688,9 @@ export function publishCommunityMembersSnapshot(queryClient: QueryClient, server
   })
 }
 
-export function publishCommunityChannelMembersSnapshot(queryClient: QueryClient, serverId: string, channelId: string, relation: "access" | "notify", members: readonly { id: string; userId: string; role: string; source: NonNullable<ChannelMembershipRow["source"]>; isCreator: boolean }[], proof: CommunityFreshQueryProof) {
+export function publishCommunityChannelMembersSnapshot(queryClient: QueryClient, serverId: string | null, channelId: string, relation: "access" | "notify", members: readonly { id: string; userId: string; role: string | null; source: NonNullable<ChannelMembershipRow["source"]>; isCreator: boolean }[], proof: CommunityFreshQueryProof) {
   assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
-  publishCommunityMembersSnapshot(queryClient, serverId, members, proof)
+  if (serverId) publishCommunityMembersSnapshot(queryClient, serverId, members.flatMap((member) => member.role === null ? [] : [{ ...member, role: member.role }]), proof)
   const registry = proof.token.registry!
   return withCanonicalWriteContext(queryClient, { kind: "query", requestRevision: proof.token.canonicalRevision, profileSnapshot: proof.token.profileSnapshot }, () => {
     replaceRows(registry, "channelMemberships", channelMembershipSchema, (row) => row.id, members.map((member) => ({ id: channelMembershipKey(channelId, member.userId, relation), channelId, userId: member.userId, relation, memberId: member.id, source: member.source, isCreator: member.isCreator })), (row) => row.channelId === channelId && row.relation === relation)
@@ -1905,11 +1907,13 @@ function qualifyCanonicalChannelMetadata(registry: CommunityDbRegistry, channelI
     const channel = registry.collections.channels.get(channelId)
     const membership = registry.collections.channelMemberships.get(channelMembershipKey(channelId, registry.accountId, "access"))
     if (!channel || channel.pending || channel.archived || !membership) continue
-    registry.queryClient.setQueryData(communityKeys.channelMeta(channel.serverId ?? null, channelId), (previous: { historyVerification?: unknown } | undefined) => ({
+    registry.queryClient.setQueryData(communityKeys.channelMeta(channel.serverId ?? null, channelId), (previous: { historyVerification?: unknown; fullReadVerification?: unknown } | undefined) => ({
       id: channel.id,
+      serverId: channel.serverId ?? null,
       verifiedEpoch: token.accessEpoch,
       verification: { ...token, channelId, generation: registry.runtime.ws.get().channelAccessScopes.get(channelId)?.generation ?? 0 },
       historyVerification: previous?.historyVerification,
+      fullReadVerification: previous?.fullReadVerification,
     }))
   }
 }
@@ -2656,7 +2660,7 @@ export function purgeCommunityServer(registry: CommunityDbRegistry, serverId: st
   })
 }
 
-export function purgeCommunityChannel(registry: CommunityDbRegistry, channelId: string, clearTransient = true) {
+export function purgeCommunityChannel(registry: CommunityDbRegistry, channelId: string, clearTransient = true, preserveQuery?: Query) {
   if (isProtectedFromQueryWrite(registry, "channels", channelId)) return
   const channels = collectionRows(registry, "channels", channelSchema)
   const root = channels.find((row) => row.id === channelId)
@@ -2666,7 +2670,7 @@ export function purgeCommunityChannel(registry: CommunityDbRegistry, channelId: 
       .filter((row) => row.id === channelId || row.parentChannelId === channelId)
       .map((row) => row.id),
   ])
-  if (clearTransient) clearChannelTransientState(registry, removed, root?.serverId ?? null)
+  if (clearTransient) clearChannelTransientState(registry, removed, root?.serverId ?? null, preserveQuery)
   notifyManager.batch(() => {
     deleteRows(registry, "channels", channelSchema, (row) => removed.has(row.id), [channelId])
     deleteRows(registry, "channelMemberships", channelMembershipSchema, (row) => removed.has(row.channelId))
@@ -2750,7 +2754,7 @@ export function projectCommunityWsEventToDb(
       return
     }
     case "community:message.create":
-      ingestMessages(registry, event.channelId, [projectCommunityMessageCreate(event.message)])
+      ingestMessages(registry, event.channelId, [projectCommunityMessageCreate(event.message, event.channelId)])
       if (event.message.createdAt) {
         patchRows(
           registry,
@@ -2950,6 +2954,7 @@ export function projectCommunityWsEventToDb(
       )
       return
     }
+    case "community:channel.membership.change":
     case "community:channel.member_add":
     case "community:channel.member_remove":
       // Relation ownership depends on resolved channel type. The membership

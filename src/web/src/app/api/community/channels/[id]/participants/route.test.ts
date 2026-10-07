@@ -91,7 +91,7 @@ describe("POST /channels/[id]/participants", () => {
     const res = await POST(postReq({ userId: "u2" }), ctx)
     expect(res.status).toBe(201)
     for (const [, event] of mockBroadcastToUserSafe.mock.calls) {
-      expect(Object.keys(event).sort()).toEqual(["channelId", "serverId", "type", "userId"])
+      expect(Object.keys(event).sort()).toEqual(["channelId", "present", "relation", "serverId", "type", "userId"])
       expect(decodeCommunityBrowserEvent(event).ok).toBe(true)
     }
     expect(mockAddThreadParticipant).toHaveBeenCalledWith(expect.anything(), {
@@ -99,7 +99,7 @@ describe("POST /channels/[id]/participants", () => {
     })
     expect(mockBroadcastToUserSafe).toHaveBeenCalledTimes(3)
     expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("u3", expect.objectContaining({
-      type: "community:channel.member_add",
+      type: "community:channel.membership.change", relation: "notify", present: true,
       userId: "u2",
     }))
   })

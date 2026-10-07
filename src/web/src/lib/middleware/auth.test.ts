@@ -11,7 +11,8 @@ vi.mock("@/lib/db", () => ({
   getPrimaryDb: vi.fn(() => ({ primary: true })),
 }));
 
-vi.mock("@alook/shared", () => ({
+vi.mock("@alook/shared", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@alook/shared")>(),
   createDb: vi.fn(() => ({})),
   queries: {
     machineToken: {

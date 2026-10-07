@@ -1,3 +1,5 @@
+import { requestsCommunityContractV2, CommunityReadAdvanceSchema } from "@alook/shared"
+import { writeCommunityContractJSON } from "@/lib/community/read-contract"
 import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -121,5 +123,6 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     })
   }
 
+  if (requestsCommunityContractV2(req.headers)) return writeCommunityContractJSON(CommunityReadAdvanceSchema.parse({ contractVersion: 2, channelId, changed, targetSeq: target.seq, revision }))
   return writeJSON({ changed, targetSeq: target.seq, revision })
 })

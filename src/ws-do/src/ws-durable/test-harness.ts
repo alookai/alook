@@ -10,7 +10,7 @@ const loggerMocks = vi.hoisted(() => ({
 const deliveryTransportMocks = vi.hoisted(() => ({
   encodePreparedCommunityBrowserEventBatch: vi.fn(),
 }))
-export const mockEncodePreparedCommunityBrowserEventBatch =
+export const mockEncodeCommunityBrowserEventBatchForContract =
   deliveryTransportMocks.encodePreparedCommunityBrowserEventBatch
 export const mockLogDebug = loggerMocks.mockLogDebug
 const mockLogInfo = loggerMocks.mockLogInfo
@@ -166,9 +166,9 @@ export const mockToSummary = vi.fn((row: any) => ({
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
-  mockEncodePreparedCommunityBrowserEventBatch.mockImplementation(
-    (input: Parameters<typeof actual.encodePreparedCommunityBrowserEventBatch>[0]) =>
-      actual.encodePreparedCommunityBrowserEventBatch(input),
+  mockEncodeCommunityBrowserEventBatchForContract.mockImplementation(
+    (input: Parameters<typeof actual.encodeCommunityBrowserEventBatchForContract>[0]) =>
+      actual.encodeCommunityBrowserEventBatchForContract(input),
   )
   const noopLogger = {
     debug: mockLogDebug,
@@ -302,9 +302,9 @@ vi.mock("@alook/shared", async () => {
   }
   return {
     ...actual,
-    encodePreparedCommunityBrowserEventBatch: (
-      input: Parameters<typeof actual.encodePreparedCommunityBrowserEventBatch>[0],
-    ) => mockEncodePreparedCommunityBrowserEventBatch(input),
+    encodeCommunityBrowserEventBatchForContract: (
+      input: Parameters<typeof actual.encodeCommunityBrowserEventBatchForContract>[0],
+    ) => mockEncodeCommunityBrowserEventBatchForContract(input),
     // Real WS event-type strings the DO reads at runtime (#5 T2 — ws-do
     // broadcasts now use WS_EVENTS.* instead of raw literals). Values match
     // @alook/shared so the event assertions still hold.

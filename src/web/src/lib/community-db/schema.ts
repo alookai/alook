@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { CommunityMessageResourceSchema } from "@alook/shared"
 import { PARTICIPANT_SOURCE } from "@alook/shared/constants/community"
 
 const nullableString = z.string().nullable()
@@ -103,21 +104,13 @@ export const profileSchema = z.object({
   statusText: optionalNullableString,
 })
 
-export const messageSchema = z.object({
-  id: z.string().min(1),
-  channelId: z.string().min(1),
-  type: z.enum(["chat", "system"]),
-  systemKind: z.literal("thread").optional(),
-  authorId: z.string().optional(),
-  authorName: z.string().optional(),
-  authorAvatar: z.string().optional(),
-  authorAvatarVersion: z.number().int().nonnegative().optional(),
-  seq: z.number().int().nonnegative().optional(),
-  createdAt: z.string().optional(),
+export const messageSchema = CommunityMessageResourceSchema.pick({
+  id: true, channelId: true, type: true, systemKind: true, authorId: true, authorName: true,
+  authorAvatar: true, authorAvatarVersion: true, seq: true, createdAt: true, content: true,
+}).partial({ authorId: true, seq: true, createdAt: true, content: true }).extend({
   clientNonce: z.string().optional(),
-  content: z.string().optional(),
   failed: z.boolean().optional(),
-  replyToId: z.string().optional(),
+  replyToId: z.string().nullable().optional(),
 }).loose()
 
 export const readStateSchema = z.object({

@@ -25,7 +25,7 @@ export type CommunityWsConnectionStatus = "connected" | "reconnecting" | "failed
 const NOOP_RECONNECT = () => undefined
 
 type ChannelAccessScope = {
-  serverId: string
+  serverId: string | null
   parentChannelId?: string | null
   generation: number
   revoked: boolean
@@ -35,13 +35,13 @@ type CommunityWsStoreState = {
   accessEpoch: number
   channelAccessScopes: Map<string, ChannelAccessScope>
   revokedServerIds: Set<string>
-  beginChannelMembershipChange: (serverId: string, channelId: string) => number
+  beginChannelMembershipChange: (serverId: string | null, channelId: string) => number
   observeChannelScope: (serverId: string, channelId: string, parentChannelId?: string | null) => void
   rememberChannelAccess: (serverId: string, channelId: string, parentChannelId?: string | null) => void
-  revokeChannelAccess: (serverId: string, channelId: string) => string[]
+  revokeChannelAccess: (serverId: string | null, channelId: string) => string[]
   revokeServerAccess: (serverId: string) => void
   grantServerAccess: (serverId: string) => void
-  isChannelAccessRevoked: (channelId: string, serverId?: string, parentChannelId?: string) => boolean
+  isChannelAccessRevoked: (channelId: string, serverId?: string | null, parentChannelId?: string) => boolean
   accessConnected: boolean
   connectionStatus: CommunityWsConnectionStatus
   reconnectNow: () => void

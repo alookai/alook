@@ -3,6 +3,26 @@ import { isInlineAttachmentContentType } from "./attachment-content-type"
 import { formatAttachmentSize } from "./attachment-presentation"
 import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
 
+export function parseCommunityMessageWindow(params: URLSearchParams) {
+  const supplied = ["cursor", "since", "anchor"].filter((key) => params.has(key))
+  const window = params.get("window") ?? (params.has("anchor") ? "around" : params.has("since") ? "after" : params.has("cursor") ? "before" : "tail")
+  if (!["tail", "before", "after", "around"].includes(window) || supplied.length > 1
+    || params.has("since") && window !== "after") throw new Error("invalid message window")
+  const rawCursor = window === "after" ? params.get("cursor") ?? params.get("since") : params.get("cursor")
+  const anchor = params.get("anchorMessageId") ?? params.get("anchor")
+  if ((window === "tail" && (rawCursor !== null || anchor !== null))
+    || (window === "around" && (rawCursor !== null || !anchor?.trim()))
+    || ((window === "before" || window === "after") && (!rawCursor || anchor !== null))) throw new Error("invalid message window inputs")
+  if (["before", "after", "around"].some((key) => params.has(key))) throw new Error("seq windows require community contract v1")
+  const cursor = rawCursor ? parseCursor(rawCursor) : undefined
+  if (rawCursor && (!cursor || rawCursor.split("|").length !== 2 || !Number.isFinite(Date.parse(cursor.createdAt)))) throw new Error("invalid message cursor")
+  const rawLimit = params.get("limit")
+  const limit = rawLimit === null ? DEFAULT_MESSAGE_PAGE_SIZE : Number(rawLimit)
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_MESSAGE_PAGE_SIZE) throw new Error("invalid message limit")
+  return { anchorId: window === "around" ? anchor!.trim() : undefined,
+    since: window === "after" ? cursor : undefined, cursor: window === "before" ? cursor : undefined, pageSize: limit }
+}
+
 // Parse cursor from query params (format: "createdAt|id")
 export function parseCursor(cursorParam: string | null): { createdAt: string; id: string } | undefined {
   if (!cursorParam) return undefined

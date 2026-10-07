@@ -609,6 +609,7 @@ export type {
   CommunityChannelReorder,
   CommunityChannelMemberAdd,
   CommunityChannelMemberRemove,
+  CommunityChannelMembershipChange,
   CommunityCategoryCreate,
   CommunityCategoryUpdate,
   CommunityCategoryDelete,
@@ -670,6 +671,7 @@ export type {
   CommunityBrowserEventBatchDecodeResult,
 } from "./community-ws-bundle";
 export {
+  COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE,
   COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
   COMMUNITY_DELIVERY_OPERATION_ID_PREFIX,
   COMMUNITY_DELIVERY_OPERATION_ID_HEADER,
@@ -686,6 +688,9 @@ export {
   encodePreparedCommunityBrowserEventBatch,
   isCommunityBrowserEventBatchCandidate,
   decodeCommunityBrowserEventBatch,
+  verifyCommunityBrowserEventBatchV2,
+  projectCommunityEventForContract,
+  encodeCommunityBrowserEventBatchForContract,
 } from "./community-ws-bundle";
 
 // Database
@@ -816,3 +821,5 @@ export { parseReleaseVersion, releaseVersionGte, semverGte } from "./semver";
 export type { ReleaseVersion } from "./semver";
 export { resolveMode, cliCommand, cliPackageName, updateCommand, daemonCommand, getBaseUrl, isTauri, isDesktop, isMobile, tauriInvoke } from "./mode";
 export type { AlookMode, ModeSignals, BaseUrlSignals } from "./mode";
+export { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION, requestsCommunityContractV2 } from "./community-contract";
+export * from "./community-resources";

@@ -2,8 +2,9 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { FORUM_ARCHIVE_TAG, isForum, queries, MAX_FORUM_TAG_LENGTH } from "@alook/shared"
-import { requireChannelAccess } from "@/lib/community/permissions"
+import { FORUM_ARCHIVE_TAG, isForum, queries, MAX_FORUM_TAG_LENGTH, requestsCommunityContractV2 } from "@alook/shared"
+import { requireChannelAccess, requireMessageSurfaceAccess } from "@/lib/community/permissions"
+import { writeCommunityThreadsRead } from "@/lib/community/thread-read"
 import { parseBoundedInt } from "@/lib/community/messages"
 import { encodeForumCreatedAtCursor, parseForumCreatedAtCursor } from "@/lib/community/forum-feed-cursor"
 
@@ -16,8 +17,20 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   // Gate through the shared access predicate: a channel in a PRIVATE category
   // must not leak its thread titles/previews to non-members. Public channels
   // behave as before (any server member).
-  const access = await requireChannelAccess(db, channelId, ctx.userId)
-  if (!access.ok) return writeError(access.error, access.status)
+  const version2 = requestsCommunityContractV2(req.headers)
+  const channel = await (async () => {
+    if (version2) {
+      const access = await requireMessageSurfaceAccess(db, channelId, ctx.userId)
+      if (!access.ok) return writeError(access.error, access.status)
+      return access.value.surface === "channel" ? access.value.channel
+        : await queries.communityChannel.getChannelForMember(db, channelId, ctx.userId)
+    }
+    const access = await requireChannelAccess(db, channelId, ctx.userId)
+    return access.ok ? access.value.channel : writeError(access.error, access.status)
+  })()
+  if (channel instanceof Response) return channel
+  if (!channel) return writeError("not found", 404)
+  if (version2 && channel.type === "dm") return writeCommunityThreadsRead(db, ctx.userId, channel, [])
 
   const archivedParam = req.nextUrl.searchParams.get("archived")
   const archived = archivedParam === "true" ? true : archivedParam === "false" ? false : undefined
@@ -31,7 +44,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   if (order !== null && order !== "createdAt") return writeError("invalid order", 400)
 
   if (order === "createdAt") {
-    if (!isForum(access.value.channel.type)) return writeError("not a forum", 400)
+    if (!isForum(channel.type)) return writeError("not a forum", 400)
     if (archived === true) return writeError("createdAt order only supports active threads", 400)
     const includes = new Set(
       (req.nextUrl.searchParams.get("include") ?? "")
@@ -74,10 +87,10 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     const threadIds = threads.map((thread) => thread.id)
     const [parentMessages, firstMessages, tags, participants] = await Promise.all([
       includes.has("parentMessage")
-        ? queries.communityMessage.getMessagesByIds(db, parentMessageIds)
+        ? queries.communityMessage.getMessagesByIdsInScope(db, parentMessageIds, { channelId })
         : Promise.resolve([]),
       includes.has("firstMessage")
-        ? queries.communityMessage.getFirstMessageByChannelIds(db, threadIds)
+        ? version2 ? queries.communityMessage.getFirstMessageResourcesByChannelIds(db, threadIds) : queries.communityMessage.getFirstMessageByChannelIds(db, threadIds)
         : Promise.resolve([]),
       includes.has("tags")
         ? queries.communityMessageTag.listTagsForMessages(db, parentMessageIds)
@@ -87,9 +100,13 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
         : Promise.resolve([]),
     ])
 
+    if (version2) {
+      const firstResources = firstMessages.filter((row): row is Extract<typeof row, { id: string }> => "id" in row)
+      return writeCommunityThreadsRead(db, ctx.userId, channel, threads, { messages: [...parentMessages, ...firstResources], tags, participants }, { hasMore, nextCursor: nextCursor ?? null })
+    }
     return writeJSON({
-      serverId: access.value.channel.serverId,
-      parentType: access.value.channel.type,
+      serverId: channel.serverId,
+      parentType: channel.type,
       threads,
       included: { parentMessages, firstMessages, tags, participants },
       hasMore,
@@ -102,7 +119,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     type: "thread",
   })
 
-  const forum = isForum(access.value.channel.type)
+  const forum = isForum(channel.type)
   const openerIds = childChannels.map((child) => child.parentMessageId).filter((id): id is string => !!id)
   const archivedOpeners = forum
     ? new Set(await queries.communityMessageTag.filterMessageIdsByTag(db, openerIds, FORUM_ARCHIVE_TAG))
@@ -126,9 +143,10 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   // Plain nested collection representation. View-specific parent previews,
   // first messages, tags, participants, and creator presentation are composed
   // by consumers through the generic batch resource reads.
+  if (version2) return writeCommunityThreadsRead(db, ctx.userId, channel, childChannels)
   return writeJSON({
-    serverId: access.value.channel.serverId,
-    parentType: access.value.channel.type,
+    serverId: channel.serverId,
+    parentType: channel.type,
     threads: childChannels,
   })
 })

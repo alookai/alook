@@ -108,8 +108,9 @@ export function DmView({ dmId }: { dmId: string }) {
   const { friends: rawFriends, blocked } = useFriends()
   const dm = useMemo(() => dms.find((candidate) => candidate.id === dmId) ?? null, [dms, dmId])
   const dmBlocked = !!dm && blocked.some((b) => (b.userId ?? b.id) === dm.userId)
-  const historyAllowed = !dmBlocked && metadata.isVerified && !!metadata.data?.historyVerification
-    && isChannelMetadataTokenCurrent(metadata.data.historyVerification)
+  const readingProof = metadata.data?.fullReadVerification ?? metadata.data?.historyVerification
+  const historyAllowed = !dmBlocked && metadata.isVerified && !!readingProof
+    && isChannelMetadataTokenCurrent(readingProof)
   const profilesByUserId = useCanonicalProfilesByUserId()
   // Enrich with presence — the Composer @-picker uses `f.status` to render
   // the avatar presence dot; without this enrichment every avatar shows offline.

@@ -51,6 +51,7 @@ export function useChannelMetadata(serverId: string | null, channelId: string | 
         verifiedEpoch: query.data?.verifiedEpoch ?? -1,
         verification: query.data?.verification,
         historyVerification: query.data?.historyVerification,
+        fullReadVerification: query.data?.fullReadVerification,
         parentChannelId: canonical.parentChannelId ?? null,
         parentMessageId: canonical.parentMessageId ?? null,
         creatorId: canonical.creatorId ?? null,

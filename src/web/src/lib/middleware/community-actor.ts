@@ -3,7 +3,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { getDb } from "@/lib/db"
 import { withAuth, type AuthContext } from "./auth"
 import { resolveBotActor } from "./community-agent-runner-auth"
-import { varyPrivateResponseByCredentials } from "./response-cache"
+import { protectCommunityJsonResponse, rejectUnknownCommunityContract, varyPrivateResponseByCredentials } from "./response-cache"
 
 /**
  * The unified community actor — the single identity a `/api/community/*` route
@@ -79,6 +79,14 @@ export type CommunityActorHandler = (
 export function withCommunityActor(
   handler: CommunityActorHandler,
   options: { allowInactiveBot?: boolean } = {},
+) {
+  const authenticate = createCommunityActorHandler(handler, options)
+  return async (...args: Parameters<typeof authenticate>) => protectCommunityJsonResponse(args[0], rejectUnknownCommunityContract(args[0]) ?? await authenticate(...args))
+}
+
+function createCommunityActorHandler(
+  handler: CommunityActorHandler,
+  options: { allowInactiveBot?: boolean },
 ) {
   return async (
     req: NextRequest,
