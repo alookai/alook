@@ -13,6 +13,7 @@ export const pageRoutes = [
   "/c/me/friends",
   "/c/me/machines",
   "/c/onboarding-preview",
+  "/contact",
   "/device",
   "/landing-legacy",
   "/onboarding-preview",
