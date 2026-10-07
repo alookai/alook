@@ -337,7 +337,6 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
   const secondaryCards = showSelfRunningBots ? (
     <ProfileRunningBotsCard
       onOpenBotAudit={onOpenBotAudit}
-      useBackdropEffect={!mobile}
     />
   ) : showOwnedBotCard && data.userId ? (
     <BotMarkSticker

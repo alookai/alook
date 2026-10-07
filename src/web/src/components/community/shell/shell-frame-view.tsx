@@ -87,7 +87,6 @@ export function ShellFrameView({
   const profileCompanionElement = profileInExtension && runningBots.length > 0 ? (
     <ProfileRunningBotsCard
       onOpenBotAudit={profile.openBotAudit}
-      useBackdropEffect={breakpoint !== "mobile"}
       showShadow={breakpoint !== "mobile"}
     />
   ) : null
