@@ -30,6 +30,20 @@ function properties(text) {
   return values
 }
 
+function applicationJvmTarget(app) {
+  for (const [label, pattern] of [
+    ["Java source", /^\s*sourceCompatibility\s*=\s*JavaVersion\.VERSION_([A-Z0-9_]+)\s*$/gm],
+    ["Java target", /^\s*targetCompatibility\s*=\s*JavaVersion\.VERSION_([A-Z0-9_]+)\s*$/gm],
+    ["Kotlin target", /^\s*jvmTarget\s*=\s*"([0-9.]+)"\s*$/gm],
+  ]) {
+    const targets = [...app.matchAll(pattern)]
+    if (targets.length !== 1 || targets[0][1] !== "11") {
+      throw new Error(`Android application requires explicit Java/Kotlin JVM target 11 (${label})`)
+    }
+  }
+  return "11"
+}
+
 export function verifyAndroidProject(project) {
   const root = read(project, "build.gradle.kts")
   const buildSrc = read(project, "buildSrc/build.gradle.kts")
@@ -47,7 +61,8 @@ export function verifyAndroidProject(project) {
     if (config.get(name) !== "false") throw new Error(`Android compatibility requires ${name}=false`)
   }
   read(project, "app/proguard-rules.pro")
-  return { agp, supportAgp, kotlin, gradle: "9.6.1", builtInKotlin: false, newDsl: false, failOnMissingProguardFiles: false }
+  const jvmTarget = applicationJvmTarget(read(project, "app/build.gradle.kts"))
+  return { agp, supportAgp, kotlin, gradle: "9.6.1", builtInKotlin: false, newDsl: false, failOnMissingProguardFiles: false, jvmTarget }
 }
 
 export function main(argv = process.argv.slice(2), runtime = process) {

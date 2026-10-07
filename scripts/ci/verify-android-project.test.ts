@@ -39,10 +39,22 @@ describe("post-init Android toolchain validation", () => {
     const app = readFileSync(join(root, "app/build.gradle.kts"))
     const manifest = readFileSync(join(root, "app/src/main/AndroidManifest.xml"))
     expect(verifyAndroidProject(root)).toEqual({
-      agp: "9.3.1", supportAgp: "9.3.1", kotlin: "2.2.10", gradle: "9.6.1", builtInKotlin: false, newDsl: false, failOnMissingProguardFiles: false,
+      agp: "9.3.1", supportAgp: "9.3.1", kotlin: "2.2.10", gradle: "9.6.1", builtInKotlin: false, newDsl: false, failOnMissingProguardFiles: false, jvmTarget: "11",
     })
     expect(readFileSync(join(root, "app/build.gradle.kts"))).toEqual(app)
     expect(readFileSync(join(root, "app/src/main/AndroidManifest.xml"))).toEqual(manifest)
+  })
+
+  it.each([
+    ['jvmTarget = "11"', 'jvmTarget = "1.8"'],
+    ["targetCompatibility = JavaVersion.VERSION_11", "targetCompatibility = JavaVersion.VERSION_1_8"],
+    ["sourceCompatibility = JavaVersion.VERSION_11", "sourceCompatibility = JavaVersion.VERSION_17"],
+    ["targetCompatibility = JavaVersion.VERSION_11", ""],
+    ['jvmTarget = "11"', 'jvmTarget = "11"\n        jvmTarget = "1.8"'],
+  ])("rejects missing or conflicting application JVM target: %s", (before, after) => {
+    const root = fixture()
+    change(root, "app/build.gradle.kts", before, after)
+    expect(() => verifyAndroidProject(root)).toThrow("Android application requires explicit Java/Kotlin JVM target 11")
   })
 
   it.each([
@@ -127,5 +139,15 @@ describe("post-init Android toolchain validation", () => {
     const invalid = spawnSync(process.execPath, [helper, "--project", root], { encoding: "utf8" })
     expect(invalid.status).not.toBe(0)
     expect(invalid.stderr).toContain("android.builtInKotlin=false")
+  })
+
+  it("rejects the real Java11/Kotlin1.8 release blocker through the prebuild CLI", () => {
+    const root = fixture()
+    const helper = resolve(import.meta.dirname, "verify-android-project.mjs")
+    change(root, "app/build.gradle.kts", 'jvmTarget = "11"', 'jvmTarget = "1.8"')
+    const invalid = spawnSync(process.execPath, [helper, "--project", root], { encoding: "utf8" })
+    expect(invalid.status).not.toBe(0)
+    expect(invalid.stdout).toBe("")
+    expect(invalid.stderr).toContain("Android application requires explicit Java/Kotlin JVM target 11 (Kotlin target)")
   })
 })
