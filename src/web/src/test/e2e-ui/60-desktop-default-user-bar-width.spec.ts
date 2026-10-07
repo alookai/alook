@@ -1,6 +1,7 @@
 import type { Page, Request, Route, TestInfo } from "@playwright/test"
 import { expect, test, userId } from "./_fixtures/community-fixture"
 import { gotoAfterUserWsAuth, waitForElementMotion } from "./_fixtures/actions"
+import { expectUniqueSsrInitialFrame } from "./_fixtures/community-ssr-frame"
 import { COMMUNITY_LAYOUT_STORAGE_KEY } from "@/components/community/shell/shell-frame-geometry"
 import {
   memberInfo,
@@ -416,7 +417,7 @@ test.describe.serial("desktop default User Bar width", () => {
 
       await page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
       await expect.poll(scripts.hits).toBeGreaterThan(0)
-      const pendingFrame = page.getByTestId(tid.initialFrame)
+      const pendingFrame = await expectUniqueSsrInitialFrame(page)
       await expect(pendingFrame).toBeVisible()
       await expect.poll(async () => (
         (await page.evaluate(() => (
@@ -1048,7 +1049,7 @@ test.describe.serial("desktop default User Bar width", () => {
         await pending.page.goto(`/c/channels/${serverId}`, { waitUntil: "commit" })
         await expect.poll(scripts.hits).toBeGreaterThan(0)
         expect(scripts.sessionRequests()).toBe(0)
-        const pendingFrame = pending.page.getByTestId(tid.initialFrame)
+        const pendingFrame = await expectUniqueSsrInitialFrame(pending.page)
         await expect(pendingFrame).toBeVisible()
         await expect(pendingFrame).toHaveAttribute("aria-busy", "true")
         await expect(pendingFrame).toHaveAttribute("data-community-route-kind", "server-root")
