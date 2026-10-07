@@ -12,6 +12,7 @@ import {
 } from "./_fixtures/seed"
 import {
   communityFrameEvents,
+  isCommunityBatchFrame,
   proxyCommunityWebSockets,
 } from "./_fixtures/community-ws-proxy"
 
@@ -238,7 +239,7 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     expect(await stopWatchingA()).toBe(false)
 
     await expect.poll(() => proxy.frames.slice(frameStart).filter((frame) => (
-      frame.type === "community:events.batch"
+      isCommunityBatchFrame(frame)
       && communityFrameEvents(frame).some((event) => (
         event.type === "community:message.create"
         && [messageA, messageB, messageDm].includes(event.message?.id ?? "")

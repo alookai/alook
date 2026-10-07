@@ -121,12 +121,14 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
   it("404 when attachmentId is missing", async () => {
     const res = await GET(req({ Authorization: "Bearer crk_abc" }), ctx(undefined))
     expect(res.status).toBe(404)
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
   })
 
   it("404 when the id doesn't exist (bot)", async () => {
     mockGetAttachmentById.mockResolvedValue(null)
     const res = await GET(req({ Authorization: "Bearer crk_abc" }), ctx())
     expect(res.status).toBe(404)
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
     expect(await res.json()).toEqual({ error: "attachment not found" })
   })
 
@@ -143,6 +145,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
 
     const res = await GET(req({ Authorization: "Bearer crk_abc" }), ctx("att_1", "c1"))
     expect(res.status).toBe(404)
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
     // The membership gate was called with the ROW's message channel, not "c1".
     expect(mockRequireChannelMember).toHaveBeenCalledWith({}, "c_real", "bot_1")
     // No path-id was consulted for authz.
@@ -154,6 +157,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     mockGetAttachmentById.mockResolvedValue(persistedRow({ messageId: null, uploaderId: "other" }))
     const res = await GET(req({ Authorization: "Bearer crk_abc" }), ctx())
     expect(res.status).toBe(404)
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
     expect(await res.json()).toEqual({ error: "attachment not found" })
     expect(mockR2Get).not.toHaveBeenCalled()
   })
@@ -163,6 +167,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     mockR2Get.mockResolvedValue(r2Object())
     const res = await GET(req({ Authorization: "Bearer crk_abc" }), ctx())
     expect(res.status).toBe(200)
+    expect(res.headers.get("Vary")).toBe("Authorization")
     expect(res.headers.get("Content-Type")).toBe("image/png")
     expect(res.headers.get("Content-Length")).toBe("10")
     expect(res.headers.get("X-Alook-Filename")).toBe(encodeURIComponent("a.png"))
@@ -182,6 +187,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     const res = await GET(req({ Authorization: "Bearer crk_abc", Range: "bytes=2-4" }), ctx())
 
     expect(res.status).toBe(200)
+    expect(res.headers.get("Vary")).toBe("Authorization")
     expect(mockR2Get).toHaveBeenCalledWith("channel/c_row/uuid/a.png")
     expect(res.headers.get("X-Alook-Filename")).toBe(encodeURIComponent("clip.mp4"))
     expect(res.headers.get("Content-Range")).toBeNull()
@@ -193,6 +199,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     mockR2Get.mockResolvedValue(r2Object())
     const res = await GET(req({ Authorization: "Bearer crk_abc" }), ctx())
     expect(res.status).toBe(200)
+    expect(res.headers.get("Vary")).toBe("Authorization")
     const encoded = res.headers.get("X-Alook-Filename")
     expect(encoded).toBeTruthy()
     expect(decodeURIComponent(encoded!)).toBe("图表.png")
@@ -206,6 +213,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     mockR2Get.mockResolvedValue(r2Object())
     const res = await GET(req(), ctx()) // no crk_ → human arm
     expect(res.status).toBe(200)
+    expect(res.headers.get("Vary")).toBe("Authorization")
     expect(res.headers.get("Content-Type")).toBe("image/png")
     expect(res.headers.get("Content-Disposition")).toBe("inline")
     expect(res.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable")
@@ -220,6 +228,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     mockR2Get.mockResolvedValue(r2Object({ httpMetadata: { contentType: "application/pdf" } }))
     const res = await GET(req(), ctx())
     expect(res.status).toBe(200)
+    expect(res.headers.get("Vary")).toBe("Authorization")
     expect(res.headers.get("Content-Disposition")).toBe("attachment; filename=\"doc.pdf\"; filename*=UTF-8''doc.pdf")
   })
 
@@ -229,6 +238,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     mockR2Get.mockResolvedValue(r2Object({ size: bytes.length }, bytes))
     const res = await GET(req(), ctx())
     expect(res.status).toBe(200)
+    expect(res.headers.get("Vary")).toBe("Authorization")
     expect(decodeURIComponent(res.headers.get("Content-Disposition")!.split("filename*=UTF-8''")[1])).toBe(filename)
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes)
   })
@@ -245,6 +255,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     const res = await GET(req(), ctx())
 
     expect(res.status).toBe(200)
+    expect(res.headers.get("Vary")).toBe("Authorization")
     expect(res.headers.get("Content-Type")).toBe("video/mp4")
     expect(res.headers.get("Content-Disposition")).toBe("inline")
     expect(res.headers.get("Accept-Ranges")).toBe("bytes")
@@ -264,6 +275,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     const res = await GET(req(), ctx())
 
     expect(res.status).toBe(200)
+    expect(res.headers.get("Vary")).toBe("Authorization")
     expect(res.headers.get("Content-Type")).toBe("audio/mp4")
     expect(res.headers.get("Content-Disposition")).toBe("inline")
     expect(res.headers.get("Accept-Ranges")).toBe("bytes")
@@ -285,6 +297,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     const res = await GET(req({ Range: range }), ctx())
 
     expect(res.status).toBe(206)
+    expect(res.headers.get("Vary")).toBe("Authorization")
     expect(mockR2Get).toHaveBeenCalledWith("channel/c_row/uuid/a.png", { range: { offset, length } })
     expect(res.headers.get("Content-Range")).toBe(contentRange)
     expect(res.headers.get("Content-Length")).toBe(String(length))
@@ -307,6 +320,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     const res = await GET(req({ Range: range }), ctx())
 
     expect(res.status).toBe(416)
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
     expect(res.headers.get("Content-Range")).toBe("bytes */10")
     expect(res.headers.get("Accept-Ranges")).toBe("bytes")
     expect(mockR2Get).not.toHaveBeenCalled()
@@ -323,6 +337,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     expect(mockR2Head).toHaveBeenCalledWith("channel/c_row/uuid/a.png")
     expect(mockR2Get).toHaveBeenCalledWith("channel/c_row/uuid/a.png", { range: { offset: 4, length: 3 } })
     expect(res.status).toBe(206)
+    expect(res.headers.get("Vary")).toBe("Authorization")
     expect(res.headers.get("Content-Range")).toBe("bytes 4-6/10")
   })
 
@@ -333,6 +348,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     const res = await GET(req({ Range: "bytes=0-2" }), ctx())
 
     expect(res.status).toBe(502)
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
     expect(mockR2Get).toHaveBeenCalledWith("channel/c_row/uuid/a.png", { range: { offset: 0, length: 3 } })
   })
 
@@ -343,6 +359,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     const res = await GET(req({ Range: "bytes=2-4" }), ctx())
 
     expect(res.status).toBe(200)
+    expect(res.headers.get("Vary")).toBe("Authorization")
     expect(res.headers.get("Content-Disposition")).toBe("attachment; filename=\"doc.pdf\"; filename*=UTF-8''doc.pdf")
     expect(res.headers.get("Accept-Ranges")).toBeNull()
     expect(res.headers.get("Content-Range")).toBeNull()
@@ -357,6 +374,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     mockR2Get.mockResolvedValue(r2Object())
     const res = await GET(req({ Authorization: "Bearer crk_abc" }), ctx())
     expect(res.status).toBe(200)
+    expect(res.headers.get("Vary")).toBe("Authorization")
     expect(mockRequireDMAccess).toHaveBeenCalledWith({}, "dm_1", "bot_1")
     expect(mockRequireChannelMember).not.toHaveBeenCalled()
   })
@@ -366,12 +384,14 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     mockR2Get.mockResolvedValue(null)
     const res = await GET(req({ Authorization: "Bearer crk_abc" }), ctx())
     expect(res.status).toBe(502)
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
   })
 
   it("getAttachmentById throws → 500 JSON envelope (no binary body leak)", async () => {
     mockGetAttachmentById.mockRejectedValueOnce(new Error("d1_transient"))
     const res = await GET(req({ Authorization: "Bearer crk_abc" }), ctx())
     expect(res.status).toBe(500)
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
     expect(await res.json()).toEqual({ error: "internal error", code: "internal" })
   })
 
@@ -386,6 +406,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     )
     const res = await GET(req({ Authorization: "Bearer crk_abc" }), ctx())
     expect(res.status).toBe(500)
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
     expect(await res.json()).toEqual({ error: "internal error", code: "internal" })
   })
 })

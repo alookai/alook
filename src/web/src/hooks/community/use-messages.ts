@@ -664,8 +664,7 @@ function useMessagesInner(
     if (!jumpPending || !presentOverride) return
     const first = query.data?.pages[0]
     if (!first) return
-    const isNewestShape = first.hasMore !== undefined && first.hasMoreOlder === undefined
-    if (!isNewestShape) return
+    if (query.data?.pageParams[0]?.mode !== "newest") return
     snapshotRef.current = null
     setPresentOverride((current) =>
       current?.attemptId === presentOverride.attemptId

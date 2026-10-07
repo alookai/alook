@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen } from "@/test/react-dom-harness"
 import { RemoteContentImage, RemoteIdentityImage } from "./remote-image"
 import { RemoteMarkdownImage } from "./remote-markdown-image"
+import { ApplicationOwnerProvider, createApplicationOwner } from "@/lib/application-owner"
 
 function setImageMetrics(
   image: HTMLImageElement,
@@ -132,35 +133,64 @@ describe("remote image state adapters", () => {
     expect(contentImage(rendered.container)).toHaveAttribute("data-remote-image-state", "ready")
   })
 
-  it("does not start a lazy timeout until the frame becomes viewport-eligible", async () => {
+  it.each([
+    { name: "identity", element: () => React.createElement(RemoteIdentityImage, { src: "/slow-avatar.png", alt: "Avatar" }) },
+    { name: "eager content", element: () => React.createElement(RemoteContentImage, { src: "/slow-eager.png", alt: "Eager", loading: "eager" }) },
+    { name: "lazy content", element: () => React.createElement(RemoteContentImage, { src: "/slow-lazy.png", alt: "Lazy", loading: "lazy" }) },
+    { name: "Markdown", element: () => React.createElement(RemoteMarkdownImage, { src: "/slow-markdown.png", alt: "Markdown" }) },
+  ])("keeps $name pending beyond five seconds and reveals its late decoded success", async ({ element }) => {
     vi.useFakeTimers()
-    let observe!: IntersectionObserverCallback
-    vi.stubGlobal("IntersectionObserver", class {
-      constructor(callback: IntersectionObserverCallback) {
-        observe = callback
-      }
-      observe() {}
-      disconnect() {}
-      unobserve() {}
-      takeRecords() { return [] }
-      readonly root = null
-      readonly rootMargin = "300px"
-      readonly thresholds = [0]
-    })
+    let finishDecode!: () => void
+    const decode = new Promise<void>((resolve) => { finishDecode = resolve })
+    const owner = createApplicationOwner("slow-image-viewer")
+    const rendered = render(React.createElement(ApplicationOwnerProvider, { owner }, element()))
+    const image = rendered.container.querySelector<HTMLImageElement>("img")!
+    await act(async () => vi.advanceTimersByTime(30_000))
+    expect(image).toHaveAttribute("data-remote-image-state", "pending")
+    expect(image).toHaveClass("opacity-0")
+    expect(rendered.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument()
 
-    const rendered = render(React.createElement(RemoteContentImage, {
-      src: "/below-the-fold.png",
-      alt: "Below the fold",
-      loading: "lazy",
-      timeoutMs: 100,
-      frameStyle: { width: 300, aspectRatio: "4/3" },
-    }))
-    await act(async () => vi.advanceTimersByTime(500))
+    setImageMetrics(image, () => decode)
+    fireEvent.load(image)
+    await act(async () => vi.advanceTimersByTime(30_000))
+    expect(image).toHaveAttribute("data-remote-image-state", "pending")
+    await act(async () => { finishDecode(); await decode })
+    expect(image).toHaveAttribute("data-remote-image-state", "ready")
+    expect(image).toHaveClass("opacity-100")
+    rendered.unmount()
+    owner.queryClient.clear()
+  })
+
+  it("keeps lazy loading native while a real decode failure remains retryable", async () => {
+    const rendered = render(React.createElement(RemoteContentImage, { src: "/decode.png", alt: "Photo", loading: "lazy" }))
+    const image = contentImage(rendered.container)
+    expect(image).toHaveAttribute("loading", "lazy")
+    setImageMetrics(image, () => Promise.reject(new Error("decode failed")))
+    fireEvent.load(image)
+    await act(async () => { await Promise.resolve() })
+    expect(image).toHaveAttribute("data-remote-image-state", "error")
+    fireEvent.click(rendered.getByRole("button", { name: "Retry" }))
+    expect(contentImage(rendered.container)).toHaveAttribute("src", "/decode.png")
     expect(contentImage(rendered.container)).toHaveAttribute("data-remote-image-state", "pending")
+  })
 
-    act(() => observe([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver))
-    await act(async () => vi.advanceTimersByTime(100))
-    expect(contentImage(rendered.container)).toHaveAttribute("data-remote-image-state", "error")
+  it("ignores a late decoded success after the source changes", async () => {
+    let finishOldDecode!: () => void
+    const oldDecode = new Promise<void>((resolve) => { finishOldDecode = resolve })
+    const element = (src: string) => React.createElement(RemoteContentImage, { src, alt: "Photo" })
+    const rendered = render(element("/old.png"))
+    const oldImage = contentImage(rendered.container)
+    setImageMetrics(oldImage, () => oldDecode)
+    fireEvent.load(oldImage)
+    rendered.rerender(element("/new.png"))
+    await act(async () => { finishOldDecode(); await oldDecode })
+    const current = contentImage(rendered.container)
+    expect(current).toHaveAttribute("src", "/new.png")
+    expect(current).toHaveAttribute("data-remote-image-state", "pending")
+    setImageMetrics(current)
+    fireEvent.load(current)
+    await act(async () => { await Promise.resolve() })
+    expect(current).toHaveAttribute("data-remote-image-state", "ready")
   })
 
   it("rejects a decoded image without natural pixels", async () => {

@@ -58,6 +58,7 @@ describe("GET /api/artifacts/[id]/thumbnail", () => {
     );
 
     expect(res.status).toBe(200);
+    expect(res.headers.get("Vary")).toBe("Authorization");
     expect(res.headers.get("Content-Type")).toBe("image/jpeg");
     expect(res.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable");
     expect(mockBucketGet).toHaveBeenCalledWith("artifacts/w1/ag1/c1/art_1/thumbnail.jpg");
@@ -77,6 +78,7 @@ describe("GET /api/artifacts/[id]/thumbnail", () => {
     );
 
     expect(res.status).toBe(404);
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
     expect(mockBucketGet).not.toHaveBeenCalled();
   });
 
@@ -89,6 +91,7 @@ describe("GET /api/artifacts/[id]/thumbnail", () => {
     );
 
     expect(res.status).toBe(404);
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
   });
 
   it("returns 404 when agent not accessible to user", async () => {
@@ -105,5 +108,6 @@ describe("GET /api/artifacts/[id]/thumbnail", () => {
     );
 
     expect(res.status).toBe(404);
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
   });
 });

@@ -78,12 +78,14 @@ describe("GET /api/community/users/[userId]/avatar", () => {
     isAuthed = false
     const res = await GET(getReq(), ctx("u1"))
     expect(res.status).toBe(401)
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
     expect(mediaGet).not.toHaveBeenCalled()
   })
 
   it("serves the avatar by the deterministic user-avatar/{userId} key for ANY authenticated caller (not just self)", async () => {
     const res = await GET(getReq(), ctx("u1"))
     expect(res.status).toBe(200)
+    expect(res.headers.get("Vary")).toBe("Authorization")
     expect(res.headers.get("Content-Type")).toBe("image/webp")
     expect(mediaGet).toHaveBeenCalledWith("user-avatar/u1")
   })
@@ -91,6 +93,7 @@ describe("GET /api/community/users/[userId]/avatar", () => {
   it("returns 400 when the userId route param is missing", async () => {
     const res = await GET(getReq(), ctx(undefined))
     expect(res.status).toBe(400)
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
     expect(mediaGet).not.toHaveBeenCalled()
   })
 
@@ -98,6 +101,7 @@ describe("GET /api/community/users/[userId]/avatar", () => {
     mediaGet.mockResolvedValue(null)
     const res = await GET(getReq(), ctx("u1"))
     expect(res.status).toBe(404)
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
   })
 
   it("returns 404 before R2 for an inconsistent version/object-key pair", async () => {
@@ -109,6 +113,7 @@ describe("GET /api/community/users/[userId]/avatar", () => {
     const res = await GET(getReq(4), ctx("u1"))
 
     expect(res.status).toBe(404)
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
     expect(mediaGet).not.toHaveBeenCalled()
   })
 
@@ -135,6 +140,7 @@ describe("GET /api/community/users/[userId]/avatar", () => {
     const res = await GET(getReq(3), ctx("u1"))
 
     expect(res.status).toBe(200)
+    expect(res.headers.get("Vary")).toBe("Authorization")
     expect(res.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable")
     expect(mediaGet).toHaveBeenCalledWith("user-avatar/u1/objects/object-3")
   })
@@ -143,6 +149,7 @@ describe("GET /api/community/users/[userId]/avatar", () => {
     const res = await GET(getReq(3), ctx("u1"))
 
     expect(res.status).toBe(307)
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
     expect(res.headers.get("Location")).toBe("/api/community/users/u1/avatar")
     expect(mediaGet).not.toHaveBeenCalled()
   })
@@ -160,6 +167,7 @@ describe("GET /api/community/users/[userId]/avatar", () => {
     })
     const res = await GET(req, ctx("u1"))
     expect(res.status).toBe(304)
+    expect(res.headers.get("Vary")).toBe("Authorization")
     expect(res.headers.get("ETag")).toBe('"etag-1"')
     expect(res.headers.get("Cache-Control")).toBe("private, max-age=0, stale-while-revalidate=31536000")
   })
@@ -171,5 +179,6 @@ describe("GET /api/community/users/[userId]/avatar", () => {
     })
     const res = await GET(req, ctx("u1"))
     expect(res.status).toBe(200)
+    expect(res.headers.get("Vary")).toBe("Authorization")
   })
 })

@@ -12,6 +12,7 @@ import {
 } from "./_fixtures/seed"
 import {
   communityFrameEvents,
+  isCommunityBatchFrame,
   proxyCommunityWebSockets,
   type CapturedCommunityFrame,
 } from "./_fixtures/community-ws-proxy"
@@ -114,7 +115,7 @@ test.describe.serial("committed message delivery QA", () => {
     expect(gapRequests.length).toBeGreaterThan(0)
     expect(proxy.heldCount()).toBe(1)
     const heldBatch = proxy.frames.find((frame) => messageFrame(frame, channelId, missing))
-    expect(heldBatch?.type).toBe("community:events.batch")
+    expect(heldBatch?.type).toBe("community:events.batch.v2")
     expect(communityFrameEvents(heldBatch!).some((event) =>
       event.type === "community:mention.create")).toBe(true)
     expect(proxy.releaseHeld((frame) => messageFrame(frame, channelId, missing))).toBe(1)
@@ -199,7 +200,7 @@ test.describe.serial("committed message delivery QA", () => {
       if (
         armed
         && !duplicated
-        && frame.type === "community:events.batch"
+        && isCommunityBatchFrame(frame)
         && messageFrame(frame, channelId, body)
       ) {
         duplicated = true
@@ -222,11 +223,13 @@ test.describe.serial("committed message delivery QA", () => {
     await expect.poll(() => duplicated, { timeout: 20_000 }).toBe(true)
 
     const batches = proxy.frames.filter((frame) =>
-      frame.type === "community:events.batch" && messageFrame(frame, channelId, body))
+      isCommunityBatchFrame(frame) && messageFrame(frame, channelId, body))
     expect(batches).toHaveLength(1)
     const batch = batches[0]!
+    expect(batch.type).toBe("community:events.batch.v2")
     expect(batch.operationId).toMatch(/^message:[A-Za-z0-9_-]{43}$/)
     expect(batch.operationDigest).toMatch(/^[0-9a-f]{64}$/)
+    expect(batch.wireDigest).toMatch(/^[0-9a-f]{64}$/)
     expect(communityFrameEvents(batch).map((event) => event.type)).toEqual([
       "community:message.create",
       "community:unread.bump",
@@ -275,12 +278,12 @@ test.describe.serial("committed message delivery QA", () => {
     await editable.pressSequentially(" batch channel")
     await alice.page.keyboard.press("Enter")
     await expect.poll(() => firstProxy.frames.slice(firstChannelStart).some((frame) =>
-      frame.type === "community:events.batch"
+      isCommunityBatchFrame(frame)
       && communityFrameEvents(frame).some((event) => event.type === "community:mention.create")), {
       timeout: 20_000,
     }).toBe(true)
     await expect.poll(() => secondProxy.frames.slice(secondChannelStart).some((frame) =>
-      frame.type === "community:events.batch"
+      isCommunityBatchFrame(frame)
       && communityFrameEvents(frame).some((event) => event.type === "community:mention.create")), {
       timeout: 20_000,
     }).toBe(true)
@@ -298,8 +301,8 @@ test.describe.serial("committed message delivery QA", () => {
     await expectMessageVisible(secondBob.page, dmBody)
 
     expect(firstProxy.frames.slice(firstDmStart).filter((frame) =>
-      frame.type === "community:events.batch" && messageFrame(frame, dmId, dmBody))).toHaveLength(1)
+      isCommunityBatchFrame(frame) && messageFrame(frame, dmId, dmBody))).toHaveLength(1)
     expect(secondProxy.frames.slice(secondDmStart).filter((frame) =>
-      frame.type === "community:events.batch" && messageFrame(frame, dmId, dmBody))).toHaveLength(1)
+      isCommunityBatchFrame(frame) && messageFrame(frame, dmId, dmBody))).toHaveLength(1)
   })
 })

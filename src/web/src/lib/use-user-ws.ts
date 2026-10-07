@@ -768,12 +768,20 @@ export function useUserWs(
           return
         }
       }
+      if (communityContract !== 2 && (
+        msg.type === COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE
+        || msg.type === "community:channel.membership.change"
+        || (isCommunityBatch && Array.isArray(msg.events) && msg.events.some((event: unknown) =>
+          isCommunityEventCandidate(event) && event.type === "community:channel.membership.change"))
+      )) {
+        reportDroppedFrame("invalid-payload", msg)
+        return
+      }
       const callback = onMessageRef.current
       const assertAdmissionCurrent = () => {
         if (!ownsAuthenticatedConnection(ws, generation) || isOffline() || callback !== onMessageRef.current) throw new DOMException("Retired WebSocket admission", "AbortError")
       }
       if (msg.type === COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE || pendingAdmissions > 0) {
-        if (msg.type === COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE && communityContract !== 2) { reportDroppedFrame("invalid-payload", msg); return }
         if (pendingAdmissions >= 32) { ws.close(1011, "Community admission overloaded"); return }
         pendingAdmissions++
         communityAdmission = communityAdmission.then(async () => {

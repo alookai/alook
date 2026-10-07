@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server"
 import { CACHE_REVALIDATE, createLogger, queries } from "@alook/shared"
 import { withAuth } from "@/lib/middleware/auth"
+import { withPrivateMediaCache } from "@/lib/middleware/private-media-cache"
 import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
@@ -13,7 +14,7 @@ import {
 const log = createLogger({ service: "community-user-avatar" })
 const PRIVATE_NO_STORE = "private, no-store"
 
-export const GET = withAuth(async (req: NextRequest, ctx) => {
+export const GET = withPrivateMediaCache(withAuth(async (req: NextRequest, ctx) => {
   const userId = ctx.params?.userId
   if (!userId) return writeError("missing user id", 400)
 
@@ -66,4 +67,4 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       ...(etag ? { ETag: etag } : {}),
     },
   })
-})
+}))

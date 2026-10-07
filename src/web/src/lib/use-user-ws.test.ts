@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import {
   COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES,
+  decodeCommunityBrowserEvent,
+  decodeCommunityBrowserEventBatch,
+  deriveCommunityDeliveryOperationId,
+  encodeCommunityBrowserEventBatch,
+  encodeCommunityBrowserEventBatchForContract,
+  prepareCommunityDeliveryEvents,
+  type CommunityWsEvent,
   type WsMessage,
 } from "@alook/shared"
 import type { UseUserWsOptions } from "./use-user-ws"
@@ -271,6 +278,90 @@ describe("useUserWs", () => {
     ws.simulateMessage({ type: "community:events.batch.v2", events: [] })
     await flushPromises()
     expect(callback).not.toHaveBeenCalled()
+  })
+
+  const explicitMembership = {
+    type: "community:channel.membership.change",
+    serverId: "server-1",
+    channelId: "channel-1",
+    userId: "user-1",
+    relation: "notify",
+    present: false,
+  } as const
+  const legacyMembership = {
+    type: "community:channel.member_remove",
+    serverId: "server-1",
+    channelId: "channel-1",
+    userId: "user-1",
+  } as const
+
+  async function legacyBatch(events: CommunityWsEvent[]) {
+    const prepared = await prepareCommunityDeliveryEvents(events)
+    if (!prepared.ok) throw new Error("invalid regression events")
+    const encoded = await encodeCommunityBrowserEventBatch({
+      operationId: await deriveCommunityDeliveryOperationId("protocol-regression"),
+      operationDigest: prepared.prepared.digest,
+      events,
+    })
+    if (!encoded.ok) throw new Error("invalid regression batch")
+    expect(decodeCommunityBrowserEventBatch(encoded.batch).ok).toBe(true)
+    return encoded.batch
+  }
+
+  it.each([undefined, 1] as const)("rejects a new membership single without V2 confirmation (%s)", async (contract) => {
+    setupTokenFetch()
+    const callback = vi.fn()
+    await mountHook(callback)
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok", ...(contract === undefined ? {} : { communityContract: contract }) })
+    expect(decodeCommunityBrowserEvent(explicitMembership).ok).toBe(true)
+    ws.simulateMessage(explicitMembership)
+    await flushPromises()
+    expect(callback).not.toHaveBeenCalled()
+    ws.simulateMessage(legacyMembership)
+    expect(callback).toHaveBeenCalledExactlyOnceWith(legacyMembership)
+  })
+
+  it.each([undefined, 1] as const)("rejects an entire legacy batch containing a new membership child without V2 confirmation (%s)", async (contract) => {
+    const incompatibleBatch = await legacyBatch([legacyMembership, explicitMembership])
+    const compatibleBatch = await legacyBatch([legacyMembership])
+    setupTokenFetch()
+    const callback = vi.fn()
+    await mountHook(callback)
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok", ...(contract === undefined ? {} : { communityContract: contract }) })
+    ws.simulateMessage(incompatibleBatch)
+    await flushPromises()
+    expect(callback).not.toHaveBeenCalled()
+    ws.simulateMessage(compatibleBatch)
+    expect(callback).toHaveBeenCalledExactlyOnceWith(compatibleBatch)
+  })
+
+  it("admits new representations and older producer frames after V2 confirmation", async () => {
+    const oldBatch = await legacyBatch([legacyMembership])
+    const prepared = await prepareCommunityDeliveryEvents([explicitMembership])
+    if (!prepared.ok) throw new Error("invalid regression events")
+    const newBatch = await encodeCommunityBrowserEventBatchForContract({
+      operationId: await deriveCommunityDeliveryOperationId("protocol-regression-v2"),
+      prepared: prepared.prepared,
+      contract: 2,
+    })
+    if (!newBatch.ok) throw new Error("invalid regression batch")
+    expect(decodeCommunityBrowserEventBatch(newBatch.batch).ok).toBe(true)
+    setupTokenFetch()
+    const received: WsMessage[] = []
+    await mountHook((message) => { received.push(message) })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok", communityContract: 2 })
+    ws.simulateMessage(explicitMembership)
+    ws.simulateMessage(legacyMembership)
+    ws.simulateMessage(oldBatch)
+    ws.simulateMessage(newBatch.batch)
+    await flushPromises()
+    expect(received).toEqual([explicitMembership, legacyMembership, oldBatch, newBatch.batch])
   })
 
   it("preserves frame order behind asynchronous v2 admission", async () => {
@@ -655,6 +746,41 @@ describe("useUserWs", () => {
     expect(onAuthenticated).toHaveBeenCalledTimes(2)
     await vi.advanceTimersByTimeAsync(5_000)
     expect(MockWebSocket.instances).toHaveLength(2)
+  })
+
+  it("manual Retry replaces a connecting online recovery and fences its late authentication", async () => {
+    setupTokenFetch()
+    const onAuthenticated = vi.fn()
+    await mountHook(vi.fn(), { onAuthenticated, requestDaemonStatusOnAuth: false })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    first.simulateMessage({ type: "auth.ok" })
+
+    mockNavigator.onLine = false
+    mockWindow.dispatch("offline")
+    first.simulateClose()
+    mockNavigator.onLine = true
+    mockWindow.dispatch("online")
+    await flushPromises()
+    const automatic = MockWebSocket.instances[1]!
+    expect(automatic.readyState).toBe(MockWebSocket.CONNECTING)
+
+    latestHookResult!.reconnectNow()
+    await flushPromises()
+    expect(automatic.closed).toBe(true)
+    expect(mockFetch).toHaveBeenCalledTimes(3)
+    expect(MockWebSocket.instances).toHaveLength(3)
+    const manual = MockWebSocket.instances[2]!
+    automatic.simulateOpen()
+    automatic.simulateMessage({ type: "auth.ok" })
+    expect(onAuthenticated).toHaveBeenCalledOnce()
+    manual.simulateOpen()
+    manual.simulateMessage({ type: "auth.ok" })
+    expect(onAuthenticated).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(mockFetch).toHaveBeenCalledTimes(3)
+    expect(MockWebSocket.instances).toHaveLength(3)
+    expect(manual.closed).toBe(false)
   })
 
   it("reports local retirement and remote close exactly once per socket", async () => {

@@ -298,6 +298,10 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
   await expect(wsOverlay).toHaveCount(0, { timeout: 10_000 })
   await expect(composerEditable(alice.page)).toBeVisible()
 
+  const onlineRecoveryFrameStart = proxy.connectionFrames.length
+  const onlineRecoveryConnectionBaseline = proxy.connectionCount()
+  const onlineRecoveryTokenBaseline = tokenRequests
+  const onlineRecoverySuccessfulTokenBaseline = successfulTokenResponses
   try {
     await alice.context.setOffline(true)
     await proxy.disconnect()
@@ -311,22 +315,34 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
       "failed",
       { timeout: 40_000 },
     )
+    const retry = alice.page.getByTestId(tid.wsRetry)
+    await retry.focus()
+    await alice.page.keyboard.press("Enter")
+    await expect(wsOverlay).toHaveCount(0)
+    await expect(composerEditable(alice.page)).toBeVisible()
+    expect(proxy.connectionCount()).toBe(onlineRecoveryConnectionBaseline)
+    expect(tokenRequests).toBe(onlineRecoveryTokenBaseline)
+    expect(successfulTokenResponses).toBe(onlineRecoverySuccessfulTokenBaseline)
+    await alice.page.evaluate(() => {
+      document.documentElement.removeAttribute("data-e2e-user-ws-authenticated")
+    })
   } finally {
     await alice.context.setOffline(false)
   }
 
-  const retryConnectionBaseline = proxy.connectionCount()
-  const retrySuccessfulTokenBaseline = successfulTokenResponses
-  const retry = alice.page.getByTestId(tid.wsRetry)
-  await retry.focus()
-  await alice.page.keyboard.press("Enter")
   await expect(wsOverlay).toHaveCount(0, { timeout: 20_000 })
-  // The failed-only overlay disappears as soon as Retry starts connecting.
-  // Wait for that generation to authenticate before measuring a hard reload,
-  // otherwise the retry socket can race the discarded document's replacement
-  // and make the reload look like it opened two connections.
-  await expect.poll(() => proxy.connectionCount()).toBe(retryConnectionBaseline + 1)
-  await expect.poll(() => successfulTokenResponses).toBe(retrySuccessfulTokenBaseline + 1)
+  await expect(alice.page.locator("html")).toHaveAttribute(
+    "data-e2e-user-ws-authenticated",
+    "true",
+    { timeout: 20_000 },
+  )
+  await expect.poll(() => proxy.connectionCount()).toBe(onlineRecoveryConnectionBaseline + 1)
+  await expect.poll(() => successfulTokenResponses).toBe(onlineRecoverySuccessfulTokenBaseline + 1)
+  expect(proxy.connectionFrames.slice(onlineRecoveryFrameStart).filter((frame) =>
+    frame.direction === "server-to-client"
+    && frame.connectionId === onlineRecoveryConnectionBaseline + 1
+    && frame.type === "auth.ok",
+  )).toHaveLength(1)
 
   const reloadFrameStart = proxy.connectionFrames.length
   const reloadConnectionBaseline = proxy.connectionCount()

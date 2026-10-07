@@ -3,7 +3,7 @@
 import { Download } from "lucide-react"
 import { FileDownloadButton } from "@/components/file-download-button"
 import { cn } from "@/lib/utils"
-import { useRemoteImageAttempt, useRemoteImageEligibility } from "./remote-image-attempt"
+import { useRemoteImageAttempt } from "./remote-image-attempt"
 
 function dimension(value: unknown): number | undefined {
   const parsed = typeof value === "number" ? value : Number.parseFloat(String(value ?? ""))
@@ -28,10 +28,7 @@ function MarkdownImageAttempt({
   ...rest
 }: MarkdownImageProps) {
   void node
-  const [eligible, eligibilityRef] = useRemoteImageEligibility(true)
-  const [status, attempt, , imageRef, onLoad, onError, retry] = useRemoteImageAttempt({
-    eligible,
-  })
+  const [status, attempt, , imageRef, onLoad, onError, retry] = useRemoteImageAttempt()
   const imageWidth = dimension(width)
   const imageHeight = dimension(height)
   const aspectRatio = imageWidth && imageHeight ? `${imageWidth}/${imageHeight}` : "4/3"
@@ -43,7 +40,6 @@ function MarkdownImageAttempt({
 
   return (
     <div
-      ref={eligibilityRef}
       data-streamdown="image-wrapper"
       data-remote-image-state={status}
       className="group relative my-4 inline-block max-w-full overflow-hidden rounded-lg bg-muted/30"

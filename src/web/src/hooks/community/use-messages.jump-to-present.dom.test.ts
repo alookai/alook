@@ -348,11 +348,17 @@ describe("useMessages jumpToPresent", () => {
     },
   )
 
-  it("resets once, fetches newest once, and keeps the old last-read anchor suppressed", async () => {
+  it.each(["legacy", "v2"] as const)("resets once, fetches newest once, and keeps the old last-read anchor suppressed (%s)", async (contract) => {
     const queryClient = await createClient()
     const queryKey = communityKeys.channelMessages("channel_1")
     seedAnchor(queryClient, queryKey, "anchor_1")
-    apiFetchMock.mockResolvedValue(newestPage("latest_1"))
+    const page = newestPage("latest_1")
+    if (contract === "v2") {
+      delete page.hasMore
+      page.hasMoreOlder = false
+      page.hasMoreNewer = false
+    }
+    apiFetchMock.mockResolvedValue(page)
     const resetSpy = vi.spyOn(queryClient, "resetQueries")
     let latest!: Snapshot
     const onRender = (snapshot: Snapshot) => { latest = snapshot }
