@@ -52,7 +52,7 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleShortVersionString: 0.1.43
+        CFBundleShortVersionString: 0.1.44
         CFBundleVersion: "1"
         NSPhotoLibraryAddUsageDescription: Allow Alook to save shared message images to Photos.
         CFBundleURLTypes:
