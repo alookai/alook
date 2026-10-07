@@ -256,18 +256,32 @@ describe("ImageLightbox", () => {
     expect(renderer.getByTestId(tid.imageLightbox).style.aspectRatio).toBe("1 / 1")
   })
 
-  it("turns a stalled eager original into a static retryable error", async () => {
-    vi.useFakeTimers()
+  it("keeps a slow original pending and displays its success beyond five seconds", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
     const { renderer } = renderLightbox({ originalUrl: "/stalled", name: "stalled" })
     const loading = renderer.getByTestId(tid.imageLightboxLoading)
     expect(loading).toHaveClass("motion-reduce:animate-none")
 
-    await act(async () => vi.advanceTimersByTime(5_000))
+    await act(async () => vi.advanceTimersByTime(30_000))
+    expect(renderer.getByTestId(tid.imageLightboxLoading)).toBe(loading)
+    expect(renderer.queryByTestId(tid.imageLightboxError)).not.toBeInTheDocument()
+    await loadImage(image(renderer, tid.imageLightboxOriginal), 800, 600, () => Promise.resolve())
+    expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass("opacity-100")
+    expect(renderer.queryByTestId(tid.imageLightboxLoading)).not.toBeInTheDocument()
+  })
 
-    expect(renderer.queryAllByTestId(tid.imageLightboxLoading)).toHaveLength(0)
-    const error = renderer.getByTestId(tid.imageLightboxError)
-    expect(error.querySelector("span")).toHaveTextContent("Failed to load original image")
-    expect(renderer.getByTestId(tid.imageLightboxRetry)).toHaveClass("min-w-12")
+  it("reveals a decoded original even when its thumbnail stays pending", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    const { renderer } = renderLightbox({ originalUrl: "/original", thumbnailUrl: "/stalled-thumbnail", name: "Photo" })
+    await act(async () => vi.advanceTimersByTime(30_000))
+    expect(image(renderer, tid.imageLightboxThumbnail)).toHaveAttribute("data-remote-image-state", "pending")
+    await loadImage(image(renderer, tid.imageLightboxOriginal), 1200, 600, () => Promise.resolve())
+    expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass("opacity-100")
+    expect(image(renderer, tid.imageLightboxThumbnail)).toHaveAttribute("data-remote-image-state", "pending")
+    expect(renderer.queryByTestId(tid.imageLightboxLoading)).not.toBeInTheDocument()
+    await loadThumbnail(renderer, 512, 256)
+    expect(image(renderer, tid.imageLightboxThumbnail)).toHaveClass("opacity-0")
+    expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass("opacity-100")
   })
 
   it("shows a cold pending frame, then paints the thumbnail before an already-decoded original", async () => {

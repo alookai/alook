@@ -10,9 +10,7 @@ import {
 } from "react"
 import { cn } from "@/lib/utils"
 import {
-  REMOTE_IMAGE_TIMEOUT_MS,
   useRemoteImageAttempt,
-  useRemoteImageEligibility,
   type RemoteImageStatus,
 } from "./remote-image-attempt"
 
@@ -22,7 +20,6 @@ type IdentityImageProps = {
   className?: string
   placeholderClassName?: string
   profilePhoto?: boolean
-  timeoutMs?: number
   "data-testid"?: string
 }
 
@@ -32,10 +29,9 @@ function IdentityImageAttempt({
   className,
   placeholderClassName,
   profilePhoto = false,
-  timeoutMs,
   "data-testid": testId,
 }: IdentityImageProps) {
-  const [status, attempt, , imageRef, onLoad, onError, retry] = useRemoteImageAttempt({ timeoutMs })
+  const [status, attempt, , imageRef, onLoad, onError, retry] = useRemoteImageAttempt()
   const retryAfterReconnect = useEffectEvent(() => {
     if (status !== "ready") retry()
   })
@@ -99,7 +95,6 @@ type ContentImageProps = Omit<
   loadingLabel?: string
   errorLabel?: string
   retryLabel?: string
-  timeoutMs?: number
   onActivate?: (event: MouseEvent<HTMLButtonElement>) => void
   activateLabel?: string
   onReady?: (image: HTMLImageElement) => void
@@ -118,7 +113,6 @@ function ContentImageAttempt({
   loadingLabel,
   errorLabel = "Image failed to load",
   retryLabel = "Retry",
-  timeoutMs = REMOTE_IMAGE_TIMEOUT_MS,
   onActivate,
   activateLabel,
   onReady,
@@ -126,11 +120,7 @@ function ContentImageAttempt({
   "data-testid": testId,
   ...imageProps
 }: ContentImageProps) {
-  const [eligible, eligibilityRef] = useRemoteImageEligibility(loading === "lazy")
-  const [status, attempt, readyImage, imageRef, onLoad, onError, retry] = useRemoteImageAttempt({
-    eligible,
-    timeoutMs,
-  })
+  const [status, attempt, readyImage, imageRef, onLoad, onError, retry] = useRemoteImageAttempt()
   const notifyReady = useEffectEvent((image: HTMLImageElement) => onReady?.(image))
 
   useEffect(() => onStateChange?.(status), [onStateChange, status])
@@ -176,7 +166,6 @@ function ContentImageAttempt({
 
   return (
     <div
-      ref={eligibilityRef}
       data-remote-image-frame
       data-remote-image-state={status}
       className={cn("relative overflow-hidden bg-muted/30", frameClassName)}

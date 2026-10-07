@@ -27,7 +27,7 @@ function PreviewFrame({ image }: { image: ImagePreview }) {
     thumbnailRef,
     onThumbnailLoad,
     onThumbnailError,
-  ] = useRemoteImageAttempt({ eligible: !!image.thumbnailUrl })
+  ] = useRemoteImageAttempt()
   const [
     originalStatus,
     originalAttempt,
@@ -40,11 +40,10 @@ function PreviewFrame({ image }: { image: ImagePreview }) {
 
   const frameStyle = previewFrameStyle(dimensions)
   const thumbnailReady = !!image.thumbnailUrl && thumbnailStatus === "ready"
-  const thumbnailSettled = !image.thumbnailUrl || thumbnailStatus !== "pending"
   const originalReady = originalStatus === "ready" && revealedAttempt === originalAttempt
 
   useEffect(() => {
-    if (originalStatus !== "ready" || !originalImage || !thumbnailSettled) return
+    if (originalStatus !== "ready" || !originalImage) return
     const requestKey = originalAttempt
     const naturalDimensions = validImageDimensions(originalImage.naturalWidth, originalImage.naturalHeight)
     const reveal = () => {
@@ -57,7 +56,7 @@ function PreviewFrame({ image }: { image: ImagePreview }) {
     }
     const frameId = requestAnimationFrame(reveal)
     return () => cancelAnimationFrame(frameId)
-  }, [knownDimensions, originalAttempt, originalImage, originalStatus, setDimensions, setRevealedAttempt, thumbnailSettled])
+  }, [knownDimensions, originalAttempt, originalImage, originalStatus, setDimensions, setRevealedAttempt])
 
   return (
     <div className="relative w-fit">

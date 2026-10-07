@@ -98,25 +98,27 @@ describe("ProfileAvatar photo errors", () => {
     expect(photo(rendered.container)).toHaveAttribute("data-avatar-photo-state", "ready")
   })
 
-  it("settles a pending photo to a static placeholder after the readiness timeout", async () => {
+  it("keeps a slow photo pending and reveals its late success", async () => {
     vi.useFakeTimers()
     const rendered = render(createElement(ProfileAvatar, {
       label: "Ada",
-      src: "https://cdn.example.com/never.png",
+      src: "https://cdn.example.com/slow.png",
       seed: "user_1",
     }))
 
-    await act(async () => vi.advanceTimersByTime(5_000))
+    await act(async () => vi.advanceTimersByTime(30_000))
 
     const image = photo(rendered.container)
-    expect(image).toHaveAttribute("data-avatar-photo-state", "failed")
-    expect(placeholder(rendered.container)).toHaveAttribute("data-avatar-photo-placeholder", "failed")
-    expect(placeholder(rendered.container)).not.toHaveClass("animate-pulse")
+    expect(image).toHaveAttribute("data-avatar-photo-state", "pending")
+    expect(placeholder(rendered.container)).toHaveAttribute("data-avatar-photo-placeholder", "pending")
+    expect(placeholder(rendered.container)).toHaveClass("animate-pulse")
 
     setLoadedImageMetrics(image)
     fireEvent.load(image)
     await act(async () => { await Promise.resolve() })
-    expect(photo(rendered.container)).toHaveAttribute("data-avatar-photo-state", "failed")
+    expect(photo(rendered.container)).toHaveAttribute("data-avatar-photo-state", "ready")
+    expect(placeholder(rendered.container)).not.toHaveAttribute("data-avatar-photo-placeholder")
+    expect(placeholder(rendered.container)).not.toHaveClass("animate-pulse")
   })
 
   it("retries from a neutral skeleton when the photo source changes", () => {
