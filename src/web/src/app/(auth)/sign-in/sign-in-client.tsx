@@ -76,7 +76,7 @@ function SignInForm({
     },
   }
 
-  async function handleSendCode(e: React.FormEvent) {
+  async function handleSendCode(e: React.SubmitEvent) {
     e.preventDefault()
     if (retryAfter != null) return
     const observation = startAction("auth_send_code")
@@ -133,7 +133,7 @@ function SignInForm({
     setLoading(false)
   }
 
-  async function handleDevSignIn(e: React.FormEvent) {
+  async function handleDevSignIn(e: React.SubmitEvent) {
     e.preventDefault()
     const observation = startAction("auth_dev_sign_in")
     setEmailError("")

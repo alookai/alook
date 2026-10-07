@@ -4,7 +4,7 @@ import { publishCommunityFriendships, publishAccountAttentionSnapshot, captureCo
 import { useFriendshipRows } from "@/lib/community-db/projections"
 import { createCommunityDbRegistry, registerCommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
-import { useCallback, useLayoutEffect, type MutableRefObject } from "react"
+import { useCallback, useLayoutEffect, type RefObject } from "react"
 import {
   QueryClient,
   QueryClientProvider,
@@ -128,7 +128,7 @@ function TestSurfaces({
   controlsRef,
   onPaint,
 }: {
-  controlsRef: MutableRefObject<Controls | null>
+  controlsRef: RefObject<Controls | null>
   onPaint?: (paint: Paint) => void
 }) {
   const friends = useQuery({
@@ -242,7 +242,7 @@ async function createClient(ids: readonly string[] = ["a", "b"]) {
 function mount(client: QueryClient, onPaint?: (paint: Paint) => void) {
   const registry = createCommunityDbRegistry(client, "viewer")
   registerCommunityDbRegistry(registry)
-  const controls = { current: null } as MutableRefObject<Controls | null>
+  const controls = { current: null } as RefObject<Controls | null>
   const rendered = render(
     <QueryClientProvider client={client}>
       <CommunityDbProvider registry={registry}><TestSurfaces controlsRef={controls} onPaint={onPaint} /></CommunityDbProvider>
@@ -252,7 +252,7 @@ function mount(client: QueryClient, onPaint?: (paint: Paint) => void) {
 }
 
 async function fetchFriends(client: QueryClient) {
-  return client.fetchQuery({
+  return client.query({
     queryKey: communityKeys.friends(),
     queryFn: friendsQueryFn,
     staleTime: 0,

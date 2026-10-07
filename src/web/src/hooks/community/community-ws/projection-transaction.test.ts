@@ -62,7 +62,7 @@ describe("community WS projection transaction", () => {
       const unsubscribe = observer.subscribe(() => {})
       const cancel = vi.spyOn(queryClient, "cancelQueries").mockResolvedValue()
       const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue()
-      const refetch = vi.spyOn(queryClient, "fetchQuery").mockResolvedValue("current")
+      const refetch = vi.spyOn(queryClient, "query").mockResolvedValue("current")
       const filters = { queryKey: ["community", "servers"] as const, exact: true }
 
       runCommunityWsProjectionTransaction(queryClient, (transaction) => {
@@ -96,7 +96,7 @@ describe("community WS projection transaction", () => {
     const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockImplementation(async () => {
       order.push("invalidate")
     })
-    vi.spyOn(queryClient, "fetchQuery").mockImplementation(async () => {
+    vi.spyOn(queryClient, "query").mockImplementation(async () => {
       order.push("refetch")
       return "current"
     })
@@ -155,6 +155,31 @@ describe("community WS projection transaction", () => {
       unsubscribeAll()
       unsubscribeArchived()
     }
+  })
+
+  it("refetches raw data without applying an observer selector to the imperative result", async () => {
+    const client = new QueryClient()
+    const key = ["selected-read"]
+    const select = vi.fn((data: { value: string }) => data.value)
+    const read = vi.fn(async () => ({ value: "fresh" }))
+    const observer = new QueryObserver(client, {
+      queryKey: key, queryFn: read, select, initialData: { value: "prior" }, staleTime: Infinity,
+    })
+    const unsubscribe = observer.subscribe(() => {})
+    const execute = vi.spyOn(client, "query")
+    try {
+      expect(observer.getCurrentResult().data).toBe("prior")
+      expect(select).toHaveBeenCalledOnce()
+      runCommunityWsProjectionTransaction(client, (transaction) => {
+        transaction.fence("selected", { queryKey: key, exact: true })
+      })
+      await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
+      await expect(execute.mock.results[0]!.value).resolves.toEqual({ value: "fresh" })
+      expect(execute).toHaveBeenCalledWith(expect.objectContaining({ select: undefined }))
+      expect(client.getQueryData(key)).toEqual({ value: "fresh" })
+      expect(observer.getCurrentResult().data).toBe("fresh")
+      expect(select).toHaveBeenCalledTimes(2)
+    } finally { unsubscribe(); client.clear() }
   })
 
   it("absorbs a rejected active replacement while preserving its query error state", async () => {

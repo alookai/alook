@@ -316,7 +316,7 @@ describe("useCommunityWs — operation bundles", () => {
         throw new Error(`unexpected API fetch: ${String(url)}`)
       })
       vi.spyOn(capturedQueryClient, "invalidateQueries")
-      vi.spyOn(capturedQueryClient, "fetchQuery")
+      vi.spyOn(capturedQueryClient, "query")
       const lease = registerReadSurface(
         capturedQueryClient,
         "viewer-1",
@@ -362,7 +362,7 @@ describe("useCommunityWs — operation bundles", () => {
         servers: [{ id: "server-1", mentions: 5 }],
       })
       vi.spyOn(capturedQueryClient, "invalidateQueries")
-      vi.spyOn(capturedQueryClient, "fetchQuery")
+      vi.spyOn(capturedQueryClient, "query")
       const frame = await batchFor("message-1", mentionEvents)
 
       capturedOnMessage!(frame)
@@ -453,7 +453,7 @@ describe("useCommunityWs — operation bundles", () => {
         }, { once: true })
       })
     }
-    const first = capturedQueryClient.fetchQuery({ queryKey: key, queryFn, staleTime: 0 })
+    const first = capturedQueryClient.query({ queryKey: key, queryFn, staleTime: 0 })
       .catch(() => undefined)
     await vi.waitFor(() => expect(queryCalls).toBe(1))
     const cancel = vi.spyOn(capturedQueryClient, "cancelQueries")
@@ -478,7 +478,7 @@ describe("useCommunityWs — operation bundles", () => {
         servers: [{ id: "server-1", mentions: 9 }],
       })
       vi.spyOn(capturedQueryClient, "invalidateQueries")
-      vi.spyOn(capturedQueryClient, "fetchQuery")
+      vi.spyOn(capturedQueryClient, "query")
 
       capturedOnMessage!(await batchFor("message-late", mentionEvents))
       expect(capturedQueryClient.getQueryData<{ servers: Array<{ mentions: number }> }>(
@@ -876,7 +876,7 @@ describe("useCommunityWs — operation bundles", () => {
     try {
       await mountHook({ viewerUserId: "viewer-1" })
       vi.spyOn(capturedQueryClient, "invalidateQueries")
-      vi.spyOn(capturedQueryClient, "fetchQuery")
+      vi.spyOn(capturedQueryClient, "query")
       const original = await batchFor("bounded-operation", [{
         ...message,
         message: { ...message.message, id: "bounded-operation" },

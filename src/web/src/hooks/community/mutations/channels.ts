@@ -82,7 +82,7 @@ async function persistTreeChange<T>(
     } catch (error) { origin.assert(original); throw error }
   } })
   transaction.mutate(() => optimistic(registry!))
-  try { await transaction.isPersisted.promise } catch (error) { origin.assert(original); throw error }
+  try { await transaction.when("settled") } catch (error) { origin.assert(original); throw error }
   return result
 }
 
@@ -169,7 +169,7 @@ export function useRenameChannel() {
       transaction.mutate(() => registry!.collections.channels.update(args.channelId, (row) => { row.name = args.name.trim() }))
       if (transaction.mutations.length === 0) return persist()
       try {
-        await transaction.isPersisted.promise
+        await transaction.when("settled")
       } catch (error) {
         origin.assert(original)
         throw error

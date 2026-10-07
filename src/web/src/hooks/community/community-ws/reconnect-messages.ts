@@ -1,4 +1,4 @@
-import { isCancelledError, queryOptions, type InfiniteData, type QueryClient, type QueryKey } from "@tanstack/react-query"
+import { CancelledError, queryOptions, type InfiniteData, type QueryClient, type QueryKey } from "@tanstack/react-query"
 import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken, publishCommunityMessages } from "@/lib/community-db/sync"
@@ -113,8 +113,8 @@ function reconcile(queryClient: QueryClient, scope: GapRepairScope, target = 0) 
       try { assertCommunityLiveSnapshotTokenCurrent(queryClient, receipt.token, undefined) } catch { current = false }
       if (!current) queryClient.removeQueries({ queryKey: repairKey, exact: true })
     }
-    return queryClient.fetchQuery(messageReconcileOptions(queryClient, scope.scopeId, query.queryKey)).catch((error: unknown) => {
-      if (!isAbortError(error) && !isCancelledError(error)) throw error
+    return queryClient.query({ ...messageReconcileOptions(queryClient, scope.scopeId, query.queryKey), select: undefined }).catch((error: unknown) => {
+      if (!isAbortError(error) && !(error instanceof CancelledError)) throw error
     })
   })).then(() => undefined)
 }

@@ -74,7 +74,7 @@ async function readChannelRoster(client: QueryClient, channelId: string, serverI
   const unsubscribe = observer.subscribe(() => undefined)
   signal.addEventListener("abort", unsubscribe, { once: true })
   try {
-    const window = await client.fetchQuery(options)
+    const window = await client.query({ ...options, select: undefined })
     assert()
     return window
   } finally { signal.removeEventListener("abort", unsubscribe); unsubscribe() }

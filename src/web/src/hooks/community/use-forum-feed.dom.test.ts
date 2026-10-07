@@ -36,7 +36,7 @@ beforeEach(async () => { client = (await createCommunityQueryOwner()).client; ap
 async function projectPages(pages: ForumFeedTransportPage[], canonical?: ReadonlyMap<string, never>) {
   apiFetchMock.mockReset()
   for (const page of pages) apiFetchMock.mockResolvedValueOnce(page)
-  const data = await client.fetchInfiniteQuery({ queryKey: communityKeys.forumFeed("forum_1", null), queryFn: forumFeedPageQueryFn("forum_1", null, client), initialPageParam: null as string | null, getNextPageParam: (last) => last.hasMore ? last.nextCursor : undefined, pages: pages.length })
+  const data = await client.infiniteQuery({ queryKey: communityKeys.forumFeed("forum_1", null), queryFn: forumFeedPageQueryFn("forum_1", null, client), initialPageParam: null as string | null, getNextPageParam: (last) => last.hasMore ? last.nextCursor : undefined, pages: pages.length })
   const registry = getCommunityDbRegistry(client)!
   return mapForumFeedPages(data.pages, canonical ?? new Map(getCanonicalCommunityMessages(client).map((row) => [row.id, row])), new Map(getCanonicalCommunityChannels(client).map((row) => [row.id, row])), new Map([...registry.collections.profiles.values()].map((row) => [row.userId, row])))
 }
@@ -176,7 +176,7 @@ describe("mapForumFeedPages", () => {
     })
     let release!: (value: ForumFeedTransportPage) => void
     apiFetchMock.mockResolvedValueOnce(page("first", "Initial", true)).mockReturnValueOnce(new Promise((resolve) => { release = resolve }))
-    const request = client.fetchInfiniteQuery({ queryKey: communityKeys.forumFeed("forum_1", null), queryFn: forumFeedPageQueryFn("forum_1", null, client), initialPageParam: null as string | null, getNextPageParam: (last) => last.hasMore ? last.nextCursor : undefined, pages: 2 })
+    const request = client.infiniteQuery({ queryKey: communityKeys.forumFeed("forum_1", null), queryFn: forumFeedPageQueryFn("forum_1", null, client), initialPageParam: null as string | null, getNextPageParam: (last) => last.hasMore ? last.nextCursor : undefined, pages: 2 })
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(2))
     writeCommunityProfilePatches([{ id: "author", identityAbout: { name: "Newer WS" } }], registry, { event: true })
     const next = page("second", "Old later page", false), duplicate = page("first", "Old duplicate", false)

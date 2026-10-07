@@ -1,3 +1,4 @@
+import { flattenError } from "zod"
 import { NextResponse, type NextRequest } from "next/server"
 import { queries, withD1Retry, CommunityAgentInboxPullRequestSchema } from "@alook/shared"
 import { getDb } from "@/lib/db"
@@ -49,7 +50,7 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   }
   const parsed = CommunityAgentInboxPullRequestSchema.safeParse(raw)
   if (!parsed.success) {
-    return NextResponse.json({ error: "invalid payload", details: parsed.error.flatten() }, { status: 400 })
+    return NextResponse.json({ error: "invalid payload", details: flattenError(parsed.error) }, { status: 400 })
   }
   const max = Math.min(parsed.data.max ?? MAX_PULL, MAX_PULL)
 

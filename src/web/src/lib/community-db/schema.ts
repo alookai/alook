@@ -118,7 +118,7 @@ export const messageSchema = z.object({
   content: z.string().optional(),
   failed: z.boolean().optional(),
   replyToId: z.string().optional(),
-}).passthrough()
+}).loose()
 
 export const readStateSchema = z.object({
   channelId: z.string().min(1),

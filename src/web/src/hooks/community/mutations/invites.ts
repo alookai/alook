@@ -27,7 +27,7 @@ export function useResolveOrCreateInvite(serverId: string) {
       const unsubscribe = observer.subscribe(() => undefined)
       assert.signal.addEventListener("abort", unsubscribe, { once: true })
       let cached: InvitesResponse
-      try { cached = await client.fetchQuery(options); origin.assert(original); assert() }
+      try { cached = await client.query({ ...options, select: undefined }); origin.assert(original); assert() }
       finally { assert.signal.removeEventListener("abort", unsubscribe); unsubscribe() }
       const now = new Date().toISOString()
       const reusable = cached.invites.find((invite) => invite.creatorId === currentUserId && (!invite.expiresAt || invite.expiresAt > now) && (invite.maxUses === null || invite.uses < invite.maxUses))

@@ -2,7 +2,7 @@ import {
   hashKey,
   notifyManager,
   type InvalidateQueryFilters,
-  type FetchQueryOptions,
+  type QueryExecuteOptions,
   type QueryClient,
   type Query,
 } from "@tanstack/react-query"
@@ -27,7 +27,7 @@ type PendingInvalidation = {
   filters: InvalidateQueryFilters
   cancellation?: Promise<void>
   originalQueries?: ReadonlySet<Query>
-  replacements?: Array<{ query: Query; options: FetchQueryOptions }>
+  replacements?: Array<{ query: Query; options: QueryExecuteOptions }>
   isCurrent?: () => boolean
 }
 
@@ -56,7 +56,7 @@ function createProjectionTransaction(
       const originalQueries = new Set(queries)
       const replacements = queries
         .filter((query) => query.isActive() && query.options.queryFn)
-        .map((query) => ({ query, options: { ...query.options, staleTime: 0 } as FetchQueryOptions }))
+        .map((query) => ({ query, options: { ...query.options, staleTime: 0 } as QueryExecuteOptions }))
       const cancellation = queryClient.cancelQueries(filters)
       if (current) {
         current.cancellation = cancellation
@@ -85,7 +85,7 @@ function createProjectionTransaction(
             if (isCurrent && !isCurrent()) return
             await Promise.all((replacements ?? [])
               .filter(({ query }) => queryClient.getQueryCache().get(query.queryHash) === query && query.isActive())
-              .map(({ options }) => queryClient.fetchQuery(options)))
+              .map(({ options }) => queryClient.query({ ...options, select: undefined })))
           }).catch(() => {})
         } else {
           void queryClient.invalidateQueries(filters)

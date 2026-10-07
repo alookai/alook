@@ -5,7 +5,8 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { communityKeys } from "@/lib/query-keys"
 import { useInvitableFriends } from "./use-invitable-friends"
-import { useFriends } from "./use-friends"
+import { friendsQueryFn, useFriends } from "./use-friends"
+import { fetchAllServerMembers } from "./fetch-all-server-members"
 
 const api = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({ apiFetch: api, toastApiError: vi.fn() }))
@@ -63,6 +64,45 @@ describe("Native invitable friend projection", () => {
     expect(view.result.current.picker.friends).toEqual([expect.objectContaining(friend)])
     expect(api.mock.calls.filter(([path]) => path.endsWith("/accepted"))).toHaveLength(1)
     expect(api.mock.calls.filter(([path]) => path.includes("/members"))).toHaveLength(1)
+  })
+
+  it.each(["cold", "warm"] as const)("keeps %s raw friend IDs when query defaults select an empty view", async (state) => {
+    const friend = { id: "friendship_selected", userId: "friend_selected", name: "Selected friend", discriminator: "0042", avatar: "S", avatarVersion: 0, status: "offline", sub: "" }
+    api.mockClear()
+    api.mockImplementation(async (path: string) => {
+      if (path.endsWith("/accepted")) return { friends: [friend] }
+      if (path.endsWith("/blocked")) return { blocked: [] }
+      if (path.endsWith("/pending")) return { pending: [] }
+      if (path.includes("/members")) return { members: [], hasMore: false, limit: 100, total: 0 }
+      throw new Error(`Unexpected friend request: ${path}`)
+    })
+    const owner = await createCommunityQueryOwner("viewer", { defaultOptions: { queries: { staleTime: 5_000, retry: false } } })
+    if (state === "warm") await owner.client.query({ queryKey: communityKeys.friends(), queryFn: friendsQueryFn })
+    const select = vi.fn(() => ({ ids: [] }))
+    owner.client.setQueryDefaults(communityKeys.friends(), { select })
+    const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, retainOwner: true }, children)
+    const view = renderHook(() => useInvitableFriends("server_1"), { wrapper })
+    await waitFor(() => expect(view.result.current.isSuccess).toBe(true))
+    expect(view.result.current.friends).toEqual([expect.objectContaining(friend)])
+    expect(owner.client.getQueryData(communityKeys.friends())).toMatchObject({ ids: [friend.id] })
+    expect(select).toHaveBeenCalled()
+    expect(api.mock.calls.filter(([path]) => path.endsWith("/accepted"))).toHaveLength(1)
+  })
+
+  it("keeps raw complete member pages with a default selector on fetched and cached reads", async () => {
+    const member = { id: "member_selected", userId: "user_selected", name: "Member", discriminator: "0042", avatar: "M", avatarVersion: 0, status: "offline", sub: "", role: "member" }
+    api.mockClear()
+    api.mockResolvedValue({ members: [member], hasMore: false, cursor: null, limit: 100, total: 1 })
+    const owner = await createCommunityQueryOwner()
+    const select = vi.fn(() => ({ pages: [], pageParams: [] }))
+    owner.client.setQueryDefaults(communityKeys.members("server_1"), { select })
+    try {
+      const fetched = await fetchAllServerMembers(owner.client, "server_1")
+      expect(fetched).toEqual([expect.objectContaining({ id: member.id, userId: member.userId, name: member.name })])
+      expect(await fetchAllServerMembers(owner.client, "server_1")).toEqual(fetched)
+      expect(select).toHaveBeenCalled()
+      expect(api).toHaveBeenCalledOnce()
+    } finally { await owner.registry.cleanup(); owner.client.clear() }
   })
 
   it("reports one failed friends retry chain and recovers to an empty picker", async () => {

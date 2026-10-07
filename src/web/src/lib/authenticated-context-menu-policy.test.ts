@@ -219,15 +219,36 @@ describe("authenticated context-menu policy", () => {
     })).toBe(false)
   })
 
-  it("falls back to caretRangeFromPoint and accepts selection boundaries", () => {
+  it("accepts selection boundaries with a standard caret position", () => {
     const text = {} as Node
-    const ownerDocument = {
-      caretPositionFromPoint: undefined,
-      caretRangeFromPoint: () => ({ startContainer: text, startOffset: 0 }),
-    } as unknown as Document
+    const ownerDocument = ownerDocumentWith({ node: text, offset: 0 })
     expect(selectionContainsClientPoint(selectionWith(), ownerDocument, { clientX: 10, clientY: 10 })).toBe(true)
     expect(selectionContainsClientPoint(selectionWith(), ownerDocument, { clientX: 20, clientY: 20 })).toBe(true)
   })
+
+  it.each(["missing", "null"])(
+    "uses the product menu when the standard caret API is %s without consulting the legacy API",
+    (mode) => {
+      const legacyCaret = vi.fn(() => ({ startContainer: {} as Node, startOffset: 0 }))
+      const ownerDocument = {
+        caretPositionFromPoint: mode === "missing" ? undefined : () => null,
+        caretRangeFromPoint: legacyCaret,
+      } as unknown as Document
+      const selection = selectionWith()
+      const point = { clientX: 15, clientY: 15 }
+      expect(selectionContainsClientPoint(selection, ownerDocument, point)).toBe(false)
+      expect(contextMenuDisposition({ event: eventAt(element()), selection, ownerDocument })).toBe("product")
+      expect(legacyCaret).not.toHaveBeenCalled()
+      expect(contextMenuDisposition({ event: eventAt(element("input")), selection, ownerDocument })).toBe("native")
+      const escape = element() as unknown as FakeElement
+      escape.setAttribute("data-native-context-menu", "true")
+      expect(contextMenuDisposition({
+        event: eventAt(escape as unknown as Element),
+        selection,
+        ownerDocument,
+      })).toBe("native")
+    },
+  )
 
   it("checks every selection range", () => {
     const ownerDocument = ownerDocumentWith({ node: {} as Node, offset: 1 })

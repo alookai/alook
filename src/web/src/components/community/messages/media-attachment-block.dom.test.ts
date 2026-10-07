@@ -289,16 +289,7 @@ describe("MediaAttachmentBlock", () => {
 
   it("downloads the original file through the shared owner without activating playback", async () => {
     const stopPropagation = vi.fn()
-    const createElement = document.createElement.bind(document)
-    const anchor = createElement("a")
-    vi.spyOn(anchor, "click").mockImplementation(() => {})
-    vi.spyOn(anchor, "remove").mockImplementation(() => {})
-    vi.spyOn(document, "createElement").mockImplementation((function createElementMock(
-      tagName: string,
-      options?: ElementCreationOptions,
-    ) {
-      return tagName === "a" ? anchor : createElement(tagName, options)
-    }) as typeof document.createElement)
+    const downloadClick = vi.spyOn(window.HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined)
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("media bytes")))
     vi.stubGlobal("URL", { createObjectURL: vi.fn(() => "blob:media"), revokeObjectURL: vi.fn() })
     const { renderer, mediaNode } = renderMedia()
@@ -312,8 +303,8 @@ describe("MediaAttachmentBlock", () => {
     })
     expect(stopPropagation).toHaveBeenCalledOnce()
     expect(fetch).toHaveBeenCalledWith("/attachments/video-1", { credentials: "same-origin", signal: expect.any(AbortSignal) })
-    expect(anchor).toEqual(expect.objectContaining({ href: "blob:media", download: "clip.mp4" }))
-    expect(anchor.click).toHaveBeenCalledOnce()
+    expect(downloadClick.mock.contexts[0]).toEqual(expect.objectContaining({ href: "blob:media", download: "clip.mp4" }))
+    expect(downloadClick).toHaveBeenCalledOnce()
     expect(renderer.getByRole("status")).toHaveTextContent("Download started")
     expect(mediaNode.play).not.toHaveBeenCalled()
     expect(renderer.container.querySelectorAll("video")).toHaveLength(0)

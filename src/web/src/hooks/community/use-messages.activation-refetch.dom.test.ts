@@ -1017,7 +1017,7 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     expect(snapshots.at(-1)?.readStateFetching).toBe(true)
 
     await act(async () => {
-      await queryClient.fetchInfiniteQuery({
+      await queryClient.infiniteQuery({
         queryKey,
         queryFn: () => apiFetchMock(
           "/api/community/channels/dm_activation/messages?anchor=m_anchor",

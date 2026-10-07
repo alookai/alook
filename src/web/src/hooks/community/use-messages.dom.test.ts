@@ -173,7 +173,7 @@ describe("channelMessagesQueryFn — queryClient integration", () => {
     apiFetchMock.mockResolvedValueOnce({ messages: [{ id: "m_1" }], hasMore: false })
     const { client: qc } = await createCommunityQueryOwner()
     const key = communityKeys.channelMessages("ch_1")
-    await qc.fetchInfiniteQuery({
+    await qc.infiniteQuery({
       queryKey: key,
       queryFn: channelMessagesQueryFn("ch_1"),
       initialPageParam: { mode: "newest" } as const,
@@ -188,7 +188,7 @@ describe("channelMessagesQueryFn — queryClient integration", () => {
     apiFetchMock.mockResolvedValueOnce({ messages: [], hasMore: false })
     const { client: qc } = await createCommunityQueryOwner()
     const cursorKey = communityKeys.channelMessagesPage("ch_1", "cur|abc")
-    await qc.fetchQuery({ queryKey: cursorKey, queryFn: () => apiFetchMock() })
+    await qc.query({ queryKey: cursorKey, queryFn: () => apiFetchMock() })
     expect(qc.getQueryData(cursorKey)).toBeDefined()
 
     await qc.invalidateQueries({ queryKey: communityKeys.channelMessages("ch_1") })
@@ -207,7 +207,7 @@ describe("dmMessagesQueryFn", () => {
     const { client: qc } = await createCommunityQueryOwner()
     const key = communityKeys.dmMessages("dm_1")
 
-    await qc.fetchInfiniteQuery({
+    await qc.infiniteQuery({
       queryKey: key,
       queryFn: dmMessagesQueryFn("dm_1"),
       initialPageParam: { mode: "newest" } as const,
@@ -267,7 +267,7 @@ describe("dmMessagesQueryFn", () => {
       .mockResolvedValueOnce({ messages: [{ id: "m_2" }], hasMore: false, latestSeq: 1 })
     const { client: qc } = await createCommunityQueryOwner()
     const key = communityKeys.dmMessages("dm_1")
-    await qc.fetchInfiniteQuery({
+    await qc.infiniteQuery({
       queryKey: key,
       queryFn: dmMessagesQueryFn("dm_1"),
       initialPageParam: { mode: "newest" } as const,

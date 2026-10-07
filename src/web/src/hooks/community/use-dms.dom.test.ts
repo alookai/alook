@@ -59,7 +59,7 @@ describe("useDms / dmsQueryFn", () => {
     ]
     apiFetchMock.mockResolvedValueOnce({ conversations })
     const { client: qc, registry } = await createCommunityQueryOwner()
-    const data = await qc.fetchQuery({ queryKey: communityKeys.dms(), queryFn: dmsProjectedQueryFn(getActiveAccountUnreadProjection(qc), qc) })
+    const data = await qc.query({ queryKey: communityKeys.dms(), queryFn: dmsProjectedQueryFn(getActiveAccountUnreadProjection(qc), qc) })
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/me/dms", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
     expect(data).toEqual({ ids: ["dm_1"] })
     expect(registry.collections.channels.get("dm_1")?.type).toBe("dm")
@@ -70,7 +70,7 @@ describe("useDms / dmsQueryFn", () => {
     apiFetchMock.mockResolvedValueOnce({ conversations: [] })
     const { client: qc } = await createCommunityQueryOwner()
     const key = communityKeys.dms()
-    await qc.fetchQuery({ queryKey: key, queryFn: dmsProjectedQueryFn(getActiveAccountUnreadProjection(qc), qc) })
+    await qc.query({ queryKey: key, queryFn: dmsProjectedQueryFn(getActiveAccountUnreadProjection(qc), qc) })
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/community/users/me/dms",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
@@ -87,7 +87,7 @@ describe("useDms / dmsQueryFn", () => {
     projection.recordArrival({ channelId: "dm_1", seq: 3 })
     const { client: queryClient } = await createCommunityQueryOwner()
 
-    await queryClient.fetchQuery({ queryKey: communityKeys.dms(), queryFn: dmsProjectedQueryFn(projection, queryClient) })
+    await queryClient.query({ queryKey: communityKeys.dms(), queryFn: dmsProjectedQueryFn(projection, queryClient) })
 
     expect(projection.projectUnread("dms", "dm_1", false)).toBe(false)
   })
@@ -139,7 +139,7 @@ describe("useDms / dmsQueryFn", () => {
     const { dmsProjectedQueryFn } = await import("./use-dms")
     const { AccountUnreadProjection } = await import("./account-unread-projection")
 
-    await queryClient.fetchQuery({ queryKey: communityKeys.dms(), queryFn: dmsProjectedQueryFn(new AccountUnreadProjection("viewer"), queryClient) })
+    await queryClient.query({ queryKey: communityKeys.dms(), queryFn: dmsProjectedQueryFn(new AccountUnreadProjection("viewer"), queryClient) })
 
     expect(registry.collections.channels.get("dm-current")).toBeUndefined()
     unregister()
@@ -153,7 +153,7 @@ describe("useDms / dmsQueryFn", () => {
     const projection = new AccountUnreadProjection("u1")
 
     const { client: qc } = await createCommunityQueryOwner()
-    await expect(qc.fetchQuery({ queryKey: communityKeys.dms(), queryFn: dmsProjectedQueryFn(projection, qc) })).rejects.toThrow("offline")
+    await expect(qc.query({ queryKey: communityKeys.dms(), queryFn: dmsProjectedQueryFn(projection, qc) })).rejects.toThrow("offline")
 
     expect(projection.inspectForTests().pendingSnapshots).toBe(0)
   })

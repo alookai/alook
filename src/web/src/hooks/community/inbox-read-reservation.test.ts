@@ -568,7 +568,7 @@ describe("inbox read reservation", () => {
     }
     const observer = new QueryObserver(queryClient, options)
     const unsubscribe = observer.subscribe(() => undefined)
-    const originalRead = queryClient.fetchQuery(options).catch((error) => error)
+    const originalRead = queryClient.query(options).catch((error) => error)
     await vi.waitFor(() => expect(signals).toHaveLength(1))
 
     await settleInboxReadReservationGeneration(queryClient, 17, false, "focused")

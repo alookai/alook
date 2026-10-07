@@ -251,7 +251,7 @@ function policyExecutors(
       ))
       const settled = await Promise.allSettled([
         ...(viewerUserId
-          ? [queryClient.fetchQuery({ queryKey: communityKeys.profile(viewerUserId), queryFn: userProfileQueryFn(viewerUserId), staleTime: 0 })]
+          ? [queryClient.query({ queryKey: communityKeys.profile(viewerUserId), queryFn: userProfileQueryFn(viewerUserId), staleTime: 0, select: undefined })]
           : []),
         ...(hasIdentitySurface
           ? [queryClient.invalidateQueries({

@@ -40,7 +40,7 @@ export async function fetchAllServerMembers(queryClient: QueryClient, serverId: 
   const unsubscribe = observer.subscribe(() => undefined)
   signal?.addEventListener("abort", unsubscribe, { once: true })
   try {
-    let data: InfiniteData<Awaited<ReturnType<ReturnType<typeof membersPageQueryFn>>>> = await queryClient.fetchInfiniteQuery(options)
+    let data: InfiniteData<Awaited<ReturnType<ReturnType<typeof membersPageQueryFn>>>> = await queryClient.infiniteQuery({ ...options, select: undefined })
     assert()
     while (observer.getCurrentResult().hasNextPage) {
       assert()

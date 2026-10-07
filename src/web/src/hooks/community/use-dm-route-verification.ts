@@ -44,8 +44,8 @@ export async function startDmRouteVerification(
   const token = captureCommunityLiveSnapshotToken(queryClient)
   try {
     const cached = queryClient.getQueryData<{ verification?: ReturnType<typeof captureChannelMetadataToken> }>(options.queryKey)
-    await queryClient.fetchQuery({ ...options,
-      staleTime: cached?.verification && isChannelMetadataTokenCurrent(cached.verification) ? Infinity : 0 })
+    await queryClient.query({ ...options,
+      staleTime: cached?.verification && isChannelMetadataTokenCurrent(cached.verification) ? Infinity : 0, select: undefined })
     return "present"
   } catch (error) {
     assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined)

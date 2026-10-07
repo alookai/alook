@@ -21,7 +21,7 @@ async function invitableFriendsQueryFn(serverId: string, context: QueryFunctionC
   const unsubscribe = observer.subscribe(() => undefined)
   context.signal.addEventListener("abort", unsubscribe, { once: true })
   try {
-    const [accepted] = await Promise.all([context.client.fetchQuery(options), fetchAllServerMembers(context.client, serverId, context.signal)])
+    const [accepted] = await Promise.all([context.client.query({ ...options, select: undefined }), fetchAllServerMembers(context.client, serverId, context.signal)])
     assert()
     const allowed = new Set(accepted.ids)
     return { serverId, friendIds: [...original.registry!.collections.friendships.values()].filter((row) => row.kind === "accepted" && allowed.has(row.id)).map((row) => row.id) }

@@ -103,10 +103,11 @@ export function DaemonUpdateNotice({
     const token = captureApplicationOwner(owner)
     const assertActive = () => assertApplicationOwner(token)
     let active = true
-    void owner.queryClient.fetchQuery({
+    void owner.queryClient.query({
       queryKey: applicationKey(owner, "daemon-update-check", webVersion, latestDaemonVersion),
       staleTime: Infinity,
       queryFn: ({ signal }) => runApplicationRequest(owner, (options) => loadMachines ? loadMachines() : apiFetch<MachinesResponse>("/api/community/machines", options), signal),
+      select: undefined,
     })
       .then(({ machines }) => {
         if (!active) return

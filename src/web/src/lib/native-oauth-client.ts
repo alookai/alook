@@ -283,7 +283,7 @@ export const nativeOauthBrowserDeps: NativeOauthDeps = {
   },
   async hasSession() {
     const response = await request("/api/auth/get-session?disableCookieCache=true")
-    const result = z.object({ session: z.object({ id: z.string() }).passthrough().nullable() }).passthrough().safeParse(await response.json())
+    const result = z.object({ session: z.object({ id: z.string() }).loose().nullable() }).loose().safeParse(await response.json())
     return response.ok && result.success && result.data.session !== null
   },
   navigate(path) { window.location.assign(path) },

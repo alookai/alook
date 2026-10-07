@@ -33,7 +33,8 @@
     "render:reference-still": "remotion still AlookLogoReference out/reference-frame.png",
     "verify": "npm run lint && node scripts/verify.mjs",
     "upgrade": "remotion upgrade",
-    "lint": "eslint src && tsc"
+    "lint": "eslint src && tsc",
+    "test:lint": "node --test scripts/no-deprecated.test.mjs"
   },
   "sideEffects": [
     "*.css"

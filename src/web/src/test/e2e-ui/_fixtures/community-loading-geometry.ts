@@ -25,6 +25,7 @@ import {
 import { tid } from "./testids"
 import { WEB_URL } from "../_setup/paths"
 import { ssrGeometryErrors, type SsrLifecycleSample } from "./community-ssr-geometry"
+import { expectUniqueSsrInitialFrame } from "./community-ssr-frame"
 import type { UserKey } from "../_setup/users"
 
 type Theme = "light" | "dark"
@@ -100,8 +101,7 @@ async function expectServerSeededRouteFrame(
   width: number,
   height: number,
 ) {
-  const frame = page.getByTestId(tid.initialFrame)
-  await expect(frame).toBeVisible()
+  const frame = await expectUniqueSsrInitialFrame(page)
   await expect(frame).toHaveAttribute("aria-busy", "true")
   await expect(frame).toHaveAttribute("aria-label", "Loading community")
   await expect(page.locator('[data-slot="community-restore-bootstrap"]')).toHaveCount(0)
@@ -126,6 +126,7 @@ async function expectServerSeededRouteFrame(
   })
   expect(geometry.overflow).toBe(0)
   expect(geometry.root).toMatchObject({ x: 0, y: 0, width, height })
+  return frame
 }
 
 async function holdRequest(page: Page, pattern: string) {
@@ -533,6 +534,7 @@ export async function runAndroidLoadingGeometry(asUser: CommunityAsUser, testInf
           try {
             await page.goto(pathname, { waitUntil: "commit" })
             await expect.poll(() => scripts.blocked.length).toBeGreaterThan(0)
+            expect(scripts.received).toEqual([])
             await expectServerSeededRouteFrame(page, width, width === 320 ? 720 : 900)
             await page.waitForTimeout(250)
             ssrEvidence = {
@@ -606,6 +608,7 @@ export async function runDesktopPersistedPendingGeometry(
         const communityReads = await holdCommunityReads(page)
         await page.goto("/c/me/machines", { waitUntil: "commit" })
         await expect.poll(() => scripts.blocked.length).toBeGreaterThan(0)
+        expect(scripts.received).toEqual([])
         expect(scripts.sessionRequests()).toBe(0)
         await expectServerSeededRouteFrame(page, viewportWidth, 900)
         scripts.release()
@@ -662,6 +665,7 @@ export async function runSkeletonLoadingMotion(asUser: CommunityAsUser) {
       const communityReads = await holdCommunityReads(page)
       await page.goto("/c/me/machines", { waitUntil: "commit" })
       await expect.poll(() => scripts.blocked.length).toBeGreaterThan(0)
+      expect(scripts.received).toEqual([])
       expect(scripts.sessionRequests()).toBe(0)
       await expectServerSeededRouteFrame(page, 320, 720)
       scripts.release()
@@ -691,10 +695,10 @@ export async function runNeutralRootGeometry(
         const scripts = await holdApplicationScripts(page)
         await page.goto("/c", { waitUntil: "commit" })
         await expect.poll(() => scripts.blocked.length).toBeGreaterThan(0)
+        expect(scripts.received).toEqual([])
         expect(scripts.sessionRequests()).toBe(0)
 
-        const frame = page.getByTestId(tid.initialFrame)
-        await expectServerSeededRouteFrame(page, width, width === 390 ? 844 : 900)
+        const frame = await expectServerSeededRouteFrame(page, width, width === 390 ? 844 : 900)
         await expect(page.locator('[data-slot="community-shell-root"]')).toHaveCount(0)
         await expect(page.getByTestId(tid.initialRailPending)).toHaveCount(0)
         await expect(page.getByTestId(tid.dmSidebarPending)).toHaveCount(0)
@@ -718,7 +722,7 @@ export async function runNeutralRootGeometry(
         })
 
         scripts.release()
-        await expect(frame).toHaveCount(0, { timeout: 30_000 })
+        await expect(page.getByTestId(tid.initialFrame)).toHaveCount(0, { timeout: 30_000 })
         await expect.poll(() => new URL(page.url()).pathname).toBe("/c/me/machines")
         await expect(page.getByTestId(tid.machinePairOpen)).toBeVisible({ timeout: 30_000 })
         expect(await page.evaluate(() => (
@@ -752,6 +756,7 @@ export async function runRouteLoadingGeometry(
           : null
         await page.goto(entry.pathname, { waitUntil: "commit" })
         await expect.poll(() => scripts.blocked.length).toBeGreaterThan(0)
+        expect(scripts.received).toEqual([])
         expect(scripts.sessionRequests()).toBe(0)
         await expectServerSeededRouteFrame(
           page,

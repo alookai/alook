@@ -1,12 +1,32 @@
 import { defineConfig, globalIgnores } from "eslint/config";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
+import tseslint from "typescript-eslint";
 import tailwindCanonicalClasses from "eslint-plugin-tailwind-canonical-classes";
 
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
   ...tailwindCanonicalClasses.configs["flat/recommended"],
+  {
+    files: ["**/*.{js,mjs,cjs,jsx,ts,mts,cts,tsx}"],
+    languageOptions: {
+      parser: tseslint.parser,
+      parserOptions: {
+        project: "./tsconfig.eslint.json",
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: { "@typescript-eslint/no-deprecated": "error" },
+  },
+  {
+    files: ["blog/**/*.{js,mjs,cjs,jsx,ts,mts,cts,tsx}"],
+    languageOptions: { parserOptions: { project: "./blog/tsconfig.eslint.json" } },
+  },
+  {
+    files: ["auth/**/*.{js,mjs,cjs,jsx,ts,mts,cts,tsx}"],
+    languageOptions: { parserOptions: { project: "./auth/tsconfig.eslint.json" } },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

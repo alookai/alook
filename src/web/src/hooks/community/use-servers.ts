@@ -276,7 +276,7 @@ async function resolveServerIdentity(queryClient: QueryClient, serverId: string,
   signal?.addEventListener("abort", release, { once: true })
   try {
     assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
-    await queryClient.fetchQuery(options)
+    await queryClient.query({ ...options, select: undefined })
     assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
     return read()
   } finally {

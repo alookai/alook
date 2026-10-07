@@ -267,7 +267,7 @@ describe("same-account read-state WS events", () => {
       }
       return Promise.resolve([])
     })
-    const oldRequest = queryClient.fetchQuery({
+    const oldRequest = queryClient.query({
       queryKey: communityKeys.notificationSettings(),
       queryFn: notificationSettingsQueryFn,
     }).catch(() => undefined)

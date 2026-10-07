@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto"
 import { createElement, type PropsWithChildren } from "react"
-import { dehydrate, hydrate, isCancelledError, QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { dehydrate, hydrate, CancelledError, QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { createCommunityDbRegistry, registerCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -968,7 +968,7 @@ describe("forum sidebar canonical projection", () => {
       retainedDisposition: "eligible",
       included: retained.included,
     })
-    expect(isCancelledError(await grant)).toBe(true)
+    expect((await grant) instanceof CancelledError).toBe(true)
     expect(getCanonicalCommunityChannels(queryClient).some(({ id }) => id === "post-1"))
       .toBe(false)
   })

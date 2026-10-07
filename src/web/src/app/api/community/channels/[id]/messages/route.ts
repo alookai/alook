@@ -1,3 +1,4 @@
+import { flattenError } from "zod"
 import { NextRequest, NextResponse } from "next/server"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -314,7 +315,7 @@ async function handleBotSend(
 ): Promise<NextResponse> {
   const parsed = CommunityAgentSendRequestSchema.safeParse(raw)
   if (!parsed.success) {
-    return NextResponse.json({ error: "invalid payload", details: parsed.error.flatten() }, { status: 400 })
+    return NextResponse.json({ error: "invalid payload", details: flattenError(parsed.error) }, { status: 400 })
   }
   const body = parsed.data
 

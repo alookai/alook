@@ -598,7 +598,7 @@ describe("useCommunityWs — message.create", () => {
     vi.useFakeTimers()
     try {
       await mountHook({ viewerUserId: "u_me" })
-      const fetchAttention = vi.spyOn(capturedQueryClient, "fetchQuery")
+      const fetchAttention = vi.spyOn(capturedQueryClient, "query")
       for (let i = 0; i < 10; i++) {
         capturedOnMessage!(messageCreate("ch_x", `m_${i}`))
         capturedOnMessage!({
@@ -1110,7 +1110,7 @@ describe("useCommunityWs — DM message.create", () => {
         pages: [{ messages: [], hasMore: false }],
         pageParams: [null],
       })
-      const fetchAttention = vi.spyOn(capturedQueryClient, "fetchQuery")
+      const fetchAttention = vi.spyOn(capturedQueryClient, "query")
       // A DM is a channel now — its message arrives as `message.create` keyed by
       // the DM's channel id (which the subscription tracks in `dmConversationId`).
       const event: CommunityMessageCreate = {

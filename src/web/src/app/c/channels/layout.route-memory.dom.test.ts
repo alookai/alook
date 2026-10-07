@@ -274,7 +274,7 @@ describe("ServerLayout deletion routing", () => {
     mocks.routeToken = actual.createOwnerServerDeleteRouteToken(client)
     registry.runtime.ui.actions.registerUiHandlers({ cancelPendingNavigation: mocks.cancelPendingNavigation, navigatePath: mocks.navigatePath })
     vi.spyOn(client, "getQueryData")
-    vi.spyOn(client, "fetchQuery")
+    vi.spyOn(client, "query")
     window.history.replaceState({}, "", "/c/channels/missing-server/missing-channel")
     mocks.replace.mockClear()
     mocks.search.current = ""
@@ -313,8 +313,8 @@ describe("ServerLayout deletion routing", () => {
       }
       return mocks.serverDetails.get(String(key.at(-1)))
     })
-    vi.mocked(mocks.queryClient.fetchQuery).mockReset()
-    vi.mocked(mocks.queryClient.fetchQuery).mockImplementation(({ queryKey }: { queryKey: unknown[] }) => (
+    vi.mocked(mocks.queryClient.query).mockReset()
+    vi.mocked(mocks.queryClient.query).mockImplementation(({ queryKey }: { queryKey: unknown[] }) => (
       Promise.resolve(mocks.serverDetails.get(String(queryKey.at(-1))))
     ))
     mocks.runEject.mockReturnValue(false)

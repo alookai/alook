@@ -116,6 +116,19 @@ describe("POST /api/community/daemon/activate", () => {
     expect(await res.json()).toMatchObject({ sessionOutcome: "not_committed" })
   })
 
+  it("keeps flattened field errors and the uncommitted outcome for invalid payloads", async () => {
+    const res = await POST(jsonReq({}, { Authorization: "Bearer cmt_abc" }))
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body).toMatchObject({
+      error: "invalid payload", sessionOutcome: "not_committed",
+      details: { formErrors: [], fieldErrors: expect.any(Object) },
+    })
+    expect(Object.keys(body.details)).toEqual(["formErrors", "fieldErrors"])
+    expect(Object.keys(body.details.fieldErrors).length).toBeGreaterThan(0)
+    expect(mockActivate).not.toHaveBeenCalled()
+  })
+
   it("returns 200 + credential/machineId on happy path", async () => {
     mockActivate.mockResolvedValue({
       credential: "cmk_alpha",
