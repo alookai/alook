@@ -16,7 +16,7 @@ describe("builtin adapter protocol conformance", () => {
       cursor: ["session", "stdio_rpc", "cursor.acp.v1", "steer", "transport_request"],
       antigravity: ["session", "stdio_rpc", "antigravity.acp.v1", "next_turn_queue", "transport_request"],
       grok: ["session", "stdio_rpc", "grok.acp.v1", "safe_boundary_queue", "transport_request"],
-      opencode: ["session", "http_sse", "opencode.v2.service.1.17.20", "steer", "transport_request"],
+      opencode: ["session", "http_sse", "opencode.v2.service", "steer", "transport_request"],
       pi: ["session", "in_process_sdk", "pi_sdk", "steer", "prompt_invocation"],
     } as const;
     const actual = Object.fromEntries(registry.backendIds.map((backend) => {
@@ -100,7 +100,7 @@ describe("builtin adapter protocol conformance", () => {
     const adapter = registry.get("opencode").createAdapter();
     expect(adapter.execution).toEqual({
       lifetime: "session",
-      transport: { kind: "http_sse", protocol: "opencode.v2.service.1.17.20" },
+      transport: { kind: "http_sse", protocol: "opencode.v2.service" },
       wakeStart: "immediate",
       terminalOwnership: "transport_request",
     });

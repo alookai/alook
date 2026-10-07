@@ -1623,7 +1623,7 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
     await vi.waitFor(() => expect(exits).toContainEqual({ code: null, signal: null, reason: "runtime_exit" }));
   });
 
-  it("reports a service crash during an active turn and rejects incompatible installed versions", async () => {
+  it("reports a service crash during an active turn", async () => {
     const lane = makeLane();
     const { exits } = collectEvents(lane);
     await lane.start({ text: "root", terminalOwner: "msg_root" });
@@ -1632,12 +1632,20 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
     service.close("SIGKILL");
     await vi.waitFor(() => expect(exits).toContainEqual({ code: null, signal: "SIGKILL", reason: "runtime_exit" }));
 
-    const incompatibleFactory = new FakeOpenCodeFactory();
-    incompatibleFactory.healthVersion = "1.17.21";
-    const incompatible = makeLane(incompatibleFactory);
-    await expect(incompatible.start({ text: "root", terminalOwner: "msg_bad_version" }))
-      .resolves.toMatchObject({ ok: false, reason: "incompatible_configuration" });
   });
+
+  it.each(["1.17.21", "1.18.35", "0.0.0-dev"])(
+    "admits a compatible healthy service without restricting software version %s",
+    async (version) => {
+      const factory = new FakeOpenCodeFactory();
+      factory.healthVersion = version;
+      const lane = makeLane(factory);
+      await expect(lane.start({ text: "root", terminalOwner: "msg_any_version" }))
+        .resolves.toMatchObject({ ok: true, receipt: "msg_any_version" });
+      expect(factory.service?.prompts).toHaveLength(1);
+      await lane.stop({ reason: "test_done", forceAfterMs: 0 });
+    },
+  );
 
   it("fails a health timeout without admitting a prompt", async () => {
     const factory = new FakeOpenCodeFactory();

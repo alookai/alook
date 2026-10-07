@@ -53,7 +53,7 @@ describe("OpenCodeDriver persistent v2 service", () => {
   it("declares persistent HTTP/SSE steering with transport-owned terminal receipts", () => {
     expect(driver.execution).toEqual({
       lifetime: "session",
-      transport: { kind: "http_sse", protocol: "opencode.v2.service.1.17.20" },
+      transport: { kind: "http_sse", protocol: "opencode.v2.service" },
       wakeStart: "immediate",
       terminalOwnership: "transport_request",
     });

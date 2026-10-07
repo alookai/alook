@@ -64,7 +64,7 @@ describe("driver.capabilities", () => {
       },
       opencode: {
         lifetime: "session",
-        transport: { kind: "http_sse", protocol: "opencode.v2.service.1.17.20" },
+        transport: { kind: "http_sse", protocol: "opencode.v2.service" },
         wakeStart: "immediate",
         terminalOwnership: "transport_request",
       },
