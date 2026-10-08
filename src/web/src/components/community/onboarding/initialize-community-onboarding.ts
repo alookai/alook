@@ -31,7 +31,7 @@ export type OnboardingBotCreateResponse = {
   }
 }
 type ServerCreateResponse = { server: { id: string; name?: string } }
-type ChannelRow = { id: string; name: string }
+type ChannelRow = { id: string; name: string; type: string; categoryId: string | null }
 
 const ROOM_NAMES: Record<string, string> = {
   office: "work-room",
@@ -140,7 +140,7 @@ export async function initializeCommunityOnboarding({
   if (!serverId) throw new Error("Setup progress could not be restored")
 
   onProgress?.("inviting-bots")
-  if (!progress.publicChannelId || !progress.privateChannelId) {
+  if (!progress.publicChannelId || !progress.privateChannelId || !progress.tasksChannelId) {
     const channels = await services.readChannels(serverId)
     services.assert()
     const publicChannel = channels.find((channel) => channel.name === "all")
@@ -149,6 +149,31 @@ export async function initializeCommunityOnboarding({
       throw new Error("The new room is missing its default channels")
     }
     save({ publicChannelId: publicChannel.id, privateChannelId: privateChannel.id })
+    if (!publicChannel.id || !privateChannel.id) throw new Error("Default channels could not be restored")
+    if (!progress.tasksChannelId) {
+      let tasksChannel = channels.find((channel) => channel.name.toLowerCase() === "tasks")
+      if (tasksChannel && (tasksChannel.type !== "forum" || tasksChannel.categoryId !== publicChannel.categoryId)) {
+        throw new Error("The tasks channel must be a public forum beside all")
+      }
+      if (!tasksChannel) {
+        const created = await services.request<{ channel: ChannelRow }>("/api/community/channels", {
+          method: "POST",
+          body: JSON.stringify({ serverId, name: "tasks", type: "forum", categoryId: publicChannel.categoryId }),
+        })
+        services.assert()
+        tasksChannel = created.channel
+      }
+      if (!tasksChannel?.id) throw new Error("The tasks forum could not be restored")
+      await services.request(`/api/community/servers/${serverId}/channels/reorder`, {
+        method: "PATCH",
+        body: JSON.stringify({ channelIds: [
+          publicChannel.id,
+          tasksChannel.id,
+          ...channels.filter((channel) => channel.id !== publicChannel.id && channel.id !== tasksChannel.id).map((channel) => channel.id),
+        ] }),
+      })
+      save({ tasksChannelId: tasksChannel.id })
+    }
   }
 
   const { publicChannelId, privateChannelId } = progress

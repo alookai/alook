@@ -233,7 +233,7 @@ export function OnboardingSelectDialog({
                       data-disabled={option.disabled || locked || undefined}
                       data-selected={selected || undefined}
                       className={cn(
-                        "min-h-14 cursor-pointer rounded-lg border-0 bg-transparent px-2 py-3 text-left shadow-none transition-colors duration-150 has-[>[data-slot=field]]:rounded-lg has-[>[data-slot=field]]:border-0 *:data-[slot=field]:p-0 hover:bg-accent/50 active:bg-accent has-focus-visible:ring-3 has-focus-visible:ring-ring/40 data-[disabled=true]:cursor-not-allowed data-[disabled=true]:bg-muted/40 data-[disabled=true]:text-muted-foreground",
+                        "min-h-14 cursor-pointer justify-center rounded-lg border-0 bg-transparent px-2 py-3 text-left shadow-none transition-colors duration-150 has-[>[data-slot=field]]:rounded-lg has-[>[data-slot=field]]:border-0 *:data-[slot=field]:p-0 hover:bg-accent/50 active:bg-accent has-focus-visible:ring-3 has-focus-visible:ring-ring/40 data-[disabled=true]:cursor-not-allowed data-[disabled=true]:bg-muted/40 data-[disabled=true]:text-muted-foreground",
                         selected && "bg-accent",
                       )}
                     >

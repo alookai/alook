@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getBotWakeContext: vi.fn(),
   getServer: vi.fn(),
   listServerChannels: vi.fn(),
+  listCategories: vi.fn(),
   markRead: vi.fn(),
   push: vi.fn(),
   fanOutServer: vi.fn(),
@@ -31,6 +32,9 @@ vi.mock("@alook/shared", async (importOriginal) => {
       },
       communityChannel: {
         listServerChannels: (...args: unknown[]) => mocks.listServerChannels(...args),
+      },
+      communityCategory: {
+        listCategoriesByServer: (...args: unknown[]) => mocks.listCategories(...args),
       },
       communityServer: {
         getServer: (...args: unknown[]) => mocks.getServer(...args),
@@ -127,9 +131,11 @@ describe("POST /api/community/servers/[id]/onboard", () => {
       joinedAt: "2026-09-04T00:00:00.000Z",
     }))
     mocks.listServerChannels.mockResolvedValue([
-      { id: "public-1", name: "all", type: "text" },
+      { id: "public-1", name: "all", type: "text", categoryId: "public-cat" },
+      { id: "tasks-1", name: "tasks", type: "forum", categoryId: "public-cat" },
       { id: "private-1", name: "room", type: "text" },
     ])
+    mocks.listCategories.mockResolvedValue([{ id: "public-cat", private: 0 }])
     mocks.createMessage.mockResolvedValue({
       ok: true,
       row: {
@@ -146,6 +152,35 @@ describe("POST /api/community/servers/[id]/onboard", () => {
     mocks.fanOutServer.mockResolvedValue(undefined)
     mocks.messageBroadcast.mockResolvedValue(undefined)
     mocks.broadcastToUser.mockResolvedValue(undefined)
+  })
+
+  it("injects the actual forum reference into every role's space", () => {
+    expect(onboardingPromptWithSpace("Wake", "Room#0042", "all", "Tasks")).toContain(
+      "- Public tasks forum: /Room#0042/Tasks",
+    )
+  })
+
+  it.each([
+    ["missing", null],
+    ["text channel", { id: "tasks-1", name: "tasks", type: "text", categoryId: "public-cat" }],
+    ["different category", { id: "tasks-1", name: "tasks", type: "forum", categoryId: "private-cat" }],
+  ])("rejects a %s tasks forum before membership or wake", async (_label, tasks) => {
+    mocks.listServerChannels.mockResolvedValue([
+      { id: "public-1", name: "all", type: "text", categoryId: "public-cat" },
+      ...(tasks ? [tasks] : []),
+    ])
+    const response = await POST(request(onboardBody()), { params: { id: "server-1" } })
+    expect(response.status).toBe(409)
+    expect(mocks.addMember).not.toHaveBeenCalled()
+    expect(mocks.push).not.toHaveBeenCalled()
+  })
+
+  it("rejects a private tasks forum even when all is in the same category", async () => {
+    mocks.listCategories.mockResolvedValue([{ id: "public-cat", private: 1 }])
+    const response = await POST(request(onboardBody()), { params: { id: "server-1" } })
+    expect(response.status).toBe(409)
+    expect(mocks.addMember).not.toHaveBeenCalled()
+    expect(mocks.push).not.toHaveBeenCalled()
   })
 
   it("formats three or more teammate handles as an Oxford list", () => {
@@ -234,17 +269,17 @@ describe("POST /api/community/servers/[id]/onboard", () => {
         type: "agent:event",
         agentId: "bot-a",
         includeRecentContext: true,
-        prompt: onboardingPromptWithSpace("Wake bot-a", "Ada-dev-room#5620", "all"),
+        prompt: onboardingPromptWithSpace("Wake bot-a", "Ada-dev-room#5620", "all", "tasks"),
       }),
       expect.objectContaining({
         type: "agent:event",
         agentId: "bot-b",
-        prompt: onboardingPromptWithSpace("Wake bot-b", "Ada-dev-room#5620", "all"),
+        prompt: onboardingPromptWithSpace("Wake bot-b", "Ada-dev-room#5620", "all", "tasks"),
       }),
       expect.objectContaining({
         type: "agent:event",
         agentId: "bot-c",
-        prompt: onboardingPromptWithSpace("Wake bot-c", "Ada-dev-room#5620", "all"),
+        prompt: onboardingPromptWithSpace("Wake bot-c", "Ada-dev-room#5620", "all", "tasks"),
       }),
     ])
     expect(mocks.push.mock.calls[1]![2]).not.toHaveProperty("includeRecentContext")

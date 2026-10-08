@@ -64,6 +64,15 @@ export function OnboardingMachineDialog({
     [harness, machines],
   )
   const autoMint = useCreateAtom<AbortSignal | null>(null)
+  const autoAdvance = useCreateAtom<AbortSignal | null>(null)
+  const readyMachineId = previewConnectedMachine?.id ?? onlineMachine?.id
+  useEffect(() => {
+    if (!open) { autoAdvance.set(null); return }
+    if (!readyMachineId || autoAdvance.get() === source.signal) return
+    source.capture()()
+    autoAdvance.set(source.signal)
+    onConnected(readyMachineId)
+  }, [open, readyMachineId, source, onConnected, autoAdvance])
   const generation = useMutation({ meta: { observabilityAction: "machine.pair.generate" },
     mutationKey: ["community", "onboarding-machine-pair", harness], gcTime: 0,
     mutationFn: async ({ token, assert }: { token: ReturnType<typeof origin.begin>["token"]; assert: ReturnType<typeof source.capture> }) => {

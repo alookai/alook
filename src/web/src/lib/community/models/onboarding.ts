@@ -14,6 +14,7 @@ export type OnboardingInitializationCheckpoint = {
   serverId?: string
   publicChannelId?: string
   privateChannelId?: string
+  tasksChannelId?: string
   requestedServerName?: string
   onboardedBotIds?: string[]
   botsOnboarded?: boolean
