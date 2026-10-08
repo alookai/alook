@@ -998,6 +998,16 @@ describe("GET /api/community/channels/[id]/messages", () => {
     mockGetLatestMessageSeq.mockResolvedValue(0)
   })
 
+  it("rejects a malformed V2 window before querying messages", async () => {
+    const req = new NextRequest("http://localhost/api/community/channels/c1/messages?anchor=one&since=two", { headers: { "X-Alook-Community-Contract": "2" } })
+    const res = await GET(req, ctx)
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toEqual(expect.any(String))
+    expect(mockListMessages).not.toHaveBeenCalled()
+    expect(mockListMessagesAround).not.toHaveBeenCalled()
+    expect(mockListMessagesSince).not.toHaveBeenCalled()
+  })
+
   it("keeps the read path on the unconstrained replica-capable session", async () => {
     mockListMessages.mockResolvedValue([])
 

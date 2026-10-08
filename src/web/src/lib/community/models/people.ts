@@ -1,11 +1,8 @@
+import type { CommunityResourceProfile } from "@alook/shared"
+
 export type Presence = "online" | "offline"
 
-export type CommunityProfile = {
-  id: string
-  name?: string
-  discriminator?: string
-  avatar?: string
-  avatarVersion?: number
+export type CommunityProfile = Pick<CommunityResourceProfile, "id"> & Partial<CommunityUserCore> & {
   aboutMe?: string
   bannerColor?: string | null
   kind?: "human" | "bot"
@@ -13,8 +10,8 @@ export type CommunityProfile = {
   ownerHandle?: string | null
   mutualServers?: number
   ownedByViewer?: boolean
-  statusEmoji?: string | null
-  statusText?: string | null
+  statusEmoji?: CommunityResourceProfile["statusEmoji"]
+  statusText?: CommunityResourceProfile["statusText"] | null
   presence?: Presence
 }
 
@@ -24,27 +21,14 @@ export type CommunityProfilePatch = {
     CommunityProfile,
     "name" | "discriminator" | "aboutMe" | "bannerColor" | "kind" | "ownerUserId"
   >>
-  avatar?: { avatar: string; avatarVersion: number }
+  avatar?: Pick<CommunityUserCore, "avatar" | "avatarVersion">
   status?: Pick<CommunityProfile, "statusEmoji" | "statusText">
   card?: Pick<CommunityProfile, "ownerHandle" | "mutualServers" | "ownedByViewer">
   presence?: Presence
 }
 
-// ── Members / friends / DMs ──────────────────────────────────────────────────
-// Identity fields shared by every community user view-model (member / friend /
-// DM). All three are required `string`: `user.name`/`user.discriminator` are
-// NOT NULL columns always projected on live payloads. Requiring `discriminator`
-// here (in one place) moves the "a mention target always has a tag" guarantee
-// to compile time. `userId` is
-// NOT part of the core: it's required on Member/DM but optional on Friend, so
-// each type declares it. Only types whose identity fields are identically
-// shaped extend this — AddableMember/ThreadParticipant (nullable projections),
-// Profile/UserProfile (renamed/merged shapes) intentionally stay standalone.
 export type CommunityUserCore = {
-  name: string
-  discriminator: string
-  avatar: string
-  avatarVersion: number
+  [Field in "name" | "discriminator" | "avatar" | "avatarVersion"]: NonNullable<CommunityResourceProfile[Field]>
 }
 
 export type Member = CommunityUserCore & {
@@ -78,24 +62,18 @@ export type Friend = CommunityUserCore & {
   statusText?: string | null
 }
 
-export type PendingRequest = {
+export type PendingRequest = Pick<CommunityUserCore, "name" | "avatar" | "avatarVersion"> & {
   id: string
   userId: string
-  name: string
-  avatar: string
-  avatarVersion: number
   kind: "incoming" | "outgoing"
   // The gating owner id while a bot-touched row is pending; null once
   // unlocked. Drives whether Approve/Reject buttons render.
   needsOwnerApproval?: string | null
 }
 
-export type BlockedUser = {
+export type BlockedUser = Pick<CommunityUserCore, "name" | "avatar" | "avatarVersion"> & {
   id: string
   userId?: string
-  name: string
-  avatar: string
-  avatarVersion: number
 }
 
 // DM summary shown in the DM sidebar. Actual conversation history is loaded

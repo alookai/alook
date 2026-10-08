@@ -9,7 +9,6 @@ import type {
   CommunityReactionRemove,
   CommunityWsEvent,
 } from "@alook/shared"
-import { projectCommunityMessageCreate } from "@/lib/community/message-wire"
 
 import {
   hasForumSidebarOwnershipEvidence,
@@ -23,7 +22,6 @@ import { scheduleFocusedMessageGapRepair } from "@/hooks/community/community-ws/
 import { armInboxReadReservationCandidate } from "@/hooks/community/inbox-read-reservation"
 import {
   approvalProfilePatches,
-  messageProfilePatches,
   writeCommunityProfilePatches,
 } from "@/lib/community/profile-seed"
 
@@ -33,8 +31,7 @@ import {
   invalidatePins,
 } from "@/hooks/community/community-ws/invalidation-projections"
 import { channelMetadataOptions } from "@/hooks/community/channel-metadata"
-import {
-} from "@/lib/community-db/sync"
+import { projectCommunityWsEventToDb } from "@/lib/community-db/sync"
 
 type CommunityMessageEdited = Extract<
   CommunityWsEvent,
@@ -72,8 +69,8 @@ export function handleMessageCreate(
   const hasSeenMessage = wsStore.actions.hasSeenMessage(event.message.id)
   const isForeignFocused = event.message.authorId !== viewerId
     && matchesFocus(event)
-  const projected = projectCommunityMessageCreate(event.message, event.channelId)
-  writeCommunityProfilePatches(messageProfilePatches([projected]), getCommunityDbRegistry(queryClient), { event: true })
+  const projected = projectCommunityWsEventToDb(queryClient, event)
+  if (!projected) return
   if (isForeignFocused && !hasSeenMessage) {
     armInboxReadReservationCandidate(queryClient, {
       channelId: event.channelId,

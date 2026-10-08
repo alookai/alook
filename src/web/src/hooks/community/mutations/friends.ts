@@ -7,7 +7,7 @@ import { beginCommunityCommandRevision, captureCommunityLiveSnapshotToken } from
 import { reconcileAccountAttention } from "../use-account-attention"
 import { useCommunityMutationOrigin } from "../community-origin"
 import { communityKeys } from "@/lib/query-keys"
-import { publishCommunityFriendBlock, publishCommunityFriendDecision, removeSettledCommunityFriendCommands } from "@/lib/community-db/sync"
+import { applyCommunityDmBlockAccess, publishCommunityFriendBlock, publishCommunityFriendDecision, removeSettledCommunityFriendCommands } from "@/lib/community-db/sync"
 import { isAbortError } from "@/lib/errors"
 
 export type SendFriendRequestArgs = { username?: string; userId?: string }
@@ -66,8 +66,10 @@ function useFriendCommand<Args extends object>(action: string, build: (args: Arg
       if (!error || isAbortError(error) || (row?.kind !== "incoming" && row?.kind !== "outgoing")) {
         for (const mutation of queryClient.getMutationCache().findAll({ mutationKey: ["community", "friend-request"], predicate: (entry) => entry.state.variables === args })) queryClient.getMutationCache().remove(mutation)
       }
+      const command = build(args)
+      if (!error && command.userId && command.blocked !== undefined) applyCommunityDmBlockAccess(origin.registry!, command.userId, command.blocked)
     },
-  })
+  }, action === "block" ? (args) => origin.assertOwner(args.original) : undefined)
 }
 
 export function useSendFriendRequest() { return useFriendCommand<SendFriendRequestArgs>("send", ({ username, userId }) => ({ path: "/api/community/friends/request", method: "POST", body: JSON.stringify({ username, userId }) })) }

@@ -553,6 +553,29 @@ describe("useMessageChannelController", () => {
     expect(latest.messageActions).toBe(firstActions)
   })
 
+  it("reads only the clicked current canonical or local failed message with current author profiles", () => {
+    act(() => { rtlRender(React.createElement(Probe, { value: props() })) })
+    const { getMessage } = mocks.createActions.mock.calls[0][0] as Parameters<typeof import("./message-channel-controller-actions").createMessageActions>[0]
+    const runtime = fixtureOwner.registry.runtime
+    const scope = { kind: "channel" as const, id: "channel_1", serverId: "server_1" }
+    act(() => {
+      ingestMessages(fixtureOwner.registry, scope.id, [{ id: "m1", seq: 1, type: "chat", content: "current body", authorId: "u1", authorName: "Current Author", authorAvatar: "current.png", authorAvatarVersion: 7 }])
+      ingestMessages(fixtureOwner.registry, "other_channel", [{ id: "other", seq: 2, type: "chat", content: "private other" }])
+      runtime.messageStream.actions.accept(scope, { nonce: "clicked_failed", tempId: "temp_clicked_failed", message: { type: "chat", authorId: "u1", content: "local body" }, localUploads: [] })
+      runtime.messageStream.actions.dispatch(scope, { type: "postFail", nonce: "clicked_failed" })
+    })
+    expect(getMessage("m1")).toMatchObject({ id: "m1", content: "current body", authorName: "Current Author", authorAvatar: "current.png", authorAvatarVersion: 7 })
+    expect(getMessage("temp_clicked_failed")).toMatchObject({ content: "local body", failed: true, clientNonce: "clicked_failed", authorName: "Current Author", authorAvatarVersion: 7 })
+    expect(getMessage("other")).toBeUndefined()
+    act(() => {
+      const confirmed = { id: "confirmed", seq: 3, type: "chat" as const, content: "confirmed body", authorId: "u1", clientNonce: "clicked_failed" }
+      ingestMessages(fixtureOwner.registry, scope.id, [confirmed])
+      runtime.messageStream.actions.dispatch(scope, { type: "wsMessage", message: confirmed })
+    })
+    expect(getMessage("temp_clicked_failed")).toBeUndefined()
+    expect(getMessage("confirmed")).toMatchObject({ id: "confirmed", content: "confirmed body", authorName: "Current Author", authorAvatarVersion: 7 })
+  })
+
   it("ignores non-finite seq params and projects the exact public value surface", () => {
     mocks.seq = "not-a-number"
     mocks.typingIds = ["u1", "u2"]

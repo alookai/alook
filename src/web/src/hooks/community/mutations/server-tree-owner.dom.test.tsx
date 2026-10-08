@@ -7,7 +7,7 @@ import { act, render, screen, waitFor } from "@/test/react-dom-harness"
 import { QueryProvider } from "@/app/c/QueryProvider"
 import { clearAllPersistedCaches } from "@/lib/query-persister"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
-import { projectCommunityWsEventToDb } from "@/lib/community-db/sync"
+import { projectCommunityWsEventToDb, retireCommunityChannelReading } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
 import { useServer, useServers } from "../use-servers"
 import { useUpdateServer, useLeaveServer, useDeleteServer, useUploadServerIcon } from "./servers"
@@ -189,19 +189,59 @@ describe("actual canonical server and tree command owner", () => {
   })
   it("rolls back optimistic leave while keeping newer WS facts", async () => {
     const { reject, original } = await mount()
-    let result!: Promise<unknown>; act(() => { result = leave.mutateAsync({ serverId: "s1" }).catch((error) => error) })
+    const input = { serverId: "s1" }, failure = new Error("denied")
+    const callbacks = { onSuccess: vi.fn(), onError: vi.fn(), onSettled: vi.fn() }
+    let result!: Promise<unknown>; act(() => { result = leave.mutateAsync(input, callbacks).catch((error) => error) })
     await waitFor(() => expect(screen.getByTestId("server-list").textContent).toBe(""))
     act(() => projectCommunityWsEventToDb(original, { type: "community:server.update", serverId: "s1", changes: { name: "newer-ws" } }))
-    await act(async () => { reject(new Error("denied")); await result })
+    await act(async () => { reject(failure); expect(await result).toBe(failure) })
     await waitFor(() => expect(screen.getByTestId("server-list").textContent).toBe("newer-ws"))
+    expect(callbacks.onError).toHaveBeenCalledOnce()
+    expect(callbacks.onError.mock.calls[0]!.slice(0, 2)).toEqual([failure, input])
+    expect(callbacks.onSettled).toHaveBeenCalledOnce()
+    expect(callbacks.onSettled.mock.calls[0]!.slice(0, 3)).toEqual([undefined, failure, input])
+    expect(callbacks.onSuccess).not.toHaveBeenCalled()
   })
   it("commits leave through native membership removal and evicts the original server scope", async () => {
     const { resolve, original } = await mount()
-    let result!: Promise<unknown>; act(() => { result = leave.mutateAsync({ serverId: "s1" }).catch((error) => error) })
+    const input = { serverId: "s1" }
+    const callbacks = { onSuccess: vi.fn(), onError: vi.fn(), onSettled: vi.fn() }
+    let result!: Promise<unknown>; act(() => { result = leave.mutateAsync(input, callbacks).catch((error) => error) })
     await waitFor(() => expect(screen.getByTestId("server-list").textContent).toBe(""))
     await act(async () => { resolve(undefined); expect(await result).toBeUndefined() })
     expect(getCommunityDbRegistry(original)!.collections.servers.has("s1")).toBe(false)
     expect(original.getQueryData(communityKeys.servers())).toEqual([])
+    expect(callbacks.onSuccess).toHaveBeenCalledOnce()
+    expect(callbacks.onSuccess.mock.calls[0]!.slice(0, 2)).toEqual([undefined, input])
+    expect(callbacks.onSettled).toHaveBeenCalledOnce()
+    expect(callbacks.onSettled.mock.calls[0]!.slice(0, 3)).toEqual([undefined, null, input])
+    expect(callbacks.onError).not.toHaveBeenCalled()
+  })
+  it("suppresses Leave failure callbacks after scope retirement while the account remains current", async () => {
+    const { reject, original } = await mount()
+    const callbacks = { onSuccess: vi.fn(), onError: vi.fn(), onSettled: vi.fn() }
+    let result!: Promise<unknown>; act(() => { result = leave.mutateAsync({ serverId: "s1" }, callbacks).catch((error) => error) })
+    await waitFor(() => expect(api.mock.calls.some(([path, options]) => path.endsWith("/leave") && options.method === "POST")).toBe(true))
+    const registry = getCommunityDbRegistry(original)!
+    act(() => retireCommunityChannelReading(registry, "c1", { reason: "read-denied", serverId: "s1" }))
+    await act(async () => { reject(new Error("denied after retirement")); expect(await result).toMatchObject({ name: "AbortError" }) })
+    expect(getCommunityDbRegistry(original)).toBe(registry)
+    expect(registry.runtime.lifecycle.get().active).toBe(true)
+    expect(callbacks.onSuccess).not.toHaveBeenCalled()
+    expect(callbacks.onError).not.toHaveBeenCalled()
+    expect(callbacks.onSettled).not.toHaveBeenCalled()
+  })
+  it.each(["success", "failure"] as const)("suppresses retired-account Leave %s callbacks", async (outcome) => {
+    const { view, resolve, reject, original } = await mount()
+    const callbacks = { onSuccess: vi.fn(), onError: vi.fn(), onSettled: vi.fn() }
+    let result!: Promise<unknown>; act(() => { result = leave.mutateAsync({ serverId: "s1" }, callbacks).catch((error) => error) })
+    await waitFor(() => expect(api.mock.calls.some(([path, options]) => path.endsWith("/leave") && options.method === "POST")).toBe(true))
+    act(() => { sdk.id = "B"; view.rerender(<Root id="B" />) })
+    await waitFor(() => expect(client).not.toBe(original))
+    await act(async () => { if (outcome === "success") resolve(undefined); else reject(new Error("old Leave failure")); expect(await result).toMatchObject({ name: "AbortError" }) })
+    expect(callbacks.onSuccess).not.toHaveBeenCalled()
+    expect(callbacks.onError).not.toHaveBeenCalled()
+    expect(callbacks.onSettled).not.toHaveBeenCalled()
   })
   it("retains native detail until one safe route commit after successful owner deletion", async () => {
     const { resolve, original } = await mount()

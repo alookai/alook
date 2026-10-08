@@ -1,4 +1,4 @@
-import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
+import { loadCommunityRequest } from "@/lib/community/account-cache-lifecycle"
 import { createStore } from "@tanstack/react-store"
 import type {
   CommunityProfilePatch,
@@ -15,7 +15,7 @@ import {
 import { profileSchema, type ProfileRow } from "@/lib/community-db/schema"
 import { writeCommunityCollectionRows } from "@/lib/community-db/write"
 import { currentSource, withSource } from "@/lib/observability/data-source"
-import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 
 type ProfileFieldRevisions = {
   identityAbout: number
@@ -77,7 +77,7 @@ export function communityUserProfilePatch(
   }
 }
 
-export function messageProfilePatches(messages: readonly Msg[]): CommunityProfilePatch[] {
+export function messageProfilePatches(messages: readonly Partial<Pick<Msg, "authorId" | "authorName" | "authorAvatar" | "authorAvatarVersion" | "replyTo" | "thread" | "approval">>[]): CommunityProfilePatch[] {
   const patches: CommunityProfilePatch[] = []
   for (const message of messages) {
     if (message.authorId) {
@@ -221,25 +221,15 @@ export async function loadAndSeedProfiles<T>(
   patches: (data: T) => readonly CommunityProfilePatch[],
   registry: CommunityDbRegistry | null,
   signal?: AbortSignal,
+  requestToken?: ReturnType<typeof captureCommunityLiveSnapshotToken>,
 ): Promise<T> {
   if (!registry) throw new DOMException("Missing community profile owner", "AbortError")
-  const token = captureCommunityLiveSnapshotToken(registry.queryClient)
-  const assertActive = () => assertCommunityLiveSnapshotTokenCurrent(registry.queryClient, token, signal)
+  const token = requestToken ?? captureCommunityLiveSnapshotToken(registry.queryClient)
   const overlay = registry.runtime.ws.actions
   const overlaySnapshot = overlay.beginPresenceSnapshot()
-  const profileSnapshot = beginCommunityProfileSeed(registry)
-  await registry.ready
-  assertActive()
-  await registry.collections.profiles.preload()
-  assertActive()
-  let data: T
-  try {
-    data = await load(communityRequestOptions(registry.queryClient, token, signal, assertActive))
-    assertActive()
-  } catch (error) {
-    assertActive()
-    throw error
-  }
+  const profileSnapshot = token.profileSnapshot
+  if (token.registry !== registry) throw new DOMException("Mismatched community profile owner", "AbortError")
+  const data = await loadCommunityRequest(load, token, signal)
   const projected = patches(data)
   writeCommunityProfilePatches(projected, profileSnapshot.registry, {
     snapshot: profileSnapshot,
@@ -263,6 +253,7 @@ export function apiFetchProfiles<T>(
   patches: (data: T) => readonly CommunityProfilePatch[],
   options: ApiRequestOptions | undefined,
   registry: CommunityDbRegistry | null,
+  requestToken?: ReturnType<typeof captureCommunityLiveSnapshotToken>,
 ): Promise<T> {
   return loadAndSeedProfiles(
     (origin) => apiFetch<T>(path, {
@@ -274,5 +265,6 @@ export function apiFetchProfiles<T>(
     patches,
     registry,
     options?.signal ?? undefined,
+    requestToken,
   )
 }

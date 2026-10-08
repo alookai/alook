@@ -28,6 +28,8 @@ import {
   showDesktopSystemNotification,
 } from "@/lib/community/desktop-system-notification"
 import { scheduleAccountAttentionReconcile } from "@/hooks/community/use-account-attention"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { applyCommunityDmBlockAccess } from "@/lib/community-db/sync"
 
 export function handleReadStateAdvanced(
   event: CommunityReadStateAdvanced,
@@ -131,7 +133,11 @@ export function handleFriendEvent(
       exact: true,
     })
   }
-  if (event.type === "community:friend.block") removeDmReactionDetails(queryClient)
+  if (event.type === "community:friend.block") {
+    const registry = getCommunityDbRegistry(queryClient)
+    if (registry) applyCommunityDmBlockAccess(registry, event.userId, true)
+    removeDmReactionDetails(queryClient)
+  }
 }
 
 export function handleMentionCreate(

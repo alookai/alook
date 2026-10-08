@@ -1,4 +1,4 @@
-import { DEFAULT_MESSAGE_PAGE_SIZE, MAX_MESSAGE_PAGE_SIZE } from "@alook/shared"
+import { DEFAULT_MESSAGE_PAGE_SIZE, MAX_MESSAGE_PAGE_SIZE, type CommunityMessageAttachment, type CommunityMessageResource } from "@alook/shared"
 import { isInlineAttachmentContentType } from "./attachment-content-type"
 import { formatAttachmentSize } from "./attachment-presentation"
 import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
@@ -168,12 +168,12 @@ export function buildMemberPaginatedResponse<T extends { joinedAt: string; id: s
 // the read paths never surface them.
 export function groupAttachments(
   attachments: Array<{ id: string; messageId: string | null; targetId: string; filename: string; r2Key: string; thumbnailR2Key?: string | null; contentType: string | null; size: number | null; width?: number | null; height?: number | null }>
-): Record<string, Array<{ kind: "image" | "file"; name: string; url: string; thumbnailUrl?: string; contentType?: string; size?: string; sizeBytes?: number; width?: number; height?: number }>> {
-  const map: Record<string, Array<{ kind: "image" | "file"; name: string; url: string; thumbnailUrl?: string; contentType?: string; size?: string; sizeBytes?: number; width?: number; height?: number }>> = {}
+): Record<string, CommunityMessageAttachment[]> {
+  const map: Record<string, CommunityMessageAttachment[]> = {}
   for (const a of attachments) {
     if (!a.messageId) continue
     const kind = isInlineAttachmentContentType(a.contentType) ? "image" : "file"
-    const entry = {
+    const entry: CommunityMessageAttachment = {
       kind,
       name: a.filename,
       url: attachmentUrl(a.targetId, a.id),
@@ -184,7 +184,7 @@ export function groupAttachments(
         : {}),
       ...(kind === "file" && a.size !== null ? { size: formatAttachmentSize(a.size) } : {}),
       ...(kind === "image" ? { width: a.width ?? undefined, height: a.height ?? undefined } : {}),
-    } as { kind: "image" | "file"; name: string; url: string; thumbnailUrl?: string; contentType?: string; size?: string; sizeBytes?: number; width?: number; height?: number }
+    }
     ;(map[a.messageId] ??= []).push(entry)
   }
   return map
@@ -194,8 +194,8 @@ export function groupAttachments(
 export function groupReactions(
   reactions: Array<{ messageId: string; emoji: string; userId: string }>,
   currentUserId: string
-): Record<string, Array<{ emoji: string; count: number; me: boolean; userIds: string[] }>> {
-  const map: Record<string, Array<{ emoji: string; count: number; me: boolean; userIds: string[] }>> = {}
+): Record<string, NonNullable<CommunityMessageResource["reactions"]>> {
+  const map: Record<string, NonNullable<CommunityMessageResource["reactions"]>> = {}
   for (const r of reactions) {
     const list = (map[r.messageId] ??= [])
     const existing = list.find((x) => x.emoji === r.emoji)

@@ -15,7 +15,6 @@ import {
 } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
-import { collectChannelScopeIds } from "../community-ws/scope-eviction"
 import { communityKeys } from "@/lib/query-keys"
 import type { UploadedAttachment } from "@/hooks/community/mutations/uploads"
 import type { MentionType } from "@alook/shared"
@@ -24,7 +23,7 @@ import {
   applyForumPostUnitClientEffects,
   type ForumPostUnitIdentity,
 } from "@/hooks/community/community-ws/channel-scope-projection"
-import { beginCommunityCommandRevision, publishCommunityDeletedForumPost, publishCommunityCreatedChannel, publishCommunityForumTags, publishCommunityMessages } from "@/lib/community-db/sync"
+import { collectChannelScopeIds, beginCommunityCommandRevision, publishCommunityCreatedChannel, publishCommunityForumTags, publishCommunityMessages } from "@/lib/community-db/sync"
 import { projectPostedMessage, type PostedMessage } from "@/lib/community/message-wire"
 import { reconcileForumSidebarArchiveTag } from "../use-forum-sidebar-threads"
 
@@ -68,7 +67,7 @@ export function useCreateForumThread() {
       assert()
       const parent = origin.registry!.collections.channels.get(channelId)
       if (parent && structure.message) {
-        publishCommunityMessages(queryClient, { channelId, messages: [projectPostedMessage(structure.message, `${nonce}:opener`)], proof: { token, signal: assertActive?.signal } })
+        publishCommunityMessages(queryClient, { channelId, messages: [projectPostedMessage(structure.message, `${nonce}:opener`, channelId)], proof: { token, signal: assertActive?.signal } })
         publishCommunityCreatedChannel(queryClient, { id: structure.threadId, serverId: parent.serverId, categoryId: null, name, type: "thread", parentChannelId: channelId, parentMessageId: structure.message.id, creatorId: structure.message.authorId, position: 0, archived: false, muted: false, unread: false, tags: [], pending: false, createdAt: structure.message.createdAt, lastMessageAt: structure.message.createdAt, messageCount: 0 }, { token, signal: assertActive?.signal })
       }
       assert()
@@ -77,7 +76,7 @@ export function useCreateForumThread() {
         body: JSON.stringify({ content, attachments: attachmentIds, nonce: `${nonce}:reply` }),
       })
       assert()
-      if (reply.message) publishCommunityMessages(queryClient, { channelId: structure.threadId, messages: [projectPostedMessage(reply.message, `${nonce}:reply`)], proof: { token, signal: assertActive?.signal } })
+      if (reply.message) publishCommunityMessages(queryClient, { channelId: structure.threadId, messages: [projectPostedMessage(reply.message, `${nonce}:reply`, structure.threadId)], proof: { token, signal: assertActive?.signal } })
       for (const query of resources) if (queryClient.getQueryCache().find({ queryKey: query.queryKey, exact: true }) === query) void queryClient.invalidateQueries({ queryKey: query.queryKey, exact: true }, { cancelRefetch: false }).catch(() => undefined)
       return structure
     },
@@ -231,7 +230,12 @@ export function useDeleteForumThread() {
           })
           assertOwner()
           try { origin.assert(token) } catch { return }
-          if (publishCommunityDeletedForumPost(queryClient, unit, { token, signal: controller.signal })) applyForumPostUnitClientEffects(queryClient, unit, { queries: new Set(args.resources), assertView: assert, canonical: false })
+          let navigationAllowed = true
+          try { assert() } catch { navigationAllowed = false }
+          applyForumPostUnitClientEffects(queryClient, unit, { proof: { token, signal: controller.signal }, queries: new Set(args.resources), assertView: () => {
+            if (!navigationAllowed) throw new DOMException("Retired post navigation", "AbortError")
+            args.view.assertOwner()
+          } })
           for (const query of args.resources) if (queryClient.getQueryCache().find({ queryKey: query.queryKey, exact: true }) === query && [communityKeys.channelMessages(args.forumChannelId), communityKeys.threads(args.forumChannelId), communityKeys.forumTags(args.forumChannelId), communityKeys.server(args.serverId)].some((key) => startsWithQueryKey(query.queryKey, key))) void queryClient.invalidateQueries({ queryKey: query.queryKey, exact: true }, { cancelRefetch: false }).catch(() => undefined)
         } catch (error) { assertOwner(); throw error }
         finally { subscription.unsubscribe() }

@@ -14,9 +14,6 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  // Gate through the shared access predicate: a channel in a PRIVATE category
-  // must not leak its thread titles/previews to non-members. Public channels
-  // behave as before (any server member).
   const version2 = requestsCommunityContractV2(req.headers)
   const channel = await (async () => {
     if (version2) {
@@ -43,19 +40,23 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const order = req.nextUrl.searchParams.get("order")
   if (order !== null && order !== "createdAt") return writeError("invalid order", 400)
 
+  const includes = new Set(
+    (req.nextUrl.searchParams.get("include") ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean),
+  )
+  const allowedIncludes = new Set(["parentMessage", "firstMessage", "tags", "participants"])
+  if ([...includes].some((value) => !allowedIncludes.has(value))) {
+    return writeError("invalid include", 400)
+  }
+
+  let threads: Awaited<ReturnType<typeof queries.communityChannel.listChildChannels>> | Awaited<ReturnType<typeof queries.communityThread.listForumThreadsByCreatedAt>>
+  let hasMore = false
+  let nextCursor: string | undefined
   if (order === "createdAt") {
     if (!isForum(channel.type)) return writeError("not a forum", 400)
     if (archived === true) return writeError("createdAt order only supports active threads", 400)
-    const includes = new Set(
-      (req.nextUrl.searchParams.get("include") ?? "")
-        .split(",")
-        .map((value) => value.trim())
-        .filter(Boolean),
-    )
-    const allowedIncludes = new Set(["parentMessage", "firstMessage", "tags", "participants"])
-    if ([...includes].some((value) => !allowedIncludes.has(value))) {
-      return writeError("invalid include", 400)
-    }
     const pageSize = parseBoundedInt(req.nextUrl.searchParams.get("limit"), 50, 100)
     const cursor = parseForumCreatedAtCursor(req.nextUrl.searchParams.get("cursor"), {
       parentChannelId: channelId,
@@ -69,10 +70,10 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       ...(cursor ? { cursor } : {}),
       limit: pageSize + 1,
     })
-    const hasMore = rows.length > pageSize
-    const threads = hasMore ? rows.slice(0, pageSize) : rows
+    hasMore = rows.length > pageSize
+    threads = hasMore ? rows.slice(0, pageSize) : rows
     const last = threads.at(-1)
-    const nextCursor = hasMore && last
+    nextCursor = hasMore && last
       ? encodeForumCreatedAtCursor({
         parentChannelId: channelId,
         createdAt: last.createdAt,
@@ -81,72 +82,61 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       })
       : undefined
 
-    const parentMessageIds = threads
-      .map((thread) => thread.parentMessageId)
-      .filter((id): id is string => !!id)
-    const threadIds = threads.map((thread) => thread.id)
-    const [parentMessages, firstMessages, tags, participants] = await Promise.all([
-      includes.has("parentMessage")
-        ? queries.communityMessage.getMessagesByIdsInScope(db, parentMessageIds, { channelId })
-        : Promise.resolve([]),
-      includes.has("firstMessage")
-        ? version2 ? queries.communityMessage.getFirstMessageResourcesByChannelIds(db, threadIds) : queries.communityMessage.getFirstMessageByChannelIds(db, threadIds)
-        : Promise.resolve([]),
-      includes.has("tags")
-        ? queries.communityMessageTag.listTagsForMessages(db, parentMessageIds)
-        : Promise.resolve([]),
-      includes.has("participants")
-        ? queries.communityThread.listParticipantsForChannels(db, threadIds, 5)
-        : Promise.resolve([]),
-    ])
-
-    if (version2) {
-      const firstResources = firstMessages.filter((row): row is Extract<typeof row, { id: string }> => "id" in row)
-      return writeCommunityThreadsRead(db, ctx.userId, channel, threads, { messages: [...parentMessages, ...firstResources], tags, participants }, { hasMore, nextCursor: nextCursor ?? null })
-    }
-    return writeJSON({
-      serverId: channel.serverId,
-      parentType: channel.type,
-      threads,
-      included: { parentMessages, firstMessages, tags, participants },
-      hasMore,
-      ...(nextCursor ? { nextCursor } : {}),
-    })
-  }
-
-  let childChannels = await queries.communityChannel.listChildChannels(db, channelId, {
+  } else {
+    threads = await queries.communityChannel.listChildChannels(db, channelId, {
     archived,
     type: "thread",
   })
 
-  const forum = isForum(channel.type)
-  const openerIds = childChannels.map((child) => child.parentMessageId).filter((id): id is string => !!id)
-  const archivedOpeners = forum
-    ? new Set(await queries.communityMessageTag.filterMessageIdsByTag(db, openerIds, FORUM_ARCHIVE_TAG))
-    : new Set<string>()
+    const forum = isForum(channel.type)
+    const openerIds = threads.map((child) => child.parentMessageId).filter((id): id is string => !!id)
+    const archivedOpeners = forum
+      ? new Set(await queries.communityMessageTag.filterMessageIdsByTag(db, openerIds, FORUM_ARCHIVE_TAG))
+      : new Set<string>()
 
-  if (rawTag !== null) {
-    const matching = tag === FORUM_ARCHIVE_TAG
-      ? archivedOpeners
-      : new Set(await queries.communityMessageTag.filterMessageIdsByTag(db, openerIds, tag!))
-    childChannels = childChannels.filter((child) => (
-      !!child.parentMessageId
-      && matching.has(child.parentMessageId)
-      && (tag === FORUM_ARCHIVE_TAG || !archivedOpeners.has(child.parentMessageId))
-    ))
-  } else if (forum) {
-    childChannels = childChannels.filter((child) => (
-      !child.parentMessageId || !archivedOpeners.has(child.parentMessageId)
-    ))
+    if (rawTag !== null) {
+      const matching = tag === FORUM_ARCHIVE_TAG
+        ? archivedOpeners
+        : new Set(await queries.communityMessageTag.filterMessageIdsByTag(db, openerIds, tag!))
+      threads = threads.filter((child) => (
+        !!child.parentMessageId
+        && matching.has(child.parentMessageId)
+        && (tag === FORUM_ARCHIVE_TAG || !archivedOpeners.has(child.parentMessageId))
+      ))
+    } else if (forum) {
+      threads = threads.filter((child) => (
+        !child.parentMessageId || !archivedOpeners.has(child.parentMessageId)
+      ))
+    }
   }
 
-  // Plain nested collection representation. View-specific parent previews,
-  // first messages, tags, participants, and creator presentation are composed
-  // by consumers through the generic batch resource reads.
-  if (version2) return writeCommunityThreadsRead(db, ctx.userId, channel, childChannels)
+  const parentMessageIds = threads
+    .map((thread) => thread.parentMessageId)
+    .filter((id): id is string => !!id)
+  const threadIds = threads.map((thread) => thread.id)
+  const [parentMessages, firstMessages, tags, participants] = await Promise.all([
+    includes.has("parentMessage")
+    ? queries.communityMessage.getMessagesByIdsInScope(db, parentMessageIds, { channelId })
+    : Promise.resolve([]),
+    includes.has("firstMessage")
+    ? version2 ? queries.communityMessage.getFirstMessageResourcesByChannelIds(db, threadIds) : queries.communityMessage.getFirstMessageByChannelIds(db, threadIds)
+    : Promise.resolve([]),
+    includes.has("tags")
+    ? queries.communityMessageTag.listTagsForMessages(db, parentMessageIds)
+    : Promise.resolve([]),
+    includes.has("participants")
+    ? queries.communityThread.listParticipantsForChannels(db, threadIds, 5)
+    : Promise.resolve([]),
+  ])
+
+  if (version2) {
+    const firstResources = firstMessages.filter((row): row is Extract<typeof row, { id: string }> => "id" in row)
+    return writeCommunityThreadsRead(db, ctx.userId, channel, threads, { messages: [...parentMessages, ...firstResources], tags, participants }, { hasMore, nextCursor: nextCursor ?? null })
+  }
   return writeJSON({
     serverId: channel.serverId,
     parentType: channel.type,
-    threads: childChannels,
+    threads,
+    ...(order === "createdAt" || includes.size ? { included: { parentMessages, firstMessages, tags, participants }, hasMore, ...(nextCursor ? { nextCursor } : {}) } : {}),
   })
 })

@@ -106,7 +106,7 @@ export function AdvancedSettings() {
         open={confirmOpen}
         onOpenChange={(o) => { if (!o) setConfirmOpen(false) }}
         title="Clear local cache?"
-        description="This removes locally persisted messages for every account used on this device. The next channel or DM you open will refetch from the server. Nothing on the server is deleted."
+        description="This removes locally cached messages and public files for every account used on this device. The next channel or DM you open will refetch from the server. Nothing on the server is deleted."
         confirmLabel="Clear cache"
         loadingLabel="Clearing..."
         loading={clearing}
@@ -139,7 +139,7 @@ export function AdvancedSettings() {
           <h2 className="text-base font-medium tracking-tight">Clear local cache</h2>
           {clearError && <p role="alert" className="text-sm text-destructive">{clearError}</p>}
           <p className="flex items-baseline justify-between gap-4 text-sm">
-            <span className="text-muted-foreground">Cached messages</span>
+            <span className="text-muted-foreground">Cached messages and public files</span>
             <span
               data-testid={tid.settingsCacheSize}
               className="font-mono tabular-nums text-foreground"
@@ -152,8 +152,8 @@ export function AdvancedSettings() {
             </span>
           </p>
           <p className="max-w-[65ch] text-sm leading-6 text-muted-foreground">
-            Removes locally persisted messages for every account used on this
-            device. The next channel or DM you open will refetch from the server.
+            Removes locally cached messages and public files for every account used
+            on this device. The next channel or DM you open will refetch from the server.
             Nothing on the server is deleted.
           </p>
           <Button

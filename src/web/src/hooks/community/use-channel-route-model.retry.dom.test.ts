@@ -22,7 +22,7 @@ vi.mock("./use-servers", () => ({
 }))
 vi.mock("./use-community-ws", () => ({ communityWsSubscribe: vi.fn(), communityWsUnsubscribe: vi.fn() }))
 vi.mock("./use-forum-sidebar-threads", () => ({
-  removeForumSidebarUnreadChild: vi.fn(), removeForumSidebarThreadExact: vi.fn(),
+  removeForumSidebarUnreadChild: vi.fn(),
   invalidateForumSidebarBaseExact: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock("@/lib/community/last-channel", () => ({ getLastChannel: () => null, clearLastChannel: vi.fn() }))
@@ -335,7 +335,7 @@ describe("unresolved metadata terminal error and retry", () => {
     await act(async () => { request = current.retryMetadata() })
     expect(current.retryingMetadata).toBe(true)
     await act(async () => {
-      if (change === "account") renderer!.rerender(tree({ accountId: "viewer-2" }))
+      if (change === "account") { getCommunityDbRegistry(client)!.runtime.ws.actions.activateProfileAccount("viewer-2"); renderer!.rerender(tree({ accountId: "viewer-2" })) }
       else {
         getCommunityDbRegistry(client)!.runtime.ws.setState((state) => ({ ...state,  accessEpoch: state.accessEpoch + 1 }))
       }

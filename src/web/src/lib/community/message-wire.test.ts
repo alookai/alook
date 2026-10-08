@@ -18,6 +18,13 @@ function wire(
 }
 
 describe("projectCommunityMessageCreate", () => {
+  it("keeps explicit empty rich fields distinct from omission", () => {
+    expect(projectCommunityMessageCreate(wire({ attachments: [], embeds: [] }), "channel-1"))
+      .toMatchObject({ attachments: [], embeds: [] })
+    const sparse = projectCommunityMessageCreate(wire(), "channel-1")
+    expect(sparse).not.toHaveProperty("attachments")
+    expect(sparse).not.toHaveProperty("embeds")
+  })
   it("preserves canonical identity and presentation fields", () => {
     const replyTo = { id: "m0", authorName: "A", text: "prior" }
     const approval = {
@@ -82,7 +89,7 @@ describe("projectPostedMessage", () => {
       type: "default",
       embeds: null,
       createdAt: "2026-08-06T00:00:00.000Z",
-    } as never, "nonce-2")
+    }, "nonce-2", "dm-1")
 
     expect(projected).toMatchObject({
       authorAvatar: "G",
@@ -90,4 +97,25 @@ describe("projectPostedMessage", () => {
       clientNonce: "nonce-2",
     })
   })
+
+  it("rejects an absent or mismatched actual POST channel scope", () => {
+    const row = { id: "m3", seq: 44, authorId: "u3", authorName: "Peer", authorImage: null,
+      authorAvatarVersion: 0, content: null, type: "default", embeds: null, createdAt: "2026-08-06T00:00:00.000Z" }
+    expect(() => projectPostedMessage(row, "nonce-3", "")).toThrow()
+    expect(() => projectPostedMessage(Object.assign({}, row, { channelId: "other" }), "nonce-3", "dm-1"))
+      .toThrow("Message resource scope mismatch")
+    expect(projectPostedMessage(row, "nonce-3", "dm-1")).toMatchObject({ id: "m3", content: "", type: "chat" })
+  })
+
+  it("keeps absent POST and WS rich content sparse", () => {
+    const posted = projectPostedMessage({ id: "m4", seq: 45, authorId: "u4", authorName: "Peer", authorImage: null,
+      authorAvatarVersion: 0, content: "plain", type: "default", embeds: null, createdAt: "2026-08-06T00:00:00.000Z" }, "nonce-4", "dm-1")
+    for (const message of [posted, projectCommunityMessageCreate(wire(), "channel-1")]) {
+      expect(message).not.toHaveProperty("attachments")
+      expect(message).not.toHaveProperty("embeds")
+      expect(message).not.toHaveProperty("channelId")
+      expect(message).not.toHaveProperty("replyToId")
+    }
+  })
+
 })

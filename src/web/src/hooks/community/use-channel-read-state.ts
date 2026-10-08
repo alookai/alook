@@ -7,22 +7,16 @@ import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle
 import { channelMetadataOptions, captureChannelMetadataToken, isChannelMetadataTokenCurrent, type ChannelMetadataResource } from "./channel-metadata"
 import { retryConversationRead, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { apiFetch } from "@/lib/api/client"
+import { retireCommunityChannelReading } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
+import type { CommunityReadStateResource } from "@alook/shared"
 
 /**
  * The channel read-state snapshot returned by
  * `GET /api/community/channels/:id/read-state`. Both fields are `null` when
  * the viewer has never visited the channel.
  */
-export type ChannelReadStateSnapshot = {
-  lastReadMessageId: string | null
-  lastReadAt: string | null
-  // Numeric equivalent of `lastReadMessageId` — the seq of the row that
-  // pointer refers to. Server returns `0` when the viewer has never read
-  // this channel; consumers subtract from `latestSeq` for the unread-count
-  // pill without needing to walk loaded rows.
-  lastReadSeq: number
-}
+export type ChannelReadStateSnapshot = Omit<CommunityReadStateResource, "channelId">
 
 export function channelReadStateSnapshotQueryFn(
   channelId: string,
@@ -40,12 +34,12 @@ export function channelReadStateSnapshotQueryFn(
     const metadataQuery = kind === "dm"
       ? client.getQueryCache().build(client, client.defaultQueryOptions(channelMetadataOptions(client, null, channelId)))
       : undefined
-    const updateHistory = (historyVerification?: ChannelMetadataResource["historyVerification"]) => {
+    const updateHistory = (readProof?: ChannelMetadataResource["readProof"]) => {
       if (!metadataQuery || !Object.is(client.getQueryCache().find({ queryKey: metadataKey, exact: true }), metadataQuery)) return
       const metadata = client.setQueryData<ChannelMetadataResource>(metadataKey, (previous) => previous
-        ? { ...previous, historyVerification }
-        : historyVerification ? { id: channelId, verifiedEpoch: -1, historyVerification } : undefined)
-      if (metadata && !metadata.verification) metadataQuery.invalidate()
+        ? { ...previous, readProof }
+        : readProof ? { id: channelId, serverId: null, readProof } : undefined)
+      if (metadata && !metadata.identityProof) metadataQuery.invalidate()
     }
     try {
       const snapshot = await withConversationReadDeadline(signal, async (readSignal) => {
@@ -55,11 +49,15 @@ export function channelReadStateSnapshotQueryFn(
         return apiFetch<ChannelReadStateSnapshot>(`/api/community/channels/${channelId}/read-state`, communityRequestOptions(client, token, readSignal, assert))
       })
       assert()
-      updateHistory(token)
+      if (kind === "dm") token.registry!.runtime.ws.actions.rememberChannelAccess(null, channelId)
+      updateHistory(captureChannelMetadataToken(client, channelId))
       return snapshot
     } catch (error) {
       assert()
-      if (typeof error === "object" && error !== null && "status" in error && [403, 404].includes(Number(error.status))) updateHistory()
+      if (typeof error === "object" && error !== null && "status" in error && [403, 404].includes(Number(error.status))) {
+        updateHistory()
+        retireCommunityChannelReading(token.registry!, channelId, { reason: "read-denied", preserveQuery: client.getQueryCache().find({ queryKey: kind === "dm" ? communityKeys.dmReadStateSnapshot(channelId) : communityKeys.channelReadStateSnapshot(channelId), exact: true }) })
+      }
       throw error
     }
   }

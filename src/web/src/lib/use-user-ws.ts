@@ -2,7 +2,7 @@
 import { emitTelemetry, isTelemetryEligible, telemetryGeneration } from "@/lib/observability/telemetry"
 import { useEffect, useRef, useCallback } from "react"
 import {
-  COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE,
+  communityBrowserEventBatchType,
   COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES,
   COMMUNITY_BROWSER_EVENT_MAX_BYTES,
   isCommunityBrowserEventBatchCandidate,
@@ -769,7 +769,7 @@ export function useUserWs(
         }
       }
       if (communityContract !== 2 && (
-        msg.type === COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE
+        msg.type === communityBrowserEventBatchType()
         || msg.type === "community:channel.membership.change"
         || (isCommunityBatch && Array.isArray(msg.events) && msg.events.some((event: unknown) =>
           isCommunityEventCandidate(event) && event.type === "community:channel.membership.change"))
@@ -781,7 +781,7 @@ export function useUserWs(
       const assertAdmissionCurrent = () => {
         if (!ownsAuthenticatedConnection(ws, generation) || isOffline() || callback !== onMessageRef.current) throw new DOMException("Retired WebSocket admission", "AbortError")
       }
-      if (msg.type === COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE || pendingAdmissions > 0) {
+      if (msg.type === communityBrowserEventBatchType() || pendingAdmissions > 0) {
         if (pendingAdmissions >= 32) { ws.close(1011, "Community admission overloaded"); return }
         pendingAdmissions++
         communityAdmission = communityAdmission.then(async () => {

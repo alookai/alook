@@ -50,7 +50,7 @@ export type UploadFileResult = {
   height?: number
 }
 
-export type UploadedAttachment = UploadFileResult & { width?: number; height?: number }
+export type UploadedAttachment = UploadFileResult
 
 export function appendGeneratedThumbnail(
   formData: FormData,

@@ -3,7 +3,7 @@ import { test, expect, userId, userName } from "./_fixtures/community-fixture"
 import { tid } from "./_fixtures/testids"
 import { sendMessage } from "./_fixtures/actions"
 import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
-import { seedDm, seedBlock, seedDmMessage } from "./_fixtures/seed"
+import { seedDm, seedDmMessage } from "./_fixtures/seed"
 import { captureNotificationRequests, gotoAfterNotificationStartup, notificationPaths, notificationResponsesFinished } from "./_fixtures/community-notification-requests"
 import { lastMeLocationKey } from "@/lib/community/last-me-location"
 
@@ -99,6 +99,24 @@ test.describe.serial("direct messages", () => {
       }
     })
 
+    let releaseMetadata!: () => void
+    let metadataStarted!: () => void
+    let metadataFinished!: () => void
+    const metadataGate = new Promise<void>(resolve => { releaseMetadata = resolve })
+    const metadataRequest = new Promise<void>(resolve => { metadataStarted = resolve })
+    const metadataSettled = new Promise<void>(resolve => { metadataFinished = resolve })
+    const metadataPattern = (url: URL) => url.pathname === `/api/community/channels/${dmId}`
+    await alice.page.route(metadataPattern, async route => {
+      if (route.request().method() !== "GET") { await route.continue(); return }
+      metadataStarted()
+      try {
+        await metadataGate
+        await route.continue()
+      } catch (error) {
+        if (!(error instanceof Error && error.message.includes("already handled"))) throw error
+      } finally { metadataFinished() }
+    })
+
     let releaseRead!: () => void
     let readStarted!: () => void
     let readFinished!: () => void
@@ -149,9 +167,23 @@ test.describe.serial("direct messages", () => {
       const dmTitle = alice.page.getByTestId(tid.dmHeaderTitle)
       await expect(dmHeader).toHaveCount(1, { timeout: 20_000 })
       await expect(dmTitle).toContainText(userName("bob"))
+      await metadataRequest
       await readRequest
       await expect(alice.page.locator('[data-onboarding-target="dm-composer"] [data-slot="skeleton"]').first()).toBeVisible()
       await expect(alice.page.getByTestId(tid.composerInput)).toHaveCount(0)
+      await expect(alice.page.getByTestId(tid.message(messageId))).toHaveCount(0)
+      await expect(alice.page.getByTestId(tid.messageScroller).locator('[data-slot="skeleton"]')).not.toHaveCount(0)
+
+      const metadataResponse = alice.page.waitForResponse(response => response.request().method() === "GET" && metadataPattern(new URL(response.url())))
+      releaseMetadata()
+      await metadataSettled
+      const permission = await metadataResponse
+      expect(permission.status()).toBe(200)
+      expect(permission.headers()["x-alook-community-contract"]).toBe("2")
+      const resource = await permission.json()
+      expect(resource.channel.id).toBe(dmId)
+      expect(resource.access).toMatchObject({ channelId: dmId, canRead: true })
+      await expect(alice.page.getByTestId(tid.composerInput)).toBeVisible()
       await expect(alice.page.getByTestId(tid.message(messageId))).toHaveCount(0)
       await expect(alice.page.getByTestId(tid.messageScroller).locator('[data-slot="skeleton"]')).not.toHaveCount(0)
 
@@ -172,10 +204,13 @@ test.describe.serial("direct messages", () => {
       await expect(alice.page.getByTestId(tid.message(messageId))).toHaveCount(1)
       await expect(alice.page.getByText(body, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
     } finally {
+      releaseMetadata()
       releaseRead()
       releaseMessages()
+      await metadataSettled
       await readSettled
       await messagesSettled
+      await alice.page.unroute(metadataPattern)
       await alice.page.unroute(readPattern)
       await alice.page.unroute(messagesPattern)
     }
@@ -270,15 +305,36 @@ test.describe.serial("direct messages", () => {
   })
 
   test("blocking replaces the composer with a blocked notice", async ({ asUser }) => {
-    // Carol blocks Bob, then opens a DM with him: composer is replaced.
     const dmId = await seedDm("carol", userId("bob"))
-    await seedBlock("carol", userId("bob"))
-
+    const body = `visible before block ${Date.now()}`
+    const messageId = await seedDmMessage("carol", dmId, body)
     const carol = await asUser("carol")
+    const bob = await asUser("bob")
+    const bobProxy = await proxyCommunityWebSockets(bob.context)
     await carol.page.goto(`/c/me/${dmId}`)
-    await carol.page.waitForURL(new RegExp(dmId), { timeout: 20_000 , waitUntil: "commit" })
+    await bob.page.goto(`/c/me/${dmId}`)
+    for (const page of [carol.page, bob.page]) {
+      await expect(page.getByTestId(tid.message(messageId))).toBeVisible()
+      await expect(page.getByTestId(tid.composerInput)).toBeVisible()
+    }
+    await expect.poll(() => bobProxy.connectionFrames.some((frame) => frame.type === "auth.ok")).toBe(true)
+    await carol.page.goto("/c/me/friends")
+    const bobRow = carol.page.getByRole("button").filter({ hasText: userName("bob") })
+    await expect(bobRow).toHaveCount(1)
+    await bobRow.click({ button: "right" })
+    const blockResponse = carol.page.waitForResponse((response) => response.request().method() === "POST"
+      && new URL(response.url()).pathname === `/api/community/users/${userId("bob")}/block`)
+    await carol.page.getByRole("menuitem", { name: "Block", exact: true }).click()
+    expect((await blockResponse).status()).toBe(200)
+    await expect(bob.page.getByTestId(tid.message(messageId))).toHaveCount(0)
+    await expect(bob.page.getByTestId(tid.composerInput)).toHaveCount(0)
+    await expect(bob.page.getByRole("alert").filter({ hasText: "You can no longer read this conversation." })).toBeVisible()
+    await expect(bob.page.getByTestId(tid.dmBlockedNotice)).toHaveCount(0)
+    await expect(bob.page).toHaveURL(new RegExp(`/c/me/${dmId}$`))
 
+    await carol.page.getByTestId(tid.dmRow(dmId)).click()
     await expect(carol.page.getByTestId(tid.dmBlockedNotice)).toBeVisible()
     await expect(carol.page.getByTestId(tid.composerInput)).toHaveCount(0)
+    await expect(carol.page.getByTestId(tid.message(messageId))).toHaveCount(0)
   })
 })

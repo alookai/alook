@@ -16,7 +16,8 @@ import type {
 } from "@alook/shared"
 import { FORUM_ARCHIVE_TAG } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
-import { getCanonicalCommunityChannels } from "@/lib/community-db/sync"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { getCanonicalCommunityChannels, retireCommunityChannelReading } from "@/lib/community-db/sync"
 import {
   grantForumSidebarChild,
   hasForumSidebarOwnershipEvidence,
@@ -27,7 +28,6 @@ import {
 } from "@/hooks/community/use-forum-sidebar-threads"
 import type { StructureTreeEventContext } from "@/hooks/community/community-ws/handler-context"
 import {
-  projectChannelScopeEviction,
   projectForumPostUnitEviction,
 } from "./channel-scope-projection"
 import { evictServerChannelScopes } from "./scope-eviction"
@@ -124,15 +124,10 @@ export function handleServerDelete(
   { queryClient, projection }: StructureTreeEventContext,
 ) {
   evictServerChannelScopes(queryClient, event.serverId)
-  getActiveAccountUnreadProjection(queryClient).retireAccessScope({
-    kind: "server",
-    serverId: event.serverId,
-  })
   invalidateChannelRefDirectory(projection)
   // Refresh the rail LIST only (drop the deleted server). `exact`
   // so this doesn't cascade-refetch every other server's nested
-  // detail subtree; the deleted server's own subtree is cleared by
-  // the removeQueries below.
+  // detail subtree.
   invalidateServersList(projection)
 }
 
@@ -175,12 +170,8 @@ export function handleChannelEvent(
         kind: "channel",
         channelId: event.channelId,
       })
-      projectChannelScopeEviction(
-        projection,
-        queryClient,
-        event.serverId,
-        event.channelId,
-      )
+      const registry = getCommunityDbRegistry(queryClient)
+      if (registry) retireCommunityChannelReading(registry, event.channelId, { reason: "resource-deleted", serverId: event.serverId })
     }
     // When a child thread is deleted, refresh the
     // PARENT's list so the deleted card disappears from the feed on

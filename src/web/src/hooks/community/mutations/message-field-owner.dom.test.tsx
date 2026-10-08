@@ -8,6 +8,7 @@ import { QueryProvider } from "@/app/c/QueryProvider"
 import { clearAllPersistedCaches } from "@/lib/query-persister"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useCanonicalMessagesById } from "@/lib/community-db/projections"
+import * as projections from "@/lib/community-db/projections"
 import { projectCommunityWsEventToDb } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
 import { useMessage } from "../use-message"
@@ -21,12 +22,12 @@ vi.mock("@/lib/auth-client", () => { const sessionSDK = { useSession: () => ({ d
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), replace: vi.fn() }) }))
 vi.mock("@tanstack/react-query-devtools", () => ({ ReactQueryDevtools: () => null }))
 let client: QueryClient, edit: ReturnType<typeof useEditMessage>
-function Probe() {
+function Probe({ messageId = "m1" }: { messageId?: string | null }) {
   const currentClient = useQueryClient(), command = useEditMessage(); useLayoutEffect(() => { client = currentClient; edit = command })
-  const exact = useMessage("m1"), rows = useCanonicalMessagesById()
+  const exact = useMessage(messageId), rows = useCanonicalMessagesById()
   return <><output data-testid="exact">{exact.message?.content ?? "missing"}</output><output data-testid="canonical">{rows?.get("m1")?.content ?? "missing"}</output></>
 }
-function Root({ id = sdk.id }: { id?: string }) { return <QueryProvider userId={id}><Probe /></QueryProvider> }
+function Root({ id = sdk.id, messageId }: { id?: string; messageId?: string | null }) { return <QueryProvider userId={id}><Probe messageId={messageId} /></QueryProvider> }
 const args = { serverId: "s1", channelId: "c1", messageId: "m1", content: "requested" }
 async function mount() {
   let resolve!: (value: unknown) => void, reject!: (error: Error) => void
@@ -47,6 +48,20 @@ function command() { return edit.mutateAsync(args).catch((error) => error) }
 async function pending() { await waitFor(() => expect(api.mock.calls.some(([, options]) => options.method === "PATCH")).toBe(true)) }
 beforeEach(async () => { await clearAllPersistedCaches(); api.mockReset(); sdk.id = "A" })
 describe("actual canonical message field command", () => {
+  it("subscribes the exact message to its ID and selects no rows without an ID", async () => {
+    const subscription = vi.spyOn(projections, "useCanonicalMessagesById")
+    try {
+      const { view } = await mount()
+      expect(subscription).toHaveBeenCalledWith(["m1"])
+      const requests = api.mock.calls.length
+      subscription.mockClear()
+      act(() => view.rerender(<Root messageId={null} />))
+      expect(subscription).toHaveBeenCalledWith([])
+      expect(screen.getByTestId("exact").textContent).toBe("missing")
+      expect(screen.getByTestId("canonical").textContent).toBe("original")
+      expect(api.mock.calls).toHaveLength(requests)
+    } finally { subscription.mockRestore() }
+  })
   it.each(["edit", "reaction"] as const)("WS %s updates canonical facts without overwriting the exact-message ID transport", async (kind) => {
     const { original } = await mount(), runtime = getCommunityRuntime(original)
     act(() => dispatchCommunityWsEvent(kind === "edit"

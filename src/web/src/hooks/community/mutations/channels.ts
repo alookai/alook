@@ -8,7 +8,7 @@ import { nanoid } from "nanoid"
 import { apiFetch } from "@/lib/api/client"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import {
-  publishCommunityChannelPatch, publishCommunityChannelFields, publishCommunityCategoryFields,
+  retireCommunityChannelReading, publishCommunityChannelPatch, publishCommunityChannelFields, publishCommunityCategoryFields,
   publishCommunityCreatedChannel, publishCommunityCreatedCategory, publishCommunityDeletedCategory,
   type CommunityFreshQueryProof,
 } from "@/lib/community-db/sync"
@@ -17,8 +17,6 @@ import { isAbortError } from "@/lib/errors"
 import type { ChannelRow, CategoryRow } from "@/lib/community-db/schema"
 import { UNCATEGORIZED_CATEGORY_ID, type ChannelType } from "@alook/shared"
 import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
-import { runCommunityWsProjectionTransaction } from "@/hooks/community/community-ws/projection-transaction"
-import { projectChannelScopeEviction } from "@/hooks/community/community-ws/channel-scope-projection"
 
 // Prefix marks an optimistic row so every consumer can tell it from a real
 // `ch_…` id without a separate flag, and guarantees it never collides with one.
@@ -176,11 +174,7 @@ export function useRenameChannel() {
       }
       return result!
     },
-    onSettled: (_data, error, args) => {
-      if (isAbortError(error) || !origin.registry?.runtime.lifecycle.get().active) return
-      void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true, predicate: (query) => args.resources.includes(query) })
-      invalidateChannelRefDirectory(queryClient, args)
-    },
+    onSettled: (_data, error, args) => settleTree(origin, queryClient, args, error),
   })
 }
 
@@ -218,7 +212,7 @@ export function useDeleteChannel() {
       await apiFetch(`/api/community/channels/${args.channelId}`, { method: "DELETE", ...options })
       origin.assert(proof.token)
       getActiveAccountUnreadProjection(queryClient).retireAccessScope({ kind: "channel", channelId: args.channelId })
-      runCommunityWsProjectionTransaction(queryClient, (projection) => projectChannelScopeEviction(projection, queryClient, args.serverId, args.channelId))
+      retireCommunityChannelReading(origin.registry!, args.channelId, { reason: "resource-deleted", serverId: args.serverId })
     }),
     onSettled: (_data, error, args) => settleTree(origin, queryClient, args, error),
   })

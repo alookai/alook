@@ -10,9 +10,13 @@ import {
   encodeCommunityBrowserEventBatch,
   prepareCommunityDeliveryEvents,
 } from "@alook/shared"
-import { getMessageOverlay } from "@/stores/community/message-stream"
+import { getMessageStreamState } from "@/test/community-query-owner"
 import { communityKeys } from "@/lib/query-keys"
 import { getActiveAccountUnreadProjection } from "../account-unread-projection"
+import { act } from "@/test/react-dom-harness"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { captureCommunityLiveSnapshotToken, ingestDms, publishCommunityMessages } from "@/lib/community-db/sync"
+import { channelMetadataOptions, captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "../channel-metadata"
 import {
   capturedOnMessage,
   capturedQueryClient,
@@ -23,6 +27,8 @@ import {
   resetCommunityWsHarness,
   resetHookMemoization,
   unreadBump,
+  seedCanonicalMessages,
+  canonicalMessage,
 } from "./test-harness"
 
 const desktopMode = vi.hoisted(() => ({ value: true }))
@@ -251,11 +257,11 @@ describe("useCommunityWs — account unread projection", () => {
       capturedOnMessage!(messageCreate("ch_focused"))
       await vi.advanceTimersByTimeAsync(500)
 
-      expect(getMessageOverlay(capturedQueryClient, {
+      expect(getMessageStreamState(capturedQueryClient, {
         kind: "channel",
         id: "ch_focused",
         serverId: "s1",
-      }).liveById.has("m_1")).toBe(true)
+      }).liveIds.includes("m_1")).toBe(true)
       expect(invalidateSpy.mock.calls.some((call) => (
         (call[0]?.queryKey as unknown[] | undefined)?.includes("inbox")
       ))).toBe(false)
@@ -316,6 +322,67 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
     } satisfies CommunityFriendBlock)
     expect(capturedQueryClient.getQueryState(communityKeys.reactionDetails("dm_message"))).toBeUndefined()
     expect(capturedQueryClient.getQueryState(communityKeys.reactionDetails("server_message"))).toBeDefined()
+  })
+
+  it("retires an already-visible peer DM and late reads without changing sibling bodies or the outgoing blocked list", async () => {
+    const registry = getCommunityDbRegistry(capturedQueryClient)!
+    ingestDms(registry, { conversations: ["u_a", "u_other"].map((userId) => ({
+      id: `dm_${userId}`, userId, name: userId, discriminator: "0001", avatar: "A", avatarVersion: 0,
+      status: "offline" as const, preview: "old private preview",
+    })) })
+    seedCanonicalMessages("dm_u_a", [{ id: "private", content: "private body" }])
+    seedCanonicalMessages("dm_u_other", [{ id: "other", content: "other body" }])
+    const metadata = { id: "dm_u_a", serverId: null, name: null, type: "dm", parentChannelId: null,
+      parentMessageId: null, creatorId: null, archived: false, lastMessageAt: null, createdAt: "2026-10-08T00:00:00Z",
+      readContractVersion: 2, accessDecision: { channelId: "dm_u_a", canRead: true, canSend: true, canCreateDiscussion: false } }
+    const api = getCommunityApiFetchMock()
+    const original = api.getMockImplementation()!
+    api.mockImplementation((...args: unknown[]) => args[0] === "/api/community/channels/dm_u_a" ? Promise.resolve(metadata) : original(...args))
+    await capturedQueryClient.query(channelMetadataOptions(capturedQueryClient, null, "dm_u_a"))
+    const proof = captureCommunityLiveSnapshotToken(capturedQueryClient)
+    const oldMetadata = captureChannelMetadataToken(capturedQueryClient, "dm_u_a")
+    expect(isChannelMetadataTokenCurrent(oldMetadata)).toBe(true)
+    expect(canonicalMessage("private")?.content).toBe("private body")
+    let release!: (value: typeof metadata) => void
+    const held = new Promise<typeof metadata>((resolve) => { release = resolve })
+    api.mockImplementation((...args: unknown[]) => args[0] === "/api/community/channels/dm_u_a" ? held : original(...args))
+    const pending = capturedQueryClient.query({ ...channelMetadataOptions(capturedQueryClient, null, "dm_u_a"), staleTime: 0 }).catch((error: unknown) => error)
+    await vi.waitFor(() => expect(api.mock.calls.filter(([path]) => path === "/api/community/channels/dm_u_a")).toHaveLength(2))
+    act(() => {
+      getCapturedRuntime().ui.actions.setCurrentChannelId("dm_u_a")
+      getCapturedRuntime().ui.setState((state) => ({ ...state, subscription: { dmConversationId: "dm_u_a" } }))
+    })
+    await mountHook({ viewerUserId: "u_me" })
+    capturedOnMessage!({ type: "community:friend.block", userId: "u_a" })
+    expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("dm_u_a", null)).toBe(true)
+    expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("dm_u_other", null)).toBe(false)
+    expect(isChannelMetadataTokenCurrent(oldMetadata)).toBe(false)
+    expect(registry.collections.messages.has("private")).toBe(false)
+    expect(registry.collections.messages.get("other")?.content).toBe("other body")
+    expect(registry.collections.channels.get("dm_u_a")?.preview).toBe("")
+    expect(registry.collections.channelMemberships.has("dm_u_a:u_a:access")).toBe(true)
+    expect(registry.collections.friendships.has("blocked:u_a")).toBe(false)
+    expect(getCapturedRuntime().ui.get().subscription.dmConversationId).toBeUndefined()
+    expect(() => publishCommunityMessages(capturedQueryClient, { channelId: "dm_u_a", messages: [{ id: "late", content: "late body", type: "chat", seq: 2 }], proof: { token: proof } })).toThrow("Stale community live snapshot")
+    capturedOnMessage!(messageCreate("dm_u_a", "late-ws"))
+    expect(registry.collections.messages.has("late-ws")).toBe(false)
+    await act(async () => { release(metadata); await pending })
+    expect(capturedQueryClient.getQueryData(communityKeys.channelMeta(null, "dm_u_a"))).toBeUndefined()
+    expect(registry.collections.messages.has("private")).toBe(false)
+  })
+
+  it("does not retire the focused DM for an unrelated block or a retired provider", async () => {
+    const registry = getCommunityDbRegistry(capturedQueryClient)!
+    ingestDms(registry, { conversations: [{ id: "dm_keep", userId: "peer", name: "Peer", discriminator: "0001", avatar: "P", avatarVersion: 0, status: "offline", preview: "keep" }] })
+    seedCanonicalMessages("dm_keep", [{ id: "keep", content: "keep body" }])
+    await mountHook({ viewerUserId: "u_me" })
+    capturedOnMessage!({ type: "community:friend.block", userId: "unrelated" })
+    capturedOnMessage!({ type: "community:friend.block", userId: "u_me" })
+    expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("dm_keep", null)).toBe(false)
+    act(() => getCapturedRuntime().lifecycle.setState((state) => ({ active: false, generation: state.generation + 1 })))
+    capturedOnMessage!({ type: "community:friend.block", userId: "peer" })
+    expect(registry.collections.messages.get("keep")?.content).toBe("keep body")
+    expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("dm_keep", null)).toBe(false)
   })
 
   it("friend.block evicts an unresolved reaction-details request", async () => {

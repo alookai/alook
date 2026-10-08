@@ -19,7 +19,7 @@ import {
 } from "@/lib/community-db/sync"
 import type { Msg } from "@/lib/community/models/message"
 import { mapForumFeedPages } from "./use-forum-feed"
-import { forumFeedWindow, type ForumFeedTransportPage } from "./forum-feed-window"
+import { normalizeThreadResources, forumFeedWindow, type ForumFeedTransportPage } from "./forum-feed-window"
 import { materializeThreadsResponse, type ThreadsResponse } from "./use-channel-panels"
 
 let registry: CommunityDbRegistry | undefined
@@ -102,7 +102,7 @@ describe("embedded message surface ownership", () => {
         surface,
         materializeCanonicalMessages(messages, canonical()).map((message) => message.content),
       ])),
-      forum: mapForumFeedPages([forumFeedWindow(forumPage)], canonical(), channels(), new Map()).map((post) => post.name),
+      forum: mapForumFeedPages([forumFeedWindow(normalizeThreadResources("c1", forumPage))], canonical(), channels(), new Map()).map((post) => post.name),
       threads: materializeThreadsResponse(threads, canonical(), channels()).map((thread) => thread.name),
     })
 

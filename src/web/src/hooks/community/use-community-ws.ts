@@ -37,7 +37,7 @@ import { flushPendingReadIntents } from "@/hooks/community/read-coordinator"
 import {
   decodeCommunityBrowserEvent,
   decodeCommunityBrowserEventBatch,
-  COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE,
+  communityBrowserEventBatchType,
   verifyCommunityBrowserEventBatchV2,
   isCommunityBrowserEventBatchCandidate,
   isCommunityEventType,
@@ -354,7 +354,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     async (msg: { type: string;[key: string]: unknown }, assertAdmissionCurrent?: () => void) => {
       if (!msg.type.startsWith("community:")) return
       if (!runtime.lifecycle.get().active) return
-      if (msg.type === COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE) {
+      if (msg.type === communityBrowserEventBatchType()) {
         const token = captureCommunityLiveSnapshotToken(queryClient)
         if (!await verifyCommunityBrowserEventBatchV2(msg)) return
         try { assertAdmissionCurrent?.(); assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined) } catch { return }

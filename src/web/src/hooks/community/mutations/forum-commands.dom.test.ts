@@ -5,14 +5,14 @@ import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { communityKeys } from "@/lib/query-keys"
-import { getMessageOverlay } from "@/stores/community/message-stream"
+import { getMessageStreamState } from "@/test/community-query-owner"
 import { useCanonicalChannelsById, useCanonicalMessagesById, useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { captureCommunityLiveSnapshotToken, projectCommunityWsEventToDb, publishCommunityForumSidebar, publishCommunityForumFeed, publishCommunityForumTags, getCanonicalCommunityChannelMemberships, removeCanonicalCommunityChannelMembership } from "@/lib/community-db/sync"
 import { mapForumFeedPages } from "../use-forum-feed"
 import { useForumTags } from "../use-channel-panels"
-import { forumFeedWindow, forumFeedMatchesTags, type ForumFeedPage, type ForumFeedTransportPage } from "../forum-feed-window"
+import { normalizeThreadResources, forumFeedWindow, forumFeedMatchesTags, type ForumFeedPage, type ForumFeedTransportPage } from "../forum-feed-window"
 import { getForumSidebarBase } from "../use-forum-sidebar-threads"
-import { getActiveAccountUnreadProjection } from "../account-unread-projection"
+import { getAccountUnreadProjection } from "../account-unread-projection"
 import { applyForumPostUnitClientEffects } from "../community-ws/channel-scope-projection"
 import { useCreateForumThread, useUpdatePostTags, useDeleteForumThread } from "./forum"
 
@@ -60,8 +60,8 @@ async function setup(ids = ["before", "p2", "after"], observeCatalog = false) {
   function seed(rows: string[], append = false) {
     const page = wire(rows), token = captureCommunityLiveSnapshotToken(owner.client)
     publishCommunityForumSidebar(owner.client, { serverId: "server_1", channels: page.threads.map((row) => ({ ...row, name: row.name!, unread: false, parentChannelId: "forum_1", type: "thread", archived: false })), openers: page.included.parentMessages, proof: { token, signal: undefined } })
-    publishCommunityForumFeed(owner.client, "forum_1", page, { token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined })
-    for (const filter of [null, "bug", "archived"]) owner.client.setQueryData<InfiniteData<ForumFeedPage>>(communityKeys.forumFeed("forum_1", filter), (current) => ({ pages: append && current ? [{ ...current.pages[0], threads: [...current.pages[0].threads, ...forumFeedWindow(page).threads] }] : [forumFeedWindow(page)], pageParams: [null] }))
+    publishCommunityForumFeed(owner.client, "forum_1", normalizeThreadResources("forum_1", page), { token: captureCommunityLiveSnapshotToken(owner.client), signal: undefined })
+    for (const filter of [null, "bug", "archived"]) owner.client.setQueryData<InfiniteData<ForumFeedPage>>(communityKeys.forumFeed("forum_1", filter), (current) => ({ pages: append && current ? [{ ...current.pages[0], threads: [...current.pages[0].threads, ...forumFeedWindow(normalizeThreadResources("forum_1", page)).threads] }] : [forumFeedWindow(normalizeThreadResources("forum_1", page))], pageParams: [null] }))
   }
   act(() => {
     projectCommunityWsEventToDb(owner.client, { type: "community:channel.create", serverId: "server_1", channel: { id: "forum_1", name: "Forum", type: "forum", categoryId: null, position: 0, createdAt: new Date().toISOString() } })
@@ -257,7 +257,8 @@ describe("Native forum tag transactions", () => {
 
 describe("Native forum post deletion", () => {
   it("clears local stream, unread and active route once without requiring a self WS frame", async () => {
-    const view = await setup(), projection = getActiveAccountUnreadProjection(view.client)
+    const view = await setup(), projection = getAccountUnreadProjection(view.client, view.registry.accountId!)
+    const disk = vi.spyOn(view.registry, "retireReadingDisk").mockResolvedValue(undefined)
     act(() => {
       projection.recordArrival({ channelId: "p2", serverId: "server_1", seq: 1 })
       view.runtime.ui.actions.setCurrentServerId("server_1"); view.runtime.ui.actions.setCurrentChannelId("p2")
@@ -269,7 +270,7 @@ describe("Native forum post deletion", () => {
     const { held, request } = await begin(view, "remove")
     await act(async () => { held.resolve(); await request })
     expect(view.runtime.messageStream.get().entries.has("channel:p2")).toBe(false)
-    expect(getMessageOverlay(view.client, { kind: "channel", id: "forum_1", serverId: "server_1" }).liveById.has("opener_p2")).toBe(false)
+    expect(getMessageStreamState(view.client, { kind: "channel", id: "forum_1", serverId: "server_1" }).liveIds.includes("opener_p2")).toBe(false)
     expect(view.runtime.ui.get()).toMatchObject({ currentChannelId: "forum_1" })
     expect(view.registry.collections.channels.has("p2")).toBe(false)
     expect(mocks.clearLastChannel).toHaveBeenCalledOnce()
@@ -279,6 +280,8 @@ describe("Native forum post deletion", () => {
     expect(projection.projectUnread("inbox-unreads", "p2", true, 1)).toBe(false)
     act(() => applyForumPostUnitClientEffects(view.client, { serverId: "server_1", forumChannelId: "forum_1", childChannelId: "p2", openerMessageId: "opener_p2" }))
     expect(mocks.clearLastChannel).toHaveBeenCalledOnce(); expect(view.navigate).toHaveBeenCalledOnce()
+    expect(disk).toHaveBeenCalledOnce()
+    expect(disk).toHaveBeenCalledWith(new Set(["p2"]), true)
   })
   it("optimistically hides both canonical post identities and DELETEs the exact opener", async () => {
     const view = await setup(), { held, request } = await begin(view, "remove")
@@ -291,7 +294,7 @@ describe("Native forum post deletion", () => {
     expect(view.client.getQueryState(communityKeys.forumFeed("forum_1", null))?.isInvalidated).toBe(true)
   })
   it("restores canonical post/sidebar and exact original ID windows on DELETE failure", async () => {
-    const view = await setup(), projection = getActiveAccountUnreadProjection(view.client)
+    const view = await setup(), projection = getAccountUnreadProjection(view.client, view.registry.accountId!)
     projection.recordArrival({ channelId: "p2", serverId: "server_1", seq: 1 })
     view.client.setQueryData(communityKeys.channelMeta("server_1", "p2"), { id: "p2" })
     const keys = [communityKeys.channelMessages("forum_1"), communityKeys.forumFeed("forum_1", null), communityKeys.forumSidebarThreads("server_1"), communityKeys.channelMeta("server_1", "p2")], before = keys.map((key) => view.client.getQueryData(key)), sidebar = getForumSidebarBase(view.client, "server_1")
@@ -309,7 +312,7 @@ describe("Native forum post deletion", () => {
 describe("Native forum partition and transaction controls", () => {
   const ids = (view: View, filter: "all" | "bug" | "archived" = "all") => view.view.result.current[filter].map(({ id }) => id)
   function window(view: View, filter: string | null, pages: string[][], pageParams: (string | null)[] = pages.map((_, index) => index ? `cursor_${index}` : null)) {
-    act(() => view.client.setQueryData(communityKeys.forumFeed("forum_1", filter), { pages: pages.map((rows) => forumFeedWindow(wire(rows))), pageParams }))
+    act(() => view.client.setQueryData(communityKeys.forumFeed("forum_1", filter), { pages: pages.map((rows) => forumFeedWindow(normalizeThreadResources("forum_1", wire(rows)))), pageParams }))
   }
   function wsTags(view: View, tags: string[], id = "p2") {
     act(() => projectCommunityWsEventToDb(view.client, { type: "community:channel.update", serverId: "server_1", channelId: id, changes: { tags } }))
@@ -414,7 +417,7 @@ describe("Native forum partition and transaction controls", () => {
   })
   it("projects WS membership only through the canonical opener identity", async () => {
     const view = await setup(["p2"])
-    const invalid = forumFeedWindow(wire(["p2"]))
+    const invalid = forumFeedWindow(normalizeThreadResources("forum_1", wire(["p2"])))
     invalid.threads[0].openerMessageId = "retired_opener"
     act(() => view.client.setQueryData(communityKeys.forumFeed("forum_1", "bug"), { pages: [invalid], pageParams: [null] }))
     await waitFor(() => expect(ids(view, "bug")).toEqual([]))
@@ -423,7 +426,7 @@ describe("Native forum partition and transaction controls", () => {
     expect(ids(view, "archived")).toEqual(["p2"])
   })
   it("does not manufacture opener evidence for a malformed transport window", async () => {
-    const view = await setup(["p2"]), invalid = forumFeedWindow(wire(["p2"]))
+    const view = await setup(["p2"]), invalid = forumFeedWindow(normalizeThreadResources("forum_1", wire(["p2"])))
     invalid.threads[0].openerMessageId = null
     act(() => view.client.setQueryData(communityKeys.forumFeed("forum_1", null), { pages: [invalid], pageParams: ["invalid_cursor"] }))
     await waitFor(() => expect(ids(view)).toEqual([]))

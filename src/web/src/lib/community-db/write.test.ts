@@ -7,6 +7,7 @@ import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
 import { createCommunityDbRegistry, type CommunityDbRegistry } from "./collections"
 import { profileSchema } from "./schema"
 import { writeCommunityCollectionRows } from "./write"
+import { ingestMessages, projectCommunityWsEventToDb } from "./sync"
 
 const owners: CommunityDbRegistry[] = []
 
@@ -22,6 +23,32 @@ function owner() {
 }
 
 describe("canonical collection publication", () => {
+  it.each([false, true])("preserves sparse same-identity WS fields before ready=%s and honors explicit empty", async (ready) => {
+    const registry = owner()
+    if (ready) await registry.preload()
+    const message = { id: "m-rich", seq: 3, type: "chat" as const, authorId: "peer", authorName: "Peer",
+      authorAvatar: "P", authorAvatarVersion: 0, content: "before", createdAt: "2026-08-07T10:00:00.000Z" }
+    const attachments = [{ kind: "file" as const, name: "notes.txt", url: "/notes.txt", size: "1 KB" }]
+    const embeds = [{ title: "Reference" }]
+    ingestMessages(registry, "channel", [{ ...message, attachments, embeds }])
+    const summaryFacts = { type: "system" as const, clientNonce: "known-nonce", replyToId: "reply" }
+    ingestMessages(registry, "channel", [{ ...message, ...summaryFacts, attachments, embeds }])
+    ingestMessages(registry, "channel", [{ id: message.id, content: "summary" }])
+    expect(registry.queryClient.getQueryData(communityKeys.communityDbCollection(registry.scopeId, "messages"))).toMatchObject([
+      { ...summaryFacts, content: "summary", attachments, embeds },
+    ])
+    expect(registry.collections.messages.status === "ready").toBe(ready)
+    projectCommunityWsEventToDb(registry.queryClient, { type: "community:message.create",
+      serverId: "server", channelId: "channel", message: { ...message, content: "after" } })
+    const key = communityKeys.communityDbCollection(registry.scopeId, "messages")
+    expect(registry.queryClient.getQueryData(key)).toMatchObject([{ ...message, content: "after", attachments, embeds }])
+    await registry.preload()
+    expect(registry.collections.messages.get(message.id)).toMatchObject({ content: "after", attachments, embeds })
+    projectCommunityWsEventToDb(registry.queryClient, { type: "community:message.create",
+      serverId: "server", channelId: "channel", message: { ...message, attachments: [], embeds: [] } })
+    expect(registry.collections.messages.get(message.id)).toMatchObject({ attachments: [], embeds: [] })
+  })
+
   it("reproduces snapshot loss with the library default collection GC", async () => {
     vi.useFakeTimers()
     const queryClient = new QueryClient()

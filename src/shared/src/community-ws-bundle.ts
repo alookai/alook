@@ -6,9 +6,15 @@ import {
   type CommunityWsEvent,
 } from "./community-ws-events"
 import { MESSAGE_DELIVERY_MAX_EVENTS_PER_USER } from "./community-message-delivery"
+import { COMMUNITY_CONTRACT_VERSION } from "./community-contract"
 
-export const COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE = "community:events.batch.v2" as const
 export const COMMUNITY_BROWSER_EVENT_BATCH_TYPE = "community:events.batch" as const
+
+export function communityBrowserEventBatchType(contract: number = COMMUNITY_CONTRACT_VERSION) {
+  if (contract === 1) return COMMUNITY_BROWSER_EVENT_BATCH_TYPE
+  if (contract === COMMUNITY_CONTRACT_VERSION) return `${COMMUNITY_BROWSER_EVENT_BATCH_TYPE}.v${COMMUNITY_CONTRACT_VERSION}` as const
+  throw new Error("unsupported community event contract")
+}
 export const COMMUNITY_DELIVERY_OPERATION_ID_PREFIX = "message:" as const
 export const COMMUNITY_DELIVERY_OPERATION_ID_HEADER = "x-alook-community-operation-id" as const
 export const COMMUNITY_DELIVERY_OPERATION_ID_BYTES = 51
@@ -25,7 +31,7 @@ export type CommunityDeliveryOperationId = `${typeof COMMUNITY_DELIVERY_OPERATIO
 export type CommunityDeliveryDigest = string
 
 export type CommunityBrowserEventBatch = {
-  type: typeof COMMUNITY_BROWSER_EVENT_BATCH_TYPE | typeof COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE
+  type: ReturnType<typeof communityBrowserEventBatchType>
   wireDigest?: CommunityDeliveryDigest
   operationId: CommunityDeliveryOperationId
   operationDigest: CommunityDeliveryDigest
@@ -280,8 +286,8 @@ export function encodePreparedCommunityBrowserEventBatch(input: {
 
 export function isCommunityBrowserEventBatchCandidate(
   value: unknown,
-): value is Record<string, unknown> & { type: typeof COMMUNITY_BROWSER_EVENT_BATCH_TYPE | typeof COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE } {
-  return isRecord(value) && (value.type === COMMUNITY_BROWSER_EVENT_BATCH_TYPE || value.type === COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE)
+): value is Record<string, unknown> & { type: ReturnType<typeof communityBrowserEventBatchType> } {
+  return isRecord(value) && (value.type === COMMUNITY_BROWSER_EVENT_BATCH_TYPE || value.type === communityBrowserEventBatchType())
 }
 
 export function decodeCommunityBrowserEventBatch(
@@ -296,7 +302,7 @@ export function decodeCommunityBrowserEventBatch(
   if (typeof value.type !== "string" || value.type.length === 0) {
     return { ok: false, reason: "missing-type" }
   }
-  if (value.type !== COMMUNITY_BROWSER_EVENT_BATCH_TYPE && value.type !== COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE) {
+  if (value.type !== COMMUNITY_BROWSER_EVENT_BATCH_TYPE && value.type !== communityBrowserEventBatchType()) {
     return { ok: false, reason: "wrong-type" }
   }
   if (!isCommunityDeliveryOperationId(value.operationId)) {
@@ -306,8 +312,8 @@ export function decodeCommunityBrowserEventBatch(
     return { ok: false, reason: "invalid-operation-digest" }
   }
   if (
-    Object.keys(value).length !== (value.type === COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE ? 5 : 4)
-    || (value.type === COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE && !isCommunityDeliveryDigest(value.wireDigest))
+    Object.keys(value).length !== (value.type === communityBrowserEventBatchType() ? 5 : 4)
+    || (value.type === communityBrowserEventBatchType() && !isCommunityDeliveryDigest(value.wireDigest))
     || !Object.hasOwn(value, "type")
     || !Object.hasOwn(value, "operationId")
     || !Object.hasOwn(value, "operationDigest")
@@ -336,7 +342,7 @@ export function decodeCommunityBrowserEventBatch(
     ok: true,
     batch: {
       type: value.type,
-      ...(value.type === COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE ? { wireDigest: value.wireDigest as string } : {}),
+      ...(value.type === communityBrowserEventBatchType() ? { wireDigest: value.wireDigest as string } : {}),
       operationId: value.operationId,
       operationDigest: value.operationDigest,
       events: envelopes,
@@ -364,19 +370,19 @@ export async function encodeCommunityBrowserEventBatchForContract(input: {
   if (!wire.ok) return wire
   const encoded = encodePreparedCommunityBrowserEventBatch({ operationId: input.operationId, operationDigest: wire.prepared.digest, prepared: wire.prepared })
   if (!encoded.ok || input.contract === 1) return encoded
-  const prefix = JSON.stringify({ type: COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE, operationId: input.operationId,
+  const prefix = JSON.stringify({ type: communityBrowserEventBatchType(), operationId: input.operationId,
     operationDigest: input.prepared.digest, wireDigest: wire.prepared.digest }).slice(0, -1)
   const body = `${prefix},"events":[${wire.prepared.bodies.join(",")}]}`
   const byteLength = utf8ByteLength(body)
   if (byteLength > COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES) return { ok: false, reason: "batch-invariant-oversized", byteLength }
-  return { ok: true, batch: { type: COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE, operationId: input.operationId,
+  return { ok: true, batch: { type: communityBrowserEventBatchType(), operationId: input.operationId,
     operationDigest: input.prepared.digest, wireDigest: wire.prepared.digest, events: wire.prepared.envelopes },
     body, byteLength, childBodies: wire.prepared.bodies }
 }
 
 export async function verifyCommunityBrowserEventBatchV2(value: unknown) {
   const decoded = decodeCommunityBrowserEventBatch(value)
-  if (!decoded.ok || decoded.batch.type !== COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE) return false
+  if (!decoded.ok || decoded.batch.type !== communityBrowserEventBatchType()) return false
   if (!isRecord(value) || !Array.isArray(value.events)) return false
   return await computeCommunityDeliveryDigestFromBodies(value.events.map((event) => JSON.stringify(event))) === decoded.batch.wireDigest
 }

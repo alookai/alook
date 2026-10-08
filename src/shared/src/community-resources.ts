@@ -1,8 +1,9 @@
 import { z } from "zod"
-import { FriendApprovalPayloadSchema } from "./community-ws-events"
+import { FriendApprovalPayloadSchema } from "./community-friend-approval"
 
 const id = z.string().min(1)
 const nullableId = id.nullable()
+const legacyArchivedSchema = z.union([z.boolean(), z.literal(0), z.literal(1)]).transform((value) => value === true || value === 1)
 
 export const CommunityChannelResourceSchema = z.strictObject({
   id,
@@ -20,6 +21,23 @@ export const CommunityChannelResourceSchema = z.strictObject({
   lastMessageAt: z.string().nullable(),
   messageCount: z.number().int().nonnegative(),
 })
+
+export const CommunityChannelIdentitySchema = CommunityChannelResourceSchema.pick({
+  id: true, type: true, serverId: true, name: true, parentChannelId: true,
+  parentMessageId: true, creatorId: true, archived: true, lastMessageAt: true, createdAt: true,
+}).partial({ createdAt: true }).strip()
+
+const legacyChannelIdentitySchema = CommunityChannelIdentitySchema.extend({
+  archived: legacyArchivedSchema,
+  parentChannelId: nullableId.default(null),
+  parentMessageId: nullableId.default(null),
+  creatorId: nullableId.default(null),
+  lastMessageAt: CommunityChannelResourceSchema.shape.lastMessageAt.default(null),
+})
+
+export function normalizeCommunityChannelIdentity(value: unknown) {
+  return legacyChannelIdentitySchema.parse(value)
+}
 
 export const CommunityAccessDecisionSchema = z.strictObject({
   channelId: id,
@@ -137,38 +155,44 @@ export const CommunityReadErrorSchema = z.strictObject({ contractVersion: z.lite
 }) })
 
 export type CommunityChannelResource = z.infer<typeof CommunityChannelResourceSchema>
+export type CommunityChannelIdentity = z.infer<typeof CommunityChannelIdentitySchema>
 export type CommunityMessageResource = z.infer<typeof CommunityMessageResourceSchema>
 export type CommunityMemberRelation = z.infer<typeof CommunityMemberRelationSchema>
+export type CommunityReadStateResource = z.infer<typeof CommunityReadStateResourceSchema>
+export type CommunityAccessDecision = z.infer<typeof CommunityAccessDecisionSchema>
+export type CommunityResourceProfile = z.infer<typeof CommunityResourceProfileSchema>
+export type CommunityMessageAttachment = z.infer<typeof CommunityMessageAttachmentSchema>
+export type CommunityMessagesRead = z.infer<typeof CommunityMessagesReadSchema>
+export type CommunityThreadsRead = z.infer<typeof CommunityThreadsReadSchema>
+export type CommunityMembersRead = z.infer<typeof CommunityMembersReadSchema>
+export type CommunityMessageSurfaceReceipt = CommunityMessagesRead["surfaceReceipt"]
+
+const legacyChannelResourceSchema = CommunityChannelResourceSchema.strip().extend({
+  topic: CommunityChannelResourceSchema.shape.topic.nullish().transform((value) => value ?? ""),
+  position: CommunityChannelResourceSchema.shape.position.nullish().transform((value) => value ?? 0),
+  messageCount: CommunityChannelResourceSchema.shape.messageCount.nullish().transform((value) => value ?? 0),
+  categoryId: nullableId.default(null),
+  parentChannelId: nullableId.default(null),
+  parentMessageId: nullableId.default(null),
+  creatorId: nullableId.default(null),
+  lastMessageAt: CommunityChannelResourceSchema.shape.lastMessageAt.default(null),
+  archived: legacyArchivedSchema,
+})
 
 export function normalizeCommunityChannelResource(value: unknown): CommunityChannelResource {
-  const raw = z.object({
-    ...CommunityChannelResourceSchema.shape,
-    topic: z.string().nullable().optional(),
-    position: z.number().nullable().optional(),
-    messageCount: z.number().int().nonnegative().nullable().optional(),
-    categoryId: nullableId.optional(),
-    parentChannelId: nullableId.optional(),
-    parentMessageId: nullableId.optional(),
-    creatorId: nullableId.optional(),
-    lastMessageAt: z.string().nullable().optional(),
-    archived: z.union([z.boolean(), z.literal(0), z.literal(1)]),
-  }).parse(value)
-  return CommunityChannelResourceSchema.parse({ ...raw, topic: raw.topic ?? "", position: raw.position ?? 0,
-    messageCount: raw.messageCount ?? 0, categoryId: raw.categoryId ?? null, parentChannelId: raw.parentChannelId ?? null,
-    parentMessageId: raw.parentMessageId ?? null, creatorId: raw.creatorId ?? null, lastMessageAt: raw.lastMessageAt ?? null,
-    archived: raw.archived === true || raw.archived === 1 })
+  return legacyChannelResourceSchema.parse(value)
 }
 
+const legacyMessageResourceSchema = CommunityMessageResourceSchema.strip().extend({
+  channelId: id.optional(),
+  replyToId: nullableId.optional(),
+  clientNonce: CommunityMessageResourceSchema.shape.clientNonce.default(null),
+  attachments: CommunityMessageResourceSchema.shape.attachments.default([]),
+  embeds: CommunityMessageResourceSchema.shape.embeds.nullable().transform((value) => value ?? undefined),
+})
+
 export function normalizeCommunityMessageResource(value: unknown, channelId: string): CommunityMessageResource {
-  const raw = z.object({
-    ...CommunityMessageResourceSchema.shape,
-    channelId: id.optional(),
-    replyToId: nullableId.optional(),
-    clientNonce: z.string().nullable().optional(),
-    attachments: z.array(CommunityMessageAttachmentSchema).optional(),
-    embeds: z.array(z.unknown()).nullable().optional(),
-  }).parse(value)
+  const raw = legacyMessageResourceSchema.parse(value)
   if (raw.channelId !== undefined && raw.channelId !== channelId) throw new Error("Message resource scope mismatch")
-  return CommunityMessageResourceSchema.parse({ ...raw, channelId, replyToId: raw.replyToId ?? raw.replyTo?.id ?? null,
-    clientNonce: raw.clientNonce ?? null, attachments: raw.attachments ?? [], embeds: raw.embeds ?? undefined })
+  return { ...raw, channelId: id.parse(channelId), replyToId: raw.replyToId ?? raw.replyTo?.id ?? null }
 }

@@ -2,7 +2,7 @@ import { CommunityTestProvider as QueryClientProvider } from "@/test/community-o
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { createElement, type PropsWithChildren } from "react"
-import { type InfiniteData } from "@tanstack/react-query"
+import { CancelledError, type InfiniteData } from "@tanstack/react-query"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { CONVERSATION_READ_TIMEOUT_MS, ConversationReadTimeoutError } from "@/lib/community/conversation-read"
@@ -398,6 +398,50 @@ describe("mergeMessagesPages", () => {
 
 
 describe("bounded messages publication", () => {
+  it.each(["cold", "known", "late-lineage"] as const)("rejects a %s child response after parent retirement without publishing body, window or navigation", async (lineage) => {
+    const { channelMessagesQueryFn } = await loadHook()
+    const { retireCommunityChannelReading, assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken } = await import("@/lib/community-db/sync")
+    const { client, registry, runtime } = await createCommunityQueryOwner()
+    runtime.ws.actions.rememberChannelAccess(null, "sibling-dm")
+    const sibling = captureCommunityLiveSnapshotToken(client, "sibling-dm")
+    if (lineage === "known") runtime.ws.actions.rememberChannelAccess("server", "child", "parent")
+    let resolve!: (value: unknown) => void
+    apiFetchMock.mockImplementationOnce(() => new Promise((done) => { resolve = done }))
+    const receipt = vi.fn(), key = communityKeys.channelMessages("child")
+    const request = client.infiniteQuery({ queryKey: key, queryFn: channelMessagesQueryFn("child", null, { onSurfaceReceipt: receipt }), initialPageParam: { mode: "newest" }, getNextPageParam: () => undefined, retry: false })
+    const rejected = lineage === "known" ? expect(request).rejects.toBeInstanceOf(CancelledError) : expect(request).rejects.toMatchObject({ name: "AbortError" })
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+    retireCommunityChannelReading(registry, "parent", { reason: "read-denied", serverId: "server" })
+    if (lineage === "late-lineage") runtime.ws.actions.observeChannelScope("server", "child", "parent")
+    resolve({ messages: [{ id: "late-child-message", type: "chat", seq: 1, authorId: "late-author", authorName: "Late", content: "private" }], hasMore: false, latestSeq: 1, surfaceReceipt: { channelId: "child", surfaceKind: "thread" } })
+    await rejected
+    expect(registry.collections.messages.has("late-child-message")).toBe(false)
+    expect(registry.collections.profiles.has("late-author")).toBe(false)
+    expect(client.getQueryData(key)).toBeUndefined()
+    expect(receipt).not.toHaveBeenCalled()
+    expect(() => assertCommunityLiveSnapshotTokenCurrent(client, sibling, undefined)).not.toThrow()
+    apiFetchMock.mockResolvedValueOnce({ messages: [{ id: "fresh-child-message", type: "chat", seq: 2, authorId: "fresh-author", authorName: "Fresh", content: "fresh" }], hasMore: false, latestSeq: 2 })
+    await client.infiniteQuery({ queryKey: key, queryFn: channelMessagesQueryFn("child"), initialPageParam: { mode: "newest" }, getNextPageParam: () => undefined, retry: false })
+    expect(registry.collections.messages.has("fresh-child-message")).toBe(true)
+    expect(client.getQueryData(key)).toBeDefined()
+  })
+
+  it("publishes an already-qualified sibling DM response across an unrelated parent retirement", async () => {
+    const { channelMessagesQueryFn } = await loadHook()
+    const { retireCommunityChannelReading } = await import("@/lib/community-db/sync")
+    const { client, registry, runtime } = await createCommunityQueryOwner()
+    runtime.ws.actions.rememberChannelAccess(null, "sibling-dm")
+    let resolve!: (value: unknown) => void
+    apiFetchMock.mockImplementationOnce(() => new Promise((done) => { resolve = done }))
+    const request = channelMessagesQueryFn("sibling-dm")({ client, pageParam: { mode: "newest" } })
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+    retireCommunityChannelReading(registry, "parent", { reason: "read-denied", serverId: "server" })
+    resolve({ messages: [{ id: "dm-message", type: "chat", seq: 1, authorId: "peer", authorName: "Peer", content: "current" }], hasMore: false, latestSeq: 1 })
+    await expect(request).resolves.toMatchObject({ messages: [{ id: "dm-message" }] })
+    expect(registry.collections.messages.has("dm-message")).toBe(true)
+    expect(registry.collections.profiles.has("peer")).toBe(true)
+  })
+
   it("does not publish a late message, profile or navigation receipt after deadline failure", async () => {
     const { channelMessagesQueryFn } = await loadHook()
     const { client } = await createCommunityQueryOwner()

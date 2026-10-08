@@ -12,20 +12,22 @@ import {
   ingestServerDetail,
   ingestServers,
   getCanonicalCommunityChannels,
+  getCanonicalCommunityChannelMemberships,
   getCanonicalCommunityMessages,
   projectCommunityWsEventToDb,
   publishCommunityLiveSnapshot,
+  purgeCommunityChannel,
   publishCommunityForumSidebar,
   removeCanonicalCommunityChannelMembership,
   setCanonicalCommunityChannelMembership,
 } from "@/lib/community-db/sync"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useChannelMetadata } from "./use-channel-metadata"
+import { projectForumSidebar } from "@/lib/community/forum-sidebar"
 import { useForumOpenerHint } from "./use-forum-opener-hint"
 import { isChannelMetadataTokenCurrent } from "./channel-metadata"
 import { communityKeys } from "@/lib/query-keys"
 import {
-  deriveForumSidebarProjection,
   getForumSidebarBase,
   grantForumSidebarChild,
   invalidateForumSidebarBaseExact,
@@ -34,9 +36,7 @@ import {
   patchForumSidebarTitleExact,
   reconcileForumSidebarNotifyMemberships,
   reconcileForumSidebarArchiveTag,
-  removeForumSidebarChildrenForParent,
   removeForumSidebarProjectionExact,
-  removeForumSidebarThreadExact,
   resolveForumSidebarRouteCandidate,
   useForumSidebarThreads,
   type SidebarThreadEnvelope,
@@ -360,7 +360,7 @@ describe("forum sidebar canonical projection", () => {
     expect(registry.collections.channelMemberships.get("text-child:viewer:notify")).toBeDefined()
     rendered.unmount()
   })
-  it("hands a fresh sidebar child and opener to the shared qualified route without another GET", async () => {
+  it("uses sidebar identity and opener while one protected metadata GET qualifies reading", async () => {
     const { queryClient, wrapper } = await setup()
     apiFetchMock.mockResolvedValueOnce(envelope())
     let retainId: string | null = null
@@ -368,7 +368,7 @@ describe("forum sidebar canonical projection", () => {
     await waitFor(() => expect(sidebar.result.current.threads[0]?.title).toBe("Canonical title"))
     let releaseRetained!: (value: SidebarThreadEnvelope) => void
     const retained = new Promise<SidebarThreadEnvelope>((resolve) => { releaseRetained = resolve })
-    apiFetchMock.mockReturnValue(retained)
+    apiFetchMock.mockImplementation((url) => url === "/api/community/channels/post-1" ? Promise.resolve({ ...envelope().channels[0], id: "post-1", serverId: "server-1", type: "thread", name: "Canonical title", archived: false, createdAt: new Date().toISOString() }) : retained)
     retainId = "post-1"
     sidebar.rerender()
     const route = renderHook(() => {
@@ -377,11 +377,13 @@ describe("forum sidebar canonical projection", () => {
       return { metadata, opener }
     }, { wrapper })
     try {
-      expect(route.result.current.metadata.isVerified).toBe(true)
+      expect(route.result.current.metadata.identityKnown).toBe(true)
+      expect(route.result.current.metadata.canRead).toBe(false)
+      await waitFor(() => expect(route.result.current.metadata.canRead).toBe(true))
       expect(route.result.current.opener.data?.content).toBe("Canonical title")
       await waitFor(() => expect(apiFetchMock.mock.calls.some(([url]) => new URL(url, "http://localhost").searchParams.get("retainId") === "post-1")).toBe(true))
-      expect(apiFetchMock.mock.calls.some(([url]) => url === "/api/community/channels/post-1")).toBe(false)
-      expect(isChannelMetadataTokenCurrent(queryClient.getQueryData<{ verification: Parameters<typeof isChannelMetadataTokenCurrent>[0] }>(communityKeys.channelMeta("server-1", "post-1"))!.verification)).toBe(true)
+      expect(apiFetchMock.mock.calls.filter(([url]) => url === "/api/community/channels/post-1")).toHaveLength(1)
+      expect(isChannelMetadataTokenCurrent(queryClient.getQueryData<{ identityProof: Parameters<typeof isChannelMetadataTokenCurrent>[0] }>(communityKeys.channelMeta("server-1", "post-1"))!.identityProof)).toBe(true)
     } finally {
       route.unmount()
       sidebar.unmount()
@@ -412,29 +414,62 @@ describe("forum sidebar canonical projection", () => {
     expect(queryClient.getQueryData(communityKeys.channelMeta("server-1", "post-1"))).toBeUndefined()
   })
 
-  it("classifies retained route candidates and bounded active extras", () => {
+  it("classifies retained route candidates and bounds an expired active extra in the canonical view", async () => {
     expect(resolveForumSidebarRouteCandidate(null, ["forum-1"], true)).toBeNull()
     expect(resolveForumSidebarRouteCandidate("forum-1", ["forum-1"], true)).toBeNull()
-    expect(resolveForumSidebarRouteCandidate("post-3", ["forum-1"], true)).toBe("post-3")
-
-    const base = normalizeForumSidebarEnvelope(envelopeFor(["post-1", "post-2"]), null, 0).base
-    const extra = normalizeForumSidebarEnvelope(envelopeFor(["post-3"]), null, 0).base.threads[0]!
-    expect(deriveForumSidebarProjection(
-      base,
-      extra,
-      { "forum-1": { baseUnread: false, childIds: ["post-3"] } },
-      Date.parse(base.serverNow),
-      2,
-    )).toMatchObject({
-      threads: expect.arrayContaining([expect.objectContaining({ id: "post-3", unread: true })]),
+    expect(resolveForumSidebarRouteCandidate("post-6", ["forum-1"], true)).toBe("post-6")
+    const { queryClient, wrapper } = await setup()
+    const response = envelopeFor(["post-1", "post-2", "post-3", "post-4", "post-5", "post-6"])
+    const expired = new Date(Date.now() - 73 * 60 * 60 * 1000).toISOString()
+    Object.assign(response.channels[5]!, { activityAt: expired, lastMessageAt: expired, expiresAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(), unread: true })
+    publish(queryClient, response)
+    const rendered = renderHook(() => useForumSidebarProjection("server-1", "post-6", Date.now()), { wrapper })
+    await waitFor(() => expect(rendered.result.current?.threads).toHaveLength(5))
+    expect(rendered.result.current).toMatchObject({
+      threads: expect.arrayContaining([expect.objectContaining({ id: "post-6", unread: true })]),
       parentUnread: { "forum-1": false },
     })
+    rendered.rerender()
+    rendered.unmount()
   })
 
   it("ignores incomplete child metadata while normalizing", () => {
     const response = envelope()
     response.channels[0] = { ...response.channels[0]!, serverId: undefined }
-    expect(normalizeForumSidebarEnvelope(response, null, 0).channelMetas).toEqual({})
+    expect(normalizeForumSidebarEnvelope(response, null, 0).channels).toEqual([])
+  })
+
+  it("ignores another user's notify row in both Sidebar views and bounded negative reconciliation", async () => {
+    const { queryClient, registry, wrapper } = await setup()
+    publish(queryClient)
+    removeCanonicalCommunityChannelMembership(queryClient, "post-1", "notify")
+    registry.collections.channelMemberships.utils.writeUpsert({ id: "post-1:other:notify",
+      channelId: "post-1", userId: "other", relation: "notify", source: "explicit" })
+    expect(getForumSidebarBase(queryClient, "server-1").threads).toEqual([])
+    const rendered = renderHook(() => useForumSidebarProjection("server-1", null, Date.now()), { wrapper })
+    await waitFor(() => expect(rendered.result.current?.threads).toEqual([]))
+    apiFetchMock.mockResolvedValue(envelopeFor([]))
+    const result = await reconcileForumSidebarNotifyMemberships(queryClient, "server-1")
+    expect(result.removedIds).toEqual([])
+    expect(registry.collections.channelMemberships.get("post-1:other:notify")).toBeDefined()
+    expect(registry.collections.channels.get("post-1")?.unread).toBe(true)
+    rendered.unmount()
+  })
+
+  it.each([null, "0", "expired"] as const)("shares ASCII candidates and one expiry/top-five/retain=$0 view selector", async (retainId) => {
+    const { queryClient, registry, wrapper } = await setup()
+    const data = envelopeFor(["0", "9", "A", "Z", "a", "z", "expired"])
+    const expired = data.channels.find((row) => row.id === "expired")!
+    expired.lastMessageAt = expired.activityAt = new Date(Date.now() - 73 * 60 * 60 * 1000).toISOString()
+    publish(queryClient, data)
+    const rendered = renderHook(() => useForumSidebarProjection("server-1", retainId, Date.now()), { wrapper })
+    const expected = retainId === null ? ["z", "a", "Z", "A", "9"] : ["z", "a", "Z", "A", retainId]
+    await waitFor(() => expect(rendered.result.current?.threads.map((row) => row.id)).toEqual(expected))
+    expect(getForumSidebarBase(queryClient, "server-1").threads.map((row) => row.id)).toEqual(["z", "a", "Z", "A", "9", "0", "expired"])
+    expect(projectForumSidebar(getCanonicalCommunityChannels(queryClient), getCanonicalCommunityChannelMemberships(queryClient),
+      getCanonicalCommunityMessages(queryClient), registry.accountId, "server-1", retainId, Date.now()).threads)
+      .toStrictEqual(rendered.result.current?.threads)
+    rendered.unmount()
   })
 
   it("removes only bounded-base misses that could displace the authoritative top five", async () => {
@@ -690,24 +725,22 @@ describe("forum sidebar canonical projection", () => {
     rendered.unmount()
   })
 
-  it("keeps providerless normalization explicit for pure tests", () => {
-    const normalized = normalizeForumSidebarEnvelope(envelope(), null, 0)
-    expect(deriveForumSidebarProjection(
-      normalized.base,
-      null,
-      { "forum-1": { baseUnread: false, childIds: ["post-1"] } },
-      Date.parse(normalized.base.serverNow),
-    )).toEqual({
+  it("keeps normalized child unread and parent ownership in the canonical view", async () => {
+    const { queryClient, wrapper } = await setup()
+    publish(queryClient, envelope())
+    const rendered = renderHook(() => useForumSidebarProjection("server-1", null, Date.now()), { wrapper })
+    await waitFor(() => expect(rendered.result.current).toEqual({
       threads: [expect.objectContaining({ id: "post-1", unread: true })],
       parentUnread: { "forum-1": false },
-    })
+    }))
+    rendered.unmount()
   })
 
   it("preserves system opener types at the canonical ingress boundary", () => {
     const response = envelope()
     response.included.parentMessages[0]!.type = "system"
 
-    expect(normalizeForumSidebarEnvelope(response, null, 0).openerHints["opener-1"])
+    expect(normalizeForumSidebarEnvelope(response, null, 0).openers.find((message) => message.id === "opener-1"))
       .toEqual(expect.objectContaining({ type: "system" }))
   })
 
@@ -804,7 +837,7 @@ describe("forum sidebar canonical projection", () => {
     act(() => { patchForumSidebarActivityExact(
       queryClient, "server-1", "missing", "forum-1", activityAt,
     ) });
-    act(() => { removeForumSidebarThreadExact(queryClient, "server-1", "post-2") });
+    act(() => { purgeCommunityChannel(getCommunityDbRegistry(queryClient)!, "post-2") });
     await act(async () => resolveRequest(envelopeFor(["post-1", "post-2"])))
     await waitFor(() => expect(rendered.result.current.threads).toEqual([
       expect.objectContaining({
@@ -892,7 +925,7 @@ describe("forum sidebar canonical projection", () => {
     act(() => { patchForumSidebarActivityExact(queryClient, "server-1", "post-1", "forum-1", "invalid") });
     expect(getForumSidebarBase(queryClient, "server-1").threads[0]?.expiresAt).toBe("invalid")
     act(() => { removeForumSidebarProjectionExact(queryClient, "server-1", "post-1") });
-    act(() => { removeForumSidebarChildrenForParent(queryClient, "server-1", "forum-1") });
+    act(() => { purgeCommunityChannel(getCommunityDbRegistry(queryClient)!, "forum-1") });
     expect(getCanonicalCommunityChannels(queryClient).some(({ id }) => id === "post-1"))
       .toBe(false)
   })
@@ -958,7 +991,7 @@ describe("forum sidebar canonical projection", () => {
     apiFetchMock.mockReturnValue(new Promise((resolve) => { resolveGrant = resolve }))
     const grant = grantForumSidebarChild(queryClient, "server-1", "post-1").catch((error) => error)
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
-    act(() => { removeForumSidebarThreadExact(queryClient, "server-1", "post-1") });
+    act(() => { purgeCommunityChannel(getCommunityDbRegistry(queryClient)!, "post-1") });
     await reconcileForumSidebarArchiveTag(queryClient, "server-1", "post-1", true)
     const retained = envelopeFor(["post-1"])
     resolveGrant({

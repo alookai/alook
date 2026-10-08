@@ -3,6 +3,7 @@ import {
   COMMUNITY_CONTRACT_HEADER, requestsCommunityContractV2,
   CommunityChannelReadSchema, CommunityMessagesReadSchema, CommunityReadStateReadSchema,
   normalizeCommunityChannelResource, normalizeCommunityMessageResource,
+  type CommunityAccessDecision, type CommunityReadStateResource, type CommunityMessageSurfaceReceipt,
 } from "@alook/shared"
 import { writeJSON } from "@/lib/middleware/helpers"
 
@@ -11,7 +12,7 @@ function versionedJSON(data: unknown): NextResponse {
 }
 
 export function writeCommunityChannelRead(request: Request, channelId: string, channel: unknown,
-  access: { canRead: boolean; canSend: boolean; canCreateDiscussion: boolean }) {
+  access: Omit<CommunityAccessDecision, "channelId">) {
   if (!requestsCommunityContractV2(request.headers)) return writeJSON(channel)
   return versionedJSON(CommunityChannelReadSchema.parse({ contractVersion: 2, channelId,
     channel: normalizeCommunityChannelResource(channel), access: { channelId, ...access } }))
@@ -21,7 +22,7 @@ type MessagePage = {
   messages: unknown[]; latestSeq: number;
   cursor?: string; hasMore?: boolean; olderCursor?: string; newerCursor?: string;
   hasMoreOlder?: boolean; hasMoreNewer?: boolean;
-  surfaceReceipt: { channelId: string; surfaceKind: "channel" | "forum" | "thread" | "dm" };
+  surfaceReceipt: CommunityMessageSurfaceReceipt;
 }
 
 export function writeCommunityMessagesRead(request: Request, channelId: string, page: MessagePage) {
@@ -34,7 +35,7 @@ export function writeCommunityMessagesRead(request: Request, channelId: string, 
 }
 
 export function writeCommunityReadState(request: Request, channelId: string,
-  state: { lastReadMessageId: string | null; lastReadAt: string | null; lastReadSeq: number }) {
+  state: Omit<CommunityReadStateResource, "channelId">) {
   if (!requestsCommunityContractV2(request.headers)) return writeJSON(state)
   return versionedJSON(CommunityReadStateReadSchema.parse({ contractVersion: 2, channelId, readState: { channelId, ...state } }))
 }

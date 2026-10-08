@@ -68,40 +68,27 @@ export function decodeCommunityReadResponse(path: string, method: string | undef
     const children = new Set(data.threads.map((thread) => thread.id))
     for (const thread of data.threads) if (thread.parentChannelId !== target.channelId || thread.serverId !== data.channel.serverId) throw new Error("Thread resource scope mismatch")
     for (const message of data.included.messages) if (message.channelId !== target.channelId && !children.has(message.channelId)) throw new Error("Included message scope mismatch")
-    const profiles = new Map(data.included.profiles.map((profile) => [profile.id, profile]))
-    const participantCounts = new Map(data.included.participantCounts.map((row) => {
-      if (!children.has(row.channelId)) throw new Error("Participant count scope mismatch")
-      return [row.channelId, row.count]
-    }))
+    const profiles = new Set(data.included.profiles.map((profile) => profile.id))
     const openerIds = new Set(data.threads.flatMap((thread) => thread.parentMessageId ? [thread.parentMessageId] : []))
     if (data.included.tags.some((row) => !openerIds.has(row.messageId))) throw new Error("Included tag scope mismatch")
-    return { serverId: data.channel.serverId, parentType: data.channel.type,
-      threads: data.threads.map((thread) => ({ ...thread, activityAt: thread.lastMessageAt ?? thread.createdAt })),
-      included: { parentMessages: data.included.messages.filter((message) => message.channelId === target.channelId).map((message) => ({ ...message, authorImage: message.authorAvatar ?? null })),
-        firstMessages: data.included.messages.filter((message) => children.has(message.channelId)), tags: data.included.tags,
-        participants: data.included.members.map((member) => {
-          if (!children.has(member.channelId) || member.relation !== "notify") throw new Error("Included member scope mismatch")
-          const profile = profiles.get(member.userId)
-          if (!profile) throw new Error("Included member profile missing")
-          return { channelId: member.channelId, userId: member.userId, userName: profile.name, userImage: profile.avatar,
-            userAvatarVersion: profile.avatarVersion, participantCount: participantCounts.get(member.channelId) ?? 0 }
-        }) }, hasMore: data.page.hasMore, nextCursor: data.page.nextCursor ?? undefined }
+    if (data.included.participantCounts.some((row) => !children.has(row.channelId))) throw new Error("Participant count scope mismatch")
+    for (const member of data.included.members) {
+      if (!children.has(member.channelId) || member.relation !== "notify") throw new Error("Included member scope mismatch")
+      if (!profiles.has(member.userId)) throw new Error("Included member profile missing")
+    }
+    return data
   }
   if (target.resource === "members") {
     const data = CommunityMembersReadSchema.parse(value)
     assertScope(data.channelId)
     const requested = new URL(path, "https://alook.invalid").searchParams.get("relation")
     if (requested !== data.relation) throw new Error("Community member relation mismatch")
-    const profiles = new Map(data.profiles.map((profile) => [profile.id, profile]))
-    return { relation: data.relation, members: data.members.map((member) => {
+    const profiles = new Set(data.profiles.map((profile) => profile.id))
+    for (const member of data.members) {
       assertScope(member.channelId)
       if (member.relation !== data.relation) throw new Error("Community member resource relation mismatch")
-      const profile = profiles.get(member.userId)
-      if (!profile) throw new Error("Community member profile missing")
-      return { ...profile, id: member.memberId ?? member.userId, userId: member.userId, role: member.role,
-        source: member.source, isCreator: member.isCreator, discriminator: profile.discriminator ?? undefined,
-        avatar: profile.avatar ?? "", sub: "", status: "offline" }
-    }) }
+      if (!profiles.has(member.userId)) throw new Error("Community member profile missing")
+    }
+    return data
   }
-  return value
 }

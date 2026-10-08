@@ -53,7 +53,7 @@ function unique(values: readonly string[]): string[] {
   return [...new Set(values)]
 }
 
-async function planCommittedMessageBase(
+export async function planCommittedMessage(
   db: Database,
   messageId: string,
   structural: CommittedMessageStructuralOutcome = {},
@@ -257,55 +257,32 @@ async function planCommittedMessageBase(
   }
 }
 
-export async function planCommittedMessage(
-  db: Database,
-  messageId: string,
-  structural: CommittedMessageStructuralOutcome = {},
-): Promise<MessageDeliveryPlan> {
-  return planCommittedMessageBase(db, messageId, structural)
-}
-
 async function runCommittedMessageDispatch(
   db: Database,
   messageId: string,
   structural: CommittedMessageStructuralOutcome,
 ): Promise<void> {
   const startedAt = Date.now()
-  const plan = await planCommittedMessageBase(
+  const plan = await planCommittedMessage(
     db,
     messageId,
     structural,
   )
-  const browserBatch: MessageDeliveryBatch = {
-    messageId: plan.messageId,
-    messageEvent: plan.messageEvent,
-    contentUserIds: plan.contentUserIds,
-    unreadPlainUserIds: plan.unreadPlainUserIds,
-    unreadMentionUserIds: plan.unreadMentionUserIds,
-    mentionUserIds: plan.mentionUserIds,
-    ...(plan.memberAdded ? { memberAdded: plan.memberAdded } : {}),
-    ...(plan.joinedParticipantUserIds ? { joinedParticipantUserIds: plan.joinedParticipantUserIds, rosterRefreshUserId: plan.rosterRefreshUserId } : {}),
-    ...(plan.parentProjection
-      ? {
-          parentProjection: plan.parentProjection,
-          parentProjectionUserIds: plan.parentProjectionUserIds,
-        }
-      : {}),
-  }
-  const pushTasks: AlookQueueTask[] = plan.pushUserIds.map((userId) => ({
+  const { operationId, wakeBotUserIds, pushUserIds, ...browserBatch } = plan
+  const pushTasks: AlookQueueTask[] = pushUserIds.map((userId) => ({
     version: 1 as const,
     kind: "mobile-push" as const,
     messageId: plan.messageId,
     userId,
   }))
-  const browserDelivery = sendMessageDeliveryBatch(browserBatch, plan.operationId)
+  const browserDelivery = sendMessageDeliveryBatch(browserBatch, operationId)
   const pushDelivery = enqueueQueueTasks(pushTasks)
-  const botWake = enqueueQueueTasks(plan.wakeBotUserIds.map((botUserId) => ({
+  const botWake = enqueueQueueTasks(wakeBotUserIds.map((botUserId) => ({
     version: 1 as const,
     kind: "bot-wake" as const,
     messageId: plan.messageId,
     botUserId,
-  }))).then(() => plan.wakeBotUserIds.length)
+  }))).then(() => wakeBotUserIds.length)
   const [browser, push, wake] = await Promise.allSettled([
     browserDelivery,
     pushDelivery,
@@ -335,7 +312,7 @@ async function runCommittedMessageDispatch(
     unreadCount: plan.unreadPlainUserIds.length + plan.unreadMentionUserIds.length,
     mentionCount: plan.mentionUserIds.length,
     wakeCount: wake.status === "fulfilled" ? wake.value : 0,
-    pushCount: plan.pushUserIds.length,
+    pushCount: pushUserIds.length,
     parentCount: plan.parentProjectionUserIds?.length ?? 0,
     durationMs: Date.now() - startedAt,
   })

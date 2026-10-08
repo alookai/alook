@@ -41,10 +41,7 @@ export interface CommunityMachineIdentity {
   credentialHash: string
 }
 
-export interface CommunityMachineHandle {
-  userId: string
-  machineId: string
-}
+export type CommunityMachineHandle = Pick<CommunityMachineIdentity, "userId" | "machineId">
 
 export const IDENTITY_KEY = "community-machine-identity"
 export const HANDLE_KEY = "community-machine-handle"

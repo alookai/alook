@@ -289,7 +289,7 @@ describe("focused message reconnect catch-up", () => {
     expect(queryClient.getQueryCache().find({ queryKey: [...queryKey, "reconcile"], exact: true })?.state.fetchStatus).toBe("fetching")
     await first
     expect(apiFetchMock).toHaveBeenCalledTimes(2)
-    expect(captureCommunityLiveSnapshotTokenMock).toHaveBeenCalledWith(queryClient)
+    expect(captureCommunityLiveSnapshotTokenMock).toHaveBeenCalledWith(queryClient, "ch_gap")
     expect(publishCommunityMessagesMock).toHaveBeenCalledWith(queryClient, {
       channelId: "ch_gap",
       messages: expect.arrayContaining([

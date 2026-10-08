@@ -1,9 +1,10 @@
+import { canonicalMessageReader } from "@/test/community-query-owner"
 import { createElement, type PropsWithChildren } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
-import { getMessageOverlay } from "@/stores/community/message-stream"
+import { getMessageStreamState } from "@/test/community-query-owner"
 import { materializeMessageStream } from "@/lib/community/message-stream"
 import { MESSAGE_PREVIEW_LENGTH } from "@alook/shared"
 import { useDmMessageSender, type AcceptDmMessageArgs, type DmSendReceipt } from "./use-dm-message-sender"
@@ -44,7 +45,7 @@ async function setup() {
     await act(async () => { result = await receipt.committed })
     return result
   }
-  const overlay = () => getMessageOverlay(owner.client, scope)
+  const overlay = () => getMessageStreamState(owner.client, scope)
   return { ...owner, view, accept, retry, settle, overlay }
 }
 
@@ -117,7 +118,7 @@ describe("Native DM sender", () => {
     const owner = await setup(), file = new File(["x"], "x.txt", { type: "text/plain" })
     const receipt = owner.accept({ content: "", replyTo: { id: "prior", authorName: "Peer Name", text: "quoted" }, attachments: [{ file, previewObjectUrl: "blob:x" }] })
     expect(await owner.settle(receipt)).toMatchObject({ ok: true, message: { id: "server_file", seq: 9 } })
-    expect(materializeMessageStream([], owner.overlay()).find(({ id }) => id === "server_file")?.content).toBe("@Peer Name\n")
+    expect(materializeMessageStream([], owner.overlay(), canonicalMessageReader(owner.client)).find(({ id }) => id === "server_file")?.content).toBe("@Peer Name\n")
     expect(mocks.post).toHaveBeenCalledExactlyOnceWith({ content: "@Peer Name\n", replyToId: "prior", attachments: ["att_x"], nonce: "fresh_nonce" })
   })
 
@@ -139,9 +140,9 @@ describe("Native DM sender", () => {
     act(() => owner.runtime.ui.actions.setCurrentChannelId("other_dm"))
     const receipt = owner.accept({ content: "out of view" })
     expect(await owner.settle(receipt)).toMatchObject({ ok: true, message: { id: "server_1", seq: 11 } })
-    expect(materializeMessageStream([], owner.overlay()).map(({ id }) => id)).toEqual(["server_1"])
+    expect(materializeMessageStream([], owner.overlay(), canonicalMessageReader(owner.client)).map(({ id }) => id)).toEqual(["server_1"])
     const base = [{ id: "server_1", seq: 11, clientNonce: "fresh_nonce", type: "chat" as const, authorId: "u_me", authorName: "Me", content: "out of view" }]
     act(() => owner.runtime.messageStream.actions.dispatch(scope, { type: "baseChanged", messages: base }))
-    expect(materializeMessageStream(base, owner.overlay()).map(({ id }) => id)).toEqual(["server_1"])
+    expect(materializeMessageStream(base, owner.overlay(), canonicalMessageReader(owner.client)).map(({ id }) => id)).toEqual(["server_1"])
   })
 })

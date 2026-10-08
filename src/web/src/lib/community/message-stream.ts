@@ -1,8 +1,7 @@
 import { deriveView, sourceEvidence, viewEvidence } from "@/lib/observability/data-source"
-import type { Msg } from "@/lib/community/models/message"
+import type { Msg, SendAttachment } from "@/lib/community/models/message"
 import type { MentionType } from "@alook/shared"
-import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
-import { formatAttachmentSize } from "@/lib/community/attachment-presentation"
+import { presentMessageAttachment } from "@/lib/community/attachment-presentation"
 
 export const MAX_LIVE_MESSAGE_DELTAS = 500
 
@@ -12,13 +11,7 @@ export type MessageScope =
   | { kind: "channel"; id: string; serverId: string }
   | { kind: "dm"; id: string }
 
-type LocalUploadInput = Readonly<{
-  file: File
-  thumbnailBlob?: Blob
-  previewObjectUrl?: string
-  width?: number
-  height?: number
-}>
+type LocalUploadInput = Readonly<SendAttachment>
 
 type LocalOutboxMessage = Omit<Msg, "id" | "seq" | "clientNonce" | "failed">
 
@@ -41,15 +34,8 @@ export type OutboxRetryPayload = Readonly<{
 
 type OutboxIntent = Omit<NewOutboxIntent, "message"> & {
   message: Msg
-  status: "pending" | "failed" | "acked"
+  status: "pending" | "failed"
   uploadStatus: "none" | "pending" | "settled" | "failed"
-  serverMessageId?: string
-  serverSeq?: number
-}
-
-export type MessageOverlayState = {
-  liveById: ReadonlyMap<string, CanonicalMessage>
-  outboxByNonce: ReadonlyMap<string, OutboxIntent>
 }
 
 type MessageOverlayEffect = {
@@ -57,8 +43,13 @@ type MessageOverlayEffect = {
   url: string
 }
 
+export type MessageOverlayIds = {
+  liveIds: readonly string[]
+  outboxByNonce: ReadonlyMap<string, OutboxIntent>
+}
+
 export type MessageOverlayTransition = {
-  state: MessageOverlayState
+  state: MessageOverlayIds
   effects: MessageOverlayEffect[]
 }
 
@@ -71,8 +62,6 @@ export type MessageOverlayEvent =
   | { type: "terminalReject"; nonce: string }
   | { type: "retry"; nonce: string }
   | { type: "wsMessage"; message: CanonicalMessage }
-  | { type: "liveRefreshed"; message: CanonicalMessage }
-  | { type: "messageEdited"; messageId: string; content: string }
   | { type: "messageRemoved"; messageId: string }
   | { type: "baseChanged"; messages: CanonicalMessage[]; latestSeq?: number }
   | { type: "dismissFailed"; nonce: string }
@@ -83,14 +72,14 @@ type MaterializedEntry = {
   localOrdinal?: number
 }
 
-export function emptyMessageOverlay(): MessageOverlayState {
+export function emptyMessageOverlay(): MessageOverlayIds {
   return {
-    liveById: new Map(),
+    liveIds: [],
     outboxByNonce: new Map(),
   }
 }
 
-function unchanged(state: MessageOverlayState): MessageOverlayTransition {
+function unchanged(state: MessageOverlayIds): MessageOverlayTransition {
   return { state, effects: [] }
 }
 
@@ -104,7 +93,7 @@ function revokeEffects(intent: OutboxIntent): MessageOverlayEffect[] {
 }
 
 function updateIntent(
-  state: MessageOverlayState,
+  state: MessageOverlayIds,
   nonce: string,
   update: (intent: OutboxIntent) => OutboxIntent,
 ): MessageOverlayTransition {
@@ -115,86 +104,43 @@ function updateIntent(
   return { state: { ...state, outboxByNonce }, effects: [] }
 }
 
-function canonicalDeltaOrder(a: CanonicalMessage, b: CanonicalMessage): number {
-  return a.seq - b.seq
+function compoundIdentity(message: Pick<Msg, "authorId" | "clientNonce">): string | undefined {
+  return message.authorId && message.clientNonce && !message.clientNonce.startsWith("srv:")
+    ? JSON.stringify([message.authorId, message.clientNonce]) : undefined
 }
 
-function compoundIdentity(
-  message: Pick<Msg, "authorId" | "clientNonce">,
-): string | undefined {
-  if (!message.authorId || !message.clientNonce || message.clientNonce.startsWith("srv:")) {
-    return undefined
-  }
-  return JSON.stringify([message.authorId, message.clientNonce])
-}
-
-function trimLiveDeltas(liveById: Map<string, CanonicalMessage>): void {
-  const overflow = liveById.size - MAX_LIVE_MESSAGE_DELTAS
+function trimLiveDeltas(liveIds: Set<string>, read: (id: string) => CanonicalMessage | undefined): void {
+  const overflow = liveIds.size - MAX_LIVE_MESSAGE_DELTAS
   if (overflow <= 0) return
-  const oldest = [...liveById.values()].sort(canonicalDeltaOrder).slice(0, overflow)
-  for (const message of oldest) liveById.delete(message.id)
+  const oldest = [...liveIds].sort((a, b) => (read(a)?.seq ?? 0) - (read(b)?.seq ?? 0)).slice(0, overflow)
+  for (const id of oldest) liveIds.delete(id)
 }
 
-function upsertLiveCanonical(
-  liveById: Map<string, CanonicalMessage>,
-  message: CanonicalMessage,
-): void {
+function upsertLiveCanonical(liveIds: Set<string>, message: CanonicalMessage, read: (id: string) => CanonicalMessage | undefined): void {
   const identity = compoundIdentity(message)
-  if (identity) {
-    for (const [id, current] of liveById) {
-      if (id !== message.id && compoundIdentity(current) === identity) liveById.delete(id)
-    }
+  if (identity) for (const id of liveIds) {
+    const current = read(id)
+    if (id !== message.id && current && compoundIdentity(current) === identity) liveIds.delete(id)
   }
-  liveById.set(message.id, deriveView({ ...message, failed: false }, [viewEvidence(message)]))
+  liveIds.add(message.id)
 }
 
-function mergeCanonicalAttachments(
-  current: Pick<Msg, "attachments">,
-  canonical: CanonicalMessage,
-): CanonicalMessage {
-  if (canonical.attachments !== undefined || !current.attachments?.length) {
-    return canonical
-  }
-  return deriveView({ ...canonical, attachments: current.attachments }, [viewEvidence(canonical), viewEvidence(current)])
-}
-
-function materializeIntent(intent: OutboxIntent): Msg {
+export function materializeIntent(intent: OutboxIntent): Msg {
   return deriveView({
     ...intent.message,
-    id: intent.serverMessageId ?? intent.tempId,
-    ...(intent.serverSeq !== undefined ? { seq: intent.serverSeq } : {}),
+    id: intent.tempId,
     clientNonce: intent.nonce,
     failed: intent.status === "failed" || intent.uploadStatus === "failed",
-  }, [sourceEvidence(intent, "local_mutation"), ...(intent.status === "acked" ? [viewEvidence(intent.message)] : [])])
+  }, [sourceEvidence(intent, "local_mutation")])
 }
 
 function localUploadAttachments(
   uploads: readonly LocalUploadInput[],
 ): Msg["attachments"] {
-  const attachments: NonNullable<Msg["attachments"]> = []
-  for (const upload of uploads) {
-    if (!upload.previewObjectUrl) continue
-    if (isInlineAttachmentContentType(upload.file.type)) {
-      attachments.push({
-        kind: "image",
-        name: upload.file.name,
-        url: upload.previewObjectUrl,
-        contentType: upload.file.type,
-        sizeBytes: upload.file.size,
-        width: upload.width,
-        height: upload.height,
-      })
-      continue
-    }
-    attachments.push({
-      kind: "file",
-      name: upload.file.name,
-      url: upload.previewObjectUrl,
-      contentType: upload.file.type,
-      sizeBytes: upload.file.size,
-      size: formatAttachmentSize(upload.file.size),
-    })
-  }
+  const attachments = uploads.flatMap((upload) => upload.previewObjectUrl ? [presentMessageAttachment({
+    name: upload.file.name, url: upload.previewObjectUrl, contentType: upload.file.type, sizeBytes: upload.file.size,
+    width: upload.width, height: upload.height,
+  })] : [])
   return attachments.length > 0 ? attachments : undefined
 }
 
@@ -211,18 +157,6 @@ function upsertMaterialized(
     idByIdentity.set(identity, message.id)
   }
   byId.set(message.id, entry)
-}
-
-function findMaterializedMatch(
-  byId: ReadonlyMap<string, MaterializedEntry>,
-  idByIdentity: ReadonlyMap<string, string>,
-  message: Msg,
-): MaterializedEntry | undefined {
-  const exact = byId.get(message.id)
-  if (exact) return exact
-  const identity = compoundIdentity(message)
-  const matchedId = identity ? idByIdentity.get(identity) : undefined
-  return matchedId ? byId.get(matchedId) : undefined
 }
 
 function materializedOrder(a: MaterializedEntry, b: MaterializedEntry): number {
@@ -245,36 +179,33 @@ function materializedOrder(a: MaterializedEntry, b: MaterializedEntry): number {
 
 export function materializeMessageStream(
   baseMessages: CanonicalMessage[],
-  overlay: MessageOverlayState,
+  overlay: MessageOverlayIds,
+  canonical: Pick<ReadonlyMap<string, CanonicalMessage>, "get">,
 ): Msg[] {
   const byId = new Map<string, MaterializedEntry>()
   const idByIdentity = new Map<string, string>()
 
-  // Later sources replace earlier presentation for the same id/nonce. An
-  // omitted attachment projection cannot erase richer presentation state.
   for (const intent of overlay.outboxByNonce.values()) {
     upsertMaterialized(byId, idByIdentity, {
       message: materializeIntent(intent),
-      localOrdinal: intent.status === "acked" ? undefined : intent.localOrdinal,
+      localOrdinal: intent.localOrdinal,
     })
   }
-  for (const message of overlay.liveById.values()) {
-    upsertMaterialized(byId, idByIdentity, { message })
+  for (const id of overlay.liveIds) {
+    const message = canonical.get(id)
+    if (message) upsertMaterialized(byId, idByIdentity, {
+      message: deriveView({ ...message, failed: false }, [viewEvidence(message)]),
+    })
   }
   for (const message of baseMessages) {
-    const current = findMaterializedMatch(byId, idByIdentity, message)
-    upsertMaterialized(byId, idByIdentity, {
-      message: current
-        ? mergeCanonicalAttachments(current.message, message)
-        : message,
-    })
+    upsertMaterialized(byId, idByIdentity, { message })
   }
 
   return [...byId.values()].sort(materializedOrder).map((entry) => entry.message)
 }
 
 export function getOutboxRetryPayload(
-  state: MessageOverlayState,
+  state: MessageOverlayIds,
   nonce: string,
 ): OutboxRetryPayload | undefined {
   const intent = state.outboxByNonce.get(nonce)
@@ -289,8 +220,9 @@ export function getOutboxRetryPayload(
 }
 
 export function reduceMessageOverlay(
-  state: MessageOverlayState,
-  event: MessageOverlayEvent,
+  state: MessageOverlayIds,
+  event: Exclude<MessageOverlayEvent, { type: "postAck" }>,
+  canonical: Pick<ReadonlyMap<string, CanonicalMessage>, "get"> = new Map(),
 ): MessageOverlayTransition {
   switch (event.type) {
     case "submit": {
@@ -335,32 +267,6 @@ export function reduceMessageOverlay(
         message: { ...intent.message, failed: true },
       }))
 
-    case "postAck": {
-      const intent = state.outboxByNonce.get(event.nonce)
-      if (!intent) return unchanged(state)
-      const outboxByNonce = new Map(state.outboxByNonce)
-      const canonical = event.message
-      outboxByNonce.set(event.nonce, {
-        ...intent,
-        status: "acked",
-        serverMessageId: canonical.id,
-        serverSeq: canonical.seq,
-        localUploads: [],
-        message: {
-          ...intent.message,
-          ...canonical,
-          clientNonce: event.nonce,
-          replyTo: canonical.replyTo ?? intent.message.replyTo,
-          attachments: canonical.attachments ?? intent.message.attachments,
-          failed: false,
-        },
-      })
-      return {
-        state: { ...state, outboxByNonce },
-        effects: revokeEffects(intent),
-      }
-    }
-
     case "postFail":
       return updateIntent(state, event.nonce, (intent) => ({
         ...intent,
@@ -388,7 +294,7 @@ export function reduceMessageOverlay(
       }))
 
     case "wsMessage": {
-      const liveById = new Map(state.liveById)
+      const liveIds = new Set(state.liveIds.filter((id) => canonical.get(id) !== undefined))
       const outboxByNonce = new Map(state.outboxByNonce)
       const effects: MessageOverlayEffect[] = []
       const eventIdentity = compoundIdentity(event.message)
@@ -399,81 +305,36 @@ export function reduceMessageOverlay(
           authorId: intent.message.authorId,
           clientNonce: intentNonce,
         })
-        const matchesIdentity = eventIdentity !== undefined && eventIdentity === intentIdentity
-        const matchesServerId = intent.serverMessageId === event.message.id
-        if (!matchesIdentity && !matchesServerId) continue
+        if (eventIdentity === undefined || eventIdentity !== intentIdentity) continue
         outboxByNonce.delete(intentNonce)
         effects.push(...revokeEffects(intent))
       }
 
-      // The complete enriched WS row is canonical presentation.
-      upsertLiveCanonical(liveById, event.message)
-      trimLiveDeltas(liveById)
-      return { state: { liveById, outboxByNonce }, effects }
-    }
-
-    case "liveRefreshed": {
-      let existingId: string | undefined
-      if (state.liveById.has(event.message.id)) {
-        existingId = event.message.id
-      } else {
-        const identity = compoundIdentity(event.message)
-        for (const [id, message] of state.liveById) {
-          if (identity && compoundIdentity(message) === identity) {
-            existingId = id
-            break
-          }
-        }
-      }
-      if (!existingId) return unchanged(state)
-      const liveById = new Map(state.liveById)
-      if (existingId !== event.message.id) liveById.delete(existingId)
-      upsertLiveCanonical(liveById, event.message)
-      trimLiveDeltas(liveById)
-      return { state: { ...state, liveById }, effects: [] }
-    }
-
-    case "messageEdited": {
-      let changed = false
-      const liveById = new Map(state.liveById)
-      const live = liveById.get(event.messageId)
-      if (live) {
-        const edited = { ...live, content: event.content }
-        liveById.set(event.messageId, deriveView(edited, [viewEvidence(live), sourceEvidence(edited, "local_mutation")]))
-        changed = true
-      }
-      const outboxByNonce = new Map(state.outboxByNonce)
-      for (const [nonce, intent] of outboxByNonce) {
-        if ((intent.serverMessageId ?? intent.tempId) !== event.messageId) continue
-        outboxByNonce.set(nonce, {
-          ...intent,
-          message: { ...intent.message, content: event.content },
-        })
-        changed = true
-      }
-      return changed
-        ? { state: { ...state, liveById, outboxByNonce }, effects: [] }
-        : unchanged(state)
+      const read = (id: string) => id === event.message.id ? event.message : canonical.get(id)
+      upsertLiveCanonical(liveIds, event.message, read)
+      trimLiveDeltas(liveIds, read)
+      return { state: { liveIds: [...liveIds], outboxByNonce }, effects }
     }
 
     case "messageRemoved": {
-      let changed = false
-      const liveById = new Map(state.liveById)
-      if (liveById.delete(event.messageId)) changed = true
+      const liveIds = new Set(state.liveIds.filter((id) => canonical.get(id) !== undefined))
+      let changed = liveIds.size !== state.liveIds.length
+      if (liveIds.delete(event.messageId)) changed = true
       const outboxByNonce = new Map(state.outboxByNonce)
       const effects: MessageOverlayEffect[] = []
       for (const [nonce, intent] of outboxByNonce) {
-        if ((intent.serverMessageId ?? intent.tempId) !== event.messageId) continue
+        if (intent.tempId !== event.messageId) continue
         outboxByNonce.delete(nonce)
         effects.push(...revokeEffects(intent))
         changed = true
       }
       return changed
-        ? { state: { liveById, outboxByNonce }, effects }
+        ? { state: { liveIds: [...liveIds], outboxByNonce }, effects }
         : unchanged(state)
     }
 
     case "baseChanged": {
+      if (!state.liveIds.length && !state.outboxByNonce.size) return unchanged(state)
       const baseById = new Map(event.messages.map((message) => [message.id, message]))
       const baseByIdentity = new Map(
         event.messages.flatMap((message) => {
@@ -481,46 +342,35 @@ export function reduceMessageOverlay(
           return identity ? [[identity, message] as const] : []
         }),
       )
-      const liveById = new Map(state.liveById)
+      const liveIds = new Set(state.liveIds.filter((id) => canonical.get(id) !== undefined))
       const outboxByNonce = new Map(state.outboxByNonce)
       const effects: MessageOverlayEffect[] = []
 
-      for (const message of state.liveById.values()) {
-        const identity = compoundIdentity(message)
-        const canonical = baseById.get(message.id)
-          ?? (identity ? baseByIdentity.get(identity) : undefined)
-        if (canonical) {
-          upsertLiveCanonical(liveById, mergeCanonicalAttachments(message, canonical))
-        }
+      const read = (id: string) => baseById.get(id) ?? canonical.get(id)
+      for (const id of state.liveIds) {
+        const message = canonical.get(id)
+        const identity = message && compoundIdentity(message)
+        const replacement = baseById.get(id) ?? (identity ? baseByIdentity.get(identity) : undefined)
+        if (replacement) upsertLiveCanonical(liveIds, replacement, read)
       }
       for (const [nonce, intent] of outboxByNonce) {
-        const canonicalById = intent.serverMessageId
-          ? baseById.get(intent.serverMessageId)
-          : undefined
         const identity = compoundIdentity({
           authorId: intent.message.authorId,
           clientNonce: nonce,
         })
-        const canonical = canonicalById?.authorId === intent.message.authorId
-          ? canonicalById
-          : identity
-            ? baseByIdentity.get(identity)
-            : undefined
+        const canonical = identity ? baseByIdentity.get(identity) : undefined
         if (!canonical) continue
         outboxByNonce.delete(nonce)
-        upsertLiveCanonical(
-          liveById,
-          mergeCanonicalAttachments(intent.message, canonical),
-        )
+        upsertLiveCanonical(liveIds, canonical, read)
         effects.push(...revokeEffects(intent))
       }
-      trimLiveDeltas(liveById)
+      trimLiveDeltas(liveIds, read)
 
       // `latestSeq` is deliberately not a deletion predicate: an anchor page
       // can report a high stream seq while omitting this visible tail row. A
       // base hit refreshes the bounded fallback but does not delete it, because
       // a later window may omit the row again.
-      return { state: { liveById, outboxByNonce }, effects }
+      return { state: { liveIds: [...liveIds], outboxByNonce }, effects }
     }
 
     case "dismissFailed": {

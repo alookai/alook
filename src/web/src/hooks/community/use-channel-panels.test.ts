@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { type QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
-import { getCanonicalCommunityMessages, getCanonicalCommunityChannels } from "@/lib/community-db/sync"
+import { getCanonicalCommunityMessages, getCanonicalCommunityChannels, ingestMessages } from "@/lib/community-db/sync"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { channelSchema } from "@/lib/community-db/schema"
 import { materializeThreadsResponse, type ThreadsResponse } from "./use-channel-panels"
 
@@ -30,7 +31,7 @@ describe("useThreads / threadsQueryFn", () => {
       .mockResolvedValueOnce({ participants: [] })
     const { threadsQueryFn } = await import("./use-channel-panels")
     const data = await threadsQueryFn("ch_1", qc)()
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/ch_1/threads", expect.objectContaining({ authenticationAccount: "viewer", signal: undefined }))
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/ch_1/threads?include=parentMessage,firstMessage,tags,participants", expect.objectContaining({ authenticationAccount: "viewer", signal: undefined }))
     expect(apiFetchMock).not.toHaveBeenCalledWith("/api/community/channels/ch_1/posts")
     expect(data.threads).toHaveLength(1)
     expect(project(data)[0]?.parent.text).toBe("identityless preview")
@@ -78,7 +79,7 @@ describe("useThreads / threadsQueryFn", () => {
     apiFetchMock.mockImplementation((url: string, init: RequestInit = {}) => {
       const requestSignal = init.signal as AbortSignal
       signals.push(requestSignal)
-      if (url.endsWith("/threads")) return Promise.resolve({ serverId: "s1", parentType: "forum", threads: [] })
+      if (new URL(url, "http://localhost").pathname.endsWith("/threads")) return Promise.resolve({ serverId: "s1", parentType: "forum", threads: [] })
       return new Promise((_resolve, reject) => {
         requestSignal.addEventListener("abort", () => reject(new Error("aborted")))
       })
@@ -95,6 +96,22 @@ describe("useThreads / threadsQueryFn", () => {
 })
 
 describe("usePins / pinsQueryFn", () => {
+  it("keeps known message fields absent from a pin summary", async () => {
+    const rich = { id: "m_1", type: "system" as const, systemKind: "thread" as const,
+      authorId: "u1", content: "full", clientNonce: "known-nonce",
+      replyTo: { id: "reply", authorName: "Peer", text: "Prior" },
+      attachments: [{ kind: "file" as const, name: "known.txt", url: "/known", size: "1 KB" }],
+      embeds: [{ title: "Known" }], reactions: [{ emoji: "👍", count: 1 }],
+    }
+    ingestMessages(getCommunityDbRegistry(qc)!, "ch_1", [rich])
+    apiFetchMock.mockResolvedValueOnce({ pins: [{ id: rich.id, authorId: rich.authorId,
+      authorName: "Peer", content: "summary", seq: 1, createdAt: "now" }] })
+    const { pinsQueryFn } = await import("./use-channel-panels")
+    await pinsQueryFn("ch_1", qc)()
+    expect(getCommunityDbRegistry(qc)!.collections.messages.get(rich.id)).toMatchObject({
+      ...rich, content: "summary", replyToId: "reply",
+    })
+  })
   it("fetches from /channels/:id/pins and returns { pins }", async () => {
     apiFetchMock.mockResolvedValueOnce({ pins: [{ id: "m_1", type: "chat", channelId: "ch_1", authorId: "u1", content: "pin" }] })
     const { pinsQueryFn } = await import("./use-channel-panels")
@@ -113,6 +130,25 @@ describe("usePins / pinsQueryFn", () => {
 })
 
 describe("materializeThreadsResponse", () => {
+  it("retains panel preview limits, created-time fallback and optional opener fields", () => {
+    const preview = "preview".repeat(30), content = "content".repeat(30)
+    const base = { type: "thread", position: 0, archived: false, muted: false, unread: false, pending: false, tags: [] }
+    const channels = new Map([
+      ["post", channelSchema.parse({ ...base, id: "post", name: "Fallback", createdAt: "created", preview, parentMessageId: "opener" })],
+      ["empty", channelSchema.parse({ ...base, id: "empty", name: "", preview, createdAt: "created" })],
+      ["archived", channelSchema.parse({ ...base, id: "archived", name: "Archived", archived: true })],
+    ])
+    const data = { parentType: "forum", serverId: "s1", parentChannelId: "forum", threads: [{ id: "post", openerMessageId: "opener" }, { id: "empty" }, { id: "archived" }] }
+    const messages = new Map([["opener", { id: "opener", type: "chat" as const, content: "   ", authorId: "u1", authorName: "A", seq: 0 }]])
+    const forum = materializeThreadsResponse(data, messages, channels)
+    expect(forum).toHaveLength(2)
+    expect(forum[0]).toEqual({ id: "post", name: "Fallback", messageCount: 0, lastMessageAt: "created", parent: { authorId: "u1", authorName: "A", text: preview.slice(0, 100) }, parentSeq: 0, openerMessageId: "opener" })
+    expect(forum[1]).toMatchObject({ name: "Post", lastMessageAt: "created", parent: { authorName: "", text: preview.slice(0, 100) } })
+    expect(forum[1]).not.toHaveProperty("parentSeq")
+    expect(forum[1]).not.toHaveProperty("openerMessageId")
+    messages.set("opener", { ...messages.get("opener")!, content })
+    expect(materializeThreadsResponse({ ...data, parentType: "text" }, messages, channels)[0]).toMatchObject({ name: "Fallback", parent: { text: content.slice(0, 100) } })
+  })
   it("filters missing openers and projects forum and text content from canonical rows", async () => {
     const { materializeThreadsResponse } = await import("./use-channel-panels")
     const base = {

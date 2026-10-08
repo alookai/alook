@@ -17,12 +17,13 @@ export function useCommunityViewSource(identity: string, enabled = true) {
     const capture = () => {
       const token = origin.begin().token
       const generation = view.get().generation
-      const assert = () => {
-        origin.assert(token)
+      const assertOwner = () => {
+        origin.assertOwner(token)
         const state = view.get()
         if (!state.active || state.generation !== generation) throw new DOMException("Retired community view", "AbortError")
       }
-      return Object.assign(assert, { signal: view.get().controller.signal })
+      const assert = () => { origin.assert(token); assertOwner() }
+      return Object.assign(assert, { signal: view.get().controller.signal, assertOwner })
     }
     const retire = () => {
       const controller = view.get().controller

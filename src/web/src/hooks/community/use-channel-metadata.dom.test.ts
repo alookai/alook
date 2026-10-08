@@ -2,13 +2,13 @@ import React from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
+import { getLastChannel, setLastChannel } from "@/lib/community/last-channel"
 import { communityKeys } from "@/lib/query-keys"
 import { createCommunityDbRegistry, registerCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityDbProvider, useDmProjection } from "@/lib/community-db/projections"
-import { captureCommunityLiveSnapshotToken, ingestDms, publishCommunityLiveSnapshot } from "@/lib/community-db/sync"
+import { applyCommunityDmBlockAccess, assertCommunityLiveSnapshotTokenCurrent, publishCommunityMessages, captureCommunityLiveSnapshotToken, ingestDms, publishCommunityLiveSnapshot } from "@/lib/community-db/sync"
 import { channelMetadataOptions, captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "./channel-metadata"
 import { useChannelMetadata } from "./use-channel-metadata"
-import { useDmRouteVerification } from "./use-dm-route-verification"
 import { useDmReadStateSnapshot } from "./use-dm-read-state"
 import { startConversationNavigationWarmup } from "@/lib/community/conversation-navigation-warmup"
 
@@ -42,6 +42,11 @@ function publishDms(registry: CommunityDbRegistry) {
   publishCommunityLiveSnapshot(registry.queryClient, { snapshot: { kind: "dms", data: dms },
     proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(registry.queryClient), signal: undefined } })
 }
+async function qualifyMetadata(client: QueryClient, value = metadata) {
+  apiFetch.mockResolvedValue(value)
+  await client.query({ ...channelMetadataOptions(client, value.serverId, value.id), staleTime: 0 })
+  apiFetch.mockReset()
+}
 beforeEach(() => {
   apiFetch.mockReset()
 })
@@ -53,6 +58,49 @@ afterEach(async () => {
 })
 
 describe("shared Channel resource and canonical DM publication", () => {
+  it("retires a verified DM on block and waits for fresh metadata after unblock", async () => {
+    const { client, registry, wrapper } = await fixture()
+    publishDms(registry)
+    await qualifyMetadata(client)
+    const route = renderHook(() => useChannelMetadata(null, metadata.id), { wrapper })
+    expect(route.result.current.isVerified).toBe(true)
+    const original = route.result.current.data!.identityProof!
+    act(() => applyCommunityDmBlockAccess(registry, "peer", true))
+    expect(route.result.current.isVerified).toBe(false)
+    expect(isChannelMetadataTokenCurrent(original)).toBe(false)
+    expect(registry.collections.channels.has(metadata.id)).toBe(true)
+    const detail = deferred<typeof metadata>()
+    apiFetch.mockReturnValue(detail.promise)
+    act(() => applyCommunityDmBlockAccess(registry, "peer", false))
+    expect(route.result.current.isVerified).toBe(false)
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
+    await act(async () => detail.resolve(metadata))
+    await waitFor(() => expect(route.result.current.isVerified).toBe(true))
+    expect(isChannelMetadataTokenCurrent(route.result.current.data!.identityProof!)).toBe(true)
+    route.unmount()
+  })
+  it("retires only the blocked DM while a sibling stays readable and rejects old target and bulk writes", async () => {
+    const { client, registry, wrapper } = await fixture()
+    ingestDms(registry, { conversations: [...dms.conversations, { ...dms.conversations[0], id: "dm-b", userId: "other-peer" }] })
+    await qualifyMetadata(client)
+    await qualifyMetadata(client, { ...metadata, id: "dm-b" })
+    const target = captureChannelMetadataToken(client, metadata.id)
+    const sibling = captureChannelMetadataToken(client, "dm-b")
+    const bulk = captureCommunityLiveSnapshotToken(client)
+    const beforeEpoch = registry.runtime.ws.get().accessEpoch
+    const route = renderHook(() => ({ first: useChannelMetadata(null, metadata.id), second: useChannelMetadata(null, "dm-b") }), { wrapper })
+    await waitFor(() => expect(route.result.current.second.canRead).toBe(true))
+    act(() => applyCommunityDmBlockAccess(registry, "peer", true))
+    expect(route.result.current.first).toMatchObject({ identityKnown: true, canRead: false, status: "denied" })
+    expect(route.result.current.second).toMatchObject({ identityKnown: true, canRead: true, status: "readable" })
+    expect(registry.runtime.ws.get().accessEpoch).toBe(beforeEpoch)
+    expect(isChannelMetadataTokenCurrent(sibling)).toBe(true)
+    expect(() => publishCommunityMessages(client, { channelId: metadata.id, messages: [], proof: { token: target } })).toThrow(expect.objectContaining({ name: "AbortError" }))
+    expect(() => assertCommunityLiveSnapshotTokenCurrent(client, bulk, undefined)).toThrow(expect.objectContaining({ name: "AbortError" }))
+    expect(apiFetch).not.toHaveBeenCalled()
+    route.unmount()
+  })
+
   it("leaves an absent target disabled without starting a metadata request", async () => {
     const { client, wrapper } = await fixture()
     const route = renderHook(() => useChannelMetadata(null, undefined), { wrapper })
@@ -64,8 +112,9 @@ describe("shared Channel resource and canonical DM publication", () => {
   })
 
   it("invalidates expired qualification and waits for a current metadata receipt", async () => {
-    const { registry, wrapper } = await fixture()
+    const { client, registry, wrapper } = await fixture()
     publishDms(registry)
+    await qualifyMetadata(client)
     const request = deferred<typeof metadata>()
     apiFetch.mockReturnValue(request.promise)
     const route = renderHook(() => useChannelMetadata(null, metadata.id), { wrapper })
@@ -76,7 +125,7 @@ describe("shared Channel resource and canonical DM publication", () => {
     await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
     await act(async () => request.resolve(metadata))
     await waitFor(() => expect(route.result.current.isVerified).toBe(true))
-    expect(isChannelMetadataTokenCurrent(route.result.current.data!.verification!)).toBe(true)
+    expect(isChannelMetadataTokenCurrent(route.result.current.data!.identityProof!)).toBe(true)
     route.unmount()
   })
 
@@ -85,23 +134,28 @@ describe("shared Channel resource and canonical DM publication", () => {
     ingestDms(registry, dms)
     apiFetch.mockResolvedValue(metadata)
     await client.query(channelMetadataOptions(client, null, metadata.id))
-    const route = renderHook(() => ({ route: useDmRouteVerification(metadata.id), peers: useDmProjection() }), { wrapper })
-    await waitFor(() => expect(route.result.current.route.status).toBe("present"))
+    const route = renderHook(() => ({ route: useChannelMetadata(null, metadata.id), peers: useDmProjection() }), { wrapper })
+    await waitFor(() => expect(route.result.current.route.status).toBe("readable"))
     await waitFor(() => expect(route.result.current.peers?.[0]).toMatchObject({ id: metadata.id, name: "Peer", preview: "canonical preview" }))
     expect(registry.collections.channels.get(metadata.id)).toMatchObject({ name: "", serverId: null, type: "dm" })
-    expect(registry.runtime.ws.get().channelAccessScopes.size).toBe(0)
+    expect(registry.runtime.ws.get().channelAccessScopes.get(metadata.id)).toMatchObject({ serverId: null, generation: 0, revoked: false })
     expect(registry.runtime.ws.get().revokedServerIds.size).toBe(0)
     expect(apiFetch).toHaveBeenCalledOnce()
     route.unmount()
   })
 
-  it("reuses current live canonical qualification through the same Channel Query without another GET", async () => {
+  it("uses a list receipt for identity and starts the protected GET for reading", async () => {
     const { registry, wrapper } = await fixture()
     publishDms(registry)
+    const detail = deferred<typeof metadata>()
+    apiFetch.mockReturnValue(detail.promise)
     const route = renderHook(() => useChannelMetadata(null, metadata.id), { wrapper })
-    expect(route.result.current.isVerified).toBe(true)
-    expect(route.result.current.data?.historyVerification).toBeUndefined()
-    expect(apiFetch).not.toHaveBeenCalled()
+    expect(route.result.current.identityKnown).toBe(true)
+    expect(route.result.current.canRead).toBe(false)
+    expect(route.result.current.data?.readProof).toBeUndefined()
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
+    await act(async () => detail.resolve(metadata))
+    await waitFor(() => expect(route.result.current.canRead).toBe(true))
     route.unmount()
   })
 
@@ -116,17 +170,34 @@ describe("shared Channel resource and canonical DM publication", () => {
     const { wrapper } = await fixture(restored)
     const request = deferred<typeof metadata>()
     apiFetch.mockReturnValue(request.promise)
-    const route = renderHook(() => useDmRouteVerification(metadata.id), { wrapper })
+    const route = renderHook(() => useChannelMetadata(null, metadata.id), { wrapper })
     expect(route.result.current.status).toBe("pending")
     await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
     await act(async () => request.resolve(metadata))
-    await waitFor(() => expect(route.result.current.status).toBe("present"))
+    await waitFor(() => expect(route.result.current.status).toBe("readable"))
     route.unmount()
   })
 })
 
 describe("DM history permission stays separate from metadata identity", () => {
-  it("keeps an early warm-read receipt unverified and stale until the mounted metadata request succeeds", async () => {
+  it("qualifies V2 reading from metadata while the position snapshot remains pending", async () => {
+    const { client, registry, wrapper } = await fixture()
+    ingestDms(registry, dms)
+    const pending = deferred<typeof readState>()
+    apiFetch.mockImplementation((path: string) => path.endsWith("/read-state") ? pending.promise
+      : { ...metadata, readContractVersion: 2, accessDecision: { channelId: metadata.id, canRead: true, canSend: true, canCreateDiscussion: false } })
+    const route = renderHook(() => ({ metadata: useChannelMetadata(null, metadata.id), read: useDmReadStateSnapshot(metadata.id) }), { wrapper })
+    await waitFor(() => expect(route.result.current.metadata.data?.readProof).toBeDefined())
+    expect(route.result.current.metadata.isVerified).toBe(true)
+    expect(isChannelMetadataTokenCurrent(route.result.current.metadata.data!.readProof!)).toBe(true)
+    expect(route.result.current.read).toMatchObject({ snapshot: null, isFetching: true })
+    expect(client.getQueryData(metadataKey)).toHaveProperty("readProof")
+    await act(async () => pending.resolve(readState))
+    await waitFor(() => expect(route.result.current.read.snapshot).toEqual(readState))
+    route.unmount()
+  })
+
+  it("keeps an early protected read receipt on the same resource while metadata is pending", async () => {
     const { client, registry, wrapper } = await fixture()
     ingestDms(registry, dms)
     const detail = deferred<typeof metadata>()
@@ -136,16 +207,16 @@ describe("DM history permission stays separate from metadata identity", () => {
     act(() => { startConversationNavigationWarmup(client, {
       href: `/c/me/${metadata.id}`, viewerId: "viewer", channelId: metadata.id, scopeKind: "dm",
     }, registry.runtime.ws.get().accessEpoch) })
-    await waitFor(() => expect(client.getQueryData<{ historyVerification?: unknown }>(metadataKey)?.historyVerification).toBeDefined())
-    expect(client.getQueryData<{ verification?: unknown }>(metadataKey)?.verification).toBeUndefined()
+    await waitFor(() => expect(client.getQueryData<{ readProof?: unknown }>(metadataKey)?.readProof).toBeDefined())
+    expect(client.getQueryData<{ identityProof?: unknown }>(metadataKey)?.identityProof).toBeUndefined()
     expect(client.getQueryState(metadataKey)?.isInvalidated).toBe(true)
     const originalResource = client.getQueryCache().find({ queryKey: metadataKey, exact: true })
     const route = renderHook(() => useChannelMetadata(null, metadata.id), { wrapper })
-    expect(route.result.current.isVerified).toBe(false)
+    expect(route.result.current.canRead).toBe(true)
     await waitFor(() => expect(apiFetch.mock.calls.filter(([path]) => path === `/api/community/channels/${metadata.id}`)).toHaveLength(1))
     await act(async () => detail.resolve(metadata))
     await waitFor(() => expect(route.result.current.isVerified).toBe(true))
-    expect(isChannelMetadataTokenCurrent(route.result.current.data!.historyVerification!)).toBe(true)
+    expect(isChannelMetadataTokenCurrent(route.result.current.data!.readProof!)).toBe(true)
     expect(client.getQueryCache().find({ queryKey: metadataKey, exact: true })).toBe(originalResource)
     expect(apiFetch.mock.calls.filter(([path]) => path.endsWith("/read-state"))).toHaveLength(1)
     route.unmount()
@@ -171,11 +242,11 @@ describe("DM history permission stays separate from metadata identity", () => {
     const originalResource = client.getQueryCache().find({ queryKey: metadataKey, exact: true })
     await act(async () => read.resolve(readState))
     await waitFor(() => expect(route.result.current.read.snapshot).toEqual(readState))
-    expect(route.result.current.metadata.isVerified).toBe(false)
-    expect(client.getQueryData<{ historyVerification?: unknown }>(metadataKey)?.historyVerification).toBeDefined()
+    expect(route.result.current.metadata.canRead).toBe(true)
+    expect(client.getQueryData<{ readProof?: unknown }>(metadataKey)?.readProof).toBeDefined()
     await act(async () => detail.resolve(metadata))
     await waitFor(() => expect(route.result.current.metadata.isVerified).toBe(true))
-    expect(isChannelMetadataTokenCurrent(route.result.current.metadata.data!.historyVerification!)).toBe(true)
+    expect(isChannelMetadataTokenCurrent(route.result.current.metadata.data!.readProof!)).toBe(true)
     expect(client.getQueryCache().find({ queryKey: metadataKey, exact: true })).toBe(originalResource)
     expect(apiFetch.mock.calls.filter(([path]) => path.endsWith("/read-state"))).toHaveLength(1)
     expect(apiFetch.mock.calls.filter(([path]) => path === `/api/community/channels/${metadata.id}`)).toHaveLength(1)
@@ -188,18 +259,18 @@ describe("DM history permission stays separate from metadata identity", () => {
     const request = deferred<typeof readState>()
     apiFetch.mockImplementation((path: string) => path.endsWith("/messages")
       ? Promise.resolve({ messages: [], hasMore: false, surfaceReceipt: { channelId: metadata.id, surfaceKind: "dm" } })
-      : request.promise)
+      : path.endsWith("/read-state") ? request.promise : new Promise(() => {}))
     act(() => { startConversationNavigationWarmup(client, {
       href: `/c/me/${metadata.id}`, viewerId: "viewer", channelId: metadata.id, scopeKind: "dm",
     }, registry.runtime.ws.get().accessEpoch) })
     await waitFor(() => expect(apiFetch.mock.calls.filter(([path]) => path.endsWith("/read-state"))).toHaveLength(1))
     const route = renderHook(() => ({ metadata: useChannelMetadata(null, metadata.id), read: useDmReadStateSnapshot(metadata.id) }), { wrapper })
-    expect(route.result.current.metadata.isVerified).toBe(true)
-    expect(route.result.current.metadata.data?.historyVerification).toBeUndefined()
+    expect(route.result.current.metadata.canRead).toBe(false)
+    expect(route.result.current.metadata.data?.readProof).toBeUndefined()
     await act(async () => request.resolve(readState))
     await waitFor(() => expect(route.result.current.read.snapshot).toEqual(readState))
-    expect(route.result.current.metadata.data?.historyVerification).toBeDefined()
-    expect(isChannelMetadataTokenCurrent(route.result.current.metadata.data!.historyVerification!)).toBe(true)
+    expect(route.result.current.metadata.data?.readProof).toBeDefined()
+    expect(isChannelMetadataTokenCurrent(route.result.current.metadata.data!.readProof!)).toBe(true)
     expect(apiFetch.mock.calls.filter(([path]) => path.endsWith("/read-state"))).toHaveLength(1)
     route.unmount()
   })
@@ -215,7 +286,7 @@ describe("DM history permission stays separate from metadata identity", () => {
     }
     const request = deferred<typeof readState>()
     if (order === "published" && race.startsWith("denial")) {
-      client.setQueryData(metadataKey, (previous: object | undefined) => ({ ...previous, historyVerification: captureChannelMetadataToken(client, metadata.id) }))
+      client.setQueryData(metadataKey, (previous: object | undefined) => ({ ...previous, readProof: captureChannelMetadataToken(client, metadata.id) }))
     }
     apiFetch.mockImplementation((path: string) => path.endsWith("/messages")
       ? Promise.resolve({ messages: [], hasMore: false, surfaceReceipt: { channelId: metadata.id, surfaceKind: "dm" } })
@@ -243,28 +314,28 @@ describe("DM history permission stays separate from metadata identity", () => {
     if (race === "replacement") await waitFor(() => expect(route.result.current.snapshot).toEqual(readState))
     else await waitFor(() => expect(route.result.current.error).toMatchObject(race.startsWith("denial")
       ? { status: Number(race.slice(6)) } : { name: "AbortError" }))
-    expect(client.getQueryData<{ historyVerification?: unknown }>(metadataKey)?.historyVerification).toBeUndefined()
+    expect(client.getQueryData<{ readProof?: unknown }>(metadataKey)?.readProof).toBeUndefined()
     expect(apiFetch.mock.calls.filter(([path]) => path.endsWith("/read-state"))).toHaveLength(1)
     route.unmount()
   })
 
-  it("keeps a transient read error local and grants history after explicit Retry succeeds", async () => {
-    const { registry, wrapper } = await fixture(new QueryClient({
+  it("keeps a transient position error local and retries that request without losing reading", async () => {
+    const { client, registry, wrapper } = await fixture(new QueryClient({
       defaultOptions: { queries: { retryDelay: 0, gcTime: Infinity } },
     }))
     publishDms(registry)
+    await qualifyMetadata(client)
     apiFetch.mockRejectedValue(new Error("offline"))
     const route = renderHook(() => ({ metadata: useChannelMetadata(null, metadata.id), read: useDmReadStateSnapshot(metadata.id) }), { wrapper })
     await waitFor(() => expect(route.result.current.read.error?.message).toBe("offline"))
-    expect(apiFetch).toHaveBeenCalledTimes(2)
-    expect(route.result.current.metadata.isVerified).toBe(true)
-    expect(route.result.current.metadata.data?.historyVerification).toBeUndefined()
+    expect(apiFetch.mock.calls.filter(([path]) => path.endsWith("/read-state"))).toHaveLength(2)
+    expect(route.result.current.metadata.canRead).toBe(true)
     apiFetch.mockResolvedValue(readState)
     act(() => route.result.current.read.retry())
     await waitFor(() => expect(route.result.current.read.snapshot).toEqual(readState))
     expect(route.result.current.read.error).toBeNull()
-    expect(isChannelMetadataTokenCurrent(route.result.current.metadata.data!.historyVerification!)).toBe(true)
-    expect(apiFetch).toHaveBeenCalledTimes(3)
+    expect(isChannelMetadataTokenCurrent(route.result.current.metadata.data!.readProof!)).toBe(true)
+    expect(apiFetch.mock.calls.filter(([path]) => path.endsWith("/read-state"))).toHaveLength(3)
     route.unmount()
   })
 
@@ -272,14 +343,15 @@ describe("DM history permission stays separate from metadata identity", () => {
     const { client, registry, wrapper } = await fixture()
     publishDms(registry)
     const request = deferred<typeof readState>()
-    apiFetch.mockReturnValue(request.promise)
+    apiFetch.mockImplementation((path: string) => path.endsWith("/read-state") ? request.promise : new Promise(() => {}))
     const route = renderHook(() => ({ metadata: useChannelMetadata(null, metadata.id), read: useDmReadStateSnapshot(metadata.id) }), { wrapper })
-    expect(route.result.current.metadata.isVerified).toBe(true)
-    expect(route.result.current.metadata.data?.historyVerification).toBeUndefined()
-    await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
+    expect(route.result.current.metadata.identityKnown).toBe(true)
+    expect(route.result.current.metadata.canRead).toBe(false)
+    expect(route.result.current.metadata.data?.readProof).toBeUndefined()
+    await waitFor(() => expect(apiFetch.mock.calls.filter(([path]) => path.endsWith("/read-state"))).toHaveLength(1))
     await act(async () => request.resolve(readState))
-    await waitFor(() => expect(route.result.current.metadata.data?.historyVerification).toBeDefined())
-    expect(isChannelMetadataTokenCurrent(route.result.current.metadata.data!.historyVerification!)).toBe(true)
+    await waitFor(() => expect(route.result.current.metadata.data?.readProof).toBeDefined())
+    expect(isChannelMetadataTokenCurrent(route.result.current.metadata.data!.readProof!)).toBe(true)
     expect(apiFetch).toHaveBeenCalledWith(`/api/community/channels/${metadata.id}/read-state`, expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
     expect(client.getQueryData(metadataKey)).toMatchObject({ id: metadata.id })
     expect(client.getQueryData(metadataKey)).not.toHaveProperty("type")
@@ -289,12 +361,13 @@ describe("DM history permission stays separate from metadata identity", () => {
   it("removes a prior history receipt after an explicit read denial without retrying it", async () => {
     const { client, registry, wrapper } = await fixture()
     publishDms(registry)
-    client.setQueryData(metadataKey, (previous: object | undefined) => ({ ...previous, historyVerification: captureChannelMetadataToken(client, metadata.id) }))
+    client.setQueryData(metadataKey, (previous: object | undefined) => ({ ...previous, readProof: captureChannelMetadataToken(client, metadata.id) }))
     apiFetch.mockRejectedValue(Object.assign(new Error("blocked"), { status: 403 }))
     const route = renderHook(() => ({ metadata: useChannelMetadata(null, metadata.id), read: useDmReadStateSnapshot(metadata.id) }), { wrapper })
     await waitFor(() => expect(route.result.current.read.error).toMatchObject({ status: 403 }))
-    expect(route.result.current.metadata.isVerified).toBe(true)
-    expect(route.result.current.metadata.data?.historyVerification).toBeUndefined()
+    expect(route.result.current.metadata.identityKnown).toBe(true)
+    expect(route.result.current.metadata.status).toBe("denied")
+    expect(route.result.current.metadata.data?.readProof).toBeUndefined()
     expect(apiFetch).toHaveBeenCalledOnce()
     route.unmount()
   })
@@ -315,7 +388,7 @@ describe("DM history permission stays separate from metadata identity", () => {
     await act(async () => request.resolve(readState))
     if (race === "account") await waitFor(() => expect(route.result.current.error?.name).toBe("AbortError"))
     else await waitFor(() => expect(route.result.current.snapshot).toEqual(readState))
-    expect(client.getQueryData<{ historyVerification?: unknown }>(metadataKey)?.historyVerification).toBeUndefined()
+    expect(client.getQueryData<{ readProof?: unknown }>(metadataKey)?.readProof).toBeUndefined()
     route.unmount()
   })
 })
@@ -338,4 +411,18 @@ describe("restored forum archive ambiguity", () => {
     expect(registry.collections.channels.get(post.id)).toMatchObject({ archived: false, tags: ["archived"] })
     route.unmount()
   })
+})
+
+it("retires a protected archived channel and clears its exact flat navigation memory", async () => {
+  const { client, registry, wrapper } = await fixture()
+  const post = { ...metadata, id: "post-archived", serverId: "server-1", type: "thread", name: "Post", parentChannelId: "forum-1", parentMessageId: "opener-archived", archived: true }
+  setLastChannel("server-1", post.id)
+  apiFetch.mockResolvedValue(post)
+  const route = renderHook(() => useChannelMetadata("server-1", post.id), { wrapper })
+  await waitFor(() => expect(route.result.current.denied).toBe(true))
+  expect(getLastChannel("server-1")).toBeNull()
+  expect(registry.collections.channels.get(post.id)).toBeUndefined()
+  expect(registry.runtime.ws.actions.isChannelAccessRevoked(post.id, "server-1")).toBe(true)
+  expect(client.getQueryData(communityKeys.channelMeta("server-1", post.id))).toMatchObject({ id: post.id })
+  route.unmount()
 })

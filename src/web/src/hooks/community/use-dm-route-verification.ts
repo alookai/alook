@@ -1,21 +1,13 @@
 "use client"
 
 import { QueryObserver, type QueryClient } from "@tanstack/react-query"
-import { useCallback } from "react"
 import { channelMetadataOptions, captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "./channel-metadata"
-import { useChannelMetadata } from "./use-channel-metadata"
 import {
   assertCommunityLiveSnapshotTokenCurrent,
   captureCommunityLiveSnapshotToken,
 } from "@/lib/community-db/sync"
 
 export type DmRouteVerification = "present" | "missing" | "denied"
-type DmRouteVerificationStatus = "idle" | "pending" | "present" | "missing" | "error"
-export type DmRouteVerificationResult = {
-  status: DmRouteVerificationStatus
-  retry: () => void
-  retrying: boolean
-}
 
 function classifyDmRouteAuthorityError(error: unknown): "denied" | "error" {
   const status = typeof error === "object" && error !== null && "status" in error
@@ -41,16 +33,16 @@ export async function startDmRouteVerification(
   const options = verificationOptions(queryClient, dmId)
   const owner = new QueryObserver(queryClient, { ...options, enabled: false })
   const release = owner.subscribe(() => {})
-  const token = captureCommunityLiveSnapshotToken(queryClient)
+  const token = captureCommunityLiveSnapshotToken(queryClient, dmId)
   try {
-    const cached = queryClient.getQueryData<{ verification?: ReturnType<typeof captureChannelMetadataToken> }>(options.queryKey)
-    await queryClient.query({ ...options,
-      staleTime: cached?.verification && isChannelMetadataTokenCurrent(cached.verification) ? Infinity : 0, select: undefined })
-    return "present"
+    const cached = queryClient.getQueryData<{ readProof?: ReturnType<typeof captureChannelMetadataToken> }>(options.queryKey)
+    const resource = await queryClient.query({ ...options,
+      staleTime: cached?.readProof && isChannelMetadataTokenCurrent(cached.readProof) ? Infinity : 0, select: undefined })
+    return resource.readProof && isChannelMetadataTokenCurrent(resource.readProof) ? "present" : "denied"
   } catch (error) {
     if (classifyDmRouteAuthorityError(error) === "denied") {
       assertCommunityLiveSnapshotTokenCurrent(queryClient, {
-        ...token, accessEpoch: captureCommunityLiveSnapshotToken(queryClient).accessEpoch,
+        ...token, accessEpoch: captureCommunityLiveSnapshotToken(queryClient).accessEpoch, channelScopes: captureCommunityLiveSnapshotToken(queryClient).channelScopes,
       }, undefined)
       return "denied"
     }
@@ -59,21 +51,4 @@ export async function startDmRouteVerification(
   } finally {
     release()
   }
-}
-
-export function useDmRouteVerification(
-  dmId: string | undefined,
-): DmRouteVerificationResult {
-  const verification = useChannelMetadata(null, dmId)
-  const retry = useCallback(() => {
-    if (!dmId || verification.fetchStatus === "fetching") return
-    void verification.refetch({ cancelRefetch: false })
-  }, [dmId, verification])
-  let status: DmRouteVerificationStatus = "pending"
-  if (!dmId) status = "idle"
-  else if (classifyDmRouteAuthorityError(verification.error) === "denied" || verification.data?.archived || verification.canonical?.archived) status = "missing"
-  else if (verification.isVerified && verification.data?.type === "dm") status = "present"
-  else if (verification.isError) status = "error"
-
-  return { status, retry, retrying: verification.fetchStatus === "fetching" }
 }

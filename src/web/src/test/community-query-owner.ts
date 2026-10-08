@@ -4,8 +4,20 @@ import { QueryClient, type InfiniteData, type QueryKey, type SetDataOptions, typ
 import { createCommunityDbRegistry, getCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { ingestMessages } from "@/lib/community-db/sync"
 import type { MessagesPage } from "@/hooks/community/use-messages"
+import { getCommunityRuntime } from "@/stores/community/runtime"
+import { EMPTY_STORED, messageScopeKey } from "@/stores/community/message-stream-store"
+import type { MessageScope } from "@/lib/community/message-stream"
 
 const owners = new Set<CommunityDbRegistry>()
+export function getMessageStreamState(client: QueryClient, scope: MessageScope) {
+  return getCommunityRuntime(client).messageStream.get().entries.get(messageScopeKey(scope))?.state ?? EMPTY_STORED
+}
+export function canonicalMessageReader(client: QueryClient) {
+  return { get: (id: string) => {
+    const row = getCommunityDbRegistry(client)?.collections.messages.get(id)
+    return row && typeof row.seq === "number" ? { ...row, seq: row.seq } : undefined
+  } }
+}
 export async function createCommunityQueryOwner(accountId = "viewer", config?: QueryClientConfig) {
   const client = new QueryClient(config ?? { defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   const registry = createCommunityDbRegistry(client, accountId)

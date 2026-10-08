@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import {
   COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES,
   COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
-  COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE,
+  communityBrowserEventBatchType,
   encodeCommunityBrowserEventBatchForContract,
   verifyCommunityBrowserEventBatchV2,
   COMMUNITY_BROWSER_EVENT_MAX_BYTES,
@@ -47,6 +47,13 @@ function maximizeAuditPadding(): CommunityBotAuditEvent {
 }
 
 describe("community WS batch transport contract", () => {
+  it("derives both wire names from one family and the supported contract", () => {
+    expect(communityBrowserEventBatchType(1)).toBe("community:events.batch")
+    expect(communityBrowserEventBatchType()).toBe("community:events.batch.v2")
+    expect(communityBrowserEventBatchType(2)).toBe("community:events.batch.v2")
+    expect(() => communityBrowserEventBatchType(0)).toThrow("unsupported community event contract")
+    expect(() => communityBrowserEventBatchType(3)).toThrow("unsupported community event contract")
+  })
   it("keeps the source digest while projecting one strict format per connection", async () => {
     const change = { type: WS_EVENTS.CHANNEL_MEMBERSHIP_CHANGE, channelId: "thread", serverId: "server", userId: "joined", relation: "notify", present: true } as const
     const prepared = await prepareCommunityDeliveryEvents([change])
@@ -63,7 +70,7 @@ describe("community WS batch transport contract", () => {
     expect(Object.keys(old.batch)).toHaveLength(4)
     expect(old.batch.events).toEqual([{ type: WS_EVENTS.CHANNEL_MEMBER_ADD, serverId: "server", channelId: "thread", userId: "joined" }])
     expect(old.batch.operationDigest).not.toBe(prepared.prepared.digest)
-    expect(current.batch).toMatchObject({ type: COMMUNITY_BROWSER_EVENT_BATCH_V2_TYPE, operationDigest: prepared.prepared.digest, wireDigest: prepared.prepared.digest })
+    expect(current.batch).toMatchObject({ type: communityBrowserEventBatchType(), operationDigest: prepared.prepared.digest, wireDigest: prepared.prepared.digest })
     expect(await verifyCommunityBrowserEventBatchV2(JSON.parse(current.body))).toBe(true)
     expect(decodeCommunityBrowserEventBatch({ ...old.batch, wireDigest: current.batch.wireDigest }).ok).toBe(false)
     const tampered = JSON.parse(current.body)

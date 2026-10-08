@@ -168,6 +168,32 @@ describe("community DB sync", () => {
     })
   })
 
+  it.each(["directory", "attention"] as const)("preserves rich server rows and existing viewer roles when seeding $0 summaries", async (source) => {
+    const db = await registry()
+    ingestServers(db, { servers: [{ id: "s1", name: "Server", discriminator: "0001",
+      initial: "S", active: false, unread: true, mentions: 3, ownerId: "viewer",
+      isOwner: true, role: "admin", memberId: "member-1" }] })
+    ingestServerDetail(db, { id: "s1", name: "Server", discriminator: "0001",
+      description: "rich description", icon: "server.png", ownerId: "viewer", official: true, categories: [] })
+    const original = db.collections.servers.get("s1")!
+    const membership = [...db.collections.serverMemberships.values()].find((row) => row.serverId === "s1")!
+    const summaries = [{ id: "s1", name: "Updated", discriminator: "0002" },
+      { id: "s2", name: "New", discriminator: "0003" }]
+    if (source === "directory") publishCommunityChannelDirectory(db.queryClient, {
+      directory: summaries.map((server) => ({ ...server, channels: [] })),
+      proof: { token: captureCommunityLiveSnapshotToken(db.queryClient), signal: undefined },
+    })
+    else ingestAttentionSnapshot(db, { scopes: [], items: [], limit: 100, truncated: false,
+      included: { servers: summaries } })
+    expect(db.collections.servers.get("s1")).toStrictEqual({ ...original, name: "Updated", discriminator: "0002" })
+    expect(db.collections.serverMemberships.get(membership.id)).toStrictEqual(membership)
+    expect(db.collections.servers.get("s2")).toMatchObject({ id: "s2", position: 1,
+      name: "New", discriminator: "0003", description: "", ownerId: "", icon: null,
+      official: false, isOwner: false, unread: false, mentions: 0, detailComplete: false })
+    expect([...db.collections.serverMemberships.values()].find((row) => row.serverId === "s2"))
+      .toMatchObject({ serverId: "s2", userId: "viewer", role: "member", viewer: true })
+  })
+
   it("keeps anonymous canonical ingestion free of viewer access rows", async () => {
     const db = createCommunityDbRegistry(new QueryClient(), null)
     registries.push(db)
@@ -550,10 +576,10 @@ describe("community DB sync", () => {
       serverId: "s1",
       channelId: "c1",
     } as CommunityWsEvent)
-    expect(publishCommunityLiveSnapshotWithProof(db.queryClient, {
+    expect(() => publishCommunityLiveSnapshotWithProof(db.queryClient, {
       snapshot: { kind: "server-detail", data: detail },
       proof: { kind: "structural", token, signal: undefined },
-    })).toBe("published")
+    })).toThrow(expect.objectContaining({ name: "AbortError" }))
 
     expect(db.collections.channels.get("c1")).toBeUndefined()
   })
@@ -982,10 +1008,7 @@ describe("community DB sync", () => {
     expect(db.collections.readStates.get("live-c2")).toBeUndefined()
     expect(db.collections.notificationSettings.get("channel:live-c2")).toBeUndefined()
 
-    projectCommunityWsEventToDb(db.queryClient, {
-      type: "community:server.delete",
-      serverId: "live-s1",
-    } as CommunityWsEvent)
+    purgeCommunityServer(db, "live-s1")
     expect(db.collections.servers.get("live-s1")).toBeUndefined()
     expect(db.runtime.ws.get().revokedServerIds.has("live-s1")).toBe(true)
     db.runtime.ws.actions.grantServerAccess("live-s1")
@@ -1779,7 +1802,7 @@ describe("community DB sync", () => {
       authorId: "u2",
       authorName: "Alice",
       content: "rich",
-      attachments: [{ id: "a1", name: "proof.png" }],
+      attachments: [{ kind: "image", name: "proof.png", url: "/proof.png" }],
       replyTo: { id: "m0", authorId: "u3", authorName: "Bob", content: "earlier" },
     }])
 
@@ -1815,7 +1838,7 @@ describe("community DB sync", () => {
     })
     expect(db.collections.messages.get("m1")).toMatchObject({
       content: "new preview",
-      attachments: [{ id: "a1", name: "proof.png" }],
+      attachments: [{ kind: "image", name: "proof.png", url: "/proof.png" }],
       replyTo: { id: "m0", authorId: "u3" },
     })
   })
@@ -2554,13 +2577,13 @@ describe("community DB sync", () => {
     expect(db.collections.channels.get("thread1")).toMatchObject({ archived: true })
     event({ type: "community:channel.delete", serverId: "s1", channelId: "c2" })
     expect(db.collections.channels.get("c2")).toBeUndefined()
-    event({ type: "community:server.delete", serverId: "s1" })
+    purgeCommunityServer(db, "s1")
     expect(db.collections.servers.get("s1")).toBeUndefined()
     ingestServers(db, { servers: [{
       id: "leave", name: "Leave", initial: "L", active: false, unread: false,
       mentions: 0, ownerId: "viewer",
     }] })
-    event({ type: "community:member.leave", serverId: "leave", userId: "viewer" })
+    purgeCommunityServer(db, "leave")
     expect(db.collections.servers.get("leave")).toBeUndefined()
     event({ type: "community:unknown" })
   })

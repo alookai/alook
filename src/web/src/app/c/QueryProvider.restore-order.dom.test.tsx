@@ -26,6 +26,7 @@ const persister = vi.hoisted(() => ({
   removeClient: vi.fn(() => Promise.resolve()),
   isCurrent: vi.fn(async () => true),
   retireAccount: vi.fn(async () => {}),
+  retireChannels: vi.fn(async () => {}),
 }))
 const session = vi.hoisted(() => ({ viewer: "restore-order-viewer" }))
 vi.mock("@/lib/auth-client", () => ({
@@ -54,9 +55,6 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn() }) }))
 vi.mock("@/hooks/community/use-servers", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/hooks/community/use-servers")>(),
   useServer: () => ({ server: { id: "strict-server", categories: [{ id: "strict-category", channels: [{ id: "strict-route", type: "text" }] }] } }),
-}))
-vi.mock("@/hooks/community/use-child-channel-meta", () => ({
-  useChildChannelMeta: () => ({ isVerified: true, isFetching: false, isError: false, refetch: vi.fn() }),
 }))
 
 afterEach(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })

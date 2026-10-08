@@ -6,11 +6,9 @@ import type { QueryClient } from "@tanstack/react-query"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent, type CommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { communityKeys } from "@/lib/query-keys"
+import type { CommunityMessageSurfaceReceipt } from "@alook/shared"
 
-export type MessageSurfaceReceipt = {
-  channelId: string
-  surfaceKind: "channel" | "thread" | "forum" | "dm"
-}
+export type MessageSurfaceReceipt = CommunityMessageSurfaceReceipt
 
 export type ConversationNavigationTarget = {
   href: string
@@ -81,7 +79,7 @@ export function beginConversationNavigationProof(
 ): { epoch: number; signal: AbortSignal } {
   const store = getStore(queryClient)
   const current = store.get()
-  const ownerToken = captureCommunityLiveSnapshotToken(queryClient)
+  const ownerToken = captureCommunityLiveSnapshotToken(queryClient, target.channelId)
   if (ownerToken.viewerId !== target.viewerId) throw new DOMException("Conversation viewer does not match owner", "AbortError")
   if (current.activeTarget) {
     const previousKey = current.activeTarget.scopeKind === "dm"

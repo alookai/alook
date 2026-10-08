@@ -1,7 +1,6 @@
 "use client"
 import { deriveView, mergeEvidence, valueEvidence, viewEvidence } from "@/lib/observability/data-source"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 
 import { getCommunityRuntime } from "@/stores/community/runtime"
 
@@ -19,7 +18,7 @@ import {
   type QueryClient,
 } from "@tanstack/react-query"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
-import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
+import { apiFetchCommunity } from "@/lib/community/account-cache-lifecycle"
 import { captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
 import { communityKeys } from "@/lib/query-keys"
 import type {
@@ -34,7 +33,7 @@ import {
   type CanonicalMessage,
   type MessageScope,
 } from "@/lib/community/message-stream"
-import { useMessageOverlay } from "@/stores/community/message-stream"
+import { useMessageOverlayIds } from "@/stores/community/message-stream"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import {
   commitConversationNavigationProof,
@@ -42,7 +41,7 @@ import {
   useConversationNavigationGate,
 } from "@/lib/community/conversation-navigation-proof"
 import type { MessageSurfaceReceipt } from "@/lib/community/conversation-navigation-proof"
-import { useMessageProjection, useMessageWindowProjection, useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
+import { useMessageWindowProjection } from "@/lib/community-db/projections"
 import {
   captureCommunityLiveSnapshotToken,
   publishCommunityMessages,
@@ -154,11 +153,11 @@ async function fetchMessagesTransport(
   url: string,
   signal: AbortSignal | undefined,
   options: MessagesTransportOptions | undefined,
+  token: ReturnType<typeof captureCommunityLiveSnapshotToken>,
 ): Promise<WireMessagesPage> {
-  const transport = await withConversationReadDeadline(signal, (readSignal) => apiFetchProfiles<MessagesTransportPage>(
+  const transport = await withConversationReadDeadline(signal, (readSignal) => apiFetchCommunity<MessagesTransportPage>(
     url,
-    (page) => messageProfilePatches(page.messages),
-    { signal: readSignal }, getCommunityDbRegistry(queryClient),
+    { signal: readSignal }, token,
   ))
   const { surfaceReceipt, ...page } = transport
   if (isMessageSurfaceReceipt(surfaceReceipt)) {
@@ -180,13 +179,13 @@ export const channelMessagesQueryFn =
   }): Promise<MessagesPage> => {
     const originalClient = options?.queryClient ?? client
     if (!originalClient) throw new DOMException("Missing message query owner", "AbortError")
-    const publicationToken = captureCommunityLiveSnapshotToken(originalClient)
+    const publicationToken = captureCommunityLiveSnapshotToken(originalClient, channelId)
     const url = buildMessagesUrl(
       `/api/community/channels/${channelId}/messages`,
       pageParam,
       tag,
     )
-    const page = await fetchMessagesTransport(originalClient, url, signal, options)
+    const page = await fetchMessagesTransport(originalClient, url, signal, options, publicationToken)
     {
       publishCommunityMessages(originalClient, {
         channelId,
@@ -402,7 +401,8 @@ function useMessagesInner(
     signal?: AbortSignal
   }) => Promise<MessagesPage>,
   opts: MessagesOpts | undefined,
-): MessagesReturn {
+  liveIds: readonly string[],
+) {
   const queryClient = useQueryClient()
   const isRestoring = useIsRestoring()
   useQuery({ ...messageReconcileOptions(queryClient, scopeId ?? "__none__", queryKey), enabled: false })
@@ -736,7 +736,7 @@ function useMessagesInner(
     let active = true
     const isCurrent = () => active && isChannelMetadataTokenCurrent(accessToken)
       && queryClient.getQueryCache().find({ queryKey, exact: true }) === currentQuery
-    const accessIdentity = [accessToken.viewerId, accessToken.accountEpoch, accessToken.accessEpoch, accessToken.ownerGeneration, accessToken.generation]
+    const accessIdentity = [accessToken.viewerId, accessToken.accountEpoch, accessToken.accessEpoch, accessToken.ownerGeneration, accessToken.channelScopes.get(scopeId!)?.generation ?? 0]
     const anchorRequestKey = JSON.stringify([queryKey, anchorPageParam, accessIdentity])
     if (settledAnchorRepairRef.current?.key === anchorRequestKey
       && settledAnchorRepairRef.current.query === currentQuery) return
@@ -782,10 +782,6 @@ function useMessagesInner(
             // into a single page — `hasMoreOlder`/`hasMoreNewer` come from the
             // new anchor page since it alone knows the true state of both
             // edges relative to the (possibly wider) merged window.
-            const currentMessages = mergeMessagesPages(current.pages)
-            const anchorAlreadyPainted = opts?.waitForAnchor === false
-              && currentMessages.some((message) => message.id === anchorId)
-            if (anchorAlreadyPainted) return { ...current, pages: [page, ...current.pages], pageParams: [anchorPageParam, ...current.pageParams] }
             return { ...current, pages: [page, ...current.pages], pageParams: [anchorPageParam, ...current.pageParams] }
           })
         })
@@ -817,16 +813,20 @@ function useMessagesInner(
     reconcileLateAnchor,
   ])
 
-  const windowIds = useMemo(() => query.data?.pages.flatMap((page) => page.messages.map((message) => message.id)) ?? [], [query.data])
-  const canonicalRows = useMessageProjection(scopeId, windowIds)
+  const transportWindowObserved = useCommittedTransportWindow(queryKey, query.data !== undefined)
+  const transportMessages = useMemo(() => query.data ? mergeMessagesPages(query.data.pages) : [], [query.data])
+  const windowIds = useMemo(() => transportMessages.map((message) => message.id), [transportMessages])
+  const projection = useMessageWindowProjection(scopeId, transportWindowObserved ? windowIds : undefined, liveIds)
+  const canonicalById = useMemo(() => new Map((projection.messages ?? []).flatMap((message) =>
+    typeof message.seq === "number" ? [[message.id, message as CanonicalMessage] as const] : [])), [projection.messages])
   const messages = useMemo<Msg[]>(() => {
-    if (!query.data) return []
-    const byId = new Map((canonicalRows ?? []).map((message) => [message.id, message]))
-    const selected = mergeMessagesPages(query.data.pages).flatMap((window) => { const message = byId.get(window.id); return message ? [message] : [] })
+    const selected = projection.windowIds.flatMap((id) => { const message = canonicalById.get(id); return message ? [message] : [] }).sort((a, b) => a.seq - b.seq)
     const root = valueEvidence(queryClient, query.data)
-    const window = root.source === "unknown" ? mergeEvidence(query.data.pages.map(viewEvidence)) : root
+    const window = transportWindowObserved
+      ? root.source === "unknown" ? mergeEvidence(query.data?.pages.map(viewEvidence) ?? []) : root
+      : mergeEvidence(selected.map(viewEvidence))
     return deriveView(selected, [window, ...selected.map(viewEvidence)])
-  }, [query.data, canonicalRows, queryClient])
+  }, [query.data, projection.windowIds, canonicalById, queryClient, transportWindowObserved])
 
   const latestSeq = useMemo<number>(() => {
     if (!query.data) return 0
@@ -902,6 +902,7 @@ function useMessagesInner(
     // cache) still shows the skeleton.
     isLoading: query.isLoading || (!anchorResolved && messages.length === 0),
     navigationBlocked: false,
+    canonicalById,
     messages,
     latestSeq,
     hasMoreOlder,
@@ -927,65 +928,34 @@ function useMessagesInner(
  * Pass `null` for "no active channel" — the query stays disabled. DM views
  * should call `useDmMessages` instead of this hook.
  */
-export function useMessages(
-  channelId: string | null,
-  opts: ChannelMessagesOpts,
-): MessagesReturn {
-  const registry = useOptionalCommunityDbRegistry()
+export function useMessages(channelId: string | null, opts: ChannelMessagesOpts): MessagesReturn {
+  return useMessageSurface(channelId, opts, opts.serverId)
+}
+
+export function useDmMessages(dmId: string | null, opts?: MessagesOpts): MessagesReturn {
+  return useMessageSurface(dmId, opts, null)
+}
+
+function useMessageSurface(channelId: string | null, opts: MessagesOpts | ChannelMessagesOpts | undefined, serverId: string | null): MessagesReturn {
   const queryClient = useQueryClient()
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
+  const tag = opts && "tag" in opts ? opts.tag : undefined
+  const kind = serverId === null ? "dm" : "channel"
   const queryKey = useMemo(() => {
+    if (kind === "dm") return communityKeys.dmMessages(channelId ?? "__none__")
     const baseKey = communityKeys.channelMessages(channelId ?? "__none__")
-    return opts.tag ? [...baseKey, "tag", opts.tag] as const : baseKey
-  }, [channelId, opts.tag])
-  const queryFn = useMemo(
-    () => channelMessagesQueryFn(channelId ?? "__none__", opts.tag, {
-      queryClient,
-      onSurfaceReceipt: (receipt) => {
-        recordConversationNavigationReceipt(
-          queryClient,
-          receipt,
-          accessEpoch,
-        )
-      },
-    }),
-    [accessEpoch, channelId, opts.tag, queryClient],
-  )
-  const base = useMessagesInner(
-    channelId,
-    queryKey,
-    queryFn,
-    opts,
-  )
-  const transportWindowObserved = useCommittedTransportWindow(
-    queryKey,
-    base.data !== undefined,
-  )
-  const windowIds = useMemo(() => base.messages.map((message) => message.id), [base.messages])
-  const dbMessages = useMessageWindowProjection(channelId, transportWindowObserved ? windowIds : undefined)
-  const canonicalMessagesById = useMemo(() => new Map((dbMessages ?? []).map((message) => [message.id, message])), [dbMessages])
-  const scope = useMemo<MessageScope>(() => ({
-    kind: "channel",
-    id: channelId ?? "__none__",
-    serverId: opts.serverId,
-  }), [channelId, opts.serverId])
-  const overlay = useMessageOverlay(scope)
-  const canonicalBase = useMemo(
-    () => {
-      const messages = !registry
-        ? base.messages
-        : !transportWindowObserved
-          ? dbMessages ?? []
-          : base.messages.flatMap((message) => {
-              const canonical = canonicalMessagesById?.get(message.id)
-              return canonical ? [canonical] : []
-            })
-      return messages.filter(
-        (message): message is CanonicalMessage => typeof message.seq === "number",
-      )
-    },
-    [base.messages, canonicalMessagesById, dbMessages, registry, transportWindowObserved],
-  )
+    return tag ? [...baseKey, "tag", tag] as const : baseKey
+  }, [channelId, kind, tag])
+  const queryFn = useMemo(() => {
+    const options = { queryClient, onSurfaceReceipt: (receipt: MessageSurfaceReceipt) => recordConversationNavigationReceipt(queryClient, receipt, accessEpoch) }
+    return kind === "dm" ? dmMessagesQueryFn(channelId ?? "__none__", options) : channelMessagesQueryFn(channelId ?? "__none__", tag, options)
+  }, [accessEpoch, channelId, kind, queryClient, tag])
+  const scope = useMemo<MessageScope>(() => serverId === null ? { kind: "dm", id: channelId ?? "__none__" } : { kind: "channel", id: channelId ?? "__none__", serverId }, [channelId, serverId])
+  const state = useMessageOverlayIds(scope)
+  const base = useMessagesInner(channelId, queryKey, queryFn, opts, state.liveIds)
+  const canonicalBase = useMemo(() => base.messages.filter(
+    (message): message is CanonicalMessage => typeof message.seq === "number",
+  ), [base.messages])
   useEffect(() => {
     if (!channelId) return
     getCommunityRuntime(queryClient).messageStream.actions.dispatch(scope, {
@@ -994,111 +964,19 @@ export function useMessages(
     })
   }, [canonicalBase, channelId, queryClient, scope])
   const messages = useMemo(
-    () => materializeMessageStream(canonicalBase, overlay).filter((message) =>
-      messageMatchesTag(message, opts.tag)),
-    [canonicalBase, opts.tag, overlay],
+    () => materializeMessageStream(canonicalBase, state, base.canonicalById).filter((message) =>
+      messageMatchesTag(message, tag)),
+    [canonicalBase, tag, state, base.canonicalById],
   )
-  deriveView(messages, messages.length ? [viewEvidence(dbMessages), viewEvidence(base.messages), ...messages.map(viewEvidence)] : [viewEvidence(base.data === undefined ? dbMessages : base.messages)])
+  deriveView(messages, [viewEvidence(base.messages), ...messages.map(viewEvidence)])
   useEffect(() => {
     if (!channelId || base.data === undefined) return
     commitConversationNavigationProof(queryClient, channelId, accessEpoch)
   }, [accessEpoch, base.data, base.dataUpdatedAt, channelId, queryClient])
   const navigationGate = useConversationNavigationGate(
     queryClient,
-    opts.viewerUserId ?? "__none__",
-    channelId ?? "__none__",
-    accessEpoch,
-  )
-  const gated = navigationGate.required && !navigationGate.allowed
-  return {
-    ...base,
-    messages: gated ? [] : messages,
-    isLoading: (base.isLoading && canonicalBase.length === 0) || gated,
-    navigationBlocked: gated,
-  }
-}
-
-/**
- * DM-scoped sibling of `useMessages`. Same pagination shape, different route.
- */
-export function useDmMessages(
-  dmId: string | null,
-  opts?: MessagesOpts,
-): MessagesReturn {
-  const registry = useOptionalCommunityDbRegistry()
-  const queryClient = useQueryClient()
-  const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
-  const queryKey = useMemo(
-    () => communityKeys.dmMessages(dmId ?? "__none__"),
-    [dmId],
-  )
-  const queryFn = useMemo(
-    () => dmMessagesQueryFn(dmId ?? "__none__", {
-      queryClient,
-      onSurfaceReceipt: (receipt) => {
-        recordConversationNavigationReceipt(
-          queryClient,
-          receipt,
-          accessEpoch,
-        )
-      },
-    }),
-    [accessEpoch, dmId, queryClient],
-  )
-  const base = useMessagesInner(
-    dmId,
-    queryKey,
-    queryFn,
-    opts,
-  )
-  const transportWindowObserved = useCommittedTransportWindow(
-    queryKey,
-    base.data !== undefined,
-  )
-  const windowIds = useMemo(() => base.messages.map((message) => message.id), [base.messages])
-  const dbMessages = useMessageWindowProjection(dmId, transportWindowObserved ? windowIds : undefined)
-  const canonicalMessagesById = useMemo(() => new Map((dbMessages ?? []).map((message) => [message.id, message])), [dbMessages])
-  const scope = useMemo<MessageScope>(() => ({
-    kind: "dm",
-    id: dmId ?? "__none__",
-  }), [dmId])
-  const overlay = useMessageOverlay(scope)
-  const canonicalBase = useMemo(
-    () => {
-      const messages = !registry
-        ? base.messages
-        : !transportWindowObserved
-          ? dbMessages ?? []
-          : base.messages.flatMap((message) => {
-              const canonical = canonicalMessagesById?.get(message.id)
-              return canonical ? [canonical] : []
-            })
-      return messages.filter(
-        (message): message is CanonicalMessage => typeof message.seq === "number",
-      )
-    },
-    [base.messages, canonicalMessagesById, dbMessages, registry, transportWindowObserved],
-  )
-  useEffect(() => {
-    if (!dmId) return
-    getCommunityRuntime(queryClient).messageStream.actions.dispatch(scope, {
-      type: "baseChanged",
-      messages: canonicalBase,
-    })
-  }, [canonicalBase, dmId, queryClient, scope])
-  const messages = useMemo(
-    () => materializeMessageStream(canonicalBase, overlay),
-    [canonicalBase, overlay],
-  )
-  deriveView(messages, messages.length ? [viewEvidence(dbMessages), viewEvidence(base.messages), ...messages.map(viewEvidence)] : [viewEvidence(base.data === undefined ? dbMessages : base.messages)])
-  useEffect(() => {
-    if (!dmId || base.data === undefined) return
-    commitConversationNavigationProof(queryClient, dmId, accessEpoch)
-  }, [accessEpoch, base.data, base.dataUpdatedAt, dmId, queryClient])
-  const navigationGate = useConversationNavigationGate(
-    queryClient,
     opts?.viewerUserId ?? "__none__",
-    dmId ?? "__none__",
+    channelId ?? "__none__",
     accessEpoch,
   )
   const gated = navigationGate.required && !navigationGate.allowed

@@ -1,94 +1,34 @@
-import { normalizeCommunityMessageResource, type CommunityMessageCreate } from "@alook/shared"
-import type { Msg } from "@/lib/community/models/message"
+import { normalizeCommunityMessageResource, CommunityMessageResourceSchema, type CommunityMessageCreate } from "@alook/shared"
+import { MessageEmbedSchema, type Msg } from "@/lib/community/models/message"
+import type { MessageRow } from "./message-payload"
 import { avatarInitial } from "@/lib/community/avatar"
-import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
-import { formatAttachmentSize } from "@/lib/community/attachment-presentation"
+import { presentMessageAttachment } from "@/lib/community/attachment-presentation"
 import type { CanonicalMessage } from "@/lib/community/message-stream"
 import { canonicalUserImage } from "@/lib/community/storage"
 import { projectMessageWireType } from "@/lib/community/message-wire-type"
 
 type UiEmbed = NonNullable<Msg["embeds"]>[number]
+const richContentSchema = CommunityMessageResourceSchema.pick({ attachments: true, embeds: true }).partial().strip()
 
-export type PostedMessage = {
-  id: string
-  seq: number
-  createdAt: string
-  content: string | null
-  authorId: string
-  authorName: string
-  authorImage: string | null
-  authorAvatarVersion: number
-  type: string | null
-  embeds: unknown
-}
+export type PostedMessage = Pick<MessageRow, "id" | "seq" | "createdAt" | "content" | "authorId" | "authorName" | "authorImage" | "authorAvatarVersion" | "type" | "embeds">
 
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined
-}
-
-function numberValue(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined
-}
-
-function objectValue(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined
+function omitUndefined<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(omitUndefined) as T
+  if (!value || typeof value !== "object") return value
+  return Object.fromEntries(Object.entries(value).filter(([, field]) => field !== undefined)
+    .map(([key, field]) => [key, omitUndefined(field)])) as T
 }
 
 function projectEmbed(value: unknown): UiEmbed | undefined {
-  const input = objectValue(value)
-  const title = stringValue(input?.title)
-  if (!input || title === undefined) return undefined
-  const imageInput = objectValue(input.image)
-  const imageUrl = stringValue(imageInput?.url)
-  const thumbnailInput = objectValue(input.thumbnail)
-  const thumbnailUrl = stringValue(thumbnailInput?.url)
-  const footerInput = objectValue(input.footer)
-  const footerText = stringValue(footerInput?.text)
-  const authorInput = objectValue(input.author)
-  const authorName = stringValue(authorInput?.name)
-  const fields = Array.isArray(input.fields)
-    ? input.fields.flatMap((field) => {
-      const row = objectValue(field)
-      const name = stringValue(row?.name)
-      const fieldValue = stringValue(row?.value)
-      if (name === undefined || fieldValue === undefined) return []
-      return [{
-        name,
-        value: fieldValue,
-        ...(typeof row?.inline === "boolean" ? { inline: row.inline } : {}),
-      }]
-    })
-    : undefined
+  const parsed = MessageEmbedSchema.safeParse(value)
+  return parsed.success ? omitUndefined(parsed.data) : undefined
+}
+
+export function projectMessageRichContent(value: unknown): Pick<Msg, "attachments" | "embeds"> {
+  const { attachments, embeds } = richContentSchema.parse(value)
   return {
-    title,
-    ...(stringValue(input.provider) !== undefined ? { provider: stringValue(input.provider) } : {}),
-    ...(stringValue(input.url) !== undefined ? { url: stringValue(input.url) } : {}),
-    ...(stringValue(input.desc) !== undefined ? { desc: stringValue(input.desc) } : {}),
-    ...(stringValue(input.color) !== undefined ? { color: stringValue(input.color) } : {}),
-    ...(imageUrl !== undefined ? {
-      image: {
-        url: imageUrl,
-        ...(numberValue(imageInput?.width) !== undefined ? { width: numberValue(imageInput?.width) } : {}),
-        ...(numberValue(imageInput?.height) !== undefined ? { height: numberValue(imageInput?.height) } : {}),
-      },
-    } : {}),
-    ...(thumbnailUrl !== undefined ? { thumbnail: { url: thumbnailUrl } } : {}),
-    ...(fields?.length ? { fields } : {}),
-    ...(footerText !== undefined ? {
-      footer: {
-        text: footerText,
-        ...(stringValue(footerInput?.iconUrl) !== undefined ? { iconUrl: stringValue(footerInput?.iconUrl) } : {}),
-      },
-    } : {}),
-    ...(authorName !== undefined ? {
-      author: {
-        name: authorName,
-        ...(stringValue(authorInput?.url) !== undefined ? { url: stringValue(authorInput?.url) } : {}),
-        ...(stringValue(authorInput?.iconUrl) !== undefined ? { iconUrl: stringValue(authorInput?.iconUrl) } : {}),
-      },
-    } : {}),
+    ...(attachments ? { attachments: attachments.map(presentMessageAttachment) } : {}),
+    ...(embeds ? { embeds: embeds.flatMap((value) => { const embed = projectEmbed(value); return embed ? [embed] : [] }) } : {}),
   }
 }
 
@@ -96,78 +36,42 @@ export function projectCommunityMessageCreate(
   message: CommunityMessageCreate["message"],
   channelId: string,
 ): CanonicalMessage {
-  const attachments = message.attachments?.map((attachment) => {
-    if (isInlineAttachmentContentType(attachment.contentType)) {
-      return {
-        kind: "image" as const,
-        name: attachment.filename,
-        url: attachment.url,
-        contentType: attachment.contentType,
-        sizeBytes: attachment.size,
-        ...(attachment.thumbnailUrl ? { thumbnailUrl: attachment.thumbnailUrl } : {}),
-        width: attachment.width ?? undefined,
-        height: attachment.height ?? undefined,
-      }
-    }
-    return {
-      kind: "file" as const,
-      name: attachment.filename,
-      url: attachment.url,
-      contentType: attachment.contentType,
-      sizeBytes: attachment.size,
-      size: formatAttachmentSize(attachment.size),
-    }
-  })
-  const embeds = message.embeds?.flatMap((embed) => {
-    const projected = projectEmbed(embed)
-    return projected ? [projected] : []
-  })
-  const projected: CanonicalMessage = {
-    id: message.id,
-    seq: message.seq,
-    type: message.type,
-    ...(message.systemKind ? { systemKind: message.systemKind } : {}),
-    authorId: message.authorId,
-    authorName: message.authorName,
+  const attachments = message.attachments?.map((attachment) => presentMessageAttachment({
+    name: attachment.filename, url: attachment.url, contentType: attachment.contentType,
+    sizeBytes: attachment.size,
+    ...(attachment.thumbnailUrl ? { thumbnailUrl: attachment.thumbnailUrl } : {}),
+    width: attachment.width ?? undefined, height: attachment.height ?? undefined,
+  }))
+  return projectCanonicalMessage({
+    ...message,
     authorAvatar: message.authorAvatar || avatarInitial(message.authorName),
-    authorAvatarVersion: message.authorAvatarVersion,
-    content: message.content,
-    createdAt: message.createdAt,
-    ...(message.clientNonce ? { clientNonce: message.clientNonce } : {}),
-    ...(message.replyTo ? { replyTo: message.replyTo } : {}),
-    ...(message.approval ? { approval: message.approval } : {}),
-    ...(embeds?.length ? { embeds } : {}),
-    ...(attachments?.length ? { attachments } : {}),
+    attachments,
+  }, channelId)
+}
+
+function projectCanonicalMessage(value: Record<string, unknown>, channelId: string): CanonicalMessage {
+  const { channelId: _channelId, replyToId: _replyToId, clientNonce, attachments: _attachments, embeds: _embeds, ...message } = normalizeCommunityMessageResource(value, channelId)
+  const { attachments, embeds } = projectMessageRichContent({ attachments: _attachments, embeds: _embeds })
+  return {
+    ...message,
+    ...(clientNonce !== null ? { clientNonce } : {}),
+    ...(value.attachments !== undefined ? { attachments } : {}),
+    ...(value.embeds != null ? { embeds } : {}),
   }
-  normalizeCommunityMessageResource(projected, channelId)
-  return projected
 }
 
 export function projectPostedMessage(
   message: PostedMessage,
   clientNonce: string,
+  channelId: string,
 ): CanonicalMessage {
-  const embeds = Array.isArray(message.embeds)
-    ? message.embeds.flatMap((embed) => {
-      const projected = projectEmbed(embed)
-      return projected ? [projected] : []
-    })
-    : undefined
-  return {
-    id: message.id,
-    seq: message.seq,
-    ...projectMessageWireType(message.type),
-    authorId: message.authorId,
-    authorName: message.authorName,
-    authorAvatar: canonicalUserImage(
-      message.authorId,
-      message.authorImage,
-      message.authorAvatarVersion,
-    ) || avatarInitial(message.authorName),
-    authorAvatarVersion: message.authorAvatarVersion,
-    content: message.content ?? "",
-    createdAt: message.createdAt,
+  const { authorImage, type, content, embeds, ...fields } = message
+  return projectCanonicalMessage({
+    ...fields,
+    ...projectMessageWireType(type),
+    authorAvatar: canonicalUserImage(message.authorId, authorImage, message.authorAvatarVersion) || avatarInitial(message.authorName),
+    content: content ?? "",
+    embeds: Array.isArray(embeds) ? embeds : undefined,
     clientNonce,
-    ...(embeds?.length ? { embeds } : {}),
-  }
+  }, channelId)
 }

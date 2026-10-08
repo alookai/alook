@@ -1,11 +1,11 @@
 import { CancelledError, queryOptions, type InfiniteData, type QueryClient, type QueryKey } from "@tanstack/react-query"
-import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
+import { apiFetchCommunity } from "@/lib/community/account-cache-lifecycle"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken, publishCommunityMessages } from "@/lib/community-db/sync"
 import { ApiError, isAbortError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import { getCommunityRuntime } from "@/stores/community/runtime"
-import { getMessageOverlay } from "@/stores/community/message-stream"
+import { messageScopeKey } from "@/stores/community/message-stream-store"
 import { messageWindowPage, type MessagesPage, type MessagesPageParam, type MessagesWindowPage } from "@/lib/community/models/message"
 
 type MessageCache = InfiniteData<MessagesWindowPage, MessagesPageParam>
@@ -38,7 +38,7 @@ function mergeWindow(cache: MessageCache, refreshed: MessagesPage, catchUp: Mess
 }
 
 export function messageReconcileOptions(queryClient: QueryClient, scopeId: string, key: QueryKey) {
-  const token = captureCommunityLiveSnapshotToken(queryClient), registry = getCommunityDbRegistry(queryClient)
+  const token = captureCommunityLiveSnapshotToken(queryClient, scopeId), registry = getCommunityDbRegistry(queryClient)
   const originalQuery = queryClient.getQueryCache().find({ queryKey: key, exact: true })
   const receipt = { token, window: originalQuery }
   return queryOptions({
@@ -54,7 +54,7 @@ export function messageReconcileOptions(queryClient: QueryClient, scopeId: strin
       await queryClient.cancelQueries({ queryKey: key, exact: true }, { revert: true, silent: true })
       assert()
       const tag = key[4] === "tag" && typeof key[5] === "string" ? key[5] : null
-      const load = async (param: MessagesPageParam) => { assert(); const page = await apiFetchProfiles<MessagesPage>(url(scopeId, param, tag), (response) => messageProfilePatches(response.messages), { signal, assertActive: assert }, registry); assert(); return page }
+      const load = async (param: MessagesPageParam) => { assert(); const page = await apiFetchCommunity<MessagesPage>(url(scopeId, param, tag), { signal, assertActive: assert }, token); assert(); return page }
       let highWater = latest(data)
       let paginationReplayed = false
       try {
@@ -122,8 +122,9 @@ function reconcile(queryClient: QueryClient, scope: GapRepairScope, target = 0) 
 export function scheduleFocusedMessageGapRepair(queryClient: QueryClient, scope: GapRepairScope, incomingSeq: number): Promise<void> | null {
   const queries = queryClient.getQueryCache().findAll({ queryKey: messagesKey(scope), type: "active" }).filter((query) => isWindowKey(query.queryKey))
   const windowSeq = Math.max(0, ...queries.flatMap((query) => isMessageCache(query.state.data) ? [latest(query.state.data, false)] : []))
-  const overlay = getMessageOverlay(queryClient, scope.kind === "dm" ? { kind: "dm", id: scope.scopeId } : { kind: "channel", id: scope.scopeId, serverId: scope.serverId ?? "" })
-  const known = Math.max(windowSeq, ...[...overlay.liveById.values()].map((message) => message.seq), 0)
+  const ids = getCommunityRuntime(queryClient).messageStream.get().entries.get(messageScopeKey({ kind: scope.kind, id: scope.scopeId }))?.state.liveIds ?? []
+  const messages = getCommunityDbRegistry(queryClient)?.collections.messages
+  const known = Math.max(windowSeq, ...ids.map((id) => messages?.get(id)?.seq ?? 0), 0)
   return incomingSeq > known + 1 ? reconcile(queryClient, scope, incomingSeq).catch(() => undefined) : null
 }
 

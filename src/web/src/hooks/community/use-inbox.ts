@@ -1,6 +1,5 @@
 "use client"
 import { useSelector } from "@tanstack/react-store"
-import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 
 
 import { deriveView, viewEvidence, valueEvidence } from "@/lib/observability/data-source"
@@ -16,7 +15,7 @@ type UseQueryResult,
 } from "@tanstack/react-query"
 import { communityRequestOptions } from "@/lib/community-db/sync"
 import { apiFetch } from "@/lib/api/client"
-import { apiFetchProfiles,messageProfilePatches } from "@/lib/community/profile-seed"
+import { apiFetchCommunity } from "@/lib/community/account-cache-lifecycle"
 import { communityKeys } from "@/lib/query-keys"
 import type {
 InboxFriendRequest,
@@ -64,7 +63,8 @@ type ProjectedUnreadChannel = UnreadServer["channels"][number]
 export function useInboxAttention() {
   const query = useAccountAttentionProjection()
   const channelsById = useCanonicalChannelsById()
-  const messagesById = useCanonicalMessagesById()
+  const messageIds = useMemo(() => [...new Set(query.items.flatMap((item) => item.messageId ? [item.messageId] : []))], [query.items])
+  const messagesById = useCanonicalMessagesById(messageIds)
   const profilesById = useCanonicalProfilesByUserId()
   const serversById = useCanonicalServersById()
   const dmProjection = useDmProjection()
@@ -287,15 +287,11 @@ type MarkedWindowResponse = { marked: Array<Omit<Marked, "m"> & { m: { id: strin
 const inboxMarkedQueryFn = (queryClient: QueryClient) =>
   async ({ signal }: { signal?: AbortSignal } = {}) => {
     const publicationToken = captureCommunityLiveSnapshotToken(queryClient)
-    const data = await apiFetchProfiles<MarkedResponse & { stale?: boolean }>(
+    const data = throwIfStale(await apiFetchCommunity<MarkedResponse & { stale?: boolean }>(
       "/api/community/users/me/marks",
-      (response) => {
-        throwIfStale(response)
-        return messageProfilePatches(response.marked.map((marked) => marked.m))
-      },
-      signal ? { signal } : undefined, getCommunityDbRegistry(queryClient),
-    )
-    if (publicationToken) {
+      signal ? { signal } : undefined, publicationToken,
+    ))
+    {
       publishCommunityEmbeddedMessages(queryClient, {
         entries: data.marked.map((marked) => ({
           channelId: marked.channelId,
@@ -304,13 +300,12 @@ const inboxMarkedQueryFn = (queryClient: QueryClient) =>
         proof: { token: publicationToken, signal },
       })
     }
-    return { marked: throwIfStale(data).marked.map((row) => ({ ...row, m: { id: row.m.id } })) }
+    return { marked: data.marked.map((row) => ({ ...row, m: { id: row.m.id } })) }
   }
 
 export function useInboxMarked(enabled: boolean): UseQueryResult<MarkedWindowResponse> & {
   marked: Marked[]
 } {
-  const canonicalMessages = useCanonicalMessagesById()
   const queryClient = useQueryClient()
   const unreadProjection = useMemo(
     () => getActiveAccountUnreadProjection(queryClient),
@@ -322,6 +317,8 @@ export function useInboxMarked(enabled: boolean): UseQueryResult<MarkedWindowRes
     placeholderData: keepPreviousData,
     enabled,
   })
+  const messageIds = useMemo(() => query.data?.marked.map((row) => row.m.id) ?? [], [query.data?.marked])
+  const canonicalMessages = useCanonicalMessagesById(messageIds)
   const pendingMarks = useMutationState({ filters: { mutationKey: ["community", "mark-command"], status: "pending" }, select: (mutation) => ({ messageId: (mutation.state.variables as { messageId: string }).messageId, marked: mutation.options.mutationKey?.[2] === true }) })
   const markedAccess = useSelector(unreadProjection.state, (state) => (query.data?.marked ?? []).map((row) => accountUnreadAllowsAccess(state, row)), { compare: (left, right) => left.length === right.length && left.every((value, index) => value === right[index]) })
   const marked = useMemo(() => {

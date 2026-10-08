@@ -14,19 +14,13 @@
  * embeds pass-through, and mentionType projection so adding/removing a
  * field on the wire is one edit, not four.
  */
-import { truncateMessagePreview, type MentionType } from "@alook/shared"
+import { queries, truncateMessagePreview, type Database, type MentionType, type CommunityMessageResource, type CommunityMessageAttachment, type CommunityMessageCreate } from "@alook/shared"
 import type { FriendApprovalPayload } from "@alook/shared"
 import { avatarInitial } from "@/lib/community/avatar"
 import { canonicalUserImage } from "@/lib/community/storage"
 import { projectMessageWireType } from "@/lib/community/message-wire-type"
+import { groupAttachments, groupReactions } from "./messages"
 
-// The subset of fields on rows returned by
-// queries.communityMessage.{listMessages, getMessage, getMessagesByIds} that
-// this mapper actually consumes. Structural-typed so the module doesn't
-// reach into the shared query package — a row with additional columns
-// (channelId, authorEmail, …) is still accepted. Those columns are
-// scope-filtered / used by the route BEFORE the row reaches this mapper; the
-// mapper deliberately doesn't see them.
 export type MessageRow = {
   id: string
   authorId: string
@@ -45,35 +39,13 @@ export type MessageRow = {
   friendshipId?: string | null
 }
 
-type ReplyTargetRow = {
-  id: string
-  authorId: string
-  authorName: string
-  content: string | null
-}
+type ReplyTargetRow = Pick<MessageRow, "id" | "authorId" | "authorName" | "content">
 
-type UiAttachment = { kind: "image" | "file"; name: string; url: string; thumbnailUrl?: string; contentType?: string; size?: string; sizeBytes?: number; width?: number; height?: number }
-type WsAttachment = { id: string; filename: string; url: string; thumbnailUrl?: string; contentType?: string; size?: number; width?: number; height?: number }
-type UiReaction = { emoji: string; count: number; me: boolean; userIds: string[] }
-
-type ReplyPreview = {
-  id: string
-  authorId?: string
-  authorName: string
-  text: string
-  deleted?: boolean
-}
-
-type ThreadPreview = {
-  id: string
-  name: string
-  messageCount: number
-  lastReplyAt?: string
-  tags?: string[]
-  preview?: string
-  participants?: { id: string; name: string; avatar: string; avatarVersion: number }[]
-  participantCount?: number
-}
+type UiAttachment = CommunityMessageAttachment
+type WsAttachment = NonNullable<CommunityMessageCreate["message"]["attachments"]>[number]
+type UiReaction = NonNullable<CommunityMessageResource["reactions"]>[number]
+type ReplyPreview = NonNullable<CommunityMessageResource["replyTo"]>
+type ThreadPreview = NonNullable<CommunityMessageResource["thread"]>
 
 /** Common fields shared by both API and WS variants — derived exactly once. */
 function coreFields(row: MessageRow) {
@@ -123,6 +95,18 @@ export type ApiMessageContext = {
   threadByMessageId?: Map<string, ThreadPreview>
   /** Optional: only the DM messages route hydrates friend-approval cards. */
   approvalByMessageId?: Map<string, FriendApprovalPayload>
+}
+
+export async function loadApiMessageContext(db: Database, userId: string, ids: string[], readReplies: () => ReturnType<typeof queries.communityMessage.getMessagesByIdsInChannels>, skipEmpty = false) {
+  const [attachments, reactions, replies] = await Promise.all([
+    skipEmpty && !ids.length ? Promise.resolve([]) : queries.communityAttachment.listByMessageIds(db, ids),
+    skipEmpty && !ids.length ? Promise.resolve([]) : queries.communityReaction.listReactionsByMessageIds(db, ids, userId),
+    readReplies(),
+  ])
+  const attachmentsByMessage = groupAttachments(attachments), reactionsByMessage = groupReactions(reactions, userId)
+  return (channelId: string): ApiMessageContext => ({ attachmentsByMessage, reactionsByMessage,
+    replyMap: new Map(replies.filter((reply) => reply.channelId === channelId).map((reply) => [reply.id, reply])),
+  })
 }
 
 // Splits the DB's `type` column value into the wire's `{ type, systemKind }`

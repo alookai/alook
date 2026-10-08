@@ -1,27 +1,14 @@
 import { z } from "zod"
 import { CommunityMachineRuntimeSchema } from "./schemas"
+import { FriendApprovalPayloadSchema } from "./community-friend-approval"
+import { CommunityChannelResourceSchema, CommunityMessageResourceSchema, CommunityMemberRelationSchema } from "./community-resources"
+
+export { FriendApprovalPayloadSchema } from "./community-friend-approval"
+export type { FriendApprovalPayload, FriendApprovalProfile } from "./community-friend-approval"
 
 const string = z.string()
 const nullableString = string.nullable()
-const channelTypeSchema = z.enum(["text", "forum"])
-const mentionTypeSchema = z.literal("everyone")
-
-const friendApprovalProfileSchema = z.strictObject({
-  id: string,
-  name: string,
-  discriminator: string,
-  image: nullableString,
-  avatarVersion: z.number().int().nonnegative(),
-})
-
-export const FriendApprovalPayloadSchema = z.strictObject({
-  friendshipId: string,
-  status: z.enum(["pending", "approved", "denied", "superseded", "cancelled"]),
-  waitingOn: z.enum(["you", "other-owner", "addressee"]).nullable(),
-  otherProfile: friendApprovalProfileSchema,
-  botProfile: friendApprovalProfileSchema,
-  waitingOnProfile: friendApprovalProfileSchema.nullable().optional(),
-})
+const channelTypeSchema = CommunityChannelResourceSchema.shape.type.extract(["text", "forum"])
 
 const messageAttachmentSchema = z.strictObject({
   id: string,
@@ -34,30 +21,22 @@ const messageAttachmentSchema = z.strictObject({
   height: z.number().nullable().optional(),
 })
 
-const messageSchema = z.strictObject({
+const messageSchema = CommunityMessageResourceSchema.pick({
+  content: true, type: true, systemKind: true, authorAvatar: true, authorAvatarVersion: true,
+  mentionType: true, embeds: true, createdAt: true, approval: true,
+}).extend({
   id: string,
   seq: z.number(),
   authorId: string,
   authorName: string,
-  authorAvatar: string.optional(),
-  authorAvatarVersion: z.number().int().nonnegative(),
-  content: string,
-  type: z.enum(["chat", "system"]),
-  systemKind: z.literal("thread").optional(),
-  mentionType: mentionTypeSchema.nullable().optional(),
+  authorAvatarVersion: CommunityMessageResourceSchema.shape.authorAvatarVersion.unwrap(),
   replyToId: nullableString.optional(),
-  replyTo: z.strictObject({
+  replyTo: CommunityMessageResourceSchema.shape.replyTo.unwrap().extend({
     id: string,
     authorId: string.optional(),
-    authorName: string,
-    text: string,
-    deleted: z.boolean().optional(),
   }).optional(),
-  embeds: z.array(z.unknown()).optional(),
   attachments: z.array(messageAttachmentSchema).optional(),
-  createdAt: string,
   clientNonce: string.optional(),
-  approval: FriendApprovalPayloadSchema.optional(),
 })
 
 const communityMessageCreateSchema = z.strictObject({
@@ -236,7 +215,7 @@ const communityChannelMembershipChangeSchema = z.strictObject({
   channelId: string,
   serverId: string.nullable(),
   userId: string,
-  relation: z.enum(["access", "notify"]),
+  relation: CommunityMemberRelationSchema.shape.relation,
   present: z.boolean(),
 })
 
@@ -599,8 +578,6 @@ export type CommunityMachineRemoved = Extract<CommunityWsEvent, { type: "communi
 export type CommunityBotAuditEvent = Extract<CommunityWsEvent, { type: "community:bot.audit_event" }>
 export type CommunityMachineSummary = z.infer<typeof CommunityMachineSummarySchema>
 export type CommunityMachineRuntime = CommunityMachineSummary["availableRuntimes"][number]
-export type FriendApprovalPayload = z.infer<typeof FriendApprovalPayloadSchema>
-export type FriendApprovalProfile = FriendApprovalPayload["otherProfile"]
 
 export type BotAddedFrame = {
   type: "bot:added"

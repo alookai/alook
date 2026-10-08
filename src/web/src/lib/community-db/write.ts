@@ -27,15 +27,17 @@ export function writeCommunityCollectionRows<T extends object>(
       writeUpsert: (rows: T[]) => void
     }
   }
+  const committed = registry.queryClient.getQueryData<T[]>(communityKeys.communityDbCollection(registry.scopeId, name))
   if (collection.status !== "ready") {
+    const previousByKey = new Map((committed ?? []).map((row) => [getKey(row), businessRow(row)]))
+    const next = rows.map((row) => ({ ...previousByKey.get(getKey(row)), ...businessRow(row) }))
     registry.queryClient.setQueryData(
       communityKeys.communityDbCollection(registry.scopeId, name),
-      rows,
+      next,
     )
     recordRows(registry.queryClient, name, registry.queryClient.getQueryData<T[]>(communityKeys.communityDbCollection(registry.scopeId, name)) ?? rows, getKey)
     return
   }
-  const committed = registry.queryClient.getQueryData<T[]>(communityKeys.communityDbCollection(registry.scopeId, name))
   const previousByKey = committed === undefined ? undefined : new Map(committed.map((row) => [collection.getKeyFromItem(row), row]))
   const nextKeys = new Set(rows.map(getKey))
   const removed = Array.from(previousByKey?.keys() ?? collection.keys()).filter((key) => !nextKeys.has(key))

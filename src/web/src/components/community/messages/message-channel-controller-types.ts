@@ -3,6 +3,8 @@ import type { MentionType } from "@alook/shared"
 import type { FileAttachment, ImagePreview, Msg } from "@/lib/community/models/message"
 import type { SendAttachment } from "./composer"
 import type { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
+import type { ReplyTarget } from "@/lib/community/models/message"
+export type { ReplyTarget } from "@/lib/community/models/message"
 
 type MessageFeed = ReturnType<typeof useChannelMessageFeed>
 
@@ -16,12 +18,6 @@ export type MessageUiHandlers = {
   navigate?: (serverId: string, channelId: string) => void
   previewImage?: (image: ImagePreview) => void
   previewAttachment?: (attachment: FileAttachment) => void
-}
-
-export type ReplyTarget = {
-  id: string
-  authorName: string
-  text: string
 }
 
 export type MessageContextTarget = {

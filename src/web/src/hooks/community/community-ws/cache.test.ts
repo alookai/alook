@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest"
 import type { CommunityReactionAdd, CommunityReactionRemove } from "@alook/shared"
-import type { Msg } from "@/lib/community/models/message"
+import { applyMessageReaction, type Msg } from "@/lib/community/models/message"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { ingestMessages, projectCommunityWsEventToDb } from "@/lib/community-db/sync"
 import { findCachedMessage } from "../use-message"
-import { applyReactionToMessage, removeThreadFromCache, type PageCache } from "./cache"
+import { removeThreadFromCache, type PageCache } from "./cache"
 
 function pageCache(...pages: Msg[][]): PageCache {
   return { pages: pages.map((messages) => ({ messages: messages.map(({ id, seq }) => ({ id, seq })), hasMore: false })), pageParams: pages.map(() => null) }
@@ -44,13 +44,13 @@ describe("community WS canonical publication and ID windows", () => {
   })
   it("adds, deduplicates and removes reactions without mutating the source", () => {
     const message: Msg = { id: "m_1", reactions: [{ emoji: "👍", count: 1, me: false, userIds: ["u_1"] }] }
-    const added = applyReactionToMessage(message, add, "u_me")
-    const duplicate = applyReactionToMessage(added, add, "u_me")
-    const removed = applyReactionToMessage(duplicate, remove, "u_me")
+    const added = applyMessageReaction(message.reactions, add.emoji, add.userId, true, "u_me")
+    const duplicate = applyMessageReaction(added, add.emoji, add.userId, true, "u_me")
+    const removed = applyMessageReaction(duplicate, remove.emoji, remove.userId, false, "u_me")
     expect(message.reactions).toEqual([{ emoji: "👍", count: 1, me: false, userIds: ["u_1"] }])
-    expect(added.reactions).toEqual([{ emoji: "👍", count: 2, me: true, userIds: ["u_1", "u_me"] }])
-    expect(duplicate.reactions).toEqual(added.reactions)
-    expect(removed.reactions).toEqual(message.reactions)
+    expect(added).toEqual([{ emoji: "👍", count: 2, me: true, userIds: ["u_1", "u_me"] }])
+    expect(duplicate).toEqual(added)
+    expect(removed).toEqual(message.reactions)
   })
   it("patches canonical reactions and removes the last membership", async () => {
     const { client, registry } = await createCommunityQueryOwner("u_me")

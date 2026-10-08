@@ -16,6 +16,32 @@ beforeEach(() => {
   mocks.users.mockResolvedValue(["viewer", "peer"].map((id) => ({ id, name: id, discriminator: "1234", image: null, avatarVersion: 0, email: "private@example.test" })))
 })
 describe("common member relations", () => {
+  it("keeps the current notify roster distinct from readable users", async () => {
+    mocks.access.mockResolvedValue({ ok: true, value: { surface: "channel", channel: { id: "thread", type: "thread", serverId: "server", creatorId: "viewer" } } })
+    mocks.participants.mockResolvedValue([{ userId: "viewer", source: "spoke" }, { userId: "deleted", source: "added" }])
+    mocks.users.mockResolvedValue([{ id: "viewer", name: "Viewer", discriminator: "1234", image: null, avatarVersion: 0, email: "private@example.test" }])
+    mocks.serverMembers.mockResolvedValue([{ id: "member", userId: "viewer", role: "admin", statusEmoji: "👍", statusText: "here" }])
+    const response = await readCommunityMembers({} as never, "thread", "viewer", "notify")
+    expect(await response.json()).toMatchObject({ channelId: "thread", relation: "notify", members: [{ userId: "viewer", source: "spoke", isCreator: true, role: "admin", memberId: "member" }], profiles: [{ id: "viewer", statusEmoji: "👍", statusText: "here" }] })
+    expect(mocks.participants).toHaveBeenCalledWith({}, "thread")
+    expect(mocks.audience).not.toHaveBeenCalled()
+    expect(mocks.resolve).not.toHaveBeenCalled()
+  })
+  it.each(["text", "forum"])("resolves the %s access audience rather than notify participants", async (type) => {
+    mocks.access.mockResolvedValue({ ok: true, value: { surface: "channel", channel: { id: "parent", type, serverId: "server", creatorId: "viewer" } } })
+    mocks.resolve.mockResolvedValue([{ userId: "viewer", source: "admin" }])
+    mocks.users.mockResolvedValue([{ id: "viewer", name: "Viewer", image: null, avatarVersion: 0 }])
+    mocks.serverMembers.mockResolvedValue([])
+    const response = await readCommunityMembers({} as never, "parent", "viewer", "access")
+    expect(await response.json()).toMatchObject({ members: [{ channelId: "parent", userId: "viewer", relation: "access", source: "admin" }] })
+    expect(mocks.resolve).toHaveBeenCalledWith({}, { scope: type === "forum" ? "forum" : "channel", scopeId: "parent" })
+    expect(mocks.participants).not.toHaveBeenCalled()
+  })
+  it("does not hydrate members when the readable DM no longer has metadata", async () => {
+    mocks.channel.mockResolvedValue(null)
+    expect((await readCommunityMembers({} as never, "dm", "viewer", "access")).status).toBe(404)
+    expect(mocks.users).not.toHaveBeenCalled()
+  })
   it("retains both DM participants without server membership or email fields", async () => {
     const response = await readCommunityMembers({} as never, "dm", "viewer", "access")
     const body = await response.json()

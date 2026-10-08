@@ -96,9 +96,15 @@ vi.mock("@/hooks/community/mutations", () => ({
   useEditMessage: () => ({ mutate: mutationMocks.editMessage }),
   useCreateThread: () => ({ mutateAsync: mutationMocks.createThread }),
   useUploadFile: () => ({ mutateAsync: mutationMocks.uploadFile }),
-  zipUploadResultsWithDimensions: () => [],
+}))
+vi.mock("@/hooks/community/mutations/messages", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/hooks/community/mutations/messages")>(),
   sendNonce: () => "nonce_1",
   tempMessageId: () => "temp_1",
+}))
+vi.mock("@/hooks/community/mutations/uploads", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/hooks/community/mutations/uploads")>(),
+  zipUploadResultsWithDimensions: () => [],
 }))
 vi.mock("@/hooks/community/use-community-ws", () => ({
   communityWsSendTyping: vi.fn(),

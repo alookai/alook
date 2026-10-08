@@ -156,6 +156,22 @@ describe("GET /api/community/channels/[id]/threads", () => {
     expect(mockListMessages).not.toHaveBeenCalled()
   })
 
+  it("loads requested included resources for the regular child collection through the same scoped batches", async () => {
+    mockListChildChannels.mockResolvedValue([{ id: "t1", parentMessageId: "opener1" }])
+    mockGetMessagesByIds.mockResolvedValue([{ id: "opener1", channelId: "c1" }])
+    mockGetFirstMessageByChannelIds.mockResolvedValue([{ channelId: "t1", content: "first" }])
+    mockListTagsForMessages.mockResolvedValue([{ messageId: "opener1", tag: "bug" }])
+    mockListParticipantsForChannels.mockResolvedValue([{ channelId: "t1", userId: "u1" }])
+    const response = await GET(req("http://localhost/api/community/channels/c1/threads?include=parentMessage,firstMessage,tags,participants"), ctx)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ threads: [{ id: "t1" }], hasMore: false, included: {
+      parentMessages: [{ id: "opener1", channelId: "c1" }], firstMessages: [{ channelId: "t1", content: "first" }],
+      tags: [{ messageId: "opener1", tag: "bug" }], participants: [{ channelId: "t1", userId: "u1" }],
+    } })
+    expect(mockGetMessagesByIds).toHaveBeenCalledWith(expect.anything(), ["opener1"], { channelId: "c1" })
+    expect(mockListParticipantsForChannels).toHaveBeenCalledWith(expect.anything(), ["t1"], 5)
+  })
+
   it("keeps non-forum child collections unchanged without querying archive tags", async () => {
     mockResolveChannelAccessContext.mockResolvedValue({
       channel: { id: "c1", serverId: "s1", parentChannelId: null, creatorId: null, type: "text" },

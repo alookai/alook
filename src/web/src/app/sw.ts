@@ -2,6 +2,9 @@
 import type { PrecacheEntry, SerwistGlobalConfig } from "serwist"
 import { Serwist } from "serwist"
 import { isPublicAssetResponse, restrictPublicPrecacheRoutes } from "../lib/service-worker/public-cache"
+import { publicWorkerCacheNames } from "../lib/service-worker/cache-identity"
+
+import { clearOutdatedPublicWorkerCaches } from "../lib/service-worker/public-cache-storage"
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -13,10 +16,10 @@ declare const self: ServiceWorkerGlobalScope
 
 const serwist = new Serwist({
   precacheEntries: self.__SW_MANIFEST,
-  cacheId: "alook-public-v1",
+  cacheId: publicWorkerCacheNames().cacheId,
   clientsClaim: true,
   precacheOptions: {
-    cacheName: "alook-public-precache-v1",
+    cacheName: publicWorkerCacheNames().precache,
     cleanURLs: false,
     directoryIndex: null,
     ignoreURLParametersMatching: [],
@@ -29,3 +32,5 @@ const serwist = new Serwist({
 
 restrictPublicPrecacheRoutes(serwist, self.location.origin)
 serwist.addEventListeners()
+
+self.addEventListener("activate", event => event.waitUntil(clearOutdatedPublicWorkerCaches()))

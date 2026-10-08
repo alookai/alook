@@ -43,7 +43,7 @@ function holdRead(id: string) {
   let held = false
   vi.spyOn(IDBObjectStore.prototype, "get").mockImplementation(function (this: IDBObjectStore, requestKey: IDBValidKey | IDBKeyRange) {
     const request = original.call(this, requestKey)
-    if (requestKey === `alook:qc:v3:${id}:client` && !held) {
+    if (requestKey === `alook:qc:${PERSIST_BUSTER}:${id}:client` && !held) {
       held = true
       let success: IDBRequest["onsuccess"] = null
       Object.defineProperty(request, "onsuccess", {

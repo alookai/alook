@@ -52,7 +52,7 @@ vi.mock("@/components/community/channels/conversation-resolution-error-frame", (
   ConversationResolutionErrorFrame: ({ onRetry }: { onRetry: () => void }) => React.createElement("button", { onClick: onRetry, "data-testid": "history-error" }, "Retry"),
 }))
 vi.mock("@/hooks/community/use-channel-metadata", () => ({
-  useChannelMetadata: () => ({ isVerified: true, data: { historyVerification: mockHistory.allowed ? {} : undefined } }),
+  useChannelMetadata: () => ({ canRead: mockHistory.allowed, denied: false, data: { readProof: mockHistory.allowed ? {} : undefined } }),
 }))
 vi.mock("@/hooks/community/channel-metadata", () => ({ isChannelMetadataTokenCurrent: () => true }))
 vi.mock("@/lib/community/last-community-route", () => ({ commitCommunityChannelRoute: mockCommitRoute }))

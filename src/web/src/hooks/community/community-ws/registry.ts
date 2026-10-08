@@ -191,7 +191,7 @@ export function dispatchCommunityWsEvents(
       receipts.push(receipt)
       withSource(context.queryClient, "ws", () => {
         entry.handler(event, handlerContext)
-        projectCommunityWsEventToDb(context.queryClient, event)
+        if (event.type !== "community:message.create") projectCommunityWsEventToDb(context.queryClient, event)
       }, receipt)
       if ([
         "community:server.delete",

@@ -66,7 +66,6 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useConversationNavigationGate } from "@/lib/community/conversation-navigation-proof"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { useChannelMetadata } from "@/hooks/community/use-channel-metadata"
-import { isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
 import { ConversationResolutionErrorFrame } from "./conversation-resolution-error-frame"
 import { isConversationAccessError } from "@/lib/community/conversation-read"
 import { useDmSeqContext } from "./use-dm-seq-context"
@@ -108,9 +107,7 @@ export function DmView({ dmId }: { dmId: string }) {
   const { friends: rawFriends, blocked } = useFriends()
   const dm = useMemo(() => dms.find((candidate) => candidate.id === dmId) ?? null, [dms, dmId])
   const dmBlocked = !!dm && blocked.some((b) => (b.userId ?? b.id) === dm.userId)
-  const readingProof = metadata.data?.fullReadVerification ?? metadata.data?.historyVerification
-  const historyAllowed = !dmBlocked && metadata.isVerified && !!readingProof
-    && isChannelMetadataTokenCurrent(readingProof)
+  const historyAllowed = !dmBlocked && metadata.canRead
   const profilesByUserId = useCanonicalProfilesByUserId()
   // Enrich with presence — the Composer @-picker uses `f.status` to render
   // the avatar presence dot; without this enrichment every avatar shows offline.
@@ -140,7 +137,7 @@ export function DmView({ dmId }: { dmId: string }) {
   // wiring so both surfaces open with the same anchor-window UX.
   const canonicalReadSnapshot = useReadStateProjection(dmId)
   const { snapshot: readSnapshot, isFetching: readSnapshotFetching, error: readError, retry: retryRead, retrying: retryingRead } =
-    useDmReadStateSnapshot(dmId, canonicalReadSnapshot)
+    useDmReadStateSnapshot(metadata.denied ? null : dmId, historyAllowed ? canonicalReadSnapshot : undefined)
 
   // Anchor the initial page on the viewer's read pointer. Pass `undefined`
   // (not `null`) while the snapshot resolves — the hook's initialPageParam
@@ -466,7 +463,7 @@ export function DmView({ dmId }: { dmId: string }) {
         className="flex min-h-0 flex-1 flex-col"
       >
         <ConversationFooterSlotProvider>
-          {!historyAllowed && readError ? <ConversationResolutionErrorFrame as="div" onRetry={retryRead} retrying={retryingRead} /> : <MessageList
+          {metadata.denied && !dmBlocked ? <div role="alert" className="flex min-h-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground">You can no longer read this conversation.</div> : !historyAllowed && readError ? <ConversationResolutionErrorFrame as="div" onRetry={retryRead} retrying={retryingRead} /> : <MessageList
             key={dmId}
             variant="dm"
             channel={dm.name}
@@ -523,7 +520,7 @@ export function DmView({ dmId }: { dmId: string }) {
               >
                 You have blocked this user. Unblock to send messages.
               </div>
-            ) : !historyAllowed ? <ComposerSkeleton /> : (
+            ) : metadata.denied ? null : !historyAllowed ? <ComposerSkeleton /> : (
               <Composer
                 sendContract="accepted"
                 channel={dm.name}

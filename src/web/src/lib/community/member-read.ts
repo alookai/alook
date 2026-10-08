@@ -3,6 +3,7 @@ import { requireMessageSurfaceAccess } from "./permissions"
 import { writeError } from "@/lib/middleware/helpers"
 import { writeCommunityContractJSON } from "./read-contract"
 import { canonicalUserImage } from "./storage"
+import { resourceProfile } from "./participant-resources"
 
 export async function readCommunityMembers(db: Database, channelId: string, userId: string, relation: string | null) {
   const access = await requireMessageSurfaceAccess(db, channelId, userId)
@@ -22,7 +23,7 @@ export async function readCommunityMembers(db: Database, channelId: string, user
       ? queries.communityMember.getMembersByUserIds(db, channel.serverId, ids) : Promise.resolve([]),
   ])
   const memberByUser = new Map(serverMembers.map((row) => [row.userId, row]))
-  const profiles = users.map((row) => ({ id: row.id, name: row.name ?? "", discriminator: row.discriminator ?? null,
+  const profiles = users.map((row) => resourceProfile({ id: row.id, name: row.name ?? "", discriminator: row.discriminator ?? null,
     avatar: canonicalUserImage(row.id, row.image, row.avatarVersion), avatarVersion: row.avatarVersion,
     statusEmoji: memberByUser.get(row.id)?.statusEmoji ?? null, statusText: memberByUser.get(row.id)?.statusText ?? "" }))
   const available = new Set(profiles.map((profile) => profile.id))

@@ -1,11 +1,12 @@
 "use client"
+import { useMemo } from "react"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 
 
 import { useMutationState, useQuery, useQueryClient, type QueryClient, type UseQueryResult } from "@tanstack/react-query"
 import { communityRequestOptions } from "@/lib/community-db/sync"
 import { apiFetch } from "@/lib/api/client"
-import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
+import { apiFetchCommunity, communityRequestOptions as qualifiedCommunityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { communityKeys } from "@/lib/query-keys"
 import type { Thread, Msg } from "@/lib/community/models/message"
 import {
@@ -19,8 +20,9 @@ import {
   publishCommunityForumFeed,
   assertCommunityLiveSnapshotTokenCurrent,
 } from "@/lib/community-db/sync"
-import { communityRequestOptions as qualifiedCommunityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import type { CommunityFreshQueryProof } from "@/lib/community-db/sync"
+import { normalizeThreadResources, projectThread, type ForumFeedTransportPage } from "./forum-feed-window"
+import type { CommunityThreadsRead } from "@alook/shared"
 import type { ChannelRow } from "@/lib/community-db/schema"
 
 /**
@@ -39,79 +41,30 @@ export type ThreadsResponse = {
   parentChannelId: string
 }
 
-type RawThread = {
-  id: string
-  name: string
-  type: string
-  creatorId: string | null
-  parentMessageId: string | null
-  messageCount: number | null
-  lastMessageAt: string | null
-  createdAt: string
-}
-type BatchMessage = {
-  id: string
-  channelId: string
-  content: string
-  seq: number
-  authorId: string
-  authorName: string
-  authorImage: string | null
-}
-type FirstMessagePreview = { channelId: string; content: string }
-type ParticipantRow = { channelId: string; userId: string; userName: string | null; userImage: string | null; addedAt: string; participantCount?: number }
-
-async function loadThreadResources(queryClient: QueryClient, channelId: string, proof: CommunityFreshQueryProof, tag?: string | null) {
+async function loadThreadResources(queryClient: QueryClient, channelId: string, proof: CommunityFreshQueryProof) {
   const options = qualifiedCommunityRequestOptions(queryClient, proof.token, proof.signal)
-  const query = tag ? `?tag=${encodeURIComponent(tag)}` : ""
-  const { threads, parentType, serverId } = await apiFetch<{
-    threads: RawThread[]
-    parentType: string
-    serverId: string
-  }>(
-    `/api/community/channels/${channelId}/threads${query}`,
-    options,
-  )
+  const response = await apiFetch<ForumFeedTransportPage | CommunityThreadsRead>(`/api/community/channels/${channelId}/threads?include=parentMessage,firstMessage,tags,participants`, options)
   assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
-  const openerIds = threads.map((thread) => thread.parentMessageId).filter((id): id is string => !!id)
-  const threadIds = threads.map((thread) => thread.id)
-  const [messageBatch, tagBatch, participantBatch] = await Promise.all([
-    apiFetch<{ messages: BatchMessage[]; firstMessages: FirstMessagePreview[] }>("/api/community/messages/batch", {
-      method: "POST",
-      body: JSON.stringify({ channelId, ids: openerIds, firstInChannelIds: threadIds }),
-      ...options,
-    }),
-    apiFetch<{ tags: { messageId: string; tag: string }[] }>("/api/community/messages/tags/batch", {
-      method: "POST",
-      body: JSON.stringify({ channelId, messageIds: openerIds }),
-      ...options,
-    }),
-    apiFetch<{ participants: ParticipantRow[] }>("/api/community/channels/participants/batch", {
-      method: "POST",
-      body: JSON.stringify({ parentChannelId: channelId, channelIds: threadIds }),
-      ...options,
-    }),
+  if ("contractVersion" in response || response.included) return normalizeThreadResources(channelId, response)
+  const openerIds = response.threads.flatMap((thread) => thread.parentMessageId ? [thread.parentMessageId] : [])
+  const threadIds = response.threads.map((thread) => thread.id)
+  const [messages, tags, participants] = await Promise.all([
+    apiFetch<Pick<ForumFeedTransportPage["included"], "parentMessages" | "firstMessages"> & { messages: ForumFeedTransportPage["included"]["parentMessages"] }>("/api/community/messages/batch", { method: "POST", body: JSON.stringify({ channelId, ids: openerIds, firstInChannelIds: threadIds }), ...options }),
+    apiFetch<Pick<ForumFeedTransportPage["included"], "tags">>("/api/community/messages/tags/batch", { method: "POST", body: JSON.stringify({ channelId, messageIds: openerIds }), ...options }),
+    apiFetch<Pick<ForumFeedTransportPage["included"], "participants">>("/api/community/channels/participants/batch", { method: "POST", body: JSON.stringify({ parentChannelId: channelId, channelIds: threadIds }), ...options }),
   ])
-  return { threads, parentType, serverId, openerIds, ...messageBatch, ...tagBatch, ...participantBatch }
+  return normalizeThreadResources(channelId, { ...response, hasMore: false, included: { parentMessages: messages.messages.map((message) => ({ ...message, authorAvatarVersion: message.authorAvatarVersion ?? 0 })), firstMessages: messages.firstMessages, tags: tags.tags, participants: participants.participants.map((participant) => ({ ...participant, userAvatarVersion: participant.userAvatarVersion ?? 0 })) } })
 }
 
 export const threadsQueryFn = (channelId: string, queryClient: QueryClient) => async ({ signal }: { signal?: AbortSignal } = {}) => {
-  const token = captureCommunityLiveSnapshotToken(queryClient), registry = getCommunityDbRegistry(queryClient)
+  const token = captureCommunityLiveSnapshotToken(queryClient, channelId), registry = getCommunityDbRegistry(queryClient)
   await registry?.ready
   assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
   await Promise.all([registry!.collections.channels.preload(), registry!.collections.messages.preload(), registry!.collections.channelMemberships.preload()])
   assertCommunityLiveSnapshotTokenCurrent(queryClient, token, signal)
   const data = await loadThreadResources(queryClient, channelId, { token, signal })
-  publishCommunityForumFeed(queryClient, channelId, {
-    serverId: data.serverId, parentType: data.parentType, hasMore: false,
-    threads: data.threads.map((thread) => ({ ...thread, activityAt: thread.lastMessageAt ?? thread.createdAt })),
-    included: {
-      parentMessages: data.messages.map((message) => ({ ...message, authorAvatarVersion: 0 })),
-      firstMessages: data.firstMessages, tags: data.tags,
-      participants: data.participants.map((participant) => ({ ...participant, userAvatarVersion: 0 })),
-    },
-  }, { token, signal })
-  return { threads: data.threads.map((thread) => ({ id: thread.id, ...(thread.parentMessageId ? { openerMessageId: thread.parentMessageId } : {}) })), parentType: data.parentType, serverId: data.serverId, parentChannelId: channelId }
+  publishCommunityForumFeed(queryClient, channelId, data, { token, signal })
+  return { threads: data.threads.map((thread) => ({ id: thread.id, ...(thread.parentMessageId ? { openerMessageId: thread.parentMessageId } : {}) })), parentType: data.channel.type, serverId: data.channel.serverId ?? "", parentChannelId: channelId }
 }
 
 export function materializeThreadsResponse(data: ThreadsResponse | undefined, messages: ReadonlyMap<string, Msg> | undefined, channels: ReadonlyMap<string, ChannelRow>): Thread[] {
@@ -119,7 +72,8 @@ export function materializeThreadsResponse(data: ThreadsResponse | undefined, me
   return data.threads.flatMap((window) => {
     const thread = channels.get(window.id), opener = window.openerMessageId ? messages?.get(window.openerMessageId) : undefined
     if (!thread || (window.openerMessageId && !opener) || thread.archived) return []
-    return [{ id: thread.id, name: data.parentType === "forum" ? (opener?.content?.trim() ? opener.content : thread.name || "Post") : thread.name, messageCount: thread.messageCount ?? 0, lastMessageAt: thread.lastMessageAt ?? thread.createdAt ?? "", parent: { authorId: opener?.authorId, authorName: opener?.authorName ?? "", text: (data.parentType === "forum" ? thread.preview ?? "" : opener?.content ?? thread.preview ?? "").slice(0, 100) }, ...(opener?.seq === undefined ? {} : { parentSeq: opener.seq }), ...(window.openerMessageId ? { openerMessageId: window.openerMessageId } : {}) }]
+    const core = projectThread(thread, opener, data.parentType)
+    return [{ ...core, lastMessageAt: thread.lastMessageAt ?? thread.createdAt ?? "", parent: { ...core.parent, text: core.parent.text.slice(0, 100) }, ...(window.openerMessageId ? { openerMessageId: window.openerMessageId } : {}) }]
   })
 }
 
@@ -127,7 +81,6 @@ export function useThreads(channelId: string | null): UseQueryResult<ThreadsResp
   threads: Thread[]
 } {
   const queryClient = useQueryClient()
-  const canonicalMessages = useCanonicalMessagesById()
   const channels = useCanonicalChannelsById()
   const enabled = !!channelId
   const query = useQuery({
@@ -137,6 +90,8 @@ export function useThreads(channelId: string | null): UseQueryResult<ThreadsResp
       : (() => Promise.reject(new Error("disabled"))),
     enabled,
   })
+  const messageIds = useMemo(() => query.data?.threads.flatMap((thread) => thread.openerMessageId ? [thread.openerMessageId] : []) ?? [], [query.data?.threads])
+  const canonicalMessages = useCanonicalMessagesById(messageIds)
   const threads = materializeThreadsResponse(query.data, canonicalMessages, channels)
   return {
     ...query,
@@ -156,20 +111,17 @@ export function useForumTags(channelId: string | null, enabled: boolean) {
  * Fetches the pinned-message list for a channel. Server-side hydrates the
  * author + content so no follow-up fetch is needed.
  */
-export type PinsResponse = { pins: Msg[] }
+export type PinsResponse = { pins: Array<Pick<Msg, "id" | "seq" | "authorId" | "authorName" | "authorAvatar" | "authorAvatarVersion" | "content" | "createdAt">> }
 export type PinsWindowResponse = { pins: Array<{ id: string }> }
 
 export const pinsQueryFn = (channelId: string, queryClient: QueryClient) =>
   async ({ signal }: { signal?: AbortSignal } = {}) => {
-    const publicationToken = queryClient
-      ? captureCommunityLiveSnapshotToken(queryClient)
-      : null
-    const data = await apiFetchProfiles<PinsResponse>(
+    const publicationToken = captureCommunityLiveSnapshotToken(queryClient, channelId)
+    const data = await apiFetchCommunity<PinsResponse>(
       `/api/community/channels/${channelId}/pins`,
-      (response) => messageProfilePatches(response.pins),
-      signal ? { signal } : undefined, getCommunityDbRegistry(queryClient),
+      signal ? { signal } : undefined, publicationToken,
     )
-    if (queryClient && publicationToken) {
+    {
       publishCommunityEmbeddedMessages(queryClient, {
         entries: data.pins.map((message) => ({ channelId, message })),
         proof: { token: publicationToken, signal },
@@ -182,7 +134,6 @@ export function usePins(channelId: string | null): UseQueryResult<PinsWindowResp
   pins: Msg[]
 } {
   const queryClient = useQueryClient()
-  const canonicalMessages = useCanonicalMessagesById()
   const enabled = !!channelId
   const query = useQuery({
     queryKey: enabled ? communityKeys.pins(channelId!) : communityKeys.pins("__none__"),
@@ -192,10 +143,14 @@ export function usePins(channelId: string | null): UseQueryResult<PinsWindowResp
     enabled,
   })
   const pending = useMutationState({ filters: { mutationKey: ["community", "pin-command"], status: "pending" }, select: (mutation) => ({ channelId: (mutation.state.variables as { channelId: string }).channelId, messageId: (mutation.state.variables as { messageId: string }).messageId, pinned: mutation.options.mutationKey?.[2] === "pin" }) })
-  const ids = new Set(query.data?.pins.map((row) => row.id) ?? [])
-  for (const command of pending) if (command.channelId === channelId) { if (command.pinned) ids.add(command.messageId); else ids.delete(command.messageId) }
+  const ids = useMemo(() => {
+    const ids = new Set(query.data?.pins.map((row) => row.id) ?? [])
+    for (const command of pending) if (command.channelId === channelId) { if (command.pinned) ids.add(command.messageId); else ids.delete(command.messageId) }
+    return [...ids]
+  }, [query.data?.pins, pending, channelId])
+  const canonicalMessages = useCanonicalMessagesById(ids)
   return {
     ...query,
-    pins: materializeCanonicalMessages([...ids].map((id) => ({ id })), canonicalMessages),
+    pins: materializeCanonicalMessages(ids.map((id) => ({ id })), canonicalMessages),
   }
 }

@@ -37,7 +37,7 @@ import {
 import { getCanonicalCommunityChannels, getCanonicalCommunityMessages } from "@/lib/community-db/sync"
 import * as canonicalSync from "@/lib/community-db/sync"
 import { useCommunityStore } from "@/stores/community"
-import { getMessageOverlay } from "@/stores/community/message-stream"
+import { getMessageStreamState } from "@/test/community-query-owner"
 import {
   SEEN_DELIVERY_OPERATION_MAX,
   SEEN_DELIVERY_OPERATION_TRIM_TO,
@@ -589,7 +589,7 @@ describe("useCommunityWs — operation bundles", () => {
     capturedOnMessage!(first)
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     const seenMessages = getCapturedRuntime().ws.get().seenMessageIds.size
-    const overlayBeforeConflict = getMessageOverlay(capturedQueryClient, {
+    const overlayBeforeConflict = getMessageStreamState(capturedQueryClient, {
       kind: "channel",
       id: "ch-1",
       serverId: "s1",
@@ -598,7 +598,7 @@ describe("useCommunityWs — operation bundles", () => {
 
     capturedOnMessage!(conflicting)
     expect(getCapturedRuntime().ws.get().seenMessageIds.size).toBe(seenMessages)
-    expect(getMessageOverlay(capturedQueryClient, { kind: "channel", id: "ch-1", serverId: "s1" }))
+    expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "ch-1", serverId: "s1" }))
       .toStrictEqual(overlayBeforeConflict)
     expect(vi.mocked(capturedQueryClient.invalidateQueries))
       .toHaveBeenCalledTimes(invalidationsBeforeConflict)
@@ -651,8 +651,7 @@ describe("useCommunityWs — operation bundles", () => {
     expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
     expect(getCapturedRuntime().ws.get().seenDeliveryOperations.get(frame.operationId))
       .toEqual({ digest: frame.operationDigest, completed: false })
-    expect(getMessageOverlay(capturedQueryClient, { kind: "channel", id: "ch-1", serverId: "s1" })
-      .liveById.has("message-before-second-child-fault")).toBe(true)
+    expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "ch-1", serverId: "s1" }).liveIds.includes("message-before-second-child-fault")).toBe(true)
 
     recordArrival.mockRestore()
     const invalidationsAfterFailure = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
@@ -660,8 +659,8 @@ describe("useCommunityWs — operation bundles", () => {
     expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(2)
     expect(getCapturedRuntime().ws.get().seenDeliveryOperations.get(frame.operationId))
       .toEqual({ digest: frame.operationDigest, completed: false })
-    expect(getMessageOverlay(capturedQueryClient, { kind: "channel", id: "ch-1", serverId: "s1" })
-      .liveById.get("message-before-second-child-fault")?.content).toBe("hello")
+    expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "ch-1", serverId: "s1" }).liveIds).toContain("message-before-second-child-fault")
+    expect(canonicalMessage("message-before-second-child-fault")?.content).toBe("hello")
     expect(vi.mocked(capturedQueryClient.invalidateQueries))
       .toHaveBeenCalledTimes(invalidationsAfterFailure)
 
@@ -670,7 +669,7 @@ describe("useCommunityWs — operation bundles", () => {
     expect(getCapturedRuntime().ws.get().seenDeliveryOperations.get(frame.operationId))
       .toEqual({ digest: frame.operationDigest, completed: true })
     expect(getCapturedRuntime().ws.get().seenMessageIds.size).toBe(1)
-    expect(getMessageOverlay(capturedQueryClient, { kind: "channel", id: "ch-1", serverId: "s1" }).liveById.size)
+    expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "ch-1", serverId: "s1" }).liveIds.length)
       .toBe(1)
     expect(unreadProjection.projectServerChannelUnread(
       "s1",
@@ -730,13 +729,14 @@ describe("useCommunityWs — operation bundles", () => {
     })
     const { captureChannelMetadataToken } = await import("@/hooks/community/channel-metadata")
     const verification = captureChannelMetadataToken(capturedQueryClient, "ch-1")
-    capturedQueryClient.setQueryData(communityKeys.channelMeta("s1", "ch-1"), { id: "ch-1", serverId: "s1", verifiedEpoch: verification.accessEpoch, verification })
+    capturedQueryClient.setQueryData(communityKeys.channelMeta("s1", "ch-1"), { id: "ch-1", serverId: "s1", identityProof: verification, readProof: verification })
     vi.spyOn(capturedQueryClient, "invalidateQueries")
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     const originalPublish = canonicalSync.projectCommunityWsEventToDb
     const publish = vi.spyOn(canonicalSync, "projectCommunityWsEventToDb").mockImplementation((client, event) => {
-      originalPublish(client, event)
+      const result = originalPublish(client, event)
       if (event.type === "community:channel.child_update") throw new Error("partial parent projection fault")
+      return result
     })
     const frame = await batchFor("message-projection-fault", [
       {
@@ -862,7 +862,7 @@ describe("useCommunityWs — operation bundles", () => {
           .mockImplementationOnce(() => { throw new Error("later child fault") })
         const { captureChannelMetadataToken } = await import("@/hooks/community/channel-metadata")
     const verification = captureChannelMetadataToken(capturedQueryClient, "ch-1")
-    capturedQueryClient.setQueryData(communityKeys.channelMeta("s1", "ch-1"), { id: "ch-1", serverId: "s1", verifiedEpoch: verification.accessEpoch, verification })
+    capturedQueryClient.setQueryData(communityKeys.channelMeta("s1", "ch-1"), { id: "ch-1", serverId: "s1", identityProof: verification, readProof: verification })
     vi.spyOn(capturedQueryClient, "invalidateQueries")
         const messageId = `retry-${retryTiming}`
         const frame = await batchFor(messageId, [

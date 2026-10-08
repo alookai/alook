@@ -271,6 +271,17 @@ describe("broadcastToUser", () => {
     },
   )
 
+  it.each([undefined, "1", "2"])("projects committed membership for producer contract %s before transport", async contract => {
+    const bindingFetch = vi.fn(async () => Response.json({ sent: 1 }))
+    mockGetCloudflareContext.mockReturnValue({ env: { ...makeEnv(bindingFetch), COMMUNITY_EVENT_CONTRACT: contract }, ctx: { waitUntil: mockCtxWaitUntil } })
+    const event = { type: "community:channel.membership.change", channelId: "thread", serverId: "server", userId: "viewer", relation: "notify", present: true } as const
+    await broadcastToUser("viewer", event)
+    expect(JSON.parse(String(bindingFetch.mock.calls[0]?.[1]?.body))).toEqual(contract === "2" ? event
+      : { type: "community:channel.member_add", channelId: "thread", serverId: "server", userId: "viewer" })
+    expect(bindingFetch).toHaveBeenCalledTimes(1)
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
   it("rejects invalid community targets and payloads before transport", async () => {
     const bindingFetch = vi.fn(async () => Response.json({ sent: 1 }))
     mockGetCloudflareContext.mockReturnValue({

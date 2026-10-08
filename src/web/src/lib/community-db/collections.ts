@@ -1,9 +1,11 @@
-import { clearPersistedCache } from "@/lib/query-persister"
+import type { z } from "zod"
+import { clearPersistedCache, type QualifiedPersister } from "@/lib/query-persister"
 import { disposeQueryDiagnostics } from "@/lib/observability/query-observer"
 import {
   DbClient,
   BasicIndex,
   collectionOptions,
+  type InferSchemaOutput,
 } from "@tanstack/react-db"
 import { queryCollectionOptions } from "@tanstack/query-db-collection"
 import type { QueryClient, QueryFunctionContext } from "@tanstack/react-query"
@@ -31,20 +33,6 @@ import {
   readStateSchema,
   serverMembershipSchema,
   serverSchema,
-  type CategoryRow,
-  type AttentionItemRow,
-  type AttentionScopeRow,
-  type ChannelMembershipRow,
-  type ChannelRow,
-  type FolderItemRow,
-  type FolderRow,
-  type MessageRow,
-  type FriendshipRow,
-  type NotificationSettingRow,
-  type ProfileRow,
-  type ReadStateClockRow,
-  type ReadStateRow,
-  type ServerMembershipRow,
   type ServerRow,
 } from "./schema"
 
@@ -89,206 +77,32 @@ function buildCommunityDbRegistry(
     return restoredRows<T>(queryClient, scopeId, name)
   }
 
-  const servers = dbClient.collection(collectionOptions("community-db-servers", () => ({
-    ...queryCollectionOptions({
-      id: "community-db-servers",
-      queryClient,
-      queryKey: collectionQueryKey(scopeId, "servers"),
-      queryFn: queryFnFor<ServerRow>("servers"),
-      schema: serverSchema,
-      getKey: (row) => row.id,
-      staleTime: Infinity,
-      gcTime: QUERY_CACHE_GC_TIME,
-      persistedGcTime: QUERY_CACHE_GC_TIME,
-    }),
-    gcTime: 0,
-  })))
-  const categories = dbClient.collection(collectionOptions("community-db-categories", () => ({
-    ...queryCollectionOptions({
-      id: "community-db-categories",
-      queryClient,
-      queryKey: collectionQueryKey(scopeId, "categories"),
-      queryFn: queryFnFor<CategoryRow>("categories"),
-      schema: categorySchema,
-      getKey: (row) => row.id,
-      staleTime: Infinity,
-      gcTime: QUERY_CACHE_GC_TIME,
-      persistedGcTime: QUERY_CACHE_GC_TIME,
-    }),
-    gcTime: 0,
-  })))
-  const channels = dbClient.collection(collectionOptions("community-db-channels", () => ({
-    ...queryCollectionOptions({
-      id: "community-db-channels",
-      queryClient,
-      queryKey: collectionQueryKey(scopeId, "channels"),
-      queryFn: queryFnFor<ChannelRow>("channels"),
-      schema: channelSchema,
-      getKey: (row) => row.id,
-      staleTime: Infinity,
-      gcTime: QUERY_CACHE_GC_TIME,
-      persistedGcTime: QUERY_CACHE_GC_TIME,
-    }),
-    gcTime: 0,
-  })))
-  const serverMemberships = dbClient.collection(collectionOptions("community-db-server-memberships", () => ({
-    ...queryCollectionOptions({
-      id: "community-db-server-memberships",
-      queryClient,
-      queryKey: collectionQueryKey(scopeId, "serverMemberships"),
-      queryFn: queryFnFor<ServerMembershipRow>("serverMemberships"),
-      schema: serverMembershipSchema,
-      getKey: (row) => row.id,
-      staleTime: Infinity,
-      gcTime: QUERY_CACHE_GC_TIME,
-      persistedGcTime: QUERY_CACHE_GC_TIME,
-    }),
-    gcTime: 0,
-  })))
-  const channelMemberships = dbClient.collection(collectionOptions("community-db-channel-memberships", () => ({
-    ...queryCollectionOptions({
-      id: "community-db-channel-memberships",
-      queryClient,
-      queryKey: collectionQueryKey(scopeId, "channelMemberships"),
-      queryFn: queryFnFor<ChannelMembershipRow>("channelMemberships"),
-      schema: channelMembershipSchema,
-      getKey: (row) => row.id,
-      staleTime: Infinity,
-      gcTime: QUERY_CACHE_GC_TIME,
-      persistedGcTime: QUERY_CACHE_GC_TIME,
-    }),
-    gcTime: 0,
-  })))
-  const profiles = dbClient.collection(collectionOptions("community-db-profiles", () => ({
-    ...queryCollectionOptions({
-      id: "community-db-profiles",
-      queryClient,
-      queryKey: collectionQueryKey(scopeId, "profiles"),
-      queryFn: queryFnFor<ProfileRow>("profiles"),
-      schema: profileSchema,
-      getKey: (row) => row.userId,
-      staleTime: Infinity,
-      gcTime: QUERY_CACHE_GC_TIME,
-      persistedGcTime: QUERY_CACHE_GC_TIME,
-    }),
-    gcTime: 0,
-  })))
-  const messages = dbClient.collection(collectionOptions("community-db-messages", () => ({
-    ...queryCollectionOptions({
-      id: "community-db-messages",
-      queryClient,
-      queryKey: collectionQueryKey(scopeId, "messages"),
-      queryFn: queryFnFor<MessageRow>("messages"),
-      schema: messageSchema,
-      getKey: (row) => row.id,
-      staleTime: Infinity,
-      gcTime: QUERY_CACHE_GC_TIME,
-      persistedGcTime: QUERY_CACHE_GC_TIME,
-    }),
-    gcTime: 0,
-  })))
-  const readStates = dbClient.collection(collectionOptions("community-db-read-states", () => ({
-    ...queryCollectionOptions({
-      id: "community-db-read-states",
-      queryClient,
-      queryKey: collectionQueryKey(scopeId, "readStates"),
-      queryFn: queryFnFor<ReadStateRow>("readStates"),
-      schema: readStateSchema,
-      getKey: (row) => row.channelId,
-      staleTime: Infinity,
-      gcTime: QUERY_CACHE_GC_TIME,
-      persistedGcTime: QUERY_CACHE_GC_TIME,
-    }),
-    gcTime: 0,
-  })))
-  const readStateClock = dbClient.collection(collectionOptions("community-db-read-state-clock", () => ({
-    ...queryCollectionOptions({
-      id: "community-db-read-state-clock",
-      queryClient,
-      queryKey: collectionQueryKey(scopeId, "readStateClock"),
-      queryFn: queryFnFor<ReadStateClockRow>("readStateClock"),
-      schema: readStateClockSchema,
-      getKey: (row) => row.id,
-      staleTime: Infinity,
-      gcTime: QUERY_CACHE_GC_TIME,
-      persistedGcTime: QUERY_CACHE_GC_TIME,
-    }),
-    gcTime: 0,
-  })))
-  const attentionScopes = dbClient.collection(collectionOptions("community-db-attention-scopes", () => ({
-    ...queryCollectionOptions({
-      id: "community-db-attention-scopes",
-      queryClient,
-      queryKey: collectionQueryKey(scopeId, "attentionScopes"),
-      queryFn: queryFnFor<AttentionScopeRow>("attentionScopes"),
-      schema: attentionScopeSchema,
-      getKey: (row) => row.scopeId,
-      staleTime: Infinity,
-      gcTime: QUERY_CACHE_GC_TIME,
-      persistedGcTime: QUERY_CACHE_GC_TIME,
-    }),
-    gcTime: 0,
-  })))
-  const attentionItems = dbClient.collection(collectionOptions("community-db-attention-items", () => ({
-    ...queryCollectionOptions({
-      id: "community-db-attention-items",
-      queryClient,
-      queryKey: collectionQueryKey(scopeId, "attentionItems"),
-      queryFn: queryFnFor<AttentionItemRow>("attentionItems"),
-      schema: attentionItemSchema,
-      getKey: (row) => row.id,
-      staleTime: Infinity,
-      gcTime: QUERY_CACHE_GC_TIME,
-      persistedGcTime: QUERY_CACHE_GC_TIME,
-    }),
-    gcTime: 0,
-  })))
-  const folders = dbClient.collection(collectionOptions("community-db-folders", () => ({
-    ...queryCollectionOptions({
-      id: "community-db-folders",
-      queryClient,
-      queryKey: collectionQueryKey(scopeId, "folders"),
-      queryFn: queryFnFor<FolderRow>("folders"),
-      schema: folderSchema,
-      getKey: (row) => row.id,
-      staleTime: Infinity,
-      gcTime: QUERY_CACHE_GC_TIME,
-      persistedGcTime: QUERY_CACHE_GC_TIME,
-    }),
-    gcTime: 0,
-  })))
-  const folderItems = dbClient.collection(collectionOptions("community-db-folder-items", () => ({
-    ...queryCollectionOptions({
-      id: "community-db-folder-items",
-      queryClient,
-      queryKey: collectionQueryKey(scopeId, "folderItems"),
-      queryFn: queryFnFor<FolderItemRow>("folderItems"),
-      schema: folderItemSchema,
-      getKey: (row) => row.id,
-      staleTime: Infinity,
-      gcTime: QUERY_CACHE_GC_TIME,
-      persistedGcTime: QUERY_CACHE_GC_TIME,
-    }),
-    gcTime: 0,
-  })))
-  const notificationSettings = dbClient.collection(collectionOptions("community-db-notification-settings", () => ({
-    ...queryCollectionOptions({
-      id: "community-db-notification-settings",
-      queryClient,
-      queryKey: collectionQueryKey(scopeId, "notificationSettings"),
-      queryFn: queryFnFor<NotificationSettingRow>("notificationSettings"),
-      schema: notificationSettingSchema,
-      getKey: (row) => row.id,
-      staleTime: Infinity,
-      gcTime: QUERY_CACHE_GC_TIME,
-      persistedGcTime: QUERY_CACHE_GC_TIME,
-    }),
-    gcTime: 0,
-  })))
-
-  const friendships = dbClient.collection(collectionOptions("community-db-friendships", () => ({
-    ...queryCollectionOptions({ id: "community-db-friendships", queryClient, queryKey: collectionQueryKey(scopeId, "friendships"), queryFn: queryFnFor<FriendshipRow>("friendships"), schema: friendshipSchema, getKey: (row) => row.id, staleTime: Infinity, gcTime: QUERY_CACHE_GC_TIME, persistedGcTime: QUERY_CACHE_GC_TIME }), gcTime: 0,
-  })))
+  const collectionFor = <S extends z.ZodType<Record<string, unknown>, Record<string, unknown>>>(name: string, schema: S, getKey: (row: InferSchemaOutput<S>) => string) => {
+    const id = `community-db-${name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`
+    return dbClient.collection(collectionOptions({
+      ...queryCollectionOptions<S, unknown, ReturnType<typeof collectionQueryKey>, string>({
+        id, queryClient, schema, getKey,
+        queryKey: collectionQueryKey(scopeId, name), queryFn: queryFnFor<InferSchemaOutput<S>>(name),
+        staleTime: Infinity, gcTime: QUERY_CACHE_GC_TIME, persistedGcTime: QUERY_CACHE_GC_TIME,
+      }),
+      gcTime: 0,
+    }))
+  }
+  const servers = collectionFor("servers", serverSchema, (row) => row.id)
+  const categories = collectionFor("categories", categorySchema, (row) => row.id)
+  const channels = collectionFor("channels", channelSchema, (row) => row.id)
+  const serverMemberships = collectionFor("serverMemberships", serverMembershipSchema, (row) => row.id)
+  const channelMemberships = collectionFor("channelMemberships", channelMembershipSchema, (row) => row.id)
+  const profiles = collectionFor("profiles", profileSchema, (row) => row.userId)
+  const messages = collectionFor("messages", messageSchema, (row) => row.id)
+  const readStates = collectionFor("readStates", readStateSchema, (row) => row.channelId)
+  const readStateClock = collectionFor("readStateClock", readStateClockSchema, (row) => row.id)
+  const attentionScopes = collectionFor("attentionScopes", attentionScopeSchema, (row) => row.scopeId)
+  const attentionItems = collectionFor("attentionItems", attentionItemSchema, (row) => row.id)
+  const folders = collectionFor("folders", folderSchema, (row) => row.id)
+  const folderItems = collectionFor("folderItems", folderItemSchema, (row) => row.id)
+  const notificationSettings = collectionFor("notificationSettings", notificationSettingSchema, (row) => row.id)
+  const friendships = collectionFor("friendships", friendshipSchema, (row) => row.id)
 
   const collections = {
     servers,
@@ -312,18 +126,19 @@ function buildCommunityDbRegistry(
   type CollectionName = keyof typeof collections
   const restoration = createStore({ captured: false, names: new Set<string>(), hasData: false })
   const runtime = {
-    ui: createCommunityStore(), ws: createCommunityWsStore(accountId), messageStream: createMessageStreamStore(() => new Map(Array.from(messages.values()).flatMap((message) => typeof message.seq === "number" ? [[message.id, message as CanonicalMessage] as const] : [])), queryClient),
+    ui: createCommunityStore(), ws: createCommunityWsStore(accountId), messageStream: createMessageStreamStore(() => ({ get: (id) => { const message = messages.get(id); return typeof message?.seq === "number" ? message as CanonicalMessage : undefined } }), queryClient),
     serverEject: createOwnerServerDeleteStore(),
     lifecycle: createStore({ active: true, generation: 0 }), transport: { send: null as ((message: object) => void) | null },
   }
 
-  const authenticationBindings = createStore({ retireDisk: () => clearPersistedCache(accountId), sessionViewer: () => accountId as string | null | undefined })
+  const authenticationBindings = createStore({ retireDisk: () => clearPersistedCache(accountId), retireReadingDisk: (() => Promise.resolve()) as QualifiedPersister["retireChannels"], sessionViewer: () => accountId as string | null | undefined })
   const registry = {
     accountId,
     authenticationView: createStore({ active: false, generation: 0 }),
     retireDisk: () => authenticationBindings.get().retireDisk(),
+    retireReadingDisk: (ids: Iterable<string>, deleted = false) => authenticationBindings.get().retireReadingDisk(ids, deleted),
     sessionViewer: () => authenticationBindings.get().sessionViewer(),
-    bindAuthentication: (sessionViewer: () => string | null | undefined, retireDisk: () => Promise<void>) => authenticationBindings.setState(() => ({ sessionViewer, retireDisk })),
+    bindAuthentication: (sessionViewer: () => string | null | undefined, retireDisk: () => Promise<void>, retireReadingDisk: QualifiedPersister["retireChannels"] = () => Promise.resolve()) => authenticationBindings.setState(() => ({ sessionViewer, retireDisk, retireReadingDisk })),
     scopeId,
     queryClient,
     dbClient,

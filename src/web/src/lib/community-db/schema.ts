@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { CommunityMessageResourceSchema } from "@alook/shared"
+import { CommunityChannelResourceSchema, CommunityMessageResourceSchema, CommunityReadStateResourceSchema, CommunityMemberRelationSchema, CommunityResourceProfileSchema } from "@alook/shared"
 import { PARTICIPANT_SOURCE } from "@alook/shared/constants/community"
 
 const nullableString = z.string().nullable()
@@ -32,30 +32,25 @@ export const categorySchema = z.object({
   pending: z.boolean(),
 })
 
-export const channelSchema = z.object({
-  id: z.string().min(1),
-  serverId: optionalNullableString,
-  categoryId: optionalNullableString,
-  name: z.string(),
-  type: z.enum(["text", "forum", "thread", "dm"]),
-  parentChannelId: optionalNullableString,
-  parentMessageId: optionalNullableString,
-  creatorId: optionalNullableString,
-  position: z.number(),
-  archived: z.boolean(),
+export const channelSchema = CommunityChannelResourceSchema.pick({
+  id: true, serverId: true, categoryId: true, type: true, parentChannelId: true,
+  parentMessageId: true, creatorId: true, position: true, archived: true,
+  lastMessageAt: true, createdAt: true, messageCount: true,
+}).strip().partial({
+  serverId: true, categoryId: true, parentChannelId: true, parentMessageId: true,
+  creatorId: true, lastMessageAt: true, createdAt: true, messageCount: true,
+}).extend({
+  name: CommunityChannelResourceSchema.shape.name.unwrap(),
   muted: z.boolean(),
   unread: z.boolean(),
   /** Forum channel's own unread bit, excluding participating child rows. */
   baseUnread: z.boolean().optional(),
   tags: z.array(z.string()),
   pending: z.boolean(),
-  lastMessageAt: optionalNullableString,
   openerSeq: z.number().int().nonnegative().optional(),
   openerUnread: z.boolean().optional(),
   preview: z.string().optional(),
   lastUnreadSeq: z.number().int().nonnegative().optional(),
-  createdAt: z.string().optional(),
-  messageCount: z.number().int().nonnegative().optional(),
   participantCount: z.number().int().nonnegative().optional(),
 })
 
@@ -70,11 +65,10 @@ export const serverMembershipSchema = z.object({
   viewer: z.boolean(),
 })
 
-export const channelMembershipSchema = z.object({
+export const channelMembershipSchema = CommunityMemberRelationSchema.pick({
+  channelId: true, userId: true, relation: true, isCreator: true,
+}).strip().partial({ isCreator: true }).extend({
   id: z.string().min(1),
-  channelId: z.string().min(1),
-  userId: z.string().min(1),
-  relation: z.enum(["access", "notify"]),
   memberId: z.string().optional(),
   source: z.enum([
     "explicit",
@@ -84,15 +78,12 @@ export const channelMembershipSchema = z.object({
     PARTICIPANT_SOURCE.SPOKE,
     PARTICIPANT_SOURCE.ADDED,
   ]).optional(),
-  isCreator: z.boolean().optional(),
 })
 
-export const profileSchema = z.object({
-  userId: z.string().min(1),
-  name: z.string(),
-  discriminator: z.string(),
-  avatar: z.string(),
-  avatarVersion: z.number().int().nonnegative(),
+export const profileSchema = CommunityResourceProfileSchema.omit({ id: true }).strip().extend({
+  userId: CommunityResourceProfileSchema.shape.id,
+  discriminator: CommunityResourceProfileSchema.shape.discriminator.unwrap(),
+  avatar: CommunityResourceProfileSchema.shape.avatar.unwrap(),
   aboutMe: z.string().optional(),
   bannerColor: optionalNullableString,
   kind: z.enum(["human", "bot"]).optional(),
@@ -100,8 +91,8 @@ export const profileSchema = z.object({
   ownerHandle: optionalNullableString,
   mutualServers: z.number().int().nonnegative().optional(),
   ownedByViewer: z.boolean().optional(),
-  statusEmoji: optionalNullableString,
-  statusText: optionalNullableString,
+  statusEmoji: CommunityResourceProfileSchema.shape.statusEmoji.optional(),
+  statusText: CommunityResourceProfileSchema.shape.statusText.nullable().optional(),
 })
 
 export const messageSchema = CommunityMessageResourceSchema.pick({
@@ -113,12 +104,7 @@ export const messageSchema = CommunityMessageResourceSchema.pick({
   replyToId: z.string().nullable().optional(),
 }).loose()
 
-export const readStateSchema = z.object({
-  channelId: z.string().min(1),
-  lastReadMessageId: nullableString,
-  lastReadAt: z.string(),
-  lastReadSeq: z.number().int().nonnegative(),
-})
+export const readStateSchema = CommunityReadStateResourceSchema.strip()
 
 export const friendshipSchema = z.object({
   id: z.string().min(1),
@@ -206,6 +192,7 @@ export const communityCollectionSchemas = {
 } as const
 
 export type CommunityCollectionName = keyof typeof communityCollectionSchemas
+export type CommunityCollectionRows = { [N in CommunityCollectionName]: z.output<typeof communityCollectionSchemas[N]> }
 export type ServerRow = z.infer<typeof serverSchema>
 export type CategoryRow = z.infer<typeof categorySchema>
 export type ChannelRow = z.infer<typeof channelSchema>
@@ -222,6 +209,29 @@ export type FolderRow = z.infer<typeof folderSchema>
 export type FolderItemRow = z.infer<typeof folderItemSchema>
 export type NotificationSettingRow = z.infer<typeof notificationSettingSchema>
 
+export function canonicalChannelRow(
+  input: Pick<ChannelRow, "id" | "type"> & Partial<Omit<ChannelRow, "id" | "type" | "name">> & { name?: string | null },
+  previous?: ChannelRow,
+): ChannelRow {
+  return channelSchema.parse({
+    serverId: null,
+    categoryId: null,
+    parentChannelId: null,
+    parentMessageId: null,
+    creatorId: null,
+    position: 0,
+    archived: false,
+    muted: false,
+    unread: false,
+    tags: [],
+    pending: false,
+    lastMessageAt: null,
+    ...previous,
+    ...input,
+    name: input.name === undefined ? previous?.name ?? "" : input.name ?? "",
+  })
+}
+
 export function serverMembershipKey(serverId: string, userId: string) {
   return `${serverId}:${userId}`
 }
@@ -232,6 +242,15 @@ export function channelMembershipKey(
   relation: ChannelMembershipRow["relation"],
 ) {
   return `${channelId}:${userId}:${relation}`
+}
+
+export function canonicalChannelMembershipRow(
+  channelId: string,
+  userId: string,
+  relation: ChannelMembershipRow["relation"],
+  fields?: Omit<ChannelMembershipRow, "id" | "channelId" | "userId" | "relation">,
+): ChannelMembershipRow {
+  return { ...fields, id: channelMembershipKey(channelId, userId, relation), channelId, userId, relation }
 }
 
 export function folderItemKey(folderId: string, serverId: string) {

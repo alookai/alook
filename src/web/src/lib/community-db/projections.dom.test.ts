@@ -24,6 +24,50 @@ import {
 import { ingestMessages, ingestServerDetail, ingestServers } from "./sync"
 
 describe("community DB projections", () => {
+  it("keeps disabled channel arrays unresolved and active empty selections empty while restore is pending", async () => {
+    const client = new QueryClient()
+    let release!: () => void
+    const registry = createCommunityDbRegistry(client, "viewer", { waitForRestore: new Promise<void>((resolve) => { release = resolve }) })
+    const wrapper = ({ children }: { children: ReactNode }) => React.createElement(
+      QueryClientProvider, { client }, React.createElement(CommunityDbProvider, { registry }, children),
+    )
+    const observations: Array<{ array: ReturnType<typeof useMessageProjection>; map: ReturnType<typeof useCanonicalMessagesById> }> = []
+    const rendered = renderHook(() => {
+      const array = useMessageProjection("c1", ["selected"]), map = useCanonicalMessagesById(["selected"])
+      observations.push({ array, map })
+      return { array, map, nullScope: useMessageProjection(null), emptyScope: useMessageProjection("") }
+    }, { wrapper })
+    try {
+      expect(observations[0]?.array).toEqual([])
+      expect(observations[0]?.map?.size).toBe(0)
+      await act(async () => { release(); await registry.preload() })
+      await waitFor(() => expect(rendered.result.current.array).toEqual([]))
+      expect(rendered.result.current.map?.size).toBe(0)
+      expect(rendered.result.current.nullScope).toBeUndefined()
+      expect(rendered.result.current.emptyScope).toBeUndefined()
+    } finally { release(); rendered.unmount(); await registry.cleanup(); client.clear() }
+  })
+  it("projects only selected message IDs, observes their updates and selects none for an empty window", async () => {
+    const client = new QueryClient()
+    const registry = createCommunityDbRegistry(client, "viewer")
+    await registry.preload()
+    ingestMessages(registry, "c1", [{ id: "selected", type: "chat", content: "Before" }])
+    ingestMessages(registry, "other", [{ id: "unrelated", type: "chat", content: "Foreign" }])
+    const wrapper = ({ children }: { children: ReactNode }) => React.createElement(
+      QueryClientProvider, { client }, React.createElement(CommunityDbProvider, { registry }, children),
+    )
+    const rendered = renderHook(({ ids }: { ids: readonly string[] }) => useCanonicalMessagesById(ids), {
+      wrapper, initialProps: { ids: ["selected"] },
+    })
+    try {
+      await waitFor(() => expect([...rendered.result.current?.keys() ?? []]).toEqual(["selected"]))
+      act(() => ingestMessages(registry, "c1", [{ id: "selected", type: "chat", content: "After" }]))
+      await waitFor(() => expect(rendered.result.current?.get("selected")?.content).toBe("After"))
+      expect(registry.collections.messages.get("unrelated")?.content).toBe("Foreign")
+      rendered.rerender({ ids: [] })
+      await waitFor(() => expect(rendered.result.current?.size).toBe(0))
+    } finally { rendered.unmount(); await registry.cleanup(); client.clear() }
+  })
   it("keeps a surviving StrictMode consumer live and cleans derived queries before their owner facts", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const registry = createCommunityDbRegistry(client, "viewer")

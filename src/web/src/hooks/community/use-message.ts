@@ -1,6 +1,5 @@
 "use client"
 import { useSelector } from "@tanstack/react-store"
-import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 
 
 import { useEffect, useMemo } from "react"
@@ -11,7 +10,7 @@ import {
   type QueryFunctionContext,
   type UseQueryResult,
 } from "@tanstack/react-query"
-import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
+import { apiFetchCommunity } from "@/lib/community/account-cache-lifecycle"
 import { communityKeys } from "@/lib/query-keys"
 import type { Msg } from "@/lib/community/models/message"
 import {
@@ -42,26 +41,8 @@ import {
  *
  * Pass a falsy id when there's nothing to load — the query stays disabled.
  */
-export type OpenerPayload = {
-  id: string
-  // Exact-message responses carry their owning surface so a hard-refresh can
-  // publish an archived opener even when the route model has no parent hint.
-  // Persisted list-window placeholders predate that response field.
-  channelId?: string
-  authorId: string
-  authorName: string
-  authorAvatar: string
-  authorAvatarVersion: number
-  content: string
-  // Required, exhaustive (#12) — matches `mapMessageForApi`'s new output
-  // shape (this payload is fed by that same endpoint, `GET /api/community/messages/:id`).
-  type: "chat" | "system"
-  createdAt: string
-  replyTo?: Msg["replyTo"]
-  attachments?: Msg["attachments"]
-  embeds?: Msg["embeds"]
-  reactions?: Msg["reactions"]
-}
+export type OpenerPayload = Required<Pick<Msg, "id" | "authorId" | "authorName" | "authorAvatar" | "authorAvatarVersion" | "content" | "type" | "createdAt">>
+  & Pick<Msg, "replyTo" | "attachments" | "embeds" | "reactions"> & { channelId?: string }
 
 export const messageQueryFn = (
   messageId: string,
@@ -69,17 +50,17 @@ export const messageQueryFn = (
   channelId?: string,
 ) => async (context: QueryFunctionContext) => {
   if (context.client !== queryClient) throw new DOMException("Mismatched message query owner", "AbortError")
-  const token = captureCommunityLiveSnapshotToken(queryClient)
-  const message = await apiFetchProfiles<OpenerPayload>(
+  const token = captureCommunityLiveSnapshotToken(queryClient, channelId)
+  const message = await apiFetchCommunity<OpenerPayload>(
     `/api/community/messages/${messageId}`,
-    (message) => messageProfilePatches([message]),
-    context.signal ? { signal: context.signal } : undefined, getCommunityDbRegistry(context.client),
+    context.signal ? { signal: context.signal } : undefined, token,
   )
   const publishChannelId = message.channelId ?? channelId
   if (publishChannelId) {
     publishCommunityMessages(queryClient, {
       channelId: publishChannelId,
-      messages: [message],
+      messages: [{ ...message, attachments: message.attachments ?? [], embeds: message.embeds ?? [],
+        reactions: message.reactions ?? [], replyTo: message.replyTo }],
       proof: { token, signal: context.signal },
     })
   }
@@ -109,7 +90,8 @@ export function useMessage(
   accessScope?: MessageAccessScope,
 ): UseQueryResult<string> & { message: OpenerPayload | null } {
   const registry = useOptionalCommunityDbRegistry()
-  const canonicalMessages = useCanonicalMessagesById()
+  const selectedIds = useMemo(() => messageId ? [messageId] : [], [messageId])
+  const canonicalMessages = useCanonicalMessagesById(selectedIds)
   const queryClient = useQueryClient()
   const accessProjection = useMemo(
     () => getActiveAccountUnreadProjection(queryClient),
