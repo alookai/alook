@@ -932,7 +932,7 @@ test("mobile thread return uses server read state instead of tab-local pixel mem
   for (let index = 0; index < 24; index += 1) {
     await seedMessage("alice", channelId, `scroll row ${index} ${stamp}`)
   }
-  await seedMessage("alice", channelId, Array.from(
+  const longMessageId = await seedMessage("alice", channelId, Array.from(
     { length: 95 },
     (_, index) => `scroll line ${index} ${stamp}`,
   ).join("\n\n"))
@@ -955,6 +955,13 @@ test("mobile thread return uses server read state instead of tab-local pixel mem
   const editable = composerEditable(alice.page)
   const scroller = alice.page.getByTestId(tid.messageScroller)
   await expect(editable).toBeVisible()
+  await scroller.hover()
+  await expect.poll(async () => {
+    if (await alice.page.getByTestId(tid.message(longMessageId)).count()) return true
+    await alice.page.mouse.wheel(0, 600)
+    return false
+  }).toBe(true)
+  await expect(alice.page.getByTestId(tid.message(longMessageId))).toBeVisible()
   await expect.poll(() => scroller.evaluate((element) => (
     element.scrollHeight - element.clientHeight
   ))).toBeGreaterThanOrEqual(2200)

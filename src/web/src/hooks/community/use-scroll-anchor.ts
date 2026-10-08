@@ -278,6 +278,7 @@ export function useScrollAnchor({
     anchor?: { key: string; viewportOffset: number; firstKey: string; epoch: number }
   } | null>(null)
   const scrollPaddingStartRef = useRef(0)
+  const olderMeasurementAnchorRef = useRef<{ key: string; epoch: number } | null>(null)
   const stateRef = useRef<ScrollAnchorState>(createScrollAnchorState())
   const initialRetiredRef = useRef(false)
   const initialPositionSettledRef = useRef(false)
@@ -332,12 +333,29 @@ export function useScrollAnchor({
     initialDeadlineRef.current = null
     positionBudgetStartedRef.current = false
   }, [])
+  const clearOlderMeasurementAnchor = useCallback(() => {
+    olderMeasurementAnchorRef.current = null
+    if (virtualizerRef.current) virtualizerRef.current.shouldAdjustScrollPositionOnItemSizeChange = undefined
+  }, [])
+  const adjustOlderMeasurement = useCallback<NonNullable<ReactVirtualizer<HTMLDivElement, Element>["shouldAdjustScrollPositionOnItemSizeChange"]>>((item, _delta, instance) => {
+    const anchor = olderMeasurementAnchorRef.current
+    const owner = positionOwnerRef.current
+    const index = anchor && anchor.epoch === owner.epoch && owner.active && owner.kind === "idle"
+      ? currentItemsRef.current.findIndex(row => row.key === anchor.key) : -1
+    if (index < 0) {
+      olderMeasurementAnchorRef.current = null
+      instance.shouldAdjustScrollPositionOnItemSizeChange = undefined
+      return false
+    }
+    return item.index < index
+  }, [])
   const claimPosition = useCallback((kind: Kind) => {
     const owner = positionOwnerRef.current
     if (owner.nativeIndex && scrollRef.current) {
       virtualizerRef.current?.scrollToOffset(scrollRef.current.scrollTop, { behavior: "auto" })
     }
     owner.nativeIndex = false
+    clearOlderMeasurementAnchor()
     scrollPaddingStartRef.current = 0
     owner.epoch += 1
     owner.kind = kind
@@ -352,7 +370,7 @@ export function useScrollAnchor({
     readReadyRef.current = false
     setReadPositionReady(false)
     return owner.epoch
-  }, [cancelFrame, clearBudget, holdNativeOrigin, setOwnerKind, setReadPositionReady])
+  }, [cancelFrame, clearBudget, clearOlderMeasurementAnchor, holdNativeOrigin, setOwnerKind, setReadPositionReady])
   const retireInitialPosition = useCallback(() => {
     initialRetiredRef.current = true
     stateRef.current = { ...stateRef.current, didInitialScroll: true, didDividerConverge: true }
@@ -407,6 +425,10 @@ export function useScrollAnchor({
     onChange: () => { reconcileViewportRef.current(); scheduleGeometryRef.current() },
   })
   virtualizerRef.current = virtualizer
+  useLayoutEffect(() => {
+    const anchor = olderMeasurementAnchorRef.current
+    if (anchor && !items.some(item => item.key === anchor.key)) clearOlderMeasurementAnchor()
+  }, [clearOlderMeasurementAnchor, items])
 
   const readGeometry = useCallback((viewportTransition = false): Geometry | null => {
     const root = scrollRef.current
@@ -563,12 +585,13 @@ export function useScrollAnchor({
       owner.epoch += 1
       if (owner.nativeIndex && root) virtualizerRef.current?.scrollToOffset(root.scrollTop, { behavior: "auto" })
       owner.nativeIndex = false
+      clearOlderMeasurementAnchor()
       cancelFrame()
       clearBudget()
       if (geometryFrameRef.current !== null) window.cancelAnimationFrame(geometryFrameRef.current)
       geometryFrameRef.current = null
     }
-  }, [armBudget, cancelFrame, clearBudget, startIntent])
+  }, [armBudget, cancelFrame, clearBudget, clearOlderMeasurementAnchor, startIntent])
 
   useLayoutEffect(() => {
     const target = scrollToMessageId ?? null
@@ -697,8 +720,12 @@ export function useScrollAnchor({
       return true
     }
     if (Math.abs(offset - root.scrollTop) > 0.5) native.scrollToOffset(offset, { behavior: "auto" })
+    if (olderMeasurementAnchorRef.current) {
+      clearOlderMeasurementAnchor()
+      owner.nativeIndex = false
+    }
     return false
-  }, [holdNativeOrigin, observeGeometry, readGeometry, setReadPositionReady, setShortGap])
+  }, [clearOlderMeasurementAnchor, holdNativeOrigin, observeGeometry, readGeometry, setReadPositionReady, setShortGap])
   reconcileViewportRef.current = () => {
     const intent = semanticIntentRef.current
     const root = scrollRef.current
@@ -819,6 +846,7 @@ export function useScrollAnchor({
   }, [holdNativeOrigin, observeGeometry, readGeometry, reconcileGeometry, releasePosition, scheduleGeometry])
 
   const capturePageAnchor = useCallback((direction: "older" | "newer") => {
+    clearOlderMeasurementAnchor()
     let anchor: NonNullable<typeof paginationRef.current>["anchor"]
     if (positionOwnerRef.current.kind === "idle" && readReadyRef.current) {
       const geometry = readGeometry()
@@ -837,7 +865,7 @@ export function useScrollAnchor({
     }
     paginationRef.current = { direction, observed: false, anchor }
     setPaginationDirection(direction)
-  }, [readGeometry, setPaginationDirection])
+  }, [clearOlderMeasurementAnchor, readGeometry, setPaginationDirection])
   const captureOlderPageAnchor = useCallback(() => capturePageAnchor("older"), [capturePageAnchor])
   const captureNewerPageAnchor = useCallback(() => capturePageAnchor("newer"), [capturePageAnchor])
   useLayoutEffect(() => {
@@ -853,6 +881,8 @@ export function useScrollAnchor({
       const index = items.findIndex(item => item.key === page.anchor?.key)
       const native = virtualizerRef.current
       if (index >= 0 && native) {
+        olderMeasurementAnchorRef.current = { key: page.anchor.key, epoch: page.anchor.epoch }
+        native.shouldAdjustScrollPositionOnItemSizeChange = adjustOlderMeasurement
         scrollPaddingStartRef.current = page.anchor.viewportOffset
         native.setOptions({ ...native.options, scrollPaddingStart: page.anchor.viewportOffset })
         acceptedGeometryRef.current = null
@@ -866,7 +896,7 @@ export function useScrollAnchor({
     tailKeyRef.current = items.at(-1)?.key ?? null
     scheduleInitialPositionSettled()
     scheduleGeometry()
-  }, [holdNativeOrigin, isFetchingNewer, isFetchingOlder, items, scheduleGeometry, scheduleInitialPositionSettled, setPaginationDirection, tailId])
+  }, [adjustOlderMeasurement, holdNativeOrigin, isFetchingNewer, isFetchingOlder, items, scheduleGeometry, scheduleInitialPositionSettled, setPaginationDirection, tailId])
 
   useLayoutEffect(() => {
     if (!presentVersion || !tailId || hasMoreNewer || consumedPresentVersionRef.current === presentVersion) return
