@@ -46,7 +46,7 @@ describe("runtime startup model catalog parsers", () => {
     expect(ids(parsePiModelCatalog(models.map((id) => ({ provider: "provider", id: id.slice(9) }))))).toEqual(models);
   });
 
-  it("returns no catalog instead of truncating when unique IDs overflow the bound", () => {
+  it("retains the first valid unique IDs when producer catalogs overflow", () => {
     const opencode = Array.from(
       { length: RUNTIME_MODEL_CATALOG_MAX + 1 },
       (_, index) => `provider/model-${index}`,
@@ -56,7 +56,8 @@ describe("runtime startup model catalog parsers", () => {
       (_, index) => ({ provider: "provider", id: `model-${index}` }),
     );
 
-    expect(parseOpenCodeModelCatalog(opencode)).toBeUndefined();
-    expect(parsePiModelCatalog(pi)).toBeUndefined();
+    const expected = Array.from({ length: RUNTIME_MODEL_CATALOG_MAX }, (_, index) => `provider/model-${index}`);
+    expect(ids(parseOpenCodeModelCatalog(`invalid row\nprovider/model-0\n${opencode}`))).toEqual(expected);
+    expect(ids(parsePiModelCatalog([null, pi[0], ...pi]))).toEqual(expected);
   });
 });

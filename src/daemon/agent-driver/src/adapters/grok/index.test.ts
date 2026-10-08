@@ -69,11 +69,10 @@ const modelState = {
 };
 
 describe("Grok ACP model catalog", () => {
-  it.each([1024, 1025])("keeps the complete catalog or rejects overflow (%s models)", (count) => {
+  it.each([1024, 1025])("keeps the complete catalog or truncates overflow (%s models)", (count) => {
     const models = Array.from({ length: count }, (_, index) => `model-${index}`);
-    const catalog = parseGrokModelCatalog({ availableModels: models.map((modelId) => ({ modelId })) });
-    if (count > RUNTIME_MODEL_CATALOG_MAX) expect(catalog).toBeUndefined();
-    else expect(catalog?.models.map((model) => model.id)).toEqual(models);
+    const catalog = parseGrokModelCatalog({ availableModels: [null, { modelId: models[0] }, ...models.map((modelId) => ({ modelId }))] });
+    expect(catalog?.models.map((model) => model.id)).toEqual(models.slice(0, RUNTIME_MODEL_CATALOG_MAX));
   });
 
   it("preserves provider ids and dynamic reasoning values", () => {

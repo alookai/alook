@@ -45,11 +45,10 @@ function respond(process: FakeProcess, request: Record<string, unknown>, result:
 }
 
 describe("Cursor ACP model catalog", () => {
-  it.each([1024, 1025])("keeps the complete catalog or rejects overflow (%s models)", (count) => {
+  it.each([1024, 1025])("keeps the complete catalog or truncates overflow (%s models)", (count) => {
     const models = Array.from({ length: count }, (_, index) => `model-${index}`);
-    const catalog = parseCursorAcpModelCatalog({ configOptions: [{ id: "model", options: models.map((id) => ({ value: id })) }] });
-    if (count > RUNTIME_MODEL_CATALOG_MAX) expect(catalog).toBeUndefined();
-    else expect(catalog?.models.map((model) => model.id)).toEqual(models);
+    const catalog = parseCursorAcpModelCatalog({ configOptions: [{ id: "model", options: [null, { value: "default[]" }, { value: models[0] }, ...models.map((id) => ({ value: id }))] }] });
+    expect(catalog?.models.map((model) => model.id)).toEqual(models.slice(0, RUNTIME_MODEL_CATALOG_MAX));
   });
 
   it("normalizes nested exact values, preserves duplicate labels, and omits ACP Auto", () => {
@@ -93,7 +92,7 @@ describe("Cursor ACP model catalog", () => {
     });
   });
 
-  it("drops malformed labels without dropping exact values and fails closed on overflow", () => {
+  it("drops malformed labels without dropping exact values and truncates overflow", () => {
     expect(parseCursorAcpModelCatalog({
       configOptions: [{
         id: "model",
@@ -108,7 +107,7 @@ describe("Cursor ACP model catalog", () => {
         id: "model",
         options: Array.from({ length: RUNTIME_MODEL_CATALOG_MAX + 1 }, (_, index) => ({ value: `model-${index}` })),
       }],
-    })).toBeUndefined();
+    })?.models).toHaveLength(RUNTIME_MODEL_CATALOG_MAX);
   });
 
   it("uses only initialize/auth/session-new, returns exact ACP values, and cleans once", async () => {
