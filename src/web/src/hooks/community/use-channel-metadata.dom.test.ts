@@ -8,6 +8,8 @@ import { createCommunityDbRegistry, registerCommunityDbRegistry, type CommunityD
 import { CommunityDbProvider, useDmProjection } from "@/lib/community-db/projections"
 import { applyCommunityDmBlockAccess, assertCommunityLiveSnapshotTokenCurrent, publishCommunityMessages, captureCommunityLiveSnapshotToken, ingestDms, publishCommunityLiveSnapshot } from "@/lib/community-db/sync"
 import { channelMetadataOptions, captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "./channel-metadata"
+import { prepareNavigationMetadata } from "@/lib/community/navigation-metadata"
+import { retireCommunityAccount } from "@/lib/community/account-cache-lifecycle"
 import { useChannelMetadata } from "./use-channel-metadata"
 import { useDmReadStateSnapshot } from "./use-dm-read-state"
 import { startConversationNavigationWarmup } from "@/lib/community/conversation-navigation-warmup"
@@ -593,4 +595,52 @@ it("retires a protected archived channel and clears its exact flat navigation me
   expect(registry.runtime.ws.actions.isChannelAccessRevoked(post.id, "server-1")).toBe(true)
   expect(client.getQueryData(communityKeys.channelMeta("server-1", post.id))).toMatchObject({ id: post.id })
   route.unmount()
+})
+
+
+describe("navigation intent metadata with the real account Provider", () => {
+  it("joins the route to one native Query before commit without entry, messages or read work", async () => {
+    const { client, registry, wrapper } = await fixture()
+    ingestDms(registry, dms)
+    const request = deferred<typeof metadata>()
+    apiFetch.mockReturnValue(request.promise)
+    const warming = prepareNavigationMetadata(client, "/c/me/dm-a", "prefetch")
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
+    const mounted = renderHook(() => useChannelMetadata(null, metadata.id), { wrapper })
+    expect(mounted.result.current.canRead).toBe(false)
+    expect(apiFetch).toHaveBeenCalledOnce()
+    await act(async () => { request.resolve(metadata); await warming })
+    await waitFor(() => expect(mounted.result.current.canRead).toBe(true))
+    expect(apiFetch.mock.calls.map(([path]) => path)).toEqual(["/api/community/channels/dm-a"])
+    expect(registry.collections.readStates.size).toBe(0)
+    expect(registry.collections.messages.size).toBe(0)
+    mounted.unmount()
+  })
+
+  it("does not warm unknown, archived, other-scope or blocked identities", async () => {
+    const { client, registry } = await fixture()
+    ingestDms(registry, dms)
+    for (const href of ["/c/me/unknown", "/c/channels/other/dm-a", "https://outside.test/c/me/dm-a"]) {
+      expect(prepareNavigationMetadata(client, href, "prefetch")).toBeUndefined()
+    }
+    applyCommunityDmBlockAccess(registry, "peer", true)
+    expect(prepareNavigationMetadata(client, "/c/me/dm-a", "prefetch")).toBeUndefined()
+    expect(apiFetch).not.toHaveBeenCalled()
+  })
+
+  it("keeps a late intent response retired after account logout", async () => {
+    const { client, registry } = await fixture()
+    ingestDms(registry, dms)
+    const before = registry.collections.channels.get(metadata.id)
+    const request = deferred<typeof metadata>()
+    apiFetch.mockReturnValue(request.promise)
+    const warming = prepareNavigationMetadata(client, "/c/me/dm-a", "prefetch")
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
+    retireCommunityAccount(registry)
+    request.resolve(metadata)
+    await warming
+    expect(client.getQueryData(metadataKey)).toBeUndefined()
+    expect(registry.collections.channels.get(metadata.id)).toEqual(before)
+    expect(prepareNavigationMetadata(client, "/c/me/dm-a", "foreground")).toBeUndefined()
+  })
 })

@@ -1,4 +1,5 @@
 import { cleanAttributes, type Attributes, type TelemetryEvent } from "./schema"
+import { observationEpoch } from "./clock"
 
 type RecordEvent = { name: TelemetryEvent; attributes: Record<string, string>; timestamp: number }
 type Sink = (event: RecordEvent) => void
@@ -54,7 +55,7 @@ export function retireTelemetry(reason: "boundary" | "native_session" = "boundar
 export function isNativeSessionContinuation(original: number) { return eligible && nativeContinuationFrom === original }
 export function emitTelemetry(name: TelemetryEvent, attributes: Attributes = {}) {
   if (!eligible) return
-  const event = { name, attributes: cleanAttributes({ ...base, ...attributes, schema_version: 1 }), timestamp: Date.now() }
+  const event = { name, attributes: cleanAttributes({ ...base, ...attributes, schema_version: 1 }), timestamp: observationEpoch() }
   if (sink) { try { sink(event) } catch { dropped++ } }
   else if (queue.length < LIMIT) queue.push(event)
   else dropped++

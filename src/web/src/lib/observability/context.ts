@@ -1,12 +1,15 @@
-import type { Span } from "@opentelemetry/api"
+import { isSpanContextValid, type Span, type HrTime, type Link } from "@opentelemetry/api"
+import { observationTime } from "./clock"
 import { routeTemplate, actionNames } from "./coverage"
 import { emitTelemetry, isTelemetryEligible, isNativeSessionContinuation, telemetryGeneration, notifyObservation, linkQueuedActionTrace } from "./telemetry"
 import { cleanAttributes, type Attributes } from "./schema"
 
-export type Action = { id: string; navigationId?: string; navigationKind?: "document" | "route"; name: string; route: string; start: number; generation: number; done: boolean; end?: number; outcome?: Attributes["outcome"]; span?: Span; timer?: ReturnType<typeof setTimeout> }
-let makeSpan: ((name: string, attributes: Record<string, string>, startTime: number) => Span | undefined) | undefined
+export type Action = { id: string; navigationId?: string; navigationKind?: "document" | "route"; name: string; route: string; start: number; generation: number; done: boolean; end?: number; outcome?: Attributes["outcome"]; span?: Span; timer?: ReturnType<typeof setTimeout>; prefetch?: Action }
+let makeSpan: ((name: string, attributes: Record<string, string>, startTime: HrTime, links: Link[]) => Span | undefined) | undefined
 const live = new Set<Action>()
 const deferred = new Set<Action>()
+let prefetch: Action | undefined
+let prefetchHref: string | undefined
 let navigation: Action | undefined
 let navigationHref: string | undefined
 let committedHref: string | undefined
@@ -23,7 +26,7 @@ export function installActionSpans(factory: typeof makeSpan) {
     deferred.delete(action)
     if (!isTelemetryEligible() || action.generation !== telemetryGeneration()) continue
     let span: Span | undefined
-    try { span = factory(action.name, cleanAttributes(actionAttributes(action)), performance.timeOrigin + action.start) } catch {}
+    try { span = factory(action.name, cleanAttributes(actionAttributes(action)), observationTime(action.start), actionLinks(action)) } catch {}
     if (!isTelemetryEligible() || action.generation !== telemetryGeneration()) { try { span?.end() } catch {}; continue }
     action.span = span
     const attributes = actionAttributes(action)
@@ -31,18 +34,18 @@ export function installActionSpans(factory: typeof makeSpan) {
     if (action.done && action.end !== undefined) {
       const outcome = cleanAttributes({ outcome: action.outcome }).outcome
       if (outcome !== undefined) { try { span?.setAttribute("outcome", outcome) } catch {} }
-      try { span?.end(performance.timeOrigin + action.end) } catch {}
+      try { span?.end(observationTime(action.end)) } catch {}
     }
   }
 }
 
-export function startAction(name: string, attributes: Attributes = {}, start = performance.now()): Action | undefined {
+export function startAction(name: string, attributes: Attributes = {}, start = performance.now(), sourcePrefetch?: Action): Action | undefined {
   if (!isTelemetryEligible() || !names.has(name)) return
   if (live.size >= 64) finishAction(live.values().next().value, "cancelled")
-  const action: Action = { id: telemetryId(), name, route: String(attributes.route_template ?? currentRoute()), start, generation: telemetryGeneration(), done: false }
+  const action: Action = { id: telemetryId(), name, route: String(attributes.route_template ?? currentRoute()), start, generation: telemetryGeneration(), done: false, prefetch: sourcePrefetch }
   if (name === "navigation") { action.navigationId = telemetryId(); action.navigationKind = attributes.navigation_kind === "document" ? "document" : "route" }
   const fields = actionAttributes(action)
-  try { action.span = makeSpan?.(name, cleanAttributes(fields), performance.timeOrigin + action.start) } catch {}
+  try { action.span = makeSpan?.(name, cleanAttributes(fields), observationTime(action.start), actionLinks(action)) } catch {}
   if (!isTelemetryEligible() || (action.generation !== telemetryGeneration() && !isNativeSessionContinuation(action.generation))) {
     try { action.span?.end() } catch {}
     return
@@ -50,7 +53,7 @@ export function startAction(name: string, attributes: Attributes = {}, start = p
   action.generation = telemetryGeneration()
   sequence++
   live.add(action)
-  if (action.navigationId && !action.span) {
+  if ((action.navigationId || name === "navigation.prefetch") && !action.span) {
     if (deferred.size >= 64) deferred.delete(deferred.values().next().value!)
     deferred.add(action)
   }
@@ -58,10 +61,15 @@ export function startAction(name: string, attributes: Attributes = {}, start = p
   action.timer = setTimeout(() => finishAction(action, "timeout"), 30_000)
   return action
 }
+function actionLinks(action: Action): Link[] {
+  const source = action.prefetch
+  if (!source || source.generation !== action.generation) return []
+  try { const context = source.span?.spanContext(); return context && isSpanContextValid(context) ? [{ context, attributes: { relationship: "prefetch" } }] : [] } catch { return [] }
+}
 export function actionAttributes(action?: Action): Attributes {
   let span
   try { span = action?.span?.spanContext() } catch {}
-  return action ? { trace_id: span?.traceId, span_id: span?.spanId, action_id: action.id, navigation_id: action.navigationId, navigation_kind: action.navigationKind, action_name: action.name, route_template: action.route, start_ms: action.start } : {}
+  return action ? { trace_id: span?.traceId, span_id: span?.spanId, action_id: action.id, navigation_id: action.navigationId, navigation_kind: action.navigationKind, prefetch_action_id: action.prefetch?.id, action_name: action.name, route_template: action.route, start_ms: action.start } : {}
 }
 export function finishAction(action: Action | undefined, outcome: Attributes["outcome"], fields: Attributes = {}) {
   if (!action || action.done) return
@@ -79,12 +87,14 @@ export function finishAction(action: Action | undefined, outcome: Attributes["ou
       try { action.span?.setAttribute("outcome", safeOutcome) } catch {}
     }
   }
-  try { action.span?.end(performance.timeOrigin + action.end) } catch {}
+  try { action.span?.end(observationTime(action.end)) } catch {}
   if (action === navigation) notifyObservation()
 }
 export function clearActions() {
   for (const action of live) finishAction(action, "cancelled")
   deferred.clear()
+  prefetch = undefined
+  prefetchHref = undefined
   navigation = undefined
   navigationHref = undefined
   gesturePending = false
@@ -92,6 +102,18 @@ export function clearActions() {
 function normalizedHref(href: string) {
   const origin = typeof window === "undefined" ? "https://alook.ai" : window.location.origin
   try { const url = new URL(href, origin); return url.origin === origin ? url.pathname + url.search : undefined } catch { return undefined }
+}
+export function beginNavigationPrefetch(href: string) {
+  const target = normalizedHref(href)
+  if (!target || !isTelemetryEligible()) return
+  if (prefetchHref === target && prefetch?.generation === telemetryGeneration() && !prefetch.done) return prefetch
+  finishAction(prefetch, "superseded")
+  prefetch = startAction("navigation.prefetch", { route_template: routeTemplate(href, typeof window === "undefined" ? "https://alook.ai" : window.location.origin) })
+  prefetchHref = target
+  return prefetch
+}
+export function prefetchForHref(href: string) {
+  return prefetch?.generation === telemetryGeneration() && prefetchHref === normalizedHref(href) ? prefetch : undefined
 }
 export function beginNavigation(href: string, phase: "intent" | "transport" | "gesture" | "document" = "intent") {
   if (!isTelemetryEligible()) return
@@ -103,7 +125,8 @@ export function beginNavigation(href: string, phase: "intent" | "transport" | "g
     return navigation
   }
   finishAction(navigation, "superseded")
-  navigation = startAction("navigation", { route_template: routeTemplate(href, typeof window === "undefined" ? "https://alook.ai" : window.location.origin), navigation_kind: phase === "document" ? "document" : "route" }, phase === "document" ? 0 : performance.now())
+  navigation = startAction("navigation", { route_template: routeTemplate(href, typeof window === "undefined" ? "https://alook.ai" : window.location.origin), navigation_kind: phase === "document" ? "document" : "route" }, phase === "document" ? 0 : performance.now(), prefetchForHref(href))
+  if (navigation?.prefetch) finishAction(navigation.prefetch, "observed")
   if (!navigation) return
   navigationHref = target
   gesturePending = phase === "gesture"

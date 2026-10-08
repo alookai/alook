@@ -9,6 +9,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 const mockGetSession = vi.fn();
 vi.mock("@/lib/auth", () => ({
   getAuth: vi.fn(() => ({ api: { getSession: mockGetSession } })),
+  observeAuthSession: vi.fn((_auth, execute) => execute()),
 }));
 
 import { config, middleware } from "./middleware";
@@ -77,6 +78,7 @@ describe("middleware", () => {
       // NextResponse.next() — no redirect location
       expect(res.headers.get("location")).toBeNull();
       expect(res.headers.get("set-cookie")).toContain("session=abc");
+      expect(res.headers.get("x-middleware-request-cookie")).toBe("session=abc");
     });
 
     it("does not require auth for unlisted public paths", async () => {

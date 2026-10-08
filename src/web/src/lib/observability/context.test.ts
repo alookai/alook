@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { bindCommandAction, beginNavigation, clearActions, commandObservation, finishAction, startAction, installActionSpans, navigationForHref, commitNavigation, committedNavigationPathname } from "./context"
 import { alignInitialTelemetrySession, configureTelemetry, emitTelemetry, installTelemetrySink, retireTelemetry, telemetryGeneration } from "./telemetry"
-import type { Span } from "@opentelemetry/api"
+import { observationEpoch, observationTime } from "./clock"
+import type { Span, HrTime } from "@opentelemetry/api"
 import { startRequest, requestHeaders, readObservedResponse } from "./requests"
 import { resolveActionName } from "./actions"
 
@@ -82,6 +83,24 @@ describe("original observation ownership", () => {
     const a = beginNavigation("/c/me/bots")!, b = beginNavigation("/c/me/friends")!, c = beginNavigation("/c/me/machines")!
     finishAction(c, "success"); finishAction(a, "success"); finishAction(b, "success")
     expect(events.filter(event => event.name === "action.finish").map(event => event.attributes.outcome)).toEqual(["superseded", "superseded", "success"])
+  })
+  it("keeps business stage durations and epoch timestamps stable across wall-clock changes", () => {
+    let now = 100
+    vi.spyOn(performance, "now").mockImplementation(() => now)
+    const end = vi.fn()
+    const factory = vi.fn(() => ({ end, setAttribute: vi.fn() } as unknown as Span))
+    installActionSpans(factory)
+    const action = beginNavigation("/c/me/bots")!
+    now = 150
+    vi.setSystemTime(Date.now() - 86_400_000)
+    finishAction(action, "success", { phase: "primary", region: "bots" })
+    expect(events.at(-1)?.attributes.duration_ms).toBe("50")
+    expect(end).toHaveBeenCalledWith(observationTime(150))
+    const emitted: Array<{ timestamp: number }> = []
+    installTelemetrySink(event => emitted.push(event))
+    emitTelemetry("business.result", { outcome: "success" })
+    expect(emitted[0]?.timestamp).toBe(observationEpoch(150))
+    vi.restoreAllMocks()
   })
   it("bounds pre-SDK events and separates event drops from delivery failures", () => {
     retireTelemetry(); configureTelemetry({ session_id: "session-c" }, true); events.length = 0
@@ -195,10 +214,10 @@ describe("original observation ownership", () => {
     const request = startRequest("/api/agents", { observation: { action: second, reason: "router" } })
     vi.advanceTimersByTime(660)
     const spans = [first, second].map((_action, index) => ({ spanContext: () => ({ traceId: String(index + 1).repeat(32), spanId: String(index + 1).repeat(16) }), setAttribute: vi.fn(), end: vi.fn() }))
-    const factory = vi.fn((_name: string, _fields: Record<string, string>, _start: number) => spans[factory.mock.calls.length - 1] as unknown as Span)
+    const factory = vi.fn((_name: string, _fields: Record<string, string>, _start: HrTime) => spans[factory.mock.calls.length - 1] as unknown as Span)
     installActionSpans(factory)
-    expect(factory.mock.calls.map(call => call[2])).toEqual([performance.timeOrigin, performance.timeOrigin + second.start])
-    expect(spans[0]!.end).toHaveBeenCalledWith(performance.timeOrigin + 240)
+    expect(factory.mock.calls.map(call => call[2])).toEqual([observationTime(0), observationTime(second.start)])
+    expect(spans[0]!.end).toHaveBeenCalledWith(observationTime(240))
     expect(spans[0]!.setAttribute).toHaveBeenCalledWith("outcome", "success")
     expect(spans[1]!.end).not.toHaveBeenCalled()
     requestHeaders(request, new Response(null, { status: 204 }))
@@ -209,7 +228,7 @@ describe("original observation ownership", () => {
       expect(owned.length).toBeGreaterThan(0)
       expect(owned.every(event => event.attributes.trace_id === String(index + 1).repeat(32) && event.attributes.span_id === String(index + 1).repeat(16))).toBe(true)
     }
-    expect(spans[1]!.end).toHaveBeenCalledWith(performance.timeOrigin + 900)
+    expect(spans[1]!.end).toHaveBeenCalledWith(observationTime(900))
     installActionSpans(factory)
     expect(factory).toHaveBeenCalledTimes(2)
   })
@@ -235,7 +254,7 @@ describe("original observation ownership", () => {
     finishAction(action, "success", { phase: "primary", region: "bots" })
     const end = vi.fn()
     installActionSpans(() => ({ end, setAttribute: () => { throw new Error("unavailable") } } as unknown as Span))
-    expect(end).toHaveBeenCalledWith(performance.timeOrigin + 50)
+    expect(end).toHaveBeenCalledWith(observationTime(50))
   })
   it("discards deferred binding when the factory retires its original account", () => {
     retireTelemetry(); clearActions(); configureTelemetry({ session_id: "pending" }, true)

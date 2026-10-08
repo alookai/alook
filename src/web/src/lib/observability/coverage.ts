@@ -359,6 +359,7 @@ export const actionNames = [
   "message.unpin",
   "message_send",
   "navigation",
+  "navigation.prefetch",
   "notification.channel.update",
   "notification.server.update",
   "notification.settings.command",

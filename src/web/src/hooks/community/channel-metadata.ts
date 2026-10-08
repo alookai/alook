@@ -1,4 +1,4 @@
-import { apiFetch } from "@/lib/api/client"
+import { apiFetch, type ApiRequestOptions } from "@/lib/api/client"
 import { queryOptions, type QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import { retryConversationRead, withConversationReadDeadline } from "@/lib/community/conversation-read"
@@ -33,6 +33,7 @@ export async function fetchChannelMetadata(
   channelId: string,
   signal?: AbortSignal,
   token = captureChannelMetadataToken(queryClient, channelId),
+  observation?: ApiRequestOptions["observation"],
 ) {
   return withConversationReadDeadline(signal, async (readSignal) => {
     const queryKey = communityKeys.channelMeta(serverId, channelId)
@@ -48,7 +49,7 @@ export async function fetchChannelMetadata(
     assertActive()
     let meta: ChannelMetadata
     try {
-      const response = await apiFetch<ChannelMetadata>(`/api/community/channels/${encodeURIComponent(channelId)}`, communityRequestOptions(queryClient, token, readSignal, assertActive))
+      const response = await apiFetch<ChannelMetadata>(`/api/community/channels/${encodeURIComponent(channelId)}`, { ...communityRequestOptions(queryClient, token, readSignal, assertActive), ...(observation && { observation }) })
       meta = { ...response, ...normalizeCommunityChannelIdentity(response) }
       assertActive()
     } catch (error) {
@@ -71,13 +72,13 @@ export async function fetchChannelMetadata(
   })
 }
 
-export function channelMetadataOptions(queryClient: QueryClient, serverId: string | null, channelId: string) {
+export function channelMetadataOptions(queryClient: QueryClient, serverId: string | null, channelId: string, observation?: ApiRequestOptions["observation"]) {
   const queryKey = communityKeys.channelMeta(serverId, channelId)
   return queryOptions({
     queryKey,
     queryFn: async ({ signal }): Promise<ChannelMetadataResource> => {
       const token = captureChannelMetadataToken(queryClient, channelId)
-      const metadata = await fetchChannelMetadata(queryClient, serverId, channelId, signal, token)
+      const metadata = await fetchChannelMetadata(queryClient, serverId, channelId, signal, token, observation)
       publishCommunityChannelMetadata(queryClient, { metadata, proof: { token, signal } })
       const canRead = !metadata.archived && metadata.accessDecision?.canRead !== false
       if (!canRead) retireCommunityChannelReading(token.registry!, channelId, { reason: "read-denied", serverId, preserveQuery: queryClient.getQueryCache().find({ queryKey, exact: true }) })

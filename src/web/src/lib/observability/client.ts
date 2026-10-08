@@ -8,10 +8,11 @@ import { alignInitialTelemetrySession, configureTelemetry, emitTelemetry, instal
 import { sanitizeItem } from "./sanitize"
 import { installBrowserObservers } from "./browser"
 import { resolveCommunityModulePlan } from "../community/community-route"
-import { cleanAttributes } from "./schema"
+import { observeTransportSpan, finishTransportSpan, installNavigationFetchContext } from "./requests"
 import { resolveFrontendIdentity } from "./runtime"
+import { resolveObservationBuild } from "./build"
 
-type BuildProfile = { url?: string; environment?: string; release?: string }
+type BuildProfile = { url?: string; environment?: string; release?: string; release_status: string; environment_status: string }
 function validBuildProfile(profile: BuildProfile) {
   try {
     const url = new URL(profile.url ?? "")
@@ -20,7 +21,7 @@ function validBuildProfile(profile: BuildProfile) {
 }
 const build: BuildProfile = {
   url: process.env.NEXT_PUBLIC_FARO_COLLECTOR_URL,
-  ...cleanAttributes({ environment: process.env.NEXT_PUBLIC_FARO_ENVIRONMENT, release: process.env.NEXT_PUBLIC_FARO_RELEASE }),
+  ...resolveObservationBuild({ NEXT_PUBLIC_FARO_ENVIRONMENT: process.env.NEXT_PUBLIC_FARO_ENVIRONMENT, NEXT_PUBLIC_FARO_RELEASE: process.env.NEXT_PUBLIC_FARO_RELEASE }),
 }
 let started = false
 let documentSuspended = false
@@ -34,6 +35,7 @@ let pendingInitialNavigation = false
 let deliveryFailures = 0
 let deliveryFailureReason = "unknown"
 let makeTransport: (() => FetchTransport) | undefined
+let stopNavigationFetch: (() => void) | undefined
 let stopBrowser: (() => void) | undefined
 let eligibleSince = 0
 let vitalsInitialized = false
@@ -48,6 +50,8 @@ let webInstrumentations: Instrumentation[] = []
 const pageId = telemetryId()
 
 function deactivate() {
+  stopNavigationFetch?.()
+  stopNavigationFetch = undefined
   retireTelemetry()
   clearActions()
   installActionSpans(undefined)
@@ -63,7 +67,7 @@ function deactivate() {
   for (const instrumentation of httpInstrumentations.flat()) instrumentation.disable()
 }
 function configure() {
-  configureTelemetry({ release: build.release, environment: build.environment, ...identity, page_instance_id: pageId, session_id: sessionId, user_key: userKey }, true)
+  configureTelemetry({ release: build.release, environment: build.environment, release_status: build.release_status, environment_status: build.environment_status, ...identity, page_instance_id: pageId, session_id: sessionId, user_key: userKey }, true)
 }
 async function activate() {
   if (documentSuspended || !hasAnalyticsConsent() || !validBuildProfile(build)) return
@@ -100,7 +104,7 @@ async function activate() {
     let storedScope: string | undefined
     try { storedScope = VolatileSessionsManager.fetchUserSession()?.sessionMeta?.attributes?.alook_account } catch { clearNativeSession() }
     if (!mayResume || storedScope !== accountScope) clearNativeSession()
-    httpInstrumentations = createHttp({ ignoreUrls: [build.url!], propagateTraceHeaderCorsUrls: [new RegExp("^" + window.location.origin.replace(/[.*+?^$(){}|[\]\\]/g, "\\$&") + "/")] })
+    httpInstrumentations = createHttp({ fetchInstrumentationOptions: { requestHook: observeTransportSpan, applyCustomAttributesOnSpan: (span, _request, result) => finishTransportSpan(span, result) }, ignoreUrls: [build.url!], propagateTraceHeaderCorsUrls: [new RegExp("^" + window.location.origin.replace(/[.*+?^$(){}|[\]\\]/g, "\\$&") + "/")] })
     const defaults = getWebInstrumentations({ captureConsole: false, enableContentSecurityPolicyInstrumentation: false, enablePerformanceInstrumentation: false })
     const vitals = defaults.find(instrumentation => instrumentation.name.endsWith("instrumentation-web-vitals"))
     if (vitals) {
@@ -153,11 +157,12 @@ async function activate() {
     faro.api.setSession({ id: capturedSession, attributes: { isSampled: "true", alook_account: userKey ?? "anon" } })
   }
   if (!faro) { deactivate(); return }
-  installActionSpans((name, attributes, startTime) => {
+  installActionSpans((name, attributes, startTime, links) => {
     if (!isTelemetryEligible()) return
-    return faro?.api.getOTEL()?.trace.getTracer("alook.frontend").startSpan(name, { attributes, startTime })
+    return faro?.api.getOTEL()?.trace.getTracer("alook.frontend").startSpan(name, { attributes, startTime, links })
   })
   connectSink()
+  stopNavigationFetch = installNavigationFetchContext()
   stopBrowser = installBrowserObservers(faro, build.url!, eligibleSince)
   emitTelemetry("telemetry.coverage", { collection_rate: 1, eligibility: "eligible", capability: "available", count: Object.keys(capabilityLimits).length })
 }

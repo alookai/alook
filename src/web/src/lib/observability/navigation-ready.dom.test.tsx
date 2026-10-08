@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
 import { announceAnalyticsConsent } from "../analytics-consent"
 import { useObservedQueryRegion } from "./query-regions"
+import { observationEpoch } from "./clock"
 
 const native = vi.hoisted(() => ({ release: undefined as (() => void) | undefined }))
 vi.mock("@grafana/faro-web-sdk", async importOriginal => {
@@ -48,7 +49,7 @@ it("retains real ready time before a delayed SDK and records each later route on
     useLayoutEffect(() => setTelemetryUser("account-a"), [])
     return <QueryClientProvider client={client!}><Content region={region} /></QueryClientProvider>
   }
-  const readyAt = Date.now()
+  const readyAt = Math.floor(observationEpoch())
   await act(async () => { bootstrapObservability("web"); view = render(<Root region="messages" />) })
   await vi.waitFor(() => expect(native.release).toBeTypeOf("function"))
   expect(navigationForHref(window.location.href)).toBeUndefined()

@@ -1,3 +1,4 @@
+import { annotateWorkerSpan, observeWorkerOperation } from "./observability/worker"
 import { betterAuth } from "better-auth"
 import { emailOTP, deviceAuthorization, bearer, oneTimeToken } from "better-auth/plugins"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
@@ -461,9 +462,16 @@ function authVersionId(env: Env): string | undefined {
  * API call and are never retained here.
  */
 export function getAuth(env: Env): AuthInstance {
+  return observeWorkerOperation("auth.instance", {}, () => resolveAuthInstance(env))
+}
+
+function resolveAuthInstance(env: Env): AuthInstance {
   const versionId = authVersionId(env)
   const mode = resolveMode({ nodeEnv: env.NODE_ENV ?? process.env.NODE_ENV })
-  if (!versionId && mode === "production") return createAuth(env)
+  if (!versionId && mode === "production") {
+    annotateWorkerSpan({ auth_instance: "request_local", auth_reuse_reason: "version_missing" })
+    return createAuth(env)
+  }
 
   const lifecycleVersion = versionId ?? "local-module"
   const configuration = authConfiguration(env)
@@ -472,11 +480,19 @@ export function getAuth(env: Env): AuthInstance {
     || authLifecycleEntry.versionId !== lifecycleVersion
     || !sameAuthConfiguration(authLifecycleEntry.configuration, configuration)
   ) {
+    annotateWorkerSpan({ auth_instance: "created", auth_reuse_reason: !authLifecycleEntry ? "cold" : authLifecycleEntry.versionId !== lifecycleVersion ? "version_changed" : "configuration_changed" })
     authLifecycleEntry = {
       configuration,
       versionId: lifecycleVersion,
       auth: createAuth(env),
     }
+  } else {
+    annotateWorkerSpan({ auth_instance: "reused", auth_reuse_reason: "match" })
   }
   return authLifecycleEntry.auth
+}
+
+export async function observeAuthSession<T>(auth: AuthInstance, execute: () => Promise<T>): Promise<T> {
+  await observeWorkerOperation("auth.context_ready", {}, () => auth.$context)
+  return observeWorkerOperation("auth.get_session", {}, execute)
 }

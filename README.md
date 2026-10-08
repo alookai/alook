@@ -140,6 +140,8 @@ flowchart TB
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to get involved.
 
+See [navigation requests and observation](src/web/NAVIGATION-OBSERVABILITY.md) for routing, authentication, metadata preparation and trace maintenance.
+
 ### Monorepo structure
 
 Alook is a monorepo, with code grouped by responsibility under `src/`:

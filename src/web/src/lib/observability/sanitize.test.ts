@@ -55,6 +55,17 @@ describe("outbound whitelist", () => {
     expect(JSON.stringify(clean)).toContain("/api/community/messages/[id]")
     expect(sanitizeTrace({ resourceSpans: [{ scopeSpans: [{ spans: [span] }] }] }, "new-session", origin)).toBeNull()
   })
+  it("retains real link IDs while rejecting zero IDs and private link metadata", () => {
+    const span = { traceId: "a".repeat(32), spanId: "b".repeat(16), name: "navigation", startTimeUnixNano: "1000000000", endTimeUnixNano: "2000000000",
+      attributes: [{ key: "session.id", value: { stringValue: session } }], links: [
+        { traceId: "c".repeat(32), spanId: "d".repeat(16), traceState: "SECRET", attributes: [{ key: "private", value: "SECRET" }] },
+        { traceId: "0".repeat(32), spanId: "d".repeat(16) },
+        { traceId: "c".repeat(32), spanId: "0".repeat(16) },
+      ] }
+    const clean = sanitizeTrace({ resourceSpans: [{ scopeSpans: [{ spans: [span] }] }] }, session, origin)!
+    expect(clean.resourceSpans[0]!.scopeSpans[0]!.spans[0]!.links).toEqual([{ traceId: "c".repeat(32), spanId: "d".repeat(16), attributes: [], droppedAttributesCount: 0 }])
+    expect(JSON.stringify(clean)).not.toContain("SECRET")
+  })
   it("omits unknown HTTP methods without changing internal or real HTTP span identity", () => {
     const base = { traceId: "a".repeat(32), spanId: "b".repeat(16), name: "dm.message.send", kind: 1, startTimeUnixNano: "1000000000", endTimeUnixNano: "2000000000" }
     const clean = (method?: unknown, legacy = false) => sanitizeTrace({ resourceSpans: [{ scopeSpans: [{ spans: [{
