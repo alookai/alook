@@ -71,31 +71,29 @@ export function BotActivityModal({
 
   const rows = useMemo(() => flattenActivityRows(chronological, bot?.id ?? ""), [chronological, bot?.id])
   const [scrollRoot, setScrollRoot] = useAtom(useCreateAtom<HTMLDivElement | null>(null))
-  const [_olderRevision, setOlderRevision] = useAtom(useCreateAtom(0))
   const stickyIndexes = useMemo(() => rows.flatMap((row, index) => row.kind === "date" ? [index] : []), [rows])
   const activeStickyIndexRef = useRef<number | null>(null)
-  const pendingOlderAnchorRef = useRef<{
+  const [pendingOlderAnchor, setPendingOlderAnchor] = useAtom(useCreateAtom<{
     key: string
     viewportOffset: number
-    firstEventId: string | undefined
     pageCount: number
     receivedOlderRows: boolean
     settled: boolean
-  } | null>(null)
+  } | null>(null))
   const scrollPaddingStartRef = useRef(0)
   const ownsIndexRef = useRef(false)
   const previousTailKeyRef = useRef<string | null>(null)
   const didInitialTailScrollRef = useRef(false)
   useLayoutEffect(() => {
-    pendingOlderAnchorRef.current = null
+    setPendingOlderAnchor(null)
     scrollPaddingStartRef.current = 0
     ownsIndexRef.current = false
     previousTailKeyRef.current = null
     didInitialTailScrollRef.current = false
-  }, [open, bot?.id, scrollRoot])
+  }, [open, bot?.id, scrollRoot, setPendingOlderAnchor])
 
-  const getItemKey = useCallback((index: number) => rows[index]?.key ?? index, [rows])
-  const estimateSize = useCallback((index: number) => rows[index]?.kind === "date" ? 24 : 44, [rows])
+  const getItemKey = useCallback((index: number) => rows[index].key, [rows])
+  const estimateSize = useCallback((index: number) => rows[index].kind === "date" ? 24 : 44, [rows])
   const rangeExtractor = useCallback((range: Range) => {
     const active = [...stickyIndexes].reverse().find((index) => index <= range.startIndex) ?? null
     activeStickyIndexRef.current = active
@@ -112,26 +110,19 @@ export function BotActivityModal({
     estimateSize,
     rangeExtractor,
     anchorTo: "end",
-    followOnAppend: open && didInitialTailScrollRef.current && !isFetchingNextPage && !pendingOlderAnchorRef.current,
+    followOnAppend: open && didInitialTailScrollRef.current && !isFetchingNextPage && !pendingOlderAnchor,
     scrollEndThreshold: 80,
     scrollPaddingStart: scrollPaddingStartRef.current,
     paddingEnd: 12,
     overscan: 8,
     enabled: scrollRoot !== null,
     useFlushSync: false,
-    onChange: (instance) => {
-      if (open && !didInitialTailScrollRef.current && chronological.length > 0
-        && (instance.scrollRect?.height ?? 0) > 0 && instance.scrollElement?.querySelector("[data-activity-event-id]")) {
-        didInitialTailScrollRef.current = true
-        ownsIndexRef.current = true
-        instance.scrollToEnd()
-      }
-    },
   })
 
   useLayoutEffect(() => {
     if (!open || !scrollRoot || chronological.length === 0) return
-    if (!didInitialTailScrollRef.current && scrollRoot.clientHeight > 0) {
+    if (!didInitialTailScrollRef.current && scrollRoot.clientHeight > 0
+      && scrollRoot.querySelector("[data-activity-event-id]")) {
       didInitialTailScrollRef.current = true
       ownsIndexRef.current = true
       virtualizer.scrollToEnd()
@@ -140,10 +131,10 @@ export function BotActivityModal({
     if (previousTailKeyRef.current && tailKey !== previousTailKeyRef.current
       && virtualizer.options.followOnAppend && virtualizer.isAtEnd(80)) ownsIndexRef.current = true
     previousTailKeyRef.current = tailKey
-    const pending = pendingOlderAnchorRef.current
+    const pending = pendingOlderAnchor
     if (!pending || !pending.settled || isFetchingNextPage) return
-    pendingOlderAnchorRef.current = null
-    if (pending.receivedOlderRows && chronological[0]?.id !== pending.firstEventId) {
+    setPendingOlderAnchor(null)
+    if (pending.receivedOlderRows) {
       const index = rows.findIndex((row) => row.key === pending.key)
       if (index >= 0) {
         scrollPaddingStartRef.current = pending.viewportOffset
@@ -157,7 +148,7 @@ export function BotActivityModal({
   useEffect(() => {
     if (!scrollRoot || !open) return
     const cancel = () => {
-      pendingOlderAnchorRef.current = null
+      setPendingOlderAnchor(null)
       scrollPaddingStartRef.current = 0
       if (ownsIndexRef.current) virtualizer.scrollToOffset(scrollRoot.scrollTop)
       ownsIndexRef.current = false
@@ -177,32 +168,32 @@ export function BotActivityModal({
       scrollRoot.removeEventListener("pointerdown", cancel)
       scrollRoot.removeEventListener("keydown", key)
     }
-  }, [open, scrollRoot, virtualizer])
+  }, [open, scrollRoot, setPendingOlderAnchor, virtualizer])
 
   const onLoadOlder = () => {
     if (!hasNextPage || isFetchingNextPage) return
     const offset = virtualizer.scrollOffset ?? 0
     const fold = virtualizer.getVirtualItemForOffset(offset)
-    pendingOlderAnchorRef.current = null
+    let pending: typeof pendingOlderAnchor = null
     if (fold && rows[fold.index]?.kind !== "event") {
       const event = virtualizer.getVirtualItems().find((item) => rows[item.index]?.kind === "event" && item.end > offset)
-      if (event) pendingOlderAnchorRef.current = {
+      if (event) pending = {
         key: String(event.key),
         viewportOffset: event.start - offset,
-        firstEventId: chronological[0]?.id,
         pageCount: loadedPageCount,
         receivedOlderRows: false,
         settled: false,
       }
     }
-    const pending = pendingOlderAnchorRef.current
+    setPendingOlderAnchor(pending)
     const settle = (result: Awaited<ReturnType<typeof fetchNextPage>> | null) => {
-      if (pending && pendingOlderAnchorRef.current === pending) {
-        pending.settled = true
-        pending.receivedOlderRows = Boolean(result && !result.isError
-          && result.data?.pages.slice(pending.pageCount).some(page => page.events.length > 0))
-        setOlderRevision(value => value + 1)
-      }
+      if (!pending) return
+      setPendingOlderAnchor(current => current === pending ? {
+        ...current,
+        settled: true,
+        receivedOlderRows: Boolean(result && !result.isError
+          && result.data?.pages.slice(current.pageCount).some(page => page.events.length > 0)),
+      } : current)
     }
     void fetchNextPage().then(settle, () => settle(null))
   }

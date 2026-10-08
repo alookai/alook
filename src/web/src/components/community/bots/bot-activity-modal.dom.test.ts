@@ -31,6 +31,8 @@ const {
   sheetProps: { current: null as Record<string, unknown> | null },
 }))
 let scrollDescriptor: PropertyDescriptor | undefined
+let bodyHeight = 300
+let bodyResizeObservers: Array<{ callback: ResizeObserverCallback; elements: Set<Element> }> = []
 
 vi.mock("@/components/community/shell/community-sheet", () => ({
   CommunitySheet: ({
@@ -161,6 +163,20 @@ function prepareOlderPage() {
   }
 }
 
+function resizeBody(height: number) {
+  bodyHeight = height
+  act(() => {
+    for (const observer of bodyResizeObservers) {
+      const entries = [...observer.elements].filter(element => element.isConnected).map(target => ({
+        target,
+        borderBoxSize: [{ blockSize: (target as HTMLElement).offsetHeight, inlineSize: 672 }],
+      } as unknown as ResizeObserverEntry))
+      if (entries.length) observer.callback(entries, {} as ResizeObserver)
+    }
+    vi.advanceTimersByTime(500)
+  })
+}
+
 describe("BotActivityModal CommunitySheet contract", () => {
   beforeEach(() => {
     auditState.events = []
@@ -173,22 +189,29 @@ describe("BotActivityModal CommunitySheet contract", () => {
     fetchNextPage.mockReset()
     fetchNextPage.mockResolvedValue({ isError: false, data: { pages: [{ events: [] }] } })
     sheetProps.current = null
+    bodyHeight = 300
+    bodyResizeObservers = []
     vi.useFakeTimers()
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 16))
     vi.stubGlobal("cancelAnimationFrame", (id: number) => window.clearTimeout(id))
     vi.stubGlobal("ResizeObserver", class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
+      private record: typeof bodyResizeObservers[number]
+      constructor(callback: ResizeObserverCallback) {
+        this.record = { callback, elements: new Set() }
+        bodyResizeObservers.push(this.record)
+      }
+      observe(element: Element) { this.record.elements.add(element) }
+      unobserve(element: Element) { this.record.elements.delete(element) }
+      disconnect() { this.record.elements.clear() }
     })
     const isRoot = (node: HTMLElement) => node.dataset.testid === "activity-body"
     const rowHeight = (node: HTMLElement) => node.closest<HTMLElement>("[data-activity-row-key]")?.dataset.activityRowKey?.includes(":date:") ? 24 : 44
-    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) { return isRoot(this) ? 300 : rowHeight(this) })
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) { return isRoot(this) ? bodyHeight : rowHeight(this) })
     vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) { return this.clientHeight })
     vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(() => 672)
     vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => 672)
     vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
-      return isRoot(this) ? Math.max(300, Number.parseFloat(this.firstElementChild?.getAttribute("style")?.match(/height: ([\d.]+)px/)?.[1] ?? "0")) : rowHeight(this)
+      return isRoot(this) ? Math.max(bodyHeight, Number.parseFloat(this.firstElementChild?.getAttribute("style")?.match(/height: ([\d.]+)px/)?.[1] ?? "0")) : rowHeight(this)
     })
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       const row = this.closest<HTMLElement>("[data-activity-row-key]")
@@ -354,6 +377,38 @@ describe("BotActivityModal CommunitySheet contract", () => {
     updateModal(renderer, { open: true })
     expect(root.scrollTop).toBe(root.scrollHeight - root.clientHeight)
     expect(renderer.container.querySelector('[data-event-id="event-119"]')).toBeInTheDocument()
+  })
+
+  it("opens at the latest event after the body changes from zero to positive height", () => {
+    auditState.events = events(120)
+    bodyHeight = 0
+    const { renderer } = renderModal()
+    const root = renderer.getByTestId("activity-body")
+    act(() => vi.advanceTimersByTime(500))
+    expect(root.scrollTop).toBe(0)
+    resizeBody(300)
+    expect(root.scrollTop).toBe(root.scrollHeight - root.clientHeight)
+    expect(renderer.container.querySelector('[data-event-id="event-119"]')).toBeInTheDocument()
+  })
+
+  it("does not restore a completed request from before the modal reopened", async () => {
+    auditState.events = events(30)
+    auditState.hasNextPage = true
+    const completePage = prepareOlderPage()
+    const { renderer } = renderModal()
+    scrollBody(renderer, 0)
+    fireEvent.click(renderer.getByRole("button", { name: "Load older" }))
+    auditState.isFetchingNextPage = true
+    updateModal(renderer)
+    updateModal(renderer, { open: false })
+    updateModal(renderer, { open: true })
+    scrollBody(renderer, 600)
+    const top = eventTop(renderer, "event-15")
+    auditState.events = [...auditState.events, event("old", "2026-08-27T11:00:00.000Z")]
+    auditState.isFetchingNextPage = false
+    updateModal(renderer)
+    await completePage([event("old", "2026-08-27T11:00:00.000Z")])
+    expect(eventTop(renderer, "event-15")).toBe(top)
   })
 
   it.each([0, 50, 150])("keeps the event at offset %i when an older day and its divider prepend", async offset => {
