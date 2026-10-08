@@ -3,6 +3,7 @@
 import { useEffect, useMemo } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { channelMetadataOptions, isChannelMetadataTokenCurrent } from "./channel-metadata"
+import { startChannelRouteVerification } from "./channel-route-verification"
 import { useRouteChannelProjection } from "@/lib/community-db/projections"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { communityKeys } from "@/lib/query-keys"
@@ -25,6 +26,15 @@ export function useChannelMetadata(serverId: string | null, channelId: string | 
   const query = useQuery({ ...options, enabled: !!channelId && !revoked,
     retry: serverId === null ? false : options.retry, retryOnMount: false,
     refetchOnReconnect: false, refetchOnWindowFocus: false })
+  const entry = useMemo(() => {
+    const resource = queryClient.getQueryCache().find({ queryKey: communityKeys.channelMeta(serverId, channelId ?? "__none__"), exact: true })!
+    return { resource, revoked: !!channelId && runtime.ws.actions.isChannelAccessRevoked(channelId, serverId) && !runtime.ws.get().revokedServerIds.has(serverId ?? ""),
+      errors: resource.state.errorUpdateCount, updates: resource.state.dataUpdateCount }
+  }, [channelId, queryClient, runtime, serverId])
+  useEffect(() => {
+    if (!channelId || !entry.revoked) return
+    void startChannelRouteVerification(queryClient, serverId, channelId).catch(() => undefined)
+  }, [channelId, entry, queryClient, serverId])
   useEffect(() => {
     if (!channelId || revoked || query.data === undefined
       || query.data.identityProof && isChannelMetadataTokenCurrent(query.data.identityProof) && query.data.readProof && isChannelMetadataTokenCurrent(query.data.readProof)) return
@@ -33,14 +43,18 @@ export function useChannelMetadata(serverId: string | null, channelId: string | 
   }, [accessEpoch, accountEpoch, viewerId, generation, channelId, revoked, query.data, queryClient, serverId])
   const retry = useConversationReadRetry(query, queryClient, [serverId, channelId, viewerId, accountEpoch, accessEpoch, generation])
   const identityKnown = !!canonical && canonical.id === channelId && canonical.serverId === serverId && !canonical.pending
-  const denied = revoked || typeof query.error === "object" && query.error !== null && "status" in query.error
+  const resource = queryClient.getQueryCache().find({ queryKey: options.queryKey, exact: true })!
+  const replaced = resource !== entry.resource
+  const failed = query.isError && (!entry.revoked || replaced || resource.state.errorUpdateCount > entry.errors)
+  const denied = failed && typeof query.error === "object" && query.error !== null && "status" in query.error
     && (query.error.status === 403 || query.error.status === 404)
+    || revoked && (!entry.revoked || !query.isFetching && !failed && (replaced || resource.state.dataUpdateCount > entry.updates))
   const isArchived = identityKnown && canonical.archived && !!query.data?.identityProof && isChannelMetadataTokenCurrent(query.data.identityProof)
-  const canRead = identityKnown && !denied && !isArchived && query.data?.id === channelId
+  const canRead = identityKnown && !revoked && !denied && !isArchived && query.data?.id === channelId
     && !!query.data.readProof && isChannelMetadataTokenCurrent(query.data.readProof)
   const status: ChannelReadingStatus = !channelId ? "no-target" : denied || isArchived ? "denied"
-    : canRead ? "readable" : retry.failed ? "retryable-error"
-    : query.fetchStatus === "fetching" ? "pending" : "unresolved"
+    : canRead ? "readable" : (failed || retry.retrying) && retry.failed ? "retryable-error"
+    : query.isFetching || entry.revoked && revoked ? "pending" : "unresolved"
 
   const data = useMemo(() => identityKnown ? { ...canonical, serverId,
     createdAt: canonical.createdAt ?? "", name: canonical.name ?? "",
@@ -49,5 +63,5 @@ export function useChannelMetadata(serverId: string | null, channelId: string | 
     parentChannelId: canonical.parentChannelId ?? null, parentMessageId: canonical.parentMessageId ?? null,
     creatorId: canonical.creatorId ?? null, lastMessageAt: canonical.lastMessageAt ?? null }
     : undefined, [canonical, identityKnown, query.data, serverId])
-  return { ...query, data, status, identityKnown, canRead, isVerified: canRead, isArchived, denied, canonical, retry: retry.retry, retrying: retry.retrying }
+  return { ...query, data, status, identityKnown, canRead, isVerified: canRead, isArchived, denied, revoked, canonical, retry: retry.retry, retrying: retry.retrying }
 }

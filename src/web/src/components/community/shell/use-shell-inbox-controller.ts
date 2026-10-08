@@ -6,7 +6,7 @@ import { channelHref } from "@/lib/community/community-route"
 import type { Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 import { dmSummaryFromInbox } from "@/lib/community/dm-cache"
 import { useInboxAttention, useInboxMarked } from "@/hooks/community/use-inbox"
-import { startDmRouteVerification } from "@/hooks/community/use-dm-route-verification"
+import { startChannelRouteVerification } from "@/hooks/community/channel-route-verification"
 import { useInboxAutoCollapse } from "@/hooks/community/use-inbox-auto-collapse"
 import {
   inboxChannelRowTarget,
@@ -255,7 +255,7 @@ export function useShellInboxController({
         publishCommunityDmSummary(queryClient, summary)
       },
       () => {
-        void startDmRouteVerification(queryClient, dmId).catch(() => undefined)
+        void startChannelRouteVerification(queryClient, null, dmId).catch(() => undefined)
       },
     )
   }, [pushProjected, queryClient])

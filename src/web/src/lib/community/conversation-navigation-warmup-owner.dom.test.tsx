@@ -1,7 +1,7 @@
 import React, { StrictMode, useLayoutEffect } from "react"
 import { QueryClient, useInfiniteQuery } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, render, waitFor } from "@/test/react-dom-harness"
+import { act, render, renderHook, waitFor } from "@/test/react-dom-harness"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityDbRegistry, registerCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { createQueryClient } from "@/lib/query-client"
@@ -11,6 +11,10 @@ import { startConversationNavigationWarmup } from "./conversation-navigation-war
 import { getConversationNavigationProof, recoverConversationNavigationProof, useConversationNavigationGate } from "./conversation-navigation-proof"
 import { channelMessagesQueryFn, dmMessagesQueryFn } from "@/hooks/community/use-messages"
 import type { MessagesPageParam } from "@/lib/community/models/message"
+import { channelMetadataOptions, isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
+import { startChannelRouteVerification } from "@/hooks/community/channel-route-verification"
+import { useChannelMetadata } from "@/hooks/community/use-channel-metadata"
+import { retireCommunityChannelReading } from "@/lib/community-db/sync"
 
 vi.mock("@/lib/api/client", async (load) => {
   const actual = await load<typeof import("@/lib/api/client")>()
@@ -67,6 +71,59 @@ function response(status: number) {
 }
 
 describe("warmup original owner and complete intent resources", () => {
+  it.each(["dm", "thread"] as const)("qualifies a revoked %s before warmup capture and keeps that request through prior-body unmount", async (kind) => {
+    const owner = createClient()
+    await owner.registry.preload()
+    const serverId = kind === "dm" ? null : "s1"
+    if (serverId) owner.client.setQueryData(communityKeys.server(serverId), serverId)
+    const metadata = { id: "d1", serverId, type: kind, name: kind === "dm" ? null : "Thread",
+      parentChannelId: kind === "dm" ? null : "parent", parentMessageId: kind === "dm" ? null : "opener",
+      creatorId: null, archived: false, lastMessageAt: null, createdAt: "2026-10-02T00:00:00Z" }
+    const json = (value: unknown) => new Response(JSON.stringify(value), { status: 200, headers: { "Content-Type": "application/json" } })
+    const pending: Array<{ path: string; signal: AbortSignal; resolve: (value: Response) => void }> = []
+    let held = false
+    vi.stubGlobal("fetch", vi.fn((path: string, options: RequestInit) => !held
+      ? Promise.resolve(json(metadata))
+      : new Promise<Response>((resolve) => pending.push({ path, signal: options.signal!, resolve }))))
+    await owner.client.query(channelMetadataOptions(owner.client, serverId, "d1"))
+    const wrapper = ({ children }: React.PropsWithChildren) => <CommunityTestProvider client={owner.client} registry={owner.registry} retainOwner>{children}</CommunityTestProvider>
+    const prior = renderHook(() => useChannelMetadata(serverId, "d1"), { wrapper })
+    const oldProof = prior.result.current.data!.readProof!
+    act(() => retireCommunityChannelReading(owner.registry, "d1", { reason: "read-denied", serverId }))
+    expect(prior.result.current.canRead).toBe(false)
+    held = true
+    const navigation = { ...target, scopeKind: kind === "dm" ? "dm" as const : "channel" as const,
+      ...(serverId ? { serverId } : {}), expectedSurfaceKind: kind }
+    let epoch!: number
+    act(() => { epoch = startConversationNavigationWarmup(owner.client, navigation, 0) })
+    await waitFor(() => expect(pending).toHaveLength(3))
+    const authority = pending.find((request) => new URL(request.path, "https://alook.test").pathname === "/api/community/channels/d1")!
+    const resource = owner.client.getQueryCache().find({ queryKey: communityKeys.channelMeta(serverId, "d1"), exact: true })!
+    expect(owner.registry.runtime.ws.get().channelAccessScopes.get("d1")).toMatchObject({ generation: 2, revoked: true })
+    expect(isChannelMetadataTokenCurrent(oldProof)).toBe(false)
+    prior.unmount()
+    expect(resource.getObserversCount()).toBe(1)
+    expect(authority.signal.aborted).toBe(false)
+    const afterPush = startChannelRouteVerification(owner.client, serverId, "d1")
+    const current = renderHook(() => ({ metadata: useChannelMetadata(serverId, "d1"), gate: useConversationNavigationGate(owner.client, "viewer", "d1", 0) }), { wrapper })
+    expect(current.result.current.metadata.canRead).toBe(false)
+    expect(owner.registry.runtime.ws.get().channelAccessScopes.get("d1")?.generation).toBe(2)
+    expect(pending).toHaveLength(3)
+    await act(async () => authority.resolve(json(metadata)))
+    await expect(afterPush).resolves.toBe("present")
+    await waitFor(() => expect(current.result.current.metadata.canRead).toBe(true))
+    await act(async () => {
+      pending.find((request) => request.path.includes("/read-state"))!.resolve(response(200))
+      pending.find((request) => request.path.includes("/messages"))!.resolve(json({ messages: [], hasMore: false, surfaceReceipt: { channelId: "d1", surfaceKind: kind } }))
+    })
+    await waitFor(() => expect(current.result.current.gate.allowed).toBe(true))
+    expect(getConversationNavigationProof(owner.client)?.epoch ?? epoch).toBe(epoch)
+    expect(owner.registry.runtime.ws.get().channelAccessScopes.get("d1")).toMatchObject({ generation: 2, revoked: false })
+    expect(pending).toHaveLength(3)
+    await waitFor(() => expect(resource.getObserversCount()).toBe(1))
+    current.unmount()
+  })
+
   it.each(["channel", "thread", "forum", "dm"].flatMap((kind) =>
     ["anchor", "older"].map((mode) => ({ kind, mode })),
   ))("reads the current click after retained $mode pages on $kind", async ({ kind, mode }) => {

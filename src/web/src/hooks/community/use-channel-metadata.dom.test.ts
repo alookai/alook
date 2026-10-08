@@ -1,5 +1,5 @@
 import React from "react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { CancelledError, QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { getLastChannel, setLastChannel } from "@/lib/community/last-channel"
@@ -11,6 +11,8 @@ import { channelMetadataOptions, captureChannelMetadataToken, isChannelMetadataT
 import { useChannelMetadata } from "./use-channel-metadata"
 import { useDmReadStateSnapshot } from "./use-dm-read-state"
 import { startConversationNavigationWarmup } from "@/lib/community/conversation-navigation-warmup"
+import { ApiError } from "@/lib/errors"
+import { startChannelRouteVerification } from "./channel-route-verification"
 
 const apiFetch = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }))
@@ -38,8 +40,8 @@ async function fixture(client = new QueryClient({ defaultOptions: { queries: { r
     React.createElement(CommunityDbProvider, { registry }, children))
   return { client, registry, wrapper }
 }
-function publishDms(registry: CommunityDbRegistry) {
-  publishCommunityLiveSnapshot(registry.queryClient, { snapshot: { kind: "dms", data: dms },
+function publishDms(registry: CommunityDbRegistry, data = dms) {
+  publishCommunityLiveSnapshot(registry.queryClient, { snapshot: { kind: "dms", data },
     proof: { kind: "structural", token: captureCommunityLiveSnapshotToken(registry.queryClient), signal: undefined } })
 }
 async function qualifyMetadata(client: QueryClient, value = metadata) {
@@ -58,6 +60,172 @@ afterEach(async () => {
 })
 
 describe("shared Channel resource and canonical DM publication", () => {
+  it("requalifies a blocked other document on normal re-entry without executing its unblock command", async () => {
+    const { client, registry, wrapper } = await fixture()
+    const completeDms = { conversations: [...dms.conversations, { ...dms.conversations[0], id: "dm-b", userId: "other-peer" }] }
+    ingestDms(registry, completeDms)
+    await qualifyMetadata(client)
+    await qualifyMetadata(client, { ...metadata, id: "dm-b" })
+    const sibling = captureChannelMetadataToken(client, "dm-b")
+    const mounted = renderHook(() => useChannelMetadata(null, metadata.id), { wrapper })
+    act(() => applyCommunityDmBlockAccess(registry, "peer", true))
+    expect(mounted.result.current).toMatchObject({ denied: true, canRead: false })
+    expect(apiFetch).not.toHaveBeenCalled()
+    const retired = captureChannelMetadataToken(client, metadata.id)
+    mounted.unmount()
+    publishDms(registry, completeDms)
+    const request = deferred<typeof metadata>()
+    apiFetch.mockReturnValue(request.promise)
+    const returned = renderHook(() => ({ first: useChannelMetadata(null, metadata.id), second: useChannelMetadata(null, metadata.id) }), { wrapper })
+    const inbox = startChannelRouteVerification(client, null, metadata.id)
+    const terminal = inbox.then((result) => ({ result }), (error: unknown) => ({ error }))
+    try {
+      await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
+      expect(returned.result.current.first).toMatchObject({ status: "pending", denied: false, canRead: false, revoked: true })
+      expect(returned.result.current.first.data?.readProof).toBeUndefined()
+      expect(registry.runtime.ws.get().channelAccessScopes.get(metadata.id)).toMatchObject({ generation: 2, revoked: true })
+      expect(isChannelMetadataTokenCurrent(retired)).toBe(false)
+      expect(isChannelMetadataTokenCurrent(sibling)).toBe(true)
+      await act(async () => request.resolve(metadata))
+      await expect(inbox).resolves.toBe("present")
+      await waitFor(() => expect(returned.result.current.first.canRead).toBe(true))
+      expect(returned.result.current.second.canRead).toBe(true)
+      expect(registry.runtime.ws.get().channelAccessScopes.get(metadata.id)).toMatchObject({ generation: 2, revoked: false })
+      expect(apiFetch).toHaveBeenCalledOnce()
+      expect(isChannelMetadataTokenCurrent(sibling)).toBe(true)
+    } finally {
+      await act(async () => {
+        await client.cancelQueries({ queryKey: metadataKey, exact: true })
+        const settled = await terminal
+        returned.unmount()
+        if ("error" in settled && !(settled.error instanceof CancelledError)) throw settled.error
+      })
+    }
+  })
+
+  it.each([403, 404])("keeps a new-entry %s denied without rechecking on repaint", async (status) => {
+    const { client, registry, wrapper } = await fixture()
+    ingestDms(registry, dms)
+    await qualifyMetadata(client)
+    applyCommunityDmBlockAccess(registry, "peer", true)
+    publishDms(registry)
+    apiFetch.mockRejectedValue(new ApiError("denied", status))
+    const route = renderHook(() => useChannelMetadata(null, metadata.id), { wrapper })
+    await waitFor(() => expect(route.result.current.error).toMatchObject({ status }))
+    expect(route.result.current).toMatchObject({ denied: true, canRead: false })
+    expect(registry.runtime.ws.get().channelAccessScopes.get(metadata.id)).toMatchObject({ generation: 2, revoked: true })
+    route.rerender()
+    await act(async () => {})
+    expect(apiFetch).toHaveBeenCalledOnce()
+    expect(route.result.current.data?.readProof).toBeUndefined()
+    route.unmount()
+  })
+
+  it.each([0, 502])("keeps revoked re-entry temporary %s retryable until current protected success", async (status) => {
+    const { client, registry, wrapper } = await fixture()
+    ingestDms(registry, dms)
+    await qualifyMetadata(client)
+    applyCommunityDmBlockAccess(registry, "peer", true)
+    publishDms(registry)
+    const first = deferred<typeof metadata>()
+    apiFetch.mockReturnValueOnce(first.promise)
+    const route = renderHook(() => useChannelMetadata(null, metadata.id), { wrapper })
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
+    expect(route.result.current).toMatchObject({ status: "pending", denied: false, canRead: false, revoked: true })
+    await act(async () => first.reject(new ApiError("unavailable", status)))
+    await waitFor(() => expect(route.result.current.status).toBe("retryable-error"))
+    expect(route.result.current).toMatchObject({ denied: false, canRead: false, revoked: true })
+    const retry = deferred<typeof metadata>()
+    apiFetch.mockReturnValueOnce(retry.promise)
+    let pending!: Promise<void>
+    await act(async () => { pending = route.result.current.retry(); void route.result.current.retry() })
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
+    expect(route.result.current).toMatchObject({ status: "retryable-error", retrying: true, denied: false, canRead: false, revoked: true })
+    expect(registry.runtime.ws.get().channelAccessScopes.get(metadata.id)?.generation).toBe(2)
+    await act(async () => { retry.resolve(metadata); await pending })
+    await waitFor(() => expect(route.result.current.status).toBe("readable"))
+    expect(route.result.current).toMatchObject({ canRead: true, revoked: false })
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+    route.unmount()
+  })
+
+  it("rechecks a revoked target when the route target changes and preserves the sibling proof", async () => {
+    const { client, registry, wrapper } = await fixture()
+    ingestDms(registry, { conversations: [...dms.conversations, { ...dms.conversations[0], id: "dm-b", userId: "other-peer" }] })
+    await qualifyMetadata(client)
+    await qualifyMetadata(client, { ...metadata, id: "dm-b" })
+    applyCommunityDmBlockAccess(registry, "peer", true)
+    const sibling = captureChannelMetadataToken(client, "dm-b")
+    const route = renderHook(({ id }) => useChannelMetadata(null, id), { initialProps: { id: "dm-b" }, wrapper })
+    expect(route.result.current.canRead).toBe(true)
+    const request = deferred<typeof metadata>()
+    apiFetch.mockReturnValue(request.promise)
+    route.rerender({ id: metadata.id })
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
+    expect(route.result.current).toMatchObject({ status: "pending", denied: false, canRead: false, revoked: true })
+    expect(isChannelMetadataTokenCurrent(sibling)).toBe(true)
+    await act(async () => request.resolve(metadata))
+    await waitFor(() => expect(route.result.current.canRead).toBe(true))
+    expect(isChannelMetadataTokenCurrent(sibling)).toBe(true)
+    route.unmount()
+  })
+
+  it.each(["success", "denial"] as const)("rejects the prior request's late %s while the new entry is qualifying", async (outcome) => {
+    const { client, registry, wrapper } = await fixture()
+    ingestDms(registry, dms)
+    await qualifyMetadata(client)
+    const old = deferred<typeof metadata>()
+    const fresh = deferred<typeof metadata>()
+    apiFetch.mockReturnValueOnce(old.promise).mockReturnValueOnce(fresh.promise)
+    const mounted = renderHook(() => useChannelMetadata(null, metadata.id), { wrapper })
+    void client.invalidateQueries({ queryKey: metadataKey, exact: true })
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
+    const signal = apiFetch.mock.calls[0][1].signal as AbortSignal
+    act(() => applyCommunityDmBlockAccess(registry, "peer", true))
+    expect(signal.aborted).toBe(true)
+    mounted.unmount()
+    publishDms(registry)
+    const returned = renderHook(() => useChannelMetadata(null, metadata.id), { wrapper })
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
+    await act(async () => {
+      if (outcome === "success") old.resolve(metadata)
+      else old.reject(new ApiError("old denied", 403))
+    })
+    expect(returned.result.current).toMatchObject({ status: "pending", denied: false, canRead: false, revoked: true })
+    expect(registry.runtime.ws.get().channelAccessScopes.get(metadata.id)).toMatchObject({ generation: 2, revoked: true })
+    await act(async () => fresh.resolve(metadata))
+    await waitFor(() => expect(returned.result.current.canRead).toBe(true))
+    expect(registry.runtime.ws.get().channelAccessScopes.get(metadata.id)).toMatchObject({ generation: 2, revoked: false })
+    returned.unmount()
+  })
+
+  it.each([true, false])("keeps parent revocation until protected child metadata returns canRead=%s", async (canRead) => {
+    const { client, registry, wrapper } = await fixture()
+    const child = { ...metadata, id: "child", serverId: "server", type: "thread", name: "Child", parentChannelId: "parent", parentMessageId: "opener" }
+    apiFetch.mockResolvedValue(child)
+    await client.query(channelMetadataOptions(client, "server", child.id))
+    apiFetch.mockResolvedValue({ ...child, id: "sibling", type: "text", parentChannelId: null, parentMessageId: null })
+    await client.query(channelMetadataOptions(client, "server", "sibling"))
+    const sibling = captureChannelMetadataToken(client, "sibling")
+    registry.runtime.ws.actions.revokeChannelAccess("server", "parent")
+    const response = { ...child, accessDecision: { channelId: child.id, canRead, canSend: false, canCreateDiscussion: false } }
+    const request = deferred<typeof response>()
+    apiFetch.mockReset().mockReturnValue(request.promise)
+    const route = renderHook(() => useChannelMetadata("server", child.id), { wrapper })
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
+    expect(route.result.current).toMatchObject({ status: "pending", denied: false, canRead: false, revoked: true })
+    expect(registry.runtime.ws.get().channelAccessScopes.get("parent")?.revoked).toBe(true)
+    expect(isChannelMetadataTokenCurrent(sibling)).toBe(true)
+    await act(async () => request.resolve(response))
+    await waitFor(() => expect(route.result.current.fetchStatus).toBe("idle"))
+    await waitFor(() => expect(route.result.current.canRead).toBe(canRead))
+    expect(registry.runtime.ws.get().channelAccessScopes.get("parent")?.revoked).toBe(!canRead)
+    expect(route.result.current.denied).toBe(!canRead)
+    expect(isChannelMetadataTokenCurrent(sibling)).toBe(true)
+    expect(apiFetch).toHaveBeenCalledOnce()
+    route.unmount()
+  })
+
   it("retires a verified DM on block and waits for fresh metadata after unblock", async () => {
     const { client, registry, wrapper } = await fixture()
     publishDms(registry)

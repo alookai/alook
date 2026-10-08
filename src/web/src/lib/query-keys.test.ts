@@ -15,6 +15,11 @@ import {
  */
 
 describe("communityKeys", () => {
+  it("keeps DM navigation resources in the canonical Channel query family", () => {
+    expect(communityKeys.dmMessages("target")).toEqual(communityKeys.channelMessages("target"))
+    expect(communityKeys.dmReadStateSnapshot("target")).toEqual(communityKeys.channelReadStateSnapshot("target"))
+  })
+
   it("roots every key under ['community']", () => {
     expect(communityKeys.all).toEqual(["community"])
 
