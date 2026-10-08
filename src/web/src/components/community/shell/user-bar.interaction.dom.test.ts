@@ -63,7 +63,7 @@ describe("UserBar Inbox switching", () => {
     }
   })
 
-  it("switches desktop pop-ups, restores focus on Escape, and dismisses outside", async () => {
+  it.each([false, true])("switches desktop pop-ups and restores focus with hidden name=%s", async (hideName) => {
     function Harness() {
       const [active, setActive] = useState<UserBarExtensionKind>("none")
       const inbox = createElement("button", null, "Inbox item")
@@ -99,9 +99,12 @@ describe("UserBar Inbox switching", () => {
     await user.click(screen.getByRole("button", { name: "User", exact: true }))
     expect(screen.queryByRole("dialog", { name: "Inbox" })).not.toBeInTheDocument()
     expect(screen.getByRole("dialog", { name: "Your profile" })).toHaveFocus()
+    const nameTrigger = screen.getByRole("button", { name: "User", exact: true })
+    if (hideName) nameTrigger.style.display = "none"
     await user.keyboard("{Escape}")
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
-    await vi.waitFor(() => expect(screen.getByRole("button", { name: "User", exact: true })).toHaveFocus())
+    const expectedFocus = hideName ? screen.getByRole("button", { name: "Open profile", exact: true }) : nameTrigger
+    await vi.waitFor(() => expect(expectedFocus).toHaveFocus())
     await user.click(trigger)
     await user.click(screen.getByRole("button", { name: "Outside" }))
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()

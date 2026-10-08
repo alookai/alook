@@ -74,7 +74,11 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
     globalThis.requestAnimationFrame(() => {
       if (active === "inbox") inboxTriggerRef.current?.focus()
       else if (active === "profile") {
-        (lastProfileTriggerRef.current ?? profileTriggerRef.current)?.focus()
+        const trigger = lastProfileTriggerRef.current
+        const style = trigger ? getComputedStyle(trigger) : null
+        const visible = trigger?.isConnected && style?.display !== "none" && style?.visibility !== "hidden"
+        const focusTarget = visible ? trigger : profileTriggerRef.current
+        focusTarget?.focus()
       }
       else updateBadgeRef.current?.focus()
     })
@@ -103,7 +107,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
   return (
     <div
       data-testid={tid.userBar}
-      className="w-full min-w-0 max-w-full shrink-0 overflow-hidden pl-[max(0.75rem,var(--app-safe-area-left))] pr-[max(0.75rem,var(--app-safe-area-right))] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:px-2 sm:pb-3"
+      className="@container/user-bar w-full min-w-0 max-w-full shrink-0 overflow-hidden pl-[max(0.75rem,var(--app-safe-area-left))] pr-[max(0.75rem,var(--app-safe-area-right))] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:px-2 sm:pb-3"
     >
       {mobile
         ? <UserBarExtensionDrawer>{extensionContent}</UserBarExtensionDrawer>
@@ -121,7 +125,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
         ref={baseRef}
         data-slot="community-user-bar-base"
         className={cn(
-          "flex h-12 items-center gap-3 border border-border/40 bg-muted px-4",
+          "flex h-12 items-center gap-3 border border-border/40 bg-muted px-4 sm:@max-[224px]/user-bar:px-2",
           joinedMobileExtension
             ? "rounded-b-xl"
             : "rounded-xl",
@@ -157,13 +161,17 @@ export function UserBarSkeleton() {
     <div
       data-testid={tid.initialUserBarPending}
       aria-hidden
-      className="w-full min-w-0 max-w-full shrink-0 overflow-hidden pl-[max(0.75rem,var(--app-safe-area-left))] pr-[max(0.75rem,var(--app-safe-area-right))] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:px-2 sm:pb-3"
+      className="@container/user-bar w-full min-w-0 max-w-full shrink-0 overflow-hidden pl-[max(0.75rem,var(--app-safe-area-left))] pr-[max(0.75rem,var(--app-safe-area-right))] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:px-2 sm:pb-3"
     >
-      <div className="flex h-12 items-center gap-3 rounded-xl border border-border/40 bg-muted px-4">
-        <Skeleton className="size-7 shrink-0 rounded-full" />
-        <Skeleton className="h-3.5 min-w-0 flex-1 rounded" />
-        <Skeleton className="size-7 shrink-0 rounded-lg" />
-        <Skeleton className="size-7 shrink-0 rounded-lg" />
+      <div className="flex h-12 items-center gap-3 rounded-xl border border-border/40 bg-muted px-4 sm:@max-[224px]/user-bar:px-2">
+        <div className="flex min-w-0 flex-1 items-center justify-between gap-2 sm:@max-[224px]/user-bar:gap-1">
+          <Skeleton className="size-7 shrink-0 rounded-full" />
+          <Skeleton className="h-3.5 min-w-0 flex-1 rounded sm:@max-[224px]/user-bar:hidden" />
+          <div className="flex shrink-0 items-center gap-1">
+            <Skeleton className="size-11 shrink-0 rounded-lg sm:size-7" />
+            <Skeleton className="size-11 shrink-0 rounded-lg sm:size-7" />
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -204,7 +212,7 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
       ? LoaderCircle
       : Download
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-2">
+    <div className="flex min-w-0 flex-1 items-center justify-between gap-2 sm:@max-[224px]/user-bar:gap-1">
       <button ref={profileTriggerRef} onClick={(e) => {
         lastProfileTriggerRef.current = e.currentTarget
         if (extension && extension.active !== "profile") {
@@ -242,7 +250,7 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
         }
         if (!extension) closeInboxForAction()
         onOpenProfile?.(user.name, e, undefined, user.id)
-      }} className="min-w-0 flex-1 text-left rounded focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-expanded={extension ? extension.active === "profile" : undefined} aria-controls={extension?.active === "profile" ? "community-user-bar-extension" : undefined}>
+      }} className="min-w-0 flex-1 text-left rounded sm:@max-[224px]/user-bar:hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-expanded={extension ? extension.active === "profile" : undefined} aria-controls={extension?.active === "profile" ? "community-user-bar-extension" : undefined}>
         <div data-testid={tid.userBarName} className="truncate text-sm font-medium leading-tight">{user.name}</div>
       </button>
       <div className="flex shrink-0 items-center gap-1">
