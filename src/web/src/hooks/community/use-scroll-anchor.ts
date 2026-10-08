@@ -401,6 +401,46 @@ export function useScrollAnchor({
   })
   virtualizerRef.current = virtualizer
 
+  const readGeometry = useCallback((viewportTransition = false): Geometry | null => {
+    const root = scrollRef.current
+    const native = virtualizerRef.current
+    const owner = positionOwnerRef.current
+    const previous = acceptedGeometryRef.current
+    const pendingViewportRect = viewportTransition && previous?.epoch === owner.epoch
+      && (previous.clientHeight !== root?.clientHeight || previous.clientWidth !== root?.clientWidth)
+      && Math.abs((native?.scrollRect?.height ?? 0) - previous.outerHeight) <= 1
+      && Math.abs((native?.scrollRect?.width ?? 0) - previous.outerWidth) <= 1
+    if (!owner.active || !root || !native || root.clientHeight <= 0
+      || Math.abs((native.scrollOffset ?? 0) - root.scrollTop) > 1
+      || (!pendingViewportRect && (Math.abs((native.scrollRect?.height ?? 0) - root.offsetHeight) > 1
+        || Math.abs((native.scrollRect?.width ?? 0) - root.offsetWidth) > 1))) return null
+    const total = native.getTotalSize()
+    const max = Math.max(0, root.scrollHeight - root.clientHeight)
+    if (root.scrollTop < 0 || root.scrollTop > max + 1) return null
+    const virtualItems = native.getVirtualItems()
+    const fold = [...virtualItems].reverse().find((item) => item.start <= root.scrollTop + 1) ?? virtualItems[0]
+    if (!fold) return null
+    const item = currentItemsRef.current[fold.index]
+    const wrapper = root.querySelector<HTMLElement>(`[data-index="${fold.index}"]`)
+    const body = wrapper?.querySelector<HTMLElement>("[data-msg-id]")
+    if (!item || !wrapper || body?.dataset.msgId !== item.m.id || fold.key !== item.key) return null
+    const wrapperRect = wrapper.getBoundingClientRect()
+    const bodyRect = body.getBoundingClientRect()
+    const viewport = root.getBoundingClientRect()
+    if (wrapperRect.height <= 0 || bodyRect.height <= 0
+      || Math.abs(wrapperRect.height - fold.size) > 1
+      || Math.abs(wrapperRect.top - viewport.top + root.scrollTop - fold.start) > 1) return null
+    return {
+      epoch: owner.epoch, key: fold.key, prefix: bodyRect.top - wrapperRect.top,
+      itemStart: fold.start, clientHeight: root.clientHeight, clientWidth: root.clientWidth,
+      outerHeight: root.offsetHeight, outerWidth: root.offsetWidth,
+      scrollHeight: root.scrollHeight, scrollTop: root.scrollTop,
+      total, paddingEnd: native.options.paddingEnd ?? 0,
+      pinEligible: max - root.scrollTop <= 1 && !userScrolledAwayRef.current
+        && nativeOriginKeyRef.current !== currentItemsRef.current[0]?.key,
+      isScrolling: native.isScrolling,
+    }
+  }, [])
   const scheduleInitialPositionSettled = useCallback(() => {
     if (initialSettleFrameRef.current !== null) return
     const epoch = positionOwnerRef.current.epoch
@@ -461,12 +501,14 @@ export function useScrollAnchor({
         }
       }
       intent.stableFrames = landed ? intent.stableFrames + 1 : 0
-      if (intent.stableFrames >= 2) {
+      if (intent.stableFrames >= 2 && intent.type !== "end" && root.scrollTop <= 1) holdNativeOrigin(currentItemsRef.current[0]?.key ?? null)
+      const geometry = intent.stableFrames >= 2 ? readGeometry() : null
+      if (geometry) {
         settlePresentation()
         if (owner.kind === "initial" && !initialScrollReadyRef.current) return
+        acceptedGeometryRef.current = geometry
         semanticIntentRef.current = null
         owner.nativeIndex = false
-        if (intent.type !== "end" && root.scrollTop <= 1) holdNativeOrigin(currentItemsRef.current[0]?.key ?? null)
         owner.kind = "idle"
         setOwnerKind("idle")
         readReadyRef.current = true
@@ -482,7 +524,7 @@ export function useScrollAnchor({
       initialSettleFrameRef.current = window.requestAnimationFrame(settle)
     }
     initialSettleFrameRef.current = window.requestAnimationFrame(settle)
-  }, [clearBudget, holdNativeOrigin, setOwnerKind, setReadPositionReady, settlePresentation])
+  }, [clearBudget, holdNativeOrigin, readGeometry, setOwnerKind, setReadPositionReady, settlePresentation])
 
   const startIntent = useCallback((type: Intent["type"], id: string | null, behavior: ScrollBehavior = "auto", notifyTarget = false) => {
     const owner = positionOwnerRef.current
@@ -548,46 +590,6 @@ export function useScrollAnchor({
     } else if (owner.kind === "initial") armBudget()
   }, [armBudget, items, scheduleInitialPositionSettled, startIntent])
 
-  const readGeometry = useCallback((viewportTransition = false): Geometry | null => {
-    const root = scrollRef.current
-    const native = virtualizerRef.current
-    const owner = positionOwnerRef.current
-    const previous = acceptedGeometryRef.current
-    const pendingViewportRect = viewportTransition && previous?.epoch === owner.epoch
-      && (previous.clientHeight !== root?.clientHeight || previous.clientWidth !== root?.clientWidth)
-      && Math.abs((native?.scrollRect?.height ?? 0) - previous.outerHeight) <= 1
-      && Math.abs((native?.scrollRect?.width ?? 0) - previous.outerWidth) <= 1
-    if (!owner.active || !root || !native || root.clientHeight <= 0
-      || Math.abs((native.scrollOffset ?? 0) - root.scrollTop) > 1
-      || (!pendingViewportRect && (Math.abs((native.scrollRect?.height ?? 0) - root.offsetHeight) > 1
-        || Math.abs((native.scrollRect?.width ?? 0) - root.offsetWidth) > 1))) return null
-    const total = native.getTotalSize()
-    const max = Math.max(0, root.scrollHeight - root.clientHeight)
-    if (root.scrollTop < 0 || root.scrollTop > max + 1) return null
-    const virtualItems = native.getVirtualItems()
-    const fold = [...virtualItems].reverse().find((item) => item.start <= root.scrollTop + 1) ?? virtualItems[0]
-    if (!fold) return null
-    const item = currentItemsRef.current[fold.index]
-    const wrapper = root.querySelector<HTMLElement>(`[data-index="${fold.index}"]`)
-    const body = wrapper?.querySelector<HTMLElement>("[data-msg-id]")
-    if (!item || !wrapper || body?.dataset.msgId !== item.m.id || fold.key !== item.key) return null
-    const wrapperRect = wrapper.getBoundingClientRect()
-    const bodyRect = body.getBoundingClientRect()
-    const viewport = root.getBoundingClientRect()
-    if (wrapperRect.height <= 0 || bodyRect.height <= 0
-      || Math.abs(wrapperRect.height - fold.size) > 1
-      || Math.abs(wrapperRect.top - viewport.top + root.scrollTop - fold.start) > 1) return null
-    return {
-      epoch: owner.epoch, key: fold.key, prefix: bodyRect.top - wrapperRect.top,
-      itemStart: fold.start, clientHeight: root.clientHeight, clientWidth: root.clientWidth,
-      outerHeight: root.offsetHeight, outerWidth: root.offsetWidth,
-      scrollHeight: root.scrollHeight, scrollTop: root.scrollTop,
-      total, paddingEnd: native.options.paddingEnd ?? 0,
-      pinEligible: max - root.scrollTop <= 1 && !userScrolledAwayRef.current
-        && nativeOriginKeyRef.current !== currentItemsRef.current[0]?.key,
-      isScrolling: native.isScrolling,
-    }
-  }, [])
   const observeGeometry = useCallback((next: Geometry, scrollEvent = false) => {
     const previous = acceptedGeometryRef.current
     const previousFold = previous && virtualizerRef.current?.getVirtualItems().find((item) => item.key === previous.key)

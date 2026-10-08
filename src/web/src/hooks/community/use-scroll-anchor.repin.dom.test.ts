@@ -6,6 +6,42 @@ beforeEach(installMessageScrollFixture)
 afterEach(restoreMessageScrollFixture)
 
 describe("locked native adapter and existing message scroll owner", () => {
+  it.each([2, 26])("keeps a present landing after %i frames through consecutive responsive widths", frames => {
+    scrollFixture.width = 905
+    scrollFixture.height = 783
+    scrollFixture.firstPrefix = 193
+    const h = mount({ items: Array.from({ length: 28 }, (_, i) => message(`m${i}`)), tailPaddingEnd: 48 })
+    h.move(0)
+    act(() => scrollFixture.latest.scrollToBottom())
+    runFrames(frames)
+    scrollFixture.width = 639
+    resize(0)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+    scrollFixture.width = 265
+    scrollFixture.height = 727
+    scrollFixture.firstPrefix = 233
+    for (const item of h.input.items) scrollFixture.bodyHeights.set(item.m.id, 190)
+    h.stage({ tailPaddingEnd: 48 })
+    resize()
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+    expect(scrollFixture.latest.belowCount).toBe(0)
+  })
+  it("keeps a landed present intent unreadable until its native row geometry can be confirmed", () => {
+    const h = mount()
+    h.move(0)
+    act(() => scrollFixture.latest.scrollToBottom())
+    const pending = Array.from(h.root.querySelectorAll<HTMLElement>("[data-index]"))
+    for (const row of pending) Object.defineProperty(row, "getBoundingClientRect", {
+      configurable: true, value: () => DOMRect.fromRect(),
+    })
+    runFrames(3)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    for (const row of pending) Reflect.deleteProperty(row, "getBoundingClientRect")
+    resize()
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+  })
   it("keeps an explicit tail scroll when wrapped offscreen rows receive their later native measurements", () => {
     scrollFixture.width = 639
     scrollFixture.height = 736
@@ -118,6 +154,36 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(h.root.scrollHeight).toBeGreaterThan(h.root.clientHeight)
     expect(h.root.scrollTop).toBeLessThan(100)
     expect(bodyTop(h.root, id)).toBeGreaterThanOrEqual(0)
+  })
+  it.each(["target", "unread"])("keeps a newly landed %s origin through consecutive widths and overflow", intent => {
+    scrollFixture.width = 905
+    scrollFixture.height = 783
+    scrollFixture.firstPrefix = 193
+    const items = [message("m0"), message("m1"), message("m2")]
+    if (intent === "unread") items[0].newDivider = true
+    const positioned = vi.fn()
+    const h = mount({
+      items, hasMoreOlder: false, hasMoreNewer: intent === "unread",
+      initialScrollReady: intent !== "unread",
+      newDividerBefore: intent === "unread" ? "m0" : undefined,
+      onScrollTargetPositioned: positioned,
+    })
+    h.stage(intent === "target" ? { scrollToMessageId: "m0" } : { initialScrollReady: true })
+    runFrames(2)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    if (intent === "target") expect(positioned).toHaveBeenCalledWith("m0")
+    expect(h.root.scrollTop).toBe(0)
+    scrollFixture.width = 639
+    resize(0)
+    expect(h.root.scrollTop).toBe(0)
+    scrollFixture.width = 265
+    scrollFixture.height = 727
+    scrollFixture.bodyHeights.set("m2", 900)
+    resize()
+    expect(h.root.scrollHeight).toBeGreaterThan(h.root.clientHeight)
+    expect(h.root.scrollTop).toBe(0)
+    expect(bodyTop(h.root, "m0")).toBeGreaterThanOrEqual(0)
+    expect(bodyTop(h.root, "m0")).toBeLessThan(h.root.clientHeight)
   })
   it("unifies native total and DOM max while keeping 40/48px rail clearance", () => {
     const h = mount()
