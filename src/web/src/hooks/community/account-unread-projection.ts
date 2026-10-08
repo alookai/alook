@@ -644,6 +644,10 @@ export class AccountUnreadProjection {
 
   }
 
+  getConfirmedReadSeq(channelId: string) {
+    return this.disposed ? undefined : this.readSeq.get(channelId)
+  }
+
   recordRead(channelId: string, seq: number) {
     return this.transition(() => {
     if (this.disposed || !Number.isSafeInteger(seq) || seq <= 0) return

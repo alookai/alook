@@ -112,6 +112,7 @@ class FakeIntersectionObserver {
   }
 
   disconnect() {
+    this.record.actions.push("disconnect")
     this.record.disconnected = true
     this.record.observed.clear()
   }
@@ -262,6 +263,49 @@ describe("useTimelineReadObserver", () => {
     vi.restoreAllMocks()
   })
 
+  it.each(["reveal", "cleanup"])("does not bind added rows to a retired hidden observer before %s", (end) => {
+    const { row, root } = useTestRender()
+    const boundary = root.querySelector<ContentBoundary>("[data-message-list-content]")!
+    const retired = observers[0]!
+    boundary.setReadable(false)
+    mutationCallback?.([presentationAttributeRecord(boundary, "aria-hidden")], {} as MutationObserver)
+    const added = makeRow("message-5")
+    boundary.append(added)
+    mutationCallback?.([{
+      type: "childList", target: boundary, addedNodes: [added] as unknown as NodeList,
+      removedNodes: [] as unknown as NodeList,
+    } as MutationRecord], {} as MutationObserver)
+    expect(retired.disconnected).toBe(true)
+    expect(retired.observed.size).toBe(0)
+    trigger(retired, row)
+    expect(coordinator.submit).not.toHaveBeenCalled()
+    if (end === "reveal") {
+      boundary.setReadable(true)
+      mutationCallback?.([presentationAttributeRecord(boundary, "aria-hidden")], {} as MutationObserver)
+      const current = observers.at(-1)!
+      expect(current).not.toBe(retired)
+      expect(current.observed.has(added)).toBe(true)
+      trigger(current, row)
+      expect(coordinator.submit).toHaveBeenCalledOnce()
+    }
+    takeUnmounts().forEach((unmount) => unmount())
+    expect(observers.every((observer) => observer.disconnected && observer.observed.size === 0)).toBe(true)
+  })
+
+  it("accepts a current first intersection whose frame time precedes registration", () => {
+    const clock = vi.spyOn(performance, "now").mockReturnValue(145)
+    try {
+      const { row } = useTestRender()
+      act(() => observers[0]!.callback([{
+        target: row, time: 144, isIntersecting: true, intersectionRatio: 1,
+      } as IntersectionObserverEntry], {} as IntersectionObserver))
+      expect(coordinator.submit).toHaveBeenCalledExactlyOnceWith({ lease: "timeline" }, {
+        kind: "timeline", channelId: "channel-1", messageId: "message-4", seq: 4,
+      })
+      expect(projection.recordOptimisticRead).toHaveBeenCalledWith("channel-1", 4, 1)
+    } finally { clock.mockRestore() }
+  })
+
   it.each(["channel", "dm"] as const)("keeps the %s adapter on the common observer intent and lifetime", (kind) => {
     const channelId = `${kind}-1`
     const row = makeRow("message-4")
@@ -393,6 +437,8 @@ describe("useTimelineReadObserver", () => {
     for (const listener of visibilityListeners) listener()
     expect(coordinator.resume).toHaveBeenCalledWith(queryClient)
     trigger(observers[0]!, row)
+    expect(coordinator.submit).not.toHaveBeenCalled()
+    trigger(observers.at(-1)!, row)
     expect(coordinator.submit).toHaveBeenCalledOnce()
   })
 
@@ -441,7 +487,7 @@ describe("useTimelineReadObserver", () => {
     expect(record.queued).toHaveLength(0)
     act(() => record.callback([stale], {} as IntersectionObserver))
     expect(coordinator.submit).not.toHaveBeenCalled()
-    trigger(record, row)
+    trigger(observers.at(-1)!, row)
     expect(coordinator.submit).toHaveBeenCalledOnce()
     expect(projection.recordOptimisticRead).toHaveBeenCalledOnce()
     expect(reservation.promote).toHaveBeenCalledOnce()
@@ -586,6 +632,32 @@ describe("useTimelineReadObserver", () => {
     )
   })
 
+  it("refuses old callbacks after the same DOM node changes message identity and changes back", () => {
+    const { row } = useTestRender({ messages: [{ id: "message-4", seq: 4, authorId: "other-1" }, { id: "message-5", seq: 5, authorId: "other-1" }] })
+    const original = observers[0]!
+    for (const id of ["message-5", "message-4"]) {
+      row.dataset.msgId = id
+      act(() => mutationCallback!([{ type: "attributes", target: row, attributeName: "data-msg-id", addedNodes: [] } as unknown as MutationRecord], {} as MutationObserver))
+      trigger(original, row)
+      expect(coordinator.submit).not.toHaveBeenCalled()
+    }
+    expect(observers).toHaveLength(3)
+    trigger(observers.at(-1)!, row)
+    expect(coordinator.submit).toHaveBeenCalledExactlyOnceWith({ lease: "timeline" }, { kind: "timeline", channelId: "channel-1", messageId: "message-4", seq: 4 })
+  })
+
+  it("retires an old intersection when a row is removed and inserted again with the same id", () => {
+    const { row, root } = useTestRender()
+    const original = observers[0]!
+    row.remove()
+    root.append(row)
+    act(() => mutationCallback!([{ type: "childList", target: root, removedNodes: [row], addedNodes: [row] } as unknown as MutationRecord], {} as MutationObserver))
+    trigger(original, row)
+    expect(coordinator.submit).not.toHaveBeenCalled()
+    trigger(observers.at(-1)!, row)
+    expect(coordinator.submit).toHaveBeenCalledOnce()
+  })
+
   it("binds direct and nested message rows added after the observer mounts", () => {
     useTestRender()
     takeUnmounts()
@@ -613,7 +685,7 @@ describe("useTimelineReadObserver", () => {
     expect(mutationObservedTarget).toBe(root)
     expect(mutationObserveOptions).toEqual({
       attributes: true,
-      attributeFilter: ["aria-hidden", "inert", "data-read-position-ready"],
+      attributeFilter: ["aria-hidden", "inert", "data-read-position-ready", "data-msg-id"],
       attributeOldValue: true,
       childList: true,
       subtree: true,
@@ -630,16 +702,16 @@ describe("useTimelineReadObserver", () => {
     } as MutationRecord], {} as MutationObserver)
 
     const drainIndex = record.actions.indexOf("takeRecords")
-    expect(drainIndex).toBeGreaterThan(record.actions.indexOf("unobserve:message-4"))
-    expect(record.actions.findIndex((action, index) => (
-      index > drainIndex && action === "observe:message-4"
-    ))).toBeGreaterThan(drainIndex)
+    expect(drainIndex).toBeGreaterThan(record.actions.indexOf("disconnect"))
+    expect(record.disconnected).toBe(true)
+    expect(observers.at(-1)!.observed.has(row)).toBe(true)
 
     deliverQueued(record)
     expect(coordinator.submit).not.toHaveBeenCalled()
 
-    queueEntry(record, row)
-    deliverQueued(record)
+    const current = observers.at(-1)!
+    queueEntry(current, row)
+    deliverQueued(current)
     expect(coordinator.submit).toHaveBeenCalledOnce()
   })
 
@@ -729,7 +801,7 @@ describe("useTimelineReadObserver", () => {
       addedNodes: [] as unknown as NodeList,
     } as MutationRecord], {} as MutationObserver)
 
-    expect(record.actions).toEqual(["unobserve:message-4", "takeRecords"])
+    expect(record.actions).toEqual(["disconnect", "takeRecords"])
     expect(record.queued).toHaveLength(0)
     expect(reservation.negative).toHaveBeenCalledOnce()
     expect(coordinator.resume).not.toHaveBeenCalled()
@@ -737,11 +809,11 @@ describe("useTimelineReadObserver", () => {
     visibility = "visible"
     for (const listener of visibilityListeners) listener()
     expect(record.actions.filter((action) => action === "takeRecords")).toHaveLength(1)
-    expect(record.actions.at(-1)).toBe("observe:message-4")
+    expect(observers.at(-1)!.observed.has(row)).toBe(true)
     expect(coordinator.resume).toHaveBeenCalledOnce()
   })
 
-  it("keeps ordinary visibility and pageshow samples independent and undrained", () => {
+  it("replaces visibility and pageshow observers while refusing their retired callbacks", () => {
     const { row } = useTestRender()
     takeUnmounts()
     const record = observers[0]!
@@ -752,7 +824,15 @@ describe("useTimelineReadObserver", () => {
     for (const listener of pageShowListeners) listener()
 
     expect(coordinator.resume).toHaveBeenCalledTimes(2)
-    expect(record.actions.filter((action) => action === "takeRecords")).toHaveLength(0)
-    expect(record.observed.has(row)).toBe(true)
+    expect(record.actions.filter((action) => action === "takeRecords")).toHaveLength(1)
+    expect(observers).toHaveLength(3)
+    expect(record.disconnected).toBe(true)
+    expect(observers[1]!.disconnected).toBe(true)
+    expect(observers[2]!.observed.has(row)).toBe(true)
+    trigger(record, row)
+    trigger(observers[1]!, row)
+    expect(coordinator.submit).not.toHaveBeenCalled()
+    trigger(observers[2]!, row)
+    expect(coordinator.submit).toHaveBeenCalledOnce()
   })
 })

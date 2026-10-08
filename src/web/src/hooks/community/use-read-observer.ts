@@ -173,60 +173,81 @@ export function useTimelineReadObserver({
     if (!readLease || !reservationLease) return
     let observerGeneration = 0
     let presentationReadable = readPresentationReadable(scrollRootEl)
-    const bindings = new WeakMap<Element, { id: string; generation: number; observedAt: number }>()
+    let bindings = new WeakMap<Element, { id: string; generation: number }>()
+    let observer: IntersectionObserver
+    let observerActive = false
+    const retireObserver = () => {
+      if (!observerActive) return
+      observerGeneration += 1
+      observerActive = false
+      observer.disconnect()
+      observer.takeRecords()
+    }
     const bind = (node: Element) => {
+      if (!observerActive) return
       const id = (node as HTMLElement).dataset.msgId
       if (!id) return
-      bindings.set(node, { id, generation: observerGeneration, observedAt: performance.now() })
-      observer.observe(node)
-    }
-    const observer = new IntersectionObserver((entries) => {
-      if (!readPresentationReadable(scrollRootEl)) return
-      if (!protocol.get().ready) return
-      if (document.visibilityState !== "visible") {
-        takeInboxReadReservationNegative(reservationLease)
+      const previous = bindings.get(node)
+      if (previous) {
+        if (previous.id !== id) sample()
         return
       }
-      for (const entry of entries) {
-        const binding = bindings.get(entry.target)
-        if (!binding || binding.generation !== observerGeneration || entry.time < binding.observedAt) continue
-        if (!scrollRootEl.contains(entry.target)) continue
-        if ((entry.target as HTMLElement).dataset.msgId !== binding.id) continue
-        const message = protocol.get().visibleIds.has(binding.id) ? getCommunityDbRegistry(queryClient)?.collections.messages.get(binding.id) : undefined
-        if (!message?.seq || message.authorId === currentUser.id) continue
-        const activeCandidate = protocol.get().candidate
-        const correlated = activeCandidate?.lastMessageAt === message.createdAt
-        if (!entry.isIntersecting || entry.intersectionRatio < READ_VISIBILITY_THRESHOLD) {
-          if (correlated) takeInboxReadReservationNegative(reservationLease)
-          continue
+      bindings.set(node, { id, generation: observerGeneration })
+      observer.observe(node)
+    }
+    const createObserver = () => {
+      const observerEpoch = observerGeneration
+      const currentBindings = new WeakMap<Element, { id: string; generation: number }>()
+      bindings = currentBindings
+      observerActive = true
+      return new IntersectionObserver((entries) => {
+        if (observerEpoch !== observerGeneration) return
+        if (!readPresentationReadable(scrollRootEl)) return
+        if (!protocol.get().ready) return
+        if (document.visibilityState !== "visible") {
+          takeInboxReadReservationNegative(reservationLease)
+          return
         }
-        const generation = submitReadIntentGeneration(readLease, {
-          kind: "timeline",
-          channelId,
-          messageId: message.id,
-          seq: message.seq,
-        })
-        if (generation !== null) {
-          getAccountUnreadProjection(queryClient, currentUser.id)
-            .recordOptimisticRead(channelId, message.seq, generation)
+        for (const entry of entries) {
+          const binding = currentBindings.get(entry.target)
+          if (!binding || binding.generation !== observerEpoch) continue
+          if (!scrollRootEl.contains(entry.target)) continue
+          if ((entry.target as HTMLElement).dataset.msgId !== binding.id) continue
+          const message = protocol.get().visibleIds.has(binding.id) ? getCommunityDbRegistry(queryClient)?.collections.messages.get(binding.id) : undefined
+          if (!message?.seq || message.authorId === currentUser.id) continue
+          const activeCandidate = protocol.get().candidate
+          const correlated = activeCandidate?.lastMessageAt === message.createdAt
+          if (!entry.isIntersecting || entry.intersectionRatio < READ_VISIBILITY_THRESHOLD) {
+            if (correlated) takeInboxReadReservationNegative(reservationLease)
+            continue
+          }
+          const generation = submitReadIntentGeneration(readLease, {
+            kind: "timeline",
+            channelId,
+            messageId: message.id,
+            seq: message.seq,
+          })
+          if (generation !== null) {
+            getAccountUnreadProjection(queryClient, currentUser.id)
+              .recordOptimisticRead(channelId, message.seq, generation)
+          }
+          if (generation !== null && correlated) {
+            promoteInboxReadReservation(reservationLease, generation)
+          }
         }
-        if (generation !== null && correlated) {
-          promoteInboxReadReservation(reservationLease, generation)
-        }
-      }
-    }, { root: scrollRootEl, threshold: READ_VISIBILITY_THRESHOLD })
+      }, { root: scrollRootEl, threshold: READ_VISIBILITY_THRESHOLD })
+    }
+    observer = createObserver()
 
     const sample = () => {
       if (!readPresentationReadable(scrollRootEl)) return
+      retireObserver()
       if (document.visibilityState !== "visible") {
         takeInboxReadReservationNegative(reservationLease)
         return
       }
-      observerGeneration += 1
-      scrollRootEl.querySelectorAll<HTMLElement>("[data-msg-id]").forEach((node) => {
-        observer.unobserve(node)
-        bind(node)
-      })
+      observer = createObserver()
+      scrollRootEl.querySelectorAll<HTMLElement>("[data-msg-id]").forEach(bind)
       resumeReadCoordinator(queryClient)
     }
     scrollRootEl.querySelectorAll<HTMLElement>("[data-msg-id]").forEach(bind)
@@ -240,14 +261,17 @@ export function useTimelineReadObserver({
             || records.some((record) => record.type === "attributes"
               && record.attributeName === "data-read-position-ready" && record.oldValue === "false")
           if (presentationChanged) {
-            observerGeneration += 1
-            scrollRootEl.querySelectorAll<HTMLElement>("[data-msg-id]").forEach((node) => observer.unobserve(node))
-            observer.takeRecords()
+            retireObserver()
           }
           presentationReadable = nextPresentationReadable
           if (presentationRevealed || (presentationChanged && nextPresentationReadable)) {
             sample()
             if (document.visibilityState === "visible") classifyCandidateRef.current()
+            return
+          }
+          if (records.some((record) => record.type === "attributes" && record.attributeName === "data-msg-id"
+            || [...(record.removedNodes ?? [])].some((node) => (node as Element).matches?.("[data-msg-id]") || (node as Element).querySelector?.("[data-msg-id]")))) {
+            sample()
             return
           }
           for (const record of records) {
@@ -261,7 +285,7 @@ export function useTimelineReadObserver({
         })
     mutations?.observe(scrollRootEl, {
       attributes: true,
-      attributeFilter: ["aria-hidden", "inert", "data-read-position-ready"],
+      attributeFilter: ["aria-hidden", "inert", "data-read-position-ready", "data-msg-id"],
       attributeOldValue: true,
       childList: true,
       subtree: true,
@@ -269,8 +293,7 @@ export function useTimelineReadObserver({
     document.addEventListener("visibilitychange", sample)
     window.addEventListener("pageshow", sample)
     return () => {
-      observerGeneration += 1
-      observer.disconnect()
+      retireObserver()
       mutations?.disconnect()
       document.removeEventListener("visibilitychange", sample)
       window.removeEventListener("pageshow", sample)

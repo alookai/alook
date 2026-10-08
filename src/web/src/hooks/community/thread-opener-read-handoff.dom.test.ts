@@ -495,8 +495,13 @@ describe("thread opener read handoff", () => {
       )
       await Promise.resolve()
     })
-    expect(readObserver.observed.has(messageRow)).toBe(true)
+    expect(readObserver.disconnected).toBe(true)
     emitReadIntersection(readObserver, messageRow)
+    expect(mocks.submit).not.toHaveBeenCalled()
+    const revealedObserver = readObservers.findLast((record) => !record.disconnected)!
+    expect(revealedObserver).not.toBe(readObserver)
+    expect(revealedObserver.observed.has(messageRow)).toBe(true)
+    emitReadIntersection(revealedObserver, messageRow)
     expect(mocks.submit).toHaveBeenCalledOnce()
     expect(mocks.submit).toHaveBeenCalledWith({ lease: "parent" }, {
       kind: "timeline",

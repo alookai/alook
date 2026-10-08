@@ -931,6 +931,7 @@ export function ingestReadStateSnapshot(
   notifyManager.batch(() => {
     replaceRows(registry, "readStates", readStates, () => true)
     replaceRows(registry, "readStateClock", [clock], () => true)
+    projectConfirmedAttention(registry)
   })
 }
 
@@ -1081,12 +1082,77 @@ function attentionIntentActive(registry: CommunityDbRegistry, intent: AttentionI
     && registry.queryClient.getQueryCache().find({ queryKey: communityKeys.communityDbCollection(registry.scopeId, "attentionItems"), exact: true }) === intent.itemsQuery
 }
 
+function confirmedAttentionProjection(registry: CommunityDbRegistry, scopes: AttentionScopeRow[], items: AttentionItemRow[]) {
+  const readSeq = new Map(collectionRows(registry, "readStates").map((row) => [row.channelId, row.lastReadSeq]))
+  const unreadProjection = getAccountUnreadProjection(registry.queryClient, registry.accountId ?? "__anonymous__")
+  const floorFor = (channelId: string) => {
+    const canonical = readSeq.get(channelId)
+    const confirmed = unreadProjection.getConfirmedReadSeq(channelId)
+    return confirmed === undefined ? canonical : Math.max(canonical ?? 0, confirmed)
+  }
+  const scopeById = new Map(scopes.map((scope) => [scope.scopeId, scope]))
+  const messages = new Map(collectionRows(registry, "messages").map((message) => [message.id, message]))
+  const removedByScope = new Map<string, number>()
+  const survivingByScope = new Map<string, number>()
+  const nextItems = items.filter((item) => {
+    if (item.kind === "friend_request") return true
+    const scope = item.scopeId ? scopeById.get(item.scopeId) : undefined
+    const message = item.messageId ? messages.get(item.messageId) : undefined
+    const channelId = item.readTarget?.channelId ?? scope?.channelId
+    const seq = item.readTarget?.seq ?? (message?.channelId === channelId ? message?.seq : undefined)
+    const floor = channelId ? floorFor(channelId) : undefined
+    const removed = seq !== undefined && floor !== undefined && seq <= floor
+    if (item.scopeId && (item.kind === "mention" || item.kind === "reply")) {
+      const counts = removed ? removedByScope : survivingByScope
+      counts.set(item.scopeId, (counts.get(item.scopeId) ?? 0) + 1)
+    }
+    return !removed
+  })
+  const nextScopes = scopes.flatMap((scope): AttentionScopeRow[] => {
+    const floor = floorFor(scope.channelId)
+    if (floor === undefined) return [scope]
+    const ordinaryUnread = scope.ordinaryUnread && scope.lastUnreadSeq > floor
+    const remaining = scope.lastAttentionSeq != null && scope.lastAttentionSeq <= floor
+      ? 0
+      : Math.max(0, scope.attentionCount - (removedByScope.get(scope.scopeId) ?? 0))
+    const attentionCount = Math.min(scope.attentionCount, Math.max(remaining, survivingByScope.get(scope.scopeId) ?? 0))
+    if (!ordinaryUnread && attentionCount === 0) return []
+    return [{ ...scope, ordinaryUnread, attentionCount, lastAttentionSeq: attentionCount === 0 ? null : scope.lastAttentionSeq }]
+  })
+  return { scopes: nextScopes, items: nextItems }
+}
+
+function writeAttentionProjection(registry: CommunityDbRegistry, scopes: AttentionScopeRow[], items: AttentionItemRow[], projected: ReturnType<typeof confirmedAttentionProjection>) {
+  const nextScopes = new Map(projected.scopes.map((scope) => [scope.scopeId, scope]))
+  const previousScopes = new Map(scopes.map((scope) => [scope.scopeId, scope]))
+  const nextItems = new Set(projected.items.map((item) => item.id))
+  const removedScopes = new Set(scopes.filter((scope) => !nextScopes.has(scope.scopeId)).map((scope) => scope.scopeId))
+  const removedItems = new Set(items.filter((item) => !nextItems.has(item.id)).map((item) => item.id))
+  withCanonicalWriteContext(registry.queryClient, { kind: "event" }, () => {
+    if (removedScopes.size) deleteRows(registry, "attentionScopes", (row) => removedScopes.has(row.scopeId))
+    upsertRows(registry, "attentionScopes", projected.scopes.filter((scope) => JSON.stringify(scope) !== JSON.stringify(previousScopes.get(scope.scopeId))))
+    if (removedItems.size) deleteRows(registry, "attentionItems", (row) => removedItems.has(row.id))
+  })
+  return { nextScopes, previousScopes }
+}
+
+export function projectConfirmedAttention(registry: CommunityDbRegistry) {
+  notifyManager.batch(() => {
+    const scopes = collectionRows(registry, "attentionScopes")
+    const items = collectionRows(registry, "attentionItems")
+    writeAttentionProjection(registry, scopes, items, confirmedAttentionProjection(registry, scopes, items))
+  })
+}
+
 function attentionProjection(
   registry: CommunityDbRegistry,
   scopes: AttentionScopeRow[],
   items: AttentionItemRow[],
   intents: Iterable<AttentionIntent>,
 ) {
+  const confirmed = confirmedAttentionProjection(registry, scopes, items)
+  scopes = confirmed.scopes
+  items = confirmed.items
   const floors = new Map<string, { ordinary: number; mentions: number; cleared: number }>()
   const itemIds = new Set<string>()
   for (const intent of intents) {
@@ -1240,16 +1306,7 @@ function publishAttentionConfirmation(registry: CommunityDbRegistry, current: At
   const scopes = collectionRows(registry, "attentionScopes")
   const items = collectionRows(registry, "attentionItems")
   const projected = attentionProjection(registry, scopes, items, [confirmed])
-  const nextScopes = new Map(projected.scopes.map((scope) => [scope.scopeId, scope]))
-  const previousScopes = new Map(scopes.map((scope) => [scope.scopeId, scope]))
-  const nextItems = new Set(projected.items.map((item) => item.id))
-  const removedScopes = new Set(scopes.filter((scope) => !nextScopes.has(scope.scopeId)).map((scope) => scope.scopeId))
-  const removedItems = new Set(items.filter((item) => !nextItems.has(item.id)).map((item) => item.id))
-  withCanonicalWriteContext(registry.queryClient, { kind: "event" }, () => {
-    if (removedScopes.size) deleteRows(registry, "attentionScopes", (row) => removedScopes.has(row.scopeId))
-    upsertRows(registry, "attentionScopes", projected.scopes.filter((scope) => JSON.stringify(scope) !== JSON.stringify(previousScopes.get(scope.scopeId))))
-    if (removedItems.size) deleteRows(registry, "attentionItems", (row) => removedItems.has(row.id))
-  })
+  const { nextScopes, previousScopes } = writeAttentionProjection(registry, scopes, items, projected)
   const store = attentionTransactionStores.get(registry)
   store?.setState((state) => ({ ...state, intents: new Map([...state.intents].map(([token, intent]) => {
     if (token === current.token) return [token, intent]
@@ -1322,8 +1379,9 @@ export function ingestAttentionSnapshot(registry: CommunityDbRegistry, snapshot:
     const pending = collectionRows(registry, "friendships").filter((row) => row.kind === "incoming" && row.needsOwnerApproval == null)
     const blocked = new Set(collectionRows(registry, "friendships").filter((row) => row.kind === "blocked").map((row) => row.userId))
     ingestAttentionIncluded(registry, snapshot.included)
-    replaceRows(registry, "attentionScopes", snapshot.scopes, () => true)
-    replaceRows(registry, "attentionItems", snapshot.items.filter((row) => row.kind !== "friend_request" || !row.actorUserId || (!blocked.has(row.actorUserId) && !isProtectedFromQueryWrite(registry, "friendships", `user:${row.actorUserId}`))), () => true)
+    const confirmed = confirmedAttentionProjection(registry, snapshot.scopes, snapshot.items)
+    replaceRows(registry, "attentionScopes", confirmed.scopes, () => true)
+    replaceRows(registry, "attentionItems", confirmed.items.filter((row) => row.kind !== "friend_request" || !row.actorUserId || (!blocked.has(row.actorUserId) && !isProtectedFromQueryWrite(registry, "friendships", `user:${row.actorUserId}`))), () => true)
     const requests = collectionRows(registry, "attentionItems").filter((row) => row.kind === "friend_request" && row.actorUserId)
     upsertRows(registry, "friendships", requests.filter((row) => !blocked.has(row.actorUserId!)).map((row) => ({ id: row.sourceId, userId: row.actorUserId!, kind: "incoming" as const })))
     if (!snapshot.truncated) retireCanonicalFriendRequests(registry, pending.filter((row) => !requests.some((item) => item.sourceId === row.id)).map((row) => row.id))

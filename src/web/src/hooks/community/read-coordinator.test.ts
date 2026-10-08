@@ -1,3 +1,4 @@
+import { AccountAttentionSnapshotSchema } from "@alook/shared"
 import { QueryClient } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ApiError } from "@/lib/errors"
@@ -9,6 +10,8 @@ import {
 } from "@/lib/community-db/collections"
 import {
   ingestAttentionSnapshot,
+  captureCommunityLiveSnapshotToken,
+  publishAccountAttentionSnapshot,
   ingestMessages,
   projectCommunityWsEventToDb,
 } from "@/lib/community-db/sync"
@@ -1172,6 +1175,51 @@ describe("read coordinator", () => {
     })).toBe(false)
     await vi.runAllTimersAsync()
     expect(apiFetch).not.toHaveBeenCalled()
+  })
+
+  it.each([true, false])("preserves only successful PUT confirmation after failed reconciliation and a late valid attention snapshot (committed: %s)", async (committed) => {
+    const queryClient = createOwnedClient()
+    const db = getCommunityDbRegistry(queryClient)!
+    await db.preload()
+    const at = "2026-10-08T00:00:00.000Z"
+    const snapshot = (seq: number) => AccountAttentionSnapshotSchema.parse({
+      scopes: [{ scopeId: "channel-1", channelId: "channel-1", serverId: "server-1", parentChannelId: "forum-1", ordinaryUnread: true, lastUnreadSeq: seq, lastAttentionSeq: seq, attentionCount: 1 }],
+      items: [{ id: `reply:message-${seq}`, kind: "reply", sourceId: `message-${seq}`, scopeId: "channel-1", messageId: `message-${seq}`, actorUserId: "peer", createdAt: at }],
+      limit: 100, truncated: false,
+      included: {
+        servers: [{ id: "server-1", name: "Server", discriminator: "0001" }],
+        channels: [
+          { id: "forum-1", serverId: "server-1", name: "Forum", type: "forum", parentChannelId: null, parentMessageId: null, creatorId: "peer", archived: false, lastMessageAt: at },
+          { id: "channel-1", serverId: "server-1", name: "Post", type: "thread", parentChannelId: "forum-1", parentMessageId: "opener-1", creatorId: "peer", archived: false, lastMessageAt: at, openerSeq: 1, openerUnread: true },
+        ],
+        dms: [], profiles: [{ userId: "peer", name: "Peer", discriminator: "0002", avatar: "P", avatarVersion: 0 }],
+        messages: [
+          { id: "opener-1", channelId: "forum-1", type: "chat", authorId: "peer", seq: 1, createdAt: at, content: "Title" },
+          { id: `message-${seq}`, channelId: "channel-1", type: "chat", authorId: "peer", seq, createdAt: at, content: "Reply" },
+        ],
+      },
+    })
+    const token = captureCommunityLiveSnapshotToken(queryClient)
+    const lease = timelineLease(queryClient)
+    if (committed) apiFetch.mockResolvedValue({ changed: true, revision: 14, targetSeq: 4 })
+    else apiFetch.mockRejectedValue(new ApiError("forbidden", 403))
+    reconcileAccountReadState.mockRejectedValue(new Error("snapshot unavailable"))
+    submitTimeline(lease, 4)
+    await expect(flushPendingReadIntents(queryClient)).resolves.toMatchObject({ consumed: false, cutoff: 1 })
+    releaseReadSurface(lease)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(db.collections.readStates.get("channel-1")).toBeUndefined()
+    expect(publishAccountAttentionSnapshot(queryClient, { snapshot: snapshot(4), proof: { token, signal: undefined } })).toBe("published")
+    if (committed) {
+      expect(db.collections.attentionScopes.get("channel-1")).toBeUndefined()
+      expect(db.collections.attentionItems.get("reply:message-4")).toBeUndefined()
+    } else {
+      expect(db.collections.attentionScopes.get("channel-1")).toMatchObject({ ordinaryUnread: true, attentionCount: 1 })
+      expect(db.collections.attentionItems.get("reply:message-4")).toBeDefined()
+    }
+    ingestAttentionSnapshot(db, snapshot(5))
+    expect(db.collections.attentionScopes.get("channel-1")).toMatchObject({ ordinaryUnread: true, lastUnreadSeq: 5, attentionCount: 1 })
+    expect(db.collections.attentionItems.get("reply:message-5")).toBeDefined()
   })
 
   it("absorbs reconciliation failures after a committed read response", async () => {

@@ -1,7 +1,7 @@
 import { projectPostedMessage } from "@/lib/community/message-wire"
 import { QueryClient } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import type { CommunityWsEvent } from "@alook/shared"
+import { AccountAttentionSnapshotSchema, type CommunityWsEvent } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import { rememberMessageAccessScope } from "./message-access-scope"
@@ -52,12 +52,33 @@ import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
 const registries: CommunityDbRegistry[] = []
 const unregisters: Array<() => void> = []
 
-async function registry() {
+async function registry(preload = true) {
   const result = createCommunityDbRegistry(new QueryClient(), "viewer")
   registries.push(result)
-  await result.preload()
+  if (preload) await result.preload()
   unregisters.push(registerCommunityDbRegistry(result))
   return result
+}
+
+function forumAttentionSnapshot(seq = 4) {
+  const at = "2026-10-08T00:00:00.000Z"
+  return AccountAttentionSnapshotSchema.parse({
+    scopes: [{ scopeId: "post", channelId: "post", serverId: "s1", parentChannelId: "forum", ordinaryUnread: true, lastUnreadSeq: seq, lastAttentionSeq: seq, attentionCount: 1 }],
+    items: [{ id: `reply:m${seq}`, kind: "reply", sourceId: `m${seq}`, scopeId: "post", messageId: `m${seq}`, actorUserId: "peer", createdAt: at }],
+    limit: 100, truncated: false,
+    included: {
+      servers: [{ id: "s1", name: "Server", discriminator: "0001" }],
+      channels: [
+        { id: "forum", serverId: "s1", name: "Forum", type: "forum", parentChannelId: null, parentMessageId: null, creatorId: "peer", archived: false, lastMessageAt: at },
+        { id: "post", serverId: "s1", name: "Post", type: "thread", parentChannelId: "forum", parentMessageId: "opener", creatorId: "peer", archived: false, lastMessageAt: at, openerSeq: 1, openerUnread: true },
+      ],
+      dms: [], profiles: [{ userId: "peer", name: "Peer", discriminator: "0002", avatar: "P", avatarVersion: 0 }],
+      messages: [
+        { id: "opener", channelId: "forum", type: "chat", authorId: "peer", seq: 1, createdAt: at, content: "Title" },
+        { id: `m${seq}`, channelId: "post", type: "chat", authorId: "peer", seq, createdAt: at, content: "Reply" },
+      ],
+    },
+  })
 }
 
 function publishCommunityLiveSnapshot(
@@ -1195,6 +1216,106 @@ describe("community DB sync", () => {
     })
     expect(db.collections.readStateClock.get("account")?.revision).toBe(5)
     expect(db.collections.readStates.get("c1")).toBeUndefined()
+  })
+
+  it.each([{ label: "missing", loaded: false, cold: false }, { label: "cold", loaded: false, cold: true }, { label: "loaded", loaded: true, cold: false }])("keeps confirmed reads after a late valid attention snapshot with a $label scope", async ({ loaded, cold }) => {
+    const db = await registry(!cold)
+    const at = "2026-10-08T00:00:00.000Z"
+    const snapshot = forumAttentionSnapshot()
+    if (loaded) ingestAttentionSnapshot(db, snapshot)
+    const token = captureCommunityLiveSnapshotToken(db.queryClient)
+    const optimistic = clearAttentionScopeOptimistically(db, "post", 4)
+    ingestReadStateSnapshot(db, { revision: 1, readStates: [{ channelId: "post", lastReadMessageId: "m4", lastReadAt: at, lastReadSeq: 4 }] })
+    await commitAttentionScopeOptimisticSnapshot(db, optimistic)
+    expect(db.queryClient.getQueryData<Array<{ channelId: string; lastReadSeq: number }>>(communityKeys.communityDbCollection(db.scopeId, "readStates"))?.find((row) => row.channelId === "post")?.lastReadSeq).toBe(4)
+    expect(publishAccountAttentionSnapshot(db.queryClient, { snapshot, proof: { token, signal: undefined } })).toBe("published")
+    if (cold) await db.preload()
+    expect(db.collections.channels.get("post")).toMatchObject({ parentChannelId: "forum", parentMessageId: "opener" })
+    expect(db.collections.readStates.get("post")?.lastReadSeq).toBe(4)
+    expect(db.collections.attentionScopes.get("post")).toBeUndefined()
+    expect(db.collections.attentionItems.get("reply:m4")).toBeUndefined()
+  })
+
+  it.each([false, true])("projects already ingested attention when canonical read confirmation arrives without an intent (cold: %s)", async (cold) => {
+    const db = await registry(!cold)
+    ingestAttentionSnapshot(db, forumAttentionSnapshot())
+    expect(db.queryClient.getQueryData<Array<{ scopeId: string }>>(communityKeys.communityDbCollection(db.scopeId, "attentionScopes"))?.some((scope) => scope.scopeId === "post")).toBe(true)
+    ingestReadStateSnapshot(db, { revision: 1, readStates: [{ channelId: "post", lastReadMessageId: "m4", lastReadAt: "2026-10-08T00:00:00.000Z", lastReadSeq: 4 }] })
+    expect(db.queryClient.getQueryData<Array<{ scopeId: string }>>(communityKeys.communityDbCollection(db.scopeId, "attentionScopes"))?.some((scope) => scope.scopeId === "post")).toBe(false)
+    if (cold) await db.preload()
+    expect(db.collections.attentionItems.get("reply:m4")).toBeUndefined()
+    ingestAttentionSnapshot(db, forumAttentionSnapshot(5))
+    expect(db.collections.attentionScopes.get("post")).toMatchObject({ ordinaryUnread: true, lastUnreadSeq: 5, attentionCount: 1 })
+    expect(db.collections.attentionItems.get("reply:m5")).toBeDefined()
+  })
+
+  it("keeps a new valid reply and ordinary unread beyond the confirmed waterline", async () => {
+    const db = await registry()
+    const at = "2026-10-08T00:00:00.000Z"
+    ingestReadStateSnapshot(db, { revision: 1, readStates: [{ channelId: "post", lastReadMessageId: "m4", lastReadAt: at, lastReadSeq: 4 }] })
+    const newer = forumAttentionSnapshot(5)
+    const older = forumAttentionSnapshot(4)
+    const snapshot = AccountAttentionSnapshotSchema.parse({
+      ...newer, scopes: newer.scopes.map((scope) => ({ ...scope, attentionCount: 2 })),
+      items: [...older.items, ...newer.items],
+      included: { ...newer.included, messages: [...newer.included.messages, ...older.included.messages.filter((message) => message.id === "m4")] },
+    })
+    const token = captureCommunityLiveSnapshotToken(db.queryClient)
+    publishAccountAttentionSnapshot(db.queryClient, { snapshot, proof: { token, signal: undefined } })
+    expect(db.collections.attentionScopes.get("post")).toMatchObject({ ordinaryUnread: true, lastUnreadSeq: 5, lastAttentionSeq: 5, attentionCount: 1 })
+    expect(db.collections.attentionItems.get("reply:m4")).toBeUndefined()
+    expect(db.collections.attentionItems.get("reply:m5")).toBeDefined()
+  })
+
+  it.each(["forum", "post"])("applies the %s read floor only to its exact forum or child domain", async (channelId) => {
+    const db = await registry()
+    const base = forumAttentionSnapshot()
+    const at = base.included.messages[0]!.createdAt
+    const snapshot = AccountAttentionSnapshotSchema.parse({
+      ...base,
+      scopes: [...base.scopes, { scopeId: "forum", channelId: "forum", serverId: "s1", parentChannelId: null, ordinaryUnread: true, lastUnreadSeq: 1, lastAttentionSeq: null, attentionCount: 0 }],
+      items: [...base.items, { id: "forum_post:post", kind: "forum_post", sourceId: "post", scopeId: "forum", messageId: "opener", actorUserId: null, childChannelId: "post", openerSeq: 1, readTarget: { channelId: "forum", seq: 1 }, createdAt: at }],
+    })
+    ingestReadStateSnapshot(db, { revision: 1, readStates: [{ channelId, lastReadMessageId: channelId === "forum" ? "opener" : "m4", lastReadAt: at, lastReadSeq: channelId === "forum" ? 1 : 4 }] })
+    const token = captureCommunityLiveSnapshotToken(db.queryClient)
+    publishAccountAttentionSnapshot(db.queryClient, { snapshot, proof: { token, signal: undefined } })
+    const remaining = channelId === "forum" ? "post" : "forum"
+    expect(db.collections.attentionScopes.get(channelId)).toBeUndefined()
+    expect(db.collections.attentionScopes.get(remaining)?.ordinaryUnread).toBe(true)
+    expect(db.collections.attentionItems.get(channelId === "forum" ? "forum_post:post" : "reply:m4")).toBeUndefined()
+    expect(db.collections.attentionItems.get(channelId === "forum" ? "reply:m4" : "forum_post:post")).toBeDefined()
+  })
+
+  it("retains valid friend requests when confirmed messages disappear", async () => {
+    const db = await registry()
+    const base = forumAttentionSnapshot()
+    const at = base.included.messages[0]!.createdAt
+    const snapshot = AccountAttentionSnapshotSchema.parse({
+      ...base,
+      items: [...base.items, { id: "friend_request:request", kind: "friend_request", sourceId: "request", actorUserId: "requester", createdAt: at }],
+      included: { ...base.included, profiles: [...base.included.profiles, { userId: "requester", name: "Requester", discriminator: "0003", avatar: "R", avatarVersion: 0 }] },
+    })
+    ingestReadStateSnapshot(db, { revision: 1, readStates: [{ channelId: "post", lastReadMessageId: "m4", lastReadAt: at, lastReadSeq: 4 }] })
+    publishAccountAttentionSnapshot(db.queryClient, { snapshot, proof: { token: captureCommunityLiveSnapshotToken(db.queryClient), signal: undefined } })
+    expect(db.collections.attentionScopes.get("post")).toBeUndefined()
+    expect(db.collections.attentionItems.get("reply:m4")).toBeUndefined()
+    expect(db.collections.attentionItems.get("friend_request:request")).toBeDefined()
+    expect(db.collections.friendships.get("request")).toMatchObject({ kind: "incoming", userId: "requester" })
+  })
+
+  it("keeps an unknown-sequence cached item when another scope rebases confirmed attention", async () => {
+    const db = await registry()
+    const snapshot = forumAttentionSnapshot()
+    ingestAttentionSnapshot(db, snapshot)
+    const key = communityKeys.communityDbCollection(db.scopeId, "messages")
+    db.queryClient.setQueryData(key, (rows: Array<{ id: string; seq?: number }>) => rows.map((row) => row.id === "m4" ? { ...row, seq: undefined } : row))
+    db.collections.messages.utils.writeUpsert({ ...db.collections.messages.get("m4")!, seq: undefined })
+    ingestReadStateSnapshot(db, { revision: 1, readStates: [{ channelId: "post", lastReadMessageId: "m4", lastReadAt: snapshot.included.messages[0]!.createdAt, lastReadSeq: 4 }] })
+    const optimistic = clearAttentionScopeOptimistically(db, "other", 0)
+    expect(db.collections.attentionItems.get("reply:m4")).toBeDefined()
+    expect(db.collections.attentionScopes.get("post")).toMatchObject({ ordinaryUnread: false, attentionCount: 1 })
+    await commitAttentionScopeOptimisticSnapshot(db, optimistic)
+    expect(db.collections.attentionItems.get("reply:m4")).toBeDefined()
   })
 
   it("lets one authoritative snapshot replace the complete prior attention truth", async () => {

@@ -26,6 +26,7 @@ import {
   clearAttentionScopeOptimistically,
   commitAttentionScopeOptimisticSnapshot,
   hasAttentionScopeOptimisticFence,
+  projectConfirmedAttention,
   restoreAttentionScopeOptimisticSnapshot,
   type AttentionScopeOptimisticSnapshot,
 } from "@/lib/community-db/sync"
@@ -393,6 +394,10 @@ class ReadCoordinator {
       return { committed: false, reconciled: false }
     }
     if (!this.attemptActive(key, attemptEpoch, identityEpoch)) return { committed: false, reconciled: false }
+    const unreadProjection = getAccountUnreadProjection(this.queryClient, this.ownerUserId)
+    unreadProjection.recordRead(target.intent.channelId, response.targetSeq)
+    const registry = getCommunityDbRegistry(this.queryClient)
+    if (registry) projectConfirmedAttention(registry)
     await settleInboxReadReservationGeneration(this.queryClient, target.generation, true, target.intent.channelId)
     if (!this.attemptActive(key, attemptEpoch, identityEpoch)) return { committed: false, reconciled: false }
     this.update(key, (scope) => ({ ...scope, confirmedSeq: Math.max(scope.confirmedSeq, response.targetSeq), dirty: sameIntent(scope.dirty ?? target, target) ? null : scope.dirty, inFlight: scope.inFlight ? { ...scope.inFlight, phase: "reconciling" } : null }))
@@ -401,7 +406,6 @@ class ReadCoordinator {
     const defer = active.deferInboxDms?.() === true || active.drainCutoff !== undefined && current.accepted !== null && current.accepted.generation > active.drainCutoff
     try {
       target.request.assertActive()
-      const registry = getCommunityDbRegistry(this.queryClient)
       await Promise.all([
         reconcileAccountReadState(this.queryClient, { surfaceMode: defer ? "non-inbox" : "all", awaitSurfaceMode: defer ? "none" : "inbox-dms", targetRevision: response.revision }),
         registry ? reconcileAccountAttention(registry).catch(() => undefined) : Promise.resolve(),
