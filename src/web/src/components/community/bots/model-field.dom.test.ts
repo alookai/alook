@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest"
 import React from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { act, fireEvent, render as rtlRender } from "@/test/react-dom-harness"
 
 // Mock the Select shell to a passthrough that records the current value and exposes an onValueChange
@@ -201,6 +202,35 @@ describe("ModelField", () => {
     expect(onChange).toHaveBeenLastCalledWith(null)
   })
 
+  it("preserves Custom through controlled value echoes and re-seeds external changes", () => {
+    const first = runtime("opencode", ["provider/tail"])
+    const second = runtime("opencode", ["provider/other"])
+    const values: Array<string | null> = []
+    function Controlled({ selectedRuntime }: { selectedRuntime: typeof first }) {
+      const [value, setValue] = useAtom(useCreateAtom<string | null>("provider/tail"))
+      return React.createElement(React.Fragment, {},
+        React.createElement(ModelField, { runtime: selectedRuntime, value, onChange: (next) => { values.push(next); setValue(next) } }),
+        React.createElement("button", { onClick: () => setValue("external/model") }, "External model"),
+      )
+    }
+    const renderer = rtlRender(React.createElement(Controlled, { selectedRuntime: first }))
+    act(() => selectCalls.at(-1)!.onValueChange("__custom__"))
+    expect(renderer.getByTestId("bot-model-custom-input")).toHaveValue("")
+    expect(values.at(-1)).toBeNull()
+    fireEvent.change(renderer.getByTestId("bot-model-custom-input"), { target: { value: "custom/model" } })
+    expect(values.at(-1)).toBe("custom/model")
+    fireEvent.change(renderer.getByTestId("bot-model-custom-input"), { target: { value: "" } })
+    expect(renderer.getByTestId("bot-model-custom-input")).toHaveValue("")
+    expect(values.at(-1)).toBeNull()
+    act(() => renderer.rerender(React.createElement(Controlled, { selectedRuntime: second })))
+    expect(renderer.queryAllByTestId("bot-model-custom-input")).toHaveLength(0)
+    fireEvent.click(renderer.getByText("External model"))
+    expect(renderer.getByTestId("bot-model-custom-input")).toHaveValue("external/model")
+    act(() => selectCalls.at(-1)!.onValueChange("__default__"))
+    expect(renderer.queryAllByTestId("bot-model-custom-input")).toHaveLength(0)
+    expect(values.at(-1)).toBeNull()
+  })
+
   it("filters a 204-item catalog by case-insensitive substring while keeping Default and Custom", () => {
     const models = Array.from({ length: 204 }, (_, index) => `Cursor-MODEL-${index}`)
     const renderer = render({ runtime: runtime("cursor", models), value: null })
@@ -219,10 +249,17 @@ describe("ModelField", () => {
     ])
   })
 
-  it("shows an explicit no-match state for a 479-item catalog and keeps Custom usable", () => {
-    const models = Array.from({ length: 479 }, (_, index) => `provider/model-${index}`)
-    const renderer = render({ runtime: runtime("opencode", models), value: null })
+  it("shows all 598 OpenCode models, selects the catalog tail, and keeps Custom usable after no match", () => {
+    const models = Array.from({ length: 598 }, (_, index) => `provider/model-${index}`)
+    const onChange = vi.fn()
+    const renderer = render({ runtime: runtime("opencode", models), value: null, onChange })
+    expect(itemValues(renderer)).toEqual(["__default__", "__custom__", ...models])
     const filter = renderer.getByTestId("bot-model-filter-input")
+
+    fireEvent.change(filter, { target: { value: "model-597" } })
+    expect(itemValues(renderer)).toEqual(["__default__", "__custom__", models[597]])
+    act(() => selectCalls.at(-1)!.onValueChange(models[597]))
+    expect(onChange).toHaveBeenLastCalledWith(models[597])
 
     fireEvent.change(filter, { target: { value: "not-in-catalog" } })
 

@@ -1,3 +1,4 @@
+import { RUNTIME_MODEL_CATALOG_MAX } from "../../internal/modelCatalog.js";
 import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -68,6 +69,13 @@ const modelState = {
 };
 
 describe("Grok ACP model catalog", () => {
+  it.each([1024, 1025])("keeps the complete catalog or rejects overflow (%s models)", (count) => {
+    const models = Array.from({ length: count }, (_, index) => `model-${index}`);
+    const catalog = parseGrokModelCatalog({ availableModels: models.map((modelId) => ({ modelId })) });
+    if (count > RUNTIME_MODEL_CATALOG_MAX) expect(catalog).toBeUndefined();
+    else expect(catalog?.models.map((model) => model.id)).toEqual(models);
+  });
+
   it("preserves provider ids and dynamic reasoning values", () => {
     expect(parseGrokModelCatalog(modelState)).toEqual({
       updateMode: "live_next_turn",

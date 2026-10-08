@@ -1,3 +1,4 @@
+import { RUNTIME_MODEL_CATALOG_MAX } from "../../internal/modelCatalog.js";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
@@ -44,6 +45,13 @@ function respond(process: FakeProcess, request: Record<string, unknown>, result:
 }
 
 describe("Cursor ACP model catalog", () => {
+  it.each([1024, 1025])("keeps the complete catalog or rejects overflow (%s models)", (count) => {
+    const models = Array.from({ length: count }, (_, index) => `model-${index}`);
+    const catalog = parseCursorAcpModelCatalog({ configOptions: [{ id: "model", options: models.map((id) => ({ value: id })) }] });
+    if (count > RUNTIME_MODEL_CATALOG_MAX) expect(catalog).toBeUndefined();
+    else expect(catalog?.models.map((model) => model.id)).toEqual(models);
+  });
+
   it("normalizes nested exact values, preserves duplicate labels, and omits ACP Auto", () => {
     expect(parseCursorAcpModelCatalog({
       sessionId: "probe",
@@ -98,7 +106,7 @@ describe("Cursor ACP model catalog", () => {
     expect(parseCursorAcpModelCatalog({
       configOptions: [{
         id: "model",
-        options: Array.from({ length: 513 }, (_, index) => ({ value: `model-${index}` })),
+        options: Array.from({ length: RUNTIME_MODEL_CATALOG_MAX + 1 }, (_, index) => ({ value: `model-${index}` })),
       }],
     })).toBeUndefined();
   });

@@ -4,6 +4,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { CodexDriver } from "./index.js";
+import { RUNTIME_MODEL_CATALOG_MAX } from "../../internal/modelCatalog.js";
 import type { AdapterLaunchContext } from "../../internal/adapter.js";
 import { fakeLaunchContext } from "../../testing/adapter-fixture.js";
 
@@ -258,24 +259,50 @@ describe("CodexDriver reasoning catalog probe", () => {
     });
   });
 
-  it("returns no catalog rather than a truncated list when pagination exceeds 512 models", async () => {
-    const models = Array.from({ length: 512 }, (_, index) => ({
+  it.each([false, true])("handles the exact catalog bound across distinct pages (hasNext=%s)", async (hasNext) => {
+    const models = Array.from({ length: RUNTIME_MODEL_CATALOG_MAX }, (_, index) => ({
       id: `gpt-model-${index}`,
       supportedReasoningEfforts: [],
     }));
-    const proc = probingProcess((request) => request.method === "initialize"
-      ? { jsonrpc: "2.0", id: request.id, result: {} }
-      : { jsonrpc: "2.0", id: request.id, result: { data: models, nextCursor: "more" } });
+    const cursors: unknown[] = [];
+    const proc = probingProcess((request) => {
+      if (request.method === "initialize") return { jsonrpc: "2.0", id: request.id, result: {} };
+      cursors.push(request.params.cursor);
+      const page = request.params.cursor ? Number(request.params.cursor) : 0;
+      const end = Math.min((page + 1) * 100, models.length);
+      return { jsonrpc: "2.0", id: request.id, result: {
+        data: models.slice(page * 100, end),
+        nextCursor: end < models.length || hasNext ? String(page + 1) : null,
+      } };
+    });
     runtimeMocks.spawnAgentProcess.mockReturnValueOnce(proc as never);
 
-    await expect(new CodexDriver().probe()).resolves.toMatchObject({
-      status: "healthy",
-      reasoning: undefined,
-    });
+    const result = await new CodexDriver().probe();
+    expect(result.status).toBe("healthy");
+    if (hasNext) expect(result.reasoning).toBeUndefined();
+    else expect(result.reasoning?.models.map((model) => model.id)).toEqual(models.map((model) => model.id));
+    expect(cursors).toEqual([undefined, ...Array.from({ length: 10 }, (_, index) => String(index + 1))]);
   });
 
-  it("returns no catalog when a producer ignores the page limit and sends 513 unique models", async () => {
-    const models = Array.from({ length: 513 }, (_, index) => ({
+  it("returns no catalog for 1025 unique models across distinct pages", async () => {
+    const models = Array.from({ length: RUNTIME_MODEL_CATALOG_MAX + 1 }, (_, index) => ({
+      id: `gpt-model-${index}`,
+      supportedReasoningEfforts: [],
+    }));
+    const proc = probingProcess((request) => {
+      if (request.method === "initialize") return { jsonrpc: "2.0", id: request.id, result: {} };
+      const page = request.params.cursor ? Number(request.params.cursor) : 0;
+      const end = Math.min((page + 1) * 100, models.length);
+      return { jsonrpc: "2.0", id: request.id, result: {
+        data: models.slice(page * 100, end), nextCursor: end < models.length ? String(page + 1) : null,
+      } };
+    });
+    runtimeMocks.spawnAgentProcess.mockReturnValueOnce(proc as never);
+    await expect(new CodexDriver().probe()).resolves.toMatchObject({ reasoning: undefined });
+  });
+
+  it("returns no catalog when a producer ignores the page limit and sends 1025 unique models", async () => {
+    const models = Array.from({ length: RUNTIME_MODEL_CATALOG_MAX + 1 }, (_, index) => ({
       id: `gpt-model-${index}`,
       supportedReasoningEfforts: [],
     }));
@@ -283,7 +310,6 @@ describe("CodexDriver reasoning catalog probe", () => {
       ? { jsonrpc: "2.0", id: request.id, result: {} }
       : { jsonrpc: "2.0", id: request.id, result: { data: models, nextCursor: null } });
     runtimeMocks.spawnAgentProcess.mockReturnValueOnce(proc as never);
-
     await expect(new CodexDriver().probe()).resolves.toMatchObject({ reasoning: undefined });
   });
 

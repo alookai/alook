@@ -12,7 +12,33 @@ import {
   BotAuditEventSchema,
   BotAuditEventKindSchema,
   CommunityAgentNapRequestSchema,
+  CommunityMachineRuntimeSchema,
+  RuntimeReasoningCatalogSchema,
+  COMMUNITY_REASONING_MODELS_MAX,
 } from "./schemas"
+
+describe("large runtime model catalogs", () => {
+  const catalog = (count: number) => ({
+    updateMode: "unsupported" as const,
+    models: Array.from({ length: count }, (_, index) => ({
+      id: `provider/model-${index}`,
+      supportedReasoningEfforts: [],
+    })),
+  })
+
+  it("retains all 598 models through the machine runtime wire schema", () => {
+    const reasoning = catalog(598)
+    const runtime = CommunityMachineRuntimeSchema.parse({ id: "opencode", reasoning })
+    expect(runtime.reasoning).toEqual(reasoning)
+  })
+
+  it("accepts the full bound and rejects overflow without returning a partial catalog", () => {
+    expect(RuntimeReasoningCatalogSchema.parse(catalog(COMMUNITY_REASONING_MODELS_MAX)))
+      .toEqual(catalog(COMMUNITY_REASONING_MODELS_MAX))
+    expect(RuntimeReasoningCatalogSchema.safeParse(catalog(COMMUNITY_REASONING_MODELS_MAX + 1)).success)
+      .toBe(false)
+  })
+})
 
 const usageSnapshot = (index: number) => ({
   botId: "bot_1",
