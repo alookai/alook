@@ -31,6 +31,8 @@ vi.mock("@/lib/community/last-community-route", () => ({
 }))
 
 import { useChannelRouteModel } from "./use-channel-route-model"
+import { channelMetadataOptions } from "./channel-metadata"
+import { retireCommunityChannelReading } from "@/lib/community-db/sync"
 import { reconcileCommunityWsReconnect } from "./community-ws/reconnect"
 
 let current!: ReturnType<typeof useChannelRouteModel>
@@ -85,6 +87,52 @@ afterEach(async () => {
 })
 
 describe("unresolved metadata terminal error and retry", () => {
+  it.each([200, 403, 404, 502])("keeps revoked route pending until current protected %s and preserves its exit/Retry branch", async (status) => {
+    mocks.apiFetch.mockResolvedValue(payload())
+    await client.query(channelMetadataOptions(client, "server-1", "post-1"))
+    const owner = getCommunityDbRegistry(client)!
+    retireCommunityChannelReading(owner, "post-1", { reason: "read-denied", serverId: "server-1" })
+    const request = deferred()
+    mocks.apiFetch.mockReset().mockReturnValue(request.promise)
+    await mount()
+    await until(() => mocks.apiFetch.mock.calls.length === 1)
+    expect(current.routeLifecycle).toBe("pending")
+    expect(current.routeHydrated).toBe(false)
+    expect(current.currentChannelMeta).toBeNull()
+    expect(current.metadataError).toBe(false)
+    expect(mocks.replace).not.toHaveBeenCalled()
+    expect(owner.runtime.ws.actions.isChannelAccessRevoked("post-1", "server-1")).toBe(true)
+    await act(async () => {
+      if (status === 200) request.resolve(payload())
+      else request.reject(new ApiError("unavailable", status))
+    })
+    if (status === 200) {
+      await until(() => current.routeHydrated)
+      expect(current.routeLifecycle).toBe("ready")
+      expect(mocks.replace).not.toHaveBeenCalled()
+    } else if (status === 403 || status === 404) {
+      await until(() => mocks.replace.mock.calls.length === 1)
+      expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/channels/server-1")
+      expect(current.metadataError).toBe(false)
+      expect(current.routeHydrated).toBe(false)
+    } else {
+      await until(() => current.metadataError)
+      expect(mocks.replace).not.toHaveBeenCalled()
+      expect(current.routeHydrated).toBe(false)
+      expect(owner.runtime.ws.actions.isChannelAccessRevoked("post-1", "server-1")).toBe(true)
+      const retry = deferred()
+      mocks.apiFetch.mockReturnValueOnce(retry.promise)
+      let pending!: Promise<void>
+      await act(async () => { pending = current.retryMetadata(); void current.retryMetadata() })
+      expect(current.retryingMetadata).toBe(true)
+      expect(current.metadataError).toBe(true)
+      await act(async () => { retry.resolve(payload()); await pending })
+      await until(() => current.routeHydrated)
+      expect(current.metadataError).toBe(false)
+      expect(mocks.replace).not.toHaveBeenCalled()
+    }
+  })
+
   it("keeps a missing server dependency retryable until its own read settles", async () => {
     mocks.apiFetch.mockResolvedValue(payload())
     Object.assign(mocks.server, { server: null, isError: true })

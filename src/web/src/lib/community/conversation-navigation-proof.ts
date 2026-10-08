@@ -80,13 +80,9 @@ export function beginConversationNavigationProof(
   const ownerToken = captureCommunityLiveSnapshotToken(queryClient, target.channelId)
   if (ownerToken.viewerId !== target.viewerId) throw new DOMException("Conversation viewer does not match owner", "AbortError")
   if (current.activeTarget) {
-    const previousKey = current.activeTarget.scopeKind === "dm"
-      ? communityKeys.dmMessages(current.activeTarget.channelId)
-      : communityKeys.channelMessages(current.activeTarget.channelId)
+    const previousKey = communityKeys.channelMessages(current.activeTarget.channelId)
     void queryClient.cancelQueries({ queryKey: previousKey })
-    const previousReadKey = current.activeTarget.scopeKind === "dm"
-      ? communityKeys.dmReadStateSnapshot(current.activeTarget.channelId)
-      : communityKeys.channelReadStateSnapshot(current.activeTarget.channelId)
+    const previousReadKey = communityKeys.channelReadStateSnapshot(current.activeTarget.channelId)
     void queryClient.cancelQueries({ queryKey: previousReadKey })
   }
   current.controller?.abort()
@@ -216,9 +212,7 @@ export function failConversationNavigationProof(
   if (definitive) {
     current.controller?.abort()
     if (current.activeTarget) {
-      const readKey = current.activeTarget.scopeKind === "dm"
-        ? communityKeys.dmReadStateSnapshot(current.activeTarget.channelId)
-        : communityKeys.channelReadStateSnapshot(current.activeTarget.channelId)
+      const readKey = communityKeys.channelReadStateSnapshot(current.activeTarget.channelId)
       void queryClient.cancelQueries({ queryKey: readKey })
     }
   }
@@ -250,13 +244,9 @@ export function cancelConversationNavigationProof(
   const current = store.get()
   if (current.activeEpoch !== epoch) return
   if (current.activeTarget) {
-    const queryKey = current.activeTarget.scopeKind === "dm"
-      ? communityKeys.dmMessages(current.activeTarget.channelId)
-      : communityKeys.channelMessages(current.activeTarget.channelId)
+    const queryKey = communityKeys.channelMessages(current.activeTarget.channelId)
     void queryClient.cancelQueries({ queryKey })
-    const readKey = current.activeTarget.scopeKind === "dm"
-      ? communityKeys.dmReadStateSnapshot(current.activeTarget.channelId)
-      : communityKeys.channelReadStateSnapshot(current.activeTarget.channelId)
+    const readKey = communityKeys.channelReadStateSnapshot(current.activeTarget.channelId)
     void queryClient.cancelQueries({ queryKey: readKey })
   }
   current.controller?.abort()

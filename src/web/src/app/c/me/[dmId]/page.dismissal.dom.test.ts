@@ -1,5 +1,5 @@
 import React from "react"
-import {  } from "@/test/react-dom-harness"
+import { setupUser } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { DmView } from "@/components/community/channels/dm-view"
@@ -16,7 +16,8 @@ const {
 } = vi.hoisted(() => ({
   mockDismissConversation: vi.fn(),
   mockCommitRoute: vi.fn(),
-  mockHistory: { allowed: true, denied: false, error: null as Error | null, retry: vi.fn() },
+  mockHistory: { allowed: true, denied: false, error: null as Error | null, retry: vi.fn(),
+    status: "readable", revoked: false, retryingMetadata: false, retryMetadata: vi.fn() },
   mockBlocked: [] as Array<{ userId: string }>,
   mockNavigationGate: { allowed: true, failed: false, retry: vi.fn() },
   mockDms: {
@@ -58,7 +59,9 @@ vi.mock("@/components/community/channels/conversation-resolution-error-frame", (
   ConversationResolutionErrorFrame: ({ onRetry }: { onRetry: () => void }) => React.createElement("button", { onClick: onRetry, "data-testid": "history-error" }, "Retry"),
 }))
 vi.mock("@/hooks/community/use-channel-metadata", () => ({
-  useChannelMetadata: () => ({ canRead: mockHistory.allowed, denied: mockHistory.denied, data: { readProof: mockHistory.allowed ? {} : undefined } }),
+  useChannelMetadata: () => ({ canRead: mockHistory.allowed, denied: mockHistory.denied,
+    status: mockHistory.status, revoked: mockHistory.revoked, retry: mockHistory.retryMetadata, retrying: mockHistory.retryingMetadata,
+    data: { readProof: mockHistory.allowed ? {} : undefined } }),
 }))
 vi.mock("@/lib/community/conversation-navigation-proof", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/community/conversation-navigation-proof")>(),
@@ -179,6 +182,10 @@ describe("DM notification dismissal readiness", () => {
     mockHistory.allowed = true
     mockHistory.denied = false
     mockHistory.error = null
+    mockHistory.status = "readable"
+    mockHistory.revoked = false
+    mockHistory.retryingMetadata = false
+    mockHistory.retryMetadata.mockClear()
     mockHistory.retry.mockClear()
     mockBlocked.length = 0
     mockNavigationGate.allowed = true
@@ -213,6 +220,32 @@ describe("DM notification dismissal readiness", () => {
     )
     if (expectedReady) expect(mockCommitRoute).toHaveBeenCalledExactlyOnceWith("viewer_1", null, "dm_1")
     else expect(mockCommitRoute).not.toHaveBeenCalled()
+  })
+
+  it.each(["pending", "failed"] as const)("uses protected metadata Retry for a known revoked DM despite %s navigation and an old position error", async (navigation) => {
+    mockDms.dms = [{ id: "dm_1", userId: "peer_1", name: "Peer", avatar: "P" }]
+    mockHistory.allowed = false
+    mockHistory.revoked = true
+    mockHistory.status = "retryable-error"
+    mockHistory.error = new Error("old read failure")
+    mockDmMessages.navigationBlocked = true
+    mockNavigationGate.allowed = false
+    mockNavigationGate.failed = navigation === "failed"
+    const view = render(React.createElement(DmView, { dmId: "dm_1" }))
+    expect(view.container.querySelector('[data-testid="dm-header"]')?.textContent).toBe("Peer")
+    expect(view.container.querySelector('[data-testid="history-body"]')).toBeNull()
+    expect(view.container.querySelector('[data-testid="composer"]')).toBeNull()
+    expect(view.container.querySelector('[role="alert"]')).toBeNull()
+    expect(view.container.querySelector('[data-testid="dm-loading"]')).toBeNull()
+    await setupUser().click(view.container.querySelector<HTMLButtonElement>('[data-testid="history-error"]')!)
+    expect(mockHistory.retryMetadata).toHaveBeenCalledOnce()
+    expect(mockHistory.retry).not.toHaveBeenCalled()
+    expect(mockNavigationGate.retry).not.toHaveBeenCalled()
+    expect(mockCommitRoute).not.toHaveBeenCalled()
+    mockHistory.retryingMetadata = true
+    view.rerender(React.createElement(DmView, { dmId: "dm_1" }))
+    expect(view.container.querySelector('[data-testid="history-error"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-testid="composer"]')).toBeNull()
   })
 
   it("withholds history/composer and last while read access fails, then permits the same target after retry", () => {

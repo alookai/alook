@@ -7,7 +7,7 @@ import { QueryClientProvider } from "@tanstack/react-query"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { channelMetadataOptions } from "./channel-metadata"
-import { startDmRouteVerification } from "./use-dm-route-verification"
+import { startChannelRouteVerification } from "./channel-route-verification"
 import { useChannelMetadata } from "./use-channel-metadata"
 
 const apiFetch = vi.hoisted(() => vi.fn())
@@ -41,8 +41,8 @@ describe("DM route uses the shared Channel metadata owner", () => {
     client.setQueryData(communityKeys.dms(), { conversations: [] })
     const request = deferred<typeof metadata>()
     apiFetch.mockReturnValue(request.promise)
-    const first = startDmRouteVerification(client, dm.id)
-    const second = startDmRouteVerification(client, dm.id)
+    const first = startChannelRouteVerification(client, null, dm.id)
+    const second = startChannelRouteVerification(client, null, dm.id)
     const route = renderHook(() => useChannelMetadata(null, dm.id), { wrapper })
     await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
     expect(route.result.current.status).toBe("pending")
@@ -64,7 +64,7 @@ describe("DM route uses the shared Channel metadata owner", () => {
     await client.query(channelMetadataOptions(client, null, dm.id))
     const route = renderHook(() => useChannelMetadata(null, dm.id), { wrapper })
     expect(route.result.current.status).toBe("readable")
-    await expect(startDmRouteVerification(client, dm.id)).resolves.toBe("present")
+    await expect(startChannelRouteVerification(client, null, dm.id)).resolves.toBe("present")
     expect(apiFetch).toHaveBeenCalledOnce()
     route.unmount()
     client.clear()
@@ -87,9 +87,9 @@ describe("DM route uses the shared Channel metadata owner", () => {
   it.each([403, 404])("keeps explicit %s terminal and rejects scope mismatches", async (status) => {
     const { client, registry } = await fixture()
     apiFetch.mockRejectedValueOnce(Object.assign(new Error("denied"), { status }))
-    await expect(startDmRouteVerification(client, dm.id)).resolves.toBe("denied")
+    await expect(startChannelRouteVerification(client, null, dm.id)).resolves.toBe("denied")
     apiFetch.mockResolvedValueOnce({ ...metadata, serverId: "server", type: "text" })
-    await expect(startDmRouteVerification(client, "other")).rejects.toThrow("scope mismatch")
+    await expect(startChannelRouteVerification(client, null, "other")).rejects.toThrow("scope mismatch")
     expect(client.getQueryData(communityKeys.dms())).toBeUndefined()
     client.clear()
   })
@@ -119,7 +119,7 @@ describe("DM route uses the shared Channel metadata owner", () => {
     const { client, registry } = await fixture()
     const request = deferred<typeof metadata>()
     apiFetch.mockReturnValue(request.promise)
-    const started = startDmRouteVerification(client, dm.id)
+    const started = startChannelRouteVerification(client, null, dm.id)
     const rejection = expect(started).rejects.toBeDefined()
     await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
     if (race === "cancel") await client.cancelQueries({ queryKey: communityKeys.channelMeta(null, dm.id), exact: true })

@@ -35,7 +35,7 @@ type CommunityWsStoreState = {
   accessEpoch: number
   channelAccessScopes: Map<string, ChannelAccessScope>
   revokedServerIds: Set<string>
-  beginChannelMembershipChange: (serverId: string | null, channelId: string) => number
+  beginChannelMembershipChange: (serverId: string | null, channelId: string, options?: { preserveRevocation: boolean }) => number
   observeChannelScope: (serverId: string, channelId: string, parentChannelId?: string | null) => void
   rememberChannelAccess: (serverId: string | null, channelId: string, parentChannelId?: string | null) => void
   revokeChannelAccess: (serverId: string | null, channelId: string) => string[]
@@ -216,11 +216,11 @@ export function createCommunityWsStore(viewerId: string | null) {
     return true
   },
 
-  beginChannelMembershipChange: (serverId, channelId) => {
+  beginChannelMembershipChange: (serverId, channelId, options) => {
     const scopes = new Map(get().channelAccessScopes)
     const previous = scopes.get(channelId)
     const generation = (previous?.generation ?? 0) + 1
-    scopes.set(channelId, { ...previous, serverId, revoked: false, generation })
+    scopes.set(channelId, { ...previous, serverId, revoked: !!options?.preserveRevocation && !!previous?.revoked, generation })
     setState((state) => ({ ...state, ...{ channelAccessScopes: scopes } }))
     return generation
   },

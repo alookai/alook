@@ -135,7 +135,7 @@ export function DmView({ dmId }: { dmId: string }) {
   // the "New" divider AND the initial-page mode. Mirrors the channel-view
   // wiring so both surfaces open with the same anchor-window UX.
   const { snapshot: readSnapshot, isFetching: readSnapshotFetching, error: readError, retry: retryRead, retrying: retryingRead } =
-    useDmReadStateSnapshot(metadata.denied || dmBlocked ? null : dmId)
+    useDmReadStateSnapshot(metadata.revoked || metadata.denied || dmBlocked ? null : dmId)
 
   // Anchor the initial page on the viewer's read pointer. Pass `undefined`
   // (not `null`) while the snapshot resolves — the hook's initialPageParam
@@ -429,10 +429,10 @@ export function DmView({ dmId }: { dmId: string }) {
     channelId: dmId,
   }, routeReady)
 
-  if (!metadata.denied && !dmBlocked && navigationGate.failed) {
+  if (!metadata.revoked && !metadata.denied && !dmBlocked && navigationGate.failed) {
     return <ConversationResolutionErrorFrame retrying={false} onRetry={navigationGate.retry} />
   }
-  if (!metadata.denied && !dmBlocked && navigationBlocked) {
+  if (!metadata.revoked && !metadata.denied && !dmBlocked && navigationBlocked) {
     return <DmLoadingFrame reserveBackSlot={bp === "mobile"} />
   }
 
@@ -461,7 +461,7 @@ export function DmView({ dmId }: { dmId: string }) {
         className="flex min-h-0 flex-1 flex-col"
       >
         <ConversationFooterSlotProvider>
-          {dmBlocked ? null : metadata.denied ? <div role="alert" className="flex min-h-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground">You can no longer read this conversation.</div> : !historyAllowed && readError ? <ConversationResolutionErrorFrame as="div" onRetry={retryRead} retrying={retryingRead} /> : <MessageList
+          {dmBlocked ? null : metadata.denied ? <div role="alert" className="flex min-h-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground">You can no longer read this conversation.</div> : metadata.status === "retryable-error" ? <ConversationResolutionErrorFrame as="div" onRetry={metadata.retry} retrying={metadata.retrying} /> : !historyAllowed && readError ? <ConversationResolutionErrorFrame as="div" onRetry={retryRead} retrying={retryingRead} /> : <MessageList
             key={dmId}
             variant="dm"
             channel={dm.name}

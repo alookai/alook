@@ -10,6 +10,7 @@ import type { MessagesPage, MessagesPageParam } from "@/lib/community/models/mes
 import { channelMessagesQueryFn, dmMessagesQueryFn } from "@/hooks/community/use-messages"
 import { channelReadStateSnapshotQueryFn } from "@/hooks/community/use-channel-read-state"
 import { serverProjectedQueryFn } from "@/hooks/community/use-servers"
+import { startChannelRouteVerification } from "@/hooks/community/channel-route-verification"
 import {
   beginConversationNavigationProof,
   commitConversationNavigationProof,
@@ -21,24 +22,12 @@ import {
   type ConversationNavigationTarget,
 } from "./conversation-navigation-proof"
 
-function isDefinitiveAccessFailure(error: unknown): boolean {
-  return error instanceof ApiError && (error.status === 403 || error.status === 404)
-}
-
 function clearDeniedTarget(queryClient: QueryClient, target: ConversationNavigationTarget) {
-  const messagesKey = target.scopeKind === "dm"
-    ? communityKeys.dmMessages(target.channelId)
-    : communityKeys.channelMessages(target.channelId)
-  const readKey = target.scopeKind === "dm"
-    ? communityKeys.dmReadStateSnapshot(target.channelId)
-    : communityKeys.channelReadStateSnapshot(target.channelId)
+  const messagesKey = communityKeys.channelMessages(target.channelId)
+  const readKey = communityKeys.channelReadStateSnapshot(target.channelId)
   queryClient.removeQueries({ queryKey: messagesKey })
   queryClient.removeQueries({ queryKey: readKey })
-  if (target.serverId) {
-    queryClient.removeQueries({ queryKey: communityKeys.channelMeta(target.serverId, target.channelId) })
-  } else {
-    queryClient.removeQueries({ queryKey: communityKeys.channelMeta(null, target.channelId) })
-  }
+  queryClient.removeQueries({ queryKey: communityKeys.channelMeta(target.serverId ?? null, target.channelId) })
   getCommunityRuntime(queryClient).messageStream.actions.removeScope(
     target.scopeKind === "dm"
       ? { kind: "dm", id: target.channelId }
@@ -52,6 +41,9 @@ export function startConversationNavigationWarmup(
   accessEpoch: number,
   recoveryAttempt = 0,
 ) {
+  if (getCommunityRuntime(queryClient).ws.actions.isChannelAccessRevoked(target.channelId, target.serverId ?? null)) {
+    void startChannelRouteVerification(queryClient, target.serverId ?? null, target.channelId).catch(() => undefined)
+  }
   const { epoch, signal } = beginConversationNavigationProof(
     queryClient,
     target,
@@ -64,9 +56,7 @@ export function startConversationNavigationWarmup(
   const pageParam: MessagesPageParam = target.anchorMessageId
     ? { mode: "anchor", anchor: target.anchorMessageId }
     : { mode: "newest" }
-  const messagesKey = target.scopeKind === "dm"
-    ? communityKeys.dmMessages(target.channelId)
-    : communityKeys.channelMessages(target.channelId)
+  const messagesKey = communityKeys.channelMessages(target.channelId)
   const queryFn = target.scopeKind === "dm"
     ? dmMessagesQueryFn(target.channelId, {
         queryClient,
@@ -111,15 +101,13 @@ export function startConversationNavigationWarmup(
     })
     .catch((error) => {
       if (signal.aborted || !isCurrentConversationNavigation(queryClient, epoch, accessEpoch)) return
-      const definitive = isDefinitiveAccessFailure(error)
+      const definitive = error instanceof ApiError && (error.status === 403 || error.status === 404)
       if (definitive) clearDeniedTarget(queryClient, target)
       failConversationNavigationProof(queryClient, epoch, accessEpoch, definitive, true)
     })
     .finally(releaseMessages)
 
-  const readKey = target.scopeKind === "dm"
-    ? communityKeys.dmReadStateSnapshot(target.channelId)
-    : communityKeys.channelReadStateSnapshot(target.channelId)
+  const readKey = communityKeys.channelReadStateSnapshot(target.channelId)
   void queryClient.query({
     queryKey: readKey,
     staleTime: 0,
