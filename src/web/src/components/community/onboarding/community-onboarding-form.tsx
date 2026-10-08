@@ -80,7 +80,7 @@ export function CommunityOnboardingForm() {
               assert()
               await queryClient.query({ ...options, select: undefined })
               assert()
-              return [...origin.registry!.collections.channels.values()].filter((channel) => channel.serverId === serverId && !channel.parentChannelId).map(({ id, name }) => ({ id, name }))
+              return [...origin.registry!.collections.channels.values()].filter((channel) => channel.serverId === serverId && !channel.parentChannelId).map(({ id, name, type, categoryId }) => ({ id, name, type, categoryId: categoryId ?? null }))
             } finally { assert.signal.removeEventListener("abort", unsubscribe); unsubscribe() }
           },
         },

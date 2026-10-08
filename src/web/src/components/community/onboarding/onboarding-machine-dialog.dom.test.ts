@@ -2,16 +2,18 @@ import React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
+import type { CommunityMachineSummary } from "@alook/shared"
 
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
   refetch: vi.fn(),
+  machines: [] as Pick<CommunityMachineSummary, "id" | "hostname" | "status" | "availableRuntimes">[],
 }))
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: mocks.apiFetch }))
 vi.mock("@/hooks/community/use-machines", () => ({
-  useMachines: () => ({ machines: [], isSuccess: true, refetch: mocks.refetch }),
+  useMachines: () => ({ machines: mocks.machines, isSuccess: true, refetch: mocks.refetch }),
 }))
 vi.mock("@/components/community/machines/pair-machine-sheet", () => ({
   buildPairCommand: (tokenId: string) => `pair ${tokenId}`,
@@ -39,10 +41,70 @@ const mockedSteps = vi.mocked(PairMachineSteps)
 describe("OnboardingMachineDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.apiFetch.mockReset()
+    mocks.machines = []
     vi.useFakeTimers()
   })
 
   afterEach(() => vi.useRealTimers())
+
+  const props = () => ({
+    open: true,
+    harness: "codex",
+    harnessLabel: "Codex",
+    onConnected: vi.fn(),
+    onChooseAnotherHarness: vi.fn(),
+    onManageMachines: vi.fn(),
+  })
+
+  it("advances an already online matching machine once without pairing or clicking Continue", () => {
+    mocks.machines = [{ id: "machine-1", hostname: "host", status: "online", availableRuntimes: [{ id: "codex", status: "healthy" }] }]
+    const input = props()
+    const view = render(React.createElement(OnboardingMachineDialog, input))
+    expect(input.onConnected).toHaveBeenCalledExactlyOnceWith("machine-1")
+    expect(mocks.apiFetch).not.toHaveBeenCalled()
+    view.rerender(React.createElement(OnboardingMachineDialog, { ...input, onConnected: (id) => input.onConnected(id) }))
+    expect(input.onConnected).toHaveBeenCalledOnce()
+  })
+
+  it("advances when an offline machine becomes online with the selected harness", () => {
+    mocks.machines = [{ id: "machine-1", hostname: "host", status: "offline", availableRuntimes: [{ id: "codex", status: "healthy" }] }]
+    mocks.apiFetch.mockReturnValue(new Promise(() => undefined))
+    const input = props()
+    const view = render(React.createElement(OnboardingMachineDialog, input))
+    expect(input.onConnected).not.toHaveBeenCalled()
+    mocks.machines = [{ ...mocks.machines[0], status: "online" }]
+    view.rerender(React.createElement(OnboardingMachineDialog, input))
+    expect(input.onConnected).toHaveBeenCalledExactlyOnceWith("machine-1")
+  })
+
+  it.each([
+    { label: "wrong harness", availableRuntimes: [{ id: "claude-code", status: "healthy" as const }] },
+    { label: "unhealthy harness", availableRuntimes: [{ id: "codex", status: "unhealthy" as const }] },
+    { label: "missing harness", availableRuntimes: [] },
+  ])("waits when the online machine has a $label", ({ availableRuntimes }) => {
+    mocks.machines = [{ id: "machine-1", hostname: "host", status: "online", availableRuntimes }]
+    mocks.apiFetch.mockReturnValue(new Promise(() => undefined))
+    const input = props()
+    render(React.createElement(OnboardingMachineDialog, input))
+    expect(input.onConnected).not.toHaveBeenCalled()
+  })
+
+  it("does not advance a closed dialog but advances when opened", () => {
+    mocks.machines = [{ id: "machine-1", hostname: "host", status: "online", availableRuntimes: [{ id: "codex", status: "healthy" }] }]
+    const input = props()
+    const view = render(React.createElement(OnboardingMachineDialog, { ...input, open: false }))
+    expect(input.onConnected).not.toHaveBeenCalled()
+    view.rerender(React.createElement(OnboardingMachineDialog, input))
+    expect(input.onConnected).toHaveBeenCalledExactlyOnceWith("machine-1")
+  })
+
+  it("automatically advances online preview without creating a pairing token", () => {
+    const input = props()
+    render(React.createElement(OnboardingMachineDialog, { ...input, previewConnectedMachine: { id: "preview-machine", hostname: "Preview" } }))
+    expect(input.onConnected).toHaveBeenCalledExactlyOnceWith("preview-machine")
+    expect(mocks.apiFetch).not.toHaveBeenCalled()
+  })
 
   it("coalesces overlapping command generation attempts", async () => {
     let resolvePair!: (value: { tokenId: string; expiresAt: string }) => void

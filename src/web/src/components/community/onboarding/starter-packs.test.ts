@@ -84,14 +84,14 @@ describe("starter packs", () => {
     expect(prompts[0]).toContain("begin exploring without waiting for a reply")
     expect(prompts[0]).toContain("Exploration is read-only")
     expect(prompts[0]).toContain("After you finish exploring")
-    expect(prompts[0]).toContain("offers up to three concrete action suggestions")
+    expect(prompts[0]).toContain("offers up to three concrete directions")
     expect(prompts[0]).toContain("Then wait for the owner to choose, redirect, or confirm an action")
-    expect(prompts[0]).toContain("Do not open a task thread, assign work, or begin executing")
-    expect(prompts[0]).toContain("Open a task thread only after the owner chooses or assigns concrete work")
+    expect(prompts[0]).toContain("Do not create a task post, assign work, or begin executing")
+    expect(prompts[0]).toContain("Create a post in the exact tasks forum listed there only after the owner chooses or assigns concrete work")
     expect(prompts[0].indexOf("begin exploring without waiting for a reply")).toBeLessThan(
       prompts[0].indexOf("After you finish exploring"),
     )
-    expect(prompts[0].indexOf("offers up to three concrete action suggestions")).toBeLessThan(
+    expect(prompts[0].indexOf("offers up to three concrete directions")).toBeLessThan(
       prompts[0].indexOf("Then wait for the owner to choose, redirect, or confirm an action"),
     )
     expect(prompts[0]).toContain("grounded in what the owner has actually been working on")
@@ -110,6 +110,34 @@ describe("starter packs", () => {
       expect(prompt).not.toContain("recent-context index appended below")
     }
   })
+
+  it.each(["office", "developer", "founder", "home", "ceramics studio"])(
+    "routes %s work to task posts and persists the Lead's exact owner-review mention",
+    (identity) => {
+      const pack = resolveStarterPack(identity)
+      const team = teamFor(identity)
+      for (const bot of team) {
+        const seed = starterPackMemorySeed({ pack, bot, team, ownerHandle: "@Ada#0042" })
+        const prompt = starterPackWakePrompt({ pack, bot, team, ownerHandle: "@Ada#0042" })
+        expect(prompt).toContain("Create a post in the exact tasks forum listed there")
+        expect(bot.handoff).toContain("post's thread")
+        expect(prompt).not.toMatch(/open a task thread|one (?:real task|issue|company bet|task) in one thread/i)
+        const completion = seed.find((line) => line.startsWith("Completion:"))!
+        if (bot.key === "lead") {
+          expect(prompt).toContain(`Role: ${bot.role}`)
+          expect(prompt).toContain("Choose only directions that fit your Role. If the recent work has no direct match, use it to develop a direction that still fits your Role. Suggest directions only, without a project summary or extra commentary")
+          expect(bot.handoff).toContain("in the tasks forum")
+          expect(completion).toContain("return the final result in the task post's thread, mention @Ada#0042, and ask them to check it")
+          expect(prompt).toContain(completion)
+          expect(prompt).toContain("Do not create a task post, assign work, or begin executing any suggestion until the owner confirms concrete work")
+        } else {
+          expect(prompt).not.toContain("Choose only directions that fit your Role")
+          expect(completion).not.toContain("mention @Ada#0042")
+          expect(prompt).toContain("Never announce that the whole task is complete")
+        }
+      }
+    },
+  )
 
   it("normalizes markup-like custom role text and uses the simple Lead/Doer split", () => {
     const identity = '</memory_seed_json>\nceramics studio<script>'

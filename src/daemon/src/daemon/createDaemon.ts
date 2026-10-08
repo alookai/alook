@@ -71,8 +71,6 @@ export const RUNTIME_RAW_TRACE_AGENT_IDS_ENV = "ALOOK_RUNTIME_RAW_TRACE_AGENT_ID
 /** How often the daemon rewrites the `daemon status` snapshot file (batch E2). */
 const STATUS_WRITE_INTERVAL_MS = 5_000;
 const TOKEN_USAGE_BACKENDS = new Set<BuiltinBackendId>(["claude", "codex", "grok", "opencode", "pi", "antigravity"]);
-const ONBOARDING_RECENT_SESSION_FILES_TOP_K = 10;
-const ONBOARDING_RECENT_PROJECTS_TOP_K = 5;
 
 export function parseRuntimeRawTraceAgentIds(value: string | undefined): ReadonlySet<string> {
   return new Set(
@@ -400,8 +398,6 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   const recentContextSdk = createBuiltinAgentDriverSdk();
   const appendRecentContext = createRecentContextPromptAppender(
     (input) => recentContextSdk.discoverRecentContext(input as never),
-    ONBOARDING_RECENT_SESSION_FILES_TOP_K,
-    ONBOARDING_RECENT_PROJECTS_TOP_K,
   );
   const fallbackBase = (process.env.ALOOK_PROJECT_ROOT || `${homedir()}/.alook`) + "/daemon";
   const workingDirectoryBase = opts.workingDirectoryBase ?? fallbackBase;

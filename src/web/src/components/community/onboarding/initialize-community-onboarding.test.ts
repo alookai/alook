@@ -73,10 +73,12 @@ describe("initializeCommunityOnboarding", () => {
       .mockResolvedValueOnce({ server: { id: "server-1" } })
       .mockResolvedValueOnce({
         channels: [
-          { id: "public-1", name: "all" },
-          { id: "private-1", name: "room" },
+          { id: "public-1", name: "all", type: "text", categoryId: "public-cat" },
+          { id: "private-1", name: "room", type: "text", categoryId: "private-cat" },
         ],
       })
+      .mockResolvedValueOnce({ channel: { id: "tasks-1", name: "tasks", type: "forum", categoryId: "public-cat" } })
+      .mockResolvedValueOnce({ ok: true })
       .mockResolvedValueOnce({ onboarded: 1, finalized: false })
       .mockResolvedValueOnce({ onboarded: 1, finalized: false })
       .mockResolvedValueOnce({ onboarded: 1, finalized: false })
@@ -107,7 +109,15 @@ describe("initializeCommunityOnboarding", () => {
     expect(result.bots.map(({ id }) => owner.registry.collections.profiles.get(id))).toMatchObject([
       { name: "Lin", discriminator: "0001" }, { name: "Kit", discriminator: "0002" }, { name: "Moss", discriminator: "0003" },
     ])
-    expect(apiFetch).toHaveBeenCalledTimes(10)
+    expect(apiFetch).toHaveBeenNthCalledWith(6, "/api/community/channels", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ serverId: "server-1", name: "tasks", type: "forum", categoryId: "public-cat" }),
+    }))
+    expect(apiFetch).toHaveBeenNthCalledWith(7, "/api/community/servers/server-1/channels/reorder", expect.objectContaining({
+      method: "PATCH",
+      body: JSON.stringify({ channelIds: ["public-1", "tasks-1", "private-1"] }),
+    }))
+    expect(apiFetch).toHaveBeenCalledTimes(12)
     for (const [index, template] of pack.bots.entries()) {
       expect(apiFetch).toHaveBeenNthCalledWith(index + 1, "/api/community/bots", expect.objectContaining({
         method: "POST",
@@ -120,7 +130,7 @@ describe("initializeCommunityOnboarding", () => {
         }),
       }))
     }
-    const onboardPayload = JSON.parse(apiFetch.mock.calls[5]![1].body)
+    const onboardPayload = JSON.parse(apiFetch.mock.calls[7]![1].body)
     expect(onboardPayload.leadBotId).toBe("bot-lin")
     expect(onboardPayload.bots.map((bot: { id: string }) => bot.id)).toEqual([
       "bot-lin",
@@ -131,18 +141,19 @@ describe("initializeCommunityOnboarding", () => {
     expect(onboardPayload.bots[0].wakePrompt).toContain("@Ada Lovelace#0042")
     expect(onboardPayload.bots[1].wakePrompt).toContain("Send exactly one short sentence")
     expect(onboardPayload.bots[2].wakePrompt).toContain("You are the Reviewer")
-    expect(apiFetch.mock.calls.slice(5, 8).map((call) => JSON.parse(call[1].body).action)).toEqual([
+    expect(apiFetch.mock.calls.slice(7, 10).map((call) => JSON.parse(call[1].body).action)).toEqual([
       { type: "wake", botId: "bot-lin" },
       { type: "wake", botId: "bot-kit" },
       { type: "wake", botId: "bot-moss" },
     ])
-    expect(JSON.parse(apiFetch.mock.calls[8]![1].body).action).toEqual({ type: "finalize" })
-    expect(apiFetch).toHaveBeenNthCalledWith(10, "/api/community/channels/private-1/members", expect.objectContaining({
+    expect(JSON.parse(apiFetch.mock.calls[10]![1].body).action).toEqual({ type: "finalize" })
+    expect(apiFetch).toHaveBeenNthCalledWith(12, "/api/community/channels/private-1/members", expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ userId: "bot-lin" }),
     }))
     expect(checkpoints.at(-1)).toMatchObject({
       botsOnboarded: true,
+      tasksChannelId: "tasks-1",
       leadAddedToPrivate: true,
     })
   })
@@ -154,10 +165,12 @@ describe("initializeCommunityOnboarding", () => {
       .mockResolvedValueOnce({ server: { id: "server-1" } })
       .mockResolvedValueOnce({
         channels: [
-          { id: "public-1", name: "all" },
-          { id: "private-1", name: "room" },
+          { id: "public-1", name: "all", type: "text", categoryId: "public-cat" },
+          { id: "private-1", name: "room", type: "text", categoryId: "private-cat" },
         ],
       })
+      .mockResolvedValueOnce({ channel: { id: "tasks-1", name: "tasks", type: "forum", categoryId: "public-cat" } })
+      .mockResolvedValueOnce({ ok: true })
       .mockResolvedValueOnce({ onboarded: 1, finalized: false })
       .mockResolvedValueOnce({ onboarded: 1, finalized: false })
       .mockResolvedValueOnce({ onboarded: 0, finalized: true })
@@ -197,6 +210,7 @@ describe("initializeCommunityOnboarding", () => {
         serverId: "server-1",
         publicChannelId: "public-1",
         privateChannelId: "private-1",
+        tasksChannelId: "tasks-1",
         botsOnboarded: true,
       },
     })
@@ -218,6 +232,7 @@ describe("initializeCommunityOnboarding", () => {
       serverId: "server-1",
       publicChannelId: "public-1",
       privateChannelId: "private-1",
+      tasksChannelId: "tasks-1",
     }
     apiFetch
       .mockResolvedValueOnce({ onboarded: 1, finalized: false })
@@ -256,6 +271,82 @@ describe("initializeCommunityOnboarding", () => {
       { type: "wake", botId: "bot-b" },
       { type: "finalize" },
     ])
+  })
+
+  it.each(["creation-response", "reorder"])("recovers a failed %s without duplicating resources or waking early", async (failure) => {
+    const checkpoint: OnboardingInitializationCheckpoint = {
+      bots: [{ key: "lead", id: "bot-a" }, { key: "doer", id: "bot-b" }],
+      serverId: "server-1",
+    }
+    const all = { id: "public-1", name: "all", type: "text", categoryId: "public-cat" }
+    const room = { id: "private-1", name: "room", type: "text", categoryId: "private-cat" }
+    const tasks = { id: "tasks-1", name: "tasks", type: "forum", categoryId: "public-cat" }
+    const checkpoints: OnboardingInitializationCheckpoint[] = []
+    apiFetch.mockResolvedValueOnce({ channels: [all, room] })
+    if (failure === "reorder") apiFetch.mockResolvedValueOnce({ channel: tasks })
+    apiFetch.mockRejectedValueOnce(new Error("connection lost"))
+
+    await expect(initializeCommunityOnboarding({
+      machineId: "machine-1", runtime: "codex", identity: "founder", userName: "Grace", checkpoint,
+      onCheckpoint: (next) => checkpoints.push(next),
+    })).rejects.toThrow("connection lost")
+    expect(checkpoints.at(-1)).not.toHaveProperty("tasksChannelId")
+    expect(apiFetch.mock.calls.some(([path]) => path.endsWith("/onboard"))).toBe(false)
+
+    apiFetch
+      .mockResolvedValueOnce({ channels: [all, room, tasks] })
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ onboarded: 1, finalized: false })
+      .mockResolvedValueOnce({ onboarded: 1, finalized: false })
+      .mockResolvedValueOnce({ onboarded: 0, finalized: true })
+      .mockResolvedValueOnce({ ok: true })
+    await initializeCommunityOnboarding({
+      machineId: "machine-1", runtime: "codex", identity: "founder", userName: "Grace",
+      checkpoint: checkpoints.at(-1), onCheckpoint: (next) => checkpoints.push(next),
+    })
+    expect(apiFetch.mock.calls.filter(([path]) => path === "/api/community/channels")).toHaveLength(1)
+    expect(apiFetch.mock.calls.filter(([path]) => path === "/api/community/bots" || path === "/api/community/servers")).toHaveLength(0)
+    expect(checkpoints.at(-1)).toMatchObject({ tasksChannelId: "tasks-1", botsOnboarded: true })
+  })
+
+  it("adds tasks to an older completed checkpoint without replaying completed bot wakes", async () => {
+    apiFetch
+      .mockResolvedValueOnce({ channels: [
+        { id: "public-1", name: "all", type: "text", categoryId: "public-cat" },
+        { id: "private-1", name: "room", type: "text", categoryId: "private-cat" },
+      ] })
+      .mockResolvedValueOnce({ channel: { id: "tasks-1", name: "tasks", type: "forum", categoryId: "public-cat" } })
+      .mockResolvedValueOnce({ ok: true })
+    await initializeCommunityOnboarding({
+      machineId: "machine-1", runtime: "codex", identity: "founder", userName: "Grace",
+      checkpoint: {
+        bots: [{ key: "lead", id: "bot-a" }, { key: "doer", id: "bot-b" }],
+        serverId: "server-1", publicChannelId: "public-1", privateChannelId: "private-1",
+        botsOnboarded: true, leadAddedToPrivate: true,
+      },
+    })
+    expect(apiFetch.mock.calls.map(([path]) => path)).toEqual([
+      "/api/community/servers/server-1/channels", "/api/community/channels",
+      "/api/community/servers/server-1/channels/reorder",
+    ])
+  })
+
+  it.each([
+    { type: "text", categoryId: "public-cat" },
+    { type: "forum", categoryId: "private-cat" },
+  ])("rejects a conflicting tasks channel (%j) before waking bots", async (tasks) => {
+    apiFetch.mockResolvedValueOnce({ channels: [
+      { id: "public-1", name: "all", type: "text", categoryId: "public-cat" },
+      { id: "private-1", name: "room", type: "text", categoryId: "private-cat" },
+      { id: "tasks-1", name: "tasks", ...tasks },
+    ] })
+    await expect(initializeCommunityOnboarding({
+      machineId: "machine-1", runtime: "codex", identity: "founder", userName: "Grace",
+      checkpoint: {
+        bots: [{ key: "lead", id: "bot-a" }, { key: "doer", id: "bot-b" }], serverId: "server-1",
+      },
+    })).rejects.toThrow("The tasks channel must be a public forum beside all")
+    expect(apiFetch).toHaveBeenCalledOnce()
   })
 
   it("rejects a checkpoint that cannot restore the complete selected team", async () => {

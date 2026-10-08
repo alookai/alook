@@ -39,6 +39,7 @@ export function onboardingPromptWithSpace(
   prompt: string,
   serverHandle: string,
   channelName: string,
+  tasksChannelName: string,
 ) {
   const serverRef = `/${serverHandle}`
   return [
@@ -48,6 +49,7 @@ export function onboardingPromptWithSpace(
     "",
     `- Server: ${serverRef}`,
     `- Public channel: ${serverRef}/${channelName}`,
+    `- Public tasks forum: ${serverRef}/${tasksChannelName}`,
   ].join("\n")
 }
 
@@ -72,14 +74,25 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     bots.push({ bot, wakeContext, wakePrompt: requestedBot.wakePrompt })
   }
 
-  const publicChannel = (await queries.communityChannel.listServerChannels(db, serverId))
-    .find((channel) => channel.name === "all" && channel.type === "text")
+  const channels = await queries.communityChannel.listServerChannels(db, serverId)
+  const publicChannel = channels.find((channel) => channel.name === "all" && channel.type === "text")
   if (!publicChannel) return writeError("the new server is missing its public channel", 409)
+  const tasksChannel = channels.find((channel) => channel.name?.toLowerCase() === "tasks" && channel.type === "forum")
+  if (!tasksChannel || tasksChannel.categoryId !== publicChannel.categoryId) {
+    return writeError("the onboarding server is missing its public tasks forum beside all", 409)
+  }
+  if (tasksChannel.categoryId) {
+    const category = (await queries.communityCategory.listCategoriesByServer(db, serverId))
+      .find((entry) => entry.id === tasksChannel.categoryId)
+    if (!category || category.private) {
+      return writeError("the onboarding tasks forum must be public", 409)
+    }
+  }
 
   const serverHandle = formatHandle(server.name, server.discriminator)
   const eventBots = bots.map((entry) => ({
     ...entry,
-    eventPrompt: onboardingPromptWithSpace(entry.wakePrompt, serverHandle, publicChannel.name),
+    eventPrompt: onboardingPromptWithSpace(entry.wakePrompt, serverHandle, publicChannel.name, tasksChannel.name),
   }))
   if (eventBots.some(({ eventPrompt }) => eventPrompt.length > AGENT_EVENT_PROMPT_MAX_LENGTH)) {
     return writeError("wakePrompt is too long after adding the Alook space refs", 400)

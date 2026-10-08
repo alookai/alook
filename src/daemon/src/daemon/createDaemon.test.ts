@@ -1,3 +1,4 @@
+import * as builtinDriverHost from "@alook/agent-driver/host";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { EventEmitter } from "events";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -371,7 +372,16 @@ describe("createDaemon", () => {
     const starts: Array<{ id: string; text: string }> = [];
     const workingDirectoryBase = mkdtempSync(join(tmpdir(), "daemon-onboarding-context-"));
     startupSweepDirs.push(workingDirectoryBase);
-    vi.stubEnv("CODEX_HOME", join(workingDirectoryBase, "empty-codex-home"));
+    const sdk = builtinDriverHost.createBuiltinAgentDriverSdk();
+    const discover = vi.fn(async () => ({
+      ok: true as const,
+      sessionFiles: { capability: "supported" as const, items: [] },
+      recentProjects: [],
+    }));
+    vi.spyOn(builtinDriverHost, "createBuiltinAgentDriverSdk").mockReturnValue({
+      ...sdk,
+      discoverRecentContext: discover,
+    });
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
       if (url.includes("/enroll-agent")) return Response.json({ runnerKey: "runner_test" });
@@ -404,6 +414,11 @@ describe("createDaemon", () => {
       }));
 
       await vi.waitFor(() => expect(starts).toHaveLength(1));
+      expect(discover).toHaveBeenCalledWith({
+        backend: "codex",
+        recentSessionFilesTopK: 20,
+        recentProjectsTopK: 5,
+      });
       expect(starts[0]!.text).toContain("Lead briefing\n\n## Recent local context");
       expect(starts[0]!.text).toContain("No recent session files were found.");
     } finally {

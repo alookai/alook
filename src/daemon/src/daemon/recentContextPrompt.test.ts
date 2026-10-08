@@ -87,7 +87,7 @@ describe("appendRecentContextToPrompt", () => {
     });
   });
 
-  it("defaults to ten recent sessions and five recent projects", async () => {
+  it("defaults to twenty recent sessions and five recent projects", async () => {
     const discover = vi.fn(async () => ({
       ok: true as const,
       sessionFiles: { capability: "supported" as const, items: [] },
@@ -104,7 +104,7 @@ describe("appendRecentContextToPrompt", () => {
 
     expect(discover).toHaveBeenCalledWith({
       backend: "codex",
-      recentSessionFilesTopK: 10,
+      recentSessionFilesTopK: 20,
       recentProjectsTopK: 5,
     });
   });

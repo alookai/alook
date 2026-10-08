@@ -70,7 +70,7 @@ export function appendRecentContextToPrompt(
 
 export function createRecentContextPromptAppender(
   discover: RecentContextDiscoverer,
-  recentSessionFilesTopK = 10,
+  recentSessionFilesTopK = 20,
   recentProjectsTopK = 5,
 ): (prompt: string, runtimeConfig: RuntimeConfig) => Promise<string> {
   return async (prompt, runtimeConfig) => {
