@@ -134,5 +134,6 @@ export function useBotAuditLog(botId: string | null | undefined) {
     fetchNextPage: query.fetchNextPage,
     hasNextPage: query.hasNextPage,
     isFetchingNextPage: query.isFetchingNextPage,
+    loadedPageCount: query.data?.pages.length ?? 0,
   }
 }

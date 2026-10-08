@@ -23,6 +23,7 @@ const {
     isLoading: false,
     hasNextPage: false,
     isFetchingNextPage: false,
+    loadedPageCount: 1,
   },
   auditHook: vi.fn(),
   profileHook: vi.fn(),
@@ -147,15 +148,30 @@ function events(count: number, day = "2026-08-27") {
   return Array.from({ length: count }, (_, index) => event(`event-${index}`, new Date(start + index * 60_000).toISOString()))
 }
 
+function prepareOlderPage() {
+  const initialPage = { events: [...auditState.events] }
+  let finish!: (result: unknown) => void
+  fetchNextPage.mockImplementationOnce(() => new Promise(resolvePage => { finish = resolvePage }))
+  return async (pageEvents: ReturnType<typeof events>, failed = false) => {
+    auditState.loadedPageCount = failed ? 1 : 2
+    await act(async () => {
+      finish({ isError: failed, data: { pages: failed ? [initialPage] : [initialPage, { events: pageEvents }] } })
+    })
+    act(() => vi.advanceTimersByTime(500))
+  }
+}
+
 describe("BotActivityModal CommunitySheet contract", () => {
   beforeEach(() => {
     auditState.events = []
     auditState.isLoading = false
     auditState.hasNextPage = false
     auditState.isFetchingNextPage = false
+    auditState.loadedPageCount = 1
     auditHook.mockReset()
     profileHook.mockReset()
     fetchNextPage.mockReset()
+    fetchNextPage.mockResolvedValue({ isError: false, data: { pages: [{ events: [] }] } })
     sheetProps.current = null
     vi.useFakeTimers()
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 16))
@@ -281,13 +297,14 @@ describe("BotActivityModal CommunitySheet contract", () => {
       .toEqual(["old", "new"])
   })
 
-  it.each([0, 50, 100])("preserves the visible event at offset %i when a same-day older page prepends", offset => {
+  it.each([0, 50, 100])("preserves the visible event at offset %i when a same-day older page prepends", async offset => {
     auditState.events = events(30)
     auditState.hasNextPage = true
     const { renderer, onOpenChange } = renderModal()
     const root = scrollBody(renderer, offset)
     const id = offset < 100 ? "event-0" : "event-1"
     const top = eventTop(renderer, id)
+    const completePage = prepareOlderPage()
     fireEvent.click(renderer.getByRole("button", { name: "Load older" }))
     expect(fetchNextPage).toHaveBeenCalledOnce()
     auditState.isFetchingNextPage = true
@@ -298,6 +315,7 @@ describe("BotActivityModal CommunitySheet contract", () => {
     ]
     auditState.isFetchingNextPage = false
     updateModal(renderer, { onOpenChange })
+    await completePage([event("old", "2026-08-27T11:00:00.000Z")])
     expect(eventTop(renderer, id)).toBe(top)
     expect(root.scrollTop).toBe(offset + 44)
   })
@@ -338,19 +356,21 @@ describe("BotActivityModal CommunitySheet contract", () => {
     expect(renderer.container.querySelector('[data-event-id="event-119"]')).toBeInTheDocument()
   })
 
-  it.each([0, 50, 150])("keeps the event at offset %i when an older day and its divider prepend", offset => {
+  it.each([0, 50, 150])("keeps the event at offset %i when an older day and its divider prepend", async offset => {
     auditState.events = events(30)
     auditState.hasNextPage = true
     const { renderer } = renderModal()
     scrollBody(renderer, offset)
     const id = offset < 100 ? "event-0" : "event-2"
     const top = eventTop(renderer, id)
+    const completePage = prepareOlderPage()
     fireEvent.click(renderer.getByRole("button", { name: "Load older" }))
     auditState.isFetchingNextPage = true
     updateModal(renderer)
     auditState.events = [...auditState.events, event("previous-day", "2026-08-26T12:00:00.000Z")]
     auditState.isFetchingNextPage = false
     updateModal(renderer)
+    await completePage([event("previous-day", "2026-08-26T12:00:00.000Z")])
     expect(eventTop(renderer, id)).toBe(top)
   })
 
@@ -365,11 +385,12 @@ describe("BotActivityModal CommunitySheet contract", () => {
     expect(renderer.container.querySelector('[data-event-id="event-29"]')).toBeNull()
   })
 
-  it("does not restore an old page anchor after the reader takes over", () => {
+  it("does not restore an old page anchor after the reader takes over", async () => {
     auditState.events = events(30)
     auditState.hasNextPage = true
     const { renderer } = renderModal()
     scrollBody(renderer, 0)
+    const completePage = prepareOlderPage()
     fireEvent.click(renderer.getByRole("button", { name: "Load older" }))
     auditState.isFetchingNextPage = true
     updateModal(renderer)
@@ -378,17 +399,61 @@ describe("BotActivityModal CommunitySheet contract", () => {
     auditState.events = [...auditState.events, event("old", "2026-08-27T11:00:00.000Z")]
     auditState.isFetchingNextPage = false
     updateModal(renderer)
+    await completePage([event("old", "2026-08-27T11:00:00.000Z")])
     expect(eventTop(renderer, "event-15")).toBe(top)
   })
 
   it("retires a zero-row older response before a later live event", async () => {
     auditState.events = events(30)
     auditState.hasNextPage = true
-    fetchNextPage.mockResolvedValue(undefined)
+    fetchNextPage.mockResolvedValue({ isError: false, data: { pages: [{ events: auditState.events }, { events: [] }] } })
     const { renderer } = renderModal()
     const root = scrollBody(renderer, 0)
     await act(async () => { fireEvent.click(renderer.getByRole("button", { name: "Load older" })) })
     auditState.events = [...auditState.events, event("late-earlier", "2026-08-27T11:00:00.000Z")]
+    updateModal(renderer)
+    expect(root.scrollTop).toBe(0)
+  })
+
+  it.each([
+    { offset: 0, liveAt: "2026-08-27T11:00:00.000Z", pageAt: "2026-08-27T10:00:00.000Z" },
+    { offset: 50, liveAt: "2026-08-26T12:00:00.000Z", pageAt: "2026-08-27T11:00:00.000Z" },
+  ])("keeps the header-fold anchor at $offset until its older request completes after an earlier live event", async ({ offset, liveAt, pageAt }) => {
+    auditState.events = events(30)
+    auditState.hasNextPage = true
+    const completePage = prepareOlderPage()
+    const { renderer } = renderModal()
+    const root = scrollBody(renderer, offset)
+    const top = eventTop(renderer, "event-0")
+    fireEvent.click(renderer.getByRole("button", { name: "Load older" }))
+    auditState.isFetchingNextPage = true
+    updateModal(renderer)
+    auditState.events = [...auditState.events, event("earlier-live", liveAt)]
+    updateModal(renderer)
+    auditState.events = [...auditState.events, event("older-page", pageAt)]
+    auditState.isFetchingNextPage = false
+    updateModal(renderer)
+    await completePage([event("older-page", pageAt)])
+    expect(eventTop(renderer, "event-0")).toBe(top)
+    expect(fetchNextPage).toHaveBeenCalledOnce()
+  })
+
+  it.each([false, true])("retires a completed older request without new rows after an earlier live event (failed: %s)", async failed => {
+    auditState.events = events(30)
+    auditState.hasNextPage = true
+    const completePage = prepareOlderPage()
+    const { renderer } = renderModal()
+    const root = scrollBody(renderer, 0)
+    fireEvent.click(renderer.getByRole("button", { name: "Load older" }))
+    auditState.isFetchingNextPage = true
+    updateModal(renderer)
+    auditState.events = [...auditState.events, event("earlier-live", "2026-08-27T11:00:00.000Z")]
+    updateModal(renderer)
+    auditState.isFetchingNextPage = false
+    updateModal(renderer)
+    await completePage([], failed)
+    expect(root.scrollTop).toBe(0)
+    auditState.events = [...auditState.events, event("later-live", "2026-08-27T10:00:00.000Z")]
     updateModal(renderer)
     expect(root.scrollTop).toBe(0)
   })

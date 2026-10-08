@@ -53,6 +53,7 @@ export function BotActivityModal({
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
+    loadedPageCount,
   } = useBotAuditLog(bot?.id ?? null)
 
   // Merged stream = paginated GET (DESC) + live WS ring (arrival-ordered).
@@ -77,7 +78,8 @@ export function BotActivityModal({
     key: string
     viewportOffset: number
     firstEventId: string | undefined
-    observed: boolean
+    pageCount: number
+    receivedOlderRows: boolean
     settled: boolean
   } | null>(null)
   const scrollPaddingStartRef = useRef(0)
@@ -139,19 +141,16 @@ export function BotActivityModal({
       && virtualizer.options.followOnAppend && virtualizer.isAtEnd(80)) ownsIndexRef.current = true
     previousTailKeyRef.current = tailKey
     const pending = pendingOlderAnchorRef.current
-    if (!pending) return
-    if (isFetchingNextPage) pending.observed = true
-    if (chronological[0]?.id !== pending.firstEventId) {
+    if (!pending || !pending.settled || isFetchingNextPage) return
+    pendingOlderAnchorRef.current = null
+    if (pending.receivedOlderRows && chronological[0]?.id !== pending.firstEventId) {
       const index = rows.findIndex((row) => row.key === pending.key)
-      pendingOlderAnchorRef.current = null
       if (index >= 0) {
         scrollPaddingStartRef.current = pending.viewportOffset
         virtualizer.setOptions({ ...virtualizer.options, scrollPaddingStart: pending.viewportOffset })
         ownsIndexRef.current = true
         virtualizer.scrollToIndex(index, { align: "start" })
       }
-    } else if ((pending.observed || pending.settled) && !isFetchingNextPage) {
-      pendingOlderAnchorRef.current = null
     }
   })
 
@@ -191,18 +190,21 @@ export function BotActivityModal({
         key: String(event.key),
         viewportOffset: event.start - offset,
         firstEventId: chronological[0]?.id,
-        observed: false,
+        pageCount: loadedPageCount,
+        receivedOlderRows: false,
         settled: false,
       }
     }
     const pending = pendingOlderAnchorRef.current
-    const settle = () => {
+    const settle = (result: Awaited<ReturnType<typeof fetchNextPage>> | null) => {
       if (pending && pendingOlderAnchorRef.current === pending) {
         pending.settled = true
+        pending.receivedOlderRows = Boolean(result && !result.isError
+          && result.data?.pages.slice(pending.pageCount).some(page => page.events.length > 0))
         setOlderRevision(value => value + 1)
       }
     }
-    void Promise.resolve(fetchNextPage()).then(settle, settle)
+    void fetchNextPage().then(settle, () => settle(null))
   }
 
   return (
