@@ -183,7 +183,7 @@ describe("CommunityMachineRuntimeSchema", () => {
     })).toEqual({ id: "codex", status: "healthy" });
   });
 
-  it("accepts the full 512-model startup snapshot", () => {
+  it("accepts the full bounded model startup snapshot", () => {
     const models = Array.from({ length: COMMUNITY_REASONING_MODELS_MAX }, (_, index) => ({
       id: `provider/model-${index}`,
       supportedReasoningEfforts: [],
@@ -194,15 +194,19 @@ describe("CommunityMachineRuntimeSchema", () => {
     }).reasoning?.models).toHaveLength(COMMUNITY_REASONING_MODELS_MAX);
   });
 
-  it("drops only an overflowing optional catalog and keeps the runtime", () => {
+  it("retains the first valid unique models from an overflowing catalog", () => {
     const models = Array.from({ length: COMMUNITY_REASONING_MODELS_MAX + 1 }, (_, index) => ({
       id: `provider/model-${index}`,
       supportedReasoningEfforts: [],
     }));
     expect(CommunityMachineRuntimeSchema.parse({
       id: "opencode",
-      reasoning: { updateMode: "unsupported", models },
-    })).toEqual({ id: "opencode", status: "healthy" });
+      reasoning: { updateMode: "unsupported", models: [null, { id: "" }, models[0], ...models] },
+    })).toEqual({
+      id: "opencode",
+      status: "healthy",
+      reasoning: { updateMode: "unsupported", models: models.slice(0, COMMUNITY_REASONING_MODELS_MAX) },
+    });
   });
 });
 
