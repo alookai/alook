@@ -6,14 +6,16 @@ import { useCommunityMutationOrigin } from "@/hooks/community/community-origin"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { useCallback, useEffect } from "react"
 import { toast } from "sonner"
-import { Copy, Loader2, RefreshCw, TerminalIcon } from "lucide-react"
+import { CircleHelp, Copy, Loader2, RefreshCw, TerminalIcon } from "lucide-react"
 import { isDesktop, isTauri, tauriInvoke } from "@alook/shared"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { Button } from "@/components/ui/button"
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover"
 import { toastApiError } from "@/lib/api/client"
 import { tid } from "@/lib/community/testids"
 import { isLocalServiceEnvironment, WS_DO_PORT_DEFAULT } from "@/lib/utils"
 import { websocketUrl } from "@/lib/websocket-url"
+import { MachinePairMessageDiagram } from "./machine-pair-message-diagram"
 
 // Production daemons use their built-in endpoints. Local development appends
 // the browser origin and local ws-do address so the command stays on the dev stack.
@@ -317,6 +319,34 @@ function Step1({
         <Heading className="font-heading text-sm font-medium leading-tight tracking-[-0.015em] text-foreground">
           {concise ? "Run one command" : "Run this on your machine"}
         </Heading>
+        <Popover>
+          <PopoverTrigger
+            openOnHover
+            delay={150}
+            data-testid={tid.machinePairHelp}
+            aria-label="Why run a terminal command?"
+            render={<button type="button" />}
+            className="grid size-11 shrink-0 place-items-center rounded-md text-foreground hover:bg-accent active:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:size-8"
+          >
+            <CircleHelp aria-hidden className="size-5" />
+          </PopoverTrigger>
+          <PopoverContent
+            data-testid={tid.machinePairHelpContent}
+            side="bottom"
+            align="end"
+            className="flex w-104 max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)] flex-col gap-4 overflow-y-auto thin-scrollbar p-4 sm:p-6"
+          >
+            <div className="flex flex-col gap-2">
+              <PopoverTitle className="text-lg leading-tight tracking-[-0.015em]">Why run a terminal command?</PopoverTitle>
+              <p className="text-sm leading-relaxed text-muted-foreground">Your CLI agents run on your computer. This command starts a background service so they can receive messages and reply in Alook, using your existing setup.</p>
+            </div>
+            <MachinePairMessageDiagram />
+            <div className="flex flex-col gap-2">
+              <h4 className="text-base font-semibold leading-tight">No automatic file uploads</h4>
+              <p className="text-sm leading-relaxed text-muted-foreground">Alook does not automatically upload any of your local file contents.</p>
+            </div>
+          </PopoverContent>
+        </Popover>
       </header>
       <p className="text-sm text-muted-foreground">
         {concise

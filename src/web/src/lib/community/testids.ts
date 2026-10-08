@@ -94,6 +94,8 @@ export const tid = {
   machinePairCommand: "community-machine-pair-command",
   machinePairRetry: "community-machine-pair-retry",
   machinePairCopy: "community-machine-pair-copy",
+  machinePairHelp: "community-machine-pair-help",
+  machinePairHelpContent: "community-machine-pair-help-content",
   machinePairDesktopConnect: "community-machine-pair-desktop-connect",
   machinePairRuntimeHint: "community-machine-pair-runtime-hint",
   machinePairStatus: "community-machine-pair-status",

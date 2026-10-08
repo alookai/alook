@@ -1,6 +1,6 @@
 import React from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { fireEvent, waitFor } from "@/test/react-dom-harness"
+import { fireEvent, setupUser, waitFor } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
 
 const mocks = vi.hoisted(() => ({
@@ -28,7 +28,8 @@ vi.mock("@/lib/api/client", () => ({
   toastApiError: vi.fn(),
 }))
 
-vi.mock("@/lib/utils", () => ({
+vi.mock("@/lib/utils", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/utils")>(),
   isLocalServiceEnvironment: mocks.isLocalServiceEnvironment,
   WS_DO_PORT_DEFAULT: 8788,
 }))
@@ -57,6 +58,11 @@ describe("PairMachineSheet desktop daemon integration", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.stubGlobal("location", { origin: "https://alook.ai" })
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === "(prefers-reduced-motion: reduce)", media: query,
+      addListener: vi.fn(), removeListener: vi.fn(),
+      addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    }))
     mocks.isTauri.mockReturnValue(true)
     mocks.isLocalServiceEnvironment.mockReturnValue(false)
     mocks.apiFetch.mockResolvedValue({ tokenId: "cmt_generated", expiresAt: "soon" })
@@ -66,6 +72,32 @@ describe("PairMachineSheet desktop daemon integration", () => {
       }
       return Promise.resolve({ success: true, message: "Daemon paired and started" })
     })
+  })
+
+  it("opens command help by keyboard and tap without changing the command or copying it", async () => {
+    const user = setupUser()
+    const onCopy = vi.fn()
+    const command = "npx --yes @alook/daemon@latest daemon start --machine-key cmt_example"
+    const view = render(React.createElement(PairMachineSteps, {
+      command, generating: false, onCopy, connectedHostname: null, concise: true,
+    }))
+    const help = view.getByTestId(tid.machinePairHelp)
+    expect(help).toHaveAccessibleName("Why run a terminal command?")
+    expect(view.queryByTestId(tid.machinePairHelpContent)).not.toBeInTheDocument()
+    await user.tab()
+    expect(help).toHaveFocus()
+    await user.keyboard("{Enter}")
+    expect(await view.findByTestId(tid.machinePairHelpContent)).toHaveTextContent("starts a background service")
+    await user.keyboard("{Escape}")
+    await waitFor(() => expect(view.queryByTestId(tid.machinePairHelpContent)).not.toBeInTheDocument())
+    await user.click(help)
+    expect(await view.findByTestId(tid.machinePairHelpContent)).toHaveTextContent("your existing setup")
+    expect(view.getByTestId(tid.machinePairCommand)).toHaveTextContent(command)
+    expect(onCopy).not.toHaveBeenCalled()
+    fireEvent.click(view.getByTestId(tid.machinePairCopy))
+    expect(onCopy).toHaveBeenCalledOnce()
+    expect(mocks.apiFetch).not.toHaveBeenCalled()
+    expect(mocks.invoke).not.toHaveBeenCalled()
   })
 
   it("hands a server quota rejection back to the machine limit flow", async () => {

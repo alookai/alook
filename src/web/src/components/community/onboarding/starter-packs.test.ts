@@ -31,6 +31,25 @@ describe("starter packs", () => {
     }
   })
 
+  it.each(["office", "founder", "home"])(
+    "keeps %s Lead and Doer duties broad in the generated instructions",
+    (identity) => {
+      const pack = resolveStarterPack(identity)
+      const team = teamFor(identity)
+      const doer = team.find((bot) => bot.key === "doer")!
+      expect(doer.role).toContain("confirmed")
+      expect(doer.role).toMatch(/work tasks|company tasks|household requests/)
+      expect(doer.handoff).toContain("work and relevant checks")
+      for (const bot of team) {
+        const seed = starterPackMemorySeed({ pack, bot, team, ownerHandle: "@Ada#0042" })
+        const prompt = starterPackWakePrompt({ pack, bot, team, ownerHandle: "@Ada#0042" })
+        expect(prompt).toContain(`Role: ${bot.role}`)
+        expect(prompt).toContain(seed.find((line) => line.startsWith("Collaborators:"))!)
+        expect(prompt).not.toMatch(/GTM|go-to-market|one-week experiments|defined hypothesis|distribution action|copy, channel, metric|clear emails, reports|trips, meals, shopping/i)
+      }
+    },
+  )
+
   it("keeps public bios free of private operating instructions", () => {
     for (const identity of ["office", "developer", "founder", "home"]) {
       for (const bot of resolveStarterPack(identity).bots) {
