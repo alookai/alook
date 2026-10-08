@@ -24,11 +24,11 @@ export function renderMessageListRow(
   item: FlatItem,
   props: ResolvedMessageListProps,
   controller: MessageListController,
-  index: number,
+  _index: number,
 ) {
-  return (
-    <div className="flow-root" data-message-row-key={item.key}>
-      {index === 0 && (
+  if (item.kind === "leading") {
+    return (
+      <div className="flow-root" data-message-row-key={item.key}>
         <div className="mb-6 pt-8">
           {props.hasMore ? (
             <div ref={controller.topSentinelRef} className="flex h-8 items-center justify-center text-xs text-muted-foreground">
@@ -36,10 +36,27 @@ export function renderMessageListRow(
             </div>
           ) : renderMessageListHero(props)}
         </div>
-      )}
-      {item.newDivider
-        ? <NewDivider dateLabel={item.dateLabel} />
-        : item.dateLabel && <DateDivider label={item.dateLabel} />}
+      </div>
+    )
+  }
+  if (item.kind === "trailing") {
+    return (
+      <div className="flow-root" data-message-row-key={item.key}>
+        <div ref={controller.bottomSentinelRef} className="mt-6 flex h-8 items-center justify-center text-xs text-muted-foreground">
+          {props.isFetchingNewer ? "Loading newer messages…" : ""}
+        </div>
+      </div>
+    )
+  }
+  if (item.kind === "divider") {
+    return (
+      <div className="flow-root" data-message-row-key={item.key} data-message-divider-for={item.messageId}>
+        {item.newDivider ? <NewDivider dateLabel={item.dateLabel} /> : <DateDivider label={item.dateLabel!} />}
+      </div>
+    )
+  }
+  return (
+    <div className="flow-root" data-message-row-key={item.key}>
         <div data-msg-id={item.m.id} data-testid={tid.message(item.m.id)}>
           <MessageRow
             m={item.m}
@@ -73,11 +90,6 @@ export function renderMessageListRow(
             onEnterSelectId={controller.onEnterSelectId}
           />
         </div>
-      {index === controller.items.length - 1 && props.hasMoreNewer && (
-        <div ref={controller.bottomSentinelRef} className="mt-6 flex h-8 items-center justify-center text-xs text-muted-foreground">
-          {props.isFetchingNewer ? "Loading newer messages…" : ""}
-        </div>
-      )}
     </div>
   )
 }

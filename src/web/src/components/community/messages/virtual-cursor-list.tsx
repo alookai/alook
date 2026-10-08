@@ -8,13 +8,13 @@ import type { ReactVirtualizer } from "@tanstack/react-virtual"
 export function VirtualRows<T>({
   items,
   virtualizer,
-  itemKey,
   renderItem,
+  rowRole,
 }: {
   items: T[]
   virtualizer: ReactVirtualizer<HTMLDivElement, Element>
-  itemKey: (item: T) => string
   renderItem: (item: T, index: number) => ReactNode
+  rowRole?: "listitem"
 }) {
   return (
     <div
@@ -28,7 +28,8 @@ export function VirtualRows<T>({
         const item = items[virtualRow.index]
         return (
           <div
-            key={itemKey(item)}
+            key={virtualRow.key}
+            role={rowRole}
             data-index={virtualRow.index}
             ref={virtualizer.measureElement}
             style={{

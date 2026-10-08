@@ -40,8 +40,8 @@ export function useMessageListController({
   const [anchorPositionSettled, setAnchorPositionSettled] = useAtom(useCreateAtom(false))
 
   const items = useMemo(
-    () => flattenMessageItems(messages, newDividerBefore, !!hasMore),
-    [messages, newDividerBefore, hasMore],
+    () => flattenMessageItems(messages, newDividerBefore, !!hasMore, !!hasMoreNewer),
+    [messages, newDividerBefore, hasMore, hasMoreNewer],
   )
 
   const [selectMode, setSelectMode] = useAtom(useCreateAtom(false))

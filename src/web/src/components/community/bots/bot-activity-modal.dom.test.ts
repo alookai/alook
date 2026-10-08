@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import React from "react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render } from "@/test/react-dom-harness"
 
 const {
@@ -9,8 +9,6 @@ const {
   auditHook,
   profileHook,
   fetchNextPage,
-  scrollNode,
-  bottomAnchor,
   sheetProps,
 } = vi.hoisted(() => ({
   auditState: {
@@ -29,10 +27,9 @@ const {
   auditHook: vi.fn(),
   profileHook: vi.fn(),
   fetchNextPage: vi.fn(),
-  scrollNode: { scrollHeight: 600, scrollTop: 0, clientHeight: 300 },
-  bottomAnchor: { scrollIntoView: vi.fn() },
   sheetProps: { current: null as Record<string, unknown> | null },
 }))
+let scrollDescriptor: PropertyDescriptor | undefined
 
 vi.mock("@/components/community/shell/community-sheet", () => ({
   CommunitySheet: ({
@@ -41,10 +38,9 @@ vi.mock("@/components/community/shell/community-sheet", () => ({
     ...props
   }: React.PropsWithChildren<Record<string, unknown>>) => {
     sheetProps.current = props
-    if (bodyRef && typeof bodyRef === "object" && "current" in bodyRef) {
-      bodyRef.current = scrollNode
-    }
-    return React.createElement("community-sheet", props, children)
+    return React.createElement("community-sheet", props,
+      React.createElement("div", { ref: bodyRef as React.Ref<HTMLDivElement>, "data-testid": "activity-body" }, children),
+    )
   },
 }))
 
@@ -131,6 +127,24 @@ function updateModal(renderer: ReturnType<typeof render>, {
       onOpenChangeComplete,
     }),
   ))
+  act(() => vi.advanceTimersByTime(500))
+}
+
+function scrollBody(renderer: ReturnType<typeof render>, offset: number) {
+  const root = renderer.getByTestId("activity-body")
+  fireEvent.wheel(root, { deltaY: offset < root.scrollTop ? -20 : 20 })
+  act(() => root.scrollTo({ top: offset }))
+  act(() => vi.advanceTimersByTime(500))
+  return root
+}
+
+function eventTop(renderer: ReturnType<typeof render>, id: string) {
+  return renderer.container.querySelector<HTMLElement>(`[data-activity-event-id="${id}"]`)!.getBoundingClientRect().top
+}
+
+function events(count: number, day = "2026-08-27") {
+  const start = Date.parse(`${day}T12:00:00.000Z`)
+  return Array.from({ length: count }, (_, index) => event(`event-${index}`, new Date(start + index * 60_000).toISOString()))
 }
 
 describe("BotActivityModal CommunitySheet contract", () => {
@@ -142,19 +156,43 @@ describe("BotActivityModal CommunitySheet contract", () => {
     auditHook.mockReset()
     profileHook.mockReset()
     fetchNextPage.mockReset()
-    bottomAnchor.scrollIntoView.mockReset()
     sheetProps.current = null
-    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
-      configurable: true,
-      value: bottomAnchor.scrollIntoView,
+    vi.useFakeTimers()
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 16))
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => window.clearTimeout(id))
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
     })
-    scrollNode.scrollHeight = 600
-    scrollNode.scrollTop = 0
-    scrollNode.clientHeight = 300
-    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
-      callback(0)
-      return 1
+    const isRoot = (node: HTMLElement) => node.dataset.testid === "activity-body"
+    const rowHeight = (node: HTMLElement) => node.closest<HTMLElement>("[data-activity-row-key]")?.dataset.activityRowKey?.includes(":date:") ? 24 : 44
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) { return isRoot(this) ? 300 : rowHeight(this) })
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) { return this.clientHeight })
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(() => 672)
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => 672)
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
+      return isRoot(this) ? Math.max(300, Number.parseFloat(this.firstElementChild?.getAttribute("style")?.match(/height: ([\d.]+)px/)?.[1] ?? "0")) : rowHeight(this)
     })
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const row = this.closest<HTMLElement>("[data-activity-row-key]")
+      const root = this.closest<HTMLElement>('[data-testid="activity-body"]')
+      const start = Number.parseFloat(row?.style.transform.match(/translateY\((-?[\d.]+)px\)/)?.[1] ?? "0")
+      return DOMRect.fromRect({ width: 672, height: this.clientHeight, y: isRoot(this) ? 0 : start - (root?.scrollTop ?? 0) })
+    })
+    scrollDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo")
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", { configurable: true, value: function (this: HTMLElement, options: ScrollToOptions | number) {
+      if (typeof options === "number") return
+      this.scrollTop = Math.max(0, Math.min(options.top ?? this.scrollTop, this.scrollHeight - this.clientHeight))
+      this.dispatchEvent(new Event("scroll"))
+    } })
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+    if (scrollDescriptor) Object.defineProperty(HTMLElement.prototype, "scrollTo", scrollDescriptor)
+    else Reflect.deleteProperty(HTMLElement.prototype, "scrollTo")
   })
 
   it("uses the resizable 672px shared shell and its one dismissal callback", () => {
@@ -237,52 +275,121 @@ describe("BotActivityModal CommunitySheet contract", () => {
       event("old", "2026-08-26T12:00:00.000Z"),
     ]
     const populated = renderModal().renderer
-    expect(populated.container.querySelectorAll("section")).toHaveLength(2)
+    expect(populated.container.querySelectorAll('[data-activity-row-key*="date:"]')).toHaveLength(2)
     expect([...populated.container.querySelectorAll("activity-row")]
       .map((row) => row.getAttribute("data-event-id")))
       .toEqual(["old", "new"])
   })
 
-  it("preserves the visible row when an older page prepends", () => {
-    auditState.events = [event("new", "2026-08-27T12:00:00.000Z")]
+  it.each([0, 50, 100])("preserves the visible event at offset %i when a same-day older page prepends", offset => {
+    auditState.events = events(30)
     auditState.hasNextPage = true
     const { renderer, onOpenChange } = renderModal()
-
-    scrollNode.scrollHeight = 600
-    scrollNode.scrollTop = 120
+    const root = scrollBody(renderer, offset)
+    const id = offset < 100 ? "event-0" : "event-1"
+    const top = eventTop(renderer, id)
     fireEvent.click(renderer.getByRole("button", { name: "Load older" }))
     expect(fetchNextPage).toHaveBeenCalledOnce()
-
-    auditState.events = [
-      event("new", "2026-08-27T12:00:00.000Z"),
-      event("old", "2026-08-26T12:00:00.000Z"),
-    ]
-    scrollNode.scrollHeight = 850
+    auditState.isFetchingNextPage = true
     updateModal(renderer, { onOpenChange })
-    expect(scrollNode.scrollTop).toBe(370)
+    auditState.events = [
+      ...auditState.events,
+      event("old", "2026-08-27T11:00:00.000Z"),
+    ]
+    auditState.isFetchingNextPage = false
+    updateModal(renderer, { onOpenChange })
+    expect(eventTop(renderer, id)).toBe(top)
+    expect(root.scrollTop).toBe(offset + 44)
   })
 
   it("pins a new live row only while the reader is near the tail", () => {
-    auditState.events = [event("one", "2026-08-27T12:00:00.000Z")]
+    auditState.events = events(30)
     const { renderer, onOpenChange } = renderModal()
-
-    scrollNode.scrollHeight = 1_100
-    scrollNode.scrollTop = 800
-    scrollNode.clientHeight = 250
+    const root = scrollBody(renderer, 10_000)
+    expect(root.scrollTop).toBe(root.scrollHeight - root.clientHeight)
     auditState.events = [
-      event("one", "2026-08-27T12:00:00.000Z"),
-      event("two", "2026-08-27T12:01:00.000Z"),
+      ...auditState.events,
+      event("two", "2026-08-27T13:01:00.000Z"),
     ]
     updateModal(renderer, { onOpenChange })
-    expect(scrollNode.scrollTop).toBe(1_100)
-
-    scrollNode.scrollHeight = 1_300
-    scrollNode.scrollTop = 100
+    expect(root.scrollTop).toBe(root.scrollHeight - root.clientHeight)
+    scrollBody(renderer, 100)
     auditState.events = [
       ...auditState.events,
       event("three", "2026-08-27T12:02:00.000Z"),
     ]
     updateModal(renderer, { onOpenChange })
-    expect(scrollNode.scrollTop).toBe(100)
+    expect(root.scrollTop).toBe(100)
+  })
+
+  it("windows a long log and reopens at its actual latest event", () => {
+    auditState.events = events(120)
+    const { renderer } = renderModal()
+    act(() => vi.advanceTimersByTime(500))
+    const root = renderer.getByTestId("activity-body")
+    expect(root.scrollTop).toBe(root.scrollHeight - root.clientHeight)
+    expect(renderer.container.querySelectorAll("activity-row").length).toBeLessThan(30)
+    expect(renderer.container.querySelector('[data-event-id="event-119"]')).toBeInTheDocument()
+    expect(renderer.container.querySelector('[data-event-id="event-0"]')).toBeNull()
+    scrollBody(renderer, 100)
+    updateModal(renderer, { open: false })
+    updateModal(renderer, { open: true })
+    expect(root.scrollTop).toBe(root.scrollHeight - root.clientHeight)
+    expect(renderer.container.querySelector('[data-event-id="event-119"]')).toBeInTheDocument()
+  })
+
+  it.each([0, 50, 150])("keeps the event at offset %i when an older day and its divider prepend", offset => {
+    auditState.events = events(30)
+    auditState.hasNextPage = true
+    const { renderer } = renderModal()
+    scrollBody(renderer, offset)
+    const id = offset < 100 ? "event-0" : "event-2"
+    const top = eventTop(renderer, id)
+    fireEvent.click(renderer.getByRole("button", { name: "Load older" }))
+    auditState.isFetchingNextPage = true
+    updateModal(renderer)
+    auditState.events = [...auditState.events, event("previous-day", "2026-08-26T12:00:00.000Z")]
+    auditState.isFetchingNextPage = false
+    updateModal(renderer)
+    expect(eventTop(renderer, id)).toBe(top)
+  })
+
+  it("keeps a reader's event when a late live event inserts in the middle", () => {
+    auditState.events = events(30)
+    const { renderer } = renderModal()
+    scrollBody(renderer, 600)
+    const top = eventTop(renderer, "event-15")
+    auditState.events = [...auditState.events, event("late", "2026-08-27T12:01:30.000Z")]
+    updateModal(renderer)
+    expect(eventTop(renderer, "event-15")).toBe(top)
+    expect(renderer.container.querySelector('[data-event-id="event-29"]')).toBeNull()
+  })
+
+  it("does not restore an old page anchor after the reader takes over", () => {
+    auditState.events = events(30)
+    auditState.hasNextPage = true
+    const { renderer } = renderModal()
+    scrollBody(renderer, 0)
+    fireEvent.click(renderer.getByRole("button", { name: "Load older" }))
+    auditState.isFetchingNextPage = true
+    updateModal(renderer)
+    scrollBody(renderer, 600)
+    const top = eventTop(renderer, "event-15")
+    auditState.events = [...auditState.events, event("old", "2026-08-27T11:00:00.000Z")]
+    auditState.isFetchingNextPage = false
+    updateModal(renderer)
+    expect(eventTop(renderer, "event-15")).toBe(top)
+  })
+
+  it("retires a zero-row older response before a later live event", async () => {
+    auditState.events = events(30)
+    auditState.hasNextPage = true
+    fetchNextPage.mockResolvedValue(undefined)
+    const { renderer } = renderModal()
+    const root = scrollBody(renderer, 0)
+    await act(async () => { fireEvent.click(renderer.getByRole("button", { name: "Load older" })) })
+    auditState.events = [...auditState.events, event("late-earlier", "2026-08-27T11:00:00.000Z")]
+    updateModal(renderer)
+    expect(root.scrollTop).toBe(0)
   })
 })

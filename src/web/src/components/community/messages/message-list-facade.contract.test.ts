@@ -68,7 +68,7 @@ describe("MessageList facade contract", () => {
     expect(text).toContain("<VirtualRows")
     expect(text).toContain("items={controller.items}")
     expect(text).toContain("virtualizer={controller.virtualizer}")
-    expect(text).toContain("itemKey={(item) => item.key}")
+    expect(text).not.toContain("itemKey=")
     expect(text).toContain(
       "renderItem={(item, index) => renderMessageListRow(item, resolvedProps, controller, index)}",
     )

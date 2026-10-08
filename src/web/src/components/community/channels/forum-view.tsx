@@ -236,13 +236,15 @@ export function ForumView({
     onScrollRoot?.(node)
   }, [onScrollRoot])
   const alignedTagRef = useRef<string | null>(null)
+  const getItemKey = useCallback((index: number) => posts[index]?.id ?? index, [posts])
+  const estimateSize = useCallback(() => 128, [])
   // eslint-disable-next-line react-hooks/incompatible-library -- library limitation, same as member-list.tsx
   const virtualizer = useVirtualizer({
     ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
     count: posts.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => 128,
-    getItemKey: (index) => posts[index]?.id ?? index,
+    estimateSize,
+    getItemKey,
     overscan: 5,
     initialRect: { width: 0, height: 800 },
   })
@@ -382,7 +384,6 @@ export function ForumView({
             <VirtualRows
               items={posts}
               virtualizer={virtualizer}
-              itemKey={(post) => post.id}
               renderItem={(p, index) => {
               const canEdit = !!onEditPostTags && (canEditPostTags?.(p) ?? false)
               const canDelete = !!onDeletePost && (canDeletePost?.(p) ?? false)

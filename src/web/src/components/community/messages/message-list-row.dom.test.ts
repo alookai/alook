@@ -67,13 +67,22 @@ describe("renderMessageListRow", () => {
   beforeEach(() => vi.clearAllMocks())
 
   it("keeps merged New/date and edge decorations outside the actual body", () => {
-    const item: FlatItem = { kind: "message", key: "m1", dateLabel: "Today", newDivider: true, m: { id: "m1", type: "chat" } }
-    const view = render(renderMessageListRow(item, { ...props, hasMore: true, hasMoreNewer: true }, controller, 0))
+    const items: FlatItem[] = [
+      { kind: "leading", key: "leading" },
+      { kind: "divider", key: "new:m1", messageId: "m1", dateLabel: "Today", newDivider: true },
+      { kind: "message", key: "m1", m: { id: "m1", type: "chat" } },
+      { kind: "trailing", key: "trailing" },
+    ]
+    const view = render(React.createElement(React.Fragment, null, items.map((item, index) =>
+      React.createElement(React.Fragment, { key: item.key }, renderMessageListRow(item, { ...props, hasMore: true, hasMoreNewer: true }, controller, index)),
+    )))
     const body = view.container.querySelector('[data-msg-id="m1"]')!
     expect(view.getByTestId("new-divider")).toHaveAttribute("data-date-label", "Today")
     expect(body.querySelector('[data-testid="new-divider"]')).toBeNull()
     expect(view.queryByTestId("date-divider")).toBeNull()
     expect(view.container.firstElementChild).toHaveClass("flow-root")
+    expect(view.container.querySelectorAll('[data-msg-id]')).toHaveLength(1)
+    expect(view.container.querySelector('[data-message-divider-for="m1"]')).toBeInTheDocument()
     expect(controller.topSentinelRef).toHaveBeenCalled()
     expect(controller.bottomSentinelRef).toHaveBeenCalled()
     expect(mockedMessageRow).toHaveBeenCalledOnce()

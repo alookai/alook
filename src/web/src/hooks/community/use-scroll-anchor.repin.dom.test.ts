@@ -194,7 +194,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     h.update({ tailPaddingEnd: 40 })
     expect(h.root.scrollHeight).toBe(scrollFixture.latest.virtualizer.getTotalSize())
   })
-  it("centers the actual New prefix of a long message with one business correction", () => {
+  it("centers the independent New row beside a long message with the native index command", () => {
     scrollFixture.bodyHeights.set("m4", 1800)
     const items = Array.from({ length: 12 }, (_, i) => ({ ...message(`m${i}`), ...(i === 4 ? { newDivider: true } : {}) }))
     const h = mount({ items, newDividerBefore: "m4", hasMoreNewer: true })
@@ -255,7 +255,17 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(offset).not.toHaveBeenCalled()
     expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(false)
   })
-  it("repairs only the current message prefix when an old first row loses its header", () => {
+  it("keeps quote smooth on the native index command without a per-frame offset rewrite", () => {
+    const h = mount()
+    const index = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToIndex")
+    const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
+    act(() => scrollFixture.latest.jumpTo("m5", "smooth"))
+    runFrames()
+    expect(index).toHaveBeenCalledWith(6, { align: "center", behavior: "smooth" })
+    expect(offset).not.toHaveBeenCalled()
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+  })
+  it("keeps the old first message through native anchoring after independent rows prepend", () => {
     scrollFixture.bodyHeights.set("m0", 1200)
     const h = mount()
     h.move(400)
@@ -263,7 +273,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
     h.update({ items: [message("older"), ...h.input.items] })
     expect(bodyTop(h.root, "m0")).toBeCloseTo(top, 0)
-    expect(offset).toHaveBeenCalledTimes(1)
+    expect(offset).not.toHaveBeenCalled()
   })
   it.each(["wheel", "programmatic"])("retains the current first-row body when prepend finishes before %s scroll quiet", input => {
     scrollFixture.bodyHeights.set("m0", 1200)
@@ -277,7 +287,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     h.stage({ isFetchingOlder: true })
     h.update({ items: [message("older"), ...h.input.items], isFetchingOlder: false })
     expect(bodyTop(h.root, "m0")).toBeCloseTo(top, 0)
-    expect(offset).toHaveBeenCalledOnce()
+    expect(offset).not.toHaveBeenCalled()
   })
   it.each(["peer", "me"])("follows a genuine %s append through later native tail measurement", author => {
     const h = mount({ viewerUserId: "me" })
@@ -328,9 +338,9 @@ describe("locked native adapter and existing message scroll owner", () => {
     scrollFixture.firstPrefix += 40
     h.update({ items: [...h.input.items] })
     expect(bodyTop(h.root, "m0")).toBeCloseTo(top, 0)
-    expect(offset).toHaveBeenCalledTimes(1)
+    expect(offset).not.toHaveBeenCalled()
     resize()
-    expect(offset).toHaveBeenCalledTimes(1)
+    expect(offset).not.toHaveBeenCalled()
   })
   it.each([0, 1, 2])("keeps passive growth separate at %ipx from the end", distance => {
     const h = mount()
@@ -712,7 +722,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(h.root.querySelector('[data-msg-id]')).toBeNull()
     h.update({ items: [message("first")] })
     expect(scrollFixture.latest.readPositionReady).toBe(true)
-    expect(scrollFixture.latest.virtualizer.getVirtualItems().map(item => item.key)).toEqual(["msg:first"])
+    expect(scrollFixture.latest.virtualizer.getVirtualItems().map(item => item.key)).toEqual(["rail:leading", "msg:first"])
     expect(h.root.scrollTop).toBe(0)
     expect(scrollFixture.latest.virtualizer.getTotalSize()).toBe(scrollFixture.height)
   })
@@ -756,8 +766,8 @@ describe("locked native adapter and existing message scroll owner", () => {
     scrollFixture.firstPrefix += 40
     h.update({ items: [...h.input.items] })
     expect(bodyTop(h.root, "m0")).toBeCloseTo(before, 0)
-    expect(offset).toHaveBeenCalledOnce()
+    expect(offset).not.toHaveBeenCalled()
     resize()
-    expect(offset).toHaveBeenCalledOnce()
+    expect(offset).not.toHaveBeenCalled()
   })
 })

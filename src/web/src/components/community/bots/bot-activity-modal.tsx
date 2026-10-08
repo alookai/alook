@@ -1,6 +1,8 @@
 "use client"
 
-import { useLayoutEffect, useMemo, useRef, useEffect } from "react"
+import { useCallback, useLayoutEffect, useMemo, useRef, useEffect } from "react"
+import { useAtom, useCreateAtom } from "@tanstack/react-store"
+import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual"
 import { AgentAvatar } from "@/components/avatar"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { useCanonicalCommunityProfile } from "@/lib/community-db/projections"
@@ -66,94 +68,142 @@ export function BotActivityModal({
     })
   }, [events])
 
-  // Chronologically-adjacent rows are grouped under a shared day header,
-  // rendered when the day boundary changes. Cheap to compute at the render
-  // scale we operate at (500-row cap per bot).
-  const grouped = useMemo(() => groupByDay(chronological), [chronological])
-
-  const scrollRef = useRef<HTMLDivElement | null>(null)
-  const bottomAnchorRef = useRef<HTMLDivElement | null>(null)
-  const lastCountRef = useRef(0)
-  const pendingOlderAnchorRef = useRef<number | null>(null)
+  const rows = useMemo(() => flattenActivityRows(chronological, bot?.id ?? ""), [chronological, bot?.id])
+  const [scrollRoot, setScrollRoot] = useAtom(useCreateAtom<HTMLDivElement | null>(null))
+  const [_olderRevision, setOlderRevision] = useAtom(useCreateAtom(0))
+  const stickyIndexes = useMemo(() => rows.flatMap((row, index) => row.kind === "date" ? [index] : []), [rows])
+  const activeStickyIndexRef = useRef<number | null>(null)
+  const pendingOlderAnchorRef = useRef<{
+    key: string
+    viewportOffset: number
+    firstEventId: string | undefined
+    observed: boolean
+    settled: boolean
+  } | null>(null)
+  const scrollPaddingStartRef = useRef(0)
+  const ownsIndexRef = useRef(false)
+  const previousTailKeyRef = useRef<string | null>(null)
   const didInitialTailScrollRef = useRef(false)
+  useLayoutEffect(() => {
+    pendingOlderAnchorRef.current = null
+    scrollPaddingStartRef.current = 0
+    ownsIndexRef.current = false
+    previousTailKeyRef.current = null
+    didInitialTailScrollRef.current = false
+  }, [open, bot?.id, scrollRoot])
+
+  const getItemKey = useCallback((index: number) => rows[index]?.key ?? index, [rows])
+  const estimateSize = useCallback((index: number) => rows[index]?.kind === "date" ? 24 : 44, [rows])
+  const rangeExtractor = useCallback((range: Range) => {
+    const active = [...stickyIndexes].reverse().find((index) => index <= range.startIndex) ?? null
+    activeStickyIndexRef.current = active
+    return [...new Set([
+      ...(active === null ? [] : [active]),
+      ...defaultRangeExtractor(range),
+    ])].sort((a, b) => a - b)
+  }, [stickyIndexes])
+  // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRoot,
+    getItemKey,
+    estimateSize,
+    rangeExtractor,
+    anchorTo: "end",
+    followOnAppend: open && didInitialTailScrollRef.current && !isFetchingNextPage && !pendingOlderAnchorRef.current,
+    scrollEndThreshold: 80,
+    scrollPaddingStart: scrollPaddingStartRef.current,
+    paddingEnd: 12,
+    overscan: 8,
+    enabled: scrollRoot !== null,
+    useFlushSync: false,
+    onChange: (instance) => {
+      if (open && !didInitialTailScrollRef.current && chronological.length > 0
+        && (instance.scrollRect?.height ?? 0) > 0 && instance.scrollElement?.querySelector("[data-activity-event-id]")) {
+        didInitialTailScrollRef.current = true
+        ownsIndexRef.current = true
+        instance.scrollToEnd()
+      }
+    },
+  })
+
+  useLayoutEffect(() => {
+    if (!open || !scrollRoot || chronological.length === 0) return
+    if (!didInitialTailScrollRef.current && scrollRoot.clientHeight > 0) {
+      didInitialTailScrollRef.current = true
+      ownsIndexRef.current = true
+      virtualizer.scrollToEnd()
+    }
+    const tailKey = rows.at(-1)?.key ?? null
+    if (previousTailKeyRef.current && tailKey !== previousTailKeyRef.current
+      && virtualizer.options.followOnAppend && virtualizer.isAtEnd(80)) ownsIndexRef.current = true
+    previousTailKeyRef.current = tailKey
+    const pending = pendingOlderAnchorRef.current
+    if (!pending) return
+    if (isFetchingNextPage) pending.observed = true
+    if (chronological[0]?.id !== pending.firstEventId) {
+      const index = rows.findIndex((row) => row.key === pending.key)
+      pendingOlderAnchorRef.current = null
+      if (index >= 0) {
+        scrollPaddingStartRef.current = pending.viewportOffset
+        virtualizer.setOptions({ ...virtualizer.options, scrollPaddingStart: pending.viewportOffset })
+        ownsIndexRef.current = true
+        virtualizer.scrollToIndex(index, { align: "start" })
+      }
+    } else if ((pending.observed || pending.settled) && !isFetchingNextPage) {
+      pendingOlderAnchorRef.current = null
+    }
+  })
+
+  useEffect(() => {
+    if (!scrollRoot || !open) return
+    const cancel = () => {
+      pendingOlderAnchorRef.current = null
+      scrollPaddingStartRef.current = 0
+      if (ownsIndexRef.current) virtualizer.scrollToOffset(scrollRoot.scrollTop)
+      ownsIndexRef.current = false
+      didInitialTailScrollRef.current = true
+    }
+    const wheel = (event: WheelEvent) => { if (event.deltaY !== 0) cancel() }
+    const key = (event: KeyboardEvent) => {
+      if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) cancel()
+    }
+    scrollRoot.addEventListener("wheel", wheel, { passive: true })
+    scrollRoot.addEventListener("touchstart", cancel, { passive: true })
+    scrollRoot.addEventListener("pointerdown", cancel)
+    scrollRoot.addEventListener("keydown", key)
+    return () => {
+      scrollRoot.removeEventListener("wheel", wheel)
+      scrollRoot.removeEventListener("touchstart", cancel)
+      scrollRoot.removeEventListener("pointerdown", cancel)
+      scrollRoot.removeEventListener("keydown", key)
+    }
+  }, [open, scrollRoot, virtualizer])
 
   const onLoadOlder = () => {
     if (!hasNextPage || isFetchingNextPage) return
-    const el = scrollRef.current
-    if (el) pendingOlderAnchorRef.current = el.scrollHeight
-    void fetchNextPage()
-  }
-
-  // Reset the once-per-open latch when the modal closes or the target bot
-  // changes, so the next open lands on the newest event again.
-  useEffect(() => {
-    if (!open) {
-      lastCountRef.current = 0
-      pendingOlderAnchorRef.current = null
-      didInitialTailScrollRef.current = false
-    }
-  }, [open, bot?.id])
-
-  // Snap to the newest event on first paint of an open cycle. CommunitySheet
-  // mounts its content inside a portal with an entrance animation, so relying
-  // on a `useLayoutEffect` that only fires when
-  // `chronological.length` changes can race the portal's first layout — the
-  // scroll fires before the container has its final height. Anchor + rAF
-  // guarantees the browser has laid out at least once before we jump.
-  useEffect(() => {
-    if (!open) return
-    if (didInitialTailScrollRef.current) return
-    if (chronological.length === 0) return
-    const anchor = bottomAnchorRef.current
-    const el = scrollRef.current
-    if (!anchor || !el) return
-    didInitialTailScrollRef.current = true
-    lastCountRef.current = chronological.length
-    // Two rAFs: one to let the portal layout settle, one to jump after the
-    // rows are actually painted. `scrollIntoView({ block: 'end' })` is
-    // instant (no smooth-scroll) so the reader doesn't see it move.
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        anchor.scrollIntoView({ block: "end" })
-        // Belt-and-braces: if the anchor was already in view before jumping,
-        // browsers sometimes no-op scrollIntoView — pin scrollTop explicitly.
-        el.scrollTop = el.scrollHeight
-      })
-    })
-  }, [open, chronological.length])
-
-  // After the initial tail scroll, handle two ongoing cases:
-  //   1. `pendingOlderAnchorRef` set — Load older prepended rows; preserve
-  //      the reader's visible offset by shifting scrollTop by the height delta.
-  //   2. A new live event arrived and the reader was already near the tail —
-  //      keep the tail pinned so streaming rows stay visible.
-  useLayoutEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
-    const prevCount = lastCountRef.current
-    const nextCount = chronological.length
-    lastCountRef.current = nextCount
-    if (nextCount === 0) return
-
-    if (pendingOlderAnchorRef.current !== null) {
-      // Only consume the anchor when rows were actually prepended. An older-page
-      // fetch that settles with zero new rows leaves the pending anchor stale;
-      // applying its `delta` on a later live-event render would yank the reader
-      // to a scrollTop derived from an unrelated prior scrollHeight.
-      if (nextCount > prevCount) {
-        const delta = el.scrollHeight - pendingOlderAnchorRef.current
-        el.scrollTop = el.scrollTop + delta
+    const offset = virtualizer.scrollOffset ?? 0
+    const fold = virtualizer.getVirtualItemForOffset(offset)
+    pendingOlderAnchorRef.current = null
+    if (fold && rows[fold.index]?.kind !== "event") {
+      const event = virtualizer.getVirtualItems().find((item) => rows[item.index]?.kind === "event" && item.end > offset)
+      if (event) pendingOlderAnchorRef.current = {
+        key: String(event.key),
+        viewportOffset: event.start - offset,
+        firstEventId: chronological[0]?.id,
+        observed: false,
+        settled: false,
       }
-      pendingOlderAnchorRef.current = null
-      return
     }
-
-    if (!didInitialTailScrollRef.current) return
-    const nearTail = el.scrollHeight - (el.scrollTop + el.clientHeight) < 80
-    if (nextCount > prevCount && nearTail) {
-      el.scrollTop = el.scrollHeight
+    const pending = pendingOlderAnchorRef.current
+    const settle = () => {
+      if (pending && pendingOlderAnchorRef.current === pending) {
+        pending.settled = true
+        setOlderRevision(value => value + 1)
+      }
     }
-  }, [chronological.length])
+    void Promise.resolve(fetchNextPage()).then(settle, settle)
+  }
 
   return (
     <CommunitySheet
@@ -181,7 +231,7 @@ export function BotActivityModal({
       desktopWidth={672}
       resizable
       contentTestId={tid.botActivityModal}
-      bodyRef={scrollRef}
+      bodyRef={setScrollRoot}
       bodyClassName="bg-background p-0"
     >
       {isLoading && chronological.length === 0 ? (
@@ -189,32 +239,45 @@ export function BotActivityModal({
       ) : chronological.length === 0 ? (
         <EmptyState />
       ) : (
-        <div className="pb-3">
-          {hasNextPage ? (
-            <div className="flex justify-center py-2">
-              <button
-                type="button"
-                onClick={onLoadOlder}
-                disabled={isFetchingNextPage}
-                className="min-h-11 rounded-md px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-8"
+        <div style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
+          {virtualizer.getVirtualItems().map((virtualRow) => {
+            const row = rows[virtualRow.index]
+            const sticky = row.kind === "date" && virtualRow.index === activeStickyIndexRef.current
+            return (
+              <div
+                key={virtualRow.key}
+                ref={virtualizer.measureElement}
+                data-index={virtualRow.index}
+                data-activity-row-key={row.key}
+                data-activity-event-id={row.kind === "event" ? row.event.id : undefined}
+                style={{
+                  position: sticky ? "sticky" : "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  zIndex: row.kind === "date" ? 10 : undefined,
+                  transform: sticky ? undefined : `translateY(${virtualRow.start}px)`,
+                }}
               >
-                {isFetchingNextPage ? "Loading older" : "Load older"}
-              </button>
-            </div>
-          ) : (
-            <div className="py-2 text-center font-mono text-[10px] uppercase tracking-wider text-muted-foreground/40">
-              Beginning of log
-            </div>
-          )}
-          {grouped.map((group) => (
-            <section key={group.dayKey}>
-              <DayDivider label={group.label} />
-              {group.events.map((event) => (
-                <BotActivityRow key={event.id} event={event} />
-              ))}
-            </section>
-          ))}
-          <div ref={bottomAnchorRef} aria-hidden />
+                {row.kind === "event" ? <BotActivityRow event={row.event} /> : row.kind === "date" ? <DayDivider label={row.label} /> : hasNextPage ? (
+                  <div className="flex justify-center py-2">
+                    <button
+                      type="button"
+                      onClick={onLoadOlder}
+                      disabled={isFetchingNextPage}
+                      className="min-h-11 rounded-md px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-8"
+                    >
+                      {isFetchingNextPage ? "Loading older" : "Load older"}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="py-2 text-center font-mono text-[10px] uppercase tracking-wider text-muted-foreground/40">
+                    Beginning of log
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
     </CommunitySheet>
@@ -223,7 +286,7 @@ export function BotActivityModal({
 
 function DayDivider({ label }: { label: string }) {
   return (
-    <div className="sticky top-0 z-10 border-b border-border/40 bg-background/95 px-4 py-1 backdrop-blur supports-backdrop-filter:bg-background/80">
+    <div className="border-b border-border/40 bg-background/95 px-4 py-1 backdrop-blur supports-backdrop-filter:bg-background/80">
       <span className="font-mono text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
         {label}
       </span>
@@ -259,20 +322,24 @@ function EmptyState() {
   )
 }
 
-type DayGroup = { dayKey: string; label: string; events: AuditEvent[] }
+type ActivityRow =
+  | { kind: "control"; key: string }
+  | { kind: "date"; key: string; label: string }
+  | { kind: "event"; key: string; event: AuditEvent }
 
-function groupByDay(events: AuditEvent[]): DayGroup[] {
-  const groups: DayGroup[] = []
+function flattenActivityRows(events: AuditEvent[], botId: string): ActivityRow[] {
+  if (events.length === 0) return []
+  const rows: ActivityRow[] = [{ kind: "control", key: `${botId}:control` }]
+  let previousDay: string | undefined
   for (const event of events) {
     const key = dayKey(event.createdAt)
-    const tail = groups[groups.length - 1]
-    if (tail && tail.dayKey === key) {
-      tail.events.push(event)
-    } else {
-      groups.push({ dayKey: key, label: formatDayLabel(event.createdAt), events: [event] })
+    if (key !== previousDay) {
+      rows.push({ kind: "date", key: `${botId}:date:${key}`, label: formatDayLabel(event.createdAt) })
+      previousDay = key
     }
+    rows.push({ kind: "event", key: `${botId}:event:${event.id}`, event })
   }
-  return groups
+  return rows
 }
 
 function dayKey(iso: string): string {

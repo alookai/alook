@@ -7,11 +7,11 @@ const scrollToIndex = vi.fn()
 let requestOlder: (() => void) | undefined
 let sentinelEdge: string | undefined
 vi.mock("@tanstack/react-virtual", () => ({
-  useVirtualizer: ({ count }: { count: number }) => ({
+  useVirtualizer: ({ count, getItemKey }: { count: number; getItemKey: (index: number) => string | number }) => ({
     options: { scrollMargin: 0 },
     scrollToIndex,
     getTotalSize: () => count * 160,
-    getVirtualItems: () => Array.from({ length: count }, (_, index) => ({ index, start: index * 160 })),
+    getVirtualItems: () => Array.from({ length: count }, (_, index) => ({ key: getItemKey(index), index, start: index * 160 })),
     measureElement: () => {},
   }),
 }))
