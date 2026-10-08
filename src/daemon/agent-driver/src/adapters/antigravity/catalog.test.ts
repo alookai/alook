@@ -1,7 +1,15 @@
+import { RUNTIME_MODEL_CATALOG_MAX } from "../../internal/modelCatalog.js";
 import { describe, expect, it } from "vitest";
 import { antigravityModelForEffort, antigravityReasoningCatalog, parseAntigravityCatalog } from "./catalog.js";
 
 describe("Antigravity native model variants", () => {
+  it.each([1024, 1025])("keeps the complete catalog or rejects overflow (%s models)", (count) => {
+    const models = Array.from({ length: count }, (_, index) => `model-${index}`);
+    const catalog = parseAntigravityCatalog({ models: { availableModels: models.map((modelId) => ({ modelId })) } });
+    if (count > RUNTIME_MODEL_CATALOG_MAX) expect(catalog).toBeUndefined();
+    else expect(catalog?.models.map((model) => model.id)).toEqual(models);
+  });
+
   it("preserves returned choices and maps effort only to offered siblings", () => {
     const models = ["gemini-3.8-flash-high", "gemini-3.8-flash-low", "gemini-3.1-pro-low", "other-high"];
     const catalog = parseAntigravityCatalog({ models: { currentModelId: models[0], availableModels: models.map((modelId) => ({ modelId, name: modelId })) } })!;
@@ -20,7 +28,7 @@ describe("Antigravity native model variants", () => {
       id: "native-model", category: "model", type: "select", currentValue: "actual",
       options: [{ group: "g", options: [{ value: "actual", name: "Actual" }, { value: "actual" }, { value: "invalid model" }] }],
     }] })).toEqual({ configId: "native-model", currentModelId: "actual", models: [{ id: "actual", displayName: "Actual" }] });
-    expect(parseAntigravityCatalog({ models: { availableModels: Array.from({ length: 513 }, (_, i) => ({ modelId: `model-${i}` })) } })).toBeUndefined();
+    expect(parseAntigravityCatalog({ models: { availableModels: Array.from({ length: RUNTIME_MODEL_CATALOG_MAX + 1 }, (_, i) => ({ modelId: `model-${i}` })) } })).toBeUndefined();
     expect(parseAntigravityCatalog(null)).toBeUndefined();
   });
 });

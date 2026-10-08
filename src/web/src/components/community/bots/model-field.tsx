@@ -54,15 +54,19 @@ export function ModelField({
   const [selectValue, setSelectValue] = useAtom(useCreateAtom(seed.selectValue))
   const [customName, setCustomName] = useAtom(useCreateAtom(seed.customName))
   const [filterQuery, setFilterQuery] = useAtom(useCreateAtom(""))
+  const localChange = useCreateAtom<{ runtime: typeof runtime; value: string | null } | null>(null)
 
   // Re-seed whenever the selected machine/runtime snapshot or stored value
   // changes. This is required even when the stored string is unchanged: a
   // value can be a reported option on machine A and Custom… on machine B.
   useEffect(() => {
+    const change = localChange.get()
+    localChange.set(null)
+    if (change && change.runtime === runtime && change.value === value) return
     setSelectValue(seed.selectValue)
     setCustomName(seed.customName)
     setFilterQuery("")
-  }, [seed, setCustomName, setFilterQuery, setSelectValue])
+  }, [seed, runtime, value, localChange, setCustomName, setFilterQuery, setSelectValue])
 
   const isCustom = selectValue === MODEL_SELECT_CUSTOM
   const defaultLabel = runtime ? `Default (${runtime.id}'s own default)` : "Default"
@@ -103,7 +107,9 @@ export function ModelField({
           setSelectValue(nextValue)
           // Custom… keeps the text field revealed even when empty (emits null
           // until something is typed); any other value maps through the helper.
-          onChange(modelNameFromSelect(nextValue, customName))
+          const nextModel = modelNameFromSelect(nextValue, customName)
+          localChange.set({ runtime, value: nextModel })
+          onChange(nextModel)
         }}
         onOpenChange={(open) => {
           if (!open) setFilterQuery("")
@@ -192,7 +198,9 @@ export function ModelField({
           placeholder="e.g. provider/model-id"
           onChange={(e) => {
             setCustomName(e.target.value)
-            onChange(modelNameFromSelect(MODEL_SELECT_CUSTOM, e.target.value))
+            const nextModel = modelNameFromSelect(MODEL_SELECT_CUSTOM, e.target.value)
+            localChange.set({ runtime, value: nextModel })
+            onChange(nextModel)
           }}
           className="h-11 font-mono sm:h-8"
         />

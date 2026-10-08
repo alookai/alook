@@ -1,6 +1,6 @@
 import type { RuntimeReasoningCatalog } from "../contract.js";
 
-export const RUNTIME_MODEL_CATALOG_MAX = 512;
+export const RUNTIME_MODEL_CATALOG_MAX = 1024;
 const RUNTIME_MODEL_ID_MAX = 100;
 
 export function normalizeRuntimeModelId(value: unknown): string | undefined {

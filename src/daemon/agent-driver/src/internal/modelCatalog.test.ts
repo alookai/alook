@@ -35,6 +35,17 @@ describe("runtime startup model catalog parsers", () => {
     expect(parsePiModelCatalog([{ nope: true }])).toBeUndefined();
   });
 
+  it("preserves a 598-model OpenCode catalog without losing its first or last model", () => {
+    const models = Array.from({ length: 598 }, (_, index) => `provider/model-${index}`);
+    expect(ids(parseOpenCodeModelCatalog([...models, models[0]!].join("\n")))).toEqual(models);
+  });
+
+  it("accepts the complete catalog at the bound for both producers", () => {
+    const models = Array.from({ length: RUNTIME_MODEL_CATALOG_MAX }, (_, index) => `provider/model-${index}`);
+    expect(ids(parseOpenCodeModelCatalog(models.join("\n")))).toEqual(models);
+    expect(ids(parsePiModelCatalog(models.map((id) => ({ provider: "provider", id: id.slice(9) }))))).toEqual(models);
+  });
+
   it("returns no catalog instead of truncating when unique IDs overflow the bound", () => {
     const opencode = Array.from(
       { length: RUNTIME_MODEL_CATALOG_MAX + 1 },
