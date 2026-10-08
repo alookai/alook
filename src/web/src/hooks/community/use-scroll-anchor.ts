@@ -336,16 +336,11 @@ export function useScrollAnchor({
     olderMeasurementAnchorRef.current = null
     if (virtualizerRef.current) virtualizerRef.current.shouldAdjustScrollPositionOnItemSizeChange = undefined
   }, [])
-  const adjustOlderMeasurement = useCallback<NonNullable<ReactVirtualizer<HTMLDivElement, Element>["shouldAdjustScrollPositionOnItemSizeChange"]>>((item, _delta, instance) => {
+  const adjustOlderMeasurement = useCallback<NonNullable<ReactVirtualizer<HTMLDivElement, Element>["shouldAdjustScrollPositionOnItemSizeChange"]>>((item) => {
     const anchor = olderMeasurementAnchorRef.current
     const owner = positionOwnerRef.current
     const index = anchor && anchor.epoch === owner.epoch && owner.active && positionKind.get() === "idle"
       ? currentItemsRef.current.findIndex(row => row.key === anchor.key) : -1
-    if (index < 0) {
-      olderMeasurementAnchorRef.current = null
-      instance.shouldAdjustScrollPositionOnItemSizeChange = undefined
-      return false
-    }
     return item.index < index
   }, [positionKind])
   const claimPosition = useCallback((kind: Kind) => {
