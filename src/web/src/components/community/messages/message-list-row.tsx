@@ -1,5 +1,6 @@
 import { DateDivider, NewDivider } from "../dividers"
 import { tid } from "@/lib/community/testids"
+import { cn } from "@/lib/utils"
 import { ChannelIcon } from "../channels/channel-icon"
 import { MessageRow } from "./message-row"
 import type { FlatItem } from "@/lib/community/message-list-items"
@@ -24,7 +25,7 @@ export function renderMessageListRow(
   item: FlatItem,
   props: ResolvedMessageListProps,
   controller: MessageListController,
-  _index: number,
+  index: number,
 ) {
   if (item.kind === "leading") {
     return (
@@ -49,15 +50,20 @@ export function renderMessageListRow(
     )
   }
   if (item.kind === "divider") {
+    const next = controller.items[index + 1]
     return (
-      <div className="flow-root" data-message-row-key={item.key} data-message-divider-for={item.messageId}>
+      <div className={cn(
+        "flow-root",
+        controller.items[index - 1]?.kind === "leading" && "*:mt-0",
+        next?.kind === "message" && next.m.type === "chat" && !next.m.grouped && "*:mb-0",
+      )} data-message-row-key={item.key} data-message-divider-for={item.messageId}>
         {item.newDivider ? <NewDivider dateLabel={item.dateLabel} /> : <DateDivider label={item.dateLabel!} />}
       </div>
     )
   }
   return (
     <div className="flow-root" data-message-row-key={item.key}>
-        <div data-msg-id={item.m.id} data-testid={tid.message(item.m.id)}>
+        <div className={controller.items[index - 1]?.kind === "leading" ? "*:mt-0" : undefined} data-msg-id={item.m.id} data-testid={tid.message(item.m.id)}>
           <MessageRow
             m={item.m}
             hoverCapable={props.hoverCapable}
