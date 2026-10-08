@@ -6,6 +6,33 @@ beforeEach(installMessageScrollFixture)
 afterEach(restoreMessageScrollFixture)
 
 describe("locked native adapter and existing message scroll owner", () => {
+  it.each([undefined, "Today"])("uses the native border box for an unread divider with date label %s", dateLabel => {
+    const unread = message("m0")
+    unread.newDivider = true
+    unread.dateLabel = dateLabel
+    const h = mount({ items: [unread], hasMoreOlder: false })
+    const divider = h.root.querySelector<HTMLElement>("[data-message-divider-for]")!.closest<HTMLElement>("[data-index]")!
+    Object.defineProperty(divider, "scrollHeight", { configurable: true, value: 18 })
+    const entry = {
+      target: divider,
+      borderBoxSize: [{ blockSize: 16, inlineSize: scrollFixture.width }],
+    } as unknown as ResizeObserverEntry
+    const native = scrollFixture.latest.virtualizer
+
+    expect(native.options.measureElement(divider, entry, native)).toBe(16)
+  })
+  it("retains message body overflow when the native border box is smaller", () => {
+    const h = mount({ items: [message("m0")], hasMoreOlder: false })
+    const row = h.root.querySelector<HTMLElement>("[data-msg-id]")!.closest<HTMLElement>("[data-index]")!
+    Object.defineProperty(row, "scrollHeight", { configurable: true, value: 967 })
+    const entry = {
+      target: row,
+      borderBoxSize: [{ blockSize: 400, inlineSize: scrollFixture.width }],
+    } as unknown as ResizeObserverEntry
+    const native = scrollFixture.latest.virtualizer
+
+    expect(native.options.measureElement(row, entry, native)).toBe(967)
+  })
   it.each([2, 26])("keeps a present landing after %i frames through consecutive responsive widths", frames => {
     scrollFixture.width = 905
     scrollFixture.height = 783

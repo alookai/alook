@@ -1,6 +1,6 @@
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react"
-import { useVirtualizer, type ReactVirtualizer } from "@tanstack/react-virtual"
+import { measureElement, useVirtualizer, type ReactVirtualizer } from "@tanstack/react-virtual"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "./virtualizer-react-options"
 import { estimateRowHeight, computeBelowCount, type FlatItem } from "@/lib/community/message-list-items"
 
@@ -403,7 +403,9 @@ export function useScrollAnchor({
     count: items.length,
     getScrollElement: () => scrollRef.current,
     estimateSize,
-    measureElement: measureMessageRow,
+    measureElement: (element, entry, instance) => element.querySelector("[data-msg-id]")
+      ? measureMessageRow(element)
+      : measureElement(element, entry, instance),
     getItemKey,
     scrollPaddingStart: scrollPaddingStartRef.current,
     anchorTo: ownerKind === "idle" && readPositionReady && !awaitingTarget
