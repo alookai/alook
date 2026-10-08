@@ -45,11 +45,12 @@ export const DmSidebar = memo(function DmSidebar({
             isFriendsActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
           ].join(" ")}
         >
-          <Users className="size-5" /> Friends
+          <Users className="size-5 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">Friends</span>
           {requestCount && (
             <span
               data-testid={tid.friendsShortcutBadge}
-              className="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground"
+              className="ml-auto grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground"
             >
               {requestCount}
             </span>
@@ -67,7 +68,8 @@ export const DmSidebar = memo(function DmSidebar({
               machinesActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
             ].join(" ")}
           >
-            <Monitor className="size-5" /> Machines
+            <Monitor className="size-5 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Machines</span>
           </CommunityNavigationLink>
         )}
         {onShowBots && (
@@ -81,13 +83,14 @@ export const DmSidebar = memo(function DmSidebar({
               botsActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
             ].join(" ")}
           >
-            <Bot className="size-5" /> My Bots
+            <Bot className="size-5 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">My Bots</span>
           </CommunityNavigationLink>
         )}
         <div className="my-2 h-px bg-border" />
       </div>
       <div data-slot="dm-sidebar-list" className="min-h-0 flex-1 overflow-y-auto thin-scrollbar px-2 pb-4">
-        <div className="mb-2 px-2 text-xs font-semibold text-muted-foreground">
+        <div className="mb-2 truncate px-2 text-xs font-semibold text-muted-foreground">
           Direct Messages
         </div>
         {loading && dms.length === 0 ? (
