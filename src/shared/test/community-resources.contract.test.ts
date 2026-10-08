@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { CommunityChannelResourceSchema, CommunityMessageResourceSchema, normalizeCommunityChannelResource, normalizeCommunityMessageResource } from "../src"
+import { CommunityChannelResourceSchema, CommunityMessageResourceSchema, normalizeCommunityChannelIdentity, normalizeCommunityChannelResource, normalizeCommunityMessageResource } from "../src"
 import { COMMUNITY_CONTRACT_HEADER, requestsCommunityContractV2 } from "../src/community-contract"
 
 describe("common community resources", () => {
@@ -12,6 +12,13 @@ describe("common community resources", () => {
       archived: 0, createdAt: "2026-10-07T12:00:00Z" })
     expect(channel).toMatchObject({ type, archived: false, parentChannelId: null, parentMessageId: null, categoryId: null, creatorId: null, lastMessageAt: null, messageCount: 0 })
     expect(CommunityChannelResourceSchema.safeParse({ ...channel, pending: true }).success).toBe(false)
+  })
+  it("validates legacy channel identity without requiring full-read fields", () => {
+    const input = { id: "post", type: "thread", serverId: "server", name: "Post", archived: 1, extra: "legacy" }
+    expect(normalizeCommunityChannelIdentity(input)).toEqual({ id: "post", type: "thread", serverId: "server", name: "Post", archived: true,
+      parentChannelId: null, parentMessageId: null, creatorId: null, lastMessageAt: null })
+    expect(() => normalizeCommunityChannelIdentity({ ...input, id: "" })).toThrow()
+    expect(() => normalizeCommunityChannelIdentity({ ...input, archived: 2 })).toThrow()
   })
   it("requires committed message identity and rejects foreign scope", () => {
     const message = { id: "message", seq: 1, authorId: "author", createdAt: "2026-10-07T12:00:00Z", type: "chat", content: "hello" }

@@ -58,6 +58,16 @@ describe("projectCommunityMessageCreate", () => {
     }))
   })
 
+  it("keeps valid embed fields and omits an entirely malformed field list", () => {
+    const result = projectCommunityMessageCreate(wire({ embeds: [
+      { title: "Mixed", fields: [null, { name: "Key", value: "Value", inline: true }, { name: "Missing value" }] },
+      { title: "Invalid", fields: [null, { name: "Missing value" }] },
+    ] }), "channel-1")
+    expect(result.embeds).toEqual([
+      { title: "Mixed", fields: [{ name: "Key", value: "Value", inline: true }] },
+      { title: "Invalid", fields: undefined },
+    ])
+  })
   it("narrows embeds and maps safe image/file attachments", () => {
     const projected = projectCommunityMessageCreate(wire({
       embeds: [{ title: "Card", url: "https://example.com" }, { url: "missing-title" }, null],

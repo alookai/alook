@@ -39,6 +39,7 @@ import {
   projectCommunityWsEventToDb,
   purgeCommunityChannel,
   purgeCommunityServer,
+  retireCommunityChannelReading,
   removeAttentionItemsOptimistically,
   restoreAttentionScopeOptimisticSnapshot,
   type CommunityLiveSnapshot,
@@ -2084,11 +2085,32 @@ describe("community DB sync", () => {
         preview: "",
       }],
     })
+    ingestAttentionSnapshot(db, { scopes: [], items: [
+      { id: "scope-item", kind: "mention", sourceId: "source-1", scopeId: "c1", createdAt: "now" },
+      { id: "child-item", kind: "forum_post", sourceId: "source-2", childChannelId: "c1", createdAt: "now" },
+      { id: "target-item", kind: "reply", sourceId: "source-3", readTarget: { channelId: "c1", seq: 1 }, createdAt: "now" },
+      { id: "dm-item", kind: "mention", sourceId: "source-4", scopeId: "dm1", createdAt: "now" },
+    ], limit: 100, truncated: false })
     purgeCommunityServer(db, "s1")
     expect(db.collections.servers.get("s1")).toBeUndefined()
     expect(db.collections.categories.get("cat1")).toBeUndefined()
     expect(db.collections.channels.get("c1")).toBeUndefined()
     expect(db.collections.channels.get("dm1")).toBeDefined()
+    expect([...db.collections.attentionItems.keys()]).toEqual(["dm-item"])
+  })
+
+  it("keeps channel retirement fail-closed when native disk retirement rejects", async () => {
+    const db = await registry(), error = new Error("IDB unavailable")
+    ingestMessages(db, "dm-A", [{ id: "retire-message", type: "chat", content: "old" }])
+    ingestMessages(db, "dm-B", [{ id: "sibling-message", type: "chat", content: "keep" }])
+    db.bindAuthentication(() => "viewer", () => Promise.resolve(), () => Promise.reject(error))
+    const report = vi.spyOn(console, "error").mockImplementation(() => {})
+    retireCommunityChannelReading(db, "dm-A", { reason: "read-denied", serverId: null })
+    await vi.waitFor(() => expect(report).toHaveBeenCalledWith("Channel cache retirement failed", error))
+    expect(db.collections.messages.has("retire-message")).toBe(false)
+    expect(db.collections.messages.get("sibling-message")?.content).toBe("keep")
+    expect(db.runtime.ws.actions.isChannelAccessRevoked("dm-A", null)).toBe(true)
+    report.mockRestore()
   })
 
   it("purges a scoped raw single-message query before it materializes canonically", async () => {

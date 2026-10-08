@@ -575,6 +575,29 @@ describe("useSendDmMessage — overlay terminal emitter", () => {
     )
   })
 
+  it("fails the upload intent when its view retires after upload succeeds, before native POST", async () => {
+    const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }, runtime = canonicalRegistry.runtime
+    const file = new File(["x"], "x.txt", { type: "text/plain" })
+    runtime.messageStream.actions.accept(scope, { nonce: "upload-view", tempId: "temp-upload-view", message: { type: "chat", content: "file", authorId: "u_me" }, localUploads: [{ file, previewObjectUrl: "blob:view" }] })
+    const dispatch = vi.spyOn(runtime.messageStream.actions, "dispatch"), mod = await loadMod(), mutation = mountHook(() => mod.useSendMessage())
+    let current = true, finish!: (value: { id: string; filename: string; contentType: string; size: number }) => void
+    const uploadFileAsync = vi.fn(() => new Promise<{ id: string; filename: string; contentType: string; size: number }>(resolve => { finish = resolve }))
+    const assertActive = Object.assign(() => { if (!current) throw new DOMException("Retired view", "AbortError") }, { signal: new AbortController().signal })
+    const { runAcceptedMessageIntent } = await import("@/components/community/messages/message-channel-controller-send")
+    await act(async () => {
+      const pending = runAcceptedMessageIntent({ runtime, messageScope: scope, nonce: "upload-view", assertActive, uploadFileAsync, sendMessageAsync: mutation.mutateAsync,
+        channelId: scope.id, serverId: scope.serverId, viewer: { id: "u_me", name: "Me", avatar: "M" } })
+      current = false
+      finish({ id: "uploaded", filename: "x.txt", contentType: "text/plain", size: 1 })
+      await pending
+    })
+    expect(uploadFileAsync).toHaveBeenCalledOnce()
+    expect(apiFetchMock).not.toHaveBeenCalled()
+    expect(dispatch.mock.calls).toEqual([[scope, { type: "uploadFailed", nonce: "upload-view" }]])
+    expect(runtime.messageStream.actions.getRetryPayload(scope, "upload-view")?.message.failed).toBe(true)
+    expect(toastMock).not.toHaveBeenCalled()
+  })
+
   it("fails the accepted channel intent once when its view retires before native POST starts", async () => {
     const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
     const runtime = canonicalRegistry.runtime

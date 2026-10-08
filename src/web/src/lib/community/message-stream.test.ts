@@ -433,6 +433,13 @@ describe("attachment ownership effects", () => {
     ],
   })
 
+  it("keeps upload intent without inventing an attachment URL when preview is absent", () => {
+    const local = { file: retryFile, thumbnailBlob: retryThumbnail }
+    const state = submit(emptyMessageOverlay(), intent("no-preview", 1, { localUploads: [local] }))
+    expect(materializeMessageStream([], state)[0].attachments).toBeUndefined()
+    expect(getOutboxRetryPayload(state, "no-preview")?.localUploads[0].file).toBe(retryFile)
+    expect(getOutboxRetryPayload(state, "no-preview")?.localUploads[0].thumbnailBlob).toBe(retryThumbnail)
+  })
   it("initializes lifecycle and retains immutable upload inputs through retry", () => {
     let state = submit(emptyMessageOverlay(), attachedIntent())
     expect(state.outboxByNonce.get("files")).toEqual(expect.objectContaining({

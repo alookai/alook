@@ -565,7 +565,6 @@ function clearChannelTransientState(
 export function ingestServers(
   registry: CommunityDbRegistry,
   response: ServersResponse,
-  mode: SnapshotIngestMode = "authoritative",
 ) {
   const currentServers = collectionRows(registry, "servers")
   const existingById = new Map(currentServers.map((server) => [server.id, server]))
@@ -599,27 +598,15 @@ export function ingestServers(
       }))
     : []
   notifyManager.batch(() => {
-    if (mode === "authoritative") {
-      for (const serverId of removedServerIds) if (!isOwnerServerDeleteScopeEvictionBlocked(registry.queryClient, serverId)) purgeCommunityServer(registry, serverId)
-      replaceRows(registry, "servers", servers, (row) => !isOwnerServerDeleteScopeEvictionBlocked(registry.queryClient, row.id))
-    } else {
-      upsertRows(registry, "servers", servers)
-    }
+    for (const serverId of removedServerIds) if (!isOwnerServerDeleteScopeEvictionBlocked(registry.queryClient, serverId)) purgeCommunityServer(registry, serverId)
+    replaceRows(registry, "servers", servers, (row) => !isOwnerServerDeleteScopeEvictionBlocked(registry.queryClient, row.id))
     if (viewerId) {
-      if (mode === "authoritative") {
-        replaceRows(
-          registry,
-          "serverMemberships",
-          memberships,
-          (row) => row.viewer,
-        )
-      } else {
-        upsertRows(
-          registry,
-          "serverMemberships",
-          memberships,
-        )
-      }
+      replaceRows(
+        registry,
+        "serverMemberships",
+        memberships,
+        (row) => row.viewer,
+      )
     }
   })
 }
@@ -627,7 +614,6 @@ export function ingestServers(
 export function ingestServerDetail(
   registry: CommunityDbRegistry,
   detail: ServerDetail,
-  mode: SnapshotIngestMode = "authoritative",
 ) {
   const existing = collectionRows(registry, "servers")
     .find((row) => row.id === detail.id)
@@ -721,48 +707,33 @@ export function ingestServerDetail(
     : []
   const authoritativeTopLevelIds = new Set([...currentTopLevelIds, ...incomingTopLevelIds])
   notifyManager.batch(() => {
-    if (mode === "authoritative") {
-      for (const channelId of removedTopLevelIds) purgeCommunityChannel(registry, channelId)
-    }
+    for (const channelId of removedTopLevelIds) purgeCommunityChannel(registry, channelId)
     upsertRows(registry, "servers", [server])
     // Completeness is monotonic query state, not mutable server identity. A
     // newer WS event may protect the row's fields without blocking this proof
     // that its canonical tree has arrived.
     promoteServerDetailComplete(registry, detail.id)
-    if (mode === "authoritative") {
-      replaceRows(
-        registry,
-        "categories",
-        categories,
-        (row) => row.serverId === detail.id,
-      )
-      replaceRows(
-        registry,
-        "channels",
-        channels,
-        (row) => row.serverId === detail.id && row.type !== "thread",
-      )
-    } else {
-      upsertRows(registry, "categories", categories)
-      upsertRows(registry, "channels", channels)
-    }
+    replaceRows(
+      registry,
+      "categories",
+      categories,
+      (row) => row.serverId === detail.id,
+    )
+    replaceRows(
+      registry,
+      "channels",
+      channels,
+      (row) => row.serverId === detail.id && row.type !== "thread",
+    )
     if (viewerId) {
-      if (mode === "authoritative") {
-        replaceRows(
-          registry,
-          "channelMemberships",
-          accessMemberships,
-          (row) => row.userId === viewerId
-            && row.relation === "access"
-            && authoritativeTopLevelIds.has(row.channelId),
-        )
-      } else {
-        upsertRows(
-          registry,
-          "channelMemberships",
-          accessMemberships,
-        )
-      }
+      replaceRows(
+        registry,
+        "channelMemberships",
+        accessMemberships,
+        (row) => row.userId === viewerId
+          && row.relation === "access"
+          && authoritativeTopLevelIds.has(row.channelId),
+      )
       upsertRows(
         registry,
         "channelMemberships",
@@ -871,7 +842,6 @@ export function publishCommunityDmSummary(
 function ingestFolders(
   registry: CommunityDbRegistry,
   response: FoldersResponse,
-  mode: SnapshotIngestMode = "authoritative",
 ) {
   const folders: FolderRow[] = response.folders.map((folder) => ({
     id: folder.id,
@@ -887,13 +857,8 @@ function ingestFolders(
     }))
   ))
   notifyManager.batch(() => {
-    if (mode === "authoritative") {
-      replaceRows(registry, "folders", folders, () => true)
-      replaceRows(registry, "folderItems", items, () => true)
-    } else {
-      upsertRows(registry, "folders", folders)
-      upsertRows(registry, "folderItems", items)
-    }
+    replaceRows(registry, "folders", folders, () => true)
+    replaceRows(registry, "folderItems", items, () => true)
   })
 }
 
@@ -954,7 +919,6 @@ export function ingestMessages(
 export function ingestReadStateSnapshot(
   registry: CommunityDbRegistry,
   snapshot: AccountReadStateSnapshot,
-  mode: SnapshotIngestMode = "authoritative",
 ) {
   const currentRevision = collectionRows(registry, "readStateClock")
     .find((row) => row.id === "account")?.revision ?? -1
@@ -962,13 +926,8 @@ export function ingestReadStateSnapshot(
   const readStates: ReadStateRow[] = snapshot.readStates.map((row) => ({ ...row }))
   const clock: ReadStateClockRow = { id: "account", revision: snapshot.revision }
   notifyManager.batch(() => {
-    if (mode === "authoritative") {
-      replaceRows(registry, "readStates", readStates, () => true)
-      replaceRows(registry, "readStateClock", [clock], () => true)
-    } else {
-      upsertRows(registry, "readStates", readStates)
-      upsertRows(registry, "readStateClock", [clock])
-    }
+    replaceRows(registry, "readStates", readStates, () => true)
+    replaceRows(registry, "readStateClock", [clock], () => true)
   })
 }
 

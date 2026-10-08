@@ -252,6 +252,32 @@ describe("native channel persistence fence", () => {
     expect(readingRows(await createIdbPersister(user).restoreClient(), "messages")?.map((row) => row.channelId)).toEqual(["dm-B"])
   })
 
+  it("scrubs only retired channel notification settings and preserves server and sibling settings", async () => {
+    const user = "u_notification_scope_retire", owner = createIdbPersister(user), snapshot = readingSnapshot(user)
+    const qc = new QueryClient()
+    qc.setQueryData(communityKeys.communityDbCollection(user, "notificationSettings"), [
+      { id: "A", channelId: "dm-A", serverId: null, level: "all" },
+      { id: "B", channelId: "dm-B", serverId: null, level: "mentions" },
+      { id: "server", channelId: null, serverId: "server", level: "all" },
+    ])
+    snapshot.clientState.queries.push(...dehydrate(qc).queries)
+    await owner.persistClient(snapshot)
+    await owner.retireChannels(["dm-A"])
+    expect(readingRows(await owner.restoreClient(), "notificationSettings")?.map(row => row.id)).toEqual(["B", "server"])
+  })
+
+  it("deletes an undecodable payload during native channel retirement", async () => {
+    const user = "u_corrupt_payload_retire", owner = createIdbPersister(user)
+    await owner.persistClient(readingSnapshot(user))
+    await set(blobKey(user), "not-json")
+    await expect(owner.retireChannels(["dm-A"])).rejects.toThrow(SyntaxError)
+    await set(blobKey(user), JSON.stringify({ ...client, channelFences: "invalid" }))
+    await owner.retireChannels(["dm-A"])
+    expect(await get(blobKey(user))).toBeUndefined()
+    expect(await owner.restoreClient()).toBeUndefined()
+    expect(await owner.isCurrent()).toBe(true)
+  })
+
   it.each(["missing", "corrupt"])("fails closed for %s stored channel fence metadata", async (kind) => {
     const user = `u_channel_snapshot_${kind}`
     await clearPersistedCache(user)

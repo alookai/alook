@@ -466,6 +466,9 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       capturedQueryClient.setQueryData(communityKeys.forumOpenerHint(serverId, "opener"), {})
       capturedQueryClient.setQueryData(communityKeys.forumSidebarUnreadFallbacks(serverId), {})
     }
+    const scopeOnlyMetadata = ["community", "channel", "scope-only", "metadata"] as const
+    capturedQueryClient.setQueryData(scopeOnlyMetadata, { id: "scope-only" })
+    getCapturedRuntime().ws.actions.observeChannelScope("srv_a", "scope-only")
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
 
     await capturedOnReconnect!({ reconnectDurationMs: 250 })
@@ -497,6 +500,8 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
         expect(capturedQueryClient.getQueryState(queryKey)?.isInvalidated).toBe(true)
       }
     }
+    expect(capturedQueryClient.getQueryState(scopeOnlyMetadata)?.isInvalidated).toBe(true)
+    expect(capturedQueryClient.getQueryData(scopeOnlyMetadata)).toEqual({ id: "scope-only" })
     expect(calls.some(({ queryKey }) => queryKey?.includes("__none__"))).toBe(false)
     expect(calls.some(({ queryKey }) => queryKey?.includes("__pending__"))).toBe(false)
     expect(calls.some(({ queryKey }) => queryKey?.includes("channel-ref-directory"))).toBe(false)

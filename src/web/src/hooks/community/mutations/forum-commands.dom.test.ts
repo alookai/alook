@@ -95,6 +95,18 @@ describe("Native forum creation", () => {
     expect(mocks.api.mock.calls[1][0]).toBe("/api/community/channels/p_new/messages")
     expect(JSON.parse(mocks.api.mock.calls[1][1].body)).toEqual({ content: "body", nonce: "command_1:reply" })
   })
+  it("publishes the actual returned opener and linked child before the reply settles", async () => {
+    const view = await setup(), held = deferred()
+    const opener = { id: "created-opener", seq: 40, type: "chat", content: "New post", authorId: "viewer", authorName: "Viewer", createdAt: "2026-10-08T01:00:00Z" }
+    mocks.api.mockResolvedValueOnce({ threadId: "p_new", message: opener }).mockReturnValueOnce(held.promise)
+    let request!: Promise<unknown>
+    act(() => { request = view.view.result.current.create.mutateAsync({ nonce: "create_1", channelId: "forum_1", name: "New post", content: "Body" }) })
+    await waitFor(() => expect(mocks.api).toHaveBeenCalledTimes(2))
+    expect(view.registry.collections.messages.get(opener.id)).toMatchObject({ channelId: "forum_1", content: "New post", clientNonce: "create_1:opener", seq: 40 })
+    expect(view.registry.collections.channels.get("p_new")).toMatchObject({ serverId: "server_1", parentChannelId: "forum_1", parentMessageId: opener.id, name: "New post", type: "thread" })
+    await act(async () => { held.resolve({}); await request })
+    expect(view.registry.collections.messages.get("opener_p2")).toBeDefined()
+  })
   it("reserves attachment IDs for both messages and broadcasts mentionType on the opener", async () => {
     const view = await setup(), attachments = [{ id: "att_1", filename: "abc.png", contentType: "image/png", size: 100, width: 10, height: 10 }]
     mocks.api.mockResolvedValueOnce({ threadId: "p_new" }).mockResolvedValueOnce({})
