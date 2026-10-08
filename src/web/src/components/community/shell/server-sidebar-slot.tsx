@@ -31,6 +31,7 @@ import { useCurrentUser } from "@/contexts/community/current-user"
 import {
   useServer,
   useServers,
+  useViewerServerRole,
   serverProjectedQueryFn,
 } from "@/hooks/community/use-servers"
 import { useServerMembers } from "@/hooks/community/use-server-members"
@@ -142,10 +143,7 @@ function ServerSidebar({ serverId }: { serverId: string }) {
       }),
     [currentUser.id, membersHook.members, profilesByUserId],
   )
-  // `myMember` comes from the raw (not enriched) members list so this stays
-  // stable across presence ticks.
-  const myMember = membersHook.members.find((m) => m.userId === currentUser.id)
-  const isAdmin = canManageServer(myMember?.role)
+  const isAdmin = canManageServer(useViewerServerRole(serverId, currentUser.id))
   usePresence(currentServer ? serverId : null)
   const notifs = useNotificationSettings()
   const notifLevel = resolveServerNotificationDisplayLevel(notifs.server[serverId])

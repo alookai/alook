@@ -1,6 +1,6 @@
 import { test, expect, userId } from "./_fixtures/community-fixture"
 import { tid } from "./_fixtures/testids"
-import { seedServer, seedChannel, seedJoinServer, seedCategory, seedMessage, seedThread } from "./_fixtures/seed"
+import { seedServer, seedChannel, seedJoinServer, seedCategory, seedMessage, seedThread, memberInfo } from "./_fixtures/seed"
 
 // Journey 6 — channel / member administration + the eject branch (needs a
 // second identity). Focuses on member list presence and non-member ejection.
@@ -85,6 +85,29 @@ test.describe.serial("channel & member admin", () => {
       })
     }
     await page.getByTestId(tid.settingsTab("members")).click()
+    await expectFiniteMembersFrame()
+    expect(requests).toHaveLength(0)
+    const bob = await memberInfo("alice", serverId, userId("bob"))
+    const searchInput = membersPanel.getByPlaceholder("Search members")
+    const searchResponse = page.waitForResponse((res) => {
+      const url = new URL(res.url())
+      return url.pathname === `/api/community/servers/${serverId}/members/search`
+        && url.searchParams.get("q") === bob.name
+    })
+    await searchInput.fill(bob.name)
+    const searched = await searchResponse
+    expect(searched.status()).toBe(200)
+    const searchData = await searched.json() as { members: { id: string; userId: string }[] }
+    expect(searchData.members).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: bob.id, userId: userId("bob") }),
+    ]))
+    await expect(page.getByTestId(tid.settingsShell)).toBeVisible()
+    await expect(searchInput).toHaveValue(bob.name)
+    await expect(membersPanel.getByRole("listitem").filter({ hasText: bob.name })
+      .getByRole("button", { name: "Member", exact: true })).toBeVisible()
+    await searchInput.fill("")
+    await expect(searchInput).toHaveValue("")
+    await expect(membersPanel.getByRole("listitem").filter({ hasText: "Owner" }).first()).toBeVisible()
     await expectFiniteMembersFrame()
     expect(requests).toHaveLength(0)
     const response = page.waitForResponse((res) => new URL(res.url()).pathname === adminPath)
