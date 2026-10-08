@@ -148,6 +148,16 @@ describe("useInboxAutoCollapse", () => {
     expect(mocks.cancel).not.toHaveBeenCalled()
   })
 
+  it("keeps a reopened Inbox visible when the consumed opener handoff leaves the same route", async () => {
+    const href = "/c/channels/s1/c1"
+    const hook = renderInboxHook({ publishedHref: `${href}?inboxThreadOpener=first&keep=1` })
+    await hook.call(() => hook.current.onOpenChange(true))
+    await hook.rerender({ publishedHref: `${href}?keep=1` })
+    expect(hook.current.open).toBe(true)
+    await hook.rerender({ publishedHref: `${href}?keep=2` })
+    expect(hook.current.open).toBe(false)
+  })
+
   it("preserves the latest lease across a shell controller remount", async () => {
     const queryClient = {} as Options["queryClient"]
     const href = "/c/channels/s1/c1"

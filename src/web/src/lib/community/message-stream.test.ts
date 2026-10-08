@@ -1,16 +1,18 @@
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it } from "vitest"
 import type { Msg } from "@/lib/community/models/message"
 import {
   MAX_LIVE_MESSAGE_DELTAS,
   emptyMessageOverlay,
   getOutboxRetryPayload,
-  materializeMessageStream,
+  materializeMessageStream as materialize,
   reduceMessageOverlay,
   type CanonicalMessage,
   type MessageOverlayEvent,
-  type MessageOverlayState,
+  type MessageOverlayIds,
   type NewOutboxIntent,
 } from "./message-stream"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { ingestMessages } from "@/lib/community-db/sync"
 
 function message(id: string, seq: number, extra: Partial<Msg> = {}): CanonicalMessage {
   return {
@@ -51,15 +53,25 @@ function intent(
   }
 }
 
-function apply(state: MessageOverlayState, event: MessageOverlayEvent) {
-  return reduceMessageOverlay(state, event)
+let owner: Awaited<ReturnType<typeof createCommunityQueryOwner>>
+beforeEach(async () => { owner = await createCommunityQueryOwner("u1") })
+const canonicalRows = () => new Map([...owner.registry.collections.messages.values()].flatMap((row) =>
+  typeof row.seq === "number" ? [[row.id, row as CanonicalMessage] as const] : []))
+function materializeMessageStream(base: CanonicalMessage[], state: MessageOverlayIds) {
+  return materialize(base, state, canonicalRows())
+}
+function apply(state: MessageOverlayIds, event: MessageOverlayEvent) {
+  if (event.type === "wsMessage") ingestMessages(owner.registry, "channel", [event.message])
+  if (event.type === "baseChanged") ingestMessages(owner.registry, "channel", event.messages)
+  if (event.type === "postAck") throw new Error("POST confirmation belongs to the native mutation suite")
+  return reduceMessageOverlay(state, event, canonicalRows())
 }
 
-function ids(base: CanonicalMessage[], state: MessageOverlayState): string[] {
+function ids(base: CanonicalMessage[], state: MessageOverlayIds): string[] {
   return materializeMessageStream(base, state).map((row) => row.id)
 }
 
-function submit(state: MessageOverlayState, value = intent("n1", 1)) {
+function submit(state: MessageOverlayIds, value = intent("n1", 1)) {
   return apply(state, { type: "submit", intent: value }).state
 }
 
@@ -72,11 +84,18 @@ function canonical(
   return message(id, seq, { clientNonce: nonce, authorName: "Canonical", ...extra })
 }
 
-function ack(nonce = "n1", id = "m1", seq = 11, extra: Partial<Msg> = {}): MessageOverlayEvent {
-  return { type: "postAck", nonce, message: canonical(id, seq, nonce, extra) }
+function confirmation(nonce = "n1", id = "m1", seq = 11, extra: Partial<Msg> = {}): MessageOverlayEvent {
+  return { type: "wsMessage", message: canonical(id, seq, nonce, extra) }
 }
 
 describe("message stream monotonic visibility", () => {
+  it("gives the original window priority over a live ID with the same author and nonce", () => {
+    const state = apply(emptyMessageOverlay(), confirmation("same", "live", 20)).state
+    expect(state.liveIds).toEqual(["live"])
+    expect(materializeMessageStream([canonical("window", 5, "same")], state)).toEqual([
+      expect.objectContaining({ id: "window", seq: 5, clientNonce: "same" }),
+    ])
+  })
   it("removes a canonical live row after a post-unit delete", () => {
     let state = apply(emptyMessageOverlay(), {
       type: "wsMessage",
@@ -85,25 +104,18 @@ describe("message stream monotonic visibility", () => {
 
     state = apply(state, { type: "messageRemoved", messageId: "m_delete" }).state
 
-    expect(state.liveById.has("m_delete")).toBe(false)
+    expect(state.liveIds.includes("m_delete")).toBe(false)
     expect(ids([], state)).toEqual([])
   })
 
-  it("revokes preview URLs when a removed server message still has an outbox intent", () => {
-    let state = submit(emptyMessageOverlay(), intent("delete", 1, {
+  it("revokes preview URLs when a pending message is removed", () => {
+    const state = submit(emptyMessageOverlay(), intent("delete", 1, {
       localUploads: [{
         file: {} as File,
         previewObjectUrl: "blob:delete-preview",
       }],
     }))
-    const outboxByNonce = new Map(state.outboxByNonce)
-    outboxByNonce.set("delete", {
-      ...outboxByNonce.get("delete")!,
-      serverMessageId: "m_delete",
-    })
-    state = { ...state, outboxByNonce }
-
-    const transition = apply(state, { type: "messageRemoved", messageId: "m_delete" })
+    const transition = apply(state, { type: "messageRemoved", messageId: "temp_delete" })
 
     expect(transition.state.outboxByNonce.has("delete")).toBe(false)
     expect(transition.effects).toEqual([{
@@ -124,25 +136,25 @@ describe("message stream monotonic visibility", () => {
   })
 
   it.each([
-    ["ack → WS → stale snapshot", [
-      ack(),
+    ["confirmed → WS → stale snapshot", [
+      confirmation(),
       { type: "wsMessage", message: canonical() },
       { type: "baseChanged", messages: [message("older", 5)], latestSeq: 10 },
     ]],
-    ["WS → ack → stale snapshot", [
+    ["WS → confirmed → stale snapshot", [
       { type: "wsMessage", message: canonical() },
-      ack(),
+      confirmation(),
       { type: "baseChanged", messages: [message("older", 5)], latestSeq: 10 },
     ]],
-    ["stale snapshot → ack → delayed WS", [
+    ["stale snapshot → confirmed → delayed WS", [
       { type: "baseChanged", messages: [message("older", 5)], latestSeq: 10 },
-      ack(),
+      confirmation(),
       { type: "wsMessage", message: canonical() },
     ]],
-    ["WS → stale snapshot → ack", [
+    ["WS → stale snapshot → confirmed", [
       { type: "wsMessage", message: canonical() },
       { type: "baseChanged", messages: [message("older", 5)], latestSeq: 10 },
-      ack(),
+      confirmation(),
     ]],
   ] satisfies Array<[string, MessageOverlayEvent[]]>) (
     "%s always materializes exactly one canonical row",
@@ -161,7 +173,7 @@ describe("message stream monotonic visibility", () => {
     state = apply(state, { type: "wsMessage", message: row }).state
 
     expect(ids([], state)).toEqual(["m1"])
-    expect(state.liveById.size).toBe(1)
+    expect(state.liveIds.length).toBe(1)
   })
 
   it("retains WS canonical rows when different authors reuse the same nonce", () => {
@@ -236,7 +248,7 @@ describe("message stream monotonic visibility", () => {
 
   it("retains server-id WS settlement when the canonical row omits the nonce", () => {
     let state = submit(emptyMessageOverlay())
-    state = apply(state, ack()).state
+    state = apply(state, confirmation()).state
     state = apply(state, {
       type: "wsMessage",
       message: message("m1", 11, { authorId: "u1", authorName: "Canonical" }),
@@ -248,7 +260,7 @@ describe("message stream monotonic visibility", () => {
 
   it("retains server-id base settlement when the canonical row omits the nonce", () => {
     let state = submit(emptyMessageOverlay())
-    state = apply(state, ack()).state
+    state = apply(state, confirmation()).state
     const base = [message("m1", 11, { authorId: "u1", authorName: "Canonical" })]
     state = apply(state, { type: "baseChanged", messages: base }).state
 
@@ -277,8 +289,8 @@ describe("message stream monotonic visibility", () => {
       status: "pending",
       uploadStatus: "none",
     }))
-    expect(stored?.serverMessageId).toBeUndefined()
-    expect(stored?.serverSeq).toBeUndefined()
+    expect(stored).not.toHaveProperty("serverMessageId")
+    expect(stored).not.toHaveProperty("serverSeq")
     const materialized = materializeMessageStream([], state)[0]
     expect(materialized).toEqual(expect.objectContaining({
       id: "temp_n1",
@@ -304,47 +316,17 @@ describe("message stream monotonic visibility", () => {
     expect(state.outboxByNonce.size).toBe(1)
     expect(state.outboxByNonce.get("n1")?.status).toBe("pending")
 
-    state = apply(state, ack()).state
+    state = apply(state, confirmation()).state
     state = apply(state, { type: "wsMessage", message: canonical() }).state
     expect(ids([], state)).toEqual(["m1"])
     expect(state.outboxByNonce.size).toBe(0)
   })
 
-  it("merges the full POST canonical row into the intent while retaining optimistic reply and attachments", () => {
-    const replyTo = { id: "reply_1", authorName: "Reply Author", text: "preview" }
-    const attachments: Msg["attachments"] = [{ kind: "image", name: "image.png", url: "/local/image" }]
-    let state = submit(emptyMessageOverlay(), intent("n1", 1, {
-      message: { ...localMessage("optimistic"), replyTo, attachments },
-    }))
 
-    state = apply(state, ack("n1", "m1", 11, {
-      authorName: "Canonical Author",
-      authorAvatar: "canonical-avatar",
-      content: "canonical content",
-      createdAt: "2026-08-07T10:00:00.000Z",
-      embeds: [{ title: "Canonical embed" }],
-    })).state
-
-    expect(materializeMessageStream([], state)).toEqual([
-      expect.objectContaining({
-        id: "m1",
-        seq: 11,
-        authorName: "Canonical Author",
-        authorAvatar: "canonical-avatar",
-        content: "canonical content",
-        createdAt: "2026-08-07T10:00:00.000Z",
-        embeds: [{ title: "Canonical embed" }],
-        replyTo,
-        attachments,
-        clientNonce: "n1",
-        failed: false,
-      }),
-    ])
-  })
 
   it("does not treat latestSeq as proof that an anchor window contains the row", () => {
     let state = submit(emptyMessageOverlay())
-    state = apply(state, ack()).state
+    state = apply(state, confirmation()).state
     state = apply(state, {
       type: "baseChanged",
       messages: [message("anchor", 50)],
@@ -352,19 +334,20 @@ describe("message stream monotonic visibility", () => {
     }).state
 
     expect(ids([message("anchor", 50)], state)).toEqual(["m1", "anchor"])
-    expect(state.outboxByNonce.has("n1")).toBe(true)
+    expect(state.outboxByNonce.has("n1")).toBe(false)
   })
 
   it("settles an exact base hit into a bounded fallback that survives later window omission", () => {
     let state = submit(emptyMessageOverlay())
-    state = apply(state, ack()).state
+    state = apply(state, confirmation()).state
     state = apply(state, {
       type: "baseChanged",
       messages: [canonical("m1", 11, "n1", { content: "from base" })],
     }).state
 
     expect(state.outboxByNonce.size).toBe(0)
-    expect(state.liveById.get("m1")?.content).toBe("from base")
+    expect(state.liveIds).toContain("m1")
+    expect(canonicalRows().get("m1")?.content).toBe("from base")
     expect(ids([canonical()], state)).toEqual(["m1"])
 
     state = apply(state, {
@@ -412,60 +395,10 @@ describe("message stream monotonic visibility", () => {
       "m10", "m20", "temp_n1", "temp_n2",
     ])
 
-    state = apply(state, ack("n2", "m15", 15)).state
+    state = apply(state, confirmation("n2", "m15", 15)).state
     expect(ids([message("m20", 20), message("m10", 10)], state)).toEqual([
       "m10", "m15", "m20", "temp_n1",
     ])
-  })
-
-  it("refreshes only an existing live fallback and never absorbs outbox", () => {
-    const initial = emptyMessageOverlay()
-    const absent = apply(initial, {
-      type: "liveRefreshed",
-      message: canonical("m1", 11, "n1", { content: "ignored" }),
-    })
-    expect(absent.state).toBe(initial)
-    expect(absent.state.liveById.size).toBe(0)
-
-    let state = submit(emptyMessageOverlay())
-    state = apply(state, { type: "wsMessage", message: canonical() }).state
-    state = submit(state, intent("n2", 2))
-    state = apply(state, {
-      type: "liveRefreshed",
-      message: canonical("m1", 11, "n1", { content: "refreshed" }),
-    }).state
-    expect(state.liveById.get("m1")?.content).toBe("refreshed")
-    expect(state.outboxByNonce.has("n2")).toBe(true)
-  })
-
-  it("does not refresh a live row from a peer row with the same nonce", () => {
-    const state = apply(emptyMessageOverlay(), {
-      type: "wsMessage",
-      message: canonical("m1", 11, "same", { authorId: "u1", content: "original" }),
-    }).state
-    const transition = apply(state, {
-      type: "liveRefreshed",
-      message: canonical("m2", 12, "same", { authorId: "u2", content: "peer" }),
-    })
-
-    expect(transition.state).toBe(state)
-    expect(transition.state.liveById.get("m1")?.content).toBe("original")
-    expect(transition.state.liveById.has("m2")).toBe(false)
-  })
-
-  it("patches edited content across live and acknowledged outbox rows", () => {
-    let state = submit(emptyMessageOverlay(), intent("n1", 1))
-    state = apply(state, ack()).state
-    state = apply(state, {
-      type: "wsMessage",
-      message: canonical("m2", 12, "n2", { content: "before" }),
-    }).state
-
-    state = apply(state, { type: "messageEdited", messageId: "m1", content: "outbox edit" }).state
-    state = apply(state, { type: "messageEdited", messageId: "m2", content: "live edit" }).state
-
-    expect(state.outboxByNonce.get("n1")?.message.content).toBe("outbox edit")
-    expect(state.liveById.get("m2")?.content).toBe("live edit")
   })
 
   it("bounds canonical live deltas to the existing 500-row live-tail scale", () => {
@@ -474,10 +407,10 @@ describe("message stream monotonic visibility", () => {
       state = apply(state, { type: "wsMessage", message: message(`m${seq}`, seq) }).state
     }
 
-    expect(state.liveById.size).toBe(MAX_LIVE_MESSAGE_DELTAS)
-    expect(state.liveById.has("m1")).toBe(false)
-    expect(state.liveById.has("m2")).toBe(false)
-    expect(state.liveById.has(`m${MAX_LIVE_MESSAGE_DELTAS + 2}`)).toBe(true)
+    expect(state.liveIds.length).toBe(MAX_LIVE_MESSAGE_DELTAS)
+    expect(state.liveIds.includes("m1")).toBe(false)
+    expect(state.liveIds.includes("m2")).toBe(false)
+    expect(state.liveIds.includes(`m${MAX_LIVE_MESSAGE_DELTAS + 2}`)).toBe(true)
   })
 })
 
@@ -500,6 +433,13 @@ describe("attachment ownership effects", () => {
     ],
   })
 
+  it("keeps upload intent without inventing an attachment URL when preview is absent", () => {
+    const local = { file: retryFile, thumbnailBlob: retryThumbnail }
+    const state = submit(emptyMessageOverlay(), intent("no-preview", 1, { localUploads: [local] }))
+    expect(materializeMessageStream([], state)[0].attachments).toBeUndefined()
+    expect(getOutboxRetryPayload(state, "no-preview")?.localUploads[0].file).toBe(retryFile)
+    expect(getOutboxRetryPayload(state, "no-preview")?.localUploads[0].thumbnailBlob).toBe(retryThumbnail)
+  })
   it("initializes lifecycle and retains immutable upload inputs through retry", () => {
     let state = submit(emptyMessageOverlay(), attachedIntent())
     expect(state.outboxByNonce.get("files")).toEqual(expect.objectContaining({
@@ -525,22 +465,19 @@ describe("attachment ownership effects", () => {
     ])
   })
 
-  it("transfers attachment preview ownership on ack and never revokes twice on WS/base/clear", () => {
+  it("releases attachment previews on confirmation and never revokes twice on WS/base/clear", () => {
     let state = submit(emptyMessageOverlay(), attachedIntent())
     state = apply(state, {
       type: "uploadSettled",
       nonce: "files",
       attachments: [{ kind: "file", name: "notes.txt", url: "/media/notes", size: "1 KB" }],
     }).state
-    const acked = apply(state, ack("files", "mf", 20))
+    const acked = apply(state, confirmation("files", "mf", 20))
     expect(acked.effects).toEqual([
       { type: "revokeObjectUrl", url: "blob:a" },
       { type: "revokeObjectUrl", url: "blob:b" },
     ])
-    expect(acked.state.outboxByNonce.get("files")?.localUploads).toEqual([])
-    expect(acked.state.outboxByNonce.get("files")?.message.attachments).toEqual([
-      { kind: "file", name: "notes.txt", url: "/media/notes", size: "1 KB" },
-    ])
+    expect(acked.state.outboxByNonce.has("files")).toBe(false)
 
     const ws = apply(acked.state, { type: "wsMessage", message: canonical("mf", 20, "files") })
     expect(ws.effects).toEqual([])
@@ -556,14 +493,7 @@ describe("attachment ownership effects", () => {
   })
 
   it.each([
-    ["POST ack then base", (state: MessageOverlayState) => {
-      const acked = apply(state, ack("files", "mf", 20))
-      return apply(acked.state, {
-        type: "baseChanged",
-        messages: [canonical("mf", 20, "files")],
-      }).state
-    }],
-    ["WS then base", (state: MessageOverlayState) => {
+    ["WS then base", (state: MessageOverlayIds) => {
       const ws = apply(state, {
         type: "wsMessage",
         message: canonical("mf", 20, "files", { attachments: settledAttachments }),
@@ -572,13 +502,6 @@ describe("attachment ownership effects", () => {
         type: "baseChanged",
         messages: [canonical("mf", 20, "files")],
       }).state
-    }],
-    ["base before POST ack", (state: MessageOverlayState) => {
-      const based = apply(state, {
-        type: "baseChanged",
-        messages: [canonical("mf", 20, "files")],
-      })
-      return apply(based.state, ack("files", "mf", 20)).state
     }],
   ])("preserves settled attachments through a lagging canonical %s", (_label, arrange) => {
     let state = submit(emptyMessageOverlay(), attachedIntent())
@@ -589,11 +512,12 @@ describe("attachment ownership effects", () => {
     }).state
 
     const converged = arrange(state)
-    const laggingBase = canonical("mf", 20, "files")
+    const currentBase = canonicalRows().get("mf")!
 
     expect(converged.outboxByNonce.size).toBe(0)
-    expect(converged.liveById.get("mf")?.attachments).toEqual(settledAttachments)
-    expect(materializeMessageStream([laggingBase], converged)[0]?.attachments).toEqual(
+    expect(converged.liveIds).toContain("mf")
+    expect(canonicalRows().get("mf")?.attachments).toEqual(settledAttachments)
+    expect(materializeMessageStream([currentBase], converged)[0]?.attachments).toEqual(
       settledAttachments,
     )
   })
@@ -610,7 +534,8 @@ describe("attachment ownership effects", () => {
       messages: [emptyCanonical],
     }).state
 
-    expect(state.liveById.get("mf")?.attachments).toEqual([])
+    expect(state.liveIds).toContain("mf")
+    expect(canonicalRows().get("mf")?.attachments).toEqual([])
     expect(materializeMessageStream([emptyCanonical], state)[0]?.attachments).toEqual([])
   })
 
@@ -634,20 +559,22 @@ describe("attachment ownership effects", () => {
       messages: [replacementCanonical],
     }).state
 
-    expect(state.liveById.get("mf")?.attachments).toEqual(replacement)
+    expect(state.liveIds).toContain("mf")
+    expect(canonicalRows().get("mf")?.attachments).toEqual(replacement)
     expect(materializeMessageStream([replacementCanonical], state)[0]?.attachments).toEqual(
       replacement,
     )
   })
 
-  it("preserves attachments when materialization reconciles a matching nonce under a new id", () => {
-    const state = apply(emptyMessageOverlay(), {
+  it("preserves complete canonical attachments when reconciling a matching nonce under a new id", () => {
+    let state = apply(emptyMessageOverlay(), {
       type: "wsMessage",
       message: canonical("ws-id", 20, "files", { attachments: settledAttachments }),
     }).state
-    const laggingBase = canonical("base-id", 20, "files")
+    const completeBase = canonical("base-id", 20, "files", { attachments: settledAttachments })
+    state = apply(state, { type: "baseChanged", messages: [completeBase] }).state
 
-    expect(materializeMessageStream([laggingBase], state)).toEqual([
+    expect(materializeMessageStream([completeBase], state)).toEqual([
       expect.objectContaining({ id: "base-id", attachments: settledAttachments }),
     ])
   })
@@ -663,7 +590,7 @@ describe("attachment ownership effects", () => {
       { type: "revokeObjectUrl", url: "blob:a" },
       { type: "revokeObjectUrl", url: "blob:b" },
     ])
-    const lateAck = apply(ws.state, ack("files", "mf", 20))
+    const lateAck = apply(ws.state, confirmation("files", "mf", 20))
     expect(lateAck.effects).toEqual([])
   })
 
@@ -701,7 +628,7 @@ describe("attachment ownership effects", () => {
 
   it("emits cleanup exactly once for canonical base absorption and clear", () => {
     const state = submit(emptyMessageOverlay(), attachedIntent())
-    const acked = apply(state, ack("files", "mf", 20))
+    const acked = apply(state, confirmation("files", "mf", 20))
     expect(acked.effects).toHaveLength(2)
     const absorbed = apply(acked.state, { type: "baseChanged", messages: [canonical("mf", 20, "files")] })
     expect(absorbed.effects).toEqual([])

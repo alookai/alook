@@ -50,8 +50,6 @@ export type UploadFileResult = {
   height?: number
 }
 
-export type UploadedAttachment = UploadFileResult & { width?: number; height?: number }
-
 export function appendGeneratedThumbnail(
   formData: FormData,
   originalContentType: string,
@@ -103,11 +101,11 @@ export function buildAttachmentUploadFormData({
 export function zipUploadResultsWithDimensions(
   results: (UploadFileResult | null)[],
   attachments: { file: File; width?: number; height?: number }[],
-): UploadedAttachment[] {
-  const zipped: (UploadedAttachment | null)[] = results.map((r, i) =>
+): UploadFileResult[] {
+  const zipped: (UploadFileResult | null)[] = results.map((r, i) =>
     r ? { ...r, width: attachments[i].width, height: attachments[i].height } : null,
   )
-  return zipped.filter((x): x is UploadedAttachment => x !== null)
+  return zipped.filter((x): x is UploadFileResult => x !== null)
 }
 
 function uploadPath(target: UploadTarget): string | null {

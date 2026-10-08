@@ -8,7 +8,6 @@ import { useChannelWatermark } from "./use-channel-watermark"
 import { useMessages } from "./use-messages"
 import { usePins, useThreads } from "./use-channel-panels"
 import { resolveMessageReadProjection } from "@/lib/community/message-read-projection"
-import { useReadStateProjection } from "@/lib/community-db/projections"
 
 export function useChannelMessageFeed({
   channelId,
@@ -23,8 +22,7 @@ export function useChannelMessageFeed({
   isChildChannel: boolean
   anchorMessageId: string | null
 }) {
-  const canonicalReadSnapshot = useReadStateProjection(channelId)
-  const readState = useChannelReadStateSnapshot(channelId, canonicalReadSnapshot)
+  const readState = useChannelReadStateSnapshot(channelId)
   const readSnapshot = readState.snapshot
   const messagesQuery = useMessages(channelId, {
     serverId,

@@ -74,7 +74,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
       .map((channel) => channel.parentMessageId)
       .filter((id): id is string => !!id)
     const [parentMessages, unreadRows] = await Promise.all([
-      queries.communityMessage.getMessagesByIds(db, parentMessageIds),
+      queries.communityMessage.getMessagesByIdsInChannels(db, parentMessageIds, forumIds),
       queries.communityInbox.listEligibleUnreadChannels(db, ctx.actor.userId, rows.map((channel) => channel.id)),
     ])
     const unreadIds = new Set(unreadRows.map((row) => row.channelId))

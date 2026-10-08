@@ -290,8 +290,14 @@ vi.mock("@/hooks/community/mutations", () => ({
   useKickMember: () => ({ mutateAsync: vi.fn() }),
   useSetChannelNotif: () => ({ mutate: vi.fn() }),
   useUploadFile: () => ({ mutateAsync: vi.fn() }),
-  zipUploadResultsWithDimensions: () => [],
+}))
+vi.mock("@/hooks/community/mutations/messages", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/hooks/community/mutations/messages")>(),
   sendNonce: () => "nonce_1",
+}))
+vi.mock("@/hooks/community/mutations/uploads", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/hooks/community/mutations/uploads")>(),
+  zipUploadResultsWithDimensions: () => [],
 }))
 vi.mock("@/hooks/community/use-community-ws", () => ({
   communityWsSendTyping: vi.fn(),

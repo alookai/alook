@@ -1,3 +1,4 @@
+import type { Presence as CommunityPresence } from "@/lib/community/models/people"
 import { createStore } from "@tanstack/store"
 
 // Cap the seen-message set to bound memory. Mirrors the current dedup logic
@@ -14,7 +15,6 @@ type DeliveryOperationState = {
   completed: boolean
 }
 
-type CommunityPresence = "online" | "offline"
 type CommunityPresenceSnapshot = {
   viewerId: string | null
   accountEpoch: number
@@ -25,7 +25,7 @@ export type CommunityWsConnectionStatus = "connected" | "reconnecting" | "failed
 const NOOP_RECONNECT = () => undefined
 
 type ChannelAccessScope = {
-  serverId: string
+  serverId: string | null
   parentChannelId?: string | null
   generation: number
   revoked: boolean
@@ -35,13 +35,13 @@ type CommunityWsStoreState = {
   accessEpoch: number
   channelAccessScopes: Map<string, ChannelAccessScope>
   revokedServerIds: Set<string>
-  beginChannelMembershipChange: (serverId: string, channelId: string) => number
+  beginChannelMembershipChange: (serverId: string | null, channelId: string) => number
   observeChannelScope: (serverId: string, channelId: string, parentChannelId?: string | null) => void
-  rememberChannelAccess: (serverId: string, channelId: string, parentChannelId?: string | null) => void
-  revokeChannelAccess: (serverId: string, channelId: string) => string[]
+  rememberChannelAccess: (serverId: string | null, channelId: string, parentChannelId?: string | null) => void
+  revokeChannelAccess: (serverId: string | null, channelId: string) => string[]
   revokeServerAccess: (serverId: string) => void
   grantServerAccess: (serverId: string) => void
-  isChannelAccessRevoked: (channelId: string, serverId?: string, parentChannelId?: string) => boolean
+  isChannelAccessRevoked: (channelId: string, serverId?: string | null, parentChannelId?: string) => boolean
   accessConnected: boolean
   connectionStatus: CommunityWsConnectionStatus
   reconnectNow: () => void
@@ -220,7 +220,7 @@ export function createCommunityWsStore(viewerId: string | null) {
     const scopes = new Map(get().channelAccessScopes)
     const previous = scopes.get(channelId)
     const generation = (previous?.generation ?? 0) + 1
-    scopes.set(channelId, { serverId, revoked: false, ...previous, generation })
+    scopes.set(channelId, { ...previous, serverId, revoked: false, generation })
     setState((state) => ({ ...state, ...{ channelAccessScopes: scopes } }))
     return generation
   },
@@ -252,9 +252,9 @@ export function createCommunityWsStore(viewerId: string | null) {
     }
     for (const id of affected) {
       const previous = scopes.get(id)
-      scopes.set(id, { serverId, ...previous, generation: (previous?.generation ?? 0) + 1, revoked: true })
+      scopes.set(id, { serverId, ...previous, generation: (previous?.generation ?? 0) + (previous?.revoked ? 0 : 1), revoked: true })
     }
-    setState((state) => ({ ...state, ...{ channelAccessScopes: scopes, accessEpoch: get().accessEpoch + 1 } }))
+    setState((state) => ({ ...state, ...{ channelAccessScopes: scopes } }))
     return [...affected]
   },
 

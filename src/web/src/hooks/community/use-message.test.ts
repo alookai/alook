@@ -15,6 +15,18 @@ const payload = {
 }
 
 describe("useMessage / messageQueryFn", () => {
+  it("clears absent rich fields from a fresh complete exact response", async () => {
+    const { client, registry } = await createCommunityQueryOwner()
+    ingestMessages(registry, payload.channelId, [{ ...payload,
+      attachments: [{ kind: "file", name: "old.txt", url: "/old", size: "1 KB" }],
+      embeds: [{ title: "Old" }], reactions: [{ emoji: "👍", count: 1 }],
+      replyTo: { id: "reply", authorName: "Peer", text: "Old reply" },
+    }])
+    apiFetchMock.mockResolvedValueOnce(payload)
+    await client.query({ queryKey: communityKeys.message(payload.id), queryFn: messageQueryFn(payload.id, client) })
+    expect(registry.collections.messages.get(payload.id)).toMatchObject({ attachments: [], embeds: [], reactions: [], replyToId: null })
+    expect(registry.collections.messages.get(payload.id)?.replyTo).toBeUndefined()
+  })
   it("fetches from /messages/:id and publishes the hydrated payload into canonical DB", async () => {
     const { client, registry } = await createCommunityQueryOwner()
     apiFetchMock.mockResolvedValueOnce(payload)

@@ -1,7 +1,8 @@
+import type { queries } from "@alook/shared"
 import type { QueryClient } from "@tanstack/react-query"
 
 export type ReadCoordinatorSnapshot = {
-  readStates: Array<{ channelId: string; lastReadSeq: number }>
+  readStates: Pick<queries.communityReadState.AccountReadState, "channelId" | "lastReadSeq">[]
 }
 
 type SnapshotProjector = (snapshot: ReadCoordinatorSnapshot) => void

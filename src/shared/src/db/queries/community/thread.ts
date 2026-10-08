@@ -20,8 +20,6 @@ import { compareAsciiSqliteBinary } from "../../../lib/sqlite-binary";
 
 // Derived from PARTICIPANT_SOURCE (constants/community.ts) so the type and the
 // literal set can never drift.
-export type ThreadParticipantSource = ParticipantSource;
-
 const NOTIFY_CONFLICT_TARGET = [
   communityChannelMember.channelId,
   communityChannelMember.userId,
@@ -33,7 +31,7 @@ const NOTIFY_CONFLICT_TARGET = [
 // Returns the inserted row, or null when the participant already existed.
 export async function addThreadParticipant(
   db: Database,
-  data: { threadChannelId: string; userId: string; source: ThreadParticipantSource }
+  data: { threadChannelId: string; userId: string; source: ParticipantSource }
 ) {
   const rows = await db
     .insert(communityChannelMember)
@@ -54,7 +52,7 @@ export async function addThreadParticipant(
 export async function addThreadParticipants(
   db: Database,
   threadChannelId: string,
-  rows: { userId: string; source: ThreadParticipantSource }[]
+  rows: { userId: string; source: ParticipantSource }[]
 ) {
   if (rows.length === 0) return [];
   // communityChannelMember emits 6 bind params/row (id $defaultFn, channel_id,

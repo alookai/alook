@@ -16,6 +16,7 @@ describe("forum opener message pagination against real SQLite", () => {
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         email TEXT NOT NULL,
+        discriminator TEXT NOT NULL DEFAULT '0001',
         image TEXT
         ,avatarVersion INTEGER NOT NULL DEFAULT 0
         ,avatarObjectKey TEXT
@@ -61,6 +62,28 @@ describe("forum opener message pagination against real SQLite", () => {
 
   afterEach(() => sqlite.close())
 
+  it("preserves each reader's exact columns while sharing body and parsed embeds", async () => {
+    sqlite.prepare("UPDATE community_message SET embeds = ?, client_nonce = ?, friendship_id = ? WHERE id = ?")
+      .run('[{"title":"Native"}]', "nonce", "friendship", "m1")
+    const reads = [
+      { row: await messageQueries.getMessage(db as never, "m1"), extra: ["seq", "authorEmail"] },
+      { row: await messageQueries.getMessageByAuthorAndNonce(db as never, "u1", "nonce"), extra: ["seq", "authorEmail"] },
+      { row: (await messageQueries.getMessagesByIds(db as never, ["m1"]))[0], extra: ["seq", "authorEmail"] },
+      { row: await messageQueries.getMessageInScope(db as never, "m1", { channelId: "c1" }), extra: ["authorEmail"] },
+      { row: (await messageQueries.getMessagesByIdsInChannels(db as never, ["m1"], ["c1"]))[0], extra: ["seq", "clientNonce", "discriminator", "authorEmail"] },
+      { row: (await messageQueries.getFirstMessageResourcesByChannelIds(db as never, ["c1"]))[0], extra: ["seq", "clientNonce"] },
+      { row: (await messageQueries.listMessages(db as never, { channelId: "c1", limit: 6 })).find((row) => row.id === "m1"), extra: ["seq", "clientNonce", "friendshipId", "authorEmail"] },
+    ]
+    const common = ["id", "authorId", "content", "type", "mentionType", "replyToId", "embeds", "createdAt", "channelId", "authorName", "authorImage", "authorAvatarVersion"]
+    for (const { row, extra } of reads) {
+      if (!row) throw new Error("Expected native fixture message")
+      expect(Object.keys(row).sort()).toEqual([...common, ...extra].sort())
+      expect(row).toMatchObject({ id: "m1", channelId: "c1", content: "message 1", authorName: "Alice", authorImage: null, authorAvatarVersion: 0, embeds: [{ title: "Native" }] })
+    }
+    expect(await messageQueries.getMessageInScope(db as never, "m1", { channelId: "c2" })).toBeNull()
+    expect(await messageQueries.getMessagesByIdsInChannels(db as never, ["m1"], ["c2"])).toEqual([])
+  })
+
   it("filters by channel and tag before LIMIT, yielding a full page with no cross-channel leak", async () => {
     const rows = await messageQueries.listMessages(db as never, { channelId: "c1", tag: "bug", limit: 3 })
     expect(rows.map((row) => row.id)).toEqual(["m6", "m4", "m2"])
@@ -100,5 +123,16 @@ describe("forum opener message pagination against real SQLite", () => {
   it("lists only the current channel's distinct opener-message tags", async () => {
     await expect(tagQueries.listDistinctTagsForChannel(db as never, "c1"))
       .resolves.toEqual(["bug", "feature"])
+  })
+
+  it("returns the real first resource for each requested channel without duplicates or foreign rows", async () => {
+    sqlite.prepare("UPDATE community_message SET client_nonce = ?, embeds = ? WHERE id = ?")
+      .run("first-client-nonce", JSON.stringify([{ url: "https://example.test/first" }]), "m1")
+    const rows = await messageQueries.getFirstMessageResourcesByChannelIds(db as never, ["c1", "c1", "empty"])
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ id: "m1", channelId: "c1", seq: 1, authorId: "u1", authorName: "Alice", authorAvatarVersion: 0, clientNonce: "first-client-nonce", embeds: [{ url: "https://example.test/first" }] })
+    expect(rows[0]).not.toHaveProperty("authorEmail")
+    expect((await messageQueries.getFirstMessageResourcesByChannelIds(db as never, ["c2", "c1"])).map((row) => row.id).sort()).toEqual(["m1", "x1"])
+    await expect(messageQueries.getFirstMessageResourcesByChannelIds(db as never, [])).resolves.toEqual([])
   })
 })

@@ -12,7 +12,7 @@ import {
   type MessageDeliveryBatch,
   type AlookQueueTask,
 } from "@alook/shared"
-import { mapMessageForWs } from "./message-payload"
+import { mapMessageForWs, type MessageRow } from "./message-payload"
 import { sendMessageDeliveryBatch } from "./message-delivery-transport"
 import { enqueueQueueTasks } from "./queue-producer"
 import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
@@ -22,6 +22,7 @@ const log = createLogger({ service: "committed-message-dispatcher" })
 export type CommittedMessageStructuralOutcome = {
   /** A participant row inserted by this exact message write. */
   memberAddedUserId?: string
+  joinedParticipantUserIds?: string[]
   /** Existing thread-open collision suppression; no audience/policy input. */
   suppressParentProjection?: boolean
 }
@@ -52,7 +53,7 @@ function unique(values: readonly string[]): string[] {
   return [...new Set(values)]
 }
 
-async function planCommittedMessageBase(
+export async function planCommittedMessage(
   db: Database,
   messageId: string,
   structural: CommittedMessageStructuralOutcome = {},
@@ -168,12 +169,7 @@ async function planCommittedMessageBase(
     ...mentionUserIds,
   ])
 
-  const replyMap = new Map<string, {
-    id: string
-    authorId: string
-    authorName: string
-    content: string | null
-  }>()
+  const replyMap = new Map<string, Pick<MessageRow, "id" | "authorId" | "authorName" | "content">>()
   if (replyTarget) {
     replyMap.set(replyTarget.id, {
       id: replyTarget.id,
@@ -221,6 +217,8 @@ async function planCommittedMessageBase(
       } as const
     : undefined
 
+  const joinedParticipantUserIds = [...new Set(structural.joinedParticipantUserIds ?? [])]
+  if (joinedParticipantUserIds.some((id) => !channel.serverId || !contentUserIds.includes(id))) throw new Error("committed participant outcome is outside message scope")
   if (
     structural.memberAddedUserId
     && (!channel.serverId || !contentUserIds.includes(structural.memberAddedUserId))
@@ -238,6 +236,7 @@ async function planCommittedMessageBase(
     mentionUserIds,
     wakeBotUserIds,
     pushUserIds,
+    ...(joinedParticipantUserIds.length ? { joinedParticipantUserIds, rosterRefreshUserId: joinedParticipantUserIds[0]! } : {}),
     ...(structural.memberAddedUserId && channel.serverId
       ? {
           memberAdded: {
@@ -253,54 +252,32 @@ async function planCommittedMessageBase(
   }
 }
 
-export async function planCommittedMessage(
-  db: Database,
-  messageId: string,
-  structural: CommittedMessageStructuralOutcome = {},
-): Promise<MessageDeliveryPlan> {
-  return planCommittedMessageBase(db, messageId, structural)
-}
-
 async function runCommittedMessageDispatch(
   db: Database,
   messageId: string,
   structural: CommittedMessageStructuralOutcome,
 ): Promise<void> {
   const startedAt = Date.now()
-  const plan = await planCommittedMessageBase(
+  const plan = await planCommittedMessage(
     db,
     messageId,
     structural,
   )
-  const browserBatch: MessageDeliveryBatch = {
-    messageId: plan.messageId,
-    messageEvent: plan.messageEvent,
-    contentUserIds: plan.contentUserIds,
-    unreadPlainUserIds: plan.unreadPlainUserIds,
-    unreadMentionUserIds: plan.unreadMentionUserIds,
-    mentionUserIds: plan.mentionUserIds,
-    ...(plan.memberAdded ? { memberAdded: plan.memberAdded } : {}),
-    ...(plan.parentProjection
-      ? {
-          parentProjection: plan.parentProjection,
-          parentProjectionUserIds: plan.parentProjectionUserIds,
-        }
-      : {}),
-  }
-  const pushTasks: AlookQueueTask[] = plan.pushUserIds.map((userId) => ({
+  const { operationId, wakeBotUserIds, pushUserIds, ...browserBatch } = plan
+  const pushTasks: AlookQueueTask[] = pushUserIds.map((userId) => ({
     version: 1 as const,
     kind: "mobile-push" as const,
     messageId: plan.messageId,
     userId,
   }))
-  const browserDelivery = sendMessageDeliveryBatch(browserBatch, plan.operationId)
+  const browserDelivery = sendMessageDeliveryBatch(browserBatch, operationId)
   const pushDelivery = enqueueQueueTasks(pushTasks)
-  const botWake = enqueueQueueTasks(plan.wakeBotUserIds.map((botUserId) => ({
+  const botWake = enqueueQueueTasks(wakeBotUserIds.map((botUserId) => ({
     version: 1 as const,
     kind: "bot-wake" as const,
     messageId: plan.messageId,
     botUserId,
-  }))).then(() => plan.wakeBotUserIds.length)
+  }))).then(() => wakeBotUserIds.length)
   const [browser, push, wake] = await Promise.allSettled([
     browserDelivery,
     pushDelivery,
@@ -330,7 +307,7 @@ async function runCommittedMessageDispatch(
     unreadCount: plan.unreadPlainUserIds.length + plan.unreadMentionUserIds.length,
     mentionCount: plan.mentionUserIds.length,
     wakeCount: wake.status === "fulfilled" ? wake.value : 0,
-    pushCount: plan.pushUserIds.length,
+    pushCount: pushUserIds.length,
     parentCount: plan.parentProjectionUserIds?.length ?? 0,
     durationMs: Date.now() - startedAt,
   })

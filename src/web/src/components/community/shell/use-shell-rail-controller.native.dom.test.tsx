@@ -48,6 +48,7 @@ vi.mock("@/components/community/channels/channel-sidebar-tree-owner", () => ({ C
 vi.mock("@/components/community/settings/server-settings", () => ({ ServerSettings: () => null }))
 let controller: ReturnType<typeof useShellRailController>, client: QueryClient
 let navigation: CommunityNavigationController
+let railStyles: HTMLStyleElement
 function Probe({ sidebar = false }: { sidebar?: boolean }) {
   const currentClient = useQueryClient()
   const frame = { ...normalizeCommunityHref(route.pathname), revision: route.revision }
@@ -81,8 +82,11 @@ beforeEach(async () => {
   await clearAllPersistedCaches(); api.mockReset(); Object.values(ui).forEach((fn) => fn.mockReset())
   route.pathname = "/c/channels/s1"; route.revision = 0; window.history.replaceState(null, "", route.pathname)
   vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("prefers-reduced-motion"), media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+  railStyles = document.createElement("style")
+  railStyles.textContent = `[data-testid="${tid.serverRailScroll}"].overflow-y-auto { overflow-y: auto; }`
+  document.head.appendChild(railStyles)
 })
-afterEach(() => { api.mockReset(); vi.unstubAllGlobals() })
+afterEach(() => { railStyles.remove(); api.mockReset(); vi.unstubAllGlobals() })
 describe("actual native Rail controller continuation", () => {
   it("current create continues icon upload and navigation through the original account", async () => {
     const { resolve } = await mount()

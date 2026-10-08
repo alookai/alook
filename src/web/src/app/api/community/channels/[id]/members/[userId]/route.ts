@@ -77,7 +77,9 @@ export const DELETE = withCommunityActor(async (req: NextRequest, ctx) => {
   if (!removed) return writeError("member not found", 404)
 
   const event = {
-    type: WS_EVENTS.CHANNEL_MEMBER_REMOVE,
+    type: WS_EVENTS.CHANNEL_MEMBERSHIP_CHANGE,
+    relation: "access",
+    present: false,
     serverId: channel.serverId,
     channelId,
     userId: targetUserId,

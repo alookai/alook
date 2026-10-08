@@ -1,5 +1,5 @@
 import { getCapturedRuntime } from "./test-harness"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import type { CommunityWsEvent } from "@alook/shared"
 import type { ThreadsResponse } from "@/hooks/community/use-channel-panels"
@@ -8,12 +8,12 @@ import { communityKeys } from "@/lib/query-keys"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import {
   createCommunityDbRegistry,
+  getCommunityDbRegistry,
   registerCommunityDbRegistry,
 } from "@/lib/community-db/collections"
-import { ingestServerDetail, projectCommunityWsEventToDb } from "@/lib/community-db/sync"
+import { ingestServerDetail, projectCommunityWsEventToDb, retireCommunityChannelReading } from "@/lib/community-db/sync"
 import {
   applyForumPostUnitClientEffects,
-  projectChannelScopeEviction,
 } from "./channel-scope-projection"
 import {
   capturedOnMessage,
@@ -48,9 +48,7 @@ it("purges canonical rows for authoritative channel and forum-post eviction", as
     type: "community:channel.child_create", parentChannelId: "forum", parentMessageId: "opener",
     channel: { id: "thread", name: "Thread", type: "thread", createdAt: "2026-09-25T00:00:00.000Z" },
   } as CommunityWsEvent)
-  const projection = { project: (callback: () => void) => callback() } as never
-
-  projectChannelScopeEviction(projection, queryClient, "server", "channel")
+  retireCommunityChannelReading(registry, "channel", { reason: "read-denied", serverId: "server" })
   expect(registry.collections.channels.get("channel")).toBeUndefined()
 
   applyForumPostUnitClientEffects(queryClient, {
@@ -122,7 +120,7 @@ describe.each(["text", "forum"] as const)("%s canonical thread scope eviction", 
     const pendingKey = communityKeys.messageContext("channel", "preview_child", 2)
     const otherKey = communityKeys.messageContext("channel", "other_child", 1)
     const foreignKey = communityKeys.messageContext("channel", "foreign_child", 1)
-    const dmKey = communityKeys.messageContext("dm", "preview_child", 1)
+    const dmKey = communityKeys.messageContext("dm", "other_dm", 1)
     for (const key of [contextKey, otherKey, foreignKey, dmKey]) capturedQueryClient.setQueryData(key, preview)
     capturedQueryClient.setQueryData(communityKeys.channelMessages("preview_child"), { pages: [{ messages: preview.messages }] })
     capturedQueryClient.setQueryData(communityKeys.pins("preview_child"), { pins: preview.messages })
@@ -141,6 +139,7 @@ describe.each(["text", "forum"] as const)("%s canonical thread scope eviction", 
     expect(capturedQueryClient.getQueryState(communityKeys.channelMeta("server", "preview_child"))).toBeUndefined()
     expect(getCapturedRuntime().ws.get().channelAccessScopes.has("preview_child")).toBe(false)
     const apiCalls = getCommunityApiFetchMock().mock.calls.length
+    const retireDisk = vi.spyOn(getCommunityDbRegistry(capturedQueryClient)!, "retireReadingDisk")
 
     capturedOnMessage!(event)
 
@@ -156,6 +155,8 @@ describe.each(["text", "forum"] as const)("%s canonical thread scope eviction", 
     expect(capturedQueryClient.getQueryData(foreignKey)).toEqual(preview)
     expect(capturedQueryClient.getQueryData(dmKey)).toEqual(preview)
     expect(getCommunityApiFetchMock()).toHaveBeenCalledTimes(apiCalls)
+    expect(retireDisk).toHaveBeenCalledTimes(1)
+    expect(new Set(retireDisk.mock.calls[0]![0])).toContain("preview_child")
 
     release(preview)
     await pending
@@ -198,7 +199,7 @@ it("preserves readable previews when leaving only a thread's notify membership",
   capturedQueryClient.setQueryData(key, preview)
 
   capturedOnMessage!({
-    type: "community:channel.member_remove", serverId: "server", channelId: "preview_child", userId: "u_me",
+    type: "community:channel.membership.change", serverId: "server", channelId: "preview_child", userId: "u_me", relation: "notify", present: false,
   })
 
   expect(capturedQueryClient.getQueryData(key)).toEqual(preview)

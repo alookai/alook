@@ -1,8 +1,10 @@
 
 
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { getCommunityRuntime } from "@/stores/community/runtime"
 
 import type {
+  CommunityChannelMembershipChange,
   CommunityMemberJoin,
   CommunityMemberLeave,
   CommunityMemberUpdate,
@@ -12,16 +14,13 @@ import { communityKeys } from "@/lib/query-keys"
 
 import { patchMemberWindows } from "@/hooks/community/use-server-members"
 import {
-  removeForumSidebarProjectionExact,
   invalidateForumSidebarBaseExact,
   isKnownNonForumSidebarChannel,
 } from "@/hooks/community/use-forum-sidebar-threads"
-import { ApiError } from "@/lib/errors"
 
-import { channelMetadataOptions, captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
+import { channelMetadataOptions, captureChannelMetadataToken, isChannelMetadataTokenCurrent, type ChannelMetadataResource } from "@/hooks/community/channel-metadata"
 import { runCommunityWsProjectionTransaction } from "./projection-transaction"
 import type { MembershipEventContext } from "@/hooks/community/community-ws/handler-context"
-import { projectChannelScopeEviction } from "./channel-scope-projection"
 import { evictServerChannelScopes } from "./scope-eviction"
 
 
@@ -40,8 +39,8 @@ import {
 } from "./reaction-details-invalidation"
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import {
-  setCanonicalCommunityChannelMember,
   getCanonicalCommunityChannels,
+  retireCommunityChannelReading,
 } from "@/lib/community-db/sync"
 
 type ChannelMemberEvent = Extract<
@@ -49,91 +48,71 @@ type ChannelMemberEvent = Extract<
   { type: "community:channel.member_add" | "community:channel.member_remove" }
 >
 
-export function handleChannelMemberEvent(
-  event: ChannelMemberEvent,
-  context: MembershipEventContext,
-) {
-  const { queryClient, viewerUserIdRef, projection } = context
-  invalidateServerDetail(projection, event.serverId)
-  invalidateChannelRefDirectory(projection)
-  invalidateChannelRoster(projection, event.channelId)
-  const viewerChange = event.userId === viewerUserIdRef.current
-  if (viewerChange) {
-    invalidateInbox(projection)
-    invalidateServersList(projection)
-    if (!isKnownNonForumSidebarChannel(queryClient, event.serverId, event.channelId)) {
-      void invalidateForumSidebarBaseExact(queryClient, event.serverId).catch(() => undefined)
-    }
-  }
-  if (viewerChange) getCommunityRuntime(context.queryClient).ws.actions.beginChannelMembershipChange(event.serverId, event.channelId)
+function retireChannelAccess(event: { serverId: string | null; channelId: string }, context: MembershipEventContext) {
+  const registry = getCommunityDbRegistry(context.queryClient)
+  if (registry) retireCommunityChannelReading(registry, event.channelId, { reason: "read-denied", serverId: event.serverId })
+}
+
+function refreshChannelAccess(event: { serverId: string | null; channelId: string }, context: MembershipEventContext) {
+  const { queryClient } = context
   const token = captureChannelMetadataToken(queryClient, event.channelId)
   const key = communityKeys.channelMeta(event.serverId, event.channelId)
-  const canonicalType = () => getCanonicalCommunityChannels(queryClient)
-    .find((channel) => channel.id === event.channelId && channel.serverId === event.serverId)?.type
-  const apply = (type: string, activeProjection = projection) => {
-    setCanonicalCommunityChannelMember(queryClient, event.channelId, event.userId, type === "thread" ? "notify" : "access", event.type === "community:channel.member_add", { event: true })
-    if (!viewerChange) return
-    if (type === "thread") {
-      if (event.type === "community:channel.member_remove") {
-        getAccountUnreadProjection(queryClient, event.userId).retireNotificationScope({
-          kind: "channel", channelId: event.channelId,
-        })
-        if (!isKnownNonForumSidebarChannel(queryClient, event.serverId, event.channelId)) {
-          removeForumSidebarProjectionExact(queryClient, event.serverId, event.channelId)
-        }
-      }
-      if (!isKnownNonForumSidebarChannel(queryClient, event.serverId, event.channelId)) {
-        void invalidateForumSidebarBaseExact(queryClient, event.serverId).catch(() => undefined)
-      }
-      invalidateInbox(activeProjection)
-      invalidateServersList(activeProjection)
-      return
-    }
-    if (event.type === "community:channel.member_remove") {
-      getAccountUnreadProjection(queryClient, event.userId).retireAccessScope({
-        kind: "channel", channelId: event.channelId,
-      })
-      projectChannelScopeEviction(activeProjection, queryClient, event.serverId, event.channelId)
-    } else {
-      getCommunityRuntime(context.queryClient).ws.actions.rememberChannelAccess(event.serverId, event.channelId)
-      getAccountUnreadProjection(queryClient, event.userId).grantAccessScope({
-        kind: "channel", channelId: event.channelId,
-      })
-    }
-  }
-  const knownType = canonicalType()
-  if (knownType) {
-    if (viewerChange && knownType === "thread") {
-      projection.fence("channel-metadata", { queryKey: key, exact: true }, () => (
-        isChannelMetadataTokenCurrent(token)
-        && !getCommunityRuntime(queryClient).ws.actions.isChannelAccessRevoked(event.channelId, event.serverId)
-      ))
-    }
-    apply(knownType)
-    return
-  }
   void (async () => {
     await queryClient.cancelQueries({ queryKey: key, exact: true })
     if (!isChannelMetadataTokenCurrent(token)) return
     try {
-      await queryClient.query({
-        ...channelMetadataOptions(queryClient, event.serverId, event.channelId),
-        staleTime: 0,
-        retry: false,
-        select: undefined,
-      })
+      await queryClient.query({ ...channelMetadataOptions(queryClient, event.serverId, event.channelId), staleTime: 0, retry: false, select: undefined })
       if (!isChannelMetadataTokenCurrent(token)) return
-      const type = canonicalType()
-      if (type) runCommunityWsProjectionTransaction(queryClient, (current) => apply(type, current))
-    } catch (error) {
-      if (!isChannelMetadataTokenCurrent(token)) return
-      if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
-        runCommunityWsProjectionTransaction(queryClient, (current) => {
-          projectChannelScopeEviction(current, queryClient, event.serverId, event.channelId)
-        })
-      }
-    }
+      const channel = getCanonicalCommunityChannels(queryClient).find((row) => row.id === event.channelId && row.serverId === event.serverId)
+      if (channel?.archived) runCommunityWsProjectionTransaction(queryClient, (projection) => retireChannelAccess(event, { ...context, projection }))
+      else if (channel) getAccountUnreadProjection(queryClient, context.viewerUserIdRef.current!).grantAccessScope({ kind: "channel", channelId: event.channelId })
+    } catch {}
   })()
+}
+
+export function handleChannelMembershipChange(event: CommunityChannelMembershipChange, context: MembershipEventContext) {
+  const { queryClient, projection, viewerUserIdRef } = context
+  if (event.serverId) invalidateServerDetail(projection, event.serverId)
+  invalidateChannelRefDirectory(projection)
+  projection.fence("channel-roster", { queryKey: communityKeys.channelMembers(event.channelId, event.relation) })
+  projection.invalidate("channel-addable-members", { queryKey: communityKeys.channelAddableMembers(event.channelId) })
+  if (event.relation === "notify") projection.invalidate("thread-participants", { queryKey: communityKeys.threadParticipants(event.channelId) })
+  if (event.userId !== viewerUserIdRef.current) return
+  invalidateInbox(projection)
+  invalidateServersList(projection)
+  if (event.serverId && !isKnownNonForumSidebarChannel(queryClient, event.serverId, event.channelId)) {
+    void invalidateForumSidebarBaseExact(queryClient, event.serverId).catch(() => undefined)
+  }
+  if (event.relation === "notify") {
+    if (!event.present) getAccountUnreadProjection(queryClient, event.userId).retireNotificationScope({ kind: "channel", channelId: event.channelId })
+    return
+  }
+  if (!event.present) retireChannelAccess(event, context)
+  else getCommunityRuntime(queryClient).ws.actions.beginChannelMembershipChange(event.serverId, event.channelId)
+  refreshChannelAccess(event, context)
+}
+
+export function handleChannelMemberEvent(event: ChannelMemberEvent, context: MembershipEventContext) {
+  const { queryClient } = context
+  const key = communityKeys.channelMeta(event.serverId, event.channelId)
+  const proof = queryClient.getQueryData<ChannelMetadataResource>(key)?.identityProof
+  const channel = getCanonicalCommunityChannels(queryClient).find((row) => row.id === event.channelId && row.serverId === event.serverId)
+  const verified = !!proof && isChannelMetadataTokenCurrent(proof) && !channel?.pending && !channel?.archived
+    && !getCommunityRuntime(queryClient).ws.actions.isChannelAccessRevoked(event.channelId, event.serverId)
+  const relation = verified && channel?.type === "thread" ? "notify"
+    : verified && (channel?.type === "text" || channel?.type === "forum") ? "access" : undefined
+  if (relation) {
+    handleChannelMembershipChange({ ...event, type: "community:channel.membership.change", relation, present: event.type === "community:channel.member_add" }, context)
+    if (relation === "notify" && event.userId === context.viewerUserIdRef.current) {
+      const token = captureChannelMetadataToken(queryClient, event.channelId)
+      context.projection.fence("channel-metadata", { queryKey: key, exact: true }, () => isChannelMetadataTokenCurrent(token))
+    }
+    return
+  }
+  if (event.userId === context.viewerUserIdRef.current) {
+    retireChannelAccess(event, context)
+    refreshChannelAccess(event, context)
+  } else invalidateChannelRoster(context.projection, event.channelId)
 }
 
 function finishMemberEvent(
@@ -186,23 +165,9 @@ export function handleMemberLeave(
   // so the layout's eject effect can detect the drop and route
   // the user away from the now-forbidden URL.
   if (event.userId === viewerUserIdRef.current) {
-    const viewerId = viewerUserIdRef.current
     evictServerChannelScopes(queryClient, event.serverId)
-    if (viewerId) {
-      getAccountUnreadProjection(queryClient, viewerId).retireAccessScope({
-        kind: "server",
-        serverId: event.serverId,
-      })
-    }
     removeServerReactionDetails(queryClient, event.serverId)
     invalidateChannelRefDirectory(projection)
-    getCommunityRuntime(context.queryClient).messageStream.actions.removeServer(event.serverId)
-    queryClient.removeQueries({ queryKey: communityKeys.server(event.serverId) })
-    const store = getCommunityRuntime(context.queryClient).ui.get()
-    if (store.currentServerId === event.serverId) {
-      getCommunityRuntime(context.queryClient).ui.actions.setCurrentChannelId(null)
-      getCommunityRuntime(context.queryClient).ui.actions.setCurrentServerId(null)
-    }
     // Rail LIST only (the layout's eject effect reads it to route the
     // kicked viewer away). `exact` so a kick doesn't cascade-refetch
     // every server's nested detail subtree.

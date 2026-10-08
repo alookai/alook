@@ -169,7 +169,7 @@ export function normalizeNotifLevel(input: string): NotificationLevelValue {
 // Participant `source` — how a user joined a child thread's notify set: an
 // `@`-mention, having spoken in it, or explicitly added.
 // Anchors `community_channel_member.source` / thread-participant `source`.
-// Single value source for the literals; `ThreadParticipantSource`
+// Single value source for the literals; `ParticipantSource`
 // (queries/community/thread.ts) derives from this via const-assert so the two
 // can never drift.
 export const PARTICIPANT_SOURCE = {

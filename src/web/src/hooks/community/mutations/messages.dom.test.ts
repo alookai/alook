@@ -1,3 +1,5 @@
+import { canonicalMessageReader } from "@/test/community-query-owner"
+import { materializeMessageStream } from "@/lib/community/message-stream"
 import { createElement, type PropsWithChildren } from "react"
 import { afterEach, describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
@@ -236,12 +238,106 @@ describe("useEditMessage", () => {
 // ── useSendMessage ────────────────────────────────────────────────────────
 
 describe("useSendMessage — happy path", () => {
+  it.each([
+    ["POST→WS→base", ["post", "ws", "base"]],
+    ["WS→POST→base", ["ws", "post", "base"]],
+    ["base→POST→WS", ["base", "post", "ws"]],
+    ["WS→base→POST", ["ws", "base", "post"]],
+    ["POST→matching GET base", ["post", "matchingBase"]],
+    ["matching GET base→POST", ["matchingBase", "post"]],
+  ] as const)("keeps one rich confirmed row and releases previews once for %s", async (_name, stages) => {
+    const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
+    const runtime = canonicalRegistry.runtime
+    runtime.ui.actions.setCurrentServerId(scope.serverId)
+    runtime.ui.actions.subscribe({ channelId: scope.id })
+    const replyTo = { id: "reply_1", authorName: "Reply Author", text: "preview" }
+    const attachment = { id: "file_1", filename: "notes.txt", contentType: "text/plain", size: 1024 }
+    const remoteAttachment = { kind: "file" as const, name: attachment.filename,
+      url: "/api/community/channels/ch_1/attachments/file_1", contentType: attachment.contentType,
+      sizeBytes: attachment.size, size: "1.0 KB" }
+    const revoke = vi.fn(), originalRevoke = URL.revokeObjectURL
+    URL.revokeObjectURL = revoke
+    try {
+      runtime.messageStream.actions.accept(scope, { nonce: "n1", tempId: "temp_n1",
+        message: { type: "chat", content: "optimistic", authorId: "u_me", replyTo },
+        localUploads: [{ file: new File(["local"], "notes.txt", { type: "text/plain" }), previewObjectUrl: "blob:owned" }],
+      })
+      runtime.messageStream.actions.dispatch(scope, { type: "uploadSettled", nonce: "n1", attachments: [remoteAttachment] })
+      let release!: (value: { message: ReturnType<typeof postedMessage> }) => void
+      apiFetchMock.mockImplementationOnce(() => new Promise(resolve => { release = resolve }))
+      const mod = await loadMod()
+      mountHook(() => mod.useSendMessage())
+      const pending = startMutation({ serverId: scope.serverId, channelId: scope.id,
+        content: "hi", nonce: "n1", replyToId: replyTo.id, attachments: [attachment] })
+      await waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(1))
+      const { dispatchCommunityWsEvent } = await import("@/hooks/community/community-ws/registry")
+      const { getMessageStreamState } = await import("@/test/community-query-owner")
+      const { materializeMessageStream } = await import("@/lib/community/message-stream")
+      const older = { id: "older", seq: 1, type: "chat" as const, content: "anchor", authorId: "peer", createdAt: "2026-08-07T09:00:00.000Z" }
+      let currentBase: import("@/lib/community/message-stream").CanonicalMessage[] = [older]
+      for (const stage of stages) {
+        if (stage === "post") {
+          await act(async () => { release({ message: postedMessage("server_id_1", 9) }); await pending })
+          expect(getMessageStreamState(capturedQc, scope).liveIds).toContain("server_id_1")
+          expect(materializeMessageStream([], getMessageStreamState(capturedQc, scope), canonicalMessageReader(capturedQc)).find(row => row.id === "server_id_1")).toMatchObject({
+            id: "server_id_1", seq: 9, authorName: "Canonical Name", content: "canonical content",
+            authorAvatar: "https://avatar.test/me.png", createdAt: "2026-08-07T10:00:00.000Z",
+            embeds: [{ title: "Canonical embed" }], replyTo, attachments: [remoteAttachment], clientNonce: "n1", failed: false,
+          })
+        } else if (stage === "ws") {
+          await act(async () => { dispatchCommunityWsEvent({ type: "community:message.create", serverId: scope.serverId,
+            channelId: scope.id, message: { id: "server_id_1", seq: 9, type: "chat", authorId: "u_me",
+              authorName: "Canonical Name", authorAvatar: "https://avatar.test/me.png", authorAvatarVersion: 0, content: "canonical content",
+              createdAt: "2026-08-07T10:00:00.000Z", clientNonce: "n1", replyTo,
+              embeds: [{ title: "Canonical embed" }],
+              attachments: [{ ...attachment, url: remoteAttachment.url }],
+            } }, { deliveryMode: "single", queryClient: capturedQc, communityStore: runtime.ui, wsStore: runtime.ws,
+              sub: { channelId: scope.id }, viewerUserIdRef: { current: "u_me" },
+              matchesFocus: event => event.channelId === scope.id, scheduleInboxInvalidate: vi.fn() }) })
+        } else if (stage === "matchingBase") {
+          const { channelMessagesQueryFn } = await import("@/hooks/community/use-messages")
+          const { decodeCommunityReadResponse } = await import("@/lib/community/read-response")
+          const path = `/api/community/channels/${scope.id}/messages`
+          const confirmed = { id: "server_id_1", seq: 9, type: "chat", authorId: "u_me",
+            authorName: "Canonical Name", authorAvatar: "https://avatar.test/me.png", authorAvatarVersion: 0,
+            content: "canonical content", createdAt: "2026-08-07T10:00:00.000Z", clientNonce: "n1", replyTo,
+            embeds: [{ title: "Canonical embed" }], attachments: [remoteAttachment] }
+          apiFetchMock.mockResolvedValueOnce(decodeCommunityReadResponse(path, "GET", new Response(),
+            { messages: [older, confirmed], latestSeq: 9, hasMore: false }))
+          await act(async () => { await channelMessagesQueryFn(scope.id, undefined, { queryClient: capturedQc })({ pageParam: { mode: "newest" } })
+            const canonical = canonicalRegistry.collections.messages.get(confirmed.id)
+            if (typeof canonical?.seq !== "number") throw new Error("Missing confirmed canonical seq")
+            currentBase = [older, { ...canonical, seq: canonical.seq }]
+            runtime.messageStream.actions.dispatch(scope, { type: "baseChanged", messages: currentBase, latestSeq: 9 }) })
+          expect(canonicalRegistry.collections.messages.get(confirmed.id)?.attachments).toEqual([remoteAttachment])
+          expect(materializeMessageStream(currentBase, getMessageStreamState(capturedQc, scope), canonicalMessageReader(capturedQc))).toEqual([
+            expect.objectContaining({ id: older.id }),
+            expect.objectContaining({ id: confirmed.id, replyTo, attachments: [remoteAttachment] }),
+          ])
+        } else {
+          await act(async () => { ingestMessages(canonicalRegistry, scope.id, [older])
+            runtime.messageStream.actions.dispatch(scope, { type: "baseChanged", messages: [older], latestSeq: 100 }) })
+        }
+      }
+      const overlay = getMessageStreamState(capturedQc, scope)
+      expect(overlay.outboxByNonce.size).toBe(0)
+      expect(materializeMessageStream(currentBase, overlay, canonicalMessageReader(capturedQc)).filter(row => row.id === "server_id_1")).toEqual([
+        expect.objectContaining({ seq: 9, content: "canonical content", replyTo, attachments: [remoteAttachment],
+          ...(!stages.some(stage => stage === "matchingBase") ? { failed: false } : {}) }),
+      ])
+      expect(materializeMessageStream(currentBase, overlay, canonicalMessageReader(capturedQc)).find(row => row.id === "server_id_1")?.failed).not.toBe(true)
+      runtime.messageStream.actions.dispatch(scope, { type: "baseChanged", messages: [older], latestSeq: 100 })
+      runtime.messageStream.actions.removeScope(scope)
+      expect(revoke).toHaveBeenCalledExactlyOnceWith("blob:owned")
+    } finally { URL.revokeObjectURL = originalRevoke }
+  })
+
   it("keeps Query base-only and acknowledges the accepted overlay intent", async () => {
     capturedQc.setQueryData(communityKeys.channelMessages("ch_1"), makeCache([]))
     apiFetchMock.mockResolvedValueOnce({ message: postedMessage("server_id_1", 9) })
 
     const mod = await loadMod()
-    const stream = await import("@/stores/community/message-stream")
+    const stream = await import("@/test/community-query-owner")
     canonicalRegistry.runtime.messageStream.actions.accept(
       { kind: "channel", id: "ch_1", serverId: "s1" },
       { nonce: "n1", tempId: "temp_n1", message: { type: "chat", content: "hi", authorId: "u_me" }, localUploads: [] },
@@ -259,10 +355,11 @@ describe("useSendMessage — happy path", () => {
       communityKeys.channelMessages("ch_1"),
     )
     expect(cache?.pages[0].ids).toEqual([])
-    const overlay = stream.getMessageOverlay(capturedQc, { kind: "channel", id: "ch_1", serverId: "s1" })
+    const overlay = stream.getMessageStreamState(capturedQc, { kind: "channel", id: "ch_1", serverId: "s1" })
     expect(overlay.outboxByNonce.size).toBe(0)
-    expect(overlay.liveById.size).toBe(1)
-    expect(overlay.liveById.get("server_id_1")).toMatchObject({ seq: 9, authorId: "u_me", content: "canonical content", clientNonce: "n1" })
+    expect(overlay.liveIds.length).toBe(1)
+    expect(overlay.liveIds).toContain("server_id_1")
+    expect(materializeMessageStream([], overlay, canonicalMessageReader(capturedQc)).find(row => row.id === "server_id_1")).toMatchObject({ seq: 9, authorId: "u_me", content: "canonical content", clientNonce: "n1" })
     expect(canonicalRegistry.collections.messages.get("server_id_1")).toMatchObject({ authorId: "u_me", content: "canonical content", embeds: [{ title: "Canonical embed" }] })
     expect(canonicalRegistry.collections.profiles.get("u_me")?.name).toBe("Canonical Name")
   })
@@ -354,7 +451,7 @@ describe("useSendMessage — rollback", () => {
     capturedQc.setQueryData(communityKeys.channelMessages("ch_1"), makeCache([]))
     apiFetchMock.mockRejectedValueOnce(new Error("boom"))
     const mod = await loadMod()
-    const stream = await import("@/stores/community/message-stream")
+    const stream = await import("@/test/community-query-owner")
     canonicalRegistry.runtime.messageStream.actions.accept(
       { kind: "channel", id: "ch_1", serverId: "s1" },
       { nonce: "n1", tempId: "temp_n1", message: { type: "chat", content: "hi" }, localUploads: [] },
@@ -371,7 +468,7 @@ describe("useSendMessage — rollback", () => {
       communityKeys.channelMessages("ch_1"),
     )
     expect(cache?.pages[0].ids).toEqual([])
-    expect(stream.getMessageOverlay(capturedQc, { kind: "channel", id: "ch_1", serverId: "s1" }).outboxByNonce.get("n1")?.status).toBe("failed")
+    expect(stream.getMessageStreamState(capturedQc, { kind: "channel", id: "ch_1", serverId: "s1" }).outboxByNonce.get("n1")?.status).toBe("failed")
   })
 })
 
@@ -381,7 +478,7 @@ describe("useSendMessage — stamps authorId on optimistic row", () => {
   it("optimistic row carries the sender's authorId", async () => {
     capturedQc.setQueryData(communityKeys.channelMessages("ch_1"), makeCache([]))
     const mod = await loadMod()
-    const stream = await import("@/stores/community/message-stream")
+    const stream = await import("@/test/community-query-owner")
     canonicalRegistry.runtime.messageStream.actions.accept(
       { kind: "channel", id: "ch_1", serverId: "s1" },
       {
@@ -391,7 +488,7 @@ describe("useSendMessage — stamps authorId on optimistic row", () => {
         localUploads: [],
       },
     )
-    expect(stream.getMessageOverlay(capturedQc, { kind: "channel", id: "ch_1", serverId: "s1" }).outboxByNonce.get("n1")?.message.authorId).toBe("u_me")
+    expect(stream.getMessageStreamState(capturedQc, { kind: "channel", id: "ch_1", serverId: "s1" }).outboxByNonce.get("n1")?.message.authorId).toBe("u_me")
     expect(mod.useSendMessage).toBeTypeOf("function")
   })
 })
@@ -399,7 +496,7 @@ describe("useSendMessage — stamps authorId on optimistic row", () => {
 // ── useSendDmMessage ──────────────────────────────────────────────────────
 
 async function acceptDmIntent(nonce = "n1") {
-  const stream = await import("@/stores/community/message-stream")
+  const stream = await import("@/test/community-query-owner")
   canonicalRegistry.runtime.messageStream.actions.accept(
     { kind: "dm", id: "dm_1" },
     {
@@ -440,6 +537,26 @@ describe("useSendDmMessage — overlay terminal emitter", () => {
     )
   })
 
+  it("keeps the accepted channel intent failed with one native terminal transition after runner rejection", async () => {
+    const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
+    const runtime = canonicalRegistry.runtime
+    runtime.messageStream.actions.accept(scope, { nonce: "runner_failure", tempId: "temp_runner_failure",
+      message: { type: "chat", content: "keep optimistic", authorId: "u_me" }, localUploads: [] })
+    const dispatch = vi.spyOn(runtime.messageStream.actions, "dispatch")
+    apiFetchMock.mockRejectedValueOnce(new Error("send failed"))
+    const mod = await loadMod()
+    const mutation = mountHook(() => mod.useSendMessage())
+    const { runAcceptedMessageIntent } = await import("@/components/community/messages/message-channel-controller-send")
+    await act(async () => { await expect(runAcceptedMessageIntent({ runtime, messageScope: scope, nonce: "runner_failure",
+      uploadFileAsync: vi.fn(), sendMessageAsync: mutation.mutateAsync,
+      channelId: scope.id, serverId: scope.serverId, viewer: { id: "u_me", name: "Me", avatar: "M" },
+    })).resolves.toBeUndefined() })
+    expect(apiFetchMock).toHaveBeenCalledTimes(1)
+    expect(runtime.messageStream.actions.getRetryPayload(scope, "runner_failure")?.message).toMatchObject({ content: "keep optimistic", failed: true })
+    expect(dispatch.mock.calls).toEqual([[scope, { type: "postFail", nonce: "runner_failure" }]])
+    expect(toastMock).toHaveBeenCalledExactlyOnceWith("send failed")
+  })
+
   it("emits postFail for a generic network failure and leaves Query untouched", async () => {
     capturedQc.setQueryData(communityKeys.dmMessages("dm_1"), makeCache([]))
     apiFetchMock.mockRejectedValueOnce(new Error("boom"))
@@ -450,12 +567,60 @@ describe("useSendDmMessage — overlay terminal emitter", () => {
     await runMutation({ dmId: "dm_1", content: "hi", nonce: "n1" }).catch(() => { })
 
     expect(capturedQc.getQueryData(communityKeys.dmMessages("dm_1"))).toEqual(makeCache([]))
-    expect(stream.getMessageOverlay(capturedQc, { kind: "dm", id: "dm_1" }).outboxByNonce.get("n1")?.status).toBe("failed")
+    expect(stream.getMessageStreamState(capturedQc, { kind: "dm", id: "dm_1" }).outboxByNonce.get("n1")?.status).toBe("failed")
     expect(dispatch).toHaveBeenCalledTimes(1)
     expect(dispatch).toHaveBeenCalledWith(
       { kind: "dm", id: "dm_1" },
       { type: "postFail", nonce: "n1" },
     )
+  })
+
+  it("fails the upload intent when its view retires after upload succeeds, before native POST", async () => {
+    const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }, runtime = canonicalRegistry.runtime
+    const file = new File(["x"], "x.txt", { type: "text/plain" })
+    runtime.messageStream.actions.accept(scope, { nonce: "upload-view", tempId: "temp-upload-view", message: { type: "chat", content: "file", authorId: "u_me" }, localUploads: [{ file, previewObjectUrl: "blob:view" }] })
+    const dispatch = vi.spyOn(runtime.messageStream.actions, "dispatch"), mod = await loadMod(), mutation = mountHook(() => mod.useSendMessage())
+    let current = true, finish!: (value: { id: string; filename: string; contentType: string; size: number }) => void
+    const uploadFileAsync = vi.fn(() => new Promise<{ id: string; filename: string; contentType: string; size: number }>(resolve => { finish = resolve }))
+    const assertActive = Object.assign(() => { if (!current) throw new DOMException("Retired view", "AbortError") }, { signal: new AbortController().signal })
+    const { runAcceptedMessageIntent } = await import("@/components/community/messages/message-channel-controller-send")
+    await act(async () => {
+      const pending = runAcceptedMessageIntent({ runtime, messageScope: scope, nonce: "upload-view", assertActive, uploadFileAsync, sendMessageAsync: mutation.mutateAsync,
+        channelId: scope.id, serverId: scope.serverId, viewer: { id: "u_me", name: "Me", avatar: "M" } })
+      current = false
+      finish({ id: "uploaded", filename: "x.txt", contentType: "text/plain", size: 1 })
+      await pending
+    })
+    expect(uploadFileAsync).toHaveBeenCalledOnce()
+    expect(apiFetchMock).not.toHaveBeenCalled()
+    expect(dispatch.mock.calls).toEqual([[scope, { type: "uploadFailed", nonce: "upload-view" }]])
+    expect(runtime.messageStream.actions.getRetryPayload(scope, "upload-view")?.message.failed).toBe(true)
+    expect(toastMock).not.toHaveBeenCalled()
+  })
+
+  it("fails the accepted channel intent once when its view retires before native POST starts", async () => {
+    const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
+    const runtime = canonicalRegistry.runtime
+    runtime.messageStream.actions.accept(scope, { nonce: "retired_view", tempId: "temp_retired_view",
+      message: { type: "chat", content: "keep optimistic", authorId: "u_me" }, localUploads: [] })
+    const dispatch = vi.spyOn(runtime.messageStream.actions, "dispatch")
+    const mod = await loadMod()
+    const mutation = mountHook(() => mod.useSendMessage())
+    let current = true
+    const assertActive = Object.assign(() => { if (!current) throw new DOMException("Retired view", "AbortError") }, { signal: new AbortController().signal })
+    const { runAcceptedMessageIntent } = await import("@/components/community/messages/message-channel-controller-send")
+    await act(async () => {
+      const pending = runAcceptedMessageIntent({ runtime, messageScope: scope, nonce: "retired_view", assertActive,
+        uploadFileAsync: vi.fn(), sendMessageAsync: mutation.mutateAsync,
+        channelId: scope.id, serverId: scope.serverId, viewer: { id: "u_me", name: "Me", avatar: "M" },
+      })
+      current = false
+      await expect(pending).resolves.toBeUndefined()
+    })
+    expect(apiFetchMock).not.toHaveBeenCalled()
+    expect(dispatch.mock.calls).toEqual([[scope, { type: "postFail", nonce: "retired_view" }]])
+    expect(runtime.messageStream.actions.getRetryPayload(scope, "retired_view")?.message).toMatchObject({ content: "keep optimistic", failed: true })
+    expect(toastMock).not.toHaveBeenCalled()
   })
 })
 
@@ -475,7 +640,7 @@ describe("useSendDmMessage — 403 blocked special-case", () => {
       content: "hi",
       nonce: "n1",
     }).catch(() => { })
-    expect(stream.getMessageOverlay(capturedQc, { kind: "dm", id: "dm_1" }).outboxByNonce.size).toBe(0)
+    expect(stream.getMessageStreamState(capturedQc, { kind: "dm", id: "dm_1" }).outboxByNonce.size).toBe(0)
     expect(dispatch).toHaveBeenCalledTimes(1)
     expect(dispatch).toHaveBeenCalledWith(
       { kind: "dm", id: "dm_1" },
@@ -497,7 +662,7 @@ describe("useSendDmMessage — 403 blocked special-case", () => {
       content: "hi",
       nonce: "n1",
     }).catch(() => { })
-    expect(stream.getMessageOverlay(capturedQc, { kind: "dm", id: "dm_1" }).outboxByNonce.get("n1")?.status).toBe("failed")
+    expect(stream.getMessageStreamState(capturedQc, { kind: "dm", id: "dm_1" }).outboxByNonce.get("n1")?.status).toBe("failed")
     expect(capturedQc.getQueryData(communityKeys.dmMessages("dm_1"))).toEqual(makeCache([]))
     // Not the blocked-specific copy — any other error falls through to the
     // generic send-failed toast (see `useSendDmMessage`'s `onError` fallback).
@@ -516,7 +681,7 @@ describe("useSendMessage — 429 rate limit fires a toast + marks failed", () =>
     const { ApiError } = await import("@/lib/errors")
     apiFetchMock.mockRejectedValueOnce(new ApiError("rate_limited", 429))
     mountHook(() => mod.useSendMessage())
-    const stream = await import("@/stores/community/message-stream")
+    const stream = await import("@/test/community-query-owner")
     canonicalRegistry.runtime.messageStream.actions.accept(
       { kind: "channel", id: "ch_1", serverId: "s1" },
       { nonce: "n1", tempId: "temp_n1", message: { type: "chat", content: "hi" }, localUploads: [] },
@@ -532,7 +697,7 @@ describe("useSendMessage — 429 rate limit fires a toast + marks failed", () =>
       communityKeys.channelMessages("ch_1"),
     )
     expect(cache?.pages[0].ids).toEqual([])
-    expect(stream.getMessageOverlay(capturedQc, { kind: "channel", id: "ch_1", serverId: "s1" }).outboxByNonce.get("n1")?.status).toBe("failed")
+    expect(stream.getMessageStreamState(capturedQc, { kind: "channel", id: "ch_1", serverId: "s1" }).outboxByNonce.get("n1")?.status).toBe("failed")
     expect(toastMock).toHaveBeenCalledWith(expect.stringContaining("Rate limited"))
   })
 })
@@ -550,7 +715,7 @@ describe("useSendDmMessage — 429 rate limit fires a toast + marks failed", () 
       content: "hi",
       nonce: "n1",
     }).catch(() => { })
-    expect(stream.getMessageOverlay(capturedQc, { kind: "dm", id: "dm_1" }).outboxByNonce.get("n1")?.status).toBe("failed")
+    expect(stream.getMessageStreamState(capturedQc, { kind: "dm", id: "dm_1" }).outboxByNonce.get("n1")?.status).toBe("failed")
     expect(capturedQc.getQueryData(communityKeys.dmMessages("dm_1"))).toEqual(makeCache([]))
     expect(toastMock).toHaveBeenCalledWith(expect.stringContaining("Rate limited"))
   })
@@ -568,7 +733,7 @@ describe("useSendMessage — no blocked branch on channel path", () => {
     const { ApiError } = await import("@/lib/errors")
     apiFetchMock.mockRejectedValueOnce(new ApiError("blocked", 403))
     mountHook(() => mod.useSendMessage())
-    const stream = await import("@/stores/community/message-stream")
+    const stream = await import("@/test/community-query-owner")
     canonicalRegistry.runtime.messageStream.actions.accept(
       { kind: "channel", id: "ch_1", serverId: "s1" },
       { nonce: "n1", tempId: "temp_n1", message: { type: "chat", content: "hi" }, localUploads: [] },
@@ -584,7 +749,7 @@ describe("useSendMessage — no blocked branch on channel path", () => {
       communityKeys.channelMessages("ch_1"),
     )
     expect(cache?.pages[0].ids).toEqual([])
-    expect(stream.getMessageOverlay(capturedQc, { kind: "channel", id: "ch_1", serverId: "s1" }).outboxByNonce.get("n1")?.status).toBe("failed")
+    expect(stream.getMessageStreamState(capturedQc, { kind: "channel", id: "ch_1", serverId: "s1" }).outboxByNonce.get("n1")?.status).toBe("failed")
     expect(toastMock).not.toHaveBeenCalledWith("You cannot send messages to this user")
     expect(toastMock).toHaveBeenCalledWith("blocked")
   })

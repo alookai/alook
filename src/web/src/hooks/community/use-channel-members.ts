@@ -8,40 +8,46 @@ import { useCallback,useMemo } from "react"
 import { QueryObserver,useMutation,useQuery,useQueryClient,type QueryClient,type QueryFunctionContext,type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import type { CommunityRole } from "@alook/shared"
-import type { CommunityUserCore } from "@/lib/community/models/people"
+import { COMMUNITY_CONTRACT_VERSION, CommunityMembersReadSchema, CommunityResourceProfileSchema, type CommunityMembersRead, type CommunityRole, type CommunityChannelResource, type CommunityMemberRelation, type CommunityResourceProfile } from "@alook/shared"
+import type { CommunityUserCore, Presence } from "@/lib/community/models/people"
 import { fetchAllServerMembers } from "./fetch-all-server-members"
 
 import { useCanonicalProfilesByUserId,useServerMemberRows,useChannelRosterRows } from "@/lib/community-db/projections"
 import { captureCommunityLiveSnapshotToken,assertCommunityLiveSnapshotTokenCurrent,publishCommunityChannelMembersSnapshot,setCanonicalCommunityChannelMember } from "@/lib/community-db/sync"
 import { channelMembershipKey, type ChannelMembershipRow } from "@/lib/community-db/schema"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
-import { beginCommunityProfileSeed,writeCommunityProfilePatches,communityUserProfilePatch } from "@/lib/community/profile-seed"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import { useCommunityMutationOrigin } from "./community-origin"
 import { useCommunityViewSource } from "./use-community-view-source"
 
-export type ChannelMember = CommunityUserCore & {
+export type ChannelMember = CommunityUserCore & Pick<CommunityMemberRelation, "userId" | "isCreator"> & Pick<CommunityResourceProfile, "statusEmoji" | "statusText"> & {
   id: string
-  userId: string
   sub: string
-  role: CommunityRole
-  status: "online" | "offline"
-  statusEmoji: string | null
-  statusText: string
+  role: CommunityRole | null
+  status: Presence
   source: NonNullable<ChannelMembershipRow["source"]>
-  isCreator: boolean
 }
-export type AddableMember = { userId: string; name: string | null; discriminator: string | null; avatar: string; avatarVersion: number }
-type ChannelRosterWindow = { serverId: string; relation: "access" | "notify"; members: Array<{ id: string; userId: string }> }
+
+function normalizeChannelRoster(channelId: string, relation: CommunityMemberRelation["relation"], response: { members: ChannelMember[] } | CommunityMembersRead): CommunityMembersRead {
+  if ("contractVersion" in response) return response
+  return CommunityMembersReadSchema.parse({ contractVersion: COMMUNITY_CONTRACT_VERSION, channelId, relation,
+    members: response.members.map((member) => ({ channelId, userId: member.userId, relation, memberId: member.id, source: member.source, isCreator: member.isCreator, role: member.role })),
+    profiles: response.members.map((member) => CommunityResourceProfileSchema.strip().parse({ ...member, id: member.userId, statusEmoji: member.statusEmoji ?? null, statusText: member.statusText ?? "" })),
+  })
+}
+export type AddableMember = Pick<ChannelMember, "userId" | "avatar" | "avatarVersion"> & { [Field in "name" | "discriminator"]: ChannelMember[Field] | null }
+type ChannelRosterWindow = {
+  serverId: CommunityChannelResource["serverId"]
+  relation: CommunityMemberRelation["relation"]
+  members: Array<Pick<CommunityMemberRelation, "userId"> & { id: NonNullable<CommunityMemberRelation["memberId"]> }>
+}
 
 function channelMembersOptions(client: QueryClient, channelId: string, serverId?: string, relation?: "access" | "notify") {
-  const queryKey = communityKeys.channelMembers(channelId)
+  const queryKey = communityKeys.channelMembers(channelId, relation ?? "access")
   return {
     queryKey,
     queryFn: async ({ signal }: { signal: AbortSignal }): Promise<ChannelRosterWindow> => {
-      const token = captureCommunityLiveSnapshotToken(client), registry = token.registry!
-      const profileSnapshot = beginCommunityProfileSeed(registry)
+      const token = captureCommunityLiveSnapshotToken(client, channelId), registry = token.registry!
       const resource = client.getQueryCache().find({ queryKey, exact: true })
       const assert = () => {
         assertCommunityLiveSnapshotTokenCurrent(client, token, signal)
@@ -52,21 +58,21 @@ function channelMembersOptions(client: QueryClient, channelId: string, serverId?
       await Promise.all([registry.collections.channelMemberships.preload(), registry.collections.serverMemberships.preload()])
       assert()
       const channel = registry.collections.channels.get(channelId)
-      const scopeId = serverId ?? channel?.serverId
-      if (!scopeId) throw new DOMException("Missing channel roster scope", "AbortError")
-      const dimension = relation ?? (channel?.type === "thread" ? "notify" : "access")
-      const response = await apiFetch<{ members: ChannelMember[] }>("/api/community/channels/" + encodeURIComponent(channelId) + "/members", communityRequestOptions(client, token, signal, assert))
+      const scopeId = serverId ?? channel?.serverId ?? (channel?.type === "dm" ? null : undefined)
+      if (scopeId === undefined) throw new DOMException("Missing channel roster scope", "AbortError")
+      const dimension = relation ?? "access"
+      const response = await apiFetch<{ members: ChannelMember[] } | CommunityMembersRead>("/api/community/channels/" + encodeURIComponent(channelId) + "/members?relation=" + dimension, communityRequestOptions(client, token, signal, assert))
       assert()
-      writeCommunityProfilePatches(response.members.map((member) => communityUserProfilePatch(member.userId, member)), registry, { snapshot: profileSnapshot })
-      publishCommunityChannelMembersSnapshot(client, scopeId, channelId, dimension, response.members, { token, signal })
+      const resources = normalizeChannelRoster(channelId, dimension, response)
+      publishCommunityChannelMembersSnapshot(client, scopeId, channelId, dimension, resources.members, { token, signal }, resources.profiles)
       assert()
-      return { serverId: scopeId, relation: dimension, members: response.members.map(({ id, userId }) => ({ id, userId })) }
+      return { serverId: scopeId, relation: dimension, members: resources.members.map(({ memberId, userId }) => ({ id: memberId ?? userId, userId })) }
     },
   }
 }
 
 async function readChannelRoster(client: QueryClient, channelId: string, serverId: string, signal: AbortSignal) {
-  const original = captureCommunityLiveSnapshotToken(client)
+  const original = captureCommunityLiveSnapshotToken(client, channelId)
   const assert = () => assertCommunityLiveSnapshotTokenCurrent(client, original, signal)
   assert()
   const options = channelMembersOptions(client, channelId, serverId)
@@ -81,7 +87,7 @@ async function readChannelRoster(client: QueryClient, channelId: string, serverI
 }
 
 async function addableMembersQueryFn(serverId: string, channelId: string, context: QueryFunctionContext) {
-  const original = captureCommunityLiveSnapshotToken(context.client)
+  const original = captureCommunityLiveSnapshotToken(context.client, channelId)
   assertCommunityLiveSnapshotTokenCurrent(context.client, original, context.signal)
   const [serverMembers, roster] = await Promise.all([
     fetchAllServerMembers(context.client, serverId, context.signal),
@@ -102,11 +108,11 @@ export function useChannelMembers(channelId: string, enabled = true, serverId?: 
     const byUser = new Map(memberships.map((member) => [member.userId, member]))
     return roster.flatMap((participant) => {
       const member = byUser.get(participant.userId)
-      if (!member?.memberId) return []
+      if (query.data?.serverId !== null && !member?.memberId) return []
       const profile = readCommunityProfile(profiles.get(participant.userId), participant.userId)
-      return [deriveView({ id: member.memberId, userId: participant.userId, name: member.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, role: member.role as CommunityRole, sub: "", status: member.viewer ? "online" : profile.presence, statusEmoji: profile.statusEmoji ?? null, statusText: profile.statusText ?? "", source: participant.source ?? "explicit", isCreator: participant.isCreator ?? false }, [viewEvidence(member), viewEvidence(participant), viewEvidence(profile)])]
+      return [deriveView({ id: member?.memberId ?? participant.userId, userId: participant.userId, name: member?.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, role: member ? member.role as CommunityRole : null, sub: "", status: member?.viewer ? "online" : profile.presence, statusEmoji: profile.statusEmoji ?? null, statusText: profile.statusText ?? "", source: participant.source ?? "explicit", isCreator: participant.isCreator ?? false }, [viewEvidence(member), viewEvidence(participant), viewEvidence(profile)])]
     })
-  }, [profiles, memberships, roster])
+  }, [profiles, memberships, roster, query.data?.serverId])
   deriveView(members, [valueEvidence(client, query.data), ...members.map(viewEvidence)], members.length)
   const data = useMemo(() => query.data ? { members } : undefined, [query.data, members])
   return { ...query, data, members } as UseQueryResult<{ members: ChannelMember[] }> & { members: ChannelMember[] }
@@ -183,7 +189,7 @@ export function useChannelMemberCommand(channelId: string, kind: "add" | "remove
     value.assertActive?.()
     const view = source.capture()
     view()
-    return { ...value, view, original: origin.begin().token, resources: [communityKeys.channelMembers(channelId), communityKeys.channelAddableMembers(channelId)].flatMap((queryKey) => client.getQueryCache().findAll({ queryKey, exact: true })) }
+    return { ...value, view, original: origin.begin().token, resources: [communityKeys.channelMembers(channelId), communityKeys.channelAddableMembers(channelId)].flatMap((queryKey) => client.getQueryCache().findAll({ queryKey })) }
   }, [origin, client, channelId, source])
   const assertCurrent = useCallback((args: Intent) => { origin.assert(args.original); args.view(); args.assertActive?.() }, [origin])
   return useNativeMutationFacade(native, capture, assertCurrent)

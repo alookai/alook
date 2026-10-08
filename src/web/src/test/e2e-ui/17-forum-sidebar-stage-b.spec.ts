@@ -453,6 +453,8 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
       }
       await route.continue()
     })
+    const firstChildMetadata = page.waitForResponse((response) => response.request().method() === "GET"
+      && isExactChannelRequest(response.url(), threadId) && response.ok())
     const clickStartedAt = Date.now()
     let warmVisibleMs: number
     try {
@@ -468,7 +470,13 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
       await expect(childPanel(page).getByTestId(tid.composerInput))
         .toBeVisible({ timeout: 1_000 })
       warmVisibleMs = Date.now() - clickStartedAt
-      expect(requests.filter((url) => isExactChannelRequest(url, threadId))).toHaveLength(0)
+      expect(requests.filter((url) => isExactChannelRequest(url, threadId))).toHaveLength(1)
+      const metadataResponse = await firstChildMetadata
+      expect(metadataResponse.headers()["x-alook-community-contract"]).toBe("2")
+      expect(await metadataResponse.json()).toMatchObject({
+        channelId: threadId, channel: { id: threadId, serverId, archived: false },
+        access: { channelId: threadId, canRead: true },
+      })
       await expect.poll(() => successfulResponses.filter((url) =>
         new URL(url).pathname === `/api/community/channels/${threadId}/read-state`
       ).length).toBe(1)
@@ -492,6 +500,8 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
       isSidebarRequest(url, serverId)
       && new URL(url).searchParams.get("retainId") === threadId
     ))).toHaveLength(1)
+    expect(requests.filter((url) => isExactChannelRequest(url, threadId))).toHaveLength(1)
+    expect(successfulResponses.filter((url) => isExactChannelRequest(url, threadId))).toHaveLength(1)
     const threadMessageRequests = requests.filter((url) => (
       isChannelMessagesRequest(url, threadId)
     ))
@@ -521,6 +531,8 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     await expect.poll(() => new URL(page.url()).pathname).toBe(
       `/c/channels/${serverId}/${threadId}`,
     )
+    await page.waitForTimeout(300) // current read proof reuse: no additional metadata validation
+    expect(requests.filter((url) => isExactChannelRequest(url, threadId))).toHaveLength(1)
   })
 })
 

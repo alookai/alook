@@ -28,10 +28,12 @@ export function captureNotificationRequests(page: Page) {
   page.on("websocket", (socket) => {
     socket.on("framereceived", ({ payload }) => {
       try {
-        const frame = JSON.parse(payload.toString()) as CommunityWsEvent | { type: "community:events.batch"; events: CommunityWsEvent[] }
+        const frame = JSON.parse(payload.toString()) as CommunityWsEvent
+          | { type: "community:events.batch"; events: CommunityWsEvent[] }
+          | { type: "community:events.batch.v2"; events: CommunityWsEvent[] }
         record({ kind: "frame", type: frame.type })
         if (!frame.type.startsWith("community:")) return
-        for (const event of frame.type === "community:events.batch" ? frame.events : [frame]) {
+        for (const event of frame.type === "community:events.batch" || frame.type === "community:events.batch.v2" ? frame.events : [frame]) {
           events.push(event)
           record({ kind: "event", type: event.type,
             channelId: "channelId" in event ? event.channelId : undefined,

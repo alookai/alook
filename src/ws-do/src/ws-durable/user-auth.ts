@@ -1,6 +1,9 @@
 import {
+  COMMUNITY_CONTRACT_VERSION,
   createDb,
-  encodePreparedCommunityBrowserEventBatch,
+  encodeCommunityBrowserEventBatchForContract,
+  encodeCommunityBrowserEvent,
+  projectCommunityEventForContract,
   isUserWsConnectionPing,
   isValidCommunityUserTarget,
   queries,
@@ -94,7 +97,7 @@ export async function handleUserFetch(
       return invalidCommunityBrowserEventResponse(event)
     }
     if (!hasAuthenticatedTargetSocket(context, targetUserId)) {
-      return jsonResponse({ sent: broadcast(context, event.body, targetUserId) })
+      return jsonResponse({ sent: broadcastCommunity(context, event.event, targetUserId) })
     }
     try {
       if (!await canDeliverCommunityContent(createDb(context.env.DB), targetUserId, [event.event])) {
@@ -105,7 +108,7 @@ export async function handleUserFetch(
       context.log.warn("community_content_access_failed", { targetUserId, error: String(error) })
       return jsonResponse({ error: "access_check_failed" }, 503)
     }
-    const sent = broadcast(context, event.body, targetUserId)
+    const sent = broadcastCommunity(context, event.event, targetUserId)
     return new Response(JSON.stringify({ sent }), {
       headers: { "Content-Type": "application/json" },
     })
@@ -239,6 +242,7 @@ export async function handleWebSocketMessage(
     token?: string
     machineToken?: string
     daemonId?: string
+    communityContract?: unknown
   }
 
   if (msg.type === "auth") {
@@ -292,6 +296,8 @@ export async function handleWebSocketMessage(
       return
     }
     const wasOnline = countAuthenticatedUserConnections(context, userId) > 0
+    const communityContract = state?.type === "user" && state.authenticated
+      ? state.communityContract === COMMUNITY_CONTRACT_VERSION ? COMMUNITY_CONTRACT_VERSION : 1 : msg.communityContract === COMMUNITY_CONTRACT_VERSION ? COMMUNITY_CONTRACT_VERSION : 1
     ws.serializeAttachment({
       type: "user",
       userId,
@@ -299,12 +305,13 @@ export async function handleWebSocketMessage(
       authenticated: true,
       name,
       discriminator,
+      communityContract,
       ...(state?.type === "user" && state.communityDeliveryProgress
         ? { communityDeliveryProgress: state.communityDeliveryProgress }
         : {}),
     } as ConnectionState)
     context.log.info("websocket authenticated", { userId })
-    ws.send(JSON.stringify({ type: "auth.ok" }))
+    ws.send(JSON.stringify({ type: "auth.ok", ...(communityContract === COMMUNITY_CONTRACT_VERSION ? { communityContract: COMMUNITY_CONTRACT_VERSION } : {}) }))
     if (!wasOnline) {
       broadcastPresence(context, userId, true).catch(() => { })
     }
@@ -411,6 +418,20 @@ function broadcast(
   return sent
 }
 
+function broadcastCommunity(context: WsDurableContext, event: import("@alook/shared").CommunityWsEvent, targetUserId: string) {
+  let sent = 0
+  for (const ws of context.ctx.getWebSockets()) {
+    const state = ws.deserializeAttachment() as ConnectionState
+    if (state?.type !== "user" || !state.authenticated || state.userId !== targetUserId) continue
+    const projected = projectCommunityEventForContract(event, state.communityContract === COMMUNITY_CONTRACT_VERSION ? COMMUNITY_CONTRACT_VERSION : 1)
+    if (!projected) continue
+    const encoded = encodeCommunityBrowserEvent(projected)
+    if (!encoded.ok) continue
+    try { ws.send(encoded.body); sent++ } catch { }
+  }
+  return sent
+}
+
 type ValidCommunityBundle = Extract<
   Awaited<ReturnType<typeof readCommunityBrowserEventBundleRequest>>,
   { ok: true }
@@ -464,16 +485,15 @@ function safeCloseAmbiguousSocket(ws: WebSocket): void {
   try { ws.close(1011, "Delivery state unavailable") } catch { }
 }
 
-function deliverCommunityBundle(
+async function deliverCommunityBundle(
   context: WsDurableContext,
   bundle: ValidCommunityBundle,
   targetUserId: string,
-): Response {
-  const encodedBatch = encodePreparedCommunityBrowserEventBatch({
-    operationId: bundle.operationId,
-    operationDigest: bundle.operationDigest,
-    prepared: bundle.prepared,
-  })
+): Promise<Response> {
+  const formats = await Promise.all(([1, COMMUNITY_CONTRACT_VERSION] as const).map((contract) => encodeCommunityBrowserEventBatchForContract({
+    operationId: bundle.operationId, prepared: bundle.prepared, contract,
+  })))
+  const encodedBatch = formats[1]!
   const targetSockets: Array<{
     ws: WebSocket
     state: Extract<ConnectionState, { type: "user" }>
@@ -490,13 +510,10 @@ function deliverCommunityBundle(
     targetSockets.push({ ws, state })
   }
 
-  const plans: DeliveryPlan[] = targetSockets.map(({ ws, state }, socketIndex) => ({
-    socketIndex,
-    ws,
-    state,
-    frames: encodedBatch.ok ? [encodedBatch.body] : [],
-    progress: null,
-  }))
+  const plans: DeliveryPlan[] = targetSockets.map(({ ws, state }, socketIndex) => {
+    const encoded = formats[state.communityContract === COMMUNITY_CONTRACT_VERSION ? 1 : 0]!
+    return { socketIndex, ws, state, frames: encoded.ok ? [encoded.body] : [], progress: null }
+  })
 
   if (!encodedBatch.ok) {
     context.log.error("community_delivery_batch_encoder_invariant_failed", {
@@ -518,6 +535,7 @@ function deliverCommunityBundle(
 
   let hasConflict = false
   for (const plan of plans) {
+    if (plan.frames.length === 0) { plan.outcome = "preflightFailed"; continue }
     const decoded = readCommunityDeliveryProgress(plan.state)
     if (!decoded.ok) {
       plan.outcome = "preflightFailed"

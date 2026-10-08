@@ -6,7 +6,7 @@ import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/commu
 import { CommunityDbProvider, useCanonicalMessagesById } from "@/lib/community-db/projections"
 import { captureCommunityLiveSnapshotToken, publishCommunityMessages, projectCommunityWsEventToDb } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
-import { getMessageOverlay } from "@/stores/community/message-stream"
+import { getMessageStreamState } from "@/test/community-query-owner"
 import { useAddReactionApi, useToggleReactionApi } from "./message-reactions"
 import type { Msg } from "@/lib/community/models/message"
 
@@ -116,11 +116,13 @@ describe("native reaction intents — original debounce and rollback guarantees"
     api.mockRejectedValueOnce(new Error("boom")); vi.useFakeTimers()
     act(() => rendered.result.current.toggle({ ...args, channelId: kind === "channel" ? id : undefined, dmId: kind === "dm" ? id : undefined }))
     await advance(0)
-    expect(getMessageOverlay(client, scope).liveById.get("m_1")?.reactions).toEqual([])
+    expect(getMessageStreamState(client, scope).liveIds).toContain("m_1")
+    expect(registry.collections.messages.get("m_1")?.reactions).toEqual([])
     await advance()
     expect(api).toHaveBeenCalledWith(expect.stringContaining("/api/community/messages/m_1/reactions/"), expect.objectContaining({ method: "DELETE" }))
-    expect(getMessageOverlay(client, scope).liveById.size).toBe(1)
-    expect(getMessageOverlay(client, scope).liveById.get("m_1")?.reactions).toEqual(mine)
+    expect(getMessageStreamState(client, scope).liveIds.length).toBe(1)
+    expect(getMessageStreamState(client, scope).liveIds).toContain("m_1")
+    expect(registry.collections.messages.get("m_1")?.reactions).toEqual(mine)
     expect(client.getQueryData(key)).toEqual(base)
     expect(registry.collections.messages.size).toBe(1)
   })
@@ -129,8 +131,22 @@ describe("native reaction intents — original debounce and rollback guarantees"
     api.mockRejectedValueOnce(new Error("boom")); vi.useFakeTimers()
     act(() => rendered.result.current.toggle({ ...args, channelId: undefined, dmId: "dm_1", messageId: "missing" }))
     await advance(500)
-    expect(getMessageOverlay(client, { kind: "dm", id: "dm_1" }).liveById.size).toBe(0)
+    expect(getMessageStreamState(client, { kind: "dm", id: "dm_1" }).liveIds.length).toBe(0)
     expect(registry.collections.messages.size).toBe(0)
+    expect(api).toHaveBeenCalledOnce()
+  })
+  it("cancels a no-row reaction when its original view retires during the delay", async () => {
+    const rendered = mounted(), controller = new AbortController(), onError = vi.fn()
+    const assertActive = Object.assign(() => controller.signal.throwIfAborted(), { signal: controller.signal })
+    vi.useFakeTimers()
+    act(() => rendered.result.current.toggle({ ...args, messageId: "missing", assertActive, onError }))
+    await advance(100)
+    act(() => controller.abort(new DOMException("Retired view", "AbortError")))
+    await advance(400)
+    expect(api).not.toHaveBeenCalled()
+    expect(onError).not.toHaveBeenCalled()
+    expect(registry.collections.messages.size).toBe(0)
+    expect(client.getMutationCache().findAll({ status: "pending" })).toHaveLength(0)
   })
   it.each([3, 5])("%s rapid alternating clicks settle to exactly one API call at the end of the window", async (clicks) => {
     seed(); api.mockResolvedValue(undefined)

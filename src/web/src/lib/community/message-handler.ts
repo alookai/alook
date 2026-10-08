@@ -560,9 +560,7 @@ export async function createCommunityMessage(params: {
   }).readStateRevision
   const doBroadcast = async (): Promise<void> => {
     const deliveries: Promise<void>[] = [dispatchCommittedMessage(db, created.id, {
-      ...(joinedParticipantUserIds.includes(authorId)
-        ? { memberAddedUserId: authorId }
-        : {}),
+      ...(joinedParticipantUserIds.length ? { joinedParticipantUserIds } : {}),
       ...(skipChildChannelUpdate ? { suppressParentProjection: true } : {}),
     })]
     if (readStateRevision !== undefined) {

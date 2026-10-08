@@ -1,7 +1,6 @@
-import { queries, withD1Retry } from "@alook/shared"
+import { queries, withD1Retry, type CommunityMessageResource } from "@alook/shared"
 import type { getDb } from "@/lib/db"
-import { groupAttachments, groupReactions } from "@/lib/community/messages"
-import { mapMessageForApi } from "@/lib/community/message-payload"
+import { loadApiMessageContext, mapMessageForApi } from "@/lib/community/message-payload"
 import { avatarInitial } from "@/lib/community/avatar"
 import { canonicalUserImage } from "@/lib/community/storage"
 
@@ -23,25 +22,19 @@ export async function enrichMessages(
   db: Db,
   userId: string,
   scope: MessageScope,
-  items: Array<{ id: string; replyToId: string | null } & Record<string, unknown>>,
+  items: Array<Parameters<typeof mapMessageForApi>[0] & { channelId: string }>,
 ): Promise<{ messages: unknown[]; latestSeq: number }> {
   const isDm = scope.isDm === true
   const messageIds = items.map((m) => m.id)
-  const replyToIds = items.map((r) => r.replyToId).filter(Boolean) as string[]
+  const replyToIds = items.flatMap((row) => row.replyToId ? [row.replyToId] : [])
 
-  const [allAttachments, allReactions, replyMessages, childChannels, latestSeq, approvalByMessageId] = await Promise.all([
-    messageIds.length > 0
-      ? queries.communityAttachment.listByMessageIds(db, messageIds)
-      : Promise.resolve([]),
-    messageIds.length > 0
-      ? queries.communityReaction.listReactionsByMessageIds(db, messageIds, userId)
-      : Promise.resolve([]),
-    replyToIds.length > 0
+  const [contextForChannel, childChannels, latestSeq, approvalByMessageId] = await Promise.all([
+    loadApiMessageContext(db, userId, messageIds, () => replyToIds.length > 0
       ? withD1Retry(
         () => queries.communityMessage.getMessagesByIdsInScope(db, replyToIds, { channelId: scope.channelId }),
         { route: "community/messages:reply-enrichment" },
       )
-      : Promise.resolve([]),
+      : Promise.resolve([]), true),
     // Thread indicators only exist for non-DM channel-scoped messages.
     !isDm
       ? scope.isForum
@@ -56,15 +49,13 @@ export async function enrichMessages(
       : Promise.resolve(new Map()),
   ])
 
-  const attachmentsByMessage = groupAttachments(allAttachments)
-  const reactionsByMessage = groupReactions(allReactions, userId)
-  const replyMap = new Map(replyMessages.map((m) => [m.id, m]))
+  const context = contextForChannel(scope.channelId)
 
   const threadIds = childChannels.map((channel) => channel.id)
   const [forumTags, forumFirstMessages, forumParticipants] = scope.isForum && messageIds.length > 0
     ? await Promise.all([
       queries.communityMessageTag.listTagsForMessages(db, messageIds),
-      queries.communityMessage.getFirstMessageByChannelIds(db, threadIds),
+      queries.communityMessage.getFirstMessageResourcesByChannelIds(db, threadIds),
       queries.communityThread.listParticipantsForChannels(db, threadIds, 5),
     ])
     : [[], [], []]
@@ -73,12 +64,7 @@ export async function enrichMessages(
     tagsByMessage.set(row.messageId, [...(tagsByMessage.get(row.messageId) ?? []), row.tag])
   }
   const firstByChannel = new Map(forumFirstMessages.map((message) => [message.channelId, message]))
-  const participantsByChannel = new Map<string, Array<{
-    id: string
-    name: string
-    avatar: string
-    avatarVersion: number
-  }>>()
+  const participantsByChannel = new Map<string, NonNullable<NonNullable<CommunityMessageResource["thread"]>["participants"]>>()
   const participantCountByChannel = new Map<string, number>()
   for (const row of forumParticipants) {
     participantCountByChannel.set(
@@ -118,10 +104,8 @@ export async function enrichMessages(
   )
 
   const messages = items.map((r) =>
-    mapMessageForApi(r as never, {
-      replyMap,
-      attachmentsByMessage,
-      reactionsByMessage,
+    mapMessageForApi(r, {
+      ...context,
       threadByMessageId,
       approvalByMessageId: approvalByMessageId as Map<string, import("@alook/shared").FriendApprovalPayload>,
     }),

@@ -7,7 +7,8 @@ import { QueryClientProvider } from "@tanstack/react-query"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { channelMetadataOptions } from "./channel-metadata"
-import { startDmRouteVerification, useDmRouteVerification } from "./use-dm-route-verification"
+import { startDmRouteVerification } from "./use-dm-route-verification"
+import { useChannelMetadata } from "./use-channel-metadata"
 
 const apiFetch = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }))
@@ -42,17 +43,17 @@ describe("DM route uses the shared Channel metadata owner", () => {
     apiFetch.mockReturnValue(request.promise)
     const first = startDmRouteVerification(client, dm.id)
     const second = startDmRouteVerification(client, dm.id)
-    const route = renderHook(() => useDmRouteVerification(dm.id), { wrapper })
+    const route = renderHook(() => useChannelMetadata(null, dm.id), { wrapper })
     await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
     expect(route.result.current.status).toBe("pending")
     await act(async () => request.resolve(metadata))
     await expect(first).resolves.toBe("present")
     await expect(second).resolves.toBe("present")
-    await waitFor(() => expect(route.result.current.status).toBe("present"))
+    await waitFor(() => expect(route.result.current.status).toBe("readable"))
     expect(apiFetch).toHaveBeenCalledWith(`/api/community/channels/${dm.id}`, expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" }))
     expect(client.getQueryData(communityKeys.channelMeta(null, dm.id))).toMatchObject({ id: metadata.id })
     expect(client.getQueryData(communityKeys.dms())).toEqual({ conversations: [] })
-    expect(registry.runtime.ws.get().channelAccessScopes.size).toBe(0)
+    expect(registry.runtime.ws.get().channelAccessScopes.get(dm.id)).toMatchObject({ serverId: null, generation: 0, revoked: false })
     route.unmount()
     client.clear()
   })
@@ -61,8 +62,8 @@ describe("DM route uses the shared Channel metadata owner", () => {
     const { client, registry, wrapper } = await fixture()
     apiFetch.mockResolvedValue(metadata)
     await client.query(channelMetadataOptions(client, null, dm.id))
-    const route = renderHook(() => useDmRouteVerification(dm.id), { wrapper })
-    expect(route.result.current.status).toBe("present")
+    const route = renderHook(() => useChannelMetadata(null, dm.id), { wrapper })
+    expect(route.result.current.status).toBe("readable")
     await expect(startDmRouteVerification(client, dm.id)).resolves.toBe("present")
     expect(apiFetch).toHaveBeenCalledOnce()
     route.unmount()
@@ -74,11 +75,11 @@ describe("DM route uses the shared Channel metadata owner", () => {
     client.setQueryData(communityKeys.dms(), { conversations: [dm] })
     const request = deferred<typeof metadata>()
     apiFetch.mockReturnValue(request.promise)
-    const route = renderHook(() => useDmRouteVerification(dm.id), { wrapper })
+    const route = renderHook(() => useChannelMetadata(null, dm.id), { wrapper })
     expect(route.result.current.status).toBe("pending")
     await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
     await act(async () => request.resolve(metadata))
-    await waitFor(() => expect(route.result.current.status).toBe("present"))
+    await waitFor(() => expect(route.result.current.status).toBe("readable"))
     route.unmount()
     client.clear()
   })
@@ -97,18 +98,18 @@ describe("DM route uses the shared Channel metadata owner", () => {
     const { client, registry, wrapper } = await fixture()
     apiFetch.mockRejectedValueOnce(new Error("offline"))
     const hook = ({ key }: { key: string }) => React.createElement(Capture, { key })
-    let latest!: ReturnType<typeof useDmRouteVerification>
-    function Capture() { latest = useDmRouteVerification(dm.id); return null }
+    let latest!: ReturnType<typeof useChannelMetadata>
+    function Capture() { latest = useChannelMetadata(null, dm.id); return null }
     const { render } = await import("@/test/react-dom-harness")
     const route = render(hook({ key: "first" }), { wrapper })
-    await waitFor(() => expect(latest.status).toBe("error"))
+    await waitFor(() => expect(latest.status).toBe("retryable-error"))
     route.rerender(hook({ key: "second" }))
     await act(async () => { onlineManager.setOnline(false); onlineManager.setOnline(true) })
-    expect(latest.status).toBe("error")
+    expect(latest.status).toBe("retryable-error")
     expect(apiFetch).toHaveBeenCalledOnce()
     apiFetch.mockResolvedValueOnce(metadata)
     await act(async () => latest.retry())
-    await waitFor(() => expect(latest.status).toBe("present"))
+    await waitFor(() => expect(latest.status).toBe("readable"))
     expect(apiFetch).toHaveBeenCalledTimes(2)
     route.unmount()
     client.clear()
@@ -135,7 +136,7 @@ describe("DM route uses the shared Channel metadata owner", () => {
     const { client, registry, wrapper } = await fixture()
     const request = deferred<typeof metadata>()
     apiFetch.mockReturnValue(request.promise)
-    const route = renderHook(() => useDmRouteVerification(dm.id), { wrapper })
+    const route = renderHook(() => useChannelMetadata(null, dm.id), { wrapper })
     await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
     const signal = apiFetch.mock.calls[0][1].signal as AbortSignal
     route.unmount()

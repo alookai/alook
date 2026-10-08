@@ -4,7 +4,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityDbProvider, useFriendshipRows, useAttentionItems } from "@/lib/community-db/projections"
-import { captureCommunityLiveSnapshotToken, publishCommunityFriendships, publishAccountAttentionSnapshot, projectCommunityWsEventToDb } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken, ingestDms, ingestMessages, publishCommunityFriendships, publishAccountAttentionSnapshot, projectCommunityWsEventToDb } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
 import * as commands from "./friends"
 
@@ -154,10 +154,40 @@ describe("native friendship commands", () => {
     expect(client.getQueryData(communityKeys.friends())).toBeUndefined(); exactFriends(invalidate)
   })
   it("publishes a canonical block and invalidates Friends", async () => {
-    seed(); const rendered = mount(commands.useBlockUser), invalidate = vi.spyOn(client, "invalidateQueries")
-    await act(async () => { await rendered.result.current.command.mutateAsync({ userId: "u_a" }) })
+    seed()
+    ingestDms(registry, { conversations: [{ id: "dm_a", userId: "u_a", name: "A", discriminator: "0001", avatar: "A", avatarVersion: 0, status: "offline", preview: "private preview" }] })
+    ingestMessages(registry, "dm_a", [{ id: "private", type: "chat", content: "private body", seq: 1 }])
+    const rendered = mount(commands.useBlockUser), invalidate = vi.spyOn(client, "invalidateQueries"), success = vi.fn()
+    await act(async () => { await rendered.result.current.command.mutateAsync({ userId: "u_a" }, { onSuccess: success }) })
     expect(registry.collections.friendships.get("blocked:u_a")?.kind).toBe("blocked")
+    expect(registry.runtime.ws.actions.isChannelAccessRevoked("dm_a", null)).toBe(true)
+    expect(registry.collections.channels.has("dm_a")).toBe(true)
+    expect(registry.collections.messages.has("private")).toBe(false)
+    expect(success).toHaveBeenCalledOnce()
     expect(registry.collections.attentionItems.has("friend_request:a")).toBe(false); exactFriends(invalidate)
+  })
+  it("keeps visible DM reading intact when the normal block command fails", async () => {
+    seed()
+    ingestDms(registry, { conversations: [{ id: "dm_a", userId: "u_a", name: "A", discriminator: "0001", avatar: "A", avatarVersion: 0, status: "offline", preview: "private preview" }] })
+    ingestMessages(registry, "dm_a", [{ id: "private", type: "chat", content: "private body", seq: 1 }])
+    const held = hold(), rendered = mount(commands.useBlockUser), pending = start(rendered.result.current.command, { userId: "u_a" })
+    await waitFor(() => expect(api).toHaveBeenCalledOnce())
+    await act(async () => { held.reject(new Error("block failed")); await pending })
+    expect(registry.runtime.ws.actions.isChannelAccessRevoked("dm_a", null)).toBe(false)
+    expect(registry.collections.messages.get("private")?.content).toBe("private body")
+    expect(registry.collections.friendships.has("blocked:u_a")).toBe(false)
+  })
+  it("starts a new permission generation after a confirmed own unblock", async () => {
+    seed([{ id: "blocked:u_a", userId: "u_a", kind: "blocked" }])
+    ingestDms(registry, { conversations: [{ id: "dm_a", userId: "u_a", name: "A", discriminator: "0001", avatar: "A", avatarVersion: 0, status: "offline", preview: "" }] })
+    registry.runtime.ws.actions.revokeChannelAccess(null, "dm_a")
+    const generation = registry.runtime.ws.get().channelAccessScopes.get("dm_a")!.generation
+    const rendered = mount(commands.useUnblockUser)
+    await act(async () => { await rendered.result.current.command.mutateAsync({ userId: "u_a" }) })
+    expect(registry.runtime.ws.actions.isChannelAccessRevoked("dm_a", null)).toBe(false)
+    expect(registry.runtime.ws.get().channelAccessScopes.get("dm_a")!.generation).toBe(generation + 1)
+    expect(registry.collections.friendships.has("blocked:u_a")).toBe(false)
+    expect(registry.collections.messages.size).toBe(0)
   })
   it("restores a blocked row when unblock fails", async () => {
     seed([{ ...incoming("a"), kind: "blocked" }]); const held = hold(), rendered = mount(commands.useUnblockUser), pending = start(rendered.result.current.command, { userId: "u_a" })

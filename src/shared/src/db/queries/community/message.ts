@@ -1,4 +1,4 @@
-import { eq, and, asc, desc, exists, gt, lt, or, sql, inArray, isNull, count, type SQL } from "drizzle-orm";
+import { eq, and, asc, desc, exists, gt, lt, or, sql, inArray, isNull, count, min, type SQL, type GetColumnData } from "drizzle-orm";
 import {
   communityMessage,
   communityChannel,
@@ -555,7 +555,7 @@ async function hardDeleteMessageAttempt(
 // Shared select projection for the three list-messages paths (`listMessages`,
 // `listMessagesAround`, `listMessagesSince`). Keeps their row shape identical
 // so downstream mappers (`mapMessageForApi`) don't have to branch on source.
-const listedMessageProjection = {
+const messageProjection = {
   id: communityMessage.id,
   authorId: communityMessage.authorId,
   content: communityMessage.content,
@@ -563,35 +563,24 @@ const listedMessageProjection = {
   mentionType: communityMessage.mentionType,
   replyToId: communityMessage.replyToId,
   embeds: communityMessage.embeds,
-  seq: communityMessage.seq,
   createdAt: communityMessage.createdAt,
   channelId: communityMessage.channelId,
-  friendshipId: communityMessage.friendshipId,
-  clientNonce: communityMessage.clientNonce,
   authorName: user.name,
-  authorEmail: user.email,
   authorImage: user.image,
   authorAvatarVersion: user.avatarVersion,
 } as const;
 
-export type ListedMessageRow = {
-  id: string;
-  authorId: string;
-  content: string;
-  type: string;
-  mentionType: string | null;
-  replyToId: string | null;
-  embeds: unknown | undefined;
-  seq: number;
-  createdAt: string;
-  channelId: string;
-  friendshipId: string | null;
-  clientNonce: string | null;
-  authorName: string;
-  authorEmail: string;
-  authorImage: string | null;
-  authorAvatarVersion: number;
-};
+const listedMessageProjection = {
+  ...messageProjection,
+  seq: communityMessage.seq,
+  friendshipId: communityMessage.friendshipId,
+  clientNonce: communityMessage.clientNonce,
+  authorEmail: user.email,
+} as const;
+
+export type ListedMessageRow = Omit<{
+  [K in keyof typeof listedMessageProjection]: GetColumnData<typeof listedMessageProjection[K]>
+}, "embeds"> & { embeds: unknown };
 
 const wakeContextMessageProjection = {
   id: communityMessage.id,
@@ -608,17 +597,7 @@ const wakeContextMessageProjection = {
 } as const;
 
 export type WakeContextMessageRow = {
-  id: string;
-  authorId: string;
-  authorName: string;
-  authorDiscriminator: string;
-  authorIsBot: boolean;
-  content: string;
-  type: string;
-  replyToId: string | null;
-  seq: number;
-  createdAt: string;
-  channelId: string;
+  [K in keyof typeof wakeContextMessageProjection]: GetColumnData<typeof wakeContextMessageProjection[K]>
 };
 
 export async function listWakeContextMessagesBefore(
@@ -659,8 +638,9 @@ export async function getWakeContextMessageInScope(
   return rows[0] ?? null;
 }
 
-function parseEmbeds(r: { id: string; embeds: string | null } & Record<string, unknown>): ListedMessageRow {
-  return { ...(r as unknown as ListedMessageRow), embeds: safeParseEmbeds(r.embeds, r.id) };
+function parseEmbeds<T extends { id: string; embeds: string | null }>(row: T) {
+  const { embeds, ...rest } = row;
+  return { ...rest, embeds: safeParseEmbeds(embeds, row.id) };
 }
 
 export async function listMessages(
@@ -935,7 +915,6 @@ export async function getLatestMessage(
  * writing a read-state row without a `lastReadMessageId`, so the caller must
  * be able to tell "no message → no write" from a single lookup.
  *
- * Same MIN/MAX-per-channel subquery pattern as `getFirstMessageByChannelIds`
  * — one SQL round-trip regardless of channel count.
  */
 export async function getLatestMessagesByChannelIds(
@@ -1002,49 +981,7 @@ export async function getLatestMessagesByChannelIds(
   return Array.from(bestByChannel.values());
 }
 
-export async function getFirstMessageByChannelIds(db: Database, channelIds: string[]) {
-  if (channelIds.length === 0) return [];
-  // Use a subquery to get the min createdAt per channel, then join to get the
-  // content. Chunk the `inArray` for D1's 100-param limit — GROUP BY channelId
-  // partitions cleanly across chunks (defensive; input is page-bounded today).
-  const runChunk = (ids: string[]) => {
-    const firstDates = db
-      .select({
-        channelId: communityMessage.channelId,
-        minCreatedAt: sql<string>`MIN(${communityMessage.createdAt})`.as("min_created_at"),
-      })
-      .from(communityMessage)
-      .where(inArray(communityMessage.channelId, ids))
-      .groupBy(communityMessage.channelId)
-      .as("first_dates");
 
-    return db
-      .select({
-        channelId: communityMessage.channelId,
-        content: communityMessage.content,
-      })
-      .from(communityMessage)
-      .innerJoin(
-        firstDates,
-        and(
-          eq(communityMessage.channelId, firstDates.channelId),
-          eq(communityMessage.createdAt, firstDates.minCreatedAt)
-        )
-      );
-  };
-
-  const rows = (
-    await Promise.all(chunk(channelIds, D1_MAX_IN_PARAMS).map(runChunk))
-  ).flat();
-
-  // Deduplicate in case of exact same createdAt within a channel
-  const seen = new Set<string>();
-  return rows.filter((r) => {
-    if (!r.channelId || seen.has(r.channelId)) return false;
-    seen.add(r.channelId);
-    return true;
-  });
-}
 
 /**
  * Look up a single message by (channel-or-DM scope, seq). `seq === 0` is the
@@ -1124,28 +1061,16 @@ export async function getWakeMessageScopeById(
 export async function getMessage(db: Database, messageId: string) {
   const rows = await db
     .select({
-      id: communityMessage.id,
-      authorId: communityMessage.authorId,
-      content: communityMessage.content,
-      type: communityMessage.type,
-      mentionType: communityMessage.mentionType,
-      replyToId: communityMessage.replyToId,
-      embeds: communityMessage.embeds,
-      createdAt: communityMessage.createdAt,
-      channelId: communityMessage.channelId,
-      // Needed by committed-message delivery and agent projections.
+      ...messageProjection,
       seq: communityMessage.seq,
-      authorName: user.name,
       authorEmail: user.email,
-      authorImage: user.image,
-      authorAvatarVersion: user.avatarVersion,
     })
     .from(communityMessage)
     .innerJoin(user, eq(communityMessage.authorId, user.id))
     .where(eq(communityMessage.id, messageId));
   const row = rows[0];
   if (!row) return null;
-  return { ...row, embeds: safeParseEmbeds(row.embeds, row.id) };
+  return parseEmbeds(row);
 }
 
 /**
@@ -1179,20 +1104,9 @@ export async function getMessageByAuthorAndNonce(
 ) {
   const rows = await db
     .select({
-      id: communityMessage.id,
-      authorId: communityMessage.authorId,
-      content: communityMessage.content,
-      type: communityMessage.type,
-      mentionType: communityMessage.mentionType,
-      replyToId: communityMessage.replyToId,
-      embeds: communityMessage.embeds,
-      createdAt: communityMessage.createdAt,
-      channelId: communityMessage.channelId,
+      ...messageProjection,
       seq: communityMessage.seq,
-      authorName: user.name,
       authorEmail: user.email,
-      authorImage: user.image,
-      authorAvatarVersion: user.avatarVersion,
     })
     .from(communityMessage)
     .innerJoin(user, eq(communityMessage.authorId, user.id))
@@ -1205,7 +1119,7 @@ export async function getMessageByAuthorAndNonce(
     .limit(1);
   const row = rows[0];
   if (!row) return null;
-  return { ...row, embeds: safeParseEmbeds(row.embeds, row.id) };
+  return parseEmbeds(row);
 }
 
 /** Update only the author's own message content. The author predicate lives in
@@ -1237,20 +1151,9 @@ export async function getMessagesByIds(db: Database, ids: string[]) {
       chunk(ids, D1_MAX_IN_PARAMS).map((batch) =>
         db
           .select({
-            id: communityMessage.id,
-            authorId: communityMessage.authorId,
-            content: communityMessage.content,
-            type: communityMessage.type,
-            mentionType: communityMessage.mentionType,
-            replyToId: communityMessage.replyToId,
-            embeds: communityMessage.embeds,
-            createdAt: communityMessage.createdAt,
-            channelId: communityMessage.channelId,
+            ...messageProjection,
             seq: communityMessage.seq,
-            authorName: user.name,
             authorEmail: user.email,
-            authorImage: user.image,
-            authorAvatarVersion: user.avatarVersion,
           })
           .from(communityMessage)
           .innerJoin(user, eq(communityMessage.authorId, user.id))
@@ -1258,7 +1161,7 @@ export async function getMessagesByIds(db: Database, ids: string[]) {
       )
     )
   ).flat();
-  return rows.map((r) => ({ ...r, embeds: safeParseEmbeds(r.embeds, r.id) }));
+  return rows.map(parseEmbeds);
 }
 
 /**
@@ -1328,59 +1231,59 @@ function scopeCondition(scope: MessageScope) {
 export async function getMessageInScope(db: Database, messageId: string, scope: MessageScope) {
   const rows = await db
     .select({
-      id: communityMessage.id,
-      authorId: communityMessage.authorId,
-      content: communityMessage.content,
-      type: communityMessage.type,
-      mentionType: communityMessage.mentionType,
-      replyToId: communityMessage.replyToId,
-      embeds: communityMessage.embeds,
-      createdAt: communityMessage.createdAt,
-      channelId: communityMessage.channelId,
-      authorName: user.name,
+      ...messageProjection,
       authorEmail: user.email,
-      authorImage: user.image,
-      authorAvatarVersion: user.avatarVersion,
     })
     .from(communityMessage)
     .innerJoin(user, eq(communityMessage.authorId, user.id))
     .where(and(eq(communityMessage.id, messageId), scopeCondition(scope)));
   const row = rows[0];
   if (!row) return null;
-  return { ...row, embeds: safeParseEmbeds(row.embeds, row.id) };
+  return parseEmbeds(row);
 }
 
 /** Batched form of `getMessageInScope` — see its doc comment for the "why". */
 export async function getMessagesByIdsInScope(db: Database, ids: string[], scope: MessageScope) {
-  if (ids.length === 0) return [];
+  return getMessagesByIdsInChannels(db, ids, [scope.channelId]);
+}
+
+export async function getMessagesByIdsInChannels(db: Database, ids: string[], channelIds: string[]) {
+  if (ids.length === 0 || channelIds.length === 0) return [];
   // `ids` are the reply-target ids of a message page (up to ~200), so this
   // `inArray` is unbounded — chunk for D1's 100-param limit; no order/limit → concat.
   const rows = (
     await Promise.all(
-      chunk(ids, D1_MAX_IN_PARAMS).map((batch) =>
+      chunk([...new Set(channelIds)], Math.floor(D1_MAX_IN_PARAMS / 2)).flatMap((channels) =>
+      chunk([...new Set(ids)], D1_MAX_IN_PARAMS - channels.length).map((batch) =>
         db
           .select({
-            id: communityMessage.id,
-            authorId: communityMessage.authorId,
-            content: communityMessage.content,
-            type: communityMessage.type,
-            mentionType: communityMessage.mentionType,
-            replyToId: communityMessage.replyToId,
-            embeds: communityMessage.embeds,
+            ...messageProjection,
             seq: communityMessage.seq,
-            createdAt: communityMessage.createdAt,
-            channelId: communityMessage.channelId,
-            authorName: user.name,
+            clientNonce: communityMessage.clientNonce,
             discriminator: user.discriminator,
             authorEmail: user.email,
-            authorImage: user.image,
-            authorAvatarVersion: user.avatarVersion,
           })
           .from(communityMessage)
           .innerJoin(user, eq(communityMessage.authorId, user.id))
-          .where(and(inArray(communityMessage.id, batch), scopeCondition(scope)))
-      )
+          .where(and(inArray(communityMessage.id, batch), inArray(communityMessage.channelId, channels)))
+      ))
     )
   ).flat();
-  return rows.map((r) => ({ ...r, embeds: safeParseEmbeds(r.embeds, r.id) }));
+  return rows.map(parseEmbeds);
+}
+
+export async function getFirstMessageResourcesByChannelIds(db: Database, channelIds: string[]) {
+  if (channelIds.length === 0) return [];
+  const rows = (await Promise.all(chunk([...new Set(channelIds)], D1_MAX_IN_PARAMS).map((ids) => {
+    const first = db.select({ channelId: communityMessage.channelId, seq: min(communityMessage.seq).as("first_seq") })
+      .from(communityMessage).where(inArray(communityMessage.channelId, ids)).groupBy(communityMessage.channelId).as("first_messages");
+    return db.select({
+      ...messageProjection,
+      seq: communityMessage.seq,
+      clientNonce: communityMessage.clientNonce,
+    })
+      .from(communityMessage).innerJoin(first, and(eq(communityMessage.channelId, first.channelId), eq(communityMessage.seq, first.seq)))
+      .innerJoin(user, eq(user.id, communityMessage.authorId));
+  }))).flat();
+  return rows.map(parseEmbeds);
 }

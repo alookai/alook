@@ -32,7 +32,7 @@ vi.mock("@alook/shared", async () => {
         ...actual.queries.communityMessage,
         getMessagesByIdsInScope: (...args: unknown[]) => mocks.getReplies(...args),
         getLatestMessageSeq: (...args: unknown[]) => mocks.getLatestSeq(...args),
-        getFirstMessageByChannelIds: (...args: unknown[]) => mocks.getFirstMessages(...args),
+        getFirstMessageResourcesByChannelIds: (...args: unknown[]) => mocks.getFirstMessages(...args),
       },
       communityChannel: {
         ...actual.queries.communityChannel,
@@ -68,6 +68,17 @@ describe("enrichMessages attachment projection", () => {
     mocks.listParticipants.mockResolvedValue([])
     mocks.hydrateApprovals.mockResolvedValue(new Map())
     mocks.getLatestSeq.mockResolvedValue(9)
+  })
+
+  it("skips empty DM attachment, reaction, reply and approval hydration while reading latest sequence", async () => {
+    const db = {} as never
+    expect(await enrichMessages(db, "u1", { channelId: "dm1", isDm: true }, [])).toEqual({ messages: [], latestSeq: 9 })
+    expect(mocks.listAttachments).not.toHaveBeenCalled()
+    expect(mocks.listReactions).not.toHaveBeenCalled()
+    expect(mocks.getReplies).not.toHaveBeenCalled()
+    expect(mocks.hydrateApprovals).not.toHaveBeenCalled()
+    expect(mocks.listChildren).not.toHaveBeenCalled()
+    expect(mocks.getLatestSeq).toHaveBeenCalledWith(db, { channelId: "dm1" })
   })
 
   it("projects a canonical thumbnail beside reply enrichment", async () => {

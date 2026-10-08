@@ -1,7 +1,27 @@
-import { DEFAULT_MESSAGE_PAGE_SIZE, MAX_MESSAGE_PAGE_SIZE } from "@alook/shared"
+import { DEFAULT_MESSAGE_PAGE_SIZE, MAX_MESSAGE_PAGE_SIZE, type CommunityMessageAttachment, type CommunityMessageResource } from "@alook/shared"
 import { isInlineAttachmentContentType } from "./attachment-content-type"
 import { formatAttachmentSize } from "./attachment-presentation"
 import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
+
+export function parseCommunityMessageWindow(params: URLSearchParams) {
+  const supplied = ["cursor", "since", "anchor"].filter((key) => params.has(key))
+  const window = params.get("window") ?? (params.has("anchor") ? "around" : params.has("since") ? "after" : params.has("cursor") ? "before" : "tail")
+  if (!["tail", "before", "after", "around"].includes(window) || supplied.length > 1
+    || params.has("since") && window !== "after") throw new Error("invalid message window")
+  const rawCursor = window === "after" ? params.get("cursor") ?? params.get("since") : params.get("cursor")
+  const anchor = params.get("anchorMessageId") ?? params.get("anchor")
+  if ((window === "tail" && (rawCursor !== null || anchor !== null))
+    || (window === "around" && (rawCursor !== null || !anchor?.trim()))
+    || ((window === "before" || window === "after") && (!rawCursor || anchor !== null))) throw new Error("invalid message window inputs")
+  if (["before", "after", "around"].some((key) => params.has(key))) throw new Error("seq windows require community contract v1")
+  const cursor = rawCursor ? parseCursor(rawCursor) : undefined
+  if (rawCursor && (!cursor || rawCursor.split("|").length !== 2 || !Number.isFinite(Date.parse(cursor.createdAt)))) throw new Error("invalid message cursor")
+  const rawLimit = params.get("limit")
+  const limit = rawLimit === null ? DEFAULT_MESSAGE_PAGE_SIZE : Number(rawLimit)
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_MESSAGE_PAGE_SIZE) throw new Error("invalid message limit")
+  return { anchorId: window === "around" ? anchor!.trim() : undefined,
+    since: window === "after" ? cursor : undefined, cursor: window === "before" ? cursor : undefined, pageSize: limit }
+}
 
 // Parse cursor from query params (format: "createdAt|id")
 export function parseCursor(cursorParam: string | null): { createdAt: string; id: string } | undefined {
@@ -148,12 +168,12 @@ export function buildMemberPaginatedResponse<T extends { joinedAt: string; id: s
 // the read paths never surface them.
 export function groupAttachments(
   attachments: Array<{ id: string; messageId: string | null; targetId: string; filename: string; r2Key: string; thumbnailR2Key?: string | null; contentType: string | null; size: number | null; width?: number | null; height?: number | null }>
-): Record<string, Array<{ kind: "image" | "file"; name: string; url: string; thumbnailUrl?: string; contentType?: string; size?: string; sizeBytes?: number; width?: number; height?: number }>> {
-  const map: Record<string, Array<{ kind: "image" | "file"; name: string; url: string; thumbnailUrl?: string; contentType?: string; size?: string; sizeBytes?: number; width?: number; height?: number }>> = {}
+): Record<string, CommunityMessageAttachment[]> {
+  const map: Record<string, CommunityMessageAttachment[]> = {}
   for (const a of attachments) {
     if (!a.messageId) continue
     const kind = isInlineAttachmentContentType(a.contentType) ? "image" : "file"
-    const entry = {
+    const entry: CommunityMessageAttachment = {
       kind,
       name: a.filename,
       url: attachmentUrl(a.targetId, a.id),
@@ -164,7 +184,7 @@ export function groupAttachments(
         : {}),
       ...(kind === "file" && a.size !== null ? { size: formatAttachmentSize(a.size) } : {}),
       ...(kind === "image" ? { width: a.width ?? undefined, height: a.height ?? undefined } : {}),
-    } as { kind: "image" | "file"; name: string; url: string; thumbnailUrl?: string; contentType?: string; size?: string; sizeBytes?: number; width?: number; height?: number }
+    }
     ;(map[a.messageId] ??= []).push(entry)
   }
   return map
@@ -174,8 +194,8 @@ export function groupAttachments(
 export function groupReactions(
   reactions: Array<{ messageId: string; emoji: string; userId: string }>,
   currentUserId: string
-): Record<string, Array<{ emoji: string; count: number; me: boolean; userIds: string[] }>> {
-  const map: Record<string, Array<{ emoji: string; count: number; me: boolean; userIds: string[] }>> = {}
+): Record<string, NonNullable<CommunityMessageResource["reactions"]>> {
+  const map: Record<string, NonNullable<CommunityMessageResource["reactions"]>> = {}
   for (const r of reactions) {
     const list = (map[r.messageId] ??= [])
     const existing = list.find((x) => x.emoji === r.emoji)

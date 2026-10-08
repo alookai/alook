@@ -147,7 +147,7 @@ describe("useServers / serversQueryFn", () => {
     apiFetchMock.mockResolvedValueOnce({ servers: [] })
     const rendered = renderHook(() => useServers(), { wrapper: Owner })
     await waitFor(() => expect(rendered.result.current.isLiveAuthoritative).toBe(true))
-    act(() => registry.runtime.ws.actions.revokeChannelAccess("s1", "c1"))
+    act(() => registry.runtime.ws.actions.revokeServerAccess("s1"))
     await waitFor(() => expect(rendered.result.current.isLiveAuthoritative).toBe(false))
   })
 

@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import {
   COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES,
+  decodeCommunityBrowserEvent,
+  decodeCommunityBrowserEventBatch,
+  deriveCommunityDeliveryOperationId,
+  encodeCommunityBrowserEventBatch,
+  encodeCommunityBrowserEventBatchForContract,
+  prepareCommunityDeliveryEvents,
+  type CommunityWsEvent,
   type WsMessage,
 } from "@alook/shared"
 import type { UseUserWsOptions } from "./use-user-ws"
@@ -250,7 +257,7 @@ describe("useUserWs", () => {
   })
 
   async function mountHook(
-    onMessage: (msg: WsMessage) => void,
+    onMessage: (msg: WsMessage, assertCurrent?: () => void) => void | Promise<void>,
     options?: UseUserWsOptions,
   ) {
     // Re-import to get fresh module with fresh mocks
@@ -260,6 +267,147 @@ describe("useUserWs", () => {
     await flushPromises()
     return mod
   }
+
+  it("requires protocol confirmation before a v2 batch reaches the callback", async () => {
+    setupTokenFetch()
+    const callback = vi.fn()
+    await mountHook(callback)
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateMessage({ type: "community:events.batch.v2", events: [] })
+    await flushPromises()
+    expect(callback).not.toHaveBeenCalled()
+  })
+
+  const explicitMembership = {
+    type: "community:channel.membership.change",
+    serverId: "server-1",
+    channelId: "channel-1",
+    userId: "user-1",
+    relation: "notify",
+    present: false,
+  } as const
+  const legacyMembership = {
+    type: "community:channel.member_remove",
+    serverId: "server-1",
+    channelId: "channel-1",
+    userId: "user-1",
+  } as const
+
+  async function legacyBatch(events: CommunityWsEvent[]) {
+    const prepared = await prepareCommunityDeliveryEvents(events)
+    if (!prepared.ok) throw new Error("invalid regression events")
+    const encoded = await encodeCommunityBrowserEventBatch({
+      operationId: await deriveCommunityDeliveryOperationId("protocol-regression"),
+      operationDigest: prepared.prepared.digest,
+      events,
+    })
+    if (!encoded.ok) throw new Error("invalid regression batch")
+    expect(decodeCommunityBrowserEventBatch(encoded.batch).ok).toBe(true)
+    return encoded.batch
+  }
+
+  it.each([undefined, 1] as const)("rejects a new membership single without V2 confirmation (%s)", async (contract) => {
+    setupTokenFetch()
+    const callback = vi.fn()
+    await mountHook(callback)
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok", ...(contract === undefined ? {} : { communityContract: contract }) })
+    expect(decodeCommunityBrowserEvent(explicitMembership).ok).toBe(true)
+    ws.simulateMessage(explicitMembership)
+    await flushPromises()
+    expect(callback).not.toHaveBeenCalled()
+    ws.simulateMessage(legacyMembership)
+    expect(callback).toHaveBeenCalledExactlyOnceWith(legacyMembership)
+  })
+
+  it.each([undefined, 1] as const)("rejects an entire legacy batch containing a new membership child without V2 confirmation (%s)", async (contract) => {
+    const incompatibleBatch = await legacyBatch([legacyMembership, explicitMembership])
+    const compatibleBatch = await legacyBatch([legacyMembership])
+    setupTokenFetch()
+    const callback = vi.fn()
+    await mountHook(callback)
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok", ...(contract === undefined ? {} : { communityContract: contract }) })
+    ws.simulateMessage(incompatibleBatch)
+    await flushPromises()
+    expect(callback).not.toHaveBeenCalled()
+    ws.simulateMessage(compatibleBatch)
+    expect(callback).toHaveBeenCalledExactlyOnceWith(compatibleBatch)
+  })
+
+  it("admits new representations and older producer frames after V2 confirmation", async () => {
+    const oldBatch = await legacyBatch([legacyMembership])
+    const prepared = await prepareCommunityDeliveryEvents([explicitMembership])
+    if (!prepared.ok) throw new Error("invalid regression events")
+    const newBatch = await encodeCommunityBrowserEventBatchForContract({
+      operationId: await deriveCommunityDeliveryOperationId("protocol-regression-v2"),
+      prepared: prepared.prepared,
+      contract: 2,
+    })
+    if (!newBatch.ok) throw new Error("invalid regression batch")
+    expect(decodeCommunityBrowserEventBatch(newBatch.batch).ok).toBe(true)
+    setupTokenFetch()
+    const received: WsMessage[] = []
+    await mountHook((message) => { received.push(message) })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok", communityContract: 2 })
+    ws.simulateMessage(explicitMembership)
+    ws.simulateMessage(legacyMembership)
+    ws.simulateMessage(oldBatch)
+    ws.simulateMessage(newBatch.batch)
+    await flushPromises()
+    expect(received).toEqual([explicitMembership, legacyMembership, oldBatch, newBatch.batch])
+  })
+
+  it("preserves frame order behind asynchronous v2 admission", async () => {
+    setupTokenFetch()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const received: string[] = []
+    await mountHook(async (message, assertCurrent) => {
+      if (message.type === "community:events.batch.v2") await gate
+      assertCurrent?.()
+      received.push(message.type)
+    })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok", communityContract: 2 })
+    ws.simulateMessage({ type: "community:events.batch.v2", events: [] })
+    ws.simulateMessage({ type: "runtime.status", status: "online" })
+    await flushPromises()
+    expect(received).toEqual([])
+    release()
+    await flushPromises()
+    await vi.waitFor(() => expect(received).toEqual(["community:events.batch.v2", "runtime.status"]))
+  })
+
+  it("retires an in-flight admission and queued frames with their original socket", async () => {
+    setupTokenFetch()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const received: string[] = []
+    await mountHook(async (message, assertCurrent) => {
+      await gate
+      assertCurrent?.()
+      received.push(message.type)
+    })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok", communityContract: 2 })
+    ws.simulateMessage({ type: "community:events.batch.v2", events: [] })
+    ws.simulateMessage({ type: "runtime.status", status: "online" })
+    await flushPromises()
+    mockNavigator.onLine = false
+    mockWindow.dispatch("offline")
+    release()
+    await flushPromises()
+    expect(received).toEqual([])
+  })
 
   it("connect memo is stable — changing onMessage does NOT create a new connect reference", async () => {
     setupTokenFetch()
@@ -307,7 +455,7 @@ describe("useUserWs", () => {
     ws.simulateMessage({ type: "auth.ok" })
 
     expect(ws.sent).toEqual([
-      JSON.stringify({ type: "auth", token: "tok-123" }),
+      JSON.stringify({ type: "auth", token: "tok-123", communityContract: 2 }),
       JSON.stringify({ type: "check_daemon_status" }),
     ])
     expect(onMsg).not.toHaveBeenCalled()
@@ -324,7 +472,7 @@ describe("useUserWs", () => {
     ws.simulateMessage({ type: "auth.ok" })
 
     expect(ws.sent).toEqual([
-      JSON.stringify({ type: "auth", token: "tok-123" }),
+      JSON.stringify({ type: "auth", token: "tok-123", communityContract: 2 }),
     ])
     expect(onMsg).not.toHaveBeenCalled()
   })
@@ -392,7 +540,7 @@ describe("useUserWs", () => {
 
     ws.simulateMessage({ type: "auth.ok" })
     expect(ws.sent).toEqual([
-      JSON.stringify({ type: "auth", token: "tok-123" }),
+      JSON.stringify({ type: "auth", token: "tok-123", communityContract: 2 }),
       JSON.stringify({ type: "check_daemon_status" }),
     ])
     expect(onMsg).not.toHaveBeenCalled()
@@ -1160,7 +1308,7 @@ describe("useUserWs", () => {
     await mountHook(vi.fn(), { onAuthenticated, requestDaemonStatusOnAuth: false })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    expect(first.sent).toContain(JSON.stringify({ type: "auth", token: "tok-123" }))
+    expect(first.sent).toContain(JSON.stringify({ type: "auth", token: "tok-123", communityContract: 2 }))
 
     mockNavigator.onLine = false
     mockWindow.dispatch("offline")
@@ -1606,7 +1754,7 @@ describe("useUserWs", () => {
     })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
-    expect(first.sent).toContain(JSON.stringify({ type: "auth", token: "tok-123" }))
+    expect(first.sent).toContain(JSON.stringify({ type: "auth", token: "tok-123", communityContract: 2 }))
 
     mockDocument.visibilityState = "hidden"
     mockDocument.dispatch("visibilitychange")

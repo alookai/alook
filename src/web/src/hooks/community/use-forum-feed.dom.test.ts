@@ -6,8 +6,8 @@ import { renderHook, waitFor } from "@/test/react-dom-harness"
 import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
-import { getCanonicalCommunityMessages, getCanonicalCommunityChannels } from "@/lib/community-db/sync"
-import { forumFeedWindow, type ForumFeedTransportPage } from "./forum-feed-window"
+import { getCanonicalCommunityMessages, getCanonicalCommunityChannels, patchCanonicalCommunityChannel } from "@/lib/community-db/sync"
+import { forumFeedWindow, normalizeThreadResources, type ForumFeedTransportPage } from "./forum-feed-window"
 import { CONVERSATION_READ_TIMEOUT_MS } from "@/lib/community/conversation-read"
 import { communityKeys } from "@/lib/query-keys"
 
@@ -133,7 +133,7 @@ describe("forumFeedPageQueryFn", () => {
   it("seeds opener and participant profiles while returning only the ID window", async () => {
     const page = {
       serverId: "server_1", parentType: "forum",
-      threads: [],
+      threads: [{ id: "thread_1", name: "post", creatorId: "author_1", messageCount: 1, parentMessageId: "m1", lastMessageAt: null, createdAt: "", activityAt: "" }],
       included: {
         parentMessages: [{
           id: "m1",
@@ -158,7 +158,7 @@ describe("forumFeedPageQueryFn", () => {
 
     const result = await forumFeedPageQueryFn("forum_one", null, client)({ pageParam: null })
 
-    expect(result).toEqual(forumFeedWindow(page))
+    expect(result).toEqual(forumFeedWindow(normalizeThreadResources("forum_one", page)))
     const profiles = getCommunityDbRegistry(client)!.collections.profiles
     expect(profiles.get("author_1")).toMatchObject({ name: "Alice", avatarVersion: 2 })
     expect(profiles.get("participant_1")).toMatchObject({ name: "Bob", avatar: "bob.png", avatarVersion: 3 })
@@ -167,6 +167,20 @@ describe("forumFeedPageQueryFn", () => {
 })
 
 describe("mapForumFeedPages", () => {
+  it("retains full forum preview, empty activity and zero opener sequence", async () => {
+    const preview = "preview".repeat(30)
+    const result = await projectPages([{
+      serverId: "server_1", parentType: "forum", hasMore: false,
+      threads: [{ id: "post", name: "Fallback", creatorId: "u1", messageCount: null, parentMessageId: "opener", lastMessageAt: null, createdAt: "created", activityAt: "created" }],
+      included: { ...emptyIncluded, parentMessages: [{ id: "opener", channelId: "forum_1", seq: 0, content: "   ", authorId: "u1", authorName: "A", authorImage: null, authorAvatarVersion: 0 }], firstMessages: [{ channelId: "post", content: preview }] },
+    }])
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({ name: "Fallback", messageCount: 0, lastMessageAt: "created", parent: { authorId: "u1", authorName: "A", text: preview.slice(0, 100) }, parentSeq: 0, openerMessageId: "opener", preview: preview.slice(0, 100) })
+    patchCanonicalCommunityChannel(client, "post", (row) => ({ ...row, preview, lastMessageAt: null }))
+    const registry = getCommunityDbRegistry(client)!
+    const projected = mapForumFeedPages([{ serverId: "server_1", parentType: "forum", threads: [{ id: "post", openerMessageId: "opener", participantIds: [] }], hasMore: false }], new Map(getCanonicalCommunityMessages(client).map((row) => [row.id, row])), new Map(getCanonicalCommunityChannels(client).map((row) => [row.id, row])), new Map([...registry.collections.profiles.values()].map((row) => [row.userId, row])))
+    expect(projected[0]).toMatchObject({ lastMessageAt: "", parent: { text: preview }, preview, parentSeq: 0 })
+  })
   it("keeps one operation baseline across pages and excludes duplicate profile publications", async () => {
     const registry = getCommunityDbRegistry(client)!
     const page = (id: string, name: string, more: boolean): ForumFeedTransportPage => ({
@@ -205,8 +219,8 @@ describe("mapForumFeedPages", () => {
         threads: [thread("delete", "m_delete"), thread("keep", "m_keep")],
         included: {
           parentMessages: [
-            { id: "m_delete", channelId: "forum", seq: 1, content: "delete", authorId: "u", authorName: "U", authorImage: null, authorAvatarVersion: 0 },
-            { id: "m_keep", channelId: "forum", seq: 2, content: "keep", authorId: "u", authorName: "U", authorImage: null, authorAvatarVersion: 0 },
+            { id: "m_delete", channelId: "forum_1", seq: 1, content: "delete", authorId: "u", authorName: "U", authorImage: null, authorAvatarVersion: 0 },
+            { id: "m_keep", channelId: "forum_1", seq: 2, content: "keep", authorId: "u", authorName: "U", authorImage: null, authorAvatarVersion: 0 },
           ],
           firstMessages: [{ channelId: "delete", content: "delete" }, { channelId: "keep", content: "keep" }],
           tags: [{ messageId: "m_delete", tag: "delete" }, { messageId: "m_keep", tag: "keep" }],
@@ -220,7 +234,7 @@ describe("mapForumFeedPages", () => {
       pageParams: [null],
     }
 
-    const windows = { ...data, pages: data.pages.map((page) => forumFeedWindow(page)) }
+    const windows = { ...data, pages: data.pages.map((page) => forumFeedWindow(normalizeThreadResources("forum_1", page))) }
     const projected = removeForumPostFromFeed(windows, "delete", "m_delete")!
 
     expect(projected.pages[0].threads.map((row) => row.id)).toEqual(["keep"])
@@ -337,7 +351,7 @@ describe("mapForumFeedPages", () => {
       included: {
         parentMessages: [{
           id: "opener-1",
-          channelId: "forum-1",
+          channelId: "forum_1",
           seq: 7,
           content: "transport content",
           authorId: "transport-author",

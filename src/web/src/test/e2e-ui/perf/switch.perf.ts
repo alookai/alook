@@ -33,6 +33,9 @@ import { test, expect, type Page, type BrowserContext } from "@playwright/test"
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { DEV_PASSWORD } from "@alook/shared"
+import { PERSIST_BUSTER, PERSIST_CACHE_PREFIX, PERSIST_VERSION } from "@/lib/query-persister"
+import { communityKeys } from "@/lib/query-keys"
+import { operatePerfQueryCache } from "./perf-query-cache"
 import { tid } from "../_fixtures/testids"
 import type {
   CacheState,
@@ -344,40 +347,8 @@ test("community switch perceived-latency capture", async ({ browser }) => {
     writeFileSync(CAPTURE_OUT, JSON.stringify(out, null, 2))
   }
 
-  // Force a cold pass by clearing the persister's IndexedDB. Do NOT
-  // `deleteDatabase` — the app holds an open connection to `keyval-store`, so
-  // the delete request fires `onblocked` and can hang indefinitely. Instead
-  // clear the object store's CONTENTS (a transaction that doesn't need the DB
-  // closed), with a hard timeout so a switch can never wedge the whole run.
-  async function clearIdb(): Promise<void> {
-    await page.evaluate(
-      () =>
-        new Promise<void>((res) => {
-          const done = setTimeout(res, 3000) // never wedge the run
-          const open = indexedDB.open("keyval-store")
-          open.onerror = () => {
-            clearTimeout(done)
-            res()
-          }
-          open.onsuccess = () => {
-            const db = open.result
-            if (!db.objectStoreNames.contains("keyval")) {
-              db.close()
-              clearTimeout(done)
-              res()
-              return
-            }
-            const tx = db.transaction("keyval", "readwrite")
-            tx.objectStore("keyval").clear()
-            tx.oncomplete = tx.onerror = () => {
-              db.close()
-              clearTimeout(done)
-              res()
-            }
-          }
-        }),
-    )
-  }
+  const persistedKey = `${PERSIST_CACHE_PREFIX}:${manifest.owner.userId}:client`
+  const clearQueryPayload = () => page.evaluate(operatePerfQueryCache, { key: persistedKey, action: "remove" as const })
 
   // Matrix size is env-configurable and defaults SMALL: against a live Next dev
   // build each switch costs full API fan-out + paint + reflow settle (often
@@ -390,7 +361,7 @@ test("community switch perceived-latency capture", async ({ browser }) => {
   // --- Channel switches: cold, then memory-warm (immediate repeat) ---
   for (let i = 1; i < Math.min(channels.length, N_CHANNEL + 1); i++) {
     const ch = channels[i]
-    await clearIdb()
+    await clearQueryPayload()
     await measureSwitch("channel", ch.id, "cold", async () => {
       await page.getByTestId(tid.channelRow(ch.id)).click()
     })
@@ -409,40 +380,18 @@ test("community switch perceived-latency capture", async ({ browser }) => {
   // --- disk-warm channel pass: let the app persist to IDB, reload preserving
   // it, then measure the first switch (messages paint from disk, read-state
   // still refetches). ---
-  const persistedKey = `alook:qc:v1:${manifest.owner.userId}:client`
-  const persistedChannelId = channels[Math.min(channels.length, N_CHANNEL + 1) - 1]!.id
-  await expect.poll(() => page.evaluate(({ key, channelId }) => (
-    new Promise<boolean>((resolvePersisted, rejectPersisted) => {
-      const open = indexedDB.open("keyval-store")
-      open.onerror = () => rejectPersisted(open.error ?? new Error("failed to open query persister"))
-      open.onsuccess = () => {
-        const db = open.result
-        if (!db.objectStoreNames.contains("keyval")) {
-          db.close()
-          resolvePersisted(false)
-          return
-        }
-        const tx = db.transaction("keyval", "readonly")
-        const request = tx.objectStore("keyval").get(key)
-        request.onsuccess = () => {
-          db.close()
-          if (typeof request.result !== "string") {
-            resolvePersisted(false)
-            return
-          }
-          const client = JSON.parse(request.result) as {
-            clientState?: { queries?: Array<{ queryKey?: unknown[] }> }
-          }
-          resolvePersisted(client.clientState?.queries?.some((query) =>
-            Array.isArray(query.queryKey) && query.queryKey.includes(channelId)) ?? false)
-        }
-        request.onerror = () => {
-          db.close()
-          rejectPersisted(request.error ?? new Error("failed to read query persister"))
-        }
-      }
-    })
-  ), { key: persistedKey, channelId: persistedChannelId })).toBe(true)
+  const diskChannel = channels[1]
+  await page.getByTestId(tid.channelRow(channels[0].id)).click()
+  await page.waitForURL(firstLeaf, { waitUntil: "commit" })
+  await expect(page.getByTestId(tid.messageScroller).locator("[data-msg-id]").first()).toBeVisible()
+  await expect.poll(() => page.evaluate(operatePerfQueryCache, {
+    key: persistedKey,
+    action: "contains" as const,
+    version: PERSIST_VERSION,
+    buster: PERSIST_BUSTER,
+    queryKey: communityKeys.communityDbCollection(manifest.owner.userId, "messages"),
+    channelIds: [channels[0].id, diskChannel.id],
+  })).toBe(true)
   await page.addInitScript(() => {
     window.__PERF_WARM_RELOAD__ = { customBootstrapSeen: false, skeletonSeen: false }
     const inspect = () => {
@@ -493,16 +442,15 @@ test("community switch perceived-latency capture", async ({ browser }) => {
   expect(warmReload.stableTs).toBeGreaterThanOrEqual(warmReload.firstCachedPaintTs)
   flushCapture()
   {
-    const ch = channels[1]
-    await measureSwitch("channel", ch.id, "disk-warm", async () => {
-      await page.getByTestId(tid.channelRow(ch.id)).click()
+    await measureSwitch("channel", diskChannel.id, "disk-warm", async () => {
+      await page.getByTestId(tid.channelRow(diskChannel.id)).click()
     })
   }
 
   // --- Server switches (cold) ---
   const otherServers = manifest.servers.filter((s) => s.id !== targetServer.id).slice(0, N_SERVER)
   for (const srv of otherServers) {
-    await clearIdb()
+    await clearQueryPayload()
     await measureSwitch("server", srv.id, "cold", async () => {
       await page.getByTestId(tid.serverIcon(srv.id)).click()
     })

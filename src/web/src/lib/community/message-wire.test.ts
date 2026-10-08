@@ -18,14 +18,21 @@ function wire(
 }
 
 describe("projectCommunityMessageCreate", () => {
+  it("keeps explicit empty rich fields distinct from omission", () => {
+    expect(projectCommunityMessageCreate(wire({ attachments: [], embeds: [] }), "channel-1"))
+      .toMatchObject({ attachments: [], embeds: [] })
+    const sparse = projectCommunityMessageCreate(wire(), "channel-1")
+    expect(sparse).not.toHaveProperty("attachments")
+    expect(sparse).not.toHaveProperty("embeds")
+  })
   it("preserves canonical identity and presentation fields", () => {
     const replyTo = { id: "m0", authorName: "A", text: "prior" }
     const approval = {
       friendshipId: "f1",
       status: "pending" as const,
       waitingOn: "you" as const,
-      otherProfile: { id: "u2", name: "Other", discriminator: "0002", image: null },
-      botProfile: { id: "b1", name: "Bot", discriminator: "0003", image: null },
+      otherProfile: { id: "u2", name: "Other", discriminator: "0002", image: null, avatarVersion: 0 },
+      botProfile: { id: "b1", name: "Bot", discriminator: "0003", image: null, avatarVersion: 0 },
     }
     const projected = projectCommunityMessageCreate(wire({
       clientNonce: "nonce",
@@ -34,7 +41,7 @@ describe("projectCommunityMessageCreate", () => {
       authorAvatar: "avatar",
       replyTo,
       approval,
-    }))
+    }), "channel-1")
     expect(projected).toEqual(expect.objectContaining({
       id: "m1",
       seq: 42,
@@ -51,6 +58,16 @@ describe("projectCommunityMessageCreate", () => {
     }))
   })
 
+  it("keeps valid embed fields and omits an entirely malformed field list", () => {
+    const result = projectCommunityMessageCreate(wire({ embeds: [
+      { title: "Mixed", fields: [null, { name: "Key", value: "Value", inline: true }, { name: "Missing value" }] },
+      { title: "Invalid", fields: [null, { name: "Missing value" }] },
+    ] }), "channel-1")
+    expect(result.embeds).toEqual([
+      { title: "Mixed", fields: [{ name: "Key", value: "Value", inline: true }] },
+      { title: "Invalid", fields: undefined },
+    ])
+  })
   it("narrows embeds and maps safe image/file attachments", () => {
     const projected = projectCommunityMessageCreate(wire({
       embeds: [{ title: "Card", url: "https://example.com" }, { url: "missing-title" }, null],
@@ -59,7 +76,7 @@ describe("projectCommunityMessageCreate", () => {
         { id: "a2", filename: "doc.pdf", url: "/doc", contentType: "application/pdf", size: 2048 },
         { id: "a3", filename: "unsafe.svg", url: "/unsafe", contentType: "image/svg+xml", size: 1024 },
       ],
-    }))
+    }), "channel-1")
     expect(projected.embeds).toEqual([{ title: "Card", url: "https://example.com" }])
     expect(projected.attachments).toEqual([
       { kind: "image", name: "photo.png", url: "/photo", contentType: "image/png", sizeBytes: 2048, width: 640, height: 480 },
@@ -82,7 +99,7 @@ describe("projectPostedMessage", () => {
       type: "default",
       embeds: null,
       createdAt: "2026-08-06T00:00:00.000Z",
-    } as never, "nonce-2")
+    }, "nonce-2", "dm-1")
 
     expect(projected).toMatchObject({
       authorAvatar: "G",
@@ -90,4 +107,26 @@ describe("projectPostedMessage", () => {
       clientNonce: "nonce-2",
     })
   })
+
+  it("rejects an absent or mismatched actual POST channel scope", () => {
+    const row = { id: "m3", seq: 44, authorId: "u3", authorName: "Peer", authorImage: null,
+      authorAvatarVersion: 0, content: null, type: "default", embeds: null, createdAt: "2026-08-06T00:00:00.000Z" }
+    expect(() => projectPostedMessage(row, "nonce-3", "")).toThrow()
+    expect(() => projectPostedMessage(Object.assign({}, row, { channelId: "other" }), "nonce-3", "dm-1"))
+      .toThrow("Message resource scope mismatch")
+    expect(projectPostedMessage(row, "nonce-3", "dm-1")).toMatchObject({ id: "m3", content: "", type: "chat" })
+  })
+
+  it("keeps absent POST and WS rich content sparse", () => {
+    const posted = projectPostedMessage({ id: "m4", seq: 45, authorId: "u4", authorName: "Peer", authorImage: null,
+      authorAvatarVersion: 0, content: "plain", type: "default", embeds: null, createdAt: "2026-08-06T00:00:00.000Z" }, "nonce-4", "dm-1")
+    for (const message of [posted, projectCommunityMessageCreate(wire(), "channel-1")]) {
+      expect(message).not.toHaveProperty("attachments")
+      expect(message).not.toHaveProperty("embeds")
+      expect(message).not.toHaveProperty("channelId")
+      expect(message).not.toHaveProperty("replyToId")
+      expect(message).not.toHaveProperty("replyTo")
+    }
+  })
+
 })

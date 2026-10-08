@@ -35,9 +35,8 @@ export const communityKeys = {
     [...communityKeys.forumSidebarRetainedRoot(serverId), childId] as const,
   channelMetaRoot: (serverId: string) =>
     [...communityKeys.server(serverId), "channel-meta"] as const,
-  channelMeta: (serverId: string | null, channelId: string) => serverId === null
-    ? [...communityKeys.all, "channel", channelId, "metadata"] as const
-    : [...communityKeys.channelMetaRoot(serverId), channelId] as const,
+  channelMeta: (_serverId: string | null, channelId: string) =>
+    [...communityKeys.all, "channel", channelId, "metadata"] as const,
   forumOpenerHintRoot: (serverId: string) =>
     [...communityKeys.server(serverId), "forum-opener-hint"] as const,
   forumOpenerHint: (serverId: string, messageId: string) =>
@@ -72,14 +71,15 @@ export const communityKeys = {
     [...communityKeys.channelMessages(channelId), cursor ?? null] as const,
 
   dmMessages: (dmId: string) =>
-    [...communityKeys.all, "dm", dmId, "messages"] as const,
+    communityKeys.channelMessages(dmId),
   dmMessagesPage: (dmId: string, cursor?: string | null) =>
     [...communityKeys.dmMessages(dmId), cursor ?? null] as const,
 
   // Explicit membership roster of a private-category channel + the addable
   // (not-yet-member) server members for its picker.
-  channelMembers: (channelId: string) =>
-    [...communityKeys.all, "channel", channelId, "members"] as const,
+  channelMembers: (channelId: string, relation?: "access" | "notify") =>
+    relation ? [...communityKeys.all, "channel", channelId, "members", relation] as const
+      : [...communityKeys.all, "channel", channelId, "members"] as const,
   channelAddableMembers: (channelId: string) =>
     [...communityKeys.all, "channel", channelId, "addable-members"] as const,
 
@@ -106,7 +106,7 @@ export const communityKeys = {
   // hook latches the first non-null response so the "New" divider anchor
   // stays put while the progressive watermark advances.
   dmReadStateSnapshot: (dmId: string) =>
-    [...communityKeys.all, "dm", dmId, "read-state-snapshot"] as const,
+    communityKeys.channelReadStateSnapshot(dmId),
   accountReadStateSnapshot: () =>
     [...communityKeys.all, "read-state-snapshot"] as const,
   accountAttention: () =>
@@ -115,8 +115,8 @@ export const communityKeys = {
   // Single hydrated message (opener block, deep-link previews).
   message: (messageId: string) =>
     [...communityKeys.all, "message", messageId] as const,
-  messageContexts: (type: "channel" | "dm", channelId: string) =>
-    [...communityKeys.all, "message-context", type, channelId] as const,
+  messageContexts: (_type: "channel" | "dm", channelId: string) =>
+    [...communityKeys.all, "channel", channelId, "message-context"] as const,
   messageContext: (type: "channel" | "dm", channelId: string, targetSeq: number | null) =>
     [...communityKeys.messageContexts(type, channelId), targetSeq] as const,
   reactionDetailsAll: () =>

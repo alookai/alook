@@ -9,7 +9,6 @@ import type {
   CommunityReactionRemove,
   CommunityWsEvent,
 } from "@alook/shared"
-import { projectCommunityMessageCreate } from "@/lib/community/message-wire"
 
 import {
   hasForumSidebarOwnershipEvidence,
@@ -18,12 +17,11 @@ import {
 } from "@/hooks/community/use-forum-sidebar-threads"
 import { reconcileForumOpenerTitle } from "@/hooks/community/forum-opener-title-reconciliation"
 import { clearTypingIndicator, typingScopeKey } from "@/hooks/community/community-ws/typing"
-import type { MessageEventContext } from "@/hooks/community/community-ws/handler-context"
+import type { CommunityWsHandlerContext } from "@/hooks/community/community-ws/handler-context"
 import { scheduleFocusedMessageGapRepair } from "@/hooks/community/community-ws/reconnect-messages"
 import { armInboxReadReservationCandidate } from "@/hooks/community/inbox-read-reservation"
 import {
   approvalProfilePatches,
-  messageProfilePatches,
   writeCommunityProfilePatches,
 } from "@/lib/community/profile-seed"
 
@@ -33,8 +31,7 @@ import {
   invalidatePins,
 } from "@/hooks/community/community-ws/invalidation-projections"
 import { channelMetadataOptions } from "@/hooks/community/channel-metadata"
-import {
-} from "@/lib/community-db/sync"
+import { projectCommunityWsEventToDb } from "@/lib/community-db/sync"
 
 type CommunityMessageEdited = Extract<
   CommunityWsEvent,
@@ -42,7 +39,7 @@ type CommunityMessageEdited = Extract<
 >
 
 function warmLiveForumChildOwner(
-  queryClient: MessageEventContext["queryClient"],
+  queryClient: CommunityWsHandlerContext["queryClient"],
   event: CommunityMessageCreate,
 ) {
   if (
@@ -65,15 +62,15 @@ export function handleMessageCreate(
     viewerUserIdRef,
     matchesFocus,
     projection,
-  }: MessageEventContext,
+  }: CommunityWsHandlerContext,
 ) {
   warmLiveForumChildOwner(queryClient, event)
   const viewerId = viewerUserIdRef.current
   const hasSeenMessage = wsStore.actions.hasSeenMessage(event.message.id)
   const isForeignFocused = event.message.authorId !== viewerId
     && matchesFocus(event)
-  const projected = projectCommunityMessageCreate(event.message)
-  writeCommunityProfilePatches(messageProfilePatches([projected]), getCommunityDbRegistry(queryClient), { event: true })
+  const projected = projectCommunityWsEventToDb(queryClient, event)
+  if (!projected) return
   if (isForeignFocused && !hasSeenMessage) {
     armInboxReadReservationCandidate(queryClient, {
       channelId: event.channelId,
@@ -158,7 +155,7 @@ export function handleMessageCreate(
 
 export function handleReactionEvent(
   event: CommunityReactionAdd | CommunityReactionRemove,
-  context: MessageEventContext,
+  context: CommunityWsHandlerContext,
 ) {
   void event
   void context
@@ -166,14 +163,14 @@ export function handleReactionEvent(
 
 export function handlePinEvent(
   event: CommunityPinAdd | CommunityPinRemove,
-  { projection }: MessageEventContext,
+  { projection }: CommunityWsHandlerContext,
 ) {
   invalidatePins(projection, event.channelId)
 }
 
 export function handleMessageUpdated(
   event: CommunityMessageUpdated,
-  context: MessageEventContext,
+  context: CommunityWsHandlerContext,
 ) {
   writeCommunityProfilePatches(approvalProfilePatches(event.approval), getCommunityDbRegistry(context.queryClient), { event: true })
   // When a card resolves (accepted/denied/superseded), the friend graph
@@ -187,7 +184,7 @@ export function handleMessageUpdated(
 
 export function handleMessageEdited(
   event: CommunityMessageEdited,
-  context: MessageEventContext,
+  context: CommunityWsHandlerContext,
 ) {
   const { queryClient } = context
   if (event.parentChannelId) {

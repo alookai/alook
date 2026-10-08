@@ -3,6 +3,7 @@ import { expect, test, userId } from "./_fixtures/community-fixture"
 import { composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
 import {
   communityFrameEvents,
+  isCommunityBatchFrame,
   proxyCommunityWebSockets,
   type CapturedCommunityFrame,
 } from "./_fixtures/community-ws-proxy"
@@ -83,7 +84,7 @@ function hasCorrelatedBundle(
   channelId: string,
 ) {
   return frames.some((frame) => {
-    if (frame.type !== "community:events.batch") return false
+    if (!isCommunityBatchFrame(frame)) return false
     const events = communityFrameEvents(frame)
     return events.some((event) => (
       event.type === "community:message.create"

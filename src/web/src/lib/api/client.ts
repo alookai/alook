@@ -1,3 +1,5 @@
+import { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION } from "@alook/shared"
+import { communityReadTarget, decodeCommunityReadResponse } from "@/lib/community/read-response"
 import { createStore } from "@tanstack/store";
 import { ApiError, UnauthorizedError, isAbortError } from "@/lib/errors";
 import { startRequest, requestHeaders, requestRejected, finishRequest, readObservedResponse, runObservedFetch, type RequestObservation } from "@/lib/observability/requests";
@@ -104,9 +106,11 @@ async function fetchQualifiedResponse(path: string, options?: ApiRequestOptions,
   try {
     assertEligible();
     const headers = new Headers(request.headers);
+    if (communityReadTarget(path, request.method) && !headers.has(COMMUNITY_CONTRACT_HEADER)) headers.set(COMMUNITY_CONTRACT_HEADER, String(COMMUNITY_CONTRACT_VERSION));
     if (!headers.has("Content-Type") && !(typeof FormData !== "undefined" && request.body instanceof FormData)) headers.set("Content-Type", "application/json");
     res = await runObservedFetch(observation, () => fetch(API_BASE + path, {
       ...request,
+      ...(path.startsWith("/api/community/") ? { cache: "no-store" as const } : {}),
       credentials: "include",
       headers,
     }));
@@ -132,8 +136,8 @@ async function fetchQualifiedResponse(path: string, options?: ApiRequestOptions,
     let serverError: string | undefined;
     let details: string[] | undefined;
     try {
-      const body = (await res.json()) as { error?: string; details?: string[] };
-      serverError = body.error;
+      const body = (await res.json()) as { error?: string | { message?: string }; details?: string[] };
+      serverError = typeof body.error === "string" ? body.error : body.error?.message;
       details = body.details;
     } catch {
       // non-JSON body (HTML from proxy, empty body, etc.)
@@ -167,7 +171,7 @@ async function fetchQualifiedResponse(path: string, options?: ApiRequestOptions,
 export async function apiFetch<T>(path: string, options?: ApiRequestOptions): Promise<T> {
   const res = await apiFetchResponse(path, options, true);
   if (res.status === 204) return readObservedResponse(res, async () => undefined as T);
-  const data = await readObservedResponse(res, () => res.json() as Promise<T>, () => {
+  const data = await readObservedResponse(res, async () => decodeCommunityReadResponse(path, options?.method, res, await res.json()) as T, () => {
     options?.assertActive?.();
     if (options?.signal?.aborted) throw new DOMException("Cancelled request", "AbortError");
   });

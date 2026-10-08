@@ -42,6 +42,7 @@ vi.mock("./structure-tree-events", () => ({
   handleServerUpdate: handlers.handleServerUpdate,
 }))
 vi.mock("./membership-events", () => ({
+  handleChannelMembershipChange: handlers.handleChannelMembershipChange,
   handleChannelMemberEvent: handlers.handleChannelMemberEvent,
   handleMemberJoin: handlers.handleMemberJoin,
   handleMemberLeave: handlers.handleMemberLeave,
@@ -86,7 +87,7 @@ describe("community WebSocket registry", () => {
   it("has exactly one entry for each of the 45 runtime event types", () => {
     const eventTypes = Object.values(WS_EVENTS).sort()
     const registryTypes = Object.keys(communityWsRegistry).sort()
-    expect(eventTypes).toHaveLength(45)
+    expect(eventTypes).toHaveLength(46)
     expect(registryTypes).toEqual(eventTypes)
   })
 

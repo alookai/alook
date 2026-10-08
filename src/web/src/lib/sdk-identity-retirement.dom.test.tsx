@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, render, waitFor } from "@/test/react-dom-harness"
 import { PublicQueryProvider, useApplicationOwner, type ApplicationOwner } from "./application-owner"
 import { QueryProvider } from "@/app/c/QueryProvider"
-import { clearAllPersistedCaches, createIdbPersister } from "./query-persister"
+import { PERSIST_BUSTER, clearAllPersistedCaches, createIdbPersister } from "./query-persister"
 import { getCommunityDbRegistry, type CommunityDbRegistry } from "./community-db/collections"
 const sdk = vi.hoisted(() => ({ session: { data: { user: { id: "A" } } as { user: { id: string } } | null, isPending: false, error: null } }))
 vi.mock("@/lib/auth-client", () => { const sessionSDK = { useSession: () => sdk.session }; return { ...sessionSDK, currentSessionViewer: () => { const value = sessionSDK.useSession(); return !value || value.isPending || value.error ? undefined : value.data?.user.id ?? null } } })
@@ -21,7 +21,7 @@ function Root({ kind, id, show = true }: { kind: "application" | "community"; id
   if (!show) return <p>Other route</p>
   return kind === "application" ? <PublicQueryProvider><AppProbe /></PublicQueryProvider> : <QueryProvider userId={id}><CommunityProbe /></QueryProvider>
 }
-const payload = { timestamp: Date.now(), buster: "v3", clientState: { queries: [], mutations: [] } }
+const payload = { timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: { queries: [], mutations: [] } }
 beforeEach(async () => { await act(async () => { await clearAllPersistedCaches(); }) ; sdk.session = { data: { user: { id: "A" } }, isPending: false, error: null }; const real = window; vi.stubGlobal("window", new Proxy(real, { get: (target, key) => key === "location" ? { reload: vi.fn(), assign: vi.fn() } : Reflect.get(target, key, target) })) })
 afterEach(async () => {
   await act(async () => {
@@ -41,7 +41,7 @@ describe.each(["application", "community"] as const)("%s original public SDK ide
     await waitFor(() => expect(kind === "application" ? application.userId : community.accountId).toBe("B"))
     await waitFor(() => expect(view.getByText(kind === "application" ? "Application" : "Community")).toHaveAttribute("data-restoring", "false"))
     await waitFor(async () => expect(await a.isCurrent()).toBe(false))
-    expect(await get("alook:qc:v2:A:client")).toBeUndefined(); expect(await get("alook:qc:v2:B:client")).toBe("old B"); expect(await b.isCurrent()).toBe(true)
+    expect(await get("alook:qc:v2:A:client")).toBeUndefined(); expect(await get("alook:qc:v2:B:client")).toBeUndefined(); expect(await b.isCurrent()).toBe(true); expect((await b.restoreClient())?.timestamp).toBe(payload.timestamp)
     expect(kind === "application" ? (old as ApplicationOwner).lifecycle.get().active : (old as CommunityDbRegistry).runtime.lifecycle.get().active).toBe(false)
   })
   it("keeps same-viewer disk eligibility through ordinary route unmount", async () => {

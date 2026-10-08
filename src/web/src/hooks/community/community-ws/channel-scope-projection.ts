@@ -11,63 +11,9 @@ import { removeThreadFromCache } from "./cache"
 import type { ForumFeedPage } from "@/hooks/community/use-forum-feed"
 import { removeForumPostFromFeed } from "@/hooks/community/forum-feed-window"
 import type { InfiniteData } from "@tanstack/react-query"
-import {
-isKnownNonForumSidebarChannel,
-removeForumSidebarChildrenForParent,
-removeForumSidebarThreadExact,
-removeForumSidebarUnreadChild,
-} from "@/hooks/community/use-forum-sidebar-threads"
 import type { CommunityWsProjectionTransaction } from "./projection-transaction"
-import { getActiveAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
-import { purgeCommunityChannel,purgeCommunityForumPost } from "@/lib/community-db/sync"
-import { collectChannelScopeIds,evictScopeContent } from "./scope-eviction"
-
-export function projectChannelScopeEviction(
-  projection: CommunityWsProjectionTransaction,
-  queryClient: QueryClient,
-  serverId: string,
-  channelId: string,
-) {
-  const ids = collectChannelScopeIds(queryClient, serverId, channelId)
-  for (const id of getCommunityRuntime(queryClient).ws.actions.revokeChannelAccess(serverId, channelId)) ids.add(id)
-  projection.project(() => {
-    for (const id of ids) {
-      getCommunityRuntime(queryClient).ws.actions.revokeChannelAccess(serverId, id)
-      getActiveAccountUnreadProjection(queryClient).retireAccessScope({ kind: "channel", channelId: id })
-      evictChannelScopeQueryCaches(queryClient, serverId, id)
-      evictScopeContent(queryClient, serverId, id)
-    }
-    const registry = getCommunityDbRegistry(queryClient)
-    if (registry) purgeCommunityChannel(registry, channelId)
-  })
-}
-
-function evictChannelScopeQueryCaches(
-  queryClient: QueryClient,
-  serverId: string,
-  channelId: string,
-  queries?: ReadonlySet<Query>,
-) {
-  const allowed = (query: Query) => !queries || queries.has(query)
-  void queryClient.cancelQueries({ queryKey: ["community", "channel", channelId], predicate: allowed })
-  const nonForum = isKnownNonForumSidebarChannel(queryClient, serverId, channelId)
-  const sidebar = queryClient.getQueryCache().find({ queryKey: communityKeys.forumSidebarThreads(serverId), exact: true })
-  if (!nonForum && (!queries || sidebar && queries.has(sidebar))) {
-    removeForumSidebarUnreadChild(queryClient, serverId, channelId)
-    removeForumSidebarChildrenForParent(queryClient, serverId, channelId)
-    removeForumSidebarThreadExact(queryClient, serverId, channelId)
-  } else {
-    queryClient.removeQueries({
-      queryKey: communityKeys.channelMeta(serverId, channelId),
-      exact: true,
-      predicate: allowed,
-    })
-  }
-  queryClient.removeQueries({ queryKey: communityKeys.channelMessages(channelId), predicate: allowed })
-  queryClient.removeQueries({ queryKey: communityKeys.pins(channelId), predicate: allowed })
-  queryClient.removeQueries({ queryKey: communityKeys.threads(channelId), predicate: allowed })
-}
+import { purgeCommunityForumPost, publishCommunityDeletedForumPost, type CommunityFreshQueryProof } from "@/lib/community-db/sync"
 
 export type ForumPostUnitIdentity = {
   serverId: string
@@ -83,7 +29,6 @@ function evictForumPostUnitQueryCaches(
   queries?: ReadonlySet<Query>,
 ) {
   const allowed = (query: Query) => !queries || queries.has(query)
-  evictChannelScopeQueryCaches(queryClient, unit.serverId, unit.childChannelId, queries)
   queryClient.setQueriesData<PageCache>(
     { queryKey: communityKeys.channelMessages(unit.forumChannelId), predicate: allowed },
     (cache) => removeThreadFromCache(cache, unit.childChannelId, unit.openerMessageId),
@@ -122,23 +67,18 @@ export function projectForumPostUnitEviction(
 export function applyForumPostUnitClientEffects(
   queryClient: QueryClient,
   unit: ForumPostUnitIdentity,
-  options?: { queries?: ReadonlySet<Query>; assertView?: () => void; canonical?: boolean },
+  options?: { queries?: ReadonlySet<Query>; assertView?: () => void; proof?: CommunityFreshQueryProof },
 ) {
   let viewCurrent = true
   try { options?.assertView?.() } catch { viewCurrent = false }
   const wasCurrent = getCommunityRuntime(queryClient).ui.get().currentChannelId === unit.childChannelId
-  getCommunityRuntime(queryClient).ws.actions.revokeChannelAccess(unit.serverId, unit.childChannelId)
-  getActiveAccountUnreadProjection(queryClient).retireAccessScope({
-    kind: "channel",
-    channelId: unit.childChannelId,
-  })
+  const registry = getCommunityDbRegistry(queryClient)
+  if (registry) {
+    if (options?.proof) {
+      if (!publishCommunityDeletedForumPost(queryClient, unit, options.proof, options)) return false
+    } else purgeCommunityForumPost(registry, unit)
+  }
   evictForumPostUnitQueryCaches(queryClient, unit, options?.queries)
-  evictScopeContent(queryClient, unit.serverId, unit.childChannelId, options)
-  getCommunityRuntime(queryClient).messageStream.actions.removeScope({
-    kind: "channel",
-    id: unit.childChannelId,
-    serverId: unit.serverId,
-  })
   getCommunityRuntime(queryClient).messageStream.actions.dispatch({
     kind: "channel",
     id: unit.forumChannelId,
@@ -147,8 +87,6 @@ export function applyForumPostUnitClientEffects(
     type: "messageRemoved",
     messageId: unit.openerMessageId,
   })
-  const registry = getCommunityDbRegistry(queryClient)
-  if (registry && options?.canonical !== false) purgeCommunityForumPost(registry, unit)
   const store = getCommunityRuntime(queryClient).ui.get()
   if (wasCurrent && viewCurrent) {
     getCommunityRuntime(queryClient).ui.actions.setCurrentChannelId(unit.forumChannelId)
@@ -157,4 +95,5 @@ export function applyForumPostUnitClientEffects(
       channelHref(unit.serverId, unit.forumChannelId),
     )
   }
+  return true
 }

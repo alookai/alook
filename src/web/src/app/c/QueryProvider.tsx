@@ -169,7 +169,7 @@ function ScopedQueryProvider({
   const [persister] = useState(() => createIdbPersister(userId))
   const active = useSelector(communityDb.runtime.lifecycle, (state) => state.active)
   const router = useRouter()
-  useLayoutEffect(() => { communityDb.bindAuthentication(sessionViewer, persister.retireAccount) }, [communityDb, sessionViewer, persister])
+  useLayoutEffect(() => { communityDb.bindAuthentication(sessionViewer, persister.retireAccount, persister.retireChannels) }, [communityDb, sessionViewer, persister])
   const retireTelemetryIdentity = useRef<() => void>(() => undefined)
   useLayoutEffect(() => { setTelemetryUser(userId); retireTelemetryIdentity.current = captureTelemetryIdentityRetirement() }, [userId])
   const identityRetired = useRef(false)

@@ -1,27 +1,20 @@
+import type { CommunityUserCore } from "@/lib/community/models/people"
 import type { ReactNode } from "react"
-import type { MentionType } from "@alook/shared"
+import type { MentionType, CommunityResourceProfile } from "@alook/shared"
 import type { FileAttachment, ImagePreview, Msg } from "@/lib/community/models/message"
 import type { SendAttachment } from "./composer"
 import type { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
+import type { ReplyTarget } from "@/lib/community/models/message"
+export type { ReplyTarget } from "@/lib/community/models/message"
 
 type MessageFeed = ReturnType<typeof useChannelMessageFeed>
 
-export type Viewer = {
-  id: string
-  name: string
-  avatar: string
-}
+export type Viewer = Pick<CommunityResourceProfile, "id"> & Pick<CommunityUserCore, "name" | "avatar">
 
 export type MessageUiHandlers = {
   navigate?: (serverId: string, channelId: string) => void
   previewImage?: (image: ImagePreview) => void
   previewAttachment?: (attachment: FileAttachment) => void
-}
-
-export type ReplyTarget = {
-  id: string
-  authorName: string
-  text: string
 }
 
 export type MessageContextTarget = {

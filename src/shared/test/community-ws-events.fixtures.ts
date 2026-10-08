@@ -153,6 +153,9 @@ export const communityWsEventFixtures = {
     channelId: "channel-1",
     userId: "user-1",
   },
+  "community:channel.membership.change": {
+    type: "community:channel.membership.change", serverId: "server-1", channelId: "channel-1", userId: "user-1", relation: "notify", present: true,
+  },
   "community:category.create": {
     type: "community:category.create",
     serverId: "server-1",
@@ -311,6 +314,7 @@ export const requiredFixturePaths = {
   "community:channel.reorder": ["channels"],
   "community:channel.member_add": ["userId"],
   "community:channel.member_remove": ["userId"],
+  "community:channel.membership.change": ["relation"],
   "community:category.create": ["category"],
   "community:category.update": ["changes"],
   "community:category.delete": ["categoryId"],

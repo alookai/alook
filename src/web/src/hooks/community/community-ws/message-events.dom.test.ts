@@ -8,7 +8,9 @@ import type {
   CommunityPinAdd,
   CommunityReactionAdd,
 } from "@alook/shared"
-import { getMessageOverlay } from "@/stores/community/message-stream"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { beginCommunityProfileSeed } from "@/lib/community/profile-seed"
+import { getMessageStreamState } from "@/test/community-query-owner"
 import { communityKeys } from "@/lib/query-keys"
 import { getCanonicalCommunityChannels } from "@/lib/community-db/sync"
 import {
@@ -58,13 +60,28 @@ function seedParent(serverId: string, parentId: string, type: "forum" | "text") 
 }
 
 describe("useCommunityWs — message.create", () => {
+  it("publishes confirmed message and author once before the ID view consumes it", async () => {
+    getCapturedRuntime().ui.actions.subscribe({ channelId: "ch_once" })
+    resetHookMemoization()
+    await mountHook()
+    const registry = getCommunityDbRegistry(capturedQueryClient)!
+    const revision = beginCommunityProfileSeed(registry).revision
+    const event = messageCreate("ch_once")
+    capturedOnMessage!(event)
+    expect(beginCommunityProfileSeed(registry).revision).toBe(revision + 1)
+    expect(registry.collections.messages.get(event.message.id)).toMatchObject({ content: event.message.content })
+    expect(registry.collections.profiles.get(event.message.authorId)).toMatchObject({ name: event.message.authorName })
+    expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "ch_once", serverId: "s1" }).liveIds).toContain(event.message.id)
+    expect(canonicalMessage(event.message.id)).toMatchObject({ content: event.message.content })
+  })
+
   it("checks a focused channel gap before projecting the incoming overlay row", async () => {
     const { useCommunityStore } = await import("@/stores/community")
     getCapturedRuntime().ui.actions.subscribe({ channelId: "ch_gap" })
     resetHookMemoization()
     await mountHook()
     scheduleGapRepairMock.mockImplementationOnce(() => {
-      expect(getMessageOverlay(capturedQueryClient, { kind: "channel", id: "ch_gap", serverId: "s1" }).liveById.size).toBe(0)
+      expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "ch_gap", serverId: "s1" }).liveIds.length).toBe(0)
       return null
     })
     const event = messageCreate("ch_gap")
@@ -284,7 +301,7 @@ describe("useCommunityWs — message.create", () => {
       communityKeys.channelMessages("ch_1"),
     )
     expect(cache?.pages[0].messages).toEqual([])
-    expect([...getMessageOverlay(capturedQueryClient, { kind: "channel", id: "ch_1", serverId: "s1" }).liveById]).toHaveLength(1)
+    expect([...getMessageStreamState(capturedQueryClient, { kind: "channel", id: "ch_1", serverId: "s1" }).liveIds]).toHaveLength(1)
   })
 
   it("projects a split-view parent into its own live overlay", async () => {
@@ -300,11 +317,11 @@ describe("useCommunityWs — message.create", () => {
     capturedOnMessage!(messageCreate("thread_1", "thread_message"))
 
     expect([
-      ...getMessageOverlay(capturedQueryClient, { kind: "channel", id: "parent_1", serverId: "s1" }).liveById,
-    ].map(([id]) => id)).toEqual(["parent_message"])
+      ...getMessageStreamState(capturedQueryClient, { kind: "channel", id: "parent_1", serverId: "s1" }).liveIds,
+    ]).toEqual(["parent_message"])
     expect([
-      ...getMessageOverlay(capturedQueryClient, { kind: "channel", id: "thread_1", serverId: "s1" }).liveById,
-    ].map(([id]) => id)).toEqual(["thread_message"])
+      ...getMessageStreamState(capturedQueryClient, { kind: "channel", id: "thread_1", serverId: "s1" }).liveIds,
+    ]).toEqual(["thread_message"])
   })
 
   it("stops treating the parent as focused immediately after the split owner releases it", async () => {
@@ -320,11 +337,11 @@ describe("useCommunityWs — message.create", () => {
     capturedOnMessage!(messageCreate("parent_hidden", "hidden_parent_message"))
     capturedOnMessage!(messageCreate("thread_1", "visible_thread_message"))
 
-    expect(getMessageOverlay(capturedQueryClient, { kind: "channel", id: "parent_hidden", serverId: "s1" }).liveById)
+    expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "parent_hidden", serverId: "s1" }).liveIds)
       .toHaveLength(0)
     expect([
-      ...getMessageOverlay(capturedQueryClient, { kind: "channel", id: "thread_1", serverId: "s1" }).liveById,
-    ].map(([id]) => id)).toEqual(["visible_thread_message"])
+      ...getMessageStreamState(capturedQueryClient, { kind: "channel", id: "thread_1", serverId: "s1" }).liveIds,
+    ]).toEqual(["visible_thread_message"])
   })
 
   it("heals a first-seen event replay once the focused serverId becomes available", async () => {
@@ -337,11 +354,11 @@ describe("useCommunityWs — message.create", () => {
 
     const event = messageCreate("ch_1")
     capturedOnMessage!(event)
-    expect(getMessageOverlay(capturedQueryClient, { kind: "channel", id: "ch_1", serverId: "s1" }).liveById).toHaveLength(0)
+    expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "ch_1", serverId: "s1" }).liveIds).toHaveLength(0)
 
     getCapturedRuntime().ui.actions.setCurrentServerId("s1")
     capturedOnMessage!(event)
-    expect(getMessageOverlay(capturedQueryClient, { kind: "channel", id: "ch_1", serverId: "s1" }).liveById).toHaveLength(1)
+    expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "ch_1", serverId: "s1" }).liveIds).toHaveLength(1)
   })
 
   it("keeps forum query variants base-only and stages a new opener in the overlay", async () => {
@@ -360,7 +377,7 @@ describe("useCommunityWs — message.create", () => {
 
     expect(capturedQueryClient.getQueryData<{ pages: { messages: { id: string }[] }[] }>(allKey)?.pages[0].messages).toHaveLength(0)
     expect(capturedQueryClient.getQueryData<{ pages: { messages: unknown[] }[] }>(bugKey)?.pages[0].messages).toHaveLength(0)
-    expect(getMessageOverlay(capturedQueryClient, { kind: "channel", id: "forum_1", serverId: "s1" }).liveById).toHaveLength(1)
+    expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "forum_1", serverId: "s1" }).liveIds).toHaveLength(1)
   })
 
   it("does NOT patch a channel we aren't focused on", async () => {
@@ -440,7 +457,7 @@ describe("useCommunityWs — message.create", () => {
     capturedOnMessage!(messageCreate("ch_1"))
     capturedOnMessage!(messageCreate("ch_1"))
     capturedOnMessage!(messageCreate("ch_1"))
-    expect(getMessageOverlay(capturedQueryClient, { kind: "channel", id: "ch_1", serverId: "s1" }).liveById.size).toBe(1)
+    expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "ch_1", serverId: "s1" }).liveIds.length).toBe(1)
   })
 
   it("caps the live page at MAX_LIVE_PAGE_MESSAGES, dropping the oldest entry", async () => {
@@ -470,7 +487,7 @@ describe("useCommunityWs — message.create", () => {
     expect(ids).toHaveLength(MAX_LIVE_PAGE_MESSAGES)
     expect(ids[0]).toBe("seed_0")
     expect(ids).not.toContain("new_message")
-    expect(getMessageOverlay(capturedQueryClient, { kind: "channel", id: "ch_1", serverId: "s1" }).liveById.has("new_message")).toBe(true)
+    expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "ch_1", serverId: "s1" }).liveIds.includes("new_message")).toBe(true)
   })
 
   it("flips hasMore/hasMoreOlder to true when the head-slice discards history (legacy shape)", async () => {
@@ -578,7 +595,7 @@ describe("useCommunityWs — message.create", () => {
       communityKeys.channelMessages("ch_1"),
     )
     expect(cache?.pages[0].messages.map((m) => m.id)).toEqual(["seed_0"])
-    expect(getMessageOverlay(capturedQueryClient, { kind: "channel", id: "ch_1", serverId: "s1" }).liveById.has("m_new")).toBe(true)
+    expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "ch_1", serverId: "s1" }).liveIds.includes("m_new")).toBe(true)
   })
 
   it("does not schedule an inbox invalidate for viewer's own messages", async () => {
@@ -857,7 +874,7 @@ describe("useCommunityWs — reactions", () => {
       emoji: "👍",
     })
 
-    expect(getMessageOverlay(capturedQueryClient, { kind: "channel", id: "ch_empty", serverId: "s1" }).liveById.size)
+    expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "ch_empty", serverId: "s1" }).liveIds.length)
       .toBe(0)
   })
 
@@ -922,7 +939,8 @@ describe("useCommunityWs — reactions", () => {
       emoji: "👍",
     })
 
-    expect(getMessageOverlay(capturedQueryClient, { kind: "dm", id: "dm_1" }).liveById.get("m_dm")?.reactions).toEqual([
+    expect(getMessageStreamState(capturedQueryClient, { kind: "dm", id: "dm_1" }).liveIds).toContain("m_dm")
+    expect(canonicalMessage("m_dm")?.reactions).toEqual([
       { emoji: "👍", count: 1, me: true, userIds: ["u_me"] },
     ])
   })
@@ -953,7 +971,8 @@ describe("useCommunityWs — reactions", () => {
       emoji: "👍",
     })
 
-    expect(getMessageOverlay(capturedQueryClient, scope).liveById.get("m_channel")?.reactions).toEqual([
+    expect(getMessageStreamState(capturedQueryClient, scope).liveIds).toContain("m_channel")
+    expect(canonicalMessage("m_channel")?.reactions).toEqual([
       { emoji: "👍", count: 1, me: true, userIds: ["u_me"] },
     ])
   })
@@ -1001,7 +1020,8 @@ describe("useCommunityWs — message.updated", () => {
       approval,
     })
 
-    expect(getMessageOverlay(capturedQueryClient, { kind: "dm", id: "dm_1" }).liveById.get("m_dm")?.approval).toEqual(approval)
+    expect(getMessageStreamState(capturedQueryClient, { kind: "dm", id: "dm_1" }).liveIds).toContain("m_dm")
+    expect(canonicalMessage("m_dm")?.approval).toEqual(approval)
     const cache = capturedQueryClient.getQueryData<{
       pages: { messages: Array<{ authorName?: string; approval?: unknown }> }[]
     }>(communityKeys.dmMessages("dm_1"))
@@ -1039,7 +1059,8 @@ describe("useCommunityWs — message.updated", () => {
       approval,
     })
 
-    expect(getMessageOverlay(capturedQueryClient, scope).liveById.get("m_channel")?.approval).toEqual(approval)
+    expect(getMessageStreamState(capturedQueryClient, scope).liveIds).toContain("m_channel")
+    expect(canonicalMessage("m_channel")?.approval).toEqual(approval)
   })
 
   it("refreshes approval fields on a secondary focused channel", async () => {
@@ -1067,7 +1088,8 @@ describe("useCommunityWs — message.updated", () => {
       approval,
     })
 
-    expect(getMessageOverlay(capturedQueryClient, scope).liveById.get("m_parent")?.approval).toEqual(approval)
+    expect(getMessageStreamState(capturedQueryClient, scope).liveIds).toContain("m_parent")
+    expect(canonicalMessage("m_parent")?.approval).toEqual(approval)
   })
 })
 
@@ -1137,9 +1159,9 @@ describe("useCommunityWs — DM message.create", () => {
         communityKeys.dmMessages("dm_1"),
       )
       expect(cache?.pages[0].messages).toEqual([])
-      const { getMessageOverlay } = await import("@/stores/community/message-stream")
+      const { getMessageStreamState } = await import("@/test/community-query-owner")
       expect(
-        [...getMessageOverlay(capturedQueryClient, { kind: "dm", id: "dm_1" }).liveById.values()].map((message) => message.id),
+        getMessageStreamState(capturedQueryClient, { kind: "dm", id: "dm_1" }).liveIds,
       ).toEqual(["dm_m_1"])
       await vi.advanceTimersByTimeAsync(600)
       await vi.runAllTicks()
@@ -1174,7 +1196,7 @@ describe("useCommunityWs — DM message.create", () => {
       },
     })
 
-    expect(getMessageOverlay(capturedQueryClient, { kind: "dm", id: "dm_1" }).liveById.has("dm_replay")).toBe(true)
+    expect(getMessageStreamState(capturedQueryClient, { kind: "dm", id: "dm_1" }).liveIds.includes("dm_replay")).toBe(true)
   })
 })
 
@@ -1265,8 +1287,110 @@ describe("useCommunityWs — message edit refreshes forum opener summary", () =>
     expect(capturedQueryClient.getQueryData<{
       pages: { messages: { content: string }[] }[]
     }>(communityKeys.channelMessages("ch_1"))?.pages[0].messages[0].content).toBe("old")
-    expect(getMessageOverlay(capturedQueryClient, matchingScope).liveById.get("m_1")?.content).toBe("new")
-    expect(getMessageOverlay(capturedQueryClient, otherScope).liveById.get("m_2")?.content).toBe("old")
+    expect(getMessageStreamState(capturedQueryClient, matchingScope).liveIds).toContain("m_1")
+    expect(canonicalMessage("m_1")?.content).toBe("new")
+    expect(getMessageStreamState(capturedQueryClient, otherScope).liveIds).toContain("m_2")
+    expect(canonicalMessage("m_2")?.content).toBe("old")
+  })
+})
+
+describe("canonical message refresh and edit ownership", () => {
+  it("keeps the newest 500 live rows when dispatch precedes canonical publication", async () => {
+    const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
+    getCapturedRuntime().ui.actions.setCurrentServerId(scope.serverId)
+    getCapturedRuntime().ui.actions.subscribe({ channelId: scope.id })
+    await mountHook()
+    await act(async () => {
+      for (let seq = 1; seq <= 502; seq++) {
+        const event = messageCreate(scope.id, `tail_${seq}`)
+        capturedOnMessage!({ ...event, message: { ...event.message, seq } })
+      }
+    })
+    const live = getMessageStreamState(capturedQueryClient, scope).liveIds
+    expect(live.length).toBe(500)
+    expect(live.includes("tail_1")).toBe(false)
+    expect(live.includes("tail_2")).toBe(false)
+    expect(live).toContain("tail_502")
+    expect(canonicalMessage("tail_502")?.seq).toBe(502)
+  })
+  it("clears canonical rich fields when a websocket row explicitly sends empty arrays", async () => {
+    const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
+    getCapturedRuntime().ui.actions.setCurrentServerId(scope.serverId)
+    getCapturedRuntime().ui.actions.subscribe({ channelId: scope.id })
+    await mountHook()
+    const event = messageCreate(scope.id)
+    seedCanonicalMessages(scope.id, [{ ...event.message,
+      attachments: [{ kind: "file", name: "settled.txt", url: "/media/settled", size: "1 KB" }],
+      embeds: [{ title: "Prior" }],
+    }])
+    await act(async () => { capturedOnMessage!({ ...event, message: { ...event.message, attachments: [], embeds: [] } }) })
+    expect(getCommunityDbRegistry(capturedQueryClient)!.collections.messages.get(event.message.id)).toMatchObject({ attachments: [], embeds: [] })
+    expect(getMessageStreamState(capturedQueryClient, scope).liveIds).toContain(event.message.id)
+    expect(canonicalMessage(event.message.id)).toMatchObject({ attachments: [], embeds: [] })
+  })
+  it("preserves canonical attachments when a duplicate WS row omits them", async () => {
+    const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
+    getCapturedRuntime().ui.actions.setCurrentServerId(scope.serverId)
+    getCapturedRuntime().ui.actions.subscribe({ channelId: scope.id })
+    await mountHook()
+    const attachments = [{ kind: "file" as const, name: "settled.txt", url: "/media/settled", size: "1 KB" }]
+    const event = messageCreate(scope.id)
+    seedCanonicalMessages(scope.id, [{ ...event.message, attachments }])
+    await act(async () => { capturedOnMessage!(event) })
+    expect(getCommunityDbRegistry(capturedQueryClient)!.collections.messages.get(event.message.id)?.attachments).toEqual(attachments)
+    expect(getMessageStreamState(capturedQueryClient, scope).liveIds).toContain(event.message.id)
+    expect(canonicalMessage(event.message.id)?.attachments).toEqual(attachments)
+  })
+
+  it("refreshes only an existing live fallback and never absorbs outbox", async () => {
+    await mountHook()
+    const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
+    seedCanonicalMessages(scope.id, [{ id: "m1", content: "ignored" }])
+    expect(getMessageStreamState(capturedQueryClient, scope).liveIds.length).toBe(0)
+    await act(async () => {
+      seedCanonicalStream(scope, { type: "wsMessage", message: { id: "m1", seq: 11, type: "chat", content: "original", authorId: "u1", clientNonce: "n1" } })
+      getCapturedRuntime().messageStream.actions.accept(scope, { nonce: "n2", tempId: "temp_n2", message: { type: "chat", content: "pending", authorId: "u1" }, localUploads: [] })
+      capturedOnMessage!({ type: "community:message.edited", channelId: scope.id, messageId: "m1", content: "refreshed" } satisfies CommunityMessageEdited)
+    })
+    const overlay = getMessageStreamState(capturedQueryClient, scope)
+    expect(overlay.liveIds).toContain("m1")
+    expect(canonicalMessage("m1")?.content).toBe("refreshed")
+    expect(overlay.outboxByNonce.get("n2")?.message.content).toBe("pending")
+  })
+
+  it("does not refresh a live row from a peer row with the same nonce", async () => {
+    await mountHook()
+    const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
+    await act(async () => {
+      seedCanonicalStream(scope, { type: "wsMessage", message: { id: "m1", seq: 11, type: "chat", content: "original", authorId: "u1", clientNonce: "same" } })
+      seedCanonicalMessages(scope.id, [{ id: "m2", seq: 12, content: "peer", authorId: "u2", clientNonce: "same" }])
+      capturedOnMessage!({ type: "community:message.edited", channelId: scope.id, messageId: "m2", content: "edited peer" } satisfies CommunityMessageEdited)
+    })
+    const overlay = getMessageStreamState(capturedQueryClient, scope)
+    expect(overlay.liveIds).toContain("m1")
+    expect(canonicalMessage("m1")?.content).toBe("original")
+    expect(overlay.liveIds.includes("m2")).toBe(false)
+    expect(canonicalMessage("m2")?.content).toBe("edited peer")
+  })
+
+  it("patches edited content across live and acknowledged sends in their canonical owner", async () => {
+    await mountHook()
+    const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
+    await act(async () => {
+      getCapturedRuntime().messageStream.actions.accept(scope, { nonce: "n1", tempId: "temp_n1", message: { type: "chat", content: "pending", authorId: "u1" }, localUploads: [] })
+      const sent = { id: "m1", seq: 11, type: "chat" as const, content: "sent", authorId: "u1", clientNonce: "n1" }
+      seedCanonicalMessages(scope.id, [sent])
+      seedCanonicalStream(scope, { type: "postAck", nonce: "n1", message: sent })
+      seedCanonicalStream(scope, { type: "wsMessage", message: { id: "m2", seq: 12, type: "chat", content: "before", authorId: "u1", clientNonce: "n2" } })
+      capturedOnMessage!({ type: "community:message.edited", channelId: scope.id, messageId: "m1", content: "outbox edit" } satisfies CommunityMessageEdited)
+      capturedOnMessage!({ type: "community:message.edited", channelId: scope.id, messageId: "m2", content: "live edit" } satisfies CommunityMessageEdited)
+    })
+    const overlay = getMessageStreamState(capturedQueryClient, scope)
+    expect(overlay.outboxByNonce.size).toBe(0)
+    expect(overlay.liveIds).toContain("m1")
+    expect(canonicalMessage("m1")?.content).toBe("outbox edit")
+    expect(overlay.liveIds).toContain("m2")
+    expect(canonicalMessage("m2")?.content).toBe("live edit")
   })
 })
 

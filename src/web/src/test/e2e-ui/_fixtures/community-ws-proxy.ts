@@ -1,4 +1,5 @@
 import type { BrowserContext, WebSocketRoute } from "@playwright/test"
+import { isCommunityBrowserEventBatchCandidate } from "@alook/shared"
 
 export type CapturedCommunityFrame = {
   type: string
@@ -21,6 +22,7 @@ export type CapturedConnectionFrame = {
   direction: "client-to-server" | "server-to-client"
   type: "auth" | "auth.ok" | "connection.ping" | "connection.pong" | "raw.ping" | "raw.pong"
   nonce?: string
+  communityContract?: 1 | 2
   at: number
 }
 
@@ -90,7 +92,7 @@ function parseConnectionFrame(
     }
   }
   try {
-    const value = JSON.parse(raw) as { type?: unknown; nonce?: unknown }
+    const value = JSON.parse(raw) as { type?: unknown; nonce?: unknown; communityContract?: unknown }
     if (
       value.type !== "auth"
       && value.type !== "auth.ok"
@@ -102,6 +104,7 @@ function parseConnectionFrame(
       direction,
       type: value.type,
       ...(typeof value.nonce === "string" ? { nonce: value.nonce } : {}),
+      ...(value.communityContract === 1 || value.communityContract === 2 ? { communityContract: value.communityContract } : {}),
       at: Date.now(),
     }
   } catch {
@@ -231,8 +234,12 @@ export async function proxyCommunityWebSockets(
   }
 }
 
+export function isCommunityBatchFrame(frame: CapturedCommunityFrame): boolean {
+  return isCommunityBrowserEventBatchCandidate(frame) && Array.isArray(frame.events)
+}
+
 export function communityFrameEvents(frame: CapturedCommunityFrame): CapturedCommunityFrame[] {
-  return frame.type === "community:events.batch" && Array.isArray(frame.events)
+  return isCommunityBrowserEventBatchCandidate(frame) && Array.isArray(frame.events)
     ? frame.events
     : [frame]
 }

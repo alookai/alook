@@ -1,5 +1,4 @@
 "use client"
-import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 
 
@@ -15,7 +14,6 @@ import { displayReplyContent } from "@/lib/community/reply-content"
 import { ChannelIcon } from "../channels/channel-icon"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiFetch, toastApiError } from "@/lib/api/client"
-import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
 import { ApiError } from "@/lib/errors"
 import { formatDateLabel } from "@/lib/community/format-time"
 import { DateDivider } from "../dividers"
@@ -30,8 +28,8 @@ import {
   useUnpinMessage,
   type ReactionArgs,
 } from "@/hooks/community/mutations"
-import type { FileAttachment, ImagePreview, MessagesPage, Msg, RenderMsg } from "@/lib/community/models/message"
-import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
+import type { FileAttachment, ImagePreview, MessagesPage, Msg, RenderMsg, ReplyTarget } from "@/lib/community/models/message"
+import { apiFetchCommunity, communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { isAbortError } from "@/lib/errors"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
@@ -48,7 +46,7 @@ import {
   publishCommunityEmbeddedMessages,
 } from "@/lib/community-db/sync"
 
-export type ReplyTarget = { id: string; authorName: string; text: string }
+export type { ReplyTarget } from "@/lib/community/models/message"
 
 // Preview window sizing — small on purpose. The sheet is a read-only
 // excerpt with just enough surrounding context to make the target message
@@ -90,8 +88,8 @@ function anchorFetchUrl(_type: ScopeType, id: string, anchor: string, limit: num
 
 type SheetCache = {
   notFound?: boolean
-  anchorId?: string
-  messages?: { id: string }[]
+  anchorId?: Msg["id"]
+  messages?: Pick<Msg, "id">[]
 }
 
 export function messageContextQueryFn(
@@ -101,16 +99,16 @@ export function messageContextQueryFn(
   queryClient: ReturnType<typeof useQueryClient>,
 ) {
   return async ({ signal }: { signal?: AbortSignal } = {}): Promise<SheetCache> => {
-    const publicationToken = captureCommunityLiveSnapshotToken(queryClient)
-    const registry = getCommunityDbRegistry(queryClient)
+    const publicationToken = captureCommunityLiveSnapshotToken(queryClient, channelId)
+    const registry = publicationToken.registry
     const assert = () => assertCommunityLiveSnapshotTokenCurrent(queryClient, publicationToken, signal)
     await registry?.ready
     assert()
     await registry?.collections.messages.preload()
     assert()
-    let lookup: { id: string }
+    let lookup: Pick<Msg, "id">
     try {
-      lookup = await apiFetch<{ id: string }>(
+      lookup = await apiFetch<Pick<Msg, "id">>(
         seqLookupUrl(type, channelId, targetSeq),
         communityRequestOptions(queryClient, publicationToken, signal, assert),
       )
@@ -120,10 +118,9 @@ export function messageContextQueryFn(
       throw error
     }
     assert()
-    const page = await apiFetchProfiles<MessagesPage>(
+    const page = await apiFetchCommunity<MessagesPage>(
       anchorFetchUrl(type, channelId, lookup.id, CONTEXT_LIMIT),
-      (response) => messageProfilePatches(response.messages),
-      { signal, assertActive: assert }, registry,
+      { signal, assertActive: assert }, publicationToken,
     )
     const messages = (page.messages ?? []).slice().sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
     publishCommunityEmbeddedMessages(queryClient, {
@@ -202,7 +199,6 @@ export function MessageContextSheet({
   const toggleMark = useToggleMark()
   const toggleReactionApi = useToggleReactionApi()
   const addReactionApi = useAddReactionApi()
-  const canonicalMessages = useCanonicalMessagesById()
 
   const queryKey = useMemo(
     () => communityKeys.messageContext(type, channelId, targetSeq),
@@ -216,6 +212,8 @@ export function MessageContextSheet({
     queryFn: messageContextQueryFn(type, channelId, targetSeq!, queryClient),
     staleTime: 30_000,
   })
+  const selectedIds = useMemo(() => query.data?.messages?.map((message) => message.id) ?? [], [query.data?.messages])
+  const canonicalMessages = useCanonicalMessagesById(selectedIds)
 
   const renderRows = useMemo<RenderMsg[]>(() => {
     if (!query.data || query.data.notFound || !query.data.messages) return []

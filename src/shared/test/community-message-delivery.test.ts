@@ -36,6 +36,17 @@ const valid = {
 };
 
 describe("message delivery batch", () => {
+  it("accepts the committed join set and rejects incomplete or unrelated roster changes", () => {
+    const joined = { ...valid, joinedParticipantUserIds: ["u1", "u2"], rosterRefreshUserId: "u1" };
+    expect(parseMessageDeliveryBatch(joined)).toEqual({ ok: true, batch: joined });
+    for (const batch of [
+      { ...joined, rosterRefreshUserId: undefined },
+      { ...valid, rosterRefreshUserId: "u1" },
+      { ...joined, joinedParticipantUserIds: ["u1", "u1"] },
+      { ...joined, joinedParticipantUserIds: ["outside"] },
+      { ...joined, messageEvent: { ...messageEvent, serverId: undefined, parentChannelId: undefined }, memberAdded: undefined, parentProjection: undefined, parentProjectionUserIds: undefined },
+    ]) expect(parseMessageDeliveryBatch(batch)).toEqual({ ok: false, reason: "invalid-payload" });
+  });
   it("accepts a strict message-specific batch with separate parent audience", () => {
     expect(parseMessageDeliveryBatch(valid)).toEqual({ ok: true, batch: valid });
   });

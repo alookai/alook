@@ -11,18 +11,18 @@ import { useCommunityStore } from "@/stores/community"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { runAuthoritativeServerEject } from "@/lib/community/eject-server"
 
-const mocks = vi.hoisted(() => ({ apiFetch: vi.fn(), replace: vi.fn(), toast: vi.fn(),
+const mocks = vi.hoisted(() => ({ pathname: "/c/channels/server-1/post-1", apiFetch: vi.fn(), replace: vi.fn(), toast: vi.fn(),
   server: { server: { id: "server-1", categories: [{ channels: [{ id: "parent-1", name: "parent", type: "text" }] }] } as { id: string; categories: { channels: { id: string; name: string; type: string }[] }[] } | null,
     isError: false, isFetching: false, refetch: vi.fn(() => Promise.resolve()) },
 }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: mocks.apiFetch, toastApiError: mocks.toast }))
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: mocks.replace }) }))
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: mocks.replace }), usePathname: () => mocks.pathname }))
 vi.mock("./use-servers", () => ({
   useServer: () => mocks.server,
 }))
 vi.mock("./use-community-ws", () => ({ communityWsSubscribe: vi.fn(), communityWsUnsubscribe: vi.fn() }))
 vi.mock("./use-forum-sidebar-threads", () => ({
-  removeForumSidebarUnreadChild: vi.fn(), removeForumSidebarThreadExact: vi.fn(),
+  removeForumSidebarUnreadChild: vi.fn(),
   invalidateForumSidebarBaseExact: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock("@/lib/community/last-channel", () => ({ getLastChannel: () => null, clearLastChannel: vi.fn() }))
@@ -69,9 +69,11 @@ function payload(id = "post-1") {
 }
 
 beforeEach(async () => {
+  window.history.replaceState(null, "", "/c/channels/server-1/post-1")
   mocks.apiFetch.mockReset()
   Object.assign(mocks.server, { server: { id: "server-1", categories: [{ channels: [{ id: "parent-1", name: "parent", type: "text" }] }] }, isError: false, isFetching: false })
   mocks.server.refetch.mockReset().mockResolvedValue(undefined)
+  mocks.pathname = "/c/channels/server-1/post-1"
   mocks.replace.mockClear()
   mocks.toast.mockClear()
   client = (await createCommunityQueryOwner("viewer-1", { defaultOptions: { queries: { retry: 1, retryDelay: 0, gcTime: Infinity } } })).client
@@ -174,10 +176,22 @@ describe("unresolved metadata terminal error and retry", () => {
     await mount()
     await until(() => mocks.apiFetch.mock.calls.length === 1)
 
+    mocks.pathname = "/c/channels/server-1/next-1"
     act(() => getCommunityDbRegistry(client)!.runtime.ui.actions.setCurrentChannelId(null))
     await act(async () => request.reject(new ApiError("missing", 404)))
     await until(() => current.routeLifecycle === "terminal-error")
 
+    expect(mocks.replace).not.toHaveBeenCalled()
+  })
+
+  it("does not exit a new browser URL before the previous pathname hook catches up", async () => {
+    const request = deferred()
+    mocks.apiFetch.mockReturnValueOnce(request.promise)
+    await mount()
+    await until(() => mocks.apiFetch.mock.calls.length === 1)
+    window.history.pushState(null, "", "/c/channels/server-1/next-1")
+    await act(async () => request.reject(new ApiError("missing", 404)))
+    await until(() => current.routeLifecycle === "terminal-error")
     expect(mocks.replace).not.toHaveBeenCalled()
   })
 
@@ -231,7 +245,21 @@ describe("unresolved metadata terminal error and retry", () => {
     await act(async () => { await reconcileCommunityWsReconnect(client, 60_000) })
     await until(() => current.routeLifecycle === "terminal-error")
     expect(current.metadataError).toBe(false)
-    if (status !== 401) expect(mocks.replace).toHaveBeenCalledWith("/c/channels/server-1")
+    if (status !== 401) {
+      expect(getCommunityDbRegistry(client)!.runtime.ui.get().currentChannelId).toBeNull()
+      expect(mocks.replace).toHaveBeenCalledWith("/c/channels/server-1")
+    }
+  })
+
+  it("does not redirect a new URL after the old target is authoritatively revoked", async () => {
+    mocks.apiFetch.mockResolvedValue(payload())
+    await mount()
+    await until(() => current.routeHydrated)
+    mocks.pathname = "/c/channels/server-1/parent-1"
+    mocks.apiFetch.mockRejectedValue(new ApiError("denied", 403))
+    await act(async () => { await reconcileCommunityWsReconnect(client, 60_000) })
+    await until(() => current.routeLifecycle === "terminal-error")
+    expect(mocks.replace).not.toHaveBeenCalled()
   })
 
   it("keeps a legacy tag-derived archive bit pending without purging or revoking access", async () => {
@@ -335,7 +363,7 @@ describe("unresolved metadata terminal error and retry", () => {
     await act(async () => { request = current.retryMetadata() })
     expect(current.retryingMetadata).toBe(true)
     await act(async () => {
-      if (change === "account") renderer!.rerender(tree({ accountId: "viewer-2" }))
+      if (change === "account") { getCommunityDbRegistry(client)!.runtime.ws.actions.activateProfileAccount("viewer-2"); renderer!.rerender(tree({ accountId: "viewer-2" })) }
       else {
         getCommunityDbRegistry(client)!.runtime.ws.setState((state) => ({ ...state,  accessEpoch: state.accessEpoch + 1 }))
       }

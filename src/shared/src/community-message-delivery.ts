@@ -27,6 +27,8 @@ export type MessageDeliveryBatch = {
   unreadMentionUserIds: string[];
   mentionUserIds: string[];
   memberAdded?: MessageDeliveryMemberAdded;
+  joinedParticipantUserIds?: string[];
+  rosterRefreshUserId?: string;
   parentProjection?: CommunityChildChannelUpdate;
   parentProjectionUserIds?: string[];
 };
@@ -49,6 +51,8 @@ const batchShape = z.strictObject({
   unreadMentionUserIds: targetList,
   mentionUserIds: targetList,
   memberAdded: memberAddedSchema.optional(),
+  joinedParticipantUserIds: targetList.optional(),
+  rosterRefreshUserId: target.optional(),
   parentProjection: z.unknown().optional(),
   parentProjectionUserIds: targetList.optional(),
 });
@@ -124,6 +128,9 @@ export function parseMessageDeliveryBatch(value: unknown): MessageDeliveryBatchP
     }
   }
 
+  if ((data.joinedParticipantUserIds === undefined) !== (data.rosterRefreshUserId === undefined)
+    || (data.joinedParticipantUserIds && (hasDuplicates(data.joinedParticipantUserIds)
+      || !isSubset(data.joinedParticipantUserIds, content) || !message.data.serverId))) return { ok: false, reason: "invalid-payload" };
   const allTargets = new Set(lists.flat());
   if (allTargets.size > MESSAGE_DELIVERY_MAX_USERS) {
     return { ok: false, reason: "too-many-targets" };
@@ -143,6 +150,7 @@ export function parseMessageDeliveryBatch(value: unknown): MessageDeliveryBatchP
       unreadMentionUserIds: data.unreadMentionUserIds,
       mentionUserIds: data.mentionUserIds,
       ...(data.memberAdded ? { memberAdded: data.memberAdded } : {}),
+      ...(data.joinedParticipantUserIds ? { joinedParticipantUserIds: data.joinedParticipantUserIds, rosterRefreshUserId: data.rosterRefreshUserId } : {}),
       ...(parentProjection ? { parentProjection } : {}),
       ...(data.parentProjectionUserIds
         ? { parentProjectionUserIds: data.parentProjectionUserIds }

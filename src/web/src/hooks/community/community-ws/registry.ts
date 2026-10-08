@@ -30,6 +30,7 @@ import {
 } from "@/hooks/community/community-ws/structure-tree-events"
 import {
   handleChannelMemberEvent,
+  handleChannelMembershipChange,
   handleMemberJoin,
   handleMemberLeave,
   handleMemberUpdate,
@@ -83,6 +84,7 @@ export const communityWsRegistry = {
   "community:channel.update": { handler: handleChannelEvent, reconnectPolicies: ["all-cached-servers"] },
   "community:channel.delete": { handler: handleChannelEvent, reconnectPolicies: ["all-cached-servers", "focused-messages"] },
   "community:channel.reorder": { handler: handleChannelEvent, reconnectPolicies: ["all-cached-servers"] },
+  "community:channel.membership.change": { handler: handleChannelMembershipChange, reconnectPolicies: ["focused-channel-roster", "all-cached-servers"] },
   "community:channel.member_add": { handler: handleChannelMemberEvent, reconnectPolicies: ["focused-channel-roster", "all-cached-servers"] },
   "community:channel.member_remove": { handler: handleChannelMemberEvent, reconnectPolicies: ["focused-channel-roster", "all-cached-servers"] },
   "community:category.create": { handler: handleCategoryEvent, reconnectPolicies: ["all-cached-servers"] },
@@ -181,7 +183,7 @@ export function dispatchCommunityWsEvents(
       const serverId = "serverId" in event ? event.serverId : undefined
       const parentChannelId = "parentChannelId" in event ? event.parentChannelId : undefined
       if (channelId
-        && !["community:channel.member_add", "community:channel.member_remove", "community:channel.delete"].includes(event.type)
+        && !["community:channel.membership.change", "community:channel.member_add", "community:channel.member_remove", "community:channel.delete"].includes(event.type)
         && getCommunityRuntime(context.queryClient).ws.actions.isChannelAccessRevoked(channelId, serverId, parentChannelId ?? undefined)) continue
       if (channelId && serverId) getCommunityRuntime(context.queryClient).ws.actions.observeChannelScope(serverId, channelId, parentChannelId)
       const entry = communityWsRegistry[event.type] as RegistryEntry<typeof event.type>
@@ -189,14 +191,14 @@ export function dispatchCommunityWsEvents(
       receipts.push(receipt)
       withSource(context.queryClient, "ws", () => {
         entry.handler(event, handlerContext)
-        projectCommunityWsEventToDb(context.queryClient, event)
+        if (event.type !== "community:message.create") projectCommunityWsEventToDb(context.queryClient, event)
       }, receipt)
       if ([
         "community:server.delete",
         "community:channel.delete",
         "community:channel.member_remove",
         "community:member.leave",
-      ].includes(event.type)) {
+      ].includes(event.type) || event.type === "community:channel.membership.change" && !event.present) {
         scheduleAccountAttentionReconcile(context.queryClient)
       }
     }

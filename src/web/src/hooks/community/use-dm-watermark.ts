@@ -1,36 +1,10 @@
 "use client"
 
-import type { Msg } from "@/lib/community/models/message"
+import type { useChannelWatermark } from "./use-channel-watermark"
 import { useTimelineReadObserver } from "./use-read-observer"
 
-/* istanbul ignore next -- retained Chromium covers this React hook adapter */
-export function useDmWatermark({
-  dmId,
-  messages,
-  scrollRootEl,
-  snapshotStatus,
-  feedStatus,
-  tailAttached,
-  confirmedSeq,
-  catchUp,
-}: {
-  dmId: string | null | undefined
-  messages: Msg[]
-  scrollRootEl: HTMLElement | null
-  snapshotStatus: "pending" | "ready" | "error"
-  feedStatus: "pending" | "ready" | "error"
-  tailAttached: boolean
-  confirmedSeq: number
-  catchUp: () => Promise<unknown>
-}) {
-  useTimelineReadObserver({
-    channelId: dmId,
-    messages,
-    scrollRootEl,
-    snapshotStatus,
-    feedStatus,
-    tailAttached,
-    confirmedSeq,
-    catchUp,
-  })
+type ChannelReadOptions = Parameters<typeof useChannelWatermark>[0]
+
+export function useDmWatermark({ dmId, ...options }: Omit<ChannelReadOptions, "channelId"> & { dmId: ChannelReadOptions["channelId"] }) {
+  useTimelineReadObserver({ ...options, channelId: dmId })
 }

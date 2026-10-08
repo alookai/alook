@@ -1,4 +1,6 @@
+import { messageProfileIds, type Msg } from "@/lib/community/models/message"
 import { clearLegacyChatCaches, getLegacyChatCacheSizeBytes } from "@/lib/legacy-chat-persistence"
+import { clearPublicWorkerCaches, getPublicWorkerCacheSizeBytes } from "@/lib/service-worker/public-cache-storage"
 import { observeRestoreRead, observeRestoreDecode } from "@/lib/observability/restore"
 import { createStore as createNativeStore } from "@tanstack/store"
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister"
@@ -10,24 +12,13 @@ import { createStore, promisifyRequest } from "idb-keyval"
 import {
   communityCollectionSchemas,
   type CommunityCollectionName,
+  type CommunityCollectionRows,
 } from "@/lib/community-db/schema"
 
-/**
- * IDB namespace root. Bumping the tail segment (`v1` → `v2`) invalidates every
- * cached payload — use it as the escape hatch when the persisted query shape
- * changes in a way the runtime can't reconcile against fresh server data.
- */
-// v3 does not import v2: older tabs write unqualified bare payloads. Their
-// late writes must never become a new owner's restore input after clear.
-const IDB_PREFIX = "alook:qc:v3"
-
-/**
- * Buster tag paired with `PersistedClient`. TanStack throws away restored
- * state whose buster doesn't match — a cheap secondary lever when just the
- * shape of a specific query needs to be reset without touching the IDB
- * namespace.
- */
-export const PERSIST_BUSTER = "v3"
+export const PERSIST_VERSION = 5
+export const PERSIST_BUSTER = String(PERSIST_VERSION)
+export const PERSIST_CACHE_PREFIX = "alook:qc:cache"
+const IDB_PREFIX = PERSIST_CACHE_PREFIX
 
 /** Persister max-age; queries older than this are discarded on restore. */
 export const PERSIST_MAX_AGE_MS = 24 * 60 * 60 * 1000
@@ -74,6 +65,7 @@ export function shouldPersistQuery(
 function scrubDehydratedClient(
   client: PersistedClient,
   userId: string | null,
+  retired: ReadonlyMap<string, ChannelDiskFence> = new Map(),
 ): PersistedClient {
   const queries: typeof client.clientState.queries = []
   const canonical = new Map<CommunityCollectionName, unknown[]>()
@@ -90,38 +82,22 @@ function scrubDehydratedClient(
     }
   }
 
-  const retainedServerIds = new Set(
-    ((canonical.get("servers") ?? []) as Array<{ id: string }>).map((row) => row.id),
-  )
-
-  const channels = (canonical.get("channels") ?? []) as Array<{
-    id: string
-    serverId?: string | null
-    type: "text" | "forum" | "thread" | "dm"
-  }>
-  const attentionScopes = (canonical.get("attentionScopes") ?? []) as Array<{
-    scopeId: string
-    channelId: string
-  }>
-  const retainedAttentionItems = ((canonical.get("attentionItems") ?? []) as Array<{
-    id: string
-    kind: "mention" | "reply" | "friend_request" | "pending"
-    messageId?: string | null
-    actorUserId: string
-    createdAt: string
-  }>).slice()
-  const retainedMessageAttention = retainedAttentionItems
-    .filter((item) => item.kind !== "friend_request")
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))
-    .slice(0, MAX_PERSISTED_ATTENTION_ITEMS)
-  const retainedFriendAttention = retainedAttentionItems
-    .filter((item) => item.kind === "friend_request")
-  retainedAttentionItems.splice(
-    0,
-    retainedAttentionItems.length,
-    ...retainedMessageAttention,
-    ...retainedFriendAttention,
-  )
+  const rows = <N extends CommunityCollectionName>(name: N) => (canonical.get(name) ?? []) as CommunityCollectionRows[N][]
+  const retainedServerIds = new Set(rows("servers").map((row) => row.id))
+  const channels = rows("channels").flatMap((row) => {
+    const fence = retired.get(row.id)
+    if (!fence) return [row]
+    return row.type === "dm" && !fence.deleted
+      ? [{ ...row, preview: "", unread: false, baseUnread: false, lastUnreadSeq: undefined }]
+      : []
+  })
+  const attentionScopes = rows("attentionScopes").filter((row) => !retired.has(row.channelId))
+  const attentionCandidates = rows("attentionItems").filter((row) => !Boolean(row.scopeId && retired.has(row.scopeId) || row.childChannelId && retired.has(row.childChannelId) || row.readTarget && retired.has(row.readTarget.channelId)))
+  const retainedAttentionItems = [
+    ...attentionCandidates.filter((item) => item.kind !== "friend_request")
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)).slice(0, MAX_PERSISTED_ATTENTION_ITEMS),
+    ...attentionCandidates.filter((item) => item.kind === "friend_request"),
+  ]
   const attentionChannelIds = new Set(attentionScopes.map((row) => row.channelId))
   const retainedChannels = channels.filter((row) => (
     attentionChannelIds.has(row.id)
@@ -133,15 +109,8 @@ function scrubDehydratedClient(
   const retainedDmIds = new Set(
     retainedChannels.filter((row) => row.type === "dm").map((row) => row.id),
   )
-  const allMessages = (canonical.get("messages") ?? []) as Array<{
-    id: string
-    channelId: string
-    seq?: number
-    createdAt?: string
-    authorId?: string
-    replyTo?: { authorId?: string }
-    thread?: { participants?: Array<{ id: string }> }
-  }>
+  const allMessages = (rows("messages") as Array<CommunityCollectionRows["messages"] & Pick<Msg, "replyTo" | "thread" | "approval">>)
+    .filter((row) => !retired.has(row.channelId))
   const messagesByScope = new Map<string, typeof allMessages>()
   for (const message of allMessages) {
     if (!retainedChannelIds.has(message.channelId)) continue
@@ -171,17 +140,8 @@ function scrubDehydratedClient(
   }
   const retainedMessageChannelIds = new Set(retainedMessages.map((row) => row.channelId))
   const durableChannelIds = new Set([...retainedChannelIds, ...retainedMessageChannelIds])
-  const serverMemberships = (canonical.get("serverMemberships") ?? []) as Array<{
-    serverId: string
-    userId: string
-    viewer: boolean
-  }>
-  const retainedServerMemberships = serverMemberships.filter((row) => row.viewer)
-  const channelMemberships = (canonical.get("channelMemberships") ?? []) as Array<{
-    channelId: string
-    userId: string
-    relation: "access" | "notify"
-  }>
+  const retainedServerMemberships = rows("serverMemberships").filter((row) => row.viewer)
+  const channelMemberships = rows("channelMemberships")
   const retainedChannelMemberships = channelMemberships.filter((row) => (
     durableChannelIds.has(row.channelId)
       && (
@@ -190,39 +150,30 @@ function scrubDehydratedClient(
       )
   ))
   const referencedProfileIds = new Set<string>(userId ? [userId] : [])
-  for (const server of (canonical.get("servers") ?? []) as Array<{ ownerId: string }>) {
+  for (const server of rows("servers")) {
     if (server.ownerId) referencedProfileIds.add(server.ownerId)
   }
   for (const membership of retainedServerMemberships) referencedProfileIds.add(membership.userId)
   for (const membership of retainedChannelMemberships) referencedProfileIds.add(membership.userId)
   for (const message of retainedMessages) {
-    if (message.authorId) referencedProfileIds.add(message.authorId)
-    if (message.replyTo?.authorId) referencedProfileIds.add(message.replyTo.authorId)
-    for (const participant of message.thread?.participants ?? []) {
-      referencedProfileIds.add(participant.id)
-    }
-    for (const profile of [
-      (message as { approval?: { otherProfile?: { id?: string } } }).approval?.otherProfile,
-      (message as { approval?: { botProfile?: { id?: string } } }).approval?.botProfile,
-      (message as { approval?: { waitingOnProfile?: { id?: string } } }).approval?.waitingOnProfile,
-    ]) {
-      if (profile?.id) referencedProfileIds.add(profile.id)
-    }
+    for (const id of messageProfileIds(message)) referencedProfileIds.add(id)
   }
-  for (const item of retainedAttentionItems) referencedProfileIds.add(item.actorUserId)
+  for (const item of retainedAttentionItems) if (item.actorUserId) referencedProfileIds.add(item.actorUserId)
 
   const windowed: Partial<Record<CommunityCollectionName, unknown[]>> = {
     ...Object.fromEntries(canonical),
-    categories: ((canonical.get("categories") ?? []) as Array<{ serverId: string }>).filter(
+    categories: rows("categories").filter(
       (row) => retainedServerIds.has(row.serverId),
     ),
     channels: retainedChannels,
     serverMemberships: retainedServerMemberships,
     channelMemberships: retainedChannelMemberships,
     messages: retainedMessages,
+    readStates: rows("readStates").filter((row) => !retired.has(row.channelId)),
+    notificationSettings: rows("notificationSettings").filter((row) => !row.channelId || !retired.has(row.channelId)),
     attentionScopes,
     attentionItems: retainedAttentionItems,
-    profiles: ((canonical.get("profiles") ?? []) as Array<{ userId: string }>).filter(
+    profiles: rows("profiles").filter(
       (row) => referencedProfileIds.has(row.userId),
     ),
   }
@@ -252,7 +203,7 @@ function publishCacheInvalidation() {
   cacheInvalidation.setState((version) => version + 1)
   try { if (typeof localStorage !== "undefined") localStorage.setItem(CACHE_INVALIDATION_STORAGE_KEY, crypto.randomUUID()) } catch {}
 }
-export type QualifiedPersister = Persister & { isCurrent: () => Promise<boolean>; retireAccount: () => Promise<void> }
+export type QualifiedPersister = Persister & { isCurrent: () => Promise<boolean>; retireAccount: () => Promise<void>; retireChannels: (ids: Iterable<string>, deleted?: boolean) => Promise<void> }
 function blobKeyFor(userId: string | null, domain: PersistDomain = "community"): string {
   return `${namespaceFor(userId)}${domain === "application" ? ":application" : ""}:client`
 }
@@ -279,7 +230,27 @@ const cacheStore = createStore("keyval-store", "keyval")
 const DEVICE_EPOCH_KEY = "alook:qc:device-epoch"
 const scopeEpochKey = (key: string) => `${key}:epoch`
 const accountEpochKey = (userId: string | null) => `${namespaceFor(userId)}:account-epoch`
-type PersistEligibility = { device: string; scope: string; account: string }
+type ChannelDiskFence = { epoch: string; deleted: boolean }
+type PersistEligibility = { device: string; scope: string; account: string; channels: Map<string, ChannelDiskFence> }
+const channelFenceKey = (userId: string | null) => `${accountEpochKey(userId)}:channels`
+const isChannelFences = (value: unknown): value is Map<string, ChannelDiskFence> => (
+  value instanceof Map && [...value].every(([id, fence]) => typeof id === "string" && id.length > 0
+    && fence !== null && typeof fence === "object" && isEpoch(fence.epoch) && typeof fence.deleted === "boolean")
+)
+function changedChannelFences(current: Map<string, ChannelDiskFence>, expected: Map<string, ChannelDiskFence>) {
+  return new Map([...current].filter(([id, fence]) => fence.epoch !== expected.get(id)?.epoch))
+}
+function decodeDiskSnapshot(raw: unknown) {
+  try {
+    if (typeof raw !== "string") return undefined
+    const { version, channelFences, ...snapshot } = JSON.parse(raw) as PersistedClient & { version?: unknown; channelFences?: unknown }
+    if (version !== PERSIST_VERSION || snapshot.buster !== PERSIST_BUSTER || !Array.isArray(channelFences)
+      || !channelFences.every((entry) => Array.isArray(entry) && entry.length === 2)) return undefined
+    const fences = new Map(channelFences)
+    return isChannelFences(fences) ? { snapshot, fences } : undefined
+  } catch { return undefined }
+}
+
 const isEpoch = (value: unknown): value is string => (
   typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
 )
@@ -302,12 +273,13 @@ async function cacheTransaction<T>(
 }
 
 async function readEligibility(store: IDBObjectStore, key: string, userId: string | null) {
-  const [device, scope, account] = await Promise.all([
+  const [device, scope, account, channels] = await Promise.all([
     promisifyRequest<unknown>(store.get(DEVICE_EPOCH_KEY)),
     promisifyRequest<unknown>(store.get(scopeEpochKey(key))),
     promisifyRequest<unknown>(store.get(accountEpochKey(userId))),
+    promisifyRequest<unknown>(store.get(channelFenceKey(userId))),
   ])
-  return { device, scope, account }
+  return { device, scope, account, channels }
 }
 
 // Qualification starts when the account owner is created, before restore or
@@ -315,11 +287,18 @@ async function readEligibility(store: IDBObjectStore, key: string, userId: strin
 // writer or trusts its payload; generation tombstones survive payload removal.
 function qualifyPersister(key: string, userId: string | null): Promise<PersistEligibility> {
   return cacheTransaction("readwrite", async (store) => {
+    await clearAccountRows(store, userId, true)
+    const raw = await promisifyRequest<unknown>(store.get(key))
+    if (raw !== undefined) {
+      if (!decodeDiskSnapshot(raw)) await clearAccountRows(store, userId)
+    }
     const current = await readEligibility(store, key, userId)
     const device = isEpoch(current.device) ? current.device : crypto.randomUUID()
-    const account = isEpoch(current.account) ? current.account : crypto.randomUUID()
+    const intact = isEpoch(current.account) && isChannelFences(current.channels)
+    const account = intact ? current.account as string : crypto.randomUUID()
+    const channels = intact ? current.channels as Map<string, ChannelDiskFence> : new Map<string, ChannelDiskFence>()
     let scope = isEpoch(current.scope) ? current.scope : crypto.randomUUID()
-    if (!isEpoch(current.account)) {
+    if (!intact) {
       for (const domain of ["community", "application"] as const) {
         const payloadKey = blobKeyFor(userId, domain)
         const epoch = crypto.randomUUID()
@@ -328,11 +307,12 @@ function qualifyPersister(key: string, userId: string | null): Promise<PersistEl
         if (payloadKey === key) scope = epoch
       }
       store.put(account, accountEpochKey(userId))
+      store.put(channels, channelFenceKey(userId))
     }
     if (!isEpoch(current.device) || !isEpoch(current.scope)) store.delete(key)
     if (!isEpoch(current.device)) store.put(device, DEVICE_EPOCH_KEY)
     store.put(scope, scopeEpochKey(key))
-    return { device, scope, account }
+    return { device, scope, account, channels }
   })
 }
 
@@ -342,13 +322,13 @@ async function withEligiblePersister<T>(
   eligibility: Promise<PersistEligibility>,
   mode: IDBTransactionMode,
   staleValue: T,
-  operation: (store: IDBObjectStore) => Promise<T>,
+  operation: (store: IDBObjectStore, current: Map<string, ChannelDiskFence>, expected: Map<string, ChannelDiskFence>) => Promise<T>,
 ): Promise<T> {
   const expected = await eligibility
   return cacheTransaction(mode, async (store) => {
     const current = await readEligibility(store, key, userId)
-    if (current.device !== expected.device || current.scope !== expected.scope || current.account !== expected.account) return staleValue
-    return operation(store)
+    if (current.device !== expected.device || current.scope !== expected.scope || current.account !== expected.account || !isChannelFences(current.channels)) return staleValue
+    return operation(store, current.channels, expected.channels)
   })
 }
 
@@ -361,12 +341,16 @@ export function createIdbPersister(userId: string | null): QualifiedPersister {
   void eligibility.catch(() => undefined)
   const persister = createAsyncStoragePersister({
     storage: {
-      getItem: () => observeRestoreRead(() => withEligiblePersister(key, userId, eligibility, "readonly", null, async (store) => {
-        const value = await promisifyRequest<unknown>(store.get(key))
-        return typeof value === "string" ? value : null
+      getItem: () => observeRestoreRead(() => withEligiblePersister(key, userId, eligibility, "readwrite", null, async (store, current) => {
+        const decoded = decodeDiskSnapshot(await promisifyRequest<unknown>(store.get(key)))
+        if (!decoded) store.delete(key)
+        return decoded ? JSON.stringify(scrubDehydratedClient(decoded.snapshot, userId, changedChannelFences(current, decoded.fences))) : null
       }), persister),
       setItem: (_k: string, value: string) => withEligiblePersister(
-        key, userId, eligibility, "readwrite", undefined, async (store) => { store.put(value, key) },
+        key, userId, eligibility, "readwrite", undefined, async (store, current, expected) => {
+          const snapshot = scrubDehydratedClient(JSON.parse(value) as PersistedClient, userId, changedChannelFences(current, expected))
+          store.put(JSON.stringify({ ...snapshot, version: PERSIST_VERSION, channelFences: [...current] }), key)
+        },
       ),
       // Expiry/buster removal removes only this payload. It does not retire
       // the owner, so its subsequent fresh network results can persist.
@@ -380,6 +364,7 @@ export function createIdbPersister(userId: string | null): QualifiedPersister {
   })
   return Object.assign(persister, {
     isCurrent: () => withEligiblePersister(key, userId, eligibility, "readonly", false, async () => true),
+    retireChannels: (ids: Iterable<string>, deleted = false) => withEligiblePersister(key, userId, eligibility, "readwrite", undefined, (store, current) => retireChannelRows(store, key, userId, current, ids, deleted)),
     retireAccount: async () => {
       const retired = await withEligiblePersister(key, userId, eligibility, "readwrite", false, async (store) => { await clearAccountRows(store, userId); return true })
       if (retired) publishCacheInvalidation()
@@ -387,12 +372,15 @@ export function createIdbPersister(userId: string | null): QualifiedPersister {
   })
 }
 
-async function clearAccountRows(store: IDBObjectStore, userId: string | null): Promise<void> {
-  store.put(crypto.randomUUID(), accountEpochKey(userId))
-  for (const domain of ["community", "application"] as const) {
-    const key = blobKeyFor(userId, domain)
-    store.put(crypto.randomUUID(), scopeEpochKey(key))
-    store.delete(key)
+async function clearAccountRows(store: IDBObjectStore, userId: string | null, legacyOnly = false): Promise<void> {
+  if (!legacyOnly) {
+    store.put(crypto.randomUUID(), accountEpochKey(userId))
+    store.put(new Map(), channelFenceKey(userId))
+    for (const domain of ["community", "application"] as const) {
+      const key = blobKeyFor(userId, domain)
+      store.put(crypto.randomUUID(), scopeEpochKey(key))
+      store.delete(key)
+    }
   }
   await new Promise<void>((resolve, reject) => {
     const request = store.openCursor()
@@ -400,10 +388,29 @@ async function clearAccountRows(store: IDBObjectStore, userId: string | null): P
     request.onsuccess = () => {
       const cursor = request.result
       if (!cursor) { resolve(); return }
-      if (isPersistedCacheBlobKey(cursor.key) && cursor.key.split(":")[3] === (userId ?? "anon")) cursor.delete()
+      const match = typeof cursor.key === "string" && /^(alook:qc:[^:]+):([^:]+):((?:application:)?client(?::epoch)?|account-epoch(?::channels)?)$/.exec(cursor.key)
+      if (match && match[2] === (userId ?? "anon") && (!legacyOnly || match[1] !== IDB_PREFIX)) {
+        if (match[3] === "account-epoch:channels") cursor.update(new Map())
+        else if (match[3]?.endsWith("epoch")) cursor.update(crypto.randomUUID())
+        else cursor.delete()
+      }
       cursor.continue()
     }
   })
+}
+
+async function retireChannelRows(store: IDBObjectStore, key: string, userId: string | null, current: Map<string, ChannelDiskFence>, ids: Iterable<string>, deleted: boolean) {
+  const scopes = [...ids]
+  if (!scopes.length) return
+  await clearAccountRows(store, userId, true)
+  const fences = new Map(current)
+  for (const id of scopes) fences.set(id, { epoch: crypto.randomUUID(), deleted: deleted || fences.get(id)?.deleted === true })
+  store.put(fences, channelFenceKey(userId))
+  const decoded = decodeDiskSnapshot(await promisifyRequest<unknown>(store.get(key)))
+  if (decoded) {
+    const snapshot = scrubDehydratedClient(decoded.snapshot, userId, changedChannelFences(fences, decoded.fences))
+    store.put(JSON.stringify({ ...snapshot, version: PERSIST_VERSION, channelFences: [...fences] }), key)
+  } else store.delete(key)
 }
 
 export async function clearPersistedCache(userId: string | null): Promise<void> {
@@ -429,8 +436,9 @@ export async function getPersistedCacheSizeBytes(signal?: AbortSignal): Promise<
   }))
   if (signal?.aborted) throw new DOMException("Cancelled cache size read", "AbortError")
   const legacyBytes = await getLegacyChatCacheSizeBytes(signal)
+  const publicBytes = await getPublicWorkerCacheSizeBytes(signal)
   if (signal?.aborted) throw new DOMException("Cancelled cache size read", "AbortError")
-  return bytes + legacyBytes
+  return bytes + legacyBytes + publicBytes
 }
 
 /** Clear this device, including qualified writers with no payload yet. */
@@ -446,5 +454,8 @@ export async function clearAllPersistedCaches(): Promise<void> {
       cursor.continue()
     }
   }))
-  try { await clearLegacyChatCaches() } finally { publishCacheInvalidation() }
+  try {
+    const results = await Promise.allSettled([clearLegacyChatCaches(), clearPublicWorkerCaches()])
+    for (const result of results) if (result.status === "rejected") throw result.reason
+  } finally { publishCacheInvalidation() }
 }

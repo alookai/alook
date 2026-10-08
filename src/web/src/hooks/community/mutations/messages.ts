@@ -5,7 +5,7 @@ import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
 import { useCallback } from "react"
 
 import { useCommunityMutationOrigin } from "../community-origin"
-import { getCommunityRuntime, useCommunityRuntime } from "@/stores/community/runtime"
+import { getCommunityRuntime } from "@/stores/community/runtime"
 
 
 
@@ -16,8 +16,7 @@ import { ApiError, isAbortError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { publishCommunityMessageFields, publishCommunityMessages, publishCommunityCreatedChannel } from "@/lib/community-db/sync"
-import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
-import { formatAttachmentSize } from "@/lib/community/attachment-presentation"
+import { presentMessageAttachment } from "@/lib/community/attachment-presentation"
 import { attachmentThumbnailUrl, attachmentUrl } from "@/lib/community/storage"
 import {
   projectPostedMessage,
@@ -26,7 +25,9 @@ import {
 
 
 
+import type { MessageScope } from "@/lib/community/message-stream"
 import type { Attachment, Msg } from "@/lib/community/models/message"
+import type { UploadFileResult } from "./uploads"
 
 
 import {
@@ -36,7 +37,7 @@ import {
   isForumSidebarParent,
   patchForumSidebarActivityExact,
 } from "@/hooks/community/use-forum-sidebar-threads"
-import { isBlocked, type MentionType } from "@alook/shared"
+import { isBlocked, type MentionType, type CommunityResourceProfile } from "@alook/shared"
 import {
   getActiveAccountUnreadProjection,
   type AccountUnreadDomain,
@@ -55,8 +56,7 @@ import {
   restoreAttentionOptimisticDomains,
   restoreAttentionOptimisticSnapshot,
   restoreAttentionItemsOptimisticSnapshot,
-  type AttentionOptimisticSnapshot,
-  type AttentionItemsOptimisticSnapshot,
+  type AttentionIntent,
 } from "@/lib/community-db/sync"
 
 
@@ -130,26 +130,11 @@ export function toAttachmentVm(
   // and derived HERE client-side, matching what the server's read path emits via
   // `attachmentUrl`. This keeps the optimistic row's image src identical to the
   // reconciled row that arrives over WS.
-  const url = attachmentUrl(channelId, a.id)
-  const isImage = isInlineAttachmentContentType(a.contentType)
-  if (isImage) return {
-    kind: "image",
-    name: a.filename,
-    url,
-    contentType: a.contentType,
-    sizeBytes: a.size,
+  return presentMessageAttachment({
+    name: a.filename, url: attachmentUrl(channelId, a.id), contentType: a.contentType, sizeBytes: a.size,
     ...(a.hasThumbnail ? { thumbnailUrl: attachmentThumbnailUrl(channelId, a.id) } : {}),
-    width: a.width,
-    height: a.height,
-  }
-  return {
-    kind: "file",
-    name: a.filename,
-    url,
-    contentType: a.contentType,
-    sizeBytes: a.size,
-    size: formatAttachmentSize(a.size),
-  }
+    width: a.width, height: a.height,
+  })
 }
 
 // Random-ish temp id — collision on the same tick is essentially impossible
@@ -184,8 +169,8 @@ export type SendMessageArgs = {
   // sent to the server (in an id array); the rest drive the optimistic VM
   // (whose url is derived client-side from `id`). No `url` field — the upload
   // no longer returns one.
-  attachments?: { id: string; filename: string; contentType: string; size: number; hasThumbnail?: boolean; width?: number; height?: number }[]
-  author: { id: string; name: string; avatar: string }
+  attachments?: UploadFileResult[]
+  author: { [Field in "id" | "name" | "avatar"]: NonNullable<CommunityResourceProfile[Field]> }
   // Idempotency nonce. Omitted on a fresh send (the hook mints one); the
   // retry-pill caller passes the failed row's nonce back so the resend reuses
   // it and dedupes server-side instead of double-posting.
@@ -203,70 +188,61 @@ export type SendMessageResult = { message: PostedMessage; deduped?: boolean }
  * channel row's `parentChannelId` (per #14), so the client always POSTs to
  * `/channels/:id/messages`.
  */
-export function useSendMessage() {
+export type SendDmMessageArgs = Pick<SendMessageArgs, "assertActive" | "content" | "replyToId" | "replyTo" | "attachments"> & {
+  dmId: string
+  nonce: string
+}
+
+function sendMessageScope(input: SendMessageArgs | SendDmMessageArgs): MessageScope {
+  return "dmId" in input ? { kind: "dm", id: input.dmId } : { kind: "channel", id: input.channelId, serverId: input.serverId }
+}
+
+function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(kind: MessageScope["kind"]) {
   const origin = useCommunityMutationOrigin()
   const queryClient = useQueryClient()
-  type Intent = SendMessageArgs & { original: ReturnType<typeof origin.begin>["token"] }
-  const native = useMutation<
-    SendMessageResult,
-    Error,
-    Intent
-  >({ meta: { observabilityAction: "channel.message.send" },
-    mutationFn: async ({ channelId, content, replyToId, replyTo, mentionType, attachments, nonce, original: token, assertActive }) => {
+  type Intent = Args & { original: ReturnType<typeof origin.begin>["token"] }
+  const native = useMutation<SendMessageResult, Error, Intent>({
+    meta: { observabilityAction: `${kind}.message.send` },
+    mutationFn: async (args) => {
+      const { content, replyToId, replyTo, attachments, nonce, original: token, assertActive } = args
       origin.assert(token); assertActive?.()
-      // Server receives only the attachment IDS (reserve-by-id); the rest of the
-      // descriptor is client-only (optimistic VM). Dimensions already rode the
-      // upload, so they are NOT re-sent here (single-source guard).
-      const attachmentIds = attachments?.map((a) => a.id)
-      const result = await origin.request<SendMessageResult>(token,
-        `/api/community/channels/${channelId}/messages`,
-        {
-          method: "POST",
-          signal: assertActive?.signal,
-          assertActive,
-          body: JSON.stringify({
-            content,
-            replyToId: replyTo?.id ?? replyToId,
-            mentionType,
-            attachments: attachmentIds,
-            nonce,
-          }),
-        },
-      )
+      const scope = sendMessageScope(args)
+      const acceptedReply = replyTo ?? getCommunityRuntime(queryClient).messageStream.actions.getRetryPayload(scope, nonce ?? "")?.message.replyTo
+      const result = await origin.request<SendMessageResult>(token, `/api/community/channels/${scope.id}/messages`, {
+        method: "POST", signal: assertActive?.signal, assertActive,
+        body: JSON.stringify({ content, replyToId: replyTo?.id ?? replyToId,
+          mentionType: "serverId" in args ? args.mentionType : undefined,
+          attachments: attachments?.map((attachment) => attachment.id), nonce }),
+      })
       await origin.registry!.collections.messages.preload()
       origin.assert(token); assertActive?.()
-      const message = projectPostedMessage(result.message, nonce ?? "")
-      publishCommunityMessages(queryClient, { channelId, messages: [{ ...message, ...(attachments?.length ? { attachments: attachments.map((attachment) => toAttachmentVm(channelId, attachment)) } : {}), ...(replyTo ? { replyTo } : {}) }], proof: { token, signal: assertActive?.signal } })
+      const message = projectPostedMessage(result.message, nonce ?? "", scope.id)
+      publishCommunityMessages(queryClient, { channelId: scope.id,
+        messages: [{ ...message, ...(attachments?.length ? { attachments: attachments.map((attachment) => toAttachmentVm(scope.id, attachment)) } : {}), ...(acceptedReply && !("replyTo" in result.message) && (!("replyToId" in result.message) || result.message.replyToId === acceptedReply.id) ? { replyTo: acceptedReply } : {}) }],
+        proof: { token, ...(scope.kind === "channel" ? { signal: assertActive?.signal } : {}) } })
       return result
     },
-    onError: (err, args) => {
+    onError: (error, args) => {
       try { origin.assert(args.original) } catch { return }
-      if (args.nonce) {
-        getCommunityRuntime(queryClient).messageStream.actions.dispatch(
-          { kind: "channel", id: args.channelId, serverId: args.serverId },
-          { type: "postFail", nonce: args.nonce },
-        )
+      const scope = sendMessageScope(args)
+      const stream = getCommunityRuntime(queryClient).messageStream.actions
+      const nonce = args.nonce ?? ""
+      if (scope.kind === "dm" && error instanceof ApiError && error.status === 403 && isBlocked(error.message)) {
+        stream.dispatch(scope, { type: "terminalReject", nonce })
+        try { args.assertActive?.() } catch { return }
+        toast("You cannot send messages to this user")
+        return
       }
+      if (scope.kind === "dm" || args.nonce) stream.dispatch(scope, { type: "postFail", nonce })
       try { args.assertActive?.() } catch { return }
-      if (isAbortError(err)) return
-      // 429: server-side rate limit. Fire an explicit toast so the user
-      // knows why the send failed — otherwise the only signal is a
-      // `failed: true` pill, which reads like a generic error. The row
-      // still gets marked failed so the retry affordance stays available.
-      if (err instanceof ApiError && err.status === 429) {
-        toast.error("Rate limited — please wait a moment before trying again")
-      } else {
-        // Any other failure (validation error, forbidden, 500, etc.) — the
-        // `failed: true` pill below is a retry affordance, not a reason.
-        // Without this the user sees no explanation at all for send
-        // failures outside the 429 case.
-        toastApiError(err, "Failed to send message")
-      }
+      if (isAbortError(error)) return
+      if (error instanceof ApiError && error.status === 429) toast.error("Rate limited — please wait a moment before trying again")
+      else toastApiError(error, "Failed to send message")
     },
     onSuccess: (data, args) => {
       try { origin.assert(args.original) } catch { return }
       if (
-        args.forumParentChannelId &&
+        "serverId" in args && args.forumParentChannelId &&
         isForumSidebarParent(queryClient, args.serverId, args.forumParentChannelId)
       ) {
         const canonical = hasForumSidebarThread(
@@ -284,108 +260,24 @@ export function useSendMessage() {
           void invalidateForumSidebarBaseExact(queryClient, args.serverId)
         }
       }
-      if (!args.nonce) return
-      getCommunityRuntime(queryClient).messageStream.actions.dispatch(
-        { kind: "channel", id: args.channelId, serverId: args.serverId },
-        {
-          type: "postAck",
-          nonce: args.nonce,
-          message: projectPostedMessage(data.message, args.nonce),
-        },
-      )
+      const scope = sendMessageScope(args)
+      const nonce = args.nonce ?? ""
+      if (scope.kind === "dm" || args.nonce) getCommunityRuntime(queryClient).messageStream.actions.dispatch(scope, {
+        type: "postAck", nonce, message: projectPostedMessage(data.message, nonce, scope.id),
+      })
     },
   })
-  const capture = useCallback((input: SendMessageArgs): Intent => { input.assertActive?.(); return { ...input, original: origin.begin().token } }, [origin])
+  const capture = useCallback((input: Args): Intent => { input.assertActive?.(); return { ...input, original: origin.begin().token } }, [origin])
   const assertCurrent = useCallback((args: Intent) => { origin.assert(args.original); args.assertActive?.() }, [origin])
   return useNativeMutationFacade(native, capture, assertCurrent)
 }
 
-// ── Send DM message ────────────────────────────────────────────────────────
-
-export type SendDmMessageArgs = {
-  assertActive?: (() => void) & { signal: AbortSignal }
-  dmId: string
-  content: string
-  replyToId?: string
-  replyTo?: Msg["replyTo"]
-  // Reserve-by-id (see SendMessageArgs.attachments): id-bearing descriptors;
-  // only `id` reaches the server.
-  attachments?: { id: string; filename: string; contentType: string; size: number; width?: number; height?: number }[]
-  nonce: string
+export function useSendMessage() {
+  return useSendScopedMessage<SendMessageArgs>("channel")
 }
 
 export function useSendDmMessage() {
-  const origin = useCommunityMutationOrigin()
-  const queryClient = useQueryClient()
-  const communityRuntime = useCommunityRuntime()
-  type Intent = SendDmMessageArgs & { original: ReturnType<typeof origin.begin>["token"] }
-  const native = useMutation<
-    SendMessageResult,
-    Error,
-    Intent
-  >({ meta: { observabilityAction: "dm.message.send" },
-    mutationFn: async ({ dmId, content, replyToId, replyTo, attachments, nonce, original: token, assertActive }) => {
-      origin.assert(token); assertActive?.()
-      const attachmentIds = attachments?.map((a) => a.id)
-      const result = await origin.request<SendMessageResult>(token,
-        `/api/community/channels/${dmId}/messages`,
-        {
-          method: "POST",
-          signal: assertActive?.signal,
-          assertActive,
-          body: JSON.stringify({
-            content,
-            replyToId: replyTo?.id ?? replyToId,
-            attachments: attachmentIds,
-            nonce,
-          }),
-        },
-      )
-      await origin.registry!.collections.messages.preload()
-      origin.assert(token)
-      assertActive?.()
-      publishCommunityMessages(queryClient, { channelId: dmId, messages: [{ ...projectPostedMessage(result.message, nonce), ...(attachments?.length ? { attachments: attachments.map((attachment) => toAttachmentVm(dmId, attachment)) } : {}), ...(replyTo ? { replyTo } : {}) }], proof: { token } })
-      return result
-    },
-    onError: (err, args) => {
-      try { origin.assert(args.original) } catch { return }
-      const scope = { kind: "dm" as const, id: args.dmId }
-      if (err instanceof ApiError && err.status === 403 && isBlocked(err.message)) {
-        communityRuntime.messageStream.actions.dispatch(scope, {
-          type: "terminalReject",
-          nonce: args.nonce,
-        })
-        try { args.assertActive?.() } catch { return }
-        toast("You cannot send messages to this user")
-        return
-      }
-      communityRuntime.messageStream.actions.dispatch(scope, {
-        type: "postFail",
-        nonce: args.nonce,
-      })
-      try { args.assertActive?.() } catch { return }
-      if (isAbortError(err)) return
-      if (err instanceof ApiError && err.status === 429) {
-        toast.error("Rate limited — please wait a moment before trying again")
-      } else {
-        toastApiError(err, "Failed to send message")
-      }
-    },
-    onSuccess: (data, args) => {
-      try { origin.assert(args.original) } catch { return }
-      communityRuntime.messageStream.actions.dispatch(
-        { kind: "dm", id: args.dmId },
-        {
-          type: "postAck",
-          nonce: args.nonce,
-          message: projectPostedMessage(data.message, args.nonce),
-        },
-      )
-    },
-  })
-  const capture = useCallback((input: SendDmMessageArgs): Intent => { input.assertActive?.(); return { ...input, original: origin.begin().token } }, [origin])
-  const assertCurrent = useCallback((args: Intent) => { origin.assert(args.original); args.assertActive?.() }, [origin])
-  return useNativeMutationFacade(native, capture, assertCurrent)
+  return useSendScopedMessage<SendDmMessageArgs>("dm")
 }
 
 // ── Reaction intents ──────────────────────────────────────────────────────
@@ -445,7 +337,7 @@ export function useMarkAllInboxRead() {
   }
   type MarkAllContext = {
     tokens: Map<AccountUnreadDomain, MarkAllToken>
-    snapshot?: AttentionOptimisticSnapshot
+    snapshot?: AttentionIntent
   }
   type Original = ReturnType<typeof origin.begin>["token"]
   const mutation = useMutation<DomainResult[], Error, Original, MarkAllContext>({ meta: { observabilityAction: "inbox.read_all" },
@@ -556,7 +448,7 @@ export function useDeleteMention() {
     { input: DeleteMentionArgs; original: Original },
     {
       token?: AccountUnreadDismissToken
-      attentionSnapshot?: AttentionItemsOptimisticSnapshot
+      attentionSnapshot?: AttentionIntent
     }
   >({ meta: { observabilityAction: "mention.dismiss" },
     scope: { id: "community-mention-delete" },

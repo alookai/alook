@@ -14,70 +14,30 @@
  * embeds pass-through, and mentionType projection so adding/removing a
  * field on the wire is one edit, not four.
  */
-import { truncateMessagePreview, type MentionType } from "@alook/shared"
+import { queries, truncateMessagePreview, type Database, type MentionType, type CommunityMessageResource, type CommunityMessageAttachment, type CommunityMessageCreate } from "@alook/shared"
 import type { FriendApprovalPayload } from "@alook/shared"
 import { avatarInitial } from "@/lib/community/avatar"
 import { canonicalUserImage } from "@/lib/community/storage"
 import { projectMessageWireType } from "@/lib/community/message-wire-type"
+import { groupAttachments, groupReactions } from "./messages"
 
-// The subset of fields on rows returned by
-// queries.communityMessage.{listMessages, getMessage, getMessagesByIds} that
-// this mapper actually consumes. Structural-typed so the module doesn't
-// reach into the shared query package — a row with additional columns
-// (channelId, authorEmail, …) is still accepted. Those columns are
-// scope-filtered / used by the route BEFORE the row reaches this mapper; the
-// mapper deliberately doesn't see them.
-export type MessageRow = {
-  id: string
-  authorId: string
-  authorName: string
-  authorImage: string | null
-  authorAvatarVersion: number
-  content: string | null
-  type: string | null
-  mentionType: string | null
-  replyToId: string | null
-  embeds: unknown
-  seq: number
-  createdAt: string
-  clientNonce?: string | null
-  /** Friend-approval card back-ref — set only on approval card messages. */
-  friendshipId?: string | null
-}
+export type MessageRow = Pick<Awaited<ReturnType<typeof queries.communityMessage.getMessagesByIdsInScope>>[number],
+  "id" | "authorId" | "authorName" | "authorImage" | "authorAvatarVersion" | "mentionType" | "replyToId" | "seq" | "createdAt"> & { content: string | null; type: string | null; embeds: unknown; clientNonce?: string | null; friendshipId?: string | null }
 
-type ReplyTargetRow = {
-  id: string
-  authorId: string
-  authorName: string
-  content: string | null
-}
+type ReplyTargetRow = Pick<MessageRow, "id" | "authorId" | "authorName" | "content">
 
-type UiAttachment = { kind: "image" | "file"; name: string; url: string; thumbnailUrl?: string; contentType?: string; size?: string; sizeBytes?: number; width?: number; height?: number }
-type WsAttachment = { id: string; filename: string; url: string; thumbnailUrl?: string; contentType?: string; size?: number; width?: number; height?: number }
-type UiReaction = { emoji: string; count: number; me: boolean; userIds: string[] }
-
-type ReplyPreview = {
-  id: string
-  authorId?: string
-  authorName: string
-  text: string
-  deleted?: boolean
-}
-
-type ThreadPreview = {
-  id: string
-  name: string
-  messageCount: number
-  lastReplyAt?: string
-  tags?: string[]
-  preview?: string
-  participants?: { id: string; name: string; avatar: string; avatarVersion: number }[]
-  participantCount?: number
-}
+type WsAttachment = NonNullable<CommunityMessageCreate["message"]["attachments"]>[number]
+type UiReaction = NonNullable<CommunityMessageResource["reactions"]>[number]
+type ReplyPreview = NonNullable<CommunityMessageResource["replyTo"]>
+type ThreadPreview = NonNullable<CommunityMessageResource["thread"]>
 
 /** Common fields shared by both API and WS variants — derived exactly once. */
-function coreFields(row: MessageRow) {
+function coreFields(row: MessageRow, replyMap: Map<string, ReplyTargetRow>, nonce = row.clientNonce) {
+  const clientNonce = nonce && !nonce.startsWith("srv:") ? nonce : undefined
   return {
+    ...projectMessageWireType(row.type),
+    ...(clientNonce ? { clientNonce } : {}),
+    replyTo: resolveReply(row, replyMap),
     id: row.id,
     authorId: row.authorId,
     authorName: row.authorName,
@@ -94,6 +54,7 @@ function coreFields(row: MessageRow) {
     seq: row.seq,
     createdAt: row.createdAt,
     mentionType: (row.mentionType ?? null) as MentionType | null,
+    replyToId: row.replyToId,
   }
 }
 
@@ -117,12 +78,24 @@ function resolveReply(row: MessageRow, replyMap: Map<string, ReplyTargetRow>): R
 
 export type ApiMessageContext = {
   replyMap: Map<string, ReplyTargetRow>
-  attachmentsByMessage: Record<string, UiAttachment[] | undefined>
+  attachmentsByMessage: Record<string, CommunityMessageAttachment[] | undefined>
   reactionsByMessage: Record<string, UiReaction[] | undefined>
   /** Optional: only channel GET surfaces a thread child; DM/thread don't. */
   threadByMessageId?: Map<string, ThreadPreview>
   /** Optional: only the DM messages route hydrates friend-approval cards. */
   approvalByMessageId?: Map<string, FriendApprovalPayload>
+}
+
+export async function loadApiMessageContext(db: Database, userId: string, ids: string[], readReplies: () => ReturnType<typeof queries.communityMessage.getMessagesByIdsInChannels>, skipEmpty = false) {
+  const [attachments, reactions, replies] = await Promise.all([
+    skipEmpty && !ids.length ? Promise.resolve([]) : queries.communityAttachment.listByMessageIds(db, ids),
+    skipEmpty && !ids.length ? Promise.resolve([]) : queries.communityReaction.listReactionsByMessageIds(db, ids, userId),
+    readReplies(),
+  ])
+  const attachmentsByMessage = groupAttachments(attachments), reactionsByMessage = groupReactions(reactions, userId)
+  return (channelId: string): ApiMessageContext => ({ attachmentsByMessage, reactionsByMessage,
+    replyMap: new Map(replies.filter((reply) => reply.channelId === channelId).map((reply) => [reply.id, reply])),
+  })
 }
 
 // Splits the DB's `type` column value into the wire's `{ type, systemKind }`
@@ -140,22 +113,19 @@ export type ApiMessageContext = {
 // same DB-to-wire normalization as channel message responses.
 
 export function mapMessageForApi(row: MessageRow, ctx: ApiMessageContext) {
-  const core = coreFields(row)
-  const thread = ctx.threadByMessageId?.get(row.id)
-  const approval = ctx.approvalByMessageId?.get(row.id)
-  const clientNonce =
-    row.clientNonce && !row.clientNonce.startsWith("srv:") ? row.clientNonce : undefined
   return {
-    ...core,
-    ...projectMessageWireType(row.type),
-    ...(clientNonce ? { clientNonce } : {}),
-    replyTo: resolveReply(row, ctx.replyMap),
+    ...coreFields(row, ctx.replyMap),
     embeds: row.embeds,
     attachments: ctx.attachmentsByMessage[row.id]?.length ? ctx.attachmentsByMessage[row.id] : undefined,
     reactions: ctx.reactionsByMessage[row.id]?.length ? ctx.reactionsByMessage[row.id] : undefined,
-    thread,
-    approval,
+    thread: ctx.threadByMessageId?.get(row.id),
+    approval: ctx.approvalByMessageId?.get(row.id),
   }
+}
+
+export async function mapPostedMessageForApi(db: Database, channelId: string, row: MessageRow) {
+  const replies = row.replyToId ? await queries.communityMessage.getMessagesByIdsInScope(db, [row.replyToId], { channelId }) : []
+  return { ...row, replyTo: resolveReply(row, new Map(replies.filter((reply) => reply.channelId === channelId).map((reply) => [reply.id, reply]))) }
 }
 
 export type WsMessageContext = {
@@ -172,19 +142,13 @@ export type WsMessageContext = {
 }
 
 export function mapMessageForWs(row: MessageRow, ctx: WsMessageContext) {
-  const core = coreFields(row)
   // Echo ONLY a client-provided nonce, and never the `srv:`-prefixed server
   // fallback (a content fingerprint — a content-correlation leak on the
   // broadcast wire, and a fallback send has no client optimistic row to match
   // anyway). The prefix guard is defense-in-depth: callers pass the raw client
   // nonce, but if a `srv:` value ever reaches here it is dropped, not fanned.
-  const clientNonce =
-    ctx.clientNonce && !ctx.clientNonce.startsWith("srv:") ? ctx.clientNonce : undefined
   return {
-    ...core,
-    ...projectMessageWireType(row.type),
-    ...(clientNonce ? { clientNonce } : {}),
-    replyTo: resolveReply(row, ctx.replyMap),
+    ...coreFields(row, ctx.replyMap, ctx.clientNonce ?? null),
     // The shared CommunityMessageCreate.embeds is `unknown[]` — narrow here
     // rather than widening the wire type.
     embeds: Array.isArray(row.embeds) ? row.embeds : undefined,

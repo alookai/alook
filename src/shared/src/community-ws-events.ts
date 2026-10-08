@@ -1,27 +1,14 @@
 import { z } from "zod"
 import { CommunityMachineRuntimeSchema } from "./schemas"
+import { FriendApprovalPayloadSchema } from "./community-friend-approval"
+import { CommunityChannelResourceSchema, CommunityMessageResourceSchema, CommunityMemberRelationSchema } from "./community-resources"
+
+export { FriendApprovalPayloadSchema } from "./community-friend-approval"
+export type { FriendApprovalPayload, FriendApprovalProfile } from "./community-friend-approval"
 
 const string = z.string()
 const nullableString = string.nullable()
-const channelTypeSchema = z.enum(["text", "forum"])
-const mentionTypeSchema = z.literal("everyone")
-
-const friendApprovalProfileSchema = z.strictObject({
-  id: string,
-  name: string,
-  discriminator: string,
-  image: nullableString,
-  avatarVersion: z.number().int().nonnegative(),
-})
-
-export const FriendApprovalPayloadSchema = z.strictObject({
-  friendshipId: string,
-  status: z.enum(["pending", "approved", "denied", "superseded", "cancelled"]),
-  waitingOn: z.enum(["you", "other-owner", "addressee"]).nullable(),
-  otherProfile: friendApprovalProfileSchema,
-  botProfile: friendApprovalProfileSchema,
-  waitingOnProfile: friendApprovalProfileSchema.nullable().optional(),
-})
+const channelTypeSchema = CommunityChannelResourceSchema.shape.type.extract(["text", "forum"])
 
 const messageAttachmentSchema = z.strictObject({
   id: string,
@@ -34,30 +21,22 @@ const messageAttachmentSchema = z.strictObject({
   height: z.number().nullable().optional(),
 })
 
-const messageSchema = z.strictObject({
+const messageSchema = CommunityMessageResourceSchema.pick({
+  content: true, type: true, systemKind: true, authorAvatar: true, authorAvatarVersion: true,
+  mentionType: true, embeds: true, createdAt: true, approval: true,
+}).extend({
   id: string,
   seq: z.number(),
   authorId: string,
   authorName: string,
-  authorAvatar: string.optional(),
-  authorAvatarVersion: z.number().int().nonnegative(),
-  content: string,
-  type: z.enum(["chat", "system"]),
-  systemKind: z.literal("thread").optional(),
-  mentionType: mentionTypeSchema.nullable().optional(),
+  authorAvatarVersion: CommunityMessageResourceSchema.shape.authorAvatarVersion.unwrap(),
   replyToId: nullableString.optional(),
-  replyTo: z.strictObject({
+  replyTo: CommunityMessageResourceSchema.shape.replyTo.unwrap().extend({
     id: string,
     authorId: string.optional(),
-    authorName: string,
-    text: string,
-    deleted: z.boolean().optional(),
   }).optional(),
-  embeds: z.array(z.unknown()).optional(),
   attachments: z.array(messageAttachmentSchema).optional(),
-  createdAt: string,
   clientNonce: string.optional(),
-  approval: FriendApprovalPayloadSchema.optional(),
 })
 
 const communityMessageCreateSchema = z.strictObject({
@@ -231,6 +210,15 @@ const communityChannelMemberRemoveSchema = z.strictObject({
   userId: string,
 })
 
+const communityChannelMembershipChangeSchema = z.strictObject({
+  type: z.literal("community:channel.membership.change"),
+  channelId: string,
+  serverId: string.nullable(),
+  userId: string,
+  relation: CommunityMemberRelationSchema.shape.relation,
+  present: z.boolean(),
+})
+
 const communityCategoryCreateSchema = z.strictObject({
   type: z.literal("community:category.create"),
   serverId: string,
@@ -328,6 +316,7 @@ const communityFriendRemoveSchema = z.strictObject({
 const communityFriendBlockSchema = z.strictObject({
   type: z.literal("community:friend.block"),
   userId: string,
+  blockedByViewer: z.boolean().optional(),
 })
 
 const communityInviteCreateSchema = z.strictObject({
@@ -492,6 +481,7 @@ const CommunityWsEventDiscriminatedSchema = z.discriminatedUnion("type", [
   communityChannelReorderSchema,
   communityChannelMemberAddSchema,
   communityChannelMemberRemoveSchema,
+  communityChannelMembershipChangeSchema,
   communityCategoryCreateSchema,
   communityCategoryUpdateSchema,
   communityCategoryDeleteSchema,
@@ -560,6 +550,7 @@ export type CommunityChannelDelete = Extract<CommunityWsEvent, { type: "communit
 export type CommunityChannelReorder = Extract<CommunityWsEvent, { type: "community:channel.reorder" }>
 export type CommunityChannelMemberAdd = Extract<CommunityWsEvent, { type: "community:channel.member_add" }>
 export type CommunityChannelMemberRemove = Extract<CommunityWsEvent, { type: "community:channel.member_remove" }>
+export type CommunityChannelMembershipChange = Extract<CommunityWsEvent, { type: "community:channel.membership.change" }>
 export type CommunityCategoryCreate = Extract<CommunityWsEvent, { type: "community:category.create" }>
 export type CommunityCategoryUpdate = Extract<CommunityWsEvent, { type: "community:category.update" }>
 export type CommunityCategoryDelete = Extract<CommunityWsEvent, { type: "community:category.delete" }>
@@ -588,8 +579,6 @@ export type CommunityMachineRemoved = Extract<CommunityWsEvent, { type: "communi
 export type CommunityBotAuditEvent = Extract<CommunityWsEvent, { type: "community:bot.audit_event" }>
 export type CommunityMachineSummary = z.infer<typeof CommunityMachineSummarySchema>
 export type CommunityMachineRuntime = CommunityMachineSummary["availableRuntimes"][number]
-export type FriendApprovalPayload = z.infer<typeof FriendApprovalPayloadSchema>
-export type FriendApprovalProfile = FriendApprovalPayload["otherProfile"]
 
 export type BotAddedFrame = {
   type: "bot:added"
@@ -634,6 +623,7 @@ export const WS_EVENTS = {
   CHANNEL_REORDER: "community:channel.reorder",
   CHANNEL_MEMBER_ADD: "community:channel.member_add",
   CHANNEL_MEMBER_REMOVE: "community:channel.member_remove",
+  CHANNEL_MEMBERSHIP_CHANGE: "community:channel.membership.change",
   CATEGORY_CREATE: "community:category.create",
   CATEGORY_UPDATE: "community:category.update",
   CATEGORY_DELETE: "community:category.delete",

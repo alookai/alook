@@ -160,6 +160,16 @@ export async function handleMessageDelivery(
       ...batch.memberAdded,
     })
   }
+  if (batch.joinedParticipantUserIds && batch.rosterRefreshUserId && batch.messageEvent.serverId) {
+    const joined = new Set(batch.joinedParticipantUserIds)
+    for (const userId of batch.contentUserIds) {
+      addEvent(bundles, userId, {
+        type: WS_EVENTS.CHANNEL_MEMBERSHIP_CHANGE, channelId: batch.messageEvent.channelId,
+        serverId: batch.messageEvent.serverId, userId: joined.has(userId) ? userId : batch.rosterRefreshUserId,
+        relation: "notify", present: true,
+      })
+    }
+  }
   if (batch.parentProjection && batch.parentProjectionUserIds) {
     for (const userId of batch.parentProjectionUserIds) {
       addEvent(bundles, userId, batch.parentProjection)

@@ -1,4 +1,5 @@
 "use client"
+import type { CommunityProfile } from "@/lib/community/models/people"
 
 import { useObservedRegion } from "@/lib/observability/regions"
 import { useObservedQueryRegion } from "@/lib/observability/query-regions"
@@ -106,7 +107,7 @@ export function AdvancedSettings() {
         open={confirmOpen}
         onOpenChange={(o) => { if (!o) setConfirmOpen(false) }}
         title="Clear local cache?"
-        description="This removes locally persisted messages for every account used on this device. The next channel or DM you open will refetch from the server. Nothing on the server is deleted."
+        description="This removes locally cached messages and public files for every account used on this device. The next channel or DM you open will refetch from the server. Nothing on the server is deleted."
         confirmLabel="Clear cache"
         loadingLabel="Clearing..."
         loading={clearing}
@@ -139,7 +140,7 @@ export function AdvancedSettings() {
           <h2 className="text-base font-medium tracking-tight">Clear local cache</h2>
           {clearError && <p role="alert" className="text-sm text-destructive">{clearError}</p>}
           <p className="flex items-baseline justify-between gap-4 text-sm">
-            <span className="text-muted-foreground">Cached messages</span>
+            <span className="text-muted-foreground">Cached messages and public files</span>
             <span
               data-testid={tid.settingsCacheSize}
               className="font-mono tabular-nums text-foreground"
@@ -152,8 +153,8 @@ export function AdvancedSettings() {
             </span>
           </p>
           <p className="max-w-[65ch] text-sm leading-6 text-muted-foreground">
-            Removes locally persisted messages for every account used on this
-            device. The next channel or DM you open will refetch from the server.
+            Removes locally cached messages and public files for every account used
+            on this device. The next channel or DM you open will refetch from the server.
             Nothing on the server is deleted.
           </p>
           <Button
@@ -187,13 +188,11 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
   userEmail: string
   aboutMe: string
   avatar: string
-  statusEmoji?: string | null
-  statusText?: string | null
-  onSave: (data: { name?: string; aboutMe?: string; statusEmoji?: string | null; statusText?: string | null }) => void
+  onSave: (data: Partial<Pick<CommunityProfile, "name" | "aboutMe" | "statusEmoji" | "statusText">>) => void
   onLogout?: () => void
   onAccountDeleted: () => Promise<void>
   onUploadAvatar?: () => void
-}) {
+} & Pick<CommunityProfile, "statusEmoji" | "statusText">) {
   // Draft + saved baseline are mount-only on purpose — a WS-driven prop change
   // (e.g. status fan-out echo) must not clobber an in-progress edit. The
   // baseline advances only on a successful save.

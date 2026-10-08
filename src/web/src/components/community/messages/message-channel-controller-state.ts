@@ -11,10 +11,11 @@ import { useCommunityRuntime } from "@/stores/community/runtime"
 
 
 import { useCallback, useEffect, useLayoutEffect, useMemo } from "react"
-import { materializeMessageStream, type CanonicalMessage } from "@/lib/community/message-stream"
+import { materializeIntent, type CanonicalMessage } from "@/lib/community/message-stream"
+import { messageScopeKey } from "@/stores/community/message-stream-store"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import type { MentionType } from "@alook/shared"
+import type { MentionType, CommunityMessageResource, CommunityResourceProfile } from "@alook/shared"
 
 import { apiFetchProfiles } from "@/lib/community/profile-seed"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -119,8 +120,8 @@ export function useMessageChannelController({
       const params = new URLSearchParams({ q: term, channelId })
       const data = await apiFetchProfiles<{
         results: Array<{
-          message: { id: string; content: string; authorId: string; createdAt: string; seq?: number }
-          author: { id: string; name: string; image: string | null; avatarVersion: number }
+          message: Pick<CommunityMessageResource, "id" | "content" | "authorId" | "createdAt"> & Partial<Pick<CommunityMessageResource, "seq">>
+          author: Pick<CommunityResourceProfile, "id" | "name" | "avatarVersion"> & { image: CommunityResourceProfile["avatar"] }
         }>
       }>(
         "/api/community/messages/search?" + params,
@@ -203,12 +204,16 @@ export function useMessageChannelController({
   const getMessage = useCallback((id: string): Msg | undefined => {
     const registry = getCommunityDbRegistry(profileQueryClient)
     const row = registry?.collections.messages.get(id)
-    const scope = { kind: "channel" as const, id: channelId, serverId }
-    const message = materializeMessageStream(row?.channelId === channelId ? [row as CanonicalMessage] : [], communityRuntime.messageStream.actions.overlayFor(scope)).find((item) => item.id === id)
+    let message: Msg | undefined = row?.channelId === channelId ? row as CanonicalMessage : undefined
+    if (!message) {
+      const intents = communityRuntime.messageStream.get().entries.get(messageScopeKey({ kind: "channel", id: channelId }))?.state.outboxByNonce.values()
+      const intent = [...(intents ?? [])].find((item) => item.tempId === id)
+      if (intent) message = materializeIntent(intent)
+    }
     if (!message) return undefined
     const profile = message.authorId ? registry?.collections.profiles.get(message.authorId) : undefined
     return profile ? { ...message, authorName: profile.name, authorAvatar: profile.avatar, authorAvatarVersion: profile.avatarVersion } : message
-  }, [profileQueryClient, communityRuntime, channelId, serverId])
+  }, [profileQueryClient, communityRuntime, channelId])
 
   const jumpToSeq = useCallback((seq: number) => {
     source.capture()()

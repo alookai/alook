@@ -5,15 +5,15 @@ import {
   getOutboxRetryPayload,
   reduceMessageOverlay,
   type MessageOverlayEvent,
-  type MessageOverlayState,
+  type MessageOverlayIds,
+  emptyMessageOverlay,
   type MessageScope,
   type NewOutboxIntent,
   type OutboxRetryPayload,
   type CanonicalMessage,
 } from "@/lib/community/message-stream"
 
-type StoredOverlay = { liveIds: readonly string[]; outboxByNonce: MessageOverlayState["outboxByNonce"] }
-type ScopeEntry = { scope: MessageScope; state: StoredOverlay }
+type ScopeEntry = { scope: MessageScope; state: MessageOverlayIds }
 
 type MessageStreamStoreState = {
   entries: ReadonlyMap<string, ScopeEntry>
@@ -24,17 +24,8 @@ type MessageStreamStoreState = {
   removeScope: (scope: MessageScope) => void
   removeServer: (serverId: string) => void
   resetAll: () => void
-  overlayFor: (scope: MessageScope) => MessageOverlayState
 }
-export const EMPTY_STORED: StoredOverlay = { liveIds: [], outboxByNonce: new Map() }
-
-export function hydrate(state: StoredOverlay, messages: ReadonlyMap<string, CanonicalMessage>): MessageOverlayState {
-  return { liveById: new Map(state.liveIds.flatMap((id) => { const message = messages.get(id); return message ? [[id, message] as const] : [] })), outboxByNonce: state.outboxByNonce }
-}
-
-function storeOverlay(state: MessageOverlayState): StoredOverlay {
-  return { liveIds: [...state.liveById.keys()], outboxByNonce: state.outboxByNonce }
-}
+export const EMPTY_STORED = emptyMessageOverlay()
 
 export function messageScopeKey(scope: Pick<MessageScope, "kind" | "id">): string {
   return `${scope.kind}:${scope.id}`
@@ -44,13 +35,13 @@ function executeEffects(effects: ReturnType<typeof reduceMessageOverlay>["effect
   for (const effect of effects) URL.revokeObjectURL(effect.url)
 }
 
-export function createMessageStreamStore(readMessages: () => ReadonlyMap<string, CanonicalMessage> = () => new Map(), diagnosticOwner?: object) {
+export function createMessageStreamStore(readMessages: () => Pick<ReadonlyMap<string, CanonicalMessage>, "get"> = () => new Map(), diagnosticOwner?: object) {
   return createStore({ entries: new Map<string, ScopeEntry>() as ReadonlyMap<string, ScopeEntry>, nextOrdinal: 1 }, ({ setState, get }): Omit<MessageStreamStoreState, "entries" | "nextOrdinal"> => ({
 
   accept: (scope, intent) => {
     const key = messageScopeKey(scope)
     const current = get()
-    const overlay = hydrate(current.entries.get(key)?.state ?? EMPTY_STORED, readMessages())
+    const overlay = current.entries.get(key)?.state ?? EMPTY_STORED
     if (overlay.outboxByNonce.has(intent.nonce)) return false
     const transition = reduceMessageOverlay(overlay, {
       type: "submit",
@@ -58,7 +49,7 @@ export function createMessageStreamStore(readMessages: () => ReadonlyMap<string,
     })
     beginMessageObservation(diagnosticOwner, intent.nonce, scope.kind)
     const entries = new Map(current.entries)
-    entries.set(key, { scope, state: storeOverlay(transition.state) })
+    entries.set(key, { scope, state: transition.state })
     setState((state) => ({ ...state, ...{ entries, nextOrdinal: current.nextOrdinal + 1 } }))
     executeEffects(transition.effects)
     messageMilestone(diagnosticOwner, intent.nonce, "optimistic", "success")
@@ -68,14 +59,14 @@ export function createMessageStreamStore(readMessages: () => ReadonlyMap<string,
   dispatch: (scope, event) => {
     const key = messageScopeKey(scope)
     const current = get()
-    const overlay = hydrate(current.entries.get(key)?.state ?? EMPTY_STORED, readMessages())
+    const overlay = current.entries.get(key)?.state ?? EMPTY_STORED
     if (event.type === "retry" && overlay.outboxByNonce.has(event.nonce)) beginMessageObservation(diagnosticOwner, event.nonce, scope.kind)
     const applied = event.type === "postAck" ? { type: "wsMessage" as const, message: { ...event.message, clientNonce: event.nonce } } : event
     if (applied.type === "wsMessage") sourceEvidence(applied.message, event.type === "postAck" ? "network" : "ws")
-    const transition = reduceMessageOverlay(overlay, applied)
+    const transition = reduceMessageOverlay(overlay, applied, readMessages())
     if (transition.state !== overlay) {
       const entries = new Map(current.entries)
-      entries.set(key, { scope, state: storeOverlay(transition.state) })
+      entries.set(key, { scope, state: transition.state })
       setState((state) => ({ ...state, ...{ entries } }))
     }
     executeEffects(transition.effects)
@@ -90,7 +81,7 @@ export function createMessageStreamStore(readMessages: () => ReadonlyMap<string,
 
   getRetryPayload: (scope, nonce) => {
     const entry = get().entries.get(messageScopeKey(scope))
-    return entry ? getOutboxRetryPayload(hydrate(entry.state, readMessages()), nonce) : undefined
+    return entry ? getOutboxRetryPayload(entry.state, nonce) : undefined
   },
 
   removeScope: (scope) => {
@@ -98,7 +89,7 @@ export function createMessageStreamStore(readMessages: () => ReadonlyMap<string,
     const current = get()
     const entry = current.entries.get(key)
     if (!entry) return
-    const transition = reduceMessageOverlay(hydrate(entry.state, readMessages()), { type: "clear" })
+    const transition = reduceMessageOverlay(entry.state, { type: "clear" })
     const entries = new Map(current.entries)
     entries.delete(key)
     setState((state) => ({ ...state, ...{ entries } }))
@@ -112,7 +103,7 @@ export function createMessageStreamStore(readMessages: () => ReadonlyMap<string,
     let changed = false
     for (const [key, entry] of current.entries) {
       if (entry.scope.kind !== "channel" || entry.scope.serverId !== serverId) continue
-      effects.push(...reduceMessageOverlay(hydrate(entry.state, readMessages()), { type: "clear" }).effects)
+      effects.push(...reduceMessageOverlay(entry.state, { type: "clear" }).effects)
       entries.delete(key)
       changed = true
     }
@@ -123,11 +114,10 @@ export function createMessageStreamStore(readMessages: () => ReadonlyMap<string,
   resetAll: () => {
     const current = get()
     const effects = [...current.entries.values()].flatMap((entry) =>
-      reduceMessageOverlay(hydrate(entry.state, readMessages()), { type: "clear" }).effects)
+      reduceMessageOverlay(entry.state, { type: "clear" }).effects)
     setState((state) => ({ ...state, ...{ entries: new Map(), nextOrdinal: 1 } }))
     executeEffects(effects)
     if (diagnosticOwner) disposeMessageObservations(diagnosticOwner)
   },
-  overlayFor: (scope) => hydrate(get().entries.get(messageScopeKey(scope))?.state ?? EMPTY_STORED, readMessages()),
   }))
 }

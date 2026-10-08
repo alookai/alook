@@ -28,6 +28,10 @@ vi.mock("@alook/shared", async () => {
     ...actual,
     queries: {
       communityChannel: {
+        getChannelForMember: async () => {
+          const scope = await mockResolveChannelAccessContext()
+          return scope && (!scope.isPrivate || actual.canSeePrivateChannel(scope)) ? scope.channel : null
+        },
         getChannel: (...a: unknown[]) => mockGetChannel(...a),
         listChildChannels: (...a: unknown[]) => mockListChildChannels(...a),
         resolveChannelAccessContext: (...a: unknown[]) => mockResolveChannelAccessContext(...a),
@@ -37,8 +41,8 @@ vi.mock("@alook/shared", async () => {
       },
       communityMessage: {
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
-        getMessagesByIds: (...a: unknown[]) => mockGetMessagesByIds(...a),
-        getFirstMessageByChannelIds: (...a: unknown[]) => mockGetFirstMessageByChannelIds(...a),
+        getMessagesByIdsInScope: (...a: unknown[]) => mockGetMessagesByIds(...a),
+        getFirstMessageResourcesByChannelIds: (...a: unknown[]) => mockGetFirstMessageByChannelIds(...a),
         listMessages: (...a: unknown[]) => mockListMessages(...a),
       },
       communityMessageTag: {
@@ -156,6 +160,22 @@ describe("GET /api/community/channels/[id]/threads", () => {
     expect(mockListMessages).not.toHaveBeenCalled()
   })
 
+  it("loads requested included resources for the regular child collection through the same scoped batches", async () => {
+    mockListChildChannels.mockResolvedValue([{ id: "t1", parentMessageId: "opener1" }])
+    mockGetMessagesByIds.mockResolvedValue([{ id: "opener1", channelId: "c1" }])
+    mockGetFirstMessageByChannelIds.mockResolvedValue([{ channelId: "t1", content: "first" }])
+    mockListTagsForMessages.mockResolvedValue([{ messageId: "opener1", tag: "bug" }])
+    mockListParticipantsForChannels.mockResolvedValue([{ channelId: "t1", userId: "u1" }])
+    const response = await GET(req("http://localhost/api/community/channels/c1/threads?include=parentMessage,firstMessage,tags,participants"), ctx)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ threads: [{ id: "t1" }], hasMore: false, included: {
+      parentMessages: [{ id: "opener1", channelId: "c1" }], firstMessages: [{ channelId: "t1", content: "first" }],
+      tags: [{ messageId: "opener1", tag: "bug" }], participants: [{ channelId: "t1", userId: "u1" }],
+    } })
+    expect(mockGetMessagesByIds).toHaveBeenCalledWith(expect.anything(), ["opener1"], { channelId: "c1" })
+    expect(mockListParticipantsForChannels).toHaveBeenCalledWith(expect.anything(), ["t1"], 5)
+  })
+
   it("keeps non-forum child collections unchanged without querying archive tags", async () => {
     mockResolveChannelAccessContext.mockResolvedValue({
       channel: { id: "c1", serverId: "s1", parentChannelId: null, creatorId: null, type: "text" },
@@ -266,7 +286,7 @@ describe("GET /api/community/channels/[id]/threads", () => {
       parentChannelId: "c1",
       limit: 3,
     })
-    expect(mockGetMessagesByIds).toHaveBeenCalledWith(expect.anything(), ["m3", "m2"])
+    expect(mockGetMessagesByIds).toHaveBeenCalledWith(expect.anything(), ["m3", "m2"], { channelId: "c1" })
     expect(mockGetFirstMessageByChannelIds).toHaveBeenCalledWith(expect.anything(), ["t3", "t2"])
     expect(mockListParticipantsForChannels).toHaveBeenCalledWith(expect.anything(), ["t3", "t2"], 5)
 

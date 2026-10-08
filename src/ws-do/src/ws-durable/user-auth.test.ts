@@ -15,7 +15,7 @@ import {
   flushAsyncWork,
   mockCheckAliveFetch,
   mockCreateDb,
-  mockEncodePreparedCommunityBrowserEventBatch,
+  mockEncodeCommunityBrowserEventBatchForContract,
   mockFindCredentialByHash,
   mockGetBotBinding,
   mockGetBotBindingWithOwner,
@@ -308,6 +308,29 @@ describe("WebSocketDurableObject", () => {
       })
     })
 
+    it("restores selected formats from attachments and retains source progress for mixed tabs", async () => {
+      const { durable, ctx } = createDO()
+      const old = createMockWebSocket(), current = createMockWebSocket()
+      old.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
+      current.serializeAttachment({ type: "user", userId: "user-42", authenticated: true, communityContract: 2 })
+      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([old, current])
+      const change = { type: "community:channel.membership.change", channelId: "thread", serverId: "server", userId: "user-42", relation: "notify", present: true }
+      const request = await requestFor([change])
+      const source = await request.clone().json() as { operationDigest: string }
+      expect((await durable.fetch(request.clone())).status).toBe(200)
+      const oldFrame = JSON.parse(old.send.mock.calls[0]![0] as string)
+      const newFrame = JSON.parse(current.send.mock.calls[0]![0] as string)
+      expect(Object.keys(oldFrame)).toHaveLength(4)
+      expect(oldFrame.events).toEqual([{ type: "community:channel.member_add", serverId: "server", channelId: "thread", userId: "user-42" }])
+      expect(newFrame).toMatchObject({ type: "community:events.batch.v2", operationDigest: source.operationDigest, events: [change] })
+      expect(oldFrame.operationDigest).not.toBe(source.operationDigest)
+      expect((old.deserializeAttachment() as { communityDeliveryProgress: string[][] }).communityDeliveryProgress[0]![1]).toBe(source.operationDigest)
+      expect((current.deserializeAttachment() as { communityDeliveryProgress: string[][] }).communityDeliveryProgress[0]![1]).toBe(source.operationDigest)
+      expect((await durable.fetch(request)).status).toBe(200)
+      expect(old.send).toHaveBeenCalledTimes(1)
+      expect(current.send).toHaveBeenCalledTimes(1)
+    })
+
     it("sends zero frames when any event is invalid", async () => {
       const { durable, ctx } = createDO()
       const ws = createMockWebSocket()
@@ -499,7 +522,7 @@ describe("WebSocketDurableObject", () => {
       const second = createMockWebSocket()
       second.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
       ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([first, second])
-      mockEncodePreparedCommunityBrowserEventBatch.mockReturnValueOnce({
+      mockEncodeCommunityBrowserEventBatchForContract.mockReturnValueOnce({
         ok: false,
         reason: "batch-invariant-oversized",
         byteLength: 328_705,
@@ -781,6 +804,7 @@ describe("WebSocketDurableObject", () => {
         userId: "user-42",
         targetUserId: "user-42",
         authenticated: true,
+        communityContract: 1,
         name: "Ana",
         discriminator: "0012",
       })
@@ -808,6 +832,16 @@ describe("WebSocketDurableObject", () => {
         authenticated: true,
         communityDeliveryProgress: progress,
       })
+    })
+
+    it.each([1, 2] as const)("keeps contract %s fixed across successful reauthentication", async (version) => {
+      const { durable } = createDO()
+      mockGetValidSessionWithIdentity.mockResolvedValue({ userId: "user-42", name: "Ana", discriminator: "0012" })
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "user-42", targetUserId: "user-42", authenticated: true, communityContract: version })
+      await durable.webSocketMessage(ws as any, JSON.stringify({ type: "auth", token: "valid-token", communityContract: version === 1 ? 2 : 1 }))
+      expect(ws.deserializeAttachment()).toMatchObject({ authenticated: true, communityContract: version })
+      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "auth.ok", ...(version === 2 ? { communityContract: 2 } : {}) }))
     })
 
     it("retries a transient session lookup before authenticating", async () => {

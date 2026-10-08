@@ -2,39 +2,29 @@ import { apiFetch } from "@/lib/api/client"
 import { queryOptions, type QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import { retryConversationRead, withConversationReadDeadline } from "@/lib/community/conversation-read"
-import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent, publishCommunityChannelMetadata } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent, publishCommunityChannelMetadata, retireCommunityChannelReading } from "@/lib/community-db/sync"
+import { ApiError } from "@/lib/errors"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
+import { normalizeCommunityChannelIdentity, type CommunityChannelIdentity, type CommunityAccessDecision } from "@alook/shared"
 
-export type ChannelMetadata = {
-  id: string
-  serverId: string | null
-  name: string | null
-  type: string
-  parentChannelId: string | null
-  parentMessageId: string | null
-  creatorId: string | null
-  archived: boolean | number
-  lastMessageAt: string | null
-  createdAt: string
+export type ChannelMetadata = CommunityChannelIdentity & {
+  accessDecision?: CommunityAccessDecision
 }
 
 export function captureChannelMetadataToken(queryClient: QueryClient, channelId: string) {
-  const owner = captureCommunityLiveSnapshotToken(queryClient)
-  return { ...owner, channelId, generation: owner.registry!.runtime.ws.get().channelAccessScopes.get(channelId)?.generation ?? 0 }
+  return captureCommunityLiveSnapshotToken(queryClient, channelId)
 }
 
 export function isChannelMetadataTokenCurrent(token: ReturnType<typeof captureChannelMetadataToken>) {
   try {
     assertCommunityLiveSnapshotTokenCurrent(token.queryClient, token, undefined)
-    return (token.registry!.runtime.ws.get().channelAccessScopes.get(token.channelId)?.generation ?? 0) === token.generation
+    return true
   } catch { return false }
 }
 
-export type ChannelMetadataResource = {
-  id: string
-  verifiedEpoch: number
-  verification?: ReturnType<typeof captureChannelMetadataToken>
-  historyVerification?: ReturnType<typeof captureChannelMetadataToken>
+export type ChannelMetadataResource = Pick<CommunityChannelIdentity, "id"> & Partial<Pick<CommunityChannelIdentity, "serverId">> & {
+  identityProof?: ReturnType<typeof captureChannelMetadataToken>
+  readProof?: ReturnType<typeof captureChannelMetadataToken>
 }
 
 export async function fetchChannelMetadata(
@@ -45,8 +35,11 @@ export async function fetchChannelMetadata(
   token = captureChannelMetadataToken(queryClient, channelId),
 ) {
   return withConversationReadDeadline(signal, async (readSignal) => {
+    const queryKey = communityKeys.channelMeta(serverId, channelId)
+    const resource = queryClient.getQueryCache().find({ queryKey, exact: true })
     const assertActive = () => {
-      if (readSignal.aborted || !isChannelMetadataTokenCurrent(token)) throw new DOMException("Stale channel metadata", "AbortError")
+      if (readSignal.aborted || !isChannelMetadataTokenCurrent(token)
+        || resource && queryClient.getQueryCache().find({ queryKey, exact: true }) !== resource) throw new DOMException("Stale channel metadata", "AbortError")
     }
     assertActive()
     await token.registry!.ready
@@ -55,18 +48,26 @@ export async function fetchChannelMetadata(
     assertActive()
     let meta: ChannelMetadata
     try {
-      meta = await apiFetch<ChannelMetadata>(`/api/community/channels/${encodeURIComponent(channelId)}`, communityRequestOptions(queryClient, token, readSignal, assertActive))
+      const response = await apiFetch<ChannelMetadata>(`/api/community/channels/${encodeURIComponent(channelId)}`, communityRequestOptions(queryClient, token, readSignal, assertActive))
+      meta = { ...response, ...normalizeCommunityChannelIdentity(response) }
       assertActive()
-    } catch (error) { assertActive(); throw error }
+    } catch (error) {
+      assertActive()
+      if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+        retireCommunityChannelReading(token.registry!, channelId, { reason: "read-denied", serverId, preserveQuery: resource })
+      }
+      throw error
+    }
     if (meta.id !== channelId || meta.serverId !== serverId
       || !(serverId === null ? meta.type === "dm" : ["text", "forum", "thread"].includes(meta.type))
       || !(typeof meta.name === "string" || (serverId === null && meta.name === null))) throw new Error("Channel metadata scope mismatch")
-    if (serverId !== null) {
-      token.registry!.runtime.ws.actions.grantServerAccess(serverId)
+    if (meta.parentChannelId && (token.registry!.runtime.ws.get().channelAccessScopes.get(meta.parentChannelId)?.generation ?? 0) !== (token.channelScopes.get(meta.parentChannelId)?.generation ?? 0)) throw new DOMException("Retired parent channel", "AbortError")
+    if (!meta.archived && meta.accessDecision?.canRead !== false) {
+      if (serverId) token.registry!.runtime.ws.actions.grantServerAccess(serverId)
       token.registry!.runtime.ws.actions.rememberChannelAccess(serverId, channelId, meta.parentChannelId)
     }
-    return { ...meta, name: meta.name ?? "", archived: meta.archived === true || meta.archived === 1,
-      activityAt: meta.lastMessageAt ?? meta.createdAt, verifiedEpoch: token.accessEpoch, verification: token }
+    return { ...meta, name: meta.name ?? "",
+      activityAt: meta.lastMessageAt ?? meta.createdAt ?? "", identityProof: token }
   })
 }
 
@@ -78,8 +79,10 @@ export function channelMetadataOptions(queryClient: QueryClient, serverId: strin
       const token = captureChannelMetadataToken(queryClient, channelId)
       const metadata = await fetchChannelMetadata(queryClient, serverId, channelId, signal, token)
       publishCommunityChannelMetadata(queryClient, { metadata, proof: { token, signal } })
-      const previous = queryClient.getQueryData<ChannelMetadataResource>(queryKey)
-      return { id: metadata.id, verifiedEpoch: token.accessEpoch, verification: token, historyVerification: previous?.historyVerification }
+      const canRead = !metadata.archived && metadata.accessDecision?.canRead !== false
+      if (!canRead) retireCommunityChannelReading(token.registry!, channelId, { reason: "read-denied", serverId, preserveQuery: queryClient.getQueryCache().find({ queryKey, exact: true }) })
+      const qualified = captureChannelMetadataToken(queryClient, channelId)
+      return { id: metadata.id, serverId: metadata.serverId, identityProof: qualified, readProof: canRead ? qualified : undefined }
     },
     staleTime: Infinity,
     gcTime: 5 * 60 * 1000,

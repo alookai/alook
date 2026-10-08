@@ -18,6 +18,9 @@ import { requireChannelAccess } from "@/lib/community/permissions"
 import { resolveTargetForMember } from "@/lib/community/resolve-ref"
 import { mapMemberForApi } from "@/lib/community/member-payload"
 import { fetchOnlineUserIds, toMemberStatus } from "@/lib/community/member-presence"
+import { requestsCommunityContract } from "@alook/shared"
+import { readCommunityMembers } from "@/lib/community/member-read"
+import { resolveMessageTarget } from "@/lib/community/message-door"
 
 // A bot addresses by ref-in-query (`?ref=`, the folded `channelMember` verb);
 // the path `[id]` is then the `resolve` placeholder (a ref carries `/`). A
@@ -40,6 +43,14 @@ const REF_PLACEHOLDER_ID = "resolve"
  */
 export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
+
+  if (requestsCommunityContract(req.headers)) {
+    const ref = req.nextUrl.searchParams.get("ref")
+    const target = ctx.actor.kind === "bot" && ref ? { ref } : { id: ctx.params?.id ?? "" }
+    const resolved = await resolveMessageTarget(db, ctx.actor.userId, target, ctx.actor.kind)
+    if (!resolved.ok) return writeError(resolved.error, resolved.status)
+    return readCommunityMembers(db, resolved.value.target.channelId, ctx.actor.userId, req.nextUrl.searchParams.get("relation"))
+  }
 
   if (ctx.actor.kind === "bot") {
     return handleBotChannelMember(db, ctx.env, ctx.actor.userId, req)
@@ -170,7 +181,9 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   })
 
   const event = {
-    type: WS_EVENTS.CHANNEL_MEMBER_ADD,
+    type: WS_EVENTS.CHANNEL_MEMBERSHIP_CHANGE,
+    relation: "access",
+    present: true,
     serverId: channel.serverId,
     channelId,
     userId: targetUserId,

@@ -19,6 +19,7 @@ const {
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: () => ({
     env: {
+      COMMUNITY_EVENT_CONTRACT: "2",
       WS_DO_WORKER: { fetch: bindingFetch },
       DEV_WS_DO_URL: "http://dev-ws:8789",
     },
@@ -102,6 +103,14 @@ afterAll(() => {
 })
 
 describe("sendMessageDeliveryBatch", () => {
+  it("retains the original roster refresh identity after a partial retry subset", async () => {
+    bindingFetch.mockResolvedValueOnce(Response.json({ failedUserIds: ["u2"] }, { status: 207 }))
+      .mockResolvedValueOnce(Response.json({ failedUserIds: [] }))
+    await sendMessageDeliveryBatch(batch({ joinedParticipantUserIds: ["u1", "u2"], rosterRefreshUserId: "u1", memberAdded: undefined }))
+    expect(requestBatch(0)).toMatchObject({ joinedParticipantUserIds: ["u1", "u2"], rosterRefreshUserId: "u1" })
+    expect(requestBatch(1)).toMatchObject({ joinedParticipantUserIds: ["u2"], rosterRefreshUserId: "u1" })
+    expect(requestOperationId(1)).toBe(requestOperationId(0))
+  })
   it("sends one valid batch when target and byte limits both fit", async () => {
     await sendMessageDeliveryBatch(batch())
 

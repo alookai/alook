@@ -1,7 +1,8 @@
 "use client"
 
-import { useMutation, type Query, type UseMutationOptions, type MutateOptions } from "@tanstack/react-query"
+import { useMutation, type Query, type UseMutationOptions } from "@tanstack/react-query"
 import { useCallback } from "react"
+import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
 import type { useCommunityMutationOrigin } from "./community-origin"
 
 type Origin = ReturnType<typeof useCommunityMutationOrigin>
@@ -22,13 +23,6 @@ export function useCommunityCommandMutation<Data = unknown, Error = globalThis.E
     origin.assert(original)
     return { ...input, original, resources: origin.registry!.queryClient.getQueryCache().findAll() }
   }, [origin])
-  const qualify = useCallback((callbacks?: MutateOptions<Data, Error, Input, Result>): MutateOptions<Data, Error, CommunityCommandArgs<Input>, Result> | undefined => callbacks && ({
-    onSuccess: (data, args, result, context) => { try { if (assertSuccess) assertSuccess(args); else origin.assert(args.original) } catch { return } callbacks.onSuccess?.(data, communityCommandInput(args), result, context) },
-    onError: (error, args, result, context) => { try { origin.assert(args.original) } catch { return } callbacks.onError?.(error, communityCommandInput(args), result, context) },
-    onSettled: (data, error, args, result, context) => { try { if (error === null && assertSuccess) assertSuccess(args); else origin.assert(args.original) } catch { return } callbacks.onSettled?.(data, error, communityCommandInput(args), result, context) },
-  }), [origin, assertSuccess])
-  const nativeMutate = native.mutate, nativeMutateAsync = native.mutateAsync
-  const mutate = useCallback((input: Input, callbacks?: MutateOptions<Data, Error, Input, Result>) => nativeMutate(capture(input), qualify(callbacks)), [nativeMutate, capture, qualify])
-  const mutateAsync = useCallback((input: Input, callbacks?: MutateOptions<Data, Error, Input, Result>) => nativeMutateAsync(capture(input), qualify(callbacks)), [nativeMutateAsync, capture, qualify])
-  return { ...native, mutate, mutateAsync }
+  const assertCurrent = useCallback((args: CommunityCommandArgs<Input>) => origin.assert(args.original), [origin])
+  return useNativeMutationFacade(native, capture, assertCurrent, { projectInput: communityCommandInput<Input>, assertSuccess })
 }

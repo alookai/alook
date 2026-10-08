@@ -94,6 +94,24 @@ describe("message delivery route", () => {
     vi.resetModules()
   })
 
+  it("delivers every actual joined participant and one bounded roster refresh to each other reader", async () => {
+    const inputs = new Map<string, InternalBundleBody>()
+    doMock.stubFetch.mockImplementation(async (request: Request) => {
+      const target = decodeURIComponent(request.headers.get(INTERNAL_USER_TARGET_HEADER)!)
+      inputs.set(target, await request.clone().json() as InternalBundleBody)
+      return successfulReceipt(request)
+    })
+    const input: MessageDeliveryBatch = { ...batch, memberAdded: undefined,
+      contentUserIds: ["author", "overlap", "joined-reply", "reader"], joinedParticipantUserIds: ["author", "overlap", "joined-reply"], rosterRefreshUserId: "author" }
+    expect((await handler.fetch(await deliveryRequest(input), env as never)).status).toBe(200)
+    for (const id of input.contentUserIds) {
+      const changes = inputs.get(id)!.events.filter((event) => event.type === "community:channel.membership.change")
+      expect(changes).toEqual([{ type: "community:channel.membership.change", channelId: "thread-1", serverId: "server-1",
+        userId: id === "reader" ? "author" : id, relation: "notify", present: true }])
+      expect(inputs.get(id)!.events.length).toBeLessThanOrEqual(MESSAGE_DELIVERY_MAX_EVENTS_PER_USER)
+    }
+  })
+
   it("settles mixed delivered and revoked targets while retaining temporary failures for retry", async () => {
     const inputs = new Map<string, InternalBundleBody[]>()
     let failTransient = true

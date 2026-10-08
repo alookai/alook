@@ -1,6 +1,6 @@
 import { commandObservation } from "@/lib/observability/context"
 import { clearComposerAttachmentSessionsForAccount } from "./composer-attachment-session"
-import type { ApiRequestOptions } from "@/lib/api/client"
+import { apiFetch, type ApiRequestOptions } from "@/lib/api/client"
 import { getCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { assertCommunityLiveSnapshotTokenCurrent, type CommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 import type { QueryClient } from "@tanstack/react-query"
@@ -23,4 +23,37 @@ export function communityRequestOptions(queryClient: QueryClient, token: Communi
     const viewer = registry.sessionViewer()
     return registry.authenticationView.get().active && registry.authenticationView.get().generation === generation && (viewer === undefined || viewer === null || viewer === registry.accountId)
   } }
+}
+
+export async function loadCommunityRequest<T>(
+  load: (options: ApiRequestOptions) => Promise<T>,
+  token: CommunityLiveSnapshotToken,
+  signal?: AbortSignal,
+): Promise<T> {
+  const registry = token.registry
+  if (!registry) throw new DOMException("Missing community profile owner", "AbortError")
+  const assertActive = () => assertCommunityLiveSnapshotTokenCurrent(registry.queryClient, token, signal)
+  await registry.ready
+  assertActive()
+  await registry.collections.profiles.preload()
+  assertActive()
+  try {
+    const data = await load(communityRequestOptions(registry.queryClient, token, signal, assertActive))
+    assertActive()
+    return data
+  } catch (error) {
+    assertActive()
+    throw error
+  }
+}
+
+export function apiFetchCommunity<T>(
+  path: string,
+  options: ApiRequestOptions | undefined,
+  token: CommunityLiveSnapshotToken,
+): Promise<T> {
+  return loadCommunityRequest((origin) => apiFetch<T>(path, {
+    ...options, ...origin, signal: options?.signal,
+    assertActive: () => { origin.assertActive?.(); options?.assertActive?.() },
+  }), token, options?.signal ?? undefined)
 }

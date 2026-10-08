@@ -1,11 +1,8 @@
+import type { CommunityResourceProfile, CommunityMemberRelation, CommunityChannelIdentity } from "@alook/shared"
+
 export type Presence = "online" | "offline"
 
-export type CommunityProfile = {
-  id: string
-  name?: string
-  discriminator?: string
-  avatar?: string
-  avatarVersion?: number
+export type CommunityProfile = Pick<CommunityResourceProfile, "id"> & Partial<CommunityUserCore> & {
   aboutMe?: string
   bannerColor?: string | null
   kind?: "human" | "bot"
@@ -13,101 +10,64 @@ export type CommunityProfile = {
   ownerHandle?: string | null
   mutualServers?: number
   ownedByViewer?: boolean
-  statusEmoji?: string | null
-  statusText?: string | null
+  statusEmoji?: CommunityResourceProfile["statusEmoji"]
+  statusText?: CommunityResourceProfile["statusText"] | null
   presence?: Presence
 }
 
-export type CommunityProfilePatch = {
-  id: string
+export type CommunityProfilePatch = Pick<CommunityProfile, "id"> & {
   identityAbout?: Partial<Pick<
     CommunityProfile,
     "name" | "discriminator" | "aboutMe" | "bannerColor" | "kind" | "ownerUserId"
   >>
-  avatar?: { avatar: string; avatarVersion: number }
+  avatar?: Pick<CommunityUserCore, "avatar" | "avatarVersion">
   status?: Pick<CommunityProfile, "statusEmoji" | "statusText">
   card?: Pick<CommunityProfile, "ownerHandle" | "mutualServers" | "ownedByViewer">
   presence?: Presence
 }
 
-// ── Members / friends / DMs ──────────────────────────────────────────────────
-// Identity fields shared by every community user view-model (member / friend /
-// DM). All three are required `string`: `user.name`/`user.discriminator` are
-// NOT NULL columns always projected on live payloads. Requiring `discriminator`
-// here (in one place) moves the "a mention target always has a tag" guarantee
-// to compile time. `userId` is
-// NOT part of the core: it's required on Member/DM but optional on Friend, so
-// each type declares it. Only types whose identity fields are identically
-// shaped extend this — AddableMember/ThreadParticipant (nullable projections),
-// Profile/UserProfile (renamed/merged shapes) intentionally stay standalone.
 export type CommunityUserCore = {
-  name: string
-  discriminator: string
-  avatar: string
-  avatarVersion: number
+  [Field in "name" | "discriminator" | "avatar" | "avatarVersion"]: NonNullable<CommunityResourceProfile[Field]>
 }
 
-export type Member = CommunityUserCore & {
+export type Member = CommunityUserCore & Pick<CommunityProfile, "statusEmoji" | "statusText"> & Pick<CommunityMemberRelation, "userId"> & Partial<Pick<CommunityMemberRelation, "isCreator">> & {
   id: string
-  userId: string
   status: Presence
   sub: string
   role: import("@alook/shared").CommunityRole
-  // Custom status (emoji + short term) — see `Profile.statusEmoji`/`statusText`.
-  statusEmoji?: string | null
-  statusText?: string | null
-  // Populated only when the drawer shows a private channel/post roster or a
-  // thread participant set — drives the row's Leave/Remove right-click menu.
-  //   - isCreator: this user owns the unit (row locked — never removable/leaveable).
-  //   - source: for a channel/post, only "explicit" rows are removable (an
-  //     admin-by-role or inherited public member isn't an explicit roster row).
-  //     Thread participants are always "explicit"-equivalent (a real row).
-  isCreator?: boolean
   source?: "explicit" | "inherited" | "admin" | import("@alook/shared").ParticipantSource
 }
 
-export type Friend = CommunityUserCore & {
+export type Friend = CommunityUserCore & Pick<CommunityProfile, "statusEmoji" | "statusText"> & Partial<Pick<CommunityMemberRelation, "userId">> & {
   id: string
-  // Optional here (unlike Member/DM) — some friend rows predate a resolved
-  // userId; that's the one field that keeps Friend from a plain intersection.
-  userId?: string
   status: Presence
   sub: string
-  // Custom status (emoji + short term) — see `Profile.statusEmoji`/`statusText`.
-  statusEmoji?: string | null
-  statusText?: string | null
 }
 
-export type PendingRequest = {
+export type PendingRequest = Pick<CommunityUserCore, "name" | "avatar" | "avatarVersion"> & {
   id: string
-  userId: string
-  name: string
-  avatar: string
-  avatarVersion: number
+  userId: CommunityProfile["id"]
   kind: "incoming" | "outgoing"
   // The gating owner id while a bot-touched row is pending; null once
   // unlocked. Drives whether Approve/Reject buttons render.
   needsOwnerApproval?: string | null
 }
 
-export type BlockedUser = {
+export type BlockedUser = Pick<CommunityUserCore, "name" | "avatar" | "avatarVersion"> & {
   id: string
-  userId?: string
-  name: string
-  avatar: string
-  avatarVersion: number
+  userId?: CommunityProfile["id"]
 }
 
 // DM summary shown in the DM sidebar. Actual conversation history is loaded
 // into `ctx.messages` once the user opens the DM — DM summaries don't carry
 // inline messages.
 export type DM = CommunityUserCore & {
-  id: string // DM conversation nanoid — NOT the peer's user id (that's `userId`)
-  userId: string
+  id: CommunityChannelIdentity["id"] // DM conversation nanoid — NOT the peer's user id (that's `userId`)
+  userId: CommunityProfile["id"]
   status: Presence
   preview: string
   /** Server-authoritative `lastMessageAt ?? createdAt`, used only for list order. */
-  activityAt?: string
+  activityAt?: NonNullable<CommunityChannelIdentity["lastMessageAt"]>
   unread?: boolean
   lastUnreadSeq?: number
 }

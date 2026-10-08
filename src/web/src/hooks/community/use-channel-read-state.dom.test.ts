@@ -1,11 +1,12 @@
 import { createElement, type PropsWithChildren } from "react"
-import { QueryClient, QueryClientProvider, onlineManager } from "@tanstack/react-query"
+import { QueryClient, QueryClientProvider, onlineManager, IsRestoringProvider } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, renderHook, waitFor } from "@/test/react-dom-harness"
+import { act, render, renderHook, waitFor } from "@/test/react-dom-harness"
 import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { CONVERSATION_READ_TIMEOUT_MS, ConversationReadTimeoutError } from "@/lib/community/conversation-read"
 import { communityKeys } from "@/lib/query-keys"
+import { ingestReadStateSnapshot } from "@/lib/community-db/sync"
 import { useChannelReadStateSnapshot, type ChannelReadStateSnapshot } from "./use-channel-read-state"
 
 const api = vi.fn()
@@ -27,8 +28,8 @@ afterEach(async () => {
   })
 })
 function Owner({ children }: PropsWithChildren) { return createElement(QueryClientProvider, { client }, createElement(CommunityDbProvider, { registry }, children)) }
-function mount(id = "ch_1", canonical?: ChannelReadStateSnapshot) {
-  return renderHook(({ id, canonical }) => useChannelReadStateSnapshot(id, canonical), { wrapper: Owner, initialProps: { id, canonical } })
+function mount(id = "ch_1") {
+  return renderHook(({ id }) => useChannelReadStateSnapshot(id), { wrapper: Owner, initialProps: { id } })
 }
 function held() {
   let resolve!: (value: ChannelReadStateSnapshot) => void
@@ -43,6 +44,24 @@ describe("native channel read-state snapshot", () => {
     expect(rendered.result.current).toMatchObject({ snapshot: null, isFetching: true })
     await act(async () => { pending.resolve(original) })
   })
+  it.each(["channel", "dm"] as const)("keeps %s restoration unresolved until the current read settles", async (kind) => {
+    const key = kind === "dm" ? communityKeys.dmReadStateSnapshot("restored") : communityKeys.channelReadStateSnapshot("restored")
+    client.setQueryData(key, original)
+    const pending = held()
+    const observed: ReturnType<typeof useChannelReadStateSnapshot>[] = []
+    function Capture() { observed.push(useChannelReadStateSnapshot("restored", kind)); return null }
+    const view = (restoring: boolean) => createElement(Owner, null,
+      createElement(IsRestoringProvider, { value: restoring }, createElement(Capture)))
+    const rendered = render(view(true))
+    expect(observed.at(-1)).toMatchObject({ snapshot: null, isFetching: true })
+    expect(api).not.toHaveBeenCalled()
+    rendered.rerender(view(false))
+    await waitFor(() => expect(api).toHaveBeenCalledOnce())
+    expect(observed.at(-1)).toMatchObject({ snapshot: null, isFetching: true })
+    await act(async () => { pending.resolve(fresh) })
+    await waitFor(() => expect(observed.at(-1)).toMatchObject({ snapshot: fresh, isFetching: false }))
+  })
+
   it("returns the resolved value on first success", async () => {
     api.mockResolvedValueOnce(original)
     const rendered = mount()
@@ -56,12 +75,28 @@ describe("native channel read-state snapshot", () => {
     await act(async () => { pending.resolve(fresh) })
     await waitFor(() => expect(rendered.result.current.snapshot).toEqual(fresh))
   })
-  it("freezes canonical data immediately while the mount request revalidates", async () => {
-    const pending = held(), rendered = mount("ch_1", original)
-    expect(rendered.result.current).toMatchObject({ snapshot: original, isFetching: false })
+  it("withholds a stale canonical pointer until the current mount read succeeds", async () => {
+    ingestReadStateSnapshot(registry, { revision: 1, readStates: [{ channelId: "ch_1", ...empty }] })
+    const pending = held(), rendered = mount("ch_1")
+    await waitFor(() => expect(api).toHaveBeenCalledOnce())
+    expect(rendered.result.current).toMatchObject({ snapshot: null, isFetching: true })
     await act(async () => { pending.resolve(fresh) })
-    rendered.rerender({ id: "ch_1", canonical: undefined })
-    expect(rendered.result.current.snapshot).toEqual(original)
+    await waitFor(() => expect(rendered.result.current.snapshot).toEqual(fresh))
+    await act(async () => { ingestReadStateSnapshot(registry, { revision: 2, readStates: [{ channelId: "ch_1", ...original }] }) })
+    rendered.rerender({ id: "ch_1" })
+    expect(rendered.result.current.snapshot).toEqual(fresh)
+  })
+  it("does not latch retained query data when the new mount read fails", async () => {
+    client.setQueryData(communityKeys.channelReadStateSnapshot("ch_1"), original)
+    api.mockRejectedValue(new Error("fresh mount unavailable"))
+    const rendered = mount()
+    await waitFor(() => expect(api).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(rendered.result.current.isFetching).toBe(false))
+    expect(rendered.result.current.error).toBeInstanceOf(Error)
+    expect(rendered.result.current.snapshot).toBeNull()
+    api.mockResolvedValueOnce(fresh)
+    act(() => rendered.result.current.retry())
+    await waitFor(() => expect(rendered.result.current.snapshot).toEqual(fresh))
   })
   it("keeps the first settled snapshot through a later refetch", async () => {
     api.mockResolvedValueOnce(original)
@@ -77,7 +112,7 @@ describe("native channel read-state snapshot", () => {
     const rendered = mount()
     await waitFor(() => expect(rendered.result.current.snapshot).toEqual(original))
     const pending = held()
-    rendered.rerender({ id: "ch_2", canonical: undefined })
+    rendered.rerender({ id: "ch_2" })
     expect(rendered.result.current.snapshot).toBeNull()
     await act(async () => { pending.resolve(fresh) })
     await waitFor(() => expect(rendered.result.current.snapshot).toEqual(fresh))

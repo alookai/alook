@@ -223,7 +223,7 @@ test.describe.serial("invite and participant picker async states", () => {
     let failParticipants = true
     let participantGets = 0
     let parentGets = 0
-    await page.route(`**/api/community/channels/${failureThreadId}/members`, async (route) => {
+    await page.route((url) => url.pathname === `/api/community/channels/${failureThreadId}/members` && url.searchParams.get("relation") === "notify", async (route) => {
       if (route.request().method() !== "GET") return route.continue()
       participantGets += 1
       if (failParticipants) {
@@ -232,7 +232,7 @@ test.describe.serial("invite and participant picker async states", () => {
       }
       await route.continue()
     })
-    await page.route(`**/api/community/channels/${parentChannelId}/members`, async (route) => {
+    await page.route((url) => url.pathname === `/api/community/channels/${parentChannelId}/members` && url.searchParams.get("relation") === "access", async (route) => {
       if (route.request().method() === "GET") parentGets += 1
       await route.continue()
     })
@@ -267,7 +267,7 @@ test.describe.serial("invite and participant picker async states", () => {
     await page.setViewportSize({ width: 1280, height: 844 })
     const parentGate = deferred()
     let parentGets = 0
-    await page.route(`**/api/community/channels/${parentChannelId}/members`, async (route) => {
+    await page.route((url) => url.pathname === `/api/community/channels/${parentChannelId}/members` && url.searchParams.get("relation") === "access", async (route) => {
       if (route.request().method() !== "GET") return route.continue()
       parentGets += 1
       await parentGate.promise
@@ -293,11 +293,11 @@ test.describe.serial("invite and participant picker async states", () => {
     let failParent = true
     let participantGets = 0
     let parentGets = 0
-    await page.route(`**/api/community/channels/${parentFailureThreadId}/members`, async (route) => {
+    await page.route((url) => url.pathname === `/api/community/channels/${parentFailureThreadId}/members` && url.searchParams.get("relation") === "notify", async (route) => {
       if (route.request().method() === "GET") participantGets += 1
       await route.continue()
     })
-    await page.route(`**/api/community/channels/${parentChannelId}/members`, async (route) => {
+    await page.route((url) => url.pathname === `/api/community/channels/${parentChannelId}/members` && url.searchParams.get("relation") === "access", async (route) => {
       if (route.request().method() !== "GET") return route.continue()
       parentGets += 1
       if (failParent) {

@@ -16,12 +16,12 @@ const mocks = vi.hoisted(() => ({
   })),
 }))
 
-vi.mock("@/hooks/community/mutations", () => ({
+vi.mock("@/hooks/community/mutations/messages", () => ({
   sendNonce: () => "nonce_1",
   tempMessageId: () => "temp_1",
   toAttachmentVm: mocks.toVm,
-  zipUploadResultsWithDimensions: mocks.zip,
 }))
+vi.mock("@/hooks/community/mutations/uploads", () => ({ zipUploadResultsWithDimensions: mocks.zip }))
 vi.mock("@/hooks/community/use-community-ws", () => ({
   communityWsEndTyping: mocks.endTyping,
 }))
@@ -359,7 +359,7 @@ describe("message channel send helpers", () => {
     ])
   })
 
-  it("no-ops without a retry payload and retains stream state when send rejects", async () => {
+  it("no-ops without a retry payload and leaves native send rejection transitions to the mutation", async () => {
     const uploadFileAsync = vi.fn()
     const sendMessageAsync = vi.fn()
     mocks.getRetryPayload.mockReturnValueOnce(undefined)
@@ -388,7 +388,7 @@ describe("message channel send helpers", () => {
       content: "keep optimistic",
       nonce: "nonce_failed",
     }))
-    expect(mocks.dispatch).toHaveBeenCalledWith(scope, { type: "postFail", nonce: "nonce_failed" })
+    expect(mocks.dispatch).not.toHaveBeenCalled()
     expect(mocks.toastApiError).not.toHaveBeenCalled()
   })
 

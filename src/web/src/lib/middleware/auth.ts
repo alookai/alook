@@ -4,7 +4,7 @@ import { queries } from "@alook/shared"
 import { getDb, getPrimaryDb } from "@/lib/db"
 import { getAuth } from "@/lib/auth"
 import { getKV, cacheKeys, bindCacheKV } from "@/lib/cache"
-import { varyPrivateResponseByCredentials } from "./response-cache"
+import { protectCommunityJsonResponse, rejectUnknownCommunityContract, varyPrivateResponseByCredentials } from "./response-cache"
 
 export interface AuthContext {
   env: Env
@@ -317,6 +317,11 @@ export function withCookieHumanAuth(handler: CookieHumanAuthHandler) {
 }
 
 export function withAuth(handler: AuthenticatedHandler) {
+  const authenticate = createAuthenticatedHandler(handler)
+  return async (...args: Parameters<typeof authenticate>) => protectCommunityJsonResponse(args[0], rejectUnknownCommunityContract(args[0]) ?? await authenticate(...args))
+}
+
+function createAuthenticatedHandler(handler: AuthenticatedHandler) {
   return async (
     req: NextRequest,
     context?: { params?: Promise<Record<string, string>> | Record<string, string> }

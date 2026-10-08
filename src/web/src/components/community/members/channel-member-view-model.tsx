@@ -4,7 +4,8 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import { useCallback, useEffect, useMemo, type ComponentProps, type ReactNode } from "react"
 import { toast } from "sonner"
-import { isForum, type CommunityRole as Role } from "@alook/shared"
+import { isForum, type CommunityRole as Role, type CommunityChannelIdentity } from "@alook/shared"
+import type { Category, Channel } from "@/lib/community/models/navigation"
 import { AddMembersDialog } from "@/components/community/members/add-members-dialog"
 import type { CommunityPanel } from "@/components/community/shell/community-panel"
 import type { Member } from "@/lib/community/models/people"
@@ -50,21 +51,12 @@ export type ChannelMemberPanelProps = Pick<
 >
 
 type ServerModel = {
-  categories?: Array<{
-    private?: number | boolean
-    channels: Array<{ id: string; type?: string }>
-  }>
+  categories?: Array<Pick<Category, "private"> & { channels: Array<Pick<Channel, "id"> & { type?: string }> }>
 } | null | undefined
 
-type ChannelModel = {
-  creatorId?: string | null
-} | null
+type ChannelModel = Partial<Pick<CommunityChannelIdentity, "creatorId">> | null
 
-type ChannelMeta = {
-  name: string
-  parentChannelId: string | null
-  creatorId?: string | null
-} | null
+type ChannelMeta = Pick<CommunityChannelIdentity, "parentChannelId"> & Partial<Pick<CommunityChannelIdentity, "creatorId">> & { name: NonNullable<CommunityChannelIdentity["name"]> } | null
 
 export function useChannelMemberViewModel({
   serverId,
@@ -261,6 +253,7 @@ export function useChannelMemberViewModel({
     }
     const roster = isNotifyUnit ? parentChannelMembersHook.members : channelMembersHook.members
     return roster
+      .filter((member): member is typeof member & { role: Role } => member.role !== null)
       .filter((member) => member.userId !== currentUser.id)
       .map((member) => {
         const profile = readCommunityProfile(

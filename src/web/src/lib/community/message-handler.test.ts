@@ -563,7 +563,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     expect(mockCreateChannelMember).not.toHaveBeenCalled()
     expect(mockCreateMentions).not.toHaveBeenCalled()
     expect(mockDispatchCommittedMessage).toHaveBeenCalledWith({}, "msg_1", {
-      memberAddedUserId: "author_1",
+      joinedParticipantUserIds: ["author_1"],
     })
   })
 
@@ -697,7 +697,7 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
       { userId: "cara_1", source: "mention" },
     ])
     expect(mockDispatchCommittedMessage).toHaveBeenCalledWith({}, "msg_1", {
-      memberAddedUserId: "author_1",
+      joinedParticipantUserIds: ["author_1", "cara_1"],
       suppressParentProjection: true,
     })
   })

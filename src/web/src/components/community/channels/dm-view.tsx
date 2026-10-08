@@ -16,7 +16,7 @@ import {
   ConversationFooterShell,
   ConversationFooterSlotProvider,
 } from "@/components/community/messages/conversation-footer-shell"
-import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
+import type { FileAttachment, ImagePreview, ReplyTarget } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import {
   useUiHandlers,
@@ -58,7 +58,6 @@ import { toastApiError } from "@/lib/api/client"
 import { displayReplyContent } from "@/lib/community/reply-content"
 import {
   useCanonicalProfilesByUserId,
-  useReadStateProjection,
 } from "@/lib/community-db/projections"
 import { useNativeSystemNotificationConversationDismissal } from "@/hooks/community/use-native-system-notifications"
 import { commitCommunityChannelRoute } from "@/lib/community/last-community-route"
@@ -66,7 +65,6 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useConversationNavigationGate } from "@/lib/community/conversation-navigation-proof"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { useChannelMetadata } from "@/hooks/community/use-channel-metadata"
-import { isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
 import { ConversationResolutionErrorFrame } from "./conversation-resolution-error-frame"
 import { isConversationAccessError } from "@/lib/community/conversation-read"
 import { useDmSeqContext } from "./use-dm-seq-context"
@@ -108,8 +106,7 @@ export function DmView({ dmId }: { dmId: string }) {
   const { friends: rawFriends, blocked } = useFriends()
   const dm = useMemo(() => dms.find((candidate) => candidate.id === dmId) ?? null, [dms, dmId])
   const dmBlocked = !!dm && blocked.some((b) => (b.userId ?? b.id) === dm.userId)
-  const historyAllowed = !dmBlocked && metadata.isVerified && !!metadata.data?.historyVerification
-    && isChannelMetadataTokenCurrent(metadata.data.historyVerification)
+  const historyAllowed = !dmBlocked && metadata.canRead
   const profilesByUserId = useCanonicalProfilesByUserId()
   // Enrich with presence — the Composer @-picker uses `f.status` to render
   // the avatar presence dot; without this enrichment every avatar shows offline.
@@ -137,9 +134,8 @@ export function DmView({ dmId }: { dmId: string }) {
   // Frozen-once snapshot of the viewer's DM read pointer — the anchor for
   // the "New" divider AND the initial-page mode. Mirrors the channel-view
   // wiring so both surfaces open with the same anchor-window UX.
-  const canonicalReadSnapshot = useReadStateProjection(dmId)
   const { snapshot: readSnapshot, isFetching: readSnapshotFetching, error: readError, retry: retryRead, retrying: retryingRead } =
-    useDmReadStateSnapshot(dmId, canonicalReadSnapshot)
+    useDmReadStateSnapshot(metadata.denied || dmBlocked ? null : dmId)
 
   // Anchor the initial page on the viewer's read pointer. Pass `undefined`
   // (not `null`) while the snapshot resolves — the hook's initialPageParam
@@ -309,7 +305,7 @@ export function DmView({ dmId }: { dmId: string }) {
     }
   }, [communityRuntime, dmId])
 
-  const [replyTo, setReplyTo] = useAtom(useCreateAtom<{ id: string; authorName: string; text: string } | null>(null))
+  const [replyTo, setReplyTo] = useAtom(useCreateAtom<ReplyTarget | null>(null))
 
   useEffect(() => {
     setReplyTo(null)
@@ -433,10 +429,10 @@ export function DmView({ dmId }: { dmId: string }) {
     channelId: dmId,
   }, routeReady)
 
-  if (navigationGate.failed) {
+  if (!metadata.denied && !dmBlocked && navigationGate.failed) {
     return <ConversationResolutionErrorFrame retrying={false} onRetry={navigationGate.retry} />
   }
-  if (navigationBlocked) {
+  if (!metadata.denied && !dmBlocked && navigationBlocked) {
     return <DmLoadingFrame reserveBackSlot={bp === "mobile"} />
   }
 
@@ -465,7 +461,7 @@ export function DmView({ dmId }: { dmId: string }) {
         className="flex min-h-0 flex-1 flex-col"
       >
         <ConversationFooterSlotProvider>
-          {!historyAllowed && readError ? <ConversationResolutionErrorFrame as="div" onRetry={retryRead} retrying={retryingRead} /> : <MessageList
+          {dmBlocked ? null : metadata.denied ? <div role="alert" className="flex min-h-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground">You can no longer read this conversation.</div> : !historyAllowed && readError ? <ConversationResolutionErrorFrame as="div" onRetry={retryRead} retrying={retryingRead} /> : <MessageList
             key={dmId}
             variant="dm"
             channel={dm.name}
@@ -522,7 +518,7 @@ export function DmView({ dmId }: { dmId: string }) {
               >
                 You have blocked this user. Unblock to send messages.
               </div>
-            ) : !historyAllowed ? <ComposerSkeleton /> : (
+            ) : metadata.denied ? null : !historyAllowed ? <ComposerSkeleton /> : (
               <Composer
                 sendContract="accepted"
                 channel={dm.name}

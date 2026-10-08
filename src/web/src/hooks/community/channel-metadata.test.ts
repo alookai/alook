@@ -43,7 +43,7 @@ describe("canonical channel metadata lifecycle", () => {
       expect(client.getQueryData(options.queryKey)).toBeUndefined()
       fetchMock.mockResolvedValueOnce(payload)
       await expect(client.query(options)).resolves.toMatchObject({ id: "child" })
-      expect(runtime.ws.get().channelAccessScopes.has("child")).toBe(type !== "dm")
+      expect(runtime.ws.get().channelAccessScopes.has("child")).toBe(true)
       expect(fetchMock).toHaveBeenCalledTimes(2)
     } finally { vi.useRealTimers() }
   })
@@ -69,7 +69,7 @@ describe("canonical channel metadata lifecycle", () => {
     fetchMock.mockResolvedValue({ ...metadata, serverId, type, name: type === "dm" ? null : metadata.name })
     const { client, runtime } = await createCommunityQueryOwner()
     await expect(fetchChannelMetadata(client, serverId, "child")).resolves.toMatchObject({ id: "child", serverId, type, name: type === "dm" ? "" : metadata.name })
-    expect(runtime.ws.get().channelAccessScopes.has("child")).toBe(type !== "dm")
+    expect(runtime.ws.get().channelAccessScopes.has("child")).toBe(true)
   })
   it.each(["account", "parent", "server", "membership"] as const)(
     "rejects an old successful HTTP response after %s changes",
@@ -111,7 +111,7 @@ describe("canonical channel metadata lifecycle", () => {
     state.markAccessDisconnected()
     state.markAccessConnected()
     release(metadata)
-    await expect(result).resolves.toMatchObject({ id: "child", verifiedEpoch: epoch })
+    await expect(result).resolves.toMatchObject({ id: "child", identityProof: expect.objectContaining({ accessEpoch: epoch }) })
   })
 
   it("restores readable child and parent only from a current authoritative response", async () => {
@@ -134,7 +134,7 @@ describe("canonical channel metadata lifecycle", () => {
       const { client, runtime } = await createCommunityQueryOwner()
       runtime.ws.actions.revokeChannelAccess("server", "child")
       fetchMock.mockResolvedValue({ ...metadata, ...overrides })
-      await expect(client.query({ queryKey: communityKeys.channelMeta("server", "child"), queryFn: ({ signal }) => fetchChannelMetadata(client, "server", "child", signal) })).rejects.toThrow("scope mismatch")
+      await expect(client.query({ queryKey: communityKeys.channelMeta("server", "child"), queryFn: ({ signal }) => fetchChannelMetadata(client, "server", "child", signal) })).rejects.toThrow(overrides.type ? "Invalid option" : "scope mismatch")
       expect(runtime.ws.actions.isChannelAccessRevoked("child")).toBe(true)
     },
   )

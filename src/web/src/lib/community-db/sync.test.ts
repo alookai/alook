@@ -1,3 +1,4 @@
+import { projectPostedMessage } from "@/lib/community/message-wire"
 import { QueryClient } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { CommunityWsEvent } from "@alook/shared"
@@ -39,6 +40,7 @@ import {
   projectCommunityWsEventToDb,
   purgeCommunityChannel,
   purgeCommunityServer,
+  retireCommunityChannelReading,
   removeAttentionItemsOptimistically,
   restoreAttentionScopeOptimisticSnapshot,
   type CommunityLiveSnapshot,
@@ -99,6 +101,38 @@ describe("community DB sync", () => {
     expect(db.collections.servers.get("s1")).toMatchObject({ name, description: "confirmed" })
     publishCommunityLiveSnapshotWithProof(db.queryClient, { snapshot: { kind: "servers", data: { servers: [original] } }, proof: { kind: "structural", token, signal: undefined } })
     expect(db.collections.servers.get("s1")).toMatchObject({ name, description: "confirmed" })
+  })
+
+  it("keeps confirmed reply identity on incomplete same-message input and accepts explicit deletion", async () => {
+    const db = await registry()
+    const replyTo = { id: "reply", authorId: "peer", authorName: "Peer", text: "confirmed" }
+    const row = { id: "posted", channelId: "c1", type: "chat" as const, authorId: "viewer", clientNonce: "nonce", seq: 1, replyTo, replyToId: replyTo.id }
+    ingestMessages(db, "c1", [row])
+    ingestMessages(db, "c1", [{ ...row, replyTo: undefined }])
+    expect(db.collections.messages.get(row.id)?.replyTo).toBeUndefined()
+    ingestMessages(db, "c1", [row])
+    const { replyTo: _reply, ...incomplete } = row
+    ingestMessages(db, "c1", [incomplete])
+    expect(db.collections.messages.get(row.id)?.replyTo).toEqual(replyTo)
+    const posted = projectPostedMessage({ id: row.id, seq: row.seq, authorId: row.authorId, authorName: "Viewer",
+      authorImage: null, authorAvatarVersion: 0, createdAt: "2026-10-08T00:00:00Z", content: "posted", type: "default", embeds: null }, row.clientNonce, "c1")
+    ingestMessages(db, "c1", [posted])
+    expect(db.collections.messages.get(row.id)?.replyTo).toEqual(replyTo)
+    ingestMessages(db, "c1", [{ ...row, replyTo: { id: replyTo.id, authorName: "Deleted user", text: "", deleted: true } }])
+    expect(db.collections.messages.get(row.id)?.replyTo).toMatchObject({ deleted: true, text: "" })
+    ingestMessages(db, "c1", [{ ...incomplete, replyToId: null }])
+    expect(db.collections.messages.get(row.id)?.replyTo).toBeUndefined()
+    expect(db.collections.messages.get(row.id)?.replyToId).toBeNull()
+  })
+
+  it.each(["author", "nonce", "channel"])("does not retain a confirmed quote for a different %s owner", async (field) => {
+    const db = await registry()
+    const identity = { id: "owned-reply", channelId: "c1", type: "chat" as const, authorId: "viewer", clientNonce: "nonce", seq: 1 }
+    ingestMessages(db, "c1", [{ ...identity, replyTo: { id: "target", authorName: "Peer", text: "private" }, replyToId: "target" }])
+    ingestMessages(db, field === "channel" ? "c2" : "c1", [{ ...identity,
+      ...(field === "author" ? { authorId: "other" } : field === "nonce" ? { clientNonce: "other" } : {}) }])
+    expect(db.collections.messages.get(identity.id)?.replyTo).toBeUndefined()
+    expect(db.collections.messages.get(identity.id)?.replyToId).toBeNull()
   })
 
   it("cannot resurrect a deleted channel through a confirmed field patch or the older snapshot", async () => {
@@ -166,6 +200,32 @@ describe("community DB sync", () => {
       name: "General",
       type: "text",
     })
+  })
+
+  it.each(["directory", "attention"] as const)("preserves rich server rows and existing viewer roles when seeding $0 summaries", async (source) => {
+    const db = await registry()
+    ingestServers(db, { servers: [{ id: "s1", name: "Server", discriminator: "0001",
+      initial: "S", active: false, unread: true, mentions: 3, ownerId: "viewer",
+      isOwner: true, role: "admin", memberId: "member-1" }] })
+    ingestServerDetail(db, { id: "s1", name: "Server", discriminator: "0001",
+      description: "rich description", icon: "server.png", ownerId: "viewer", official: true, categories: [] })
+    const original = db.collections.servers.get("s1")!
+    const membership = [...db.collections.serverMemberships.values()].find((row) => row.serverId === "s1")!
+    const summaries = [{ id: "s1", name: "Updated", discriminator: "0002" },
+      { id: "s2", name: "New", discriminator: "0003" }]
+    if (source === "directory") publishCommunityChannelDirectory(db.queryClient, {
+      directory: summaries.map((server) => ({ ...server, channels: [] })),
+      proof: { token: captureCommunityLiveSnapshotToken(db.queryClient), signal: undefined },
+    })
+    else ingestAttentionSnapshot(db, { scopes: [], items: [], limit: 100, truncated: false,
+      included: { servers: summaries } })
+    expect(db.collections.servers.get("s1")).toStrictEqual({ ...original, name: "Updated", discriminator: "0002" })
+    expect(db.collections.serverMemberships.get(membership.id)).toStrictEqual(membership)
+    expect(db.collections.servers.get("s2")).toMatchObject({ id: "s2", position: 1,
+      name: "New", discriminator: "0003", description: "", ownerId: "", icon: null,
+      official: false, isOwner: false, unread: false, mentions: 0, detailComplete: false })
+    expect([...db.collections.serverMemberships.values()].find((row) => row.serverId === "s2"))
+      .toMatchObject({ serverId: "s2", userId: "viewer", role: "member", viewer: true })
   })
 
   it("keeps anonymous canonical ingestion free of viewer access rows", async () => {
@@ -550,10 +610,10 @@ describe("community DB sync", () => {
       serverId: "s1",
       channelId: "c1",
     } as CommunityWsEvent)
-    expect(publishCommunityLiveSnapshotWithProof(db.queryClient, {
+    expect(() => publishCommunityLiveSnapshotWithProof(db.queryClient, {
       snapshot: { kind: "server-detail", data: detail },
       proof: { kind: "structural", token, signal: undefined },
-    })).toBe("published")
+    })).toThrow(expect.objectContaining({ name: "AbortError" }))
 
     expect(db.collections.channels.get("c1")).toBeUndefined()
   })
@@ -982,10 +1042,7 @@ describe("community DB sync", () => {
     expect(db.collections.readStates.get("live-c2")).toBeUndefined()
     expect(db.collections.notificationSettings.get("channel:live-c2")).toBeUndefined()
 
-    projectCommunityWsEventToDb(db.queryClient, {
-      type: "community:server.delete",
-      serverId: "live-s1",
-    } as CommunityWsEvent)
+    purgeCommunityServer(db, "live-s1")
     expect(db.collections.servers.get("live-s1")).toBeUndefined()
     expect(db.runtime.ws.get().revokedServerIds.has("live-s1")).toBe(true)
     db.runtime.ws.actions.grantServerAccess("live-s1")
@@ -1779,7 +1836,7 @@ describe("community DB sync", () => {
       authorId: "u2",
       authorName: "Alice",
       content: "rich",
-      attachments: [{ id: "a1", name: "proof.png" }],
+      attachments: [{ kind: "image", name: "proof.png", url: "/proof.png" }],
       replyTo: { id: "m0", authorId: "u3", authorName: "Bob", content: "earlier" },
     }])
 
@@ -1815,7 +1872,7 @@ describe("community DB sync", () => {
     })
     expect(db.collections.messages.get("m1")).toMatchObject({
       content: "new preview",
-      attachments: [{ id: "a1", name: "proof.png" }],
+      attachments: [{ kind: "image", name: "proof.png", url: "/proof.png" }],
       replyTo: { id: "m0", authorId: "u3" },
     })
   })
@@ -2061,11 +2118,32 @@ describe("community DB sync", () => {
         preview: "",
       }],
     })
+    ingestAttentionSnapshot(db, { scopes: [], items: [
+      { id: "scope-item", kind: "mention", sourceId: "source-1", scopeId: "c1", createdAt: "now" },
+      { id: "child-item", kind: "forum_post", sourceId: "source-2", childChannelId: "c1", createdAt: "now" },
+      { id: "target-item", kind: "reply", sourceId: "source-3", readTarget: { channelId: "c1", seq: 1 }, createdAt: "now" },
+      { id: "dm-item", kind: "mention", sourceId: "source-4", scopeId: "dm1", createdAt: "now" },
+    ], limit: 100, truncated: false })
     purgeCommunityServer(db, "s1")
     expect(db.collections.servers.get("s1")).toBeUndefined()
     expect(db.collections.categories.get("cat1")).toBeUndefined()
     expect(db.collections.channels.get("c1")).toBeUndefined()
     expect(db.collections.channels.get("dm1")).toBeDefined()
+    expect([...db.collections.attentionItems.keys()]).toEqual(["dm-item"])
+  })
+
+  it("keeps channel retirement fail-closed when native disk retirement rejects", async () => {
+    const db = await registry(), error = new Error("IDB unavailable")
+    ingestMessages(db, "dm-A", [{ id: "retire-message", type: "chat", content: "old" }])
+    ingestMessages(db, "dm-B", [{ id: "sibling-message", type: "chat", content: "keep" }])
+    db.bindAuthentication(() => "viewer", () => Promise.resolve(), () => Promise.reject(error))
+    const report = vi.spyOn(console, "error").mockImplementation(() => {})
+    retireCommunityChannelReading(db, "dm-A", { reason: "read-denied", serverId: null })
+    await vi.waitFor(() => expect(report).toHaveBeenCalledWith("Channel cache retirement failed", error))
+    expect(db.collections.messages.has("retire-message")).toBe(false)
+    expect(db.collections.messages.get("sibling-message")?.content).toBe("keep")
+    expect(db.runtime.ws.actions.isChannelAccessRevoked("dm-A", null)).toBe(true)
+    report.mockRestore()
   })
 
   it("purges a scoped raw single-message query before it materializes canonically", async () => {
@@ -2368,7 +2446,7 @@ describe("community DB sync", () => {
       channelId: "c1",
       serverId: "s1",
       message: {
-        id: "m1",
+        id: "m1", seq: 1,
         type: "chat",
         authorId: "peer",
         authorName: "Peer",
@@ -2554,13 +2632,13 @@ describe("community DB sync", () => {
     expect(db.collections.channels.get("thread1")).toMatchObject({ archived: true })
     event({ type: "community:channel.delete", serverId: "s1", channelId: "c2" })
     expect(db.collections.channels.get("c2")).toBeUndefined()
-    event({ type: "community:server.delete", serverId: "s1" })
+    purgeCommunityServer(db, "s1")
     expect(db.collections.servers.get("s1")).toBeUndefined()
     ingestServers(db, { servers: [{
       id: "leave", name: "Leave", initial: "L", active: false, unread: false,
       mentions: 0, ownerId: "viewer",
     }] })
-    event({ type: "community:member.leave", serverId: "leave", userId: "viewer" })
+    purgeCommunityServer(db, "leave")
     expect(db.collections.servers.get("leave")).toBeUndefined()
     event({ type: "community:unknown" })
   })

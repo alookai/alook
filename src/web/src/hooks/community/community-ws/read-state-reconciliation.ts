@@ -1,3 +1,4 @@
+import type { queries, CommunityInboxChanged } from "@alook/shared"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { notifyManager, type Query, type QueryClient, type QueryKey } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
@@ -10,22 +11,9 @@ import { acceptAccountUnreadPrimarySnapshot } from "@/hooks/community/account-un
 import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken, publishCommunityLiveSnapshot, type CommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 import { isConversationAccessError } from "@/lib/community/conversation-read"
 
-type AccountReadState = {
-  channelId: string
-  lastReadMessageId: string | null
-  lastReadAt: string
-  lastReadSeq: number
-}
+export type AccountReadStateSnapshot = Awaited<ReturnType<typeof queries.communityReadState.getAccountReadStateSnapshot>>
 
-export type AccountReadStateSnapshot = {
-  revision: number
-  readStates: AccountReadState[]
-}
-
-export type ReadStateEnvelope = {
-  revision: number
-  inboxChanged: true
-}
+export type ReadStateEnvelope = Pick<CommunityInboxChanged, "revision" | "inboxChanged">
 
 type ServerSurfaceTarget = {
   queryKey: QueryKey

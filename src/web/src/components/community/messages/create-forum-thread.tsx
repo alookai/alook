@@ -27,7 +27,6 @@ import type { Member } from "@/lib/community/models/people"
 import {
   useUploadFile,
   zipUploadResultsWithDimensions,
-  type UploadedAttachment,
 } from "@/hooks/community/mutations/uploads"
 
 // A forum post's body IS the first message in its thread — content plus any
@@ -38,7 +37,7 @@ export type NewForumThread = {
   nonce: string
   name: string
   content: string
-  attachments?: UploadedAttachment[]
+  attachments?: UploadFileResult[]
   mentionType?: MentionType
 }
 

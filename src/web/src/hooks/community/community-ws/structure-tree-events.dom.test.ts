@@ -4,7 +4,7 @@ import { seedCanonicalFocusedChannel } from "./test-harness"
 import { getCapturedRuntime, seedCanonicalStream, seedCanonicalMessages, canonicalMessage, seedCanonicalServer, canonicalRegistry, mountCanonicalHook } from "./test-harness"
 import { useServerRailProjection, useServerTreeProjection } from "@/lib/community-db/projections"
 import { mapForumFeedPages } from "@/hooks/community/use-forum-feed"
-import { forumFeedWindow } from "@/hooks/community/forum-feed-window"
+import { normalizeThreadResources, forumFeedWindow } from "@/hooks/community/forum-feed-window"
 import { publishCommunityForumFeed, captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryObserver } from "@tanstack/react-query"
@@ -22,7 +22,7 @@ import type {
   CommunityServerDelete,
   CommunityServerUpdate,
 } from "@alook/shared"
-import { getMessageOverlay } from "@/stores/community/message-stream"
+import { getMessageStreamState } from "@/test/community-query-owner"
 import { communityKeys } from "@/lib/query-keys"
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import {
@@ -96,13 +96,13 @@ function forumFeedIds(filter: string | null) {
   )?.pages ?? []
   const messages = new Map([...canonicalRegistry!.collections.messages.values()].map((message) => [message.id, message]))
   const channels = new Map([...canonicalRegistry!.collections.channels.values()].map((channel) => [channel.id, channel]))
-  return mapForumFeedPages(pages.map(forumFeedWindow), messages, channels, new Map(), filter).map((thread) => thread.id)
+  return mapForumFeedPages(pages.map((page) => forumFeedWindow(normalizeThreadResources("forum_1", page))), messages, channels, new Map(), filter).map((thread) => thread.id)
 }
 
 function seedForumFeed(rows: Parameters<typeof forumFeedFixture>[0]) {
   seedCanonicalServer({ id: "s1", categories: [{ id: "cat1", name: "Forum", channels: [{ id: "forum_1", name: "Forum", type: "forum", active: false, unread: false }] }] })
   const page = forumFeedFixture(rows).pages[0]!
-  act(() => { publishCommunityForumFeed(capturedQueryClient, "forum_1", page, { token: captureCommunityLiveSnapshotToken(capturedQueryClient), signal: undefined }) })
+  act(() => { publishCommunityForumFeed(capturedQueryClient, "forum_1", normalizeThreadResources("forum_1", page), { token: captureCommunityLiveSnapshotToken(capturedQueryClient), signal: undefined }) })
 }
 
 beforeEach(resetCommunityWsHarness)
@@ -437,8 +437,7 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
       ?.pages[0].threads.map((thread) => thread.id)).toEqual(["post_keep"])
     expect(canonicalForumSidebar("srv_1").threads.map((thread) => thread.id))
       .toEqual(["post_keep"])
-    expect(getMessageOverlay(capturedQueryClient, { kind: "channel", id: "forum_1", serverId: "srv_1" })
-      .liveById.has("opener-post_1")).toBe(false)
+    expect(getMessageStreamState(capturedQueryClient, { kind: "channel", id: "forum_1", serverId: "srv_1" }).liveIds.includes("opener-post_1")).toBe(false)
     expect(readCurrentCommunityChannelMeta(capturedQueryClient)).toMatchObject({ id: "forum_1", type: "forum" })
     expect(replacePath).toHaveBeenCalledWith("/c/channels/srv_1/forum_1")
     expect(capturedQueryClient.getQueryState(communityKeys.forumTags("forum_1"))?.isInvalidated)
@@ -477,7 +476,8 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       pages: { messages: { id: string; thread?: { id: string; name: string; messageCount: number } }[] }[]
     }>(communityKeys.channelMessages("ch_parent"))
     expect(cache?.pages[0].messages).toEqual([])
-    const overlay = getMessageOverlay(capturedQueryClient, { kind: "channel", id: "ch_parent", serverId: "s1" })
+    const overlay = getMessageStreamState(capturedQueryClient, { kind: "channel", id: "ch_parent", serverId: "s1" })
+    expect(overlay.liveIds).toContain("m_parent")
     expect(canonicalMessage("m_parent")?.thread).toMatchObject({
       id: "ch_thread",
       name: "New thread",
@@ -967,6 +967,7 @@ describe("useCommunityWs — channel.delete refreshes the parent forum feed", ()
     await mountHook()
     // Seed the deleted channel's own message cache so we can assert eviction.
     act(() => { capturedQueryClient.setQueryData(communityKeys.channelMessages("post_1"), { pages: [], pageParams: [] }) })
+    const query = capturedQueryClient.getQueryCache().find({ queryKey: communityKeys.channelMessages("post_1"), exact: true })!
     const removeSpy = vi.spyOn(capturedQueryClient, "removeQueries")
 
     const event: CommunityChannelDelete = {
@@ -976,8 +977,8 @@ describe("useCommunityWs — channel.delete refreshes the parent forum feed", ()
     }
     expect(() => capturedOnMessage!(event)).not.toThrow()
 
-    const removedKeys = removeSpy.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey))
-    expect(removedKeys).toContain(JSON.stringify(communityKeys.channelMessages("post_1")))
+    expect(removeSpy.mock.calls.some(([filters]) => filters?.predicate?.(query) || JSON.stringify(filters?.queryKey) === JSON.stringify(query.queryKey))).toBe(true)
+    expect(capturedQueryClient.getQueryState(query.queryKey)).toBeUndefined()
   })
 })
 

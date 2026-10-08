@@ -7,7 +7,7 @@ import { useMutation } from "@tanstack/react-query"
 import { act, render, waitFor } from "@/test/react-dom-harness"
 import { PublicQueryProvider, useApplicationOwner, runApplicationRequest, type ApplicationOwner } from "./application-owner"
 import { apiFetch } from "./api/client"
-import { clearAllPersistedCaches, clearPersistedCache, createIdbPersister, CACHE_INVALIDATION_STORAGE_KEY } from "./query-persister"
+import { PERSIST_BUSTER, clearAllPersistedCaches, clearPersistedCache, createIdbPersister, CACHE_INVALIDATION_STORAGE_KEY } from "./query-persister"
 const identity = vi.hoisted(() => ({ id: "A" }))
 vi.mock("@/lib/auth-client", () => { const sessionSDK = { useSession: () => ({ data: { user: { id: identity.id } }, isPending: false, error: null }) }; return { ...sessionSDK, currentSessionViewer: () => { const value = sessionSDK.useSession(); return !value || value.isPending || value.error ? undefined : value.data?.user.id ?? null } } })
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }) }))
@@ -23,7 +23,7 @@ function Probe({ name }: { name: string }) {
   return <output>{name}</output>
 }
 function App({ user = identity.id, name = user }: { user?: string; name?: string }) { return <PublicQueryProvider><Probe name={name} /></PublicQueryProvider> }
-const persisted = { timestamp: Date.now(), buster: "v3", clientState: { queries: [], mutations: [] } }
+const persisted = { timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: { queries: [], mutations: [] } }
 beforeEach(async () => {
   await act(async () => { await clearAllPersistedCaches(); }) ; identity.id = "A"; for (const key of Object.keys(owners)) delete owners[key]; for (const key of Object.keys(commands)) delete commands[key]
   assign = vi.fn(); reload = vi.fn(); const real = window

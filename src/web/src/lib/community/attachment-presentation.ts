@@ -1,3 +1,7 @@
+import type { CommunityMessageAttachment } from "@alook/shared"
+import type { Attachment } from "./models/message"
+import { isInlineAttachmentContentType } from "./attachment-content-type"
+
 export const MAX_TEXT_ATTACHMENT_PREVIEW_BYTES = 1024 * 1024
 export const MAX_PDF_ATTACHMENT_PREVIEW_BYTES = 10 * 1024 * 1024
 
@@ -273,4 +277,14 @@ export function formatAttachmentSize(bytes?: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+export function presentMessageAttachment(
+  attachment: Omit<CommunityMessageAttachment, "kind"> & Partial<Pick<CommunityMessageAttachment, "kind">>,
+): Attachment {
+  const kind = attachment.kind ?? (isInlineAttachmentContentType(attachment.contentType) ? "image" : "file")
+  if (kind === "image") return { ...attachment, kind }
+  const { width: _width, height: _height, thumbnailUrl: _thumbnailUrl, ...file } = attachment
+  return { ...(attachment.kind ? attachment : file), kind,
+    size: attachment.size ?? formatAttachmentSize(attachment.kind ? attachment.sizeBytes ?? 0 : attachment.sizeBytes) }
 }

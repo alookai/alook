@@ -67,7 +67,9 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   if (created) {
     const event = {
-      type: WS_EVENTS.CHANNEL_MEMBER_ADD,
+      type: WS_EVENTS.CHANNEL_MEMBERSHIP_CHANGE,
+    relation: "notify",
+    present: true,
       serverId: channel.serverId,
       channelId,
       userId: targetUserId,

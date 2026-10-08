@@ -703,12 +703,12 @@
     "fixedParams": 10
   },
   {
-    "key": "src/shared/src/db/queries/community/mention.ts:listUnreadMentions:inArray:1",
+    "key": "src/shared/src/db/queries/community/mention.ts:listUnreadMentionScopes:inArray:1",
     "strategy": "exact-chunk",
     "fixedParams": 10
   },
   {
-    "key": "src/shared/src/db/queries/community/mention.ts:listUnreadMentionScopes:inArray:1",
+    "key": "src/shared/src/db/queries/community/mention.ts:listUnreadMentions:inArray:1",
     "strategy": "exact-chunk",
     "fixedParams": 10
   },
@@ -732,12 +732,22 @@
     "maxExport": "MAX_ATTACHMENTS_PER_MESSAGE"
   },
   {
+    "key": "src/shared/src/db/queries/community/message.ts:getFirstMessageResourcesByChannelIds:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
     "key": "src/shared/src/db/queries/community/message.ts:getMessagesByIds:inArray:1",
     "strategy": "exact-chunk",
     "fixedParams": 10
   },
   {
-    "key": "src/shared/src/db/queries/community/message.ts:getMessagesByIdsInScope:inArray:1",
+    "key": "src/shared/src/db/queries/community/message.ts:getMessagesByIdsInChannels:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/message.ts:getMessagesByIdsInChannels:inArray:2",
     "strategy": "exact-chunk",
     "fixedParams": 10
   },
@@ -773,11 +783,6 @@
   },
   {
     "key": "src/shared/src/db/queries/community/message.ts:runChunk:inArray:1",
-    "strategy": "exact-chunk",
-    "fixedParams": 10
-  },
-  {
-    "key": "src/shared/src/db/queries/community/message.ts:runChunk:inArray:2",
     "strategy": "exact-chunk",
     "fixedParams": 10
   },

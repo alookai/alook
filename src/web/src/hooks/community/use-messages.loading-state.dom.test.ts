@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook } from "@/test/react-dom-harness"
 import { communityKeys } from "@/lib/query-keys"
 import { useDmMessages, useMessages } from "./use-messages"
-import { getMessageOverlay } from "@/stores/community/message-stream"
+import { getMessageStreamState } from "@/test/community-query-owner"
 
 function dispatchLive(client: QueryClient, scope: MessageScope, event: { type: "wsMessage"; message: CanonicalMessage }) {
   const registry = getCommunityDbRegistry(client)
@@ -95,6 +95,23 @@ describe("useMessages — isLoading while the anchor snapshot is unresolved", ()
 })
 
 describe("useMessages — instant channel switch", () => {
+  it.each(["channel", "dm"] as const)("reads one canonical rich body for the %s window and live IDs", async (kind) => {
+    const { client, registry } = await createCommunityQueryOwner()
+    const scope: MessageScope = kind === "channel" ? { kind, id: "ch_new", serverId: "s1" } : { kind, id: "dm_new" }
+    const attachments = [{ kind: "file" as const, name: "notes.txt", url: "/notes.txt", size: "1 KB" }]
+    const embeds = [{ title: "Existing embed" }], replyTo = { id: "reply", authorName: "Peer", text: "reply" }
+    const message: CanonicalMessage = { id: "rich", seq: 3, type: "chat", authorId: "peer", authorName: "Peer", content: "before", clientNonce: "rich-nonce", createdAt: "2026-08-07T10:00:00.000Z" }
+    ingestMessages(registry, scope.id, [{ ...message, attachments, embeds, replyTo }])
+    const rendered = kind === "channel" ? await renderChannelMessages(undefined, [{ id: message.id, seq: message.seq }], client) : await renderDmMessages([{ id: message.id, seq: message.seq }], client)
+    expect(rendered.result.current.messages).toEqual([expect.objectContaining({ id: message.id, attachments, embeds, replyTo })])
+    await act(async () => { dispatchLive(client, scope, { type: "wsMessage", message: { ...message, content: "sparse live" } }) })
+    expect(registry.collections.messages.get(message.id)).toMatchObject({ content: "sparse live", attachments, embeds, replyTo })
+    expect(rendered.result.current.messages).toEqual([expect.objectContaining({ id: message.id, content: "sparse live", attachments, embeds, replyTo })])
+    await act(async () => { dispatchLive(client, scope, { type: "wsMessage", message: { ...message, content: "cleared", attachments: [], embeds: [] } }) })
+    expect(registry.collections.messages.get(message.id)).toMatchObject({ attachments: [], embeds: [] })
+    expect(rendered.result.current.messages).toEqual([expect.objectContaining({ id: message.id, content: "cleared", attachments: [], embeds: [], replyTo })])
+    expect(apiFetchMock).not.toHaveBeenCalled()
+  })
   it("paints a warm cache without waiting on the anchor", async () => {
     const rendered = await renderChannelMessages(undefined, [
       { id: "m_1", seq: 1 },
@@ -157,7 +174,7 @@ describe("useMessages — instant channel switch", () => {
 
     act(() => getCommunityRuntime(queryClient).messageStream.actions.removeServer("s1"))
     expect(getCommunityRuntime(queryClient).messageStream.get().entries.size).toBe(0)
-    expect(getMessageOverlay(queryClient, messageScope).liveById.size).toBe(0)
+    expect(getMessageStreamState(queryClient, messageScope).liveIds.length).toBe(0)
   })
 })
 

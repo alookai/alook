@@ -1,6 +1,6 @@
-export type UserKey = "alice" | "bob" | "carol" | "dave" | "logout" | "sole-delete"
+export type UserKey = "alice" | "bob" | "carol" | "dave" | "geometry" | "logout" | "sole-delete"
 
-export const USER_KEYS: UserKey[] = ["alice", "bob", "carol", "dave", "logout", "sole-delete"]
+export const USER_KEYS: UserKey[] = ["alice", "bob", "carol", "dave", "geometry", "logout", "sole-delete"]
 
 export function emailFor(key: UserKey, stamp: string): string {
   return `e2e-${key}-${stamp}@alook.test`

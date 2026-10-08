@@ -2,27 +2,21 @@
 
 import { useLayoutEffect, useMemo } from "react"
 import { createStore, useSelector } from "@tanstack/react-store"
-import { useQuery, useQueryClient, type QueryFunctionContext } from "@tanstack/react-query"
+import { useQuery, useQueryClient, useIsRestoring, type QueryFunctionContext } from "@tanstack/react-query"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { channelMetadataOptions, captureChannelMetadataToken, isChannelMetadataTokenCurrent, type ChannelMetadataResource } from "./channel-metadata"
 import { retryConversationRead, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { apiFetch } from "@/lib/api/client"
+import { retireCommunityChannelReading } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
+import type { CommunityReadStateResource } from "@alook/shared"
 
 /**
  * The channel read-state snapshot returned by
  * `GET /api/community/channels/:id/read-state`. Both fields are `null` when
  * the viewer has never visited the channel.
  */
-export type ChannelReadStateSnapshot = {
-  lastReadMessageId: string | null
-  lastReadAt: string | null
-  // Numeric equivalent of `lastReadMessageId` — the seq of the row that
-  // pointer refers to. Server returns `0` when the viewer has never read
-  // this channel; consumers subtract from `latestSeq` for the unread-count
-  // pill without needing to walk loaded rows.
-  lastReadSeq: number
-}
+export type ChannelReadStateSnapshot = Omit<CommunityReadStateResource, "channelId">
 
 export function channelReadStateSnapshotQueryFn(
   channelId: string,
@@ -40,12 +34,12 @@ export function channelReadStateSnapshotQueryFn(
     const metadataQuery = kind === "dm"
       ? client.getQueryCache().build(client, client.defaultQueryOptions(channelMetadataOptions(client, null, channelId)))
       : undefined
-    const updateHistory = (historyVerification?: ChannelMetadataResource["historyVerification"]) => {
+    const updateHistory = (readProof?: ChannelMetadataResource["readProof"]) => {
       if (!metadataQuery || !Object.is(client.getQueryCache().find({ queryKey: metadataKey, exact: true }), metadataQuery)) return
       const metadata = client.setQueryData<ChannelMetadataResource>(metadataKey, (previous) => previous
-        ? { ...previous, historyVerification }
-        : historyVerification ? { id: channelId, verifiedEpoch: -1, historyVerification } : undefined)
-      if (metadata && !metadata.verification) metadataQuery.invalidate()
+        ? { ...previous, readProof }
+        : readProof ? { id: channelId, serverId: null, readProof } : undefined)
+      if (metadata && !metadata.identityProof) metadataQuery.invalidate()
     }
     try {
       const snapshot = await withConversationReadDeadline(signal, async (readSignal) => {
@@ -55,11 +49,15 @@ export function channelReadStateSnapshotQueryFn(
         return apiFetch<ChannelReadStateSnapshot>(`/api/community/channels/${channelId}/read-state`, communityRequestOptions(client, token, readSignal, assert))
       })
       assert()
-      updateHistory(token)
+      if (kind === "dm") token.registry!.runtime.ws.actions.rememberChannelAccess(null, channelId)
+      updateHistory(captureChannelMetadataToken(client, channelId))
       return snapshot
     } catch (error) {
       assert()
-      if (typeof error === "object" && error !== null && "status" in error && [403, 404].includes(Number(error.status))) updateHistory()
+      if (typeof error === "object" && error !== null && "status" in error && [403, 404].includes(Number(error.status))) {
+        updateHistory()
+        retireCommunityChannelReading(token.registry!, channelId, { reason: "read-denied", preserveQuery: client.getQueryCache().find({ queryKey: kind === "dm" ? communityKeys.dmReadStateSnapshot(channelId) : communityKeys.channelReadStateSnapshot(channelId), exact: true }) })
+      }
       throw error
     }
   }
@@ -88,7 +86,6 @@ export function channelReadStateSnapshotQueryFn(
  */
 export function useChannelReadStateSnapshot(
   channelId: string | null | undefined,
-  canonicalSnapshot?: ChannelReadStateSnapshot,
   kind: "channel" | "dm" = "channel",
 ): {
   snapshot: ChannelReadStateSnapshot | null
@@ -98,6 +95,7 @@ export function useChannelReadStateSnapshot(
   retry: () => void
 } {
   const client = useQueryClient()
+  const isRestoring = useIsRestoring()
   const entry = useMemo(() => createStore({ client, channelId, kind, snapshot: null as ChannelReadStateSnapshot | null }), [client, channelId, kind])
   const frozen = useSelector(entry, (state) => state.snapshot)
   const query = useQuery<ChannelReadStateSnapshot>({
@@ -124,14 +122,14 @@ export function useChannelReadStateSnapshot(
     networkMode: "always",
   })
 
+  const available = !isRestoring && query.status === "success" && !query.isFetching ? query.data : undefined
   useLayoutEffect(() => {
-    const available = canonicalSnapshot ?? (!query.isFetching ? query.data : undefined)
     if (available) entry.setState((state) => state.snapshot ? state : { ...state, snapshot: available })
-  }, [entry, canonicalSnapshot, query.data, query.isFetching])
+  }, [entry, available])
 
   return {
-    snapshot: frozen ?? canonicalSnapshot ?? (!query.isFetching ? (query.data ?? null) : null),
-    isFetching: frozen === null && !canonicalSnapshot && query.isFetching,
+    snapshot: frozen ?? available ?? null,
+    isFetching: !!channelId && frozen === null && (isRestoring || query.isPending || query.isFetching),
     error: query.error,
     retrying: query.isFetching,
     retry: () => { void query.refetch({ cancelRefetch: false }) },

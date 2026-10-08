@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test"
-import { expect, test, userId } from "./_fixtures/community-fixture"
+import { PERSIST_CACHE_PREFIX } from "@/lib/query-persister"
+import { expect, test, userId, userName } from "./_fixtures/community-fixture"
 import {
   seedChannel,
   seedDm,
@@ -70,7 +71,7 @@ async function persistedQueries(page: Page, viewerId: string): Promise<Persisted
         )))
       }
     }
-  }), `alook:qc:v3:${viewerId}:client`)
+  }), `${PERSIST_CACHE_PREFIX}:${viewerId}:client`)
 }
 
 function containsPersistedId(value: unknown, id: string): boolean {
@@ -316,7 +317,9 @@ test("a warm DM reload qualifies cached identity and history before showing pers
 
   await expectCacheFirstReload(page, async () => {
     await expect(page.getByTestId(tid.dmRow(dmId))).toBeVisible({ timeout: 10_000 })
-    await expect(page.getByRole("main", { name: "Loading direct message" })).toBeVisible()
+    await expect(page.getByTestId(tid.dmHeader)).toBeVisible()
+    await expect(page.getByTestId(tid.dmHeader)).toContainText(userName("bob"))
+    await expect(page.locator(`main[data-slot="community-conversation-surface"][data-channel-id="${dmId}"]`)).toBeVisible()
     await expect(page.getByTestId(tid.messageScroller).locator('[data-slot="skeleton"]').first()).toBeVisible()
     await expect(page.getByTestId(tid.composerInput)).toHaveCount(0)
     await expect(page.getByTestId(tid.message(messageId))).toHaveCount(0)

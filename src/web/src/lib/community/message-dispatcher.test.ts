@@ -571,6 +571,10 @@ describe("dispatchCommittedMessage", () => {
       expect.objectContaining({ messageId: "msg_1" }),
       await deriveCommunityDeliveryOperationId("msg_1"),
     )
+    expect(Object.keys(mockSendMessageDeliveryBatch.mock.calls[0]![0]).sort()).toEqual([
+      "contentUserIds", "mentionUserIds", "messageEvent", "messageId",
+      "unreadMentionUserIds", "unreadPlainUserIds",
+    ])
     expect(mockEnqueueQueueTasks).toHaveBeenCalledWith([])
   })
 
@@ -587,7 +591,9 @@ describe("dispatchCommittedMessage", () => {
       channelId === "forum_1" ? ["parent_viewer"] : ["author_1"],
     )
 
-    await dispatchCommittedMessage({} as never, "msg_1")
+    await dispatchCommittedMessage({} as never, "msg_1", {
+      memberAddedUserId: "author_1", joinedParticipantUserIds: ["author_1"],
+    })
 
     expect(mockSendMessageDeliveryBatch).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -596,9 +602,17 @@ describe("dispatchCommittedMessage", () => {
           channelId: "t1",
         }),
         parentProjectionUserIds: ["parent_viewer"],
+        memberAdded: { userId: "author_1", serverId: "s1", channelId: "t1" },
+        joinedParticipantUserIds: ["author_1"],
+        rosterRefreshUserId: "author_1",
       }),
       await deriveCommunityDeliveryOperationId("msg_1"),
     )
+    expect(Object.keys(mockSendMessageDeliveryBatch.mock.calls[0]![0]).sort()).toEqual([
+      "contentUserIds", "joinedParticipantUserIds", "memberAdded", "mentionUserIds",
+      "messageEvent", "messageId", "parentProjection", "parentProjectionUserIds",
+      "rosterRefreshUserId", "unreadMentionUserIds", "unreadPlainUserIds",
+    ])
   })
 
   it("enqueues the exact mobile-push union separately from gated bot wakes", async () => {

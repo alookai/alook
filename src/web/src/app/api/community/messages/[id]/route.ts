@@ -18,8 +18,7 @@ import {
   fanOutToChannel,
   fanOutToServerMembers,
 } from "@/lib/community/fanout"
-import { groupAttachments, groupReactions } from "@/lib/community/messages"
-import { mapMessageForApi } from "@/lib/community/message-payload"
+import { loadApiMessageContext, mapMessageForApi } from "@/lib/community/message-payload"
 import { scheduleForumPostMediaCleanup } from "@/lib/community/forum-post-media-cleanup"
 
 // A bot addresses by ref-in-query (`?ref=` + `?seq=`, the folded `resolve`
@@ -242,21 +241,11 @@ async function handleHumanGet(
     if (!auth.ok) return writeError(auth.error, auth.status)
   }
 
-  const [allAttachments, allReactions, replyMessages] = await Promise.all([
-    queries.communityAttachment.listByMessageIds(db, [messageId]),
-    queries.communityReaction.listReactionsByMessageIds(db, [messageId], userId),
-    message.replyToId
+  const contextForChannel = await loadApiMessageContext(db, userId, [messageId], () => message.replyToId
       ? queries.communityMessage.getMessagesByIdsInScope(db, [message.replyToId], { channelId: message.channelId })
       : Promise.resolve([]),
-  ])
-
-  const attachmentsByMessage = groupAttachments(allAttachments)
-  const reactionsByMessage = groupReactions(allReactions, userId)
-  // Reply target already scoped to the SAME surface as the parent — a reply
-  // preview must not leak content from a different channel/DM.
-  const replyMap = new Map(replyMessages.map((m) => [m.id, m]))
-
-  const payload = mapMessageForApi(message, { replyMap, attachmentsByMessage, reactionsByMessage })
+  )
+  const payload = mapMessageForApi(message, contextForChannel(message.channelId))
   return writeJSON({ ...payload, channelId: message.channelId })
 }
 

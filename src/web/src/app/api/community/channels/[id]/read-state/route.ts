@@ -1,9 +1,10 @@
 import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
-import { writeJSON, writeError } from "@/lib/middleware/helpers"
+import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, withD1Retry } from "@alook/shared"
 import { requireMessageSurfaceAccess } from "@/lib/community/permissions"
+import { writeCommunityReadState } from "@/lib/community/read-contract"
 
 /**
  * GET /api/community/channels/:id/read-state
@@ -21,7 +22,7 @@ import { requireMessageSurfaceAccess } from "@/lib/community/permissions"
  * DM's read-state through this channel route (the incidental P0 the trunk
  * closes; the old path only ran the access-member check, never the block).
  */
-export const GET = withAuth(async (_req: NextRequest, ctx) => {
+export const GET = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
   if (!channelId) return writeError("missing channel id", 400)
 
@@ -42,7 +43,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
     { route: "community/channels/read-state" },
   )
 
-  return writeJSON({
+  return writeCommunityReadState(req, channelId, {
     lastReadMessageId: row?.lastReadMessageId ?? null,
     lastReadAt: row?.lastReadAt ?? null,
     // Seq is the numeric equivalent of the (createdAt, id) pointer — used

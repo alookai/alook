@@ -55,7 +55,7 @@ const additionalHooks: Array<RenderHookResult<void, Parameters<typeof mountHook>
 let messageProjectionHook: RenderHookResult<ReturnType<typeof useCanonicalMessagesById>, unknown> | null = null
 const projectionHooks: Array<{ unmount: () => void }> = []
 
-export let capturedOnMessage: ((msg: unknown) => void) | null = null
+export let capturedOnMessage: ((msg: unknown, assertCurrent?: () => void) => void | Promise<void>) | null = null
 export let capturedOnReconnect: ((info: { reconnectDurationMs: number }) => void | Promise<void>) | null = null
 export let capturedConnectionStateChange: ((phase: UserWsConnectionPhase) => void | Promise<void>) | null = null
 export let capturedUseUserWsOptions: UseUserWsOptions | undefined
@@ -63,9 +63,13 @@ let stableSend: ReturnType<typeof vi.fn> = vi.fn()
 let stableReconnectNow: ReturnType<typeof vi.fn> = vi.fn()
 export let useUserWsCallCount = 0
 vi.mock("@/lib/use-user-ws", () => ({
-  useUserWs: (onMessage: (msg: unknown) => void, options?: UseUserWsOptions) => {
+  useUserWs: (onMessage: (msg: unknown, assertCurrent?: () => void) => void | Promise<void>, options?: UseUserWsOptions) => {
     useUserWsCallCount += 1
-    capturedOnMessage = (message) => { act(() => { onMessage(message) }) }
+    capturedOnMessage = (message, assertCurrent) => {
+      let result: void | Promise<void>
+      act(() => { result = onMessage(message, assertCurrent) })
+      if ((message as { type?: unknown })?.type === "community:events.batch.v2") return result!
+    }
     capturedOnReconnect = options?.onReconnect ?? null
     capturedConnectionStateChange = options?.onConnectionStateChange ?? null
     capturedUseUserWsOptions = options

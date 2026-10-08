@@ -21,6 +21,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const messages = await queries.communityMessage.getMessagesByIdsInScope(db, ids, { channelId: body.channelId })
   const childThreads = await queries.communityChannel.getDirectChildThreadsByIds(db, body.channelId, firstInChannelIds)
   if (childThreads.length !== firstInChannelIds.length) return writeError("thread not found", 404)
-  const firstMessages = await queries.communityMessage.getFirstMessageByChannelIds(db, firstInChannelIds)
+  const firstMessages = await queries.communityMessage.getFirstMessageResourcesByChannelIds(db, firstInChannelIds).then((rows) => rows.map(({ channelId, content }) => ({ channelId, content })))
   return writeJSON({ messages, firstMessages })
 })

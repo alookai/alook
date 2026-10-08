@@ -54,7 +54,6 @@ export type CommunityWsHandlerContext = CommunityWsDispatchContext & {
   }>
 }
 
-export type MessageEventContext = CommunityWsHandlerContext
 export type TypingEventContext = Pick<
   CommunityWsHandlerContext,
   "queryClient" | "sub" | "viewerUserIdRef" | "matchesFocus"
