@@ -77,7 +77,7 @@ export function parseCursorAcpModelCatalog(session: unknown): RuntimeReasoningCa
   const models: RuntimeReasoningCatalog["models"][number][] = [];
   for (const option of flattenCursorAcpSelectOptions(modelConfig.options)) {
     if (option.value === "default[]" || seen.has(option.value)) continue;
-    if (models.length >= RUNTIME_MODEL_CATALOG_MAX) return undefined;
+    if (models.length >= RUNTIME_MODEL_CATALOG_MAX) break;
     seen.add(option.value);
     models.push({
       id: option.value,

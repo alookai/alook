@@ -6,22 +6,24 @@ export type AntigravityModel = { id: string; displayName?: string };
 export type AntigravityCatalog = { models: AntigravityModel[]; currentModelId?: string; configId?: string };
 
 function choices(value: unknown): AntigravityModel[] {
-  if (!Array.isArray(value) || value.length > RUNTIME_MODEL_CATALOG_MAX) return [];
+  if (!Array.isArray(value)) return [];
   const rows: AntigravityModel[] = [];
+  const seen = new Set<string>();
   for (const item of value) {
     const row = asRecord(item);
     if (!row) continue;
     const nested = Array.isArray(row.options) ? row.options : [row];
-    if (nested.length + rows.length > RUNTIME_MODEL_CATALOG_MAX) return [];
     for (const child of nested) {
       const option = asRecord(child);
       const id = normalizeRuntimeModelId(option?.value ?? option?.modelId);
-      if (!id) continue;
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
       const name = option?.name;
       rows.push({ id, ...(typeof name === "string" && name.length <= 256 ? { displayName: name } : {}) });
+      if (rows.length >= RUNTIME_MODEL_CATALOG_MAX) return rows;
     }
   }
-  return rows.filter((row, index) => rows.findIndex((other) => other.id === row.id) === index);
+  return rows;
 }
 
 export function parseAntigravityCatalog(value: unknown): AntigravityCatalog | undefined {

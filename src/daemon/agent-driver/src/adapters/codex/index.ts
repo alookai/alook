@@ -167,7 +167,6 @@ export class CodexDriver implements BackendAdapter {
       let listId = 0;
       const models: RuntimeReasoningCatalog["models"][number][] = [];
       const seenModels = new Set<string>();
-      let overflow = false;
       let defaultModelId: string | undefined;
       const finish = (catalog?: RuntimeReasoningCatalog) => {
         if (settled) return;
@@ -191,10 +190,6 @@ export class CodexDriver implements BackendAdapter {
         const model = value as Record<string, unknown>;
         const id = normalizeRuntimeModelId(model.id);
         if (!id || seenModels.has(id)) return;
-        if (models.length >= MODEL_LIST_MAX) {
-          overflow = true;
-          return;
-        }
         const rawOptions = Array.isArray(model.supportedReasoningEfforts)
           ? model.supportedReasoningEfforts
           : [];
@@ -240,11 +235,12 @@ export class CodexDriver implements BackendAdapter {
         if (message.id !== listId) return;
         if (message.error || !message.result || typeof message.result !== "object") return finish();
         const result = message.result as Record<string, unknown>;
-        for (const model of Array.isArray(result.data) ? result.data : []) consumeModel(model);
-        if (overflow) return finish();
+        for (const model of Array.isArray(result.data) ? result.data : []) {
+          consumeModel(model);
+          if (models.length >= MODEL_LIST_MAX) break;
+        }
         const cursor = typeof result.nextCursor === "string" ? result.nextCursor : undefined;
-        if (cursor && models.length >= MODEL_LIST_MAX) return finish();
-        if (cursor) return requestModelPage(cursor);
+        if (cursor && models.length < MODEL_LIST_MAX) return requestModelPage(cursor);
         if (models.length === 0) return finish();
         finish({
           updateMode: "live_next_turn",

@@ -3,11 +3,22 @@ import { describe, expect, it } from "vitest";
 import { antigravityModelForEffort, antigravityReasoningCatalog, parseAntigravityCatalog } from "./catalog.js";
 
 describe("Antigravity native model variants", () => {
-  it.each([1024, 1025])("keeps the complete catalog or rejects overflow (%s models)", (count) => {
+  it.each([1024, 1025])("keeps the complete catalog or truncates overflow (%s models)", (count) => {
     const models = Array.from({ length: count }, (_, index) => `model-${index}`);
-    const catalog = parseAntigravityCatalog({ models: { availableModels: models.map((modelId) => ({ modelId })) } });
-    if (count > RUNTIME_MODEL_CATALOG_MAX) expect(catalog).toBeUndefined();
-    else expect(catalog?.models.map((model) => model.id)).toEqual(models);
+    const catalog = parseAntigravityCatalog({ models: { availableModels: [null, { modelId: models[0] }, ...models.map((modelId) => ({ modelId }))] } });
+    expect(catalog?.models.map((model) => model.id)).toEqual(models.slice(0, RUNTIME_MODEL_CATALOG_MAX));
+  });
+
+  it("truncates grouped choices after validation and deduplication", () => {
+    const models = Array.from({ length: RUNTIME_MODEL_CATALOG_MAX + 1 }, (_, index) => `model-${index}`);
+    const catalog = parseAntigravityCatalog({ configOptions: [{
+      id: "model", type: "select", currentValue: models[0], options: [
+        { options: [null, { value: "invalid model" }, { value: models[0] }] },
+        { options: models.map((value) => ({ value })) },
+      ],
+    }] });
+    expect(catalog?.models.map((model) => model.id)).toEqual(models.slice(0, RUNTIME_MODEL_CATALOG_MAX));
+    expect(catalog?.currentModelId).toBe(models[0]);
   });
 
   it("preserves returned choices and maps effort only to offered siblings", () => {
@@ -28,7 +39,7 @@ describe("Antigravity native model variants", () => {
       id: "native-model", category: "model", type: "select", currentValue: "actual",
       options: [{ group: "g", options: [{ value: "actual", name: "Actual" }, { value: "actual" }, { value: "invalid model" }] }],
     }] })).toEqual({ configId: "native-model", currentModelId: "actual", models: [{ id: "actual", displayName: "Actual" }] });
-    expect(parseAntigravityCatalog({ models: { availableModels: Array.from({ length: RUNTIME_MODEL_CATALOG_MAX + 1 }, (_, i) => ({ modelId: `model-${i}` })) } })).toBeUndefined();
+    expect(parseAntigravityCatalog({ models: { availableModels: Array.from({ length: RUNTIME_MODEL_CATALOG_MAX + 1 }, (_, i) => ({ modelId: `model-${i}` })) } })?.models).toHaveLength(RUNTIME_MODEL_CATALOG_MAX);
     expect(parseAntigravityCatalog(null)).toBeUndefined();
   });
 });

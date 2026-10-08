@@ -32,11 +32,14 @@ describe("large runtime model catalogs", () => {
     expect(runtime.reasoning).toEqual(reasoning)
   })
 
-  it("accepts the full bound and rejects overflow without returning a partial catalog", () => {
+  it("accepts the full bound and truncates overflow through the machine wire schema", () => {
     expect(RuntimeReasoningCatalogSchema.parse(catalog(COMMUNITY_REASONING_MODELS_MAX)))
       .toEqual(catalog(COMMUNITY_REASONING_MODELS_MAX))
-    expect(RuntimeReasoningCatalogSchema.safeParse(catalog(COMMUNITY_REASONING_MODELS_MAX + 1)).success)
-      .toBe(false)
+    const overflow = catalog(COMMUNITY_REASONING_MODELS_MAX + 1)
+    const reasoning = { ...overflow, defaultModelId: overflow.models.at(-1)!.id,
+      models: [null, overflow.models[0], ...overflow.models] }
+    expect(CommunityMachineRuntimeSchema.parse({ id: "opencode", reasoning }).reasoning)
+      .toEqual({ ...catalog(COMMUNITY_REASONING_MODELS_MAX), defaultModelId: reasoning.defaultModelId })
   })
 })
 

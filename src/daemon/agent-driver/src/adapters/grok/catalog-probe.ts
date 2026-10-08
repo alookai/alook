@@ -98,7 +98,7 @@ export function parseGrokModelCatalog(value: unknown): RuntimeReasoningCatalog |
     const model = asRecord(item);
     const id = normalizeRuntimeModelId(model?.modelId);
     if (!model || !id || seen.has(id)) continue;
-    if (models.length >= RUNTIME_MODEL_CATALOG_MAX) return undefined;
+    if (models.length >= RUNTIME_MODEL_CATALOG_MAX) break;
     seen.add(id);
     const displayName = boundedText(model.name, MODEL_DISPLAY_NAME_MAX);
     models.push({ id, ...(displayName ? { displayName } : {}), ...reasoningCatalog(model) });

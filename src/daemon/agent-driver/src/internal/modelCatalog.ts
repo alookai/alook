@@ -16,7 +16,7 @@ function catalogFromIds(ids: Iterable<string>): RuntimeReasoningCatalog | undefi
   for (const rawId of ids) {
     const id = normalizeRuntimeModelId(rawId);
     if (!id || seen.has(id)) continue;
-    if (models.length >= RUNTIME_MODEL_CATALOG_MAX) return undefined;
+    if (models.length >= RUNTIME_MODEL_CATALOG_MAX) break;
     seen.add(id);
     models.push({ id, supportedReasoningEfforts: [] });
   }

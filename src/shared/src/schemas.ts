@@ -883,17 +883,19 @@ export const RuntimeReasoningCatalogSchema = z.object({
   defaultModelId: z.string().min(1).max(100).optional().catch(undefined),
   models: z
     .array(z.unknown())
-    .max(COMMUNITY_REASONING_MODELS_MAX)
     .transform((models) => {
       const seen = new Set<string>();
-      return models.flatMap((candidate) => {
+      const retained: z.infer<typeof RuntimeReasoningModelSchema>[] = [];
+      for (const candidate of models) {
         const parsed = RuntimeReasoningModelSchema.safeParse(candidate);
-        if (!parsed.success) return [];
+        if (!parsed.success) continue;
         const model = parsed.data;
-        if (seen.has(model.id)) return [];
+        if (seen.has(model.id)) continue;
         seen.add(model.id);
-        return [model];
-      });
+        retained.push(model);
+        if (retained.length >= COMMUNITY_REASONING_MODELS_MAX) break;
+      }
+      return retained;
     }),
 });
 

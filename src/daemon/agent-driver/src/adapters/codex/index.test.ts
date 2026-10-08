@@ -279,12 +279,12 @@ describe("CodexDriver reasoning catalog probe", () => {
 
     const result = await new CodexDriver().probe();
     expect(result.status).toBe("healthy");
-    if (hasNext) expect(result.reasoning).toBeUndefined();
-    else expect(result.reasoning?.models.map((model) => model.id)).toEqual(models.map((model) => model.id));
+    expect(result.reasoning?.models.map((model) => model.id)).toEqual(models.map((model) => model.id));
+    expect(proc.kill).toHaveBeenCalledTimes(1);
     expect(cursors).toEqual([undefined, ...Array.from({ length: 10 }, (_, index) => String(index + 1))]);
   });
 
-  it("returns no catalog for 1025 unique models across distinct pages", async () => {
+  it("retains the first1024 models across distinct pages", async () => {
     const models = Array.from({ length: RUNTIME_MODEL_CATALOG_MAX + 1 }, (_, index) => ({
       id: `gpt-model-${index}`,
       supportedReasoningEfforts: [],
@@ -298,19 +298,21 @@ describe("CodexDriver reasoning catalog probe", () => {
       } };
     });
     runtimeMocks.spawnAgentProcess.mockReturnValueOnce(proc as never);
-    await expect(new CodexDriver().probe()).resolves.toMatchObject({ reasoning: undefined });
+    const result = await new CodexDriver().probe();
+    expect(result.reasoning?.models.map((model) => model.id)).toEqual(models.slice(0, RUNTIME_MODEL_CATALOG_MAX).map((model) => model.id));
   });
 
-  it("returns no catalog when a producer ignores the page limit and sends 1025 unique models", async () => {
+  it("truncates an oversized native page to the first1024 models", async () => {
     const models = Array.from({ length: RUNTIME_MODEL_CATALOG_MAX + 1 }, (_, index) => ({
       id: `gpt-model-${index}`,
       supportedReasoningEfforts: [],
     }));
     const proc = probingProcess((request) => request.method === "initialize"
       ? { jsonrpc: "2.0", id: request.id, result: {} }
-      : { jsonrpc: "2.0", id: request.id, result: { data: models, nextCursor: null } });
+      : { jsonrpc: "2.0", id: request.id, result: { data: [null, { id: "invalid model" }, models[0], ...models], nextCursor: null } });
     runtimeMocks.spawnAgentProcess.mockReturnValueOnce(proc as never);
-    await expect(new CodexDriver().probe()).resolves.toMatchObject({ reasoning: undefined });
+    const result = await new CodexDriver().probe();
+    expect(result.reasoning?.models.map((model) => model.id)).toEqual(models.slice(0, RUNTIME_MODEL_CATALOG_MAX).map((model) => model.id));
   });
 
   it("returns no catalog when app-server output exceeds the byte bound", async () => {
