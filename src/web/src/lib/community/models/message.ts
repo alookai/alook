@@ -1,5 +1,5 @@
 import { z } from "zod"
-import type { CommunityChannelResource, CommunityMessageResource, CommunityMessageAttachment } from "@alook/shared"
+import type { CommunityChannelResource, CommunityMessageResource, CommunityMessageAttachment, CommunityMessagesRead } from "@alook/shared"
 import { deriveView, viewEvidence } from "@/lib/observability/data-source"
 
 // ── Messages ───────────────────────────────────────────────────────────────
@@ -109,20 +109,13 @@ export type SendAttachment = {
   height?: number
 }
 
-export type MessagesPage = {
+export type MessagesPage = Partial<{ [Field in keyof CommunityMessagesRead["page"]]: NonNullable<CommunityMessagesRead["page"][Field]> }> & {
   messages: Msg[]
-  latestSeq?: number
-  // Anchor / since mode
-  hasMoreOlder?: boolean
-  hasMoreNewer?: boolean
-  olderCursor?: string
-  newerCursor?: string
-  // Legacy (newest + older continuation) mode
-  hasMore?: boolean
-  cursor?: string
+  hasMore?: CommunityMessagesRead["page"]["hasMoreOlder"]
+  cursor?: NonNullable<CommunityMessagesRead["page"]["olderCursor"]>
 }
 
-export type MessagesWindowPage = Omit<MessagesPage, "messages"> & { messages: Array<{ id: string; seq?: number }>; newestCursor?: string }
+export type MessagesWindowPage = Omit<MessagesPage, "messages"> & { messages: Array<Pick<CommunityMessageResource, "id"> & Partial<Pick<CommunityMessageResource, "seq">>>; newestCursor?: string }
 
 export function messageWindowPage(page: MessagesPage): MessagesWindowPage {
   const newest = [...page.messages].filter((message) => message.createdAt).sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? "") || a.id.localeCompare(b.id)).at(-1)

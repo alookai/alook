@@ -5,7 +5,7 @@ import { useCommunityRuntime } from "@/stores/community/runtime"
 import { useCallback } from "react"
 import { useCommunityViewSource } from "./use-community-view-source"
 import { useCommunityMutationOrigin } from "./community-origin"
-import type { SendMessageArgs } from "./mutations/messages"
+import type { SendMessageArgs, SendMessageResult } from "./mutations/messages"
 import type { SendAttachment } from "@/lib/community/models/message"
 import { acceptMessageIntent, prepareMessageIntent, messageSendError } from "@/lib/community/message-send-intent"
 import {
@@ -14,7 +14,7 @@ import {
 } from "@/hooks/community/mutations"
 
 export type DmSendCommit =
-  | { ok: true; message: { id: string; seq: number } }
+  | { ok: true; message: Pick<SendMessageResult["message"], "id" | "seq"> }
   | { ok: false; error: Error }
 
 export type DmSendReceipt =

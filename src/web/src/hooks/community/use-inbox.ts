@@ -282,7 +282,7 @@ export function useInboxUnreads() {
 }
 
 type MarkedResponse = { marked: Marked[] }
-type MarkedWindowResponse = { marked: Array<Omit<Marked, "m"> & { m: { id: string } }> }
+type MarkedWindowResponse = { marked: Array<Omit<Marked, "m"> & { m: Pick<Marked["m"], "id"> }> }
 
 const inboxMarkedQueryFn = (queryClient: QueryClient) =>
   async ({ signal }: { signal?: AbortSignal } = {}) => {

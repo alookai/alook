@@ -15,7 +15,6 @@ import {
   useDmProjection,
   useMessageProjection,
   useNotificationSettingsProjection,
-  useReadStateProjection,
   useRouteChannelProjection,
   useServerRailProjection,
   useServerTreeProjection,
@@ -145,7 +144,6 @@ describe("community DB projections", () => {
       messages: useMessageProjection("c1"),
       messagesById: useCanonicalMessagesById(),
       notifications: useNotificationSettingsProjection(),
-      readState: useReadStateProjection("c1"),
       directory: useChannelRefDirectoryProjection(),
     }))
 
@@ -158,7 +156,6 @@ describe("community DB projections", () => {
       messages: undefined,
       messagesById: undefined,
       notifications: undefined,
-      readState: undefined,
       directory: undefined,
     })
     rendered.unmount()
@@ -410,7 +407,6 @@ describe("community DB projections", () => {
       messages: useMessageProjection("c1"),
       messagesById: useCanonicalMessagesById(),
       notifications: useNotificationSettingsProjection(),
-      readState: useReadStateProjection("c1"),
       profiles: useCanonicalProfilesByUserId(),
       profile: useCanonicalCommunityProfile("peer"),
       directory: useChannelRefDirectoryProjection(),
@@ -449,7 +445,7 @@ describe("community DB projections", () => {
       server: { s1: "All Messages" },
       channel: { c1: "Only @mentions" },
     })
-    expect(rendered.result.current.readState).toEqual({
+    expect(registry.collections.readStates.get("c1")).toMatchObject({
       lastReadMessageId: "m1",
       lastReadAt: "2026-09-25T00:00:01.000Z",
       lastReadSeq: 1,

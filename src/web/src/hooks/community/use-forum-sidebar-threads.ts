@@ -59,11 +59,7 @@ export type ForumSidebarQueryData = {
   serverClockOffsetMs: number
 }
 
-export type ChildChannelMeta = Omit<CommunityChannelIdentity, "serverId" | "name" | "parentChannelId" | "parentMessageId" | "createdAt" | "lastMessageAt"> & {
-  serverId: string
-  name: string
-  parentChannelId: string
-  parentMessageId: string
+export type ChildChannelMeta = Omit<CommunityChannelIdentity, "serverId" | "name" | "parentChannelId" | "parentMessageId" | "createdAt" | "lastMessageAt"> & { [Field in "serverId" | "name" | "parentChannelId" | "parentMessageId"]: NonNullable<CommunityChannelIdentity[Field]> } & {
   activityAt: string
   verifiedEpoch: number
 }

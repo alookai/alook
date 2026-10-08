@@ -88,8 +88,8 @@ function anchorFetchUrl(_type: ScopeType, id: string, anchor: string, limit: num
 
 type SheetCache = {
   notFound?: boolean
-  anchorId?: string
-  messages?: { id: string }[]
+  anchorId?: Msg["id"]
+  messages?: Pick<Msg, "id">[]
 }
 
 export function messageContextQueryFn(
@@ -106,9 +106,9 @@ export function messageContextQueryFn(
     assert()
     await registry?.collections.messages.preload()
     assert()
-    let lookup: { id: string }
+    let lookup: Pick<Msg, "id">
     try {
-      lookup = await apiFetch<{ id: string }>(
+      lookup = await apiFetch<Pick<Msg, "id">>(
         seqLookupUrl(type, channelId, targetSeq),
         communityRequestOptions(queryClient, publicationToken, signal, assert),
       )

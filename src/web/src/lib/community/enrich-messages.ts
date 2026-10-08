@@ -1,4 +1,4 @@
-import { queries, withD1Retry } from "@alook/shared"
+import { queries, withD1Retry, type CommunityMessageResource } from "@alook/shared"
 import type { getDb } from "@/lib/db"
 import { loadApiMessageContext, mapMessageForApi } from "@/lib/community/message-payload"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -64,12 +64,7 @@ export async function enrichMessages(
     tagsByMessage.set(row.messageId, [...(tagsByMessage.get(row.messageId) ?? []), row.tag])
   }
   const firstByChannel = new Map(forumFirstMessages.map((message) => [message.channelId, message]))
-  const participantsByChannel = new Map<string, Array<{
-    id: string
-    name: string
-    avatar: string
-    avatarVersion: number
-  }>>()
+  const participantsByChannel = new Map<string, NonNullable<NonNullable<CommunityMessageResource["thread"]>["participants"]>>()
   const participantCountByChannel = new Map<string, number>()
   for (const row of forumParticipants) {
     participantCountByChannel.set(

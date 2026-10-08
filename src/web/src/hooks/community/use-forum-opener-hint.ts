@@ -1,4 +1,5 @@
 "use client"
+import type { CommunityMessageResource } from "@alook/shared"
 import { useMemo } from "react"
 
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -27,19 +28,13 @@ export function useForumOpenerHint(
   const canonicalMessages = useCanonicalMessagesById(messageIds)
   const queryClient = useQueryClient()
   const queryKey = communityKeys.message(messageId ?? "__none__")
-  const query = useQuery<{ id: string }>({
+  const query = useQuery<Pick<CommunityMessageResource, "id">>({
     queryKey,
     queryFn: ({ signal }) => withConversationReadDeadline(signal, async (readSignal) => {
       const token = captureCommunityLiveSnapshotToken(queryClient)
       await token.registry!.ready
       assertCommunityLiveSnapshotTokenCurrent(queryClient, token, readSignal)
-      const message = await apiFetch<{
-        id: string
-        content: string
-        seq: number
-        channelId: string
-        type: "chat" | "system"
-      }>(
+      const message = await apiFetch<Pick<CommunityMessageResource, "id" | "content" | "seq" | "channelId" | "type">>(
         `/api/community/messages/${messageId}`,
         communityRequestOptions(queryClient, token, readSignal),
       )

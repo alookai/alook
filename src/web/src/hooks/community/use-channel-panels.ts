@@ -22,7 +22,7 @@ import {
 } from "@/lib/community-db/sync"
 import type { CommunityFreshQueryProof } from "@/lib/community-db/sync"
 import { normalizeThreadResources, projectThread, type ForumFeedTransportPage } from "./forum-feed-window"
-import type { CommunityThreadsRead } from "@alook/shared"
+import type { CommunityThreadsRead, CommunityChannelResource, CommunityMessageResource } from "@alook/shared"
 import type { ChannelRow } from "@/lib/community-db/schema"
 
 /**
@@ -35,10 +35,10 @@ import type { ChannelRow } from "@/lib/community-db/schema"
  * — without touching messages.
  */
 export type ThreadsResponse = {
-  threads: Array<{ id: string; openerMessageId?: string }>
-  serverId: string
+  threads: Array<Pick<CommunityChannelResource, "id"> & { openerMessageId?: CommunityMessageResource["id"] }>
+  serverId: NonNullable<CommunityChannelResource["serverId"]>
   parentType: string
-  parentChannelId: string
+  parentChannelId: CommunityChannelResource["id"]
 }
 
 async function loadThreadResources(queryClient: QueryClient, channelId: string, proof: CommunityFreshQueryProof) {
@@ -112,7 +112,7 @@ export function useForumTags(channelId: string | null, enabled: boolean) {
  * author + content so no follow-up fetch is needed.
  */
 export type PinsResponse = { pins: Array<Pick<Msg, "id" | "seq" | "authorId" | "authorName" | "authorAvatar" | "authorAvatarVersion" | "content" | "createdAt">> }
-export type PinsWindowResponse = { pins: Array<{ id: string }> }
+export type PinsWindowResponse = { pins: Array<Pick<CommunityMessageResource, "id">> }
 
 export const pinsQueryFn = (channelId: string, queryClient: QueryClient) =>
   async ({ signal }: { signal?: AbortSignal } = {}) => {

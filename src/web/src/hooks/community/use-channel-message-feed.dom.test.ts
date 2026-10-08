@@ -29,11 +29,7 @@ const mocks = vi.hoisted(() => ({
   },
   useMessages: vi.fn(),
   watermark: vi.fn(),
-  canonicalReadSnapshot: undefined as undefined | {
-    lastReadMessageId: string | null
-    lastReadAt: string
-    lastReadSeq: number
-  },
+
 }))
 
 vi.mock("./use-channel-read-state", () => ({
@@ -52,9 +48,7 @@ vi.mock("./use-channel-panels", () => ({
   useThreads: () => ({ threads: [], isLoading: false }),
   usePins: () => ({ pins: [], isLoading: false }),
 }))
-vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
-  useReadStateProjection: () => mocks.canonicalReadSnapshot,
-}))
+
 
 function Capture({ onResult }: { onResult?: (result: ReturnType<typeof useChannelMessageFeed>) => void }) {
   const result = useChannelMessageFeed({
@@ -91,7 +85,6 @@ describe("useChannelMessageFeed", () => {
     mocks.messages.anchorReconciled = true
     mocks.useMessages.mockReset()
     mocks.watermark.mockReset()
-    mocks.canonicalReadSnapshot = undefined
   })
 
   it("always revalidates a mount and reconciles the authoritative server anchor", () => {
@@ -131,15 +124,13 @@ describe("useChannelMessageFeed", () => {
     expect(mocks.messages.refetch).not.toHaveBeenCalled()
   })
 
-  it("seeds the frozen mount snapshot from the canonical read projection", () => {
-    mocks.canonicalReadSnapshot = {
-      lastReadMessageId: "authoritative-anchor",
-      lastReadAt: "2026-09-26T00:00:00.000Z",
-      lastReadSeq: 2,
-    }
+
+
+  it("uses the mount's qualified read snapshot for the initial page", () => {
+    mocks.readState.snapshot = { lastReadMessageId: "current-mount-anchor", lastReadSeq: 7 }
     render(createElement(Capture)).unmount()
     expect(mocks.useMessages).toHaveBeenLastCalledWith("channel", expect.objectContaining({
-      lastReadMessageId: "authoritative-anchor",
+      lastReadMessageId: "current-mount-anchor",
     }))
   })
 

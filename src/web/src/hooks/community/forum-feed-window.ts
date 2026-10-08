@@ -1,4 +1,4 @@
-import { FORUM_ARCHIVE_TAG, normalizeCommunityChannelResource, normalizeCommunityMessageResource, type CommunityChannelResource, type CommunityThreadsRead } from "@alook/shared"
+import { FORUM_ARCHIVE_TAG, normalizeCommunityChannelResource, normalizeCommunityMessageResource, type CommunityChannelResource, type CommunityThreadsRead, type CommunityMessageResource, type CommunityResourceProfile, type CommunityMemberRelation } from "@alook/shared"
 import { avatarInitial } from "@/lib/community/avatar"
 import { canonicalUserImage } from "@/lib/community/storage"
 import type { InfiniteData } from "@tanstack/react-query"
@@ -17,27 +17,20 @@ export function projectThread(thread: ChannelRow, opener: Msg | undefined, paren
   }
 }
 
-export type ForumFeedTransportPage = {
-  serverId: string
+export type ForumFeedTransportPage = Pick<CommunityThreadsRead["page"], "hasMore"> & {
+  serverId: NonNullable<CommunityChannelResource["serverId"]>
   parentType: string
-  threads: Array<{
-    id: string
-    name: string | null
-    creatorId: string | null
-    messageCount: number | null
-    parentMessageId: string | null
-    lastMessageAt: string | null
-    createdAt: string
+  threads: Array<Pick<CommunityChannelResource, "id" | "name" | "creatorId" | "parentMessageId" | "lastMessageAt" | "createdAt"> & {
+    messageCount: CommunityChannelResource["messageCount"] | null
     activityAt: string
   }>
   included: {
-    parentMessages: Array<{ id: string; channelId: string; seq: number; createdAt?: string; content: string; authorId: string; authorName: string; authorImage: string | null; authorAvatarVersion: number }>
-    firstMessages: Array<{ channelId: string; content: string }>
-    tags: Array<{ messageId: string; tag: string }>
-    participants: Array<{ channelId: string; userId: string; userName: string | null; userImage: string | null; userAvatarVersion: number; participantCount?: number }>
+    parentMessages: Array<Required<Pick<CommunityMessageResource, "id" | "channelId" | "seq" | "content" | "authorId" | "authorName" | "authorAvatarVersion">> & Partial<Pick<CommunityMessageResource, "createdAt">> & { authorImage: CommunityResourceProfile["avatar"] }>
+    firstMessages: Array<Pick<CommunityMessageResource, "channelId" | "content">>
+    tags: CommunityThreadsRead["included"]["tags"]
+    participants: Array<Pick<CommunityMemberRelation, "channelId" | "userId"> & { userName: CommunityResourceProfile["name"] | null; userImage: CommunityResourceProfile["avatar"]; userAvatarVersion: CommunityResourceProfile["avatarVersion"]; participantCount?: number }>
   }
-  hasMore: boolean
-  nextCursor?: string
+  nextCursor?: NonNullable<CommunityThreadsRead["page"]["nextCursor"]>
 }
 
 export type CommunityThreadResources = {
@@ -69,12 +62,11 @@ export function normalizeThreadResources(channelId: string, value: ForumFeedTran
   }
 }
 
-export type ForumFeedPage = {
-  serverId: string
+export type ForumFeedPage = Pick<CommunityThreadsRead["page"], "hasMore"> & {
+  serverId: NonNullable<CommunityChannelResource["serverId"]>
   parentType: string
-  threads: Array<{ id: string; openerMessageId: string | null; participantIds: string[] }>
-  hasMore: boolean
-  nextCursor?: string
+  threads: Array<Pick<CommunityChannelResource, "id"> & { openerMessageId: CommunityChannelResource["parentMessageId"]; participantIds: Array<CommunityMemberRelation["userId"]> }>
+  nextCursor?: NonNullable<CommunityThreadsRead["page"]["nextCursor"]>
 }
 
 export function forumFeedWindow(page: CommunityThreadResources): ForumFeedPage {

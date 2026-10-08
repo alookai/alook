@@ -37,7 +37,7 @@ import {
   isForumSidebarParent,
   patchForumSidebarActivityExact,
 } from "@/hooks/community/use-forum-sidebar-threads"
-import { isBlocked, type MentionType } from "@alook/shared"
+import { isBlocked, type MentionType, type CommunityResourceProfile } from "@alook/shared"
 import {
   getActiveAccountUnreadProjection,
   type AccountUnreadDomain,
@@ -171,7 +171,7 @@ export type SendMessageArgs = {
   // (whose url is derived client-side from `id`). No `url` field — the upload
   // no longer returns one.
   attachments?: UploadedAttachment[]
-  author: { id: string; name: string; avatar: string }
+  author: { [Field in "id" | "name" | "avatar"]: NonNullable<CommunityResourceProfile[Field]> }
   // Idempotency nonce. Omitted on a fresh send (the hook mints one); the
   // retry-pill caller passes the failed row's nonce back so the resend reuses
   // it and dedupes server-side instead of double-posting.

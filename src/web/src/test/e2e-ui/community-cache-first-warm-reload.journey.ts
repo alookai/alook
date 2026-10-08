@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test"
+import { PERSIST_BUSTER } from "@/lib/query-persister"
 import { expect, test, userId } from "./_fixtures/community-fixture"
 import {
   seedChannel,
@@ -70,7 +71,7 @@ async function persistedQueries(page: Page, viewerId: string): Promise<Persisted
         )))
       }
     }
-  }), `alook:qc:v3:${viewerId}:client`)
+  }), `alook:qc:${PERSIST_BUSTER}:${viewerId}:client`)
 }
 
 function containsPersistedId(value: unknown, id: string): boolean {

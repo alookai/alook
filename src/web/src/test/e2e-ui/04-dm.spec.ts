@@ -329,6 +329,8 @@ test.describe.serial("direct messages", () => {
     await expect(bob.page.getByTestId(tid.message(messageId))).toHaveCount(0)
     await expect(bob.page.getByTestId(tid.composerInput)).toHaveCount(0)
     await expect(bob.page.getByRole("alert").filter({ hasText: "You can no longer read this conversation." })).toBeVisible()
+    await expect(bob.page.getByRole("alert").filter({ hasText: "Couldn't verify this conversation" })).toHaveCount(0)
+    await expect(bob.page.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0)
     await expect(bob.page.getByTestId(tid.dmBlockedNotice)).toHaveCount(0)
     await expect(bob.page).toHaveURL(new RegExp(`/c/me/${dmId}$`))
 
@@ -336,5 +338,7 @@ test.describe.serial("direct messages", () => {
     await expect(carol.page.getByTestId(tid.dmBlockedNotice)).toBeVisible()
     await expect(carol.page.getByTestId(tid.composerInput)).toHaveCount(0)
     await expect(carol.page.getByTestId(tid.message(messageId))).toHaveCount(0)
+    await expect(carol.page.getByRole("alert").filter({ hasText: "Couldn't verify this conversation" })).toHaveCount(0)
+    await expect(carol.page.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0)
   })
 })

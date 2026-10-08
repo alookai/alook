@@ -1,7 +1,7 @@
 import { loadCommunityRequest } from "@/lib/community/account-cache-lifecycle"
 import { createStore } from "@tanstack/react-store"
 import type {
-  CommunityProfilePatch,
+  CommunityProfile, CommunityProfilePatch,
   CommunityUserCore,
 } from "@/lib/community/models/people"
 import type { Msg } from "@/lib/community/models/message"
@@ -52,10 +52,7 @@ export function beginCommunityProfileSeed(
   return { registry, revision: registry ? revisionState(registry).get().revision : 0 }
 }
 
-type CommunityUserProfileSeed = CommunityUserCore & {
-  statusEmoji?: string | null
-  statusText?: string | null
-}
+type CommunityUserProfileSeed = CommunityUserCore & Pick<CommunityProfile, "statusEmoji" | "statusText">
 
 export function communityUserProfilePatch(
   userId: string,

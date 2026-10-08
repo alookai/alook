@@ -16,7 +16,7 @@ import {
   ConversationFooterShell,
   ConversationFooterSlotProvider,
 } from "@/components/community/messages/conversation-footer-shell"
-import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
+import type { FileAttachment, ImagePreview, ReplyTarget } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import {
   useUiHandlers,
@@ -58,7 +58,6 @@ import { toastApiError } from "@/lib/api/client"
 import { displayReplyContent } from "@/lib/community/reply-content"
 import {
   useCanonicalProfilesByUserId,
-  useReadStateProjection,
 } from "@/lib/community-db/projections"
 import { useNativeSystemNotificationConversationDismissal } from "@/hooks/community/use-native-system-notifications"
 import { commitCommunityChannelRoute } from "@/lib/community/last-community-route"
@@ -135,9 +134,8 @@ export function DmView({ dmId }: { dmId: string }) {
   // Frozen-once snapshot of the viewer's DM read pointer — the anchor for
   // the "New" divider AND the initial-page mode. Mirrors the channel-view
   // wiring so both surfaces open with the same anchor-window UX.
-  const canonicalReadSnapshot = useReadStateProjection(dmId)
   const { snapshot: readSnapshot, isFetching: readSnapshotFetching, error: readError, retry: retryRead, retrying: retryingRead } =
-    useDmReadStateSnapshot(metadata.denied ? null : dmId, historyAllowed ? canonicalReadSnapshot : undefined)
+    useDmReadStateSnapshot(metadata.denied || dmBlocked ? null : dmId)
 
   // Anchor the initial page on the viewer's read pointer. Pass `undefined`
   // (not `null`) while the snapshot resolves — the hook's initialPageParam
@@ -307,7 +305,7 @@ export function DmView({ dmId }: { dmId: string }) {
     }
   }, [communityRuntime, dmId])
 
-  const [replyTo, setReplyTo] = useAtom(useCreateAtom<{ id: string; authorName: string; text: string } | null>(null))
+  const [replyTo, setReplyTo] = useAtom(useCreateAtom<ReplyTarget | null>(null))
 
   useEffect(() => {
     setReplyTo(null)
@@ -431,10 +429,10 @@ export function DmView({ dmId }: { dmId: string }) {
     channelId: dmId,
   }, routeReady)
 
-  if (navigationGate.failed) {
+  if (!metadata.denied && !dmBlocked && navigationGate.failed) {
     return <ConversationResolutionErrorFrame retrying={false} onRetry={navigationGate.retry} />
   }
-  if (navigationBlocked) {
+  if (!metadata.denied && !dmBlocked && navigationBlocked) {
     return <DmLoadingFrame reserveBackSlot={bp === "mobile"} />
   }
 
@@ -463,7 +461,7 @@ export function DmView({ dmId }: { dmId: string }) {
         className="flex min-h-0 flex-1 flex-col"
       >
         <ConversationFooterSlotProvider>
-          {metadata.denied && !dmBlocked ? <div role="alert" className="flex min-h-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground">You can no longer read this conversation.</div> : !historyAllowed && readError ? <ConversationResolutionErrorFrame as="div" onRetry={retryRead} retrying={retryingRead} /> : <MessageList
+          {dmBlocked ? null : metadata.denied ? <div role="alert" className="flex min-h-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground">You can no longer read this conversation.</div> : !historyAllowed && readError ? <ConversationResolutionErrorFrame as="div" onRetry={retryRead} retrying={retryingRead} /> : <MessageList
             key={dmId}
             variant="dm"
             channel={dm.name}

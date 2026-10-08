@@ -3,7 +3,7 @@ import {
   COMMUNITY_CONTRACT_HEADER, requestsCommunityContractV2,
   CommunityChannelReadSchema, CommunityMessagesReadSchema, CommunityReadStateReadSchema,
   normalizeCommunityChannelResource, normalizeCommunityMessageResource,
-  type CommunityAccessDecision, type CommunityReadStateResource, type CommunityMessageSurfaceReceipt,
+  type CommunityAccessDecision, type CommunityReadStateResource, type CommunityMessageSurfaceReceipt, type CommunityMessagesRead,
 } from "@alook/shared"
 import { writeJSON } from "@/lib/middleware/helpers"
 
@@ -18,11 +18,11 @@ export function writeCommunityChannelRead(request: Request, channelId: string, c
     channel: normalizeCommunityChannelResource(channel), access: { channelId, ...access } }))
 }
 
-type MessagePage = {
-  messages: unknown[]; latestSeq: number;
-  cursor?: string; hasMore?: boolean; olderCursor?: string; newerCursor?: string;
-  hasMoreOlder?: boolean; hasMoreNewer?: boolean;
-  surfaceReceipt: CommunityMessageSurfaceReceipt;
+type MessagePage = Pick<CommunityMessagesRead["page"], "latestSeq"> & Partial<{ [Field in Exclude<keyof CommunityMessagesRead["page"], "latestSeq">]: NonNullable<CommunityMessagesRead["page"][Field]> }> & {
+  messages: unknown[]
+  cursor?: NonNullable<CommunityMessagesRead["page"]["olderCursor"]>
+  hasMore?: CommunityMessagesRead["page"]["hasMoreOlder"]
+  surfaceReceipt: CommunityMessageSurfaceReceipt
 }
 
 export function writeCommunityMessagesRead(request: Request, channelId: string, page: MessagePage) {

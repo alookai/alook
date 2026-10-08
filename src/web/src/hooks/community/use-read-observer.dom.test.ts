@@ -63,6 +63,8 @@ vi.mock("./account-unread-projection", async () => ({
 }))
 
 import { useTimelineReadObserver } from "./use-read-observer"
+import { useChannelWatermark } from "./use-channel-watermark"
+import { useDmWatermark } from "./use-dm-watermark"
 
 type ObserverRecord = {
   callback: IntersectionObserverCallback
@@ -258,6 +260,37 @@ describe("useTimelineReadObserver", () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+  })
+
+  it.each(["channel", "dm"] as const)("keeps the %s adapter on the common observer intent and lifetime", (kind) => {
+    const channelId = `${kind}-1`
+    const row = makeRow("message-4")
+    const props: Parameters<typeof useChannelWatermark>[0] = {
+      channelId,
+      messages: [{ id: "message-4", type: "chat", seq: 4, authorId: "other-1", createdAt: "t4" }],
+      scrollRootEl: makeRoot([row]),
+      snapshotStatus: "ready",
+      feedStatus: "ready",
+      tailAttached: true,
+      confirmedSeq: 2,
+      catchUp: () => Promise.resolve(),
+    }
+    act(() => ingestMessages(owner.registry, channelId, props.messages))
+    const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client: owner.client, registry: owner.registry, userId: "viewer-1", retainOwner: true }, children)
+    const view = kind === "channel"
+      ? renderHook(useChannelWatermark, { wrapper, initialProps: props })
+      : renderHook(useDmWatermark, { wrapper, initialProps: { ...props, dmId: channelId, channelId: "other-channel" } })
+
+    expect(coordinator.register).toHaveBeenCalledExactlyOnceWith(queryClient, "viewer-1", { kind: "timeline", channelId })
+    expect(coordinator.confirm).toHaveBeenCalledWith({ lease: "timeline" }, 2)
+    expect(observers).toHaveLength(1)
+    trigger(observers[0]!, row)
+    expect(coordinator.submit).toHaveBeenCalledExactlyOnceWith({ lease: "timeline" }, {
+      kind: "timeline", channelId, messageId: "message-4", seq: 4,
+    })
+    view.unmount()
+    expect(coordinator.release).toHaveBeenCalledExactlyOnceWith({ lease: "timeline" })
+    expect(observers[0]!.disconnected).toBe(true)
   })
 
   it("accepts only after the snapshot-ready observer sees a visible foreign row", () => {

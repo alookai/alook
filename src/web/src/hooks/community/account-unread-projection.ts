@@ -1,7 +1,11 @@
 "use client"
 
+import type { queries } from "@alook/shared"
+import type { ReadCoordinatorSnapshot } from "./read-coordinator-snapshot-projection"
 import { batch, createStore } from "@tanstack/react-store"
 import type { QueryClient } from "@tanstack/react-query"
+
+type AccountUnreadPrimarySnapshot = Pick<queries.communityReadState.AccountReadStateSnapshot, "revision"> & ReadCoordinatorSnapshot
 
 export type AccountUnreadFamily =
   | "servers"
@@ -680,10 +684,7 @@ export class AccountUnreadProjection {
       })
   }
 
-  acceptPrimarySnapshot(snapshot: {
-    revision: number
-    readStates: Array<{ channelId: string; lastReadSeq: number }>
-  }) {
+  acceptPrimarySnapshot(snapshot: AccountUnreadPrimarySnapshot) {
     return this.transition(() => {
     if (this.disposed || snapshot.revision < this.highestRevision) return
     this.highestRevision = snapshot.revision
@@ -2018,10 +2019,7 @@ export function disposeAccountUnreadProjection(
 
 export function acceptAccountUnreadPrimarySnapshot(
   queryClient: QueryClient,
-  snapshot: {
-    revision: number
-    readStates: Array<{ channelId: string; lastReadSeq: number }>
-  },
+  snapshot: AccountUnreadPrimarySnapshot,
 ) {
   const ownerUserId = activeOwners.get(queryClient)
   if (!ownerUserId) return

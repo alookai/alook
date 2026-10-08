@@ -86,7 +86,6 @@ export function channelReadStateSnapshotQueryFn(
  */
 export function useChannelReadStateSnapshot(
   channelId: string | null | undefined,
-  canonicalSnapshot?: ChannelReadStateSnapshot,
   kind: "channel" | "dm" = "channel",
 ): {
   snapshot: ChannelReadStateSnapshot | null
@@ -122,14 +121,14 @@ export function useChannelReadStateSnapshot(
     networkMode: "always",
   })
 
+  const available = query.status === "success" && !query.isFetching ? query.data : undefined
   useLayoutEffect(() => {
-    const available = canonicalSnapshot ?? (!query.isFetching ? query.data : undefined)
     if (available) entry.setState((state) => state.snapshot ? state : { ...state, snapshot: available })
-  }, [entry, canonicalSnapshot, query.data, query.isFetching])
+  }, [entry, available])
 
   return {
-    snapshot: frozen ?? canonicalSnapshot ?? (!query.isFetching ? (query.data ?? null) : null),
-    isFetching: frozen === null && !canonicalSnapshot && query.isFetching,
+    snapshot: frozen ?? available ?? null,
+    isFetching: frozen === null && query.isFetching,
     error: query.error,
     retrying: query.isFetching,
     retry: () => { void query.refetch({ cancelRefetch: false }) },

@@ -345,20 +345,6 @@ export function useRouteChannelProjection(channelId: string | null) {
   }, [channelId, result.data])
 }
 
-export function useReadStateProjection(channelId: string | null | undefined) {
-  const result = useCollectionQuery("readStates", ({ row }) => eq(row.channelId, channelId ?? ""))
-  return useMemo(() => {
-    if (!channelId || !result.data) return undefined
-    const row = result.data.find((candidate) => candidate.channelId === channelId)
-    if (!row) return undefined
-    return {
-      lastReadMessageId: row.lastReadMessageId,
-      lastReadAt: row.lastReadAt,
-      lastReadSeq: row.lastReadSeq,
-    }
-  }, [channelId, result.data])
-}
-
 function useJoinedMessageQuery(channelId: string | null | undefined, ids?: readonly string[]) {
   const registry = useOptionalCommunityDbRegistry()
   const result = useLiveQuery({

@@ -1,5 +1,7 @@
 "use client"
 
+import type { CommunityReadAdvanceSchema } from "@alook/shared"
+import type { z } from "zod"
 import { createStore } from "@tanstack/react-store"
 import type { Mutation, QueryClient } from "@tanstack/react-query"
 import { communityRequestOptions } from "@/lib/community-db/sync"
@@ -64,11 +66,7 @@ type PendingReadFlushOptions = {
   deferInboxDms?: () => boolean
 }
 
-type ReadMutationResponse = {
-  changed: boolean
-  revision: number
-  targetSeq: number
-}
+type ReadMutationResponse = Pick<z.infer<typeof CommunityReadAdvanceSchema>, "changed" | "revision" | "targetSeq">
 
 type SurfaceLease = {
   coordinator: ReadCoordinator

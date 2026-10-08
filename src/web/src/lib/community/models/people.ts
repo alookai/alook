@@ -1,4 +1,4 @@
-import type { CommunityResourceProfile } from "@alook/shared"
+import type { CommunityResourceProfile, CommunityMemberRelation, CommunityChannelIdentity } from "@alook/shared"
 
 export type Presence = "online" | "offline"
 
@@ -15,8 +15,7 @@ export type CommunityProfile = Pick<CommunityResourceProfile, "id"> & Partial<Co
   presence?: Presence
 }
 
-export type CommunityProfilePatch = {
-  id: string
+export type CommunityProfilePatch = Pick<CommunityProfile, "id"> & {
   identityAbout?: Partial<Pick<
     CommunityProfile,
     "name" | "discriminator" | "aboutMe" | "bannerColor" | "kind" | "ownerUserId"
@@ -31,40 +30,23 @@ export type CommunityUserCore = {
   [Field in "name" | "discriminator" | "avatar" | "avatarVersion"]: NonNullable<CommunityResourceProfile[Field]>
 }
 
-export type Member = CommunityUserCore & {
+export type Member = CommunityUserCore & Pick<CommunityProfile, "statusEmoji" | "statusText"> & Pick<CommunityMemberRelation, "userId"> & Partial<Pick<CommunityMemberRelation, "isCreator">> & {
   id: string
-  userId: string
   status: Presence
   sub: string
   role: import("@alook/shared").CommunityRole
-  // Custom status (emoji + short term) — see `Profile.statusEmoji`/`statusText`.
-  statusEmoji?: string | null
-  statusText?: string | null
-  // Populated only when the drawer shows a private channel/post roster or a
-  // thread participant set — drives the row's Leave/Remove right-click menu.
-  //   - isCreator: this user owns the unit (row locked — never removable/leaveable).
-  //   - source: for a channel/post, only "explicit" rows are removable (an
-  //     admin-by-role or inherited public member isn't an explicit roster row).
-  //     Thread participants are always "explicit"-equivalent (a real row).
-  isCreator?: boolean
   source?: "explicit" | "inherited" | "admin" | import("@alook/shared").ParticipantSource
 }
 
-export type Friend = CommunityUserCore & {
+export type Friend = CommunityUserCore & Pick<CommunityProfile, "statusEmoji" | "statusText"> & Partial<Pick<CommunityMemberRelation, "userId">> & {
   id: string
-  // Optional here (unlike Member/DM) — some friend rows predate a resolved
-  // userId; that's the one field that keeps Friend from a plain intersection.
-  userId?: string
   status: Presence
   sub: string
-  // Custom status (emoji + short term) — see `Profile.statusEmoji`/`statusText`.
-  statusEmoji?: string | null
-  statusText?: string | null
 }
 
 export type PendingRequest = Pick<CommunityUserCore, "name" | "avatar" | "avatarVersion"> & {
   id: string
-  userId: string
+  userId: CommunityProfile["id"]
   kind: "incoming" | "outgoing"
   // The gating owner id while a bot-touched row is pending; null once
   // unlocked. Drives whether Approve/Reject buttons render.
@@ -73,19 +55,19 @@ export type PendingRequest = Pick<CommunityUserCore, "name" | "avatar" | "avatar
 
 export type BlockedUser = Pick<CommunityUserCore, "name" | "avatar" | "avatarVersion"> & {
   id: string
-  userId?: string
+  userId?: CommunityProfile["id"]
 }
 
 // DM summary shown in the DM sidebar. Actual conversation history is loaded
 // into `ctx.messages` once the user opens the DM — DM summaries don't carry
 // inline messages.
 export type DM = CommunityUserCore & {
-  id: string // DM conversation nanoid — NOT the peer's user id (that's `userId`)
-  userId: string
+  id: CommunityChannelIdentity["id"] // DM conversation nanoid — NOT the peer's user id (that's `userId`)
+  userId: CommunityProfile["id"]
   status: Presence
   preview: string
   /** Server-authoritative `lastMessageAt ?? createdAt`, used only for list order. */
-  activityAt?: string
+  activityAt?: NonNullable<CommunityChannelIdentity["lastMessageAt"]>
   unread?: boolean
   lastUnreadSeq?: number
 }

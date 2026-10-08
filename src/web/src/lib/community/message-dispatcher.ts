@@ -12,7 +12,7 @@ import {
   type MessageDeliveryBatch,
   type AlookQueueTask,
 } from "@alook/shared"
-import { mapMessageForWs } from "./message-payload"
+import { mapMessageForWs, type MessageRow } from "./message-payload"
 import { sendMessageDeliveryBatch } from "./message-delivery-transport"
 import { enqueueQueueTasks } from "./queue-producer"
 import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
@@ -169,12 +169,7 @@ export async function planCommittedMessage(
     ...mentionUserIds,
   ])
 
-  const replyMap = new Map<string, {
-    id: string
-    authorId: string
-    authorName: string
-    content: string | null
-  }>()
+  const replyMap = new Map<string, Pick<MessageRow, "id" | "authorId" | "authorName" | "content">>()
   if (replyTarget) {
     replyMap.set(replyTarget.id, {
       id: replyTarget.id,

@@ -15,7 +15,7 @@ import { materializeIntent, type CanonicalMessage } from "@/lib/community/messag
 import { messageScopeKey } from "@/stores/community/message-stream-store"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import type { MentionType } from "@alook/shared"
+import type { MentionType, CommunityMessageResource, CommunityResourceProfile } from "@alook/shared"
 
 import { apiFetchProfiles } from "@/lib/community/profile-seed"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -120,8 +120,8 @@ export function useMessageChannelController({
       const params = new URLSearchParams({ q: term, channelId })
       const data = await apiFetchProfiles<{
         results: Array<{
-          message: { id: string; content: string; authorId: string; createdAt: string; seq?: number }
-          author: { id: string; name: string; image: string | null; avatarVersion: number }
+          message: Pick<CommunityMessageResource, "id" | "content" | "authorId" | "createdAt"> & Partial<Pick<CommunityMessageResource, "seq">>
+          author: Pick<CommunityResourceProfile, "id" | "name" | "avatarVersion"> & { image: CommunityResourceProfile["avatar"] }
         }>
       }>(
         "/api/community/messages/search?" + params,

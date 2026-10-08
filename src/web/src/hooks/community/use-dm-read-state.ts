@@ -6,7 +6,6 @@ export type DmReadStateSnapshot = ChannelReadStateSnapshot
 
 export function useDmReadStateSnapshot(
   dmId: string | null | undefined,
-  canonicalSnapshot?: DmReadStateSnapshot,
 ): ReturnType<typeof useChannelReadStateSnapshot> {
-  return useChannelReadStateSnapshot(dmId, canonicalSnapshot, "dm")
+  return useChannelReadStateSnapshot(dmId, "dm")
 }

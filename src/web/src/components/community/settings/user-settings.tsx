@@ -1,4 +1,5 @@
 "use client"
+import type { CommunityProfile } from "@/lib/community/models/people"
 
 import { useObservedRegion } from "@/lib/observability/regions"
 import { useObservedQueryRegion } from "@/lib/observability/query-regions"
@@ -187,13 +188,11 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
   userEmail: string
   aboutMe: string
   avatar: string
-  statusEmoji?: string | null
-  statusText?: string | null
-  onSave: (data: { name?: string; aboutMe?: string; statusEmoji?: string | null; statusText?: string | null }) => void
+  onSave: (data: Partial<Pick<CommunityProfile, "name" | "aboutMe" | "statusEmoji" | "statusText">>) => void
   onLogout?: () => void
   onAccountDeleted: () => Promise<void>
   onUploadAvatar?: () => void
-}) {
+} & Pick<CommunityProfile, "statusEmoji" | "statusText">) {
   // Draft + saved baseline are mount-only on purpose — a WS-driven prop change
   // (e.g. status fan-out echo) must not clobber an in-progress edit. The
   // baseline advances only on a successful save.

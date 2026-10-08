@@ -1744,28 +1744,17 @@ export function publishCommunityChannelDirectory(
   })
 }
 
-export type CommunityForumSidebarChannel = {
-  id: string
-  name: string
-  parentChannelId: string | null
-  parentMessageId: string | null
+export type CommunityForumSidebarChannel = Pick<CommunityChannelIdentity, "id" | "parentChannelId" | "parentMessageId"> & Partial<Pick<CommunityChannelIdentity, "creatorId" | "lastMessageAt">> & {
+  name: NonNullable<CommunityChannelIdentity["name"]>
+  serverId?: NonNullable<CommunityChannelIdentity["serverId"]>
+  type?: string
+  archived?: CommunityChannelIdentity["archived"] | number
   activityAt: string
   unread: boolean
-  serverId?: string
-  type?: string
-  creatorId?: string | null
-  archived?: boolean | number
-  lastMessageAt?: string | null
   participating?: boolean
 }
 
-export type CommunityForumSidebarOpener = {
-  id: string
-  content: string
-  seq?: number
-  channelId?: string
-  type?: "chat" | "system"
-}
+export type CommunityForumSidebarOpener = Pick<CommunityMessageResource, "id" | "content"> & Partial<Pick<CommunityMessageResource, "seq" | "channelId" | "type">>
 
 /** Publish the service facts carried by one forum-sidebar response. */
 export function publishCommunityForumSidebar(
