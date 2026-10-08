@@ -26,6 +26,16 @@ describe("common read response publication", () => {
     }
   })
 
+  it("keeps metadata authority in the admitted decision and strips legacy forged authority", () => {
+    const channel = threads().channel
+    const access = { channelId: channel.id, canRead: false, canSend: false, canCreateDiscussion: false }
+    const path = `/api/community/channels/${channel.id}`
+    const current = decodeCommunityReadResponse(path, "GET", confirmed(), { contractVersion: 2, channelId: channel.id, channel, access })
+    expect(current).toEqual({ ...channel, accessDecision: access })
+    expect(current).not.toHaveProperty("readContractVersion")
+    expect(decodeCommunityReadResponse(path, "GET", new Response(), { ...channel, readContractVersion: 2, accessDecision: access })).toEqual(channel)
+  })
+
   it("publishes only a confirmed scoped read-waterline advancement", () => {
     const body = { contractVersion: 2, channelId: "thread", changed: false, targetSeq: 8, revision: 12 }
     expect(decodeCommunityReadResponse("/api/community/channels/thread/read", "PUT", confirmed(), body)).toEqual({ changed: false, targetSeq: 8, revision: 12 })

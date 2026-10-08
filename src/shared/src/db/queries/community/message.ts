@@ -915,7 +915,6 @@ export async function getLatestMessage(
  * writing a read-state row without a `lastReadMessageId`, so the caller must
  * be able to tell "no message → no write" from a single lookup.
  *
- * Same MIN/MAX-per-channel subquery pattern as `getFirstMessageByChannelIds`
  * — one SQL round-trip regardless of channel count.
  */
 export async function getLatestMessagesByChannelIds(
@@ -982,49 +981,7 @@ export async function getLatestMessagesByChannelIds(
   return Array.from(bestByChannel.values());
 }
 
-export async function getFirstMessageByChannelIds(db: Database, channelIds: string[]) {
-  if (channelIds.length === 0) return [];
-  // Use a subquery to get the min createdAt per channel, then join to get the
-  // content. Chunk the `inArray` for D1's 100-param limit — GROUP BY channelId
-  // partitions cleanly across chunks (defensive; input is page-bounded today).
-  const runChunk = (ids: string[]) => {
-    const firstDates = db
-      .select({
-        channelId: communityMessage.channelId,
-        minCreatedAt: sql<string>`MIN(${communityMessage.createdAt})`.as("min_created_at"),
-      })
-      .from(communityMessage)
-      .where(inArray(communityMessage.channelId, ids))
-      .groupBy(communityMessage.channelId)
-      .as("first_dates");
 
-    return db
-      .select({
-        channelId: communityMessage.channelId,
-        content: communityMessage.content,
-      })
-      .from(communityMessage)
-      .innerJoin(
-        firstDates,
-        and(
-          eq(communityMessage.channelId, firstDates.channelId),
-          eq(communityMessage.createdAt, firstDates.minCreatedAt)
-        )
-      );
-  };
-
-  const rows = (
-    await Promise.all(chunk(channelIds, D1_MAX_IN_PARAMS).map(runChunk))
-  ).flat();
-
-  // Deduplicate in case of exact same createdAt within a channel
-  const seen = new Set<string>();
-  return rows.filter((r) => {
-    if (!r.channelId || seen.has(r.channelId)) return false;
-    seen.add(r.channelId);
-    return true;
-  });
-}
 
 /**
  * Look up a single message by (channel-or-DM scope, seq). `seq === 0` is the

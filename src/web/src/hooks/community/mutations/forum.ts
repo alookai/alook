@@ -16,7 +16,7 @@ import {
 import { apiFetch } from "@/lib/api/client"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { communityKeys } from "@/lib/query-keys"
-import type { UploadedAttachment } from "@/hooks/community/mutations/uploads"
+import type { UploadFileResult } from "@/hooks/community/mutations/uploads"
 import type { MentionType } from "@alook/shared"
 import { FORUM_ARCHIVE_TAG } from "@alook/shared"
 import {
@@ -37,7 +37,7 @@ export type CreateForumThreadArgs = {
   // (creating pending rows) before firing this mutation and passes the
   // descriptors here; only their `id`s reach the server (reserve-by-id,
   // route/disc step 2b), which links them onto the post's first message.
-  attachments?: UploadedAttachment[]
+  attachments?: UploadFileResult[]
   // Propagated to the first message so `@everyone` audience broadcast
   // fires end-to-end.
   mentionType?: MentionType

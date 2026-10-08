@@ -4,7 +4,7 @@ import { useCommunityRuntime } from "@/stores/community/runtime"
 
 
 import { useEffect, useMemo, useRef } from "react"
-import { useRouter } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { isForum as isForumType } from "@alook/shared"
 import { useServer } from "./use-servers"
@@ -16,6 +16,7 @@ import {
   consumeCommunityColdEntryFailure,
 } from "@/lib/community/last-community-route"
 import { communityWsSubscribe, communityWsUnsubscribe } from "./use-community-ws"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useChannelMetadata } from "./use-channel-metadata"
 import type { ChildChannelMeta } from "./use-forum-sidebar-threads"
 
@@ -64,6 +65,7 @@ export function useChannelRouteModel(
   accountId: string,
 ) {
   const router = useRouter()
+  const pathname = usePathname()
   const queryClient = useQueryClient()
   const runtime = useCommunityRuntime()
   const serverQuery = useServer(serverId)
@@ -136,13 +138,15 @@ export function useChannelRouteModel(
     if (metaQuery.canRead) exited.current = null
     if (metaQuery.denied || metaQuery.isArchived) {
       if (exited.current?.client === queryClient && exited.current.scope === exitScope) return
+      const registry = getCommunityDbRegistry(queryClient)
+      if (pathname !== `/c/channels/${serverParam}/${channelId}` || window.location.pathname !== pathname || registry?.accountId !== accountId
+        || registry.runtime !== runtime || !runtime.lifecycle.get().active || runtime.ws.get().revokedServerIds.has(serverId)) return
       exited.current = { client: queryClient, scope: exitScope }
-      if (runtime.ui.get().currentChannelId !== channelId || runtime.ws.get().revokedServerIds.has(serverId)) return
       runtime.ui.actions.setCurrentChannelId(null)
       router.replace(consumeCommunityColdEntryFailure(accountId, `/c/channels/${serverParam}/${channelId}`)
         ? COMMUNITY_COLD_ENTRY_FALLBACK : `/c/channels/${serverParam}`)
     } else if (metadataError && metaQuery.error) toastApiError(metaQuery.error, "Failed to load channel")
-  }, [accountId, channelId, exitScope, metaQuery.canRead, metaQuery.denied, metaQuery.error, metaQuery.isArchived, metadataError, queryClient, router, runtime, serverId, serverParam])
+  }, [accountId, channelId, exitScope, metaQuery.canRead, metaQuery.denied, metaQuery.error, metaQuery.isArchived, metadataError, pathname, queryClient, router, runtime, serverId, serverParam])
 
   return {
     ...model,

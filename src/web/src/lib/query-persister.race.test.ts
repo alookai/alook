@@ -5,14 +5,16 @@ import { QueryClient, dehydrate } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import { canonicalChannelRow } from "@/lib/community-db/schema"
 import type { PersistedClient } from "@tanstack/react-query-persist-client"
-import { clearPersistedCache, createIdbPersister, PERSIST_BUSTER, cacheInvalidation } from "./query-persister"
+import { clearPersistedCache, createIdbPersister, PERSIST_BUSTER,
+  PERSIST_VERSION,
+  PERSIST_CACHE_PREFIX, cacheInvalidation } from "./query-persister"
 
 const client: PersistedClient = {
   timestamp: 1,
   buster: PERSIST_BUSTER,
   clientState: { mutations: [], queries: [] },
 }
-const blobKey = (user: string) => `alook:qc:${PERSIST_BUSTER}:${user}:client`
+const blobKey = (user: string) => `${PERSIST_CACHE_PREFIX}:${user}:client`
 afterEach(() => vi.restoreAllMocks())
 
 describe("native IDB persistence retirement", () => {
@@ -65,6 +67,26 @@ describe("native IDB persistence retirement", () => {
     const fresh = otherDocument.createIdbPersister(user)
     await fresh.persistClient({ ...client, timestamp: 2 })
     expect((await fresh.restoreClient())?.timestamp).toBe(2)
+  })
+
+  it.each([undefined, PERSIST_VERSION - 1, "invalid"])("discards version %s within the account cache and fences existing owners", async (version) => {
+    const user = `u_mismatch_${version}`
+    const old = createIdbPersister(user), sibling = createIdbPersister(`${user}_other`)
+    await old.persistClient(client)
+    await sibling.persistClient(client)
+    await set(blobKey(user), JSON.stringify({ ...client, version, channelFences: [] }))
+    const fresh = createIdbPersister(user)
+    await expect(fresh.restoreClient()).resolves.toBeUndefined()
+    expect(await get(blobKey(user))).toBeUndefined()
+    await expect(old.isCurrent()).resolves.toBe(false)
+    await old.persistClient({ ...client, timestamp: 9 })
+    expect(await get(blobKey(user))).toBeUndefined()
+    await expect(sibling.restoreClient()).resolves.toEqual(client)
+    await fresh.persistClient({ ...client, timestamp: 2 })
+    await expect(fresh.restoreClient()).resolves.toMatchObject({ timestamp: 2 })
+    await set(blobKey(user), JSON.stringify({ ...client, version, channelFences: [] }))
+    await expect(fresh.restoreClient()).resolves.toBeUndefined()
+    expect(await get(blobKey(user))).toBeUndefined()
   })
 
   it("a retired remover cannot delete a newly qualified owner's payload", async () => {
@@ -270,12 +292,33 @@ describe("native channel persistence fence", () => {
     const user = "u_corrupt_payload_retire", owner = createIdbPersister(user)
     await owner.persistClient(readingSnapshot(user))
     await set(blobKey(user), "not-json")
-    await expect(owner.retireChannels(["dm-A"])).rejects.toThrow(SyntaxError)
+    await expect(owner.retireChannels(["dm-A"])).resolves.toBeUndefined()
+    expect(await get(blobKey(user))).toBeUndefined()
     await set(blobKey(user), JSON.stringify({ ...client, channelFences: "invalid" }))
     await owner.retireChannels(["dm-A"])
     expect(await get(blobKey(user))).toBeUndefined()
     expect(await owner.restoreClient()).toBeUndefined()
     expect(await owner.isCurrent()).toBe(true)
+  })
+
+  it("retires attention by scope, child and read target while keeping unrelated items and friend requests", async () => {
+    const user = "u_attention_retirement", owner = createIdbPersister(user)
+    const snapshot = readingSnapshot(user), qc = new QueryClient()
+    const item = (id: string, extra: Record<string, unknown> = {}) => ({ id, kind: "reply", sourceId: id, createdAt: "2026-10-08T00:00:00Z", ...extra })
+    qc.setQueryData(communityKeys.communityDbCollection(user, "attentionItems"), [
+      item("scope", { scopeId: "dm-A" }), item("child", { childChannelId: "dm-A" }),
+      item("target", { readTarget: { channelId: "dm-A", seq: 1 } }),
+      item("sibling", { scopeId: "dm-B", readTarget: { channelId: "dm-B", seq: 1 } }),
+      item("unscoped"), item("friend", { kind: "friend_request", actorUserId: "peer" }),
+    ])
+    snapshot.clientState.queries.push(...dehydrate(qc).queries)
+    await owner.persistClient(snapshot)
+    await owner.retireChannels(["dm-A"])
+    const restored = await owner.restoreClient()
+    expect(readingRows(restored, "attentionItems")?.map(row => row.id)).toEqual(["unscoped", "sibling", "friend"])
+    expect(readingRows(restored, "messages")?.map(row => row.channelId)).toEqual(["dm-B"])
+    await owner.persistClient(snapshot)
+    expect(readingRows(await owner.restoreClient(), "attentionItems")?.map(row => row.id)).toEqual(["unscoped", "sibling", "friend"])
   })
 
   it.each(["missing", "corrupt"])("fails closed for %s stored channel fence metadata", async (kind) => {

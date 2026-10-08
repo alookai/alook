@@ -15,8 +15,10 @@ import {
   type CommunityCollectionRows,
 } from "@/lib/community-db/schema"
 
-export const PERSIST_BUSTER = "v4"
-const IDB_PREFIX = `alook:qc:${PERSIST_BUSTER}`
+export const PERSIST_VERSION = 5
+export const PERSIST_BUSTER = String(PERSIST_VERSION)
+export const PERSIST_CACHE_PREFIX = "alook:qc:cache"
+const IDB_PREFIX = PERSIST_CACHE_PREFIX
 
 /** Persister max-age; queries older than this are discarded on restore. */
 export const PERSIST_MAX_AGE_MS = 24 * 60 * 60 * 1000
@@ -90,19 +92,12 @@ function scrubDehydratedClient(
       : []
   })
   const attentionScopes = rows("attentionScopes").filter((row) => !retired.has(row.channelId))
-  const retainedAttentionItems = rows("attentionItems").filter((row) => !Boolean(row.scopeId && retired.has(row.scopeId) || row.childChannelId && retired.has(row.childChannelId) || row.readTarget && retired.has(row.readTarget.channelId)))
-  const retainedMessageAttention = retainedAttentionItems
-    .filter((item) => item.kind !== "friend_request")
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))
-    .slice(0, MAX_PERSISTED_ATTENTION_ITEMS)
-  const retainedFriendAttention = retainedAttentionItems
-    .filter((item) => item.kind === "friend_request")
-  retainedAttentionItems.splice(
-    0,
-    retainedAttentionItems.length,
-    ...retainedMessageAttention,
-    ...retainedFriendAttention,
-  )
+  const attentionCandidates = rows("attentionItems").filter((row) => !Boolean(row.scopeId && retired.has(row.scopeId) || row.childChannelId && retired.has(row.childChannelId) || row.readTarget && retired.has(row.readTarget.channelId)))
+  const retainedAttentionItems = [
+    ...attentionCandidates.filter((item) => item.kind !== "friend_request")
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)).slice(0, MAX_PERSISTED_ATTENTION_ITEMS),
+    ...attentionCandidates.filter((item) => item.kind === "friend_request"),
+  ]
   const attentionChannelIds = new Set(attentionScopes.map((row) => row.channelId))
   const retainedChannels = channels.filter((row) => (
     attentionChannelIds.has(row.id)
@@ -246,13 +241,16 @@ function changedChannelFences(current: Map<string, ChannelDiskFence>, expected: 
   return new Map([...current].filter(([id, fence]) => fence.epoch !== expected.get(id)?.epoch))
 }
 function decodeDiskSnapshot(raw: unknown) {
-  if (typeof raw !== "string") return undefined
-  const { channelFences, ...snapshot } = JSON.parse(raw) as PersistedClient & { channelFences?: unknown }
-  if (!Array.isArray(channelFences) || !channelFences.every((entry) => Array.isArray(entry) && entry.length === 2)) return undefined
-  const fences = new Map(channelFences)
-  if (!isChannelFences(fences)) return undefined
-  return { snapshot, fences }
+  try {
+    if (typeof raw !== "string") return undefined
+    const { version, channelFences, ...snapshot } = JSON.parse(raw) as PersistedClient & { version?: unknown; channelFences?: unknown }
+    if (version !== PERSIST_VERSION || snapshot.buster !== PERSIST_BUSTER || !Array.isArray(channelFences)
+      || !channelFences.every((entry) => Array.isArray(entry) && entry.length === 2)) return undefined
+    const fences = new Map(channelFences)
+    return isChannelFences(fences) ? { snapshot, fences } : undefined
+  } catch { return undefined }
 }
+
 const isEpoch = (value: unknown): value is string => (
   typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
 )
@@ -289,6 +287,11 @@ async function readEligibility(store: IDBObjectStore, key: string, userId: strin
 // writer or trusts its payload; generation tombstones survive payload removal.
 function qualifyPersister(key: string, userId: string | null): Promise<PersistEligibility> {
   return cacheTransaction("readwrite", async (store) => {
+    await clearAccountRows(store, userId, true)
+    const raw = await promisifyRequest<unknown>(store.get(key))
+    if (raw !== undefined) {
+      if (!decodeDiskSnapshot(raw)) await clearAccountRows(store, userId)
+    }
     const current = await readEligibility(store, key, userId)
     const device = isEpoch(current.device) ? current.device : crypto.randomUUID()
     const intact = isEpoch(current.account) && isChannelFences(current.channels)
@@ -338,14 +341,15 @@ export function createIdbPersister(userId: string | null): QualifiedPersister {
   void eligibility.catch(() => undefined)
   const persister = createAsyncStoragePersister({
     storage: {
-      getItem: () => observeRestoreRead(() => withEligiblePersister(key, userId, eligibility, "readonly", null, async (store, current) => {
+      getItem: () => observeRestoreRead(() => withEligiblePersister(key, userId, eligibility, "readwrite", null, async (store, current) => {
         const decoded = decodeDiskSnapshot(await promisifyRequest<unknown>(store.get(key)))
+        if (!decoded) store.delete(key)
         return decoded ? JSON.stringify(scrubDehydratedClient(decoded.snapshot, userId, changedChannelFences(current, decoded.fences))) : null
       }), persister),
       setItem: (_k: string, value: string) => withEligiblePersister(
         key, userId, eligibility, "readwrite", undefined, async (store, current, expected) => {
           const snapshot = scrubDehydratedClient(JSON.parse(value) as PersistedClient, userId, changedChannelFences(current, expected))
-          store.put(JSON.stringify({ ...snapshot, channelFences: [...current] }), key)
+          store.put(JSON.stringify({ ...snapshot, version: PERSIST_VERSION, channelFences: [...current] }), key)
         },
       ),
       // Expiry/buster removal removes only this payload. It does not retire
@@ -405,7 +409,7 @@ async function retireChannelRows(store: IDBObjectStore, key: string, userId: str
   const decoded = decodeDiskSnapshot(await promisifyRequest<unknown>(store.get(key)))
   if (decoded) {
     const snapshot = scrubDehydratedClient(decoded.snapshot, userId, changedChannelFences(fences, decoded.fences))
-    store.put(JSON.stringify({ ...snapshot, channelFences: [...fences] }), key)
+    store.put(JSON.stringify({ ...snapshot, version: PERSIST_VERSION, channelFences: [...fences] }), key)
   } else store.delete(key)
 }
 

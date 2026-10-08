@@ -1,4 +1,4 @@
-import { CommunityMembersReadSchema, queries, type Database } from "@alook/shared"
+import { COMMUNITY_CONTRACT_VERSION, CommunityMembersReadSchema, queries, type Database } from "@alook/shared"
 import { requireMessageSurfaceAccess } from "./permissions"
 import { writeError } from "@/lib/middleware/helpers"
 import { writeCommunityContractJSON } from "./read-contract"
@@ -27,7 +27,7 @@ export async function readCommunityMembers(db: Database, channelId: string, user
     avatar: canonicalUserImage(row.id, row.image, row.avatarVersion), avatarVersion: row.avatarVersion,
     statusEmoji: memberByUser.get(row.id)?.statusEmoji ?? null, statusText: memberByUser.get(row.id)?.statusText ?? "" }))
   const available = new Set(profiles.map((profile) => profile.id))
-  return writeCommunityContractJSON(CommunityMembersReadSchema.parse({ contractVersion: 2, channelId, relation,
+  return writeCommunityContractJSON(CommunityMembersReadSchema.parse({ contractVersion: COMMUNITY_CONTRACT_VERSION, channelId, relation,
     members: relations.filter((row) => available.has(row.userId)).map((row) => ({ channelId, userId: row.userId,
       relation, source: row.source ?? "explicit", isCreator: row.userId === channel.creatorId,
       role: memberByUser.get(row.userId)?.role ?? null, memberId: memberByUser.get(row.userId)?.id ?? null })), profiles }))

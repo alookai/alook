@@ -125,6 +125,7 @@ describe("projectPostedMessage", () => {
       expect(message).not.toHaveProperty("embeds")
       expect(message).not.toHaveProperty("channelId")
       expect(message).not.toHaveProperty("replyToId")
+      expect(message).not.toHaveProperty("replyTo")
     }
   })
 

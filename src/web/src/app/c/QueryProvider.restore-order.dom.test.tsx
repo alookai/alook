@@ -51,7 +51,7 @@ import { applyTypingIndicator } from "@/hooks/community/community-ws/typing"
 import { useCommunityStore } from "@/stores/community"
 import { apiFetchProfiles } from "@/lib/community/profile-seed"
 import { useChannelRouteModel } from "@/hooks/community/use-channel-route-model"
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn() }) }))
+vi.mock("next/navigation", () => ({ usePathname: () => "/c/channels/server-1/post-1", useRouter: () => ({ replace: vi.fn() }) }))
 vi.mock("@/hooks/community/use-servers", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/hooks/community/use-servers")>(),
   useServer: () => ({ server: { id: "strict-server", categories: [{ id: "strict-category", channels: [{ id: "strict-route", type: "text" }] }] } }),

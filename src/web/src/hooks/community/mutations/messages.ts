@@ -27,7 +27,7 @@ import {
 
 import type { MessageScope } from "@/lib/community/message-stream"
 import type { Attachment, Msg } from "@/lib/community/models/message"
-import type { UploadedAttachment } from "./uploads"
+import type { UploadFileResult } from "./uploads"
 
 
 import {
@@ -56,8 +56,7 @@ import {
   restoreAttentionOptimisticDomains,
   restoreAttentionOptimisticSnapshot,
   restoreAttentionItemsOptimisticSnapshot,
-  type AttentionOptimisticSnapshot,
-  type AttentionItemsOptimisticSnapshot,
+  type AttentionIntent,
 } from "@/lib/community-db/sync"
 
 
@@ -170,7 +169,7 @@ export type SendMessageArgs = {
   // sent to the server (in an id array); the rest drive the optimistic VM
   // (whose url is derived client-side from `id`). No `url` field — the upload
   // no longer returns one.
-  attachments?: UploadedAttachment[]
+  attachments?: UploadFileResult[]
   author: { [Field in "id" | "name" | "avatar"]: NonNullable<CommunityResourceProfile[Field]> }
   // Idempotency nonce. Omitted on a fresh send (the hook mints one); the
   // retry-pill caller passes the failed row's nonce back so the resend reuses
@@ -208,6 +207,7 @@ function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(
       const { content, replyToId, replyTo, attachments, nonce, original: token, assertActive } = args
       origin.assert(token); assertActive?.()
       const scope = sendMessageScope(args)
+      const acceptedReply = replyTo ?? getCommunityRuntime(queryClient).messageStream.actions.getRetryPayload(scope, nonce ?? "")?.message.replyTo
       const result = await origin.request<SendMessageResult>(token, `/api/community/channels/${scope.id}/messages`, {
         method: "POST", signal: assertActive?.signal, assertActive,
         body: JSON.stringify({ content, replyToId: replyTo?.id ?? replyToId,
@@ -218,7 +218,7 @@ function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(
       origin.assert(token); assertActive?.()
       const message = projectPostedMessage(result.message, nonce ?? "", scope.id)
       publishCommunityMessages(queryClient, { channelId: scope.id,
-        messages: [{ ...message, ...(attachments?.length ? { attachments: attachments.map((attachment) => toAttachmentVm(scope.id, attachment)) } : {}), ...(replyTo ? { replyTo } : {}) }],
+        messages: [{ ...message, ...(attachments?.length ? { attachments: attachments.map((attachment) => toAttachmentVm(scope.id, attachment)) } : {}), ...(acceptedReply && !("replyTo" in result.message) && (!("replyToId" in result.message) || result.message.replyToId === acceptedReply.id) ? { replyTo: acceptedReply } : {}) }],
         proof: { token, ...(scope.kind === "channel" ? { signal: assertActive?.signal } : {}) } })
       return result
     },
@@ -337,7 +337,7 @@ export function useMarkAllInboxRead() {
   }
   type MarkAllContext = {
     tokens: Map<AccountUnreadDomain, MarkAllToken>
-    snapshot?: AttentionOptimisticSnapshot
+    snapshot?: AttentionIntent
   }
   type Original = ReturnType<typeof origin.begin>["token"]
   const mutation = useMutation<DomainResult[], Error, Original, MarkAllContext>({ meta: { observabilityAction: "inbox.read_all" },
@@ -448,7 +448,7 @@ export function useDeleteMention() {
     { input: DeleteMentionArgs; original: Original },
     {
       token?: AccountUnreadDismissToken
-      attentionSnapshot?: AttentionItemsOptimisticSnapshot
+      attentionSnapshot?: AttentionIntent
     }
   >({ meta: { observabilityAction: "mention.dismiss" },
     scope: { id: "community-mention-delete" },

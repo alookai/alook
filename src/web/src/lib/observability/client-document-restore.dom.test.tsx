@@ -57,12 +57,13 @@ it("retires the old document before native resume, then exports one original Bac
     return <p>{router.pathname === forum ? "forum" : "empty text"}</p>
   }
   function Root() {
+    const pathname = router.pathname
     useLayoutEffect(() => setTelemetryUser("account-a"), [])
-    useLayoutEffect(() => commitNavigation(router.pathname), [router.pathname])
+    useLayoutEffect(() => commitNavigation(pathname), [pathname])
     return <QueryClientProvider client={queryClient!}><Content /></QueryClientProvider>
   }
   await act(async () => { bootstrapObservability("web"); view = render(<Root />) })
-  await vi.waitFor(() => expect(native.faro?.api.getSession()?.id).toBeTruthy())
+  await act(async () => { await vi.waitFor(() => expect(native.faro?.api.getSession()?.id).toBeTruthy()) })
   await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
   const originalSession = native.faro!.api.getSession()!.id
   const initialReady = sent.flatMap(body => body.events ?? []).filter(event => event.name === "navigation.ready")

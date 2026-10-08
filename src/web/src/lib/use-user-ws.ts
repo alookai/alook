@@ -2,6 +2,8 @@
 import { emitTelemetry, isTelemetryEligible, telemetryGeneration } from "@/lib/observability/telemetry"
 import { useEffect, useRef, useCallback } from "react"
 import {
+  COMMUNITY_CONTRACT_VERSION,
+  type CommunityContract,
   communityBrowserEventBatchType,
   COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES,
   COMMUNITY_BROWSER_EVENT_MAX_BYTES,
@@ -609,7 +611,7 @@ export function useUserWs(
       trackCommunityWsAuthFailure({ failureClass })
     }
 
-    let communityContract: 1 | 2 = 1
+    let communityContract: CommunityContract = 1
     let communityAdmission = Promise.resolve()
     let pendingAdmissions = 0
     let ws: WebSocket
@@ -649,7 +651,7 @@ export function useUserWs(
       openedAt = Date.now()
       reportOpenStage("success")
       try {
-        ws.send(JSON.stringify({ type: "auth", token: authToken, communityContract: 2 }))
+        ws.send(JSON.stringify({ type: "auth", token: authToken, communityContract: COMMUNITY_CONTRACT_VERSION }))
       } catch {
         reportAuthStage("failure")
         reportAuthFailure("network")
@@ -714,7 +716,7 @@ export function useUserWs(
           reportDroppedFrame("duplicate-auth-ok", msg)
           return
         }
-        communityContract = msg.communityContract === 2 ? 2 : 1
+        communityContract = msg.communityContract === COMMUNITY_CONTRACT_VERSION ? COMMUNITY_CONTRACT_VERSION : 1
         reportAuthStage("success")
         authenticatedGenerationRef.current = generation
         if (connectTimeoutRef.current !== null) {
@@ -768,7 +770,7 @@ export function useUserWs(
           return
         }
       }
-      if (communityContract !== 2 && (
+      if (communityContract !== COMMUNITY_CONTRACT_VERSION && (
         msg.type === communityBrowserEventBatchType()
         || msg.type === "community:channel.membership.change"
         || (isCommunityBatch && Array.isArray(msg.events) && msg.events.some((event: unknown) =>

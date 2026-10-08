@@ -1,4 +1,4 @@
-import type { Logger } from "@alook/shared"
+import type { CommunityContract, Logger } from "@alook/shared"
 
 export const COMMUNITY_DELIVERY_PROGRESS_LIMIT = 64
 export const COMMUNITY_CONNECTION_STATE_JSON_MAX_BYTES = 12 * 1024
@@ -18,7 +18,7 @@ export type ConnectionState =
     authenticated: boolean
     name?: string
     discriminator?: string
-    communityContract?: 1 | 2
+    communityContract?: CommunityContract
     communityDeliveryProgress?: CompactCommunityDeliveryProgress[]
   }
   | { type: "daemon"; daemonId: string; userId: string; authenticated: boolean }

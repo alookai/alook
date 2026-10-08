@@ -1,7 +1,7 @@
 "use client"
 
-import { useCallback, useMemo } from "react"
-import { createStore, useSelector } from "@tanstack/react-store"
+import { useCallback } from "react"
+import { useCreateAtom, useAtom } from "@tanstack/react-store"
 import { hashKey, type QueryKey, type UseQueryResult } from "@tanstack/react-query"
 import { isConversationAccessError } from "@/lib/community/conversation-read"
 
@@ -11,14 +11,17 @@ export function useConversationReadRetry<T>(
   scope: QueryKey,
 ) {
   const identity = hashKey(scope)
-  const state = useMemo(() => createStore({ operation: null as Promise<void> | null }), [owner, identity])
-  const operation = useSelector(state, (value) => value.operation)
+  const state = useCreateAtom<{ owner: object; identity: string; pending: Promise<void> } | null>(null)
+  const [operation] = useAtom(state)
+  const retrying = operation?.owner === owner && operation.identity === identity
+  const { isError, isFetching, error, refetch } = query
   const retry = useCallback(() => {
-    if (state.get().operation) return Promise.resolve()
-    if (!query.isError || query.isFetching || isConversationAccessError(query.error)) return Promise.resolve()
-    const pending = query.refetch({ cancelRefetch: false }).then(() => {}).finally(() => state.setState(() => ({ operation: null })))
-    state.setState(() => ({ operation: pending }))
+    const active = state.get()
+    if (active?.owner === owner && active.identity === identity) return Promise.resolve()
+    if (!isError || isFetching || isConversationAccessError(error)) return Promise.resolve()
+    const pending = refetch({ cancelRefetch: false }).then(() => {}).finally(() => state.set((current) => current?.pending === pending ? null : current))
+    state.set({ owner, identity, pending })
     return pending
-  }, [query.isError, query.isFetching, query.error, query.refetch, state])
-  return { retry, retrying: !!operation, failed: query.isError || !!operation }
+  }, [isError, isFetching, error, refetch, state, owner, identity])
+  return { retry, retrying, failed: isError || retrying }
 }

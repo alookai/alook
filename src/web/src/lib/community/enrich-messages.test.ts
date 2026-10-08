@@ -32,7 +32,7 @@ vi.mock("@alook/shared", async () => {
         ...actual.queries.communityMessage,
         getMessagesByIdsInScope: (...args: unknown[]) => mocks.getReplies(...args),
         getLatestMessageSeq: (...args: unknown[]) => mocks.getLatestSeq(...args),
-        getFirstMessageByChannelIds: (...args: unknown[]) => mocks.getFirstMessages(...args),
+        getFirstMessageResourcesByChannelIds: (...args: unknown[]) => mocks.getFirstMessages(...args),
       },
       communityChannel: {
         ...actual.queries.communityChannel,

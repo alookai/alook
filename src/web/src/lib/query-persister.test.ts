@@ -6,6 +6,8 @@ import type { PersistedClient } from "@tanstack/react-query-persist-client"
 import { communityKeys } from "@/lib/query-keys"
 import {
   PERSIST_BUSTER,
+  PERSIST_VERSION,
+  PERSIST_CACHE_PREFIX,
   clearPersistedCache,
   clearAllPersistedCaches,
   createIdbPersister,
@@ -165,7 +167,7 @@ function validServerDetail(id = "srv_1") {
 
 async function readPersistedBlob(userId: string | null): Promise<PersistedClient> {
   const raw = await get<string>(
-    `alook:qc:v4:${userId ?? "anon"}:client`,
+    `alook:qc:cache:${userId ?? "anon"}:client`,
   )
   if (!raw) throw new Error("no persisted blob")
   return JSON.parse(raw) as PersistedClient
@@ -197,7 +199,7 @@ describe("createIdbPersister — serialize filter", () => {
     const persister = createIdbPersister("u_1")
     await persister.persistClient({
       timestamp: Date.now(),
-      buster: "v1",
+      buster: PERSIST_BUSTER,
       clientState: {
         mutations: [],
         queries: [
@@ -238,7 +240,7 @@ describe("createIdbPersister — serialize filter", () => {
     const persister = createIdbPersister("u_1")
     await persister.persistClient({
       timestamp: Date.now(),
-      buster: "v1",
+      buster: PERSIST_BUSTER,
       clientState: {
         mutations: [],
         queries: [
@@ -276,7 +278,7 @@ describe("createIdbPersister — serialize filter", () => {
 
     await createIdbPersister("u_1").persistClient({
       timestamp: Date.now(),
-      buster: "v1",
+      buster: PERSIST_BUSTER,
       clientState: {
         mutations: [],
         queries: queryKeys.map((queryKey) => ({
@@ -456,7 +458,7 @@ describe("createIdbPersister — serialize filter", () => {
     ]
     await createIdbPersister("u_1").persistClient({
       timestamp: Date.now(),
-      buster: "v2",
+      buster: PERSIST_BUSTER,
       clientState: {
         mutations: [],
         queries: keys.map((queryKey) => ({
@@ -535,7 +537,7 @@ describe("createIdbPersister — serialize filter", () => {
     qc.setQueryData(communityKeys.server("srv_1"), { id: "other", categories: [] })
     const injected: PersistedClient = {
       timestamp: Date.now(),
-      buster: "v1",
+      buster: PERSIST_BUSTER,
       clientState: {
         mutations: [],
         queries: [communityKeys.servers(), communityKeys.server("srv_1")].map((queryKey) => ({
@@ -545,7 +547,7 @@ describe("createIdbPersister — serialize filter", () => {
         })),
       },
     }
-    await set("alook:qc:v4:u_1:client", JSON.stringify({ ...injected, channelFences: [] }))
+    await set("alook:qc:cache:u_1:client", JSON.stringify({ ...injected, version: PERSIST_VERSION, channelFences: [] }))
     expect((await createIdbPersister("u_1").restoreClient())?.clientState.queries).toEqual([])
   })
 
@@ -594,7 +596,7 @@ describe("createIdbPersister — serialize filter", () => {
     qc.setQueryData(queryKey, data)
     const injected: PersistedClient = {
       timestamp: Date.now(),
-      buster: "v1",
+      buster: PERSIST_BUSTER,
       clientState: {
         mutations: [],
         queries: [{
@@ -604,7 +606,7 @@ describe("createIdbPersister — serialize filter", () => {
         }],
       },
     }
-    await set("alook:qc:v4:u_1:client", JSON.stringify({ ...injected, channelFences: [] }))
+    await set("alook:qc:cache:u_1:client", JSON.stringify({ ...injected, version: PERSIST_VERSION, channelFences: [] }))
 
     expect((await createIdbPersister("u_1").restoreClient())?.clientState.queries).toEqual([])
   })
@@ -641,12 +643,12 @@ describe("createIdbPersister — user scoping", () => {
     const bob = createIdbPersister("u_bob")
     const stateForAlice: PersistedClient = {
       timestamp: 1,
-      buster: "v1",
+      buster: PERSIST_BUSTER,
       clientState: { mutations: [], queries: [] },
     }
     const stateForBob: PersistedClient = {
       timestamp: 2,
-      buster: "v1",
+      buster: PERSIST_BUSTER,
       clientState: { mutations: [], queries: [] },
     }
     await alice.persistClient(stateForAlice)
@@ -663,19 +665,19 @@ describe("createIdbPersister — user scoping", () => {
     const bob = createIdbPersister("u_bob")
     await alice.persistClient({
       timestamp: 1,
-      buster: "v1",
+      buster: PERSIST_BUSTER,
       clientState: { mutations: [], queries: [] },
     })
     await bob.persistClient({
       timestamp: 2,
-      buster: "v1",
+      buster: PERSIST_BUSTER,
       clientState: { mutations: [], queries: [] },
     })
 
     await clearPersistedCache("u_alice")
 
     // Alice's blob is gone but Bob's is untouched.
-    expect(await get(`alook:qc:v4:u_alice:client`)).toBeUndefined()
+    expect(await get(`alook:qc:cache:u_alice:client`)).toBeUndefined()
     const bobBlob = await readPersistedBlob("u_bob")
     expect(bobBlob.timestamp).toBe(2)
   })
@@ -684,13 +686,13 @@ describe("createIdbPersister — user scoping", () => {
     const persister = createIdbPersister("u_remove")
     await persister.persistClient({
       timestamp: 4,
-      buster: "v1",
+      buster: PERSIST_BUSTER,
       clientState: { mutations: [], queries: [] },
     })
 
     await persister.removeClient()
 
-    expect(await get("alook:qc:v4:u_remove:client")).toBeUndefined()
+    expect(await get("alook:qc:cache:u_remove:client")).toBeUndefined()
   })
 
   it("blocks a delayed writer created before clear", async () => {
@@ -698,10 +700,10 @@ describe("createIdbPersister — user scoping", () => {
     await clearPersistedCache("u_alice")
     await stale.persistClient({
       timestamp: 3,
-      buster: "v1",
+      buster: PERSIST_BUSTER,
       clientState: { mutations: [], queries: [] },
     })
-    expect(await get(`alook:qc:v4:u_alice:client`)).toBeUndefined()
+    expect(await get(`alook:qc:cache:u_alice:client`)).toBeUndefined()
   })
 })
 
@@ -709,32 +711,32 @@ describe("all-account persisted cache management", () => {
   beforeEach(async () => {
     await clearAllPersistedCaches()
     await del("unrelated")
-    await del("alook:qc:v4:u_alice:metadata")
-    await del("alook:qc:v4:extra:segment:client")
+    await del("alook:qc:cache:u_alice:metadata")
+    await del("alook:qc:cache:extra:segment:client")
   })
 
-  it("uses the sole format version for the persister key and accepts its matching buster", async () => {
+  it("uses a stable persister key with the sole version field and matching buster", async () => {
     const persister = createIdbPersister("u-version-source")
     const client = { timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: { mutations: [], queries: [] } }
     await persister.persistClient(client)
-    expect(await get(`alook:qc:${PERSIST_BUSTER}:u-version-source:client`)).toBe(JSON.stringify({ ...client, channelFences: [] }))
+    expect(await get(`${PERSIST_CACHE_PREFIX}:u-version-source:client`)).toBe(JSON.stringify({ ...client, version: PERSIST_VERSION, channelFences: [] }))
     await expect(persister.restoreClient()).resolves.toEqual(client)
   })
 
   it("sums serialized UTF-8 bytes across account and cache versions", async () => {
     await set("alook:qc:v1:u_alice:client", "abc")
-    await set("alook:qc:v4:u_bob:client", "你好")
+    await set("alook:qc:cache:u_bob:client", "你好")
     await set("alook:qc:v99:u_future:client", "!")
 
     expect(await getPersistedCacheSizeBytes()).toBe(10)
   })
 
   it("ignores unrelated shapes and non-string values", async () => {
-    await set("alook:qc:v4:u_alice:client", "cache")
+    await set("alook:qc:cache:u_alice:client", "cache")
     await set("unrelated", "outside")
-    await set("alook:qc:v4:u_alice:metadata", "outside")
-    await set("alook:qc:v4:extra:segment:client", "outside")
-    await set("alook:qc:v4:u_binary:client", new Uint8Array([1, 2, 3]))
+    await set("alook:qc:cache:u_alice:metadata", "outside")
+    await set("alook:qc:cache:extra:segment:client", "outside")
+    await set("alook:qc:cache:u_binary:client", new Uint8Array([1, 2, 3]))
 
     expect(await getPersistedCacheSizeBytes()).toBe(5)
   })
@@ -742,25 +744,25 @@ describe("all-account persisted cache management", () => {
   it("clears every current account blob and preserves unrelated keys", async () => {
     const stale = createIdbPersister("u_alice")
     await set("alook:qc:v1:u_legacy:client", "legacy")
-    await set("alook:qc:v4:u_alice:client", "alice")
-    await set("alook:qc:v4:u_bob:client", "bob")
+    await set("alook:qc:cache:u_alice:client", "alice")
+    await set("alook:qc:cache:u_bob:client", "bob")
     await set("alook:qc:v99:u_future:client", "future")
     await set("unrelated", "keep")
-    await set("alook:qc:v4:extra:segment:client", "keep")
+    await set("alook:qc:cache:extra:segment:client", "keep")
 
     await clearAllPersistedCaches()
     await stale.persistClient({
       timestamp: 3,
-      buster: "v2",
+      buster: PERSIST_BUSTER,
       clientState: { mutations: [], queries: [] },
     })
 
     expect(await get("alook:qc:v1:u_legacy:client")).toBeUndefined()
-    expect(await get("alook:qc:v4:u_alice:client")).toBeUndefined()
-    expect(await get("alook:qc:v4:u_bob:client")).toBeUndefined()
+    expect(await get("alook:qc:cache:u_alice:client")).toBeUndefined()
+    expect(await get("alook:qc:cache:u_bob:client")).toBeUndefined()
     expect(await get("alook:qc:v99:u_future:client")).toBeUndefined()
     expect(await get("unrelated")).toBe("keep")
-    expect(await get("alook:qc:v4:extra:segment:client")).toBe("keep")
+    expect(await get("alook:qc:cache:extra:segment:client")).toBe("keep")
   })
 
   it("reports an empty cache as zero bytes", async () => {

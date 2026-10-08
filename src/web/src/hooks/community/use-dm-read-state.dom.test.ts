@@ -6,7 +6,8 @@ import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/commu
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { communityKeys } from "@/lib/query-keys"
 import { ingestReadStateSnapshot } from "@/lib/community-db/sync"
-import { useDmReadStateSnapshot, type DmReadStateSnapshot } from "./use-dm-read-state"
+import { useDmReadStateSnapshot } from "./use-dm-read-state"
+import type { ChannelReadStateSnapshot } from "./use-channel-read-state"
 
 const api = vi.fn()
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => api(...args) }))
@@ -30,8 +31,8 @@ function mount(id = "dm_1") {
   return renderHook(({ id }) => useDmReadStateSnapshot(id), { wrapper: Owner, initialProps: { id } })
 }
 function held() {
-  let resolve!: (value: DmReadStateSnapshot) => void
-  api.mockReturnValueOnce(new Promise<DmReadStateSnapshot>((done) => { resolve = done }))
+  let resolve!: (value: ChannelReadStateSnapshot) => void
+  api.mockReturnValueOnce(new Promise<ChannelReadStateSnapshot>((done) => { resolve = done }))
   return { resolve }
 }
 

@@ -1,7 +1,7 @@
 import { createElement, type PropsWithChildren } from "react"
-import { QueryClient, QueryClientProvider, onlineManager } from "@tanstack/react-query"
+import { QueryClient, QueryClientProvider, onlineManager, IsRestoringProvider } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, renderHook, waitFor } from "@/test/react-dom-harness"
+import { act, render, renderHook, waitFor } from "@/test/react-dom-harness"
 import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { CONVERSATION_READ_TIMEOUT_MS, ConversationReadTimeoutError } from "@/lib/community/conversation-read"
@@ -44,6 +44,24 @@ describe("native channel read-state snapshot", () => {
     expect(rendered.result.current).toMatchObject({ snapshot: null, isFetching: true })
     await act(async () => { pending.resolve(original) })
   })
+  it.each(["channel", "dm"] as const)("keeps %s restoration unresolved until the current read settles", async (kind) => {
+    const key = kind === "dm" ? communityKeys.dmReadStateSnapshot("restored") : communityKeys.channelReadStateSnapshot("restored")
+    client.setQueryData(key, original)
+    const pending = held()
+    const observed: ReturnType<typeof useChannelReadStateSnapshot>[] = []
+    function Capture() { observed.push(useChannelReadStateSnapshot("restored", kind)); return null }
+    const view = (restoring: boolean) => createElement(Owner, null,
+      createElement(IsRestoringProvider, { value: restoring }, createElement(Capture)))
+    const rendered = render(view(true))
+    expect(observed.at(-1)).toMatchObject({ snapshot: null, isFetching: true })
+    expect(api).not.toHaveBeenCalled()
+    rendered.rerender(view(false))
+    await waitFor(() => expect(api).toHaveBeenCalledOnce())
+    expect(observed.at(-1)).toMatchObject({ snapshot: null, isFetching: true })
+    await act(async () => { pending.resolve(fresh) })
+    await waitFor(() => expect(observed.at(-1)).toMatchObject({ snapshot: fresh, isFetching: false }))
+  })
+
   it("returns the resolved value on first success", async () => {
     api.mockResolvedValueOnce(original)
     const rendered = mount()

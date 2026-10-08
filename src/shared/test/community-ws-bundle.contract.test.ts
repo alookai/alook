@@ -4,7 +4,7 @@ import {
   COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
   communityBrowserEventBatchType,
   encodeCommunityBrowserEventBatchForContract,
-  verifyCommunityBrowserEventBatchV2,
+  admitCommunityBrowserEventBatch,
   COMMUNITY_BROWSER_EVENT_MAX_BYTES,
   COMMUNITY_DELIVERY_OPERATION_ID_BYTES,
   computeCommunityDeliveryDigestFromBodies,
@@ -66,20 +66,40 @@ describe("community WS batch transport contract", () => {
     const old = await encodeCommunityBrowserEventBatchForContract({ operationId, prepared: prepared.prepared, contract: 1 })
     const current = await encodeCommunityBrowserEventBatchForContract({ operationId, prepared: prepared.prepared, contract: 2 })
     if (!old.ok || !current.ok) throw new Error("invalid projection")
+    expect(old.body).toBe("{\"type\":\"community:events.batch\",\"operationId\":\"message:qbWQs0jZgHxxQP2XnrG_JaBwIEH7tss-wN83NwGGFco\",\"operationDigest\":\"02f419257acb00e467b673a0d10295eacaa0176c6f6700926ced78aabd78f053\",\"events\":[{\"type\":\"community:channel.member_add\",\"serverId\":\"server\",\"channelId\":\"thread\",\"userId\":\"joined\"}]}")
+    expect(old.byteLength).toBe(296)
+    expect(current.body).toBe("{\"type\":\"community:events.batch.v2\",\"operationId\":\"message:qbWQs0jZgHxxQP2XnrG_JaBwIEH7tss-wN83NwGGFco\",\"operationDigest\":\"256d83c615e1feac6685548ba38cfa9296913b0e0b64fd11ec8d4331711390b6\",\"wireDigest\":\"256d83c615e1feac6685548ba38cfa9296913b0e0b64fd11ec8d4331711390b6\",\"events\":[{\"type\":\"community:channel.membership.change\",\"channelId\":\"thread\",\"serverId\":\"server\",\"userId\":\"joined\",\"relation\":\"notify\",\"present\":true}]}")
+    expect(current.byteLength).toBe(421)
+    expect(admitCommunityBrowserEventBatch(old.batch)).not.toBeInstanceOf(Promise)
+    expect(admitCommunityBrowserEventBatch(old.batch)).toMatchObject({ ok: true })
+    expect(admitCommunityBrowserEventBatch(current.batch)).toBeInstanceOf(Promise)
     expect(old.batch.type).toBe(COMMUNITY_BROWSER_EVENT_BATCH_TYPE)
     expect(Object.keys(old.batch)).toHaveLength(4)
     expect(old.batch.events).toEqual([{ type: WS_EVENTS.CHANNEL_MEMBER_ADD, serverId: "server", channelId: "thread", userId: "joined" }])
     expect(old.batch.operationDigest).not.toBe(prepared.prepared.digest)
     expect(current.batch).toMatchObject({ type: communityBrowserEventBatchType(), operationDigest: prepared.prepared.digest, wireDigest: prepared.prepared.digest })
-    expect(await verifyCommunityBrowserEventBatchV2(JSON.parse(current.body))).toBe(true)
+    expect(await admitCommunityBrowserEventBatch(JSON.parse(current.body))).toMatchObject({ ok: true })
     expect(decodeCommunityBrowserEventBatch({ ...old.batch, wireDigest: current.batch.wireDigest }).ok).toBe(false)
     const tampered = JSON.parse(current.body)
     tampered.events[0].present = false
-    expect(await verifyCommunityBrowserEventBatchV2(tampered)).toBe(false)
+    expect(await admitCommunityBrowserEventBatch(tampered)).toMatchObject({ ok: false })
     const invalid = JSON.parse(current.body)
     invalid.events[0].extra = true
-    expect(await verifyCommunityBrowserEventBatchV2(invalid)).toBe(false)
+    expect(await admitCommunityBrowserEventBatch(invalid)).toMatchObject({ ok: false })
   })
+  it.each([false, true])("keeps owned Block=%s in the current wire and emits the original peer shape for legacy", async (blockedByViewer) => {
+    const event = { type: WS_EVENTS.FRIEND_BLOCK, userId: "peer", blockedByViewer } as const
+    const prepared = await prepareCommunityDeliveryEvents([event])
+    if (!prepared.ok) throw new Error("invalid block fixture")
+    const operationId = await deriveCommunityDeliveryOperationId("blocked-peer")
+    const old = await encodeCommunityBrowserEventBatchForContract({ operationId, prepared: prepared.prepared, contract: 1 })
+    const current = await encodeCommunityBrowserEventBatchForContract({ operationId, prepared: prepared.prepared, contract: 2 })
+    if (!old.ok || !current.ok) throw new Error("invalid block projection")
+    expect(old.batch.events).toEqual([{ type: WS_EVENTS.FRIEND_BLOCK, userId: "peer" }])
+    expect(current.batch.events).toEqual([event])
+    expect(await admitCommunityBrowserEventBatch(current.batch)).toMatchObject({ ok: true })
+  })
+
   const children: CommunityWsEvent[] = [
     communityWsEventFixtures["community:message.create"],
     communityWsEventFixtures["community:unread.bump"],

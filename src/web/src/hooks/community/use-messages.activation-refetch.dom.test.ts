@@ -930,6 +930,48 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     renderer.unmount()
   })
 
+  it("holds an empty messages window through native restore and current read, then sends fresh anchor first", async () => {
+    const { client: restoredClient } = await createCommunityQueryOwner("viewer")
+    restoredClient.setQueryData(communityKeys.dmReadStateSnapshot("dm_activation"), {
+      lastReadMessageId: "m_old", lastReadAt: "2026-08-08T00:00:00.000Z", lastReadSeq: 1,
+    })
+    const { client: queryClient } = await createCommunityQueryOwner("viewer", {
+      defaultOptions: { queries: { refetchOnMount: false, retry: false } },
+    })
+    const restore = deferred<{ buster: string; clientState: ReturnType<typeof dehydrate>; timestamp: number }>()
+    const read = deferred<{ lastReadMessageId: string; lastReadAt: string; lastReadSeq: number }>()
+    const messages = deferred<MessagesPage>()
+    const persister = {
+      persistClient: vi.fn(() => Promise.resolve()), removeClient: vi.fn(() => Promise.resolve()),
+      restoreClient: vi.fn(() => restore.promise),
+    }
+    apiFetchMock.mockImplementation((url: string) => url.endsWith("/read-state") ? read.promise : messages.promise)
+    const snapshots: Array<Snapshot & { readStateFetching: boolean }> = []
+    const renderer = render(React.createElement(PersistQueryClientProvider, {
+      client: queryClient, persistOptions: { buster: "activation", persister },
+    }, React.createElement(DmRouteCapture, { onRender: snapshot => snapshots.push(snapshot) })))
+
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
+    expect(persister.restoreClient).toHaveBeenCalledTimes(1)
+    expect(apiFetchMock).not.toHaveBeenCalled()
+    expect(snapshots.at(-1)).toMatchObject({ ids: [], readStateFetching: true })
+    await act(async () => { restore.resolve({ buster: "activation", clientState: dehydrate(restoredClient), timestamp: Date.now() }) })
+    await waitFor(() => apiFetchMock.mock.calls.some(([url]) => url.endsWith("/read-state")))
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
+    expect(snapshots.at(-1)).toMatchObject({ ids: [], readStateFetching: true })
+    expect(apiFetchMock.mock.calls.filter(([url]) => url.includes("/messages"))).toHaveLength(0)
+
+    await act(async () => { read.resolve({ lastReadMessageId: "m_fresh", lastReadAt: "2026-08-09T00:00:00.000Z", lastReadSeq: 2 }) })
+    await waitFor(() => apiFetchMock.mock.calls.some(([url]) => url.includes("/messages")))
+    expect(apiFetchMock.mock.calls.filter(([url]) => url.includes("/messages"))).toEqual([
+      ["/api/community/channels/dm_activation/messages?anchor=m_fresh", expect.objectContaining({ signal: expect.any(AbortSignal), authenticationAccount: "viewer" })],
+    ])
+    await act(async () => { messages.resolve({ messages: [{ id: "m_fresh", seq: 2, createdAt: "2026-08-09T00:00:00.000Z" }], hasMoreOlder: false, hasMoreNewer: false, latestSeq: 2 }) })
+    await waitFor(() => snapshots.at(-1)?.ids[0] === "m_fresh")
+    expect(snapshots.at(-1)?.readStateFetching).toBe(false)
+    renderer.unmount()
+  })
+
   it("revalidates a warm DM again after an unmount and same-client remount", async () => {
     const { client: queryClient } = await createCommunityQueryOwner("viewer", {
       defaultOptions: { queries: { refetchOnMount: false, retry: false } },

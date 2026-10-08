@@ -28,6 +28,10 @@ vi.mock("@alook/shared", async () => {
     ...actual,
     queries: {
       communityChannel: {
+        getChannelForMember: async () => {
+          const scope = await mockResolveChannelAccessContext()
+          return scope && (!scope.isPrivate || actual.canSeePrivateChannel(scope)) ? scope.channel : null
+        },
         getChannel: (...a: unknown[]) => mockGetChannel(...a),
         listChildChannels: (...a: unknown[]) => mockListChildChannels(...a),
         resolveChannelAccessContext: (...a: unknown[]) => mockResolveChannelAccessContext(...a),
@@ -38,7 +42,7 @@ vi.mock("@alook/shared", async () => {
       communityMessage: {
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
         getMessagesByIdsInScope: (...a: unknown[]) => mockGetMessagesByIds(...a),
-        getFirstMessageByChannelIds: (...a: unknown[]) => mockGetFirstMessageByChannelIds(...a),
+        getFirstMessageResourcesByChannelIds: (...a: unknown[]) => mockGetFirstMessageByChannelIds(...a),
         listMessages: (...a: unknown[]) => mockListMessages(...a),
       },
       communityMessageTag: {

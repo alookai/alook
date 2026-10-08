@@ -1,4 +1,4 @@
-import { normalizeCommunityMessageResource, CommunityMessageResourceSchema, type CommunityMessageCreate } from "@alook/shared"
+import { normalizeCommunityMessageResource, CommunityMessageResourceSchema, type CommunityMessageCreate, type CommunityMessageResource } from "@alook/shared"
 import { MessageEmbedSchema, type Msg } from "@/lib/community/models/message"
 import type { MessageRow } from "./message-payload"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -10,7 +10,7 @@ import { projectMessageWireType } from "@/lib/community/message-wire-type"
 type UiEmbed = NonNullable<Msg["embeds"]>[number]
 const richContentSchema = CommunityMessageResourceSchema.pick({ attachments: true, embeds: true }).partial().strip()
 
-export type PostedMessage = Pick<MessageRow, "id" | "seq" | "createdAt" | "content" | "authorId" | "authorName" | "authorImage" | "authorAvatarVersion" | "type" | "embeds">
+export type PostedMessage = Pick<MessageRow, "id" | "seq" | "createdAt" | "content" | "authorId" | "authorName" | "authorImage" | "authorAvatarVersion" | "type" | "embeds"> & Partial<Pick<CommunityMessageResource, "replyToId" | "replyTo" | "attachments">>
 
 function omitUndefined<T>(value: T): T {
   if (Array.isArray(value)) return value.map(omitUndefined) as T
@@ -50,10 +50,12 @@ export function projectCommunityMessageCreate(
 }
 
 function projectCanonicalMessage(value: Record<string, unknown>, channelId: string): CanonicalMessage {
-  const { channelId: _channelId, replyToId: _replyToId, clientNonce, attachments: _attachments, embeds: _embeds, ...message } = normalizeCommunityMessageResource(value, channelId)
+  const { channelId: _channelId, replyToId, replyTo, clientNonce, attachments: _attachments, embeds: _embeds, ...message } = normalizeCommunityMessageResource(value, channelId)
   const { attachments, embeds } = projectMessageRichContent({ attachments: _attachments, embeds: _embeds })
   return {
     ...message,
+    ...("replyTo" in value ? { replyTo } : {}),
+    ...("replyToId" in value || "replyTo" in value ? { replyToId } : {}),
     ...(clientNonce !== null ? { clientNonce } : {}),
     ...(value.attachments !== undefined ? { attachments } : {}),
     ...(value.embeds != null ? { embeds } : {}),

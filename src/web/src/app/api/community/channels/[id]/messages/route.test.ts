@@ -493,6 +493,31 @@ describe("POST /api/community/channels/[id]/messages", () => {
     })
   })
 
+  it.each([false, true])("keeps scoped reply presentation on POST with replay=%s", async (replay) => {
+    const row = { id: "reply_message", seq: 8, clientNonce: "n1", channelId: "c1", authorId: "u1", authorName: "Alice",
+      authorImage: null, authorAvatarVersion: 0, content: "@Bob reply", type: "default", mentionType: null,
+      replyToId: "reply_target", embeds: null, createdAt: "2026-06-30T00:00:00.000Z" }
+    mockGetMessage.mockResolvedValue(row)
+    if (replay) mockGetMessageByAuthorAndNonce.mockResolvedValue(row)
+    mockGetMessageInScope.mockResolvedValue({ id: "reply_target", channelId: "c1", authorId: "u2", authorName: "Bob", content: "prior" })
+    mockGetMessagesByIdsInScope.mockResolvedValue([{ id: "reply_target", channelId: "c1", authorId: "u2", authorName: "Bob", content: "prior" }])
+    const response = await POST(postReq({ content: "@Bob reply", nonce: "n1", replyToId: "reply_target" }), ctx)
+    expect(response.status).toBe(replay ? 200 : 201)
+    expect((await response.json()).message).toMatchObject({ id: row.id, replyToId: "reply_target",
+      replyTo: { id: "reply_target", authorId: "u2", authorName: "Bob", text: "prior" } })
+    expect(mockGetMessagesByIdsInScope).toHaveBeenCalledWith(expect.anything(), ["reply_target"], { channelId: "c1" })
+  })
+
+  it("does not revive a deleted or out-of-scope reply in a deduplicated POST", async () => {
+    mockGetMessageByAuthorAndNonce.mockResolvedValue({ id: "reply_message", seq: 8, clientNonce: "n1", channelId: "c1", authorId: "u1", authorName: "Alice",
+      authorImage: null, authorAvatarVersion: 0, content: "reply", type: "default", mentionType: null,
+      replyToId: "reply_target", embeds: null, createdAt: "2026-06-30T00:00:00.000Z" })
+    mockGetMessagesByIdsInScope.mockResolvedValue([{ id: "reply_target", channelId: "other", authorId: "u2", authorName: "Secret", content: "private" }])
+    const response = await POST(postReq({ content: "reply", nonce: "n1" }), ctx)
+    expect(response.status).toBe(200)
+    expect((await response.json()).message.replyTo).toEqual({ id: "reply_target", authorName: "Deleted user", text: "", deleted: true })
+  })
+
   it("returns the original canonical contract for a same-nonce replay", async () => {
     mockGetMessageByAuthorAndNonce.mockResolvedValue({
       id: "m-existing",

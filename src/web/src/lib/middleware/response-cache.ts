@@ -1,8 +1,8 @@
-import { COMMUNITY_CONTRACT_HEADER, CommunityReadErrorSchema, requestsCommunityContractV2 } from "@alook/shared"
+import { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION, CommunityReadErrorSchema, requestsCommunityContract } from "@alook/shared"
 
 export function rejectUnknownCommunityContract(request: Request): Response | null {
   const version = request.headers.get(COMMUNITY_CONTRACT_HEADER)
-  return new URL(request.url).pathname.startsWith("/api/community/") && version !== null && version !== "1" && version !== "2"
+  return new URL(request.url).pathname.startsWith("/api/community/") && version !== null && version !== "1" && version !== String(COMMUNITY_CONTRACT_VERSION)
     ? Response.json({ error: "unsupported community contract" }, { status: 400 }) : null
 }
 
@@ -11,7 +11,7 @@ export async function protectCommunityJsonResponse(request: Request, response: R
   const contentType = response.headers.get("Content-Type")?.split(";", 1)[0].trim().toLowerCase()
   if (contentType !== "application/json" && !contentType?.endsWith("+json")) return response
   let result = new Response(response.body, response)
-  if (!response.ok && requestsCommunityContractV2(request.headers)) {
+  if (!response.ok && requestsCommunityContract(request.headers)) {
     const body: unknown = await result.clone().json()
     const alreadyVersioned = CommunityReadErrorSchema.safeParse(body)
     if (!alreadyVersioned.success) {
@@ -21,11 +21,11 @@ export async function protectCommunityJsonResponse(request: Request, response: R
         : response.status === 403 ? message === "blocked" ? "blocked" : "not_allowed"
           : response.status === 409 ? "idempotency_conflict" : response.status === 429 ? "rate_limited"
             : response.status >= 500 ? "temporarily_unavailable" : "invalid_input"
-      result = new Response(JSON.stringify(CommunityReadErrorSchema.parse({ contractVersion: 2,
+      result = new Response(JSON.stringify(CommunityReadErrorSchema.parse({ contractVersion: COMMUNITY_CONTRACT_VERSION,
         error: { code, message, retryable: response.status === 429 || response.status >= 500 } })), result)
       result.headers.delete("Content-Length")
     }
-    result.headers.set(COMMUNITY_CONTRACT_HEADER, "2")
+    result.headers.set(COMMUNITY_CONTRACT_HEADER, String(COMMUNITY_CONTRACT_VERSION))
   }
   result.headers.set("Cache-Control", "private, no-store, max-age=0")
   result.headers.delete("ETag")

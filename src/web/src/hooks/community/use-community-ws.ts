@@ -36,9 +36,7 @@ import type {
 import { flushPendingReadIntents } from "@/hooks/community/read-coordinator"
 import {
   decodeCommunityBrowserEvent,
-  decodeCommunityBrowserEventBatch,
-  communityBrowserEventBatchType,
-  verifyCommunityBrowserEventBatchV2,
+  admitCommunityBrowserEventBatch,
   isCommunityBrowserEventBatchCandidate,
   isCommunityEventType,
   TYPING_INDICATOR_THROTTLE_MS,
@@ -354,12 +352,6 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     async (msg: { type: string;[key: string]: unknown }, assertAdmissionCurrent?: () => void) => {
       if (!msg.type.startsWith("community:")) return
       if (!runtime.lifecycle.get().active) return
-      if (msg.type === communityBrowserEventBatchType()) {
-        const token = captureCommunityLiveSnapshotToken(queryClient)
-        if (!await verifyCommunityBrowserEventBatchV2(msg)) return
-        try { assertAdmissionCurrent?.(); assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined) } catch { return }
-        if (!runtime.lifecycle.get().active) return
-      }
       const communityStore = runtime.ui
       const sub = communityStore.get().subscription
       const wsStore = runtime.ws
@@ -405,7 +397,11 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
       }
 
       if (isCommunityBrowserEventBatchCandidate(msg)) {
-        const decoded = decodeCommunityBrowserEventBatch(msg)
+        const token = captureCommunityLiveSnapshotToken(queryClient)
+        const admission = admitCommunityBrowserEventBatch(msg)
+        const decoded = admission instanceof Promise ? await admission : admission
+        try { assertAdmissionCurrent?.(); assertCommunityLiveSnapshotTokenCurrent(queryClient, token, undefined) } catch { return }
+        if (!runtime.lifecycle.get().active) return
         if (!decoded.ok) {
           const reason = decoded.reason === "oversized" ? "oversized" : "invalid-payload"
           const metadata = {

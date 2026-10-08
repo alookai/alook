@@ -1,3 +1,4 @@
+import { projectPostedMessage } from "@/lib/community/message-wire"
 import { QueryClient } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { CommunityWsEvent } from "@alook/shared"
@@ -100,6 +101,38 @@ describe("community DB sync", () => {
     expect(db.collections.servers.get("s1")).toMatchObject({ name, description: "confirmed" })
     publishCommunityLiveSnapshotWithProof(db.queryClient, { snapshot: { kind: "servers", data: { servers: [original] } }, proof: { kind: "structural", token, signal: undefined } })
     expect(db.collections.servers.get("s1")).toMatchObject({ name, description: "confirmed" })
+  })
+
+  it("keeps confirmed reply identity on incomplete same-message input and accepts explicit deletion", async () => {
+    const db = await registry()
+    const replyTo = { id: "reply", authorId: "peer", authorName: "Peer", text: "confirmed" }
+    const row = { id: "posted", channelId: "c1", type: "chat" as const, authorId: "viewer", clientNonce: "nonce", seq: 1, replyTo, replyToId: replyTo.id }
+    ingestMessages(db, "c1", [row])
+    ingestMessages(db, "c1", [{ ...row, replyTo: undefined }])
+    expect(db.collections.messages.get(row.id)?.replyTo).toBeUndefined()
+    ingestMessages(db, "c1", [row])
+    const { replyTo: _reply, ...incomplete } = row
+    ingestMessages(db, "c1", [incomplete])
+    expect(db.collections.messages.get(row.id)?.replyTo).toEqual(replyTo)
+    const posted = projectPostedMessage({ id: row.id, seq: row.seq, authorId: row.authorId, authorName: "Viewer",
+      authorImage: null, authorAvatarVersion: 0, createdAt: "2026-10-08T00:00:00Z", content: "posted", type: "default", embeds: null }, row.clientNonce, "c1")
+    ingestMessages(db, "c1", [posted])
+    expect(db.collections.messages.get(row.id)?.replyTo).toEqual(replyTo)
+    ingestMessages(db, "c1", [{ ...row, replyTo: { id: replyTo.id, authorName: "Deleted user", text: "", deleted: true } }])
+    expect(db.collections.messages.get(row.id)?.replyTo).toMatchObject({ deleted: true, text: "" })
+    ingestMessages(db, "c1", [{ ...incomplete, replyToId: null }])
+    expect(db.collections.messages.get(row.id)?.replyTo).toBeUndefined()
+    expect(db.collections.messages.get(row.id)?.replyToId).toBeNull()
+  })
+
+  it.each(["author", "nonce", "channel"])("does not retain a confirmed quote for a different %s owner", async (field) => {
+    const db = await registry()
+    const identity = { id: "owned-reply", channelId: "c1", type: "chat" as const, authorId: "viewer", clientNonce: "nonce", seq: 1 }
+    ingestMessages(db, "c1", [{ ...identity, replyTo: { id: "target", authorName: "Peer", text: "private" }, replyToId: "target" }])
+    ingestMessages(db, field === "channel" ? "c2" : "c1", [{ ...identity,
+      ...(field === "author" ? { authorId: "other" } : field === "nonce" ? { clientNonce: "other" } : {}) }])
+    expect(db.collections.messages.get(identity.id)?.replyTo).toBeUndefined()
+    expect(db.collections.messages.get(identity.id)?.replyToId).toBeNull()
   })
 
   it("cannot resurrect a deleted channel through a confirmed field patch or the older snapshot", async () => {

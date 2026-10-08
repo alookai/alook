@@ -688,7 +688,7 @@ export {
   encodePreparedCommunityBrowserEventBatch,
   isCommunityBrowserEventBatchCandidate,
   decodeCommunityBrowserEventBatch,
-  verifyCommunityBrowserEventBatchV2,
+  admitCommunityBrowserEventBatch,
   projectCommunityEventForContract,
   encodeCommunityBrowserEventBatchForContract,
 } from "./community-ws-bundle";
@@ -821,5 +821,5 @@ export { parseReleaseVersion, releaseVersionGte, semverGte } from "./semver";
 export type { ReleaseVersion } from "./semver";
 export { resolveMode, cliCommand, cliPackageName, updateCommand, daemonCommand, getBaseUrl, isTauri, isDesktop, isMobile, tauriInvoke } from "./mode";
 export type { AlookMode, ModeSignals, BaseUrlSignals } from "./mode";
-export { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION, requestsCommunityContractV2 } from "./community-contract";
+export { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION, requestsCommunityContract, type CommunityContract } from "./community-contract";
 export * from "./community-resources";

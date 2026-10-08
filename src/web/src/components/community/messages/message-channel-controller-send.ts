@@ -3,13 +3,13 @@ import type { SendAttachment } from "./composer"
 import type { ReplyTarget, Viewer } from "./message-channel-controller-types"
 import { acceptMessageIntent, prepareMessageIntent } from "@/lib/community/message-send-intent"
 import type { SendMessageArgs } from "@/hooks/community/mutations/messages"
-import type { UploadFileArgs, UploadedAttachment } from "@/hooks/community/mutations/uploads"
+import type { UploadFileArgs, UploadFileResult } from "@/hooks/community/mutations/uploads"
 import type { CommunityRuntime } from "@/stores/community/runtime"
 import { communityWsEndTyping } from "@/hooks/community/use-community-ws"
 
 type ChannelMessageScope = Extract<import("@/lib/community/message-stream").MessageScope, { kind: "channel" }>
 
-type UploadFile = (input: Omit<UploadFileArgs, "target"> & { target: { channelId: string } }) => Promise<UploadedAttachment>
+type UploadFile = (input: Omit<UploadFileArgs, "target"> & { target: { channelId: string } }) => Promise<UploadFileResult>
 
 type SendMessage = (input: SendMessageArgs & { nonce: string }) => Promise<unknown>
 

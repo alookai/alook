@@ -55,7 +55,7 @@ export async function enrichMessages(
   const [forumTags, forumFirstMessages, forumParticipants] = scope.isForum && messageIds.length > 0
     ? await Promise.all([
       queries.communityMessageTag.listTagsForMessages(db, messageIds),
-      queries.communityMessage.getFirstMessageByChannelIds(db, threadIds),
+      queries.communityMessage.getFirstMessageResourcesByChannelIds(db, threadIds),
       queries.communityThread.listParticipantsForChannels(db, threadIds, 5),
     ])
     : [[], [], []]

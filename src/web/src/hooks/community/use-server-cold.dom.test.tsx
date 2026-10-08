@@ -28,7 +28,7 @@ describe("actual cold server native read", () => {
     let view!: ReturnType<typeof renderHook<{ server: ReturnType<typeof useServer>; rail: ReturnType<typeof useServers> }, unknown>>
     try {
       view = renderHook(() => ({ server: useServer("srv"), rail: useServers() }), { wrapper })
-      await vi.waitFor(() => expect(api.mock.calls.filter(([path]) => path === "/api/community/servers")).toHaveLength(1))
+      await act(async () => { await vi.waitFor(() => expect(api.mock.calls.filter(([path]) => path === "/api/community/servers")).toHaveLength(1)) })
       await act(async () => { await vi.advanceTimersByTimeAsync(CONVERSATION_READ_TIMEOUT_MS) })
       expect(qc.getQueryState(communityKeys.server("srv"))?.error).toMatchObject({ name: "ConversationReadTimeoutError" })
       expect(identitySignal.aborted).toBe(false)
@@ -56,7 +56,7 @@ describe("actual cold server native read", () => {
     const wrapper = ({ children }: { children: React.ReactNode }) => <CommunityTestProvider client={qc}>{children}</CommunityTestProvider>
     const view = renderHook(() => { const server = useServer("srv"); const rail = useServers(); return { server, rail } }, { wrapper })
     await waitFor(() => expect(api.mock.calls.filter(([path]) => path === "/api/community/servers")).toHaveLength(1))
-    resolve(list)
+    await act(async () => { resolve(list) })
     await waitFor(() => { expect(view.result.current.server.server?.name).toBe("Cold"); expect(view.result.current.rail.servers[0]?.name).toBe("Cold") })
   })
 })

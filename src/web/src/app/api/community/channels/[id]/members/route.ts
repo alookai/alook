@@ -18,7 +18,7 @@ import { requireChannelAccess } from "@/lib/community/permissions"
 import { resolveTargetForMember } from "@/lib/community/resolve-ref"
 import { mapMemberForApi } from "@/lib/community/member-payload"
 import { fetchOnlineUserIds, toMemberStatus } from "@/lib/community/member-presence"
-import { requestsCommunityContractV2 } from "@alook/shared"
+import { requestsCommunityContract } from "@alook/shared"
 import { readCommunityMembers } from "@/lib/community/member-read"
 import { resolveMessageTarget } from "@/lib/community/message-door"
 
@@ -44,7 +44,7 @@ const REF_PLACEHOLDER_ID = "resolve"
 export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
 
-  if (requestsCommunityContractV2(req.headers)) {
+  if (requestsCommunityContract(req.headers)) {
     const ref = req.nextUrl.searchParams.get("ref")
     const target = ctx.actor.kind === "bot" && ref ? { ref } : { id: ctx.params?.id ?? "" }
     const resolved = await resolveMessageTarget(db, ctx.actor.userId, target, ctx.actor.kind)

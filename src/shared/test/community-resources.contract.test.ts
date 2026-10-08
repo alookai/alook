@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest"
 import { CommunityChannelResourceSchema, CommunityMessageResourceSchema, normalizeCommunityChannelIdentity, normalizeCommunityChannelResource, normalizeCommunityMessageResource } from "../src"
-import { COMMUNITY_CONTRACT_HEADER, requestsCommunityContractV2 } from "../src/community-contract"
+import { COMMUNITY_CONTRACT_HEADER, requestsCommunityContract } from "../src/community-contract"
 
 describe("common community resources", () => {
   it.each([undefined, "1", "2", "02", "3"])("negotiates only the exact supported read contract %s", (version) => {
     const headers = new Headers(version === undefined ? undefined : { [COMMUNITY_CONTRACT_HEADER]: version })
-    expect(requestsCommunityContractV2(headers)).toBe(version === "2")
+    expect(requestsCommunityContract(headers)).toBe(version === "2")
   })
   it.each(["text", "forum", "thread", "dm"] as const)("normalizes the %s channel without inventing an owner", (type) => {
     const channel = normalizeCommunityChannelResource({ id: "channel", type, serverId: type === "dm" ? null : "server", name: type === "dm" ? null : "Channel",

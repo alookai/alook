@@ -40,7 +40,7 @@ import {
   recordConversationNavigationReceipt,
   useConversationNavigationGate,
 } from "@/lib/community/conversation-navigation-proof"
-import type { MessageSurfaceReceipt } from "@/lib/community/conversation-navigation-proof"
+import type { CommunityMessageSurfaceReceipt } from "@alook/shared"
 import { useMessageWindowProjection } from "@/lib/community-db/projections"
 import {
   captureCommunityLiveSnapshotToken,
@@ -69,7 +69,6 @@ import { messageReconcileOptions } from "./community-ws/reconnect-messages"
  */
 export type { MessagesPage, MessagesPageParam } from "@/lib/community/models/message"
 
-export type { MessageSurfaceReceipt } from "@/lib/community/conversation-navigation-proof"
 
 type CommittedTransportWindow = {
   key: string
@@ -106,17 +105,17 @@ function useCommittedTransportWindow(
 }
 
 type MessagesTransportPage = WireMessagesPage & {
-  surfaceReceipt?: MessageSurfaceReceipt
+  surfaceReceipt?: CommunityMessageSurfaceReceipt
 }
 
 type MessagesTransportOptions = {
-  onSurfaceReceipt?: (receipt: MessageSurfaceReceipt) => void
+  onSurfaceReceipt?: (receipt: CommunityMessageSurfaceReceipt) => void
   queryClient?: QueryClient
 }
 
-function isMessageSurfaceReceipt(value: unknown): value is MessageSurfaceReceipt {
+function isMessageSurfaceReceipt(value: unknown): value is CommunityMessageSurfaceReceipt {
   if (!value || typeof value !== "object") return false
-  const receipt = value as Partial<MessageSurfaceReceipt>
+  const receipt = value as Partial<CommunityMessageSurfaceReceipt>
   return typeof receipt.channelId === "string" && (
     receipt.surfaceKind === "channel" ||
     receipt.surfaceKind === "thread" ||
@@ -947,7 +946,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | Channe
     return tag ? [...baseKey, "tag", tag] as const : baseKey
   }, [channelId, kind, tag])
   const queryFn = useMemo(() => {
-    const options = { queryClient, onSurfaceReceipt: (receipt: MessageSurfaceReceipt) => recordConversationNavigationReceipt(queryClient, receipt, accessEpoch) }
+    const options = { queryClient, onSurfaceReceipt: (receipt: CommunityMessageSurfaceReceipt) => recordConversationNavigationReceipt(queryClient, receipt, accessEpoch) }
     return kind === "dm" ? dmMessagesQueryFn(channelId ?? "__none__", options) : channelMessagesQueryFn(channelId ?? "__none__", tag, options)
   }, [accessEpoch, channelId, kind, queryClient, tag])
   const scope = useMemo<MessageScope>(() => serverId === null ? { kind: "dm", id: channelId ?? "__none__" } : { kind: "channel", id: channelId ?? "__none__", serverId }, [channelId, serverId])

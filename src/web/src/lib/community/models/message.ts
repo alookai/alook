@@ -49,7 +49,7 @@ export type Msg = Pick<CommunityMessageResource, "id" | "type"> & Partial<Omit<C
   embeds?: Embed[]
 }
 
-export type MessageInput = Pick<Msg, "id"> & Partial<Msg>
+export type MessageInput = Pick<Msg, "id"> & Partial<Msg> & Partial<Pick<CommunityMessageResource, "replyToId">>
 
 export function applyMessageReaction(source: Msg["reactions"], emoji: string, userId: string, add: boolean, viewerId: string | null): Reaction[] {
   const rows = (source ?? []).map((row) => ({ ...row, userIds: [...row.userIds] }))

@@ -13,8 +13,9 @@ import {
   buildAnchorResponse,
   buildSinceResponse,
 } from "@/lib/community/messages"
+import { mapPostedMessageForApi } from "@/lib/community/message-payload"
 import { enrichMessages } from "@/lib/community/enrich-messages"
-import { requestsCommunityContractV2 } from "@alook/shared"
+import { requestsCommunityContract } from "@alook/shared"
 import { writeCommunityMessagesRead } from "@/lib/community/read-contract"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { createCommunityMessage, getCommunityMessageReplay } from "@/lib/community/message-handler"
@@ -105,7 +106,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
   // (set-equality) — only pagination-window + projection differ, no arm adds a where.
 
   // ── bot arm: seq-anchored window → agent-message projection → {items} ──
-  if (ctx.actor.kind === "bot" && !requestsCommunityContractV2(req.headers)) {
+  if (ctx.actor.kind === "bot" && !requestsCommunityContract(req.headers)) {
     const readParams = {
       before: parseIntParam(params.get("before")),
       after: parseIntParam(params.get("after")),
@@ -124,7 +125,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
   // ── human arm: createdAt-anchored window → enrich → {messages} ──
   const userId = ctx.actor.userId
   let window
-  try { window = requestsCommunityContractV2(req.headers) ? parseCommunityMessageWindow(params) : {
+  try { window = requestsCommunityContract(req.headers) ? parseCommunityMessageWindow(params) : {
     anchorId: parseAnchor(params.get("anchor")), since: parseCursor(params.get("since")),
     cursor: parseCursor(params.get("cursor")), pageSize: parsePageSize(params.get("limit")),
   } } catch (error) { return writeError(error instanceof Error ? error.message : "invalid message window", 400) }
@@ -289,7 +290,7 @@ async function handleHumanSend(
     clientNonce,
   })
   if (replay) {
-    return NextResponse.json({ message: replay.row, deduped: true }, { status: 200 })
+    return NextResponse.json({ message: await mapPostedMessageForApi(db, target.channelId, replay.row), deduped: true }, { status: 200 })
   }
 
   const result = await createCommunityMessage({
@@ -303,7 +304,7 @@ async function handleHumanSend(
     attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
   })
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
-  return NextResponse.json({ message: result.row, deduped: result.deduped }, { status: 201 })
+  return NextResponse.json({ message: await mapPostedMessageForApi(db, target.channelId, result.row), deduped: result.deduped }, { status: 201 })
 }
 
 /**

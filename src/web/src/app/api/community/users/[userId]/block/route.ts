@@ -26,6 +26,7 @@ export const POST = withAuth(async (_req, ctx) => {
     type: WS_EVENTS.FRIEND_BLOCK,
     userId: ctx.userId,
   })
+  broadcastToUserSafe(ctx.userId, { type: WS_EVENTS.FRIEND_BLOCK, userId: targetId, blockedByViewer: true })
 
   // If blocking tore down an existing accepted friendship, tell the other
   // side so their friend list reflects it.

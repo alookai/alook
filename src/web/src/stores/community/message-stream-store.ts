@@ -13,8 +13,7 @@ import {
   type CanonicalMessage,
 } from "@/lib/community/message-stream"
 
-type StoredOverlay = MessageOverlayIds
-type ScopeEntry = { scope: MessageScope; state: StoredOverlay }
+type ScopeEntry = { scope: MessageScope; state: MessageOverlayIds }
 
 type MessageStreamStoreState = {
   entries: ReadonlyMap<string, ScopeEntry>

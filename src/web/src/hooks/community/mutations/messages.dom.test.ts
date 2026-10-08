@@ -268,7 +268,7 @@ describe("useSendMessage — happy path", () => {
       const mod = await loadMod()
       mountHook(() => mod.useSendMessage())
       const pending = startMutation({ serverId: scope.serverId, channelId: scope.id,
-        content: "hi", nonce: "n1", replyTo, attachments: [attachment] })
+        content: "hi", nonce: "n1", replyToId: replyTo.id, attachments: [attachment] })
       await waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(1))
       const { dispatchCommunityWsEvent } = await import("@/hooks/community/community-ws/registry")
       const { getMessageStreamState } = await import("@/test/community-query-owner")

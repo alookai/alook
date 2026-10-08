@@ -316,6 +316,7 @@ const communityFriendRemoveSchema = z.strictObject({
 const communityFriendBlockSchema = z.strictObject({
   type: z.literal("community:friend.block"),
   userId: string,
+  blockedByViewer: z.boolean().optional(),
 })
 
 const communityInviteCreateSchema = z.strictObject({

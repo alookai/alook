@@ -324,7 +324,7 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
     expect(capturedQueryClient.getQueryState(communityKeys.reactionDetails("server_message"))).toBeDefined()
   })
 
-  it("retires an already-visible peer DM and late reads without changing sibling bodies or the outgoing blocked list", async () => {
+  it.each([false, true])("retires a visible DM and late reads with viewer-owned Block=%s, preserving siblings", async (blockedByViewer) => {
     const registry = getCommunityDbRegistry(capturedQueryClient)!
     ingestDms(registry, { conversations: ["u_a", "u_other"].map((userId) => ({
       id: `dm_${userId}`, userId, name: userId, discriminator: "0001", avatar: "A", avatarVersion: 0,
@@ -353,7 +353,7 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
       getCapturedRuntime().ui.setState((state) => ({ ...state, subscription: { dmConversationId: "dm_u_a" } }))
     })
     await mountHook({ viewerUserId: "u_me" })
-    capturedOnMessage!({ type: "community:friend.block", userId: "u_a" })
+    capturedOnMessage!({ type: "community:friend.block", userId: "u_a", ...(blockedByViewer ? { blockedByViewer: true } : {}) })
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("dm_u_a", null)).toBe(true)
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("dm_u_other", null)).toBe(false)
     expect(isChannelMetadataTokenCurrent(oldMetadata)).toBe(false)
@@ -361,7 +361,7 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
     expect(registry.collections.messages.get("other")?.content).toBe("other body")
     expect(registry.collections.channels.get("dm_u_a")?.preview).toBe("")
     expect(registry.collections.channelMemberships.has("dm_u_a:u_a:access")).toBe(true)
-    expect(registry.collections.friendships.has("blocked:u_a")).toBe(false)
+    expect(registry.collections.friendships.has("blocked:u_a")).toBe(blockedByViewer)
     expect(getCapturedRuntime().ui.get().subscription.dmConversationId).toBeUndefined()
     expect(() => publishCommunityMessages(capturedQueryClient, { channelId: "dm_u_a", messages: [{ id: "late", content: "late body", type: "chat", seq: 2 }], proof: { token: proof } })).toThrow("Stale community live snapshot")
     capturedOnMessage!(messageCreate("dm_u_a", "late-ws"))

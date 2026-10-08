@@ -1,5 +1,5 @@
 import { sendNonce, tempMessageId, toAttachmentVm, type SendMessageArgs } from "@/hooks/community/mutations/messages"
-import { zipUploadResultsWithDimensions, type UploadFileArgs, type UploadedAttachment } from "@/hooks/community/mutations/uploads"
+import { zipUploadResultsWithDimensions, type UploadFileArgs, type UploadFileResult } from "@/hooks/community/mutations/uploads"
 import { toastApiError } from "@/lib/api/client"
 import type { CommunityRuntime } from "@/stores/community/runtime"
 import type { MessageScope } from "./message-stream"
@@ -59,14 +59,14 @@ export async function prepareMessageIntent<Target extends UploadFileArgs["target
   assertOwner: () => void
   assertActive?: UploadFileArgs["assertActive"]
   target: Target
-  uploadFileAsync: (input: Omit<UploadFileArgs, "target"> & { target: Target }) => Promise<UploadedAttachment>
+  uploadFileAsync: (input: Omit<UploadFileArgs, "target"> & { target: Target }) => Promise<UploadFileResult>
 }) {
   const assert = () => { assertOwner(); assertActive?.() }
   assert()
   const streamStore = runtime.messageStream.actions
   const payload = streamStore.getRetryPayload(scope, nonce)
   if (!payload) return { ok: false as const, error: new Error("Message intent is no longer available") }
-  let uploadedAttachments: UploadedAttachment[] | undefined
+  let uploadedAttachments: UploadFileResult[] | undefined
   if (payload.localUploads.length > 0 && payload.uploadStatus === "settled") {
     const projected = payload.message.attachments
     if (projected?.length === payload.localUploads.length) {
@@ -108,7 +108,7 @@ export async function prepareMessageIntent<Target extends UploadFileArgs["target
       return { ok: false as const, error: new Error("Failed to attach file") }
     }
     uploadedAttachments = zipUploadResultsWithDimensions(
-      results as UploadedAttachment[],
+      results as UploadFileResult[],
       [...payload.localUploads],
     )
     try { assert() } catch (error) {

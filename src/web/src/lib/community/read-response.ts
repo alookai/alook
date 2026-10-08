@@ -1,5 +1,5 @@
 import {
-  COMMUNITY_CONTRACT_HEADER, CommunityChannelReadSchema, CommunityMessagesReadSchema,
+  COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION, CommunityChannelReadSchema, CommunityMessagesReadSchema,
   CommunityReadStateReadSchema, CommunityMembersReadSchema, CommunityThreadsReadSchema, CommunityReadAdvanceSchema,
   normalizeCommunityMessageResource,
 } from "@alook/shared"
@@ -19,7 +19,7 @@ export function decodeCommunityReadResponse(path: string, method: string | undef
   if (!target) return value
   const bodyVersion = typeof value === "object" && value !== null && "contractVersion" in value ? value.contractVersion : undefined
   const headerVersion = response.headers.get(COMMUNITY_CONTRACT_HEADER)
-  if (headerVersion !== "2" && bodyVersion !== 2) {
+  if (headerVersion !== String(COMMUNITY_CONTRACT_VERSION) && bodyVersion !== COMMUNITY_CONTRACT_VERSION) {
     if (target.resource === "messages") {
       const legacy = value as { messages?: unknown[] }
       if (!Array.isArray(legacy.messages)) throw new Error("Community message resource missing")
@@ -34,14 +34,14 @@ export function decodeCommunityReadResponse(path: string, method: string | undef
     }
     return value
   }
-  if (headerVersion !== "2" || bodyVersion !== 2) throw new Error("Community read protocol confirmation mismatch")
+  if (headerVersion !== String(COMMUNITY_CONTRACT_VERSION) || bodyVersion !== COMMUNITY_CONTRACT_VERSION) throw new Error("Community read protocol confirmation mismatch")
   const assertScope = (channelId: string) => {
     if (channelId !== target.channelId) throw new Error("Community read resource scope mismatch")
   }
   if (target.resource === "metadata") {
     const data = CommunityChannelReadSchema.parse(value)
     assertScope(data.channelId); assertScope(data.channel.id); assertScope(data.access.channelId)
-    return { ...data.channel, readContractVersion: 2, accessDecision: data.access }
+    return { ...data.channel, accessDecision: data.access }
   }
   if (target.resource === "messages") {
     const data = CommunityMessagesReadSchema.parse(value)

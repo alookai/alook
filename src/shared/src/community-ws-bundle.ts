@@ -6,7 +6,7 @@ import {
   type CommunityWsEvent,
 } from "./community-ws-events"
 import { MESSAGE_DELIVERY_MAX_EVENTS_PER_USER } from "./community-message-delivery"
-import { COMMUNITY_CONTRACT_VERSION } from "./community-contract"
+import { COMMUNITY_CONTRACT_VERSION, type CommunityContract } from "./community-contract"
 
 export const COMMUNITY_BROWSER_EVENT_BATCH_TYPE = "community:events.batch" as const
 
@@ -251,6 +251,7 @@ export function encodePreparedCommunityBrowserEventBatch(input: {
   operationId: unknown
   operationDigest: unknown
   prepared: PreparedCommunityDeliveryEvents
+  sourceDigest?: CommunityDeliveryDigest
 }): CommunityBrowserEventBatchEncodeResult {
   if (!isCommunityDeliveryOperationId(input.operationId)) {
     return { ok: false, reason: "invalid-operation-id" }
@@ -265,20 +266,21 @@ export function encodePreparedCommunityBrowserEventBatch(input: {
       actualDigest: input.prepared.digest,
     }
   }
-  const prefix = JSON.stringify({
-    type: COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
+  if (input.sourceDigest !== undefined && !isCommunityDeliveryDigest(input.sourceDigest)) return { ok: false, reason: "invalid-operation-digest" }
+  const envelope = {
+    type: communityBrowserEventBatchType(input.sourceDigest === undefined ? 1 : COMMUNITY_CONTRACT_VERSION),
     operationId: input.operationId,
-    operationDigest: input.operationDigest,
-  }).slice(0, -1)
+    operationDigest: input.sourceDigest ?? input.operationDigest,
+    ...(input.sourceDigest === undefined ? {} : { wireDigest: input.prepared.digest }),
+  }
+  const prefix = JSON.stringify(envelope).slice(0, -1)
   const body = `${prefix},"events":[${input.prepared.bodies.join(",")}]}`
   const byteLength = utf8ByteLength(body)
   if (byteLength > COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES) {
     return { ok: false, reason: "batch-invariant-oversized", byteLength }
   }
   const batch: CommunityBrowserEventBatch = {
-    type: COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
-    operationId: input.operationId,
-    operationDigest: input.operationDigest,
+    ...envelope,
     events: input.prepared.envelopes,
   }
   return { ok: true, batch, body, byteLength, childBodies: input.prepared.bodies }
@@ -311,9 +313,10 @@ export function decodeCommunityBrowserEventBatch(
   if (!isCommunityDeliveryDigest(value.operationDigest)) {
     return { ok: false, reason: "invalid-operation-digest" }
   }
+  const current = value.type === communityBrowserEventBatchType()
   if (
-    Object.keys(value).length !== (value.type === communityBrowserEventBatchType() ? 5 : 4)
-    || (value.type === communityBrowserEventBatchType() && !isCommunityDeliveryDigest(value.wireDigest))
+    Object.keys(value).length !== (current ? 5 : 4)
+    || (current && !isCommunityDeliveryDigest(value.wireDigest))
     || !Object.hasOwn(value, "type")
     || !Object.hasOwn(value, "operationId")
     || !Object.hasOwn(value, "operationDigest")
@@ -342,7 +345,7 @@ export function decodeCommunityBrowserEventBatch(
     ok: true,
     batch: {
       type: value.type,
-      ...(value.type === communityBrowserEventBatchType() ? { wireDigest: value.wireDigest as string } : {}),
+      ...(current ? { wireDigest: value.wireDigest as string } : {}),
       operationId: value.operationId,
       operationDigest: value.operationDigest,
       events: envelopes,
@@ -351,15 +354,17 @@ export function decodeCommunityBrowserEventBatch(
   }
 }
 
-export function projectCommunityEventForContract(event: CommunityWsEvent, contract: 1 | 2): CommunityWsEvent | null {
-  if (contract === 2 || event.type !== "community:channel.membership.change") return event
+export function projectCommunityEventForContract(event: CommunityWsEvent, contract: CommunityContract): CommunityWsEvent | null {
+  if (contract === COMMUNITY_CONTRACT_VERSION) return event
+  if (event.type === "community:friend.block") return { type: event.type, userId: event.userId }
+  if (event.type !== "community:channel.membership.change") return event
   if (event.serverId === null) return null
   return { type: event.present ? "community:channel.member_add" : "community:channel.member_remove",
     serverId: event.serverId, channelId: event.channelId, userId: event.userId }
 }
 
 export async function encodeCommunityBrowserEventBatchForContract(input: {
-  operationId: CommunityDeliveryOperationId; prepared: PreparedCommunityDeliveryEvents; contract: 1 | 2;
+  operationId: CommunityDeliveryOperationId; prepared: PreparedCommunityDeliveryEvents; contract: CommunityContract;
 }): Promise<CommunityBrowserEventBatchEncodeResult> {
   const source = await prepareCommunityDeliveryEvents(input.prepared.events)
   if (!source.ok) return source
@@ -368,21 +373,13 @@ export async function encodeCommunityBrowserEventBatchForContract(input: {
   if (events.some((event) => event === null)) return { ok: false, reason: "invalid-child" }
   const wire = await prepareCommunityDeliveryEvents(events)
   if (!wire.ok) return wire
-  const encoded = encodePreparedCommunityBrowserEventBatch({ operationId: input.operationId, operationDigest: wire.prepared.digest, prepared: wire.prepared })
-  if (!encoded.ok || input.contract === 1) return encoded
-  const prefix = JSON.stringify({ type: communityBrowserEventBatchType(), operationId: input.operationId,
-    operationDigest: input.prepared.digest, wireDigest: wire.prepared.digest }).slice(0, -1)
-  const body = `${prefix},"events":[${wire.prepared.bodies.join(",")}]}`
-  const byteLength = utf8ByteLength(body)
-  if (byteLength > COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES) return { ok: false, reason: "batch-invariant-oversized", byteLength }
-  return { ok: true, batch: { type: communityBrowserEventBatchType(), operationId: input.operationId,
-    operationDigest: input.prepared.digest, wireDigest: wire.prepared.digest, events: wire.prepared.envelopes },
-    body, byteLength, childBodies: wire.prepared.bodies }
+  return encodePreparedCommunityBrowserEventBatch({ operationId: input.operationId, operationDigest: wire.prepared.digest,
+    prepared: wire.prepared, ...(input.contract === COMMUNITY_CONTRACT_VERSION ? { sourceDigest: input.prepared.digest } : {}) })
 }
 
-export async function verifyCommunityBrowserEventBatchV2(value: unknown) {
+export function admitCommunityBrowserEventBatch(value: unknown): CommunityBrowserEventBatchDecodeResult | Promise<CommunityBrowserEventBatchDecodeResult> {
   const decoded = decodeCommunityBrowserEventBatch(value)
-  if (!decoded.ok || decoded.batch.type !== communityBrowserEventBatchType()) return false
-  if (!isRecord(value) || !Array.isArray(value.events)) return false
-  return await computeCommunityDeliveryDigestFromBodies(value.events.map((event) => JSON.stringify(event))) === decoded.batch.wireDigest
+  if (!decoded.ok || decoded.batch.type === COMMUNITY_BROWSER_EVENT_BATCH_TYPE) return decoded
+  return computeCommunityDeliveryDigestFromBodies((value as { events: unknown[] }).events.map((event) => JSON.stringify(event)))
+    .then((digest) => digest === decoded.batch.wireDigest ? decoded : { ok: false, reason: "invalid-payload" })
 }

@@ -3,7 +3,7 @@ import "fake-indexeddb/auto"
 import React from "react"
 import { beforeAll, afterAll, describe, expect, it, vi } from "vitest"
 import { act, render, waitFor } from "@/test/react-dom-harness"
-import { createIdbPersister, clearAllPersistedCaches } from "./query-persister"
+import { createIdbPersister, PERSIST_BUSTER, clearAllPersistedCaches } from "./query-persister"
 import { get, set } from "idb-keyval"
 import { useQueryClient, useIsRestoring } from "@tanstack/react-query"
 import { getCommunityDbRegistry, type CommunityDbRegistry } from "./community-db/collections"
@@ -47,11 +47,11 @@ describe("real BetterAuth public session input", () => {
     await waitFor(() => expect(restoring.A).toBe(false))
     await waitFor(() => expect(auth.authClient.$store.atoms.session.get()).toMatchObject({ isPending: false, error: null, data: { user: { id: "A" } } }))
     const a = createIdbPersister("A"), b = createIdbPersister("B")
-    await act(async () => { await a.restoreClient(); }) ; await act(async () => { await b.restoreClient(); }) ; await act(async () => { await set("alook:qc:v2:A:client", "old A"); }) ; await act(async () => { await set("alook:qc:v2:B:client", "old B") })
+    await act(async () => { await a.restoreClient(); }) ; await act(async () => { await b.persistClient({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: { queries: [], mutations: [] } }); }) ; await act(async () => { await set("alook:qc:v2:A:client", "old A"); }) ; await act(async () => { await set("alook:qc:v2:B:client", "old B") })
     await act(async () => { const result = await auth.authClient.signIn.email({ email: "B@example.test", password: "fixture-password" }); expect(result.error).toBeNull() })
     await waitFor(() => expect(owners.A.sessionViewer()).toBe("B"))
     await waitFor(async () => expect(await a.isCurrent()).toBe(false))
-    expect(await get("alook:qc:v2:A:client")).toBeUndefined(); expect(await get("alook:qc:v2:B:client")).toBe("old B")
+    expect(await get("alook:qc:v2:A:client")).toBeUndefined(); expect(await get("alook:qc:v2:B:client")).toBeUndefined(); expect(await b.restoreClient()).toMatchObject({ buster: PERSIST_BUSTER })
     await act(async () => view.rerender(<Root />))
     await waitFor(() => expect(restoring.B).toBe(false))
     await waitFor(() => expect(owners.B?.sessionViewer()).toBe("B")); expect(owners.B.lifecycle.get().active).toBe(true); expect(await b.isCurrent()).toBe(true)

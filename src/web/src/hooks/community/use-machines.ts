@@ -51,8 +51,7 @@ export type MachineSummary = CommunityMachineSummary & {
  * live-patch `communityKeys.machines()` via `queryClient.setQueryData` on
  * `community:machine.*` WS events, so this list stays fresh without a refetch.
  */
-export type MachineCapacity = MachineCapacitySummary
-export type MachinesResponse = { machines: MachineSummary[]; machineCapacity?: MachineCapacity }
+export type MachinesResponse = { machines: MachineSummary[]; machineCapacity?: MachineCapacitySummary }
 
 export function replaceMachines(data: MachinesResponse, machines: MachineSummary[]): MachinesResponse {
   return {

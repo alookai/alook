@@ -1,8 +1,6 @@
 "use client"
 
-import { useChannelReadStateSnapshot, type ChannelReadStateSnapshot } from "./use-channel-read-state"
-
-export type DmReadStateSnapshot = ChannelReadStateSnapshot
+import { useChannelReadStateSnapshot } from "./use-channel-read-state"
 
 export function useDmReadStateSnapshot(
   dmId: string | null | undefined,

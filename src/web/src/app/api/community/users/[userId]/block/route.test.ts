@@ -65,6 +65,9 @@ describe("POST /api/community/users/[userId]/block", () => {
     expect(blockCall).toBeDefined()
     expect(blockCall![0]).toBe("u2")
     expect(blockCall![1]).toEqual({ type: "community:friend.block", userId: "u1" })
+    expect(broadcastToUser.mock.calls.filter(([target]) => target === "u1")).toEqual([
+      ["u1", { type: "community:friend.block", userId: "u2", blockedByViewer: true }],
+    ])
   })
 
   it("blocking an existing friend also broadcasts friend.remove with the prior friendship id", async () => {

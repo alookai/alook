@@ -31,6 +31,7 @@ function render(node: React.ReactNode) { return renderDom(node, { wrapper: Nativ
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mocks.replace }),
+  usePathname: () => "/c/channels/server-1/post-1",
 }))
 vi.mock("./use-servers", () => ({
   useServer: () => ({ server: mocks.server }),
@@ -63,7 +64,7 @@ vi.mock("@/lib/community-db/sync", async (importOriginal) => ({ ...await importO
 import { buildChannelRouteModel, useChannelRouteModel } from "./use-channel-route-model"
 
 function Harness({ channelId = "post-1" }: { channelId?: string }) {
-  const result = useChannelRouteModel("server-1", "server-1", channelId, "viewer-1")
+  const result = useChannelRouteModel("server-1", "server-1", channelId, "viewer")
   return React.createElement("span", {
     "data-lifecycle": result.routeLifecycle,
     "data-skeleton-subtype": result.skeletonSubtype,
@@ -78,6 +79,7 @@ function lifecycle(renderer: ReturnType<typeof render>) {
 }
 
 beforeEach(async () => {
+  window.history.replaceState(null, "", "/c/channels/server-1/post-1")
   const owner = await createCommunityQueryOwner()
   queryClient = owner.client
   mocks.subscribe.mockClear()
@@ -355,7 +357,7 @@ describe("useChannelRouteModel subscription ownership", () => {
     })
 
     expect(mocks.consumeColdEntryFailure).toHaveBeenCalledWith(
-      "viewer-1",
+      "viewer",
       "/c/channels/server-1/post-1",
     )
     expect(mocks.replace).toHaveBeenCalledWith("/c/me/machines")

@@ -894,6 +894,11 @@ export function ingestMessages(
     .map((message) => {
       const { thread, clientNonce, ...fields } = message
       const existingMessage = previous.get(message.id)
+      const retainReply = existingMessage?.channelId === channelId
+        && (!message.authorId || message.authorId === existingMessage.authorId)
+        && (clientNonce === undefined || clientNonce === existingMessage.clientNonce)
+        && !("replyTo" in message)
+        && (!("replyToId" in message) || message.replyToId === existingMessage.replyToId)
       if (thread) {
         const existing = collectionRows(registry, "channels").find((row) => row.id === thread.id)
         const parent = collectionRows(registry, "channels").find((row) => row.id === channelId)
@@ -906,10 +911,8 @@ export function ingestMessages(
           ...(thread.participantCount !== undefined ? { participantCount: thread.participantCount } : {}),
         }, existing)])
       }
-      return { ...fields, ...projectMessageRichContent(fields), type: message.type ?? existingMessage?.type ?? "chat", channelId,
+      return { ...fields, replyTo: retainReply ? existingMessage!.replyTo : message.replyTo, replyToId: retainReply ? existingMessage!.replyToId : message.replyTo?.id ?? message.replyToId ?? null, ...projectMessageRichContent(fields), type: message.type ?? existingMessage?.type ?? "chat", channelId,
         ...("clientNonce" in message ? { clientNonce: clientNonce ?? undefined } : {}),
-        ...("replyTo" in message || "replyToId" in message || !existingMessage
-          ? { replyToId: message.replyTo?.id ?? ("replyToId" in message ? message.replyToId : null) } : {}),
       }
     })
   upsertRows(registry, "messages", rows)
@@ -1018,7 +1021,7 @@ type AttentionFloor = {
   ordinary: boolean
   mentions: boolean
 }
-type AttentionIntent = {
+export type AttentionIntent = {
   token: symbol
   generation: number
   scopesQuery: Query | undefined
@@ -1329,11 +1332,8 @@ export function ingestAttentionSnapshot(registry: CommunityDbRegistry, snapshot:
   return "applied" as const
 }
 
-export type AttentionOptimisticSnapshot = AttentionIntent
 export type AttentionScopeOptimisticSnapshot = AttentionIntent & { scopeId: string; targetSeq: number }
-export type AttentionItemsOptimisticSnapshot = AttentionIntent
-
-export function clearAttentionOptimistically(registry: CommunityDbRegistry): AttentionOptimisticSnapshot {
+export function clearAttentionOptimistically(registry: CommunityDbRegistry): AttentionIntent {
   const floors = new Map(collectionRows(registry, "attentionScopes").map((scope) => [scope.scopeId, {
     throughSeq: Math.max(scope.lastUnreadSeq, scope.lastAttentionSeq ?? 0),
     clearedCount: scope.attentionCount, domain: scope.serverId == null ? "dms" as const : "channels" as const,
@@ -1343,15 +1343,15 @@ export function clearAttentionOptimistically(registry: CommunityDbRegistry): Att
   return beginAttentionIntent(registry, { floors, itemIds: new Set(items.map((item) => item.id)), itemDomains: new Map(items.map((item) => [item.id, "mentions" as const])), clearedAttentionCount: 0 })
 }
 
-export function commitAttentionOptimisticSnapshot(registry: CommunityDbRegistry, snapshot: AttentionOptimisticSnapshot) {
+export function commitAttentionOptimisticSnapshot(registry: CommunityDbRegistry, snapshot: AttentionIntent) {
   settleAttentionIntent(registry, snapshot, new Set(["channels", "dms", "mentions"]))
   return snapshot.settled
 }
-export function restoreAttentionOptimisticDomains(registry: CommunityDbRegistry, snapshot: AttentionOptimisticSnapshot, failedDomains: ReadonlySet<AttentionDomain>) {
+export function restoreAttentionOptimisticDomains(registry: CommunityDbRegistry, snapshot: AttentionIntent, failedDomains: ReadonlySet<AttentionDomain>) {
   settleAttentionIntent(registry, snapshot, new Set((["channels", "dms", "mentions"] as const).filter((domain) => !failedDomains.has(domain))))
   return snapshot.settled
 }
-export function restoreAttentionOptimisticSnapshot(registry: CommunityDbRegistry, snapshot: AttentionOptimisticSnapshot) {
+export function restoreAttentionOptimisticSnapshot(registry: CommunityDbRegistry, snapshot: AttentionIntent) {
   return settleAttentionIntent(registry, snapshot)
 }
 
@@ -1377,15 +1377,15 @@ export function restoreAttentionScopeOptimisticSnapshot(registry: CommunityDbReg
   return settleAttentionIntent(registry, snapshot)
 }
 
-export function removeAttentionItemsOptimistically(registry: CommunityDbRegistry, remove: (item: AttentionItemRow) => boolean): AttentionItemsOptimisticSnapshot {
+export function removeAttentionItemsOptimistically(registry: CommunityDbRegistry, remove: (item: AttentionItemRow) => boolean): AttentionIntent {
   const items = collectionRows(registry, "attentionItems").filter(remove)
   return beginAttentionIntent(registry, { floors: new Map(), itemIds: new Set(items.map((item) => item.id)), itemDomains: new Map(items.map((item) => [item.id, "mentions" as const])), clearedAttentionCount: 0 })
 }
-export function commitAttentionItemsOptimisticSnapshot(registry: CommunityDbRegistry, snapshot: AttentionItemsOptimisticSnapshot) {
+export function commitAttentionItemsOptimisticSnapshot(registry: CommunityDbRegistry, snapshot: AttentionIntent) {
   settleAttentionIntent(registry, snapshot, new Set(["channels", "dms", "mentions"]))
   return snapshot.settled
 }
-export function restoreAttentionItemsOptimisticSnapshot(registry: CommunityDbRegistry, snapshot: AttentionItemsOptimisticSnapshot) {
+export function restoreAttentionItemsOptimisticSnapshot(registry: CommunityDbRegistry, snapshot: AttentionIntent) {
   return settleAttentionIntent(registry, snapshot)
 }
 
@@ -1663,8 +1663,6 @@ export function publishCommunityEmbeddedMessages(
   })
 }
 
-export type CommunityChannelMetadata = CommunityChannelIdentity
-
 function qualifyCanonicalChannelMetadata(registry: CommunityDbRegistry, channelIds: readonly string[], token: CommunityLiveSnapshotToken) {
   if (!registry.accountId) return
   for (const channelId of channelIds) {
@@ -1684,7 +1682,7 @@ function qualifyCanonicalChannelMetadata(registry: CommunityDbRegistry, channelI
 export function publishCommunityChannelMetadata(
   queryClient: QueryClient,
   publication: {
-    metadata: CommunityChannelMetadata
+    metadata: CommunityChannelIdentity
     proof: CommunityFreshQueryProof
   },
 ) {
@@ -2396,7 +2394,8 @@ export function projectCommunityWsEventToDb(
     case "community:friend.block": {
       const retired = collectionRows(registry, "friendships").filter((row) => row.userId === event.userId).map((row) => row.id)
       recordEventWrites(registry, "friendships", [`user:${event.userId}`])
-      deleteRows(registry, "friendships", (row) => row.userId === event.userId)
+      deleteRows(registry, "friendships", (row) => row.userId === event.userId && (event.blockedByViewer === true || row.kind !== "blocked"))
+      if (event.blockedByViewer) upsertRows(registry, "friendships", [{ id: `blocked:${event.userId}`, userId: event.userId, kind: "blocked" }])
       deleteRows(registry, "attentionItems", (row) => row.kind === "friend_request" && row.actorUserId === event.userId)
       removeSettledCommunityFriendCommands(queryClient, retired)
       return

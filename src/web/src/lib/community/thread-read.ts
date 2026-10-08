@@ -1,4 +1,4 @@
-import { CommunityThreadsReadSchema, normalizeCommunityChannelResource, normalizeCommunityMessageResource, queries, type Database } from "@alook/shared"
+import { COMMUNITY_CONTRACT_VERSION, CommunityThreadsReadSchema, normalizeCommunityChannelResource, normalizeCommunityMessageResource, queries, type Database } from "@alook/shared"
 import { writeCommunityContractJSON } from "./read-contract"
 import { loadApiMessageContext, mapMessageForApi } from "./message-payload"
 import { canonicalUserImage } from "./storage"
@@ -26,6 +26,6 @@ export async function writeCommunityThreadsRead(db: Database, userId: string, ch
     participantCount: "participantCount" in row ? Number(row.participantCount) : undefined,
     profile: resourceProfile({ id: row.userId, name: row.userName ?? "", avatar: canonicalUserImage(row.userId, row.userImage, row.userAvatarVersion), avatarVersion: row.userAvatarVersion }),
   })))
-  return writeCommunityContractJSON(CommunityThreadsReadSchema.parse({ contractVersion: 2, channelId: parent.id, channel: parent, threads: children,
+  return writeCommunityContractJSON(CommunityThreadsReadSchema.parse({ contractVersion: COMMUNITY_CONTRACT_VERSION, channelId: parent.id, channel: parent, threads: children,
     included: { messages, ...participants, tags: included?.tags ?? [] }, page }))
 }

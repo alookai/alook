@@ -17,7 +17,7 @@ import {
 } from "@/hooks/community/use-forum-sidebar-threads"
 import { reconcileForumOpenerTitle } from "@/hooks/community/forum-opener-title-reconciliation"
 import { clearTypingIndicator, typingScopeKey } from "@/hooks/community/community-ws/typing"
-import type { MessageEventContext } from "@/hooks/community/community-ws/handler-context"
+import type { CommunityWsHandlerContext } from "@/hooks/community/community-ws/handler-context"
 import { scheduleFocusedMessageGapRepair } from "@/hooks/community/community-ws/reconnect-messages"
 import { armInboxReadReservationCandidate } from "@/hooks/community/inbox-read-reservation"
 import {
@@ -39,7 +39,7 @@ type CommunityMessageEdited = Extract<
 >
 
 function warmLiveForumChildOwner(
-  queryClient: MessageEventContext["queryClient"],
+  queryClient: CommunityWsHandlerContext["queryClient"],
   event: CommunityMessageCreate,
 ) {
   if (
@@ -62,7 +62,7 @@ export function handleMessageCreate(
     viewerUserIdRef,
     matchesFocus,
     projection,
-  }: MessageEventContext,
+  }: CommunityWsHandlerContext,
 ) {
   warmLiveForumChildOwner(queryClient, event)
   const viewerId = viewerUserIdRef.current
@@ -155,7 +155,7 @@ export function handleMessageCreate(
 
 export function handleReactionEvent(
   event: CommunityReactionAdd | CommunityReactionRemove,
-  context: MessageEventContext,
+  context: CommunityWsHandlerContext,
 ) {
   void event
   void context
@@ -163,14 +163,14 @@ export function handleReactionEvent(
 
 export function handlePinEvent(
   event: CommunityPinAdd | CommunityPinRemove,
-  { projection }: MessageEventContext,
+  { projection }: CommunityWsHandlerContext,
 ) {
   invalidatePins(projection, event.channelId)
 }
 
 export function handleMessageUpdated(
   event: CommunityMessageUpdated,
-  context: MessageEventContext,
+  context: CommunityWsHandlerContext,
 ) {
   writeCommunityProfilePatches(approvalProfilePatches(event.approval), getCommunityDbRegistry(context.queryClient), { event: true })
   // When a card resolves (accepted/denied/superseded), the friend graph
@@ -184,7 +184,7 @@ export function handleMessageUpdated(
 
 export function handleMessageEdited(
   event: CommunityMessageEdited,
-  context: MessageEventContext,
+  context: CommunityWsHandlerContext,
 ) {
   const { queryClient } = context
   if (event.parentChannelId) {

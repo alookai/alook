@@ -198,7 +198,7 @@ export function useInboxAutoCollapse({
   useEffect(() => {
     const previousHref = previousPublishedHref.get()
     previousPublishedHref.set(publishedHref)
-    if (previousHref === publishedHref || !openAtom.get()) return
+    if (destinationMatches(previousHref, publishedHref) || !openAtom.get()) return
     setOpen(false)
   }, [publishedHref, previousPublishedHref, openAtom, setOpen])
 

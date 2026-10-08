@@ -8,7 +8,6 @@ import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle
 import { normalizeCommunityChannelIdentity, type CommunityChannelIdentity, type CommunityAccessDecision } from "@alook/shared"
 
 export type ChannelMetadata = CommunityChannelIdentity & {
-  readContractVersion?: 2
   accessDecision?: CommunityAccessDecision
 }
 
@@ -63,7 +62,7 @@ export async function fetchChannelMetadata(
       || !(serverId === null ? meta.type === "dm" : ["text", "forum", "thread"].includes(meta.type))
       || !(typeof meta.name === "string" || (serverId === null && meta.name === null))) throw new Error("Channel metadata scope mismatch")
     if (meta.parentChannelId && (token.registry!.runtime.ws.get().channelAccessScopes.get(meta.parentChannelId)?.generation ?? 0) !== (token.channelScopes.get(meta.parentChannelId)?.generation ?? 0)) throw new DOMException("Retired parent channel", "AbortError")
-    if (!meta.archived && (meta.readContractVersion !== 2 || meta.accessDecision?.canRead === true)) {
+    if (!meta.archived && meta.accessDecision?.canRead !== false) {
       if (serverId) token.registry!.runtime.ws.actions.grantServerAccess(serverId)
       token.registry!.runtime.ws.actions.rememberChannelAccess(serverId, channelId, meta.parentChannelId)
     }
@@ -80,7 +79,7 @@ export function channelMetadataOptions(queryClient: QueryClient, serverId: strin
       const token = captureChannelMetadataToken(queryClient, channelId)
       const metadata = await fetchChannelMetadata(queryClient, serverId, channelId, signal, token)
       publishCommunityChannelMetadata(queryClient, { metadata, proof: { token, signal } })
-      const canRead = !metadata.archived && (metadata.readContractVersion !== 2 || metadata.accessDecision?.canRead === true)
+      const canRead = !metadata.archived && metadata.accessDecision?.canRead !== false
       if (!canRead) retireCommunityChannelReading(token.registry!, channelId, { reason: "read-denied", serverId, preserveQuery: queryClient.getQueryCache().find({ queryKey, exact: true }) })
       const qualified = captureChannelMetadataToken(queryClient, channelId)
       return { id: metadata.id, serverId: metadata.serverId, identityProof: qualified, readProof: canRead ? qualified : undefined }

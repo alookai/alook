@@ -4,9 +4,9 @@ import { ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import type { MachineCapacity } from "@/hooks/community/use-machines"
+import type { MachineCapacitySummary } from "@alook/shared"
 
-export function MachineCapacityUsage({ summary, onViewPlan }: { summary: MachineCapacity | null; onViewPlan: () => void }) {
+export function MachineCapacityUsage({ summary, onViewPlan }: { summary: MachineCapacitySummary | null; onViewPlan: () => void }) {
   const online = summary?.onlineCount ?? 0
   const limit = summary?.limit ?? 0
   const percent = limit > 0 ? Math.min(100, online / limit * 100) : 0

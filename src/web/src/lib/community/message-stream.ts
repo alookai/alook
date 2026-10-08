@@ -1,11 +1,11 @@
 import { deriveView, sourceEvidence, viewEvidence } from "@/lib/observability/data-source"
 import type { Msg, SendAttachment } from "@/lib/community/models/message"
-import type { MentionType } from "@alook/shared"
+import type { MentionType, CommunityMessageResource } from "@alook/shared"
 import { presentMessageAttachment } from "@/lib/community/attachment-presentation"
 
 export const MAX_LIVE_MESSAGE_DELTAS = 500
 
-export type CanonicalMessage = Msg & { seq: number }
+export type CanonicalMessage = Msg & Pick<CommunityMessageResource, "seq"> & Partial<Pick<CommunityMessageResource, "replyToId">>
 
 export type MessageScope =
   | { kind: "channel"; id: string; serverId: string }

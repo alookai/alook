@@ -8,15 +8,13 @@ import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { communityKeys } from "@/lib/query-keys"
 import type { CommunityMessageSurfaceReceipt } from "@alook/shared"
 
-export type MessageSurfaceReceipt = CommunityMessageSurfaceReceipt
-
 export type ConversationNavigationTarget = {
   href: string
   viewerId: string
   channelId: string
   serverId?: string
   scopeKind: "channel" | "dm"
-  expectedSurfaceKind?: MessageSurfaceReceipt["surfaceKind"]
+  expectedSurfaceKind?: CommunityMessageSurfaceReceipt["surfaceKind"]
   anchorMessageId?: string
 }
 
@@ -158,7 +156,7 @@ export function isCurrentConversationNavigation(
 
 export function recordConversationNavigationReceipt(
   queryClient: QueryClient,
-  receipt: MessageSurfaceReceipt,
+  receipt: CommunityMessageSurfaceReceipt,
   accessEpoch: number,
   epoch?: number,
 ): boolean {

@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useMemo } from "react"
 import { createStore, useSelector } from "@tanstack/react-store"
-import { useQuery, useQueryClient, type QueryFunctionContext } from "@tanstack/react-query"
+import { useQuery, useQueryClient, useIsRestoring, type QueryFunctionContext } from "@tanstack/react-query"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { channelMetadataOptions, captureChannelMetadataToken, isChannelMetadataTokenCurrent, type ChannelMetadataResource } from "./channel-metadata"
 import { retryConversationRead, withConversationReadDeadline } from "@/lib/community/conversation-read"
@@ -95,6 +95,7 @@ export function useChannelReadStateSnapshot(
   retry: () => void
 } {
   const client = useQueryClient()
+  const isRestoring = useIsRestoring()
   const entry = useMemo(() => createStore({ client, channelId, kind, snapshot: null as ChannelReadStateSnapshot | null }), [client, channelId, kind])
   const frozen = useSelector(entry, (state) => state.snapshot)
   const query = useQuery<ChannelReadStateSnapshot>({
@@ -121,14 +122,14 @@ export function useChannelReadStateSnapshot(
     networkMode: "always",
   })
 
-  const available = query.status === "success" && !query.isFetching ? query.data : undefined
+  const available = !isRestoring && query.status === "success" && !query.isFetching ? query.data : undefined
   useLayoutEffect(() => {
     if (available) entry.setState((state) => state.snapshot ? state : { ...state, snapshot: available })
   }, [entry, available])
 
   return {
     snapshot: frozen ?? available ?? null,
-    isFetching: frozen === null && query.isFetching,
+    isFetching: !!channelId && frozen === null && (isRestoring || query.isPending || query.isFetching),
     error: query.error,
     retrying: query.isFetching,
     retry: () => { void query.refetch({ cancelRefetch: false }) },

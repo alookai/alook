@@ -5,7 +5,7 @@ import type {
   Page,
   TestInfo,
 } from "@playwright/test"
-import { expect, sessionCookie, userId } from "./community-fixture"
+import { test, expect, sessionCookie, userId } from "./community-fixture"
 import {
   COMMUNITY_RAIL_WIDTH,
   COMMUNITY_SEPARATOR_WIDTH,
@@ -594,64 +594,73 @@ export async function runDesktopPersistedPendingGeometry(
   theme: Theme,
   asUser: CommunityAsUser,
 ) {
-  for (const viewportWidth of [640, 768, 1024, 1280] as const) {
-    for (const sidebarWidth of [null, 100, 160, 240, 350, 360] as const) {
-      for (const deviceScaleFactor of DESKTOP_DENSITY_SCALES) {
-        const caseLabel = `${viewportWidth}px @${deviceScaleFactor}x, sidebar ${sidebarWidth ?? "default"}`
-        const { context, page } = await asUser(ISOLATED_GEOMETRY_USER, {
-          deviceScaleFactor,
-        })
-        await page.setViewportSize({ width: viewportWidth, height: 900 })
-        await page.emulateMedia({ colorScheme: theme })
-        await installDesktopPendingFrameProbe(page, viewportWidth, sidebarWidth)
-        const scripts = await holdApplicationScripts(page)
-        const communityReads = await holdCommunityReads(page)
-        await page.goto("/c/me/machines", { waitUntil: "commit" })
-        await expect.poll(() => scripts.blocked.length).toBeGreaterThan(0)
-        expect(scripts.received).toEqual([])
-        expect(scripts.sessionRequests()).toBe(0)
-        await expectServerSeededRouteFrame(page, viewportWidth, 900)
-        scripts.release()
-        await expect.poll(communityReads.hits).toBeGreaterThan(0)
-        await expect(page.locator('[data-slot="community-shell-root"]')).toBeVisible()
-        await page.waitForTimeout(250)
-
-        const samples = await desktopPendingFrameSamples(page)
-        await page.evaluate(() => Reflect.set(
-          window,
-          "__communityDesktopPendingFrameProbeStopped",
-          true,
-        ))
-        expect(samples.length, caseLabel).toBeGreaterThan(0)
-        for (const [index, sample] of samples.entries()) {
-          expect(sample.overflow, `${caseLabel}, frame ${index} horizontal overflow`).toBe(0)
+  const cases = ([640, 768, 1024, 1280] as const).flatMap((viewportWidth) =>
+    ([null, 100, 160, 240, 350, 360] as const).flatMap((sidebarWidth) =>
+      DESKTOP_DENSITY_SCALES.map((deviceScaleFactor) => ({ viewportWidth, sidebarWidth, deviceScaleFactor }))))
+  const results = await Promise.allSettled(([ISOLATED_GEOMETRY_USER, "geometry"] as const).map(async (account, lane) => {
+    for (const entry of cases.filter((_, index) => index % 2 === lane)) {
+      const { viewportWidth, sidebarWidth, deviceScaleFactor } = entry
+      const caseLabel = `${viewportWidth}px @${deviceScaleFactor}x, sidebar ${sidebarWidth ?? "default"}`
+      await test.step(caseLabel, async () => {
+        const { context, page } = await asUser(account, { deviceScaleFactor })
+        let scripts: Awaited<ReturnType<typeof holdApplicationScripts>> | undefined
+        let communityReads: Awaited<ReturnType<typeof holdCommunityReads>> | undefined
+        try {
+          await page.setViewportSize({ width: viewportWidth, height: 900 })
+          await page.emulateMedia({ colorScheme: theme })
+          await installDesktopPendingFrameProbe(page, viewportWidth, sidebarWidth)
+          const scriptGate = await holdApplicationScripts(page)
+          scripts = scriptGate
+          communityReads = await holdCommunityReads(page)
+          await page.goto("/c/me/machines", { waitUntil: "commit" })
+          await expect.poll(() => scriptGate.blocked.length).toBeGreaterThan(0)
+          expect(scriptGate.received).toEqual([])
+          expect(scriptGate.sessionRequests()).toBe(0)
+          await expectServerSeededRouteFrame(page, viewportWidth, 900)
+          scriptGate.release()
+          await expect.poll(communityReads.hits).toBeGreaterThan(0)
+          await expect(page.locator('[data-slot="community-shell-root"]')).toBeVisible()
+          await page.waitForTimeout(250)
+    
+          const samples = await desktopPendingFrameSamples(page)
+          await page.evaluate(() => Reflect.set(
+            window,
+            "__communityDesktopPendingFrameProbeStopped",
+            true,
+          ))
+          expect(samples.length, caseLabel).toBeGreaterThan(0)
+          for (const [index, sample] of samples.entries()) {
+            expect(sample.overflow, `${caseLabel}, frame ${index} horizontal overflow`).toBe(0)
+            expect(
+              Math.abs(sample.userBarRight - sample.mainLeft),
+              `${caseLabel}, frame ${index} User bar/main boundary: ${JSON.stringify(sample)}`,
+            ).toBeLessThanOrEqual(1)
+            const separatorWidth = sample.mainLeft - sample.sidebarRight
+            expect(
+              separatorWidth,
+              `${caseLabel}, frame ${index} separator width: ${JSON.stringify(sample)}`,
+            ).toBeGreaterThanOrEqual(0)
+            expect(
+              separatorWidth,
+              `${caseLabel}, frame ${index} separator width: ${JSON.stringify(sample)}`,
+            ).toBeLessThanOrEqual(1)
+          }
+          const expectedSidebarWidth = sidebarWidth === null
+            ? COMMUNITY_SIDEBAR_DEFAULT_WIDTH
+            : Math.max(COMMUNITY_SIDEBAR_MIN_WIDTH, sidebarWidth)
           expect(
-            Math.abs(sample.userBarRight - sample.mainLeft),
-            `${caseLabel}, frame ${index} User bar/main boundary: ${JSON.stringify(sample)}`,
-          ).toBeLessThanOrEqual(1)
-          const separatorWidth = sample.mainLeft - sample.sidebarRight
-          expect(
-            separatorWidth,
-            `${caseLabel}, frame ${index} separator width: ${JSON.stringify(sample)}`,
-          ).toBeGreaterThanOrEqual(0)
-          expect(
-            separatorWidth,
-            `${caseLabel}, frame ${index} separator width: ${JSON.stringify(sample)}`,
-          ).toBeLessThanOrEqual(1)
+            Math.abs(samples.at(-1)!.sidebarWidth - expectedSidebarWidth),
+            `${caseLabel}, final sidebar width: ${JSON.stringify(samples.at(-1))}`,
+          ).toBeLessThanOrEqual(ONE_CSS_PIXEL_WITH_LAYOUT_QUANTIZATION)
+        } finally {
+          scripts?.release()
+          communityReads?.release()
+          await context.close()
         }
-        const expectedSidebarWidth = sidebarWidth === null
-          ? COMMUNITY_SIDEBAR_DEFAULT_WIDTH
-          : Math.max(COMMUNITY_SIDEBAR_MIN_WIDTH, sidebarWidth)
-        expect(
-          Math.abs(samples.at(-1)!.sidebarWidth - expectedSidebarWidth),
-          `${caseLabel}, final sidebar width: ${JSON.stringify(samples.at(-1))}`,
-        ).toBeLessThanOrEqual(ONE_CSS_PIXEL_WITH_LAYOUT_QUANTIZATION)
-
-        communityReads.release()
-        await context.close()
-      }
+      })
     }
-  }
+  }))
+  for (const result of results) if (result.status === "rejected") throw result.reason
 }
 
 export async function runSkeletonLoadingMotion(asUser: CommunityAsUser) {

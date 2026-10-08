@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { COMMUNITY_CONTRACT_VERSION } from "./community-contract"
 import { FriendApprovalPayloadSchema } from "./community-friend-approval"
 
 const id = z.string().min(1)
@@ -136,7 +137,7 @@ export const CommunityPageSchema = z.strictObject({
   latestSeq: z.number().int().nonnegative(),
 })
 
-const envelope = { contractVersion: z.literal(2), channelId: id }
+const envelope = { contractVersion: z.literal(COMMUNITY_CONTRACT_VERSION), channelId: id }
 export const CommunityChannelReadSchema = z.strictObject({ ...envelope, channel: CommunityChannelResourceSchema, access: CommunityAccessDecisionSchema })
 export const CommunityMessagesReadSchema = z.strictObject({ ...envelope, messages: z.array(CommunityMessageResourceSchema), page: CommunityPageSchema,
   surfaceReceipt: z.strictObject({ channelId: id, surfaceKind: z.enum(["channel", "forum", "thread", "dm"]) }) })
@@ -149,7 +150,7 @@ export const CommunityThreadsReadSchema = z.strictObject({ ...envelope, channel:
     participantCounts: z.array(z.strictObject({ channelId: id, count: z.number().int().nonnegative() })) }),
   page: z.strictObject({ nextCursor: z.string().nullable(), hasMore: z.boolean() }) })
 export const CommunityReadAdvanceSchema = z.strictObject({ ...envelope, changed: z.boolean(), targetSeq: z.number().int().nonnegative(), revision: z.number().int().nonnegative() })
-export const CommunityReadErrorSchema = z.strictObject({ contractVersion: z.literal(2), error: z.strictObject({
+export const CommunityReadErrorSchema = z.strictObject({ contractVersion: z.literal(COMMUNITY_CONTRACT_VERSION), error: z.strictObject({
   code: z.enum(["invalid_input", "invalid_reply_target", "unauthenticated", "not_found", "not_allowed", "blocked", "idempotency_conflict", "rate_limited", "temporarily_unavailable"]),
   message: z.string(), retryable: z.boolean(),
 }) })

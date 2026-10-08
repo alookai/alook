@@ -1,4 +1,4 @@
-import { COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
+import { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION } from "@alook/shared"
 import { communityReadTarget, decodeCommunityReadResponse } from "@/lib/community/read-response"
 import { createStore } from "@tanstack/store";
 import { ApiError, UnauthorizedError, isAbortError } from "@/lib/errors";
@@ -106,7 +106,7 @@ async function fetchQualifiedResponse(path: string, options?: ApiRequestOptions,
   try {
     assertEligible();
     const headers = new Headers(request.headers);
-    if (communityReadTarget(path, request.method) && !headers.has(COMMUNITY_CONTRACT_HEADER)) headers.set(COMMUNITY_CONTRACT_HEADER, "2");
+    if (communityReadTarget(path, request.method) && !headers.has(COMMUNITY_CONTRACT_HEADER)) headers.set(COMMUNITY_CONTRACT_HEADER, String(COMMUNITY_CONTRACT_VERSION));
     if (!headers.has("Content-Type") && !(typeof FormData !== "undefined" && request.body instanceof FormData)) headers.set("Content-Type", "application/json");
     res = await runObservedFetch(observation, () => fetch(API_BASE + path, {
       ...request,

@@ -3,7 +3,7 @@ import { useLayoutEffect } from "react"
 import { dehydrate, QueryClient, useIsRestoring, useQueryClient } from "@tanstack/react-query"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { act, render, waitFor } from "@/test/react-dom-harness"
-import { clearAllPersistedCaches, createIdbPersister, PERSIST_BUSTER } from "@/lib/query-persister"
+import { clearAllPersistedCaches, createIdbPersister, PERSIST_BUSTER, PERSIST_CACHE_PREFIX } from "@/lib/query-persister"
 import { communityKeys } from "@/lib/query-keys"
 import { valueEvidence } from "@/lib/observability/data-source"
 import { setTelemetryUser } from "@/lib/observability/client"
@@ -40,11 +40,10 @@ async function seed(id: string) {
 function holdRead(id: string) {
   const original = IDBObjectStore.prototype.get
   let release: (() => void) | undefined
-  let held = false
+  let reads = 0
   vi.spyOn(IDBObjectStore.prototype, "get").mockImplementation(function (this: IDBObjectStore, requestKey: IDBValidKey | IDBKeyRange) {
     const request = original.call(this, requestKey)
-    if (requestKey === `alook:qc:${PERSIST_BUSTER}:${id}:client` && !held) {
-      held = true
+    if (requestKey === `${PERSIST_CACHE_PREFIX}:${id}:client` && ++reads === 2) {
       let success: IDBRequest["onsuccess"] = null
       Object.defineProperty(request, "onsuccess", {
         configurable: true,

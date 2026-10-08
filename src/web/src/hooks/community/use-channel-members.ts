@@ -8,7 +8,7 @@ import { useCallback,useMemo } from "react"
 import { QueryObserver,useMutation,useQuery,useQueryClient,type QueryClient,type QueryFunctionContext,type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import { CommunityMembersReadSchema, CommunityResourceProfileSchema, type CommunityMembersRead, type CommunityRole, type CommunityChannelResource, type CommunityMemberRelation, type CommunityResourceProfile } from "@alook/shared"
+import { COMMUNITY_CONTRACT_VERSION, CommunityMembersReadSchema, CommunityResourceProfileSchema, type CommunityMembersRead, type CommunityRole, type CommunityChannelResource, type CommunityMemberRelation, type CommunityResourceProfile } from "@alook/shared"
 import type { CommunityUserCore, Presence } from "@/lib/community/models/people"
 import { fetchAllServerMembers } from "./fetch-all-server-members"
 
@@ -30,7 +30,7 @@ export type ChannelMember = CommunityUserCore & Pick<CommunityMemberRelation, "u
 
 function normalizeChannelRoster(channelId: string, relation: CommunityMemberRelation["relation"], response: { members: ChannelMember[] } | CommunityMembersRead): CommunityMembersRead {
   if ("contractVersion" in response) return response
-  return CommunityMembersReadSchema.parse({ contractVersion: 2, channelId, relation,
+  return CommunityMembersReadSchema.parse({ contractVersion: COMMUNITY_CONTRACT_VERSION, channelId, relation,
     members: response.members.map((member) => ({ channelId, userId: member.userId, relation, memberId: member.id, source: member.source, isCreator: member.isCreator, role: member.role })),
     profiles: response.members.map((member) => CommunityResourceProfileSchema.strip().parse({ ...member, id: member.userId, statusEmoji: member.statusEmoji ?? null, statusText: member.statusText ?? "" })),
   })

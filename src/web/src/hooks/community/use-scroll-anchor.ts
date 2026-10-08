@@ -712,6 +712,7 @@ export function useScrollAnchor({
   useLayoutEffect(() => {
     const root = scrollRef.current
     if (!root) return
+    const inputOwner = userInputRef.current
     const onScroll = () => {
       const input = userInputRef.current
       const previous = acceptedGeometryRef.current
@@ -808,8 +809,8 @@ export function useScrollAnchor({
       root.ownerDocument.defaultView?.removeEventListener("blur", onBlur)
       ro.disconnect()
       mo?.disconnect()
-      userInputRef.current.touch = false
-      userInputRef.current.pointers.clear()
+      inputOwner.touch = false
+      inputOwner.pointers.clear()
     }
   }, [holdNativeOrigin, observeGeometry, readGeometry, reconcileGeometry, releasePosition, scheduleGeometry])
 
