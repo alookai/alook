@@ -161,6 +161,38 @@ describe("renderMessageListRow", () => {
     expect(mockedMessageRow.mock.calls.at(-1)?.[0].onImageLoad).toBeUndefined()
   })
 
+  it.each([undefined, "Today"])("reserves the visible NEW pill in the same intrinsic row with date %s", async (dateLabel) => {
+    const items: FlatItem[] = [
+      { kind: "divider", key: "new:m1", messageId: "m1", dateLabel, newDivider: true },
+      { kind: "message", key: "m1", m: { id: "m1", type: "chat", grouped: false } },
+    ]
+    const view = render(renderMessageListRow(items[0], props, { ...controller, items }, 0))
+    const divider = view.container.querySelector("[data-new-divider]")!
+    const pill = view.getByText("New")
+    await withTailwindStyles(view.container, () => {
+      expect(getComputedStyle(divider).display).toBe("grid")
+      expect(divider.children).toHaveLength(2)
+      const line = pill.previousElementSibling!
+      const pillStyle = getComputedStyle(pill)
+      const lineStyle = getComputedStyle(line)
+      expect(["absolute", "fixed"]).not.toContain(pillStyle.position)
+      expect(pillStyle.getPropertyValue("translate")).toMatch(/^$|^none$/)
+      expect(pillStyle.gridRowStart).toBe("1")
+      expect(lineStyle.gridRowStart).toBe(pillStyle.gridRowStart)
+      expect(pillStyle.gridColumnStart).toBe("1")
+      expect(lineStyle.gridColumnStart).toBe(pillStyle.gridColumnStart)
+      expect(pillStyle.justifySelf).toBe("flex-end")
+      expect(pillStyle.pointerEvents).toBe("none")
+      expect(lineStyle.display).toBe("flex")
+      if (dateLabel) {
+        const label = view.getByText(dateLabel)
+        expect(label.parentElement).toBe(line)
+        expect(getComputedStyle(label.previousElementSibling!).flexGrow).toBe("1")
+        expect(getComputedStyle(label.nextElementSibling!).flexGrow).toBe("1")
+      }
+    })
+  })
+
   it.each([
     { name: "date to ungrouped chat", dateLabel: "Today", newDivider: false, grouped: false, type: "chat", gap: 12 },
     { name: "NEW to ungrouped chat", dateLabel: undefined, newDivider: true, grouped: false, type: "chat", gap: 12 },

@@ -12,8 +12,6 @@ export function DateDivider({ label }: { label: string }) {
 }
 
 export function NewDivider({ dateLabel }: { dateLabel?: string }) {
-  // The row's height tracks the separator line only; the "New" pill is taken
-  // out of flow so its taller box doesn't push messages apart.
   // `data-new-divider` lets `useScrollAnchor`'s mount effect center on this
   // element itself via `querySelector`, instead of the whole message row
   // (date divider + full message content) that used to be the only
@@ -22,16 +20,18 @@ export function NewDivider({ dateLabel }: { dateLabel?: string }) {
   // date label merges onto the same red line (centered) instead of rendering
   // a separate date-divider row above it.
   return (
-    <div data-new-divider data-testid={tid.newDivider} className="relative my-1 flex items-center gap-2">
-      <Separator className="flex-1 bg-destructive/60" />
-      {dateLabel && (
-        <>
-          <span className="text-xs font-semibold text-destructive" suppressHydrationWarning>{dateLabel}</span>
-          <Separator className="flex-1 bg-destructive/60" />
-        </>
-      )}
+    <div data-new-divider data-testid={tid.newDivider} className="my-1 grid items-center">
+      <div className="col-start-1 row-start-1 flex items-center gap-2">
+        <Separator className="flex-1 bg-destructive/60" />
+        {dateLabel && (
+          <>
+            <span className="text-xs font-semibold text-destructive" suppressHydrationWarning>{dateLabel}</span>
+            <Separator className="flex-1 bg-destructive/60" />
+          </>
+        )}
+      </div>
       <span
-        className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 rounded-sm bg-destructive px-1.5 py-0.5 text-xs font-semibold text-white"
+        className="pointer-events-none col-start-1 row-start-1 justify-self-end rounded-sm bg-destructive px-1.5 py-0.5 text-xs font-semibold text-white"
         style={{ WebkitTextStroke: "0.4px currentColor" }}
       >
         New
