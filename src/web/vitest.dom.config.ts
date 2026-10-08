@@ -8,7 +8,7 @@ export default mergeConfig(shared, defineConfig({
       "@": path.resolve(__dirname, "src"),
       "@blog": path.resolve(__dirname, "blog/src"),
       "./.open-next/worker.js": path.resolve(__dirname, "src/test-runtime/open-next-node-stub.ts"),
-      "./.next/required-server-files.json": path.resolve(__dirname, "test-runtime/next-config-stub.json"),
+      "./.open-next/server-functions/default/src/web/.next/required-server-files.json": path.resolve(__dirname, "test-runtime/next-config-stub.json"),
     },
   },
   test: {

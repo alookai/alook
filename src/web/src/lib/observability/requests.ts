@@ -37,7 +37,7 @@ export function finishTransportSpan(span: Span, result: unknown) {
   const request = transportRequests.get(span)
   transportRequests.delete(span)
   if (request?.fields.request_kind !== "rsc") return
-  finishRequest(request, result instanceof Response ? "observed" : "error", "body")
+  finishRequest(request, result instanceof Response ? "observed" : "error", result instanceof Response || request.fields.status !== undefined ? "body" : "headers")
 }
 
 export function installNavigationFetchContext() {

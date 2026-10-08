@@ -76,3 +76,7 @@ The implementation is qualified against the repository lockfile and installed Ne
 - [TanStack Query prefetching](https://tanstack.com/query/latest/docs/framework/react/guides/prefetching).
 - [Cloudflare custom spans](https://developers.cloudflare.com/workers/observability/traces/custom-spans/) and [known limitations](https://developers.cloudflare.com/workers/observability/traces/known-limitations/).
 - [Workers Builds environment variables](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/).
+
+## Runtime packaging boundary
+
+The custom Worker reads the generated Next config snapshot already carried at `.open-next/server-functions/default/src/web/.next/required-server-files.json` for this locked monorepo layout. Both the local app package and the UI build archive already carry that OpenNext tree. The pure request-attribute helper lives with its outer Worker caller; the outer Worker imports pure build, schema and route metadata. Request-context OpenNext APIs stay inside the compiled server/native operation helper. The app bundle copies those pure runtime modules through its existing file list. Actual package verification must retain the positive dry-run and the missing-worker-runtime negative control, and compare the generated public release/environment with the built source. A fixture proves composition only.

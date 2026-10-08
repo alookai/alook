@@ -20,12 +20,14 @@ it("observes native RSC headers and streamed completion and links a click to its
   const clone = vi.spyOn(response, "clone")
   const sent: unknown[] = []
   let injected: Headers | undefined
+  const fetchFailure = new Error("PRIVATE failed RSC fetch")
   const originalFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     if (String(input).startsWith("https://collector.example/")) {
       if (init?.body) sent.push(JSON.parse(String(init.body)))
       return new Response(null, { status: 204 })
     }
     injected = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
+    if (String(input).includes("FAILED_PRIVATE")) throw fetchFailure
     return response
   })
   vi.stubGlobal("fetch", originalFetch)
@@ -77,6 +79,16 @@ it("observes native RSC headers and streamed completion and links a click to its
     .toEqual([{ traceId: parent.traceId, spanId: parent.spanId, attributes: [], droppedAttributesCount: 0 }])
   expect(JSON.stringify(sent)).not.toContain("PRIVATE")
   expect(JSON.stringify(sent)).toContain("a".repeat(40))
+  expect(clone).toHaveBeenCalledOnce()
+  const failedAction = beginNavigation("/c/me/friends")!
+  await expect(window.fetch(window.location.origin + "/c/me/friends?_rsc=FAILED_PRIVATE")).rejects.toBe(fetchFailure)
+  finishAction(failedAction, "error")
+  await vi.advanceTimersByTimeAsync(5000)
+  events.length = 0; spans.length = 0; visit(sent)
+  const failedRequests = events.filter(event => event.attributes.action_id === failedAction.id && event.name.startsWith("request."))
+  expect(failedRequests.map(event => event.name)).toEqual(["request.start", "request.finish"])
+  expect(failedRequests.at(-1)?.attributes).toMatchObject({ phase: "headers", outcome: "error", request_kind: "rsc" })
+  expect(JSON.stringify(sent)).not.toContain("PRIVATE")
   expect(clone).toHaveBeenCalledOnce()
   const activeFetch = window.fetch
   const delivered = sent.length

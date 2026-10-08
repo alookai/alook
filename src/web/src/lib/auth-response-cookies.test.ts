@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 import { createHmac } from "node:crypto"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
-import { createAuth } from "./auth"
+import { createAuth, observeAuthSession } from "./auth"
 import { authResponseCookies } from "./auth-response-cookies"
 
 const secret = "fixture-only-navigation-session-secret-163"
@@ -85,7 +85,21 @@ describe("same-request signed session refresh", () => {
       const find = vi.spyOn(context.internalAdapter, "findSession")
       const signed = encodeURIComponent("fixture-token." + createHmac("sha256", secret).update("fixture-token").digest("base64"))
       const first = new NextRequest("https://fixture.test/c", { headers: { Cookie: `${context.authCookies.sessionToken.name}=${signed}` } })
-      const initial = await auth.api.getSession({ headers: first.headers, returnHeaders: true })
+      let ready!: (value: typeof context) => void
+      const pendingContext = new Promise<typeof context>(resolve => { ready = resolve })
+      const execute = vi.fn(() => auth.api.getSession({ headers: first.headers, returnHeaders: true }))
+      const pendingSession = observeAuthSession({ ...auth, $context: pendingContext }, execute)
+      await Promise.resolve()
+      expect(execute).not.toHaveBeenCalled()
+      ready(context)
+      const initial = await pendingSession
+      expect(execute).toHaveBeenCalledOnce()
+      const sessionFailure = new Error("fixture session failure")
+      await expect(observeAuthSession(auth, () => Promise.reject(sessionFailure))).rejects.toBe(sessionFailure)
+      const contextFailure = new Error("fixture context failure")
+      const blocked = vi.fn(() => auth.api.getSession({ headers: first.headers }))
+      await expect(observeAuthSession({ ...auth, $context: Promise.reject(contextFailure) }, blocked)).rejects.toBe(contextFailure)
+      expect(blocked).not.toHaveBeenCalled()
       expect(initial.response?.user.id).toBe("viewer-a")
       expect(find).toHaveBeenCalledTimes(1)
       const cached = authResponseCookies(first, initial.headers).headers.get("x-middleware-request-cookie")!
