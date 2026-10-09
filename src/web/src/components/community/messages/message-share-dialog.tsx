@@ -14,6 +14,7 @@ import { isDesktop, isMobile, isTauri, stripInlineMarkup } from "@alook/shared"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Avatar } from "../avatar"
+import { ShareImagePreparationContext } from "@/components/remote-image/share-image-context"
 import { MessageBody } from "./message-body"
 import { attachmentAspectRatio } from "./attachment-layout"
 import { tid } from "@/lib/community/testids"
@@ -303,6 +304,7 @@ export function MessageShareDialog({ m, open, onClose }: {
                 data-share-card-source
                 className="rounded-xl bg-card p-5 shadow-(--e1)"
               >
+            <ShareImagePreparationContext value={true}>
             {messages.map((msg) => {
               const author = msg.authorId
                 ? readCommunityProfile(profilesByUserId.get(msg.authorId), msg.authorId)
@@ -389,7 +391,7 @@ export function MessageShareDialog({ m, open, onClose }: {
                             >
                               <img
                                 data-testid={tid.messageShareImage(msg.id, index)}
-                                src={attachment.url}
+                                data-share-image-src={attachment.url}
                                 alt={attachment.name}
                                 width={attachment.width}
                                 height={attachment.height}
@@ -427,6 +429,7 @@ export function MessageShareDialog({ m, open, onClose }: {
               )
             })}
 
+            </ShareImagePreparationContext>
             <div className="mt-4 flex items-center gap-1.5 border-t border-border/50 pt-3">
               <AnimatedAlookLogo className="size-4" />
               <span

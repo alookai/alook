@@ -9,6 +9,7 @@ import {
   type MouseEvent,
 } from "react"
 import { cn } from "@/lib/utils"
+import { useShareImageSource } from "./share-image-context"
 import {
   useRemoteImageAttempt,
   type RemoteImageStatus,
@@ -31,6 +32,7 @@ function IdentityImageAttempt({
   profilePhoto = false,
   "data-testid": testId,
 }: IdentityImageProps) {
+  const sourceProps = useShareImageSource(src)
   const [status, attempt, , imageRef, onLoad, onError, retry] = useRemoteImageAttempt()
   const retryAfterReconnect = useEffectEvent(() => {
     if (status !== "ready") retry()
@@ -64,7 +66,7 @@ function IdentityImageAttempt({
         data-avatar-photo-state={profilePhoto ? legacyStatus : undefined}
         data-remote-image-kind="identity"
         data-remote-image-state={status}
-        src={src}
+        {...sourceProps}
         alt={alt}
         className={cn(
           "absolute inset-0 size-full object-cover transition-opacity duration-150 ease-out motion-reduce:transition-none",
@@ -120,6 +122,7 @@ function ContentImageAttempt({
   "data-testid": testId,
   ...imageProps
 }: ContentImageProps) {
+  const sourceProps = useShareImageSource(src)
   const [status, attempt, readyImage, imageRef, onLoad, onError, retry] = useRemoteImageAttempt()
   const notifyReady = useEffectEvent((image: HTMLImageElement) => onReady?.(image))
 
@@ -149,7 +152,7 @@ function ContentImageAttempt({
         data-testid={testId}
         data-remote-image-kind="content"
         data-remote-image-state={status}
-        src={src}
+        {...sourceProps}
         alt={alt}
         loading={loading}
         className={cn(

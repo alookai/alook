@@ -208,7 +208,7 @@ async function waitForSource(
 }
 
 function imageSource(image: HTMLImageElement): string {
-  return image.currentSrc || image.getAttribute("src") || ""
+  return image.getAttribute("data-share-image-src") || image.currentSrc || image.getAttribute("src") || ""
 }
 
 function imageKind(image: HTMLImageElement): "identity" | "content" {
@@ -358,11 +358,47 @@ function canvasToPng(canvas: HTMLCanvasElement, signal: AbortSignal): Promise<Bl
     }
     const abort = () => finish(undefined, abortError())
     signal.addEventListener("abort", abort, { once: true })
-    canvas.toBlob(
-      (blob) => finish(blob),
-      "image/png",
-    )
+    try {
+      canvas.toBlob((blob) => finish(blob), "image/png")
+    } catch (error) {
+      finish(undefined, error)
+    }
   })
+}
+
+async function staticizeLoadedImage(
+  image: HTMLImageElement,
+  target: ShareImageAssetTarget,
+  signal: AbortSignal,
+  budget: ShareImageAssetBudget,
+): Promise<Blob> {
+  throwIfAborted(signal)
+  const size = staticImageSize(image.naturalWidth, image.naturalHeight, target)
+  const canvas = document.createElement("canvas")
+  canvas.width = size.width
+  canvas.height = size.height
+  try {
+    const context = canvas.getContext("2d")
+    if (!context) throw new Error("Static image canvas is unavailable")
+    context.drawImage(image, 0, 0, size.width, size.height)
+    const blob = await canvasToPng(canvas, signal)
+    consumeDecodedPixels(budget, size.width, size.height)
+    return blob
+  } finally {
+    canvas.width = 0
+    canvas.height = 0
+  }
+}
+
+function loadedImageSources(source: HTMLElement): Map<string, HTMLImageElement> {
+  const images = new Map<string, HTMLImageElement>()
+  for (const image of document.querySelectorAll<HTMLImageElement>("img")) {
+    if (source.contains(image) || image.closest("[data-share-detached-tree], [data-share-card]")) continue
+    if (!image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) continue
+    const url = imageSource(image)
+    if (url) images.set(new URL(url, window.location.href).href, image)
+  }
+  return images
 }
 
 async function staticizeImageBlob(
@@ -527,31 +563,47 @@ async function resolveImage(
   budget: ShareImageAssetBudget,
   staticizeAsset: ShareImageStaticizer,
   enqueueStaticize: ShareImageStaticizeQueue,
+  loadedImages: Map<string, HTMLImageElement>,
 ): Promise<string | null> {
   const kind = imageKind(image)
   try {
-    const request = assetRequest(image)
-    const cached = assetCache.get(request.cacheKey)
+    const source = imageSource(image)
+    if (!source) throw new Error("Image source is missing")
+    const cacheKey = new URL(source, window.location.href).href
+    const cached = assetCache.get(cacheKey)
     if (cached) return await cached
     const pending = (async () => {
-      let blob: Blob
-      if (request.url.startsWith("data:")) {
-        consumeAssetBytes(budget, dataUrlByteLength(request.url))
-        blob = await dataUrlBlob(request.url, signal)
-      } else {
-        const response = await fetchAsset(request.url, {
-          credentials: request.credentials,
-          redirect: "error",
-          signal,
-        })
-        blob = await readImageResponse(response, signal, budget)
+      const target = assetTargets.get(cacheKey) ?? assetTarget(image)
+      const loaded = loadedImages.get(cacheKey)
+      let staticBlob: Blob | undefined
+      if (loaded) {
+        try {
+          staticBlob = await enqueueStaticize(() => staticizeLoadedImage(loaded, target, signal, budget))
+        } catch (error) {
+          if (!(error instanceof DOMException && error.name === "SecurityError")) throw error
+        }
       }
-      const staticBlob = await enqueueStaticize(() => staticizeAsset(
-        blob,
-        assetTargets.get(request.cacheKey) ?? assetTarget(image),
-        signal,
-        budget,
-      ))
+      if (!staticBlob) {
+        const request = assetRequest(image)
+        let blob: Blob
+        if (request.url.startsWith("data:")) {
+          consumeAssetBytes(budget, dataUrlByteLength(request.url))
+          blob = await dataUrlBlob(request.url, signal)
+        } else {
+          const response = await fetchAsset(request.url, {
+            credentials: request.credentials,
+            redirect: "error",
+            signal,
+          })
+          blob = await readImageResponse(response, signal, budget)
+        }
+        staticBlob = await enqueueStaticize(() => staticizeAsset(
+          blob,
+          target,
+          signal,
+          budget,
+        ))
+      }
       if (staticBlob.type !== "image/png") {
         throw new Error("Static image encoder returned a non-PNG image")
       }
@@ -560,7 +612,7 @@ async function resolveImage(
       await decodeDataUrl(dataUrl, signal)
       return dataUrl
     })()
-    assetCache.set(request.cacheKey, pending)
+    assetCache.set(cacheKey, pending)
     return await pending
   } catch (error) {
     if (signal.aborted) throw abortError()
@@ -594,6 +646,7 @@ function replaceIdentityWithFallback(image: HTMLImageElement): void {
 }
 
 function installImageBytes(image: HTMLImageElement, dataUrl: string): void {
+  image.removeAttribute("data-share-image-src")
   image.src = dataUrl
   image.removeAttribute("srcset")
   image.removeAttribute("crossorigin")
@@ -699,6 +752,7 @@ export async function prepareShareImageSession(
   ))
   throwIfAborted(options.signal)
 
+  const loadedImages = loadedImageSources(source)
   const { host, card } = mountDetached(source)
   try {
     const maxSessionAssetBytes = options.maxSessionAssetBytes ?? SHARE_IMAGE_MAX_SESSION_ASSET_BYTES
@@ -726,8 +780,8 @@ export async function prepareShareImageSession(
     const assetTargets = new Map<string, ShareImageAssetTarget>()
     for (const image of images) {
       try {
-        const request = assetRequest(image)
-        mergeAssetTarget(assetTargets, request.cacheKey, assetTarget(image))
+        const url = imageSource(image)
+        if (url) mergeAssetTarget(assetTargets, new URL(url, window.location.href).href, assetTarget(image))
       } catch {
         continue
       }
@@ -749,6 +803,7 @@ export async function prepareShareImageSession(
             budget,
             options.staticizeAsset ?? staticizeImageBlob,
             enqueueStaticize,
+            loadedImages,
           ))
         } catch (error) {
           if (imageKind(image) === "identity"

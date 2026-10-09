@@ -116,6 +116,79 @@ describe("prepareShareImageSession", () => {
     expect(Object.isFrozen(prepared)).toBe(true)
   })
 
+  it("reuses loaded pixels once for deferred duplicate images without fetching or decoding source bytes", async () => {
+    const live = document.createElement("img")
+    live.src = "/loaded.png"
+    Object.defineProperties(live, {
+      complete: { value: true },
+      naturalWidth: { value: 800 },
+      naturalHeight: { value: 400 },
+    })
+    document.body.appendChild(live)
+    const drawImage = vi.fn()
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage } as unknown as CanvasRenderingContext2D)
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation((callback) => callback(new Blob(["pixels"], { type: "image/png" })))
+    const fetchAsset = vi.fn()
+    const staticizeAsset = vi.fn()
+    const source = sourceCard('<img data-share-image-src="/loaded.png"><img data-share-image-src="/loaded.png">')
+
+    const prepared = await prepareShareImageSession(source, {
+      fetchAsset, staticizeAsset, waitForPaint: async () => {},
+    })
+
+    expect(fetchAsset).not.toHaveBeenCalled()
+    expect(staticizeAsset).not.toHaveBeenCalled()
+    expect(drawImage).toHaveBeenCalledExactlyOnceWith(live, 0, 0, 640, 320)
+    expect(prepared.markup.match(/data-share-byte-backed=/g)).toHaveLength(2)
+    expect(prepared.markup).not.toContain("data-share-image-src")
+    expect(live.isConnected).toBe(true)
+    expect(live.getAttribute("src")).toBe("/loaded.png")
+    expect(source.querySelector("img")?.hasAttribute("src")).toBe(false)
+  })
+
+  it("falls back to the asset path when the browser protects loaded cross-origin pixels", async () => {
+    const live = document.createElement("img")
+    live.src = "https://images.example.test/photo.png"
+    Object.defineProperties(live, {
+      complete: { value: true }, naturalWidth: { value: 10 }, naturalHeight: { value: 10 },
+    })
+    document.body.appendChild(live)
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: vi.fn() } as unknown as CanvasRenderingContext2D)
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(() => { throw new DOMException("Protected pixels", "SecurityError") })
+    const fetchAsset = vi.fn().mockResolvedValue(imageResponse())
+    const source = sourceCard('<img data-share-image-src="https://images.example.test/photo.png">')
+
+    const prepared = await prepare(source, fetchAsset)
+
+    expect(fetchAsset).toHaveBeenCalledTimes(1)
+    expect(prepared.markup).toContain("data-share-byte-backed")
+  })
+
+  it.each(["missing context", "encoder failure", "static budget"])("does not refetch a loaded image after %s", async (failure) => {
+    const live = document.createElement("img")
+    live.src = "/loaded.png"
+    Object.defineProperties(live, {
+      complete: { value: true }, naturalWidth: { value: 10 }, naturalHeight: { value: 10 },
+    })
+    document.body.appendChild(live)
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(failure === "missing context"
+      ? null : { drawImage: vi.fn() } as unknown as CanvasRenderingContext2D)
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation((callback) => {
+      if (failure === "encoder failure") throw new Error("Encoder failed")
+      const blob = new Blob(["pixels"], { type: "image/png" })
+      Object.defineProperty(blob, "size", { value: 10 * 1024 * 1024 + 1 })
+      callback(blob)
+    })
+    const fetchAsset = vi.fn()
+    const source = sourceCard('<img data-share-image-src="/loaded.png">')
+
+    await expect(prepare(source, fetchAsset)).rejects.toMatchObject({ stage: "assets" })
+
+    expect(fetchAsset).not.toHaveBeenCalled()
+    expect(live.isConnected).toBe(true)
+    expect(document.querySelector("[data-share-detached-tree]")).toBeNull()
+  })
+
   it("resolves same-origin images to immutable bytes without mutating the React source", async () => {
     const source = sourceCard('<img src="/content.png" alt="content">')
     const fetchAsset = vi.fn().mockResolvedValue(imageResponse())

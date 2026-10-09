@@ -435,7 +435,8 @@ describe("MessageShareDialog message projection", () => {
     const image = renderer.container.querySelector<HTMLImageElement>(
       `[data-testid="${tid.messageShareImage("m1", 0)}"]`,
     )!
-    expect(image.getAttribute("src")).toBe("/original-photo.png")
+    expect(image.getAttribute("src")).toBeNull()
+    expect(image.getAttribute("data-share-image-src")).toBe("/original-photo.png")
     expect(image.alt).toBe("photo.png")
     expect(image.width).toBe(1200)
     expect(image.height).toBe(800)
