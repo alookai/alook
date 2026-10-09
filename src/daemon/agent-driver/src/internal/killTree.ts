@@ -22,6 +22,7 @@ import { execFileSync, spawn, type ChildProcess } from "child_process";
 import { randomUUID } from "node:crypto";
 import { createServer, type Socket } from "node:net";
 import { PassThrough } from "node:stream";
+import { quoteWindowsShimCommand } from "./probe.js";
 
 const POLL_MS = 100;
 const FORCE_EXIT_WAIT_MS = 2_000;
@@ -420,7 +421,7 @@ export function spawnAgentProcess(command: string, args: string[], opts: AgentSp
     const env: NodeJS.ProcessEnv = {
       ...opts.env,
       [WINDOWS_JOB_NODE_ENV]: process.execPath,
-      [WINDOWS_JOB_PAYLOAD_ENV]: Buffer.from(JSON.stringify({ command, args, cwd: opts.cwd, shell: opts.shell ?? false })).toString("base64"),
+      [WINDOWS_JOB_PAYLOAD_ENV]: Buffer.from(JSON.stringify({ command: opts.shell ? quoteWindowsShimCommand(command) : command, args, cwd: opts.cwd, shell: opts.shell ?? false })).toString("base64"),
       [WINDOWS_JOB_RUNNER_ENV]: WINDOWS_JOB_RUNNER,
       ...(stdinPipe ? { [WINDOWS_JOB_STDIN_PIPE_ENV]: stdinPipe } : {}),
     };

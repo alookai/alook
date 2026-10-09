@@ -1,0 +1,39 @@
+name: Windows npm runtimes
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - src/daemon/agent-driver/**
+      - .github/workflows/windows-runtime.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-npm-runtimes-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-node24:
+    name: Windows npm runtime QA (Node 24)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install isolated native providers in a space-containing prefix
+        shell: pwsh
+        run: |
+          $qaPrefix = Join-Path $env:RUNNER_TEMP 'Alook npm QA'
+          npm install --global --prefix "$qaPrefix" @openai/codex@0.162.0 opencode-ai@1.18.35
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "ALOOK_NATIVE_NPM_PREFIX=$qaPrefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Exercise real detection, persistent startup and cleanup
+        run: pnpm --filter @alook/agent-driver exec vitest run src/internal/probe.test.ts src/internal/probe.windows.test.ts --no-file-parallelism

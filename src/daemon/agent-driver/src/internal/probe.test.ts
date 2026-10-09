@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, it, expect, vi } from "vitest";
 import { execFileSync } from "child_process";
 import {
+  resolveCommandOnPath,
   resolveClaudeCommand,
   resolveSpawnSpec,
   probeCliRuntime,
@@ -261,5 +262,73 @@ describe("probeCommandOutput", () => {
       ["--list-models"],
       expect.objectContaining({ shell: true }),
     );
+  });
+});
+
+
+describe("Windows npm PATH resolution", () => {
+  it.each(["codex", "opencode"])("probes %s via its .cmd instead of the npm POSIX shim", (binary) => {
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    const root = "C:\\Users\\me\\AppData\\Roaming\\npm";
+    const shim = `${root}\\${binary}.cmd`;
+    vi.mocked(execFileSync).mockImplementation((command) => {
+      if (command === "where") return `${root}\\${binary}\r\n${shim}\r\n`;
+      if (command === shim) return "1.2.3\r\n";
+      throw Object.assign(new Error("not a Windows executable"), { code: "EINVAL" });
+    });
+    try {
+      expect(probeCliRuntime(binary)).toEqual({ status: "healthy", version: "1.2.3" });
+      expect(resolveSpawnSpec(binary, ["serve"])).toEqual({ command: shim, args: ["serve"], shell: true });
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
+  it.each(["CMD", "bat", "exe", "com"])("keeps the first runnable .%s entry in PATH order", (extension) => {
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    const first = `C:\\first\\runtime.${extension}`;
+    vi.mocked(execFileSync).mockReturnValue(`\r\nC:\\first\\runtime\r\nC:\\first\\runtime.ps1\r\n${first}\r\nC:\\second\\runtime.cmd\r\n`);
+    try {
+      expect(resolveCommandOnPath("runtime")).toBe(first);
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
+  it.each(["", "C:\\npm\\codex\r\nC:\\npm\\codex.ps1\r\n"])("rejects lookup output without a runnable Windows entry: %j", (output) => {
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    vi.mocked(execFileSync).mockReturnValue(output);
+    try {
+      expect(probeCliRuntime("codex")).toEqual({ status: "unhealthy", lastError: "not_on_path" });
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
+  it("preserves POSIX extensionless command lookup", () => {
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+    vi.mocked(execFileSync).mockReturnValue("/usr/local/bin/codex\n");
+    try {
+      expect(resolveCommandOnPath("codex")).toBe("/usr/local/bin/codex");
+    } finally {
+      platform.mockRestore();
+    }
+  });
+});
+
+
+describe("Windows shim paths with spaces", () => {
+  const command = "C:\\Users\\Alook User\\AppData\\Roaming\\npm\\codex.cmd";
+
+  it("quotes the executable for version probes", () => {
+    vi.mocked(execFileSync).mockReturnValue("1.2.3\n");
+    expect(probeCommandVersion(command, [], {}, "win32")).toEqual({ ok: true, version: "1.2.3" });
+    expect(vi.mocked(execFileSync).mock.calls.at(-1)?.[0]).toBe(`"${command}"`);
+  });
+
+  it("quotes the executable for model catalog probes", () => {
+    vi.mocked(execFileSync).mockReturnValue("provider/model\n");
+    expect(probeCommandOutput(command, ["models", "--pure"], "win32")).toEqual({ ok: true, output: "provider/model\n" });
+    expect(vi.mocked(execFileSync).mock.calls.at(-1)?.[0]).toBe(`"${command}"`);
   });
 });
