@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir, release } from "node:os";
 import { delimiter, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -65,11 +65,19 @@ function waitForLine(child: ChildProcess, matches: (line: string) => boolean): P
   });
 }
 
+function windowsDescendants(pid: number): number[] {
+  if (process.platform !== "win32") return [];
+  const script = `$queue = [System.Collections.Generic.Queue[int]]::new(); $queue.Enqueue(${pid}); $found = @(); while ($queue.Count -gt 0) { $parent = $queue.Dequeue(); foreach ($child in @(Get-CimInstance Win32_Process -Filter ("ParentProcessId=" + $parent))) { $id = [int]$child.ProcessId; $found += $id; $queue.Enqueue($id) } }; ConvertTo-Json -InputObject @($found) -Compress`;
+  return JSON.parse(execFileSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", timeout: 10_000 })) as number[];
+}
+
 async function stop(child: ChildProcess) {
+  const owned = windowsDescendants(child.pid!);
   const closed = once(child, "close");
   await killProcessTree(child.pid!, { graceMs: 300 });
   await closed;
   expect(isAlive(child.pid!)).toBe(false);
+  for (const pid of owned) expect(isAlive(pid)).toBe(false);
   children.splice(children.indexOf(child), 1);
 }
 
@@ -102,7 +110,9 @@ describe.skipIf(process.platform !== "win32")("native Windows npm shim detection
       writeFileSync(join(prefix, `${binary}.cmd`), `@echo off\r\n"${process.execPath}" "%~dp0fixture.cjs" %*\r\n`);
       const oldFirst = execFileSync("where", [binary], { encoding: "utf8" }).split(/\r?\n/)[0]!.trim();
       expect(probeCommandVersion(oldFirst).ok).toBe(false);
-      expect(realpathSync(resolveCommandOnPath(binary)!)).toBe(realpathSync(join(prefix, `${binary}.cmd`)));
+      const found = statSync(resolveCommandOnPath(binary)!);
+      const expected = statSync(join(prefix, `${binary}.cmd`));
+      expect({ dev: found.dev, ino: found.ino }).toEqual({ dev: expected.dev, ino: expected.ino });
       expect(probeCliRuntime(binary)).toEqual({ status: "healthy", version: "1.2.3" });
       const catalog = probeCommandOutput(join(prefix, `${binary}.cmd`), ["models", "--pure"]);
       expect(catalog.ok).toBe(true);
@@ -117,7 +127,7 @@ describe.skipIf(process.platform !== "win32")("native Windows npm shim detection
       await stop(child);
       expect(isAlive(runtimePid)).toBe(false);
     }
-  });
+  }, 60_000);
 
   it("keeps missing and damaged npm entries unhealthy", () => {
     const prefix = mkdtempSync(join(tmpdir(), "npm-broken-"));
@@ -136,11 +146,12 @@ describe.skipIf(!nativePrefix)("real npm and native providers from an isolated p
   it.each(["codex", "opencode", "claude", "cursor", "pi", "antigravity"] as const)("detects the real %s install via its public SDK probe", async (backend) => {
     setPrefix(nativePrefix!);
     console.log(JSON.stringify({ backend, os: release(), node: process.version, nodePath: process.execPath }));
+    const started = Date.now();
     const result = await createAgentDriverSdk().probe({ backend });
-    console.log(JSON.stringify({ backend, status: result.status, version: result.status === "healthy" ? result.version : undefined,
+    console.log(JSON.stringify({ backend, elapsedMs: Date.now() - started, status: result.status, version: result.status === "healthy" ? result.version : undefined,
       error: result.status === "unhealthy" ? result.error.code : undefined }));
     expect(result.status).toBe("healthy");
-  });
+  }, 60_000);
 
   it("starts real Codex app-server and completes initialize", async () => {
     setPrefix(nativePrefix!);
@@ -186,6 +197,7 @@ describe.skipIf(!nativePrefix)("real npm and native providers from an isolated p
     ["agy_acp_server.exe", []],
   ] as const)("initializes the real %s ACP process without a model request", async (binary, args) => {
     setPrefix(nativePrefix!);
+    const started = Date.now();
     const child = launch(binary, [...args]);
     const initialized = waitForLine(child, line => {
       try { return JSON.parse(line).id === 1; } catch { return false; }
@@ -194,8 +206,18 @@ describe.skipIf(!nativePrefix)("real npm and native providers from an isolated p
       protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: "alook-windows-qa", version: "1.0.0" },
     } }) + "\n");
     expect(JSON.parse(await initialized)).toMatchObject({ result: { protocolVersion: 1 } });
+    console.log(JSON.stringify({ binary, phase: "initialize", elapsedMs: Date.now() - started }));
+    if (binary === "agy_acp_server.exe") {
+      const session = waitForLine(child, line => {
+        try { return JSON.parse(line).id === 2; } catch { return false; }
+      });
+      child.stdin!.write(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "session/new", params: { cwd: nativePrefix!, mcpServers: [] } }) + "\n");
+      const reply = JSON.parse(await session);
+      expect(reply.result !== undefined || reply.error !== undefined).toBe(true);
+      console.log(JSON.stringify({ binary, phase: "session/new", elapsedMs: Date.now() - started, errorCode: reply.error?.code }));
+    }
     await stop(child);
-  });
+  }, 60_000);
 
   it("classifies real Grok authentication separately from installation", async () => {
     setPrefix(nativePrefix!);

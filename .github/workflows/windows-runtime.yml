@@ -58,4 +58,4 @@ jobs:
           Expand-Archive $agyZip -DestinationPath $env:ALOOK_NATIVE_NPM_PREFIX -Force
           if (-not (Test-Path (Join-Path $env:ALOOK_NATIVE_NPM_PREFIX 'agy_acp_server.exe'))) { throw 'Missing Antigravity ACP entry' }
       - name: Exercise real detection, persistent startup and cleanup
-        run: pnpm --filter @alook/agent-driver exec vitest run src/internal/probe.test.ts src/internal/probe.windows.test.ts --no-file-parallelism
+        run: pnpm --filter @alook/agent-driver exec vitest run src/internal/probe.test.ts src/internal/probe.windows.test.ts src/internal/killTree.windows-errors.test.ts src/adapters/antigravity/index.test.ts --no-file-parallelism

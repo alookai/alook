@@ -565,6 +565,8 @@ function signalPosixTargets(targets: PosixTreeTargets, signal: NodeJS.Signals): 
   }
 }
 
+class WindowsTreeExitError extends Error {}
+
 /** Stop the live Windows job supervisor and await its forced tree walk. */
 function taskkillTree(pid: number): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -595,7 +597,7 @@ function taskkillTree(pid: number): Promise<void> {
       }
       settle(
         "reject",
-        new Error(`Windows process-tree termination failed (exit=${String(code)}, signal=${String(signal)})`),
+        new WindowsTreeExitError(`Windows process-tree termination failed (exit=${String(code)}, signal=${String(signal)})`),
       );
     });
   });
@@ -608,9 +610,15 @@ async function killWindowsProcessTree(pid: number): Promise<void> {
   // actual runtime and make a later tree walk unable to discover it. Windows
   // has no safe recursive graceful-signal primitive, so start this immediately;
   // the controller separately owns the public force deadline.
-  await taskkillTree(pid);
+  let terminationError: WindowsTreeExitError | undefined;
+  try {
+    await taskkillTree(pid);
+  } catch (error) {
+    if (!(error instanceof WindowsTreeExitError)) throw error;
+    terminationError = error;
+  }
   await waitForProcessExit(pid, FORCE_EXIT_WAIT_MS);
-  if (isAlive(pid)) throw new Error(`Windows process tree ${pid} remained alive after taskkill completed`);
+  if (isAlive(pid)) throw terminationError ?? new Error(`Windows process tree ${pid} remained alive after taskkill completed`);
 }
 
 async function waitForProcessExit(pid: number, timeoutMs: number): Promise<void> {
