@@ -170,11 +170,18 @@ describe("ChannelSidebarScope", () => {
     expect(rendered.container.textContent).not.toContain("source-one")
   })
 
-  it("keeps cached rows and collapsed state while forum children reconcile", () => {
+  it("keeps ordinary-member category actions and collapsed state while forum children reconcile", async () => {
     const rendered = render(createElement(ChannelSidebarScope, scopeProps(targetCategories)))
     const owner = rendered.container.querySelector("[data-community-channel-tree-scope]")!
+    const header = screen.getByRole("button", { name: "Target category" })
+    expect(header.tagName).toBe("DIV")
+    expect(header).toHaveAttribute("tabindex", "0")
+    expect(header).not.toHaveAttribute("aria-disabled", "true")
+    expect(header).not.toHaveAttribute("aria-roledescription")
+    expect(header).not.toHaveAttribute("aria-describedby")
 
-    fireEvent.click(screen.getByText("Target category"))
+    const user = setupUser()
+    await user.click(header)
     expect(screen.queryByTestId(tid.channelRow("target-one"))).not.toBeInTheDocument()
 
     rendered.rerender(createElement(ChannelSidebarScope, {
@@ -194,6 +201,9 @@ describe("ChannelSidebarScope", () => {
     expect(rendered.container.querySelector("[data-community-channel-tree-scope]")).toBe(owner)
     expect(rendered.container.querySelector('[data-slot="skeleton"]')).not.toBeInTheDocument()
     expect(screen.queryByTestId(tid.channelRow("target-one"))).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Target category" })).toBe(header)
+    await user.click(header)
+    expect(screen.getByTestId(tid.channelRow("target-one"))).not.toHaveAttribute("aria-disabled", "true")
   })
 
   it("reconciles structural data to full data without replacing the scoped owner", () => {
