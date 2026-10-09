@@ -1,9 +1,9 @@
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fakeLaunchContext } from "../../testing/adapter-fixture.js";
+import { fakeLaunchContext, fakePrepared } from "../../testing/adapter-fixture.js";
 import { OpenCodeDriver } from "./index.js";
 
 const spawnAgentProcess = vi.hoisted(() => vi.fn());
@@ -23,6 +23,7 @@ describe("OpenCodeDriver persistent v2 service", () => {
   let driver: OpenCodeDriver;
 
   beforeEach(() => {
+    spawnAgentProcess.mockClear();
     driver = new OpenCodeDriver();
   });
 
@@ -75,6 +76,30 @@ describe("OpenCodeDriver persistent v2 service", () => {
       currentSessionId: null,
     });
     expect(spawnAgentProcess).not.toHaveBeenCalled();
+  });
+
+  it("uses the selected legacy API credential for the native v2 provider", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "opencode-legacy-auth-"));
+    directories.push(directory);
+    const data = join(directory, "data");
+    const cache = join(directory, "cache");
+    mkdirSync(join(data, "opencode"), { recursive: true });
+    mkdirSync(join(cache, "opencode"), { recursive: true });
+    writeFileSync(join(data, "opencode", "auth.json"), JSON.stringify({
+      deepseek: { type: "api", key: "isolated-deepseek-key" },
+      unrelated: { type: "api", key: "must-not-escape" },
+    }));
+    writeFileSync(join(cache, "opencode", "models.json"), JSON.stringify({
+      deepseek: { env: ["DEEPSEEK_API_KEY"] }, unrelated: { env: ["OTHER_API_KEY"] },
+    }));
+    await driver.spawnService(fakeLaunchContext("opencode", directory, {
+      prepared: fakePrepared({ base: { XDG_DATA_HOME: data, XDG_CACHE_HOME: cache } }),
+      config: { runtimeConfig: { model: { kind: "named", name: "deepseek/deepseek-flash" } } },
+    }), 43123, "session-secret");
+    const [, args, options] = spawnAgentProcess.mock.calls.at(-1)!;
+    expect(options.env.DEEPSEEK_API_KEY).toBe("isolated-deepseek-key");
+    expect(options.env.OTHER_API_KEY).toBeUndefined();
+    expect(JSON.stringify(args)).not.toContain("isolated-deepseek-key");
   });
 
   it("spawns one loopback service without putting its password in argv", async () => {
