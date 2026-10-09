@@ -31,3 +31,5 @@ src/videos/**/out/
 .lighthouseci/
 src/daemon/LICENSE
 .superpowers/
+
+src/web/blog/public/blog/_generated/

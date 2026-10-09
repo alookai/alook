@@ -7,3 +7,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+## Blog publishing contract
+
+Read [README.md](README.md) before adding or revising articles. It defines required metadata, images, links, editorial review, and the checks enforced by Blog build. Keep the documentation and build checks in sync when changing this contract.
