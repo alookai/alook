@@ -752,7 +752,7 @@ function MessageImpl({
                       style={{ backgroundColor: embed.color }}
                     />
                   )}
-                  <div className="flex min-w-0 flex-1 flex-col gap-2">
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
                     {embed.author && (
                       <div className="flex items-center gap-2">
                         {embed.author.iconUrl ? (
@@ -840,8 +840,8 @@ function MessageImpl({
             </div>
           )}
 
-          {!!m.reactions?.length && (
-            <div>
+          {m.reactions && (
+            <div className={m.reactions.length ? undefined : "sr-only"}>
               <MessageReactions
                 messageId={m.id}
                 authorName={authorName}
@@ -851,7 +851,7 @@ function MessageImpl({
                 tooltipActive={activated}
                 onToggleReaction={onToggleReaction}
                 resolveUserName={resolveUserName}
-                trailingControl={reactionAddControl}
+                trailingControl={m.reactions.length ? reactionAddControl : undefined}
               />
             </div>
           )}

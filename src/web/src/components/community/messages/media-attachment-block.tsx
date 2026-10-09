@@ -205,7 +205,7 @@ export function MediaAttachmentBlock({
 
       <div className="flex min-h-14 items-center gap-2 p-2">
         <MediaIcon className="size-6 shrink-0 text-muted-foreground" />
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <div className="truncate text-sm font-medium text-foreground">{attachment.name}</div>
           <div className="text-xs text-muted-foreground">
             {[mediaKind === "video" ? "Video" : "Audio", attachment.size].filter(Boolean).join(" · ")}

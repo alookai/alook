@@ -278,7 +278,7 @@ export function useScrollAnchor({
   const paginationRef = useRef<{
     direction: "older" | "newer"
     phase: "pending" | "fetching" | "settling"
-    anchor?: { key: string; viewportOffset: number; firstKey: string; epoch: number }
+    anchor?: { key: string; viewportOffset: number; bodyInset: number; header: boolean; firstKey: string; epoch: number }
   } | null>(null)
   const scrollPaddingStartRef = useRef(0)
   const olderMeasurementAnchorRef = useRef<{ key: string; epoch: number } | null>(null)
@@ -397,7 +397,7 @@ export function useScrollAnchor({
   }, [releasePosition])
 
 
-  const readPageMessageOffset = useCallback((key: string): number | null => {
+  const readPageMessageGeometry = useCallback((key: string): { viewportOffset: number; bodyInset: number } | null => {
     const root = scrollRef.current
     const native = virtualizerRef.current
     if (!root || !native || Math.abs((native.scrollOffset ?? 0) - root.scrollTop) > 1) return null
@@ -405,11 +405,14 @@ export function useScrollAnchor({
     if (!row) return null
     const item = currentItemsRef.current[row.index]
     const wrapper = root.querySelector<HTMLElement>(`[data-index="${row.index}"]`)
+    const body = wrapper?.querySelector<HTMLElement>("[data-msg-id]")
     if (item?.kind !== "message" || item.key !== key
-      || wrapper?.querySelector<HTMLElement>("[data-msg-id]")?.dataset.msgId !== item.m.id) return null
+      || !wrapper || !body || body.dataset.msgId !== item.m.id) return null
     const rect = wrapper.getBoundingClientRect()
     const offset = rect.top - root.getBoundingClientRect().top
-    return rect.height > 0 && Math.abs(offset + root.scrollTop - row.start) <= 1 ? offset : null
+    if (rect.height <= 0 || Math.abs(offset + root.scrollTop - row.start) > 1) return null
+    const bodyInset = body.getBoundingClientRect().top - rect.top
+    return { viewportOffset: offset + bodyInset, bodyInset }
   }, [])
   const refreshPendingPageAnchor = useCallback(() => {
     const page = paginationRef.current
@@ -421,12 +424,15 @@ export function useScrollAnchor({
     const native = virtualizerRef.current
     const fold = native?.getVirtualItemForOffset(native.scrollOffset ?? 0)
     if (fold && currentItemsRef.current[fold.index]?.kind === "message") {
-      page.anchor = undefined
-      return
+      if (String(fold.key) !== anchor.firstKey) {
+        page.anchor = undefined
+        return
+      }
     }
-    const offset = readPageMessageOffset(anchor.key)
-    if (offset !== null) anchor.viewportOffset = offset
-  }, [positionKind, readPageMessageOffset])
+    if (fold) anchor.header = currentItemsRef.current[fold.index]?.kind !== "message"
+    const offset = readPageMessageGeometry(anchor.key)
+    if (offset !== null) Object.assign(anchor, offset)
+  }, [positionKind, readPageMessageGeometry])
   const awaitingTarget = !!scrollToMessageId && positionedTargetRef.current !== scrollToMessageId
   const getItemKey = useCallback((index: number) => items[index].key, [items])
   const estimateSize = useCallback((index: number) => estimateRowHeight(items[index], !!hasMoreOlder), [items, hasMoreOlder])
@@ -894,19 +900,20 @@ export function useScrollAnchor({
       const native = virtualizerRef.current
       const offset = native?.scrollOffset ?? 0
       const fold = native?.getVirtualItemForOffset(offset)
-      if (direction === "older" && fold && currentItemsRef.current[fold.index]?.kind !== "message") {
+      const first = currentItemsRef.current.find(item => item.kind === "message")
+      const header = !!fold && currentItemsRef.current[fold.index]?.kind !== "message"
+      if (direction === "older" && fold && (header || String(fold.key) === first?.key)) {
         const message = native?.getVirtualItems().find(item => currentItemsRef.current[item.index]?.kind === "message" && item.end > offset)
-        const first = currentItemsRef.current.find(item => item.kind === "message")
-        const viewportOffset = message && readPageMessageOffset(String(message.key))
+        const viewportOffset = message && readPageMessageGeometry(String(message.key))
         if (message && first && viewportOffset !== null && viewportOffset !== undefined) anchor = {
-          key: String(message.key), viewportOffset,
+          key: String(message.key), ...viewportOffset, header,
           firstKey: first.key, epoch: positionOwnerRef.current.epoch,
         }
       }
     }
     paginationRef.current = { direction, phase: "pending", anchor }
     setPaginationDirection(direction)
-  }, [clearOlderMeasurementAnchor, positionKind, readGeometry, readPageMessageOffset, setPaginationDirection])
+  }, [clearOlderMeasurementAnchor, positionKind, readGeometry, readPageMessageGeometry, setPaginationDirection])
   const captureOlderPageAnchor = useCallback(() => capturePageAnchor("older"), [capturePageAnchor])
   const captureNewerPageAnchor = useCallback(() => capturePageAnchor("newer"), [capturePageAnchor])
   useLayoutEffect(() => {
@@ -921,12 +928,14 @@ export function useScrollAnchor({
       && positionKind.get() === "idle"
       && items.find(item => item.kind === "message")?.key !== page.anchor.firstKey) {
       const index = items.findIndex(item => item.key === page.anchor?.key)
+      const item = items[index]
       const native = virtualizerRef.current
-      if (index >= 0 && native) {
+      const bodyInset = item?.kind === "message" ? item.paddingTop ?? page.anchor.bodyInset : page.anchor.bodyInset
+      if (index >= 0 && native && (page.anchor.header || bodyInset !== page.anchor.bodyInset)) {
         olderMeasurementAnchorRef.current = { key: page.anchor.key, epoch: page.anchor.epoch }
         native.shouldAdjustScrollPositionOnItemSizeChange = adjustOlderMeasurement
-        scrollPaddingStartRef.current = page.anchor.viewportOffset
-        native.setOptions({ ...native.options, scrollPaddingStart: page.anchor.viewportOffset })
+        scrollPaddingStartRef.current = page.anchor.viewportOffset - bodyInset
+        native.setOptions({ ...native.options, scrollPaddingStart: scrollPaddingStartRef.current })
         acceptedGeometryRef.current = null
         holdNativeOrigin(null)
         positionOwnerRef.current.nativeIndex = true

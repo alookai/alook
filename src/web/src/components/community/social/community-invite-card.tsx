@@ -90,7 +90,7 @@ export function CommunityInviteCard({
         data-perspective={perspective}
       >
         <Skeleton className="size-12 shrink-0 rounded-lg" />
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <Skeleton className="h-3 w-32 rounded" />
           <Skeleton className="h-4 w-24 rounded" />
           <Skeleton className="h-3 w-16 rounded" />
@@ -126,7 +126,7 @@ export function CommunityInviteCard({
         size={48}
         className="shrink-0 rounded-lg"
       />
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <div className="text-xs font-medium text-muted-foreground">
           {presentation.eyebrow}
         </div>

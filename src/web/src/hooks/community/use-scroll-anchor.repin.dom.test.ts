@@ -335,7 +335,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(scrollFixture.latest.paginationEnabled).toBe(true)
     expect(scrollFixture.latest.virtualizer.options).toMatchObject({ anchorTo: "start", followOnAppend: false })
   })
-  it("retires the pending header fallback when scrolling reaches a real message before the response", () => {
+  it.each(["m0", "m1"])("uses native row anchoring when the pending page reaches %s with an unchanged body inset", id => {
     const h = mount({ initialScrollReady: false, hasMoreNewer: true })
     act(() => vi.advanceTimersByTime(2000))
     runFrames()
@@ -345,12 +345,13 @@ describe("locked native adapter and existing message scroll owner", () => {
     h.update({ isFetchingOlder: true })
     expect(scrollFixture.latest.virtualizer.options).toMatchObject({ anchorTo: "end", followOnAppend: false })
     expect(scrollFixture.latest.readPositionReady).toBe(false)
-    act(() => h.root.scrollTo({ top: scrollFixture.firstPrefix + 30 }))
+    const row = scrollFixture.latest.virtualizer.getVirtualItems().find(item => item.key === `msg:${id}`)!
+    act(() => h.root.scrollTo({ top: row.start + 30 }))
     resize()
-    const before = bodyTop(h.root, "m0")
+    const before = bodyTop(h.root, id)
     const index = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToIndex")
     h.update({ items: [message("older-0"), message("older-1"), message("older-2"), ...h.input.items], isFetchingOlder: false })
-    expect(bodyTop(h.root, "m0")).toBeCloseTo(before, 0)
+    expect(bodyTop(h.root, id)).toBeCloseTo(before, 0)
     expect(index).not.toHaveBeenCalled()
     expect(scrollFixture.latest.readPositionReady).toBe(false)
     expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(false)

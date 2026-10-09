@@ -34,6 +34,55 @@ describe("MessageList native range pagination", () => {
     expect(onLoadOlder).toHaveBeenCalledTimes(2)
     expect(renderer.container.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "false")
   })
+
+  it.each([
+    ["header", "alice", false], ["first", "alice", false], ["inside", "alice", false],
+    ["header", "bob", false], ["first", "bob", false], ["inside", "bob", false],
+    ["first", "alice", true], ["inside", "alice", true], ["return", "bob", true],
+  ] as const)("retains the first-window body at the %s fold with older author %s and pending move %s", (fold, olderAuthor, pendingMove) => {
+    const message = (i: number) => ({ id: `m${i}`, type: "chat" as const, authorId: "alice", authorName: "Alice", content: "hi", createdAt: new Date(i * 1000).toISOString() })
+    let messages = Array.from({ length: 50 }, (_, i) => message(i + 40))
+    const onLoadOlder = vi.fn()
+    const view = (isFetchingOlder: boolean, hasMore = true) => React.createElement(MessageList, { channel: "general", messages, initialScrollReady: false, hasMore, onLoadOlder, isFetchingOlder, onOpenThread: vi.fn() })
+    const renderer = render(view(false, fold === "header" || pendingMove))
+    resize()
+    act(() => vi.advanceTimersByTime(2000))
+    runFrames()
+    const root = renderer.getByTestId(tid.messageScroller)
+    act(() => root.scrollTo({ top: 0 }))
+    resize()
+    const body = renderer.getByTestId(tid.message("m40"))
+    const row = body.closest<HTMLElement>("[data-message-row-key]")!
+    expect(row.style.paddingBlock).toBe("8px 4px")
+    const moveToFold = () => {
+      const start = root.scrollTop + row.getBoundingClientRect().top - root.getBoundingClientRect().top
+      act(() => root.scrollTo({ top: start + (fold === "inside" ? 30 : 0) }))
+      resize()
+      if (fold === "return") {
+        act(() => root.scrollTo({ top: 0 }))
+        resize()
+      }
+    }
+    if (!pendingMove && fold !== "header") {
+      expect(onLoadOlder).not.toHaveBeenCalled()
+      moveToFold()
+      renderer.rerender(view(false))
+      resize()
+    }
+    expect(onLoadOlder).toHaveBeenCalledOnce()
+    renderer.rerender(view(true))
+    resize()
+    if (pendingMove) moveToFold()
+    const before = body.getBoundingClientRect().top - root.getBoundingClientRect().top
+    messages = [...Array.from({ length: 39 }, (_, i) => ({ ...message(i + 1), authorId: olderAuthor })), ...messages]
+    renderer.rerender(view(false))
+    resize()
+    const after = renderer.getByTestId(tid.message("m40"))
+    expect(after.closest<HTMLElement>("[data-message-row-key]")!.style.paddingBlock).toBe(olderAuthor === "alice" ? "4px 4px" : "8px 4px")
+    const offset = after.getBoundingClientRect().top - root.getBoundingClientRect().top
+    expect(Math.abs(offset - before)).toBeLessThanOrEqual(1)
+    expect(renderer.container.querySelector("[data-read-position-ready]")).toHaveAttribute("data-read-position-ready", "false")
+  })
   beforeEach(() => { breakpoint.value = "desktop"; installMessageScrollFixture() })
   afterEach(restoreMessageScrollFixture)
   it.each([["mobile", 40], ["desktop", 48]] as const)("keeps %s body-to-viewport clearance at %ipx with symmetric row padding", (stage, gap) => {
