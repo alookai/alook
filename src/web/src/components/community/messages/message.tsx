@@ -705,7 +705,7 @@ function MessageImpl({
             )
           )}
 
-          {m.attachments && (
+          {m.attachments && m.attachments.length > 0 && (
             <div className="mt-2 flex flex-col gap-2 pb-2">
               {m.attachments.map((a, i) => {
                 if (a.kind === "image") {
