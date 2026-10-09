@@ -719,29 +719,47 @@ export async function prepareShareImageSession(
       staticizeTail = result.then(() => undefined, () => undefined)
       return result
     }
-    const resolved = await withDeadline("assets", timeoutMs, options.signal, async (signal) => {
+    await withDeadline("assets", timeoutMs, options.signal, async (signal) => {
       await waitForPaint()
       throwIfAborted(signal)
-      const assetTargets = new Map<string, ShareImageAssetTarget>()
-      for (const image of images) {
-        try {
-          const request = assetRequest(image)
-          mergeAssetTarget(assetTargets, request.cacheKey, assetTarget(image))
-        } catch {
-          // Preserve the existing per-image content failure / identity fallback semantics.
-        }
-      }
-      return Promise.all(images.map((image) => resolveImage(
-        image,
-        options.fetchAsset ?? fetch,
-        signal,
-        assetCache,
-        assetTargets,
-        budget,
-        options.staticizeAsset ?? staticizeImageBlob,
-        enqueueStaticize,
-      )))
     })
+    const assetTargets = new Map<string, ShareImageAssetTarget>()
+    for (const image of images) {
+      try {
+        const request = assetRequest(image)
+        mergeAssetTarget(assetTargets, request.cacheKey, assetTarget(image))
+      } catch {
+        continue
+      }
+    }
+    const assetController = new AbortController()
+    const abortAssets = () => assetController.abort()
+    options.signal?.addEventListener("abort", abortAssets, { once: true })
+    let resolved: Array<string | null>
+    try {
+      throwIfAborted(options.signal)
+      resolved = await Promise.all(images.map(async (image) => {
+        try {
+          return await withDeadline("assets", timeoutMs, assetController.signal, (signal) => resolveImage(
+            image,
+            options.fetchAsset ?? fetch,
+            signal,
+            assetCache,
+            assetTargets,
+            budget,
+            options.staticizeAsset ?? staticizeImageBlob,
+            enqueueStaticize,
+          ))
+        } catch (error) {
+          if (imageKind(image) === "identity"
+            && error instanceof ShareImageSessionError && error.timedOut) return null
+          throw error
+        }
+      }))
+    } finally {
+      options.signal?.removeEventListener("abort", abortAssets)
+      abortAssets()
+    }
     for (let index = 0; index < images.length; index += 1) {
       const image = images[index]!
       const dataUrl = resolved[index]

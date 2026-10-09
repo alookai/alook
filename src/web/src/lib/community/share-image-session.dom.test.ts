@@ -508,6 +508,39 @@ describe("prepareShareImageSession", () => {
     await vi.waitFor(() => expect(blockedCancel).toHaveBeenCalled())
   })
 
+  it("uses an identity fallback when an avatar request never settles", async () => {
+    vi.useFakeTimers()
+    const source = sourceCard('<div data-share-identity-id="u1"><img data-avatar-photo-state="ready" src="/avatar.png"></div>')
+    let requestSignal: AbortSignal | undefined
+    const fetchAsset = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
+      requestSignal = init?.signal ?? undefined
+      return new Promise<Response>(() => {})
+    })
+    const pending = prepareShareImageSession(source, {
+      fetchAsset,
+      getFontCSS: vi.fn().mockResolvedValue(FONT_CSS),
+      waitForPaint: vi.fn().mockResolvedValue(undefined),
+      timeoutMs: 25,
+    })
+    const assertion = expect(pending).resolves.toMatchObject({
+      markup: expect.stringContaining('data-share-identity-fallback="beam"'),
+    })
+    await act(async () => vi.advanceTimersByTimeAsync(25))
+    await assertion
+    expect(requestSignal?.aborted).toBe(true)
+    expect(source.querySelector("img")?.getAttribute("src")).toBe("/avatar.png")
+    expect(document.querySelector("[data-share-detached-tree]")).toBeNull()
+  })
+
+  it("retains identity fallback and content failure for images without a source", async () => {
+    const identity = sourceCard('<img data-remote-image-kind="identity">')
+    await expect(prepare(identity)).resolves.toMatchObject({
+      markup: expect.stringContaining('data-share-identity-fallback="beam"'),
+    })
+    const content = sourceCard("<img>")
+    await expect(prepare(content)).rejects.toMatchObject({ stage: "assets", timedOut: false })
+  })
+
   it("times out a non-cooperative asset request", async () => {
     vi.useFakeTimers()
     const source = sourceCard('<img src="/pending.png">')
@@ -553,6 +586,46 @@ describe("prepareShareImageSession", () => {
       .resolves.toMatchObject({ fontEmbedCSS: FONT_CSS })
     expect(brand.style.fontFamily).toBe("var(--font-brand)")
     expect(getFontCSS).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(["body", "decode"])("falls back when avatar %s stalls", async (stage) => {
+    vi.useFakeTimers()
+    const cancel = vi.fn()
+    const response = stage === "body"
+      ? new Response(new ReadableStream({ cancel }), { headers: { "Content-Type": "image/png" } })
+      : imageResponse()
+    const source = sourceCard('<img data-remote-image-kind="identity" src="/avatar.png">')
+    const pending = prepareShareImageSession(source, {
+      fetchAsset: vi.fn().mockResolvedValue(response),
+      staticizeAsset: stage === "decode" ? () => new Promise(() => {}) : async (blob) => blob,
+      getFontCSS: vi.fn().mockResolvedValue(FONT_CSS),
+      waitForPaint: vi.fn().mockResolvedValue(undefined),
+      timeoutMs: 25,
+    })
+    await Promise.all([
+      expect(pending).resolves.toMatchObject({ markup: expect.stringContaining('data-share-identity-fallback="beam"') }),
+      act(async () => vi.advanceTimersByTimeAsync(25)),
+    ])
+    if (stage === "body") expect(cancel).toHaveBeenCalled()
+  })
+
+  it("does not turn external cancellation of a stalled avatar into fallback", async () => {
+    const controller = new AbortController()
+    const started = deferred<void>()
+    const source = sourceCard('<img data-remote-image-kind="identity" src="/avatar.png">')
+    const pending = prepareShareImageSession(source, {
+      fetchAsset: vi.fn(() => {
+        started.resolve()
+        return new Promise<Response>(() => {})
+      }),
+      waitForPaint: vi.fn().mockResolvedValue(undefined),
+      signal: controller.signal,
+    })
+    const assertion = expect(pending).rejects.toMatchObject({ name: "AbortError" })
+    await started.promise
+    controller.abort()
+    await assertion
+    expect(document.querySelector("[data-share-detached-tree]")).toBeNull()
   })
 
   it("treats an empty font embed as a hard preparation failure", async () => {
