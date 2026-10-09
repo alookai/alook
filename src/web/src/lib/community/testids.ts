@@ -39,6 +39,7 @@ export const tid = {
   settingsWebVersion: "community-settings-web-version",
   settingsCacheSize: "community-settings-cache-size",
   analyticsConsentBanner: "analytics-consent-banner",
+  ahrefsAnalyticsFrame: "ahrefs-analytics-frame",
   analyticsPreferenceControl: "analytics-preference-control",
   analyticsConsentNecessary: "analytics-consent-necessary",
   analyticsConsentAllow: "analytics-consent-allow",

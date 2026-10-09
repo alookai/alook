@@ -3,6 +3,7 @@
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { GoogleTagManager } from "@next/third-parties/google"
 import { isMobile, isTauri } from "@alook/shared"
+import { usePathname } from "next/navigation"
 import { useCallback, useEffect, useRef } from "react"
 import { GeneratedAvatar } from "@/components/avatar"
 import {
@@ -125,12 +126,24 @@ function ConsentButtons({
 }
 
 export function AnalyticsConsent() {
+  const pathname = usePathname()
   const { ready, decision, nativeMobile } = useStoredAnalyticsConsent(true)
   const { choose, saving, error } = useAnalyticsConsentChoice()
 
   return (
     <>
       {ready && decision === "granted" ? <GoogleTagManager gtmId={GTM_ID} /> : null}
+      {ready && decision === "granted" && pathname && /^\/(?:pricing|contact|privacy|templates(?:\/[^/]+)?|blog(?:\/.*)?)?$/.test(pathname) ? (
+        <iframe
+          key={pathname}
+          title="Ahrefs analytics"
+          data-testid={tid.ahrefsAnalyticsFrame}
+          hidden aria-hidden="true"
+          sandbox="allow-scripts"
+          referrerPolicy="no-referrer"
+          srcDoc={`<title>Alook</title><script async src="https://analytics.ahrefs.com/analytics.js" data-key="Td2Wr/poHD0pDEV30W9xMw" data-page-location="${new URL(pathname, window.location.origin).href.replace(/"/g, "%22")}"></script>`}
+        />
+      ) : null}
       {ready && !nativeMobile && decision === null ? (
         <section
           aria-label="Analytics choices"

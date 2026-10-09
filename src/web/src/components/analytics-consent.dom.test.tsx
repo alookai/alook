@@ -6,6 +6,9 @@ const platform = vi.hoisted(() => ({
   isMobile: vi.fn(() => false),
 }))
 
+const route = vi.hoisted(() => ({ pathname: "/" }))
+vi.mock("next/navigation", () => ({ usePathname: () => route.pathname }))
+
 vi.mock("@alook/shared", async importOriginal => ({
   ...await importOriginal<typeof import("@alook/shared")>(),
   isTauri: platform.isTauri,
@@ -36,6 +39,7 @@ function successfulFetch(decision: "granted" | "denied") {
 }
 
 beforeEach(() => {
+  route.pathname = "/"
   clearCookies()
   platform.isTauri.mockReset().mockReturnValue(false)
   platform.isMobile.mockReset().mockReturnValue(false)
@@ -93,6 +97,7 @@ describe("AnalyticsConsent", () => {
     expect(within(banner).getByTestId(tid.analyticsConsentAvatarCluster).querySelectorAll("svg"))
       .toHaveLength(3)
     expect(screen.queryByTestId("google-tag-manager")).not.toBeInTheDocument()
+    expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
   })
 
   it("hides the first-visit banner in native mobile clients", async () => {
@@ -120,6 +125,7 @@ describe("AnalyticsConsent", () => {
       "data-gtm-id",
       "GTM-56VHCCQZ",
     )
+    expect(await screen.findByTestId(tid.ahrefsAnalyticsFrame)).toHaveAttribute("sandbox", "allow-scripts")
     expect(screen.queryByTestId(tid.analyticsConsentBanner)).not.toBeInTheDocument()
     expect(window.dataLayer?.[0]).toEqual([
       "consent",
@@ -147,6 +153,7 @@ describe("AnalyticsConsent", () => {
       expect(screen.queryByTestId(tid.analyticsConsentBanner)).not.toBeInTheDocument()
     })
     expect(screen.queryByTestId("google-tag-manager")).not.toBeInTheDocument()
+    expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
   })
 
   it("honors stored grant and denial choices on mount", async () => {
@@ -154,6 +161,19 @@ describe("AnalyticsConsent", () => {
     const granted = render(<AnalyticsConsent />)
     expect(await screen.findByTestId("google-tag-manager")).toBeInTheDocument()
     expect(screen.queryByTestId(tid.analyticsConsentBanner)).not.toBeInTheDocument()
+    const home = screen.getByTestId(tid.ahrefsAnalyticsFrame)
+    for (const pathname of ["/c", "/c/me", "/c/channels/private/channel", "/sign-in", "/auth/callback"]) {
+      route.pathname = pathname
+      granted.rerender(<AnalyticsConsent />)
+      expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
+    }
+    route.pathname = "/pricing"
+    granted.rerender(<AnalyticsConsent />)
+    expect(screen.getByTestId(tid.ahrefsAnalyticsFrame)).not.toBe(home)
+    expect(screen.getByTestId(tid.ahrefsAnalyticsFrame).getAttribute("srcdoc"))
+      .toContain(`data-page-location="${window.location.origin}/pricing"`)
+    fireEvent(window, new CustomEvent("alook:analytics-consent-change", { detail: "denied" }))
+    await waitFor(() => expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument())
     granted.unmount()
 
     clearCookies()
@@ -175,6 +195,7 @@ describe("AnalyticsConsent", () => {
     fireEvent.click(within(banner).getByRole("button", { name: "Allow analytics" }))
     expect(await within(banner).findByRole("alert")).toHaveTextContent("Couldn’t save this choice")
     expect(screen.queryByTestId("google-tag-manager")).not.toBeInTheDocument()
+    expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
   })
 
   it("changes a stored preference from the Privacy control", async () => {
@@ -199,4 +220,5 @@ describe("AnalyticsConsent", () => {
       expect.objectContaining({ analytics_storage: "granted", ad_storage: "denied" }),
     ])
   })
+
 })
