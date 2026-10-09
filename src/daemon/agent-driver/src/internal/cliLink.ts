@@ -12,8 +12,8 @@
  *     ship its own self-exec wrapper as hostCliPath.
  *   - Windows: a symlink/hardlink named `.exe` pointing at a `.js` is NOT a valid
  *     executable (PE-format mismatch), so for interpreted CLIs we keep a `.cmd`
- *     shim. This is the ONLY place a generated wrapper survives, purely due to
- *     the platform.
+ *     shim for cmd/PowerShell and a POSIX launcher for Git Bash. Only the Bash
+ *     launcher disables MSYS argument conversion, preserving literal CLI refs.
  *
  * With no hostCliPath (the mock), neither is created — `cliName` stays
  * unresolved and invoking it fails with command-not-found (the mock never calls
@@ -23,6 +23,19 @@
  */
 import * as fs from "fs";
 import * as path from "path";
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+export function writeWindowsBashEnv(binDir: string, cliName: string, envPrefix: string, previous: string | undefined): string {
+  const startup = path.join(binDir, `${cliName}.bash-env`).replaceAll("\\", "/");
+  const envValue = startup.replace(/[$`]/g, "\\$&");
+  const source = previous && previous !== envValue && previous.replaceAll("\\", "/") !== startup
+    ? `. ${shellQuote(previous.replaceAll("\\", "/"))}\n` : "";
+  fs.writeFileSync(startup, source + `export ${shellQuote(`${envPrefix}_CLI=${path.join(binDir, cliName).replaceAll("\\", "/")}`)}\n`);
+  return envValue;
+}
 
 /**
  * Create the per-launch `bin` dir and the link/shim for `cliName`. Returns the
@@ -41,11 +54,16 @@ export function writeCliLink(
   if (!hostCliPath) return binDir;
 
   if (platform === "win32") {
-    // .cmd shim — the only surviving wrapper, and only because a Windows link
-    // named .exe pointing at a .js wouldn't be a valid executable.
     const cmdFile = path.join(binDir, `${cliName}.cmd`);
-    const body = `@echo off\r\n"${hostCliPath}" %*\r\n`;
+    const executable = /\.(?:c|m)?js$/i.test(hostCliPath)
+      ? `"${process.execPath}" "${hostCliPath}"`
+      : `"${hostCliPath}"`;
+    const body = `@echo off\r\n${executable} %*\r\n`;
     fs.writeFileSync(cmdFile, body); // overwrite is fine (idempotent)
+    const bashExecutable = /\.(?:c|m)?js$/i.test(hostCliPath)
+      ? `${shellQuote(process.execPath.replaceAll("\\", "/"))} ${shellQuote(hostCliPath.replaceAll("\\", "/"))}`
+      : shellQuote(hostCliPath.replaceAll("\\", "/"));
+    fs.writeFileSync(path.join(binDir, cliName), `#!/bin/sh\nMSYS2_ARG_CONV_EXCL='*' exec ${bashExecutable} "$@"\n`, { mode: 0o755 });
     return binDir;
   }
 

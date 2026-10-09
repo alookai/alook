@@ -62,7 +62,7 @@ export async function probeAntigravity(command?: string, options: ProbeOptions =
       void cleanup(proc).then(() => resolve(result), () => resolve({ status: "unhealthy", lastError: "antigravity_acp_cleanup_failed" }));
     };
     const fail = (lastError: string) => finish({ status: "unhealthy", lastError });
-    const timer = setTimeout(() => fail("antigravity_acp_timeout"), options.timeoutMs ?? 10_000);
+    const timer = setTimeout(() => fail("antigravity_acp_timeout"), options.timeoutMs ?? (process.platform === "win32" ? 30_000 : 10_000));
     const write = (value: unknown) => {
       try {
         if (!proc.stdin || proc.stdin.destroyed || proc.stdin.writableEnded || proc.stdin.writable === false) {

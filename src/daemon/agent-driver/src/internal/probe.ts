@@ -5,6 +5,7 @@
 import { execFileSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
+import { homedir } from "os";
 import type { ProbeResult } from "./adapter.js";
 
 /**
@@ -32,8 +33,9 @@ export function resolveCommandOnPath(command: string, deps: ProbeDeps = {}): str
       // PER call — with ~9 runtimes probed sequentially at daemon startup /
       // in `detectRuntimes()` tests, that added up to 30s+ wall time.
       const out = execFileSync("where", [command], { encoding: "utf8", timeout: PROBE_TIMEOUT_MS });
-      const first = out.split(/\r?\n/).find((line) => line.trim().length > 0);
-      return first?.trim() || null;
+      const first = out.split(/\r?\n/).map((line) => line.trim())
+        .find((line) => /\.(exe|com|cmd|bat)$/i.test(line));
+      return first || null;
     }
     const out = execFileSync("which", [command], { encoding: "utf8", timeout: PROBE_TIMEOUT_MS });
     return out.trim() || null;
@@ -80,6 +82,10 @@ function needsWindowsShimShell(command: string, platform: NodeJS.Platform): bool
   return platform === "win32" && /\.(cmd|bat)$/i.test(command);
 }
 
+export function quoteWindowsShimCommand(command: string, platform: NodeJS.Platform = process.platform): string {
+  return needsWindowsShimShell(command, platform) && /\s/.test(command) ? `"${command}"` : command;
+}
+
 /**
  * Actually spawn `<command> --version` and read stdout. Returns `ok: true`
  * only when the child exits 0 AND emits a non-empty first line. A spawn
@@ -114,7 +120,7 @@ export function probeCommandVersion(
     // (execFileSync returns it) — that's what we parse. A misbehaving shim that
     // ignores all of this and prints a prompt anyway is caught by the
     // `looksLikeVersion` validation below.
-    const out = execFileSync(command, [...args, "--version"], {
+    const out = execFileSync(quoteWindowsShimCommand(command, platform), [...args, "--version"], {
       encoding: "utf8",
       timeout: PROBE_TIMEOUT_MS,
       shell,
@@ -140,7 +146,7 @@ export function probeCommandOutput(
   platform: NodeJS.Platform = process.platform,
 ): CommandOutputProbeResult {
   try {
-    const output = execFileSync(command, args, {
+    const output = execFileSync(quoteWindowsShimCommand(command, platform), args, {
       encoding: "utf8",
       timeout: PROBE_TIMEOUT_MS,
       maxBuffer: PROBE_OUTPUT_MAX_BYTES,
@@ -196,10 +202,14 @@ export function resolveSpawnSpec(
   return { command: resolved, args, shell: needsWindowsShimShell(resolved, platform) };
 }
 
-/** Detect the Claude Code CLI, including macOS app-bundle fallbacks. */
+/** Detect Claude Code on PATH, then in its platform-native installation. */
 export function resolveClaudeCommand(deps: ProbeDeps = {}): string | null {
   const onPath = resolveCommandOnPath("claude", deps);
   if (onPath) return onPath;
+  if (process.platform === "win32") {
+    const home = deps.homeDir || process.env.USERPROFILE || process.env.HOME || homedir();
+    return firstExistingPath([path.join(home, ".local", "bin", "claude.exe")]);
+  }
   if (process.platform === "darwin") {
     return firstExistingPath([
       resolveHomePath("Applications/Claude Code URL Handler.app/Contents/MacOS/claude", deps),
