@@ -184,71 +184,48 @@ export function OnboardingMachineDialog({
           </div>
           <div className="flex flex-col gap-2">
             <DialogTitle className="flex flex-wrap items-center gap-x-2 text-2xl leading-tight font-semibold tracking-tight">
-              <span>Connect your</span>
-              <span className="inline-flex items-center gap-2 whitespace-nowrap">
-                <ProviderLogo provider={harness} className="size-5" />
-                {harnessLabel}
-              </span>
-              <span>machine</span>
+              {unavailableMachine ? (
+                <>{harnessLabel} isn’t ready</>
+              ) : (
+                <>
+                  <span>Connect your</span>
+                  <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                    <ProviderLogo provider={harness} className="size-5" />
+                    {harnessLabel}
+                  </span>
+                  <span>machine</span>
+                </>
+              )}
             </DialogTitle>
-            <DialogDescription className="max-w-[52ch] leading-relaxed">
-              {unavailableMachine ? "Your computer is connected. Let’s get your agent ready." : "Run one command. We’ll continue when it’s online."}
+            <DialogDescription className={unavailableMachine ? "flex items-center gap-2 text-sm leading-relaxed" : "max-w-[52ch] leading-relaxed"}>
+              {unavailableMachine ? (
+                <>Computer is connected<Check aria-hidden className="size-4 shrink-0" /></>
+              ) : "Run one command. We’ll continue when it’s online."}
             </DialogDescription>
           </div>
         </DialogHeader>
 
         <div className="flex flex-col gap-4 px-4 pb-4 sm:px-6 sm:pb-6">
           {unavailableMachine ? (
-            <section data-testid={tid.onboardingRuntimeUnavailable} className="relative flex flex-col gap-4 pl-6" role="status">
-              <p className="text-sm font-medium">
-                <Check aria-hidden className="absolute top-0.5 left-0 size-4" />
-                <span className="min-w-0 wrap-break-word">Computer is connected</span>
-              </p>
-              <div className="flex flex-col gap-2">
-                <h3 className="text-base font-medium">{harnessLabel} isn’t ready on this computer</h3>
-                <p className="text-sm wrap-break-word text-destructive">
-                  Detection error: {runtimeError || "The selected agent wasn’t detected as available."}
-                </p>
-                <p className="text-sm leading-relaxed text-muted-foreground">
-                  Install or fix {harnessLabel}, then restart the Alook daemon from a terminal where {harnessLabel} works. We’ll continue when it’s ready.
-                </p>
-              </div>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                {joinSupport.data ? (
-                  <a
-                    href={`/c/channels/${joinSupport.data.serverId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    data-testid={tid.onboardingOpenSupport}
-                    className={buttonVariants({ className: "h-11 sm:h-9" })}
-                  >
-                    Open Alook Support
-                  </a>
+            <section data-testid={tid.onboardingRuntimeUnavailable} className="flex flex-col gap-4" role="status">
+              <div className="flex flex-col gap-2 rounded-lg bg-muted/40 p-4">
+                <p className="text-sm font-medium text-foreground">Agent detection failed</p>
+                {runtimeError ? (
+                  <code className="font-mono text-sm leading-relaxed wrap-anywhere text-destructive">{runtimeError}</code>
                 ) : (
-                  <Button
-                    type="button"
-                    className="h-11 sm:h-9"
-                    data-testid={tid.onboardingJoinSupport}
-                    disabled={joinSupport.isPending}
-                    onClick={() => void joinAlookSupport()}
-                  >
-                    {joinSupport.isPending ? "Joining…" : "Need Help"}
-                  </Button>
+                  <p className="text-sm leading-relaxed text-muted-foreground">The selected agent wasn’t detected as available.</p>
                 )}
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-11 sm:h-9"
-                  data-testid={tid.onboardingChooseHarness}
-                  onClick={onChooseAnotherHarness}
-                >
-                  Choose another agent
-                </Button>
+              </div>
+              <div className="flex flex-col gap-2">
+                <p className="text-base leading-relaxed text-foreground">
+                  Install or fix {harnessLabel}, then restart the Alook daemon from a terminal where {harnessLabel} works.
+                </p>
+                <p className="text-sm leading-relaxed text-muted-foreground">Setup continues automatically when it’s ready.</p>
               </div>
               {joinSupport.isError ? (
-                <p role="alert" className="text-sm text-destructive">Couldn’t join Alook Support. Try again.</p>
+                <p role="alert" className="text-sm leading-relaxed text-destructive">Couldn’t join Alook Support. Try again.</p>
               ) : joinSupport.data ? (
-                <p className="text-sm text-muted-foreground">You’ve joined Alook Support. Open it in a new tab to report the detection error.</p>
+                <p className="text-sm leading-relaxed text-muted-foreground">You’ve joined Alook Support. Open it in a new tab to report the detection error.</p>
               ) : null}
             </section>
           ) : machineLimitReached && !onlineMachine ? (
@@ -297,18 +274,53 @@ export function OnboardingMachineDialog({
         </div>
 
         <DialogFooter className="m-0 rounded-b-xl border-0 bg-transparent px-4 py-4 sm:px-6">
-          <Button
-            type="button"
-            className="h-11 w-full sm:h-9 sm:w-auto"
-            disabled={!previewConnectedMachine && !onlineMachine}
-            onClick={() => {
-              source.capture()()
-              const machineId = previewConnectedMachine?.id ?? onlineMachine?.id
-              if (machineId) onConnected(machineId)
-            }}
-          >
-            Continue
-          </Button>
+          {unavailableMachine ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 w-full sm:h-9 sm:w-auto"
+                data-testid={tid.onboardingChooseHarness}
+                onClick={onChooseAnotherHarness}
+              >
+                Choose another agent
+              </Button>
+              {joinSupport.data ? (
+                <a
+                  href={`/c/channels/${joinSupport.data.serverId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-testid={tid.onboardingOpenSupport}
+                  className={buttonVariants({ className: "h-11 w-full sm:h-9 sm:w-auto" })}
+                >
+                  Open Alook Support
+                </a>
+              ) : (
+                <Button
+                  type="button"
+                  className="h-11 w-full sm:h-9 sm:w-auto"
+                  data-testid={tid.onboardingJoinSupport}
+                  disabled={joinSupport.isPending}
+                  onClick={() => void joinAlookSupport()}
+                >
+                  {joinSupport.isPending ? "Joining…" : "Need Help"}
+                </Button>
+              )}
+            </>
+          ) : (
+            <Button
+              type="button"
+              className="h-11 w-full sm:h-9 sm:w-auto"
+              disabled={!previewConnectedMachine && !onlineMachine}
+              onClick={() => {
+                source.capture()()
+                const machineId = previewConnectedMachine?.id ?? onlineMachine?.id
+                if (machineId) onConnected(machineId)
+              }}
+            >
+              Continue
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
