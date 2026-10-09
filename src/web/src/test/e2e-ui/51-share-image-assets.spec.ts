@@ -1,3 +1,5 @@
+import { createServer } from "node:http"
+import type { AddressInfo } from "node:net"
 import { expect, test } from "./_fixtures/community-fixture"
 import type { Locator, Page } from "@playwright/test"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
@@ -27,6 +29,30 @@ async function solidPng(page: Page, color: string, width: number, height: number
     ))
     return [...new Uint8Array(await blob.arrayBuffer())]
   }, { fill: color, targetWidth: width, targetHeight: height })
+}
+
+async function waitForLoadedImages(root: Locator): Promise<void> {
+  await expect.poll(() => root.locator("img").evaluateAll((images: HTMLImageElement[]) => (
+    images.length > 0 && images.every((image) => image.complete && image.naturalWidth > 0)
+  ))).toBe(true)
+  await root.locator("img").evaluateAll((images: HTMLImageElement[]) => (
+    Promise.all(images.map((image) => image.decode()))
+  ))
+}
+
+async function reloadWithUnavailableImage(page: Page, route: string, image: Locator): Promise<void> {
+  await gotoAfterUserWsAuth(page, route)
+  await expect(image).toBeAttached()
+  const source = await image.getAttribute("src")
+  expect(source).toBeTruthy()
+  expect(await page.evaluate((src) => {
+    const url = new URL(src!, location.href).href
+    return [...document.images].filter((candidate) => (
+      (candidate.currentSrc || candidate.src) === url
+      && candidate.complete
+      && candidate.naturalWidth > 0
+    )).length
+  }, source)).toBe(0)
 }
 
 async function uploadAvatar(page: Page, color = "rgb(220, 35, 60)"): Promise<void> {
@@ -421,14 +447,23 @@ test("mobile routing waits for native copy and save terminal receipts", async ({
   ])
 })
 
-test("a real two-frame GIF is frozen to frame zero before ready and reused by both exports", async ({ asUser }) => {
+test("a loaded two-frame GIF is frozen to a displayed frame and reused by both exports", async ({ asUser }) => {
   test.setTimeout(120_000)
   const serverId = await seedServer("alice", `Animated share ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "animated-share")
   const { page } = await asUser("alice")
   await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
   const attachmentId = await uploadAnimatedAttachment(page, channelId)
-  const seeded = await seedMessage(page, channelId, "Frame zero stays immutable", [attachmentId])
+  const seeded = await seedMessage(page, channelId, "The displayed animation frame stays immutable", [attachmentId])
+  const row = page.getByTestId(tid.message(seeded.id))
+  await row.hover()
+  await waitForLoadedImages(row)
+  const animatedSource = await row.getByTestId(tid.messageImage(seeded.id, 0)).evaluate((image: HTMLImageElement) => image.currentSrc || image.src)
+  const assetRequests: string[] = []
+  await page.route(animatedSource, async (route) => {
+    assetRequests.push(route.request().url())
+    await route.abort("failed")
+  })
   await installShareCapture(page)
 
   const dialog = await openShareDialog(page, seeded.id)
@@ -451,13 +486,15 @@ test("a real two-frame GIF is frozen to frame zero before ready and reused by bo
   expect(await captureDigest(page, "clipboard", 0)).toBe(await captureDigest(page, "download", 0))
   const copied = await capturePixel(page, "clipboard", 0, point)
   const downloaded = await capturePixel(page, "download", 0, point)
-  expect(copied.pixel[0]).toBeGreaterThan(200)
-  expect(copied.pixel[1]).toBeLessThan(40)
-  expect(copied.pixel[2]).toBeLessThan(40)
+  const isRed = copied.pixel[0]! > 200 && copied.pixel[1]! < 40 && copied.pixel[2]! < 40
+  const isBlue = copied.pixel[0]! < 40 && copied.pixel[1]! < 40 && copied.pixel[2]! > 200
+  expect(isRed || isBlue).toBe(true)
+  expect(copied.pixel[3]).toBe(255)
   expect(downloaded.pixel).toEqual(copied.pixel)
+  expect(assetRequests).toEqual([])
 })
 
-test("ready preview resolves all assets once and Copy then Download reuse identical PNG bytes", async ({ asUser }) => {
+test("loaded avatar and content prepare and export without requesting or decoding source assets again", async ({ asUser }, testInfo) => {
   test.setTimeout(120_000)
   const serverId = await seedServer("alice", `Share byte session ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "share-byte-session")
@@ -471,9 +508,42 @@ test("ready preview resolves all assets once and Copy then Download reuse identi
   const seeded = await seedMessage(
     page,
     channelId,
-    `Byte-backed avatar, attachment, invite, and inline logo\n/c/invite/${inviteToken}`,
+    `Loaded avatar, attachment, markdown, invite, and inline logo\n![Inline blue](/api/community/channels/${channelId}/attachments/${attachmentId})\n/c/invite/${inviteToken}`,
     [attachmentId],
   )
+  const row = page.getByTestId(tid.message(seeded.id))
+  await expect(row.getByTestId(tid.inviteCard(inviteToken))).toBeVisible()
+  await row.hover()
+  await waitForLoadedImages(row)
+  const originals = await row.locator("img").elementHandles()
+  const sourceUrls = await row.locator("img").evaluateAll((images: HTMLImageElement[]) => (
+    [...new Set(images.map((image) => image.currentSrc || image.src))]
+  ))
+  const blockedAssetRequests: string[] = []
+  for (const sourceUrl of sourceUrls) {
+    await page.route(sourceUrl, async (requestRoute) => {
+      blockedAssetRequests.push(requestRoute.request().url())
+      await requestRoute.abort("failed")
+    })
+  }
+  await page.evaluate((urls) => {
+    const tracked = new Set(urls)
+    const state = { imageDecodeSources: [] as string[], bitmapSourceDecodes: 0 }
+    Object.defineProperty(window, "__shareSourceDecodes", { configurable: true, value: state })
+    const nativeDecode = HTMLImageElement.prototype.decode
+    HTMLImageElement.prototype.decode = function () {
+      const url = this.currentSrc || this.src
+      if (tracked.has(url)) state.imageDecodeSources.push(url)
+      return nativeDecode.call(this)
+    }
+    const nativeBitmap = window.createImageBitmap.bind(window)
+    window.createImageBitmap = ((source: ImageBitmapSource, ...args: unknown[]) => {
+      if (source instanceof HTMLImageElement && tracked.has(source.currentSrc || source.src)) {
+        state.bitmapSourceDecodes += 1
+      }
+      return Reflect.apply(nativeBitmap, window, [source, ...args])
+    }) as typeof createImageBitmap
+  }, sourceUrls)
   await installShareCapture(page)
 
   const dialog = await openShareDialog(page, seeded.id)
@@ -481,20 +551,18 @@ test("ready preview resolves all assets once and Copy then Download reuse identi
   const images = await card.locator("img").evaluateAll((nodes: HTMLImageElement[]) => (
     nodes.map((node) => node.currentSrc || node.src)
   ))
-  expect(images.length).toBeGreaterThanOrEqual(3)
+  expect(images.length).toBeGreaterThanOrEqual(4)
   expect(images.every((source) => source.startsWith("data:image/"))).toBe(true)
   await expect(card.locator('img[src="/alook.svg"]')).toHaveCount(0)
   await expect(card.getByTestId(tid.alookLogo)).toBeVisible()
-  const frozenMarkup = await card.innerHTML()
-  await uploadAvatar(page, "rgb(30, 190, 100)")
-  await page.waitForTimeout(250)
-  expect(await card.innerHTML()).toBe(frozenMarkup)
+  expect(blockedAssetRequests).toEqual([])
 
   const avatarPoint = await sampleCenter(card, "[data-share-identity-id]")
   const attachmentPoint = await sampleCenter(
     card,
     `[data-testid="${tid.messageShareImage(seeded.id, 0)}"]`,
   )
+  const markdownPoint = await sampleCenter(card, 'img[alt="Inline blue"]')
   const invitePoint = await sampleCenter(
     card,
     `[data-testid="${tid.inviteCard(inviteToken)}"] img`,
@@ -514,20 +582,119 @@ test("ready preview resolves all assets once and Copy then Download reuse identi
   await dialog.getByRole("button", { name: "Download" }).click()
   const download = await downloadStarted
   expect(download.suggestedFilename()).toMatch(/^alook-message-.+\.png$/)
+  const exportPath = testInfo.outputPath("warm-source-share.png")
+  await download.saveAs(exportPath)
+  await testInfo.attach("warm-source-share", { path: exportPath, contentType: "image/png" })
   await expect.poll(() => captureCounts(page)).toEqual({ clipboard: 1, download: 1 })
 
   expect(networkAfterReady).toEqual([])
+  expect(blockedAssetRequests).toEqual([])
+  expect(await page.evaluate(() => (
+    window as typeof window & {
+      __shareSourceDecodes: { imageDecodeSources: string[]; bitmapSourceDecodes: number }
+    }
+  ).__shareSourceDecodes)).toEqual({ imageDecodeSources: [], bitmapSourceDecodes: 0 })
   expect(await captureDigest(page, "clipboard", 0)).toBe(await captureDigest(page, "download", 0))
   const avatar = await capturePixel(page, "clipboard", 0, avatarPoint)
   const attachment = await capturePixel(page, "clipboard", 0, attachmentPoint)
   const invite = await capturePixel(page, "clipboard", 0, invitePoint)
+  const markdown = await capturePixel(page, "clipboard", 0, markdownPoint)
   expect(avatar.pixel[0]).toBeGreaterThan(180)
   expect(avatar.pixel[1]).toBeLessThan(80)
   expect(attachment.pixel[2]).toBeGreaterThan(180)
   expect(invite.pixel[1]).toBeGreaterThan(140)
+  expect(markdown.pixel[2]).toBeGreaterThan(180)
+  expect((await capturePixel(page, "download", 0, avatarPoint)).pixel).toEqual(avatar.pixel)
+  expect((await capturePixel(page, "download", 0, attachmentPoint)).pixel).toEqual(attachment.pixel)
+  expect((await capturePixel(page, "download", 0, invitePoint)).pixel).toEqual(invite.pixel)
+  expect((await capturePixel(page, "download", 0, markdownPoint)).pixel).toEqual(markdown.pixel)
   const box = await card.boundingBox()
   expect(Math.abs(avatar.width - box!.width * 2)).toBeLessThanOrEqual(2)
   expect(Math.abs(avatar.height - box!.height * 2)).toBeLessThanOrEqual(2)
+  await page.keyboard.press("Escape")
+  for (const original of originals) {
+    expect(await original.evaluate((image) => image.isConnected && (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0)).toBe(true)
+  }
+  expect(blockedAssetRequests).toEqual([])
+
+  const reopened = await openShareDialog(page, seeded.id)
+  const frozenCard = await waitForReady(reopened)
+  const frozenMarkup = await frozenCard.innerHTML()
+  const liveAvatar = row.locator('[data-slot="avatar-image"]')
+  const previousAvatarSrc = await liveAvatar.getAttribute("src")
+  expect(previousAvatarSrc).toBeTruthy()
+  await uploadAvatar(page, "rgb(30, 190, 100)")
+  await expect(liveAvatar).not.toHaveAttribute("src", previousAvatarSrc!)
+  expect(await frozenCard.innerHTML()).toBe(frozenMarkup)
+})
+
+test("loaded cross-origin pixels without CORS require the explicit fetch fallback", async ({ asUser }) => {
+  test.setTimeout(120_000)
+  const serverId = await seedServer("alice", `Cross-origin share ${Date.now()}`)
+  const channelId = await seedChannel("alice", serverId, "cross-origin-share")
+  const { page } = await asUser("alice")
+  await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
+  const bytes = Buffer.from(await solidPng(page, "rgb(20, 105, 220)", 96, 64))
+  let allowCors = false
+  const requests: Array<{ mode: string | undefined; corsAllowed: boolean }> = []
+  const origin = createServer((request, response) => {
+    requests.push({ mode: request.headers["sec-fetch-mode"] as string | undefined, corsAllowed: allowCors })
+    response.writeHead(200, {
+      "Content-Type": "image/png",
+      "Cache-Control": "no-store",
+      ...(allowCors ? { "Access-Control-Allow-Origin": "*" } : {}),
+    })
+    response.end(bytes)
+  })
+  await new Promise<void>((resolve) => origin.listen(0, "127.0.0.1", resolve))
+  try {
+    const sourceUrl = `http://127.0.0.1:${(origin.address() as AddressInfo).port}/protected.png`
+    const message = await seedMessage(page, channelId, `![Protected cross-origin](${sourceUrl})`)
+    const row = page.getByTestId(tid.message(message.id))
+    const image = row.locator('img[alt="Protected cross-origin"]')
+    await row.hover()
+  await waitForLoadedImages(row)
+    const original = await image.elementHandle()
+    expect(original).not.toBeNull()
+    const readability = await image.evaluate((source: HTMLImageElement) => {
+      const canvas = document.createElement("canvas")
+      canvas.width = source.naturalWidth
+      canvas.height = source.naturalHeight
+      canvas.getContext("2d")!.drawImage(source, 0, 0)
+      try {
+        canvas.toDataURL("image/png")
+        return "readable"
+      } catch (error) {
+        return error instanceof DOMException ? error.name : String(error)
+      }
+    })
+    expect(readability).toBe("SecurityError")
+    const requestsBeforeShare = requests.length
+    await installShareCapture(page)
+    const dialog = await openShareDialog(page, message.id)
+    await expect(dialog.getByText("Couldn't generate image — preparing images failed")).toBeVisible({ timeout: 15_000 })
+    await expect(dialog.locator("[data-share-card]")).toHaveCount(0)
+    await expect(dialog.getByRole("button", { name: "Copy image" })).toBeDisabled()
+    expect(requests.slice(requestsBeforeShare)).toContainEqual({ mode: "cors", corsAllowed: false })
+    expect(await original!.evaluate((source) => source.isConnected && (source as HTMLImageElement).complete)).toBe(true)
+
+    allowCors = true
+    await dialog.getByRole("button", { name: "Retry" }).click()
+    const card = await waitForReady(dialog)
+    expect(requests.slice(requestsBeforeShare)).toContainEqual({ mode: "cors", corsAllowed: true })
+    await expect(card.locator('img[alt="Protected cross-origin"]')).toHaveAttribute("src", /^data:image\/png;base64,/)
+    const point = await sampleCenter(card, 'img[alt="Protected cross-origin"]')
+    await dialog.getByRole("button", { name: "Copy image" }).click()
+    await expect(dialog.getByRole("button", { name: "Copied" })).toBeVisible()
+    const copied = await capturePixel(page, "clipboard", 0, point)
+    expect(copied.pixel[2]).toBeGreaterThan(180)
+    expect(copied.pixel[0]).toBeLessThan(80)
+    await page.keyboard.press("Escape")
+    expect(await original!.evaluate((source) => source.isConnected && (source as HTMLImageElement).complete)).toBe(true)
+  } finally {
+    origin.closeAllConnections()
+    await new Promise<void>((resolve, reject) => origin.close((error) => error ? reject(error) : resolve()))
+  }
 })
 
 test("cold preparation disables export until the held avatar bytes are ready", async ({ asUser }) => {
@@ -540,7 +707,6 @@ test("cold preparation disables export until the held avatar bytes are ready", a
   await uploadAvatar(page)
   const seeded = await seedMessage(page, channelId, "Cold avatar is resolved before export")
   await expect(page.getByTestId(tid.message(seeded.id)).locator('[data-slot="avatar-image"]')).toBeVisible()
-  await installShareCapture(page)
 
   let release!: () => void
   const gate = new Promise<void>((resolve) => { release = resolve })
@@ -552,6 +718,9 @@ test("cold preparation disables export until the held avatar bytes are ready", a
     }
     await avatarRoute.continue()
   })
+
+  await reloadWithUnavailableImage(page, route, page.getByTestId(tid.message(seeded.id)).locator('[data-slot="avatar-image"]'))
+  await installShareCapture(page)
 
   const dialog = await openShareDialog(page, seeded.id)
   await expect.poll(() => heldRequests).toBeGreaterThan(0)
@@ -580,7 +749,6 @@ test("closing cold preparation suppresses output and reopening starts a fresh se
   await uploadAvatar(page)
   const seeded = await seedMessage(page, channelId, "Close invalidates cold preparation")
   await expect(page.getByTestId(tid.message(seeded.id)).locator('[data-slot="avatar-image"]')).toBeVisible()
-  await installShareCapture(page)
 
   let release!: () => void
   const gate = new Promise<void>((resolve) => { release = resolve })
@@ -593,6 +761,9 @@ test("closing cold preparation suppresses output and reopening starts a fresh se
     }
     await avatarRoute.continue().catch(() => {})
   })
+
+  await reloadWithUnavailableImage(page, route, page.getByTestId(tid.message(seeded.id)).locator('[data-slot="avatar-image"]'))
+  await installShareCapture(page)
 
   let dialog = await openShareDialog(page, seeded.id)
   await expect.poll(() => heldRequests).toBeGreaterThan(0)
@@ -611,6 +782,46 @@ test("closing cold preparation suppresses output and reopening starts a fresh se
   await expect.poll(() => captureCounts(page)).toEqual({ clipboard: 1, download: 0 })
 })
 
+test("loaded live avatar stays mounted through share selection and dialog close", async ({ asUser }) => {
+  test.setTimeout(120_000)
+  const serverId = await seedServer("alice", `Share avatar identity ${Date.now()}`)
+  const channelId = await seedChannel("alice", serverId, "share-avatar-identity")
+  const { page } = await asUser("alice")
+  await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
+  await uploadAvatar(page)
+  const message = await seedMessage(page, channelId, "Keep the loaded avatar https://example.test/selection")
+  const row = page.getByTestId(tid.message(message.id))
+  const avatar = row.locator('[data-slot="avatar-image"]')
+  await row.hover()
+  await expect(avatar).toHaveAttribute("data-avatar-photo-state", "ready")
+  const original = await avatar.elementHandle()
+  expect(original).not.toBeNull()
+  await page.getByTestId(tid.messageShare(message.id)).click()
+  expect(await original!.evaluate((image) => image.isConnected)).toBe(true)
+  const originalUrl = page.url()
+  const pageCount = page.context().pages().length
+  const link = row.getByRole("link", { name: "Link: https://example.test/selection" })
+  await link.click()
+  await expect(page.getByRole("button", { name: "Share 0 selected messages as image" })).toBeDisabled()
+  await link.click()
+  await expect(page.getByRole("button", { name: "Share 1 selected messages as image" })).toBeEnabled()
+  await row.click({ button: "right" })
+  await expect(page.getByRole("menu")).toHaveCount(0)
+  await page.getByRole("button", { name: "Share 1 selected messages as image" }).click()
+  const dialog = page.getByRole("dialog", { name: "Share message" })
+  await waitForReady(dialog)
+  expect(await original!.evaluate((image) => image.isConnected)).toBe(true)
+  await page.keyboard.press("Escape")
+  await expect(dialog).not.toBeVisible()
+  expect(await original!.evaluate((image) => image.isConnected)).toBe(true)
+  await expect(avatar).toHaveAttribute("data-avatar-photo-state", "ready")
+  expect(page.url()).toBe(originalUrl)
+  expect(page.context().pages()).toHaveLength(pageCount)
+  await row.click({ button: "right" })
+  await expect(page.getByRole("menu")).toBeVisible()
+  await page.keyboard.press("Escape")
+})
+
 test("stalled avatar falls back and a single text message exports", async ({ asUser }) => {
   test.setTimeout(120_000)
   const serverId = await seedServer("alice", `Share avatar timeout ${Date.now()}`)
@@ -620,7 +831,6 @@ test("stalled avatar falls back and a single text message exports", async ({ asU
   await uploadAvatar(page)
   const message = await seedMessage(page, channelId, "Text survives an unavailable avatar")
   await expect(page.getByTestId(tid.message(message.id)).locator('[data-slot="avatar-image"]')).toBeVisible()
-  await installShareCapture(page)
   let release!: () => void
   const blocked = new Promise<void>((resolve) => { release = resolve })
   const pattern = "**/api/community/users/*/avatar*"
@@ -629,6 +839,8 @@ test("stalled avatar falls back and a single text message exports", async ({ asU
     await route.abort("failed").catch(() => undefined)
   })
   try {
+    await reloadWithUnavailableImage(page, `/c/channels/${serverId}/${channelId}`, page.getByTestId(tid.message(message.id)).locator('[data-slot="avatar-image"]'))
+    await installShareCapture(page)
     const dialog = await openShareDialog(page, message.id)
     const card = await waitForReady(dialog)
     await expect(card.locator("[data-share-identity-fallback=beam]")).toBeVisible()
@@ -662,6 +874,7 @@ test("avatar failure is deterministic while content-image failure is atomic and 
     if (avatarRoute.request().method() === "GET") await avatarRoute.abort("failed")
     else await avatarRoute.continue()
   })
+  await reloadWithUnavailableImage(page, route, page.getByTestId(tid.message(avatarMessage.id)).locator('[data-slot="avatar-image"]'))
   let dialog = await openShareDialog(page, avatarMessage.id)
   let card = await waitForReady(dialog)
   const fallback = card.locator("[data-share-identity-fallback=beam]")
@@ -681,6 +894,7 @@ test("avatar failure is deterministic while content-image failure is atomic and 
   const attachmentPath = new URL(attachmentUrl!, page.url()).pathname
   const attachmentPattern = `**${attachmentPath}*`
   await page.route(attachmentPattern, async (attachmentRoute) => attachmentRoute.abort("failed"))
+  await reloadWithUnavailableImage(page, route, rowImage)
   dialog = await openShareDialog(page, contentMessage.id)
   await expect(dialog.getByText("Couldn't generate image — preparing images failed")).toBeVisible({ timeout: 15_000 })
   await expect(dialog.locator("[data-share-card]")).toHaveCount(0)

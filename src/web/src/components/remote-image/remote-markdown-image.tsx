@@ -3,6 +3,7 @@
 import { Download } from "lucide-react"
 import { FileDownloadButton } from "@/components/file-download-button"
 import { cn } from "@/lib/utils"
+import { useShareImageSource } from "./share-image-context"
 import { useRemoteImageAttempt } from "./remote-image-attempt"
 
 function dimension(value: unknown): number | undefined {
@@ -27,6 +28,7 @@ function MarkdownImageAttempt({
   node,
   ...rest
 }: MarkdownImageProps) {
+  const sourceProps = useShareImageSource(src ?? "")
   void node
   const [status, attempt, , imageRef, onLoad, onError, retry] = useRemoteImageAttempt()
   const imageWidth = dimension(width)
@@ -59,7 +61,7 @@ function MarkdownImageAttempt({
         data-streamdown="image"
         data-remote-image-kind="content"
         data-remote-image-state={status}
-        src={src}
+        {...sourceProps}
         alt={alt}
         width={imageWidth}
         height={imageHeight}
