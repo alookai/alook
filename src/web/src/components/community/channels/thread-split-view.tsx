@@ -3,7 +3,7 @@
  * macrostructure: parallel-conversation-panel · pre-emit: P5 H5 E4 S5 R5 V4 · slop: pass
  */
 
-import type { ReactNode, RefCallback } from "react"
+import type { ReactNode } from "react"
 import { useDefaultLayout } from "react-resizable-panels"
 import {
   ResizableHandle,
@@ -23,13 +23,11 @@ const threadSplitLayoutStorage = {
 }
 
 export function ThreadSplitView({
-  containerRef,
   split,
   parent,
   thread,
   conversationSubtype,
 }: {
-  containerRef: RefCallback<HTMLElement>
   split: boolean
   parent: ReactNode
   thread: ReactNode
@@ -43,7 +41,6 @@ export function ThreadSplitView({
 
   return (
     <main
-      ref={containerRef}
       data-testid={tid.threadSplit}
       data-layout={split ? "split" : "full"}
       data-community-conversation-subtype={conversationSubtype}

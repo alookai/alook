@@ -23,6 +23,8 @@ const {
   mockForumOpener,
   mockSearchParams,
   mockSplitMode,
+  mockSplitContainerRef,
+  mockUseThreadSplitMode,
   mockSplitParentSurface,
   mockCommitLastCommunityRoute,
   mockSetLastChannel,
@@ -40,7 +42,9 @@ const {
   mockOpenerGate: vi.fn(() => null),
   mockForumOpener: { data: null as null | { content: string }, isLoading: false, isError: false, error: null as Error | null, isFetching: false, refetch: vi.fn(() => Promise.resolve()) },
   mockSearchParams: { value: "msg=m_target&keep=1" },
-  mockSplitMode: { value: "full" as "split" | "full" },
+  mockSplitMode: { value: "full" as "pending" | "split" | "full" },
+  mockSplitContainerRef: vi.fn(),
+  mockUseThreadSplitMode: vi.fn(),
   mockSplitParentSurface: vi.fn(() => null),
   mockCommitLastCommunityRoute: vi.fn(),
   mockSetLastChannel: vi.fn(),
@@ -78,6 +82,11 @@ const {
     routeHydrated: true,
     routeLifecycle: "ready" as "pending" | "ready" | "terminal-error",
     skeletonSubtype: "unknown" as "unknown" | "text" | "forum" | "thread",
+    layoutHint: {
+      subtype: "unknown" as "unknown" | "text" | "forum" | "thread",
+      parentChannelId: null as string | null,
+      parentSubtype: "unknown" as "unknown" | "text" | "forum",
+    },
   },
   mockMemberViewModel: {
     composerMembers: [],
@@ -199,20 +208,21 @@ vi.mock("@/hooks/community/use-native-system-notifications", () => ({
     mockDismissConversation(...args),
 }))
 vi.mock("@/hooks/community/use-thread-split-mode", () => ({
-  useThreadSplitMode: () => ({ containerRef: vi.fn(), mode: mockSplitMode.value }),
+  useThreadSplitMode: (options: unknown) => {
+    mockUseThreadSplitMode(options)
+    return { containerRef: mockSplitContainerRef, mode: mockSplitMode.value }
+  },
 }))
 vi.mock("@/components/community/channels/thread-split-parent-surface", () => ({
   ThreadSplitParentSurface: mockSplitParentSurface,
 }))
 vi.mock("@/components/community/channels/thread-split-view", () => ({
   ThreadSplitView: ({
-    containerRef,
     split,
     parent,
     thread,
     conversationSubtype,
   }: {
-    containerRef: React.Ref<HTMLElement>
     split: boolean
     parent: React.ReactNode
     thread: React.ReactNode
@@ -220,7 +230,6 @@ vi.mock("@/components/community/channels/thread-split-view", () => ({
   }) => React.createElement(
     "main",
     {
-      ref: containerRef,
       "data-testid": "community-thread-split",
       "data-layout": split ? "split" : "full",
       "data-community-conversation-subtype": conversationSubtype,
@@ -367,6 +376,8 @@ describe("ChannelRoute message surface ownership", () => {
     mockForumOpener.refetch.mockClear()
     mockSearchParams.value = "msg=m_target&keep=1"
     mockSplitMode.value = "full"
+    mockSplitContainerRef.mockClear()
+    mockUseThreadSplitMode.mockClear()
     mockSplitParentSurface.mockClear()
     mockBreakpoint.value = "desktop"
     mockHeaderServerNavigate.current = undefined
@@ -400,6 +411,7 @@ describe("ChannelRoute message surface ownership", () => {
       routeHydrated: true,
       routeLifecycle: "ready",
       skeletonSubtype: "unknown",
+      layoutHint: { subtype: "unknown", parentChannelId: null, parentSubtype: "unknown" },
     })
   })
 
@@ -513,6 +525,102 @@ describe("ChannelRoute message surface ownership", () => {
     expect(mockedMessageList).not.toHaveBeenCalled()
     expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
     expect(mockCommitLastCommunityRoute).not.toHaveBeenCalled()
+  })
+
+  it("reserves forum and post skeletons from structure without a readable server or parent", () => {
+    Object.assign(mockRouteModel, {
+      server: null, channel: null, parent: null, currentChannelMeta: null,
+      routeLifecycle: "pending", routeHydrated: false, skeletonSubtype: "thread",
+      layoutHint: { subtype: "thread", parentChannelId: "forum_1", parentSubtype: "forum" },
+    })
+    mockSplitMode.value = "split"
+    mockNavigationGate.allowed = false
+    mockCurrentChannelId.value = null
+    render(React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }))
+    expect(screen.getByTestId("community-thread-split")).toHaveAttribute("data-layout", "split")
+    expect(screen.getByTestId("community-thread-split-parent")).toContainElement(screen.getByTestId("forum-view-skeleton"))
+    expect(screen.getByTestId("community-thread-split-panel").querySelector("[data-message-list-skeleton]")).not.toBeNull()
+    expect(mockUseThreadSplitMode).toHaveBeenLastCalledWith({ parentChannelId: null, forceFullscreen: false })
+    expect(mockSplitParentSurface).not.toHaveBeenCalled()
+    expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
+    expect(mockCommitLastCommunityRoute).not.toHaveBeenCalled()
+    expect(mockDismissConversation).toHaveBeenLastCalledWith("viewer_1", {
+      kind: "server", serverId: "server_1", channelId: "channel_1",
+    }, false)
+  })
+
+  it("keeps unresolved geometry and parent type neutral", () => {
+    configureThreadRoute()
+    mockSplitMode.value = "pending"
+    const props = { serverParam: "server_1", channelId: "channel_1" }
+    const renderer = render(React.createElement(ChannelRoute, props))
+    expect(screen.queryByTestId("community-thread-split")).toBeNull()
+    expect(renderer.container.querySelector('[data-community-conversation-subtype="unknown"]')).not.toBeNull()
+    expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
+    Object.assign(mockRouteModel, {
+      parent: null, currentChannelMeta: null, routeHydrated: false, routeLifecycle: "pending",
+      skeletonSubtype: "thread",
+      layoutHint: { subtype: "thread", parentChannelId: null, parentSubtype: "unknown" },
+    })
+    mockSplitMode.value = "split"
+    renderer.rerender(React.createElement(ChannelRoute, props))
+    expect(screen.getByTestId("community-thread-split-parent").querySelector('[data-community-conversation-subtype="unknown"]')).not.toBeNull()
+    expect(mockSplitParentSurface).not.toHaveBeenCalled()
+    renderer.unmount()
+  })
+
+  it("keeps the measurement frame and split nodes while pending content becomes readable", () => {
+    Object.assign(mockRouteModel, { channel: null, routeLifecycle: "pending", routeHydrated: false })
+    const props = { serverParam: "server_1", channelId: "channel_1" }
+    const renderer = render(React.createElement(ChannelRoute, props))
+    const outer = renderer.container.firstElementChild
+    expect(outer?.tagName).toBe("DIV")
+    expect(mockSplitContainerRef).toHaveBeenCalledWith(outer)
+    Object.assign(mockRouteModel, {
+      skeletonSubtype: "thread",
+      layoutHint: { subtype: "thread", parentChannelId: "parent_1", parentSubtype: "text" },
+    })
+    mockSplitMode.value = "split"
+    renderer.rerender(React.createElement(ChannelRoute, props))
+    const split = screen.getByTestId("community-thread-split")
+    const parent = screen.getByTestId("community-thread-split-parent")
+    const thread = screen.getByTestId("community-thread-split-panel")
+    configureThreadRoute()
+    Object.assign(mockRouteModel, { routeLifecycle: "ready", routeHydrated: true })
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+    renderer.rerender(React.createElement(ChannelRoute, props))
+    expect(renderer.container.firstElementChild).toBe(outer)
+    expect(screen.getByTestId("community-thread-split")).toBe(split)
+    expect(screen.getByTestId("community-thread-split-parent")).toBe(parent)
+    expect(screen.getByTestId("community-thread-split-panel")).toBe(thread)
+    expect(mockSplitContainerRef).toHaveBeenCalledTimes(1)
+    expect(mockedUseChannelMessageFeed).toHaveBeenCalledOnce()
+    mockRouteModel.metadataError = true
+    renderer.rerender(React.createElement(ChannelRoute, props))
+    expect(renderer.container.firstElementChild).toBe(outer)
+    expect(screen.getByRole("button", { name: "Retry" })).toBeVisible()
+    renderer.unmount()
+  })
+
+  it("lets the qualified parent load while the forum opener still fences the child", () => {
+    configureThreadRoute()
+    mockRouteModel.isForumPostChild = true
+    mockSplitMode.value = "split"
+    mockForumOpener.isLoading = true
+    const props = { serverParam: "server_1", channelId: "channel_1" }
+    const renderer = render(React.createElement(ChannelRoute, props))
+    const split = screen.getByTestId("community-thread-split")
+    expect(mockSplitParentSurface).toHaveBeenCalledOnce()
+    expect(mockedUseChannelMessageFeed).not.toHaveBeenCalled()
+    expect(mockCommitLastCommunityRoute).not.toHaveBeenCalled()
+    expect(screen.getByTestId("community-thread-split-panel").querySelector("[data-message-list-skeleton]")).not.toBeNull()
+    Object.assign(mockForumOpener, { data: { content: "Post title" }, isLoading: false })
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+    renderer.rerender(React.createElement(ChannelRoute, props))
+    expect(screen.getByTestId("community-thread-split")).toBe(split)
+    expect(mockedUseChannelMessageFeed).toHaveBeenCalledOnce()
+    expect(mockCommitLastCommunityRoute).toHaveBeenCalledOnce()
+    renderer.unmount()
   })
 
   it("shows a required cold forum opener failure, keeps Retry feedback while pending, then opens body", async () => {

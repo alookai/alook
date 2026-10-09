@@ -17,10 +17,11 @@ export function resolveThreadSplitMode({
   forceFullscreen,
 }: {
   breakpoint: Breakpoint
-  contentWidth: number
+  contentWidth: number | null
   forceFullscreen: boolean
-}): "split" | "full" {
-  if (forceFullscreen || breakpoint !== "desktop") return "full"
+}): "pending" | "split" | "full" {
+  if (forceFullscreen || breakpoint === "mobile") return "full"
+  if (breakpoint === "unknown" || contentWidth === null) return "pending"
   return contentWidth >= THREAD_SPLIT_MIN_CONTENT_WIDTH ? "split" : "full"
 }
 
@@ -32,14 +33,17 @@ export function useThreadSplitMode({
   forceFullscreen: boolean
 }): {
   containerRef: RefCallback<HTMLElement>
-  mode: "split" | "full"
+  mode: "pending" | "split" | "full"
 } {
   const runtime = useCommunityRuntime()
   const breakpoint = useBreakpoint()
   const [subscriptionOwner] = useState(() => Symbol("thread-split-secondary"))
   const [container, setContainer] = useAtom(useCreateAtom<HTMLElement | null>(null))
-  const [contentWidth, setContentWidth] = useAtom(useCreateAtom(0))
-  const containerRef = useCallback((node: HTMLElement | null) => setContainer(node), [setContainer])
+  const [contentWidth, setContentWidth] = useAtom(useCreateAtom<number | null>(null))
+  const containerRef = useCallback((node: HTMLElement | null) => {
+    setContentWidth(null)
+    setContainer(node)
+  }, [setContainer, setContentWidth])
 
   useLayoutEffect(() => {
     if (!container) return

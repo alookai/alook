@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
     isError: false,
   },
   dbChannel: undefined as undefined | Record<string, unknown>,
+  dbParent: undefined as undefined | Record<string, unknown>,
   communityDb: { current: {} as Record<string, unknown> | null },
   purgeCommunityChannel: vi.fn(),
 }))
@@ -53,7 +54,7 @@ vi.mock("@/lib/community/last-community-route", () => ({
   consumeCommunityColdEntryFailure: (...args: unknown[]) => mocks.consumeColdEntryFailure(...args),
 }))
 vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
-  useRouteChannelProjection: () => mocks.dbChannel,
+  useRouteChannelProjection: (id: string | null) => id === mocks.dbParent?.id ? mocks.dbParent : undefined,
 }))
 vi.mock("@/lib/community-db/sync", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/sync")>(),
   purgeCommunityChannel: (...args: unknown[]) => mocks.purgeCommunityChannel(...args),
@@ -68,6 +69,7 @@ function Harness({ channelId = "post-1" }: { channelId?: string }) {
   return React.createElement("span", {
     "data-lifecycle": result.routeLifecycle,
     "data-skeleton-subtype": result.skeletonSubtype,
+    "data-layout-hint": JSON.stringify(result.layoutHint),
     "data-parent-channel": result.currentChannelMeta?.parentChannelId ?? "",
     "data-creator-id": result.currentChannelMeta?.creatorId ?? "",
     "data-activity-at": result.currentChannelMeta?.activityAt ?? "",
@@ -100,6 +102,7 @@ beforeEach(async () => {
   }
   mocks.metaQuery = { data: undefined, error: null, canRead: false, isArchived: false, isError: false }
   mocks.dbChannel = undefined
+  mocks.dbParent = undefined
 })
 
 
@@ -152,7 +155,7 @@ describe("useChannelRouteModel subscription ownership", () => {
     "uses the canonical %s subtype while the route is pending",
     (type) => {
       mocks.server = undefined
-      mocks.dbChannel = { id: "post-1", type }
+      mocks.dbChannel = { id: "post-1", serverId: "server-1", type }
 
       const renderer = render(React.createElement(Harness))
 
@@ -161,6 +164,59 @@ describe("useChannelRouteModel subscription ownership", () => {
       act(() => renderer.unmount())
     },
   )
+
+  it("uses only structural child and parent facts before either live resource is readable", () => {
+    mocks.server = undefined
+    mocks.dbChannel = { id: "post-1", serverId: "server-1", type: "thread", parentChannelId: "forum-1" }
+    mocks.dbParent = { id: "forum-1", serverId: "server-1", type: "forum" }
+    const renderer = render(React.createElement(Harness))
+    expect(renderer.container.querySelector("span")).toHaveAttribute("data-layout-hint", JSON.stringify({
+      subtype: "thread", parentChannelId: "forum-1", parentSubtype: "forum",
+    }))
+    expect(lifecycle(renderer)).toBe("pending")
+    expect(renderer.container.querySelector("span")).toHaveAttribute("data-parent-channel", "")
+    expect(mocks.subscribe).toHaveBeenCalledOnce()
+    expect(mocks.replace).not.toHaveBeenCalled()
+    mocks.dbChannel = undefined
+    mocks.dbParent = undefined
+    renderer.rerender(React.createElement(Harness))
+    expect(renderer.container.querySelector("span")).toHaveAttribute("data-layout-hint", JSON.stringify({
+      subtype: "unknown", parentChannelId: null, parentSubtype: "unknown",
+    }))
+    expect(mocks.subscribe).toHaveBeenCalledOnce()
+    renderer.unmount()
+  })
+
+  it.each([
+    { id: "post-old", serverId: "server-1", type: "thread" },
+    { id: "post-1", serverId: "server-old", type: "thread" },
+    { id: "post-1", serverId: "server-1", type: "thread", pending: true },
+  ])("rejects a canonical hint outside the settled route identity: %j", (row) => {
+    mocks.server = undefined
+    mocks.dbChannel = { ...row, parentChannelId: "forum-1" }
+    const renderer = render(React.createElement(Harness))
+    expect(renderer.container.querySelector("span")).toHaveAttribute("data-skeleton-subtype", "unknown")
+    expect(renderer.container.querySelector("span")).toHaveAttribute("data-layout-hint", JSON.stringify({
+      subtype: "unknown", parentChannelId: null, parentSubtype: "unknown",
+    }))
+    renderer.unmount()
+  })
+
+  it.each([
+    undefined,
+    { id: "forum-1", serverId: "server-old", type: "forum" },
+    { id: "forum-1", serverId: "server-1", type: "forum", pending: true },
+    { id: "forum-1", serverId: "server-1", type: "thread" },
+  ])("keeps an unresolved parent neutral: %j", (parent) => {
+    mocks.server = undefined
+    mocks.dbChannel = { id: "post-1", serverId: "server-1", type: "thread", parentChannelId: "forum-1" }
+    mocks.dbParent = parent
+    const renderer = render(React.createElement(Harness))
+    expect(renderer.container.querySelector("span")).toHaveAttribute("data-layout-hint", JSON.stringify({
+      subtype: "thread", parentChannelId: "forum-1", parentSubtype: "unknown",
+    }))
+    renderer.unmount()
+  })
 
   it("keeps a restored structural thread pending until its Channel resource is qualified", () => {
     mocks.dbChannel = {

@@ -176,7 +176,7 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
   const notifs = useNotificationSettings()
   const channelNotif = notifs.channel
   const { mutate: setChannelNotif } = useSetChannelNotif()
-  const threadSplit = useThreadSplitMode({
+  const { containerRef: contentContainerRef, mode: threadSplitMode } = useThreadSplitMode({
     parentChannelId: currentChannelMeta?.parentChannelId ?? null,
     forceFullscreen: searchParams.get(THREAD_VIEW_PARAM) === "full",
   })
@@ -233,12 +233,13 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
     uiHandlers.openProfile?.(name, e, discriminator, userId)
   }, [uiHandlers])
 
-  const channelHydrated =
+  const channelReadReady =
     routeModel.routeLifecycle === "ready" &&
     currentChannelId === channelId &&
     routeModel.routeHydrated &&
-    (!isForumPostChild || (!forumPostOpener.isLoading && !openerError)) &&
     navigationGate.allowed
+  const channelHydrated = channelReadReady &&
+    (!isForumPostChild || (!forumPostOpener.isLoading && !openerError))
   useNativeSystemNotificationConversationDismissal(currentUser.id, {
     kind: "server",
     serverId,
@@ -258,45 +259,94 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
     isForum,
     structuralHint: routeModel.skeletonSubtype,
   })
-  if (navigationGate.failed) {
-    return <ConversationResolutionErrorFrame retrying={false} onRetry={navigationGate.retry} />
-  }
-  if (routeModel.serverError) {
-    return <ConversationResolutionErrorFrame retrying={routeModel.retryingServer}
-      onRetry={() => { void routeModel.retryServer() }} />
-  }
-  if (routeModel.metadataError) {
-    return <ConversationResolutionErrorFrame
-      retrying={routeModel.retryingMetadata}
-      onRetry={() => { void routeModel.retryMetadata() }}
-    />
-  }
-  if (openerError) {
-    return <ConversationResolutionErrorFrame retrying={retryingOpener}
-      onRetry={() => { void retryOpener() }} />
-  }
-  if (subtype === "unknown") {
-    return <ConversationResolutionPendingFrame />
-  }
-  if (!channelHydrated) {
+  const content = (() => {
+    if (navigationGate.failed) {
+      return <ConversationResolutionErrorFrame retrying={false} onRetry={navigationGate.retry} />
+    }
+    if (routeModel.serverError) {
+      return <ConversationResolutionErrorFrame retrying={routeModel.retryingServer}
+        onRetry={() => { void routeModel.retryServer() }} />
+    }
+    if (routeModel.metadataError) {
+      return <ConversationResolutionErrorFrame
+        retrying={routeModel.retryingMetadata}
+        onRetry={() => { void routeModel.retryMetadata() }}
+      />
+    }
+    if (openerError) {
+      return <ConversationResolutionErrorFrame retrying={retryingOpener}
+        onRetry={() => { void retryOpener() }} />
+    }
+    if (subtype === "unknown") {
+      return <ConversationResolutionPendingFrame />
+    }
+    // ── Child channel view (forum post / thread opened via URL) ─────────────
     if (subtype === "thread") {
-      const split = threadSplit.mode === "split" && !!currentServer && !!parentChannelInServer
+      if (threadSplitMode === "pending") return <ConversationResolutionPendingFrame />
+      const split = threadSplitMode === "split"
       return (
         <ThreadSplitView
-          containerRef={threadSplit.containerRef}
           split={split}
           conversationSubtype="thread"
-          parent={split ? (
+          parent={split ? channelReadReady && isChildChannel && currentServer && parentChannelInServer ? (
+            <ThreadSplitParentSurface
+              serverId={serverId}
+              serverParam={serverParam}
+              server={currentServer}
+              channel={parentChannelInServer}
+              viewer={currentUser}
+              onNavigateParent={navigateServerRoot}
+              channelRefCandidates={channelRefCandidates}
+              uiHandlers={uiHandlers}
+              onOpenChild={enterThread}
+              onOpenProfile={openProfile}
+            />
+          ) : routeModel.layoutHint.parentSubtype === "unknown" ? (
+            <ConversationResolutionPendingFrame />
+          ) : (
             <>
-              <ChannelHeaderSkeleton kind={isForumPostChild ? "forum" : "text"} />
+              <ChannelHeaderSkeleton kind={routeModel.layoutHint.parentSubtype} />
               <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-                {isForumPostChild
+                {routeModel.layoutHint.parentSubtype === "forum"
                   ? <ForumViewSkeleton />
                   : <ConversationMessageSkeleton />}
               </main>
             </>
           ) : null}
-          thread={(
+          thread={channelHydrated ? (
+            <ThreadChannelSurface
+              channelId={channelId}
+              serverId={serverId}
+              serverParam={serverParam}
+              channelName={channelName}
+              viewer={currentUser}
+              canManagePins={canManageServer(myRole)}
+              anchorMessageId={currentAnchorMessageId}
+              parentChannelId={currentChannelMeta?.parentChannelId ?? null}
+              parentMessageId={currentChannelMeta?.parentMessageId ?? null}
+              parentIsForum={isForumPostChild}
+              threadOpenerHandoff={threadOpenerHandoff}
+              childCreatorId={currentChannelMeta?.creatorId}
+              canRenameThread={canManageServer(myRole)}
+              onNavigateParent={navigateParent}
+              notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
+              onSetNotificationLevel={setNotificationLevel}
+              composerMembers={composerMembers}
+              composerMentionCandidates={composerMentionCandidates}
+              channelRefCandidates={channelRefCandidates}
+              memberPanelProps={memberPanelProps}
+              manageMembersDialog={manageMembersDialog}
+              uiHandlers={uiHandlers}
+              onOpenChild={enterThread}
+              onOpenProfile={openProfile}
+              resolveUserName={resolveUserName}
+              embedded
+              splitActions={split ? {
+                onFullscreen: openThreadFullscreen,
+                onClose: navigateParent,
+              } : undefined}
+            />
+          ) : (
             <>
               <ChannelHeaderSkeleton kind="thread" compactActions={split} />
               <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -308,136 +358,60 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
         />
       )
     }
-    if (subtype === "forum") {
+
+    if (!channelHydrated) return <ConversationResolutionPendingFrame subtype={subtype} />
+
+    // ── Forum view ──────────────────────────────────────────────────────────
+    if (isForum) {
       return (
-        <>
-          <ChannelHeaderSkeleton kind="forum" />
-          <main
-            data-community-conversation-subtype="forum"
-            className="flex min-h-0 min-w-0 flex-1 flex-col"
-          >
-            <ForumViewSkeleton />
-          </main>
-        </>
+        <ForumChannelSurface
+          serverId={serverId}
+          channelId={channelId}
+          channelName={channelName}
+          viewer={currentUser}
+          viewerRole={myRole}
+          onNavigateParent={navigateServerRoot}
+          notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
+          onSetNotificationLevel={setNotificationLevel}
+          composerMembers={composerMembers}
+          composerMentionCandidates={composerMentionCandidates}
+          memberPanelProps={memberPanelProps}
+          manageMembersDialog={manageMembersDialog}
+          onOpenPost={enterThread}
+          onOpenProfile={openProfile}
+        />
       )
     }
-    return (
-      <>
-        <ChannelHeaderSkeleton />
-        <main
-          data-community-conversation-subtype="text"
-          className="flex min-h-0 min-w-0 flex-1 flex-col"
-        >
-          <ConversationMessageSkeleton />
-          <ComposerSkeleton />
-        </main>
-      </>
-    )
-  }
 
-  // ── Child channel view (forum post / thread opened via URL) ─────────────
-  if (isChildChannel) {
-    const split = threadSplit.mode === "split" && !!currentServer && !!parentChannelInServer
+    // ── Standard channel view ───────────────────────────────────────────────
     return (
-      <ThreadSplitView
-        containerRef={threadSplit.containerRef}
-        split={split}
-        parent={split && currentServer && parentChannelInServer ? (
-          <ThreadSplitParentSurface
-            serverId={serverId}
-            serverParam={serverParam}
-            server={currentServer}
-            channel={parentChannelInServer}
-            viewer={currentUser}
-            onNavigateParent={navigateServerRoot}
-            channelRefCandidates={channelRefCandidates}
-            uiHandlers={uiHandlers}
-            onOpenChild={enterThread}
-            onOpenProfile={openProfile}
-          />
-        ) : null}
-        thread={(
-          <ThreadChannelSurface
-            channelId={channelId}
-            serverId={serverId}
-            serverParam={serverParam}
-            channelName={channelName}
-            viewer={currentUser}
-            canManagePins={canManageServer(myRole)}
-            anchorMessageId={currentAnchorMessageId}
-            parentChannelId={currentChannelMeta?.parentChannelId ?? null}
-            parentMessageId={currentChannelMeta?.parentMessageId ?? null}
-            parentIsForum={isForumPostChild}
-            threadOpenerHandoff={threadOpenerHandoff}
-            childCreatorId={currentChannelMeta?.creatorId}
-            canRenameThread={canManageServer(myRole)}
-            onNavigateParent={navigateParent}
-            notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
-            onSetNotificationLevel={setNotificationLevel}
-            composerMembers={composerMembers}
-            composerMentionCandidates={composerMentionCandidates}
-            channelRefCandidates={channelRefCandidates}
-            memberPanelProps={memberPanelProps}
-            manageMembersDialog={manageMembersDialog}
-            uiHandlers={uiHandlers}
-            onOpenChild={enterThread}
-            onOpenProfile={openProfile}
-            resolveUserName={resolveUserName}
-            embedded
-            splitActions={split ? {
-              onFullscreen: openThreadFullscreen,
-              onClose: navigateParent,
-            } : undefined}
-          />
-        )}
-      />
-    )
-  }
-
-  // ── Forum view ──────────────────────────────────────────────────────────
-  if (isForum) {
-    return (
-      <ForumChannelSurface
-        serverId={serverId}
+      <TextChannelSurface
         channelId={channelId}
+        serverId={serverId}
+        serverParam={serverParam}
         channelName={channelName}
         viewer={currentUser}
-        viewerRole={myRole}
+        canManagePins={canManageServer(myRole)}
+          anchorMessageId={currentAnchorMessageId}
         onNavigateParent={navigateServerRoot}
         notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
         onSetNotificationLevel={setNotificationLevel}
         composerMembers={composerMembers}
         composerMentionCandidates={composerMentionCandidates}
+        channelRefCandidates={channelRefCandidates}
         memberPanelProps={memberPanelProps}
         manageMembersDialog={manageMembersDialog}
-        onOpenPost={enterThread}
+        uiHandlers={uiHandlers}
+        onOpenThread={enterThread}
         onOpenProfile={openProfile}
+        resolveUserName={resolveUserName}
       />
     )
-  }
-
-  // ── Standard channel view ───────────────────────────────────────────────
+  })()
   return (
-    <TextChannelSurface
-      channelId={channelId}
-      serverId={serverId}
-      serverParam={serverParam}
-      channelName={channelName}
-      viewer={currentUser}
-      canManagePins={canManageServer(myRole)}
-        anchorMessageId={currentAnchorMessageId}
-      onNavigateParent={navigateServerRoot}
-      notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
-      onSetNotificationLevel={setNotificationLevel}
-      composerMembers={composerMembers}
-      composerMentionCandidates={composerMentionCandidates}
-      channelRefCandidates={channelRefCandidates}
-      memberPanelProps={memberPanelProps}
-      manageMembersDialog={manageMembersDialog}
-      uiHandlers={uiHandlers}
-      onOpenThread={enterThread}
-      onOpenProfile={openProfile}
-      resolveUserName={resolveUserName}
-    />
+    <div ref={contentContainerRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {content}
+    </div>
   )
+
 }

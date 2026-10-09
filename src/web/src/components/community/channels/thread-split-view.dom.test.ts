@@ -9,13 +9,14 @@ import {
 
 const mocks = vi.hoisted(() => ({
   onLayoutChanged: vi.fn(),
+  useDefaultLayout: vi.fn(),
 }))
 
 vi.mock("react-resizable-panels", () => ({
-  useDefaultLayout: () => ({
+  useDefaultLayout: (options: unknown) => { mocks.useDefaultLayout(options); return ({
     defaultLayout: { parent: 56, thread: 44 },
     onLayoutChanged: mocks.onLayoutChanged,
-  }),
+  }) },
 }))
 
 vi.mock("@/components/ui/resizable", () => ({
@@ -50,7 +51,6 @@ vi.mock("@/components/ui/resizable", () => ({
 describe("ThreadSplitView", () => {
   it("uses the shared persistent resize contract in split mode", () => {
     render(createElement(ThreadSplitView, {
-      containerRef: vi.fn(),
       split: true,
       parent: createElement("span", null, "Parent content"),
       thread: createElement("span", null, "Thread content"),
@@ -72,11 +72,15 @@ describe("ThreadSplitView", () => {
     expect(screen.getByTestId("panel-thread"))
       .toHaveAttribute("data-max-size", String(THREAD_SPLIT_PANEL_MAX_WIDTH))
     expect(screen.getByLabelText("Resize thread panel")).toBeVisible()
+    expect(mocks.useDefaultLayout).toHaveBeenLastCalledWith({
+      id: "community-thread-split-layout",
+      onlySaveAfterUserInteractions: true,
+      storage: expect.any(Object),
+    })
   })
 
   it("keeps full mode single-pane without resize affordances", () => {
     render(createElement(ThreadSplitView, {
-      containerRef: vi.fn(),
       split: false,
       parent: createElement("span", null, "Parent content"),
       thread: createElement("span", null, "Thread content"),
@@ -86,5 +90,26 @@ describe("ThreadSplitView", () => {
     expect(screen.queryByText("Parent content")).not.toBeInTheDocument()
     expect(screen.getByLabelText("Thread")).toHaveClass("flex-1")
     expect(screen.getByText("Thread content")).toBeVisible()
+  })
+
+  it("keeps both panels and their group when skeletons become content", () => {
+    const renderer = render(createElement(ThreadSplitView, {
+      split: true,
+      parent: createElement("span", null, "Parent skeleton"),
+      thread: createElement("span", null, "Thread skeleton"),
+    }))
+    const group = screen.getByTestId("panel-group")
+    const parent = screen.getByTestId("panel-parent")
+    const thread = screen.getByTestId("panel-thread")
+    renderer.rerender(createElement(ThreadSplitView, {
+      split: true,
+      parent: createElement("span", null, "Parent content"),
+      thread: createElement("span", null, "Thread content"),
+    }))
+    expect(screen.getByTestId("panel-group")).toBe(group)
+    expect(screen.getByTestId("panel-parent")).toBe(parent)
+    expect(screen.getByTestId("panel-thread")).toBe(thread)
+    expect(screen.queryByText("Thread skeleton")).not.toBeInTheDocument()
+    expect(mocks.onLayoutChanged).not.toHaveBeenCalled()
   })
 })
