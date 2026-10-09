@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { writeCliLink } from "./cliLink.js";
+import { writeCliLink, writeWindowsBashEnv } from "./cliLink.js";
 
 const tmpDirs: string[] = [];
 function mkTmp(): string {
@@ -62,8 +62,24 @@ describe("writeCliLink (Windows .cmd shim)", () => {
     expect(fs.existsSync(cmd)).toBe(true);
     const body = fs.readFileSync(cmd, "utf8");
     expect(body).toContain(`"${host}" %*`);
-    // No bare POSIX symlink on Windows.
-    expect(fs.existsSync(path.join(binDir, "alook"))).toBe(false);
+    expect(fs.readFileSync(path.join(binDir, "alook"), "utf8"))
+      .toBe("#!/bin/sh\nMSYS2_ARG_CONV_EXCL='*' exec 'C:/host/alook.exe' \"$@\"\n");
+    expect(fs.lstatSync(path.join(binDir, "alook")).isSymbolicLink()).toBe(false);
+  });
+
+  it("quotes shell metacharacters in the Bash launcher without changing arguments", () => {
+    const binDir = writeCliLink(mkTmp(), "house", "C:\\host's $directory\\index.js", "win32");
+    const body = fs.readFileSync(path.join(binDir, "house"), "utf8");
+    expect(body).toContain("'C:/host'\\''s $directory/index.js' \"$@\"");
+  });
+
+  it("sources an existing Bash startup file before selecting the shell's launcher", () => {
+    const binDir = path.join(mkTmp(), "bin");
+    fs.mkdirSync(binDir);
+    const startup = writeWindowsBashEnv(binDir, "house", "HOUSE", "C:\\user's home\\startup.sh");
+    expect(fs.readFileSync(startup, "utf8")).toBe(`. 'C:/user'\\''s home/startup.sh'\nexport 'HOUSE_CLI=${binDir.replaceAll("\\", "/")}/house'\n`);
+    expect(() => writeWindowsBashEnv(binDir, "house", "HOUSE", startup)).not.toThrow();
+    expect(fs.readFileSync(startup, "utf8")).not.toContain(`. '${startup}'`);
   });
 
   it("creates no shim in mock mode on Windows", () => {

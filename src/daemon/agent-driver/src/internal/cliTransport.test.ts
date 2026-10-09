@@ -51,6 +51,19 @@ describe("prepareCliTransport", () => {
     const { stateDir, spawnEnv } = await prepareCliTransport(ctx, { HOUSE_CLI: "driver-override" }, cli, "win32");
     expect(spawnEnv.HOUSE_CLI).toBe(path.join(stateDir, "bin", "house.cmd").replaceAll("\\", "/"));
     expect(fs.existsSync(spawnEnv.HOUSE_CLI!)).toBe(true);
+    expect(spawnEnv.BASH_ENV).toBe(path.join(stateDir, "bin", "house.bash-env").replaceAll("\\", "/"));
+    expect(spawnEnv.MSYS2_ARG_CONV_EXCL).toBeUndefined();
+  });
+
+  it("retains the selected user's Bash startup file without globally disabling conversion", async () => {
+    const wd = mkTmp();
+    const ctx = baseCtx(wd, {
+      config: { runtimeConfig: { model: { kind: "default" }, provider: { kind: "default" }, mode: "default", environment: { BASH_ENV: "C:/user startup.sh" } } },
+      prepared: { ...fakePrepared({ base: { BASH_ENV: "C:/base.sh", MSYS2_ARG_CONV_EXCL: "--existing=" } }), executablePath: "C:/host.js" },
+    });
+    const { spawnEnv } = await prepareCliTransport(ctx, {}, undefined, "win32");
+    expect(fs.readFileSync(spawnEnv.BASH_ENV!, "utf8")).toContain(". 'C:/user startup.sh'\n");
+    expect(spawnEnv.MSYS2_ARG_CONV_EXCL).toBe("--existing=");
   });
 
   it("preserves the POSIX CLI contract when the prepared host is a JS entrypoint", async () => {
@@ -64,6 +77,7 @@ describe("prepareCliTransport", () => {
     });
     const { spawnEnv } = await prepareCliTransport(ctx, {}, undefined, "linux");
     expect(spawnEnv.ALOOK_CLI).toBe(host);
+    expect(spawnEnv.BASH_ENV).toBeUndefined();
   });
 
   it("prepends the per-launch bin dir to PATH", async () => {

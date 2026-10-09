@@ -1,6 +1,6 @@
 import { once } from "node:events";
 import { createServer } from "node:http";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -92,12 +92,35 @@ describe.skipIf(process.platform !== "win32")("native Windows injected Node CLI"
       expect(powershell.code).toBe(0);
       const failed = await invoke(spawnEnv.ALOOK_CLI!, ["--fail"], directory, true, { env: spawnEnv });
       expect(failed.code).toBe(23);
+      const bashFailed = await invoke(process.env.ALOOK_NATIVE_BASH_PATH!, ["--noprofile", "--norc", "-c", '"$ALOOK_CLI" --fail'], directory, false, { env: spawnEnv });
+      expect(bashFailed.code).toBe(23);
     } finally {
       rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
     }
   }, 120_000);
 
 
+});
+
+describe.skipIf(process.platform === "win32")("Windows Bash launcher logic on POSIX", () => {
+  it("preserves startup, literal arguments and CLI-local environment through the public process authority", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "alook Bash's $path-"));
+    try {
+      const host = join(directory, "host.cjs");
+      const startup = join(directory, "user startup.sh");
+      writeFileSync(host, "console.log(JSON.stringify({ args: process.argv.slice(2), exclusion: process.env.MSYS2_ARG_CONV_EXCL, startup: process.env.USER_STARTUP_MARKER }));\n");
+      writeFileSync(startup, "export USER_STARTUP_MARKER=loaded\n");
+      const ctx = fakeLaunchContext("codex", directory, {
+        prepared: { ...fakePrepared({ base: { ...process.env, BASH_ENV: startup } }), executablePath: host },
+      });
+      const { spawnEnv } = await prepareCliTransport(ctx, {}, undefined, "win32");
+      const result = await invoke("/bin/bash", ["--noprofile", "--norc", "-c", '"$ALOOK_CLI" --target "/server#0042/general" "中文✓"; test "${MSYS2_ARG_CONV_EXCL-unset}" = unset'], directory, false, { env: { ...spawnEnv, MSYS2_ARG_CONV_EXCL: undefined } });
+      expect(JSON.parse(result.stdout)).toEqual({ args: ["--target", "/server#0042/general", "中文✓"], exclusion: "*", startup: "loaded" });
+      expect(result.code).toBe(0);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });
 
 describe.skipIf(!process.env.ALOOK_NATIVE_CLI_PATH)("installed host CLI callback", () => {
@@ -140,10 +163,12 @@ describe.skipIf(!process.env.ALOOK_NATIVE_CLI_PATH)("installed host CLI callback
       const voucherFile = join(directory, "voucher.txt");
       writeFileSync(voucherFile, "vch_windows_cli_fixture", { mode: 0o600 });
       const host = process.env.ALOOK_NATIVE_CLI_PATH!;
+      const originalBashEnv = join(directory, "user startup.sh");
+      writeFileSync(originalBashEnv, "export USER_STARTUP_MARKER=original-bash-env-loaded\n");
       const ctx = fakeLaunchContext("codex", directory, {
         prepared: {
           ...fakePrepared({
-            base: process.env,
+            base: { ...process.env, BASH_ENV: originalBashEnv.replaceAll("\\", "/") },
             platformProtected: { ALOOK_ID: "agent_cli_fixture", ALOOK_CLI: host },
             networkProtected: { ALOOK_PROXY_URL: `http://127.0.0.1:${address.port}` },
             credentialSensitive: { ALOOK_PROXY_TOKEN_FILE: voucherFile },
@@ -177,16 +202,18 @@ describe.skipIf(!process.env.ALOOK_NATIVE_CLI_PATH)("installed host CLI callback
         const bashPath = process.env.ALOOK_NATIVE_BASH_PATH;
         expect(bashPath).toBeTruthy();
         const bashScript = join(directory, "send.sh");
-        writeFileSync(bashScript, `"$ALOOK_CLI" message send --target '${channel}' --reply 1 --stdin --remind-after 0 <<'ALOOK_CLI_TEST_165'\n${message}\nALOOK_CLI_TEST_165\n`);
+        const nodeScript = join(directory, "native-path-control.cjs");
+        const controlFile = join(directory, "native-path-control.json");
+        writeFileSync(nodeScript, "require('node:fs').writeFileSync(process.argv[3], JSON.stringify({ arg: process.argv[2], startup: process.env.USER_STARTUP_MARKER, exclusion: process.env.MSYS2_ARG_CONV_EXCL ?? null }));\n");
+        writeFileSync(bashScript, `"$ALOOK_CLI" message send --target '${channel}' --reply 1 --stdin --remind-after 0 <<'ALOOK_CLI_TEST_165'\n${message}\nALOOK_CLI_TEST_165\nstatus=$?\n'${process.execPath.replaceAll("\\", "/")}' '${nodeScript.replaceAll("\\", "/")}' /ordinary/path '${controlFile.replaceAll("\\", "/")}'\nexit "$status"\n`);
         const bash = await invoke(bashPath!, ["--noprofile", "--norc", bashScript.replaceAll("\\", "/")], directory, false, { env: spawnEnv });
         console.log(JSON.stringify({ stage: "candidate-git-bash-send", ...bash }));
-        if (!bash.stdout) {
-          const excluded = await invoke(bashPath!, ["--noprofile", "--norc", bashScript.replaceAll("\\", "/")], directory, false,
-            { env: { ...spawnEnv, MSYS2_ARG_CONV_EXCL: "*" } });
-          console.log(JSON.stringify({ stage: "diagnostic-git-bash-argument-conversion", ...excluded }));
-        }
         expect(JSON.parse(bash.stdout).success.sent).toBe(`${channel}#4`);
         expect(bash.code).toBe(0);
+        const control = JSON.parse(readFileSync(controlFile, "utf8"));
+        expect(control.startup).toBe("original-bash-env-loaded");
+        expect(control.exclusion).toBe(process.env.MSYS2_ARG_CONV_EXCL ?? null);
+        expect(control.arg.replaceAll("\\", "/")).toMatch(/^[A-Za-z]:\/.*\/ordinary\/path$/);
         expectedBodies.push(message + "\n");
       }
       const sends = requests.filter(req => req.path === "/api/community/channels/resolve/messages");
