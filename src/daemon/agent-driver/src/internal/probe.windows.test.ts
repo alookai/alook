@@ -71,12 +71,44 @@ function waitForLine(child: ChildProcess, matches: (line: string) => boolean): P
   });
 }
 
-type WindowsProcessIdentity = { pid: number; name: string; created: string };
+type WindowsProcessIdentity = { pid: number; parent: number; name: string; created: string };
+
+function descendantsFromSnapshot(processes: WindowsProcessIdentity[], rootPid: number): WindowsProcessIdentity[] {
+  const root = processes.find(process => process.pid === rootPid);
+  if (!root) throw new Error(`live supervisor ${rootPid} missing from process snapshot`);
+  const visited = new Set([rootPid]);
+  const queue = [root];
+  for (let index = 0; index < queue.length; index++) {
+    const parent = queue[index]!;
+    for (const child of processes) {
+      if (child.parent !== parent.pid || child.created < parent.created || visited.has(child.pid)) continue;
+      visited.add(child.pid);
+      queue.push(child);
+    }
+  }
+  return queue.slice(1);
+}
+
+describe("native process snapshot ownership", () => {
+  const root: WindowsProcessIdentity = { pid: 10, parent: 0, name: "supervisor", created: "2026-10-09T01:00:00Z" };
+  it("excludes stale parent PID references while retaining nested owned processes", () => {
+    const child = { pid: 20, parent: 10, name: "runtime", created: "2026-10-09T01:00:01Z" };
+    const grandchild = { pid: 30, parent: 20, name: "tool", created: "2026-10-09T01:00:02Z" };
+    const stale = { pid: 40, parent: 10, name: "unrelated", created: "2026-10-09T00:00:00Z" };
+    expect(descendantsFromSnapshot([root, grandchild, stale, child], root.pid)).toEqual([child, grandchild]);
+  });
+  it("bounds a cycle and rejects a missing root instead of declaring no owned children", () => {
+    const child = { pid: 20, parent: root.pid, name: "runtime", created: root.created };
+    expect(descendantsFromSnapshot([{ ...root, parent: child.pid }, child], root.pid)).toEqual([child]);
+    expect(() => descendantsFromSnapshot([child], root.pid)).toThrow("missing from process snapshot");
+  });
+});
 
 function windowsDescendants(pid: number): WindowsProcessIdentity[] {
   if (process.platform !== "win32") return [];
-  const script = `$queue = [System.Collections.Generic.Queue[int]]::new(); $queue.Enqueue(${pid}); $found = @(); while ($queue.Count -gt 0) { $parent = $queue.Dequeue(); foreach ($child in @(Get-CimInstance Win32_Process -Filter ("ParentProcessId=" + $parent))) { $id = [int]$child.ProcessId; $found += @{pid=$id;name=$child.Name;created=$child.CreationDate.ToString("o")}; $queue.Enqueue($id) } }; ConvertTo-Json -InputObject @($found) -Compress`;
-  return JSON.parse(execFileSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", timeout: 10_000 })) as WindowsProcessIdentity[];
+  const script = `$found = @(Get-CimInstance Win32_Process | Where-Object { $_.CreationDate } | ForEach-Object { @{pid=[int]$_.ProcessId;parent=[int]$_.ParentProcessId;name=$_.Name;created=$_.CreationDate.ToUniversalTime().ToString("o")} }); ConvertTo-Json -InputObject $found -Compress`;
+  const snapshot = JSON.parse(execFileSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", timeout: 10_000 })) as WindowsProcessIdentity[];
+  return descendantsFromSnapshot(snapshot, pid);
 }
 
 async function stop(child: ChildProcess) {
