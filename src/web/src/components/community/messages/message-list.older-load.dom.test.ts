@@ -9,48 +9,59 @@ vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop" }))
 vi.mock("./message-row", () => ({ MessageRow: () => React.createElement("div") }))
 vi.mock("@/components/ui/number-ticker", () => ({ NumberTicker: ({ value }: { value: number }) => React.createElement("span", null, value) }))
 
-describe("MessageList virtual older sentinel does not cascade", () => {
+describe("MessageList native range pagination", () => {
   beforeEach(installMessageScrollFixture)
   afterEach(restoreMessageScrollFixture)
-  it("loads once per intersection, retains its fetch lock, and accepts fresh edge input", () => {
-    let callback: IntersectionObserverCallback
-    let element: Element
-    const disconnected = vi.fn()
-    vi.stubGlobal("IntersectionObserver", class {
-      constructor(next: IntersectionObserverCallback) { callback = next }
-      observe(target: Element) { element = target }
-      disconnect() { disconnected() }
-    })
-    const messages = Array.from({ length: 14 }, (_, i) => ({ id: `m${i}`, authorName: "Alice", content: "hi", createdAt: new Date(0).toISOString() }))
+  it("stops automatic pagination on the existing Query error surface", () => {
+    const messages = Array.from({ length: 50 }, (_, i) => ({ id: `m${i}`, authorName: "Alice", content: "hi", createdAt: new Date(0).toISOString() }))
     const onLoadOlder = vi.fn()
-    const view = (isFetchingOlder: boolean, hasMore = true) => React.createElement(MessageList, { channel: "general", messages, loading: false, hasMore, onLoadOlder, isFetchingOlder, onOpenThread: vi.fn() })
-    const intersect = (isIntersecting = true) => act(() => callback([{ isIntersecting, target: element } as IntersectionObserverEntry], {} as IntersectionObserver))
-    const renderer = render(view(false))
+    const makeView = (error: Error | null) => React.createElement(MessageList, { channel: "general", messages, loading: false, hasMore: true, onLoadOlder, initialLoadError: error, onOpenThread: vi.fn() })
+    const renderer = render(makeView(new Error("page failed after retries")))
     resize()
+    runFrames()
     const scroller = renderer.getByTestId(tid.messageScroller)
-    fireEvent.wheel(scroller, { deltaY: -20 })
+    fireEvent.wheel(scroller, { deltaY: -400 })
     act(() => { scroller.scrollTo({ top: 0 }) })
     runFrames()
     resize()
-    expect(element!.isConnected).toBe(true)
-    intersect()
+    expect(onLoadOlder).not.toHaveBeenCalled()
+    renderer.rerender(makeView(null))
+    runFrames()
     expect(onLoadOlder).toHaveBeenCalledOnce()
-    renderer.rerender(view(true))
-    renderer.rerender(view(false))
+  })
+
+  it("continues loading at the top after fetch settlement without a fresh gesture", () => {
+    const messages = Array.from({ length: 50 }, (_, i) => ({ id: `m${i}`, authorName: "Alice", content: "hi", createdAt: new Date(0).toISOString() }))
+    const onLoadOlder = vi.fn()
+    const view = (isFetchingOlder: boolean, hasMore = true) => React.createElement(MessageList, { channel: "general", messages, loading: false, hasMore, onLoadOlder, isFetchingOlder, onOpenThread: vi.fn() })
+    const renderer = render(view(false))
+    resize()
+    runFrames()
+    const scroller = renderer.getByTestId(tid.messageScroller)
+    expect(onLoadOlder).not.toHaveBeenCalled()
+
+    fireEvent.wheel(scroller, { deltaY: -400 })
+    act(() => { scroller.scrollTo({ top: 0 }) })
+    runFrames()
     resize()
     expect(onLoadOlder).toHaveBeenCalledOnce()
+
+    renderer.rerender(view(true))
+    fireEvent.wheel(scroller, { deltaY: -400 })
     act(() => { scroller.scrollTo({ top: 0 }) })
-    fireEvent.wheel(scroller, { deltaY: -20 })
-    expect(onLoadOlder).toHaveBeenCalledTimes(2)
+    runFrames()
+    expect(onLoadOlder).toHaveBeenCalledOnce()
+
     renderer.rerender(view(false))
-    intersect(false)
-    intersect(true)
+    runFrames()
+    resize()
     expect(onLoadOlder).toHaveBeenCalledTimes(2)
+
     renderer.rerender(view(true))
     renderer.rerender(view(false, false))
+    runFrames()
     resize()
     expect(onLoadOlder).toHaveBeenCalledTimes(2)
     renderer.unmount()
-    expect(disconnected).toHaveBeenCalled()
   })
 })

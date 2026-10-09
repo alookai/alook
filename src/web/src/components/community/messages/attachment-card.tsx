@@ -99,12 +99,12 @@ function FileAttachmentCard({
       onClick={() => canPreview
         ? onPreview(attachment)
         : download.state.status === "downloading" ? download.cancel() : void download.start()}
-      className="flex w-full max-w-[320px] items-center gap-3 rounded-lg border border-border bg-card p-2 text-left transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+      className="flex w-full max-w-[320px] items-center gap-2 rounded-lg border border-border bg-card p-2 text-left transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
       aria-label={`${action} ${attachment.name}`}
       aria-busy={!canPreview && download.state.status === "downloading"}
     >
       <Icon className="size-7 shrink-0 text-muted-foreground" />
-      <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
         <div className="truncate text-sm font-medium text-primary">{attachment.name}</div>
         {statusText ? (
           <div

@@ -192,12 +192,21 @@ test("desktop landing keeps the embedded phone Back control on true mobile geome
 })
 
 for (const width of [1440, 390]) {
-  test(`contact preserves its layout after client navigation at ${width}px`, async ({ page, context, baseURL }) => {
+  test(`contact preserves its layout after client navigation at ${width}px`, async ({ page, context, baseURL }, testInfo) => {
     await context.addCookies([{ name: "alook_analytics_consent", value: "v1.denied", url: baseURL! }])
     await page.setViewportSize({ width, height: 900 })
     await page.emulateMedia({ reducedMotion: "reduce" })
     await page.goto("/contact")
     await page.evaluate(() => document.fonts.ready)
+
+    const gusX = page.getByRole("link", { name: "X @im_gusye", exact: true })
+    await expect(gusX).toBeVisible()
+    await expect(gusX).toHaveAttribute("href", "https://x.com/im_gusye")
+    await gusX.focus()
+    await expect(gusX).toBeFocused()
+    expect((await gusX.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+    await page.screenshot({ path: testInfo.outputPath("contact-gus-x.png"), fullPage: true })
 
     const contactLayout = () => page.locator("main").evaluate((main) => {
       const sheet = main.querySelector("section")!
@@ -233,6 +242,34 @@ for (const width of [1440, 390]) {
     await expect(page).toHaveURL(/\/$/)
     await page.getByTestId(tid.landingFooterNavigation).getByRole("link", { name: "Contact", exact: true }).click()
     await expect(page).toHaveURL(/\/contact$/)
+    await expect.poll(contactLayout).toEqual(direct)
+    await page.goto("/pricing")
+    const contact = page.getByRole("link", { name: "Contact us", exact: true })
+    await expect(contact).toBeInViewport()
+    const box = await contact.boundingBox()
+    const plans = await page.getByRole("region", { name: "Alook plans" }).boundingBox()
+    expect(box!.height).toBeGreaterThanOrEqual(44)
+    expect(box!.y + box!.height).toBeLessThan(plans!.y)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+    await expect(page.getByRole("heading", { name: "Free", exact: true }).locator("..").getByRole("button")).not.toHaveText("Loading…")
+    await page.screenshot({ path: testInfo.outputPath("pricing-contact.png") })
+    await contact.focus()
+    await page.keyboard.press("Enter")
+    await expect(page).toHaveURL(/\/contact$/)
+    await expect(page.getByRole("heading", { name: "Let’s talk." })).toBeVisible()
+    await expect.poll(contactLayout).toEqual(direct)
+
+    await page.route("**/api/pricing", (route) => route.fulfill({
+      status: 503, contentType: "application/json", body: JSON.stringify({ error: "Unavailable" }),
+    }))
+    await page.goto("/pricing")
+    await expect(page.getByRole("main").getByRole("alert")).toContainText("Couldn't load plans")
+    await expect(page.getByRole("heading", { name: "Free", exact: true }).locator("..").getByRole("button")).toBeDisabled()
+    await expect(contact).toBeInViewport()
+    await contact.focus()
+    await page.keyboard.press("Enter")
+    await expect(page).toHaveURL(/\/contact$/)
+    await expect(page.getByRole("heading", { name: "Let’s talk." })).toBeVisible()
     await expect.poll(contactLayout).toEqual(direct)
   })
 }

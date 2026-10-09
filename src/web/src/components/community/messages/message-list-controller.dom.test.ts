@@ -15,8 +15,7 @@ const mocks = vi.hoisted(() => ({
   breakpoint: "desktop" as "unknown" | "desktop" | "mobile",
   hookOrder: [] as string[],
   scrollInputs: [] as unknown[],
-  sentinelInputs: [] as unknown[],
-  sentinelRefs: [] as Array<{ current: null }>,
+  paginationInputs: [] as unknown[],
   scrollRef: { current: null as HTMLDivElement | null },
   virtualizer: { scrollToOffset: vi.fn(), containerRef: { current: null } },
   jumpToIndex: vi.fn(),
@@ -60,13 +59,10 @@ vi.mock("@/hooks/community/use-scroll-anchor", () => ({
     }
   },
 }))
-vi.mock("@/hooks/community/use-virtual-cursor-sentinel", () => ({
-  useVirtualCursorSentinel: (input: { edge: string }) => {
+vi.mock("@/hooks/community/use-virtual-cursor-pagination", () => ({
+  useVirtualCursorPagination: (input: { edge: string }) => {
     mocks.hookOrder.push(input.edge)
-    mocks.sentinelInputs.push(input)
-    const ref = { current: null }
-    mocks.sentinelRefs.push(ref)
-    return ref
+    mocks.paginationInputs.push(input)
   },
 }))
 
@@ -142,8 +138,7 @@ describe("useMessageListController", () => {
     disconnect.mockClear()
     mocks.hookOrder.length = 0
     mocks.scrollInputs.length = 0
-    mocks.sentinelInputs.length = 0
-    mocks.sentinelRefs.length = 0
+    mocks.paginationInputs.length = 0
     mocks.scrollRef.current = null
     mocks.jumpToIndex.mockClear()
     mocks.scrollToBottom.mockClear()
@@ -186,6 +181,15 @@ describe("useMessageListController", () => {
     return entry[0]
   }
 
+  it("uses whole Query activity to pause both pagination directions", () => {
+    const onLoadOlder = vi.fn(), onLoadNewer = vi.fn()
+    rtlRender(React.createElement(Probe, { value: props({ isFetching: true, hasMore: true, hasMoreNewer: true, onLoadOlder, onLoadNewer }) }))
+    expect(mocks.paginationInputs.slice(-2)).toEqual([
+      expect.objectContaining({ edge: "start", isFetching: true }),
+      expect.objectContaining({ edge: "end", isFetching: true }),
+    ])
+  })
+
   it("uses the exact loading predicate and calls anchor/start/end hooks unconditionally in order", () => {
     let renderer: ReturnType<typeof rtlRender>
     act(() => {
@@ -211,21 +215,28 @@ describe("useMessageListController", () => {
       onScrollTargetCancelled: undefined,
       onScrollTargetPositioned: expect.any(Function),
     })
-    expect(mocks.sentinelInputs.slice(0, 2)).toEqual([
+    expect(mocks.paginationInputs.slice(0, 2)).toEqual([
       {
-        scrollRef: mocks.scrollRef,
+        virtualizer: mocks.virtualizer,
+        count: latest.items.length,
+        enabled: false,
         hasMore: undefined,
         isFetching: undefined,
         isSettling: false,
+        isError: false,
         onBeforeLoad: mocks.captureOlderPageAnchor,
         onLoad: undefined,
         edge: "start",
       },
       {
-        scrollRef: mocks.scrollRef,
+        virtualizer: mocks.virtualizer,
+        count: latest.items.length,
+        enabled: false,
         hasMore: undefined,
         isFetching: undefined,
         isSettling: false,
+        isError: false,
+        hasMoreAtStart: undefined,
         onBeforeLoad: mocks.captureNewerPageAnchor,
         onLoad: undefined,
         edge: "end",
@@ -233,8 +244,6 @@ describe("useMessageListController", () => {
     ])
     expect(latest.scrollRef).toBe(mocks.scrollRef)
     expect(latest.virtualizer).toBe(mocks.virtualizer)
-    expect(latest.topSentinelRef).toBe(mocks.sentinelRefs.at(-2))
-    expect(latest.bottomSentinelRef).toBe(mocks.sentinelRefs.at(-1))
     expect(latest.readPositionReady).toBe(false)
     expect(latest.pillCount).toBe(2)
     expect(latest.pillMode).toBe("scroll")
@@ -353,21 +362,28 @@ describe("useMessageListController", () => {
       onScrollTargetCancelled: undefined,
       onScrollTargetPositioned: expect.any(Function),
     })
-    expect(mocks.sentinelInputs.slice(-2)).toEqual([
+    expect(mocks.paginationInputs.slice(-2)).toEqual([
       {
-        scrollRef: mocks.scrollRef,
+        virtualizer: mocks.virtualizer,
+        count: latest.items.length,
+        enabled: false,
         hasMore: true,
         isFetching: true,
         isSettling: false,
+        isError: false,
         onBeforeLoad: mocks.captureOlderPageAnchor,
         onLoad: loadOlder,
         edge: "start",
       },
       {
-        scrollRef: mocks.scrollRef,
+        virtualizer: mocks.virtualizer,
+        count: latest.items.length,
+        enabled: false,
         hasMore: true,
         isFetching: true,
         isSettling: false,
+        isError: false,
+        hasMoreAtStart: true,
         onBeforeLoad: mocks.captureNewerPageAnchor,
         onLoad: loadNewer,
         edge: "end",

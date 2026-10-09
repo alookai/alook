@@ -24,34 +24,34 @@ describe("attachmentAspectRatio", () => {
 })
 
 describe("attachmentImageFrameStyle", () => {
-  it("reserves a 300px square for a larger square image", () => {
+  it("reserves a responsive height-limited square for a larger square image", () => {
     expect(attachmentImageFrameStyle(512, 512)).toEqual({
-      width: "min(100%, 300px)",
+      width: "min(100%, 512px, calc(var(--attachment-image-max-height, 200px) * 512 / 512))",
       aspectRatio: "512/512",
     })
   })
 
   it("caps a portrait by height and preserves its ratio", () => {
     expect(attachmentImageFrameStyle(396, 702)).toEqual({
-      width: "min(100%, 169.231px)",
+      width: "min(100%, 396px, calc(var(--attachment-image-max-height, 200px) * 396 / 702))",
       aspectRatio: "396/702",
     })
   })
 
   it("keeps a small known-size image at intrinsic width", () => {
     expect(attachmentImageFrameStyle(120, 80)).toEqual({
-      width: "min(100%, 120px)",
+      width: "min(100%, 120px, calc(var(--attachment-image-max-height, 200px) * 120 / 80))",
       aspectRatio: "120/80",
     })
   })
 
   it("reserves a safe fixed frame for legacy incomplete dimensions", () => {
     expect(attachmentImageFrameStyle(undefined, 80)).toEqual({
-      width: "min(100%, 300px)",
+      width: "min(100%, calc(var(--attachment-image-max-height, 200px) * 4 / 3))",
       aspectRatio: "4/3",
     })
     expect(attachmentImageFrameStyle(120, undefined)).toEqual({
-      width: "min(100%, 300px)",
+      width: "min(100%, calc(var(--attachment-image-max-height, 200px) * 4 / 3))",
       aspectRatio: "4/3",
     })
   })

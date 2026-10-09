@@ -3,9 +3,11 @@ import { useCommunityRuntime } from "@/stores/community/runtime"
 
 
 import { useCallback } from "react"
+import { useQueryClient } from "@tanstack/react-query"
+import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
 import { useCommunityViewSource } from "./use-community-view-source"
 import { useCommunityMutationOrigin } from "./community-origin"
-import type { SendMessageArgs, SendMessageResult } from "./mutations/messages"
+import { getConfirmedSentMessage, type SendMessageArgs, type SendMessageResult } from "./mutations/messages"
 import type { SendAttachment } from "@/lib/community/models/message"
 import { acceptMessageIntent, prepareMessageIntent, messageSendError } from "@/lib/community/message-send-intent"
 import {
@@ -28,6 +30,7 @@ export type AcceptDmMessageArgs = Pick<SendMessageArgs, "assertActive" | "conten
 
 export function useDmMessageSender() {
   const communityRuntime = useCommunityRuntime()
+  const queryClient = useQueryClient()
   const source = useCommunityViewSource("dm-message-sender")
   const origin = useCommunityMutationOrigin()
   const { mutateAsync: uploadFileAsync } = useUploadFile()
@@ -36,25 +39,34 @@ export function useDmMessageSender() {
   const runAcceptedIntent = useCallback(async (
     dmId: string,
     nonce: string,
+    original: ReturnType<typeof origin.begin>["token"],
+    assertCommand: () => void,
     assertActive?: AcceptDmMessageArgs["assertActive"],
   ): Promise<DmSendCommit> => {
-    const original = origin.begin().token
-    const assert = () => { origin.assert(original); assertActive?.() }
+    const assert = () => { origin.assert(original); assertCommand() }
     const scope = { kind: "dm" as const, id: dmId }
     try {
       const prepared = await prepareMessageIntent({ runtime: communityRuntime, scope, nonce,
-        assertOwner: () => origin.assert(original), assertActive, uploadFileAsync, target: { dmId } })
+        assertOwner: assert, assertActive, assertCommand, uploadFileAsync, target: { dmId } })
       if (!prepared.ok) return prepared
       const { payload, attachments: uploadedAttachments } = prepared
       assert()
-      const result = await sendDmMessageAsync({
-        dmId,
-        content: payload.message.content ?? "",
-        replyToId: payload.message.replyTo?.id,
-        attachments: uploadedAttachments,
-        nonce,
-        assertActive,
-      })
+      let result: SendMessageResult
+      try {
+        result = await sendDmMessageAsync({
+          dmId,
+          content: payload.message.content ?? "",
+          replyToId: payload.message.replyTo?.id,
+          attachments: uploadedAttachments,
+          nonce,
+          assertActive,
+          assertCommand,
+        })
+      } catch (error) {
+        const confirmed = getConfirmedSentMessage(error, origin, original, dmId, nonce, assertActive, assertCommand)
+        if (confirmed) return { ok: true, message: { id: confirmed.id, seq: confirmed.seq } }
+        throw error
+      }
       return { ok: true, message: result.message }
     } catch (error) {
       return { ok: false, error: messageSendError(error) }
@@ -64,24 +76,30 @@ export function useDmMessageSender() {
   const accept = useCallback((args: AcceptDmMessageArgs): DmSendReceipt => {
     const assertActive = args.assertActive ?? source.capture()
     assertActive()
+    const original = captureCommunityLiveSnapshotToken(queryClient, args.dmId)
+    const assertCommand = () => { origin.assert(original); assertCommunityLiveSnapshotTokenCurrent(queryClient, original, undefined) }
+    assertCommand()
     const nonce = acceptMessageIntent(communityRuntime, { kind: "dm", id: args.dmId }, args)
     if (nonce === undefined) return { accepted: false }
     return {
       accepted: true,
       nonce,
-      committed: runAcceptedIntent(args.dmId, nonce, assertActive),
+      committed: runAcceptedIntent(args.dmId, nonce, original, assertCommand, assertActive),
     }
-  }, [communityRuntime, runAcceptedIntent, source])
+  }, [communityRuntime, origin, queryClient, runAcceptedIntent, source])
 
-  const retry = useCallback((dmId: string, nonce: string): Promise<DmSendCommit> => {
-    const assertActive = source.capture()
+  const retry = useCallback((dmId: string, nonce: string, view?: AcceptDmMessageArgs["assertActive"]): Promise<DmSendCommit> => {
+    const assertActive = view ?? source.capture()
     assertActive()
+    const original = captureCommunityLiveSnapshotToken(queryClient, dmId)
+    const assertCommand = () => { origin.assert(original); assertCommunityLiveSnapshotTokenCurrent(queryClient, original, undefined) }
+    assertCommand()
     communityRuntime.messageStream.actions.dispatch(
       { kind: "dm", id: dmId },
       { type: "retry", nonce },
     )
-    return runAcceptedIntent(dmId, nonce, assertActive)
-  }, [communityRuntime, runAcceptedIntent, source])
+    return runAcceptedIntent(dmId, nonce, original, assertCommand, assertActive)
+  }, [communityRuntime, origin, queryClient, runAcceptedIntent, source])
 
   return { accept, retry }
 }

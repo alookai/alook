@@ -15,11 +15,10 @@ vi.mock("@tanstack/react-virtual", () => ({
     measureElement: () => {},
   }),
 }))
-vi.mock("@/hooks/community/use-virtual-cursor-sentinel", () => ({
-  useVirtualCursorSentinel: ({ onLoad, edge }: { onLoad?: () => void; edge: string }) => {
+vi.mock("@/hooks/community/use-virtual-cursor-pagination", () => ({
+  useVirtualCursorPagination: ({ onLoad, edge }: { onLoad?: () => void; edge: string }) => {
     requestOlder = onLoad
     sentinelEdge = edge
-    return () => {}
   },
 }))
 
@@ -96,7 +95,7 @@ describe("ForumView scroll anchoring", () => {
     expect(scrollToIndex).toHaveBeenCalledWith(0, { align: "start" })
   })
 
-  it("loads older feed pages from the bottom sentinel without scroll-height compensation", async () => {
+  it("loads older feed pages from the native bottom range without scroll-height compensation", async () => {
     const onLoadMore = vi.fn()
     const view = render(createElement(ForumView, { ...props([post("p3"), post("p2")]), onLoadMore }))
     act(() => requestOlder?.())

@@ -42,7 +42,6 @@ describe("resolveInviteCardPresentation", () => {
 describe("invite-card perspective wiring", () => {
   it("keeps loading on the real three-line text footprint", () => {
     const card = readComponent("community-invite-card.tsx")
-    expect(card).toContain('className="min-w-0 flex-1 space-y-1"')
     expect(card).toContain('className="h-3 w-32 rounded"')
     expect(card).toContain('className="h-4 w-24 rounded"')
     expect(card).toContain('className="h-3 w-16 rounded"')

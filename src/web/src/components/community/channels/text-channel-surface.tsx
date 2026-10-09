@@ -158,6 +158,7 @@ export function TextChannelSurface({
                   initialScrollReady={!feed.readSnapshotFetching && feed.anchorInCache}
                   onScrollTargetConsumed={controller.consumeScrollTarget}
                   hasMore={feed.hasMoreOlder}
+                  isFetching={feed.isFetching}
                   isFetchingOlder={feed.isFetchingOlder}
                   onLoadOlder={feed.fetchOlder}
                   hasMoreNewer={feed.hasMoreNewer}

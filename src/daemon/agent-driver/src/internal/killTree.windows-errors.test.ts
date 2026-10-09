@@ -53,6 +53,23 @@ describe.skipIf(process.platform !== "win32")("Windows process-tree error handli
     await expect(exitStopping).rejects.toThrow("exit=5");
   });
 
+  it("accepts a nonzero taskkill exit only after the job supervisor has exited", async () => {
+    vi.useFakeTimers();
+    let alive = true;
+    vi.spyOn(process, "kill").mockImplementation(() => {
+      if (alive) return true;
+      throw Object.assign(new Error("not found"), { code: "ESRCH" });
+    });
+    const killer = fakeChild();
+    const module = await importWithSpawn(vi.fn(() => killer));
+    const stopping = module.killProcessTree(4_242);
+    killer.emit("close", 128, null);
+    await vi.advanceTimersByTimeAsync(100);
+    alive = false;
+    await vi.advanceTimersByTimeAsync(100);
+    await expect(stopping).resolves.toBeUndefined();
+  });
+
   it("times out taskkill and kills the stuck helper", async () => {
     vi.useFakeTimers();
     vi.spyOn(process, "kill").mockImplementation(() => true);

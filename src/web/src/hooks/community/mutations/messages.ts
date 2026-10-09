@@ -15,7 +15,7 @@ import { apiFetch, toastApiError } from "@/lib/api/client"
 import { ApiError, isAbortError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
-import { publishCommunityMessageFields, publishCommunityMessages, publishCommunityCreatedChannel } from "@/lib/community-db/sync"
+import { captureCommunityLiveSnapshotToken, publishCommunityMessageFields, publishCommunityMessages, publishCommunityCreatedChannel } from "@/lib/community-db/sync"
 import { presentMessageAttachment } from "@/lib/community/attachment-presentation"
 import { attachmentThumbnailUrl, attachmentUrl } from "@/lib/community/storage"
 import {
@@ -25,7 +25,7 @@ import {
 
 
 
-import type { MessageScope } from "@/lib/community/message-stream"
+import type { CanonicalMessage, MessageScope } from "@/lib/community/message-stream"
 import type { Attachment, Msg } from "@/lib/community/models/message"
 import type { UploadFileResult } from "./uploads"
 
@@ -158,6 +158,7 @@ export function sendNonce(): string {
 
 export type SendMessageArgs = {
   assertActive?: OriginalView
+  assertCommand?: () => void
   serverId: string
   channelId: string
   forumParentChannelId?: string
@@ -188,13 +189,32 @@ export type SendMessageResult = { message: PostedMessage; deduped?: boolean }
  * channel row's `parentChannelId` (per #14), so the client always POSTs to
  * `/channels/:id/messages`.
  */
-export type SendDmMessageArgs = Pick<SendMessageArgs, "assertActive" | "content" | "replyToId" | "replyTo" | "attachments"> & {
+export type SendDmMessageArgs = Pick<SendMessageArgs, "assertActive" | "assertCommand" | "content" | "replyToId" | "replyTo" | "attachments"> & {
   dmId: string
   nonce: string
 }
 
 function sendMessageScope(input: SendMessageArgs | SendDmMessageArgs): MessageScope {
   return "dmId" in input ? { kind: "dm", id: input.dmId } : { kind: "channel", id: input.channelId, serverId: input.serverId }
+}
+
+export function getConfirmedSentMessage(
+  error: unknown,
+  origin: ReturnType<typeof useCommunityMutationOrigin>,
+  original: ReturnType<ReturnType<typeof useCommunityMutationOrigin>["begin"]>["token"],
+  channelId: string,
+  nonce: string,
+  assertActive?: OriginalView,
+  assertCommand?: () => void,
+): CanonicalMessage | undefined {
+  if (isAbortError(error) || (error instanceof ApiError && error.status !== 0 && (error.status < 500 || error.status >= 600))) return
+  try { origin.assert(original); (assertCommand ?? assertActive)?.() } catch { return }
+  if (!original.viewerId || !nonce || nonce.startsWith("srv:")) return
+  for (const message of origin.registry!.collections.messages.values()) {
+    if (message.channelId === channelId && message.authorId === original.viewerId && message.clientNonce === nonce
+      && typeof message.id === "string" && message.id.length > 0
+      && typeof message.seq === "number" && Number.isSafeInteger(message.seq) && message.seq > 0) return message as CanonicalMessage
+  }
 }
 
 function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(kind: MessageScope["kind"]) {
@@ -204,26 +224,26 @@ function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(
   const native = useMutation<SendMessageResult, Error, Intent>({
     meta: { observabilityAction: `${kind}.message.send` },
     mutationFn: async (args) => {
-      const { content, replyToId, replyTo, attachments, nonce, original: token, assertActive } = args
-      origin.assert(token); assertActive?.()
+      const { content, replyToId, replyTo, attachments, nonce, original: token, assertActive, assertCommand } = args
+      origin.assert(token); (assertCommand ?? assertActive)?.()
       const scope = sendMessageScope(args)
       const acceptedReply = replyTo ?? getCommunityRuntime(queryClient).messageStream.actions.getRetryPayload(scope, nonce ?? "")?.message.replyTo
       const result = await origin.request<SendMessageResult>(token, `/api/community/channels/${scope.id}/messages`, {
-        method: "POST", signal: assertActive?.signal, assertActive,
+        method: "POST", signal: assertCommand ? undefined : assertActive?.signal, assertActive: assertCommand ?? assertActive,
         body: JSON.stringify({ content, replyToId: replyTo?.id ?? replyToId,
           mentionType: "serverId" in args ? args.mentionType : undefined,
           attachments: attachments?.map((attachment) => attachment.id), nonce }),
       })
       await origin.registry!.collections.messages.preload()
-      origin.assert(token); assertActive?.()
+      origin.assert(token); (assertCommand ?? assertActive)?.()
       const message = projectPostedMessage(result.message, nonce ?? "", scope.id)
       publishCommunityMessages(queryClient, { channelId: scope.id,
         messages: [{ ...message, ...(attachments?.length ? { attachments: attachments.map((attachment) => toAttachmentVm(scope.id, attachment)) } : {}), ...(acceptedReply && !("replyTo" in result.message) && (!("replyToId" in result.message) || result.message.replyToId === acceptedReply.id) ? { replyTo: acceptedReply } : {}) }],
-        proof: { token, ...(scope.kind === "channel" ? { signal: assertActive?.signal } : {}) } })
+        proof: { token, ...(scope.kind === "channel" && !assertCommand ? { signal: assertActive?.signal } : {}) } })
       return result
     },
     onError: (error, args) => {
-      try { origin.assert(args.original) } catch { return }
+      try { origin.assert(args.original); args.assertCommand?.() } catch { return }
       const scope = sendMessageScope(args)
       const stream = getCommunityRuntime(queryClient).messageStream.actions
       const nonce = args.nonce ?? ""
@@ -233,14 +253,19 @@ function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(
         toast("You cannot send messages to this user")
         return
       }
+      const confirmed = getConfirmedSentMessage(error, origin, args.original, scope.id, nonce, args.assertActive, args.assertCommand)
+      if (confirmed) {
+        stream.dispatch(scope, { type: "wsMessage", message: confirmed })
+        return
+      }
       if (scope.kind === "dm" || args.nonce) stream.dispatch(scope, { type: "postFail", nonce })
       try { args.assertActive?.() } catch { return }
       if (isAbortError(error)) return
       if (error instanceof ApiError && error.status === 429) toast.error("Rate limited — please wait a moment before trying again")
-      else toastApiError(error, "Failed to send message")
+      else toastApiError(error, "Failed to send message", () => { origin.assert(args.original); args.assertActive?.() })
     },
     onSuccess: (data, args) => {
-      try { origin.assert(args.original) } catch { return }
+      try { origin.assert(args.original); args.assertCommand?.() } catch { return }
       if (
         "serverId" in args && args.forumParentChannelId &&
         isForumSidebarParent(queryClient, args.serverId, args.forumParentChannelId)
@@ -267,7 +292,7 @@ function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(
       })
     },
   })
-  const capture = useCallback((input: Args): Intent => { input.assertActive?.(); return { ...input, original: origin.begin().token } }, [origin])
+  const capture = useCallback((input: Args): Intent => { (input.assertCommand ?? input.assertActive)?.(); return { ...input, original: input.assertCommand ? captureCommunityLiveSnapshotToken(queryClient, sendMessageScope(input).id) : origin.begin().token } }, [origin, queryClient])
   const assertCurrent = useCallback((args: Intent) => { origin.assert(args.original); args.assertActive?.() }, [origin])
   return useNativeMutationFacade(native, capture, assertCurrent)
 }

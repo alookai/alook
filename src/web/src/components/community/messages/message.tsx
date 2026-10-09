@@ -25,6 +25,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { MessageContextItems, MessageDropdownItems, hasMessageMenu } from "./message-menu"
 import { formatMessageTime } from "@/lib/community/format-time"
 import { tid } from "@/lib/community/testids"
+import { cn } from "@/lib/utils"
 import { avatarInitial } from "@/lib/community/avatar"
 import { stripInlineMarkup } from "@alook/shared"
 import type { FileAttachment, ImagePreview, RenderMsg } from "@/lib/community/models/message"
@@ -262,18 +263,12 @@ function MessageImpl({
   // "Mark"; flips to "Unmark" silently once the read resolves (no spinner).
   const markMenuOpen = (toolbarOpen || contextOpen || touchMenuOpen) && !!onMark
   const { data: markedData } = useMessageMarked(m.id, markMenuOpen)
-  // Lazy-mount the row's Base UI overlay roots (ContextMenu / DropdownMenu /
-  // EmojiPicker Popover / reaction Tooltips). Eagerly mounting them per visible
-  // row was the bulk of the switch re-render storm (FloatingTree/MenuRoot ×1000s).
-  // Activate on the first
-  // hover OR focus OR keydown/contextmenu — focus/keydown are required for a11y
-  // (keyboard context menu / Tab-to-row have no pointerenter).
   const [activated, setActivated] = useAtom(useCreateAtom(false))
 
   if (m.type === "system") {
     const Icon = m.systemKind === "thread" ? MessagesSquare : UserPlus
     return (
-      <div className="flex items-center gap-2 px-2 py-1 text-sm text-muted-foreground">
+      <div className="flex items-center gap-2 px-2 text-sm text-muted-foreground">
         <Icon className="size-4 shrink-0" />
         <span className="min-w-0 wrap-break-word">{m.content}</span>
         <span className="shrink-0 text-xs" suppressHydrationWarning>{formatMessageTime(m.createdAt)}</span>
@@ -313,12 +308,12 @@ function MessageImpl({
   // A hybrid device can alternate between mouse and touch. Switching the menu
   // shell after a mouse gesture must not remove the row's touch swipe handler.
   const swipeReplyEnabled = interactive && touchInputCapable && !selectMode && !!onReply
-  const activateOverlays = interactive && !activated
+  const activateOverlays = interactive && !selectMode && !activated
     ? (event: React.SyntheticEvent<HTMLElement>) => {
         if (shouldActivateMessageOverlays(event.target)) setActivated(true)
       }
     : undefined
-  const activateLinkOrOverlays = interactive && !activated
+  const activateLinkOrOverlays = interactive && !selectMode && !activated
     ? (event: React.SyntheticEvent<HTMLElement>) => {
         if (messageExternalLinkTargetFromEventTarget(event.target)) {
           setActivated(true)
@@ -327,7 +322,7 @@ function MessageImpl({
         }
       }
     : undefined
-  const activate = interactive
+  const activate = interactive && !selectMode
     ? (event: React.PointerEvent<HTMLElement>) => {
         if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
         const pointerType = messageLinkPointerType(event.nativeEvent)
@@ -345,7 +340,7 @@ function MessageImpl({
         }
       }
     : undefined
-  const activateFromKeyboard = interactive
+  const activateFromKeyboard = interactive && !selectMode
     ? (event: React.KeyboardEvent<HTMLElement>) => {
         if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
         if (
@@ -369,7 +364,7 @@ function MessageImpl({
   // approval/attachment-only rows aren't selectable (nothing to put on the card).
   const selectable = selectMode && canShare
   const reactionAddButton = (
-    <button className="grid h-6 w-7 place-items-center rounded-md bg-secondary text-muted-foreground hover:text-foreground" aria-label="Add reaction">
+    <button className="grid size-11 place-items-center rounded-md bg-secondary text-muted-foreground hover:text-foreground sm:size-8" aria-label="Add reaction">
       <SmilePlus className="size-4" />
     </button>
   )
@@ -396,7 +391,6 @@ function MessageImpl({
         "group relative -mx-2 flex gap-2 rounded px-2 transition-colors",
         swipeReplyEnabled ? "z-10 touch-pan-y bg-background" : "",
         swipeVisual.active ? "transition-none" : "transition-transform duration-150 ease-out",
-        m.grouped ? "py-0" : "mt-3 pt-1.5 pb-0",
         selectable ? "cursor-pointer" : "",
         selected ? "bg-primary/10" : highlighted ? "bg-primary/10" : selectable ? "hover:bg-accent/40" : "hover:bg-accent/40",
       ].join(" ")}
@@ -404,7 +398,7 @@ function MessageImpl({
         ? { transform: `translate3d(${swipeVisual.offset}px, 0, 0)` }
         : undefined}
       onPointerEnter={activate}
-      onPointerDownCapture={interactive
+      onPointerDownCapture={interactive && !selectMode
         ? (event) => {
             if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             keyboardLinkActivationRef.current = false
@@ -522,7 +516,7 @@ function MessageImpl({
         ? (event) => {
             if (messageEventBelongsToRow(event.target, event.currentTarget)) onToggleSelect?.()
           }
-        : interactive && touchFallbackActive
+        : interactive && !selectMode && touchFallbackActive
           ? (event) => {
             if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             const selection = window.getSelection()
@@ -553,6 +547,10 @@ function MessageImpl({
       onClickCapture={interactive
         ? (event) => {
             if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
+            if (selectMode) {
+              event.preventDefault()
+              return
+            }
             const target = messageExternalLinkTargetFromEventTarget(event.target)
             if (!target) {
               linkPointerRef.current = null
@@ -586,7 +584,7 @@ function MessageImpl({
           }
         : undefined}
     >
-      <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
       {interactive && activated && !selectMode && (
         <div className={`absolute right-2 z-20 flex items-center gap-1 rounded-lg border border-border/60 bg-card px-2 py-1 shadow-(--e1) transition-opacity duration-150 ${m.grouped ? "-top-2" : "-top-3"} ${toolbarOpen ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"}`}>
           {m.seq != null && m.seq > 0 && (
@@ -625,20 +623,22 @@ function MessageImpl({
       )}
 
       {m.replyTo && (
-        <button onClick={onJumpReply} className="mb-1 ml-13 flex min-w-0 max-w-[calc(100%-3.25rem)] items-center gap-2 text-[13px] text-muted-foreground hover:text-foreground">
-          <div className="h-2 w-4 shrink-0 rounded-tl-md border-l-2 border-t-2 border-border" />
-          {m.replyTo.deleted ? (
-            <span className="italic text-muted-foreground">Original message was deleted</span>
-          ) : (
-            <>
-              <span className="shrink-0 font-medium text-foreground/80">@{replyAuthorName}</span>
-              <span className="min-w-0 truncate">{stripInlineMarkup(m.replyTo.text)}</span>
-            </>
-          )}
-        </button>
+        <div className="grid grid-cols-[2.5rem_minmax(0,1fr)] gap-2">
+          <button onClick={onJumpReply} className="col-start-2 flex min-w-0 items-center gap-2 text-[13px] text-muted-foreground hover:text-foreground">
+            <div className="h-2 w-4 shrink-0 rounded-tl-md border-l-2 border-t-2 border-border" />
+            {m.replyTo.deleted ? (
+              <span className="italic text-muted-foreground">Original message was deleted</span>
+            ) : (
+              <>
+                <span className="shrink-0 font-medium text-foreground/80">@{replyAuthorName}</span>
+                <span className="min-w-0 truncate">{stripInlineMarkup(m.replyTo.text)}</span>
+              </>
+            )}
+          </button>
+        </div>
       )}
 
-      <div className="flex gap-3">
+      <div className="flex gap-2">
         {m.grouped ? (
           <div className="w-10 shrink-0" />
         ) : (
@@ -652,7 +652,7 @@ function MessageImpl({
             <Avatar label={authorAvatar} seed={m.authorId} size={40} />
           </button>
         )}
-        <div className="relative min-w-0 flex-1">
+        <div className="relative flex min-w-0 flex-1 flex-col gap-2">
           {m.grouped && selectable && (
             <span
               aria-hidden
@@ -706,7 +706,7 @@ function MessageImpl({
           )}
 
           {m.attachments && m.attachments.length > 0 && (
-            <div className="mt-2 flex flex-col gap-2 pb-2">
+            <div className="flex flex-col gap-2">
               {m.attachments.map((a, i) => {
                 if (a.kind === "image") {
                   const frameStyle = attachmentImageFrameStyle(a.width, a.height)
@@ -726,7 +726,7 @@ function MessageImpl({
                         width: a.width,
                         height: a.height,
                       })}
-                      frameClassName="block max-w-full rounded-lg border border-border transition-colors hover:border-primary/40"
+                      frameClassName="block max-w-full rounded-lg border border-border [--attachment-image-max-height:200px] transition-colors hover:border-primary/40 sm:[--attachment-image-max-height:240px]"
                       frameStyle={frameStyle}
                       imageClassName="block rounded-lg object-contain"
                       errorLabel="Attachment failed to load"
@@ -740,21 +740,21 @@ function MessageImpl({
           )}
 
           {m.embeds && m.embeds.length > 0 && (
-            <div className="mt-2 flex flex-col gap-2 pb-2">
+            <div className="flex flex-col gap-2">
               {m.embeds.map((embed, ei) => (
                 <article
                   key={ei}
-                  className="flex max-w-108 overflow-hidden rounded-lg border border-border bg-card p-3"
+                  className="flex max-w-108 items-start gap-2 overflow-hidden rounded-lg border border-border bg-card p-2"
                 >
                   {embed.color && (
                     <span
-                      className="mt-1.5 mr-3 size-2 shrink-0 self-start rounded-full"
+                      className="size-2 shrink-0 self-center rounded-full"
                       style={{ backgroundColor: embed.color }}
                     />
                   )}
-                  <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 flex-1 flex-col gap-2">
                     {embed.author && (
-                      <div className="mb-2 flex items-center gap-2">
+                      <div className="flex items-center gap-2">
                         {embed.author.iconUrl ? (
                           <span className="relative block size-5 overflow-hidden rounded-full" aria-hidden>
                             <RemoteIdentityImage
@@ -775,17 +775,17 @@ function MessageImpl({
                       </div>
                     )}
                     {embed.provider && <div className="text-xs text-muted-foreground">{embed.provider}</div>}
-                    {embed.url ? (
-                      <MessageExternalLink href={embed.url} target="_blank" rel="noopener noreferrer" className="mt-1 block font-medium text-primary hover:underline">{embed.title}</MessageExternalLink>
+                    {embed.title && (embed.url ? (
+                      <MessageExternalLink href={embed.url} target="_blank" rel="noopener noreferrer" className="block font-medium text-primary hover:underline">{embed.title}</MessageExternalLink>
                     ) : (
-                      <div className="mt-1 font-medium">{embed.title}</div>
-                    )}
-                    {embed.desc && <p className="mt-1 text-sm text-muted-foreground">{embed.desc}</p>}
+                      <div className="font-medium">{embed.title}</div>
+                    ))}
+                    {embed.desc && <p className="text-sm text-muted-foreground">{embed.desc}</p>}
 
-                    {embed.fields && (
-                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2">
+                    {embed.fields && embed.fields.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
                         {embed.fields.map((f, fi) => (
-                          <div key={fi} className={f.inline ? "min-w-[30%] flex-1" : "w-full"}>
+                          <div key={fi} className={cn("flex flex-col gap-2", f.inline ? "min-w-[30%] flex-1" : "w-full")}>
                             <div className="text-xs font-semibold">{f.name}</div>
                             <div className="text-xs text-muted-foreground">{f.value}</div>
                           </div>
@@ -800,7 +800,7 @@ function MessageImpl({
                         width={embed.image.width}
                         height={embed.image.height}
                         loading="lazy"
-                        frameClassName="mt-2 w-full max-w-100 rounded-sm"
+                        frameClassName="w-full max-w-100 rounded-sm"
                         frameStyle={{ aspectRatio: embed.image.width && embed.image.height ? `${embed.image.width}/${embed.image.height}` : "40/21" }}
                         imageClassName="rounded-sm object-cover"
                         errorLabel="Embed image failed to load"
@@ -809,7 +809,7 @@ function MessageImpl({
                     )}
 
                     {embed.footer && (
-                      <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+                      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                         {embed.footer.iconUrl && (
                           <span className="relative block size-4 overflow-hidden rounded-full" aria-hidden>
                             <RemoteIdentityImage
@@ -830,7 +830,7 @@ function MessageImpl({
                       src={embed.thumbnail.url}
                       alt="Embed thumbnail"
                       loading="lazy"
-                      frameClassName="ml-3 size-16 shrink-0 rounded-md"
+                      frameClassName="size-16 shrink-0 rounded-md"
                       imageClassName="rounded-md object-cover"
                       errorLabel="Thumbnail failed to load"
                     />
@@ -841,7 +841,7 @@ function MessageImpl({
           )}
 
           {m.reactions && (
-            <div className="mt-2">
+            <div>
               <MessageReactions
                 messageId={m.id}
                 authorName={authorName}
@@ -860,7 +860,7 @@ function MessageImpl({
             <button
               data-testid={tid.threadIndicator(m.id)}
               onClick={() => onOpenThread(m.thread!.id)}
-              className="group/thread mt-2 flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-accent/60"
+              className="group/thread flex min-h-11 items-center gap-2 self-start rounded-md p-2 text-sm hover:bg-accent/60 sm:min-h-0"
             >
               <MessagesSquare className="size-4 text-primary" />
               <span className="font-medium text-primary">
@@ -876,12 +876,12 @@ function MessageImpl({
           )}
 
           {m.failed && (
-            <div className="mt-1 flex items-center gap-3 text-xs text-destructive">
-              <button onClick={onRetry} className="flex items-center gap-2 hover:underline">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-destructive">
+              <button onClick={onRetry} className="flex min-h-11 items-center gap-2 rounded-md p-2 hover:underline sm:min-h-0">
                 <X className="size-3.5" /> Message failed to send. Click to retry.
               </button>
               {onDismiss && (
-                <button onClick={onDismiss} className="text-muted-foreground hover:text-foreground hover:underline">
+                <button onClick={onDismiss} className="min-h-11 rounded-md p-2 text-muted-foreground hover:text-foreground hover:underline sm:min-h-0">
                   Dismiss
                 </button>
               )}
@@ -893,9 +893,7 @@ function MessageImpl({
     </div>
   )
 
-  // Not interactive → render the bare row. In select mode the row itself is a
-  // toggle target, so no action-menu trigger is mounted.
-  if (!interactive || selectMode) return row
+  if (!interactive) return row
 
   // Coarse/touch input: tap opens the existing dropdown menu. Deliberately do
   // not mount ContextMenuTrigger here — its long-press gesture competes with
@@ -903,9 +901,9 @@ function MessageImpl({
   if (touchFallbackActive || touchMenuOpen) {
     return (
       <DropdownMenu
-        open={touchMenuOpen}
+        open={touchMenuOpen && !selectMode}
         onOpenChange={(open) => {
-          setTouchMenuOpen(open)
+          setTouchMenuOpen(open && !selectMode)
           if (!open) setLinkTarget(null)
         }}
       >
@@ -923,6 +921,7 @@ function MessageImpl({
           )}
           {row}
           <DropdownMenuTrigger
+            disabled={selectMode}
             render={(
               <button
                 type="button"
@@ -948,26 +947,22 @@ function MessageImpl({
     )
   }
 
-  // Not yet activated on desktop → render the bare row (which carries
-  // the pointerenter/focus/keydown activation handlers). The row's Base UI
-  // ContextMenu root is only mounted once hover/focus has activated it — and a
-  // right-click is always preceded by a pointerenter (mouse arriving on the
-  // row), and Shift+F10 by focus, so the menu is mounted before it's invoked.
-  // (The share-as-image dialog now lives in MessageList — the share button
-  // enters multi-select mode; the dialog opens from the select bar there.)
-  // In select mode the row is a toggle target — no context menu / toolbar.
   if (!activated) return row
   return (
     <ContextMenu
+      disabled={selectMode}
+      open={contextOpen && !selectMode}
       onOpenChange={(open) => {
-        setContextOpen(open)
+        setContextOpen(open && !selectMode)
         if (!open) setLinkTarget(null)
       }}
     >
       <ContextMenuTrigger className="select-text" render={row} />
-      <ContextMenuContent className="w-48">
-        <MessageContextItems {...menuHandlers} {...linkMenuHandlers} />
-      </ContextMenuContent>
+      {!selectMode && (
+        <ContextMenuContent className="w-48">
+          <MessageContextItems {...menuHandlers} {...linkMenuHandlers} />
+        </ContextMenuContent>
+      )}
     </ContextMenu>
   )
 }

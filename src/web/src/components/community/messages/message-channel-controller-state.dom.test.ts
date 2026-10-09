@@ -303,6 +303,7 @@ describe("useMessageChannelController", () => {
     await act(async () => input.runAcceptedIntent("nonce_1"))
     expect(mocks.run).toHaveBeenCalledWith({
       assertActive: expect.any(Function),
+      assertCommand: expect.any(Function),
       runtime: fixtureOwner.registry.runtime,
       messageScope: { kind: "channel", id: "channel_1", serverId: "server_1" },
       nonce: "nonce_1",

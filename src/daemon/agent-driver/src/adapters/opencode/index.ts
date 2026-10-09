@@ -27,6 +27,7 @@ import {
   OpenCodeServiceLane,
   type OpenCodeServiceProcessFactory,
 } from "./service-lane.js";
+import { legacyOpenCodeApiEnvironment } from "./legacy-auth.js";
 import { discoverOpenCodeRecentContext } from "./recent-context.js";
 
 function createOpenCodeMessageId(): string {
@@ -76,7 +77,9 @@ export class OpenCodeDriver implements BackendAdapter, OpenCodeServiceProcessFac
     const { spawnEnv } = await prepareCliTransport(ctx, {
       OPENCODE_SERVER_PASSWORD: password,
     });
-    const override = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig).command;
+    const fields = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig);
+    Object.assign(spawnEnv, await legacyOpenCodeApiEnvironment(spawnEnv, fields.model));
+    const override = fields.command;
     const args = [
       "serve",
       "--pure",

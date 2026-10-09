@@ -135,8 +135,9 @@ describe("ThreadOpener image attachment layout", () => {
     const frame = renderer!.container.querySelector<HTMLElement>('[data-remote-image-frame="true"]')!
     expect(frame.className).toContain("relative")
     expect(frame.className).toContain("max-w-full")
+    expect(frame.className).toContain("sm:[--attachment-image-max-height:240px]")
     expect(attachmentImageFrameStyle(396, 702)).toEqual({
-      width: "min(100%, 169.231px)",
+      width: "min(100%, 396px, calc(var(--attachment-image-max-height, 200px) * 396 / 702))",
       aspectRatio: "396/702",
     })
     expect(frame.style.aspectRatio).toBe("396/702")

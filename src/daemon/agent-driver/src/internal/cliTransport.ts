@@ -30,7 +30,7 @@ import * as fs from "fs";
 import * as path from "path";
 import type { AdapterLaunchContext } from "./adapter.js";
 import { resolveLaunchFieldsOrDefault } from "./config.js";
-import { writeCliLink } from "./cliLink.js";
+import { writeCliLink, writeWindowsBashEnv } from "./cliLink.js";
 import { mergeEnvLayers, type EnvLayer } from "./spawnEnv.js";
 
 interface PreparedCliTransport {
@@ -129,7 +129,14 @@ export async function prepareCliTransport(
     {
       name: "platformProtected",
       precedence: 40,
-      vars: { ...resource.platformProtected, FORCE_COLOR: "0", NO_COLOR: "1" },
+      vars: {
+        ...resource.platformProtected,
+        ...(platform === "win32" && hostCliPath
+          ? { [`${cli.envPrefix}_CLI`]: path.join(binDir, `${cli.cliName}.cmd`).replaceAll("\\", "/") }
+          : {}),
+        FORCE_COLOR: "0",
+        NO_COLOR: "1",
+      },
     },
     { name: "runtimeProtected", precedence: 50, vars: resource.runtimeProtected },
     {
@@ -146,6 +153,9 @@ export async function prepareCliTransport(
     },
   ];
   const { env: spawnEnv } = mergeEnvLayers(resource.base, layers);
+  if (platform === "win32" && hostCliPath) {
+    spawnEnv.BASH_ENV = writeWindowsBashEnv(binDir, cli.cliName, cli.envPrefix, spawnEnv.BASH_ENV);
+  }
   const tokenFile = String(resource.credentialSensitive.ALOOK_PROXY_TOKEN_FILE ?? "");
   return { stateDir, tokenFile, spawnEnv };
 }

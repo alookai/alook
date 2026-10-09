@@ -70,8 +70,6 @@ const controller = {
   selectedIds: new Set(["m1"]),
   jumpTo: vi.fn(),
   items: [null],
-  topSentinelRef: vi.fn(),
-  bottomSentinelRef: vi.fn(),
   onToggleSelectId: vi.fn(),
   onEnterSelectId: vi.fn(),
 } as unknown as MessageListController
@@ -99,8 +97,6 @@ describe("renderMessageListRow", () => {
     expect(view.container.firstElementChild).toHaveClass("flow-root")
     expect(view.container.querySelectorAll('[data-msg-id]')).toHaveLength(1)
     expect(view.container.querySelector('[data-message-divider-for="m1"]')).toBeInTheDocument()
-    expect(controller.topSentinelRef).toHaveBeenCalled()
-    expect(controller.bottomSentinelRef).toHaveBeenCalled()
     expect(mockedMessageRow).toHaveBeenCalledOnce()
   })
 
@@ -194,17 +190,15 @@ describe("renderMessageListRow", () => {
   })
 
   it.each([
-    { name: "date to ungrouped chat", dateLabel: "Today", newDivider: false, grouped: false, type: "chat", gap: 12 },
-    { name: "NEW to ungrouped chat", dateLabel: undefined, newDivider: true, grouped: false, type: "chat", gap: 12 },
-    { name: "merged date/NEW to ungrouped chat", dateLabel: "Today", newDivider: true, grouped: false, type: "chat", gap: 12 },
-    { name: "date to pending-window grouped chat", dateLabel: "Today", newDivider: false, grouped: true, type: "chat", gap: 8 },
-    { name: "NEW to grouped chat", dateLabel: undefined, newDivider: true, grouped: true, type: "chat", gap: 4 },
-    { name: "date to system", dateLabel: "Today", newDivider: false, grouped: false, type: "system", gap: 8 },
-    { name: "NEW to system", dateLabel: undefined, newDivider: true, grouped: false, type: "system", gap: 4 },
-  ] as const)("keeps original independent-row margins: $name", async ({ dateLabel, newDivider, grouped, type, gap }) => {
-    mockedMessageRow.mockImplementation(({ m }) => React.createElement("div", {
-      className: m.type === "chat" && !m.grouped ? "mt-3" : undefined,
-    }))
+    { name: "date to ungrouped chat", dateLabel: "Today", newDivider: false, grouped: false, type: "chat", gap: 16 },
+    { name: "NEW to ungrouped chat", dateLabel: undefined, newDivider: true, grouped: false, type: "chat", gap: 16 },
+    { name: "merged date/NEW to ungrouped chat", dateLabel: "Today", newDivider: true, grouped: false, type: "chat", gap: 16 },
+    { name: "date to pending-window grouped chat", dateLabel: "Today", newDivider: false, grouped: true, type: "chat", gap: 16 },
+    { name: "NEW to grouped chat", dateLabel: undefined, newDivider: true, grouped: true, type: "chat", gap: 16 },
+    { name: "date to system", dateLabel: "Today", newDivider: false, grouped: false, type: "system", gap: 16 },
+    { name: "NEW to system", dateLabel: undefined, newDivider: true, grouped: false, type: "system", gap: 16 },
+  ] as const)("uses one symmetric spacing owner between independent rows: $name", async ({ dateLabel, newDivider, grouped, type, gap }) => {
+    mockedMessageRow.mockImplementation(() => React.createElement("div"))
     const items: FlatItem[] = [
       { kind: "leading", key: "leading" },
       { kind: "message", key: "previous", m: { id: "previous", type: "chat", grouped: false } },
@@ -217,12 +211,15 @@ describe("renderMessageListRow", () => {
     await withTailwindStyles(view.container, () => {
       const divider = view.container.querySelector('[data-message-divider-for="m1"] > div')!
       const message = view.container.querySelector('[data-msg-id="m1"] > div')!
-      expect(marginPx(divider, "Bottom") + marginPx(message, "Top")).toBe(gap)
+      const dividerRow = divider.parentElement!
+      const messageRow = message.closest("[data-message-row-key]")!
+      expect(marginPx(divider, "Bottom") + marginPx(message, "Top")).toBe(0)
+      expect(parseFloat(getComputedStyle(dividerRow).paddingBlock) + parseFloat(getComputedStyle(messageRow).paddingBlock)).toBe(gap)
     })
   })
 
-  it.each(["date", "NEW", "merged date/NEW", "message"])("keeps the leading boundary margin before %s", async (next) => {
-    mockedMessageRow.mockImplementation(() => React.createElement("div", { className: "mt-3" }))
+  it.each(["date", "NEW", "merged date/NEW", "message"])("uses row padding at the leading boundary before %s", async (next) => {
+    mockedMessageRow.mockImplementation(() => React.createElement("div"))
     const items: FlatItem[] = [
       { kind: "leading", key: "leading" },
       ...(next === "message" ? [] : [{ kind: "divider" as const, key: "divider", messageId: "m1", dateLabel: next === "NEW" ? undefined : "Today", newDivider: next !== "date" }]),
@@ -234,7 +231,9 @@ describe("renderMessageListRow", () => {
     await withTailwindStyles(view.container, () => {
       const leading = view.container.querySelector('[data-message-row-key="leading"] > div')!
       const following = view.container.querySelector(next === "message" ? '[data-msg-id="m1"] > div' : '[data-message-divider-for="m1"] > div')!
-      expect(marginPx(leading, "Bottom") + marginPx(following, "Top")).toBe(24)
+      const nextRow = following.closest("[data-message-row-key]")!
+      expect(marginPx(leading, "Bottom") + marginPx(following, "Top")).toBe(0)
+      expect(parseFloat(getComputedStyle(leading).paddingBlock) + parseFloat(getComputedStyle(nextRow).paddingBlock)).toBe(24)
     })
   })
 })

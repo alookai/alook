@@ -3069,3 +3069,7 @@ body {
     transition: none;
   }
 }
+
+.markdown-chat .message-markdown-blocks > * {
+  margin-block: 0 !important;
+}

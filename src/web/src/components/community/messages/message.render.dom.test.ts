@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import React from "react"
-import { act } from "@/test/react-dom-harness"
+import { act, fireEvent } from "@/test/react-dom-harness"
 import { renderCommunity as rtlRender } from "@/test/community-owner-harness"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
@@ -355,6 +355,53 @@ afterEach(() => {
 })
 
 describe("Message memo comparator", () => {
+  it.each([true, false])("selects an external-link message without navigating (hover: %s)", async (hoverCapable) => {
+    const onToggleSelect = vi.fn()
+    const view = rtlRender(makeTree({
+      m: baseMsg({ content: "https://example.com/selection" }),
+      onOpenThread: vi.fn(), onEnterSelect: vi.fn(), onToggleSelect,
+      hoverCapable, selectMode: true, selected: true,
+    }))
+    const link = await view.findByRole("link", { name: "Link: https://example.com/selection" })
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true })
+    act(() => { link.dispatchEvent(click) })
+    expect(click.defaultPrevented).toBe(true)
+    expect(onToggleSelect).toHaveBeenCalledOnce()
+  })
+
+  it.each([true, false])("preserves the activated live avatar through share selection (hover: %s)", (hoverCapable) => {
+    const props = { m: baseMsg(), onOpenThread: vi.fn(), onEnterSelect: vi.fn(), hoverCapable }
+    const view = rtlRender(makeTree(props))
+    if (hoverCapable) {
+      fireEvent.pointerEnter(view.container.querySelector(".group.relative")!, { pointerType: "mouse" })
+    }
+    const avatar = view.container.querySelector("[data-avatar-kind]")
+    expect(avatar).not.toBeNull()
+    view.rerender(makeTree({ ...props, selectMode: true, selected: true }))
+    expect(view.container.querySelector("[data-avatar-kind]")).toBe(avatar)
+    view.rerender(makeTree({ ...props, selectMode: false }))
+    expect(view.container.querySelector("[data-avatar-kind]")).toBe(avatar)
+  })
+
+  it("keeps an inactive desktop row bare while selecting and restores ordinary activation afterward", () => {
+    const props = { m: baseMsg(), onOpenThread: vi.fn(), onEnterSelect: vi.fn(), hoverCapable: true }
+    const view = rtlRender(makeTree(props))
+    const avatar = view.container.querySelector("[data-avatar-kind]")
+    expect(view.container.querySelector("mock-context-menu")).toBeNull()
+    view.rerender(makeTree({ ...props, selectMode: true }))
+    const row = view.container.querySelector(".group.relative")!
+    fireEvent.pointerEnter(row, { pointerType: "mouse" })
+    fireEvent.pointerDown(row, { pointerType: "touch" })
+    fireEvent.focus(row)
+    fireEvent.keyDown(row, { key: "F10", shiftKey: true })
+    expect(view.container.querySelector("[data-avatar-kind]")).toBe(avatar)
+    expect(view.container.querySelector("mock-context-menu")).toBeNull()
+    view.rerender(makeTree(props))
+    expect(view.container.querySelector("[data-avatar-kind]")).toBe(avatar)
+    fireEvent.pointerEnter(view.container.querySelector(".group.relative")!, { pointerType: "mouse" })
+    expect(view.container.querySelector("mock-context-menu")).not.toBeNull()
+  })
+
   it("keeps selection controls out of the message row layout", () => {
     let renderer: DomRenderer
     act(() => {
@@ -510,6 +557,20 @@ describe("Message reply content projection", () => {
 })
 
 describe("Message embed links", () => {
+  it("omits empty title and field blocks while retaining populated preview fields", () => {
+    let renderer: DomRenderer
+    const renderEmbed = (fields: Array<{ name: string; value: string }>) => makeTree({
+      m: baseMsg({ embeds: [{ title: "", desc: "Preview summary", fields }] }),
+      onOpenThread: vi.fn(),
+    })
+    act(() => { renderer = render(renderEmbed([]), { createNodeMock: () => genericMock }) })
+    const article = renderer!.root.findByType("article")
+    expect(textContent(article)).toBe("Preview summary")
+    expect(article.findAllByType("div").some(node => node.children.length === 0)).toBe(false)
+    act(() => renderer!.rerender(renderEmbed([{ name: "Status", value: "Ready" }])))
+    expect(textContent(renderer!.root.findByType("article"))).toContain("StatusReady")
+  })
+
   it("routes author and title URLs through the shared external-link anchor", () => {
     let renderer: DomRenderer
     act(() => {
@@ -941,7 +1002,7 @@ describe("Message reaction picker", () => {
     })
 
     const addButton = renderer!.root.findAllByProps({ "aria-label": "Add reaction" })
-      .find((node) => node.type === "button" && node.props.className.includes("h-6 w-7"))
+      .find((node) => node.type === "button" && node.props.className.includes("bg-secondary"))
     expect(addButton?.props["data-slot"]).toBe("popover-trigger")
     expect(renderer!.root.findAllByProps({ "data-slot": "popover-content" })).toHaveLength(0)
 
@@ -1009,7 +1070,7 @@ describe("Message reaction picker", () => {
     expect(renderer!.root.findAllByType(EmojiPickerPopover)).toHaveLength(2)
     expect(renderer!.root.findAllByProps({ "data-slot": "popover-content" })).toHaveLength(0)
     const stripButton = renderer!.root.findAllByProps({ "aria-label": "Add reaction" })
-      .find((node) => node.type === "button" && node.props.className.includes("h-6 w-7"))
+      .find((node) => node.type === "button" && node.props.className.includes("bg-secondary"))
     expect(stripButton?.props["data-slot"]).toBe("tooltip-trigger")
 
     await act(async () => {
@@ -1621,8 +1682,9 @@ describe("Message image attachment layout", () => {
     const frame = renderer!.root.findByProps({ "data-remote-image-frame": true })
     expect(frame.props.className).toContain("relative")
     expect(frame.props.className).toContain("max-w-full")
+    expect(frame.props.className).toContain("sm:[--attachment-image-max-height:240px]")
     expect(frame.props.style).toEqual({
-      width: "min(100%, 169.231px)",
+      width: "min(100%, 396px, calc(var(--attachment-image-max-height, 200px) * 396 / 702))",
       aspectRatio: "396/702",
     })
   })
@@ -1773,9 +1835,7 @@ describe("Message lazy overlays", () => {
     const target = { closest: () => authorButton }
 
     act(() => row.props.onPointerEnter({ target }))
-    expect(renderer!.root.findAll(
-      (node) => node.props["data-slot"] === "context-menu-trigger",
-    )).toHaveLength(0)
+    expect(renderer!.root.findAllByType("mock-context-menu")).toHaveLength(0)
 
     const event = { clientX: 10, clientY: 20 }
     act(() => authorButton!.props.onClick(event))
@@ -1783,7 +1843,7 @@ describe("Message lazy overlays", () => {
     expect(onOpenProfile).toHaveBeenCalledWith("Alice", event, undefined, "u1")
   })
 
-  it("does not mount the ContextMenu root until the row is activated", () => {
+  it("keeps the context-menu root and toolbar lazy until activation", () => {
     const onOpenThread = vi.fn()
     let renderer: DomRenderer
     act(() => {
@@ -1793,14 +1853,9 @@ describe("Message lazy overlays", () => {
         { createNodeMock: () => genericMock },
       )
     })
-    // Before activation: the row renders but the ContextMenu content
-    // (MessageContextItems) is not in the tree. We assert no element carries the
-    // context-menu content marker by checking the rendered JSON has no
-    // "ContextMenu"-typed node. A cheap structural proxy: the "Add reaction"
-    // toolbar (only mounted when activated) is absent.
     const json = renderer!.toJSON()
     const tree = JSON.stringify(json)
-    // The reaction-add testid only renders inside the activated toolbar.
+    expect(tree).not.toContain("mock-context-menu")
     expect(tree).not.toContain("reaction-add")
   })
 

@@ -22,7 +22,7 @@ import { tid } from "@/lib/community/testids"
 import type { ForumThread } from "@/lib/community/models/message"
 import type { Member } from "@/lib/community/models/people"
 import { VirtualRows } from "../messages/virtual-cursor-list"
-import { useVirtualCursorSentinel } from "@/hooks/community/use-virtual-cursor-sentinel"
+import { useVirtualCursorPagination } from "@/hooks/community/use-virtual-cursor-pagination"
 import { tagColorClassName, tagColorStyle } from "@/lib/community/tag-color"
 import { cn } from "@/lib/utils"
 import { FORUM_ARCHIVE_TAG } from "@alook/shared"
@@ -190,7 +190,7 @@ export function ForumView({
   members,
   mentionCandidates,
   posts, loading, tag, availableTags = [], onTagChange, onOpenPost, onCreatePost, onEditPostTags, canEditPostTags, savingTagsFor,
-  hasMore, loadingMore, onLoadMore,
+  hasMore, loadingMore, isFetching, isError, onLoadMore,
   onDeletePost, canDeletePost, deletingPost,
   onScrollRoot,
 }: {
@@ -204,6 +204,8 @@ export function ForumView({
   onTagChange: (tag: string) => void
   hasMore?: boolean
   loadingMore?: boolean
+  isFetching?: boolean
+  isError?: boolean
   onLoadMore?: () => void
   onOpenPost: (id: string) => void
   // Async — page owns the mutation + `enterThread` navigation and either
@@ -274,10 +276,13 @@ export function ForumView({
     alignedTagRef.current = tag
     virtualizer.scrollToIndex(0, { align: "start" })
   }, [posts.length, tag, virtualizer])
-  const olderSentinelRef = useVirtualCursorSentinel({
-    scrollRef,
+  useVirtualCursorPagination({
+    virtualizer,
+    count: posts.length,
+    enabled: !loading,
     hasMore,
-    isFetching: loadingMore,
+    isFetching: isFetching || loadingMore,
+    isError,
     onLoad: onLoadMore,
     edge: "end",
   })
@@ -518,7 +523,6 @@ export function ForumView({
               )
               }}
             />
-            <div ref={olderSentinelRef} className="h-px" aria-hidden />
           </>
         )}
       </div>

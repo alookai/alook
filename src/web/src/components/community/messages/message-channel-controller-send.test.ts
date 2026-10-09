@@ -225,7 +225,7 @@ describe("message channel send helpers", () => {
       },
       mentionType: "user",
     })
-    await runAcceptedMessageIntent({
+    await runAcceptedMessageIntent({ assertCommand: () => {},
       runtime,
       messageScope: scope, nonce: "nonce_1", uploadFileAsync, sendMessageAsync,
       channelId: "channel_1", serverId: "server_1", viewer,
@@ -247,7 +247,7 @@ describe("message channel send helpers", () => {
       id: "ok", filename: "a.png", contentType: "image/png", size: 3,
     }).mockRejectedValueOnce(new Error("failed"))
     sendMessageAsync.mockClear()
-    await runAcceptedMessageIntent({
+    await runAcceptedMessageIntent({ assertCommand: () => {},
       runtime,
       messageScope: scope, nonce: "nonce_2", uploadFileAsync, sendMessageAsync,
       channelId: "channel_1", serverId: "server_1", viewer,
@@ -305,7 +305,7 @@ describe("message channel send helpers", () => {
     mocks.dispatch.mockImplementation(() => { order.push("dispatch") })
     const sendMessageAsync = vi.fn(async () => { order.push("send") })
 
-    await runAcceptedMessageIntent({
+    await runAcceptedMessageIntent({ assertCommand: () => {},
       runtime,
       messageScope: scope,
       nonce: "nonce_upload",
@@ -320,6 +320,7 @@ describe("message channel send helpers", () => {
     expect(uploadFileAsync).toHaveBeenCalledTimes(2)
     expect(uploadFileAsync).toHaveBeenNthCalledWith(1, {
       assertActive: undefined,
+      assertCommand: expect.any(Function),
       target: { channelId: "channel_1" },
       file: uploads[0].file,
       thumbnailBlob: uploads[0].thumbnailBlob,
@@ -328,6 +329,7 @@ describe("message channel send helpers", () => {
     })
     expect(uploadFileAsync).toHaveBeenNthCalledWith(2, {
       assertActive: undefined,
+      assertCommand: expect.any(Function),
       target: { channelId: "channel_1" },
       file: uploads[1].file,
       thumbnailBlob: undefined,
@@ -344,6 +346,7 @@ describe("message channel send helpers", () => {
     })
     expect(sendMessageAsync).toHaveBeenCalledWith({
       assertActive: undefined,
+      assertCommand: expect.any(Function),
       serverId: "server_1",
       channelId: "channel_1",
       forumParentChannelId: "forum_1",
@@ -363,7 +366,7 @@ describe("message channel send helpers", () => {
     const uploadFileAsync = vi.fn()
     const sendMessageAsync = vi.fn()
     mocks.getRetryPayload.mockReturnValueOnce(undefined)
-    await runAcceptedMessageIntent({
+    await runAcceptedMessageIntent({ assertCommand: () => {},
       runtime,
       messageScope: scope, nonce: "missing", uploadFileAsync, sendMessageAsync,
       channelId: "channel_1", serverId: "server_1", viewer,
@@ -379,7 +382,7 @@ describe("message channel send helpers", () => {
       message: { content: "keep optimistic" },
     })
     sendMessageAsync.mockRejectedValueOnce(failure)
-    await expect(runAcceptedMessageIntent({
+    await expect(runAcceptedMessageIntent({ assertCommand: () => {},
       runtime,
       messageScope: scope, nonce: "nonce_failed", uploadFileAsync, sendMessageAsync,
       channelId: "channel_1", serverId: "server_1", viewer,
@@ -404,6 +407,7 @@ describe("message channel send helpers", () => {
     })
     const sendMessageAsync = vi.fn(async () => ({}))
     const args = {
+      assertCommand: () => {},
       runtime,
       messageScope: scope,
       nonce: "nonce_retry",

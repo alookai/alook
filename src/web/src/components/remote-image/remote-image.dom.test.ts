@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen } from "@/test/react-dom-harness"
 import { RemoteContentImage, RemoteIdentityImage } from "./remote-image"
 import { RemoteMarkdownImage } from "./remote-markdown-image"
+import { ShareImagePreparationContext } from "./share-image-context"
 import { ApplicationOwnerProvider, createApplicationOwner } from "@/lib/application-owner"
 
 function setImageMetrics(
@@ -28,6 +29,19 @@ afterEach(() => {
 })
 
 describe("remote image state adapters", () => {
+  it("keeps remote URLs inert while rendering a share preparation tree", () => {
+    const rendered = render(React.createElement(ShareImagePreparationContext, { value: true },
+      React.createElement(RemoteIdentityImage, { src: "/avatar.png", alt: "Ada" }),
+      React.createElement(RemoteContentImage, { src: "/attachment.png", alt: "Photo" }),
+      React.createElement(RemoteMarkdownImage, { src: "/markdown.png", alt: "Diagram" }),
+    ))
+    const images = [...rendered.container.querySelectorAll("img")]
+    expect(images).toHaveLength(3)
+    expect(images.map((image) => image.getAttribute("data-share-image-src")))
+      .toEqual(["/avatar.png", "/attachment.png", "/markdown.png"])
+    expect(images.every((image) => !image.hasAttribute("src"))).toBe(true)
+  })
+
   it("keeps an identity failure neutral and static", () => {
     const rendered = render(React.createElement(
       "span",

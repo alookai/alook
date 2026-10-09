@@ -68,6 +68,98 @@ describe("daemon lifecycle ownership cleanup", () => {
     return { machineId, daemonDir };
   }
 
+  it.each(["missing", "legacy", "invalid-version", "dead-owner"])("recovers an exact machine with a %s launch record", async (kind) => {
+    const { machineId, daemonDir } = writeReconnectState();
+    const recordPath = path.join(baseDir, "daemons", `${machineId}.credential.json`);
+    if (kind === "missing" || kind === "dead-owner") fs.rmSync(recordPath);
+    if (kind === "legacy") fs.writeFileSync(recordPath, JSON.stringify({ credential: "cmk_old", machineId }));
+    if (kind === "invalid-version") {
+      const record = JSON.parse(fs.readFileSync(recordPath, "utf8"));
+      fs.writeFileSync(recordPath, JSON.stringify({ ...record, daemonVersion: "invalid" }));
+    }
+    if (kind !== "dead-owner") fs.rmSync(path.join(daemonDir, "daemon.pid"));
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({
+      credential: "cmk_rotated", machineId, expiresAt: null, sessionOutcome: "committed",
+    }), { status: 200 }));
+    mockRunPreparedDaemon.mockResolvedValue(undefined);
+    const stop = vi.fn(async () => {});
+
+    await daemonReconnect({ id: machineId, machineKey: "cmt_reconnect", baseDir }, {
+      isProcessAlive: () => false,
+      stopExactDaemonPid: stop,
+      start: (opts) => daemonStart({ ...opts, foreground: true }),
+    });
+
+    expect(fetch).toHaveBeenCalledOnce();
+    const [url, init] = vi.mocked(fetch).mock.calls[0]!;
+    expect(url).toBe(`${kind === "invalid-version" ? "http://server" : "https://alook.ai"}/api/community/daemon/activate`);
+    expect(JSON.parse(String(init?.body))).toMatchObject({ expectedMachineId: machineId });
+    expect(JSON.parse(fs.readFileSync(recordPath, "utf8"))).toMatchObject({
+      schemaVersion: 1, credential: "cmk_rotated", machineId, daemonVersion: readDaemonVersion(),
+    });
+    expect(mockRunPreparedDaemon).toHaveBeenCalledWith(expect.objectContaining({ machineId, machineKey: "cmk_rotated" }), expect.any(Object));
+    expect(stop).not.toHaveBeenCalled();
+    expect(fs.existsSync(path.join(daemonDir, "daemon.replace.lock"))).toBe(false);
+  });
+
+  it("preserves a live daemon when its saved credential is missing", async () => {
+    const { machineId, daemonDir } = writeReconnectState();
+    fs.rmSync(path.join(baseDir, "daemons", `${machineId}.credential.json`));
+    const stop = vi.fn(async () => {});
+    const start = vi.fn(async () => {});
+
+    await expect(daemonReconnect({ id: machineId, machineKey: "cmt_reconnect", baseDir }, {
+      isProcessAlive: () => true, stopExactDaemonPid: stop, start,
+    })).rejects.toThrow("cannot safely reconnect a running daemon without its saved credential");
+
+    expect(stop).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(JSON.parse(fs.readFileSync(path.join(daemonDir, "daemon.pid"), "utf8"))).toMatchObject({ ownerToken: "old-owner" });
+    expect(fs.existsSync(path.join(daemonDir, "daemon.replace.lock"))).toBe(false);
+  });
+
+  it("rejects a legacy credential belonging to another machine before reconnecting", async () => {
+    const { machineId } = writeReconnectState();
+    fs.writeFileSync(path.join(baseDir, "daemons", `${machineId}.credential.json`), JSON.stringify({
+      machineId: "cm_other_machine", credential: "cmk_other",
+    }));
+    const stop = vi.fn(async () => {});
+    await expect(daemonReconnect({ id: machineId, machineKey: "cmt_reconnect", baseDir }, {
+      isProcessAlive: () => true, stopExactDaemonPid: stop,
+    })).rejects.toThrow("daemon launch record machine mismatch");
+    expect(stop).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("restores a legacy daemon with its credential and explicit endpoints after rejected activation", async () => {
+    const { machineId } = writeReconnectState();
+    const recordPath = path.join(baseDir, "daemons", `${machineId}.credential.json`);
+    fs.writeFileSync(recordPath, JSON.stringify({ credential: "cmk_old", machineId }));
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({
+      error: "token expired", sessionOutcome: "not_committed",
+    }), { status: 409 }));
+    mockRunPreparedDaemon.mockResolvedValue(undefined);
+    const stop = vi.fn(async () => {});
+
+    await expect(daemonReconnect({
+      id: machineId, machineKey: "cmt_reconnect", baseDir,
+      serverUrl: "http://custom", wsUrl: "ws://custom",
+    }, {
+      isProcessAlive: () => true, stopExactDaemonPid: stop,
+      start: (opts) => daemonStart({ ...opts, foreground: true }),
+    })).rejects.toThrow("token expired");
+
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(stop).toHaveBeenCalledOnce();
+    expect(mockRunPreparedDaemon).toHaveBeenCalledWith(expect.objectContaining({
+      machineId, machineKey: "cmk_old", serverUrl: "http://custom", wsUrl: "ws://custom",
+    }), expect.any(Object));
+    expect(JSON.parse(fs.readFileSync(recordPath, "utf8"))).toMatchObject({
+      schemaVersion: 1, credential: "cmk_old", daemonVersion: readDaemonVersion(),
+    });
+  });
+
   it("uses production endpoints when first-pair URL overrides are absent", async () => {
     await expect(daemonStart({
       machineKey: "cmk_test",

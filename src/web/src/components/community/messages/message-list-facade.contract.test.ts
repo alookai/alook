@@ -38,6 +38,7 @@ type ExpectedMessageListProps = {
   initialScrollReady?: boolean
   onScrollTargetConsumed?: (id: string) => void
   hasMore?: boolean
+  isFetching?: boolean
   isFetchingOlder?: boolean
   onLoadOlder?: () => void
   hasMoreNewer?: boolean

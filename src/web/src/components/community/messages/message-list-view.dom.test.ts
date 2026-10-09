@@ -82,8 +82,6 @@ function controller(overrides: Partial<MessageListController> = {}): MessageList
     onToggleSelectId: vi.fn(),
     scrollRef: { current: null },
     virtualizer: {} as MessageListController["virtualizer"],
-    topSentinelRef: vi.fn(),
-    bottomSentinelRef: vi.fn(),
     readPositionReady: true,
     jumpTo: vi.fn(),
     pillCount: 3,

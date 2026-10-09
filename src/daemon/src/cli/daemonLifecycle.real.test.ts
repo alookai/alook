@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
+import { createServer } from "node:http";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { daemonStart } from "./daemonStart";
 
@@ -172,6 +173,48 @@ afterEach(async () => {
 });
 
 describe("daemon lifecycle real processes", () => {
+  it("reconnects without a local record, persists the exact machine, and stops the real daemon", async () => {
+    const baseDir = makeEmptyBaseDir();
+    const requests: unknown[] = [];
+    const server = createServer(async (req, res) => {
+      if (req.url !== "/api/community/daemon/activate") {
+        res.writeHead(404).end();
+        return;
+      }
+      let body = "";
+      for await (const chunk of req) body += String(chunk);
+      requests.push(JSON.parse(body));
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({
+        credential: secret, machineId, expiresAt: null, sessionOutcome: "committed",
+      }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address() as { port: number };
+    const serverUrl = `http://127.0.0.1:${address.port}`;
+    try {
+      const result = await runCli([
+        cli, "daemon", "reconnect", "--id", machineId,
+        "--machine-key", "cmt_synthetic_reconnect",
+        "--server-url", serverUrl, "--ws-url", "ws://127.0.0.1:9",
+        "--base-dir", baseDir,
+      ]);
+      expect(result.code, result.output).toBe(0);
+      expect(result.output).not.toContain(secret);
+      expect(requests).toEqual([expect.objectContaining({ expectedMachineId: machineId })]);
+      const owner = readOwner(baseDir);
+      expect(owner.machineId).toBe(machineId);
+      expect(alive(owner.pid)).toBe(true);
+      const record = JSON.parse(fs.readFileSync(path.join(baseDir, "daemons", `${machineId}.credential.json`), "utf8"));
+      expect(record).toMatchObject({ schemaVersion: 1, machineId, credential: secret, serverUrl });
+      await stop(baseDir);
+      await waitFor(() => !alive(owner.pid));
+      expect(fs.existsSync(pidfile(baseDir))).toBe(false);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }, 120_000);
+
   it("starts detached while offline, persists no secret, and stops by stable machine id", async () => {
     const baseDir = makeBaseDir();
     const started = await runCli(cliArgs(baseDir));

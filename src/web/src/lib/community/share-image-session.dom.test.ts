@@ -116,6 +116,107 @@ describe("prepareShareImageSession", () => {
     expect(Object.isFrozen(prepared)).toBe(true)
   })
 
+  it("reuses loaded pixels once for deferred duplicate images without fetching or decoding source bytes", async () => {
+    const live = document.createElement("img")
+    live.src = "/loaded.png"
+    Object.defineProperties(live, {
+      complete: { value: true },
+      naturalWidth: { value: 800 },
+      naturalHeight: { value: 400 },
+    })
+    document.body.appendChild(live)
+    const drawImage = vi.fn()
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage } as unknown as CanvasRenderingContext2D)
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation((callback) => callback(new Blob(["pixels"], { type: "image/png" })))
+    const fetchAsset = vi.fn()
+    const staticizeAsset = vi.fn()
+    const source = sourceCard('<img data-share-image-src="/loaded.png"><img data-share-image-src="/loaded.png">')
+
+    const prepared = await prepareShareImageSession(source, {
+      fetchAsset, staticizeAsset, waitForPaint: async () => {},
+    })
+
+    expect(fetchAsset).not.toHaveBeenCalled()
+    expect(staticizeAsset).not.toHaveBeenCalled()
+    expect(drawImage).toHaveBeenCalledExactlyOnceWith(live, 0, 0, 640, 320)
+    expect(prepared.markup.match(/data-share-byte-backed=/g)).toHaveLength(2)
+    expect(prepared.markup).not.toContain("data-share-image-src")
+    expect(live.isConnected).toBe(true)
+    expect(live.getAttribute("src")).toBe("/loaded.png")
+    expect(source.querySelector("img")?.hasAttribute("src")).toBe(false)
+  })
+
+  it("falls back to the asset path when the browser protects loaded cross-origin pixels", async () => {
+    const live = document.createElement("img")
+    live.src = "https://images.example.test/photo.png"
+    Object.defineProperties(live, {
+      complete: { value: true }, naturalWidth: { value: 10 }, naturalHeight: { value: 10 },
+    })
+    document.body.appendChild(live)
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: vi.fn() } as unknown as CanvasRenderingContext2D)
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(() => { throw new DOMException("Protected pixels", "SecurityError") })
+    const fetchAsset = vi.fn().mockResolvedValue(imageResponse())
+    const source = sourceCard('<img data-share-image-src="https://images.example.test/photo.png">')
+
+    const prepared = await prepare(source, fetchAsset)
+
+    expect(fetchAsset).toHaveBeenCalledTimes(1)
+    expect(prepared.markup).toContain("data-share-byte-backed")
+  })
+
+  it.each(["missing context", "encoder failure", "static budget"])("does not refetch a loaded image after %s", async (failure) => {
+    const live = document.createElement("img")
+    live.src = "/loaded.png"
+    Object.defineProperties(live, {
+      complete: { value: true }, naturalWidth: { value: 10 }, naturalHeight: { value: 10 },
+    })
+    document.body.appendChild(live)
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(failure === "missing context"
+      ? null : { drawImage: vi.fn() } as unknown as CanvasRenderingContext2D)
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation((callback) => {
+      if (failure === "encoder failure") throw new Error("Encoder failed")
+      const blob = new Blob(["pixels"], { type: "image/png" })
+      Object.defineProperty(blob, "size", { value: 10 * 1024 * 1024 + 1 })
+      callback(blob)
+    })
+    const fetchAsset = vi.fn()
+    const source = sourceCard('<img data-share-image-src="/loaded.png">')
+
+    await expect(prepare(source, fetchAsset)).rejects.toMatchObject({ stage: "assets" })
+
+    expect(fetchAsset).not.toHaveBeenCalled()
+    expect(live.isConnected).toBe(true)
+    expect(document.querySelector("[data-share-detached-tree]")).toBeNull()
+  })
+
+  it.each([false, true])("keeps identity-proxy failures separate from content sharing the same URL (loaded=%s)", async (loaded) => {
+    const url = "https://images.example.test/shared.png"
+    if (loaded) {
+      const live = document.createElement("img")
+      live.src = url
+      Object.defineProperties(live, {
+        complete: { value: true }, naturalWidth: { value: 10 }, naturalHeight: { value: 10 },
+      })
+      document.body.appendChild(live)
+      vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: vi.fn() } as unknown as CanvasRenderingContext2D)
+      vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(() => { throw new DOMException("Protected pixels", "SecurityError") })
+    }
+    const source = sourceCard(`<span data-share-identity-id="peer"><img data-remote-image-kind="identity" data-share-image-src="${url}"></span><img data-share-image-src="${url}" alt="content">`)
+    const fetchAsset = vi.fn(async (input: RequestInfo | URL) => (
+      String(input).startsWith("/api/community/share-image/avatar/")
+        ? new Response(null, { status: 404 }) : imageResponse()
+    ))
+
+    const prepared = await prepare(source, fetchAsset)
+
+    expect(fetchAsset.mock.calls.map(([input]) => input)).toEqual([
+      "/api/community/share-image/avatar/peer", url,
+    ])
+    expect(prepared.markup).toContain("data-share-identity-fallback")
+    expect(prepared.markup).toContain('alt="content"')
+    expect(prepared.markup).toContain("data-share-byte-backed")
+  })
+
   it("resolves same-origin images to immutable bytes without mutating the React source", async () => {
     const source = sourceCard('<img src="/content.png" alt="content">')
     const fetchAsset = vi.fn().mockResolvedValue(imageResponse())
@@ -508,6 +609,39 @@ describe("prepareShareImageSession", () => {
     await vi.waitFor(() => expect(blockedCancel).toHaveBeenCalled())
   })
 
+  it("uses an identity fallback when an avatar request never settles", async () => {
+    vi.useFakeTimers()
+    const source = sourceCard('<div data-share-identity-id="u1"><img data-avatar-photo-state="ready" src="/avatar.png"></div>')
+    let requestSignal: AbortSignal | undefined
+    const fetchAsset = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
+      requestSignal = init?.signal ?? undefined
+      return new Promise<Response>(() => {})
+    })
+    const pending = prepareShareImageSession(source, {
+      fetchAsset,
+      getFontCSS: vi.fn().mockResolvedValue(FONT_CSS),
+      waitForPaint: vi.fn().mockResolvedValue(undefined),
+      timeoutMs: 25,
+    })
+    const assertion = expect(pending).resolves.toMatchObject({
+      markup: expect.stringContaining('data-share-identity-fallback="beam"'),
+    })
+    await act(async () => vi.advanceTimersByTimeAsync(25))
+    await assertion
+    expect(requestSignal?.aborted).toBe(true)
+    expect(source.querySelector("img")?.getAttribute("src")).toBe("/avatar.png")
+    expect(document.querySelector("[data-share-detached-tree]")).toBeNull()
+  })
+
+  it("retains identity fallback and content failure for images without a source", async () => {
+    const identity = sourceCard('<img data-remote-image-kind="identity">')
+    await expect(prepare(identity)).resolves.toMatchObject({
+      markup: expect.stringContaining('data-share-identity-fallback="beam"'),
+    })
+    const content = sourceCard("<img>")
+    await expect(prepare(content)).rejects.toMatchObject({ stage: "assets", timedOut: false })
+  })
+
   it("times out a non-cooperative asset request", async () => {
     vi.useFakeTimers()
     const source = sourceCard('<img src="/pending.png">')
@@ -553,6 +687,46 @@ describe("prepareShareImageSession", () => {
       .resolves.toMatchObject({ fontEmbedCSS: FONT_CSS })
     expect(brand.style.fontFamily).toBe("var(--font-brand)")
     expect(getFontCSS).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(["body", "decode"])("falls back when avatar %s stalls", async (stage) => {
+    vi.useFakeTimers()
+    const cancel = vi.fn()
+    const response = stage === "body"
+      ? new Response(new ReadableStream({ cancel }), { headers: { "Content-Type": "image/png" } })
+      : imageResponse()
+    const source = sourceCard('<img data-remote-image-kind="identity" src="/avatar.png">')
+    const pending = prepareShareImageSession(source, {
+      fetchAsset: vi.fn().mockResolvedValue(response),
+      staticizeAsset: stage === "decode" ? () => new Promise(() => {}) : async (blob) => blob,
+      getFontCSS: vi.fn().mockResolvedValue(FONT_CSS),
+      waitForPaint: vi.fn().mockResolvedValue(undefined),
+      timeoutMs: 25,
+    })
+    await Promise.all([
+      expect(pending).resolves.toMatchObject({ markup: expect.stringContaining('data-share-identity-fallback="beam"') }),
+      act(async () => vi.advanceTimersByTimeAsync(25)),
+    ])
+    if (stage === "body") expect(cancel).toHaveBeenCalled()
+  })
+
+  it("does not turn external cancellation of a stalled avatar into fallback", async () => {
+    const controller = new AbortController()
+    const started = deferred<void>()
+    const source = sourceCard('<img data-remote-image-kind="identity" src="/avatar.png">')
+    const pending = prepareShareImageSession(source, {
+      fetchAsset: vi.fn(() => {
+        started.resolve()
+        return new Promise<Response>(() => {})
+      }),
+      waitForPaint: vi.fn().mockResolvedValue(undefined),
+      signal: controller.signal,
+    })
+    const assertion = expect(pending).rejects.toMatchObject({ name: "AbortError" })
+    await started.promise
+    controller.abort()
+    await assertion
+    expect(document.querySelector("[data-share-detached-tree]")).toBeNull()
   })
 
   it("treats an empty font embed as a hard preparation failure", async () => {

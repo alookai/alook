@@ -216,7 +216,7 @@ describe("Composer committed send lifecycle", () => {
     const upload = vi.fn()
     const post = vi.fn()
     const clearReply = vi.fn()
-    const runner = vi.fn((nonce: string) => runAcceptedMessageIntent({
+    const runner = vi.fn((nonce: string) => runAcceptedMessageIntent({ assertCommand: () => {},
       runtime, messageScope, nonce, uploadFileAsync: upload, sendMessageAsync: post,
       channelId: messageScope.id, serverId: messageScope.serverId, viewer,
     }))
