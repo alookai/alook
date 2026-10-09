@@ -199,10 +199,10 @@ export function OnboardingMachineDialog({
 
         <div className="flex flex-col gap-4 px-4 pb-4 sm:px-6 sm:pb-6">
           {unavailableMachine ? (
-            <section data-testid={tid.onboardingRuntimeUnavailable} className="flex flex-col gap-4" role="status">
-              <p className="flex items-start gap-2 text-sm font-medium">
-                <Check aria-hidden className="mt-0.5 size-4 shrink-0" />
-                <span className="min-w-0 wrap-break-word">{unavailableMachine.hostname || "Your computer"} is connected</span>
+            <section data-testid={tid.onboardingRuntimeUnavailable} className="relative flex flex-col gap-4 pl-6" role="status">
+              <p className="text-sm font-medium">
+                <Check aria-hidden className="absolute top-0.5 left-0 size-4" />
+                <span className="min-w-0 wrap-break-word">Computer is connected</span>
               </p>
               <div className="flex flex-col gap-2">
                 <h3 className="text-base font-medium">{harnessLabel} isn’t ready on this computer</h3>
