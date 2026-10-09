@@ -5,6 +5,7 @@ import type { Database } from "../index";
 import { escapeLikePattern } from "../../utils/sql-like";
 import { computeDiscriminator } from "../../lib/discriminator";
 import { isUniqueConstraintError } from "../../utils/db-errors";
+import { chunk, maxInParams } from "./_chunk";
 
 /** Per-width salt-retry budget before widening the discriminator by one digit. */
 const MAX_DISCRIMINATOR_ATTEMPTS = 5;
@@ -201,10 +202,12 @@ export async function getUsersByIds(
   ids: string[]
 ): Promise<PublicUser[]> {
   if (ids.length === 0) return [];
-  return db
-    .select(publicUserColumns)
-    .from(user)
-    .where(inArray(user.id, ids)) as Promise<PublicUser[]>;
+  const rows = await Promise.all(
+    chunk([...new Set(ids)], maxInParams(0)).map((part) =>
+      db.select(publicUserColumns).from(user).where(inArray(user.id, part))
+    )
+  );
+  return rows.flat();
 }
 
 /** Self/internal — Better-Auth adapter path. */
