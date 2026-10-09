@@ -54,8 +54,6 @@ export function writeCliLink(
   if (!hostCliPath) return binDir;
 
   if (platform === "win32") {
-    // .cmd shim — the only surviving wrapper, and only because a Windows link
-    // named .exe pointing at a .js wouldn't be a valid executable.
     const cmdFile = path.join(binDir, `${cliName}.cmd`);
     const executable = /\.(?:c|m)?js$/i.test(hostCliPath)
       ? `"${process.execPath}" "${hostCliPath}"`
