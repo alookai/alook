@@ -611,6 +611,40 @@ test("closing cold preparation suppresses output and reopening starts a fresh se
   await expect.poll(() => captureCounts(page)).toEqual({ clipboard: 1, download: 0 })
 })
 
+test("stalled avatar falls back and a single text message exports", async ({ asUser }) => {
+  test.setTimeout(120_000)
+  const serverId = await seedServer("alice", `Share avatar timeout ${Date.now()}`)
+  const channelId = await seedChannel("alice", serverId, "share-timeout")
+  const { page } = await asUser("alice")
+  await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
+  await uploadAvatar(page)
+  const message = await seedMessage(page, channelId, "Text survives an unavailable avatar")
+  await expect(page.getByTestId(tid.message(message.id)).locator('[data-slot="avatar-image"]')).toBeVisible()
+  await installShareCapture(page)
+  let release!: () => void
+  const blocked = new Promise<void>((resolve) => { release = resolve })
+  const pattern = "**/api/community/users/*/avatar*"
+  await page.route(pattern, async (route) => {
+    await blocked
+    await route.abort("failed").catch(() => undefined)
+  })
+  try {
+    const dialog = await openShareDialog(page, message.id)
+    const card = await waitForReady(dialog)
+    await expect(card.locator("[data-share-identity-fallback=beam]")).toBeVisible()
+    await expect(card).toContainText("Text survives an unavailable avatar")
+    await dialog.getByRole("button", { name: "Copy image" }).click()
+    await expect(dialog.getByRole("button", { name: "Copied" })).toBeVisible()
+    const downloaded = page.waitForEvent("download")
+    await dialog.getByRole("button", { name: "Download" }).click()
+    await downloaded
+    await expect.poll(() => captureCounts(page)).toEqual({ clipboard: 1, download: 1 })
+  } finally {
+    release()
+    await page.unroute(pattern)
+  }
+})
+
 test("avatar failure is deterministic while content-image failure is atomic and retryable", async ({ asUser }) => {
   test.setTimeout(120_000)
   const serverId = await seedServer("alice", `Share failures ${Date.now()}`)
