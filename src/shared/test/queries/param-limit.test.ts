@@ -21,6 +21,7 @@ import * as taskQueries from "../../src/db/queries/task";
 import * as agentQueries from "../../src/db/queries/agent";
 import * as conversationQueries from "../../src/db/queries/conversation";
 import * as meetingQueries from "../../src/db/queries/meeting-session";
+import * as userQueries from "../../src/db/queries/user";
 import { D1_MAX_BIND_PARAMS } from "../../src/db/queries/_chunk";
 
 const fakeDb = drizzle({} as never);
@@ -195,6 +196,72 @@ function makeD1Capture(rawResponses: unknown[][][] = []) {
   };
   return { db: drizzle(client as never), statements };
 }
+
+describe("getUsersByIds bound parameters and result set", () => {
+  function rawUser(id: string) {
+    return [id, id, `${id}@example.test`, 0, null, 0,
+      "2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z", "1234"];
+  }
+
+  it.each([
+    { count: 100, sizes: [100] },
+    { count: 101, sizes: [100, 1] },
+    { count: 201, sizes: [100, 100, 1] },
+  ])("returns all $count users within each statement's bind budget", async ({ count, sizes }) => {
+    const ids = Array.from({ length: count }, (_, index) => `user_${index}`);
+    let offset = 0;
+    const responses = sizes.map((size) => {
+      const rows = ids.slice(offset, offset + size).map(rawUser);
+      offset += size;
+      return rows;
+    });
+    const { db, statements } = makeD1Capture(responses);
+
+    const rows = await userQueries.getUsersByIds(db as never, ids);
+
+    expect(statements.map(({ params }) => params.length)).toEqual(sizes);
+    expect(statements.flatMap(({ params }) => params)).toEqual(ids);
+    expect(rows.map(({ id }) => id).sort()).toEqual([...ids].sort());
+    for (const { params } of statements) {
+      expect(params.length).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
+    }
+  });
+
+  it("deduplicates IDs across the original batch boundary without mutating input", async () => {
+    const uniqueIds = Array.from({ length: 101 }, (_, index) => `user_${index}`);
+    const ids = [...uniqueIds.slice(0, 100), uniqueIds[0]!, uniqueIds[100]!, uniqueIds[50]!];
+    const originalIds = [...ids];
+    const { db, statements } = makeD1Capture([
+      uniqueIds.slice(0, 100).map(rawUser), [rawUser(uniqueIds[100]!)],
+    ]);
+
+    const rows = await userQueries.getUsersByIds(db as never, ids);
+
+    expect(statements.map(({ params }) => params.length)).toEqual([100, 1]);
+    expect(statements.flatMap(({ params }) => params)).toEqual(uniqueIds);
+    expect(rows.map(({ id }) => id).sort()).toEqual([...uniqueIds].sort());
+    expect(new Set(rows.map(({ id }) => id)).size).toBe(rows.length);
+    expect(ids).toEqual(originalIds);
+  });
+
+  it("omits missing IDs across batches and keeps the historical public projection", async () => {
+    const ids = Array.from({ length: 101 }, (_, index) => `user_${index}`);
+    const { db, statements } = makeD1Capture([
+      [rawUser(ids[0]!)], [rawUser(ids[100]!)],
+    ]);
+
+    const rows = await userQueries.getUsersByIds(db as never, ids);
+
+    expect(rows.map(({ id }) => id)).toEqual([ids[0], ids[100]]);
+    for (const { sql } of statements) {
+      expect(sql).not.toMatch(/deletedAt|isBot|ownerUserId|avatarObjectKey/);
+    }
+    expect(Object.keys(rows[0]!).sort()).toEqual([
+      "id", "name", "email", "emailVerified", "image", "avatarVersion",
+      "createdAt", "updatedAt", "discriminator",
+    ].sort());
+  });
+});
 
 describe("listEligibleUnreadChannels bound parameters", () => {
   it("95 visible ids use 80-id chunks and keep every statement within D1's limit", async () => {

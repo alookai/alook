@@ -197,7 +197,7 @@ test.describe.serial("desktop thread split view", () => {
       const pendingPost = page.getByTestId(tid.threadSplitPanel)
       await expect(pendingShell).toHaveAttribute("data-layout", "split")
       await expect(pendingParent.getByTestId(tid.forumFilterBar)).toBeVisible()
-      await expect(pendingParent.locator('[data-slot="skeleton"]').first()).toBeVisible()
+      await expect(pendingParent.getByRole("main").locator('[data-slot="skeleton"]').first()).toBeVisible()
       await expect(pendingParent.getByTestId(tid.forumPostList)).toHaveCount(0)
       await expect(pendingPost.locator("[data-message-list-skeleton]")).toBeVisible()
       const group = await pendingShell.locator('[data-slot="resizable-panel-group"]').elementHandle()
@@ -212,7 +212,7 @@ test.describe.serial("desktop thread split view", () => {
       await group.dispose()
     } finally {
       releaseMetadata()
-      await page.unroute(metadataUrl, holdMetadata)
+      await page.unrouteAll({ behavior: "wait" })
     }
     await page.goto(`/c/channels/${serverId}/${forumPostId}`)
 

@@ -95,6 +95,33 @@ describe("getUserSelf", () => {
   });
 });
 
+describe("getUsersByIds", () => {
+  it("does not query for an empty input", async () => {
+    const db = createSelectMock([]);
+    await expect(userQueries.getUsersByIds(db, [])).resolves.toEqual([]);
+    expect(db.select).not.toHaveBeenCalled();
+  });
+
+  it("returns existing rows without inventing a missing user", async () => {
+    const existing = { id: "existing" };
+    const db = createSelectMock([existing]);
+    await expect(userQueries.getUsersByIds(db, ["missing", "existing"])).resolves.toEqual([existing]);
+  });
+
+  it("keeps public columns and does not exclude historical tombstone identities", async () => {
+    const db = createSelectMock([{ id: "deleted_identity", name: "Deleted user" }]);
+    await expect(userQueries.getUsersByIds(db, ["deleted_identity"])).resolves.toEqual([
+      { id: "deleted_identity", name: "Deleted user" },
+    ]);
+    expect(Object.keys(db.select.mock.calls[0][0]).sort()).toEqual([
+      "id", "name", "email", "emailVerified", "image", "avatarVersion",
+      "createdAt", "updatedAt", "discriminator",
+    ].sort());
+    expect(conditionReferencesColumn(db.where.mock.calls[0][0], "id")).toBe(true);
+    expect(conditionReferencesColumn(db.where.mock.calls[0][0], "deletedAt")).toBe(false);
+  });
+});
+
 describe("getUserByEmail", () => {
   it("returns null when not found", async () => { expect(await userQueries.getUserByEmail(createSelectMock([]), "x@x.com")).toBeNull(); });
   it("returns user", async () => { const u = { id: "u_1" }; expect(await userQueries.getUserByEmail(createSelectMock([u]), "a@b.com")).toEqual(u); });
