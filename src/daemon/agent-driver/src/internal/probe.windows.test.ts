@@ -1,22 +1,30 @@
 import { once } from "node:events";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir, release } from "node:os";
 import { delimiter, join } from "node:path";
 import { createInterface } from "node:readline";
 import { createServer } from "node:net";
-import type { ChildProcess } from "node:child_process";
+import { execFileSync, type ChildProcess } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { loadPiSdkModule } from "../adapters/pi/sessionDeps.js";
 import { createAgentDriverSdk } from "../index.js";
+import { scrubDriverErrorMessage } from "./errors.js";
 import { isAlive, killProcessTree, spawnAgentProcess } from "./killTree.js";
-import { probeCliRuntime, probeCommandOutput, resolveCommandOnPath, resolveSpawnSpec } from "./probe.js";
+import { probeCliRuntime, probeCommandOutput, probeCommandVersion, resolveCommandOnPath, resolveSpawnSpec } from "./probe.js";
 
 const roots: string[] = [];
 const children: ChildProcess[] = [];
+const diagnostics = new Map<ChildProcess, { binary: string; stderr: string }>();
 
 function setPrefix(prefix: string) {
   const bin = process.platform === "win32" ? prefix : join(prefix, "bin");
   vi.stubEnv("PATH", `${bin}${delimiter}${process.env.PATH}`);
+  mkdirSync(join(prefix, "codex-home"), { recursive: true });
   vi.stubEnv("CODEX_HOME", join(prefix, "codex-home"));
+  vi.stubEnv("PI_CODING_AGENT_DIR", join(prefix, "pi-home"));
+  vi.stubEnv("GEMINI_HOME", join(prefix, "gemini-home"));
+  vi.stubEnv("CURSOR_CONFIG_DIR", join(prefix, "cursor-home"));
+  vi.stubEnv("GROK_DISABLE_AUTOUPDATER", "1");
   vi.stubEnv("HOME", prefix);
   vi.stubEnv("USERPROFILE", prefix);
   vi.stubEnv("XDG_CONFIG_HOME", join(prefix, "config"));
@@ -29,6 +37,9 @@ function launch(binary: string, args: string[]) {
     cwd: process.cwd(), env: process.env, shell: spec.shell,
   });
   children.push(child);
+  const trace = { binary, stderr: "" };
+  diagnostics.set(child, trace);
+  child.stderr?.on("data", chunk => { trace.stderr = (trace.stderr + String(chunk)).slice(-4096); });
   return child;
 }
 
@@ -36,7 +47,10 @@ function waitForLine(child: ChildProcess, matches: (line: string) => boolean): P
   const lines = createInterface({ input: child.stdout! });
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => finish(new Error("runtime output timed out")), 20_000);
-    const onExit = () => finish(new Error("runtime exited before readiness"));
+    const onExit = (code: number | null, signal: string | null) => {
+      const trace = diagnostics.get(child);
+      finish(new Error(`${trace?.binary} exited before readiness: code=${code}, signal=${signal}, stderr=${scrubDriverErrorMessage(trace?.stderr ?? "")}`));
+    };
     function finish(error?: Error, line?: string) {
       clearTimeout(timer);
       lines.close();
@@ -63,6 +77,7 @@ afterEach(async () => {
   for (const child of children.splice(0)) {
     if (child.pid && isAlive(child.pid)) await killProcessTree(child.pid, { graceMs: 100 });
   }
+  diagnostics.clear();
   vi.unstubAllEnvs();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 });
@@ -81,11 +96,13 @@ describe.skipIf(process.platform !== "win32")("native Windows npm shim detection
         setInterval(() => {}, 1000);
       }
     `);
-    for (const binary of ["codex", "opencode"]) {
+    for (const binary of ["codex", "opencode", "claude", "cursor-agent", "grok", "pi"]) {
       writeFileSync(join(prefix, binary), "#!/bin/sh\nexit 1\n");
       writeFileSync(join(prefix, `${binary}.ps1`), "exit 1\n");
       writeFileSync(join(prefix, `${binary}.cmd`), `@echo off\r\n"${process.execPath}" "%~dp0fixture.cjs" %*\r\n`);
-      expect(resolveCommandOnPath(binary)).toBe(join(prefix, `${binary}.cmd`));
+      const oldFirst = execFileSync("where", [binary], { encoding: "utf8" }).split(/\r?\n/)[0]!.trim();
+      expect(probeCommandVersion(oldFirst).ok).toBe(false);
+      expect(realpathSync(resolveCommandOnPath(binary)!)).toBe(realpathSync(join(prefix, `${binary}.cmd`)));
       expect(probeCliRuntime(binary)).toEqual({ status: "healthy", version: "1.2.3" });
       const catalog = probeCommandOutput(join(prefix, `${binary}.cmd`), ["models", "--pure"]);
       expect(catalog.ok).toBe(true);
@@ -113,15 +130,20 @@ describe.skipIf(process.platform !== "win32")("native Windows npm shim detection
   });
 });
 
+
 const nativePrefix = process.env.ALOOK_NATIVE_NPM_PREFIX;
-describe.skipIf(!nativePrefix)("real npm providers from an isolated prefix", () => {
-  it("probes Codex and OpenCode and starts their native servers without credentials", async () => {
+describe.skipIf(!nativePrefix)("real npm and native providers from an isolated prefix", () => {
+  it.each(["codex", "opencode", "claude", "cursor", "pi", "antigravity"] as const)("detects the real %s install via its public SDK probe", async (backend) => {
     setPrefix(nativePrefix!);
-    console.log(JSON.stringify({ os: release(), node: process.version, nodePath: process.execPath }));
-    const sdk = createAgentDriverSdk();
-    for (const backend of ["codex", "opencode"] as const) {
-      expect((await sdk.probe({ backend })).status).toBe("healthy");
-    }
+    console.log(JSON.stringify({ backend, os: release(), node: process.version, nodePath: process.execPath }));
+    const result = await createAgentDriverSdk().probe({ backend });
+    console.log(JSON.stringify({ backend, status: result.status, version: result.status === "healthy" ? result.version : undefined,
+      error: result.status === "unhealthy" ? result.error.code : undefined }));
+    expect(result.status).toBe("healthy");
+  });
+
+  it("starts real Codex app-server and completes initialize", async () => {
+    setPrefix(nativePrefix!);
     const codex = launch("codex", ["app-server", "--listen", "stdio://"]);
     const initialized = waitForLine(codex, line => {
       try { return JSON.parse(line).id === 1; } catch { return false; }
@@ -130,7 +152,10 @@ describe.skipIf(!nativePrefix)("real npm providers from an isolated prefix", () 
     expect(JSON.parse(await initialized)).toHaveProperty("result");
     codex.stdin!.write(JSON.stringify({ method: "initialized" }) + "\n");
     await stop(codex);
+  });
 
+  it("starts real OpenCode serve and returns localhost health", async () => {
+    setPrefix(nativePrefix!);
     const portFinder = createServer();
     portFinder.listen(0, "127.0.0.1");
     await once(portFinder, "listening");
@@ -142,5 +167,52 @@ describe.skipIf(!nativePrefix)("real npm providers from an isolated prefix", () 
     expect(health.ok).toBe(true);
     expect(await health.json()).toMatchObject({ healthy: true });
     await stop(opencode);
-  }, 90_000);
+  });
+
+  it("starts real Claude's stream-json control protocol", async () => {
+    setPrefix(nativePrefix!);
+    const claude = launch("claude", ["--input-format", "stream-json", "--output-format", "stream-json", "--verbose"]);
+    const initialized = waitForLine(claude, line => {
+      try { return JSON.parse(line).type === "control_response"; } catch { return false; }
+    });
+    claude.stdin!.write(JSON.stringify({ type: "control_request", request_id: "alook-qa-init", request: { subtype: "initialize" } }) + "\n");
+    expect(JSON.parse(await initialized)).toMatchObject({ type: "control_response", response: { subtype: "success" } });
+    await stop(claude);
+  });
+
+  it.each([
+    ["cursor-agent", ["acp"]],
+    ["grok", ["agent", "--no-leader", "stdio"]],
+    ["agy_acp_server.exe", []],
+  ] as const)("initializes the real %s ACP process without a model request", async (binary, args) => {
+    setPrefix(nativePrefix!);
+    const child = launch(binary, [...args]);
+    const initialized = waitForLine(child, line => {
+      try { return JSON.parse(line).id === 1; } catch { return false; }
+    });
+    child.stdin!.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {
+      protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: "alook-windows-qa", version: "1.0.0" },
+    } }) + "\n");
+    expect(JSON.parse(await initialized)).toMatchObject({ result: { protocolVersion: 1 } });
+    await stop(child);
+  });
+
+  it("classifies real Grok authentication separately from installation", async () => {
+    setPrefix(nativePrefix!);
+    expect(probeCliRuntime("grok").status).toBe("healthy");
+    const probe = await createAgentDriverSdk().probe({ backend: "grok" });
+    console.log(JSON.stringify({ backend: "grok", status: probe.status, error: probe.status === "unhealthy" ? probe.error.code : undefined }));
+    if (probe.status === "unhealthy") expect(probe.error.code).toBe("grok_acp_authentication_failed");
+  });
+
+  it("imports the real Pi SDK and creates/disposes a persistent session without a model request", async () => {
+    setPrefix(nativePrefix!);
+    const piSdk = await loadPiSdkModule();
+    const sessionManager = piSdk.SessionManager.create(nativePrefix!, join(nativePrefix!, "pi-sessions"));
+    const { session } = await piSdk.createAgentSession({ cwd: nativePrefix!, agentDir: join(nativePrefix!, "pi-home"), sessionManager, tools: [] });
+    const nativeSession = session as { sessionId: string; prompt: unknown; dispose(): void };
+    expect(typeof nativeSession.sessionId).toBe("string");
+    expect(typeof nativeSession.prompt).toBe("function");
+    nativeSession.dispose();
+  });
 });

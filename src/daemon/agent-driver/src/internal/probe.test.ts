@@ -267,7 +267,7 @@ describe("probeCommandOutput", () => {
 
 
 describe("Windows npm PATH resolution", () => {
-  it.each(["codex", "opencode"])("probes %s via its .cmd instead of the npm POSIX shim", (binary) => {
+  it.each(["codex", "opencode", "claude", "cursor-agent", "grok", "pi"])("probes %s via its .cmd instead of the npm POSIX shim", (binary) => {
     const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
     const root = "C:\\Users\\me\\AppData\\Roaming\\npm";
     const shim = `${root}\\${binary}.cmd`;
