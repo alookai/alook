@@ -130,6 +130,12 @@ test("versioned avatars converge across live, stale, reconnect, cold, and concur
   const message = observer.page.locator(`[data-msg-id="${messageId}"]`)
   await expect(message).toBeVisible({ timeout: 20_000 })
 
+  const warm = await uploadSolidAvatar(uploader.page, "#e5484d")
+  expect(warm.status).toBe(200)
+  await expectPhoto(message, warm.url)
+  const warmImage = await message.locator(`img[src="${warm.url}"]`).first().elementHandle()
+  if (!warmImage) throw new Error("Warm identity image is missing")
+
   const profileGate = deferred()
   const profileStarted = deferred()
   const profilePattern = `**/api/community/users/${aliceId}/profile`
@@ -148,12 +154,51 @@ test("versioned avatars converge across live, stale, reconnect, cold, and concur
   expect(first.url).toBe(`/api/community/users/${aliceId}/avatar?v=${first.avatarVersion}`)
   await expect.poll(() => observerWs.heldCount(), { timeout: 20_000 }).toBe(1)
 
-  const second = await uploadSolidAvatar(uploader.page, "#3b82f6")
-  expect(second.status).toBe(200)
-  expect(second.avatarVersion).toBe(first.avatarVersion + 1)
-  await expect.poll(() => identityEvents(observerWs.frames, aliceId).some(
-    (event) => event.avatarVersion === second.avatarVersion,
-  ), { timeout: 20_000 }).toBe(true)
+  const avatarGate = deferred()
+  const avatarStarted = deferred()
+  const avatarPattern = `**/api/community/users/${aliceId}/avatar?v=*`
+  await observer.page.route(avatarPattern, async (route) => {
+    if (new URL(route.request().url()).searchParams.get("v") !== String(first.avatarVersion + 1)) {
+      await route.continue()
+      return
+    }
+    const response = await route.fetch()
+    avatarStarted.resolve()
+    await avatarGate.promise
+    await route.fulfill({ response })
+  })
+  let second: AvatarUpload
+  try {
+    second = await uploadSolidAvatar(uploader.page, "#3b82f6")
+    expect(second.status).toBe(200)
+    expect(second.avatarVersion).toBe(first.avatarVersion + 1)
+    await expect.poll(() => identityEvents(observerWs.frames, aliceId).some(
+      (event) => event.avatarVersion === second.avatarVersion,
+    ), { timeout: 20_000 }).toBe(true)
+    await avatarStarted.promise
+    expect(await warmImage.evaluate((image: HTMLImageElement) => ({
+      connected: image.isConnected,
+      source: image.getAttribute("src"),
+      current: new URL(image.currentSrc).pathname + new URL(image.currentSrc).search,
+      opacity: getComputedStyle(image).opacity,
+      transition: getComputedStyle(image).transitionProperty,
+      pixels: image.naturalWidth > 0 && image.naturalHeight > 0,
+    }))).toEqual({
+      connected: true,
+      source: second.url,
+      current: warm.url,
+      opacity: "1",
+      transition: "none",
+      pixels: true,
+    })
+    await expect(message.locator('[data-remote-image-placeholder="identity"].animate-pulse')).toHaveCount(0)
+    avatarGate.resolve()
+    await expectPhoto(message, second.url)
+    expect(await warmImage.evaluate((image: HTMLImageElement) => image.isConnected)).toBe(true)
+  } finally {
+    avatarGate.resolve()
+    await observer.page.unroute(avatarPattern)
+  }
 
   await expectPhoto(message, second.url)
   await expectPhoto(sameAccount.page.locator("body"), second.url)

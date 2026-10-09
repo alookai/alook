@@ -17,6 +17,7 @@ import {
 
 type IdentityImageProps = {
   src: string
+  identityKey?: string
   alt: string
   className?: string
   placeholderClassName?: string
@@ -33,7 +34,9 @@ function IdentityImageAttempt({
   "data-testid": testId,
 }: IdentityImageProps) {
   const sourceProps = useShareImageSource(src)
-  const [status, attempt, , imageRef, onLoad, onError, retry] = useRemoteImageAttempt()
+  const [status, , usableImage, imageRef, onLoad, onError, retry] = useRemoteImageAttempt({ source: src, cachedReady: true })
+  const visible = Boolean(usableImage)
+  const placeholderStatus = visible ? "ready" : status
   const retryAfterReconnect = useEffectEvent(() => {
     if (status !== "ready") retry()
   })
@@ -48,18 +51,17 @@ function IdentityImageAttempt({
     <>
       <span
         data-slot={profilePhoto ? "avatar-photo-placeholder" : undefined}
-        data-avatar-photo-placeholder={profilePhoto && status !== "ready" ? legacyStatus : undefined}
+        data-avatar-photo-placeholder={profilePhoto && !visible ? legacyStatus : undefined}
         data-remote-image-placeholder="identity"
-        data-remote-image-state={status}
+        data-remote-image-state={placeholderStatus}
         aria-hidden
         className={cn(
           "absolute inset-0 bg-muted",
-          status === "pending" && "animate-pulse motion-reduce:animate-none",
+          placeholderStatus === "pending" && "animate-pulse motion-reduce:animate-none",
           placeholderClassName,
         )}
       />
       <img
-        key={attempt}
         ref={imageRef}
         data-testid={testId}
         data-slot={profilePhoto ? "avatar-image" : undefined}
@@ -70,9 +72,10 @@ function IdentityImageAttempt({
         alt={alt}
         className={cn(
           "absolute inset-0 size-full object-cover transition-opacity duration-150 ease-out motion-reduce:transition-none",
-          status === "ready" ? "opacity-100" : "opacity-0",
+          visible ? "opacity-100" : "opacity-0",
           className,
         )}
+        style={{ transitionProperty: "none" }}
         onLoad={onLoad}
         onError={onError}
       />
@@ -81,7 +84,8 @@ function IdentityImageAttempt({
 }
 
 export function RemoteIdentityImage(props: IdentityImageProps) {
-  return <IdentityImageAttempt key={props.src} {...props} />
+  const sourceProps = useShareImageSource(props.src)
+  return <IdentityImageAttempt key={JSON.stringify([props.identityKey || props.src, "src" in sourceProps])} {...props} />
 }
 
 type ContentImageProps = Omit<

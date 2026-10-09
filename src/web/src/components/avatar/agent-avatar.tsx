@@ -29,6 +29,7 @@ export function AgentAvatar({ name, avatarUrl, seed, size = 32, className, alt }
         style={{ width: size, height: size }}
       >
         <RemoteIdentityImage
+          identityKey={seed ? `agent:${seed}` : undefined}
           src={resolved.url}
           alt=""
           className="rounded-[inherit]"

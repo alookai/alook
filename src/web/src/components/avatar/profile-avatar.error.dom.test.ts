@@ -2,6 +2,7 @@ import { createElement } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, waitFor } from "@/test/react-dom-harness"
 import { ProfileAvatar } from "./profile-avatar"
+import { ApplicationOwnerProvider, createApplicationOwner } from "@/lib/application-owner"
 
 function mockImageReadiness(complete: boolean, naturalWidth: number, naturalHeight: number) {
   vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(complete)
@@ -31,6 +32,69 @@ afterEach(() => {
 })
 
 describe("ProfileAvatar photo errors", () => {
+  it("uses the existing identity seed to retain the prior photo during a replacement", async () => {
+    const element = (src: string, seed = "user_1") => createElement(ProfileAvatar, { label: "Ada", src, seed })
+    const rendered = render(element("/first.png"))
+    const original = photo(rendered.container)
+    setLoadedImageMetrics(original)
+    fireEvent.load(original)
+    await act(async () => { await Promise.resolve() })
+    rendered.rerender(element("/second.png"))
+    expect(original.isConnected).toBe(true)
+    expect(original).toHaveClass("opacity-100")
+    expect(placeholder(rendered.container)).not.toHaveClass("animate-pulse")
+    rendered.rerender(element("/second.png", "user_2"))
+    expect(original.isConnected).toBe(false)
+    expect(photo(rendered.container)).toHaveAttribute("src", "/second.png")
+    expect(photo(rendered.container)).toHaveAttribute("data-avatar-photo-state", "pending")
+  })
+
+  it("retires prior photos and unfinished callbacks at the production account-key boundary", async () => {
+    const ownerA = createApplicationOwner("viewer-a")
+    const ownerB = createApplicationOwner("viewer-b")
+    const element = (owner: typeof ownerA, src: string) => createElement(ApplicationOwnerProvider, { owner, key: owner.userId },
+      createElement(ProfileAvatar, { label: "Ada", src, seed: "same-subject" }),
+    )
+    try {
+      const rendered = render(element(ownerA, "/a.png"))
+      const original = photo(rendered.container)
+      setLoadedImageMetrics(original)
+      fireEvent.load(original)
+      await act(async () => { await Promise.resolve() })
+      rendered.rerender(element(ownerA, "/b.png"))
+      const obsolete = rendered.container.querySelector<HTMLImageElement>('img[src="/b.png"]')!
+      let finish!: () => void
+      const pending = new Promise<void>((resolve) => { finish = resolve })
+      Object.defineProperties(obsolete, {
+        decode: { configurable: true, value: () => pending },
+        naturalWidth: { configurable: true, value: 40 },
+        naturalHeight: { configurable: true, value: 40 },
+      })
+      fireEvent.load(obsolete)
+      rendered.rerender(element(ownerB, "/b.png"))
+      const current = photo(rendered.container)
+      expect(original.isConnected).toBe(false)
+      expect(obsolete.isConnected).toBe(false)
+      expect(current).not.toBe(obsolete)
+      await act(async () => { finish(); await pending })
+      expect(current).toHaveAttribute("data-avatar-photo-state", "pending")
+      expect(rendered.container.querySelectorAll("img")).toHaveLength(1)
+      rendered.unmount()
+    } finally { ownerA.queryClient.clear(); ownerB.queryClient.clear() }
+  })
+
+  it("removes a retained photo when the identity no longer has a photo", async () => {
+    const rendered = render(createElement(ProfileAvatar, { label: "Ada", src: "/a.png", seed: "user_1" }))
+    const original = photo(rendered.container)
+    setLoadedImageMetrics(original)
+    fireEvent.load(original)
+    await act(async () => { await Promise.resolve() })
+    rendered.rerender(createElement(ProfileAvatar, { label: "Ada", src: null, seed: "user_1" }))
+    expect(original.isConnected).toBe(false)
+    expect(rendered.container.querySelector("img")).toBeNull()
+    expect(rendered.container.querySelector("svg")).toBeInTheDocument()
+  })
+
   it("reveals a cached photo whose load event completed before hydration", async () => {
     mockImageReadiness(true, 40, 40)
     const rendered = render(createElement(ProfileAvatar, {

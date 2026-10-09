@@ -5,6 +5,9 @@ import { RemoteContentImage, RemoteIdentityImage } from "./remote-image"
 import { RemoteMarkdownImage } from "./remote-markdown-image"
 import { ShareImagePreparationContext } from "./share-image-context"
 import { ApplicationOwnerProvider, createApplicationOwner } from "@/lib/application-owner"
+import { AgentAvatar } from "@/components/avatar/agent-avatar"
+import { AnimatedAvatar } from "@/components/avatar/animated-avatar"
+import { ServerIcon } from "@/components/community/server-icon"
 
 function setImageMetrics(
   image: HTMLImageElement,
@@ -25,10 +28,250 @@ function contentImage(container: HTMLElement) {
 
 afterEach(() => {
   vi.useRealTimers()
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
 describe("remote image state adapters", () => {
+  const identityElement = (src: string, identityKey = "peer") => React.createElement(RemoteIdentityImage, {
+    src, identityKey, alt: "Peer", profilePhoto: true, "data-testid": "identity-photo",
+  })
+  const sourceImage = (container: HTMLElement, src: string) => [...container.querySelectorAll<HTMLImageElement>("img")]
+    .find((image) => image.getAttribute("src") === src)!
+  const makeReady = async (image: HTMLImageElement) => {
+    setImageMetrics(image)
+    fireEvent.load(image)
+    await act(async () => { await Promise.resolve() })
+  }
+
+  it("shows a complete identity image with natural pixels synchronously without another decode", () => {
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "decode")
+    const decode = vi.fn(() => new Promise<void>(() => {}))
+    Object.defineProperty(HTMLImageElement.prototype, "decode", { configurable: true, value: decode })
+    vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(true)
+    vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(40)
+    vi.spyOn(HTMLImageElement.prototype, "naturalHeight", "get").mockReturnValue(40)
+    try {
+      for (let mount = 0; mount < 2; mount++) {
+        const rendered = render(identityElement("/cached.png"))
+        expect(sourceImage(rendered.container, "/cached.png")).toHaveAttribute("data-remote-image-state", "ready")
+        expect(sourceImage(rendered.container, "/cached.png")).toHaveClass("opacity-100")
+        expect(rendered.container.querySelector(".animate-pulse")).toBeNull()
+        rendered.unmount()
+      }
+      expect(decode).not.toHaveBeenCalled()
+    } finally {
+      if (descriptor) Object.defineProperty(HTMLImageElement.prototype, "decode", descriptor)
+      else delete (HTMLImageElement.prototype as Partial<HTMLImageElement>).decode
+    }
+  })
+
+  it("keeps content and Markdown cached pixels behind their original decode", async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "decode")
+    let finish!: () => void
+    const pending = new Promise<void>((resolve) => { finish = resolve })
+    Object.defineProperty(HTMLImageElement.prototype, "decode", { configurable: true, value: () => pending })
+    vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(true)
+    vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(40)
+    vi.spyOn(HTMLImageElement.prototype, "naturalHeight", "get").mockReturnValue(40)
+    const owner = createApplicationOwner("cached-content-viewer")
+    try {
+      const rendered = render(React.createElement(ApplicationOwnerProvider, { owner },
+        React.createElement(RemoteContentImage, { src: "/cached-content.png", alt: "Content" }),
+        React.createElement(RemoteMarkdownImage, { src: "/cached-markdown.png", alt: "Markdown" }),
+      ))
+      const images = [...rendered.container.querySelectorAll("img")]
+      expect(images.every((image) => image.dataset.remoteImageState === "pending")).toBe(true)
+      await act(async () => { finish(); await pending })
+      expect(images.every((image) => image.dataset.remoteImageState === "ready")).toBe(true)
+      rendered.unmount()
+    } finally {
+      owner.queryClient.clear()
+      if (descriptor) Object.defineProperty(HTMLImageElement.prototype, "decode", descriptor)
+      else delete (HTMLImageElement.prototype as Partial<HTMLImageElement>).decode
+    }
+  })
+
+  it("keeps the same ready identity node when only its props update", async () => {
+    const rendered = render(identityElement("/peer?v=1"))
+    const original = sourceImage(rendered.container, "/peer?v=1")
+    await makeReady(original)
+    rendered.rerender(identityElement("/peer?v=1"))
+    expect(sourceImage(rendered.container, "/peer?v=1")).toBe(original)
+    expect(original).toHaveClass("opacity-100")
+    expect(rendered.container.querySelector(".animate-pulse")).toBeNull()
+    expect(rendered.container.querySelectorAll("img")).toHaveLength(1)
+  })
+
+  it("keeps one identity node visible during native source replacement without exposing a placeholder", async () => {
+    const rendered = render(identityElement("/peer?v=1"))
+    const original = sourceImage(rendered.container, "/peer?v=1")
+    await makeReady(original)
+    rendered.rerender(identityElement("/peer?v=2"))
+    expect(original.isConnected).toBe(true)
+    expect(sourceImage(rendered.container, "/peer?v=2")).toBe(original)
+    expect(rendered.container.querySelectorAll("img")).toHaveLength(1)
+    expect(original).toHaveClass("opacity-100")
+    expect(rendered.container.querySelector(".animate-pulse")).toBeNull()
+    let finish!: () => void
+    const pending = new Promise<void>((resolve) => { finish = resolve })
+    setImageMetrics(original, () => pending)
+    fireEvent.load(original)
+    expect(original.isConnected).toBe(true)
+    await act(async () => { finish(); await pending })
+    expect(sourceImage(rendered.container, "/peer?v=2")).toBe(original)
+    expect(original).toHaveClass("opacity-100")
+    expect(original).toHaveAttribute("data-remote-image-state", "ready")
+    expect(original).toHaveAttribute("alt", "Peer")
+    expect(rendered.getAllByRole("img", { name: "Peer" })).toHaveLength(1)
+    expect(rendered.container.querySelectorAll("img")).toHaveLength(1)
+  })
+
+  it("keeps one node for static failure and exact-source online retry while fencing the prior decode", async () => {
+    const rendered = render(identityElement("/peer?v=1"))
+    const original = sourceImage(rendered.container, "/peer?v=1")
+    await makeReady(original)
+    rendered.rerender(identityElement("/peer?v=2&size=40"))
+    const current = sourceImage(rendered.container, "/peer?v=2&size=40")
+    expect(current).toBe(original)
+    let finish!: () => void
+    const pending = new Promise<void>((resolve) => { finish = resolve })
+    setImageMetrics(current, () => pending)
+    fireEvent.load(current)
+    fireEvent.error(current)
+    expect(original.isConnected).toBe(true)
+    expect(original).toHaveClass("opacity-0")
+    expect(original).toHaveAttribute("data-remote-image-state", "error")
+    expect(rendered.container.querySelector(".animate-pulse")).toBeNull()
+    fireEvent(window, new Event("online"))
+    const retried = sourceImage(rendered.container, "/peer?v=2&size=40")
+    expect(retried).toBe(original)
+    expect(original.isConnected).toBe(true)
+    await act(async () => { finish(); await pending })
+    expect(retried).toHaveAttribute("data-remote-image-state", "pending")
+    await makeReady(retried)
+    expect(original.isConnected).toBe(true)
+    expect(retried).toHaveClass("opacity-100")
+    expect(rendered.container.querySelectorAll("img")).toHaveLength(1)
+  })
+
+  it("keeps A's node when A is requested again and rejects B's late success", async () => {
+    const rendered = render(identityElement("/a.png"))
+    const original = sourceImage(rendered.container, "/a.png")
+    await makeReady(original)
+    rendered.rerender(identityElement("/b.png"))
+    expect(sourceImage(rendered.container, "/b.png")).toBe(original)
+    let finish!: () => void
+    const pending = new Promise<void>((resolve) => { finish = resolve })
+    setImageMetrics(original, () => pending)
+    fireEvent.load(original)
+    rendered.rerender(identityElement("/a.png"))
+    expect(sourceImage(rendered.container, "/a.png")).toBe(original)
+    await act(async () => { finish(); await pending })
+    expect(sourceImage(rendered.container, "/a.png")).toBe(original)
+    expect(original).toHaveAttribute("data-remote-image-state", "pending")
+    expect(original).toHaveClass("opacity-100")
+    await makeReady(original)
+    expect(original).toHaveAttribute("data-remote-image-state", "ready")
+    expect(rendered.container.querySelectorAll("img")).toHaveLength(1)
+  })
+
+  it("fences B's obsolete decode on the same node until C succeeds", async () => {
+    const rendered = render(identityElement("/a.png"))
+    const original = sourceImage(rendered.container, "/a.png")
+    await makeReady(original)
+    rendered.rerender(identityElement("/b.png"))
+    let finish!: () => void
+    const pending = new Promise<void>((resolve) => { finish = resolve })
+    const obsolete = sourceImage(rendered.container, "/b.png")
+    setImageMetrics(obsolete, () => pending)
+    fireEvent.load(obsolete)
+    rendered.rerender(identityElement("/c.png"))
+    expect(original.isConnected).toBe(true)
+    expect(obsolete).toBe(original)
+    await act(async () => { finish(); await pending })
+    expect(original).toHaveClass("opacity-100")
+    expect(sourceImage(rendered.container, "/c.png")).toHaveAttribute("data-remote-image-state", "pending")
+    await makeReady(sourceImage(rendered.container, "/c.png"))
+    expect(rendered.container.querySelectorAll("img")).toHaveLength(1)
+    expect(original.isConnected).toBe(true)
+  })
+
+  it("does not publish the previous native currentSrc as readiness for the new source", async () => {
+    const rendered = render(identityElement("/a.png"))
+    const original = sourceImage(rendered.container, "/a.png")
+    await makeReady(original)
+    const decode = vi.fn(async () => {})
+    setImageMetrics(original, decode)
+    Object.defineProperties(original, {
+      complete: { configurable: true, value: true },
+      currentSrc: { configurable: true, value: new URL("/a.png", window.location.href).href },
+    })
+    rendered.rerender(identityElement("/b.png"))
+    expect(sourceImage(rendered.container, "/b.png")).toBe(original)
+    expect(original).toHaveAttribute("data-remote-image-state", "pending")
+    fireEvent.load(original)
+    await act(async () => { await Promise.resolve() })
+    expect(decode).not.toHaveBeenCalled()
+    expect(original).toHaveAttribute("data-remote-image-state", "pending")
+    expect(original).toHaveClass("opacity-100")
+    Object.defineProperty(original, "currentSrc", { configurable: true, value: original.src })
+    fireEvent.load(original)
+    await act(async () => { await Promise.resolve() })
+    expect(original).toHaveAttribute("data-remote-image-state", "ready")
+  })
+
+  it("retires the host for a different identity even when the source is identical", async () => {
+    const rendered = render(identityElement("/same.png", "person-a"))
+    const original = sourceImage(rendered.container, "/same.png")
+    await makeReady(original)
+    rendered.rerender(identityElement("/same.png", "person-b"))
+    const current = sourceImage(rendered.container, "/same.png")
+    expect(current).not.toBe(original)
+    expect(original.isConnected).toBe(false)
+    expect(current).toHaveAttribute("data-remote-image-state", "pending")
+  })
+
+  it("keeps sources isolated when no stable identity is supplied", async () => {
+    const element = (src: string) => React.createElement(RemoteIdentityImage, { src, alt: "Unknown" })
+    const rendered = render(element("/one.png"))
+    const original = sourceImage(rendered.container, "/one.png")
+    await makeReady(original)
+    rendered.rerender(element("/two.png"))
+    expect(original.isConnected).toBe(false)
+    expect(sourceImage(rendered.container, "/two.png")).toHaveAttribute("data-remote-image-state", "pending")
+  })
+
+  it("retires retained pixels when entering a share preparation tree", async () => {
+    const element = (preparing: boolean, src: string) => React.createElement(ShareImagePreparationContext, { value: preparing }, identityElement(src))
+    const rendered = render(element(false, "/a.png"))
+    const original = sourceImage(rendered.container, "/a.png")
+    await makeReady(original)
+    rendered.rerender(element(false, "/b.png"))
+    rendered.rerender(element(true, "/b.png"))
+    expect(original.isConnected).toBe(false)
+    const images = [...rendered.container.querySelectorAll("img")]
+    expect(images).toHaveLength(1)
+    expect(images[0]).toHaveAttribute("data-share-image-src", "/b.png")
+    expect(images[0]).not.toHaveAttribute("src")
+  })
+
+  it.each([
+    { name: "agent", element: (src: string, id: string) => React.createElement(AgentAvatar, { avatarUrl: src, seed: id, name: "Bot" }) },
+    { name: "animated", element: (src: string, id: string) => React.createElement(AnimatedAvatar, { avatarUrl: src, seed: id, isHovered: false }) },
+    { name: "server", element: (src: string, id: string) => React.createElement(ServerIcon, { icon: src, id, name: "Server", initial: "S" }) },
+  ])("wires the existing $name id to the common retention and retirement boundary", async ({ element }) => {
+    const rendered = render(element("/a.png", "one"))
+    const original = sourceImage(rendered.container, "/a.png")
+    await makeReady(original)
+    rendered.rerender(element("/b.png", "one"))
+    expect(original.isConnected).toBe(true)
+    expect(original).toHaveClass("opacity-100")
+    rendered.rerender(element("/b.png", "two"))
+    expect(original.isConnected).toBe(false)
+    expect(rendered.container.querySelectorAll("img")).toHaveLength(1)
+  })
+
   it("keeps remote URLs inert while rendering a share preparation tree", () => {
     const rendered = render(React.createElement(ShareImagePreparationContext, { value: true },
       React.createElement(RemoteIdentityImage, { src: "/avatar.png", alt: "Ada" }),
@@ -78,7 +321,7 @@ describe("remote image state adapters", () => {
 
     fireEvent(window, new Event("online"))
     const retried = identity()
-    expect(retried).not.toBe(original)
+    expect(retried).toBe(original)
     expect(retried).toHaveAttribute("src", "/avatar/peer?v=3")
     expect(retried).toHaveAttribute("data-avatar-photo-state", "pending")
     await act(async () => { finishOldDecode(); await oldDecode })
@@ -103,7 +346,7 @@ describe("remote image state adapters", () => {
       const original = rendered.container.querySelector<HTMLImageElement>("img")!
       fireEvent(window, new Event("online"))
       const retried = rendered.container.querySelector<HTMLImageElement>("img")!
-      expect(retried).not.toBe(original)
+      expect(retried).toBe(original)
       expect(retried).toHaveAttribute("src", "/avatar/peer?v=3")
       expect(retried).toHaveAttribute("data-remote-image-state", "pending")
       const online = added.mock.calls.find(([name]) => name === "online")![1]
