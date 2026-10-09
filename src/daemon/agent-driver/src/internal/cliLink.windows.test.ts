@@ -92,8 +92,10 @@ describe.skipIf(process.platform !== "win32")("native Windows injected Node CLI"
       expect(powershell.code).toBe(0);
       const failed = await invoke(spawnEnv.ALOOK_CLI!, ["--fail"], directory, true, { env: spawnEnv });
       expect(failed.code).toBe(23);
-      const bashFailed = await invoke(process.env.ALOOK_NATIVE_BASH_PATH!, ["--noprofile", "--norc", "-c", '"$ALOOK_CLI" --fail'], directory, false, { env: spawnEnv });
-      expect(bashFailed.code).toBe(23);
+      if (process.env.ALOOK_NATIVE_BASH_PATH) {
+        const bashFailed = await invoke(process.env.ALOOK_NATIVE_BASH_PATH, ["--noprofile", "--norc", "-c", '"$ALOOK_CLI" --fail'], directory, false, { env: spawnEnv });
+        expect(bashFailed.code).toBe(23);
+      }
     } finally {
       rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
     }

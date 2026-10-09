@@ -14,7 +14,7 @@ import { probeCliRuntime, probeCommandOutput, probeCommandVersion, resolveComman
 
 const roots: string[] = [];
 const children: ChildProcess[] = [];
-const diagnostics = new Map<ChildProcess, { binary: string; stderr: string }>();
+const diagnostics = new Map<ChildProcess, { binary: string; stdout: string; stderr: string }>();
 
 function setPrefix(prefix: string) {
   const bin = process.platform === "win32" ? prefix : join(prefix, "bin");
@@ -37,8 +37,9 @@ function launch(binary: string, args: string[]) {
     cwd: process.cwd(), env: process.env, shell: spec.shell,
   });
   children.push(child);
-  const trace = { binary, stderr: "" };
+  const trace = { binary, stdout: "", stderr: "" };
   diagnostics.set(child, trace);
+  child.stdout?.on("data", chunk => { trace.stdout = (trace.stdout + String(chunk)).slice(-4096); });
   child.stderr?.on("data", chunk => { trace.stderr = (trace.stderr + String(chunk)).slice(-4096); });
   return child;
 }
@@ -46,7 +47,12 @@ function launch(binary: string, args: string[]) {
 function waitForLine(child: ChildProcess, matches: (line: string) => boolean): Promise<string> {
   const lines = createInterface({ input: child.stdout! });
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => finish(new Error("runtime output timed out")), 20_000);
+    const timer = setTimeout(() => {
+      const trace = diagnostics.get(child);
+      console.log(JSON.stringify({ stage: "readiness-timeout", binary: trace?.binary, pid: child.pid,
+        alive: child.pid ? isAlive(child.pid) : false, stdout: scrubDriverErrorMessage(trace?.stdout ?? ""), stderr: scrubDriverErrorMessage(trace?.stderr ?? "") }));
+      finish(new Error("runtime output timed out"));
+    }, 20_000);
     const onExit = (code: number | null, signal: string | null) => {
       const trace = diagnostics.get(child);
       finish(new Error(`${trace?.binary} exited before readiness: code=${code}, signal=${signal}, stderr=${scrubDriverErrorMessage(trace?.stderr ?? "")}`));
@@ -65,10 +71,12 @@ function waitForLine(child: ChildProcess, matches: (line: string) => boolean): P
   });
 }
 
-function windowsDescendants(pid: number): number[] {
+type WindowsProcessIdentity = { pid: number; name: string; created: string };
+
+function windowsDescendants(pid: number): WindowsProcessIdentity[] {
   if (process.platform !== "win32") return [];
-  const script = `$queue = [System.Collections.Generic.Queue[int]]::new(); $queue.Enqueue(${pid}); $found = @(); while ($queue.Count -gt 0) { $parent = $queue.Dequeue(); foreach ($child in @(Get-CimInstance Win32_Process -Filter ("ParentProcessId=" + $parent))) { $id = [int]$child.ProcessId; $found += $id; $queue.Enqueue($id) } }; ConvertTo-Json -InputObject @($found) -Compress`;
-  return JSON.parse(execFileSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", timeout: 10_000 })) as number[];
+  const script = `$queue = [System.Collections.Generic.Queue[int]]::new(); $queue.Enqueue(${pid}); $found = @(); while ($queue.Count -gt 0) { $parent = $queue.Dequeue(); foreach ($child in @(Get-CimInstance Win32_Process -Filter ("ParentProcessId=" + $parent))) { $id = [int]$child.ProcessId; $found += @{pid=$id;name=$child.Name;created=$child.CreationDate.ToString("o")}; $queue.Enqueue($id) } }; ConvertTo-Json -InputObject @($found) -Compress`;
+  return JSON.parse(execFileSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", timeout: 10_000 })) as WindowsProcessIdentity[];
 }
 
 async function stop(child: ChildProcess) {
@@ -77,7 +85,13 @@ async function stop(child: ChildProcess) {
   await killProcessTree(child.pid!, { graceMs: 300 });
   await closed;
   expect(isAlive(child.pid!)).toBe(false);
-  for (const pid of owned) expect(isAlive(pid)).toBe(false);
+  const alive = owned.filter(process => isAlive(process.pid));
+  if (alive.length) {
+    const script = `$found = @(); foreach ($id in @(${alive.map(process => process.pid).join(",")})) { foreach ($process in @(Get-CimInstance Win32_Process -Filter ("ProcessId=" + $id))) { $found += @{pid=$id;name=$process.Name;created=$process.CreationDate.ToString("o")} } }; ConvertTo-Json -InputObject @($found) -Compress`;
+    const current = JSON.parse(execFileSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", timeout: 10_000 }));
+    console.log(JSON.stringify({ stage: "owned-descendant-still-alive", binary: diagnostics.get(child)?.binary, captured: alive, current }));
+  }
+  expect(alive).toEqual([]);
   children.splice(children.indexOf(child), 1);
 }
 
@@ -205,7 +219,21 @@ describe.skipIf(!nativePrefix)("real npm and native providers from an isolated p
     child.stdin!.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {
       protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: "alook-windows-qa", version: "1.0.0" },
     } }) + "\n");
-    expect(JSON.parse(await initialized)).toMatchObject({ result: { protocolVersion: 1 } });
+    let initializedLine: string;
+    try {
+      initializedLine = await initialized;
+    } catch (error) {
+      if (binary === "agy_acp_server.exe") {
+        try {
+          const late = await waitForLine(child, line => {
+            try { return JSON.parse(line).id === 1; } catch { return false; }
+          });
+          console.log(JSON.stringify({ binary, phase: "diagnostic-late-initialize", elapsedMs: Date.now() - started, responseKind: JSON.parse(late).result ? "result" : "error" }));
+        } catch {}
+      }
+      throw error;
+    }
+    expect(JSON.parse(initializedLine)).toMatchObject({ result: { protocolVersion: 1 } });
     console.log(JSON.stringify({ binary, phase: "initialize", elapsedMs: Date.now() - started }));
     if (binary === "agy_acp_server.exe") {
       const session = waitForLine(child, line => {
