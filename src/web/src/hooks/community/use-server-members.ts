@@ -8,7 +8,7 @@ import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent, publishCommunityMembersSnapshot } from "@/lib/community-db/sync"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { beginCommunityProfileSeed, writeCommunityProfilePatches, communityUserProfilePatch } from "@/lib/community/profile-seed"
-import { useCanonicalProfilesByUserId, useServerMemberRows } from "@/lib/community-db/projections"
+import { getMemberReadState, useCanonicalProfilesProjection, useServerMemberProjection } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import { serverMembershipKey } from "@/lib/community-db/schema"
 import { useCommunityViewSource } from "./use-community-view-source"
@@ -421,18 +421,20 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
       return true
     }) ?? []
   }, [data])
-  const memberships = useServerMemberRows(serverId, identities.map((member) => member.userId))
-  const profiles = useCanonicalProfilesByUserId(identities.map((member) => member.userId))
+  const membershipProjection = useServerMemberProjection(serverId, identities.map((member) => member.userId))
+  const profileProjection = useCanonicalProfilesProjection(identities.map((member) => member.userId))
+  const profiles = profileProjection.data
   const members = useMemo(() => {
-    const byUser = new Map(memberships.map((row) => [row.userId, row]))
+    const byUser = new Map((membershipProjection.data ?? []).map((row) => [row.userId, row]))
     return identities.flatMap((identity) => {
       const row = byUser.get(identity.userId)
       if (!row || row.memberId !== identity.id) return []
       const profile = readCommunityProfile(profiles.get(identity.userId), identity.userId)
       return [{ id: identity.id, userId: identity.userId, name: row.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, role: row.role as CommunityRole, status: row.viewer ? "online" as const : profile.presence, sub: "", statusEmoji: profile.statusEmoji, statusText: profile.statusText }]
     })
-  }, [identities, memberships, profiles])
+  }, [identities, membershipProjection.data, profiles])
   const active = searching ? search : infinite
+  const readState = getMemberReadState(!!serverId, { pending: !data || active.isRefetching, failed: (!searching || searchReady) && active.isError && !active.isFetching }, [membershipProjection, profileProjection], members.filter((member) => member.userId !== membershipProjection.registry?.accountId).map((member) => member.userId), profiles)
   const pendingKicks = useMutationState({ filters: { mutationKey: ["community", "member-command"], status: "pending" }, select: (mutation) => {
     const variables = mutation.state.variables as { kind: string; input: { serverId: string; memberId: string } }
     const current = queryClient.getQueryData<MembersWindowCache>(key)
@@ -440,12 +442,12 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
   } })
   const assertView = () => source.capture()()
   return {
-    members: searching && search.isRefetching ? [] : members, loading: searching ? searchReady ? search.isPending || search.isRefetching : true : !!serverId && infinite.isPending,
+    members: serverId ? members : [], loading: readState.loading,
     loadingMore: active.isFetchingNextPage, hasMore: active.hasNextPage,
     total: Math.max(0, (infinite.data?.pages.at(-1)?.total ?? 0) - pendingKicks.reduce<number>((sum, value) => sum + value, 0)), isSearching: searching,
     searchQuery: searching ? searchIntent.query : "",
-    searchStatus: !searching ? "idle" : !searchReady || search.isPending || search.isRefetching ? "loading" : search.isError ? "error" : search.isFetchingNextPage || search.hasNextPage ? "loading-more" : members.length ? "ready" : "empty",
-    failed: active.isError,
+    searchStatus: !searching ? "idle" : readState.failed ? "error" : readState.loading ? "loading" : search.isFetchingNextPage || search.hasNextPage ? "loading-more" : members.length ? "ready" : "empty",
+    failed: readState.failed,
     loadMore: () => { assertView(); if (active.hasNextPage && !active.isFetchingNextPage) void active.fetchNextPage({ cancelRefetch: false }) },
     reset: () => { assertView(); intent.setState((state) => ({ ...state, query: "", debounced: "" })) },
     refresh: () => { assertView(); void queryClient.invalidateQueries({ queryKey: key }, { cancelRefetch: false }) },

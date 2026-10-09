@@ -11,6 +11,9 @@ import {
   useCanonicalCommunityProfile,
   useCanonicalMessagesById,
   useCanonicalProfilesByUserId,
+  useCanonicalProfilesProjection,
+  useServerMemberProjection,
+  getMemberReadState,
   useChannelRefDirectoryProjection,
   useDmProjection,
   useMessageProjection,
@@ -21,8 +24,49 @@ import {
   useTrustedRestoredPrimary,
 } from "./projections"
 import { ingestMessages, ingestServerDetail, ingestServers } from "./sync"
+import { profileSchema } from "./schema"
 
 describe("community DB projections", () => {
+  it("carries native preparation and failure through member reads and recovers from actual canonical data", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    let reject!: (error: Error) => void
+    const registry = createCommunityDbRegistry(client, "viewer", { waitForRestore: new Promise<void>((_resolve, rejectPromise) => { reject = rejectPromise }) })
+    const wrapper = ({ children }: { children: ReactNode }) => React.createElement(QueryClientProvider, { client }, React.createElement(CommunityDbProvider, { registry }, children))
+    const rendered = renderHook(() => {
+      const profiles = useCanonicalProfilesProjection(["peer"])
+      const disabled = useServerMemberProjection(null, [])
+      return { profiles, disabled, state: getMemberReadState(true, { pending: false, failed: false }, [profiles], ["peer"], profiles.data) }
+    }, { wrapper })
+    try {
+      await waitFor(() => expect(rendered.result.current.profiles.isLoading).toBe(true))
+      expect(rendered.result.current.state).toEqual({ loading: true, failed: false })
+      expect(rendered.result.current.disabled).toMatchObject({ isEnabled: false, isReady: true })
+      await act(async () => reject(new Error("controlled profile restore failure")))
+      await waitFor(() => expect(rendered.result.current.profiles.isError).toBe(true))
+      expect(rendered.result.current.state).toEqual({ loading: false, failed: true })
+      await act(async () => client.setQueryData(communityKeys.communityDbCollection(registry.scopeId, "profiles"), [profileSchema.parse({ userId: "peer", name: "Peer", discriminator: "0042", avatar: "P", avatarVersion: 1 })]))
+      await waitFor(() => expect(rendered.result.current.state).toEqual({ loading: false, failed: false }))
+      expect(rendered.result.current.profiles.data.get("peer")?.discriminator).toBe("0042")
+    } finally { rendered.unmount(); await registry.cleanup(); client.clear() }
+  })
+
+  it("does not turn presence-only or disabled snapshots into complete member handles", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const registry = createCommunityDbRegistry(client, "viewer")
+    await registry.preload()
+    registry.runtime.ws.setState((state) => ({ ...state, presenceByUserId: new Map([["peer", "online"]]) }))
+    const wrapper = ({ children }: { children: ReactNode }) => React.createElement(QueryClientProvider, { client }, React.createElement(CommunityDbProvider, { registry }, children))
+    const rendered = renderHook(() => ({ profiles: useCanonicalProfilesProjection(["peer"]), disabled: useServerMemberProjection(null, []) }), { wrapper })
+    try {
+      await waitFor(() => expect(rendered.result.current.profiles.isReady).toBe(true))
+      const { profiles, disabled } = rendered.result.current
+      expect(profiles.data.get("peer")).toMatchObject({ id: "peer", presence: "online" })
+      expect(getMemberReadState(true, { pending: false, failed: false }, [profiles], ["peer"], profiles.data)).toEqual({ loading: false, failed: true })
+      expect(getMemberReadState(true, { pending: false, failed: false }, [profiles], [], profiles.data)).toEqual({ loading: false, failed: false })
+      expect(getMemberReadState(true, { pending: false, failed: false }, [disabled], [], profiles.data)).toEqual({ loading: true, failed: false })
+      expect(getMemberReadState(false, { pending: true, failed: true }, [disabled], ["peer"], profiles.data)).toEqual({ loading: false, failed: false })
+    } finally { rendered.unmount(); await registry.cleanup(); client.clear() }
+  })
   it("keeps disabled channel arrays unresolved and active empty selections empty while restore is pending", async () => {
     const client = new QueryClient()
     let release!: () => void

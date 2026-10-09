@@ -18,19 +18,19 @@ export type ComposerMention = {
 
 export type MentionCandidateSource = {
   loading: boolean
-  loadingMore: boolean
-  hasMore: boolean
+  loadingMore?: boolean
+  hasMore?: boolean
   failed: boolean
-  searchQuery: string
-  searchStatus:
+  searchQuery?: string
+  searchStatus?:
     | "idle"
     | "loading"
     | "loading-more"
     | "ready"
     | "empty"
     | "error"
-  loadMore: () => void
-  search: (query: string) => void
+  loadMore?: () => void
+  search?: (query: string) => void
 }
 
 export type ChannelRefCandidateSource = {

@@ -4,7 +4,7 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { PARTICIPANT_SOURCE } from "@alook/shared/constants/community"
-import { channelMembershipKey } from "@/lib/community-db/schema"
+import { channelMembershipKey, profileSchema, serverMembershipKey } from "@/lib/community-db/schema"
 
 const apiFetchMock = vi.fn()
 
@@ -17,6 +17,39 @@ beforeEach(() => {
 })
 
 describe("useChannelMembers", () => {
+  it("retains authorized canonical access members on transport failure and recovers through the same refetch", async () => {
+    const { useChannelMembers } = await import("./use-channel-members")
+    const { publishCommunityChannelMembersSnapshot, captureCommunityLiveSnapshotToken } = await import("@/lib/community-db/sync")
+    const owner = await createCommunityQueryOwner()
+    const peer = { id: "m-peer", userId: "peer", name: "Peer", discriminator: "0042", avatar: "P", avatarVersion: 0, sub: "", role: "member", status: "offline", source: "explicit", isCreator: false }
+    publishCommunityChannelMembersSnapshot(owner.client, "server", "private", "access", [{ channelId: "private", userId: "peer", relation: "access", memberId: "m-peer", role: "member", source: "explicit", isCreator: false }], { token: captureCommunityLiveSnapshotToken(owner.client) }, [{ id: "peer", name: "Peer", discriminator: "0042", avatar: "P", avatarVersion: 0 }])
+    apiFetchMock.mockRejectedValue(new Error("controlled first read failure"))
+    const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client: owner.client }, children)
+    const rendered = renderHook(() => useChannelMembers("private", true, "server", "access"), { wrapper })
+    await waitFor(() => expect(rendered.result.current).toMatchObject({ isError: true, failed: true, members: [expect.objectContaining({ userId: "peer", discriminator: "0042" })] }))
+    expect(rendered.result.current.data).toBeUndefined()
+    apiFetchMock.mockResolvedValue({ members: [peer] })
+    await act(async () => { await rendered.result.current.refetch() })
+    await waitFor(() => expect(rendered.result.current).toMatchObject({ isSuccess: true, loading: false, failed: false, members: [expect.objectContaining({ userId: "peer" })] }))
+    expect(apiFetchMock).toHaveBeenCalledTimes(2)
+  })
+  it("separates missing usable profiles from true empty and withdraws disabled access candidates", async () => {
+    const { useChannelMembers } = await import("./use-channel-members")
+    const owner = await createCommunityQueryOwner()
+    apiFetchMock.mockResolvedValue({ members: [{ id: "m-peer", userId: "peer", name: "Peer", discriminator: "", avatar: "P", avatarVersion: 0, sub: "", role: "member", status: "offline", source: "explicit", isCreator: false }] })
+    const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client: owner.client }, children)
+    const rendered = renderHook(({ enabled }) => useChannelMembers("private", enabled, "server", "access"), { wrapper, initialProps: { enabled: true } })
+    await waitFor(() => expect(rendered.result.current).toMatchObject({ isSuccess: true, loading: false, failed: true }))
+    await act(async () => owner.registry.collections.profiles.utils.writeUpsert(profileSchema.parse({ userId: "peer", name: "Peer", discriminator: "0042", avatar: "P", avatarVersion: 0 })))
+    await waitFor(() => expect(rendered.result.current).toMatchObject({ loading: false, failed: false, members: [expect.objectContaining({ userId: "peer", discriminator: "0042" })] }))
+    expect(rendered.result.current.profiles.get("peer")?.discriminator).toBe("0042")
+    await act(async () => owner.registry.collections.serverMemberships.utils.writeDelete(serverMembershipKey("server", "peer")))
+    await waitFor(() => expect(rendered.result.current).toMatchObject({ loading: false, failed: false, members: [] }))
+    rendered.rerender({ enabled: false })
+    expect(rendered.result.current).toMatchObject({ loading: false, failed: false, members: [] })
+    expect(rendered.result.current.data).toBeUndefined()
+    expect(apiFetchMock).toHaveBeenCalledOnce()
+  })
   it("fetches the roster through the identity-aware query function", async () => {
     apiFetchMock.mockResolvedValue({
       members: [{

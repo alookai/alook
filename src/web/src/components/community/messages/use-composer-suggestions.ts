@@ -182,11 +182,7 @@ export function useComposerSuggestions({
     const current = mentionPopupRef.current
     if (!current.command) return
     const query = mentionQueryRef.current
-    const remoteSearchReady = !query || !mentionCandidates
-      || (mentionCandidates.searchQuery === query
-        && (mentionCandidates.searchStatus === "ready"
-          || mentionCandidates.searchStatus === "loading-more"
-          || mentionCandidates.searchStatus === "empty"))
+    const remoteSearchReady = !query || !mentionCandidates?.search || mentionCandidates.searchQuery === query
     const items = rankMentionItems(
       remoteSearchReady ? members : [],
       context,
@@ -207,7 +203,7 @@ export function useComposerSuggestions({
     if (!mentionCandidates?.hasMore) return
     if (mentionCandidates.loading || mentionCandidates.loadingMore) return
     if (mentionCandidates.failed) return
-    mentionCandidates.loadMore()
+    mentionCandidates.loadMore?.()
   }, [mentionCandidates, mentionPopup.command, mentionPopup.query])
 
   const mentionPresentation: MentionCandidatePresentation = (() => {
@@ -215,30 +211,20 @@ export function useComposerSuggestions({
       return { status: mentionPopup.items.length > 0 ? "ready" : "empty" }
     }
     const query = mentionPopup.query
-    if (query) {
+    if (query && mentionCandidates.search) {
       if (mentionCandidates.searchQuery !== query) return { status: "loading" }
-      if (mentionCandidates.searchStatus === "loading"
-        || mentionCandidates.searchStatus === "idle") {
-        return { status: "loading" }
-      }
-      if (mentionCandidates.searchStatus === "error") return { status: "error" }
-      if (mentionCandidates.searchStatus === "loading-more") {
-        return { status: "loading-more" }
-      }
-      return {
-        status: mentionPopup.items.length > 0 ? "ready" : "empty",
-      }
     }
-    if (mentionCandidates.failed) return { status: "error" }
-    if (mentionCandidates.loading) return { status: "loading" }
-    if (mentionCandidates.loadingMore || mentionCandidates.hasMore) {
+    const searchStatus = query && mentionCandidates.search ? mentionCandidates.searchStatus : undefined
+    if (mentionCandidates.failed || searchStatus === "error") return { status: "error" }
+    if (mentionCandidates.loading || searchStatus === "loading" || searchStatus === "idle") return { status: "loading" }
+    if (mentionCandidates.loadingMore || mentionCandidates.hasMore || searchStatus === "loading-more") {
       return { status: "loading-more" }
     }
     return { status: mentionPopup.items.length > 0 ? "ready" : "empty" }
   })()
 
   const resetPopups = () => {
-    mentionCandidates?.search("")
+    mentionCandidates?.search?.("")
     setMentionPopup(EMPTY_MENTION_STATE)
     setChannelRefPopup(EMPTY_CHANNEL_REF_STATE)
   }

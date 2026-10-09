@@ -247,17 +247,18 @@ export function useChannelMemberViewModel({
     profilesByUserId,
   ])
 
+  const composerMemberSource = isNotifyUnit ? parentChannelMembersHook : channelMembersHook
   const composerMembers = useMemo(() => {
+    if (!accessAllowed) return []
     if (!currentChannelPrivate) {
       return members.filter((member) => member.userId !== currentUser.id)
     }
-    const roster = isNotifyUnit ? parentChannelMembersHook.members : channelMembersHook.members
-    return roster
+    return composerMemberSource.members
       .filter((member): member is typeof member & { role: Role } => member.role !== null)
       .filter((member) => member.userId !== currentUser.id)
       .map((member) => {
         const profile = readCommunityProfile(
-          profilesByUserId.get(member.userId),
+          composerMemberSource.profiles.get(member.userId),
           member.userId,
         )
         return {
@@ -272,18 +273,17 @@ export function useChannelMemberViewModel({
         }
       })
   }, [
-    channelMembersHook.members,
+    accessAllowed,
+    composerMemberSource.members,
+    composerMemberSource.profiles,
     currentChannelPrivate,
     currentUser.id,
-    isNotifyUnit,
     members,
-    parentChannelMembersHook.members,
-    profilesByUserId,
   ])
 
   const composerMentionCandidates = useMemo<MentionCandidateSource | undefined>(
     () => currentChannelPrivate
-      ? undefined
+      ? { loading: composerMemberSource.loading, failed: composerMemberSource.failed }
       : {
           loading: membersHook.loading,
           loadingMore: membersHook.loadingMore,
@@ -296,6 +296,8 @@ export function useChannelMemberViewModel({
         },
     [
       currentChannelPrivate,
+      composerMemberSource.loading,
+      composerMemberSource.failed,
       membersHook.failed,
       membersHook.hasMore,
       membersHook.loadMore,

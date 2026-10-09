@@ -621,6 +621,39 @@ describe("useComposerSuggestions", () => {
     expect(resultRef.current!.mentionPresentation.status).toBe("empty")
   })
 
+  it("uses common read state for local private search and retains matching cache on remote errors", async () => {
+    const resultRef: { current: Result | null } = { current: null }
+    const item = { kind: "member" as const, id: "member-1", userId: "user-1", label: "Ada#0001", name: "Ada", discriminator: "0001", avatar: "A", status: "online" as const }
+    mocks.rankMention.mockImplementation((rows: Member[]) => rows.length ? [item] : [])
+    const local = (loading: boolean, failed: boolean) => ({ loading, failed })
+    let renderer!: ReturnType<typeof rtlRender>
+    const show = async (source: Options["mentionCandidates"], members = [member()]) => {
+      await act(async () => renderer.rerender(createElement(Harness, { members, context: "channel", mentionCandidates: source, channelRefCandidates: [], resultRef })))
+    }
+    await act(async () => { renderer = rtlRender(createElement(Harness, { members: [member()], context: "channel", mentionCandidates: local(true, false), channelRefCandidates: [], resultRef })) })
+    const options = mocks.buildMention.mock.calls[0][0]
+    const query = (resultRef.current!.mentionExtension as unknown as { runQuery: (query: string) => unknown }).runQuery
+    await act(async () => { options.setPopup({ items: query("ad"), query: "ad", selectedIndex: 0, command: vi.fn(), getRect: null }) })
+    expect(resultRef.current!.mentionPresentation.status).toBe("loading")
+    expect(resultRef.current!.mentionPopup.items).toEqual([item])
+    await show(local(false, true))
+    expect(resultRef.current!.mentionPresentation.status).toBe("error")
+    expect(resultRef.current!.mentionPopup.items).toEqual([item])
+    await show(local(false, false))
+    expect(resultRef.current!.mentionPresentation.status).toBe("ready")
+    await show(local(false, false), [])
+    expect(resultRef.current!.mentionPresentation.status).toBe("empty")
+    await show(candidateSource(vi.fn(), { searchQuery: "ad", searchStatus: "error", failed: true }))
+    expect(resultRef.current!.mentionPresentation.status).toBe("error")
+    expect(resultRef.current!.mentionPopup.items).toEqual([item])
+    await show(candidateSource(vi.fn(), { searchQuery: "older", searchStatus: "ready" }))
+    expect(resultRef.current!.mentionPresentation.status).toBe("loading")
+    expect(resultRef.current!.mentionPopup.items).toEqual([])
+    await show(local(false, false))
+    await act(async () => resultRef.current!.resetPopups())
+    expect(resultRef.current!.mentionPopup.items).toEqual([])
+  })
+
   it("keeps channel state when only serverName changes and resets both popups", async () => {
     const resultRef: { current: Result | null } = { current: null }
     let renderer!: ReturnType<typeof rtlRender>
