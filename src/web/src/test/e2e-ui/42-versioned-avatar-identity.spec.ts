@@ -176,16 +176,18 @@ test("versioned avatars converge across live, stale, reconnect, cold, and concur
       (event) => event.avatarVersion === second.avatarVersion,
     ), { timeout: 20_000 }).toBe(true)
     await avatarStarted.promise
-    const { current, ...pendingImage } = await warmImage.evaluate((image: HTMLImageElement) => ({
+    const { current, pixels, naturalWidth, naturalHeight, ...pendingImage } = await warmImage.evaluate((image: HTMLImageElement) => ({
       connected: image.isConnected,
       source: image.getAttribute("src"),
       current: image.currentSrc,
       opacity: getComputedStyle(image).opacity,
       transition: getComputedStyle(image).transitionProperty,
       pixels: image.naturalWidth > 0 && image.naturalHeight > 0,
+      naturalWidth: image.naturalWidth,
+      naturalHeight: image.naturalHeight,
     }))
     await testInfo.attach("pending-avatar-image", {
-      body: JSON.stringify({ ...pendingImage, current }),
+      body: JSON.stringify({ ...pendingImage, current, pixels, naturalWidth, naturalHeight }),
       contentType: "application/json",
     })
     expect(pendingImage).toEqual({
@@ -193,13 +195,17 @@ test("versioned avatars converge across live, stale, reconnect, cold, and concur
       source: second.url,
       opacity: "1",
       transition: "none",
-      pixels: true,
     })
     await expect(message.locator(`img[src="${second.url}"]`)).toBeVisible()
     await expect(message.locator('[data-remote-image-placeholder="identity"].animate-pulse')).toHaveCount(0)
     avatarGate.resolve()
     await expectPhoto(message, second.url)
-    expect(await warmImage.evaluate((image: HTMLImageElement) => image.isConnected)).toBe(true)
+    expect(await warmImage.evaluate((image: HTMLImageElement) => ({
+      connected: image.isConnected,
+      source: image.getAttribute("src"),
+      complete: image.complete,
+      pixels: image.naturalWidth > 0 && image.naturalHeight > 0,
+    }))).toEqual({ connected: true, source: second.url, complete: true, pixels: true })
   } finally {
     avatarGate.resolve()
     await observer.page.unroute(avatarPattern)
