@@ -11,13 +11,12 @@ import { useUploadUserAvatar } from "./mutations/profile"
 import { useJoinServer } from "./mutations/servers"
 import { useSetBotNotificationSetting } from "./use-notification-settings"
 import { communityKeys } from "@/lib/query-keys"
-import { tagValue, viewEvidence } from "@/lib/observability/data-source"
 import { configureTelemetry, retireTelemetry } from "@/lib/observability/telemetry"
 
 const api = vi.fn()
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => api(...args), toastApiError: vi.fn() }))
 beforeEach(() => { api.mockReset() })
-it("projects the native machines query and retains its actual cache evidence", async () => {
+it("projects the native machines query and retains its original cache values", async () => {
   const { client, registry } = await createCommunityQueryOwner()
   const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client, registry }, children)
   configureTelemetry({ session_id: "machines-session" }, true)
@@ -25,10 +24,8 @@ it("projects the native machines query and retains its actual cache evidence", a
     const rendered = renderHook(() => useMachines({ enabled: false }), { wrapper })
     expect(rendered.result.current.machines).toEqual([])
     const data = { machines: [{ id: "machine-a", hostname: "host" }] }
-    tagValue(client, data, "network")
     act(() => client.setQueryData(communityKeys.machines(), data))
     await waitFor(() => expect(rendered.result.current.machines).toBe(data.machines))
-    expect(viewEvidence(rendered.result.current.machines).source).toBe("network")
     expect(api).not.toHaveBeenCalled()
     rendered.unmount()
   } finally { retireTelemetry() }

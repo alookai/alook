@@ -1,8 +1,5 @@
 "use client"
-
-import { useObservedRegion } from "@/lib/observability/regions"
-import { valueEvidence } from "@/lib/observability/data-source"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQuery } from "@tanstack/react-query"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, useRef, type CSSProperties } from "react"
@@ -97,8 +94,6 @@ export function CodePreview({
     },
   })
   const highlight: CodeHighlightResult = query.data ?? { kind: "plain", lines: null, reason: null }
-  const client = useQueryClient()
-  useObservedRegion("file_preview", !query.isPending && !query.isError, valueEvidence(client, query.data))
   const highlighting = query.isFetching
   const [wrap, setWrap] = useAtom(useCreateAtom(false))
   const [copyState, setCopyState] = useAtom(useCreateAtom<"idle" | "copied" | "failed">("idle"))

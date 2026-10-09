@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-quer
 import { afterEach, expect, it, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
 import { announceAnalyticsConsent } from "../analytics-consent"
-import { useObservedQueryRegion } from "./query-regions"
+import { useObservedRegion } from "./regions"
 
 const native = vi.hoisted(() => ({ release: undefined as (() => void) | undefined }))
 vi.mock("@grafana/faro-web-sdk", async importOriginal => {
@@ -40,7 +40,7 @@ it("binds the initial navigation before ready and parents a real native HTTP spa
   const data = new Promise<never[]>(done => { resolve = done })
   function Content() {
     const query = useQuery({ queryKey: ["messages"], queryFn: () => data, staleTime: Infinity })
-    useObservedQueryRegion("messages", query, query.data?.length)
+    useObservedRegion("messages", !query.isPending && query.data !== undefined, query.data?.length)
     return <p>{query.isPending ? "loading" : "empty"}</p>
   }
   function Root() {
@@ -80,5 +80,10 @@ it("binds the initial navigation before ready and parents a real native HTTP spa
   const ready = events.filter(event => event.name === "navigation.ready")
   expect(ready).toHaveLength(1)
   expect(ready[0]?.attributes).toMatchObject({ navigation_kind: "document", start_ms: "0", duration_ms: "1250", trace_id: parent.traceId, span_id: parent.spanId, action_id: navigation.id })
-  expect(events.filter(event => event.name.startsWith("request.")).every(event => event.attributes.trace_id === parent.traceId && event.attributes.span_id === parent.spanId)).toBe(true)
+  const http = spans.find(span => span.parentSpanId === parent.spanId)!
+  const requests = events.filter(event => event.name.startsWith("request."))
+  expect(requests.map(event => event.name)).toEqual(["request.start", "request.headers", "request.finish"])
+  expect(requests[0]?.attributes).toMatchObject({ trace_id: parent.traceId, span_id: parent.spanId })
+  expect(requests[1]?.attributes).toMatchObject({ trace_id: parent.traceId, span_id: http.spanId, request_id: requests[0]!.attributes.request_id })
+  expect(requests[2]?.attributes).toMatchObject({ trace_id: parent.traceId, span_id: http.spanId, request_id: requests[0]!.attributes.request_id })
 })

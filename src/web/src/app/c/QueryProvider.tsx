@@ -218,7 +218,7 @@ function ScopedQueryProvider({
     <PersistQueryClientProvider
       client={queryClient}
       onSuccess={() => {
-        if (communityDb.runtime.lifecycle.get().active) observeHydration(persister, queryClient)
+        if (communityDb.runtime.lifecycle.get().active) observeHydration(persister)
         else discardHydration(persister)
         // `onSuccess` runs after hydrate and before `isRestoring` becomes
         // false. Freeze which canonical collections came from that restore so

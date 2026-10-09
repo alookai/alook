@@ -2,7 +2,6 @@
 import type { CommunityProfile } from "@/lib/community/models/people"
 
 import { useObservedRegion } from "@/lib/observability/regions"
-import { useObservedQueryRegion } from "@/lib/observability/query-regions"
 
 import { useAtom, useCreateAtom, useCreateStore } from "@tanstack/react-store";
 import { useEffect, useLayoutEffect } from "react"
@@ -91,7 +90,7 @@ export function AdvancedSettings() {
   const size = useQuery({ queryKey: CACHE_SIZE_QUERY_KEY, queryFn: ({ signal }) => getPersistedCacheSizeBytes(signal), retry: false, staleTime: 0 })
   const clear = useMutation({ meta: { observabilityAction: "cache.clear" }, mutationFn: clearAllPersistedCaches })
   const clearing = clear.isPending
-  useObservedQueryRegion("settings", size, 1)
+  useObservedRegion("settings", !size.isPending && size.data !== undefined, 1)
   const cacheSize = size.isPending ? "loading" : size.isError ? "unavailable" : size.data
   const view = useCreateStore({ active: true, generation: 0 })
   const webVersion = process.env.NEXT_PUBLIC_APP_VERSION
@@ -209,7 +208,7 @@ export function UserSettings({ initialTab = "profile", billingReturn = null, onC
   useEffect(() => { setTab(initialTab) }, [initialTab, setTab])
   const billing = useBilling(billingReturn, tab === "billing")
   const [deletionOpen, setDeletionOpen] = useAtom(useCreateAtom(false))
-  useObservedRegion("settings", tab !== "billing" && tab !== "advanced", { source: "unknown", version: "settings_" + tab, freshness: "unknown", count: 1 })
+  useObservedRegion("settings", tab !== "billing" && tab !== "advanced", 1)
 
   const dirty =
     name !== baseline.name ||

@@ -1,6 +1,6 @@
 "use client"
 
-import { useObservedQueryRegion } from "@/lib/observability/query-regions"
+import { useObservedRegion } from "@/lib/observability/regions"
 import { emitTelemetry } from "@/lib/observability/telemetry"
 import { useEffect, useLayoutEffect, useCallback, useMemo } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -73,7 +73,7 @@ export function useBilling(returnFrom: BillingReturn = null, enabled = false, ap
     staleTime: 30_000, refetchOnWindowFocus: true,
     refetchInterval: state.polling ? 2_000 : false, retry: false,
   })
-  useObservedQueryRegion("billing", query, undefined, enabled)
+  useObservedRegion("billing", (enabled) && !query.isPending && query.data !== undefined, undefined)
   const invalidateDependents = useCallback(() => {
     if (!registry) return
     void qc.invalidateQueries({ queryKey: communityKeys.bots() })

@@ -1,7 +1,6 @@
 "use client"
 
 import { useObservedRegion } from "@/lib/observability/regions"
-import { viewEvidence } from "@/lib/observability/data-source"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import { useEffect } from "react"
@@ -102,7 +101,7 @@ export function ChannelSidebarTreeOwner({
   ...sidebarProps
 }: ChannelSidebarTreeOwnerProps) {
   const tree = useChannelTree(categories)
-  useObservedRegion("sidebar", true, viewEvidence(categories))
+  useObservedRegion("sidebar", true, categories.length)
 
   return (
     <div

@@ -1,10 +1,8 @@
 "use client"
-
-import { collectionEvidence, deriveView, valueEvidence, viewEvidence } from "@/lib/observability/data-source"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import type { QueryFunctionContext } from "@tanstack/react-query"
 
-import { useQueryClient, useQuery, keepPreviousData, type UseQueryResult } from "@tanstack/react-query"
+import { useQuery, keepPreviousData, type UseQueryResult } from "@tanstack/react-query"
 import { useMemo } from "react"
 import { apiFetch } from "@/lib/api/client"
 import {
@@ -109,8 +107,6 @@ export function useFriends(): UseQueryResult<{ ids: string[] }> & {
   pending: PendingRequest[]
   blocked: BlockedUser[]
 } {
-  const client = useQueryClient()
-  const registry = getCommunityDbRegistry(client)
   const query = useQuery({
     queryKey: communityKeys.friends(),
     queryFn: friendsQueryFn,
@@ -129,10 +125,6 @@ export function useFriends(): UseQueryResult<{ ids: string[] }> & {
     }
     return { friends, pending, blocked }
   }, [rows, profilesByUserId, query.data?.ids])
-  const evidence = [valueEvidence(client, query.data), ...(registry ? [collectionEvidence(client, "friendships", rows.map(row => row.id), rows)] : []), ...rows.map(row => viewEvidence(profilesByUserId.get(row.userId)))]
-  deriveView(friends, evidence)
-  deriveView(pending, evidence)
-  deriveView(blocked, evidence)
   return { ...query, friends, pending, blocked }
 }
 

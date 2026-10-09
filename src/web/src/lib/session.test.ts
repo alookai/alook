@@ -10,6 +10,7 @@ vi.mock("next/headers", () => ({ headers: mockHeaders }));
 const mockGetSession = vi.fn();
 vi.mock("@/lib/auth", () => ({
   getAuth: vi.fn(() => ({ api: { getSession: mockGetSession } })),
+  observeAuthSession: (_auth: unknown, execute: () => Promise<unknown>) => execute(),
 }));
 
 import { getSession, requireSession } from "./session";

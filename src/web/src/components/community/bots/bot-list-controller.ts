@@ -1,6 +1,5 @@
 "use client"
 import { useObservedRegion } from "@/lib/observability/regions"
-import { mergeEvidence, viewEvidence } from "@/lib/observability/data-source"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 
 import { createStore, useSelector, useAtom, useCreateAtom } from "@tanstack/react-store";
@@ -57,7 +56,7 @@ export function useBotListController(): BotListController {
     window.history.pushState(null, "", `${next.pathname}${next.search}${next.hash}`)
   }
   const { machines, isLoading: machinesLoading } = useMachines()
-  useObservedRegion("bots", botsResolved && (!(isLoading || machinesLoading) || bots.length > 0), { ...mergeEvidence([viewEvidence(bots), viewEvidence(machines)]), count: bots.length })
+  useObservedRegion("bots", botsResolved && (!(isLoading || machinesLoading) || bots.length > 0), bots.length)
   const profilesByUserId = useCanonicalProfilesByUserId(bots.map((bot) => bot.id))
   const [createOpen, setCreateOpen] = useAtom(useCreateAtom(false))
   const [editingBotId, setEditingBotId] = useAtom(useCreateAtom<string | null>(null))

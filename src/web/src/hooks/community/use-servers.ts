@@ -1,5 +1,4 @@
 "use client"
-import { deriveView, viewEvidence } from "@/lib/observability/data-source"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { conversationReadRetryPolicy, withConversationReadDeadline } from "@/lib/community/conversation-read"
 import { useSelector } from "@tanstack/react-store"
@@ -201,7 +200,6 @@ export function useServers(): UseQueryResult<string[]> & { servers: Server[]; is
       return unread === server.unread && mentions === server.mentions ? server : { ...server, unread, mentions }
     })
   }, [attentionScopes, dbRail?.servers, serverAccess])
-  deriveView(servers, [viewEvidence(dbRail?.servers), viewEvidence(attentionScopes)])
   void structuralGeneration
   const state = registry?.runtime.ws.get()
   return {
@@ -421,8 +419,7 @@ export function useServer(
       changed = true
       return { ...category, channels }
     })
-    deriveView(categories, [viewEvidence(source.categories), viewEvidence(attentionScopes)])
-    return changed ? deriveView({ ...source, categories }, [viewEvidence(source), viewEvidence(categories)]) : source
+    return changed ? { ...source, categories } : source
   }, [attentionScopes, dbServer, serverId])
   return {
     ...query,

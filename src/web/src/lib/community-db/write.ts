@@ -2,7 +2,6 @@ import { replaceEqualDeep } from "@tanstack/react-query"
 import { hasVirtualProps } from "@tanstack/react-db"
 import { communityKeys } from "@/lib/query-keys"
 import type { CommunityDbRegistry } from "./collections"
-import { recordRows } from "@/lib/observability/data-source"
 
 function businessRow<T extends object>(row: T): T {
   return hasVirtualProps(row)
@@ -35,7 +34,6 @@ export function writeCommunityCollectionRows<T extends object>(
       communityKeys.communityDbCollection(registry.scopeId, name),
       next,
     )
-    recordRows(registry.queryClient, name, registry.queryClient.getQueryData<T[]>(communityKeys.communityDbCollection(registry.scopeId, name)) ?? rows, getKey)
     return
   }
   const previousByKey = committed === undefined ? undefined : new Map(committed.map((row) => [collection.getKeyFromItem(row), row]))
@@ -48,12 +46,10 @@ export function writeCommunityCollectionRows<T extends object>(
     return replaceEqualDeep(previousData, row) !== previousData
   })
   if (removed.length === 0 && changed.length === 0) {
-    recordRows(registry.queryClient, name, rows, getKey)
     return
   }
   collection.utils.writeBatch(() => {
     if (removed.length > 0) collection.utils.writeDelete(removed)
     if (changed.length > 0) collection.utils.writeUpsert(changed)
   })
-  recordRows(registry.queryClient, name, rows, getKey)
 }

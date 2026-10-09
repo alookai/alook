@@ -1,4 +1,3 @@
-import { deriveView, sourceEvidence, viewEvidence } from "@/lib/observability/data-source"
 import type { Msg, SendAttachment } from "@/lib/community/models/message"
 import type { MentionType, CommunityMessageResource } from "@alook/shared"
 import { presentMessageAttachment } from "@/lib/community/attachment-presentation"
@@ -126,12 +125,12 @@ function upsertLiveCanonical(liveIds: Set<string>, message: CanonicalMessage, re
 }
 
 export function materializeIntent(intent: OutboxIntent): Msg {
-  return deriveView({
+  return {
     ...intent.message,
     id: intent.tempId,
     clientNonce: intent.nonce,
     failed: intent.status === "failed" || intent.uploadStatus === "failed",
-  }, [sourceEvidence(intent, "local_mutation")])
+  }
 }
 
 function localUploadAttachments(
@@ -194,7 +193,7 @@ export function materializeMessageStream(
   for (const id of overlay.liveIds) {
     const message = canonical.get(id)
     if (message) upsertMaterialized(byId, idByIdentity, {
-      message: deriveView({ ...message, failed: false }, [viewEvidence(message)]),
+      message: { ...message, failed: false },
     })
   }
   for (const message of baseMessages) {

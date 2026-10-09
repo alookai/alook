@@ -1,5 +1,4 @@
 "use client"
-import { deriveView, mergeEvidence, valueEvidence, viewEvidence } from "@/lib/observability/data-source"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import { getCommunityRuntime } from "@/stores/community/runtime"
@@ -162,7 +161,7 @@ async function fetchMessagesTransport(
   if (isMessageSurfaceReceipt(surfaceReceipt)) {
     options?.onSurfaceReceipt?.(surfaceReceipt)
   }
-  return deriveView(page, [viewEvidence(transport)])
+  return page
 }
 
 export const channelMessagesQueryFn =
@@ -820,12 +819,8 @@ function useMessagesInner(
     typeof message.seq === "number" ? [[message.id, message as CanonicalMessage] as const] : [])), [projection.messages])
   const messages = useMemo<Msg[]>(() => {
     const selected = projection.windowIds.flatMap((id) => { const message = canonicalById.get(id); return message ? [message] : [] }).sort((a, b) => a.seq - b.seq)
-    const root = valueEvidence(queryClient, query.data)
-    const window = transportWindowObserved
-      ? root.source === "unknown" ? mergeEvidence(query.data?.pages.map(viewEvidence) ?? []) : root
-      : mergeEvidence(selected.map(viewEvidence))
-    return deriveView(selected, [window, ...selected.map(viewEvidence)])
-  }, [query.data, projection.windowIds, canonicalById, queryClient, transportWindowObserved])
+    return selected
+  }, [projection.windowIds, canonicalById])
 
   const latestSeq = useMemo<number>(() => {
     if (!query.data) return 0
@@ -967,7 +962,6 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | Channe
       messageMatchesTag(message, tag)),
     [canonicalBase, tag, state, base.canonicalById],
   )
-  deriveView(messages, [viewEvidence(base.messages), ...messages.map(viewEvidence)])
   useEffect(() => {
     if (!channelId || base.data === undefined) return
     commitConversationNavigationProof(queryClient, channelId, accessEpoch)

@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "config": {
+    "env": {
+      "NEXT_PUBLIC_FARO_RELEASE": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "NEXT_PUBLIC_FARO_ENVIRONMENT": "qa"
+    }
+  }
+}

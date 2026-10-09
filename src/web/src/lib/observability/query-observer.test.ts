@@ -3,27 +3,30 @@ import { createMessageStreamStore } from "@/stores/community/message-stream-stor
 import { QueryClient } from "@tanstack/react-query"
 import { observeQueryClient, disposeQueryDiagnostics } from "./query-observer"
 import { configureTelemetry, installTelemetrySink, retireTelemetry } from "./telemetry"
-import { valueEvidence, withSource } from "./data-source"
 import { commandObservation, clearActions } from "./context"
-import { startRequest, requestHeaders, readObservedResponse } from "./requests"
 
 let client: QueryClient
 const events: Array<{ name: string; attributes: Record<string, string> }> = []
 beforeEach(() => { client = observeQueryClient(new QueryClient()); events.length = 0; configureTelemetry({ session_id: "session-a" }, true); installTelemetrySink(event => events.push(event)) })
 afterEach(() => { retireTelemetry(); clearActions(); disposeQueryDiagnostics(client); client.clear() })
-it("distinguishes actual HTTP values from local Query functions and manual WS writes", async () => {
-  const queryKey = ["remote"]
-  const remote = await client.query({ queryKey, queryFn: async () => {
-    const request = startRequest("/api/agents"), response = new Response('[{"id":"private"}]')
-    requestHeaders(request, response)
-    return readObservedResponse(response, () => response.json())
-  } })
-  expect(valueEvidence(client, remote).source).toBe("network")
-  const local = await client.query({ queryKey: ["local"], queryFn: () => ({ status: "rendered" }) })
-  expect(valueEvidence(client, local).source).toBe("unknown")
-  withSource(client, "ws", () => client.setQueryData(queryKey, [{ id: "private", changed: true }]))
-  expect(valueEvidence(client, client.getQueryData(queryKey)).source).toBe("mixed")
+it("observes unlabelled Query and Mutation lifecycles without reading keys, values or variables", async () => {
+  const value = { content: "private-body" }
+  expect(await client.query({ queryKey: ["private-key"], queryFn: () => value })).toBe(value)
+  const mutation = client.getMutationCache().build(client, { mutationFn: async (input: typeof value) => input })
+  expect(await mutation.execute(value)).toBe(value)
+  expect(events.filter(event => event.name === "query.lifecycle").map(event => event.attributes.outcome)).toEqual(["observed", "success"])
+  expect(events.filter(event => event.name === "action.start").map(event => event.attributes.action_name)).toEqual(["command.unknown"])
+  expect(events.filter(event => event.name === "action.finish")).toHaveLength(1)
   expect(JSON.stringify(events)).not.toContain("private")
+})
+it("does not send late Query terminals into a replacement session", async () => {
+  let resolve!: (value: object) => void
+  const pending = client.query({ queryKey: ["private"], queryFn: () => new Promise<object>(done => { resolve = done }) })
+  await Promise.resolve()
+  retireTelemetry(); configureTelemetry({ session_id: "session-b" }, true); installTelemetrySink(event => events.push(event))
+  events.length = 0
+  resolve({ private: true }); await pending
+  expect(events).toEqual([])
 })
 it("uses native mutation pending/terminal events once and binds each original request token", async () => {
   const one = { original: {} }, two = { original: {} }

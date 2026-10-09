@@ -1,6 +1,7 @@
 "use client"
 
 import { beginNavigation, navigationNoop } from "@/lib/observability/context"
+import { prepareNavigationMetadata } from "@/lib/community/navigation-metadata"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react"
@@ -96,6 +97,7 @@ export function useCommunityNavigationController(
   const push = useCallback((href: string) => {
     if (href === publishedHref && !navigationPending) { navigationNoop(href); return }
     beginNavigation(href)
+    void prepareNavigationMetadata(queryClient, href, "foreground")
     supersedeNavigationIntent(gateRef.current)
     cancelActiveConversationNavigationProof(queryClient)
     pendingBaselineRevisionRef.current = committedFrame.revision
@@ -113,6 +115,7 @@ export function useCommunityNavigationController(
   const pushImmediate = useCallback((href: string) => {
     if (href === publishedHref && !navigationPending) { navigationNoop(href); return }
     beginNavigation(href)
+    void prepareNavigationMetadata(queryClient, href, "foreground")
     supersedeNavigationIntent(gateRef.current)
     pendingBaselineRevisionRef.current = committedFrame.revision
     pendingBaselineLeafRef.current = committedFrame.leafKey
@@ -123,11 +126,12 @@ export function useCommunityNavigationController(
       setPendingHref(href)
     })
     router.push(href)
-  }, [committedFrame.leafKey, committedFrame.revision, navigationPending, publishedHref, router, setNavigationPending, setPendingHref])
+  }, [committedFrame.leafKey, committedFrame.revision, navigationPending, publishedHref, queryClient, router, setNavigationPending, setPendingHref])
 
   const replace = useCallback((href: string) => {
     if (href === publishedHref && !navigationPending) { navigationNoop(href); return }
     beginNavigation(href)
+    void prepareNavigationMetadata(queryClient, href, "foreground")
     supersedeNavigationIntent(gateRef.current)
     cancelActiveConversationNavigationProof(queryClient)
     pendingBaselineRevisionRef.current = committedFrame.revision
@@ -151,6 +155,7 @@ export function useCommunityNavigationController(
           return
         }
         beginNavigation(href)
+        void prepareNavigationMetadata(queryClient, href, "foreground")
         setPendingHref(href)
         router.push(href)
     })

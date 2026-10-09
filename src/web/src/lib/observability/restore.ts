@@ -1,10 +1,8 @@
-import type { QueryClient } from "@tanstack/react-query"
 import type { PersistedClient } from "@tanstack/react-query-persist-client"
-import { recordRows, tagValue } from "./data-source"
 import { emitTelemetry, isTelemetryEligible, telemetryGeneration } from "./telemetry"
 import { telemetryId } from "./context"
 
-const restored = new WeakMap<object, { snapshot: PersistedClient; start: number; id: string; generation: number }>()
+const restored = new WeakMap<object, { count: number; start: number; id: string; generation: number }>()
 const reads = new WeakMap<object, Array<{ generation: number; eligible: boolean }>>()
 export async function observeRestoreRead<T>(operation: () => Promise<T>, persister?: object): Promise<T> {
   const generation = telemetryGeneration(), eligible = isTelemetryEligible()
@@ -36,7 +34,7 @@ export function observeRestoreDecode(persister: object, operation: () => Persist
     const outcome = snapshot.buster !== expectedBuster ? "buster" : Date.now() - snapshot.timestamp > maxAge || !snapshot.timestamp ? "expired" : "hit"
     if (eligible && generation === telemetryGeneration()) {
       emitTelemetry("cache.restore.finish", { request_id: id, phase: "deserialize", outcome, duration_ms: performance.now() - start, count: snapshot.clientState.queries.length })
-      if (outcome === "hit") restored.set(persister, { snapshot, start: performance.now(), id: telemetryId(), generation })
+      if (outcome === "hit") restored.set(persister, { count: snapshot.clientState.queries.length, start: performance.now(), id: telemetryId(), generation })
     }
     return snapshot
   } catch (error) {
@@ -44,20 +42,11 @@ export function observeRestoreDecode(persister: object, operation: () => Persist
     throw error
   }
 }
-export function observeHydration(persister: object, client: QueryClient) {
+export function observeHydration(persister: object) {
   const evidence = restored.get(persister)
   restored.delete(persister)
   if (!evidence || !isTelemetryEligible() || evidence.generation !== telemetryGeneration()) return
-  let count = 0
   emitTelemetry("cache.restore.start", { request_id: evidence.id, start_ms: evidence.start, phase: "hydrate" })
-  for (const restoredQuery of evidence.snapshot.clientState.queries) {
-    const query = client.getQueryCache().find({ queryKey: restoredQuery.queryKey, exact: true })
-    if (!query || query.state.data !== restoredQuery.state.data || query.state.dataUpdatedAt <= 0) continue
-    tagValue(client, query.state.data, "restored_idb")
-    const key = query.queryKey
-    if (key[0] === "community" && key[1] === "db" && Array.isArray(query.state.data)) recordRows(client, String(key[3]), query.state.data, row => String(row.id ?? row.userId ?? row.channelId ?? row.scopeId), "restored_idb")
-    count++
-  }
-  emitTelemetry("cache.restore.finish", { request_id: evidence.id, phase: "hydrate", source: "restored_idb", outcome: count ? "success" : "miss", count, duration_ms: performance.now() - evidence.start })
+  emitTelemetry("cache.restore.finish", { request_id: evidence.id, phase: "hydrate", outcome: "success", count: evidence.count, duration_ms: performance.now() - evidence.start })
 }
 export function discardHydration(persister: object) { restored.delete(persister); reads.delete(persister) }

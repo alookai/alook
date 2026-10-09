@@ -1,6 +1,4 @@
 "use client"
-import { useObservedRegion } from "@/lib/observability/regions"
-import { mergeEvidence, viewEvidence } from "@/lib/observability/data-source"
 
 import { MessagesSquare, ArrowUpRight } from "lucide-react"
 import { Avatar } from "../avatar"
@@ -70,7 +68,6 @@ export function ThreadOpener({
     serverId,
   })
   const authorProfile = useCanonicalCommunityProfile(msg?.authorId)
-  useObservedRegion("thread_opener", !isLoading && !isError && !!msg, { ...mergeEvidence([viewEvidence(msg), viewEvidence(authorProfile)]), count: msg ? 1 : 0 })
   const mentionText = msg ? resolveAuthorMentionText?.(msg.authorId) ?? null : null
   const avatarMention = useMobileAvatarMention({
     onMention: mentionText && onInsertMentionText

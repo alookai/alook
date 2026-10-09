@@ -1,4 +1,3 @@
-import { deriveView, viewEvidence } from "@/lib/observability/data-source"
 import { dateKey, formatDateLabel } from "./format-time"
 import type { Msg, RenderMsg } from "./models/message"
 
@@ -36,7 +35,7 @@ export function flattenMessageItems(
       && prev.createdAt && m.createdAt && (new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime()) < MESSAGE_GROUP_WINDOW_MS)
     items.push({
       kind: "message",
-      m: deriveView({ ...m, grouped }, [viewEvidence(m)]),
+      m: { ...m, grouped },
       key: messageDisplayKey(m),
       ...(showDateDivider ? { dateLabel: formatDateLabel(m.createdAt!) } : {}),
       ...(isNewDivider ? { newDivider: true } : {}),

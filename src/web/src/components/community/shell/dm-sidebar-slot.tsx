@@ -1,6 +1,5 @@
 "use client"
 import { useObservedRegion } from "@/lib/observability/regions"
-import { viewEvidence, mergeEvidence } from "@/lib/observability/data-source"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 
 
@@ -29,7 +28,7 @@ function MeSidebar() {
     isLoading: dmsLoading,
   } = useDms()
   const { blocked } = useFriends()
-  useObservedRegion("sidebar", !dmsLoading, { ...mergeEvidence([viewEvidence(dms), viewEvidence(blocked)]), count: dms.length })
+  useObservedRegion("sidebar", !dmsLoading, dms.length)
   const friendRequestCount = useInboxUnreads().friendRequests.length
   const currentChannelId = useCurrentChannelId()
 

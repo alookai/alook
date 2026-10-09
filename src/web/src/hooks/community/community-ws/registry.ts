@@ -1,7 +1,6 @@
 
 import { getCommunityRuntime } from "@/stores/community/runtime"
 import { telemetryId } from "@/lib/observability/context"
-import { withSource } from "@/lib/observability/data-source"
 import { emitTelemetry } from "@/lib/observability/telemetry"
 
 import type { CommunityWsEvent } from "@alook/shared"
@@ -168,7 +167,7 @@ export function dispatchCommunityWsEvents(
     })
   }
   const receipts: Array<{ id: string; start: number; type: CommunityEventType }> = []
-  try { withSource(context.queryClient, "ws", () => runCommunityWsProjectionTransaction(context.queryClient, (projection) => {
+  try { runCommunityWsProjectionTransaction(context.queryClient, (projection) => {
     const handlerContext: CommunityWsHandlerContext = {
       ...context,
       projection,
@@ -189,10 +188,8 @@ export function dispatchCommunityWsEvents(
       const entry = communityWsRegistry[event.type] as RegistryEntry<typeof event.type>
       const receipt = { id: telemetryId(), start: performance.now(), type: event.type }
       receipts.push(receipt)
-      withSource(context.queryClient, "ws", () => {
-        entry.handler(event, handlerContext)
-        if (event.type !== "community:message.create") projectCommunityWsEventToDb(context.queryClient, event)
-      }, receipt)
+      entry.handler(event, handlerContext)
+      if (event.type !== "community:message.create") projectCommunityWsEventToDb(context.queryClient, event)
       if ([
         "community:server.delete",
         "community:channel.delete",
@@ -202,7 +199,7 @@ export function dispatchCommunityWsEvents(
         scheduleAccountAttentionReconcile(context.queryClient)
       }
     }
-  })) } catch (error) {
+  }) } catch (error) {
     for (const receipt of receipts) emitTelemetry("ws.event_applied", { ws_event_id: receipt.id, event_type: receipt.type, duration_ms: performance.now() - receipt.start, source: "ws", outcome: "partial", eligibility: "unknown" })
     throw error
   }

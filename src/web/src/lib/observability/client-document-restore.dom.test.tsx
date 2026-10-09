@@ -4,7 +4,7 @@ import type { Faro } from "@grafana/faro-web-sdk"
 import { afterEach, expect, it, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
 import { announceAnalyticsConsent } from "../analytics-consent"
-import { useObservedQueryRegion } from "./query-regions"
+import { useObservedRegion } from "./regions"
 
 const native = vi.hoisted(() => ({ faro: undefined as Faro | undefined }))
 const router = vi.hoisted(() => ({ pathname: "/" }))
@@ -53,7 +53,7 @@ it("retires the old document before native resume, then exports one original Bac
   queryClient.setQueryData([forum], [{ id: "post-a" }]); queryClient.setQueryData([text], [])
   function Content() {
     const query = useQuery({ queryKey: [router.pathname], queryFn: async () => [], staleTime: Infinity })
-    useObservedQueryRegion(router.pathname === forum ? "forum" : "messages", query, query.data?.length)
+    useObservedRegion(router.pathname === forum ? "forum" : "messages", !query.isPending && query.data !== undefined, query.data?.length)
     return <p>{router.pathname === forum ? "forum" : "empty text"}</p>
   }
   function Root() {

@@ -1,6 +1,4 @@
 "use client"
-
-import { useObservedRegion, windowEvidence } from "@/lib/observability/regions"
 import { createStore, useSelector } from "@tanstack/react-store"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
@@ -132,7 +130,6 @@ export function MemberList({
   onSetRole?: (memberId: string, role: Role) => void
   onKick?: (memberId: string, assert?: MemberOriginalView) => Promise<unknown> | void
 }) {
-  useObservedRegion("members", !loading, windowEvidence(members, members))
   const source = useCommunityViewSource("member-list:" + scopeId)
   const client = useQueryClient()
   const commandKey = ["community", "member-list-command", scopeId]

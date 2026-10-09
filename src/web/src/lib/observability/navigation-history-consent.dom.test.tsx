@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-quer
 import { afterEach, expect, it, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
 import { announceAnalyticsConsent } from "../analytics-consent"
-import { useObservedQueryRegion } from "./query-regions"
+import { useObservedRegion } from "./regions"
 import type { Action } from "./context"
 
 const router = vi.hoisted(() => ({ pathname: "/" }))
@@ -46,7 +46,7 @@ it("retains real renderer ownership through late grant and revoke/regrant withou
   function Content() {
     const pathname = usePathname()
     const query = useQuery({ queryKey: [pathname], queryFn: async () => [], staleTime: Infinity })
-    useObservedQueryRegion(pathname === forum ? "forum" : "messages", query, query.data?.length)
+    useObservedRegion(pathname === forum ? "forum" : "messages", !query.isPending && query.data !== undefined, query.data?.length)
     return <p>{pathname === forum ? "forum" : "empty text"}</p>
   }
   function Root() {
