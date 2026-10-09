@@ -16,6 +16,27 @@ const runtime = {
 }
 
 describe("ModelField with the real Select", () => {
+  it.each([true, false])("requires OpenCode selection with a catalog=%s and keeps empty Custom editable", async (catalog) => {
+    const selectedRuntime = { ...runtime, id: "opencode", reasoning: catalog ? runtime.reasoning : undefined }
+    function Controlled() {
+      const [value, setValue] = React.useState<string | null>(null)
+      return <ModelField runtime={selectedRuntime} value={value} onChange={setValue} />
+    }
+    render(<Controlled />)
+    const trigger = screen.getByTestId("bot-model-select")
+    expect(trigger).toHaveTextContent("Select a model")
+    expect(trigger).toHaveAttribute("aria-required", "true")
+    await act(async () => { fireEvent.click(trigger) })
+    expect(screen.queryByRole("option", { name: /Default/ })).not.toBeInTheDocument()
+    await act(async () => { fireEvent.click(screen.getByRole("option", { name: "Custom…" })) })
+    const input = screen.getByRole("textbox", { name: "Custom model" })
+    await act(async () => { fireEvent.change(input, { target: { value: "provider/custom" } }) })
+    expect(input).toHaveValue("provider/custom")
+    await act(async () => { fireEvent.change(input, { target: { value: "   " } }) })
+    expect(input).toBeInTheDocument()
+    expect(trigger).toHaveTextContent("Custom…")
+  })
+
   it("filters an edited model without changing its selection", async () => {
     const onChange = vi.fn()
     render(<ModelField runtime={runtime} value="gemini-3.1-pro-high" onChange={onChange} />)

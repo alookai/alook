@@ -1,19 +1,24 @@
+import { requiresExplicitModel } from "@alook/shared"
+
 export interface BotCreateRequiredFields {
   name: string
   machineId: string
   runtime: string
+  model: string | null
 }
 
 export interface BotCreateFieldErrors {
   name?: string
   machineId?: string
   runtime?: string
+  model?: string
 }
 
 export function validateBotCreateFields({
   name,
   machineId,
   runtime,
+  model,
 }: BotCreateRequiredFields): BotCreateFieldErrors {
   const errors: BotCreateFieldErrors = {}
 
@@ -26,21 +31,17 @@ export function validateBotCreateFields({
   if (!runtime) {
     errors.runtime = "Pick a runtime"
   }
+  errors.model = validateBotModel(model, runtime)
 
   return errors
 }
 
 export function hasBotCreateFieldErrors(errors: BotCreateFieldErrors): boolean {
-  return Boolean(errors.name || errors.machineId || errors.runtime)
+  return Boolean(errors.name || errors.machineId || errors.runtime || errors.model)
 }
 
-/**
- * Validate a picked model value (the `string | null` the ModelField emits). A
- * `Custom…` selection that was left empty resolves to `null` (Default), which
- * is valid; the only failure is a name over the server's 100-char cap. Returns
- * an error message, or undefined when the model is acceptable.
- */
-export function validateBotModel(model: string | null): string | undefined {
+export function validateBotModel(model: string | null, runtime?: string): string | undefined {
+  if (requiresExplicitModel(runtime) && !model?.trim()) return "Choose a model before saving"
   if (model === null) return undefined
   if (model.trim().length === 0) return "Enter a model name"
   if (model.length > 100) return "Model name must be 100 characters or fewer"

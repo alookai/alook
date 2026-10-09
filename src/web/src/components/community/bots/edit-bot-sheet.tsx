@@ -33,7 +33,7 @@ import { BotRuntimeFields } from "./bot-runtime-fields"
 import { validateBotModel } from "./bot-form-validation"
 import { uniqueNamesGenerator, names } from "unique-names-generator"
 import { normalizeRuntimes } from "./create-bot-sheet"
-import type { ReasoningEffort } from "@alook/shared"
+import { requiresExplicitModel, type ReasoningEffort } from "@alook/shared"
 
 function draftFromBot(bot: BotSummary): AvatarDraft {
   if (isPhotoAvatarUrl(bot.image)) return { kind: "photo", file: null, previewUrl: bot.image! }
@@ -117,7 +117,7 @@ const [avatarDraft, setAvatarDraft] = useAtom(useCreateAtom<AvatarDraft>(((): Av
       setNameError("Name is required")
       return
     }
-    const modelError = validateBotModel(model)
+    const modelError = validateBotModel(model, runtime)
     if (modelError) {
       toast.error(modelError)
       return
@@ -186,6 +186,11 @@ const [avatarDraft, setAvatarDraft] = useAtom(useCreateAtom<AvatarDraft>(((): Av
       setNameError("Name is required")
       return
     }
+    const modelError = validateBotModel(model, runtime)
+    if (modelError) {
+      toast.error(modelError)
+      return
+    }
     if (runtime !== bot.runtime) {
       setConfirmProviderSwitch(true)
       return
@@ -206,7 +211,7 @@ const [avatarDraft, setAvatarDraft] = useAtom(useCreateAtom<AvatarDraft>(((): Av
             <Button variant="outline" onClick={requestClose}>
               Cancel
             </Button>
-            <Button onClick={submit} disabled={update.isPending || uploadBotAvatar.isPending || !bot}>
+            <Button onClick={submit} disabled={update.isPending || uploadBotAvatar.isPending || !bot || (requiresExplicitModel(runtime) && !model?.trim())}>
               {update.isPending ? "Saving…" : "Save"}
             </Button>
           </>

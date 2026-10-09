@@ -27,6 +27,7 @@ import {
 
 export function OnboardingStatusDialog({
   status,
+  totalSteps = 3,
   currentStep,
   checkpoint = {},
   detail,
@@ -34,6 +35,7 @@ export function OnboardingStatusDialog({
   onContinue,
 }: {
   status: "loading" | "error" | "success"
+  totalSteps?: number
   currentStep: OnboardingInitializationStep
   checkpoint?: OnboardingInitializationCheckpoint
   detail: string
@@ -58,10 +60,8 @@ export function OnboardingStatusDialog({
         aria-busy={status === "loading"}
       >
         <DialogHeader className="gap-4 px-4 pt-4 pb-4 sm:px-6 sm:pt-6 sm:pb-6">
-          <div className="grid grid-cols-3 gap-1" aria-label="Step 3 of 3">
-            <span className="h-1 rounded-full bg-(--te)" />
-            <span className="h-1 rounded-full bg-(--ti)" />
-            <span className="h-1 rounded-full bg-(--tc)" />
+          <div className="flex gap-1" aria-label={`Step ${totalSteps} of ${totalSteps}`}>
+            {Array.from({ length: totalSteps }, (_, index) => <span key={index} className={["h-1 flex-1 rounded-full bg-(--te)", "h-1 flex-1 rounded-full bg-(--ti)", "h-1 flex-1 rounded-full bg-(--tc)"][index % 3]} />)}
           </div>
           <div className="flex flex-col gap-2">
             <DialogTitle className="flex flex-wrap items-center gap-x-2 text-2xl leading-tight font-semibold tracking-tight">

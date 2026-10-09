@@ -14,6 +14,10 @@
 
 import type { ModelConfig } from "../runtime-config";
 
+export function requiresExplicitModel(runtime: string | null | undefined): boolean {
+  return runtime === "opencode";
+}
+
 /** Select sentinel for "Default (the runtime's own default)". */
 export const MODEL_SELECT_DEFAULT = "__default__";
 /** Select sentinel for "Custom…" (reveals a free-text input). */

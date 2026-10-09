@@ -15,6 +15,7 @@ import {
 type JourneyResources = {
   harness?: string;
   machineId?: string;
+  model?: string | null;
   identity?: string;
   botId?: string;
   dmId?: string;

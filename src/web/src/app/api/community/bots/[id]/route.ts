@@ -16,6 +16,7 @@ import {
   formatHandle,
   createLogger,
   resolveReasoningEffort,
+  requiresExplicitModel,
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
@@ -77,6 +78,10 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
       ? null
       : undefined
   const modelChanged = nextModel !== undefined && nextModel !== (before.modelName ?? null)
+  const storedModel = nextModel !== undefined ? nextModel : (before.modelName ?? null)
+  if (requiresExplicitModel(targetRuntime) && !storedModel?.trim()) {
+    return writeError("Choose a model before saving", 400)
+  }
   const restartChanged = runtimeChanged || modelChanged
   const configRequested = restartChanged || "reasoningEffort" in body
   let runtimeDescriptor: import("@alook/shared").CommunityMachineRuntime | null = null
@@ -98,7 +103,6 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
       return writeError(`runtime ${targetRuntime} is currently unavailable on this machine`, 400)
     }
   }
-  const storedModel = nextModel !== undefined ? nextModel : (before.modelName ?? null)
   const requestedEffort = "reasoningEffort" in body
     ? (body.reasoningEffort ?? null)
     : before.reasoningEffort

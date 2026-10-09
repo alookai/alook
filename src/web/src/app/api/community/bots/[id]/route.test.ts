@@ -184,6 +184,41 @@ describe("PATCH /api/community/bots/[id]", () => {
     )
   })
 
+  it.each([
+    { storedRuntime: "opencode", storedModel: null, body: { name: "New" } },
+    { storedRuntime: "opencode", storedModel: "provider/old", body: { model: null } },
+    { storedRuntime: "claude", storedModel: "opus", body: { runtime: "opencode" } },
+    { storedRuntime: "claude", storedModel: "opus", body: { runtime: "opencode", model: null } },
+  ])("rejects an effective OpenCode configuration without a model: %j", async ({ storedRuntime, storedModel, body }) => {
+    mockGetBotOwnedBy.mockResolvedValue({ id: "b1", runtime: storedRuntime, modelName: storedModel })
+    const res = await PATCH(patchReq(body), ctx)
+    expect(res.status).toBe(400)
+    expect(mockUpdateBot).not.toHaveBeenCalled()
+    expect(mockUpdateBotRuntimeConfig).not.toHaveBeenCalled()
+    expect(mockPushBotEventToMachine).not.toHaveBeenCalled()
+    expect(mockPushAgentModelSwitchToMachine).not.toHaveBeenCalled()
+    expect(mockPushAgentProviderSwitchToMachine).not.toHaveBeenCalled()
+  })
+
+  it("preserves a named OpenCode model on a profile-only edit without restarting", async () => {
+    mockGetBotOwnedBy.mockResolvedValue({ id: "b1", name: "Old", runtime: "opencode", modelName: "provider/custom" })
+    const res = await PATCH(patchReq({ description: "Updated" }), ctx)
+    expect(res.status).toBe(200)
+    expect((await res.json()).bot.modelName).toBe("provider/custom")
+    expect(mockUpdateBot).toHaveBeenCalled()
+    expect(mockUpdateBotRuntimeConfig).not.toHaveBeenCalled()
+    expect(mockPushAgentModelSwitchToMachine).not.toHaveBeenCalled()
+  })
+
+  it("switches to OpenCode with an explicit custom model absent from its catalog", async () => {
+    mockGetMachineForOwner.mockResolvedValue({ id: "mac1", availableRuntimes: [{ id: "opencode", status: "healthy" }] })
+    mockPushAgentProviderSwitchToMachine.mockResolvedValue({ sent: 1, deliveryError: false })
+    const res = await PATCH(patchReq({ runtime: "opencode", model: "provider/custom" }), ctx)
+    expect(res.status).toBe(200)
+    expect(mockUpdateBotRuntimeConfig).toHaveBeenCalledWith(expect.anything(), "b1", "u1", expect.objectContaining({ runtime: "opencode", modelName: "provider/custom" }))
+    expect(mockPushAgentProviderSwitchToMachine).toHaveBeenCalledWith(expect.anything(), "mac1", expect.objectContaining({ config: expect.objectContaining({ model: { kind: "named", name: "provider/custom" } }) }))
+  })
+
   it("persists an inactive bot profile change without re-adding it to the daemon roster", async () => {
     mockGetBotOwnedBy.mockResolvedValue({
       id: "b1", name: "Old", description: "old desc", machineId: "mac1", ownerUserId: "u1",

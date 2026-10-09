@@ -1,12 +1,13 @@
 "use client"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useEffect, useMemo } from "react"
+import { useEffect, useId, useMemo } from "react"
 import {
   modelSelectState,
   modelNameFromSelect,
   MODEL_SELECT_DEFAULT,
   MODEL_SELECT_CUSTOM,
+  requiresExplicitModel,
 } from "@alook/shared"
 import type { CommunityMachineRuntime } from "@alook/shared"
 import { Label } from "@/components/ui/label"
@@ -20,10 +21,6 @@ import {
 import { BotSelectMenuContent, BotSelectMenuItem } from "./bot-select-menu"
 
 /**
- * Per-bot model picker. A `Select` over `[Default, Custom…, ...catalog]` plus a
- * conditionally-rendered custom text input. All model-name ↔ Select translation
- * goes through the shared `bot-model` helpers — never ad-hoc string logic.
- *
  * The picker keeps its OWN Select/custom-text state rather than deriving purely
  * from `value`, because "Custom… selected with an empty name" and "Default" both
  * map to a `null` stored value — only local state can tell them apart, so the
@@ -37,12 +34,16 @@ export function ModelField({
   value,
   onChange,
   disabled,
+  error,
 }: {
   runtime: Pick<CommunityMachineRuntime, "id" | "reasoning"> | null
   value: string | null
   onChange: (v: string | null) => void
   disabled?: boolean
+  error?: string
 }) {
+  const hintId = useId()
+  const required = requiresExplicitModel(runtime?.id)
   const models = useMemo(
     () => runtime?.reasoning?.models
       .filter((model) => model.id !== MODEL_SELECT_DEFAULT && model.id !== MODEL_SELECT_CUSTOM) ?? [],
@@ -70,6 +71,7 @@ export function ModelField({
 
   const isCustom = selectValue === MODEL_SELECT_CUSTOM
   const defaultLabel = runtime ? `Default (${runtime.id}'s own default)` : "Default"
+  const placeholder = required ? "Select a model" : defaultLabel
   const normalizedFilter = filterQuery.trim().toLowerCase()
   const filteredModels = normalizedFilter
     ? models.filter((model) => model.id.toLowerCase().includes(normalizedFilter)
@@ -81,7 +83,7 @@ export function ModelField({
   // (value === label) but leaks the `__default__` / `__custom__` sentinels.
   // Same pattern as runtime-select.tsx.
   const items = [
-    { value: MODEL_SELECT_DEFAULT, label: defaultLabel },
+    ...(!required ? [{ value: MODEL_SELECT_DEFAULT, label: defaultLabel }] : []),
     { value: MODEL_SELECT_CUSTOM, label: "Custom…" },
     ...models.map((model) => ({
       value: model.id,
@@ -93,10 +95,10 @@ export function ModelField({
 
   return (
     <div className="flex flex-col gap-2">
-      <Label className="text-xs text-muted-foreground">Model</Label>
+      <Label className="text-xs text-muted-foreground">{required ? "Model (required)" : "Model"}</Label>
       <Select
         items={items}
-        value={selectValue}
+        value={required && selectValue === MODEL_SELECT_DEFAULT ? null : selectValue}
         onValueChange={(next: string | null, details) => {
           if (details.reason === "none" && normalizedFilter && modelIds.includes(selectValue)) {
             details.cancel()
@@ -118,14 +120,18 @@ export function ModelField({
       >
         <SelectTrigger
           data-testid="bot-model-select"
+          aria-label="Model"
+          aria-required={required}
+          aria-describedby={required || error ? hintId : undefined}
+          aria-invalid={Boolean(error)}
           className="w-full data-[size=default]:h-11 sm:data-[size=default]:h-8"
         >
-          <SelectValue placeholder={defaultLabel} />
+          <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <BotSelectMenuContent className="overflow-y-hidden">
           {modelIds.length === 0 ? (
             <>
-              <BotSelectMenuItem value={MODEL_SELECT_DEFAULT}>{defaultLabel}</BotSelectMenuItem>
+              {!required && <BotSelectMenuItem value={MODEL_SELECT_DEFAULT}>{defaultLabel}</BotSelectMenuItem>}
               <BotSelectMenuItem value={MODEL_SELECT_CUSTOM}>Custom…</BotSelectMenuItem>
             </>
           ) : (
@@ -158,7 +164,7 @@ export function ModelField({
                     className="h-10 font-mono sm:h-8"
                   />
                 </div>
-                <BotSelectMenuItem value={MODEL_SELECT_DEFAULT}>{defaultLabel}</BotSelectMenuItem>
+                {!required && <BotSelectMenuItem value={MODEL_SELECT_DEFAULT}>{defaultLabel}</BotSelectMenuItem>}
                 <BotSelectMenuItem value={MODEL_SELECT_CUSTOM}>Custom…</BotSelectMenuItem>
                 <SelectSeparator className="mx-1 my-1.5" />
               </div>
@@ -193,6 +199,10 @@ export function ModelField({
       {isCustom && (
         <Input
           data-testid="bot-model-custom-input"
+          aria-label="Custom model"
+          aria-required={required}
+          aria-describedby={required || error ? hintId : undefined}
+          aria-invalid={Boolean(error)}
           value={customName}
           disabled={disabled}
           placeholder="e.g. provider/model-id"
@@ -205,6 +215,7 @@ export function ModelField({
           className="h-11 font-mono sm:h-8"
         />
       )}
+      {(required || error) && <p id={hintId} role={error ? "alert" : undefined} className={error ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>{error ?? "Choose a model before saving."}</p>}
     </div>
   )
 }

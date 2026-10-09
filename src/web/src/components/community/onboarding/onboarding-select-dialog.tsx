@@ -337,7 +337,7 @@ export function OnboardingSelectDialog({
             ) : null}
             <Button
               type="submit"
-              className="h-11 w-full sm:h-9 sm:w-auto"
+              className="h-11 min-h-11 w-full sm:h-9 sm:min-h-9 sm:w-auto"
               disabled={!canSubmit || locked}
             >
               {status === "loading" ? (

@@ -31,6 +31,7 @@ export function BotRuntimeFields({
   runtimeOptionClassName,
   modelClassName,
   runtimeError,
+  modelError,
   disableUnhealthyOptions = false,
 }: {
   options: BotRuntimeOption[]
@@ -47,6 +48,7 @@ export function BotRuntimeFields({
   runtimeOptionClassName?: (runtime: string) => string | undefined
   modelClassName?: string
   runtimeError?: string
+  modelError?: string
   disableUnhealthyOptions?: boolean
 }) {
   const selectedRuntime = options.find((option) => option.id === runtime) ?? null
@@ -114,7 +116,7 @@ export function BotRuntimeFields({
       </div>
       {runtime ? (
         <div data-motion-target={modelMotionTarget} className={cn("flex flex-col gap-4", modelClassName)}>
-          <ModelField runtime={selectedRuntime} value={model} onChange={onModelChange} />
+          <ModelField runtime={selectedRuntime} value={model} onChange={onModelChange} error={modelError} />
           <ReasoningEffortField
             runtime={selectedRuntime}
             model={model}

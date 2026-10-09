@@ -24,6 +24,9 @@ import { tid } from "@/lib/community/testids"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { OnboardingSelectDialog } from "./onboarding-select-dialog"
 import { OnboardingStatusDialog } from "./onboarding-status-dialog"
+import { requiresExplicitModel } from "@alook/shared"
+import { useMachines } from "@/hooks/community/use-machines"
+import { OnboardingModelDialog } from "./onboarding-model-dialog"
 
 function harnessLabel(value?: string) {
   return ONBOARDING_HARNESSES.find((option) => option.value === value)?.label ?? "your harness"
@@ -35,11 +38,17 @@ export function CommunityOnboardingForm() {
   const currentUser = useCurrentUser()
   const state = useCommunityOnboarding()
   const queryClient = useQueryClient(), origin = useCommunityMutationOrigin()
-  const journeyIdentity = JSON.stringify([state?.machineId, state?.harness, state?.identity])
+  const journeyIdentity = JSON.stringify([state?.machineId, state?.harness, state?.identity, state?.model])
   const source = useCommunityViewSource(`onboarding:${journeyIdentity}`, state?.stage === "initializing")
   const [harness, setHarness] = useAtom(useCreateAtom(""))
   const [identity, setIdentity] = useAtom(useCreateAtom(""))
   const [customIdentity, setCustomIdentity] = useAtom(useCreateAtom(""))
+  const [model, setModel] = useAtom(useCreateAtom<string | null>(null))
+  const requiredModel = requiresExplicitModel(state?.harness)
+  const totalSteps = requiredModel ? 4 : 3
+  const { machines } = useMachines({ enabled: state?.stage === "model" })
+  const selectedRuntime = machines.find((machine) => machine.id === state?.machineId)?.availableRuntimes.find((runtime) => runtime.id === state?.harness)
+  useEffect(() => { setModel(null) }, [state?.machineId, state?.harness, setModel])
   const commandKey = ["community", "onboarding-initialization", journeyIdentity] as const
   const pending = useMutationState({ filters: { mutationKey: commandKey, status: "pending" }, select: (mutation) => mutation.mutationId })
   const initialization = useMutation({ meta: { observabilityAction: "community.onboarding.initialize" },
@@ -47,7 +56,7 @@ export function CommunityOnboardingForm() {
     scope: { id: JSON.stringify(commandKey) },
     mutationFn: async ({ token, profileSnapshot, assert, input }: ReturnType<typeof origin.begin> & {
       assert: ReturnType<typeof source.capture>
-      input: { machineId: string; runtime: string; identity: string; userName: string; userDiscriminator?: string }
+      input: { machineId: string; runtime: string; model?: string | null; identity: string; userName: string; userDiscriminator?: string }
     }) => {
       assert()
       const original = readCommunityOnboardingState(communityRuntime)
@@ -120,7 +129,7 @@ export function CommunityOnboardingForm() {
     try {
       await mutateInitialization({
         ...original, assert,
-        input: { machineId: state.machineId, runtime: state.harness, identity: state.identity, userName: currentUser.name, userDiscriminator: currentUser.discriminator },
+        input: { machineId: state.machineId, runtime: state.harness, model: state.model, identity: state.identity, userName: currentUser.name, userDiscriminator: currentUser.discriminator },
       })
     } catch {}
   }, [pending.length, state, origin, source, mutateInitialization, currentUser.name, currentUser.discriminator])
@@ -138,7 +147,7 @@ export function CommunityOnboardingForm() {
       <OnboardingSelectDialog
         open
         onOpenChange={() => undefined}
-        step={{ current: 1, total: 3 }}
+        step={{ current: 1, total: totalSteps }}
         stepLabel="Your harness"
         title="Which harness do you already use?"
         description="Pick the setup that already runs your bots."
@@ -161,8 +170,9 @@ export function CommunityOnboardingForm() {
         open
         harness={state.harness ?? ""}
         harnessLabel={harnessLabel(state.harness)}
+        totalSteps={totalSteps}
         onConnected={(machineId) => {
-          advanceCommunityOnboarding(communityRuntime, "machine", "identity", { machineId })
+          advanceCommunityOnboarding(communityRuntime, "machine", requiredModel ? "model" : "identity", { machineId, model: null })
         }}
         onChooseAnotherHarness={() => {
           setHarness("")
@@ -175,12 +185,16 @@ export function CommunityOnboardingForm() {
     )
   }
 
+  if (state.stage === "model") {
+    return <OnboardingModelDialog runtime={selectedRuntime ?? { id: state.harness! }} model={model} onModelChange={setModel} onContinue={() => advanceCommunityOnboarding(communityRuntime, "model", "identity", { model })} />
+  }
+
   if (state.stage === "identity") {
     return (
       <OnboardingSelectDialog
         open
         onOpenChange={() => undefined}
-        step={{ current: 3, total: 3 }}
+        step={{ current: totalSteps, total: totalSteps }}
         stepLabel="About you"
         title="Which best describes you?"
         description="We’ll shape the room around your work."
@@ -209,6 +223,7 @@ export function CommunityOnboardingForm() {
   if (state.stage === "initializing") {
     return (
       <OnboardingStatusDialog
+        totalSteps={totalSteps}
         status={initializationStatus === "idle" ? "loading" : initializationStatus}
         currentStep={initializationStep}
         checkpoint={initializationCheckpoint}

@@ -64,7 +64,8 @@ describe("initializeCommunityOnboarding", () => {
       .mockReturnValueOnce("avatar:beam:avatar-c")
   })
 
-  it("creates the three-bot development pack with one shared backend and distinct wake prompts", async () => {
+  it.each(["codex", "opencode"])("creates the three-bot development pack with %s and distinct wake prompts", async (runtime) => {
+    const model = runtime === "opencode" ? "custom/absent-from-catalog" : undefined
     const pack = resolveStarterPack("developer")
     apiFetch
       .mockResolvedValueOnce({ bot: { id: "bot-lin", discriminator: "0001" } })
@@ -88,7 +89,8 @@ describe("initializeCommunityOnboarding", () => {
     const checkpoints: OnboardingInitializationCheckpoint[] = []
     const result = await initializeCommunityOnboarding({
       machineId: "machine-1",
-      runtime: "codex",
+      runtime,
+      model,
       identity: "developer",
       userName: "Ada Lovelace",
       userDiscriminator: "0042",
@@ -125,7 +127,8 @@ describe("initializeCommunityOnboarding", () => {
           name: template.name,
           description: template.publicBio,
           machineId: "machine-1",
-          runtime: "codex",
+          runtime,
+          ...(model ? { model } : {}),
           image: `avatar:beam:avatar-${String.fromCharCode(97 + index)}`,
         }),
       }))
@@ -156,6 +159,11 @@ describe("initializeCommunityOnboarding", () => {
       tasksChannelId: "tasks-1",
       leadAddedToPrivate: true,
     })
+  })
+
+  it.each([undefined, null, "   "])("rejects missing OpenCode model %j before creating resources", async (model) => {
+    await expect(initializeCommunityOnboarding({ machineId: "machine-1", runtime: "opencode", model, identity: "developer", userName: "Ada" })).rejects.toThrow("Choose a model before saving")
+    expect(apiFetch).not.toHaveBeenCalled()
   })
 
   it("uses a simple random-named Lead and Doer for a custom role", async () => {

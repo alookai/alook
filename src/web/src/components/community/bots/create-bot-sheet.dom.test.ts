@@ -11,6 +11,15 @@ import {
   firstOnlineMachineId,
 } from "./create-bot-sheet"
 import type { CommunityMachineSummary, RuntimeReasoningCatalog } from "@alook/shared"
+import { hasBotCreateFieldErrors, validateBotCreateFields } from "./bot-form-validation"
+
+it("guards programmatic create submissions while preserving other backend defaults", () => {
+  for (const [runtime, model, invalid] of [["opencode", null, true], ["opencode", "   ", true], ["opencode", "provider/custom", false], ["codex", null, false]] as const) {
+    const errors = validateBotCreateFields({ name: "Bot", machineId: "mac", runtime, model })
+    expect(hasBotCreateFieldErrors(errors)).toBe(invalid)
+    expect(errors.model).toBe(invalid ? "Choose a model before saving" : undefined)
+  }
+})
 
 function machine(over: Partial<CommunityMachineSummary>): CommunityMachineSummary {
   return {
@@ -179,7 +188,7 @@ function checkedValue(renderer: ReturnType<typeof rtlRender>, name: string): str
   return radios(renderer, name).find((r) => r.checked)?.value ?? null
 }
 
-function render(props: { avatarSeed?: string } = {}) {
+function render(props: { avatarSeed?: string; guided?: boolean } = {}) {
   return rtlRender(
     React.createElement(CreateBotSheet, { open: true, onOpenChange: vi.fn(), ...props }),
   )
@@ -199,6 +208,24 @@ describe("CreateBotSheet — auto-select defaults", () => {
     render({ avatarSeed: "guide-face-7" })
 
     expect(botFormFieldsRenders.at(-1)?.avatarDraft.image).toBe("avatar:beam:guide-face-7")
+  })
+
+  it.each([false, true])("requires an explicit OpenCode model, including guided creation=%s", async (guided) => {
+    useMachinesMock.mockReturnValue({ machines: [machine({ id: "mac", availableRuntimes: [{
+      id: "opencode", status: "healthy", reasoning: {
+        updateMode: "unsupported", defaultModelId: "provider/picked", models: [{ id: "provider/picked", supportedReasoningEfforts: [] }],
+      },
+    }] })] })
+    const renderer = render({ guided })
+    const create = renderer.getByRole("button", { name: "Create bot" })
+    expect(renderer.getByTestId("set-model")).toBeInTheDocument()
+    expect(create).toBeDisabled()
+    fireEvent.click(create)
+    expect(createMutateAsync).not.toHaveBeenCalled()
+    fireEvent.click(renderer.getByTestId("set-model"))
+    expect(create).toBeEnabled()
+    await act(async () => { fireEvent.click(create); await Promise.resolve() })
+    expect(createMutateAsync).toHaveBeenCalledWith(expect.objectContaining({ runtime: "opencode", model: "provider/picked" }))
   })
 
   it("pre-checks the machine and runtime with one online machine + one healthy runtime", () => {

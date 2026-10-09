@@ -532,6 +532,7 @@ export { resolveReasoningEffort } from "./community/bot-reasoning-effort";
 export {
   MODEL_SELECT_DEFAULT,
   MODEL_SELECT_CUSTOM,
+  requiresExplicitModel,
   resolveModelConfig,
   formatModelLabel,
   modelSelectState,

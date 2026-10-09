@@ -3,7 +3,7 @@ import type { OnboardingInitializedBot, OnboardingInitializationStep, Onboarding
 export type { OnboardingInitializationStep, OnboardingInitializationCheckpoint, OnboardingInitializationResult } from "@/lib/community/models/onboarding"
 import { randomBeamAvatar } from "@/lib/avatar/seed-url"
 import { randomBotName } from "@/lib/community/bot-random-name"
-import { formatHandle, MAX_SERVER_NAME_LENGTH, slugify } from "@alook/shared"
+import { formatHandle, MAX_SERVER_NAME_LENGTH, requiresExplicitModel, slugify } from "@alook/shared"
 
 import { resolveStarterPack, starterPackWakePrompt, type StarterPackBotIdentity } from "./starter-packs"
 
@@ -59,6 +59,7 @@ function ownerHandle(userName: string, discriminator?: string) {
 export async function initializeCommunityOnboarding({
   machineId,
   runtime,
+  model,
   identity,
   userName,
   userDiscriminator,
@@ -69,6 +70,7 @@ export async function initializeCommunityOnboarding({
 }: {
   machineId: string
   runtime: string
+  model?: string | null
   identity: string
   userName: string
   userDiscriminator?: string
@@ -84,6 +86,7 @@ export async function initializeCommunityOnboarding({
   }
 }): Promise<OnboardingInitializationResult> {
   services.assert()
+  if (requiresExplicitModel(runtime) && !model?.trim()) throw new Error("Choose a model before saving")
   let progress = checkpoint
   const save = (next: OnboardingInitializationCheckpoint) => {
     services.assert()
@@ -105,6 +108,7 @@ export async function initializeCommunityOnboarding({
         description: template.publicBio,
         machineId,
         runtime,
+        ...(model ? { model } : {}),
         image,
       }),
     })

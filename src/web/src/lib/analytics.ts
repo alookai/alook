@@ -165,6 +165,7 @@ export function trackGithubOutboundClicked(surface: GithubOutboundSurface) {
 export type CommunityOnboardingStage =
   | "harness"
   | "machine"
+  | "model"
   | "identity"
   | "initializing"
   | "bot"

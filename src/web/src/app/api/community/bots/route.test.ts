@@ -149,6 +149,21 @@ describe("POST /api/community/bots — model", () => {
     )
   })
 
+  it.each([undefined, null, "", "   "])("rejects OpenCode model %s before creating or dispatching", async (model) => {
+    const res = await POST(postReq(base(model, "opencode")), ctx)
+    expect(res.status).toBe(400)
+    expect(mockCreateBot).not.toHaveBeenCalled()
+    expect(mockPushBotEventToMachine).not.toHaveBeenCalled()
+  })
+
+  it("creates OpenCode with an explicit custom model absent from its catalog", async () => {
+    mockGetMachineForOwner.mockResolvedValue({ id: "mac1", availableRuntimes: [{ id: "opencode", status: "healthy" }] })
+    const res = await POST(postReq(base("provider/custom", "opencode")), ctx)
+    expect(res.status).toBe(201)
+    expect((await res.json()).bot.modelName).toBe("provider/custom")
+    expect(mockCreateBot).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ modelName: "provider/custom" }))
+  })
+
   it("keeps same-owner sibling auto-friendship after removing server audit writes", async () => {
     mockListBotsForOwner.mockResolvedValue([{ id: "b1" }, { id: "b2" }])
 

@@ -31,6 +31,7 @@ export function OnboardingMachineDialog({
   open,
   harness,
   harnessLabel,
+  totalSteps = 3,
   onConnected,
   onChooseAnotherHarness,
   onManageMachines,
@@ -40,6 +41,7 @@ export function OnboardingMachineDialog({
   open: boolean
   harness: string
   harnessLabel: string
+  totalSteps?: number
   onConnected: (machineId: string) => void
   onChooseAnotherHarness: () => void
   onManageMachines: () => void
@@ -174,11 +176,11 @@ export function OnboardingMachineDialog({
         className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto border-0 p-0 shadow-(--e2) ring-0 thin-scrollbar sm:max-w-lg"
       >
         <DialogHeader className="gap-4 px-4 pt-4 pb-4 sm:px-6 sm:pt-6 sm:pb-6">
-          <div className="grid grid-cols-3 gap-1" aria-label="Step 2 of 3">
-            {[1, 2, 3].map((step) => (
+          <div className="flex gap-1" aria-label={`Step 2 of ${totalSteps}`}>
+            {Array.from({ length: totalSteps }, (_, index) => index + 1).map((step) => (
               <span
                 key={step}
-                className={step <= 2 ? "h-1 rounded-full bg-primary" : "h-1 rounded-full bg-muted"}
+                className={step <= 2 ? "h-1 flex-1 rounded-full bg-primary" : "h-1 flex-1 rounded-full bg-muted"}
               />
             ))}
           </div>

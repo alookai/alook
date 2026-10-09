@@ -253,17 +253,17 @@ describe("ModelField", () => {
     const models = Array.from({ length: 598 }, (_, index) => `provider/model-${index}`)
     const onChange = vi.fn()
     const renderer = render({ runtime: runtime("opencode", models), value: null, onChange })
-    expect(itemValues(renderer)).toEqual(["__default__", "__custom__", ...models])
+    expect(itemValues(renderer)).toEqual(["__custom__", ...models])
     const filter = renderer.getByTestId("bot-model-filter-input")
 
     fireEvent.change(filter, { target: { value: "model-597" } })
-    expect(itemValues(renderer)).toEqual(["__default__", "__custom__", models[597]])
+    expect(itemValues(renderer)).toEqual(["__custom__", models[597]])
     act(() => selectCalls.at(-1)!.onValueChange(models[597]))
     expect(onChange).toHaveBeenLastCalledWith(models[597])
 
     fireEvent.change(filter, { target: { value: "not-in-catalog" } })
 
-    expect(itemValues(renderer)).toEqual(["__default__", "__custom__"])
+    expect(itemValues(renderer)).toEqual(["__custom__"])
     expect(renderer.getByRole("status")).toHaveTextContent("No matching models")
   })
 

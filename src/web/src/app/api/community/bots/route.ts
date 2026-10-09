@@ -8,6 +8,7 @@ import {
   utcDayKey,
   utcDayKeyDaysAgo,
   resolveReasoningEffort,
+  requiresExplicitModel,
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
@@ -92,6 +93,9 @@ export const GET = withAuth(async (_req, ctx) => {
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const [body, err] = await parseBody(req, CommunityBotCreateRequestSchema)
   if (err) return err
+  if (requiresExplicitModel(body.runtime) && !body.model?.trim()) {
+    return writeError("Choose a model before saving", 400)
+  }
 
   const db = getDb(ctx.env.DB)
 

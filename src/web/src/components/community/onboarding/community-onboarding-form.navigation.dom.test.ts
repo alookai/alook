@@ -50,23 +50,27 @@ vi.mock("./initialize-community-onboarding", () => ({
   initializeCommunityOnboarding: (...args: unknown[]) => mocks.initialize(...args),
 }))
 vi.mock("./onboarding-machine-dialog", () => ({
-  OnboardingMachineDialog: ({ onChooseAnotherHarness }: {
+  OnboardingMachineDialog: ({ onChooseAnotherHarness, onConnected }: {
     onChooseAnotherHarness: () => void
-  }) => createElement("button", {
+    onConnected: (id: string) => void
+  }) => createElement("div", {}, createElement("button", {
     "data-testid": "recover-harness",
     onClick: onChooseAnotherHarness,
-  }),
+  }), createElement("button", { onClick: () => onConnected("machine-1") }, "Machine connected")),
 }))
 vi.mock("./onboarding-select-dialog", () => ({
-  OnboardingSelectDialog: ({ value, onValueChange }: {
+  OnboardingSelectDialog: ({ value, onValueChange, onSubmit }: {
     value: string
     onValueChange: (value: string) => void
-  }) => createElement("button", {
+    onSubmit: (value: string) => void
+  }) => createElement("div", {}, createElement("button", {
     "data-testid": "select-harness",
     "data-value": value,
     onClick: () => onValueChange("codex"),
-  }),
+  }), createElement("button", { onClick: () => onSubmit("developer") }, "Finish setup")),
 }))
+vi.mock("@/hooks/community/use-machines", () => ({ useMachines: () => ({ machines: [] }) }))
+vi.mock("../bots/model-field", () => ({ ModelField: ({ value, onChange }: { value: string | null; onChange: (value: string | null) => void }) => createElement("input", { "aria-label": "Model", value: value ?? "", onChange: (event: React.ChangeEvent<HTMLInputElement>) => onChange(event.target.value || null) }) }))
 vi.mock("./onboarding-status-dialog", () => ({
   OnboardingStatusDialog: ({ status, onContinue }: {
     status: string
@@ -141,5 +145,26 @@ describe("CommunityOnboardingForm room navigation", () => {
     mocks.state = { status: "active", stage: "harness" }
     rendered.rerender(createElement(CommunityOnboardingForm))
     expect(screen.getByTestId("select-harness")).toHaveAttribute("data-value", "")
+  })
+
+  it("blocks OpenCode setup until a model is chosen and passes it to initialization", async () => {
+    mocks.state = { status: "active", stage: "model", machineId: "machine-1", harness: "opencode" }
+    render(createElement(CommunityOnboardingForm))
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled()
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+    expect(mocks.initialize).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByRole("textbox", { name: "Model" }), { target: { value: "custom/model" } })
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+    expect(mocks.initialize).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole("button", { name: "Finish setup" }))
+    await waitFor(() => expect(mocks.initialize).toHaveBeenCalledWith(expect.objectContaining({ runtime: "opencode", model: "custom/model" })))
+  })
+
+  it.each(["codex", "opencode"])("routes a connected %s machine through only its required steps", (harness) => {
+    mocks.state = { status: "active", stage: "machine", harness }
+    render(createElement(CommunityOnboardingForm))
+    fireEvent.click(screen.getByRole("button", { name: "Machine connected" }))
+    expect(owner.runtime.ui.get().onboardingState?.stage).toBe(harness === "opencode" ? "model" : "identity")
+    expect(screen.queryByRole("textbox", { name: "Model" }) !== null).toBe(harness === "opencode")
   })
 })

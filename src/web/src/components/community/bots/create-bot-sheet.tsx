@@ -11,6 +11,7 @@ import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import {
   isPresenceOnline,
+  requiresExplicitModel,
   type CommunityMachineSummary,
   type ReasoningEffort,
 } from "@alook/shared"
@@ -109,6 +110,7 @@ export function CreateBotSheet({
   const runtimeOptions = useMemo(() => normalizeRuntimes(selectedMachine), [selectedMachine])
   const singleTechnicalDefault =
     guided &&
+    !requiresExplicitModel(runtime) &&
     Boolean(selectedMachine && runtime) &&
     machines.filter((machine) => isPresenceOnline(machine.status)).length === 1 &&
     runtimeOptions.filter((option) => !option.unhealthy).length === 1
@@ -170,7 +172,7 @@ export function CreateBotSheet({
     // so drop any selected model back to Default.
     setModel(null)
     setReasoningEffort(null)
-    setFieldErrors((prev) => ({ ...prev, machineId: undefined }))
+    setFieldErrors((prev) => ({ ...prev, machineId: undefined, model: undefined }))
   }
 
   function selectRuntime(id: string) {
@@ -182,7 +184,7 @@ export function CreateBotSheet({
     if (["create-command", "avatar-command"].some((kind) => client.isMutating({ mutationKey: [...communityKeys.bots(), kind], exact: true, predicate: (mutation) => (mutation.state.variables as { input?: { assertActive?: { signal: AbortSignal } } }).input?.assertActive?.signal === source.signal }) > 0)) return
     const assert = source.capture()
     assert()
-    const nextErrors = validateBotCreateFields({ name, machineId, runtime })
+    const nextErrors = validateBotCreateFields({ name, machineId, runtime, model })
     setFieldErrors(nextErrors)
     if (hasBotCreateFieldErrors(nextErrors)) return
 
@@ -236,7 +238,7 @@ export function CreateBotSheet({
           <Button variant="outline" onClick={requestClose}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={create.isPending || uploadBotAvatar.isPending}>
+          <Button onClick={submit} disabled={create.isPending || uploadBotAvatar.isPending || (requiresExplicitModel(runtime) && !model?.trim())}>
             {create.isPending ? "Creating…" : "Create bot"}
           </Button>
         </>
@@ -332,10 +334,11 @@ export function CreateBotSheet({
                 daemonVersion={selectedMachine?.daemonVersion}
                 reasoningEffort={reasoningEffort}
                 onRuntimeChange={selectRuntime}
-                onModelChange={setModel}
+                onModelChange={(next) => { setModel(next); setFieldErrors((prev) => ({ ...prev, model: undefined })) }}
                 onReasoningEffortChange={setReasoningEffort}
                 radioName="bot-runtime"
                 runtimeError={fieldErrors.runtime}
+                modelError={fieldErrors.model}
                 disableUnhealthyOptions
               />
             </div>

@@ -255,6 +255,36 @@ describe("EditBotSheet — model switch toast (online-only)", () => {
     expect(toastSuccess.mock.calls.join(" ")).not.toMatch(/offline|next wake|applies when/i)
   })
 
+  it("blocks an unconfigured OpenCode bot until a model is explicitly picked", async () => {
+    updateMutateAsync.mockResolvedValue({ bot: { ...BOT, runtime: "opencode" } })
+    const renderer = renderSheet({ ...BOT, runtime: "opencode" })
+    expect(saveButton(renderer)).toBeDisabled()
+    fireEvent.click(saveButton(renderer))
+    expect(updateMutateAsync).not.toHaveBeenCalled()
+    fireEvent.click(renderer.getByTestId("set-model"))
+    expect(saveButton(renderer)).toBeEnabled()
+    act(() => { fireEvent.click(saveButton(renderer)) })
+    await flush()
+    expect(updateMutateAsync).toHaveBeenCalledWith(expect.objectContaining({ model: "claude-sonnet-4-6" }))
+  })
+
+  it("requires a fresh model before confirming a switch into OpenCode and restores Default on switching back", () => {
+    useMachinesMock.mockReturnValue({ machines: [{ id: "mac1", availableRuntimes: [
+      { id: "claude", status: "healthy" }, { id: "opencode", status: "healthy" },
+    ] }] })
+    const renderer = renderSheet({ ...BOT, modelName: "opus" })
+    pickRuntime(renderer, "opencode")
+    expect(saveButton(renderer)).toBeDisabled()
+    fireEvent.click(saveButton(renderer))
+    expect(renderer.queryByTestId("provider-confirm")).not.toBeInTheDocument()
+    expect(updateMutateAsync).not.toHaveBeenCalled()
+    fireEvent.click(renderer.getByTestId("set-model"))
+    fireEvent.click(saveButton(renderer))
+    expect(renderer.getByTestId("provider-confirm")).toBeInTheDocument()
+    pickRuntime(renderer, "claude")
+    expect(saveButton(renderer)).toBeEnabled()
+  })
+
   it("PATCH failure → toastApiError, no success toast", async () => {
     updateMutateAsync.mockRejectedValue(new Error("Bot offline"))
     const renderer = renderSheet()
