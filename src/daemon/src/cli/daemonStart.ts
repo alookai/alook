@@ -1161,7 +1161,10 @@ export async function daemonReconnect(
   }
   const machineId = validateMachineId(opts.id);
   const baseDir = opts.baseDir || process.env.ALOOK_DATA_DIR || DEFAULT_BASE_DIR;
-  const launch = readDaemonLaunchRecord(baseDir, machineId);
+  const launch = readCredentialFile(credentialFilePathByMachineId(baseDir, machineId));
+  if (launch && launch.machineId !== machineId) throw new Error("daemon launch record machine mismatch");
+  const serverUrl = opts.serverUrl ?? (launch && "serverUrl" in launch ? launch.serverUrl : undefined);
+  const wsUrl = opts.wsUrl ?? (launch && "wsUrl" in launch ? launch.wsUrl : undefined);
   const pidPath = pidfilePathById(baseDir, machineId);
   const before = readPidFile(pidPath);
   if (
@@ -1181,6 +1184,9 @@ export async function daemonReconnect(
       throw new Error("daemon ownership changed after reconnect lock acquisition");
     }
     if (owned && (deps.isProcessAlive ?? isProcessAlive)(owned.pid)) {
+      if (!launch) {
+        throw new Error(`cannot safely reconnect a running daemon without its saved credential; run daemon stop ${machineId}, then retry the reconnect command`);
+      }
       await (deps.stopExactDaemonPid ?? stopExactDaemonPid)(owned.pid);
       oldStopped = true;
       removePidFileIfMatches(pidPath, owned);
@@ -1191,8 +1197,8 @@ export async function daemonReconnect(
     try {
       await (deps.start ?? daemonStart)({
         machineKey: opts.machineKey,
-        serverUrl: opts.serverUrl ?? launch.serverUrl,
-        wsUrl: opts.wsUrl ?? launch.wsUrl,
+        serverUrl,
+        wsUrl,
         baseDir,
         resumeRequestId: requestId,
         expectedMachineId: machineId,
@@ -1203,7 +1209,17 @@ export async function daemonReconnect(
         || (error instanceof PairingActivationError && error.sessionOutcome === "not_committed");
       if (oldStopped && canRestoreOldEpoch) {
         try {
-          await (deps.resume ?? daemonResume)({ id: machineId, baseDir, requestId });
+          if (deps.resume || (launch && "daemonVersion" in launch && parseReleaseVersion(launch.daemonVersion))) {
+            await (deps.resume ?? daemonResume)({ id: machineId, baseDir, requestId });
+          } else {
+            await (deps.start ?? daemonStart)({
+              machineKey: launch!.credential,
+              serverUrl,
+              wsUrl,
+              baseDir,
+              resumeRequestId: requestId,
+            });
+          }
         } catch (rollbackError) {
           throw new AggregateError(
             [error, rollbackError],
