@@ -432,6 +432,9 @@ test("share image timestamp matches the live row and survives both exports", asy
   await expect(menu).toHaveCount(0)
   await composerEditable(page).click()
   await expect(composerEditable(page)).toBeFocused()
+  await composerEditable(page).fill("Draft after sharing")
+  await expect(composerEditable(page)).toHaveText("Draft after sharing")
+  await composerEditable(page).fill("")
 })
 
 test("mobile routing waits for native copy and save terminal receipts", async ({ asUser }) => {
