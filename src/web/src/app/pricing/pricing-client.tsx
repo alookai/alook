@@ -1,7 +1,6 @@
 "use client"
 
 import { useObservedRegion } from "@/lib/observability/regions"
-import { valueEvidence, mergeEvidence } from "@/lib/observability/data-source"
 
 import { useEffect, useRef, type RefObject } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
@@ -40,7 +39,7 @@ function PricingContent({ signedIn, sessionPending, sessionError, viewTrackedRef
   const offer = (plan: string) => paymentOffer(plan) ?? catalog.data?.offers.find((item) => item.plan.id === plan)
   const selected = offer(search.get("plan") ?? "")
   const busy = sessionPending || billing.isBusy || catalog.isPending || (signedIn && billing.isPending)
-  useObservedRegion("billing", !busy && !catalog.isError && !sessionError, { ...mergeEvidence([valueEvidence(owner.queryClient, catalog.data), valueEvidence(owner.queryClient, billing.data)]), count: 1 })
+  useObservedRegion("billing", !busy && !catalog.isError && !sessionError, 1)
   const unavailable = sessionError || catalog.isError || (signedIn && billing.isError)
   const disabled = (plan: string) => busy || unavailable || (plan !== "free" && (
     !offer(plan) || (signedIn && !paymentOffer(plan)) || (!summary?.isFounder && summary?.plan.id === plan) || summary?.subscription?.scheduledChange?.plan.id === plan

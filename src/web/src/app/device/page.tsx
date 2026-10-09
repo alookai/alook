@@ -69,7 +69,7 @@ function DeviceAuthPageInner() {
   const step: Step = currentDecision?.isSuccess ? currentDecision.data === "approve" ? "done" : "denied"
     : verification.isFetching ? "loading" : verification.isSuccess ? "approve" : "code"
 
-  useObservedRegion("page", !isPending && !!session && step !== "loading", { source: "unknown", version: step, freshness: "unknown", count: 1 })
+  useObservedRegion("page", !isPending && !!session && step !== "loading", 1)
   useEffect(() => {
     if (!isPending && !session) {
       const original = source.capture()

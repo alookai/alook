@@ -36,7 +36,6 @@ import { MachineCard, MachineCardFrame } from "./machine-card"
 import { PairMachineSheet, type PairMachineSheetMode } from "./pair-machine-sheet"
 import { ConnectTile } from "@/components/community/onboarding-tiles/connect-tile"
 import { useObservedRegion } from "@/lib/observability/regions"
-import { viewEvidence } from "@/lib/observability/data-source"
 import { useMachines, machinesQueryFn, replaceMachines, type MachinesResponse } from "@/hooks/community/use-machines"
 import { useBots } from "@/hooks/community/use-bots"
 import { usePendingMachineTokenId } from "@/stores/community"
@@ -216,7 +215,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   const origin = useCommunityMutationOrigin()
   const source = useCommunityViewSource("machine-list")
   const { machines, data: machinesData, isLoading: machinesLoading } = useMachines()
-  useObservedRegion("machines", machinesData !== undefined && !machinesLoading, viewEvidence(machines))
+  useObservedRegion("machines", machinesData !== undefined && !machinesLoading, machines.length)
   const capacity = machinesData?.machineCapacity ?? null
   const [limitOpen, setLimitOpen] = useAtom(useCreateAtom(false))
   const viewPlan = useCallback(() => {

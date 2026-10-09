@@ -36,6 +36,38 @@ The small RSC fetch adapter carries the matching action in the existing OTel con
 
 `request.start` may carry the action root's IDs before a native transport exists. Headers/body carry the native child IDs, with the same request_id and action_id. Do not equate all phase span IDs with the action root or re-parent a completed prefetch request to a later click.
 
+## Automatic capture and application readiness
+
+Faro Web SDK and Tracing remain locked at 2.12.1. `getWebInstrumentations` supplies errors, Web Vitals, resource/document performance, sessions, views, user actions and heuristic navigation; console and CSP capture remain disabled. Native fetch/XHR instrumentation owns HTTP spans and propagation. Native `FetchTransport` owns buffering, retry and timeout. The adapter does not replace SDK methods or transport logging. Unsupported instrumentation remains a platform capability gap, not a business-ready signal.
+
+Next's existing `onRouterTransitionStart` and the community intent/link entrypoints provide routing identity. QueryCache and MutationCache have one subscription per account QueryClient. Untagged mutations use `command.unknown`; semantic names are optional. Query lifecycle events contain only fixed stage/outcome fields. They do not include keys, variables or data. Query admission stores only the generation at native fetch start and rejects old-generation terminal events.
+
+Business owners provide one `region.ready_commit` when their actual main content contract is satisfied. It includes an optional visible row count. A resolved empty state is ready; shell, skeleton, overscan, rail, member panels, thread opener, preview and popover signals cannot complete the main navigation. DM/server selector and unique nested settings, billing, pricing, device and public-invite owners keep their existing completion conditions. Retained hidden tabs remain gated by the existing visibility wrapper. Data updates after the first qualified ready do not generate new region reads, field versions or frame estimates. A new navigation action or session can obtain its own ready.
+
+The shared click entrypoint only starts a Faro UserAction when the business handler did not start its own action. This avoids a second custom click Action. SDK activity-window completion is heuristic and does not end navigation or accepted message sends.
+
+## Removed diagnostic capabilities
+
+The per-row/per-field provenance maps, deep comparisons, recursive network tagging, derived-view versions and source wrappers have been removed. Projection, ordering, canonical transactions, Query publication and WS handlers retain their original business values and operations. IDB observation retains read, decode and actual Provider hydration callback timings; hydration `count` describes the decoded snapshot's query count, not a per-query proof that every old row won the hydration merge.
+
+| Removed capability | Remaining evidence |
+| --- | --- |
+| IDB/network/WS/local source of each field, mixed origin and validated/changed/restored lineage | Restore, HTTP, Query, canonical publication and WS application boundaries/results |
+| Derived list, grouping and profile source/version identity | Actual main content ready and initial visible count; normal business regressions |
+| WS event-to-derived-row/read-to-next-frame attribution | WS application receipts and primary ready as separate boundaries; no event-to-paint claim |
+| Background region reads and rAF frame estimates | SDK document/resource timings, Web Vitals and one centralized long-task observer |
+| Custom collector failure counters and retry/rate-limit classification | Native transport retry/timeout behavior; no equivalent product failure-count event |
+
+## SDK qualification and privacy
+
+The single `beforeSend` adapter reconstructs outgoing payloads. Native errors lose private values, function names and arbitrary frames. Performance URLs become route templates; only fixed numeric timing/size fields survive. DOM targets, resource hosts, arbitrary Server-Timing and unknown SDK events are removed. Heuristic `faro.navigation` has no qualified start in this version and is not exported; framework intent, document timing and actual business ready remain available.
+
+Native resource/document event timestamps denote their captured start. Native HTTP spans and their mirror events use actual start times. They must meet the current wall-clock admission boundary; original span session IDs must also match. Business spans use their existing generation/session admission and Performance/HrTime clock, not a comparison between that clock and the native Date.now clock. SDK measurement timestamps are capture times, not a Web Vitals interval start.
+
+Web Vitals describe the document and carry no account user metadata or attribution context. They are exported only for a document with analytics consent continuously granted before SDK setup. A late grant, withdrawal or persisted-page restoration makes that document ineligible for vitals; the adapter reports this limitation. Account changes do not turn a document metric into an account interval metric. The SDK instrumentation initializes once and is never patched or reinitialized on consent/session resume.
+
+Faro `pause` pauses transport; it does not destroy every observer. Withdrawal disables HTTP instrumentation, removes and aborts the active transport, retires business admission and filters old batches again at send time. Already installed SDK observers may still run, but denied/old-session payloads cannot pass the exit filter. Performance support and native Web QA remain separate from source tests.
+
 ## Clock and provenance
 
 Business durations use `performance.now()`. Business event epochs and explicit OTel action start/end times use `performance.timeOrigin + performance.now()`, converted to an HrTime tuple. There is no Date.now offset captured once at SDK startup. Delayed SDK binding preserves the original document/intent clock; retirement and persisted-page restoration keep their existing generation boundaries.

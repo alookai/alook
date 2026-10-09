@@ -1,0 +1,93 @@
+name: Windows npm runtimes
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - src/daemon/agent-driver/**
+      - .github/workflows/windows-runtime.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-npm-runtimes-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-node24:
+    name: Windows npm runtime QA (Node 24)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.11
+      - name: Pack and install the exact candidate agent CLI
+        shell: pwsh
+        run: |
+          $packDir = Join-Path $env:RUNNER_TEMP 'Alook candidate pack'
+          $installDir = Join-Path $env:RUNNER_TEMP 'Alook candidate install'
+          New-Item -ItemType Directory -Force $packDir | Out-Null
+          pnpm --filter @alook/daemon pack --pack-destination "$packDir"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $archive = (Get-ChildItem $packDir -Filter '*.tgz').FullName
+          npm install --ignore-scripts --no-audit --no-fund --prefix "$installDir" "$archive"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $cliPath = Join-Path $installDir 'node_modules/@alook/daemon/dist/cli/index.js'
+          if (-not (Test-Path $cliPath)) { throw 'Missing candidate CLI' }
+          "ALOOK_NATIVE_CLI_PATH=$cliPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "ALOOK_NATIVE_BASH_PATH=C:/Program Files/Git/bin/bash.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Get-FileHash $archive, $cliPath -Algorithm SHA256 | Format-Table
+      - name: Exercise the native agent callback CLI
+        run: pnpm --filter @alook/agent-driver exec vitest run src/internal/cliLink.windows.test.ts --no-file-parallelism
+      - name: Install isolated native providers in a space-containing prefix
+        shell: pwsh
+        run: |
+          $qaPrefix = Join-Path $env:RUNNER_TEMP 'Alook npm QA'
+          npm install --global --prefix "$qaPrefix" @openai/codex@0.162.0 opencode-ai@1.18.35 @anthropic-ai/claude-code@2.1.295
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm install --global --ignore-scripts --prefix "$qaPrefix" @earendil-works/pi-coding-agent@1.1.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "ALOOK_NATIVE_NPM_PREFIX=$qaPrefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Install official native Cursor and Grok binaries
+        shell: pwsh
+        run: |
+          $qaPrefix = $env:ALOOK_NATIVE_NPM_PREFIX
+          $cursorVersion = '2026.10.01-e373342'
+          $cursorVersions = Join-Path $qaPrefix 'versions'
+          New-Item -ItemType Directory -Force $cursorVersions | Out-Null
+          $cursorZip = Join-Path $env:RUNNER_TEMP 'cursor-cli.zip'
+          Invoke-WebRequest "https://downloads.cursor.com/lab/$cursorVersion/windows/x64/agent-cli-package.zip" -OutFile $cursorZip
+          Expand-Archive $cursorZip -DestinationPath $cursorVersions
+          Rename-Item (Join-Path $cursorVersions 'dist-package') $cursorVersion
+          Get-ChildItem (Join-Path $cursorVersions $cursorVersion) -Filter 'cursor-agent*' | Copy-Item -Destination $qaPrefix
+          Invoke-WebRequest 'https://x.ai/cli/grok-1.0.50-windows-x86_64.exe' -OutFile (Join-Path $qaPrefix 'grok.exe')
+      - name: Fetch the official Claude native distribution
+        shell: pwsh
+        run: |
+          $releaseBase = 'https://downloads.claude.ai/claude-code-releases/2.1.295'
+          $manifest = Invoke-RestMethod "$releaseBase/manifest.json"
+          $nativeClaude = Join-Path $env:RUNNER_TEMP 'claude-native.exe'
+          Invoke-WebRequest "$releaseBase/win32-x64/claude.exe" -OutFile $nativeClaude
+          $checksum = (Get-FileHash $nativeClaude -Algorithm SHA256).Hash.ToLower()
+          if ($checksum -ne $manifest.platforms.'win32-x64'.checksum) { throw 'Claude native checksum mismatch' }
+          Write-Output "Claude native SHA256: $checksum"
+          "ALOOK_NATIVE_CLAUDE_PATH=$nativeClaude" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Install the Google Antigravity native ACP server
+        shell: pwsh
+        run: |
+          $agyZip = Join-Path $env:RUNNER_TEMP 'agy-acp-server.zip'
+          Invoke-WebRequest 'https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-1.3.0-windows-x86_64.zip' -OutFile $agyZip
+          Expand-Archive $agyZip -DestinationPath $env:ALOOK_NATIVE_NPM_PREFIX -Force
+          if (-not (Test-Path (Join-Path $env:ALOOK_NATIVE_NPM_PREFIX 'agy_acp_server.exe'))) { throw 'Missing Antigravity ACP entry' }
+      - name: Exercise real detection, persistent startup and cleanup
+        run: pnpm --filter @alook/agent-driver exec vitest run src/internal/probe.test.ts src/internal/probe.windows.test.ts src/internal/killTree.windows-errors.test.ts src/adapters/antigravity/index.test.ts --no-file-parallelism

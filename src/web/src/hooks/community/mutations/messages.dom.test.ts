@@ -1,4 +1,4 @@
-import { canonicalMessageReader } from "@/test/community-query-owner"
+import { getMessageStreamState, canonicalMessageReader } from "@/test/community-query-owner"
 import { materializeMessageStream } from "@/lib/community/message-stream"
 import { createElement, type PropsWithChildren } from "react"
 import { afterEach, describe, it, expect, vi, beforeEach } from "vitest"
@@ -547,7 +547,7 @@ describe("useSendDmMessage — overlay terminal emitter", () => {
     const mod = await loadMod()
     const mutation = mountHook(() => mod.useSendMessage())
     const { runAcceptedMessageIntent } = await import("@/components/community/messages/message-channel-controller-send")
-    await act(async () => { await expect(runAcceptedMessageIntent({ runtime, messageScope: scope, nonce: "runner_failure",
+    await act(async () => { await expect(runAcceptedMessageIntent({ assertCommand: () => {}, runtime, messageScope: scope, nonce: "runner_failure",
       uploadFileAsync: vi.fn(), sendMessageAsync: mutation.mutateAsync,
       channelId: scope.id, serverId: scope.serverId, viewer: { id: "u_me", name: "Me", avatar: "M" },
     })).resolves.toBeUndefined() })
@@ -575,7 +575,8 @@ describe("useSendDmMessage — overlay terminal emitter", () => {
     )
   })
 
-  it("fails the upload intent when its view retires after upload succeeds, before native POST", async () => {
+  it("continues the upload intent when its view retires after upload succeeds, before native POST", async () => {
+    apiFetchMock.mockResolvedValueOnce({ message: { id: "confirmed", seq: 12, type: "chat", content: "keep optimistic", authorId: "u_me", authorName: "Me", createdAt: "2026-10-09T01:00:00Z", embeds: [] } })
     const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }, runtime = canonicalRegistry.runtime
     const file = new File(["x"], "x.txt", { type: "text/plain" })
     runtime.messageStream.actions.accept(scope, { nonce: "upload-view", tempId: "temp-upload-view", message: { type: "chat", content: "file", authorId: "u_me" }, localUploads: [{ file, previewObjectUrl: "blob:view" }] })
@@ -585,20 +586,21 @@ describe("useSendDmMessage — overlay terminal emitter", () => {
     const assertActive = Object.assign(() => { if (!current) throw new DOMException("Retired view", "AbortError") }, { signal: new AbortController().signal })
     const { runAcceptedMessageIntent } = await import("@/components/community/messages/message-channel-controller-send")
     await act(async () => {
-      const pending = runAcceptedMessageIntent({ runtime, messageScope: scope, nonce: "upload-view", assertActive, uploadFileAsync, sendMessageAsync: mutation.mutateAsync,
+      const pending = runAcceptedMessageIntent({ assertCommand: () => {}, runtime, messageScope: scope, nonce: "upload-view", assertActive, uploadFileAsync, sendMessageAsync: mutation.mutateAsync,
         channelId: scope.id, serverId: scope.serverId, viewer: { id: "u_me", name: "Me", avatar: "M" } })
       current = false
       finish({ id: "uploaded", filename: "x.txt", contentType: "text/plain", size: 1 })
       await pending
     })
     expect(uploadFileAsync).toHaveBeenCalledOnce()
-    expect(apiFetchMock).not.toHaveBeenCalled()
-    expect(dispatch.mock.calls).toEqual([[scope, { type: "uploadFailed", nonce: "upload-view" }]])
-    expect(runtime.messageStream.actions.getRetryPayload(scope, "upload-view")?.message.failed).toBe(true)
+    expect(apiFetchMock).toHaveBeenCalledOnce()
+    expect(dispatch.mock.calls.some(([, event]) => event.type === "uploadFailed")).toBe(false)
+    expect(dispatch.mock.calls.some(([, event]) => event.type === "postAck")).toBe(true)
     expect(toastMock).not.toHaveBeenCalled()
   })
 
-  it("fails the accepted channel intent once when its view retires before native POST starts", async () => {
+  it("continues the accepted channel intent when its view retires before native POST starts", async () => {
+    apiFetchMock.mockResolvedValueOnce({ message: { id: "confirmed", seq: 12, type: "chat", content: "keep optimistic", authorId: "u_me", authorName: "Me", createdAt: "2026-10-09T01:00:00Z", embeds: [] } })
     const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
     const runtime = canonicalRegistry.runtime
     runtime.messageStream.actions.accept(scope, { nonce: "retired_view", tempId: "temp_retired_view",
@@ -610,16 +612,16 @@ describe("useSendDmMessage — overlay terminal emitter", () => {
     const assertActive = Object.assign(() => { if (!current) throw new DOMException("Retired view", "AbortError") }, { signal: new AbortController().signal })
     const { runAcceptedMessageIntent } = await import("@/components/community/messages/message-channel-controller-send")
     await act(async () => {
-      const pending = runAcceptedMessageIntent({ runtime, messageScope: scope, nonce: "retired_view", assertActive,
+      const pending = runAcceptedMessageIntent({ assertCommand: () => {}, runtime, messageScope: scope, nonce: "retired_view", assertActive,
         uploadFileAsync: vi.fn(), sendMessageAsync: mutation.mutateAsync,
         channelId: scope.id, serverId: scope.serverId, viewer: { id: "u_me", name: "Me", avatar: "M" },
       })
       current = false
       await expect(pending).resolves.toBeUndefined()
     })
-    expect(apiFetchMock).not.toHaveBeenCalled()
-    expect(dispatch.mock.calls).toEqual([[scope, { type: "postFail", nonce: "retired_view" }]])
-    expect(runtime.messageStream.actions.getRetryPayload(scope, "retired_view")?.message).toMatchObject({ content: "keep optimistic", failed: true })
+    expect(apiFetchMock).toHaveBeenCalledOnce()
+    expect(dispatch.mock.calls.some(([, event]) => event.type === "postFail")).toBe(false)
+    expect(dispatch.mock.calls.some(([, event]) => event.type === "postAck")).toBe(true)
     expect(toastMock).not.toHaveBeenCalled()
   })
 })
@@ -1364,5 +1366,109 @@ describe("useDeleteMention — rollback", () => {
       return Array.isArray(key) && key.length === 2 && key[0] === "community" && key[1] === "servers"
     })
     expect(serversInvalidates).toHaveLength(1)
+  })
+})
+
+
+describe("confirmed send failures", () => {
+  const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
+  const args = { serverId: "s1", channelId: "ch_1", content: "hi", nonce: "n1", author: { id: "u_me", name: "me", avatar: "M" } }
+  const confirmed = { id: "server_confirmed", seq: 7, type: "chat" as const, content: "hi", authorId: "u_me", clientNonce: "n1" }
+  it.each(["ordinary", "network", "500", "503"].flatMap(kind => ["canonical", "ws", "base"].map(stage => [kind, stage])))("settles the existing intent when %s failure follows %s confirmation", async (kind, stage) => {
+    const { ApiError } = await import("@/lib/errors")
+    const error = kind === "ordinary" ? new Error("late failure") : new ApiError("late failure", kind === "network" ? 0 : Number(kind))
+    canonicalRegistry.runtime.messageStream.actions.accept(scope, { nonce: "n1", tempId: "temp_n1", message: { type: "chat", content: "hi", authorId: "u_me" }, localUploads: [] })
+    canonicalRegistry.runtime.ui.actions.setCurrentServerId(scope.serverId)
+    canonicalRegistry.runtime.ui.actions.subscribe({ channelId: scope.id })
+    apiFetchMock.mockImplementationOnce(async () => {
+      if (stage === "ws") {
+        const { dispatchCommunityWsEvent } = await import("@/hooks/community/community-ws/registry")
+        dispatchCommunityWsEvent({ type: "community:message.create", serverId: scope.serverId, channelId: scope.id,
+          message: { ...confirmed, authorName: "Me", authorAvatar: "M", authorAvatarVersion: 0, createdAt: "2026-08-07T10:00:00.000Z" } }, {
+          deliveryMode: "single", queryClient: capturedQc, communityStore: canonicalRegistry.runtime.ui, wsStore: canonicalRegistry.runtime.ws,
+          sub: { channelId: scope.id }, viewerUserIdRef: { current: "u_me" }, matchesFocus: event => event.channelId === scope.id, scheduleInboxInvalidate: vi.fn(),
+        })
+      } else {
+        ingestMessages(canonicalRegistry, scope.id, [confirmed])
+        if (stage === "base") canonicalRegistry.runtime.messageStream.actions.dispatch(scope, { type: "baseChanged", messages: [confirmed] })
+      }
+      throw error
+    })
+    const mod = await loadMod()
+    mountHook(() => mod.useSendMessage())
+    await expect(runMutation(args)).rejects.toBe(error)
+    expect(toastMock).not.toHaveBeenCalled()
+    expect(getMessageStreamState(capturedQc, scope).outboxByNonce.size).toBe(0)
+    expect(materializeMessageStream([], getMessageStreamState(capturedQc, scope), canonicalMessageReader(capturedQc)).map(({ id }) => id)).toEqual(["server_confirmed"])
+  })
+  it.each([400, 401, 403, 429])("retains explicit %s despite matching canonical confirmation", async (status) => {
+    const { ApiError } = await import("@/lib/errors")
+    const error = new ApiError("explicit rejection", status)
+    ingestMessages(canonicalRegistry, scope.id, [confirmed])
+    apiFetchMock.mockRejectedValueOnce(error)
+    const mod = await loadMod()
+    mountHook(() => mod.useSendMessage())
+    await expect(runMutation(args)).rejects.toBe(error)
+    expect(toastMock).toHaveBeenCalledOnce()
+  })
+  it.each([
+    { authorId: "other" }, { clientNonce: "other" }, { seq: undefined }, { seq: 0 },
+  ])("does not accept an invalid confirmation %j", async (change) => {
+    ingestMessages(canonicalRegistry, scope.id, [{ ...confirmed, ...change }])
+    apiFetchMock.mockRejectedValueOnce(new Error("not confirmed"))
+    const mod = await loadMod()
+    mountHook(() => mod.useSendMessage())
+    await runMutation(args).catch(() => {})
+    expect(toastMock).toHaveBeenCalledWith("not confirmed")
+  })
+  it.each(["owner", "view", "abort", "synthetic nonce"])("does not confirm after %s loses eligibility", async (mode) => {
+    ingestMessages(canonicalRegistry, scope.id, [confirmed])
+    const { useCommunityMutationOrigin } = await import("../community-origin")
+    const origin = mountHook(() => useCommunityMutationOrigin()), original = origin.begin().token
+    const mod = await loadMod()
+    let error: Error = new Error("late failure")
+    if (mode === "owner") canonicalRegistry.runtime.lifecycle.setState(state => ({ ...state, active: false, generation: state.generation + 1 }))
+    if (mode === "abort") error = new DOMException("cancelled", "AbortError")
+    const assertActive = mode === "view" ? Object.assign(() => { throw new DOMException("retired view", "AbortError") }, { signal: new AbortController().signal }) : undefined
+    expect(mod.getConfirmedSentMessage(error, origin, original, scope.id, mode === "synthetic nonce" ? "srv:n1" : "n1", assertActive)).toBeUndefined()
+  })
+  it("releases accepted previews once through reducer settlement and keeps confirmed remote data", async () => {
+    const revoke = vi.fn(), originalRevoke = URL.revokeObjectURL
+    URL.revokeObjectURL = revoke
+    try {
+      canonicalRegistry.runtime.messageStream.actions.accept(scope, { nonce: "n1", tempId: "temp_n1", message: { type: "chat", content: "hi", authorId: "u_me" }, localUploads: [{ file: new File(["x"], "x.txt"), previewObjectUrl: "blob:confirmed" }] })
+      apiFetchMock.mockImplementationOnce(async () => { ingestMessages(canonicalRegistry, scope.id, [confirmed]); throw new Error("late failure") })
+      const mod = await loadMod()
+      mountHook(() => mod.useSendMessage())
+      await runMutation(args).catch(() => {})
+      expect(toastMock).not.toHaveBeenCalled()
+      canonicalRegistry.runtime.messageStream.actions.dispatch(scope, { type: "wsMessage", message: confirmed })
+      canonicalRegistry.runtime.messageStream.actions.removeScope(scope)
+      expect(revoke).toHaveBeenCalledExactlyOnceWith("blob:confirmed")
+      expect(canonicalRegistry.collections.messages.get(confirmed.id)).toMatchObject(confirmed)
+    } finally { URL.revokeObjectURL = originalRevoke }
+  })
+  it.each([{ id: "" }, { seq: -1 }, { seq: 1.5 }, { seq: Number.MAX_SAFE_INTEGER + 1 }])("rejects invalid server id/seq at canonical ingestion %j", (change) => {
+    expect(() => ingestMessages(canonicalRegistry, scope.id, [{ ...confirmed, ...change }])).toThrow()
+  })
+  it("does not accept another target or an absent outbox as confirmation", async () => {
+    ingestMessages(canonicalRegistry, "other_channel", [confirmed])
+    apiFetchMock.mockRejectedValueOnce(new Error("not confirmed"))
+    const mod = await loadMod()
+    mountHook(() => mod.useSendMessage())
+    await runMutation(args).catch(() => {})
+    expect(toastMock).toHaveBeenCalledWith("not confirmed")
+  })
+  it("retains failure before a later WS confirmation then reconciles through the existing reducer", async () => {
+    canonicalRegistry.runtime.messageStream.actions.accept(scope, { nonce: "n1", tempId: "temp_n1", message: { type: "chat", content: "hi", authorId: "u_me" }, localUploads: [] })
+    apiFetchMock.mockRejectedValueOnce(new Error("not confirmed yet"))
+    const mod = await loadMod()
+    mountHook(() => mod.useSendMessage())
+    await runMutation(args).catch(() => {})
+    expect(toastMock).toHaveBeenCalledWith("not confirmed yet")
+    expect(getMessageStreamState(capturedQc, scope).outboxByNonce.get("n1")?.status).toBe("failed")
+    ingestMessages(canonicalRegistry, scope.id, [confirmed])
+    canonicalRegistry.runtime.messageStream.actions.dispatch(scope, { type: "wsMessage", message: confirmed })
+    expect(getMessageStreamState(capturedQc, scope).outboxByNonce.size).toBe(0)
   })
 })

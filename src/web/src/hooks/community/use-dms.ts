@@ -1,6 +1,4 @@
 "use client"
-
-import { deriveView, viewEvidence } from "@/lib/observability/data-source"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 
 
@@ -146,7 +144,6 @@ export function useDms(enabled = true): UseQueryResult<{ ids: string[] }> & { dm
       }
     }))
   }, [attentionScopes, dbDms, profilesByUserId])
-  deriveView(dms, [viewEvidence(dbDms), viewEvidence(attentionScopes), ...dms.map(dm => viewEvidence(profilesByUserId.get(dm.userId)))])
   return {
     ...query,
     dms,

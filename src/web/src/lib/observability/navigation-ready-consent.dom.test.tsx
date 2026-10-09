@@ -23,7 +23,7 @@ it("does not backfill a pre-consent document visit and observes only later eligi
   vi.stubGlobal("fetch", fetch)
   document.cookie = "alook_analytics_consent=v1.denied; path=/"
   const { bootstrapObservability, onObservedRouterTransition } = await import("./client")
-  function Content() { useObservedRegion("page", true, { source: "unknown", version: "static", freshness: "unknown", count: 1 }); return <p>Ready page</p> }
+  function Content() { useObservedRegion("page", true, 1); return <p>Ready page</p> }
   await act(async () => { bootstrapObservability("web"); view = render(<Content />) })
   expect(fetch).not.toHaveBeenCalled()
   await act(async () => { document.cookie = "alook_analytics_consent=v1.granted; path=/"; announceAnalyticsConsent("granted") })

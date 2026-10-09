@@ -6,6 +6,8 @@ import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { getMessageStreamState } from "@/test/community-query-owner"
 import { materializeMessageStream } from "@/lib/community/message-stream"
+import { ingestMessages } from "@/lib/community-db/sync"
+import { ApiError } from "@/lib/errors"
 import { MESSAGE_PREVIEW_LENGTH } from "@alook/shared"
 import { useDmMessageSender, type AcceptDmMessageArgs, type DmSendReceipt } from "./use-dm-message-sender"
 
@@ -144,5 +146,47 @@ describe("Native DM sender", () => {
     const base = [{ id: "server_1", seq: 11, clientNonce: "fresh_nonce", type: "chat" as const, authorId: "u_me", authorName: "Me", content: "out of view" }]
     act(() => owner.runtime.messageStream.actions.dispatch(scope, { type: "baseChanged", messages: base }))
     expect(materializeMessageStream(base, owner.overlay(), canonicalMessageReader(owner.client)).map(({ id }) => id)).toEqual(["server_1"])
+  })
+})
+
+
+describe("confirmed native DM receipt", () => {
+  const confirmed = { id: "server_confirmed", seq: 17, type: "chat" as const, content: "hello", authorId: "u_me", clientNonce: "fresh_nonce" }
+  it.each(["ordinary", 0, 500, 503])("returns the canonical receipt after a late %s while Native POST stays rejected", async (status) => {
+    const owner = await setup()
+    mocks.post.mockImplementationOnce(async () => { ingestMessages(owner.registry, scope.id, [confirmed]); throw status === "ordinary" ? new Error("late failure") : new ApiError("late failure", Number(status)) })
+    const receipt = owner.accept({ content: "hello" })
+    expect(await owner.settle(receipt)).toEqual({ ok: true, message: { id: "server_confirmed", seq: 17 } })
+    expect(owner.overlay().outboxByNonce.size).toBe(0)
+    const { awaitCommittedInvite } = await import("@/components/community/social/invite-dialog")
+    const onCommitted = vi.fn()
+    await awaitCommittedInvite(receipt, onCommitted)
+    expect(onCommitted).toHaveBeenCalledOnce()
+  })
+  it.each([403, 429])("keeps explicit %s as a failed receipt with a matching canonical row", async (status) => {
+    const owner = await setup()
+    ingestMessages(owner.registry, scope.id, [confirmed])
+    mocks.post.mockRejectedValueOnce(new ApiError("rejected", status))
+    expect(await owner.settle(owner.accept({ content: "hello" }))).toMatchObject({ ok: false, error: expect.any(Error) })
+  })
+  it.each(["abort", "view", "owner"])("keeps the DM receipt failed after %s with matching confirmation", async (mode) => {
+    const owner = await setup()
+    let current = true
+    const assertActive = Object.assign(() => { if (!current) throw new DOMException("retired view", "AbortError") }, { signal: new AbortController().signal })
+    mocks.post.mockImplementationOnce(async () => {
+      ingestMessages(owner.registry, scope.id, [confirmed])
+      if (mode === "view") current = false
+      if (mode === "owner") owner.runtime.lifecycle.setState(state => ({ ...state, active: false, generation: state.generation + 1 }))
+      throw mode === "abort" ? new DOMException("cancelled", "AbortError") : new Error("late failure")
+    })
+    expect(await owner.settle(owner.accept({ content: "hello", assertActive }))).toMatchObject(mode === "view" ? { ok: true, message: { id: "server_confirmed", seq: 17 } } : { ok: false, error: expect.any(Error) })
+  })
+  it("does not recover an upload failure from a matching canonical row", async () => {
+    const owner = await setup()
+    ingestMessages(owner.registry, scope.id, [confirmed])
+    mocks.upload.mockRejectedValueOnce(new ApiError("upload 503", 503))
+    const receipt = owner.accept({ content: "hello", attachments: [{ file: new File(["x"], "x.txt"), previewObjectUrl: "blob:x" }] })
+    expect(await owner.settle(receipt)).toMatchObject({ ok: false, error: expect.any(Error) })
+    expect(mocks.post).not.toHaveBeenCalled()
   })
 })

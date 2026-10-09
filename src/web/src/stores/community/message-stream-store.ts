@@ -1,4 +1,3 @@
-import { sourceEvidence } from "@/lib/observability/data-source"
 import { beginMessageObservation, messageMilestone, disposeMessageObservations } from "@/lib/observability/messages"
 import { createStore } from "@tanstack/store"
 import {
@@ -62,7 +61,6 @@ export function createMessageStreamStore(readMessages: () => Pick<ReadonlyMap<st
     const overlay = current.entries.get(key)?.state ?? EMPTY_STORED
     if (event.type === "retry" && overlay.outboxByNonce.has(event.nonce)) beginMessageObservation(diagnosticOwner, event.nonce, scope.kind)
     const applied = event.type === "postAck" ? { type: "wsMessage" as const, message: { ...event.message, clientNonce: event.nonce } } : event
-    if (applied.type === "wsMessage") sourceEvidence(applied.message, event.type === "postAck" ? "network" : "ws")
     const transition = reduceMessageOverlay(overlay, applied, readMessages())
     if (transition.state !== overlay) {
       const entries = new Map(current.entries)

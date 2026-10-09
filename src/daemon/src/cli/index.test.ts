@@ -1496,7 +1496,7 @@ describe("message attachment upload", () => {
     const { default: sharp } = await import("sharp")
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "alook-raster-matrix-"))
     const file = path.join(dir, `source.${extension}`)
-    let pipeline = sharp({ create: { width: 1025, height: 24, channels: 3, background: "#123456" } })
+    let pipeline = sharp({ create: { width: 721, height: 24, channels: 3, background: "#123456" } })
     pipeline = extension === "jpg" ? pipeline.jpeg() : extension === "webp" ? pipeline.webp() : pipeline.gif()
     fs.writeFileSync(file, await pipeline.toBuffer())
     const uploadSpy = vi.fn(async () => ({
@@ -1509,9 +1509,9 @@ describe("message attachment upload", () => {
       fs.rmSync(dir, { recursive: true, force: true })
     }
     const request = uploadSpy.mock.calls[0]![0]
-    expect(request).toMatchObject({ width: 1025, height: 24 })
+    expect(request).toMatchObject({ width: 721, height: 24 })
     expect(request.thumbnail?.contentType).toBe("image/jpeg")
-    expect((request.thumbnail?.data as Uint8Array).byteLength).toBeLessThanOrEqual(512 * 1024)
+    expect((request.thumbnail?.data as Uint8Array).byteLength).toBeLessThanOrEqual(256 * 1024)
   })
 
   it("generates a bounded JPEG when only the original byte limit is exceeded", async () => {
@@ -1525,7 +1525,7 @@ describe("message attachment upload", () => {
     const source = await sharp(randomBytes(640 * 480 * 3), {
       raw: { width: 640, height: 480, channels: 3 },
     }).png({ compressionLevel: 0 }).toBuffer()
-    expect(source.byteLength).toBeGreaterThan(512 * 1024)
+    expect(source.byteLength).toBeGreaterThan(256 * 1024)
     fs.writeFileSync(file, source)
     const uploadSpy = vi.fn(async (req: Parameters<ServerApi["attachmentUpload"]>[0]) => ({
       id: "att", filename: "source.png", contentType: "image/png", size: source.byteLength,
@@ -1539,7 +1539,7 @@ describe("message attachment upload", () => {
     }
     const request = uploadSpy.mock.calls[0]![0]
     expect(request).toMatchObject({ width: 640, height: 480 })
-    expect((request.thumbnail?.data as Uint8Array).byteLength).toBeLessThanOrEqual(512 * 1024)
+    expect((request.thumbnail?.data as Uint8Array).byteLength).toBeLessThanOrEqual(256 * 1024)
   })
 
   it("uploads corrupt declared raster input without thumbnail or dimensions", async () => {
@@ -1571,7 +1571,7 @@ describe("message attachment upload", () => {
     const path = await import("node:path")
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "alook-corrupt-large-image-"))
     const file = path.join(dir, "corrupt.png")
-    fs.writeFileSync(file, new Uint8Array(512 * 1024 + 1))
+    fs.writeFileSync(file, new Uint8Array(256 * 1024 + 1))
     const uploadSpy = vi.fn()
     setApiForTesting(stubApi({ attachmentUpload: uploadSpy }))
     try {

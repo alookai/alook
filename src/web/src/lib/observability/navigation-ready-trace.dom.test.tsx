@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-quer
 import { afterEach, expect, it, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
 import { announceAnalyticsConsent } from "../analytics-consent"
-import { useObservedQueryRegion } from "./query-regions"
+import { useObservedRegion } from "./regions"
 
 const native = vi.hoisted(() => ({ release: undefined as (() => void) | undefined }))
 vi.mock("@grafana/faro-web-sdk", async importOriginal => {
@@ -40,7 +40,7 @@ it("binds the initial navigation before ready and parents a real native HTTP spa
   const data = new Promise<never[]>(done => { resolve = done })
   function Content() {
     const query = useQuery({ queryKey: ["messages"], queryFn: () => data, staleTime: Infinity })
-    useObservedQueryRegion("messages", query, query.data?.length)
+    useObservedRegion("messages", !query.isPending && query.data !== undefined, query.data?.length)
     return <p>{query.isPending ? "loading" : "empty"}</p>
   }
   function Root() {

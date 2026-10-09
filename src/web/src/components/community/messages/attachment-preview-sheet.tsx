@@ -1,6 +1,5 @@
 "use client"
 
-import { useObservedQueryRegion } from "@/lib/observability/query-regions"
 import { useQuery } from "@tanstack/react-query"
 import { applicationKey, assertApplicationOwner, captureApplicationOwner, useApplicationOwner } from "@/lib/application-owner"
 import dynamic from "next/dynamic"
@@ -185,8 +184,6 @@ export function AttachmentPreviewSheet({
     : unavailable ? { status: "error", content: null, error: unavailable }
     : content.isError ? { status: "error", content: null, error: content.error instanceof Error ? content.error.message : "Couldn’t load this attachment" }
     : content.data ?? { status: "loading", content: null, error: null }
-
-  useObservedQueryRegion("file_preview", content, undefined, open && preview.status === "ready" && presentation?.previewKind === "text")
   const size = selected
     ? formatAttachmentSize(selected.sizeBytes) || selected.size
     : ""

@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-quer
 import { afterEach, expect, it, vi } from "vitest"
 import { act, render } from "@/test/react-dom-harness"
 import { announceAnalyticsConsent } from "../analytics-consent"
-import { useObservedQueryRegion } from "./query-regions"
+import { useObservedRegion } from "./regions"
 import { observationEpoch } from "./clock"
 
 const native = vi.hoisted(() => ({ release: undefined as (() => void) | undefined }))
@@ -42,7 +42,7 @@ it("retains real ready time before a delayed SDK and records each later route on
   client.setQueryData(["messages"], []); client.setQueryData(["forum"], [])
   function Content({ region }: { region: "messages" | "forum" }) {
     const query = useQuery({ queryKey: [region], queryFn: async () => [], staleTime: Infinity })
-    useObservedQueryRegion(region, query, query.data?.length)
+    useObservedRegion(region, !query.isPending && query.data !== undefined, query.data?.length)
     return <p>{region}: {query.isPending ? "loading" : "empty"}</p>
   }
   function Root({ region }: { region: "messages" | "forum" }) {

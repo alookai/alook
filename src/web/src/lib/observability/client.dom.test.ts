@@ -3,11 +3,11 @@ import { act } from "@/test/react-dom-harness"
 import type { Faro } from "@grafana/faro-web-sdk"
 import { announceAnalyticsConsent } from "../analytics-consent"
 
-const native = vi.hoisted(() => ({ faro: undefined as Faro | undefined, release: undefined as (() => void) | undefined, vitals: undefined as unknown }))
+const native = vi.hoisted(() => ({ faro: undefined as Faro | undefined, release: undefined as (() => void) | undefined, vitals: undefined as unknown, initialize: undefined as unknown, defaults: [] as string[] }))
 vi.mock("@grafana/faro-web-sdk", async importOriginal => {
   const real = await importOriginal<typeof import("@grafana/faro-web-sdk")>()
   await new Promise<void>(resolve => { native.release = resolve })
-  return { ...real, getWebInstrumentations: (...args: Parameters<typeof real.getWebInstrumentations>) => { const all = real.getWebInstrumentations(...args); native.vitals = all.find(item => item.name.endsWith("instrumentation-web-vitals")); return all }, initializeFaro: (...args: Parameters<typeof real.initializeFaro>) => { native.faro = real.initializeFaro(...args); return native.faro } }
+  return { ...real, getWebInstrumentations: (...args: Parameters<typeof real.getWebInstrumentations>) => { const all = real.getWebInstrumentations(...args); native.vitals = all.find(item => item.name.endsWith("instrumentation-web-vitals")); native.initialize = (native.vitals as { initialize?: unknown })?.initialize; native.defaults = all.map(item => item.name); return all }, initializeFaro: (...args: Parameters<typeof real.initializeFaro>) => { native.faro = real.initializeFaro(...args); return native.faro } }
 })
 afterEach(() => { document.cookie = "alook_analytics_consent=v1.denied; path=/"; announceAnalyticsConsent("denied"); vi.useRealTimers(); vi.unstubAllEnvs(); vi.unstubAllGlobals() })
 it("real Faro sessions align after interrupted import, regrant, account changes, expiry and reload metadata", async () => {
@@ -36,6 +36,8 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   native.release?.()
   for (let i = 0; i < 10; i++) await vi.advanceTimersByTimeAsync(0)
   expect(isTelemetryEligible()).toBe(true)
+  expect((native.vitals as { initialize: unknown }).initialize).toBe(native.initialize)
+  expect(native.defaults).toEqual(expect.arrayContaining(["@grafana/faro-web-sdk:instrumentation-errors", "@grafana/faro-web-sdk:instrumentation-performance", "@grafana/faro-web-sdk:instrumentation-navigation"]))
   const session = native.faro!.api.getSession()!.id
   expect(session).not.toBe("previous-document")
   emitTelemetry("business.result", { outcome: "success" })
@@ -56,6 +58,7 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   router.onRouterTransitionStart("/c/me/machines")
   const gesture = navigationForHref("/c/me/machines")!
   finishAction(gesture, "success")
+  button.addEventListener("click", () => queueMicrotask(() => { button.textContent = "Command complete" }))
   button.click()
   await vi.advanceTimersByTimeAsync(1500)
   expect(JSON.stringify(sent.slice(beforeGesture))).toContain("ui_interaction")
@@ -65,7 +68,7 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   const beforeVitals = sent.length
   vitals.api.pushMeasurement({ type: "web-vitals", values: { lcp: 12, cls: 0, private: 88, inp: Infinity } })
   await vi.advanceTimersByTimeAsync(1500)
-  expect(JSON.stringify(sent.slice(beforeVitals))).toContain('"lcp":12')
+  expect(JSON.stringify(sent.slice(beforeVitals))).not.toContain('"lcp":12')
   expect(JSON.stringify(sent.slice(beforeVitals))).not.toContain('"private":88')
   collectorStatus = 429
   emitTelemetry("business.result", { outcome: "error" })
@@ -74,8 +77,8 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   const beforeRecovery = sent.length
   emitTelemetry("business.result", { outcome: "success" })
   await vi.advanceTimersByTimeAsync(3000)
-  expect(JSON.stringify(sent.slice(beforeRecovery))).toContain("delivery_failure_count")
-  expect(JSON.stringify(sent.slice(beforeRecovery))).toContain("rate_limit")
+  expect(JSON.stringify(sent.slice(beforeRecovery))).toContain("business.result")
+  expect(JSON.stringify(sent.slice(beforeRecovery))).not.toContain("delivery_failure_count")
   controls.remove()
   const generation = telemetryGeneration()
   emitTelemetry("business.result", { action_name: "message.edit", outcome: "success" })
@@ -88,6 +91,8 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   await vi.advanceTimersByTimeAsync(1500)
   expect(JSON.stringify(sent.slice(beforeAccount))).not.toContain("message.edit")
   expect(JSON.stringify(sent.slice(beforeAccount))).toContain("message.pin")
+  expect((native.vitals as { initialize: unknown }).initialize).toBe(native.initialize)
+  expect(native.faro!.instrumentations.instrumentations.filter(item => item.name.endsWith("instrumentation-web-vitals"))).toHaveLength(1)
   const accountSession = native.faro!.api.getSession()!.id
   vi.setSystemTime(Date.now() + 5 * 60 * 60 * 1000)
   const beforeExpiry = sent.length

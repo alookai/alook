@@ -115,7 +115,7 @@ describe("outbound whitelist", () => {
     expect(sanitizeItem(measurement("web-vitals", { LCP: 10, cls: 0, SECRET: 1, inp: NaN, fcp: -1 }), session, origin)?.payload).toEqual({ type: "web-vitals", timestamp: "2026-10-05T00:00:00Z", values: { LCP: 10, cls: 0 } })
     expect(sanitizeItem(measurement("arbitrary", { LCP: 10 }), session, origin)).toBeNull()
     expect(sanitizeItem(measurement("web-vitals", { SECRET: 1 }), session, origin)).toBeNull()
-    const exception = { type: "exception", meta, payload: { type: "Error", value: "SECRET", stacktrace: { frames: [{ filename: "http://[", lineno: 3 }] } } } as TransportItem
+    const exception = { type: "exception", meta, payload: { timestamp: "2026-10-05T00:00:00Z", type: "Error", value: "SECRET", stacktrace: { frames: [{ filename: "http://[", lineno: 3 }] } } } as TransportItem
     expect(sanitizeItem(exception, session, origin)?.payload).toMatchObject({ value: "[redacted]", stacktrace: { frames: [] } })
     expect(sanitizeItem({ type: "unknown", meta, payload: {} } as unknown as TransportItem, session, origin)).toBeNull()
   })
@@ -139,8 +139,8 @@ describe("outbound whitelist", () => {
     const variants = [
       { type: "event", payload: { name: "session_start", attributes: spoofed } },
       { type: "event", payload: { name: "business.result", attributes: spoofed } },
-      { type: "measurement", payload: { type: "web-vitals", values: { lcp: 10 } } },
-      { type: "exception", payload: { type: "Error", value: "SECRET" } },
+      { type: "measurement", payload: { timestamp: "2026-10-05T00:00:00Z", type: "web-vitals", values: { lcp: 10 } } },
+      { type: "exception", payload: { timestamp: "2026-10-05T00:00:00Z", type: "Error", value: "SECRET" } },
       { type: "trace", payload: { resourceSpans: [{ scopeSpans: [{ spans: [span] }] }] } },
     ]
     for (const variant of variants) {
@@ -176,6 +176,29 @@ describe("outbound whitelist", () => {
     expect(JSON.stringify(trace)).not.toContain("9.9.9")
     expect(trace.resourceSpans[0]!.resource.attributes.some(attribute => attribute.key === "service.version")).toBe(false)
     expect(trace.resourceSpans[0]!.scopeSpans[0]!.spans[0]!.attributes).toContainEqual({ key: "frontend_surface", value: { stringValue: "webview" } })
+  })
+
+  it.each(["faro.performance.resource", "faro.performance.navigation"])("filters native %s without exposing URLs, DOM targets or server timing", name => {
+    const time = Date.parse("2026-10-05T00:00:00Z")
+    const item = { type: "event", meta, payload: { name, timestamp: new Date(time).toISOString(), attributes: { name: origin + "/api/community/messages/SECRET?token=SECRET", duration: "12", transferSize: "40", requestTime: "Infinity", httpHost: "SECRET", serverTiming: "SECRET", target: "SECRET" } } } as TransportItem
+    const clean = sanitizeItem(item, session, origin, undefined, time)!
+    expect(clean.payload).toMatchObject({ name, attributes: { name: "/api/community/messages/[id]", route_template: "/api/community/messages/[id]", duration: "12", transferSize: "40" } })
+    expect(JSON.stringify(clean)).not.toContain("SECRET")
+    expect(JSON.stringify(clean)).not.toContain("Infinity")
+    expect(sanitizeItem(item, session, origin, undefined, time + 1)).toBeNull()
+  })
+  it("drops unqualified document vitals and removes account identity from permitted document measurements", () => {
+    const item = { type: "measurement", meta: { ...meta, user: { id: "account-a" } }, payload: { type: "web-vitals", timestamp: "2026-10-05T00:00:00Z", values: { lcp: 10 }, context: { element: "SECRET" } } } as TransportItem
+    const clean = sanitizeItem(item, session, origin)!
+    expect(clean.meta).not.toHaveProperty("user")
+    expect(clean.payload).not.toHaveProperty("context")
+    expect(sanitizeItem(item, session, origin, undefined, 0, false)).toBeNull()
+  })
+  it("rejects native HTTP events and spans whose real start precedes the current admission", () => {
+    const item = { type: "event", meta, payload: { name: "faro.tracing.fetch", timestamp: new Date(2000).toISOString(), attributes: { "session.id": session, duration_ns: "1000000000" } } } as TransportItem
+    expect(sanitizeItem(item, session, origin, undefined, 1500)).toBeNull()
+    const span = { traceId: "a".repeat(32), spanId: "b".repeat(16), name: "navigation", startTimeUnixNano: "1000000000", endTimeUnixNano: "2000000000", attributes: [{ key: "session.id", value: { stringValue: session } }] }
+    expect(sanitizeTrace({ resourceSpans: [{ scopeSpans: [{ spans: [span] }] }] }, session, origin, undefined, 1500)).toBeNull()
   })
 
 })

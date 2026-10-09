@@ -17,16 +17,16 @@ describe("prepareCommunityImageUpload", () => {
       prepareCommunityImageUpload(new Uint8Array(1), "image/png"),
     ).resolves.toEqual({});
     await expect(
-      prepareCommunityImageUpload(new Uint8Array(512 * 1024 + 1), "image/png"),
+      prepareCommunityImageUpload(new Uint8Array(256 * 1024 + 1), "image/png"),
     ).rejects.toThrow("required image preview");
   });
 
   it("rejects when every bounded JPEG candidate remains over the byte cap", async () => {
     const pipeline = {
-      metadata: vi.fn().mockResolvedValue({ width: 1025, height: 512 }),
+      metadata: vi.fn().mockResolvedValue({ width: 721, height: 512 }),
       resize: vi.fn(),
       jpeg: vi.fn(),
-      toBuffer: vi.fn().mockResolvedValue(new Uint8Array(512 * 1024 + 1)),
+      toBuffer: vi.fn().mockResolvedValue(new Uint8Array(256 * 1024 + 1)),
     };
     pipeline.resize.mockReturnValue(pipeline);
     pipeline.jpeg.mockReturnValue(pipeline);

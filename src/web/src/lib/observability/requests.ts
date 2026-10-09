@@ -1,7 +1,6 @@
 import { actionAttributes, telemetryId, navigationForHref, prefetchForHref, type Action } from "./context"
 import { routeTemplate } from "./coverage"
 import { emitTelemetry, isTelemetryEligible, telemetryGeneration } from "./telemetry"
-import { tagNetworkResponse } from "./data-source"
 import { cleanAttributes, type Attributes } from "./schema"
 import { context, trace, createContextKey, type Span } from "@opentelemetry/api"
 
@@ -89,7 +88,6 @@ export async function readObservedResponse<T>(response: Response, read: () => Pr
     const value = await read()
     requestBodyParsed(response)
     try { qualify?.() } catch (error) { requestRejected(request); throw error }
-    if (request?.generation === telemetryGeneration()) tagNetworkResponse(value)
     finishRequest(request, "success", "body", "eligible")
     return value
   } catch (error) {

@@ -13,9 +13,9 @@ import {
 } from "./community"
 
 describe("Community attachment thumbnail constants", () => {
-  it("locks the 1024px and 512 KiB policy through both export surfaces", () => {
-    expect(MAX_ATTACHMENT_THUMBNAIL_EDGE_PX).toBe(1024)
-    expect(MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES).toBe(512 * 1024)
+  it("locks the 720px and 256 KiB policy through both export surfaces", () => {
+    expect(MAX_ATTACHMENT_THUMBNAIL_EDGE_PX).toBe(720)
+    expect(MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES).toBe(256 * 1024)
     expect(alook.MAX_ATTACHMENT_THUMBNAIL_EDGE_PX).toBe(MAX_ATTACHMENT_THUMBNAIL_EDGE_PX)
     expect(alook.MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES).toBe(MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES)
   })

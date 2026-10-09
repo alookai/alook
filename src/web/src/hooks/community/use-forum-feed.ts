@@ -1,6 +1,4 @@
 "use client"
-
-import { deriveView, valueEvidence, viewEvidence } from "@/lib/observability/data-source"
 import { useCallback, useEffect, useMemo } from "react"
 import { createStore, useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useInfiniteQuery, useIsMutating, useQueryClient, type Query } from "@tanstack/react-query"
@@ -78,12 +76,12 @@ export function mapForumFeedPages(pages: ForumFeedPage[], messages: ReadonlyMap<
     if (byId.has(window.id)) continue
     const thread = channels.get(window.id), opener = window.openerMessageId ? messages.get(window.openerMessageId) : undefined
     if (!thread || !opener || thread.parentMessageId !== opener.id || !forumFeedMatchesTags(filter, thread.tags)) continue
-    byId.set(thread.id, deriveView({
+    byId.set(thread.id, {
       ...projectThread(thread, opener, "forum"), authorId: opener.authorId ?? thread.creatorId ?? "",
       authorAvatar: opener.authorAvatar ?? avatarInitial(opener.authorName ?? ""), authorAvatarVersion: opener.authorAvatarVersion ?? 0,
       openerMessageId: opener.id, ...(opener.createdAt === undefined ? {} : { openerCreatedAt: opener.createdAt }), tags: thread.tags, preview: thread.preview ?? "",
       participants: window.participantIds.map((id) => { const profile = readCommunityProfile(profiles.get(id), id); return { id, name: profile.name, avatar: profile.avatar, avatarVersion: profile.avatarVersion } }), participantCount: thread.participantCount ?? 0,
-    }, [viewEvidence(thread), viewEvidence(opener), ...window.participantIds.map(id => viewEvidence(profiles.get(id)))]))
+    })
   }
   return [...byId.values()].sort((a, b) => compareAsciiSqliteBinary(channels.get(b.id)?.createdAt ?? "", channels.get(a.id)?.createdAt ?? "") || compareAsciiSqliteBinary(b.id, a.id))
 }
@@ -107,6 +105,5 @@ export function useForumFeed(serverId: string, channelId: string) {
   const messageIds = useMemo(() => [...new Set(query.data?.pages.flatMap((page) => page.threads.flatMap((thread) => thread.openerMessageId ? [thread.openerMessageId] : [])) ?? [])], [query.data?.pages])
   const messages = useCanonicalMessagesById(messageIds)
   const posts = useMemo(() => mapForumFeedPages(query.data?.pages ?? [], messages ?? new Map(), channels, profiles, selectedTag), [query.data?.pages, messages, channels, profiles, selectedTag])
-  deriveView(posts, [valueEvidence(queryClient, query.data), ...posts.map(viewEvidence)], posts.length)
   return { ...query, posts, tag, selectTag, availableTags: tagsQuery.data?.tags ?? [], hasMoreOlder: query.hasNextPage, isFetchingOlder: query.isFetchingNextPage, fetchOlder: () => { void query.fetchNextPage() } }
 }

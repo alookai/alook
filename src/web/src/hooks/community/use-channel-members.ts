@@ -1,7 +1,5 @@
 "use client"
 
-import { deriveView, valueEvidence, viewEvidence } from "@/lib/observability/data-source"
-
 import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
 
 import { useCallback,useMemo } from "react"
@@ -110,16 +108,14 @@ export function useChannelMembers(channelId: string, enabled = true, serverId?: 
       const member = byUser.get(participant.userId)
       if (query.data?.serverId !== null && !member?.memberId) return []
       const profile = readCommunityProfile(profiles.get(participant.userId), participant.userId)
-      return [deriveView({ id: member?.memberId ?? participant.userId, userId: participant.userId, name: member?.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, role: member ? member.role as CommunityRole : null, sub: "", status: member?.viewer ? "online" : profile.presence, statusEmoji: profile.statusEmoji ?? null, statusText: profile.statusText ?? "", source: participant.source ?? "explicit", isCreator: participant.isCreator ?? false }, [viewEvidence(member), viewEvidence(participant), viewEvidence(profile)])]
+      return [{ id: member?.memberId ?? participant.userId, userId: participant.userId, name: member?.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, role: member ? member.role as CommunityRole : null, sub: "", status: member?.viewer ? "online" : profile.presence, statusEmoji: profile.statusEmoji ?? null, statusText: profile.statusText ?? "", source: participant.source ?? "explicit", isCreator: participant.isCreator ?? false }]
     })
   }, [profiles, memberships, roster, query.data?.serverId])
-  deriveView(members, [valueEvidence(client, query.data), ...members.map(viewEvidence)], members.length)
   const data = useMemo(() => query.data ? { members } : undefined, [query.data, members])
   return { ...query, data, members } as UseQueryResult<{ members: ChannelMember[] }> & { members: ChannelMember[] }
 }
 
 export function useAddableMembers(serverId: string, channelId: string, enabled = true): UseQueryResult<{ members: AddableMember[] }> & { members: AddableMember[] } {
-  const client = useQueryClient()
   const active = enabled && !!serverId && !!channelId
   const query = useQuery({ queryKey: communityKeys.channelAddableMembers(channelId), queryFn: (context) => addableMembersQueryFn(serverId, channelId, context), enabled: active, subscribed: active })
   const ids = useMemo(() => query.data?.members ?? [], [query.data?.members])
@@ -136,7 +132,6 @@ export function useAddableMembers(serverId: string, channelId: string, enabled =
       return [{ userId: identity.userId, name: member.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion }]
     })
   }, [ids, profiles, memberships, roster])
-  deriveView(members, [valueEvidence(client, query.data), ...members.map(viewEvidence)], members.length)
   const data = useMemo(() => query.data ? { members } : undefined, [query.data, members])
   return { ...query, data, members } as UseQueryResult<{ members: AddableMember[] }> & { members: AddableMember[] }
 }

@@ -4,6 +4,8 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import { useEffect, useMemo } from "react"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
+import { MinusIcon, PlusIcon, RotateCcwIcon, XIcon } from "lucide-react"
 import type { ImagePreview } from "@/lib/community/models/message"
 import { tid } from "@/lib/community/testids"
 import {
@@ -12,8 +14,9 @@ import {
   validImageDimensions,
 } from "./image-lightbox-layout"
 import { useRemoteImageAttempt } from "@/components/remote-image/remote-image-attempt"
+import { useImageLightboxZoom } from "./image-lightbox-zoom"
 
-function PreviewFrame({ image }: { image: ImagePreview }) {
+function PreviewFrame({ image, onClose }: { image: ImagePreview; onClose: () => void }) {
   const knownDimensions = useMemo(
     () => validImageDimensions(image.width, image.height),
     [image.height, image.width],
@@ -41,6 +44,8 @@ function PreviewFrame({ image }: { image: ImagePreview }) {
   const frameStyle = previewFrameStyle(dimensions)
   const thumbnailReady = !!image.thumbnailUrl && thumbnailStatus === "ready"
   const originalReady = originalStatus === "ready" && revealedAttempt === originalAttempt
+  const { frameRef, view, reset, zoomIn, zoomOut, handlers } = useImageLightboxZoom(originalReady)
+  const imageTransform = { transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }
 
   useEffect(() => {
     if (originalStatus !== "ready" || !originalImage) return
@@ -61,10 +66,16 @@ function PreviewFrame({ image }: { image: ImagePreview }) {
   return (
     <div className="relative w-fit">
       <div
+        ref={frameRef}
         data-testid={tid.imageLightbox}
+        data-zoom-scale={view.scale}
         data-native-context-menu="true"
-        className="relative overflow-hidden rounded-lg bg-background"
-        style={frameStyle}
+        role="region"
+        aria-label="Image preview. Use plus and minus to zoom, arrow keys to pan, and zero to fit."
+        tabIndex={originalReady ? 0 : -1}
+        className={`relative select-none overflow-hidden rounded-lg bg-background ${view.scale > 1 ? "cursor-grab active:cursor-grabbing" : "cursor-default"}`}
+        style={{ ...frameStyle, touchAction: originalReady ? "none" : undefined }}
+        {...handlers}
       >
         {image.thumbnailUrl && (
           <img
@@ -75,6 +86,8 @@ function PreviewFrame({ image }: { image: ImagePreview }) {
             data-remote-image-state={thumbnailStatus}
             src={image.thumbnailUrl}
             alt={image.name}
+            draggable={false}
+            style={imageTransform}
             onLoad={onThumbnailLoad}
             onError={onThumbnailError}
             className={`absolute inset-0 size-full rounded-lg object-contain transition-opacity duration-150 ease-out motion-reduce:transition-none ${thumbnailReady && !originalReady ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
@@ -98,11 +111,24 @@ function PreviewFrame({ image }: { image: ImagePreview }) {
             data-remote-image-state={originalStatus}
             src={image.originalUrl}
             alt={image.name}
+            draggable={false}
+            style={imageTransform}
             onLoad={onOriginalLoad}
             onError={onOriginalError}
             className={`absolute inset-0 size-full rounded-lg object-contain transition-opacity duration-150 ease-out motion-reduce:transition-none ${originalReady ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
           />
         )}
+      </div>
+      <div
+        role="toolbar"
+        aria-label="Image controls"
+        className="absolute left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-lg border border-border bg-background p-1"
+        style={{ top: "calc(50% - 50vh + 12px)" }}
+      >
+        <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="Zoom out" title="Zoom out" disabled={!originalReady || view.scale <= 1} onClick={zoomOut}><MinusIcon /></Button>
+        <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="Fit image" title="Fit image" disabled={!originalReady || view.scale === 1} onClick={reset}><RotateCcwIcon /></Button>
+        <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="Zoom in" title="Zoom in" disabled={!originalReady || view.scale >= 8} onClick={zoomIn}><PlusIcon /></Button>
+        <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="Close image preview" title="Close" onClick={onClose}><XIcon /></Button>
       </div>
       {originalStatus === "error" && (
         <div
@@ -129,12 +155,14 @@ export function ImageLightbox({ image, onClose }: { image: ImagePreview; onClose
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent
+        aria-label={image.name}
         className="flex max-h-[90vh] w-auto items-center justify-center border-none bg-transparent p-0 shadow-none sm:max-w-none"
         showCloseButton={false}
       >
         <PreviewFrame
           key={`${image.originalUrl}\u0000${image.thumbnailUrl ?? ""}\u0000${image.width ?? ""}\u0000${image.height ?? ""}`}
           image={image}
+          onClose={onClose}
         />
       </DialogContent>
     </Dialog>

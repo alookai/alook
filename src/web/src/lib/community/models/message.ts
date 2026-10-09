@@ -1,6 +1,5 @@
 import { z } from "zod"
 import type { CommunityChannelResource, CommunityMessageResource, CommunityMessageAttachment, CommunityMessagesRead } from "@alook/shared"
-import { deriveView, viewEvidence } from "@/lib/observability/data-source"
 
 // ── Messages ───────────────────────────────────────────────────────────────
 type AttachmentMetadata = Pick<CommunityMessageAttachment, "name" | "url" | "contentType" | "sizeBytes">
@@ -119,7 +118,7 @@ export type MessagesWindowPage = Omit<MessagesPage, "messages"> & { messages: Ar
 
 export function messageWindowPage(page: MessagesPage): MessagesWindowPage {
   const newest = [...page.messages].filter((message) => message.createdAt).sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? "") || a.id.localeCompare(b.id)).at(-1)
-  return deriveView({ ...page, messages: page.messages.map((message) => ({ id: message.id, ...(message.seq === undefined ? {} : { seq: message.seq }) })), ...(newest?.createdAt ? { newestCursor: `${newest.createdAt}|${newest.id}` } : {}) }, [viewEvidence(page)])
+  return { ...page, messages: page.messages.map((message) => ({ id: message.id, ...(message.seq === undefined ? {} : { seq: message.seq }) })), ...(newest?.createdAt ? { newestCursor: `${newest.createdAt}|${newest.id}` } : {}) }
 }
 
 // Discriminated pageParam. The queryFn dispatches on `mode` — the URL param

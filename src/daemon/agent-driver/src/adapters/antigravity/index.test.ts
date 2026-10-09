@@ -383,3 +383,28 @@ it("delegates driver discovery to the noninteractive native probe", async () => 
   try { expect(await new AntigravityDriver().probe("fixture-native")).toEqual({ status: "healthy", version: "fixture" }); expect(probe).toHaveBeenCalledWith("fixture-native"); }
   finally { probe.mockRestore(); }
 });
+
+
+describe("Antigravity Windows cold start budget", () => {
+  it.each(["win32", "darwin"] as const)("bounds a 16-second native initialize on %s", async (platform) => {
+    const h = setup();
+    const platformSpy = vi.spyOn(process, "platform", "get").mockReturnValue(platform);
+    vi.useFakeTimers();
+    h.proc.stdin.removeAllListeners("data");
+    h.proc.stdin.on("data", chunk => {
+      const message = JSON.parse(String(chunk));
+      if (message.method === "initialize") setTimeout(() => h.emit({ id: message.id, result: {
+        protocolVersion: 1, agentInfo: { name: "antigravity-acp", version: "1.3.0" }, agentCapabilities: { loadSession: true },
+      } }), 16_000);
+      if (message.method === "session/new") h.emit({ id: message.id, error: { code: -32000, message: "Authentication required" } });
+    });
+    try {
+      const probe = probeAntigravity("/custom/agy_acp_server.par", { cacheDirectory: h.directory, spawn: (() => h.proc) as never, cleanup: async () => { h.proc.kill(); } });
+      await vi.advanceTimersByTimeAsync(16_100);
+      expect(await probe).toMatchObject(platform === "win32" ? { status: "healthy", version: "1.3.0" } : { status: "unhealthy", lastError: "antigravity_acp_timeout" });
+    } finally {
+      platformSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+});

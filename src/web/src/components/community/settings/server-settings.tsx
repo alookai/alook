@@ -1,7 +1,6 @@
 "use client"
 
 import { useObservedRegion } from "@/lib/observability/regions"
-import { viewEvidence } from "@/lib/observability/data-source"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, useRef } from "react"
@@ -89,7 +88,7 @@ export function ServerSettings({
   // their tab is open, never on settings mount or via WS.
   const { invites, isLoading: invitesLoading } = useInvites(serverId, section === "invites")
 
-  useObservedRegion("settings", visibleSection === "members" ? !membersLoading : visibleSection === "invites" ? !invitesLoading : visibleSection !== "channels", visibleSection === "members" ? viewEvidence(members) : visibleSection === "invites" ? viewEvidence(invites) : { source: "unknown", version: "settings_" + visibleSection, freshness: "unknown", count: 1 })
+  useObservedRegion("settings", visibleSection === "members" ? !membersLoading : visibleSection === "invites" ? !invitesLoading : visibleSection !== "channels", visibleSection === "members" ? members.length : visibleSection === "invites" ? invites.length : 1)
 
   const nav: SettingsShellTab<SettingsSection>[] = [
     { value: "overview", label: "Overview", icon: Settings },

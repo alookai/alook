@@ -42,14 +42,14 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-it("executes the actual index loader and renders ordered featured/recent links before reporting unknown SSR evidence", async () => {
+it("executes the actual index loader and renders ordered featured/recent links before reporting committed content", async () => {
   const navigation = beginNavigation("/blog")!;
   render(await BlogPage());
   expect(screen.getByRole("heading", { level: 1, name: "Blog" })).toBeVisible();
   expect(screen.getByRole("region", { name: "Featured article" })).toHaveTextContent("Local AI agents");
   expect(screen.getByRole("link", { name: /Human-AI Collaboration/ })).toHaveAttribute("href", "/blog/introducing-alook");
   await waitFor(() => expect(ready(navigation.id)).toHaveLength(1));
-  expect(ready(navigation.id)[0]!.attributes).toMatchObject({ region: "page", route_template: "/blog", source: "unknown", freshness: "unknown", data_version: "ssr_committed" });
+  expect(ready(navigation.id)[0]!.attributes).toMatchObject({ region: "page", route_template: "/blog" });
   expect(navigation.done).toBe(true);
 });
 

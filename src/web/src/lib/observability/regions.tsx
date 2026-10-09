@@ -1,49 +1,37 @@
 "use client"
 
-import { createContext, useContext, type ReactNode, Suspense, useEffect, useMemo, useRef, useSyncExternalStore } from "react"
+import { createContext, useContext, type ReactNode, Suspense, useEffect, useRef, useSyncExternalStore } from "react"
 import { usePathname, useSearchParams } from "next/navigation"
 import { commitNavigation, committedNavigationPathname, currentRoute, navigationForHref, finishAction, actionAttributes } from "./context"
 import { emitTelemetry, isTelemetryEligible, telemetryGeneration, subscribeObservation, observationSnapshot } from "./telemetry"
-import { viewEvidence, mergeEvidence, type Evidence } from "./data-source"
 import type { Attributes } from "./schema"
 
-export function windowEvidence(values: readonly unknown[], emptySource?: unknown): Evidence {
-  return values.length ? { ...mergeEvidence(values.map(viewEvidence)), count: values.length } : { ...viewEvidence(emptySource ?? values), count: 0 }
-}
 const visibility = createContext(true)
 export function ObservedRegionVisibility({ visible, children }: { visible: boolean; children: ReactNode }) {
   const parent = useContext(visibility)
   return <visibility.Provider value={parent && visible}>{children}</visibility.Provider>
 }
 
-export function useObservedRegion(region: Attributes["region"], ready: boolean, evidence: Evidence) {
+export function useObservedRegion(region: Attributes["region"], ready: boolean, count?: number) {
   const visible = useContext(visibility)
-  const revision = useSyncExternalStore(subscribeObservation, observationSnapshot, () => 0)
+  useSyncExternalStore(subscribeObservation, observationSnapshot, () => 0)
   const href = typeof window === "undefined" ? "/" : window.location.pathname + window.location.search
-  const signature = evidence.version + ":" + evidence.source + ":" + evidence.freshness + ":" + evidence.count + ":" + (evidence.wsEventId ?? "")
-  const rendered = useMemo(() => ({ ...evidence, signature, observationRevision: revision, pathname: committedNavigationPathname(), route: currentRoute(), href, action: navigationForHref(href), generation: telemetryGeneration() }), [evidence, signature, href, revision])
+  const pathname = committedNavigationPathname(), route = currentRoute(), navigation = navigationForHref(href), generation = telemetryGeneration(), eligible = isTelemetryEligible()
   const emitted = useRef("")
   useEffect(() => {
-    if (!visible || !ready || !isTelemetryEligible() || rendered.generation !== telemetryGeneration() || rendered.href !== window.location.pathname + window.location.search) return
-    if (rendered.pathname !== undefined && rendered.pathname !== window.location.pathname) return
-    const action = rendered.action && !rendered.action.done ? rendered.action : undefined
-    const baseIdentity = String(rendered.generation) + ":" + rendered.href + ":" + rendered.signature + ":"
+    if (!visible || !ready || !eligible || !isTelemetryEligible() || generation !== telemetryGeneration() || href !== window.location.pathname + window.location.search) return
+    if (pathname !== undefined && pathname !== window.location.pathname) return
+    const action = navigation && !navigation.done ? navigation : undefined
+    const selectorReady = region === "sidebar" && ["/c/me", "/c/channels/[serverId]"].includes(route)
+    if (!selectorReady && ["shell", "rail", "sidebar", "members", "thread_opener"].includes(String(region))) return
+    const baseIdentity = String(generation) + ":" + href + ":"
     const identity = baseIdentity + (action?.id ?? "")
     if (identity === emitted.current || (!action && emitted.current.startsWith(baseIdentity))) return
     emitted.current = identity
-    const fields = { ...actionAttributes(action), region, ws_event_id: rendered.wsEventId, ws_duration_ms: rendered.wsStart === undefined ? undefined : performance.now() - rendered.wsStart, route_template: rendered.route, source: rendered.source, data_version: rendered.version, freshness: rendered.freshness, row_count: rendered.count, eligibility: "eligible", outcome: rendered.count ? "success" : "empty", phase: action ? "primary" : "background" }
-    emitTelemetry("region.read", fields)
+    const fields = { ...actionAttributes(action), region, route_template: route, row_count: count, eligibility: "eligible", outcome: count === 0 ? "empty" : "success", phase: "primary" }
     emitTelemetry("region.ready_commit", fields)
-    const selectorReady = region === "sidebar" && ["/c/me", "/c/channels/[serverId]"].includes(rendered.route)
-    if (selectorReady || !["shell", "rail", "sidebar", "members", "thread_opener"].includes(String(region))) finishAction(action, "success", { region, phase: "primary" })
-    if (document.visibilityState !== "visible" || typeof requestAnimationFrame !== "function") {
-      emitTelemetry("region.frame_estimate", { ...fields, capability: "unavailable", visibility: document.visibilityState })
-      return
-    }
-    const start = performance.now()
-    const handle = requestAnimationFrame(() => { if (rendered.generation === telemetryGeneration() && isTelemetryEligible()) emitTelemetry("region.frame_estimate", { ...fields, duration_ms: performance.now() - start, phase: "frame", capability: "limited", visibility: document.visibilityState }) })
-    return () => cancelAnimationFrame(handle)
-  }, [visible, ready, region, rendered, signature])
+    finishAction(action, "success", { region, phase: "primary" })
+  }, [visible, ready, region, count, pathname, route, navigation, generation, eligible, href])
 }
 function RouteCommit() {
   const pathname = usePathname(), search = useSearchParams().toString()
@@ -57,6 +45,6 @@ export function ObservedRouteCommit() { return <Suspense fallback={null}><RouteC
 
 export function ObservedStaticContent({ pathname }: { pathname?: string }) {
   const ready = pathname === undefined || (typeof window !== "undefined" && pathname === window.location.pathname)
-  useObservedRegion("page", ready, { source: "unknown", version: "ssr_committed", freshness: "unknown", count: 1 })
+  useObservedRegion("page", ready, 1)
   return null
 }

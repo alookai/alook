@@ -52,7 +52,7 @@ it("boots the actual Blog entry with the native resumed session and exports its 
   });
   await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
   const exported = sent.flatMap(body => body.events ?? []).filter(event => event.attributes?.action_id === navigation.id);
-  expect(exported.map(event => event.name)).toEqual(expect.arrayContaining(["action.start", "navigation.intent", "navigation.commit", "region.read", "region.ready_commit", "action.finish"]));
+  expect(exported.map(event => event.name)).toEqual(expect.arrayContaining(["action.start", "navigation.intent", "navigation.commit", "region.ready_commit", "action.finish"]));
   expect(exported.filter(event => event.name === "action.finish").map(event => event.attributes?.outcome)).toEqual(["success"]);
   for (const event of exported) expect(event.attributes).toMatchObject({ session_id: prior.sessionId, frontend_surface: "blog", route_template: "/blog/[slug]", navigation_id: navigation.navigationId });
   for (const body of sent) expect(body).toMatchObject({ meta: { sdk: { name: "faro-web", version: "2.12.1" }, session: { id: prior.sessionId } } });

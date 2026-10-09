@@ -1,7 +1,4 @@
 "use client"
-
-import { useObservedRegion } from "@/lib/observability/regions"
-import { viewEvidence, mergeEvidence } from "@/lib/observability/data-source"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
@@ -144,7 +141,6 @@ export const ServerRail = memo(function ServerRail({
   onOpenSettings?: (serverId: string) => void
   onOpenInvitePopover?: (serverId: string) => void
 }) {
-  useObservedRegion("rail", !serversLoading, { ...mergeEvidence([viewEvidence(servers), viewEvidence(folders)]), count: servers.length + folders.length })
   const expandedAtom = useCreateAtom<string[]>([])
   const [expanded, setExpanded] = useAtom(expandedAtom)
   const collapsedAtom = useCreateAtom(new Set<string>())

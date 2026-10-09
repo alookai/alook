@@ -51,17 +51,19 @@ export function acceptMessageIntent(runtime: CommunityRuntime, scope: MessageSco
 }
 
 export async function prepareMessageIntent<Target extends UploadFileArgs["target"]>({
-  runtime, scope, nonce, assertOwner, assertActive, uploadFileAsync, target,
+  runtime, scope, nonce, assertOwner, assertActive, assertCommand, uploadFileAsync, target,
 }: {
   runtime: CommunityRuntime
   scope: MessageScope
   nonce: string
   assertOwner: () => void
   assertActive?: UploadFileArgs["assertActive"]
+  assertCommand?: () => void
   target: Target
   uploadFileAsync: (input: Omit<UploadFileArgs, "target"> & { target: Target }) => Promise<UploadFileResult>
 }) {
-  const assert = () => { assertOwner(); assertActive?.() }
+  const assert = () => { assertOwner(); (assertCommand ?? assertActive)?.() }
+  const assertUi = () => { assertOwner(); assertActive?.() }
   assert()
   const streamStore = runtime.messageStream.actions
   const payload = streamStore.getRetryPayload(scope, nonce)
@@ -91,13 +93,14 @@ export async function prepareMessageIntent<Target extends UploadFileArgs["target
       payload.localUploads.map((upload) =>
         uploadFileAsync({
           assertActive,
+          assertCommand,
           target,
           file: upload.file,
           thumbnailBlob: upload.thumbnailBlob,
           width: upload.width,
           height: upload.height,
         }).catch((error) => {
-          toastApiError(error, "Failed to attach file", assert)
+          toastApiError(error, "Failed to attach file", assertUi)
           return null
         }),
       ),
