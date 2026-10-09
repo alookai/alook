@@ -6,6 +6,33 @@ beforeEach(installMessageScrollFixture)
 afterEach(restoreMessageScrollFixture)
 
 describe("locked native adapter and existing message scroll owner", () => {
+  it("does not restore the old origin after a reader scroll with a rejected pending row position", () => {
+    const h = mount({ items: Array.from({ length: 28 }, (_, i) => message(`m${i}`)) })
+    h.move(0)
+    fireEvent.wheel(h.root, { deltaY: 600 })
+    runFrames(2)
+    const rows = Array.from(h.root.querySelectorAll<HTMLElement>("[data-index]"))
+    for (const row of rows) {
+      const measured = row.getBoundingClientRect.bind(row)
+      Object.defineProperty(row, "getBoundingClientRect", {
+        configurable: true,
+        value: () => {
+          const rect = measured()
+          return DOMRect.fromRect({ x: rect.x, y: rect.y + 8, width: rect.width, height: rect.height })
+        },
+      })
+    }
+    const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
+    act(() => h.root.scrollTo({ top: 600 }))
+    runFrames(2)
+    expect(h.root.scrollTop).toBe(600)
+    scrollFixture.firstPrefix += 8
+    for (const row of rows) Reflect.deleteProperty(row, "getBoundingClientRect")
+    resize()
+    expect(h.root.scrollTop).toBe(608)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    expect(offset).not.toHaveBeenCalled()
+  })
   it.each([undefined, "Today"])("uses the native border box for an unread divider with date label %s", dateLabel => {
     const unread = message("m0")
     unread.newDivider = true
@@ -246,7 +273,7 @@ describe("locked native adapter and existing message scroll owner", () => {
   it("unifies native total and DOM max while keeping 40/48px rail clearance", () => {
     const h = mount()
     expect(scrollFixture.latest.readPositionReady).toBe(true)
-    expect(scrollFixture.latest.virtualizer.options).toMatchObject({ anchorTo: "end", followOnAppend: false, scrollEndThreshold: 1, scrollMargin: 0, paddingEnd: 48 })
+    expect(scrollFixture.latest.virtualizer.options).toMatchObject({ anchorTo: "end", followOnAppend: false, scrollEndThreshold: 1, scrollMargin: 0, paddingEnd: 40 })
     expect(h.root.scrollHeight).toBe(scrollFixture.latest.virtualizer.getTotalSize())
     expect(h.root.scrollTop).toBe(h.root.scrollHeight - scrollFixture.height)
     h.update({ tailPaddingEnd: 40 })
@@ -336,6 +363,51 @@ describe("locked native adapter and existing message scroll owner", () => {
     scrollFixture.bodyHeights.set("older-29", 108)
     resize()
     expect(bodyTop(h.root, "m0")).toBe(top)
+  })
+  it.each([-24, 40])("captures the current old-window position after a pending prefix change of %ipx", delta => {
+    const h = mount()
+    h.move(0)
+    act(() => scrollFixture.latest.captureOlderPageAnchor())
+    h.update({ isFetchingOlder: true })
+    scrollFixture.firstPrefix += delta
+    resize()
+    const currentTop = bodyTop(h.root, "m0")
+    const older = Array.from({ length: 30 }, (_, index) => message(`older-${index}`))
+    h.update({ items: [...older, ...h.input.items], isFetchingOlder: false })
+    expect(bodyTop(h.root, "m0")).toBe(currentTop)
+  })
+  it("keeps the page settlement gate after the fetch ends until native geometry settles", () => {
+    const h = mount()
+    h.move(0)
+    act(() => scrollFixture.latest.captureOlderPageAnchor())
+    h.update({ isFetchingOlder: true })
+    const older = Array.from({ length: 30 }, (_, index) => message(`older-${index}`))
+    h.stage({ items: [...older, ...h.input.items], isFetchingOlder: false })
+    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(true)
+    resize(2)
+    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(true)
+    runFrames()
+    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(false)
+  })
+  it.each(["wheel", "target"])("retires a pending header page when %s takes ownership before the response", input => {
+    const h = mount()
+    h.move(0)
+    act(() => scrollFixture.latest.captureOlderPageAnchor())
+    h.update({ isFetchingOlder: true })
+    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(true)
+    if (input === "wheel") h.move(350)
+    else {
+      act(() => scrollFixture.latest.jumpTo("m8", "auto"))
+      runFrames()
+    }
+    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(false)
+    const before = bodyTop(h.root, input === "wheel" ? "m3" : "m8")
+    const index = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToIndex")
+    const older = Array.from({ length: 30 }, (_, index) => message(`older-${index}`))
+    h.update({ items: [...older, ...h.input.items], isFetchingOlder: false })
+    expect(bodyTop(h.root, input === "wheel" ? "m3" : "m8")).toBe(before)
+    expect(index).not.toHaveBeenCalled()
+    expect(scrollFixture.latest.virtualizer.shouldAdjustScrollPositionOnItemSizeChange).toBeUndefined()
   })
   it("returns to native measurement policy when the header-fold restore settles", () => {
     const h = mount()

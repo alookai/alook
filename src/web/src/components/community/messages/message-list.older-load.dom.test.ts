@@ -5,13 +5,29 @@ import { act, fireEvent, render } from "@/test/react-dom-harness"
 import { MessageList } from "./message-list"
 import { installMessageScrollFixture, restoreMessageScrollFixture, resize, runFrames } from "@/test/message-scroll-fixture"
 
-vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop" }))
+const breakpoint = vi.hoisted(() => ({ value: "desktop" as "desktop" | "mobile" }))
+vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => breakpoint.value }))
 vi.mock("./message-row", () => ({ MessageRow: () => React.createElement("div") }))
 vi.mock("@/components/ui/number-ticker", () => ({ NumberTicker: ({ value }: { value: number }) => React.createElement("span", null, value) }))
 
 describe("MessageList native range pagination", () => {
-  beforeEach(installMessageScrollFixture)
+  beforeEach(() => { breakpoint.value = "desktop"; installMessageScrollFixture() })
   afterEach(restoreMessageScrollFixture)
+  it.each([["mobile", 40], ["desktop", 48]] as const)("keeps %s body-to-viewport clearance at %ipx with symmetric row padding", (stage, gap) => {
+    breakpoint.value = stage
+    const messages = Array.from({ length: 14 }, (_, i) => ({ id: `m${i}`, authorName: "Alice", content: "hi", createdAt: new Date(0).toISOString() }))
+    const renderer = render(React.createElement(MessageList, { channel: "general", messages, loading: false, hasMore: false, onOpenThread: vi.fn() }))
+    resize()
+    runFrames()
+    const scroller = renderer.getByTestId(tid.messageScroller)
+    act(() => { scroller.scrollTo({ top: scroller.scrollHeight }) })
+    resize()
+    const tail = renderer.getByTestId(tid.message("m13"))
+    const wrapper = tail.closest<HTMLElement>("[data-index]")!
+    expect(tail.getBoundingClientRect().top - wrapper.getBoundingClientRect().top).toBe(8)
+    expect(wrapper.getBoundingClientRect().bottom - tail.getBoundingClientRect().bottom).toBe(8)
+    expect(scroller.getBoundingClientRect().bottom - tail.getBoundingClientRect().bottom).toBe(gap)
+  })
   it("stops automatic pagination on the existing Query error surface", () => {
     const messages = Array.from({ length: 50 }, (_, i) => ({ id: `m${i}`, authorName: "Alice", content: "hi", createdAt: new Date(0).toISOString() }))
     const onLoadOlder = vi.fn()

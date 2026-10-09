@@ -35,12 +35,14 @@ function rowGeometry(node: HTMLElement) {
   const hasDate = actualRow?.dataset.fixtureDate === "true" || !!actualRow?.querySelector("span.text-xs")
   const decoration = kind === "leading" ? firstPrefix : kind === "trailing" ? 56
     : kind === "divider" ? hasDate ? 32 : 24 : 0
+  const padding = kind === "message" ? Number.parseFloat(actualRow?.style.paddingBlock ?? "")
+    || (actualRow?.classList.contains("py-2") ? 8 : 0) : 0
   const translation = wrapper?.style.transform.match(/translate3d\(0,\s*(-?[\d.]+)px/)
   const start = Number.parseFloat(translation?.[1] ?? wrapper?.style.top ?? "0") || 0
   const y = start - (root?.scrollTop ?? 0)
-  if (node.matches('[data-msg-id]')) return DOMRect.fromRect({ y, width, height: size })
+  if (node.matches('[data-msg-id]')) return DOMRect.fromRect({ y: y + padding, width, height: size })
   if (node.matches('[data-new-divider]')) return DOMRect.fromRect({ y, width, height: decoration })
-  return DOMRect.fromRect({ y, width, height: size + decoration })
+  return DOMRect.fromRect({ y, width, height: size + decoration + padding * 2 })
 }
 function Probe({ input, onLayout }: { input: Input; onLayout?: (result: Result) => void }) {
   const items = useMemo<FlatItem[]>(() => {

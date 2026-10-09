@@ -9,6 +9,7 @@ function messageDisplayKey(message: Msg): string {
 }
 
 const MESSAGE_GROUP_WINDOW_MS = 7 * 60 * 1000
+export const MESSAGE_ROW_VERTICAL_PADDING_PX = 8
 
 export type FlatItem = {
   kind: "message"

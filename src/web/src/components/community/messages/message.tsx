@@ -364,7 +364,7 @@ function MessageImpl({
   // approval/attachment-only rows aren't selectable (nothing to put on the card).
   const selectable = selectMode && canShare
   const reactionAddButton = (
-    <button className="grid size-11 place-items-center rounded-md bg-secondary text-muted-foreground hover:text-foreground sm:size-8" aria-label="Add reaction">
+    <button className="grid h-6 w-7 place-items-center rounded-md bg-secondary text-muted-foreground hover:text-foreground" aria-label="Add reaction">
       <SmilePlus className="size-4" />
     </button>
   )

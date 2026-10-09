@@ -18,11 +18,11 @@ import type { FlatItem } from "@/lib/community/message-list-items"
 const msgs = (...ids: string[]): ScrollAnchorMessage[] => ids.map((id) => ({ id }))
 
 describe("message rail tail geometry", () => {
-  it("resolves the fixed 40px mobile and 48px desktop virtual tail", () => {
-    expect(MESSAGE_RAIL_TAIL_PADDING_END_PX).toEqual({ mobile: 40, desktop: 48 })
-    expect(resolveMessageRailTailPaddingEnd("mobile")).toBe(40)
-    expect(resolveMessageRailTailPaddingEnd("desktop")).toBe(48)
-    expect(resolveMessageRailTailPaddingEnd("unknown")).toBe(48)
+  it("counts the final row's 8px once in the 40px mobile and 48px desktop clearance", () => {
+    expect(MESSAGE_RAIL_TAIL_PADDING_END_PX).toEqual({ mobile: 32, desktop: 40 })
+    expect(resolveMessageRailTailPaddingEnd("mobile")).toBe(32)
+    expect(resolveMessageRailTailPaddingEnd("desktop")).toBe(40)
+    expect(resolveMessageRailTailPaddingEnd("unknown")).toBe(40)
   })
 })
 

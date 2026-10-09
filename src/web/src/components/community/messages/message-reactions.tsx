@@ -104,7 +104,7 @@ function ReactionChip({
       aria-pressed={reaction.me}
       aria-haspopup={hoverCapable ? undefined : "dialog"}
       className={[
-        "flex min-h-11 touch-pan-y select-none items-center gap-2 rounded-md p-2 sm:min-h-0 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none [-webkit-touch-callout:none]",
+        "flex h-6 touch-pan-y select-none items-center gap-1 rounded-md px-2 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none [-webkit-touch-callout:none]",
         reaction.me ? "border border-primary/50 bg-accent" : "bg-secondary",
       ].join(" ")}
       onPointerDown={(event) => {
@@ -353,7 +353,7 @@ export function MessageReactions({
       <div
         ref={reactionGroupRef}
         data-testid={tid.reactionGroup(messageId)}
-        className="flex flex-wrap gap-2 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        className="flex flex-wrap gap-1 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         tabIndex={-1}
         aria-label="Message reactions"
       >

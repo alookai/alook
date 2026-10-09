@@ -2,7 +2,7 @@ import { DateDivider, NewDivider } from "../dividers"
 import { tid } from "@/lib/community/testids"
 import { ChannelIcon } from "../channels/channel-icon"
 import { MessageRow } from "./message-row"
-import type { FlatItem } from "@/lib/community/message-list-items"
+import { MESSAGE_ROW_VERTICAL_PADDING_PX, type FlatItem } from "@/lib/community/message-list-items"
 import type { MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"
 
@@ -56,7 +56,7 @@ export function renderMessageListRow(
     )
   }
   return (
-    <div className="flow-root py-2" data-message-row-key={item.key}>
+    <div className="flow-root" style={{ paddingBlock: MESSAGE_ROW_VERTICAL_PADDING_PX }} data-message-row-key={item.key}>
         <div data-msg-id={item.m.id} data-testid={tid.message(item.m.id)}>
           <MessageRow
             m={item.m}
