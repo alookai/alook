@@ -189,6 +189,34 @@ describe("prepareShareImageSession", () => {
     expect(document.querySelector("[data-share-detached-tree]")).toBeNull()
   })
 
+  it.each([false, true])("keeps identity-proxy failures separate from content sharing the same URL (loaded=%s)", async (loaded) => {
+    const url = "https://images.example.test/shared.png"
+    if (loaded) {
+      const live = document.createElement("img")
+      live.src = url
+      Object.defineProperties(live, {
+        complete: { value: true }, naturalWidth: { value: 10 }, naturalHeight: { value: 10 },
+      })
+      document.body.appendChild(live)
+      vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: vi.fn() } as unknown as CanvasRenderingContext2D)
+      vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(() => { throw new DOMException("Protected pixels", "SecurityError") })
+    }
+    const source = sourceCard(`<span data-share-identity-id="peer"><img data-remote-image-kind="identity" data-share-image-src="${url}"></span><img data-share-image-src="${url}" alt="content">`)
+    const fetchAsset = vi.fn(async (input: RequestInfo | URL) => (
+      String(input).startsWith("/api/community/share-image/avatar/")
+        ? new Response(null, { status: 404 }) : imageResponse()
+    ))
+
+    const prepared = await prepare(source, fetchAsset)
+
+    expect(fetchAsset.mock.calls.map(([input]) => input)).toEqual([
+      "/api/community/share-image/avatar/peer", url,
+    ])
+    expect(prepared.markup).toContain("data-share-identity-fallback")
+    expect(prepared.markup).toContain('alt="content"')
+    expect(prepared.markup).toContain("data-share-byte-backed")
+  })
+
   it("resolves same-origin images to immutable bytes without mutating the React source", async () => {
     const source = sourceCard('<img src="/content.png" alt="content">')
     const fetchAsset = vi.fn().mockResolvedValue(imageResponse())

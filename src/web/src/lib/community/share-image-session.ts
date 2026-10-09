@@ -554,6 +554,14 @@ function decodeDataUrl(dataUrl: string, signal: AbortSignal): Promise<void> {
   })
 }
 
+async function encodeStaticImage(blob: Blob, signal: AbortSignal, budget: ShareImageAssetBudget): Promise<string> {
+  if (blob.type !== "image/png") throw new Error("Static image encoder returned a non-PNG image")
+  consumeStaticBytes(budget, blob.size)
+  const dataUrl = await blobToDataUrl(blob, signal)
+  await decodeDataUrl(dataUrl, signal)
+  return dataUrl
+}
+
 async function resolveImage(
   image: HTMLImageElement,
   fetchAsset: ShareImageFetch,
@@ -570,49 +578,42 @@ async function resolveImage(
     const source = imageSource(image)
     if (!source) throw new Error("Image source is missing")
     const cacheKey = new URL(source, window.location.href).href
-    const cached = assetCache.get(cacheKey)
+    const target = assetTargets.get(cacheKey) ?? assetTarget(image)
+    const loaded = loadedImages.get(cacheKey)
+    if (loaded) {
+      const pixelKey = `pixels:${cacheKey}`
+      let pixels = assetCache.get(pixelKey)
+      if (!pixels) {
+        pixels = enqueueStaticize(() => staticizeLoadedImage(loaded, target, signal, budget))
+          .then((blob) => encodeStaticImage(blob, signal, budget))
+        assetCache.set(pixelKey, pixels)
+      }
+      try {
+        return await pixels
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "SecurityError")) throw error
+      }
+    }
+    const request = assetRequest(image)
+    const cached = assetCache.get(request.cacheKey)
     if (cached) return await cached
     const pending = (async () => {
-      const target = assetTargets.get(cacheKey) ?? assetTarget(image)
-      const loaded = loadedImages.get(cacheKey)
-      let staticBlob: Blob | undefined
-      if (loaded) {
-        try {
-          staticBlob = await enqueueStaticize(() => staticizeLoadedImage(loaded, target, signal, budget))
-        } catch (error) {
-          if (!(error instanceof DOMException && error.name === "SecurityError")) throw error
-        }
-      }
-      if (!staticBlob) {
-        const request = assetRequest(image)
-        let blob: Blob
-        if (request.url.startsWith("data:")) {
-          consumeAssetBytes(budget, dataUrlByteLength(request.url))
-          blob = await dataUrlBlob(request.url, signal)
-        } else {
-          const response = await fetchAsset(request.url, {
-            credentials: request.credentials,
-            redirect: "error",
-            signal,
-          })
-          blob = await readImageResponse(response, signal, budget)
-        }
-        staticBlob = await enqueueStaticize(() => staticizeAsset(
-          blob,
-          target,
+      let blob: Blob
+      if (request.url.startsWith("data:")) {
+        consumeAssetBytes(budget, dataUrlByteLength(request.url))
+        blob = await dataUrlBlob(request.url, signal)
+      } else {
+        const response = await fetchAsset(request.url, {
+          credentials: request.credentials,
+          redirect: "error",
           signal,
-          budget,
-        ))
+        })
+        blob = await readImageResponse(response, signal, budget)
       }
-      if (staticBlob.type !== "image/png") {
-        throw new Error("Static image encoder returned a non-PNG image")
-      }
-      consumeStaticBytes(budget, staticBlob.size)
-      const dataUrl = await blobToDataUrl(staticBlob, signal)
-      await decodeDataUrl(dataUrl, signal)
-      return dataUrl
+      const staticBlob = await enqueueStaticize(() => staticizeAsset(blob, target, signal, budget))
+      return encodeStaticImage(staticBlob, signal, budget)
     })()
-    assetCache.set(cacheKey, pending)
+    assetCache.set(request.cacheKey, pending)
     return await pending
   } catch (error) {
     if (signal.aborted) throw abortError()
