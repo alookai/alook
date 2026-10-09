@@ -213,12 +213,17 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   const coldThumbnailGate = new Promise<void>((resolve) => { releaseColdThumbnail = resolve })
   let holdColdThumbnail = true
   let coldThumbnailRequests = 0
+  let coldThumbnailPath: string | null = null
   const thumbnailPattern = "**/api/community/channels/**/attachments/**/thumbnail"
   await page.route(thumbnailPattern, async (route) => {
+    const pathname = new URL(route.request().url()).pathname
     if (
       holdColdThumbnail
       && route.request().method() === "GET"
+      && pathname.startsWith(`/api/community/channels/${channelId}/attachments/`)
+      && (coldThumbnailPath === null || pathname === coldThumbnailPath)
     ) {
+      coldThumbnailPath = pathname
       coldThumbnailRequests++
       const response = route.fetch()
       await coldThumbnailGate
@@ -238,6 +243,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   const landscapeListImage = page.getByTestId(tid.messageImage(landscape.messageId, 0))
   await expect(landscapeListImage).toHaveAttribute("src", landscape.thumbnailPath)
   await expect.poll(() => observedGetPaths.filter((path) => path === landscape.thumbnailPath).length).toBeGreaterThan(0)
+  await expect.poll(() => coldThumbnailPath).toBe(landscape.thumbnailPath)
   expect(observedGetPaths.filter((path) => path === landscape.originalPath)).toHaveLength(0)
   const landscapeListFrame = landscapeListImage.locator("xpath=ancestor::*[@data-remote-image-frame]")
   await expect(landscapeListFrame).toHaveAttribute("data-remote-image-state", "pending")
@@ -266,6 +272,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   await expect.poll(() => coldThumbnailRequests).toBeGreaterThan(0)
   await expect(page.getByTestId(tid.imageLightbox)).toBeVisible()
   await expect(page.getByTestId(tid.imageLightboxLoading)).toBeVisible()
+  await expect(page.getByTestId(tid.imageLightboxThumbnail)).toHaveAttribute("src", landscape.thumbnailPath)
   await waitForDialogEntrance(page)
   const coldPendingRect = await previewRects(page)
   expect(await page.getByTestId(tid.imageLightboxThumbnail).evaluate((element: HTMLImageElement) => ({
@@ -279,13 +286,13 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   expectSameRect(await boundingRect(landscapeListFrame), pendingListRect)
   await expect(page.getByTestId(tid.imageLightbox)).toBeVisible()
   expectSameRect(await previewRects(page).then((rects) => rects.container), coldPendingRect.container)
+  await expect(page.getByTestId(tid.imageLightboxThumbnail)).toHaveClass(/opacity-100/)
   const coldThumbnailReady = await page.getByTestId(tid.imageLightboxThumbnail).evaluate((element: HTMLImageElement) => ({
     complete: element.complete,
     naturalWidth: element.naturalWidth,
   }))
   expect(coldThumbnailReady.complete).toBe(true)
   expect(coldThumbnailReady.naturalWidth).toBeGreaterThan(0)
-  await expect(page.getByTestId(tid.imageLightboxThumbnail)).toHaveClass(/opacity-100/)
   await attachScreenshot(testInfo, "desktop-landscape-first-visible", page)
   await page.unroute(thumbnailPattern)
 

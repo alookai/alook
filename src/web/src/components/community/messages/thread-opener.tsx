@@ -90,8 +90,8 @@ export function ThreadOpener({
     // lost access) we don't fail the thread view — just render a minimal
     // placeholder so the opener slot doesn't collapse the layout.
     return (
-      <div>
-        <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
           <MessagesSquare className="size-3.5" />
           <span>Thread started from a message</span>
         </div>
@@ -109,8 +109,8 @@ export function ThreadOpener({
   const visibleContent = displayReplyContent(msg.content ?? "", msg.replyTo)
 
   return (
-    <div data-thread-opener className="group relative">
-      <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+    <div data-thread-opener className="group relative flex flex-col gap-2">
+      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
         <MessagesSquare className="size-3.5" />
         <span>Thread started from</span>
       </div>
@@ -128,7 +128,7 @@ export function ThreadOpener({
         </button>
       )}
 
-      <div className="flex gap-3">
+      <div className="flex gap-2">
         <button
           {...avatarMention}
           className="shrink-0 self-start"
@@ -138,7 +138,7 @@ export function ThreadOpener({
         >
           <Avatar label={avatarLabel} seed={msg.authorId} size={40} />
         </button>
-        <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
           <div className="flex items-baseline gap-2">
             <button
               onClick={(e) => onOpenProfile?.(authorName, e, undefined, msg.authorId)}
@@ -160,7 +160,7 @@ export function ThreadOpener({
           )}
 
           {msg.attachments && msg.attachments.length > 0 && (
-            <div className="mt-2 flex flex-col gap-2 pb-2">
+            <div className="flex flex-col gap-2">
               {msg.attachments.map((a, i) => {
                 if (a.kind === "image") {
                   const frameStyle = attachmentImageFrameStyle(a.width, a.height)
@@ -192,8 +192,8 @@ export function ThreadOpener({
             </div>
           )}
 
-          {msg.reactions && (
-            <div className="mt-2">
+          {msg.reactions && msg.reactions.length > 0 && (
+            <div>
               <MessageReactions
                 messageId={msg.id}
                 authorName={authorName}
@@ -214,11 +214,11 @@ export function ThreadOpener({
 
 function ThreadOpenerSkeleton() {
   return (
-    <div>
-      <Skeleton className="mb-2 h-3 w-32 rounded" />
-      <div className="flex gap-3">
+    <div className="flex flex-col gap-2">
+      <Skeleton className="h-3 w-32 rounded" />
+      <div className="flex gap-2">
         <Skeleton className="size-10 shrink-0 rounded-full" />
-        <div className="flex min-w-0 flex-1 flex-col gap-2 pt-0.5">
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
           <Skeleton className="h-4 w-32 rounded" />
           <Skeleton className="h-3.5 w-full max-w-80 rounded" />
           <Skeleton className="h-3.5 w-48 rounded" />

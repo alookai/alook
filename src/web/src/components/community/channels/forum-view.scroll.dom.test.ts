@@ -7,19 +7,18 @@ const scrollToIndex = vi.fn()
 let requestOlder: (() => void) | undefined
 let sentinelEdge: string | undefined
 vi.mock("@tanstack/react-virtual", () => ({
-  useVirtualizer: ({ count }: { count: number }) => ({
+  useVirtualizer: ({ count, getItemKey }: { count: number; getItemKey: (index: number) => string | number }) => ({
     options: { scrollMargin: 0 },
     scrollToIndex,
     getTotalSize: () => count * 160,
-    getVirtualItems: () => Array.from({ length: count }, (_, index) => ({ index, start: index * 160 })),
+    getVirtualItems: () => Array.from({ length: count }, (_, index) => ({ key: getItemKey(index), index, start: index * 160 })),
     measureElement: () => {},
   }),
 }))
-vi.mock("@/hooks/community/use-virtual-cursor-sentinel", () => ({
-  useVirtualCursorSentinel: ({ onLoad, edge }: { onLoad?: () => void; edge: string }) => {
+vi.mock("@/hooks/community/use-virtual-cursor-pagination", () => ({
+  useVirtualCursorPagination: ({ onLoad, edge }: { onLoad?: () => void; edge: string }) => {
     requestOlder = onLoad
     sentinelEdge = edge
-    return () => {}
   },
 }))
 
@@ -96,7 +95,7 @@ describe("ForumView scroll anchoring", () => {
     expect(scrollToIndex).toHaveBeenCalledWith(0, { align: "start" })
   })
 
-  it("loads older feed pages from the bottom sentinel without scroll-height compensation", async () => {
+  it("loads older feed pages from the native bottom range without scroll-height compensation", async () => {
     const onLoadMore = vi.fn()
     const view = render(createElement(ForumView, { ...props([post("p3"), post("p2")]), onLoadMore }))
     act(() => requestOlder?.())

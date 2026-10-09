@@ -16,7 +16,6 @@ describe("community virtualizer direct DOM contract", () => {
 
     expect(messageList).toContain("<VirtualRows")
     expect(scrollAnchor).toContain("...COMMUNITY_VIRTUALIZER_REACT_OPTIONS")
-    expect(scrollAnchor).toContain("measureElement: measureMessageRow")
     expect(virtualRows).toContain("ref={virtualizer.containerRef}")
     expect(virtualRows).toContain("ref={virtualizer.measureElement}")
     expect(virtualRows).not.toContain("virtualizer.getTotalSize()")
@@ -36,9 +35,9 @@ describe("community virtualizer direct DOM contract", () => {
     const memberList = readComponent("../members/member-list.tsx")
 
     expect(memberList).toContain("...COMMUNITY_VIRTUALIZER_REACT_OPTIONS")
-    expect(memberList).toContain("ref={rowVirtualizer.containerRef}")
-    expect(memberList).toContain("ref={rowVirtualizer.measureElement}")
-    expect(memberList).toContain("getItemKey: (index) => items[index]?.key ?? index")
+    expect(memberList).toContain("<VirtualRows")
+    expect(memberList).toContain("virtualizer={rowVirtualizer}")
+    expect(memberList).toContain("useCallback((index: number) => items[index]?.key ?? index, [items])")
     expect(memberList).not.toContain("rowVirtualizer.getTotalSize()")
     expect(memberList).not.toContain("virtualRow.start")
   })
@@ -47,9 +46,9 @@ describe("community virtualizer direct DOM contract", () => {
     const serverSettings = readComponent("../settings/server-settings.tsx")
 
     expect(serverSettings).toContain("...COMMUNITY_VIRTUALIZER_REACT_OPTIONS")
-    expect(serverSettings).toContain("ref={rowVirtualizer.containerRef}")
-    expect(serverSettings).toContain("ref={rowVirtualizer.measureElement}")
-    expect(serverSettings).toContain("getItemKey: (index) => members[index]?.id ?? index")
+    expect(serverSettings).toContain("<VirtualRows")
+    expect(serverSettings).toContain("virtualizer={rowVirtualizer}")
+    expect(serverSettings).toContain("useCallback((index: number) => members[index]?.id ?? index, [members])")
     expect(serverSettings).not.toContain("rowVirtualizer.getTotalSize()")
     expect(serverSettings).not.toContain("virtualRow.start")
   })

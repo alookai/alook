@@ -497,6 +497,7 @@ export function DmView({ dmId }: { dmId: string }) {
             // `anchorInCache`'s doc comment above.
             initialScrollReady={!readSnapshotFetching && anchorInCache}
             hasMore={hasMoreMessages}
+            isFetching={messagesFetching}
             isFetchingOlder={isFetchingOlderMessages}
             onLoadOlder={fetchOlderMessages}
             hasMoreNewer={hasMoreNewerMessages}

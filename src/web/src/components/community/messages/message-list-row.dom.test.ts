@@ -1,25 +1,38 @@
 import React from "react"
+import { compile, optimize } from "@tailwindcss/node"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { render } from "@/test/react-dom-harness"
 import { renderMessageListRow } from "./message-list-row"
 import { MessageRow } from "./message-row"
-import type { FlatItem } from "@/lib/community/message-list-items"
+import { flattenMessageItems, type FlatItem } from "@/lib/community/message-list-items"
 import type { MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"
 
 vi.mock("./message-row", () => ({ MessageRow: vi.fn(() => null) }))
-vi.mock("../dividers", () => ({
-  DateDivider: ({ label }: { label: string }) => React.createElement("div", {
-    "data-testid": "date-divider",
-    "data-label": label,
-  }),
-  NewDivider: ({ dateLabel }: { dateLabel?: string }) => React.createElement("div", {
-    "data-testid": "new-divider",
-    "data-date-label": dateLabel,
-  }),
-}))
 
 const mockedMessageRow = vi.mocked(MessageRow)
+
+async function withTailwindStyles(container: HTMLElement, check: () => void) {
+  const css = await compile("@theme inline { --spacing: 4px; } @tailwind utilities;", {
+    base: process.cwd(),
+    onDependency: () => {},
+  })
+  const style = document.createElement("style")
+  style.textContent = optimize(css.build(Array.from(container.querySelectorAll("[class]")).flatMap((element) => Array.from(element.classList))), { minify: true }).code
+  document.head.append(style)
+  try {
+    check()
+  } finally {
+    style.remove()
+  }
+}
+
+function marginPx(element: Element, side: "Top" | "Bottom") {
+  const style = getComputedStyle(element)
+  const physical = style[`margin${side}`]
+  // JSDOM leaves an unmapped logical margin's physical default as "0"; explicit physical zero is "0px".
+  return parseFloat(physical === "0" ? style.marginBlock || "0" : physical)
+}
 
 const callbacks = {
   onOpenThread: vi.fn(),
@@ -57,25 +70,44 @@ const controller = {
   selectedIds: new Set(["m1"]),
   jumpTo: vi.fn(),
   items: [null],
-  topSentinelRef: vi.fn(),
-  bottomSentinelRef: vi.fn(),
   onToggleSelectId: vi.fn(),
   onEnterSelectId: vi.fn(),
 } as unknown as MessageListController
 
 describe("renderMessageListRow", () => {
-  beforeEach(() => vi.clearAllMocks())
+  it("uses each adjacent row's half-gap and retains8px on the first and last sides", () => {
+    const items = flattenMessageItems(Array.from({ length: 3 }, (_, i) => ({
+      id: `m${i}`, type: "chat" as const, authorId: "same", createdAt: new Date(0).toISOString(),
+    })), undefined)
+    const view = render(React.createElement(React.Fragment, null, items.map((item, index) =>
+      React.createElement(React.Fragment, { key: item.key }, renderMessageListRow(item, props, { ...controller, items }, index)),
+    )))
+    const rows = Array.from(view.container.querySelectorAll<HTMLElement>("[data-msg-id]")).map(row => row.parentElement!)
+    expect(rows.map(row => getComputedStyle(row).paddingBlock))
+      .toEqual(["8px 4px", "4px 4px", "4px 8px"])
+  })
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockedMessageRow.mockImplementation(() => null)
+  })
 
   it("keeps merged New/date and edge decorations outside the actual body", () => {
-    const item: FlatItem = { kind: "message", key: "m1", dateLabel: "Today", newDivider: true, m: { id: "m1", type: "chat" } }
-    const view = render(renderMessageListRow(item, { ...props, hasMore: true, hasMoreNewer: true }, controller, 0))
+    const items: FlatItem[] = [
+      { kind: "leading", key: "leading" },
+      { kind: "divider", key: "new:m1", messageId: "m1", dateLabel: "Today", newDivider: true },
+      { kind: "message", key: "m1", m: { id: "m1", type: "chat" } },
+      { kind: "trailing", key: "trailing" },
+    ]
+    const view = render(React.createElement(React.Fragment, null, items.map((item, index) =>
+      React.createElement(React.Fragment, { key: item.key }, renderMessageListRow(item, { ...props, hasMore: true, hasMoreNewer: true }, { ...controller, items }, index)),
+    )))
     const body = view.container.querySelector('[data-msg-id="m1"]')!
-    expect(view.getByTestId("new-divider")).toHaveAttribute("data-date-label", "Today")
-    expect(body.querySelector('[data-testid="new-divider"]')).toBeNull()
-    expect(view.queryByTestId("date-divider")).toBeNull()
+    expect(view.container.querySelector("[data-new-divider]")).toHaveTextContent("Today")
+    expect(body.querySelector("[data-new-divider]")).toBeNull()
+    expect(view.getAllByText("Today")).toHaveLength(1)
     expect(view.container.firstElementChild).toHaveClass("flow-root")
-    expect(controller.topSentinelRef).toHaveBeenCalled()
-    expect(controller.bottomSentinelRef).toHaveBeenCalled()
+    expect(view.container.querySelectorAll('[data-msg-id]')).toHaveLength(1)
+    expect(view.container.querySelector('[data-message-divider-for="m1"]')).toBeInTheDocument()
     expect(mockedMessageRow).toHaveBeenCalledOnce()
   })
 
@@ -134,5 +166,85 @@ describe("renderMessageListRow", () => {
     ))
     expect(mockedMessageRow.mock.calls.at(-1)?.[0].onEditId).toBeUndefined()
     expect(mockedMessageRow.mock.calls.at(-1)?.[0].onImageLoad).toBeUndefined()
+  })
+
+  it.each([undefined, "Today"])("reserves the visible NEW pill in the same intrinsic row with date %s", async (dateLabel) => {
+    const items: FlatItem[] = [
+      { kind: "divider", key: "new:m1", messageId: "m1", dateLabel, newDivider: true },
+      { kind: "message", key: "m1", m: { id: "m1", type: "chat", grouped: false } },
+    ]
+    const view = render(renderMessageListRow(items[0], props, { ...controller, items }, 0))
+    const divider = view.container.querySelector("[data-new-divider]")!
+    const pill = view.getByText("New")
+    await withTailwindStyles(view.container, () => {
+      expect(getComputedStyle(divider).display).toBe("grid")
+      expect(divider.children).toHaveLength(2)
+      const line = pill.previousElementSibling!
+      const pillStyle = getComputedStyle(pill)
+      const lineStyle = getComputedStyle(line)
+      expect(["absolute", "fixed"]).not.toContain(pillStyle.position)
+      expect(pillStyle.getPropertyValue("translate")).toMatch(/^$|^none$/)
+      expect(pillStyle.gridRowStart).toBe("1")
+      expect(lineStyle.gridRowStart).toBe(pillStyle.gridRowStart)
+      expect(pillStyle.gridColumnStart).toBe("1")
+      expect(lineStyle.gridColumnStart).toBe(pillStyle.gridColumnStart)
+      expect(pillStyle.justifySelf).toBe("flex-end")
+      expect(pillStyle.pointerEvents).toBe("none")
+      expect(lineStyle.display).toBe("flex")
+      if (dateLabel) {
+        const label = view.getByText(dateLabel)
+        expect(label.parentElement).toBe(line)
+        expect(getComputedStyle(label.previousElementSibling!).flexGrow).toBe("1")
+        expect(getComputedStyle(label.nextElementSibling!).flexGrow).toBe("1")
+      }
+    })
+  })
+
+  it.each([
+    { name: "date to ungrouped chat", dateLabel: "Today", newDivider: false, grouped: false, type: "chat", gap: 16 },
+    { name: "NEW to ungrouped chat", dateLabel: undefined, newDivider: true, grouped: false, type: "chat", gap: 16 },
+    { name: "merged date/NEW to ungrouped chat", dateLabel: "Today", newDivider: true, grouped: false, type: "chat", gap: 16 },
+    { name: "date to pending-window grouped chat", dateLabel: "Today", newDivider: false, grouped: true, type: "chat", gap: 16 },
+    { name: "NEW to grouped chat", dateLabel: undefined, newDivider: true, grouped: true, type: "chat", gap: 16 },
+    { name: "date to system", dateLabel: "Today", newDivider: false, grouped: false, type: "system", gap: 16 },
+    { name: "NEW to system", dateLabel: undefined, newDivider: true, grouped: false, type: "system", gap: 16 },
+  ] as const)("uses one symmetric spacing owner between independent rows: $name", async ({ dateLabel, newDivider, grouped, type, gap }) => {
+    mockedMessageRow.mockImplementation(() => React.createElement("div"))
+    const items: FlatItem[] = [
+      { kind: "leading", key: "leading" },
+      { kind: "message", key: "previous", m: { id: "previous", type: "chat", grouped: false } },
+      { kind: "divider", key: "divider", messageId: "m1", dateLabel, newDivider },
+      { kind: "message", key: "m1", m: { id: "m1", type, grouped } },
+    ]
+    const view = render(React.createElement(React.Fragment, null, items.map((item, index) =>
+      React.createElement(React.Fragment, { key: item.key }, renderMessageListRow(item, props, { ...controller, items }, index)),
+    )))
+    await withTailwindStyles(view.container, () => {
+      const divider = view.container.querySelector('[data-message-divider-for="m1"] > div')!
+      const message = view.container.querySelector('[data-msg-id="m1"] > div')!
+      const dividerRow = divider.parentElement!
+      const messageRow = message.closest("[data-message-row-key]")!
+      expect(marginPx(divider, "Bottom") + marginPx(message, "Top")).toBe(0)
+      expect(parseFloat(getComputedStyle(dividerRow).paddingBlock) + parseFloat(getComputedStyle(messageRow).paddingBlock)).toBe(gap)
+    })
+  })
+
+  it.each(["date", "NEW", "merged date/NEW", "message"])("uses row padding at the leading boundary before %s", async (next) => {
+    mockedMessageRow.mockImplementation(() => React.createElement("div"))
+    const items: FlatItem[] = [
+      { kind: "leading", key: "leading" },
+      ...(next === "message" ? [] : [{ kind: "divider" as const, key: "divider", messageId: "m1", dateLabel: next === "NEW" ? undefined : "Today", newDivider: next !== "date" }]),
+      { kind: "message", key: "m1", m: { id: "m1", type: "chat", grouped: false } },
+    ]
+    const view = render(React.createElement(React.Fragment, null, items.map((item, index) =>
+      React.createElement(React.Fragment, { key: item.key }, renderMessageListRow(item, { ...props, hasMore: true }, { ...controller, items }, index)),
+    )))
+    await withTailwindStyles(view.container, () => {
+      const leading = view.container.querySelector('[data-message-row-key="leading"] > div')!
+      const following = view.container.querySelector(next === "message" ? '[data-msg-id="m1"] > div' : '[data-message-divider-for="m1"] > div')!
+      const nextRow = following.closest("[data-message-row-key]")!
+      expect(marginPx(leading, "Bottom") + marginPx(following, "Top")).toBe(0)
+      expect(parseFloat(getComputedStyle(leading).paddingBlock) + parseFloat(getComputedStyle(nextRow).paddingBlock)).toBe(24)
+    })
   })
 })

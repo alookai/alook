@@ -38,7 +38,7 @@ describe("locked native iOS deferred adjustment controls, with simulated DOM geo
     expect(h.root.scrollTop - before).toBe(60)
     expect(offset).not.toHaveBeenCalled()
   })
-  it("drops an old prefix candidate when a new gesture chooses a different reading offset", () => {
+  it("flushes independent leading-row growth against the new reading offset through native iOS deferral", () => {
     scrollFixture.bodyHeights.set("m0", 1200)
     const h = mount()
     h.move(400)
@@ -51,7 +51,7 @@ describe("locked native iOS deferred adjustment controls, with simulated DOM geo
     fireEvent.touchEnd(h.root, { touches: [] })
     runFrames()
     expect(offset).not.toHaveBeenCalled()
-    expect(h.root.scrollTop).toBe(600)
+    expect(h.root.scrollTop).toBe(640)
     expect(bodyTop(h.root, "m0")).toBeLessThan(0)
   })
   it("yields footer settlement during touch and does not restore an old offset after the gesture", () => {

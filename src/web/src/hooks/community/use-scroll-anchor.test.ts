@@ -18,11 +18,11 @@ import type { FlatItem } from "@/lib/community/message-list-items"
 const msgs = (...ids: string[]): ScrollAnchorMessage[] => ids.map((id) => ({ id }))
 
 describe("message rail tail geometry", () => {
-  it("resolves the fixed 40px mobile and 48px desktop virtual tail", () => {
-    expect(MESSAGE_RAIL_TAIL_PADDING_END_PX).toEqual({ mobile: 40, desktop: 48 })
-    expect(resolveMessageRailTailPaddingEnd("mobile")).toBe(40)
-    expect(resolveMessageRailTailPaddingEnd("desktop")).toBe(48)
-    expect(resolveMessageRailTailPaddingEnd("unknown")).toBe(48)
+  it("counts the final row's 8px once in the 40px mobile and 48px desktop clearance", () => {
+    expect(MESSAGE_RAIL_TAIL_PADDING_END_PX).toEqual({ mobile: 32, desktop: 40 })
+    expect(resolveMessageRailTailPaddingEnd("mobile")).toBe(32)
+    expect(resolveMessageRailTailPaddingEnd("desktop")).toBe(40)
+    expect(resolveMessageRailTailPaddingEnd("unknown")).toBe(40)
   })
 })
 
@@ -352,12 +352,15 @@ describe("measureMessageRow", () => {
 
 describe("findMountScrollTargetIndex", () => {
   const items: FlatItem[] = [
+    { kind: "leading", key: "leading" },
     { kind: "message", m: { id: "m1", type: "chat", grouped: false }, key: "msg:m1" },
+    { kind: "divider", messageId: "m2", newDivider: true, key: "new:m2" },
     { kind: "message", m: { id: "m2", type: "chat", grouped: false }, key: "msg:m2" },
   ]
 
-  it("finds the message owning New so native can mount its actual prefix", () => {
-    expect(findMountScrollTargetIndex(items, "m2")).toBe(1)
+  it("selects the independent New index while a message target selects the actual body", () => {
+    expect(findMountScrollTargetIndex(items, "m2")).toBe(2)
+    expect(findMessageIndex(items, "m2")).toBe(3)
   })
 
   it("falls back to the message's own index when no new-divider item exists (e.g. first-visit anchoring on a non-self message with no divider rendered)", () => {

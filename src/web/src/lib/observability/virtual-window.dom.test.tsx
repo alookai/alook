@@ -39,7 +39,7 @@ function WindowPanel({ rows, overscan, attached = true }: { rows: Row[]; oversca
   useLayoutEffect(() => { native = virtualizer })
   const selected = visibleVirtualItems(virtualizer).map(item => rows[item.index]!)
   useObservedRegion("messages", selected.length > 0, selected.length)
-  return attached ? <div ref={bind} data-testid="viewport"><VirtualRows items={rows} virtualizer={virtualizer} itemKey={row => row.id} renderItem={row => <p>{row.id}</p>} /></div> : null
+  return attached ? <div ref={bind} data-testid="viewport"><VirtualRows items={rows} virtualizer={virtualizer} renderItem={row => <p>{row.id}</p>} /></div> : null
 }
 function rows() {
   return Array.from({ length: 20 }, (_, index) => ({ id: "row-" + index }))

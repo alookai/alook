@@ -19,6 +19,7 @@ import {
 } from "./message"
 import { EmojiPickerPopover } from "./emoji-picker"
 import type { RenderMsg } from "@/lib/community/models/message"
+import { tid } from "@/lib/community/testids"
 vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
   useCanonicalCommunityProfile: (userId: string | null | undefined) => userId === "u1"
     ? { userId, name: "Alice", discriminator: "", avatar: "A", avatarVersion: 0 }
@@ -557,6 +558,20 @@ describe("Message reply content projection", () => {
 })
 
 describe("Message embed links", () => {
+  it("omits empty title and field blocks while retaining populated preview fields", () => {
+    let renderer: DomRenderer
+    const renderEmbed = (fields: Array<{ name: string; value: string }>) => makeTree({
+      m: baseMsg({ embeds: [{ title: "", desc: "Preview summary", fields }] }),
+      onOpenThread: vi.fn(),
+    })
+    act(() => { renderer = render(renderEmbed([]), { createNodeMock: () => genericMock }) })
+    const article = renderer!.root.findByType("article")
+    expect(textContent(article)).toBe("Preview summary")
+    expect(article.findAllByType("div").some(node => node.children.length === 0)).toBe(false)
+    act(() => renderer!.rerender(renderEmbed([{ name: "Status", value: "Ready" }])))
+    expect(textContent(renderer!.root.findByType("article"))).toContain("StatusReady")
+  })
+
   it("routes author and title URLs through the shared external-link anchor", () => {
     let renderer: DomRenderer
     act(() => {
@@ -974,6 +989,53 @@ describe("Message portal event ownership", () => {
 })
 
 describe("Message reaction picker", () => {
+  it("retains an open reaction details dialog and its empty state through final reaction removal", () => {
+    vi.useFakeTimers()
+    try {
+      const reaction = { emoji: "👍", count: 1, me: true, userIds: ["u1"] }
+      const tree = (reactions: RenderMsg["reactions"]) => makeTree({ m: baseMsg({ reactions }), hoverCapable: false, onOpenThread: vi.fn(), onReact: vi.fn() })
+      const renderer = render(tree([reaction]))
+      const group = renderer.root.findByProps({ "data-testid": tid.reactionGroup("m1") }).element
+      const chip = renderer.root.findByProps({ "data-testid": tid.reactionChip("m1", "👍") }).element
+      fireEvent.pointerDown(chip, { pointerType: "touch", clientX: 10, clientY: 10 })
+      act(() => vi.advanceTimersByTime(450))
+      expect(renderer.root.findByType("mock-dialog").props.open).toBe(true)
+      act(() => renderer.rerender(tree([])))
+      expect(renderer.root.findByType("mock-dialog").props.open).toBe(true)
+      expect(renderer.root.findByProps({ "data-testid": tid.reactionEmpty("m1") }).element.textContent).toBe("No reactions yet")
+      expect(group.isConnected).toBe(true)
+      expect(group.parentElement).toHaveClass("sr-only")
+      const dialog = renderer.root.findByType("mock-dialog")
+      act(() => dialog.props.onOpenChange(false))
+      act(() => renderer.root.findByType("mock-dialog").props.onOpenChangeComplete(false))
+      expect(document.activeElement).toBe(group)
+      act(() => renderer.rerender(tree([reaction])))
+      expect(group.parentElement).not.toHaveClass("sr-only")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+  it("removes the inline reaction row from flow on1→0 and restores it on0→1 while retaining menu add", () => {
+    const onReact = vi.fn()
+    const reaction = { emoji: "👍", count: 1, me: true, userIds: ["u1"] }
+    const tree = (reactions: RenderMsg["reactions"]) => makeTree({ m: baseMsg({ reactions }), hoverCapable: false, onOpenThread: vi.fn(), onReact })
+    const renderer = render(tree([reaction]))
+    const strip = () => renderer.root.findAllByProps({ "aria-label": "Add reaction" })
+      .filter(node => node.type === "button" && node.props.className.includes("bg-secondary"))
+    expect(strip()).toHaveLength(1)
+    const reactionRow = strip()[0].element.closest("div.flex.flex-wrap")!.parentElement!
+    act(() => renderer.rerender(tree([])))
+    expect(strip()).toHaveLength(0)
+    expect(reactionRow.isConnected).toBe(true)
+    expect(reactionRow).toHaveClass("sr-only")
+    expect(renderer.toJSON()).not.toContain("community-reaction-chip-m1")
+    const row = renderer.root.find(node => typeof node.props.className === "string" && node.props.className.includes("group relative -mx-2"))
+    act(() => row.props.onClick({ clientX: 10, clientY: 10, currentTarget: { contains: () => true }, target: { closest: () => null } }))
+    expect(renderer.root.findAllByType("button").some(button => textContent(button).includes("Add Reaction"))).toBe(true)
+    act(() => renderer.rerender(tree([reaction])))
+    expect(strip()).toHaveLength(1)
+    expect(reactionRow).not.toHaveClass("sr-only")
+  })
   it("opens the non-hover picker and suppresses its Shadow DOM selection click at the row", async () => {
     vi.stubGlobal("window", { getSelection: () => null })
     const onReact = vi.fn()
@@ -988,7 +1050,7 @@ describe("Message reaction picker", () => {
     })
 
     const addButton = renderer!.root.findAllByProps({ "aria-label": "Add reaction" })
-      .find((node) => node.type === "button" && node.props.className.includes("h-6 w-7"))
+      .find((node) => node.type === "button" && node.props.className.includes("bg-secondary"))
     expect(addButton?.props["data-slot"]).toBe("popover-trigger")
     expect(renderer!.root.findAllByProps({ "data-slot": "popover-content" })).toHaveLength(0)
 
@@ -1056,7 +1118,7 @@ describe("Message reaction picker", () => {
     expect(renderer!.root.findAllByType(EmojiPickerPopover)).toHaveLength(2)
     expect(renderer!.root.findAllByProps({ "data-slot": "popover-content" })).toHaveLength(0)
     const stripButton = renderer!.root.findAllByProps({ "aria-label": "Add reaction" })
-      .find((node) => node.type === "button" && node.props.className.includes("h-6 w-7"))
+      .find((node) => node.type === "button" && node.props.className.includes("bg-secondary"))
     expect(stripButton?.props["data-slot"]).toBe("tooltip-trigger")
 
     await act(async () => {

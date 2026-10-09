@@ -134,6 +134,7 @@ vi.mock("@/contexts/community/current-user", () => ({
 }))
 vi.mock("@/hooks/community/use-servers", () => ({
   serverProjectedQueryFn: () => vi.fn(),
+  useViewerServerRole: () => undefined,
   useServer: (serverId: string | null) => {
     mocks.useServer(serverId)
     return { server: serverId ? mocks.serverSnapshot.current ?? undefined : undefined }

@@ -3,7 +3,7 @@
 import { useObservedRegion } from "@/lib/observability/regions"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useEffect, useRef } from "react"
+import { useCallback, useEffect, useRef } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { Settings, Users, Link2, Bell, Trash2, X, Shield, Search, Camera, Hash } from "lucide-react"
 import {
@@ -40,6 +40,7 @@ import {
 } from "@/hooks/community/use-notification-settings"
 import { toastApiError } from "@/lib/api/client"
 import { ServerSettingsChannels } from "./server-settings-channels"
+import { VirtualRows } from "../messages/virtual-cursor-list"
 
 const SETTABLE_ROLES: Role[] = ["admin", "member"]
 
@@ -118,7 +119,7 @@ export function ServerSettings({
       >
         <SettingsShellPanel value="overview"><SettingsOverview serverId={serverId} serverName={serverName} serverDescription={serverDescription} serverIcon={serverIcon} onUploadIcon={onUploadIcon} onUpdateServer={onUpdateServer} onRequestDelete={() => setConfirmDelete(true)} /></SettingsShellPanel>
         {isAdmin && section === "channels" && <SettingsShellPanel value="channels"><ServerSettingsChannels key={serverId} serverId={serverId} /></SettingsShellPanel>}
-        <SettingsShellPanel value="members"><SettingsMembers members={members} loading={membersLoading} loadingMore={membersLoadingMore} hasMore={membersHasMore} total={membersTotal} onLoadMore={onLoadMoreMembers} onSearch={onSearchMembers} onOpenProfile={onOpenProfile} onKickMember={onKickMember} onSetRole={onSetRole} /></SettingsShellPanel>
+        <SettingsShellPanel value="members" className="h-full"><SettingsMembers members={members} loading={membersLoading} loadingMore={membersLoadingMore} hasMore={membersHasMore} total={membersTotal} onLoadMore={onLoadMoreMembers} onSearch={onSearchMembers} onOpenProfile={onOpenProfile} onKickMember={onKickMember} onSetRole={onSetRole} /></SettingsShellPanel>
         <SettingsShellPanel value="invites"><SettingsInvites invites={invites} loading={invitesLoading} onRevokeInvite={onRevokeInvite} onCopyInvite={onCopyInvite} /></SettingsShellPanel>
         <SettingsShellPanel value="notifications"><SettingsNotifications serverId={serverId} level={notifLevel} onSetLevel={onSetNotifLevel} /></SettingsShellPanel>
       </SettingsShell>
@@ -229,6 +230,8 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
   const [query, setQuery] = useAtom(useCreateAtom(""))
   const scrollRef = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
+  const getItemKey = useCallback((index: number) => members[index]?.id ?? index, [members])
+  const estimateSize = useCallback(() => SETTINGS_ROW_HEIGHT, [])
 
   useEffect(() => {
     if (!onSearch) return
@@ -242,8 +245,8 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
     ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
     count: members.length,
     getScrollElement: () => scrollRef.current,
-    getItemKey: (index) => members[index]?.id ?? index,
-    estimateSize: () => SETTINGS_ROW_HEIGHT,
+    getItemKey,
+    estimateSize,
     overscan: 8,
   })
 
@@ -289,55 +292,43 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
         {query ? `${members.length} matches` : `${shownCount} members`}
       </div>
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto thin-scrollbar">
-        <div ref={rowVirtualizer.containerRef} style={{ position: "relative", width: "100%" }}>
-          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-            const m = members[virtualRow.index]
-            return (
-              <div
-                key={m.id}
-                role="listitem"
-                data-index={virtualRow.index}
-                ref={rowVirtualizer.measureElement}
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  paddingBottom: 8,
-                }}
-              >
-                <div className="flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-accent/40">
-                  <button onClick={(e) => onOpenProfile?.(m.name, e, undefined, m.userId)} className="grid size-11 shrink-0 place-items-center rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:size-8">
-                    <Avatar label={m.avatar} seed={m.userId} size={32} presence={m.status} ringColor="var(--background)" />
-                  </button>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[15px] font-medium">{m.name}</div>
-                    <div className="text-xs text-muted-foreground">{capitalize(m.role)}</div>
-                  </div>
-                  {isServerOwner(m.role) ? (
-                    <Badge variant="secondary" className="gap-1"><Shield className="size-3.5" /> Owner</Badge>
-                  ) : (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={<button className={badgeVariants({ variant: "secondary" }) + " min-h-11 cursor-pointer gap-1 sm:min-h-6"} />}
-                      >
-                        <Shield className="size-3.5" /> {capitalize(m.role)}
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-32">
-                        {SETTABLE_ROLES.map((r) => (
-                          <DropdownMenuItem key={r} onClick={() => onSetRole?.(m.id, r)}>{capitalize(r)}</DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
-                  {m.role !== "owner" && (
-                    <Button variant="ghost" size="icon-sm" className="size-11 text-muted-foreground hover:text-destructive sm:size-7" aria-label="Kick member" onClick={() => onKickMember?.(m.id)}><Trash2 className="size-4" /></Button>
-                  )}
+        <VirtualRows
+          items={members}
+          virtualizer={rowVirtualizer}
+          rowRole="listitem"
+          renderItem={(m) => (
+            <div className="pb-2">
+              <div className="flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-accent/40">
+                <button onClick={(e) => onOpenProfile?.(m.name, e, undefined, m.userId)} className="grid size-11 shrink-0 place-items-center rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:size-8">
+                  <Avatar label={m.avatar} seed={m.userId} size={32} presence={m.status} ringColor="var(--background)" />
+                </button>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[15px] font-medium">{m.name}</div>
+                  <div className="text-xs text-muted-foreground">{capitalize(m.role)}</div>
                 </div>
+                {isServerOwner(m.role) ? (
+                  <Badge variant="secondary" className="gap-1"><Shield className="size-3.5" /> Owner</Badge>
+                ) : (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={<button className={badgeVariants({ variant: "secondary" }) + " min-h-11 cursor-pointer gap-1 sm:min-h-6"} />}
+                    >
+                      <Shield className="size-3.5" /> {capitalize(m.role)}
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-32">
+                      {SETTABLE_ROLES.map((r) => (
+                        <DropdownMenuItem key={r} onClick={() => onSetRole?.(m.id, r)}>{capitalize(r)}</DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+                {m.role !== "owner" && (
+                  <Button variant="ghost" size="icon-sm" className="size-11 text-muted-foreground hover:text-destructive sm:size-7" aria-label="Kick member" onClick={() => onKickMember?.(m.id)}><Trash2 className="size-4" /></Button>
+                )}
               </div>
-            )
-          })}
-        </div>
+            </div>
+          )}
+        />
         {hasMore && (
           <div ref={sentinelRef} className="py-3 text-center text-xs text-muted-foreground">
             {loadingMore ? "Loading…" : ""}

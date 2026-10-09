@@ -93,6 +93,8 @@ export function ForumSurface({ serverId, forumChannelId, ...props }: {
     onTagChange={feed.selectTag}
     hasMore={feed.hasMoreOlder}
     loadingMore={feed.isFetchingOlder}
+    isFetching={feed.isFetching}
+    isError={feed.isError}
     onLoadMore={feed.fetchOlder}
     onScrollRoot={setScrollRootEl}
     onEditPostTags={(threadId, tags) => {

@@ -80,12 +80,7 @@ export function CommunityInviteCard({
     }
   }
 
-  // Border keeps the card visually distinct from the message row's hover
-  // highlight (`bg-accent/40`), which sits very close to `bg-card`. The
-  // parent MessageBody wraps the card in `pt-2 pb-2` so hover highlight
-  // extends below the card — a bare `mb-*` on the card wouldn't do that
-  // (it'd push the card out of the highlighted area instead).
-  const cardBase = "flex max-w-100 items-center gap-3 rounded-md border border-border bg-card p-3"
+  const cardBase = "flex max-w-100 items-center gap-2 rounded-md border border-border bg-card p-2"
 
   if (isLoading) {
     return (
@@ -95,7 +90,7 @@ export function CommunityInviteCard({
         data-perspective={perspective}
       >
         <Skeleton className="size-12 shrink-0 rounded-lg" />
-        <div className="min-w-0 flex-1 space-y-1">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <Skeleton className="h-3 w-32 rounded" />
           <Skeleton className="h-4 w-24 rounded" />
           <Skeleton className="h-3 w-16 rounded" />
@@ -131,7 +126,7 @@ export function CommunityInviteCard({
         size={48}
         className="shrink-0 rounded-lg"
       />
-      <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <div className="text-xs font-medium text-muted-foreground">
           {presentation.eyebrow}
         </div>

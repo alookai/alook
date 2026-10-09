@@ -28,6 +28,7 @@ import {
   type CommunityRole as Role,
 } from "@alook/shared"
 import { MemberIdentityRow } from "./member-identity-row"
+import { VirtualRows } from "../messages/virtual-cursor-list"
 
 // The Leave/Remove confirm flow the row menu opens (private channel/post/thread).
 type ManageConfirm = { kind: "leave" | "remove"; memberId: string }
@@ -180,6 +181,8 @@ export function MemberList({
   const duplicateNames = useMemo(() => computeDuplicateNames(members), [members])
   const scrollRef = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
+  const getItemKey = useCallback((index: number) => items[index]?.key ?? index, [items])
+  const estimateSize = useCallback((index: number) => items[index]?.kind === "header" ? HEADER_HEIGHT : ROW_HEIGHT, [items])
 
   // TanStack Virtual returns unstable function refs — React Compiler skips memoization.
   // eslint-disable-next-line react-hooks/incompatible-library -- library limitation
@@ -190,8 +193,8 @@ export function MemberList({
     // React also keys these rows by `item.key`. Keep TanStack Virtual on the
     // same identity axis so an insert/re-group does not leave a reused DOM
     // node registered under its old numeric index in direct-DOM mode.
-    getItemKey: (index) => items[index]?.key ?? index,
-    estimateSize: (index) => (items[index]?.kind === "header" ? HEADER_HEIGHT : ROW_HEIGHT),
+    getItemKey,
+    estimateSize,
     overscan: 8,
   })
 
@@ -290,45 +293,27 @@ export function MemberList({
         )}
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto thin-scrollbar">
           <div className="px-4 py-4">
-            <div
-              ref={rowVirtualizer.containerRef}
-              style={{ position: "relative", width: "100%" }}
-            >
-              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                const item = items[virtualRow.index]
-                return (
-                  <div
-                    key={item.key}
-                    role="listitem"
-                    data-index={virtualRow.index}
-                    ref={rowVirtualizer.measureElement}
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      width: "100%",
-                    }}
-                  >
-                    {item.kind === "header" ? (
-                      <h3 className="mb-2 px-1 text-xs font-medium text-muted-foreground">
-                        {item.label} — {item.count}
-                      </h3>
-                    ) : (
-                      <MemberRow
-                        mem={item.member}
-                        canManage={canManage}
-                        showDiscriminator={duplicateNames.has(item.member.name.toLowerCase())}
-                        onOpenProfile={onOpenProfile}
-                        onSetRole={onSetRole}
-                        onKick={(mem) => setKickTargetId(mem.id)}
-                        onRequestManage={(kind, mem) => setManageConfirm({ kind, memberId: mem.id })}
-                        manageContext={manageContext}
-                      />
-                    )}
-                  </div>
-                )
-              })}
-            </div>
+            <VirtualRows
+              items={items}
+              virtualizer={rowVirtualizer}
+              rowRole="listitem"
+              renderItem={(item) => item.kind === "header" ? (
+                <h3 className="mb-2 px-1 text-xs font-medium text-muted-foreground">
+                  {item.label} — {item.count}
+                </h3>
+              ) : (
+                <MemberRow
+                  mem={item.member}
+                  canManage={canManage}
+                  showDiscriminator={duplicateNames.has(item.member.name.toLowerCase())}
+                  onOpenProfile={onOpenProfile}
+                  onSetRole={onSetRole}
+                  onKick={(mem) => setKickTargetId(mem.id)}
+                  onRequestManage={(kind, mem) => setManageConfirm({ kind, memberId: mem.id })}
+                  manageContext={manageContext}
+                />
+              )}
+            />
             {hasMore && (
               <div ref={sentinelRef} className="py-3 text-center text-xs text-muted-foreground">
                 {loadingMore ? "Loading…" : ""}

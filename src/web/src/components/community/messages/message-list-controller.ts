@@ -9,7 +9,7 @@ import {
   useScrollAnchor,
 } from "@/hooks/community/use-scroll-anchor"
 import { useBreakpoint } from "@/hooks/use-mobile"
-import { useVirtualCursorSentinel } from "@/hooks/community/use-virtual-cursor-sentinel"
+import { useVirtualCursorPagination } from "@/hooks/community/use-virtual-cursor-pagination"
 import { useInitialPositionTransition } from "./initial-position-transition"
 import type { ResolvedMessageListProps } from "./message-list-types"
 
@@ -22,6 +22,7 @@ export function useMessageListController({
   initialScrollReady,
   hasMore,
   hasMoreNewer,
+  isFetching,
   isFetchingOlder,
   isFetchingNewer,
   onLoadOlder,
@@ -40,8 +41,8 @@ export function useMessageListController({
   const [anchorPositionSettled, setAnchorPositionSettled] = useAtom(useCreateAtom(false))
 
   const items = useMemo(
-    () => flattenMessageItems(messages, newDividerBefore, !!hasMore),
-    [messages, newDividerBefore, hasMore],
+    () => flattenMessageItems(messages, newDividerBefore, !!hasMore, !!hasMoreNewer),
+    [messages, newDividerBefore, hasMore, hasMoreNewer],
   )
 
   const [selectMode, setSelectMode] = useAtom(useCreateAtom(false))
@@ -96,6 +97,7 @@ export function useMessageListController({
     requestPresentPosition,
     jumpTo: jumpToIndex,
     readPositionReady,
+    paginationEnabled,
     captureOlderPageAnchor,
     isOlderPageAnchorSettling,
     captureNewerPageAnchor,
@@ -128,20 +130,27 @@ export function useMessageListController({
     return () => onScrollRoot(null)
   }, [onScrollRoot, scrollRef])
 
-  const topSentinelRef = useVirtualCursorSentinel({
-    scrollRef,
+  useVirtualCursorPagination({
+    virtualizer,
+    count: items.length,
+    enabled: paginationEnabled,
     hasMore,
-    isFetching: isFetchingOlder,
-    isSettling: isOlderPageAnchorSettling,
+    isFetching: isFetching || isFetchingOlder || isFetchingNewer,
+    isSettling: isOlderPageAnchorSettling || isNewerPageAnchorSettling,
+    isError: !!initialLoadError,
     onBeforeLoad: captureOlderPageAnchor,
     onLoad: onLoadOlder,
     edge: "start",
   })
-  const bottomSentinelRef = useVirtualCursorSentinel({
-    scrollRef,
+  useVirtualCursorPagination({
+    virtualizer,
+    count: items.length,
+    enabled: paginationEnabled,
     hasMore: hasMoreNewer,
-    isFetching: isFetchingNewer,
-    isSettling: isNewerPageAnchorSettling,
+    hasMoreAtStart: hasMore,
+    isFetching: isFetching || isFetchingOlder || isFetchingNewer,
+    isSettling: isOlderPageAnchorSettling || isNewerPageAnchorSettling,
+    isError: !!initialLoadError,
     onBeforeLoad: captureNewerPageAnchor,
     onLoad: onLoadNewer,
     edge: "end",
@@ -230,8 +239,6 @@ export function useMessageListController({
     onToggleSelectId,
     scrollRef,
     virtualizer,
-    topSentinelRef,
-    bottomSentinelRef,
     readPositionReady,
     jumpTo,
     pillCount,

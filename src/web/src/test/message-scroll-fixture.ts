@@ -1,11 +1,12 @@
-import { createElement, StrictMode, useLayoutEffect } from "react"
+import { createElement, StrictMode, useLayoutEffect, useMemo } from "react"
 import { vi } from "vitest"
 import { act, render, fireEvent } from "@/test/react-dom-harness"
 import { VirtualRows } from "@/components/community/messages/virtual-cursor-list"
 import type { FlatItem } from "@/lib/community/message-list-items"
 import { useScrollAnchor } from "@/hooks/community/use-scroll-anchor"
 
-export const message = (id: string, authorId = "peer"): FlatItem => ({ kind: "message", key: `msg:${id}`, m: { id, type: "chat", authorId, grouped: false } })
+type FixtureMessage = Extract<FlatItem, { kind: "message" }> & { dateLabel?: string; newDivider?: boolean }
+export const message = (id: string, authorId = "peer"): FixtureMessage => ({ kind: "message", key: `msg:${id}`, m: { id, type: "chat", authorId, grouped: false } })
 type Input = Parameters<typeof useScrollAnchor>[0]
 type Result = ReturnType<typeof useScrollAnchor>
 let latest: Result
@@ -19,9 +20,6 @@ let resizeObservers: Array<{ callback: ResizeObserverCallback; elements: Set<Ele
 let scrollCalls: number[]
 let scrollDescriptor: PropertyDescriptor | undefined
 
-function prefix(item: FlatItem, index: number) {
-  return (index === 0 ? firstPrefix : 0) + (item.dateLabel ? 32 : item.newDivider ? 24 : 0)
-}
 const ROOT_SELECTOR = '[data-testid="scroll"], [data-testid="community-message-scroller"]'
 function isScrollRoot(node: HTMLElement) { return node.matches(ROOT_SELECTOR) }
 function rootFor(node: HTMLElement) { return node.closest<HTMLElement>(ROOT_SELECTOR) }
@@ -31,28 +29,58 @@ function rowGeometry(node: HTMLElement) {
   const content = wrapper?.querySelector<HTMLElement>('[data-msg-id]')
   const size = content ? bodyHeights.get(content.dataset.msgId!) ?? 100 : 0
   const actualRow = wrapper?.querySelector<HTMLElement>("[data-message-row-key]")
-  const before = content?.dataset.prefix !== undefined ? Number(content.dataset.prefix)
-    : (wrapper?.dataset.index === "0" ? firstPrefix : 0)
-      + (actualRow?.querySelector("[data-new-divider]") ? 24
-        : actualRow?.querySelector("span.text-xs") ? 32 : 0)
+  const key = actualRow?.dataset.messageRowKey
+  const kind = actualRow?.dataset.fixtureKind ?? (key === "rail:leading" ? "leading" : key === "rail:trailing" ? "trailing"
+    : key?.startsWith("date:") || key?.startsWith("new:") ? "divider" : "message")
+  const hasDate = actualRow?.dataset.fixtureDate === "true" || !!actualRow?.querySelector("span.text-xs")
+  const decoration = kind === "leading" ? firstPrefix : kind === "trailing" ? 56
+    : kind === "divider" ? hasDate ? 32 : 24 : 0
+  const padding = kind === "message" ? (actualRow?.style.paddingBlock ?? "").split(/\s+/).map(Number.parseFloat) : [0]
+  const topPadding = padding[0] || (actualRow?.classList.contains("py-2") ? 8 : 0)
+  const bottomPadding = padding.length > 1 ? padding[1] : topPadding
   const translation = wrapper?.style.transform.match(/translate3d\(0,\s*(-?[\d.]+)px/)
   const start = Number.parseFloat(translation?.[1] ?? wrapper?.style.top ?? "0") || 0
   const y = start - (root?.scrollTop ?? 0)
-  if (node.matches('[data-msg-id]')) return DOMRect.fromRect({ y: y + before, width, height: size })
-  if (node.matches('[data-new-divider]')) return DOMRect.fromRect({ y: y + before - 24, width, height: 24 })
-  return DOMRect.fromRect({ y, width, height: size + before })
+  if (node.matches('[data-msg-id]')) return DOMRect.fromRect({ y: y + topPadding, width, height: size })
+  if (node.matches('[data-new-divider]')) return DOMRect.fromRect({ y, width, height: decoration })
+  return DOMRect.fromRect({ y, width, height: size + decoration + topPadding + bottomPadding })
 }
 function Probe({ input, onLayout }: { input: Input; onLayout?: (result: Result) => void }) {
-  const result = useScrollAnchor(input)
+  const items = useMemo<FlatItem[]>(() => {
+    if (input.items.length === 0 || input.items.some(item => item.kind !== "message")) return input.items
+    return [
+      { kind: "leading", key: "rail:leading" },
+      ...input.items.flatMap(item => {
+        const message = item as FixtureMessage
+        return [
+          ...(message.dateLabel || message.newDivider ? [{
+            kind: "divider" as const,
+            key: `divider:${message.key}`,
+            messageId: message.m.id,
+            dateLabel: message.dateLabel,
+            newDivider: message.newDivider,
+          }] : []),
+          message,
+        ]
+      }),
+      ...(input.hasMoreNewer ? [{ kind: "trailing" as const, key: "rail:trailing" }] : []),
+    ]
+  }, [input.items, input.hasMoreNewer])
+  const result = useScrollAnchor({ ...input, items })
   useLayoutEffect(() => { latest = result; onLayout?.(result) })
   return createElement("div", { "data-slot": "community-conversation-surface" },
     createElement("div", { ref: result.scrollRef, "data-testid": "scroll" },
       createElement("div", { "data-message-list-content": "", "data-read-position-ready": String(result.readPositionReady) },
         createElement(VirtualRows<FlatItem>, {
-          items: input.items, virtualizer: result.virtualizer, itemKey: (item) => item.key,
-          renderItem: (item, index) => createElement("div", null,
-            item.newDivider ? createElement("div", { "data-new-divider": "" }) : null,
-            createElement("div", { "data-msg-id": item.m.id, "data-prefix": prefix(item, index) }),
+          items, virtualizer: result.virtualizer,
+          renderItem: (item) => createElement("div", {
+            "data-message-row-key": item.key,
+            "data-fixture-kind": item.kind,
+            "data-fixture-date": String(item.kind === "divider" && !!item.dateLabel),
+            "data-message-divider-for": item.kind === "divider" ? item.messageId : undefined,
+          },
+            item.kind === "divider" && item.newDivider ? createElement("div", { "data-new-divider": "" }) : null,
+            item.kind === "message" ? createElement("div", { "data-msg-id": item.m.id }) : null,
           ),
         }),
       ),

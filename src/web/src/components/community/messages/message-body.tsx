@@ -109,9 +109,10 @@ function MessageBodyImpl({
   return (
     <div
       data-community-message-body
-      className="markdown markdown-chat wrap-anywhere select-text text-[15px] leading-snug text-foreground"
+      className="markdown markdown-chat flex flex-col gap-2 wrap-anywhere select-text text-[15px] leading-snug text-foreground"
     >
       <Streamdown
+        className="message-markdown-blocks flex flex-col gap-2 space-y-0"
         parseIncompleteMarkdown={false}
         plugins={{ mermaid, cjk, math }}
         remarkPlugins={[remarkGfm, chatSyntaxPlugin, remarkBreaks]}
@@ -135,11 +136,7 @@ function MessageBodyImpl({
         {text}
       </Streamdown>
       {inviteTokens.length > 0 && (
-        // `pb-2` is *inside* the message row so the row's hover tint
-        // (`bg-accent/40`) extends below the card. A margin on the card
-        // itself wouldn't do that — it'd push the card out of the row's
-        // padding area.
-        <div className="flex flex-col gap-2 pb-2">
+        <div className="flex flex-col gap-2">
           {inviteTokens.map((token) => (
             <CommunityInviteCard
               key={token}

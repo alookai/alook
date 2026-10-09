@@ -6,6 +6,60 @@ beforeEach(installMessageScrollFixture)
 afterEach(restoreMessageScrollFixture)
 
 describe("locked native adapter and existing message scroll owner", () => {
+  it("does not restore the old origin after a reader scroll with a rejected pending row position", () => {
+    const h = mount({ items: Array.from({ length: 28 }, (_, i) => message(`m${i}`)) })
+    h.move(0)
+    fireEvent.wheel(h.root, { deltaY: 600 })
+    runFrames(2)
+    const rows = Array.from(h.root.querySelectorAll<HTMLElement>("[data-index]"))
+    for (const row of rows) {
+      const measured = row.getBoundingClientRect.bind(row)
+      Object.defineProperty(row, "getBoundingClientRect", {
+        configurable: true,
+        value: () => {
+          const rect = measured()
+          return DOMRect.fromRect({ x: rect.x, y: rect.y + 8, width: rect.width, height: rect.height })
+        },
+      })
+    }
+    const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
+    act(() => h.root.scrollTo({ top: 600 }))
+    runFrames(2)
+    expect(h.root.scrollTop).toBe(600)
+    scrollFixture.firstPrefix += 8
+    for (const row of rows) Reflect.deleteProperty(row, "getBoundingClientRect")
+    resize()
+    expect(h.root.scrollTop).toBe(608)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    expect(offset).not.toHaveBeenCalled()
+  })
+  it.each([undefined, "Today"])("uses the native border box for an unread divider with date label %s", dateLabel => {
+    const unread = message("m0")
+    unread.newDivider = true
+    unread.dateLabel = dateLabel
+    const h = mount({ items: [unread], hasMoreOlder: false })
+    const divider = h.root.querySelector<HTMLElement>("[data-message-divider-for]")!.closest<HTMLElement>("[data-index]")!
+    Object.defineProperty(divider, "scrollHeight", { configurable: true, value: 18 })
+    const entry = {
+      target: divider,
+      borderBoxSize: [{ blockSize: 16, inlineSize: scrollFixture.width }],
+    } as unknown as ResizeObserverEntry
+    const native = scrollFixture.latest.virtualizer
+
+    expect(native.options.measureElement(divider, entry, native)).toBe(16)
+  })
+  it("retains message body overflow when the native border box is smaller", () => {
+    const h = mount({ items: [message("m0")], hasMoreOlder: false })
+    const row = h.root.querySelector<HTMLElement>("[data-msg-id]")!.closest<HTMLElement>("[data-index]")!
+    Object.defineProperty(row, "scrollHeight", { configurable: true, value: 967 })
+    const entry = {
+      target: row,
+      borderBoxSize: [{ blockSize: 400, inlineSize: scrollFixture.width }],
+    } as unknown as ResizeObserverEntry
+    const native = scrollFixture.latest.virtualizer
+
+    expect(native.options.measureElement(row, entry, native)).toBe(967)
+  })
   it.each([2, 26])("keeps a present landing after %i frames through consecutive responsive widths", frames => {
     scrollFixture.width = 905
     scrollFixture.height = 783
@@ -26,7 +80,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
     expect(scrollFixture.latest.belowCount).toBe(0)
   })
-  it("keeps a landed present intent unreadable until its native row geometry can be confirmed", () => {
+  it.each(["scroll", "measurement"])("retries rejected Present geometry within two frames on an unchanged-viewport %s event", event => {
     const h = mount()
     h.move(0)
     act(() => scrollFixture.latest.scrollToBottom())
@@ -37,10 +91,41 @@ describe("locked native adapter and existing message scroll owner", () => {
     runFrames(3)
     expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
     expect(scrollFixture.latest.readPositionReady).toBe(false)
+    runFrames(400)
+    expect(scrollFixture.frames.size).toBe(0)
     for (const row of pending) Reflect.deleteProperty(row, "getBoundingClientRect")
-    resize()
+    act(() => {
+      if (event === "scroll") fireEvent.scroll(h.root)
+      else {
+        const row = pending.find(row => row.querySelector('[data-msg-id="m13"]'))!
+        scrollFixture.bodyHeights.set("m13", 101)
+        scrollFixture.latest.virtualizer.measureElement(row)
+      }
+    })
+    runFrames(2)
     expect(scrollFixture.latest.readPositionReady).toBe(true)
     expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+  })
+  it("uses auto for loaded-tail Present without the old timeout or pure viewport end reissue", () => {
+    const h = mount()
+    h.move(0)
+    const native = scrollFixture.latest.virtualizer
+    const end = vi.spyOn(native, "scrollToEnd")
+    const offset = vi.spyOn(native, "scrollToOffset")
+    vi.spyOn(h.root, "scrollTo").mockImplementation(() => {})
+    act(() => scrollFixture.latest.scrollToBottom())
+    runFrames(3)
+    expect(end).toHaveBeenCalledExactlyOnceWith({ behavior: "auto" })
+    runFrames(400)
+    expect(scrollFixture.frames.size).toBe(0)
+    scrollFixture.width = 390
+    resize(2)
+    expect(end).toHaveBeenCalledTimes(1)
+    act(() => vi.advanceTimersByTime(2100))
+    expect(offset).not.toHaveBeenCalled()
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    fireEvent.wheel(h.root, { deltaY: -20 })
+    expect(offset).toHaveBeenCalledOnce()
   })
   it("keeps an explicit tail scroll when wrapped offscreen rows receive their later native measurements", () => {
     scrollFixture.width = 639
@@ -188,13 +273,13 @@ describe("locked native adapter and existing message scroll owner", () => {
   it("unifies native total and DOM max while keeping 40/48px rail clearance", () => {
     const h = mount()
     expect(scrollFixture.latest.readPositionReady).toBe(true)
-    expect(scrollFixture.latest.virtualizer.options).toMatchObject({ anchorTo: "end", followOnAppend: false, scrollEndThreshold: 1, scrollMargin: 0, paddingEnd: 48 })
+    expect(scrollFixture.latest.virtualizer.options).toMatchObject({ anchorTo: "end", followOnAppend: false, scrollEndThreshold: 1, scrollMargin: 0, paddingEnd: 40 })
     expect(h.root.scrollHeight).toBe(scrollFixture.latest.virtualizer.getTotalSize())
     expect(h.root.scrollTop).toBe(h.root.scrollHeight - scrollFixture.height)
     h.update({ tailPaddingEnd: 40 })
     expect(h.root.scrollHeight).toBe(scrollFixture.latest.virtualizer.getTotalSize())
   })
-  it("centers the actual New prefix of a long message with one business correction", () => {
+  it("centers the independent New row beside a long message with the native index command", () => {
     scrollFixture.bodyHeights.set("m4", 1800)
     const items = Array.from({ length: 12 }, (_, i) => ({ ...message(`m${i}`), ...(i === 4 ? { newDivider: true } : {}) }))
     const h = mount({ items, newDividerBefore: "m4", hasMoreNewer: true })
@@ -222,6 +307,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     runFrames()
     expect(shown).toHaveBeenCalledOnce()
     expect(scrollFixture.latest.readPositionReady).toBe(false)
+    expect(scrollFixture.latest.paginationEnabled).toBe(true)
     expect(scrollFixture.latest.virtualizer.options.anchorTo).toBe("start")
     const before = h.root.scrollTop
     h.update({ items: [...h.input.items, message("late-peer")] })
@@ -229,6 +315,51 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(scrollFixture.latest.readPositionReady).toBe(false)
     h.move(300)
     expect(scrollFixture.latest.readPositionReady).toBe(true)
+  })
+  it("preserves and settles a prefix page after deadline retirement without opening read or peer follow", () => {
+    const h = mount({ initialScrollReady: false, hasMoreNewer: true })
+    expect(scrollFixture.latest.paginationEnabled).toBe(false)
+    act(() => vi.advanceTimersByTime(2000))
+    runFrames()
+    act(() => h.root.scrollTo({ top: 0 }))
+    resize()
+    act(() => scrollFixture.latest.captureOlderPageAnchor())
+    h.update({ isFetchingOlder: true })
+    scrollFixture.firstPrefix += 40
+    resize()
+    const before = bodyTop(h.root, "m0")
+    h.update({ items: [message("older-0"), message("older-1"), message("older-2"), ...h.input.items], isFetchingOlder: false })
+    expect(bodyTop(h.root, "m0")).toBeCloseTo(before, 0)
+    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(false)
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    expect(scrollFixture.latest.paginationEnabled).toBe(true)
+    expect(scrollFixture.latest.virtualizer.options).toMatchObject({ anchorTo: "start", followOnAppend: false })
+  })
+  it.each(["m0", "m1"])("uses native row anchoring when the pending page reaches %s with an unchanged body inset", id => {
+    const h = mount({ initialScrollReady: false, hasMoreNewer: true })
+    act(() => vi.advanceTimersByTime(2000))
+    runFrames()
+    act(() => h.root.scrollTo({ top: 0 }))
+    resize()
+    act(() => scrollFixture.latest.captureOlderPageAnchor())
+    h.update({ isFetchingOlder: true })
+    expect(scrollFixture.latest.virtualizer.options).toMatchObject({ anchorTo: "end", followOnAppend: false })
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    const row = scrollFixture.latest.virtualizer.getVirtualItems().find(item => item.key === `msg:${id}`)!
+    act(() => h.root.scrollTo({ top: row.start + 30 }))
+    resize()
+    const before = bodyTop(h.root, id)
+    const index = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToIndex")
+    h.update({ items: [message("older-0"), message("older-1"), message("older-2"), ...h.input.items], isFetchingOlder: false })
+    expect(bodyTop(h.root, id)).toBeCloseTo(before, 0)
+    expect(index).not.toHaveBeenCalled()
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(false)
+    expect(scrollFixture.latest.virtualizer.options).toMatchObject({ anchorTo: "start", followOnAppend: false })
+    const settledOffset = h.root.scrollTop
+    h.update({ items: [...h.input.items, message("late-peer")] })
+    expect(h.root.scrollTop).toBe(settledOffset)
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
   })
   it("does not let pagination retire an unresolved initial intent or its deadline", () => {
     const shown = vi.fn()
@@ -255,7 +386,138 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(offset).not.toHaveBeenCalled()
     expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(false)
   })
-  it("repairs only the current message prefix when an old first row loses its header", () => {
+  it("keeps quote smooth on the native index command without a per-frame offset rewrite", () => {
+    const h = mount()
+    const index = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToIndex")
+    const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
+    act(() => scrollFixture.latest.jumpTo("m5", "smooth"))
+    runFrames()
+    expect(index).toHaveBeenCalledWith(6, { align: "center", behavior: "smooth" })
+    expect(offset).not.toHaveBeenCalled()
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+  })
+  it("keeps the header-fold message when the newly inserted preceding row grows during native restore", () => {
+    const h = mount()
+    h.move(0)
+    const top = bodyTop(h.root, "m0")
+    act(() => scrollFixture.latest.captureOlderPageAnchor())
+    h.update({ isFetchingOlder: true })
+    const older = Array.from({ length: 30 }, (_, index) => message(`older-${index}`))
+    h.stage({ items: [...older, ...h.input.items], isFetchingOlder: false })
+    resize(2)
+    expect(bodyTop(h.root, "m0")).toBe(top)
+    scrollFixture.bodyHeights.set("older-29", 108)
+    resize()
+    expect(bodyTop(h.root, "m0")).toBe(top)
+  })
+  it.each([-24, 40])("captures the current old-window position after a pending prefix change of %ipx", delta => {
+    const h = mount()
+    h.move(0)
+    act(() => scrollFixture.latest.captureOlderPageAnchor())
+    h.update({ isFetchingOlder: true })
+    scrollFixture.firstPrefix += delta
+    resize()
+    const currentTop = bodyTop(h.root, "m0")
+    const older = Array.from({ length: 30 }, (_, index) => message(`older-${index}`))
+    h.update({ items: [...older, ...h.input.items], isFetchingOlder: false })
+    expect(bodyTop(h.root, "m0")).toBe(currentTop)
+  })
+  it("keeps the page settlement gate after the fetch ends until native geometry settles", () => {
+    const h = mount()
+    h.move(0)
+    act(() => scrollFixture.latest.captureOlderPageAnchor())
+    h.update({ isFetchingOlder: true })
+    const older = Array.from({ length: 30 }, (_, index) => message(`older-${index}`))
+    h.stage({ items: [...older, ...h.input.items], isFetchingOlder: false })
+    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(true)
+    resize(2)
+    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(true)
+    runFrames()
+    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(false)
+  })
+  it.each(["wheel", "target"])("retires a pending header page when %s takes ownership before the response", input => {
+    const h = mount()
+    h.move(0)
+    act(() => scrollFixture.latest.captureOlderPageAnchor())
+    h.update({ isFetchingOlder: true })
+    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(true)
+    if (input === "wheel") h.move(350)
+    else {
+      act(() => scrollFixture.latest.jumpTo("m8", "auto"))
+      runFrames()
+    }
+    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(false)
+    const before = bodyTop(h.root, input === "wheel" ? "m3" : "m8")
+    const index = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToIndex")
+    const older = Array.from({ length: 30 }, (_, index) => message(`older-${index}`))
+    h.update({ items: [...older, ...h.input.items], isFetchingOlder: false })
+    expect(bodyTop(h.root, input === "wheel" ? "m3" : "m8")).toBe(before)
+    expect(index).not.toHaveBeenCalled()
+    expect(scrollFixture.latest.virtualizer.shouldAdjustScrollPositionOnItemSizeChange).toBeUndefined()
+  })
+  it("returns to native measurement policy when the header-fold restore settles", () => {
+    const h = mount()
+    h.move(0)
+    act(() => scrollFixture.latest.captureOlderPageAnchor())
+    h.update({ isFetchingOlder: true })
+    const older = Array.from({ length: 30 }, (_, index) => message(`older-${index}`))
+    h.update({ items: [...older, ...h.input.items], isFetchingOlder: false })
+    const readingTop = bodyTop(h.root, "older-29")
+    const restoredTop = bodyTop(h.root, "m0")
+    scrollFixture.bodyHeights.set("older-29", 108)
+    resize()
+    expect(bodyTop(h.root, "older-29")).toBe(readingTop)
+    expect(bodyTop(h.root, "m0")).toBe(restoredTop + 8)
+  })
+  it("lets the reader keep the new spanning row after taking over a header-fold restore", () => {
+    const h = mount()
+    h.move(0)
+    act(() => scrollFixture.latest.captureOlderPageAnchor())
+    h.update({ isFetchingOlder: true })
+    const older = Array.from({ length: 30 }, (_, index) => message(`older-${index}`))
+    h.update({ items: [...older, ...h.input.items], isFetchingOlder: false })
+    h.move(h.root.scrollTop)
+    const readingTop = bodyTop(h.root, "older-29")
+    const retiredTop = bodyTop(h.root, "m0")
+    scrollFixture.bodyHeights.set("older-29", 108)
+    resize()
+    expect(bodyTop(h.root, "older-29")).toBe(readingTop)
+    expect(bodyTop(h.root, "m0")).toBe(retiredTop + 8)
+  })
+  it("returns to native measurement policy when the captured header-fold message is removed", () => {
+    const h = mount()
+    h.move(0)
+    act(() => scrollFixture.latest.captureOlderPageAnchor())
+    h.update({ isFetchingOlder: true })
+    const older = Array.from({ length: 30 }, (_, index) => message(`older-${index}`))
+    h.stage({ items: [...older, ...h.input.items], isFetchingOlder: false })
+    resize(2)
+    h.stage({ items: h.input.items.filter(item => item.m.id !== "m0") })
+    resize(0)
+    expect(scrollFixture.latest.virtualizer.shouldAdjustScrollPositionOnItemSizeChange).toBeUndefined()
+    runFrames()
+    const readingTop = bodyTop(h.root, "older-29")
+    const nextTop = bodyTop(h.root, "m1")
+    scrollFixture.bodyHeights.set("older-29", 108)
+    resize()
+    expect(bodyTop(h.root, "older-29")).toBe(readingTop)
+    expect(bodyTop(h.root, "m1")).toBe(nextTop + 8)
+  })
+  it("uses native measurement policy for a new quote target after a header-fold restore", () => {
+    const h = mount()
+    h.move(0)
+    act(() => scrollFixture.latest.captureOlderPageAnchor())
+    h.update({ isFetchingOlder: true })
+    const older = Array.from({ length: 30 }, (_, index) => message(`older-${index}`))
+    h.update({ items: [...older, ...h.input.items], isFetchingOlder: false })
+    act(() => scrollFixture.latest.jumpTo("m10"))
+    runFrames()
+    const targetTop = bodyTop(h.root, "m10")
+    scrollFixture.bodyHeights.set("m5", 108)
+    resize()
+    expect(bodyTop(h.root, "m10")).toBe(targetTop)
+  })
+  it("keeps the old first message through native anchoring after independent rows prepend", () => {
     scrollFixture.bodyHeights.set("m0", 1200)
     const h = mount()
     h.move(400)
@@ -263,7 +525,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
     h.update({ items: [message("older"), ...h.input.items] })
     expect(bodyTop(h.root, "m0")).toBeCloseTo(top, 0)
-    expect(offset).toHaveBeenCalledTimes(1)
+    expect(offset).not.toHaveBeenCalled()
   })
   it.each(["wheel", "programmatic"])("retains the current first-row body when prepend finishes before %s scroll quiet", input => {
     scrollFixture.bodyHeights.set("m0", 1200)
@@ -277,7 +539,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     h.stage({ isFetchingOlder: true })
     h.update({ items: [message("older"), ...h.input.items], isFetchingOlder: false })
     expect(bodyTop(h.root, "m0")).toBeCloseTo(top, 0)
-    expect(offset).toHaveBeenCalledOnce()
+    expect(offset).not.toHaveBeenCalled()
   })
   it.each(["peer", "me"])("follows a genuine %s append through later native tail measurement", author => {
     const h = mount({ viewerUserId: "me" })
@@ -328,9 +590,9 @@ describe("locked native adapter and existing message scroll owner", () => {
     scrollFixture.firstPrefix += 40
     h.update({ items: [...h.input.items] })
     expect(bodyTop(h.root, "m0")).toBeCloseTo(top, 0)
-    expect(offset).toHaveBeenCalledTimes(1)
+    expect(offset).not.toHaveBeenCalled()
     resize()
-    expect(offset).toHaveBeenCalledTimes(1)
+    expect(offset).not.toHaveBeenCalled()
   })
   it.each([0, 1, 2])("keeps passive growth separate at %ipx from the end", distance => {
     const h = mount()
@@ -712,7 +974,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(h.root.querySelector('[data-msg-id]')).toBeNull()
     h.update({ items: [message("first")] })
     expect(scrollFixture.latest.readPositionReady).toBe(true)
-    expect(scrollFixture.latest.virtualizer.getVirtualItems().map(item => item.key)).toEqual(["msg:first"])
+    expect(scrollFixture.latest.virtualizer.getVirtualItems().map(item => item.key)).toEqual(["rail:leading", "msg:first"])
     expect(h.root.scrollTop).toBe(0)
     expect(scrollFixture.latest.virtualizer.getTotalSize()).toBe(scrollFixture.height)
   })
@@ -756,8 +1018,8 @@ describe("locked native adapter and existing message scroll owner", () => {
     scrollFixture.firstPrefix += 40
     h.update({ items: [...h.input.items] })
     expect(bodyTop(h.root, "m0")).toBeCloseTo(before, 0)
-    expect(offset).toHaveBeenCalledOnce()
+    expect(offset).not.toHaveBeenCalled()
     resize()
-    expect(offset).toHaveBeenCalledOnce()
+    expect(offset).not.toHaveBeenCalled()
   })
 })
