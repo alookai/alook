@@ -2,18 +2,20 @@ import type { TransportItem, EventEvent, ExceptionEvent, MeasurementEvent, Trace
 import { actionNames, routeTemplate } from "./coverage"
 import { cleanAttributes, eventNames } from "./schema"
 import type { FrontendIdentity } from "./runtime"
+import { resolveObservationBuild } from "./build"
 
 const actions = new Set<string>(actionNames)
-const events = new Set<string>([...eventNames, "session_start", "session_resume", "session_extend", "faro.user.action", "faro.tracing.fetch", "faro.tracing.xml-http-request"])
+const events = new Set<string>([...eventNames, "session_start", "session_resume", "session_extend", "faro.user.action", "faro.tracing.fetch", "faro.tracing.xml-http-request", "faro.performance.resource", "faro.performance.navigation"])
 const errors = new Set(["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "URIError", "AbortError", "DOMException"])
 const numeric = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {}
 const array = (value: unknown): unknown[] => Array.isArray(value) ? value : []
-const hex = (value: unknown, size: number) => typeof value === "string" && new RegExp("^[0-9a-f]{" + size + "}$").test(value) ? value : undefined
+const hex = (value: unknown, size: number) => typeof value === "string" && new RegExp("^[0-9a-f]{" + size + "}$").test(value) && !/^0+$/.test(value) ? value : undefined
 const nano = (value: unknown) => typeof value === "string" && /^\d{1,22}$/.test(value) ? value : undefined
 
-export function sanitizeTrace(input: unknown, sessionId: string, origin: string, identity?: Partial<FrontendIdentity>) {
-  const canonical = identity ? { frontend_surface: identity.frontend_surface, client_platform: identity.client_platform, app_version: identity.app_version } : {}
+export function sanitizeTrace(input: unknown, sessionId: string, origin: string, identity?: Partial<FrontendIdentity> & { release?: string; environment?: string }, since = 0) {
+  const canonical = { ...(identity ? { frontend_surface: identity.frontend_surface, client_platform: identity.client_platform, app_version: identity.app_version } : {}),
+    ...resolveObservationBuild({ NEXT_PUBLIC_FARO_RELEASE: identity?.release, NEXT_PUBLIC_FARO_ENVIRONMENT: identity?.environment }) }
   const context = cleanAttributes(canonical)
   const resources = array(record(input).resourceSpans).flatMap(resource => {
     const scopes = array(record(resource).scopeSpans).flatMap(scope => {
@@ -38,6 +40,8 @@ export function sanitizeTrace(input: unknown, sessionId: string, origin: string,
         const traceId = hex(span.traceId, 32), spanId = hex(span.spanId, 16)
         const startTimeUnixNano = nano(span.startTimeUnixNano), endTimeUnixNano = nano(span.endTimeUnixNano)
         if (!traceId || !spanId || !startTimeUnixNano || !endTimeUnixNano) return []
+        const businessAction = actions.has(String(span.name)) && fields.action_name === span.name && typeof fields.action_id === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(fields.action_id)
+        if (!businessAction && Number(startTimeUnixNano) / 1e6 < since) return []
         return [{
           traceId, spanId, parentSpanId: hex(span.parentSpanId, 16),
           name: actions.has(String(span.name)) ? String(span.name) : (method ? method + " " : "") + String(template),
@@ -47,7 +51,10 @@ export function sanitizeTrace(input: unknown, sessionId: string, origin: string,
           attributes: Object.entries(attributes).map(([key,value]) => ({ key, value: { stringValue: value } })),
           status: { code: (Number(record(span.status).code) === 2 ? 2 : 0) as 0 | 2 },
           droppedAttributesCount: 0, droppedEventsCount: 0, droppedLinksCount: 0,
-          events: [], links: [],
+          events: [], links: array(span.links).flatMap(raw => {
+            const link = record(raw), traceId = hex(link.traceId, 32), spanId = hex(link.spanId, 16)
+            return traceId && spanId ? [{ traceId, spanId, attributes: [], droppedAttributesCount: 0 }] : []
+          }),
         }]
       })
       return spans.length ? [{ scope: { name: "alook.frontend" }, spans }] : []
@@ -58,7 +65,7 @@ export function sanitizeTrace(input: unknown, sessionId: string, origin: string,
   return resources.length ? { resourceSpans: resources } : null
 }
 
-export function sanitizeItem(item: TransportItem, sessionId: string, origin: string, identity?: Partial<FrontendIdentity>): TransportItem | null {
+export function sanitizeItem(item: TransportItem, sessionId: string, origin: string, identity?: Partial<FrontendIdentity>, since = 0, documentVitalsEligible = true): TransportItem | null {
   if (item.meta.session?.id !== sessionId) return null
   const sdk = item.meta.sdk
   if (sdk?.name !== "faro-web" || !/^\d{1,3}\.\d{1,3}\.\d{1,3}(?:-[a-zA-Z0-9.-]{1,32})?$/.test(sdk.version ?? "")) return null
@@ -69,7 +76,7 @@ export function sanitizeItem(item: TransportItem, sessionId: string, origin: str
     sdk: { name: sdk.name, version: sdk.version },
     app: { name: "alook-web", version, ...cleanAttributes({ release: item.meta.app?.release, environment: item.meta.app?.environment }) },
     session: { id: sessionId, attributes: { isSampled: "true", ...context } },
-    page: { id: item.meta.page?.id, url: origin + routeTemplate(item.meta.page?.url ?? "/", origin) },
+    page: { id: item.meta.page?.id && /^[a-zA-Z0-9_-]{1,80}$/.test(item.meta.page.id) ? item.meta.page.id : undefined, url: origin + routeTemplate(item.meta.page?.url ?? "/", origin) },
     ...(item.meta.user?.id && /^[a-zA-Z0-9_-]{8,64}$/.test(item.meta.user.id) ? { user: { id: item.meta.user.id } } : {}),
   }
   if (item.type === "log") return null
@@ -79,14 +86,28 @@ export function sanitizeItem(item: TransportItem, sessionId: string, origin: str
     if (payload.name.startsWith("faro.tracing.") && payload.attributes?.["session.id"] !== sessionId) return null
     if (payload.attributes?.session_id && payload.attributes.session_id !== sessionId) return null
     const attrs = cleanAttributes({ ...payload.attributes, ...canonical })
+    if (payload.name.startsWith("faro.performance.")) {
+      if (!(Date.parse(payload.timestamp) >= since)) return null
+      const fields = payload.attributes ?? {}
+      const template = routeTemplate(fields.name ?? "", origin)
+      attrs.name = template
+      Object.assign(attrs, cleanAttributes({ route_template: template, request_kind: payload.name === "faro.performance.navigation" ? "document" : "resource" }))
+      for (const key of ["duration", "tcpHandshakeTime", "dnsLookupTime", "tlsNegotiationTime", "redirectTime", "requestTime", "responseTime", "fetchTime", "serviceWorkerTime", "decodedBodySize", "encodedBodySize", "ttfb", "transferSize", "pageLoadTime", "documentParsingTime", "domProcessingTime", "domContentLoadHandlerTime", "onLoadTime"]) {
+        const value = fields[key]
+        if (typeof value === "string" && value.trim() !== "" && numeric(Number(value))) attrs[key] = String(Number(value))
+      }
+      if (numeric(Number(fields.responseStatus)) && Number(fields.responseStatus) <= 599) attrs.responseStatus = String(Number(fields.responseStatus))
+    }
     if (payload.name.startsWith("faro.tracing.")) {
       const fields = payload.attributes ?? {}
+      if (!(Date.parse(payload.timestamp) - Number(fields.duration_ns) / 1e6 >= since)) return null
       const url = String(fields["url.full"] ?? fields["http.url"] ?? "")
       let kind = "unknown"
       try { const parsed = new URL(url, origin); kind = parsed.origin !== origin ? "external" : parsed.searchParams.has("_rsc") ? "rsc" : parsed.pathname.startsWith("/api/") ? "api" : "resource" } catch {}
       Object.assign(attrs, cleanAttributes({ route_template: routeTemplate(url, origin), request_kind: kind, duration_ms: Number(fields.duration_ns) / 1e6, method: fields["http.request.method"] ?? fields["http.method"], status: fields["http.response.status_code"] ?? fields["http.status_code"], session_id: sessionId }))
     }
     if (payload.name === "faro.user.action") {
+      if (!(Number(payload.attributes?.userActionStartTime) >= since)) return null
       const name = payload.attributes?.["userActionName"]
       if (!name || !actions.has(name)) return null
       attrs.userActionName = name
@@ -95,10 +116,11 @@ export function sanitizeItem(item: TransportItem, sessionId: string, origin: str
         if (numeric(value)) attrs[field] = String(value)
       }
     }
-    return { ...item, meta, payload: { name: payload.name, timestamp: payload.timestamp, domain: "alook.frontend", attributes: { ...attrs, ...context }, ...(payload.trace && hex(payload.trace.trace_id, 32) && hex(payload.trace.span_id, 16) ? { trace: payload.trace } : {}) } }
+    return { ...item, meta, payload: { name: payload.name, timestamp: payload.timestamp, domain: "alook.frontend", attributes: { ...attrs, ...context }, ...(payload.trace && hex(payload.trace.trace_id, 32) && hex(payload.trace.span_id, 16) ? { trace: { trace_id: payload.trace.trace_id, span_id: payload.trace.span_id } } : {}) } }
   }
   if (item.type === "exception") {
     const payload = item.payload as ExceptionEvent
+    if (!(Date.parse(payload.timestamp) >= since)) return null
     return { ...item, meta, payload: { timestamp: payload.timestamp, type: errors.has(payload.type) ? payload.type : "Error", value: "[redacted]", stacktrace: { frames: (payload.stacktrace?.frames ?? []).slice(0,20).flatMap(frame => {
       try {
         const url = new URL(frame.filename, origin)
@@ -109,12 +131,13 @@ export function sanitizeItem(item: TransportItem, sessionId: string, origin: str
   }
   if (item.type === "measurement") {
     const payload = item.payload as MeasurementEvent
-    if (payload.type !== "web-vitals") return null
+    if (!documentVitalsEligible || payload.type !== "web-vitals" || !(Date.parse(payload.timestamp) >= since)) return null
     const values = Object.fromEntries(Object.entries(payload.values).filter(([key,value]) => /^(LCP|CLS|INP|FCP|TTFB|FID|lcp|cls|inp|fcp|ttfb|fid)$/.test(key) && numeric(value)))
-    return Object.keys(values).length ? { ...item, meta, payload: { type: payload.type, timestamp: payload.timestamp, values } } : null
+    const { user: _user, ...documentMeta } = meta
+    return Object.keys(values).length ? { ...item, meta: documentMeta, payload: { type: payload.type, timestamp: payload.timestamp, values } } : null
   }
   if (item.type === "trace") {
-    const payload = sanitizeTrace(item.payload, sessionId, origin, identity)
+    const payload = sanitizeTrace(item.payload, sessionId, origin, { ...identity, release: item.meta.app?.release, environment: item.meta.app?.environment }, since)
     return payload ? { ...item, meta, payload: payload as TraceEvent } : null
   }
   return null

@@ -97,6 +97,7 @@ export function useMessageListController({
     requestPresentPosition,
     jumpTo: jumpToIndex,
     readPositionReady,
+    paginationEnabled,
     captureOlderPageAnchor,
     isOlderPageAnchorSettling,
     captureNewerPageAnchor,
@@ -132,7 +133,7 @@ export function useMessageListController({
   useVirtualCursorPagination({
     virtualizer,
     count: items.length,
-    enabled: readPositionReady,
+    enabled: paginationEnabled,
     hasMore,
     isFetching: isFetching || isFetchingOlder || isFetchingNewer,
     isSettling: isOlderPageAnchorSettling || isNewerPageAnchorSettling,
@@ -144,7 +145,7 @@ export function useMessageListController({
   useVirtualCursorPagination({
     virtualizer,
     count: items.length,
-    enabled: readPositionReady,
+    enabled: paginationEnabled,
     hasMore: hasMoreNewer,
     hasMoreAtStart: hasMore,
     isFetching: isFetching || isFetchingOlder || isFetchingNewer,

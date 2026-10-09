@@ -5,7 +5,6 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { act, render, waitFor } from "@/test/react-dom-harness"
 import { clearAllPersistedCaches, createIdbPersister, PERSIST_BUSTER, PERSIST_CACHE_PREFIX } from "@/lib/query-persister"
 import { communityKeys } from "@/lib/query-keys"
-import { valueEvidence } from "@/lib/observability/data-source"
 import { setTelemetryUser } from "@/lib/observability/client"
 import { configureTelemetry, installTelemetrySink, retireTelemetry } from "@/lib/observability/telemetry"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -84,12 +83,11 @@ it("attributes a delayed real IDB snapshot only after the actual Provider hydrat
   await act(async () => read.release())
   await waitFor(() => expect(restoring.get("account-a")).toBe(false))
   expect(client.getQueryData(key("account-a"))).toEqual([expect.objectContaining({ userId: "account-a" })])
-  expect(valueEvidence(client, client.getQueryData(key("account-a"))).source).toBe("restored_idb")
   expect(events.filter(event => event.name === "cache.restore.finish").map(event => [event.attributes.phase, event.attributes.outcome])).toEqual([["idb_read", "hit"], ["deserialize", "hit"], ["hydrate", "success"]])
   expect(JSON.stringify(events)).not.toContain("Private")
 })
 
-it("the actual retired Provider's delayed IDB callback cannot tag or report into the replacement account", async () => {
+it("the actual retired Provider's delayed IDB callback cannot report into the replacement account", async () => {
   const read = holdRead("account-a")
   mounted = render(<App id="account-a" />)
   await waitFor(() => expect(read.pending()).toBe(true))
@@ -100,7 +98,6 @@ it("the actual retired Provider's delayed IDB callback cannot tag or report into
   const replacement = clients.get("account-b")!
   expect(replacement).not.toBe(original)
   const replacementData = replacement.getQueryData(key("account-b"))
-  expect(valueEvidence(replacement, replacementData).source).toBe("restored_idb")
   const prior = events.filter(event => event.name.startsWith("cache.restore."))
   const builds = vi.spyOn(original.getQueryCache(), "build")
   const clears = vi.spyOn(original, "clear")
@@ -111,7 +108,6 @@ it("the actual retired Provider's delayed IDB callback cannot tag or report into
   expect(events.filter(event => event.name.startsWith("cache.restore."))).toEqual(prior)
   expect(replacement.getQueryData(key("account-b"))).toBe(replacementData)
   expect(replacement.getQueryData(key("account-a"))).toBeUndefined()
-  expect(valueEvidence(replacement, replacementData).source).toBe("restored_idb")
 })
 
 it("regrant during a real Provider restore preserves business hydration without borrowing old telemetry admission", async () => {
@@ -128,6 +124,5 @@ it("regrant during a real Provider restore preserves business hydration without 
   await act(async () => read.release())
   await waitFor(() => expect(restoring.get("account-a")).toBe(false))
   expect(client.getQueryData(key("account-a"))).toEqual([expect.objectContaining({ userId: "account-a" })])
-  expect(valueEvidence(client, client.getQueryData(key("account-a"))).source).toBe("unknown")
   expect(events.filter(event => event.name.startsWith("cache.restore."))).toEqual([])
 })

@@ -1,6 +1,5 @@
 "use client"
 import { useObservedRegion } from "@/lib/observability/regions"
-import { mergeEvidence, viewEvidence } from "@/lib/observability/data-source"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 
@@ -69,7 +68,7 @@ export function FriendsPage({
   onBlock?: (id: string) => void
   onDm?: (userId: string) => void
 }) {
-  useObservedRegion("friends", !loading, { ...mergeEvidence([viewEvidence(friends), viewEvidence(pending), viewEvidence(blocked)]), count: friends.length + pending.length + blocked.length })
+  useObservedRegion("friends", !loading, friends.length + pending.length + blocked.length)
   const profileQueryClient = useQueryClient()
   const [filter, setFilter] = useAtom(useCreateAtom(""))
   const filteredFriends = useMemo(() => {

@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { configureTelemetry, installTelemetrySink, retireTelemetry } from "./telemetry"
 import { clearActions } from "./context"
 import { observeQueryClient, disposeQueryDiagnostics } from "./query-observer"
-import { useObservedQueryRegion } from "./query-regions"
+import { useObservedRegion } from "./regions"
 import { startRequest, requestHeaders, readObservedResponse } from "./requests"
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/", useSearchParams: () => new URLSearchParams() }))
@@ -18,7 +18,7 @@ async function emptyResponse() {
 }
 function Panel({ name }: { name: string }) {
   const resource = useQuery({ queryKey: [name], queryFn: emptyResponse })
-  useObservedQueryRegion(name === "active" ? "messages" : "settings", resource, resource.data?.length)
+  useObservedRegion(name === "active" ? "messages" : "settings", !resource.isPending && resource.data !== undefined, resource.data?.length)
   return <p>{name}: {resource.isPending ? "loading" : "empty"}</p>
 }
 afterEach(async () => { await act(async () => { retireTelemetry(); clearActions(); disposeQueryDiagnostics(client); client.clear() }) })
@@ -32,7 +32,7 @@ it("observes actual settled empty Query values only after a retained Base UI pan
   await waitFor(() => expect(events.filter(event => event.name === "region.ready_commit" && event.attributes.region === "messages")).toHaveLength(1))
   expect(events.filter(event => event.name === "region.ready_commit" && event.attributes.region === "settings")).toHaveLength(0)
   const empty = events.find(event => event.name === "region.ready_commit")!
-  expect(empty.attributes).toMatchObject({ row_count: "0", outcome: "empty", source: "network" })
+  expect(empty.attributes).toMatchObject({ row_count: "0", outcome: "empty" })
   await setupUser().click(screen.getByRole("tab", { name: "Retained" }))
   await waitFor(() => expect(events.filter(event => event.name === "region.ready_commit" && event.attributes.region === "settings")).toHaveLength(1))
   await act(async () => { view.rerender(<QueryClientProvider client={client}><Tabs defaultValue="active"><TabsList><TabsTrigger value="active">Active</TabsTrigger><TabsTrigger value="retained">Retained</TabsTrigger></TabsList><TabsContent value="active" keepMounted><Panel name="active" /></TabsContent><TabsContent value="retained" keepMounted><Panel name="retained" /></TabsContent></Tabs></QueryClientProvider>) })

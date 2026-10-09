@@ -4,8 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { act, fireEvent, render, waitFor } from "@/test/react-dom-harness"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "@/hooks/community/virtualizer-react-options"
 import { VirtualRows } from "@/components/community/messages/virtual-cursor-list"
-import { tagView, type Evidence } from "./data-source"
-import { useObservedRegion, windowEvidence } from "./regions"
+import { useObservedRegion } from "./regions"
 import { configureTelemetry, installTelemetrySink, retireTelemetry } from "./telemetry"
 import { visibleVirtualItems } from "./virtual-window"
 
@@ -39,13 +38,11 @@ function WindowPanel({ rows, overscan, attached = true }: { rows: Row[]; oversca
   })
   useLayoutEffect(() => { native = virtualizer })
   const selected = visibleVirtualItems(virtualizer).map(item => rows[item.index]!)
-  useObservedRegion("messages", selected.length > 0, windowEvidence(selected, rows))
+  useObservedRegion("messages", selected.length > 0, selected.length)
   return attached ? <div ref={bind} data-testid="viewport"><VirtualRows items={rows} virtualizer={virtualizer} renderItem={row => <p>{row.id}</p>} /></div> : null
 }
 function rows() {
-  return Array.from({ length: 20 }, (_, index) => tagView({ id: "row-" + index }, {
-    source: "network", version: String(index), freshness: "changed", count: 1,
-  }))
+  return Array.from({ length: 20 }, (_, index) => ({ id: "row-" + index }))
 }
 const ready = () => events.filter(event => event.name === "region.ready_commit")
 const indexes = () => visibleVirtualItems(native).map(item => item.index)
@@ -65,34 +62,27 @@ afterEach(async () => {
   vi.unstubAllGlobals()
 })
 
-it.each([8, 5])("excludes mounted overscan %s from source, version and WS receipt until it enters the viewport", async overscan => {
+it.each([8, 5])("excludes mounted overscan %s from initial ready and emits no background update signals", async overscan => {
   const values = rows()
-  const ws: Evidence = { source: "ws", version: "ws-outside", freshness: "changed", count: 1, wsEventId: "outside-receipt", wsStart: performance.now() }
-  values[8] = tagView({ id: "row-8" }, ws)
   mounted = render(<WindowPanel rows={values} overscan={overscan} />)
   await waitFor(() => expect(ready().at(-1)?.attributes.row_count).toBe("2"))
   expect(indexes()).toEqual([5, 6])
   expect(native.getVirtualItems().some(item => item.index === 8)).toBe(true)
   expect(mounted.getByText("row-8")).toBeInTheDocument()
-  expect(ready().at(-1)!.attributes).toMatchObject({ source: "network", row_count: "2" })
-  expect(ready().at(-1)!.attributes.ws_event_id).toBeUndefined()
-  const initialVersion = ready().at(-1)!.attributes.data_version
-  values[8] = tagView({ id: "row-8" }, { ...ws, version: "ws-outside-new", wsEventId: "new-outside-receipt" })
+  values[8] = { id: "updated-row-8" }
   mounted.rerender(<WindowPanel rows={values} overscan={overscan} />)
   expect(ready()).toHaveLength(1)
-  expect(ready()[0]!.attributes.data_version).toBe(initialVersion)
+  expect(ready()[0]!.attributes).not.toHaveProperty("data_version")
+  expect(ready()[0]!.attributes).not.toHaveProperty("ws_event_id")
   const viewport = mounted.getByTestId("viewport")
   await act(async () => { viewport.scrollTop = 650; fireEvent.scroll(viewport) })
   await waitFor(() => expect(indexes()).toEqual([6, 7, 8]))
-  expect(ready().at(-1)!.attributes).toMatchObject({ source: "mixed", row_count: "3", ws_event_id: "new-outside-receipt" })
-  expect(ready().at(-1)!.attributes.data_version).not.toBe(initialVersion)
   await act(async () => {
     height = 50
     observers.get(viewport)!([], {} as ResizeObserver)
   })
   await waitFor(() => expect(indexes()).toEqual([6]))
-  expect(ready().at(-1)!.attributes).toMatchObject({ source: "network", row_count: "1" })
-  expect(ready().at(-1)!.attributes.ws_event_id).toBeUndefined()
+  expect(ready()).toHaveLength(1)
 })
 
 it("counts partial rows and excludes rows touching only an outside boundary", async () => {

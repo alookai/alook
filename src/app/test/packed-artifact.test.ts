@@ -80,6 +80,13 @@ describe("packed artifact verifier", () => {
       join(monoRoot, "src", "web", "src", "lib", "public-worker-response.ts"),
       join(webDest, "src", "lib", "public-worker-response.ts"),
     );
+    expect(mkdirSync).toHaveBeenCalledWith(join(webDest, "src", "lib", "observability"), { recursive: true });
+    for (const name of ["build.ts", "coverage.ts", "schema.ts"]) {
+      expect(cpSync).toHaveBeenCalledWith(
+        join(monoRoot, "src", "web", "src", "lib", "observability", name),
+        join(webDest, "src", "lib", "observability", name),
+      );
+    }
   });
 
   it("derives the missing-runtime negative control from the candidate and validates both outcomes", () => {

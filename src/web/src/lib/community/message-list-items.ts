@@ -1,4 +1,3 @@
-import { deriveView, viewEvidence } from "@/lib/observability/data-source"
 import { dateKey, formatDateLabel } from "./format-time"
 import type { Msg, RenderMsg } from "./models/message"
 
@@ -15,6 +14,8 @@ export type FlatItem = {
   kind: "message"
   m: RenderMsg
   key: string
+  paddingTop?: number
+  paddingBottom?: number
 } | {
   kind: "leading"
   key: string
@@ -44,9 +45,14 @@ export function flattenMessageItems(
     const curDate = dateKey(m.createdAt)
     const showDateDivider = !!(curDate && curDate !== prevDate)
     const isNewDivider = m.id === newDividerBefore
-    const isPendingWindowFirst = !seenFirstMessage && hasMoreOlder && m.type === "chat"
-    const grouped = isPendingWindowFirst || !!(prev && m.type === "chat" && !m.replyTo && !showDateDivider && prev.authorName === m.authorName
-      && prev.createdAt && m.createdAt && (new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime()) < MESSAGE_GROUP_WINDOW_MS)
+    const isPendingWindowFirst = !seenFirstMessage && hasMoreOlder && m.type === "chat" && !m.replyTo && !isNewDivider
+    const elapsed = prev?.createdAt && m.createdAt ? new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() : NaN
+    const joinsPrevious = !!(prev && prev.type === "chat" && m.type === "chat" && !prev.replyTo && !m.replyTo
+      && !showDateDivider && !isNewDivider && m.authorId && prev.authorId === m.authorId
+      && elapsed >= 0 && elapsed < MESSAGE_GROUP_WINDOW_MS)
+    const grouped = isPendingWindowFirst || joinsPrevious
+    const previousItem = items.at(-1)
+    if (joinsPrevious && previousItem?.kind === "message") previousItem.paddingBottom = MESSAGE_ROW_VERTICAL_PADDING_PX / 2
     if (showDateDivider || isNewDivider) {
       items.push({
         kind: "divider",
@@ -58,8 +64,10 @@ export function flattenMessageItems(
     }
     items.push({
       kind: "message",
-      m: deriveView({ ...m, grouped }, [viewEvidence(m)]),
+      m: { ...m, grouped },
       key: messageDisplayKey(m),
+      paddingTop: joinsPrevious ? MESSAGE_ROW_VERTICAL_PADDING_PX / 2 : MESSAGE_ROW_VERTICAL_PADDING_PX,
+      paddingBottom: MESSAGE_ROW_VERTICAL_PADDING_PX,
     })
     seenFirstMessage = true
     prev = m
@@ -74,7 +82,7 @@ export function flattenMessageItems(
 // already relies on for its own rows. No precision beyond that is required.
 const DATE_DIVIDER_ESTIMATE_PX = 32
 const NEW_DIVIDER_ESTIMATE_PX = 24
-const MESSAGE_BASE_ESTIMATE_PX = 24
+const MESSAGE_BASE_ESTIMATE_PX = 8
 const CHARS_PER_LINE_ESTIMATE = 55
 const LINE_HEIGHT_ESTIMATE_PX = 20
 const MAX_TEXT_ESTIMATE_PX = 400
@@ -113,7 +121,8 @@ export function estimateRowHeight(item: FlatItem, hasMoreOlder = false): number 
   if (item.kind === "trailing") return 56
   if (item.kind === "divider") return item.dateLabel ? DATE_DIVIDER_ESTIMATE_PX : NEW_DIVIDER_ESTIMATE_PX
   const m = item.m
-  let height = MESSAGE_BASE_ESTIMATE_PX + estimateTextHeight(m.content) + estimateAttachmentsHeight(m)
+  let height = MESSAGE_BASE_ESTIMATE_PX + (item.paddingTop ?? MESSAGE_ROW_VERTICAL_PADDING_PX)
+    + (item.paddingBottom ?? MESSAGE_ROW_VERTICAL_PADDING_PX) + estimateTextHeight(m.content) + estimateAttachmentsHeight(m)
   if (m.replyTo) height += REPLY_HEADER_ESTIMATE_PX
   if (m.embeds?.length) height += EMBED_ESTIMATE_PX * m.embeds.length
   if (m.reactions?.length) height += REACTIONS_ESTIMATE_PX

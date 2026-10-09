@@ -52,6 +52,7 @@ vi.mock("@/hooks/community/use-scroll-anchor", () => ({
       requestPresentPosition: mocks.requestPresentPosition,
       jumpTo: mocks.jumpToIndex,
       readPositionReady: false,
+      paginationEnabled: false,
       captureOlderPageAnchor: mocks.captureOlderPageAnchor,
       isOlderPageAnchorSettling: false,
       captureNewerPageAnchor: mocks.captureNewerPageAnchor,

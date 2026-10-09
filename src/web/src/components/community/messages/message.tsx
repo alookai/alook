@@ -840,7 +840,7 @@ function MessageImpl({
             </div>
           )}
 
-          {m.reactions && (
+          {!!m.reactions?.length && (
             <div>
               <MessageReactions
                 messageId={m.id}
@@ -958,11 +958,9 @@ function MessageImpl({
       }}
     >
       <ContextMenuTrigger className="select-text" render={row} />
-      {!selectMode && (
-        <ContextMenuContent className="w-48">
-          <MessageContextItems {...menuHandlers} {...linkMenuHandlers} />
-        </ContextMenuContent>
-      )}
+      <ContextMenuContent className="w-48">
+        <MessageContextItems {...menuHandlers} {...linkMenuHandlers} />
+      </ContextMenuContent>
     </ContextMenu>
   )
 }

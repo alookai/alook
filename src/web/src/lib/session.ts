@@ -1,11 +1,12 @@
 import { headers } from "next/headers"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { getAuth } from "@/lib/auth"
+import { getAuth, observeAuthSession } from "@/lib/auth"
 
 export async function getSession() {
   const { env } = await getCloudflareContext({ async: true })
   const auth = getAuth(env as Env)
-  return auth.api.getSession({ headers: await headers() })
+  const requestHeaders = await headers()
+  return observeAuthSession(auth, () => auth.api.getSession({ headers: requestHeaders }))
 }
 
 export async function requireSession() {

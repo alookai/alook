@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { render } from "@/test/react-dom-harness"
 import { renderMessageListRow } from "./message-list-row"
 import { MessageRow } from "./message-row"
-import type { FlatItem } from "@/lib/community/message-list-items"
+import { flattenMessageItems, type FlatItem } from "@/lib/community/message-list-items"
 import type { MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"
 
@@ -75,6 +75,17 @@ const controller = {
 } as unknown as MessageListController
 
 describe("renderMessageListRow", () => {
+  it("uses each adjacent row's half-gap and retains8px on the first and last sides", () => {
+    const items = flattenMessageItems(Array.from({ length: 3 }, (_, i) => ({
+      id: `m${i}`, type: "chat" as const, authorId: "same", createdAt: new Date(0).toISOString(),
+    })), undefined)
+    const view = render(React.createElement(React.Fragment, null, items.map((item, index) =>
+      React.createElement(React.Fragment, { key: item.key }, renderMessageListRow(item, props, { ...controller, items }, index)),
+    )))
+    const rows = Array.from(view.container.querySelectorAll<HTMLElement>("[data-msg-id]")).map(row => row.parentElement!)
+    expect(rows.map(row => getComputedStyle(row).paddingBlock))
+      .toEqual(["8px 4px", "4px 4px", "4px 8px"])
+  })
   beforeEach(() => {
     vi.clearAllMocks()
     mockedMessageRow.mockImplementation(() => null)

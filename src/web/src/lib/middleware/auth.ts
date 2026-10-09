@@ -1,3 +1,4 @@
+import { observeWorkerOperation } from "@/lib/observability/worker"
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries } from "@alook/shared"
@@ -139,10 +140,10 @@ async function resolveSession(
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      sessionResult = await auth.api.getSession({
+      sessionResult = await observeWorkerOperation("auth.get_session", {}, () => auth.api.getSession({
         headers: req.headers,
         returnHeaders: true,
-      }) as { headers: Headers; response: Awaited<ReturnType<typeof auth.api.getSession>> }
+      })) as { headers: Headers; response: Awaited<ReturnType<typeof auth.api.getSession>> }
       lastErr = undefined
       break
     } catch (err) {

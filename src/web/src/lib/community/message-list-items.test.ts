@@ -5,6 +5,7 @@ import type { Msg } from "./models/message"
 function msg(overrides: Partial<Msg> & { id: string }): Msg {
   return {
     type: "chat",
+    authorId: "alice",
     authorName: "Alice",
     content: "hello",
     createdAt: "2026-01-01T10:00:00.000Z",
@@ -13,6 +14,41 @@ function msg(overrides: Partial<Msg> & { id: string }): Msg {
 }
 
 describe("flattenMessageItems", () => {
+  it("splits8px internal and16px external gaps across the adjacent canonical author rows", () => {
+    const rows = flattenMessageItems([
+      msg({ id: "m1" }), msg({ id: "m2", authorName: "Renamed Alice" }), msg({ id: "m3" }),
+      msg({ id: "m4", authorId: "another-alice" }),
+    ], undefined).filter(item => item.kind === "message")
+    expect(rows.map(item => item.m.grouped)).toEqual([false, true, true, false])
+    expect(rows).toMatchObject([
+      { paddingTop: 8, paddingBottom: 4 }, { paddingTop: 4, paddingBottom: 4 },
+      { paddingTop: 4, paddingBottom: 8 }, { paddingTop: 8, paddingBottom: 8 },
+    ])
+  })
+
+  it.each([
+    { type: "system" as const },
+    { replyTo: { id: "prior", authorName: "Alice", text: "reply" } },
+    { authorId: undefined },
+  ])("does not group either side of a system/reply/unknown-identity row: %j", (boundary) => {
+    const rows = flattenMessageItems([msg({ id: "m1" }), msg({ id: "m2", ...boundary }), msg({ id: "m3" })], undefined)
+      .filter(item => item.kind === "message")
+    expect(rows.map(item => item.m.grouped)).toEqual([false, false, false])
+    expect(rows).toMatchObject(Array.from({ length: 3 }, () => ({ paddingTop: 8, paddingBottom: 8 })))
+  })
+
+  it("breaks grouping at New while preserving the pending-window avatar rule without an unknown spacing link", () => {
+    const rows = flattenMessageItems([msg({ id: "m1" }), msg({ id: "m2" })], "m2", true)
+      .filter(item => item.kind === "message")
+    expect(rows.map(item => item.m.grouped)).toEqual([true, false])
+    expect(rows).toMatchObject([{ paddingTop: 8, paddingBottom: 8 }, { paddingTop: 8, paddingBottom: 8 }])
+  })
+  it.each(["2026-01-01T10:07:00.000Z", "2026-01-01T09:59:00.000Z"])("does not join an exact7-minute or reverse-time boundary: %s", (createdAt) => {
+    const rows = flattenMessageItems([msg({ id: "m1" }), msg({ id: "m2", createdAt })], undefined)
+      .filter(item => item.kind === "message")
+    expect(rows.map(item => item.m.grouped)).toEqual([false, false])
+    expect(rows).toMatchObject([{ paddingTop: 8, paddingBottom: 8 }, { paddingTop: 8, paddingBottom: 8 }])
+  })
   it("gives the leading content, date and message independent stable rows", () => {
     const items = flattenMessageItems([msg({ id: "m1" })], undefined)
     expect(items.map(item => item.kind)).toEqual(["leading", "divider", "message"])
@@ -95,7 +131,7 @@ describe("flattenMessageItems", () => {
     const items = flattenMessageItems(
       [
         msg({ id: "m1", authorName: "Alice", createdAt: "2026-01-01T10:00:00.000Z" }),
-        msg({ id: "m2", authorName: "Bob", createdAt: "2026-01-01T10:01:00.000Z" }),
+        msg({ id: "m2", authorId: "bob", authorName: "Bob", createdAt: "2026-01-01T10:01:00.000Z" }),
       ],
       undefined,
     )
@@ -122,7 +158,7 @@ describe("flattenMessageItems", () => {
     const items = flattenMessageItems(
       [
         msg({ id: "m1", authorName: "Alice", createdAt: "2026-01-01T10:00:00.000Z" }),
-        msg({ id: "m2", authorName: "Bob", createdAt: "2026-01-01T10:01:00.000Z" }),
+        msg({ id: "m2", authorId: "bob", authorName: "Bob", createdAt: "2026-01-01T10:01:00.000Z" }),
       ],
       undefined,
       true,

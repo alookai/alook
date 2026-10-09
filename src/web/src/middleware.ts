@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { getAuth } from "@/lib/auth"
+import { getAuth, observeAuthSession } from "@/lib/auth"
 import { safeRedirectPath } from "@/lib/safe-redirect"
+import { authResponseCookies } from "@/lib/auth-response-cookies"
 
 const AUTH_REQUIRED_PREFIXES = ["/c/"]
 
@@ -32,10 +33,10 @@ export async function middleware(request: NextRequest) {
   if (needsAuth) {
     const { env } = await getCloudflareContext({ async: true })
     const auth = getAuth(env as Env)
-    const result = await auth.api.getSession({
+    const result = await observeAuthSession(auth, () => auth.api.getSession({
       headers: request.headers,
       returnHeaders: true,
-    }) as { headers: Headers; response: unknown } | null
+    })) as { headers: Headers; response: unknown } | null
 
     if (!result?.response) {
       const signInUrl = new URL("/sign-in", request.url)
@@ -43,20 +44,16 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(signInUrl)
     }
 
-    const res = NextResponse.next()
-    for (const cookie of result.headers.getSetCookie()) {
-      res.headers.append("Set-Cookie", cookie)
-    }
-    return res
+    return authResponseCookies(request, result.headers)
   }
 
   if (pathname === "/sign-in" || pathname === "/sign-up") {
     const { env } = await getCloudflareContext({ async: true })
     const auth = getAuth(env as Env)
-    const result = await auth.api.getSession({
+    const result = await observeAuthSession(auth, () => auth.api.getSession({
       headers: request.headers,
       returnHeaders: true,
-    }) as { headers: Headers; response: unknown } | null
+    })) as { headers: Headers; response: unknown } | null
 
     if (result?.response) {
       const redirect = request.nextUrl.searchParams.get("redirect")

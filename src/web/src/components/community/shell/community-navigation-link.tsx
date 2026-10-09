@@ -4,6 +4,8 @@ import Link from "next/link"
 import { useLayoutEffect, type ComponentProps } from "react"
 import { createStore, useAtom, useCreateAtom, useSelector } from "@tanstack/react-store"
 import { useOptionalCommunityDbRegistry } from "@/lib/community-db/projections"
+import { prepareNavigationMetadata } from "@/lib/community/navigation-metadata"
+import { beginNavigationPrefetch } from "@/lib/observability/context"
 
 const absentLifecycle = createStore({ active: true, generation: 0 })
 
@@ -29,7 +31,11 @@ export function CommunityNavigationLink({
   useLayoutEffect(() => { setIntent(null) }, [href, registry, lifecycle.generation, setIntent])
   const enabled = lifecycle.active && !navigationDisabled
   const warm = () => {
-    if (enabled && !active) setIntent({ href, registry, generation: lifecycle.generation })
+    if (enabled && !active) {
+      beginNavigationPrefetch(href)
+      if (registry) void prepareNavigationMetadata(registry.queryClient, href, "prefetch")
+      setIntent({ href, registry, generation: lifecycle.generation })
+    }
   }
   const prefetched = enabled && !active && (prefetchMode === "visible"
     || (intent?.href === href && intent.registry === registry && intent.generation === lifecycle.generation))

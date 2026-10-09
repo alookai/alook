@@ -1,6 +1,6 @@
 "use client"
 
-import { useObservedRegion, windowEvidence } from "@/lib/observability/regions"
+import { useObservedRegion } from "@/lib/observability/regions"
 import { visibleVirtualItems } from "@/lib/observability/virtual-window"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback, useLayoutEffect, useRef } from "react"
@@ -251,7 +251,7 @@ export function ForumView({
     initialRect: { width: 0, height: 800 },
   })
   const observedPosts = visibleVirtualItems(virtualizer).flatMap(item => posts[item.index] ? [posts[item.index]] : [])
-  useObservedRegion("forum", (!loading || posts.length > 0) && (!posts.length || observedPosts.length > 0), windowEvidence(observedPosts, posts))
+  useObservedRegion("forum", (!loading || posts.length > 0) && (!posts.length || observedPosts.length > 0), observedPosts.length)
   const filterTags = availableTags.length > 0
     ? availableTags
     : [...new Set(posts.flatMap((post) => post.tags))]

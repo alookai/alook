@@ -988,6 +988,28 @@ describe("Message portal event ownership", () => {
 })
 
 describe("Message reaction picker", () => {
+  it("removes the full reaction row on1→0 and restores it on0→1 while retaining menu add", () => {
+    const onReact = vi.fn()
+    const reaction = { emoji: "👍", count: 1, me: true, userIds: ["u1"] }
+    const tree = (reactions: RenderMsg["reactions"]) => makeTree({ m: baseMsg({ reactions }), hoverCapable: false, onOpenThread: vi.fn(), onReact })
+    const renderer = render(tree([reaction]))
+    const strip = () => renderer.root.findAllByProps({ "aria-label": "Add reaction" })
+      .filter(node => node.type === "button" && node.props.className.includes("bg-secondary"))
+    expect(strip()).toHaveLength(1)
+    const reactionRow = strip()[0].element.closest("div.flex.flex-wrap")!.parentElement!
+    const column = reactionRow.parentElement!
+    const blocksBefore = column.children.length
+    act(() => renderer.rerender(tree([])))
+    expect(strip()).toHaveLength(0)
+    expect(reactionRow.isConnected).toBe(false)
+    expect(column.children.length).toBe(blocksBefore - 1)
+    expect(renderer.toJSON()).not.toContain("community-reaction-chip-m1")
+    const row = renderer.root.find(node => typeof node.props.className === "string" && node.props.className.includes("group relative -mx-2"))
+    act(() => row.props.onClick({ clientX: 10, clientY: 10, currentTarget: { contains: () => true }, target: { closest: () => null } }))
+    expect(renderer.root.findAllByType("button").some(button => textContent(button).includes("Add Reaction"))).toBe(true)
+    act(() => renderer.rerender(tree([reaction])))
+    expect(strip()).toHaveLength(1)
+  })
   it("opens the non-hover picker and suppresses its Shadow DOM selection click at the row", async () => {
     vi.stubGlobal("window", { getSelection: () => null })
     const onReact = vi.fn()

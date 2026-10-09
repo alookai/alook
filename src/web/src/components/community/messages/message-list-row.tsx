@@ -56,7 +56,7 @@ export function renderMessageListRow(
     )
   }
   return (
-    <div className="flow-root" style={{ paddingBlock: MESSAGE_ROW_VERTICAL_PADDING_PX }} data-message-row-key={item.key}>
+    <div className="flow-root" style={{ paddingBlock: `${item.paddingTop ?? MESSAGE_ROW_VERTICAL_PADDING_PX}px ${item.paddingBottom ?? MESSAGE_ROW_VERTICAL_PADDING_PX}px` }} data-message-row-key={item.key}>
         <div data-msg-id={item.m.id} data-testid={tid.message(item.m.id)}>
           <MessageRow
             m={item.m}
