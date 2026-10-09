@@ -3,6 +3,7 @@ import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
 import type { NextConfig } from "next";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { createRequire } from "node:module";
 
 const blogRedirectRules = JSON.parse(
 	readFileSync(path.resolve(__dirname, "src/lib/blog/redirects.json"), "utf8"),
@@ -36,7 +37,7 @@ const withMDX = createMDX({
 });
 
 export default async function blogConfig() {
-	const { prepareBlogImages } = await import(path.resolve(__dirname, "scripts/prepare-images.mjs"));
+	const { prepareBlogImages } = createRequire(path.resolve(__dirname, "next.config.ts"))("./scripts/prepare-images.mjs");
 	await prepareBlogImages(__dirname);
 	return withMDX(nextConfig);
 }
