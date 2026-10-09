@@ -6,7 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useCommunityMutationOrigin } from "@/hooks/community/community-origin"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { isPresenceOnline } from "@alook/shared"
-import { CircleAlert } from "lucide-react"
+import { Check, CircleAlert } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -14,7 +14,7 @@ import {
   PairMachineSteps,
 } from "@/components/community/machines/pair-machine-sheet"
 import { ProviderLogo } from "@/components/provider-logo"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
@@ -23,6 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { useJoinServer } from "@/hooks/community/mutations/servers"
 import { useMachines } from "@/hooks/community/use-machines"
 import { tid } from "@/lib/community/testids"
 
@@ -47,6 +48,7 @@ export function OnboardingMachineDialog({
 }) {
   const origin = useCommunityMutationOrigin()
   const queryClient = useQueryClient()
+  const joinSupport = useJoinServer()
   const source = useCommunityViewSource(`onboarding-machine:${harness}`, open)
   const { machines, isSuccess, refetch } = useMachines({
     enabled: open, subscribed: open,
@@ -63,6 +65,8 @@ export function OnboardingMachineDialog({
     ),
     [harness, machines],
   )
+  const unavailableMachine = !previewConnectedMachine && !onlineMachine ? connectedMachine : null
+  const runtimeError = unavailableMachine?.availableRuntimes.find((runtime) => runtime.id === harness)?.lastError
   const autoMint = useCreateAtom<AbortSignal | null>(null)
   const autoAdvance = useCreateAtom<AbortSignal | null>(null)
   const readyMachineId = previewConnectedMachine?.id ?? onlineMachine?.id
@@ -105,7 +109,7 @@ export function OnboardingMachineDialog({
     if (
       autoMint.get() === source.signal ||
       !isSuccess ||
-      onlineMachine ||
+      connectedMachine ||
       previewConnectedMachine ||
       previewCommand ||
       tokenId ||
@@ -121,7 +125,7 @@ export function OnboardingMachineDialog({
     generating,
     isSuccess,
     machineLimitReached,
-    onlineMachine,
+    connectedMachine,
     open,
     previewConnectedMachine,
     previewCommand,
@@ -129,6 +133,19 @@ export function OnboardingMachineDialog({
     source.signal,
     autoMint,
   ])
+
+  const joinAlookSupport = async () => {
+    if (joinSupport.isPending) return
+    const assert = source.capture()
+    assert()
+    try {
+      await joinSupport.mutateAsync({ inviteCode: "nC7ax53lwm" })
+      assert()
+      toast.success("Joined Alook Support")
+    } catch {
+      try { assert() } catch { return }
+    }
+  }
 
   const command = tokenId ? buildPairCommand(tokenId) : ""
   const displayedCommand = previewConnectedMachine
@@ -175,13 +192,66 @@ export function OnboardingMachineDialog({
               <span>machine</span>
             </DialogTitle>
             <DialogDescription className="max-w-[52ch] leading-relaxed">
-              Run one command. We’ll continue when it’s online.
+              {unavailableMachine ? "Your computer is connected. Let’s get your agent ready." : "Run one command. We’ll continue when it’s online."}
             </DialogDescription>
           </div>
         </DialogHeader>
 
         <div className="flex flex-col gap-4 px-4 pb-4 sm:px-6 sm:pb-6">
-          {machineLimitReached && !onlineMachine ? (
+          {unavailableMachine ? (
+            <section data-testid={tid.onboardingRuntimeUnavailable} className="flex flex-col gap-4" role="status">
+              <p className="flex items-start gap-2 text-sm font-medium">
+                <Check aria-hidden className="mt-0.5 size-4 shrink-0" />
+                <span className="min-w-0 wrap-break-word">{unavailableMachine.hostname || "Your computer"} is connected</span>
+              </p>
+              <div className="flex flex-col gap-2">
+                <h3 className="text-base font-medium">{harnessLabel} isn’t ready on this computer</h3>
+                <p className="text-sm wrap-break-word text-destructive">
+                  Detection error: {runtimeError || "The selected agent wasn’t detected as available."}
+                </p>
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  Install or fix {harnessLabel}, then restart the Alook daemon from a terminal where {harnessLabel} works. We’ll continue when it’s ready.
+                </p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                {joinSupport.data ? (
+                  <a
+                    href={`/c/channels/${joinSupport.data.serverId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    data-testid={tid.onboardingOpenSupport}
+                    className={buttonVariants({ className: "h-11 sm:h-9" })}
+                  >
+                    Open Alook Support
+                  </a>
+                ) : (
+                  <Button
+                    type="button"
+                    className="h-11 sm:h-9"
+                    data-testid={tid.onboardingJoinSupport}
+                    disabled={joinSupport.isPending}
+                    onClick={() => void joinAlookSupport()}
+                  >
+                    {joinSupport.isPending ? "Joining…" : "Need Help"}
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 sm:h-9"
+                  data-testid={tid.onboardingChooseHarness}
+                  onClick={onChooseAnotherHarness}
+                >
+                  Choose another agent
+                </Button>
+              </div>
+              {joinSupport.isError ? (
+                <p role="alert" className="text-sm text-destructive">Couldn’t join Alook Support. Try again.</p>
+              ) : joinSupport.data ? (
+                <p className="text-sm text-muted-foreground">You’ve joined Alook Support. Open it in a new tab to report the detection error.</p>
+              ) : null}
+            </section>
+          ) : machineLimitReached && !onlineMachine ? (
             <section
               role="alert"
               className="flex flex-col gap-3 rounded-xl border border-warning/30 bg-warning/5 p-4"
@@ -224,11 +294,6 @@ export function OnboardingMachineDialog({
             />
           )}
 
-          {!machineLimitReached && !previewConnectedMachine && !onlineMachine && connectedMachine ? (
-            <p role="status" className="text-sm text-muted-foreground">
-              {harnessLabel} isn’t available on {connectedMachine.hostname || "this machine"} yet.
-            </p>
-          ) : null}
         </div>
 
         <DialogFooter className="m-0 rounded-b-xl border-0 bg-transparent px-4 py-4 sm:px-6">
