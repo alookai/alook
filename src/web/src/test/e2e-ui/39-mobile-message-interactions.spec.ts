@@ -745,6 +745,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await expect(directProfileCard).toBeVisible()
   await directProfileCard.getByPlaceholder(`Message @${bobInfo.name}`).fill(directDmBody)
   const directPostPath = `/api/community/channels/${dmId}/messages`
+  let directStatus: number | undefined
   let directPayload: { message: { id: string } } | undefined
   const captureDirectResponse = async (route: Route) => {
     if (route.request().method() !== "POST") {
@@ -753,16 +754,12 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     }
     const response = await route.fetch()
     directPayload = await response.json() as { message: { id: string } }
+    directStatus = response.status()
     await route.fulfill({ response })
   }
   await alice.page.route(`**${directPostPath}`, captureDirectResponse)
-  const directResponsePromise = alice.page.waitForResponse((response) => (
-    response.request().method() === "POST"
-    && new URL(response.url()).pathname === directPostPath
-  ))
   await directProfileCard.getByRole("button", { name: "Send message" }).click()
-  const directResponse = await directResponsePromise
-  expect(directResponse.status()).toBe(201)
+  await expect.poll(() => directStatus).toBe(201)
   await alice.page.unroute(`**${directPostPath}`, captureDirectResponse)
   expect(directPayload).toMatchObject({ message: { id: expect.any(String) } })
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/me/${dmId}`)
