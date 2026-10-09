@@ -95,6 +95,36 @@ describe.skipIf(process.platform !== "win32")("native Windows injected Node CLI"
       rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
     }
   }, 120_000);
+
+  it("diagnoses absolute launcher resolution across Windows shells", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "alook shell compatibility with spaces-"));
+    const host = join(directory, "index.cjs");
+    const expected = "shell-launcher-ready";
+    writeFileSync(host, `console.log(${JSON.stringify(expected)});\n`);
+    try {
+      const bin = writeCliLink(directory, "alook", host);
+      const launcher = join(bin, "alook.cmd").replaceAll("\\", "/");
+      const base = launcher.slice(0, -4);
+      writeFileSync(base, `#!/bin/sh\nexec "${process.execPath.replaceAll("\\", "/")}" "${host.replaceAll("\\", "/")}" "$@"\n`);
+      const script = join(directory, "invoke.sh");
+      writeFileSync(script, '"$ALOOK_CLI" --help\n');
+      const bashPath = process.env.ALOOK_NATIVE_BASH_PATH ?? "C:/Program Files/Git/bin/bash.exe";
+      for (const command of [launcher, base]) {
+        const result = await invoke(bashPath, ["--noprofile", "--norc", script.replaceAll("\\", "/")], directory, false,
+          { env: { ...process.env, ALOOK_CLI: command } });
+        console.log(JSON.stringify({ stage: command === launcher ? "diagnostic-forward-slash-cmd" : "diagnostic-bash-extensionless", ...result }));
+      }
+      const cmd = await invoke(`"${base}"`, ["--help"], directory, true);
+      console.log(JSON.stringify({ stage: "diagnostic-cmd-extensionless", ...cmd }));
+      const powershell = await invoke("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "& $env:ALOOK_CLI --help; exit $LASTEXITCODE"], directory, false,
+        { env: { ...process.env, ALOOK_CLI: base } });
+      console.log(JSON.stringify({ stage: "diagnostic-powershell-extensionless", ...powershell }));
+      expect(cmd.stdout).toBe(expected);
+      expect(powershell.stdout).toBe(expected);
+    } finally {
+      rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    }
+  }, 120_000);
 });
 
 describe.skipIf(!process.env.ALOOK_NATIVE_CLI_PATH)("installed host CLI callback", () => {
