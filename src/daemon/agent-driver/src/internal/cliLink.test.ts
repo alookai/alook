@@ -46,6 +46,14 @@ describe("writeCliLink (POSIX symlink)", () => {
 });
 
 describe("writeCliLink (Windows .cmd shim)", () => {
+  it.each(["index.js", "index.cjs", "index.MJS"])("runs %s with the daemon's Node executable", filename => {
+    const stateDir = mkTmp();
+    const host = `C:\\host with spaces\\${filename}`;
+    const binDir = writeCliLink(stateDir, "alook", host, "win32");
+    expect(fs.readFileSync(path.join(binDir, "alook.cmd"), "utf8"))
+      .toBe(`@echo off\r\n"${process.execPath}" "${host}" %*\r\n`);
+  });
+
   it("writes a .cmd shim forwarding to hostCliPath", () => {
     const stateDir = mkTmp();
     const host = "C:\\host\\alook.exe";

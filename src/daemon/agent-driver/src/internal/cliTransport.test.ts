@@ -38,6 +38,34 @@ function baseCtx(workingDirectory: string, overrides: Partial<AdapterLaunchConte
 }
 
 describe("prepareCliTransport", () => {
+  it("protects the runnable Windows launcher using the configured CLI prefix", async () => {
+    const wd = mkTmp();
+    const host = path.join(wd, "host with spaces.js");
+    const ctx = baseCtx(wd, {
+      prepared: {
+        ...fakePrepared({ platformProtected: { HOUSE_CLI: host } }),
+        executablePath: host,
+      },
+    });
+    const cli: CliTransportConfig = { cliName: "house", envPrefix: "HOUSE", stateDirName: ".house" };
+    const { stateDir, spawnEnv } = await prepareCliTransport(ctx, { HOUSE_CLI: "driver-override" }, cli, "win32");
+    expect(spawnEnv.HOUSE_CLI).toBe(path.join(stateDir, "bin", "house.cmd"));
+    expect(fs.existsSync(spawnEnv.HOUSE_CLI!)).toBe(true);
+  });
+
+  it("preserves the POSIX CLI contract when the prepared host is a JS entrypoint", async () => {
+    const wd = mkTmp();
+    const host = path.join(wd, "index.js");
+    const ctx = baseCtx(wd, {
+      prepared: {
+        ...fakePrepared({ platformProtected: { ALOOK_CLI: host } }),
+        executablePath: host,
+      },
+    });
+    const { spawnEnv } = await prepareCliTransport(ctx, {}, undefined, "linux");
+    expect(spawnEnv.ALOOK_CLI).toBe(host);
+  });
+
   it("prepends the per-launch bin dir to PATH", async () => {
     const { spawnEnv, stateDir } = await prepareCliTransport(baseCtx(mkTmp()), {}, undefined, "linux");
     expect((spawnEnv.PATH ?? "").split(path.delimiter)[0]).toBe(path.join(stateDir, "bin"));

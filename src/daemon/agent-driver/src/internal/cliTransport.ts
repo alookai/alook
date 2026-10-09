@@ -129,7 +129,14 @@ export async function prepareCliTransport(
     {
       name: "platformProtected",
       precedence: 40,
-      vars: { ...resource.platformProtected, FORCE_COLOR: "0", NO_COLOR: "1" },
+      vars: {
+        ...resource.platformProtected,
+        ...(platform === "win32" && hostCliPath
+          ? { [`${cli.envPrefix}_CLI`]: path.join(binDir, `${cli.cliName}.cmd`) }
+          : {}),
+        FORCE_COLOR: "0",
+        NO_COLOR: "1",
+      },
     },
     { name: "runtimeProtected", precedence: 50, vars: resource.runtimeProtected },
     {

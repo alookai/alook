@@ -44,7 +44,10 @@ export function writeCliLink(
     // .cmd shim — the only surviving wrapper, and only because a Windows link
     // named .exe pointing at a .js wouldn't be a valid executable.
     const cmdFile = path.join(binDir, `${cliName}.cmd`);
-    const body = `@echo off\r\n"${hostCliPath}" %*\r\n`;
+    const executable = /\.(?:c|m)?js$/i.test(hostCliPath)
+      ? `"${process.execPath}" "${hostCliPath}"`
+      : `"${hostCliPath}"`;
+    const body = `@echo off\r\n${executable} %*\r\n`;
     fs.writeFileSync(cmdFile, body); // overwrite is fine (idempotent)
     return binDir;
   }
