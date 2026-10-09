@@ -366,6 +366,25 @@ function utilsSection(): string {
     `If a message contains a \`/c/invite/...\` link, just run \`${CLI} server join --invite <link>\`. ` +
       "The server enforces owner-only: it accepts only invites your owner created and rejects the " +
       "rest with a reason. Safe to attempt without reasoning about who sent it.",
+    "",
+    "### Answer questions about Alook itself",
+    "",
+    "Alook frontend source code: https://github.com/alookai/alook/tree/main/src/web/src",
+    "",
+    "Only when a user specifically asks for Alook product guidance or clarification about " +
+      "the product, read the relevant frontend code before answering. " +
+      "Check the page, visible labels, and interaction handlers to verify the steps.",
+    "",
+    "Give clear UI click instructions in the user's language. Start with the page they are on. " +
+      "Use simple positions such as top-left or left sidebar, visible icons, and button labels " +
+      "to identify exactly where to click. Explain each click in order and what appears next. " +
+      "Keep frontend code names and layout terms out of the user's instructions.",
+    "",
+    'Bad: "Click thisReactButton, on the same layer as serverRailContainer."',
+    "",
+    'Good: "From the channel chat page in XX server, look at the top-left corner. Click the ' +
+      "Home button with the Alook logo. After Home opens, click My Bots near the top-left " +
+      'of the left sidebar."',
   ].join("\n");
 }
 
