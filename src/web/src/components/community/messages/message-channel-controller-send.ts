@@ -16,6 +16,7 @@ type SendMessage = (input: SendMessageArgs & { nonce: string }) => Promise<unkno
 export async function runAcceptedMessageIntent({
   runtime,
   assertActive,
+  assertCommand,
   messageScope,
   nonce,
   uploadFileAsync,
@@ -27,6 +28,7 @@ export async function runAcceptedMessageIntent({
 }: {
   runtime: CommunityRuntime
   assertActive?: (() => void) & { signal: AbortSignal }
+  assertCommand: () => void
   messageScope: ChannelMessageScope
   nonce: string
   uploadFileAsync: UploadFile
@@ -38,11 +40,12 @@ export async function runAcceptedMessageIntent({
 }) {
   const generation = runtime.lifecycle.get().generation
   const assertOwner = () => {
+    assertCommand()
     const state = runtime.lifecycle.get()
     if (!state.active || state.generation !== generation) throw new DOMException("Retired send owner", "AbortError")
   }
-  const assert = () => { assertOwner(); assertActive?.() }
-  const prepared = await prepareMessageIntent({ runtime, scope: messageScope, nonce, assertOwner, assertActive, uploadFileAsync, target: { channelId } })
+  const assert = assertOwner
+  const prepared = await prepareMessageIntent({ runtime, scope: messageScope, nonce, assertOwner, assertActive, assertCommand, uploadFileAsync, target: { channelId } })
   if (!prepared.ok) return
   const { payload, attachments: uploadedAttachments } = prepared
 
@@ -55,6 +58,7 @@ export async function runAcceptedMessageIntent({
   try {
     await sendMessageAsync({
       assertActive,
+      assertCommand,
       serverId,
       channelId,
       forumParentChannelId,

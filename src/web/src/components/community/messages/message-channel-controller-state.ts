@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { useCanonicalMessagesById, useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
-import { captureCommunityLiveSnapshotToken, publishCommunityMessages } from "@/lib/community-db/sync"
+import { assertCommunityLiveSnapshotTokenCurrent, captureCommunityLiveSnapshotToken, publishCommunityMessages } from "@/lib/community-db/sync"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { useCommunityRuntime } from "@/stores/community/runtime"
 
@@ -240,11 +240,21 @@ export function useMessageChannelController({
     [channelId, serverId],
   )
 
-  const runAcceptedIntent = useCallback(async (nonce: string) => {
+  const captureSendCommand = useCallback(() => {
     const assertActive = source.capture()
+    assertActive()
+    const token = captureCommunityLiveSnapshotToken(profileQueryClient, channelId)
+    const assertCommand = () => assertCommunityLiveSnapshotTokenCurrent(profileQueryClient, token, undefined)
+    assertCommand()
+    return { assertActive, assertCommand }
+  }, [source, profileQueryClient, channelId])
+
+  const runAcceptedIntent = useCallback(async (nonce: string, command = captureSendCommand()) => {
+    const { assertActive, assertCommand } = command
     await runAcceptedMessageIntent({
     runtime: communityRuntime,
       assertActive,
+      assertCommand,
       messageScope,
       nonce,
       uploadFileAsync,
@@ -254,7 +264,7 @@ export function useMessageChannelController({
       serverId,
       viewer: { id: viewer.id, name: viewer.name, avatar: viewer.avatar },
     })
-  }, [source, communityRuntime, messageScope, uploadFileAsync, sendMessageAsync, channelId, forumParentChannelId, serverId, viewer.id, viewer.name, viewer.avatar])
+  }, [captureSendCommand, communityRuntime, messageScope, uploadFileAsync, sendMessageAsync, channelId, forumParentChannelId, serverId, viewer.id, viewer.name, viewer.avatar])
 
   const messageActions = useMemo(() => createMessageActions({
     runtime: communityRuntime,
@@ -280,7 +290,9 @@ export function useMessageChannelController({
     markdown: string,
     attachments?: SendAttachment[],
     mentionType?: MentionType,
-  ): boolean => acceptChannelMessage({
+  ): boolean => {
+    const command = captureSendCommand()
+    return acceptChannelMessage({
     runtime: communityRuntime,
     markdown,
     attachments,
@@ -288,10 +300,11 @@ export function useMessageChannelController({
     messageScope,
     viewer: { id: viewer.id, name: viewer.name, avatar: viewer.avatar },
     replyTo,
-    runAcceptedIntent,
+    runAcceptedIntent: (nonce) => runAcceptedIntent(nonce, command),
     channelId,
     clearReply: () => setReplyTo(null),
-  }), [channelId, communityRuntime, messageScope, replyTo, runAcceptedIntent, setReplyTo, viewer.avatar, viewer.id, viewer.name])
+    })
+  }, [captureSendCommand, channelId, communityRuntime, messageScope, replyTo, runAcceptedIntent, setReplyTo, viewer.avatar, viewer.id, viewer.name])
 
   return useMemo<MessageChannelControllerValue>(() => ({
     feed,
