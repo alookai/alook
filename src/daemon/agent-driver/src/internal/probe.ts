@@ -5,6 +5,7 @@
 import { execFileSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
+import { homedir } from "os";
 import type { ProbeResult } from "./adapter.js";
 
 /**
@@ -201,10 +202,14 @@ export function resolveSpawnSpec(
   return { command: resolved, args, shell: needsWindowsShimShell(resolved, platform) };
 }
 
-/** Detect the Claude Code CLI, including macOS app-bundle fallbacks. */
+/** Detect Claude Code on PATH, then in its platform-native installation. */
 export function resolveClaudeCommand(deps: ProbeDeps = {}): string | null {
   const onPath = resolveCommandOnPath("claude", deps);
   if (onPath) return onPath;
+  if (process.platform === "win32") {
+    const home = deps.homeDir || process.env.USERPROFILE || process.env.HOME || homedir();
+    return firstExistingPath([path.join(home, ".local", "bin", "claude.exe")]);
+  }
   if (process.platform === "darwin") {
     return firstExistingPath([
       resolveHomePath("Applications/Claude Code URL Handler.app/Contents/MacOS/claude", deps),

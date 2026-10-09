@@ -79,6 +79,35 @@ describe("resolveSpawnSpec", () => {
 });
 
 describe("resolveClaudeCommand", () => {
+  it("finds the Windows native installer entry even when the inherited PATH is stale", () => {
+    const homeDir = mkdtempSync(join(tmpdir(), "claude native home with spaces-"));
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    const executable = join(homeDir, ".local", "bin", "claude.exe");
+    mkdirSync(join(executable, ".."), { recursive: true });
+    writeFileSync(executable, "");
+    vi.stubEnv("USERPROFILE", homeDir);
+    vi.stubEnv("HOME", join(homeDir, "different Bash home"));
+    try {
+      expect(resolveClaudeCommand({ which: () => null })).toBe(executable);
+      expect(resolveClaudeCommand({ homeDir, which: () => "C:/selected/claude.cmd" })).toBe("C:/selected/claude.cmd");
+    } finally {
+      platform.mockRestore();
+      vi.unstubAllEnvs();
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a missing Windows native installation unresolved", () => {
+    const homeDir = mkdtempSync(join(tmpdir(), "claude-missing-home-"));
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    try {
+      expect(resolveClaudeCommand({ homeDir, which: () => null })).toBeNull();
+    } finally {
+      platform.mockRestore();
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
   it("uses the macOS per-user app fallback when PATH has no Claude binary", () => {
     const homeDir = mkdtempSync(join(tmpdir(), "claude-probe-home-"));
     const platform = vi.spyOn(process, "platform", "get").mockReturnValue("darwin");

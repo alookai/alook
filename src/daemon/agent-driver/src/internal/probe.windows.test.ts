@@ -1,7 +1,7 @@
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir, release } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { createServer } from "node:net";
 import { execFileSync, type ChildProcess } from "node:child_process";
@@ -10,7 +10,7 @@ import { loadPiSdkModule } from "../adapters/pi/sessionDeps.js";
 import { createAgentDriverSdk } from "../index.js";
 import { scrubDriverErrorMessage } from "./errors.js";
 import { isAlive, killProcessTree, spawnAgentProcess } from "./killTree.js";
-import { probeCliRuntime, probeCommandOutput, probeCommandVersion, resolveCommandOnPath, resolveSpawnSpec } from "./probe.js";
+import { probeCliRuntime, probeCommandOutput, probeCommandVersion, resolveClaudeCommand, resolveCommandOnPath, resolveSpawnSpec } from "./probe.js";
 
 const roots: string[] = [];
 const children: ChildProcess[] = [];
@@ -188,6 +188,37 @@ describe.skipIf(process.platform !== "win32")("native Windows npm shim detection
 
 
 const nativePrefix = process.env.ALOOK_NATIVE_NPM_PREFIX;
+describe.skipIf(process.platform !== "win32" || !process.env.ALOOK_NATIVE_CLAUDE_PATH)("official Windows Claude native layout", () => {
+  it("detects and initializes the standard native entry absent from the daemon PATH", async () => {
+    const home = mkdtempSync(join(tmpdir(), "Claude native profile with spaces-"));
+    roots.push(home);
+    const entry = join(home, ".local", "bin", "claude.exe");
+    mkdirSync(dirname(entry), { recursive: true });
+    setPrefix(home);
+    const system = process.env.SystemRoot!;
+    vi.stubEnv("PATH", [join(system, "System32"), join(system, "System32", "WindowsPowerShell", "v1.0"), dirname(process.execPath)].join(delimiter));
+    vi.stubEnv("DISABLE_AUTOUPDATER", "1");
+    expect(resolveCommandOnPath("claude")).toBeNull();
+    writeFileSync(entry, "broken native executable");
+    const sdk = createAgentDriverSdk();
+    expect((await sdk.probe({ backend: "claude" })).status).toBe("unhealthy");
+    copyFileSync(process.env.ALOOK_NATIVE_CLAUDE_PATH!, entry);
+    expect(resolveClaudeCommand()).toBe(entry);
+    expect((await sdk.probe({ backend: "claude", command: join(home, "explicit missing.exe") })).status).toBe("unhealthy");
+    const probe = await sdk.probe({ backend: "claude" });
+    expect(probe.status).toBe("healthy");
+    console.log(JSON.stringify({ backend: "claude-native", os: release(), node: process.version, status: probe.status,
+      version: probe.status === "healthy" ? probe.version : undefined, absentFromPath: true }));
+    const claude = launch(resolveClaudeCommand()!, ["--input-format", "stream-json", "--output-format", "stream-json", "--verbose"]);
+    const initialized = waitForLine(claude, line => {
+      try { return JSON.parse(line).type === "control_response"; } catch { return false; }
+    });
+    claude.stdin!.write(JSON.stringify({ type: "control_request", request_id: "alook-qa-native-init", request: { subtype: "initialize" } }) + "\n");
+    expect(JSON.parse(await initialized)).toMatchObject({ type: "control_response", response: { subtype: "success" } });
+    await stop(claude);
+  }, 60_000);
+});
+
 describe.skipIf(!nativePrefix)("real npm and native providers from an isolated prefix", () => {
   it.each(["codex", "opencode", "claude", "cursor", "pi", "antigravity"] as const)("detects the real %s install via its public SDK probe", async (backend) => {
     setPrefix(nativePrefix!);

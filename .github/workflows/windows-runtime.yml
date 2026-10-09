@@ -71,6 +71,17 @@ jobs:
           Rename-Item (Join-Path $cursorVersions 'dist-package') $cursorVersion
           Get-ChildItem (Join-Path $cursorVersions $cursorVersion) -Filter 'cursor-agent*' | Copy-Item -Destination $qaPrefix
           Invoke-WebRequest 'https://x.ai/cli/grok-1.0.50-windows-x86_64.exe' -OutFile (Join-Path $qaPrefix 'grok.exe')
+      - name: Fetch the official Claude native distribution
+        shell: pwsh
+        run: |
+          $releaseBase = 'https://downloads.claude.ai/claude-code-releases/2.1.295'
+          $manifest = Invoke-RestMethod "$releaseBase/manifest.json"
+          $nativeClaude = Join-Path $env:RUNNER_TEMP 'claude-native.exe'
+          Invoke-WebRequest "$releaseBase/win32-x64/claude.exe" -OutFile $nativeClaude
+          $checksum = (Get-FileHash $nativeClaude -Algorithm SHA256).Hash.ToLower()
+          if ($checksum -ne $manifest.platforms.'win32-x64'.checksum) { throw 'Claude native checksum mismatch' }
+          Write-Output "Claude native SHA256: $checksum"
+          "ALOOK_NATIVE_CLAUDE_PATH=$nativeClaude" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Install the Google Antigravity native ACP server
         shell: pwsh
         run: |
