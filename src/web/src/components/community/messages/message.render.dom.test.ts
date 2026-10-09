@@ -355,6 +355,20 @@ afterEach(() => {
 })
 
 describe("Message memo comparator", () => {
+  it.each([true, false])("selects an external-link message without navigating (hover: %s)", async (hoverCapable) => {
+    const onToggleSelect = vi.fn()
+    const view = rtlRender(makeTree({
+      m: baseMsg({ content: "https://example.com/selection" }),
+      onOpenThread: vi.fn(), onEnterSelect: vi.fn(), onToggleSelect,
+      hoverCapable, selectMode: true, selected: true,
+    }))
+    const link = await view.findByRole("link", { name: "Link: https://example.com/selection" })
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true })
+    act(() => { link.dispatchEvent(click) })
+    expect(click.defaultPrevented).toBe(true)
+    expect(onToggleSelect).toHaveBeenCalledOnce()
+  })
+
   it.each([true, false])("preserves the live avatar through activation and selection (hover: %s)", (hoverCapable) => {
     const props = { m: baseMsg(), onOpenThread: vi.fn(), onEnterSelect: vi.fn(), hoverCapable }
     const view = rtlRender(makeTree(props))

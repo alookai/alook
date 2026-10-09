@@ -550,9 +550,13 @@ function MessageImpl({
             }
           }
         : undefined}
-      onClickCapture={interactive && !selectMode
+      onClickCapture={interactive
         ? (event) => {
             if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
+            if (selectMode) {
+              event.preventDefault()
+              return
+            }
             const target = messageExternalLinkTargetFromEventTarget(event.target)
             if (!target) {
               linkPointerRef.current = null
