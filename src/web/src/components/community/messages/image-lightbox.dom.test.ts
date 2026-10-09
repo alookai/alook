@@ -375,11 +375,22 @@ describe("ImageLightbox", () => {
 
   it("clamps mouse dragging to the enlarged image and ignores a right-button drag", async () => {
     const { frame, original, renderer } = await readyPreview()
+    const captures = new Set<number>()
+    const release = vi.fn((id: number) => captures.delete(id))
+    Object.assign(frame, {
+      setPointerCapture: (id: number) => captures.add(id),
+      hasPointerCapture: (id: number) => captures.has(id),
+      releasePointerCapture: release,
+    })
     fireEvent.doubleClick(frame, { clientX: 300, clientY: 250 })
     pointer(frame, "pointerdown", 1, 300, 250)
     pointer(frame, "pointermove", 1, 2000, 1800)
     expect(original.style.transform).toBe("translate(200px, 150px) scale(2)")
     pointer(frame, "pointerup", 1, 2000, 1800)
+    expect(release).toHaveBeenCalledWith(1)
+    expect(captures.size).toBe(0)
+    pointer(frame, "pointermove", 1, 100, 100)
+    expect(original.style.transform).toBe("translate(200px, 150px) scale(2)")
     fireEvent.click(renderer.getByRole("button", { name: "Fit image" }))
     pointer(frame, "pointerdown", 2, 300, 250, 2)
     pointer(frame, "pointermove", 2, 500, 400, 2)
@@ -423,6 +434,10 @@ describe("ImageLightbox", () => {
     const { frame, original, renderer } = await readyPreview()
     fireEvent.keyDown(frame, { key: "+" })
     fireEvent.keyDown(frame, { key: "ArrowRight" })
+    expect(original.style.transform).toBe("translate(-40px, 0px) scale(1.5)")
+    const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })
+    fireEvent(frame, tab)
+    expect(tab.defaultPrevented).toBe(false)
     expect(original.style.transform).toBe("translate(-40px, 0px) scale(1.5)")
     fireEvent.doubleClick(frame)
     expect(frame.dataset.zoomScale).toBe("1")
