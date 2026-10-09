@@ -183,7 +183,7 @@ export function ThreadOpener({
                         width: a.width,
                         height: a.height,
                       })}
-                      frameClassName="block max-w-full rounded-lg border border-border transition-colors hover:border-primary/40"
+                      frameClassName="block max-w-full rounded-lg border border-border [--attachment-image-max-height:200px] transition-colors hover:border-primary/40 sm:[--attachment-image-max-height:240px]"
                       frameStyle={frameStyle}
                       imageClassName="block rounded-lg object-contain"
                       errorLabel="Attachment failed to load"

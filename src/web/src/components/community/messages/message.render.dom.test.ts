@@ -1668,8 +1668,9 @@ describe("Message image attachment layout", () => {
     const frame = renderer!.root.findByProps({ "data-remote-image-frame": true })
     expect(frame.props.className).toContain("relative")
     expect(frame.props.className).toContain("max-w-full")
+    expect(frame.props.className).toContain("sm:[--attachment-image-max-height:240px]")
     expect(frame.props.style).toEqual({
-      width: "min(100%, 169.231px)",
+      width: "min(100%, 396px, calc(var(--attachment-image-max-height, 200px) * 396 / 702))",
       aspectRatio: "396/702",
     })
   })

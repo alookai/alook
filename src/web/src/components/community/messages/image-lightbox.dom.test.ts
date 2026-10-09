@@ -1,7 +1,7 @@
 import React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { tid } from "@/lib/community/testids"
-import { act, fireEvent, render, type RenderResult } from "@/test/react-dom-harness"
+import { act, fireEvent, render, mockElementGeometry, type RenderResult } from "@/test/react-dom-harness"
 
 vi.mock("@/components/ui/dialog", () => ({
   Dialog: ({ children, onOpenChange }: {
@@ -91,7 +91,7 @@ describe("ImageLightbox", () => {
     const original = image(renderer, tid.imageLightboxOriginal)
 
     expect(previewFrameStyle({ width: 800, height: 450 })).toEqual({
-      width: "min(800px, 90vw, 151.111111vh)",
+      width: "min(800px, 90vw, 151.111111vh, calc(max(1px, calc(100vh - 144px)) * 1.777778))",
       aspectRatio: "800 / 450",
     })
     expect(frame.style.aspectRatio).toBe("800 / 450")
@@ -130,7 +130,7 @@ describe("ImageLightbox", () => {
       "opacity-0",
     )
     expect(previewFrameStyle({ width: 800, height: 450 })).toEqual({
-      width: "min(800px, 90vw, 151.111111vh)",
+      width: "min(800px, 90vw, 151.111111vh, calc(max(1px, calc(100vh - 144px)) * 1.777778))",
       aspectRatio: "800 / 450",
     })
   })
@@ -172,7 +172,7 @@ describe("ImageLightbox", () => {
     })
     const frame = () => renderer.getByTestId(tid.imageLightbox)
 
-    expect(previewFrameStyle(undefined)).toEqual({ width: "min(200px, 90vw, 85vh)", aspectRatio: "1 / 1" })
+    expect(previewFrameStyle(undefined)).toEqual({ width: "min(200px, 90vw, 85vh, max(1px, calc(100vh - 144px)))", aspectRatio: "1 / 1" })
     expect(frame().style.aspectRatio).toBe("1 / 1")
     await loadThumbnail(renderer, 200, 100)
     expect(frame().style.aspectRatio).toBe("1 / 1")
@@ -188,7 +188,7 @@ describe("ImageLightbox", () => {
       await decodePromise
     })
     expect(previewFrameStyle({ width: 1000, height: 500 })).toEqual({
-      width: "min(1000px, 90vw, 170vh)",
+      width: "min(1000px, 90vw, 170vh, calc(max(1px, calc(100vh - 144px)) * 2))",
       aspectRatio: "1000 / 500",
     })
     expect(frame().style.aspectRatio).toBe("1000 / 500")
@@ -250,7 +250,7 @@ describe("ImageLightbox", () => {
     expect(renderer.getByTestId(tid.imageLightboxLoading))
       .toHaveTextContent("Loading original image")
     expect(previewFrameStyle(undefined)).toEqual({
-      width: "min(200px, 90vw, 85vh)",
+      width: "min(200px, 90vw, 85vh, max(1px, calc(100vh - 144px)))",
       aspectRatio: "1 / 1",
     })
     expect(renderer.getByTestId(tid.imageLightbox).style.aspectRatio).toBe("1 / 1")
@@ -344,4 +344,147 @@ describe("ImageLightbox", () => {
     fireEvent.click(renderer.container.querySelector('[data-dialog-open-change="false"]')!)
     expect(onClose).toHaveBeenCalledOnce()
   })
+
+  async function readyPreview() {
+    const result = renderLightbox({ originalUrl: "/zoom-original", thumbnailUrl: "/zoom-thumbnail", name: "detail", width: 800, height: 600 })
+    const frame = result.renderer.getByTestId(tid.imageLightbox)
+    mockElementGeometry(frame, { left: 100, top: 100, width: 400, height: 300, clientWidth: 400, clientHeight: 300 })
+    await loadImage(image(result.renderer, tid.imageLightboxOriginal), 800, 600, () => Promise.resolve())
+    return { ...result, frame, original: image(result.renderer, tid.imageLightboxOriginal) }
+  }
+
+  function pointer(frame: HTMLElement, type: string, id: number, x: number, y: number, button = 0) {
+    const event = new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button })
+    Object.defineProperties(event, { pointerId: { value: id }, pointerType: { value: "touch" } })
+    fireEvent(frame, event)
+  }
+
+  it("zooms around the wheel pointer without moving the frame or zooming the page", async () => {
+    const { frame, original, renderer } = await readyPreview()
+    const frameStyle = frame.getAttribute("style")
+    const wheel = new WheelEvent("wheel", { bubbles: true, cancelable: true, clientX: 400, clientY: 250, deltaY: -Math.log(2) / 0.002 })
+    fireEvent(frame, wheel)
+    expect(wheel.defaultPrevented).toBe(true)
+    expect(Number(frame.dataset.zoomScale)).toBeCloseTo(2)
+    expect(original.style.transform).toBe("translate(-100px, 0px) scale(2)")
+    expect(image(renderer, tid.imageLightboxThumbnail).style.transform).toBe(original.style.transform)
+    expect(frame.getAttribute("style")).toBe(frameStyle)
+    expect(original).toHaveAttribute("draggable", "false")
+    expect(frame.style.touchAction).toBe("none")
+  })
+
+  it("clamps mouse dragging to the enlarged image and ignores a right-button drag", async () => {
+    const { frame, original, renderer } = await readyPreview()
+    const captures = new Set<number>()
+    const release = vi.fn((id: number) => captures.delete(id))
+    Object.assign(frame, {
+      setPointerCapture: (id: number) => captures.add(id),
+      hasPointerCapture: (id: number) => captures.has(id),
+      releasePointerCapture: release,
+    })
+    fireEvent.doubleClick(frame, { clientX: 300, clientY: 250 })
+    pointer(frame, "pointerdown", 1, 300, 250)
+    pointer(frame, "pointermove", 1, 2000, 1800)
+    expect(original.style.transform).toBe("translate(200px, 150px) scale(2)")
+    pointer(frame, "pointerup", 1, 2000, 1800)
+    expect(release).toHaveBeenCalledWith(1)
+    expect(captures.size).toBe(0)
+    pointer(frame, "pointermove", 1, 100, 100)
+    expect(original.style.transform).toBe("translate(200px, 150px) scale(2)")
+    fireEvent.click(renderer.getByRole("button", { name: "Fit image" }))
+    pointer(frame, "pointerdown", 2, 300, 250, 2)
+    pointer(frame, "pointermove", 2, 500, 400, 2)
+    expect(original.style.transform).toBe("translate(0px, 0px) scale(1)")
+  })
+
+  it("pinches with two pointers, continues panning with one, and stops on cancellation", async () => {
+    const { frame, original } = await readyPreview()
+    pointer(frame, "pointerdown", 1, 250, 250)
+    pointer(frame, "pointerdown", 2, 350, 250)
+    pointer(frame, "pointermove", 1, 200, 250)
+    pointer(frame, "pointermove", 2, 400, 250)
+    expect(Number(frame.dataset.zoomScale)).toBeCloseTo(2)
+    expect(original.style.transform).toBe("translate(0px, 0px) scale(2)")
+    pointer(frame, "pointerup", 1, 200, 250)
+    pointer(frame, "pointermove", 2, 450, 280)
+    expect(original.style.transform).toBe("translate(50px, 30px) scale(2)")
+    pointer(frame, "pointercancel", 2, 450, 280)
+    pointer(frame, "pointermove", 2, 2000, 2000)
+    expect(original.style.transform).toBe("translate(50px, 30px) scale(2)")
+  })
+
+  it("bounds wheel and trackpad zoom and keeps fit and close accessible", async () => {
+    const { frame, renderer, onClose } = await readyPreview()
+    fireEvent.wheel(frame, { cancelable: true, deltaY: -100000, ctrlKey: true })
+    expect(frame.dataset.zoomScale).toBe("8")
+    expect(renderer.getByRole("button", { name: "Zoom in" })).toBeDisabled()
+    expect(renderer.getByRole("button", { name: "Zoom out" })).toBeEnabled()
+    fireEvent.click(renderer.getByRole("button", { name: "Fit image" }))
+    expect(frame.dataset.zoomScale).toBe("1")
+    expect(renderer.getByRole("button", { name: "Zoom out" })).toBeDisabled()
+    fireEvent.click(renderer.getByRole("button", { name: "Zoom in" }))
+    expect(frame.dataset.zoomScale).toBe("1.5")
+    fireEvent.click(renderer.getByRole("button", { name: "Zoom out" }))
+    expect(frame.dataset.zoomScale).toBe("1")
+    fireEvent.click(renderer.getByRole("button", { name: "Close image preview" }))
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it("supports keyboard zoom and pan, double-click reset, and a fresh view for a new image", async () => {
+    const { frame, original, renderer } = await readyPreview()
+    fireEvent.keyDown(frame, { key: "+" })
+    fireEvent.keyDown(frame, { key: "ArrowRight" })
+    expect(original.style.transform).toBe("translate(-40px, 0px) scale(1.5)")
+    const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })
+    fireEvent(frame, tab)
+    expect(tab.defaultPrevented).toBe(false)
+    expect(original.style.transform).toBe("translate(-40px, 0px) scale(1.5)")
+    fireEvent.doubleClick(frame)
+    expect(frame.dataset.zoomScale).toBe("1")
+    fireEvent.keyDown(frame, { key: "+" })
+    fireEvent.keyDown(frame, { key: "0" })
+    expect(frame.dataset.zoomScale).toBe("1")
+    fireEvent.keyDown(frame, { key: "+" })
+    renderer.rerender(React.createElement(ImageLightbox, { image: { originalUrl: "/next-original", name: "next", width: 800, height: 600 }, onClose: vi.fn() }))
+    expect(renderer.getByTestId(tid.imageLightbox).dataset.zoomScale).toBe("1")
+  })
+
+  it("does not intercept wheel or enable zoom until the original is decoded", async () => {
+    const { renderer } = renderLightbox({ originalUrl: "/pending-original", name: "pending" })
+    const frame = renderer.getByTestId(tid.imageLightbox)
+    const wheel = new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -100 })
+    fireEvent(frame, wheel)
+    expect(wheel.defaultPrevented).toBe(false)
+    expect(renderer.getByRole("button", { name: "Zoom in" })).toBeDisabled()
+    expect(renderer.getByRole("button", { name: "Close image preview" })).toBeEnabled()
+    fireEvent.error(image(renderer, tid.imageLightboxOriginal))
+    expect(renderer.getByRole("button", { name: "Zoom in" })).toBeDisabled()
+    expect(renderer.getByTestId(tid.imageLightboxRetry)).toBeVisible()
+  })
+
+
+  it("reclamps a panned image on resize, cancels its drag, and disconnects on close", async () => {
+    let resize!: ResizeObserverCallback
+    const disconnect = vi.fn()
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: ResizeObserverCallback) { resize = callback }
+      observe = vi.fn()
+      disconnect = disconnect
+    })
+    const { frame, original, renderer } = await readyPreview()
+    fireEvent.doubleClick(frame, { clientX: 300, clientY: 250 })
+    pointer(frame, "pointerdown", 1, 300, 250)
+    pointer(frame, "pointermove", 1, 1000, 1000)
+    mockElementGeometry(frame, { left: 100, top: 100, width: 200, height: 150 })
+    act(() => resize([], {} as ResizeObserver))
+    expect(original.style.transform).toBe("translate(100px, 75px) scale(2)")
+    pointer(frame, "pointermove", 1, 1200, 1200)
+    expect(original.style.transform).toBe("translate(100px, 75px) scale(2)")
+    renderer.unmount()
+    expect(disconnect).toHaveBeenCalledOnce()
+    const wheel = new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -100 })
+    fireEvent(frame, wheel)
+    expect(wheel.defaultPrevented).toBe(false)
+  })
+
 })
