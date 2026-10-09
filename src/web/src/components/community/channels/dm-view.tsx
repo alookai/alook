@@ -1,5 +1,6 @@
 "use client"
 
+import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useCommunityRuntime } from "@/stores/community/runtime"
@@ -87,6 +88,7 @@ function resolveDmLoadingOwnership({
 
 export function DmView({ dmId }: { dmId: string }) {
   const communityRuntime = useCommunityRuntime()
+  const sendView = useCommunityViewSource(`dm-send:${dmId}`)
   const bp = useBreakpoint()
   const currentUser = useCurrentUser()
   const queryClient = useQueryClient()
@@ -365,7 +367,9 @@ export function DmView({ dmId }: { dmId: string }) {
     onRetry: (id: string) => {
       const m = messages.find((x) => x.id === id)
       if (!m?.clientNonce) return
-      void retryDmMessage(dmId, m.clientNonce).then((result) => {
+      const assertActive = sendView.capture()
+      void retryDmMessage(dmId, m.clientNonce, assertActive).then((result) => {
+        try { assertActive() } catch { return }
         if (result.ok) advanceOnboardingAfterSend()
       })
     },
@@ -383,12 +387,14 @@ export function DmView({ dmId }: { dmId: string }) {
     onPreviewAttachment: (attachment: FileAttachment) => {
       uiHandlers.previewAttachment?.(attachment)
     },
-  }), [toggleReaction, dmId, currentUser.id, addReaction, messages, setReplyTo, toggleMark, retryDmMessage, advanceOnboardingAfterSend, communityRuntime.messageStream.actions, uiHandlers])
+  }), [toggleReaction, dmId, currentUser.id, addReaction, messages, setReplyTo, toggleMark, retryDmMessage, sendView, advanceOnboardingAfterSend, communityRuntime.messageStream.actions, uiHandlers])
 
   // DM endpoint ignores mentionType. Replies are supported — the backend
   // persists replyToId for DMs too.
   const acceptDmSend = (markdown: string, attachments?: SendAttachment[]): boolean => {
+    const assertActive = sendView.capture()
     const receipt = acceptDmMessage({
+      assertActive,
       dmId,
       content: markdown,
       replyTo: replyTo ?? undefined,
@@ -401,6 +407,7 @@ export function DmView({ dmId }: { dmId: string }) {
     })
     if (!receipt.accepted) return false
     void receipt.committed.then((result) => {
+      try { assertActive() } catch { return }
       if (result.ok) advanceOnboardingAfterSend()
     })
     communityWsEndTyping(communityRuntime, { channelId: dmId })
