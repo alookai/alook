@@ -2,7 +2,7 @@ import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import { expect, test } from "./_fixtures/community-fixture"
 import type { Locator, Page } from "@playwright/test"
-import { gotoAfterUserWsAuth } from "./_fixtures/actions"
+import { composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { createInvite, seedChannel, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 
@@ -397,7 +397,13 @@ test("share image timestamp matches the live row and survives both exports", asy
   await expect(page.getByTestId(tid.message(seeded.id))).toContainText(expectedTimestamp)
   await installShareCapture(page)
 
-  const dialog = await openShareDialog(page, seeded.id)
+  const row = page.getByTestId(tid.message(seeded.id))
+  const menu = page.locator('[data-slot="context-menu-content"]')
+  await row.hover()
+  await row.click({ button: "right" })
+  await menu.getByRole("menuitem", { name: "Share as Image", exact: true }).click()
+  await page.getByRole("button", { name: "Share 1 selected messages as image" }).click()
+  const dialog = page.getByRole("dialog", { name: "Share message" })
   const card = await waitForReady(dialog)
   await expect(card.locator("[data-share-timestamp]")).toHaveText(expectedTimestamp)
   await dialog.getByRole("button", { name: "Copy image" }).click()
@@ -408,6 +414,24 @@ test("share image timestamp matches the live row and survives both exports", asy
 
   await expect.poll(() => captureCounts(page)).toEqual({ clipboard: 1, download: 1 })
   await expect(card.locator("[data-share-timestamp]")).toHaveText(expectedTimestamp)
+  await page.keyboard.press("Escape")
+  await expect(dialog).toBeHidden()
+  await expect(menu).toHaveCount(0)
+  await row.click({ button: "right" })
+  await menu.getByRole("menuitem", { name: "Share as Image", exact: true }).click()
+  await page.getByRole("button", { name: "Cancel message selection" }).click()
+  await expect(menu).toHaveCount(0)
+  await row.click({ button: "right" })
+  await expect(menu).toBeVisible()
+  await page.keyboard.press("Escape")
+  await expect(menu).toHaveCount(0)
+  await row.click({ button: "right" })
+  await expect(menu).toBeVisible()
+  const outside = await page.getByTestId(tid.composerInput).boundingBox()
+  await page.mouse.click(outside!.x + outside!.width / 2, outside!.y + outside!.height / 2)
+  await expect(menu).toHaveCount(0)
+  await composerEditable(page).click()
+  await expect(composerEditable(page)).toBeFocused()
 })
 
 test("mobile routing waits for native copy and save terminal receipts", async ({ asUser }) => {
