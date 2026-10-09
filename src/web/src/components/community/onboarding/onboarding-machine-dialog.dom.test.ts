@@ -90,7 +90,7 @@ describe("OnboardingMachineDialog", () => {
     const input = props()
     const view = render(React.createElement(OnboardingMachineDialog, input))
     expect(input.onConnected).not.toHaveBeenCalled()
-    expect(view.getByTestId(tid.onboardingRuntimeUnavailable)).toHaveTextContent("host is connected")
+    expect(view.getByTestId(tid.onboardingRuntimeUnavailable)).toHaveTextContent("Computer is connected")
     expect(view.getByTestId(tid.onboardingRuntimeUnavailable)).toHaveTextContent("Codex isn’t ready")
     expect(view.getByTestId(tid.onboardingRuntimeUnavailable)).toHaveTextContent("restart the Alook daemon")
     const support = view.getByTestId(tid.onboardingJoinSupport)
