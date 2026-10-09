@@ -25,7 +25,7 @@ const REQUIRED_METADATA_FIELDS = [
   "excerpt",
   "readingTime",
 ] as const;
-const OPTIONAL_METADATA_FIELDS = ["dateModified", "image"] as const;
+const OPTIONAL_METADATA_FIELDS = ["dateModified", "image", "seoTitle"] as const;
 const ALLOWED_IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".svg", ".webp"]);
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 
@@ -119,6 +119,10 @@ export function readBlogMetadata(
   for (const field of [...REQUIRED_METADATA_FIELDS, ...OPTIONAL_METADATA_FIELDS]) {
     const value = readStringProperty(object, field);
     if (value !== null) metadata[field] = value;
+  }
+
+  if (/(?:^|[,\n])\s*seoTitle\s*:/.test(object) && !metadata.seoTitle?.trim()) {
+    errors.push(`[post: ${fileSlug}] Optional seoTitle must be a non-empty string.`);
   }
 
   for (const field of REQUIRED_METADATA_FIELDS) {

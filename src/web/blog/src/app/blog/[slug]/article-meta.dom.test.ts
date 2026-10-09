@@ -1,15 +1,14 @@
 import { createElement } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { BlogPost } from "@blog/lib/blog/posts";
 import { render } from "@/test/react-dom-harness";
 import { BlogPostByline, buildBlogPostMetadata } from "./article-meta";
 
-vi.mock("./og-image", () => ({
-  getBlogOgImage: () => "/blog/example/hero.webp",
-}));
+
 
 const post: BlogPost = {
-  slug: "example",
+  slug: "ai-agent-team",
+  image: "/blog/ai-agent-team/hero.webp",
   title: "Visible article title",
   seoTitle: "Search article title",
   date: "2026-08-20",
@@ -30,13 +29,18 @@ describe("article metadata", () => {
       modifiedTime: "2026-09-01",
       images: [
         {
-          url: "/blog/example/hero.webp",
+          url: "/blog/ai-agent-team/hero.webp",
           width: 1200,
-          height: 630,
+          height: 800,
           alt: "Search article title",
         },
       ],
     });
+  });
+
+  it("uses the generated OG route dimensions without a custom image", () => {
+    expect(buildBlogPostMetadata({ ...post, image: undefined }).openGraph).toMatchObject({ images: [{ url: "/og/blog/ai-agent-team", width: 1200, height: 630 }] });
+    expect(() => buildBlogPostMetadata({ ...post, image: "/blog/missing.webp" })).toThrow("Unprepared");
   });
 
   it("omits revision metadata and copy when the post has not been revised", () => {

@@ -9,7 +9,7 @@
     "dev:auth": "wrangler dev --config auth/wrangler.toml",
     "dev:zones:worker": "node scripts/dev-zones.mjs --worker",
     "build": "next build && tsx scripts/stage-service-worker.ts",
-    "build:blog:next": "tsx blog/scripts/stage-shared-assets.ts && next build blog && tsx blog/scripts/prepare-open-next-standalone.ts",
+    "build:blog:next": "pnpm validate:blog && tsx blog/scripts/stage-shared-assets.ts && next build blog && tsx blog/scripts/validate-rendered.ts && tsx blog/scripts/prepare-open-next-standalone.ts",
     "build:blog": "tsx blog/scripts/stage-shared-assets.ts && opennextjs-cloudflare build --config blog/wrangler.toml --openNextConfigPath blog/open-next.config.ts",
     "build:auth": "wrangler deploy --dry-run --config auth/wrangler.toml --outdir dist",
     "validate:blog": "tsx blog/scripts/validate-blog-assets.ts",

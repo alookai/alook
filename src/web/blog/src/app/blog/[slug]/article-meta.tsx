@@ -2,10 +2,13 @@ import type { Metadata } from "next";
 import type { BlogPost } from "@blog/lib/blog/posts";
 import { getBlogSearchTitle } from "@blog/lib/blog/metadata";
 import { getBlogOgImage } from "./og-image";
+import imageAssets from "@blog/lib/blog/image-assets.json";
 
 export function buildBlogPostMetadata(post: BlogPost): Metadata {
   const ogImage = getBlogOgImage(post);
   const searchTitle = getBlogSearchTitle(post);
+  const imageSize = (imageAssets as Record<string, { width: number; height: number }>)[ogImage];
+  if (post.image && !imageSize) throw new Error(`Unprepared Blog OG image: ${ogImage}`);
 
   return {
     title: searchTitle,
@@ -22,8 +25,8 @@ export function buildBlogPostMetadata(post: BlogPost): Metadata {
       images: [
         {
           url: ogImage,
-          width: 1200,
-          height: 630,
+          width: imageSize?.width ?? 1200,
+          height: imageSize?.height ?? 630,
           alt: searchTitle,
         },
       ],

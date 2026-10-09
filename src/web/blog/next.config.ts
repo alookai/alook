@@ -26,6 +26,7 @@ const withMDX = createMDX({
 	options: {
 		remarkPlugins: ["remark-gfm"],
 		rehypePlugins: [
+			path.resolve(__dirname, "rehype-blog-images.mjs"),
 			"rehype-slug",
 			["rehype-autolink-headings", { behavior: "wrap" }],
 			["rehype-external-links", { target: "_blank", rel: ["noopener", "noreferrer"] }],
@@ -34,7 +35,11 @@ const withMDX = createMDX({
 	},
 });
 
-export default withMDX(nextConfig);
+export default async function blogConfig() {
+	const { prepareBlogImages } = await import(path.resolve(__dirname, "scripts/prepare-images.mjs"));
+	await prepareBlogImages(__dirname);
+	return withMDX(nextConfig);
+}
 
 initOpenNextCloudflareForDev({
 	configPath: path.resolve(__dirname, "wrangler.toml"),
