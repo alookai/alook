@@ -119,36 +119,36 @@ describe("generateThumbnail", () => {
     expect(result).toBeNull()
   })
 
-  it("uses the original at the exact 1024px and 512 KiB boundaries", async () => {
+  it("uses the original at the exact 720px and 256 KiB boundaries", async () => {
     const canvases = stubBrowserImageApis()
-    FakeImage.nextWidth = 1024
-    FakeImage.nextHeight = 768
-    const file = new File([new Uint8Array(512 * 1024)], "photo.png", { type: "image/png" })
+    FakeImage.nextWidth = 720
+    FakeImage.nextHeight = 540
+    const file = new File([new Uint8Array(256 * 1024)], "photo.png", { type: "image/png" })
 
     const result = await prepareCommunityImage(file)
 
-    expect(result).toEqual({ blob: null, width: 1024, height: 768 })
+    expect(result).toEqual({ blob: null, width: 720, height: 540 })
     expect(canvases).toHaveLength(0)
   })
 
-  it("generates a 1024px preview when dimensions exceed the edge limit", async () => {
+  it("generates a 720px preview when dimensions exceed the edge limit", async () => {
     const canvases = stubBrowserImageApis([100])
-    FakeImage.nextWidth = 1025
+    FakeImage.nextWidth = 721
     FakeImage.nextHeight = 512
     const file = new File([new Uint8Array(100)], "photo.png", { type: "image/png" })
 
     const result = await prepareCommunityImage(file)
 
     expect(result?.blob?.size).toBe(100)
-    expect(result).toMatchObject({ width: 1025, height: 512 })
-    expect(canvases[0]).toMatchObject({ width: 1024, height: 512 })
+    expect(result).toMatchObject({ width: 721, height: 512 })
+    expect(canvases[0]).toMatchObject({ width: 720, height: 511 })
   })
 
   it("generates at original dimensions when only the byte limit is exceeded", async () => {
     const canvases = stubBrowserImageApis([100])
     FakeImage.nextWidth = 640
     FakeImage.nextHeight = 480
-    const file = new File([new Uint8Array(512 * 1024 + 1)], "photo.png", { type: "image/png" })
+    const file = new File([new Uint8Array(256 * 1024 + 1)], "photo.png", { type: "image/png" })
 
     const result = await prepareCommunityImage(file)
 
@@ -157,7 +157,7 @@ describe("generateThumbnail", () => {
   })
 
   it("reduces dimensions after exhausting bounded quality attempts", async () => {
-    const oversized = new Array(7).fill(512 * 1024 + 1)
+    const oversized = new Array(7).fill(256 * 1024 + 1)
     const canvases = stubBrowserImageApis([...oversized, 256 * 1024])
     FakeImage.nextWidth = 2048
     FakeImage.nextHeight = 1024
@@ -167,13 +167,13 @@ describe("generateThumbnail", () => {
 
     expect(result?.blob?.size).toBe(256 * 1024)
     expect(canvases).toHaveLength(2)
-    expect(canvases[0]).toMatchObject({ width: 1024, height: 512 })
-    expect(canvases[1]).toMatchObject({ width: 870, height: 435 })
+    expect(canvases[0]).toMatchObject({ width: 720, height: 360 })
+    expect(canvases[1]).toMatchObject({ width: 612, height: 306 })
   })
 
   it("throws when a thumbnail is required but encoding cannot satisfy the cap", async () => {
-    stubBrowserImageApis([512 * 1024 + 1])
-    FakeImage.nextWidth = 1025
+    stubBrowserImageApis([256 * 1024 + 1])
+    FakeImage.nextWidth = 721
     FakeImage.nextHeight = 512
     const file = new File([new Uint8Array(100)], "photo.png", { type: "image/png" })
 
@@ -184,7 +184,7 @@ describe("generateThumbnail", () => {
     stubBrowserImageApis()
     FakeImage.nextShouldError = true
     const file = new File(
-      [new Uint8Array(512 * 1024 + 1)],
+      [new Uint8Array(256 * 1024 + 1)],
       "corrupt.png",
       { type: "image/png" },
     )

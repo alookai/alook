@@ -72,11 +72,11 @@ try {
   const payloadStart = binary.indexOf("\r\n\r\n", thumbnailStart) + 4
   const payloadEnd = binary.indexOf(`\r\n--${boundary}`, payloadStart)
   const thumbnail = body.subarray(payloadStart, payloadEnd)
-  assert(thumbnail.length <= 512 * 1024)
+  assert(thumbnail.length <= 256 * 1024)
   assert.deepEqual([...thumbnail.subarray(0, 2)], [0xff, 0xd8])
   assert.deepEqual([...thumbnail.subarray(-2)], [0xff, 0xd9])
   const thumbnailMetadata = await sharp(thumbnail).metadata()
-  assert(Math.max(thumbnailMetadata.width ?? 0, thumbnailMetadata.height ?? 0) <= 1024)
+  assert(Math.max(thumbnailMetadata.width ?? 0, thumbnailMetadata.height ?? 0) <= 720)
   process.stdout.write("daemon thumbnail pack smoke passed\n")
 } finally {
   fs.rmSync(temp, { recursive: true, force: true })

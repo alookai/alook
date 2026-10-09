@@ -183,7 +183,7 @@ describe("handleAttachmentUpload", () => {
   it("accepts an original-only image at the exact policy boundaries", async () => {
     const put = vi.fn().mockResolvedValue(undefined)
     const res = await handleAttachmentUpload(
-      reqWithUpload(fakeFile("edge.png", "image/png", 512 * 1024), null, "1024", "768"),
+      reqWithUpload(fakeFile("edge.png", "image/png", 256 * 1024), null, "720", "540"),
       envWithR2(put), "channel", "c1", USER_TAG,
     )
 
@@ -194,9 +194,9 @@ describe("handleAttachmentUpload", () => {
   })
 
   it.each([
-    ["byte size", fakeFile("large.png", "image/png", 512 * 1024 + 1), "640", "480"],
-    ["width", fakeFile("wide.png", "image/png", 10), "1025", "480"],
-    ["height", fakeFile("tall.png", "image/png", 10), "480", "1025"],
+    ["byte size", fakeFile("large.png", "image/png", 256 * 1024 + 1), "640", "480"],
+    ["width", fakeFile("wide.png", "image/png", 10), "721", "480"],
+    ["height", fakeFile("tall.png", "image/png", 10), "480", "721"],
   ])("rejects a missing required thumbnail proved by %s before either R2 put", async (_label, file, width, height) => {
     const put = vi.fn()
     const res = await handleAttachmentUpload(
@@ -306,10 +306,10 @@ describe("handleAttachmentUpload", () => {
     expect(put).toHaveBeenCalledTimes(2)
   })
 
-  it("rejects a JPEG thumbnail over 1024px before either R2 put", async () => {
+  it("rejects a JPEG thumbnail over 720px before either R2 put", async () => {
     const put = vi.fn()
     const res = await handleAttachmentUpload(
-      reqWithUpload(fakeFile("hi.png", "image/png", 10), fakeJpegFile(1025, 512)),
+      reqWithUpload(fakeFile("hi.png", "image/png", 10), fakeJpegFile(721, 512)),
       envWithR2(put), "channel", "c1", USER_TAG,
     )
 
@@ -333,7 +333,7 @@ describe("handleAttachmentUpload", () => {
     {
       label: "oversized thumbnail",
       file: fakeFile("photo.png", "image/png", 10),
-      thumbnail: { ...fakeFile("thumbnail.jpg", "image/jpeg", 512 * 1024 + 1), arrayBuffer: async () => new ArrayBuffer(0) },
+      thumbnail: { ...fakeFile("thumbnail.jpg", "image/jpeg", 256 * 1024 + 1), arrayBuffer: async () => new ArrayBuffer(0) },
     },
   ])("rejects $label before either R2 put", async ({ file, thumbnail }) => {
     const put = vi.fn()
