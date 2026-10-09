@@ -251,8 +251,21 @@ for (const width of [1440, 390]) {
     expect(box!.height).toBeGreaterThanOrEqual(44)
     expect(box!.y + box!.height).toBeLessThan(plans!.y)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
-    await expect(page.getByRole("heading", { name: "Free", exact: true }).locator("..").getByRole("button")).toBeEnabled()
+    await expect(page.getByRole("heading", { name: "Free", exact: true }).locator("..").getByRole("button")).not.toHaveText("Loading…")
     await page.screenshot({ path: testInfo.outputPath("pricing-contact.png") })
+    await contact.focus()
+    await page.keyboard.press("Enter")
+    await expect(page).toHaveURL(/\/contact$/)
+    await expect(page.getByRole("heading", { name: "Let’s talk." })).toBeVisible()
+    await expect.poll(contactLayout).toEqual(direct)
+
+    await page.route("**/api/pricing", (route) => route.fulfill({
+      status: 503, contentType: "application/json", body: JSON.stringify({ error: "Unavailable" }),
+    }))
+    await page.goto("/pricing")
+    await expect(page.getByRole("main").getByRole("alert")).toContainText("Couldn't load plans")
+    await expect(page.getByRole("heading", { name: "Free", exact: true }).locator("..").getByRole("button")).toBeDisabled()
+    await expect(contact).toBeInViewport()
     await contact.focus()
     await page.keyboard.press("Enter")
     await expect(page).toHaveURL(/\/contact$/)
