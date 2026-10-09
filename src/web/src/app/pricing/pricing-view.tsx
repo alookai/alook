@@ -34,6 +34,7 @@ export function PricingView({ controller: c }: { controller: PricingController }
       <main className={styles.main}>
         <p className={styles.eyebrow}>Pricing</p>
         <h1>Choose the right space for your bots.</h1>
+        <p className={styles.contactLine}>Questions about a plan? <Link href="/contact">Contact us</Link></p>
 
         <div className={styles.status} aria-live="polite">{c.message}</div>
         {c.error && <div className={styles.status} role="alert">{c.error} <button type="button" onClick={c.retry}>Try again</button></div>}

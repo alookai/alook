@@ -102,6 +102,7 @@ it("fails closed on a catalog error and supports retry", async () => {
   state.api.mockRejectedValueOnce(new Error("offline"))
   const view = render(<PricingClient />)
   expect(await view.findByRole("alert")).toHaveTextContent("Couldn't load plans")
+  expect(view.getByRole("link", { name: "Contact us" })).toHaveAttribute("href", "/contact")
   expect(view.getByTestId("pricing-choose-studio")).toBeDisabled()
   await setupUser().click(view.getByRole("button", { name: "Try again" }))
   await waitFor(() => expect(view.getByRole("button", { name: "Choose Studio" })).toBeEnabled())

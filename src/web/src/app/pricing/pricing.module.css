@@ -1091,6 +1091,9 @@
   }
 }
 
+.contactLine { margin: 16px auto 0; text-align: center; font-size: 14px; color: var(--muted-foreground); }
+.contactLine a { display: inline-flex; align-items: center; min-height: 44px; color: var(--foreground); text-decoration: underline; text-underline-offset: 4px; }
+.contactLine a:focus-visible { outline: 2px solid var(--ring); outline-offset: 4px; border-radius: 2px; }
 .status { max-width: 70rem; margin: 16px auto; text-align: center; color: var(--muted-foreground); }
 .status:empty { display: none; }
 .status button { text-decoration: underline; min-height: 44px; padding: 0 8px; }

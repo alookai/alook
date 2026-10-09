@@ -79,6 +79,7 @@ export function BillingContent({ billing }: { billing: BillingController }) {
           {subscription?.status === "past_due" && <p>Your renewal payment needs attention. Update your payment method in billing management.</p>}
         </div>}
       </>}
+      <p className="mt-4 text-sm text-muted-foreground">Questions about your plan? <a href="/contact" target="_blank" rel="noopener noreferrer" aria-label="Contact us (opens in a new tab)" className="inline-flex min-h-11 items-center gap-1 rounded-sm text-foreground underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring">Contact us<ExternalLink className="size-3.5" aria-hidden="true" /></a></p>
     </section>
     {billing.isError && <p role="alert" className="text-sm text-destructive">Couldn&apos;t refresh your plan. Check your connection and refresh status.</p>}
     {billing.returnFrom && <p role="status" className="text-sm text-muted-foreground">
