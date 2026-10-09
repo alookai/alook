@@ -177,6 +177,43 @@ test.describe.serial("desktop thread split view", () => {
   test("opens forum posts in the same desktop split contract", async ({ asUser }, testInfo) => {
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 1280, height: 900 })
+    await page.goto(`/c/channels/${serverId}/${forumId}`)
+    await expect(page.getByTestId(tid.forumThreadCard(forumPostId))).toBeVisible()
+    let releaseMetadata!: () => void
+    const metadataGate = new Promise<void>((resolve) => { releaseMetadata = resolve })
+    const metadataPath = `/api/community/channels/${forumPostId}`
+    const metadataUrl = (url: URL) => url.pathname === metadataPath
+    const holdMetadata = async (route: import("@playwright/test").Route) => {
+      await metadataGate
+      await route.continue()
+    }
+    await page.route(metadataUrl, holdMetadata)
+    try {
+      const requested = page.waitForRequest((request) => new URL(request.url()).pathname === metadataPath)
+      await page.getByTestId(tid.forumThreadCard(forumPostId)).click()
+      await requested
+      const pendingShell = page.getByTestId(tid.threadSplit)
+      const pendingParent = page.getByTestId(tid.threadSplitParent)
+      const pendingPost = page.getByTestId(tid.threadSplitPanel)
+      await expect(pendingShell).toHaveAttribute("data-layout", "split")
+      await expect(pendingParent.getByTestId(tid.forumFilterBar)).toBeVisible()
+      await expect(pendingParent.locator('[data-slot="skeleton"]').first()).toBeVisible()
+      await expect(pendingParent.getByTestId(tid.forumPostList)).toHaveCount(0)
+      await expect(pendingPost.locator("[data-message-list-skeleton]")).toBeVisible()
+      const group = await pendingShell.locator('[data-slot="resizable-panel-group"]').elementHandle()
+      if (!group) throw new Error("Pending split group is unavailable")
+      const pendingWidth = (await pendingPost.boundingBox())?.width
+      if (pendingWidth === undefined) throw new Error("Pending post geometry is unavailable")
+      releaseMetadata()
+      await expect(pendingParent.getByTestId(tid.forumPostList)).toBeVisible()
+      await expect(pendingPost.getByText("Forum reply", { exact: false })).toBeVisible()
+      expect(await group.evaluate((node) => node.isConnected)).toBe(true)
+      expect(Math.abs(((await pendingPost.boundingBox())?.width ?? 0) - pendingWidth)).toBeLessThanOrEqual(1)
+      await group.dispose()
+    } finally {
+      releaseMetadata()
+      await page.unroute(metadataUrl, holdMetadata)
+    }
     await page.goto(`/c/channels/${serverId}/${forumPostId}`)
 
     await expect(page.getByTestId(tid.threadSplit)).toHaveAttribute("data-layout", "split", {

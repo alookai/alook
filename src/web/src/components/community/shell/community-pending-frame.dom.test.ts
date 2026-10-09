@@ -112,15 +112,25 @@ describe("CommunityPendingFrame", () => {
     expect(screen.getByLabelText("Loading server")).toHaveAttribute("aria-busy", "true")
   })
 
-  it("forwards a known navigation subtype without changing route ownership", () => {
+  it.each(["text", "forum"] as const)("forwards a known navigation subtype without changing route ownership: %s", (subtype) => {
     const rendered = render(createElement(CommunityPendingFrame, {
       href: "/c/channels/s1/c1",
-      conversationSubtype: "forum",
+      conversationSubtype: subtype,
     }))
     expect(screen.getByTestId("conversation-resolution"))
-      .toHaveAttribute("data-subtype", "forum")
+      .toHaveAttribute("data-subtype", subtype)
     expect(rendered.container.querySelector('[data-community-main-kind="server-conversation"]'))
       .toBeInTheDocument()
+  })
+
+  it("keeps a structural thread checkpoint neutral until its layout can be measured", () => {
+    const rendered = render(createElement(CommunityPendingFrame, {
+      href: "/c/channels/s1/post1", conversationSubtype: "thread",
+    }))
+    expect(screen.getByTestId("conversation-resolution")).toHaveAttribute("data-subtype", "unknown")
+    expect(screen.getByTestId("community-pending-main-server-conversation")).not.toHaveAttribute("aria-label")
+    expect(rendered.container.querySelector('[data-community-main-kind="server-conversation"]')).toBeInTheDocument()
+    expect(rendered.container.querySelectorAll("header, button, a, form, textarea")).toHaveLength(0)
   })
 
   it("uses a neutral route-resolution frame for malformed paths", () => {

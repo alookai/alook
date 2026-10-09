@@ -46,6 +46,7 @@ export function CommunityPendingFrame({
   conversationSubtype?: "text" | "forum" | "thread"
 }) {
   const plan = suppliedPlan ?? resolveCommunityModulePlan(href)
+  const pendingConversationSubtype = conversationSubtype === "thread" ? undefined : conversationSubtype
   const reserveMeBackSlot = reserveBackSlot || (
     plan.surface === "detail" && plan.sidebar.kind === "me"
   )
@@ -70,7 +71,7 @@ export function CommunityPendingFrame({
       content = <ServerLandingPendingFrame />
       break
     case "server-conversation":
-      content = <ConversationResolutionPendingFrame subtype={conversationSubtype} />
+      content = <ConversationResolutionPendingFrame subtype={pendingConversationSubtype} />
       break
     case "route-resolution":
       content = <RouteResolutionPendingFrame />
@@ -84,7 +85,7 @@ export function CommunityPendingFrame({
       data-community-main-kind={plan.main.kind}
       role={plan.main.kind === "server-conversation" ? "status" : undefined}
       aria-label={
-        plan.main.kind === "server-conversation" && conversationSubtype
+        plan.main.kind === "server-conversation" && pendingConversationSubtype
           ? "Resolving conversation"
           : undefined
       }

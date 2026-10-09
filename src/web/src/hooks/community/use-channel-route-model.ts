@@ -17,6 +17,7 @@ import {
 } from "@/lib/community/last-community-route"
 import { communityWsSubscribe, communityWsUnsubscribe } from "./use-community-ws"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { useRouteChannelProjection } from "@/lib/community-db/projections"
 import { useChannelMetadata } from "./use-channel-metadata"
 import type { ChildChannelMeta } from "./use-forum-sidebar-threads"
 
@@ -113,19 +114,39 @@ export function useChannelRouteModel(
         : model.routeHydrated && metaQuery.canRead && !metadataExit
           ? "ready" as const
           : "pending" as const
+  const structuralChannel = metaQuery.canonical?.id === channelId
+    && metaQuery.canonical.serverId === serverId && !metaQuery.canonical.pending
+    ? metaQuery.canonical : undefined
   const skeletonSubtype = routeLifecycle === "ready"
     ? model.isChild
       ? "thread" as const
       : model.isForum
         ? "forum" as const
         : "text" as const
-    : metaQuery.canonical?.type === "forum"
+    : structuralChannel?.type === "forum"
       ? "forum" as const
-      : metaQuery.canonical?.type === "text"
+      : structuralChannel?.type === "text"
         ? "text" as const
-        : metaQuery.canonical?.type === "thread"
+        : structuralChannel?.type === "thread"
           ? "thread" as const
           : "unknown" as const
+  const structuralParentId = skeletonSubtype === "thread"
+    ? model.currentChannelMeta?.parentChannelId ?? structuralChannel?.parentChannelId ?? null
+    : null
+  const canonicalParent = useRouteChannelProjection(structuralParentId)
+  const serverParent = server?.id === serverId
+    ? server.categories.flatMap((category) => category.channels)
+      .find((candidate) => candidate.id === structuralParentId && !candidate.pending)
+    : undefined
+  const parentType = serverParent?.type ?? (canonicalParent?.id === structuralParentId
+    && canonicalParent.serverId === serverId && !canonicalParent.pending ? canonicalParent.type : undefined)
+  const parentSubtype = parentType === "forum" ? "forum" as const
+    : parentType === "text" ? "text" as const : "unknown" as const
+  const layoutHint = useMemo(() => ({
+    subtype: skeletonSubtype,
+    parentChannelId: structuralParentId,
+    parentSubtype,
+  }), [skeletonSubtype, structuralParentId, parentSubtype])
   useEffect(() => {
     runtime.ui.actions.setCurrentChannelId(channelId)
     return () => { runtime.ui.actions.setCurrentChannelId(null) }
@@ -153,6 +174,7 @@ export function useChannelRouteModel(
     routeHydrated: model.routeHydrated && metaQuery.canRead && !metadataExit,
     routeLifecycle,
     skeletonSubtype,
+    layoutHint,
     metadataError,
     serverError,
     retryingServer,

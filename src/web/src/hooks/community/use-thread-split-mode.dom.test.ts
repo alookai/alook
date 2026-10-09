@@ -20,10 +20,14 @@ vi.mock("@/hooks/community/use-community-ws", () => ({
   communityWsReleaseSecondaryChannel: (...args: unknown[]) => mocks.releaseSecondary(...args),
 }))
 
-function Harness({ forceFullscreen = false }: { forceFullscreen?: boolean }) {
-  const split = useThreadSplitMode({ parentChannelId: "parent_1", forceFullscreen })
+function Harness({ forceFullscreen = false, parentChannelId = "parent_1", attach = true }: {
+  forceFullscreen?: boolean
+  parentChannelId?: string | null
+  attach?: boolean
+}) {
+  const split = useThreadSplitMode({ parentChannelId, forceFullscreen })
   return React.createElement("div", {
-    ref: split.containerRef,
+    ref: attach ? split.containerRef : undefined,
     "data-testid": "thread-split-mode",
     "data-mode": split.mode,
   })
@@ -43,21 +47,27 @@ describe("resolveThreadSplitMode", () => {
     })).toBe("full")
   })
 
-  it("keeps mobile, unresolved, and explicit fullscreen layouts single-pane", () => {
-    for (const breakpoint of ["mobile", "unknown"] as const) {
-      expect(resolveThreadSplitMode({ breakpoint, contentWidth: 2000, forceFullscreen: false })).toBe("full")
-    }
+  it("keeps mobile and explicit fullscreen layouts single-pane", () => {
+    expect(resolveThreadSplitMode({ breakpoint: "mobile", contentWidth: 2000, forceFullscreen: false })).toBe("full")
     expect(resolveThreadSplitMode({
       breakpoint: "desktop",
       contentWidth: 2000,
       forceFullscreen: true,
     })).toBe("full")
   })
+
+  it("keeps unconfirmed geometry pending instead of choosing a full layout", () => {
+    expect(resolveThreadSplitMode({ breakpoint: "unknown", contentWidth: 2000, forceFullscreen: false })).toBe("pending")
+    expect(resolveThreadSplitMode({ breakpoint: "desktop", contentWidth: null, forceFullscreen: false })).toBe("pending")
+    expect(resolveThreadSplitMode({ breakpoint: "mobile", contentWidth: null, forceFullscreen: false })).toBe("full")
+  })
 })
 
 describe("useThreadSplitMode secondary live subscription", () => {
   let observerCallback: ResizeObserverCallback | null
   let width: number
+  const observe = vi.fn()
+  const disconnect = vi.fn()
 
   beforeEach(() => {
     mocks.breakpoint = "desktop"
@@ -65,6 +75,8 @@ describe("useThreadSplitMode secondary live subscription", () => {
     mocks.releaseSecondary.mockClear()
     observerCallback = null
     width = THREAD_SPLIT_MIN_CONTENT_WIDTH
+    observe.mockClear()
+    disconnect.mockClear()
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({
       width,
       height: 0,
@@ -78,9 +90,38 @@ describe("useThreadSplitMode secondary live subscription", () => {
     }))
     vi.stubGlobal("ResizeObserver", class {
       constructor(callback: ResizeObserverCallback) { observerCallback = callback }
-      observe() {}
-      disconnect() {}
+      observe = observe
+      disconnect = disconnect
     })
+  })
+
+  it("measures the stable outer node before a parent is readable without claiming its channel", () => {
+    const renderer = render(React.createElement(Harness, { parentChannelId: null }))
+    const node = screen.getByTestId("thread-split-mode")
+    expect(node).toHaveAttribute("data-mode", "split")
+    expect(observe).toHaveBeenCalledWith(node)
+    expect(mocks.claimSecondary).not.toHaveBeenCalled()
+    renderer.rerender(React.createElement(Harness))
+    expect(screen.getByTestId("thread-split-mode")).toBe(node)
+    expect(observe).toHaveBeenCalledOnce()
+    expect(mocks.claimSecondary).toHaveBeenCalledOnce()
+    renderer.unmount()
+    expect(disconnect).toHaveBeenCalledOnce()
+  })
+
+  it("does not claim a qualified parent before either measurement or breakpoint is confirmed", () => {
+    const renderer = render(React.createElement(Harness, { attach: false }))
+    expect(screen.getByTestId("thread-split-mode")).toHaveAttribute("data-mode", "pending")
+    expect(mocks.claimSecondary).not.toHaveBeenCalled()
+    mocks.breakpoint = "unknown"
+    renderer.rerender(React.createElement(Harness))
+    expect(screen.getByTestId("thread-split-mode")).toHaveAttribute("data-mode", "pending")
+    expect(mocks.claimSecondary).not.toHaveBeenCalled()
+    mocks.breakpoint = "desktop"
+    renderer.rerender(React.createElement(Harness))
+    expect(screen.getByTestId("thread-split-mode")).toHaveAttribute("data-mode", "split")
+    expect(mocks.claimSecondary).toHaveBeenCalledOnce()
+    renderer.unmount()
   })
 
   afterEach(() => {
