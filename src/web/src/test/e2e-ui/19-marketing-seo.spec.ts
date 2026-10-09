@@ -251,7 +251,7 @@ for (const width of [1440, 390]) {
     expect(box!.height).toBeGreaterThanOrEqual(44)
     expect(box!.y + box!.height).toBeLessThan(plans!.y)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
-    await expect(page.getByTestId("pricing-choose-free")).toBeEnabled()
+    await expect(page.getByRole("heading", { name: "Free", exact: true }).locator("..").getByRole("button")).toBeEnabled()
     await page.screenshot({ path: testInfo.outputPath("pricing-contact.png") })
     await contact.focus()
     await page.keyboard.press("Enter")
