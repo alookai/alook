@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import React from "react"
-import { act } from "@/test/react-dom-harness"
+import { act, fireEvent } from "@/test/react-dom-harness"
 import { renderCommunity as rtlRender } from "@/test/community-owner-harness"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
@@ -355,6 +355,21 @@ afterEach(() => {
 })
 
 describe("Message memo comparator", () => {
+  it.each([true, false])("preserves the live avatar through activation and selection (hover: %s)", (hoverCapable) => {
+    const props = { m: baseMsg(), onOpenThread: vi.fn(), onEnterSelect: vi.fn(), hoverCapable }
+    const view = rtlRender(makeTree(props))
+    const avatar = view.container.querySelector("[data-avatar-kind]")
+    expect(avatar).not.toBeNull()
+    if (hoverCapable) {
+      fireEvent.pointerEnter(view.container.querySelector(".group.relative")!, { pointerType: "mouse" })
+      expect(view.container.querySelector("[data-avatar-kind]")).toBe(avatar)
+    }
+    view.rerender(makeTree({ ...props, selectMode: true, selected: true }))
+    expect(view.container.querySelector("[data-avatar-kind]")).toBe(avatar)
+    view.rerender(makeTree({ ...props, selectMode: false }))
+    expect(view.container.querySelector("[data-avatar-kind]")).toBe(avatar)
+  })
+
   it("keeps selection controls out of the message row layout", () => {
     let renderer: DomRenderer
     act(() => {
@@ -1773,9 +1788,7 @@ describe("Message lazy overlays", () => {
     const target = { closest: () => authorButton }
 
     act(() => row.props.onPointerEnter({ target }))
-    expect(renderer!.root.findAll(
-      (node) => node.props["data-slot"] === "context-menu-trigger",
-    )).toHaveLength(0)
+    expect(renderer!.root.findAllByType("mock-context-menu")[0]!.props.disabled).toBe(true)
 
     const event = { clientX: 10, clientY: 20 }
     act(() => authorButton!.props.onClick(event))
@@ -1783,7 +1796,7 @@ describe("Message lazy overlays", () => {
     expect(onOpenProfile).toHaveBeenCalledWith("Alice", event, undefined, "u1")
   })
 
-  it("does not mount the ContextMenu root until the row is activated", () => {
+  it("keeps context-menu contents and the toolbar lazy until activation", () => {
     const onOpenThread = vi.fn()
     let renderer: DomRenderer
     act(() => {
@@ -1793,14 +1806,9 @@ describe("Message lazy overlays", () => {
         { createNodeMock: () => genericMock },
       )
     })
-    // Before activation: the row renders but the ContextMenu content
-    // (MessageContextItems) is not in the tree. We assert no element carries the
-    // context-menu content marker by checking the rendered JSON has no
-    // "ContextMenu"-typed node. A cheap structural proxy: the "Add reaction"
-    // toolbar (only mounted when activated) is absent.
     const json = renderer!.toJSON()
     const tree = JSON.stringify(json)
-    // The reaction-add testid only renders inside the activated toolbar.
+    expect(tree).not.toContain("mock-context-menu-content")
     expect(tree).not.toContain("reaction-add")
   })
 

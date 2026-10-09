@@ -522,7 +522,7 @@ function MessageImpl({
         ? (event) => {
             if (messageEventBelongsToRow(event.target, event.currentTarget)) onToggleSelect?.()
           }
-        : interactive && touchFallbackActive
+        : interactive && !selectMode && touchFallbackActive
           ? (event) => {
             if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             const selection = window.getSelection()
@@ -550,7 +550,7 @@ function MessageImpl({
             }
           }
         : undefined}
-      onClickCapture={interactive
+      onClickCapture={interactive && !selectMode
         ? (event) => {
             if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             const target = messageExternalLinkTargetFromEventTarget(event.target)
@@ -893,9 +893,7 @@ function MessageImpl({
     </div>
   )
 
-  // Not interactive → render the bare row. In select mode the row itself is a
-  // toggle target, so no action-menu trigger is mounted.
-  if (!interactive || selectMode) return row
+  if (!interactive) return row
 
   // Coarse/touch input: tap opens the existing dropdown menu. Deliberately do
   // not mount ContextMenuTrigger here — its long-press gesture competes with
@@ -903,9 +901,9 @@ function MessageImpl({
   if (touchFallbackActive || touchMenuOpen) {
     return (
       <DropdownMenu
-        open={touchMenuOpen}
+        open={touchMenuOpen && !selectMode}
         onOpenChange={(open) => {
-          setTouchMenuOpen(open)
+          setTouchMenuOpen(open && !selectMode)
           if (!open) setLinkTarget(null)
         }}
       >
@@ -923,6 +921,7 @@ function MessageImpl({
           )}
           {row}
           <DropdownMenuTrigger
+            disabled={selectMode}
             render={(
               <button
                 type="button"
@@ -948,26 +947,21 @@ function MessageImpl({
     )
   }
 
-  // Not yet activated on desktop → render the bare row (which carries
-  // the pointerenter/focus/keydown activation handlers). The row's Base UI
-  // ContextMenu root is only mounted once hover/focus has activated it — and a
-  // right-click is always preceded by a pointerenter (mouse arriving on the
-  // row), and Shift+F10 by focus, so the menu is mounted before it's invoked.
-  // (The share-as-image dialog now lives in MessageList — the share button
-  // enters multi-select mode; the dialog opens from the select bar there.)
-  // In select mode the row is a toggle target — no context menu / toolbar.
-  if (!activated) return row
   return (
     <ContextMenu
+      disabled={!activated || selectMode}
+      open={contextOpen && !selectMode}
       onOpenChange={(open) => {
-        setContextOpen(open)
+        setContextOpen(open && !selectMode)
         if (!open) setLinkTarget(null)
       }}
     >
       <ContextMenuTrigger className="select-text" render={row} />
-      <ContextMenuContent className="w-48">
-        <MessageContextItems {...menuHandlers} {...linkMenuHandlers} />
-      </ContextMenuContent>
+      {activated && !selectMode && (
+        <ContextMenuContent className="w-48">
+          <MessageContextItems {...menuHandlers} {...linkMenuHandlers} />
+        </ContextMenuContent>
+      )}
     </ContextMenu>
   )
 }
