@@ -49,7 +49,7 @@ describe("prepareCliTransport", () => {
     });
     const cli: CliTransportConfig = { cliName: "house", envPrefix: "HOUSE", stateDirName: ".house" };
     const { stateDir, spawnEnv } = await prepareCliTransport(ctx, { HOUSE_CLI: "driver-override" }, cli, "win32");
-    expect(spawnEnv.HOUSE_CLI).toBe(path.join(stateDir, "bin", "house.cmd"));
+    expect(spawnEnv.HOUSE_CLI).toBe(path.join(stateDir, "bin", "house.cmd").replaceAll("\\", "/"));
     expect(fs.existsSync(spawnEnv.HOUSE_CLI!)).toBe(true);
   });
 

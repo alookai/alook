@@ -132,7 +132,7 @@ export async function prepareCliTransport(
       vars: {
         ...resource.platformProtected,
         ...(platform === "win32" && hostCliPath
-          ? { [`${cli.envPrefix}_CLI`]: path.join(binDir, `${cli.cliName}.cmd`) }
+          ? { [`${cli.envPrefix}_CLI`]: path.join(binDir, `${cli.cliName}.cmd`).replaceAll("\\", "/") }
           : {}),
         FORCE_COLOR: "0",
         NO_COLOR: "1",
