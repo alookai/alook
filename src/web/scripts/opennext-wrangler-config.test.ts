@@ -74,6 +74,13 @@ describe("OpenNext and Wrangler refresh", () => {
     expect(lockfile).not.toContain("'@opennextjs/aws@4.1.0':")
   })
 
+  it("minifies the Web Worker with keep_names disabled and bundling enabled", () => {
+    const webTopLevel = readRepositoryFile("src/web/wrangler.toml").split(/^[ \t]*\[/m)[0]
+    expect(webTopLevel.match(/^[ \t]*minify[ \t]*=.*$/gm)).toEqual(["minify = true"])
+    expect(webTopLevel.match(/^[ \t]*keep_names[ \t]*=.*$/gm)).toEqual(["keep_names = false"])
+    expect(webTopLevel).not.toMatch(/^[ \t]*no_bundle[ \t]*=[ \t]*true\b/m)
+  })
+
   it("enables strict public global fetch without forbidden module registry flags", () => {
     for (const path of ["src/web/wrangler.toml", "src/web/blog/wrangler.toml"]) {
       const toml = readRepositoryFile(path)
