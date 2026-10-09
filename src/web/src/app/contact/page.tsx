@@ -2,7 +2,7 @@ import type { Metadata } from "next"
 import Image from "next/image"
 import Link from "next/link"
 import { ArrowUpRight, CalendarDays, Mail } from "lucide-react"
-import { SiDiscord } from "@icons-pack/react-simple-icons"
+import { SiDiscord, SiX } from "@icons-pack/react-simple-icons"
 import { LandingFooter } from "@/components/home/landing-footer"
 import landing from "@/components/home/landing-page.module.css"
 import styles from "./contact.module.css"
@@ -16,6 +16,7 @@ export const metadata: Metadata = {
 const contacts = [
   { icon: Mail, label: "Email", text: "gus@memodb.io", href: "mailto:gus@memodb.io" },
   { icon: CalendarDays, label: "Meet", text: "Book 15 minutes", href: "https://cal.com/gustavoye/15min" },
+  { icon: SiX, label: "X", text: "@im_gusye", href: "https://x.com/im_gusye" },
 ]
 
 export default function ContactPage() {

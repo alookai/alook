@@ -199,6 +199,15 @@ for (const width of [1440, 390]) {
     await page.goto("/contact")
     await page.evaluate(() => document.fonts.ready)
 
+    const gusX = page.getByRole("link", { name: "X @im_gusye", exact: true })
+    await expect(gusX).toBeVisible()
+    await expect(gusX).toHaveAttribute("href", "https://x.com/im_gusye")
+    await gusX.focus()
+    await expect(gusX).toBeFocused()
+    expect((await gusX.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+    await page.screenshot({ path: testInfo.outputPath("contact-gus-x.png"), fullPage: true })
+
     const contactLayout = () => page.locator("main").evaluate((main) => {
       const sheet = main.querySelector("section")!
       const style = (element: Element, properties: string[]) => {
