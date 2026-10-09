@@ -1,4 +1,4 @@
-import type { Locator, Page, Request } from "@playwright/test"
+import type { Locator, Page, Request, Route } from "@playwright/test"
 import { test, expect, userId } from "./_fixtures/community-fixture"
 import {
   composerEditable,
@@ -744,18 +744,31 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   const directProfileCard = alice.page.getByTestId(tid.profileCard)
   await expect(directProfileCard).toBeVisible()
   await directProfileCard.getByPlaceholder(`Message @${bobInfo.name}`).fill(directDmBody)
+  const directPostPath = `/api/community/channels/${dmId}/messages`
+  let directPayload: { message: { id: string } } | undefined
+  const captureDirectResponse = async (route: Route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue()
+      return
+    }
+    const response = await route.fetch()
+    directPayload = await response.json() as { message: { id: string } }
+    await route.fulfill({ response })
+  }
+  await alice.page.route(`**${directPostPath}`, captureDirectResponse)
   const directResponsePromise = alice.page.waitForResponse((response) => (
     response.request().method() === "POST"
-    && new URL(response.url()).pathname === `/api/community/channels/${dmId}/messages`
+    && new URL(response.url()).pathname === directPostPath
   ))
   await directProfileCard.getByRole("button", { name: "Send message" }).click()
   const directResponse = await directResponsePromise
   expect(directResponse.status()).toBe(201)
-  const directPayload = await directResponse.json() as { message: { id: string } }
+  await alice.page.unroute(`**${directPostPath}`, captureDirectResponse)
+  expect(directPayload).toMatchObject({ message: { id: expect.any(String) } })
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/me/${dmId}`)
   expect(await latestSeq(alice.page, dmId)).toBe(dmSeqBeforeDirect + 1)
   await expect.poll(() => bobProxy.frames.filter((frame) => (
-    frameHasMessage(frame, dmId, directPayload.message.id)
+    frameHasMessage(frame, dmId, directPayload!.message.id)
   )).length).toBe(1)
   await bob.page.goto(`/c/me/${dmId}`, { waitUntil: "commit" })
   await ignoreNextDevToolsPointerCapture(alice.page)
