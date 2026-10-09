@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { createDb } from "../../src/db";
 import * as inboxQueries from "../../src/db/queries/community/inbox";
 import { isChannelUnread, isDmUnread } from "../../src/db/queries/community/inbox";
 
@@ -223,7 +224,7 @@ describe("listUnreadForumOpeners — scoped forum projection", () => {
   function createForumOpenerMock(responseSets: any[][]) {
     let call = 0;
     const chain: any = {};
-    chain.select = vi.fn(() => chain);
+    chain.select = vi.fn((fields: any) => fields?.value ? createDb({} as any).select(fields) : chain);
     chain.from = vi.fn(() => chain);
     chain.innerJoin = vi.fn(() => chain);
     chain.leftJoin = vi.fn(() => chain);
@@ -281,7 +282,7 @@ describe("listUnreadForumOpeners — scoped forum projection", () => {
     });
   });
 
-  it("chunks the authorized id scope and globally sorts createdAt, seq, then id", async () => {
+  it("uses one authorized set predicate and globally sorts createdAt, seq, then id", async () => {
     const firstChunk = [
       raw({ openerMessageId: "opener_a", openerSeq: 4, createdAt: "2026-07-07T10:00:00.000Z" }),
       raw({ openerMessageId: "opener_z", openerSeq: 8, createdAt: "2026-07-07T09:00:00.000Z" }),
@@ -290,11 +291,11 @@ describe("listUnreadForumOpeners — scoped forum projection", () => {
       raw({ openerMessageId: "opener_b", openerSeq: 5, createdAt: "2026-07-07T10:00:00.000Z" }),
       raw({ openerMessageId: "opener_c", openerSeq: 5, createdAt: "2026-07-07T10:00:00.000Z" }),
     ];
-    const db = createForumOpenerMock([firstChunk, secondChunk]);
+    const db = createForumOpenerMock([[...firstChunk, ...secondChunk]]);
     const ids = Array.from({ length: 91 }, (_, i) => `forum_${i}`);
     const result = await inboxQueries.listUnreadForumOpeners(db, "u1", ids);
 
-    expect(db.select).toHaveBeenCalledTimes(2);
+    expect(db.where).toHaveBeenCalledTimes(1);
     expect(result.map((row) => row.openerMessageId)).toEqual([
       "opener_c",
       "opener_b",
@@ -308,7 +309,7 @@ describe("listThreadOpenersByChildIds — structurally validated child projectio
   function createChildOpenerMock(responseSets: any[][]) {
     let call = 0;
     const chain: any = {};
-    chain.select = vi.fn(() => chain);
+    chain.select = vi.fn((fields: any) => fields?.value ? createDb({} as any).select(fields) : chain);
     chain.from = vi.fn(() => chain);
     chain.innerJoin = vi.fn(() => chain);
     chain.leftJoin = vi.fn(() => chain);
@@ -356,15 +357,14 @@ describe("listThreadOpenersByChildIds — structurally validated child projectio
     expect(rows[1]?.openerUnread).toBe(false);
   });
 
-  it("chunks the bounded child id set and globally sorts results", async () => {
+  it("uses one child set predicate and globally sorts results", async () => {
     const db = createChildOpenerMock([[
       raw({ openerMessageId: "older", childChannelId: "post_old", createdAt: "2026-07-07T09:00:00.000Z" }),
-    ], [
       raw({ openerMessageId: "newer", childChannelId: "post_new", createdAt: "2026-07-07T11:00:00.000Z" }),
     ]]);
     const ids = Array.from({ length: 91 }, (_, index) => `post_${index}`);
     const rows = await inboxQueries.listThreadOpenersByChildIds(db, "u1", ids);
-    expect(db.select).toHaveBeenCalledTimes(2);
+    expect(db.where).toHaveBeenCalledTimes(1);
     expect(rows.map((row) => row.openerMessageId)).toEqual(["newer", "older"]);
   });
 });

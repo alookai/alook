@@ -376,6 +376,31 @@ describe("withUniqueDiscriminator", () => {
     ).rejects.toBe(otherErr);
     expect(insertFn).toHaveBeenCalledTimes(1);
   });
+
+  it("retries a selected server-handle signature and preserves the salted winner", async () => {
+    const columns = ["community_server.name", "community_server.discriminator"];
+    const error = new Error("Driver error", { cause: new Error("UNIQUE constraint failed: community_server.name, community_server.discriminator") });
+    const insertFn = vi.fn<(discriminator: string) => Promise<string>>()
+      .mockRejectedValueOnce(error)
+      .mockImplementationOnce(async (discriminator) => discriminator);
+    await expect(userQueries.withUniqueDiscriminator({} as any, { id: "selected", name: "Server" }, insertFn, columns))
+      .resolves.toBe(computeDiscriminator("selected:4:1", 4));
+    expect(insertFn).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    new Error("UNIQUE constraint failed: community_category.server_id, community_category.name"),
+    Object.assign(new Error("constraint failed"), { code: "SQLITE_CONSTRAINT_UNIQUE" }),
+    new Error("FOREIGN KEY constraint failed"),
+    new Error("injected abort"),
+  ])("preserves a nonmatching batch error without salt retry: %s", async (error) => {
+    const insertFn = vi.fn(async () => { throw error; });
+    await expect(userQueries.withUniqueDiscriminator({} as any, { id: "selected", name: "Server" }, insertFn,
+      ["community_server.name", "community_server.discriminator"]))
+      .rejects.toBe(error);
+    expect(insertFn).toHaveBeenCalledTimes(1);
+  });
+
 });
 
 describe("probeAvailableDiscriminator", () => {

@@ -40,4 +40,25 @@ describe("isUniqueConstraintError", () => {
     expect(isUniqueConstraintError(new Error("connection timeout"))).toBe(false);
     expect(isUniqueConstraintError(new Error("FOREIGN KEY constraint"))).toBe(false);
   });
+
+  it("matches only the complete expected native UNIQUE column signature", () => {
+    const columns = ["community_server.name", "community_server.discriminator"];
+    expect(isUniqueConstraintError(new Error("D1_ERROR: UNIQUE constraint failed: community_server.name, community_server.discriminator: SQLITE_CONSTRAINT"), columns)).toBe(true);
+    expect(isUniqueConstraintError(new Error("UNIQUE constraint failed: community_category.server_id, community_category.name"), columns)).toBe(false);
+    expect(isUniqueConstraintError(new Error("UNIQUE constraint failed: community_server.name, community_server.discriminator_extra"), columns)).toBe(false);
+    expect(isUniqueConstraintError(new Error("UNIQUE constraint failed: community_server.name, community_server.discriminator, community_server.id"), columns)).toBe(false);
+    expect(isUniqueConstraintError(Object.assign(new Error("constraint failed"), { code: "SQLITE_CONSTRAINT_UNIQUE" }), columns)).toBe(false);
+    expect(isUniqueConstraintError(new Error("FOREIGN KEY constraint failed"), columns)).toBe(false);
+    expect(isUniqueConstraintError(new Error("UNIQUE constraint failed: community_server.name"), [])).toBe(false);
+  });
+
+  it("uses the actual nested driver cause rather than an outer query's text", () => {
+    const columns = ["community_server.name", "community_server.discriminator"];
+    const match = new Error("UNIQUE constraint failed: community_server.name, community_server.discriminator");
+    const other = new Error("UNIQUE constraint failed: community_category.server_id, community_category.name");
+    expect(isUniqueConstraintError(new Error("Query failed", { cause: new Error("Wrapped", { cause: match }) }), columns)).toBe(true);
+    expect(isUniqueConstraintError(new Error(match.message, { cause: other }), columns)).toBe(false);
+    expect(isUniqueConstraintError(null, columns)).toBe(false);
+  });
+
 });

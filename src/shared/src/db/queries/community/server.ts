@@ -34,95 +34,74 @@ export async function createServer(
     userDiscriminator: string;
   };
 }> {
-  // Mint the id up-front so the discriminator (an FNV-1a hash of the id) is
-  // written in the same INSERT — same pattern as createUser/createBot. Only the
-  // server row carries the discriminator, so wrap just that insert (not the
-  // whole batch): category/channel/member rows don't touch the (name,
-  // discriminator) unique index, so they run after the server row wins its
-  // discriminator. A collision against idx_community_server_name_discriminator
-  // salt-retries the server insert; throw-at-cap on exhaustion (loud, never a
-  // silent duplicate).
   const id = nanoid();
-  const server = await withUniqueDiscriminator(
+  const publicCategoryId = nanoid();
+  const privateCategoryId = nanoid();
+  const privateChannelId = nanoid();
+  const [serverRows, , , , , , memberRows] = await withUniqueDiscriminator(
     db,
     { id, name: data.name },
-    async (discriminator) => {
-      const [row] = await db
-        .insert(communityServer)
-        .values({
-          id,
-          name: data.name,
-          discriminator,
-          description: data.description ?? "",
-          ownerId: data.ownerId,
-        })
-        .returning();
-      return row!;
-    }
+    (discriminator) => db.batch([
+      db.insert(communityServer).values({
+        id,
+        name: data.name,
+        discriminator,
+        description: data.description ?? "",
+        ownerId: data.ownerId,
+      }).returning(),
+      db.insert(communityCategory).values({
+        id: publicCategoryId,
+        serverId: id,
+        name: "Public",
+        position: 0,
+        private: 0,
+      }),
+      db.insert(communityChannel).values({
+        serverId: id,
+        categoryId: publicCategoryId,
+        name: "all",
+        type: "text",
+        position: 0,
+      }),
+      db.insert(communityCategory).values({
+        id: privateCategoryId,
+        serverId: id,
+        name: "Private",
+        position: 1,
+        private: 1,
+        creatorId: data.ownerId,
+      }),
+      db.insert(communityChannel).values({
+        id: privateChannelId,
+        serverId: id,
+        categoryId: privateCategoryId,
+        name: "room",
+        type: "text",
+        position: 0,
+        creatorId: data.ownerId,
+      }),
+      db.insert(communityChannelMember).values({
+        channelId: privateChannelId,
+        userId: data.ownerId,
+        relation: "access",
+        source: "added",
+        addedBy: data.ownerId,
+      }),
+      db.insert(communityServerMember).values({
+        serverId: id,
+        userId: data.ownerId,
+        role: "owner",
+        railOrder: 0,
+      }).returning({
+        id: communityServerMember.id,
+        userId: communityServerMember.userId,
+        joinedAt: communityServerMember.joinedAt,
+      }),
+    ]),
+    ["community_server.name", "community_server.discriminator"],
   );
-
-  const [publicCategory] = await db
-    .insert(communityCategory)
-    .values({
-      serverId: server.id,
-      name: "Public",
-      position: 0,
-      private: 0,
-    })
-    .returning();
-
-  await db.insert(communityChannel).values({
-    serverId: server.id,
-    categoryId: publicCategory!.id,
-    name: "all",
-    type: "text",
-    position: 0,
-  });
-
-  const [privateCategory] = await db
-    .insert(communityCategory)
-    .values({
-      serverId: server.id,
-      name: "Private",
-      position: 1,
-      private: 1,
-      creatorId: data.ownerId,
-    })
-    .returning();
-
-  const [privateChannel] = await db
-    .insert(communityChannel)
-    .values({
-      serverId: server.id,
-      categoryId: privateCategory!.id,
-      name: "room",
-      type: "text",
-      position: 0,
-      creatorId: data.ownerId,
-    })
-    .returning();
-
-  await db.insert(communityChannelMember).values({
-    channelId: privateChannel!.id,
-    userId: data.ownerId,
-    relation: "access",
-    source: "added",
-    addedBy: data.ownerId,
-  });
-
-  const [memberRow] = await db
-    .insert(communityServerMember)
-    .values({
-      serverId: server.id,
-      userId: data.ownerId,
-      role: "owner",
-      railOrder: 0,
-    })
-    .returning({
-      id: communityServerMember.id,
-      userId: communityServerMember.userId,
-      joinedAt: communityServerMember.joinedAt,
-    });
+  const server = serverRows[0]!;
+  const memberRow = memberRows[0]!;
 
   // Fetch the owner's display name + avatar directly instead of re-listing
   // members — a freshly-created server has exactly one member row, so a
