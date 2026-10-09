@@ -1,4 +1,5 @@
 import { once } from "node:events";
+import { createServer } from "node:http";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -91,6 +92,105 @@ describe.skipIf(process.platform !== "win32")("native Windows injected Node CLI"
       const failed = await invoke(spawnEnv.ALOOK_CLI!, ["--fail"], directory, true, { env: spawnEnv });
       expect(failed.code).toBe(23);
     } finally {
+      rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    }
+  }, 120_000);
+});
+
+describe.skipIf(!process.env.ALOOK_NATIVE_CLI_PATH)("installed host CLI callback", () => {
+  it("pulls, acknowledges and sends literal stdin through the injected product CLI", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "alook candidate callback with spaces-"));
+    const channel = "/windows-qa#0042/general";
+    const requests: Array<{ method: string | undefined; path: string | undefined; body: Record<string, unknown>; authorized: boolean }> = [];
+    const incoming = { seq: "#1", channel, sender: "@qa#0042", content: { text: "callback-inbox-nonce-165" }, time: "2026-10-09T00:00:00Z" };
+    let sentCount = 0;
+    const server = createServer(async (req, res) => {
+      try {
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) chunks.push(Buffer.from(chunk));
+        const body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}") as Record<string, unknown>;
+        const authorized = req.headers.authorization === "Bearer vch_windows_cli_fixture";
+        requests.push({ method: req.method, path: req.url, body, authorized });
+        res.setHeader("content-type", "application/json");
+        if (!authorized) { res.writeHead(401).end(JSON.stringify({ error: "fixture authorization missing" })); return; }
+        if (req.url === "/api/community/users/me/inbox/pull") {
+          res.end(JSON.stringify({ messages: [incoming], hasMore: false, markedCount: 0 }));
+        } else if (req.url === "/api/community/users/me/inbox/ack") {
+          res.end(JSON.stringify({ applied: body.cursors, failed: [] }));
+        } else if (req.url === "/api/community/channels/resolve/messages") {
+          sentCount += 1;
+          res.end(JSON.stringify({ state: "sent", message: { ...incoming, seq: `#${sentCount + 1}`, content: body.content } }));
+        } else if (req.url === "/__alook/local/message-reminder") {
+          res.end(JSON.stringify({ armed: false, reason: "disabled" }));
+        } else {
+          res.writeHead(404).end(JSON.stringify({ error: "unexpected fixture route" }));
+        }
+      } catch {
+        res.writeHead(500).end(JSON.stringify({ error: "invalid fixture request" }));
+      }
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("missing fixture TCP port");
+      const voucherFile = join(directory, "voucher.txt");
+      writeFileSync(voucherFile, "vch_windows_cli_fixture", { mode: 0o600 });
+      const host = process.env.ALOOK_NATIVE_CLI_PATH!;
+      const ctx = fakeLaunchContext("codex", directory, {
+        prepared: {
+          ...fakePrepared({
+            base: process.env,
+            platformProtected: { ALOOK_ID: "agent_cli_fixture", ALOOK_CLI: host },
+            networkProtected: { ALOOK_PROXY_URL: `http://127.0.0.1:${address.port}` },
+            credentialSensitive: { ALOOK_PROXY_TOKEN_FILE: voucherFile },
+          }),
+          executablePath: host,
+        },
+      });
+      const { spawnEnv } = await prepareCliTransport(ctx);
+      const windows = process.platform === "win32";
+      const pull = await invoke(spawnEnv.ALOOK_CLI!, ["inbox", "pull"], directory, windows, { env: spawnEnv });
+      console.log(JSON.stringify({ stage: "candidate-inbox-pull", ...pull }));
+      expect(JSON.parse(pull.stdout).success.messages[0].content.text).toBe(incoming.content.text);
+      expect(JSON.parse(pull.stdout).success.acked).toBe(1);
+      expect(pull.code).toBe(0);
+      const message = "Windows 中文回复✓ nonce-product-cli-165";
+      const sendArgs = ["message", "send", "--target", channel, "--reply", "1", "--stdin", "--remind-after", "0"];
+      const send = await invoke(spawnEnv.ALOOK_CLI!, sendArgs, directory, windows, { env: spawnEnv, stdin: message });
+      console.log(JSON.stringify({ stage: "candidate-stdin-send", ...send }));
+      expect(JSON.parse(send.stdout).success.sent).toBe(`${channel}#2`);
+      expect(send.code).toBe(0);
+      const expectedBodies = [message];
+      if (windows) {
+        const script = "$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\r\n@'\r\n" + message +
+          `\r\n'@ | & $env:ALOOK_CLI message send --target '${channel}' --reply 1 --stdin --remind-after 0\r\nexit $LASTEXITCODE`;
+        const powershell = await invoke("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand",
+          Buffer.from(script, "utf16le").toString("base64")], directory, false, { env: spawnEnv });
+        console.log(JSON.stringify({ stage: "candidate-powershell-send", ...powershell }));
+        expect(JSON.parse(powershell.stdout).success.sent).toBe(`${channel}#3`);
+        expect(powershell.code).toBe(0);
+        expectedBodies.push(message + "\r\n");
+        const bashPath = process.env.ALOOK_NATIVE_BASH_PATH;
+        expect(bashPath).toBeTruthy();
+        const bashScript = join(directory, "send.sh");
+        writeFileSync(bashScript, `"$ALOOK_CLI" message send --target '${channel}' --reply 1 --stdin --remind-after 0 <<'ALOOK_CLI_TEST_165'\n${message}\nALOOK_CLI_TEST_165\n`);
+        const bash = await invoke(bashPath!, ["--noprofile", "--norc", bashScript.replaceAll("\\", "/")], directory, false, { env: spawnEnv });
+        console.log(JSON.stringify({ stage: "candidate-git-bash-send", ...bash }));
+        expect(JSON.parse(bash.stdout).success.sent).toBe(`${channel}#4`);
+        expect(bash.code).toBe(0);
+        expectedBodies.push(message + "\n");
+      }
+      const sends = requests.filter(req => req.path === "/api/community/channels/resolve/messages");
+      expect(sends.map(req => req.body.content)).toEqual(expectedBodies.map(text => ({ text })));
+      expect(sends.every(req => req.body.channel === channel && req.body.replyToSeq === 1 && typeof req.body.nonce === "string")).toBe(true);
+      expect(requests.every(req => req.authorized && !("agentId" in req.body))).toBe(true);
+      expect(requests.filter(req => req.path === "/api/community/users/me/inbox/ack").map(req => req.body.cursors))
+        .toEqual([[{ channel, seq: 1 }]]);
+      expect(requests).toHaveLength(2 + expectedBodies.length * 2);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
       rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
     }
   }, 120_000);
