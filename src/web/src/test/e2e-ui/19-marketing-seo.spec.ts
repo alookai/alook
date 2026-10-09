@@ -192,7 +192,7 @@ test("desktop landing keeps the embedded phone Back control on true mobile geome
 })
 
 for (const width of [1440, 390]) {
-  test(`contact preserves its layout after client navigation at ${width}px`, async ({ page, context, baseURL }) => {
+  test(`contact preserves its layout after client navigation at ${width}px`, async ({ page, context, baseURL }, testInfo) => {
     await context.addCookies([{ name: "alook_analytics_consent", value: "v1.denied", url: baseURL! }])
     await page.setViewportSize({ width, height: 900 })
     await page.emulateMedia({ reducedMotion: "reduce" })
@@ -233,6 +233,21 @@ for (const width of [1440, 390]) {
     await expect(page).toHaveURL(/\/$/)
     await page.getByTestId(tid.landingFooterNavigation).getByRole("link", { name: "Contact", exact: true }).click()
     await expect(page).toHaveURL(/\/contact$/)
+    await expect.poll(contactLayout).toEqual(direct)
+    await page.goto("/pricing")
+    const contact = page.getByRole("link", { name: "Contact us", exact: true })
+    await expect(contact).toBeInViewport()
+    const box = await contact.boundingBox()
+    const plans = await page.getByRole("region", { name: "Alook plans" }).boundingBox()
+    expect(box!.height).toBeGreaterThanOrEqual(44)
+    expect(box!.y + box!.height).toBeLessThan(plans!.y)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+    await expect(page.getByTestId("pricing-choose-free")).toBeEnabled()
+    await page.screenshot({ path: testInfo.outputPath("pricing-contact.png") })
+    await contact.focus()
+    await page.keyboard.press("Enter")
+    await expect(page).toHaveURL(/\/contact$/)
+    await expect(page.getByRole("heading", { name: "Let’s talk." })).toBeVisible()
     await expect.poll(contactLayout).toEqual(direct)
   })
 }
