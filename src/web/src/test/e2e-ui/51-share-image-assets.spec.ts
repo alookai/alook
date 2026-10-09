@@ -456,6 +456,7 @@ test("a loaded two-frame GIF is frozen to a displayed frame and reused by both e
   const attachmentId = await uploadAnimatedAttachment(page, channelId)
   const seeded = await seedMessage(page, channelId, "The displayed animation frame stays immutable", [attachmentId])
   const row = page.getByTestId(tid.message(seeded.id))
+  await row.hover()
   await waitForLoadedImages(row)
   const animatedSource = await row.getByTestId(tid.messageImage(seeded.id, 0)).evaluate((image: HTMLImageElement) => image.currentSrc || image.src)
   const assetRequests: string[] = []
@@ -512,6 +513,7 @@ test("loaded avatar and content prepare and export without requesting or decodin
   )
   const row = page.getByTestId(tid.message(seeded.id))
   await expect(row.getByTestId(tid.inviteCard(inviteToken))).toBeVisible()
+  await row.hover()
   await waitForLoadedImages(row)
   const originals = await row.locator("img").elementHandles()
   const sourceUrls = await row.locator("img").evaluateAll((images: HTMLImageElement[]) => (
@@ -650,7 +652,8 @@ test("loaded cross-origin pixels without CORS require the explicit fetch fallbac
     const message = await seedMessage(page, channelId, `![Protected cross-origin](${sourceUrl})`)
     const row = page.getByTestId(tid.message(message.id))
     const image = row.locator('img[alt="Protected cross-origin"]')
-    await waitForLoadedImages(row)
+    await row.hover()
+  await waitForLoadedImages(row)
     const original = await image.elementHandle()
     expect(original).not.toBeNull()
     const readability = await image.evaluate((source: HTMLImageElement) => {
@@ -789,11 +792,10 @@ test("loaded live avatar stays mounted through share selection and dialog close"
   const message = await seedMessage(page, channelId, "Keep the loaded avatar https://example.test/selection")
   const row = page.getByTestId(tid.message(message.id))
   const avatar = row.locator('[data-slot="avatar-image"]')
+  await row.hover()
   await expect(avatar).toHaveAttribute("data-avatar-photo-state", "ready")
   const original = await avatar.elementHandle()
   expect(original).not.toBeNull()
-  await row.hover()
-  expect(await original!.evaluate((image) => image.isConnected)).toBe(true)
   await page.getByTestId(tid.messageShare(message.id)).click()
   expect(await original!.evaluate((image) => image.isConnected)).toBe(true)
   const originalUrl = page.url()

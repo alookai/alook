@@ -366,14 +366,19 @@ function canvasToPng(canvas: HTMLCanvasElement, signal: AbortSignal): Promise<Bl
   })
 }
 
-async function staticizeLoadedImage(
-  image: HTMLImageElement,
+async function staticizeImage(
+  image: HTMLImageElement | ImageBitmap,
   target: ShareImageAssetTarget,
   signal: AbortSignal,
   budget: ShareImageAssetBudget,
 ): Promise<Blob> {
   throwIfAborted(signal)
-  const size = staticImageSize(image.naturalWidth, image.naturalHeight, target)
+  const loaded = image instanceof HTMLImageElement
+  const width = loaded ? image.naturalWidth : image.width
+  const height = loaded ? image.naturalHeight : image.height
+  if (width <= 0 || height <= 0) throw new Error("Decoded image has no pixels")
+  if (!loaded) consumeDecodedPixels(budget, width, height)
+  const size = staticImageSize(width, height, target)
   const canvas = document.createElement("canvas")
   canvas.width = size.width
   canvas.height = size.height
@@ -382,7 +387,7 @@ async function staticizeLoadedImage(
     if (!context) throw new Error("Static image canvas is unavailable")
     context.drawImage(image, 0, 0, size.width, size.height)
     const blob = await canvasToPng(canvas, signal)
-    consumeDecodedPixels(budget, size.width, size.height)
+    if (loaded) consumeDecodedPixels(budget, size.width, size.height)
     return blob
   } finally {
     canvas.width = 0
@@ -412,27 +417,10 @@ async function staticizeImageBlob(
     throw new Error("Static image decoding is unavailable")
   }
   const bitmap = await createImageBitmap(blob)
-  let canvas: HTMLCanvasElement | null = null
   try {
-    throwIfAborted(signal)
-    if (bitmap.width <= 0 || bitmap.height <= 0) {
-      throw new Error("Decoded image has no pixels")
-    }
-    consumeDecodedPixels(budget, bitmap.width, bitmap.height)
-    const size = staticImageSize(bitmap.width, bitmap.height, target)
-    canvas = document.createElement("canvas")
-    canvas.width = size.width
-    canvas.height = size.height
-    const context = canvas.getContext("2d")
-    if (!context) throw new Error("Static image canvas is unavailable")
-    context.drawImage(bitmap, 0, 0, size.width, size.height)
-    return await canvasToPng(canvas, signal)
+    return await staticizeImage(bitmap, target, signal, budget)
   } finally {
     bitmap.close()
-    if (canvas) {
-      canvas.width = 0
-      canvas.height = 0
-    }
   }
 }
 
@@ -584,7 +572,7 @@ async function resolveImage(
       const pixelKey = `pixels:${cacheKey}`
       let pixels = assetCache.get(pixelKey)
       if (!pixels) {
-        pixels = enqueueStaticize(() => staticizeLoadedImage(loaded, target, signal, budget))
+        pixels = enqueueStaticize(() => staticizeImage(loaded, target, signal, budget))
           .then((blob) => encodeStaticImage(blob, signal, budget))
         assetCache.set(pixelKey, pixels)
       }

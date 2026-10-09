@@ -217,7 +217,6 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   await page.route(thumbnailPattern, async (route) => {
     if (
       holdColdThumbnail
-      && coldThumbnailRequests === 0
       && route.request().method() === "GET"
     ) {
       coldThumbnailRequests++

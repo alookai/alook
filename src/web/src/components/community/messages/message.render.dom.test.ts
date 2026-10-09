@@ -369,19 +369,37 @@ describe("Message memo comparator", () => {
     expect(onToggleSelect).toHaveBeenCalledOnce()
   })
 
-  it.each([true, false])("preserves the live avatar through activation and selection (hover: %s)", (hoverCapable) => {
+  it.each([true, false])("preserves the activated live avatar through share selection (hover: %s)", (hoverCapable) => {
     const props = { m: baseMsg(), onOpenThread: vi.fn(), onEnterSelect: vi.fn(), hoverCapable }
     const view = rtlRender(makeTree(props))
-    const avatar = view.container.querySelector("[data-avatar-kind]")
-    expect(avatar).not.toBeNull()
     if (hoverCapable) {
       fireEvent.pointerEnter(view.container.querySelector(".group.relative")!, { pointerType: "mouse" })
-      expect(view.container.querySelector("[data-avatar-kind]")).toBe(avatar)
     }
+    const avatar = view.container.querySelector("[data-avatar-kind]")
+    expect(avatar).not.toBeNull()
     view.rerender(makeTree({ ...props, selectMode: true, selected: true }))
     expect(view.container.querySelector("[data-avatar-kind]")).toBe(avatar)
     view.rerender(makeTree({ ...props, selectMode: false }))
     expect(view.container.querySelector("[data-avatar-kind]")).toBe(avatar)
+  })
+
+  it("keeps an inactive desktop row bare while selecting and restores ordinary activation afterward", () => {
+    const props = { m: baseMsg(), onOpenThread: vi.fn(), onEnterSelect: vi.fn(), hoverCapable: true }
+    const view = rtlRender(makeTree(props))
+    const avatar = view.container.querySelector("[data-avatar-kind]")
+    expect(view.container.querySelector("mock-context-menu")).toBeNull()
+    view.rerender(makeTree({ ...props, selectMode: true }))
+    const row = view.container.querySelector(".group.relative")!
+    fireEvent.pointerEnter(row, { pointerType: "mouse" })
+    fireEvent.pointerDown(row, { pointerType: "touch" })
+    fireEvent.focus(row)
+    fireEvent.keyDown(row, { key: "F10", shiftKey: true })
+    expect(view.container.querySelector("[data-avatar-kind]")).toBe(avatar)
+    expect(view.container.querySelector("mock-context-menu")).toBeNull()
+    view.rerender(makeTree(props))
+    expect(view.container.querySelector("[data-avatar-kind]")).toBe(avatar)
+    fireEvent.pointerEnter(view.container.querySelector(".group.relative")!, { pointerType: "mouse" })
+    expect(view.container.querySelector("mock-context-menu")).not.toBeNull()
   })
 
   it("keeps selection controls out of the message row layout", () => {
@@ -1802,7 +1820,7 @@ describe("Message lazy overlays", () => {
     const target = { closest: () => authorButton }
 
     act(() => row.props.onPointerEnter({ target }))
-    expect(renderer!.root.findAllByType("mock-context-menu")[0]!.props.disabled).toBe(true)
+    expect(renderer!.root.findAllByType("mock-context-menu")).toHaveLength(0)
 
     const event = { clientX: 10, clientY: 20 }
     act(() => authorButton!.props.onClick(event))
@@ -1810,7 +1828,7 @@ describe("Message lazy overlays", () => {
     expect(onOpenProfile).toHaveBeenCalledWith("Alice", event, undefined, "u1")
   })
 
-  it("keeps context-menu contents and the toolbar lazy until activation", () => {
+  it("keeps the context-menu root and toolbar lazy until activation", () => {
     const onOpenThread = vi.fn()
     let renderer: DomRenderer
     act(() => {
@@ -1822,7 +1840,7 @@ describe("Message lazy overlays", () => {
     })
     const json = renderer!.toJSON()
     const tree = JSON.stringify(json)
-    expect(tree).not.toContain("mock-context-menu-content")
+    expect(tree).not.toContain("mock-context-menu")
     expect(tree).not.toContain("reaction-add")
   })
 

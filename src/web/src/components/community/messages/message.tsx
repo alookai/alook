@@ -262,12 +262,6 @@ function MessageImpl({
   // "Mark"; flips to "Unmark" silently once the read resolves (no spinner).
   const markMenuOpen = (toolbarOpen || contextOpen || touchMenuOpen) && !!onMark
   const { data: markedData } = useMessageMarked(m.id, markMenuOpen)
-  // Lazy-mount the row's Base UI overlay roots (ContextMenu / DropdownMenu /
-  // EmojiPicker Popover / reaction Tooltips). Eagerly mounting them per visible
-  // row was the bulk of the switch re-render storm (FloatingTree/MenuRoot ×1000s).
-  // Activate on the first
-  // hover OR focus OR keydown/contextmenu — focus/keydown are required for a11y
-  // (keyboard context menu / Tab-to-row have no pointerenter).
   const [activated, setActivated] = useAtom(useCreateAtom(false))
 
   if (m.type === "system") {
@@ -313,12 +307,12 @@ function MessageImpl({
   // A hybrid device can alternate between mouse and touch. Switching the menu
   // shell after a mouse gesture must not remove the row's touch swipe handler.
   const swipeReplyEnabled = interactive && touchInputCapable && !selectMode && !!onReply
-  const activateOverlays = interactive && !activated
+  const activateOverlays = interactive && !selectMode && !activated
     ? (event: React.SyntheticEvent<HTMLElement>) => {
         if (shouldActivateMessageOverlays(event.target)) setActivated(true)
       }
     : undefined
-  const activateLinkOrOverlays = interactive && !activated
+  const activateLinkOrOverlays = interactive && !selectMode && !activated
     ? (event: React.SyntheticEvent<HTMLElement>) => {
         if (messageExternalLinkTargetFromEventTarget(event.target)) {
           setActivated(true)
@@ -327,7 +321,7 @@ function MessageImpl({
         }
       }
     : undefined
-  const activate = interactive
+  const activate = interactive && !selectMode
     ? (event: React.PointerEvent<HTMLElement>) => {
         if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
         const pointerType = messageLinkPointerType(event.nativeEvent)
@@ -345,7 +339,7 @@ function MessageImpl({
         }
       }
     : undefined
-  const activateFromKeyboard = interactive
+  const activateFromKeyboard = interactive && !selectMode
     ? (event: React.KeyboardEvent<HTMLElement>) => {
         if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
         if (
@@ -404,7 +398,7 @@ function MessageImpl({
         ? { transform: `translate3d(${swipeVisual.offset}px, 0, 0)` }
         : undefined}
       onPointerEnter={activate}
-      onPointerDownCapture={interactive
+      onPointerDownCapture={interactive && !selectMode
         ? (event) => {
             if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             keyboardLinkActivationRef.current = false
@@ -951,9 +945,10 @@ function MessageImpl({
     )
   }
 
+  if (!activated) return row
   return (
     <ContextMenu
-      disabled={!activated || selectMode}
+      disabled={selectMode}
       open={contextOpen && !selectMode}
       onOpenChange={(open) => {
         setContextOpen(open && !selectMode)
@@ -961,7 +956,7 @@ function MessageImpl({
       }}
     >
       <ContextMenuTrigger className="select-text" render={row} />
-      {activated && !selectMode && (
+      {!selectMode && (
         <ContextMenuContent className="w-48">
           <MessageContextItems {...menuHandlers} {...linkMenuHandlers} />
         </ContextMenuContent>
