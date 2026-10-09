@@ -53,7 +53,7 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
     expect(scrollFixture.latest.belowCount).toBe(0)
   })
-  it("keeps a landed present intent unreadable until its native row geometry can be confirmed", () => {
+  it.each(["scroll", "measurement"])("retries rejected Present geometry within two frames on an unchanged-viewport %s event", event => {
     const h = mount()
     h.move(0)
     act(() => scrollFixture.latest.scrollToBottom())
@@ -64,10 +64,41 @@ describe("locked native adapter and existing message scroll owner", () => {
     runFrames(3)
     expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
     expect(scrollFixture.latest.readPositionReady).toBe(false)
+    runFrames(400)
+    expect(scrollFixture.frames.size).toBe(0)
     for (const row of pending) Reflect.deleteProperty(row, "getBoundingClientRect")
-    resize()
+    act(() => {
+      if (event === "scroll") fireEvent.scroll(h.root)
+      else {
+        const row = pending.find(row => row.querySelector('[data-msg-id="m13"]'))!
+        scrollFixture.bodyHeights.set("m13", 101)
+        scrollFixture.latest.virtualizer.measureElement(row)
+      }
+    })
+    runFrames(2)
     expect(scrollFixture.latest.readPositionReady).toBe(true)
     expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+  })
+  it("uses auto for loaded-tail Present without the old timeout or pure viewport end reissue", () => {
+    const h = mount()
+    h.move(0)
+    const native = scrollFixture.latest.virtualizer
+    const end = vi.spyOn(native, "scrollToEnd")
+    const offset = vi.spyOn(native, "scrollToOffset")
+    vi.spyOn(h.root, "scrollTo").mockImplementation(() => {})
+    act(() => scrollFixture.latest.scrollToBottom())
+    runFrames(3)
+    expect(end).toHaveBeenCalledExactlyOnceWith({ behavior: "auto" })
+    runFrames(400)
+    expect(scrollFixture.frames.size).toBe(0)
+    scrollFixture.width = 390
+    resize(2)
+    expect(end).toHaveBeenCalledTimes(1)
+    act(() => vi.advanceTimersByTime(2100))
+    expect(offset).not.toHaveBeenCalled()
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    fireEvent.wheel(h.root, { deltaY: -20 })
+    expect(offset).toHaveBeenCalledOnce()
   })
   it("keeps an explicit tail scroll when wrapped offscreen rows receive their later native measurements", () => {
     scrollFixture.width = 639
