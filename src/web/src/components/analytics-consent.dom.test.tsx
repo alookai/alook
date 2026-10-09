@@ -40,6 +40,7 @@ function successfulFetch(decision: "granted" | "denied") {
 
 beforeEach(() => {
   route.pathname = "/"
+  window.history.replaceState({}, "", "/")
   clearCookies()
   platform.isTauri.mockReset().mockReturnValue(false)
   platform.isMobile.mockReset().mockReturnValue(false)
@@ -50,6 +51,7 @@ afterEach(() => {
   clearCookies()
   vi.unstubAllGlobals()
   delete window.dataLayer
+  Reflect.deleteProperty(window, "ga-disable-G-STBCL8F4ZY")
 })
 
 describe("AnalyticsConsent", () => {
@@ -166,6 +168,7 @@ describe("AnalyticsConsent", () => {
       route.pathname = pathname
       granted.rerender(<AnalyticsConsent />)
       expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
+      expect(screen.queryByTestId("google-tag-manager")).not.toBeInTheDocument()
     }
     route.pathname = "/pricing"
     granted.rerender(<AnalyticsConsent />)
@@ -219,6 +222,31 @@ describe("AnalyticsConsent", () => {
       "update",
       expect.objectContaining({ analytics_storage: "granted", ad_storage: "denied" }),
     ])
+  })
+
+  it("blocks already-loaded GA4 immediately on private history changes", async () => {
+    document.cookie = "alook_analytics_consent=v1.granted; Path=/"
+    const view = render(<AnalyticsConsent />)
+    await screen.findByTestId("google-tag-manager")
+    expect(Reflect.get(window, "ga-disable-G-STBCL8F4ZY")).toBe(false)
+    window.history.pushState({}, "", "/c/me?private=canary")
+    expect(Reflect.get(window, "ga-disable-G-STBCL8F4ZY")).toBe(true)
+    window.history.replaceState({}, "", "/pricing")
+    expect(Reflect.get(window, "ga-disable-G-STBCL8F4ZY")).toBe(false)
+    document.cookie = "alook_analytics_consent=v1.denied; Path=/"
+    expect(Reflect.get(window, "ga-disable-G-STBCL8F4ZY")).toBe(true)
+    view.unmount()
+    window.history.replaceState({}, "", "/")
+  })
+
+  it.each(["/blog", "/blog/public-article", "/pricing", "/contact"])("keeps %s measured", async pathname => {
+    route.pathname = pathname
+    window.history.replaceState({}, "", `${pathname}?private=canary`)
+    document.cookie = "alook_analytics_consent=v1.granted; Path=/"
+    render(<AnalyticsConsent />)
+    expect(await screen.findByTestId("google-tag-manager")).toBeInTheDocument()
+    expect(screen.getByTestId(tid.ahrefsAnalyticsFrame).getAttribute("srcdoc"))
+      .toContain(`data-page-location="${window.location.origin}${pathname}"`)
   })
 
 })

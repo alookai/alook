@@ -18,6 +18,8 @@ import { tid } from "@/lib/community/testids"
 import styles from "./analytics-consent.module.css"
 
 const GTM_ID = "GTM-56VHCCQZ"
+const GA_DISABLE = "ga-disable-G-STBCL8F4ZY"
+const isPublicAnalyticsPath = (path: string) => /^\/(?:pricing|contact|privacy|templates(?:\/[^/]+)?|blog(?:\/.*)?)?$/.test(path)
 
 function useStoredAnalyticsConsent(syncGoogleConsent = false) {
   const [ready, setReady] = useAtom(useCreateAtom(false))
@@ -129,11 +131,27 @@ export function AnalyticsConsent() {
   const pathname = usePathname()
   const { ready, decision, nativeMobile } = useStoredAnalyticsConsent(true)
   const { choose, saving, error } = useAnalyticsConsentChoice()
+  const allowed = ready && decision === "granted" && !!pathname && isPublicAnalyticsPath(pathname)
+
+  useEffect(() => {
+    Object.defineProperty(window, GA_DISABLE, {
+      configurable: true,
+      get: () => readAnalyticsConsent() !== "granted" || !isPublicAnalyticsPath(window.location.pathname),
+    })
+  }, [])
+  useEffect(() => {
+    if (decision !== "granted") return
+    const referrer = new URL(document.referrer || window.location.origin)
+    const safeReferrer = referrer.origin !== window.location.origin || isPublicAnalyticsPath(referrer.pathname)
+      ? `${referrer.origin}${referrer.pathname}` : ""
+    window.dataLayer ??= []
+    window.dataLayer.push(["set", "page_referrer", safeReferrer])
+  }, [decision])
 
   return (
     <>
-      {ready && decision === "granted" ? <GoogleTagManager gtmId={GTM_ID} /> : null}
-      {ready && decision === "granted" && pathname && /^\/(?:pricing|contact|privacy|templates(?:\/[^/]+)?|blog(?:\/.*)?)?$/.test(pathname) ? (
+      {allowed ? <GoogleTagManager gtmId={GTM_ID} /> : null}
+      {allowed ? (
         <iframe
           key={pathname}
           title="Ahrefs analytics"
@@ -141,7 +159,7 @@ export function AnalyticsConsent() {
           hidden aria-hidden="true"
           sandbox="allow-scripts"
           referrerPolicy="no-referrer"
-          srcDoc={`<title>Alook</title><script async src="https://analytics.ahrefs.com/analytics.js" data-key="Td2Wr/poHD0pDEV30W9xMw" data-page-location="${new URL(pathname, window.location.origin).href.replace(/"/g, "%22")}"></script>`}
+          srcDoc={`<title>Alook</title><script async src="https://analytics.ahrefs.com/analytics.js" data-key="Td2Wr/poHD0pDEV30W9xMw" data-page-location="${new URL(pathname!, window.location.origin).href.replace(/"/g, "%22")}"></script>`}
         />
       ) : null}
       {ready && !nativeMobile && decision === null ? (
