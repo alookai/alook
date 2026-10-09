@@ -180,6 +180,11 @@ describe.skipIf(!process.env.ALOOK_NATIVE_CLI_PATH)("installed host CLI callback
         writeFileSync(bashScript, `"$ALOOK_CLI" message send --target '${channel}' --reply 1 --stdin --remind-after 0 <<'ALOOK_CLI_TEST_165'\n${message}\nALOOK_CLI_TEST_165\n`);
         const bash = await invoke(bashPath!, ["--noprofile", "--norc", bashScript.replaceAll("\\", "/")], directory, false, { env: spawnEnv });
         console.log(JSON.stringify({ stage: "candidate-git-bash-send", ...bash }));
+        if (!bash.stdout) {
+          const excluded = await invoke(bashPath!, ["--noprofile", "--norc", bashScript.replaceAll("\\", "/")], directory, false,
+            { env: { ...spawnEnv, MSYS2_ARG_CONV_EXCL: "*" } });
+          console.log(JSON.stringify({ stage: "diagnostic-git-bash-argument-conversion", ...excluded }));
+        }
         expect(JSON.parse(bash.stdout).success.sent).toBe(`${channel}#4`);
         expect(bash.code).toBe(0);
         expectedBodies.push(message + "\n");
