@@ -176,21 +176,26 @@ test("versioned avatars converge across live, stale, reconnect, cold, and concur
       (event) => event.avatarVersion === second.avatarVersion,
     ), { timeout: 20_000 }).toBe(true)
     await avatarStarted.promise
-    expect(await warmImage.evaluate((image: HTMLImageElement) => ({
+    const { current, ...pendingImage } = await warmImage.evaluate((image: HTMLImageElement) => ({
       connected: image.isConnected,
       source: image.getAttribute("src"),
-      current: new URL(image.currentSrc).pathname + new URL(image.currentSrc).search,
+      current: image.currentSrc,
       opacity: getComputedStyle(image).opacity,
       transition: getComputedStyle(image).transitionProperty,
       pixels: image.naturalWidth > 0 && image.naturalHeight > 0,
-    }))).toEqual({
+    }))
+    await testInfo.attach("pending-avatar-image", {
+      body: JSON.stringify({ ...pendingImage, current }),
+      contentType: "application/json",
+    })
+    expect(pendingImage).toEqual({
       connected: true,
       source: second.url,
-      current: warm.url,
       opacity: "1",
       transition: "none",
       pixels: true,
     })
+    await expect(message.locator(`img[src="${second.url}"]`)).toBeVisible()
     await expect(message.locator('[data-remote-image-placeholder="identity"].animate-pulse')).toHaveCount(0)
     avatarGate.resolve()
     await expectPhoto(message, second.url)
