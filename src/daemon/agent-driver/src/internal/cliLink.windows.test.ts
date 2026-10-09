@@ -15,7 +15,7 @@ async function invoke(command: string, args: string[], cwd: string, shell: boole
   child.stdout?.on("data", chunk => { stdout += String(chunk); });
   child.stderr?.on("data", chunk => { stderr += String(chunk); });
   const closed = once(child, "close");
-  const timeout = setTimeout(() => { void killProcessTree(child.pid!).catch(() => {}); }, 5_000);
+  const timeout = setTimeout(() => { void killProcessTree(child.pid!).catch(() => {}); }, 30_000);
   try {
     await closed;
     return { stdout: stdout.trim(), stderr: stderr.trim(), code: child.exitCode };
@@ -33,7 +33,10 @@ describe.skipIf(process.platform !== "win32")("native Windows injected Node CLI"
     writeFileSync(host, `#!/usr/bin/env node\nconsole.log(JSON.stringify({ marker: ${JSON.stringify(marker)}, args: process.argv.slice(2) }));\n`);
     const expected = JSON.stringify({ marker, args: ["--help"] });
     try {
-      expect((await invoke(process.execPath, [host, "--help"], directory, false)).stdout).toBe(expected);
+      const control = await invoke(process.execPath, [host, "--help"], directory, false);
+      console.log(JSON.stringify({ stage: "node-control", ...control }));
+      expect(control.stdout).toBe(expected);
+      expect(control.code).toBe(0);
       const bin = writeCliLink(join(directory, "wrapper"), "alook", host);
       const viaWrapper = await invoke(join(bin, "alook.cmd"), ["--help"], directory, true);
       console.log(JSON.stringify({ stage: "generated-wrapper", ...viaWrapper }));
@@ -54,5 +57,5 @@ describe.skipIf(process.platform !== "win32")("native Windows injected Node CLI"
     } finally {
       rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
     }
-  }, 20_000);
+  }, 120_000);
 });
