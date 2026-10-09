@@ -243,6 +243,8 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   const landscapeListFrame = landscapeListImage.locator("xpath=ancestor::*[@data-remote-image-frame]")
   await expect(landscapeListFrame).toHaveAttribute("data-remote-image-state", "pending")
   const pendingListRect = await boundingRect(landscapeListFrame)
+  expect(pendingListRect.height).toBeCloseTo(240, 0)
+  expect(pendingListRect.width / pendingListRect.height).toBeCloseTo(800 / 450, 2)
   await page.emulateMedia({ reducedMotion: "reduce" })
   expect(await landscapeListFrame.locator("[data-remote-image-placeholder]").evaluate((element) => (
     getComputedStyle(element).animationName
@@ -405,6 +407,11 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   await mobilePage.waitForURL(new RegExp(`/c/channels/[^/]+/${channelId}$`), { waitUntil: "commit" })
   await expect(mobilePage.getByTestId(tid.messageImage(landscape.messageId, 0)))
     .toBeVisible({ timeout: 30_000 })
+  const mobilePortraitListFrame = mobilePage.getByTestId(tid.messageImage(portrait.messageId, 0))
+    .locator("xpath=ancestor::*[@data-remote-image-frame]")
+  const mobilePortraitListRect = await boundingRect(mobilePortraitListFrame)
+  expect(mobilePortraitListRect.height).toBeCloseTo(200, 0)
+  expect(mobilePortraitListRect.width / mobilePortraitListRect.height).toBeCloseTo(450 / 800, 2)
 
   let releaseMobileLandscape!: () => void
   const mobileLandscapeGate = new Promise<void>((resolve) => { releaseMobileLandscape = resolve })
