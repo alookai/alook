@@ -41,7 +41,6 @@ export const SPEC_SECONDS = {
   "25-composer-accessory-rail-occupancy.spec.ts": 40.804,
   "26-mobile-forum-post-actions.spec.ts": 21.297,
   "27-canonical-forum-post-delete.spec.ts": 11.097,
-  "28-community-delete-media-cleanup.spec.ts": 11.925,
   "28-thread-realtime-audiences.spec.ts": 26.477,
   "29-community-bot-avatar-cleanup.spec.ts": 8.216,
   "29-multi-device-read-state.spec.ts": 72.169,
