@@ -114,9 +114,14 @@ type EditorOptions = {
     clipboardTextParser: (text: string, context: never) => unknown
   }
   onUpdate: (props: { editor: TestEditor }) => void
+  onBlur: (props: { editor: TestEditor }) => void
 }
 
 type TestEditor = {
+  on: ReturnType<typeof vi.fn>
+  off: ReturnType<typeof vi.fn>
+  isFocused: boolean
+  isDestroyed: boolean
   isEmpty: boolean
   getText: ReturnType<typeof vi.fn>
   getJSON: ReturnType<typeof vi.fn>
@@ -155,6 +160,7 @@ const Harness = forwardRef<ComposerHandle, ComposerProps>(
 
 describe("useComposerController", () => {
   let editorOptions: EditorOptions
+  let destroyCallback: () => void
   let pendingFiles: PendingFile[]
   let editor: TestEditor
   let clearContent: ReturnType<typeof vi.fn>
@@ -196,6 +202,10 @@ describe("useComposerController", () => {
     mentionPopupRef = { current: { items: [], command: null } }
     channelRefPopupRef = { current: { items: [], command: null } }
     editor = {
+      on: vi.fn((_event, callback) => { destroyCallback = callback }),
+      off: vi.fn(),
+      isFocused: true,
+      isDestroyed: false,
       isEmpty: false,
       getText: vi.fn(() => "  hello @everyone  "),
       getJSON: vi.fn(() => ({ type: "doc" })),
@@ -268,6 +278,7 @@ describe("useComposerController", () => {
   })
 
   afterEach(() => {
+    vi.unstubAllGlobals()
     vi.useRealTimers()
   })
 
@@ -1271,6 +1282,58 @@ describe("useComposerController", () => {
       preserveWhitespace: true,
       context,
     })
+  })
+
+  it("uses live editor focus and retires suggestions on public blur/destroy", () => {
+    render(createElement(Harness, acceptedProps(vi.fn(() => true))))
+    const eligible = () => mocks.useSuggestions.mock.lastCall![0].canSuggest(editor)
+    expect(eligible()).toBe(true)
+    editor.isFocused = false
+    expect(eligible()).toBe(false)
+    act(() => editorOptions.onBlur({ editor }))
+    expect(resetPopups).toHaveBeenLastCalledWith(editor)
+    editor.isFocused = true
+    expect(eligible()).toBe(true)
+    act(() => destroyCallback())
+    expect(resetPopups).toHaveBeenLastCalledWith(editor, false)
+    expect(eligible()).toBe(false)
+  })
+
+  it("restores suppression through nested focus calls and thrown commands", () => {
+    const handle = createRef<ComposerHandle>()
+    render(createElement(Harness, { ...acceptedProps(vi.fn(() => true)), ref: handle }))
+    const eligible = () => mocks.useSuggestions.mock.lastCall![0].canSuggest(editor)
+    focus.mockImplementationOnce(() => {
+      expect(eligible()).toBe(false)
+      expect(() => handle.current!.focusEditor()).toThrow("focus failure")
+      expect(eligible()).toBe(false)
+    }).mockImplementationOnce(() => {
+      expect(eligible()).toBe(false)
+      throw new Error("focus failure")
+    })
+    act(() => handle.current!.focusEditor())
+    expect(eligible()).toBe(true)
+  })
+
+  it("suppresses suggestion eligibility while restoring draft without suppressing later edits", () => {
+    mocks.readDraft.mockReturnValue({ type: "doc" })
+    setContent.mockImplementation(() => expect(mocks.useSuggestions.mock.lastCall![0].canSuggest(editor)).toBe(false))
+    render(createElement(Harness, acceptedProps(vi.fn(() => true))))
+    expect(setContent).toHaveBeenCalledOnce()
+    expect(resetPopups).toHaveBeenCalledWith(editor)
+    expect(mocks.useSuggestions.mock.lastCall![0].canSuggest(editor)).toBe(true)
+  })
+
+  it("ignores a delayed destroy callback from the previous editor", () => {
+    const options = acceptedProps(vi.fn(() => true))
+    const renderer = render(createElement(Harness, options))
+    const oldDestroy = destroyCallback
+    editor = { ...editor, view: { ...editor.view } }
+    renderer.rerender(createElement(Harness, options))
+    resetPopups.mockClear()
+    act(() => oldDestroy())
+    expect(resetPopups).not.toHaveBeenCalled()
+    expect(mocks.useSuggestions.mock.lastCall![0].canSuggest(editor)).toBe(true)
   })
 
   it("pins the layout/draft/typing ordering boundaries in source", () => {

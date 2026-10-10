@@ -31,14 +31,14 @@ vi.mock("@tiptap/pm/model", () => ({
 }))
 
 vi.mock("@/lib/community/mention-extension", () => ({
-  buildCommunityMentionExtension: vi.fn(() => ({})),
+  buildCommunityMentionExtension: vi.fn(() => ({ options: { suggestion: { pluginKey: {} } } })),
   detectMentionType: vi.fn(() => undefined),
   EMPTY_MENTION_STATE: { items: [], selectedIndex: 0, command: null, getRect: null },
   rankMentionItems: vi.fn(() => []),
 }))
 
 vi.mock("@/lib/community/channel-ref-extension", () => ({
-  buildCommunityChannelRefExtension: vi.fn(() => ({})),
+  buildCommunityChannelRefExtension: vi.fn(() => ({ options: { suggestion: { pluginKey: {} } } })),
   EMPTY_CHANNEL_REF_STATE: { items: [], selectedIndex: 0, command: null, getRect: null },
   rankChannelRefItems: vi.fn(() => []),
   toChannelRefCommandProps: vi.fn(),
@@ -64,6 +64,8 @@ vi.mock("@/hooks/community/mutations/messages", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/hooks/community/mutations/messages")>(),
   sendNonce: () => "nonce_collision",
 }))
+
+vi.mock("@tiptap/suggestion", () => ({ exitSuggestion: vi.fn() }))
 
 import { Composer, type ComposerProps } from "./composer"
 import type { PendingFile } from "@/hooks/use-file-attachments"
@@ -92,6 +94,11 @@ describe("Composer committed send lifecycle", () => {
     awaitPendingFiles = vi.fn(async () => pendingFiles)
 
     const editor = {
+      on: vi.fn(), off: vi.fn(),
+      state: { tr: {} },
+      isFocused: true,
+      isDestroyed: false,
+      view: { dispatch: vi.fn() },
       isEmpty: false,
       getText: vi.fn(() => "latest draft"),
       getJSON: vi.fn(() => ({})),

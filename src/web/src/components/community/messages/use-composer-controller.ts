@@ -95,18 +95,24 @@ export function useComposerController(
   const typingTimer = useRef<NodeJS.Timeout | null>(null)
   const sendRef = useRef<() => void>(() => {})
   const editorRef = useRef<Editor | null>(null)
-  useLayoutEffect(() => {
-    const nextScope = `${context}\u0000${channel}\u0000${draftKey ?? ""}`
-    protocol.setState((state) => ({ ...state, draftKey, scope: nextScope, ...(state.scope !== nextScope ? { scopeVersion: state.scopeVersion + 1, nextLongPasteIndex: 1 } : {}) }))
-  }, [channel, context, draftKey, protocol])
-  useLayoutEffect(() => {
-    protocol.setState((state) => ({ ...state, active: true }))
-    return () => protocol.setState((state) => ({ ...state, active: false, generation: state.generation + 1 }))
+  const scope = `${context}\u0000${channel}\u0000${draftKey ?? ""}`
+  const canSuggest = useCallback((candidate: Editor) => {
+    const current = protocol.get()
+    return candidate === editorRef.current && current.active && current.scope === scope &&
+      !current.suppress && !candidate.isDestroyed && candidate.isFocused
+  }, [protocol, scope])
+  const suppressSuggestions = useCallback((operation: () => void) => {
+    const previous = protocol.get().suppress
+    protocol.setState((state) => ({ ...state, suppress: true }))
+    try { operation() } finally { protocol.setState((state) => ({ ...state, suppress: previous })) }
   }, [protocol])
   const resolvedPlaceholder = placeholder ?? (context === "channel" ? `Message /${channel}` : `Message ${channel}`)
   const placeholderRef = useRef(resolvedPlaceholder)
   const resolvePlaceholder = useCallback(() => placeholderRef.current, [])
   const suggestions = useComposerSuggestions({
+    editorRef,
+    canSuggest,
+    scope,
     members,
     context,
     mentionCandidates,
@@ -114,6 +120,10 @@ export function useComposerController(
     channelRefCandidateSource,
     onChannelRefIntent,
   })
+  const { resetPopups } = suggestions
+  useLayoutEffect(() => {
+    protocol.setState((state) => ({ ...state, draftKey, scope, ...(state.scope !== scope ? { scopeVersion: state.scopeVersion + 1, nextLongPasteIndex: 1 } : {}) }))
+  }, [scope, draftKey, protocol])
   const fireTyping = () => {
     if (!onTyping || typingTimer.current) return
     onTyping()
@@ -202,7 +212,22 @@ export function useComposerController(
         )
       }
     },
+    onBlur: ({ editor: blurredEditor }) => resetPopups(blurredEditor),
   })
+  useLayoutEffect(() => {
+    protocol.setState((state) => ({ ...state, active: true }))
+    const onDestroy = () => {
+      if (editorRef.current !== editor) return
+      protocol.setState((state) => ({ ...state, active: false, generation: state.generation + 1 }))
+      resetPopups(editor, false)
+    }
+    editor?.on("destroy", onDestroy)
+    return () => {
+      protocol.setState((state) => ({ ...state, active: false, generation: state.generation + 1 }))
+      editor?.off("destroy", onDestroy)
+      resetPopups(editor)
+    }
+  }, [editor, protocol, resetPopups])
   useLayoutEffect(() => {
     editorRef.current = editor
     return () => { if (editorRef.current === editor) editorRef.current = null }
@@ -221,16 +246,18 @@ export function useComposerController(
     if (!editor || isForumThreadBody || !draftKey) return
     const doc = readComposerDraft(draftKey)
     if (!doc) return
-    protocol.setState((state) => ({ ...state, suppress: true }))
-    try {
-      editor.commands.setContent(doc as JSONContent, {
-        emitUpdate: false,
-        errorOnInvalidContent: true,
-      })
-      setEditorHasContent(!editor.isEmpty)
-    } catch {
-      clearComposerDraft(draftKey)
-    } finally { protocol.setState((state) => ({ ...state, suppress: false })) }
+    resetPopups(editor)
+    suppressSuggestions(() => {
+      try {
+        editor.commands.setContent(doc as JSONContent, {
+          emitUpdate: false,
+          errorOnInvalidContent: true,
+        })
+        setEditorHasContent(!editor.isEmpty)
+      } catch {
+        clearComposerDraft(draftKey)
+      }
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, draftKey])
   const onDirtyRef = useRef(onDirty)
@@ -271,7 +298,7 @@ export function useComposerController(
       if (protocol.get().draftKey) clearComposerDraft(protocol.get().draftKey!)
       transferPendingFiles()
       protocol.setState((state) => ({ ...state, nextLongPasteIndex: 1 }))
-      suggestions.resetPopups()
+      resetPopups()
     },
   })
   const send = () => {
@@ -287,7 +314,7 @@ export function useComposerController(
 
   useImperativeHandle(ref, () => ({
     focusEditor: () => {
-      editor?.commands.focus("end")
+      suppressSuggestions(() => editor?.commands.focus("end"))
     },
     insertTextAtCaret: (text) => {
       if (!editor || !text) return
@@ -306,7 +333,7 @@ export function useComposerController(
       setEditorHasContent(false)
       setPendingFiles([])
       protocol.setState((state) => ({ ...state, nextLongPasteIndex: 1 }))
-      suggestions.resetPopups()
+      resetPopups()
     },
     isEmpty: () => !editor || (editor.isEmpty && pendingFiles.length === 0),
     openFilePicker: () => {
@@ -317,21 +344,21 @@ export function useComposerController(
   useEffect(() => {
     if (!autoFocus || !editor || isForumThreadBody) return
     if (document.activeElement?.closest(`[data-testid="${tid.serverRailScroll}"]`)) return
-    editor.commands.focus("end")
-  }, [autoFocus, editor, channel, isForumThreadBody])
+    suppressSuggestions(() => editor.commands.focus("end"))
+  }, [autoFocus, editor, channel, isForumThreadBody, suppressSuggestions])
 
   const previousReplyingToRef = useRef(replyingTo)
   useEffect(() => {
     const targetChanged = previousReplyingToRef.current !== replyingTo
     previousReplyingToRef.current = replyingTo
     if (targetChanged && replyingTo && editor && !isForumThreadBody) {
-      editor.commands.focus("end")
+      suppressSuggestions(() => editor.commands.focus("end"))
     }
-  }, [replyingTo, editor, isForumThreadBody])
+  }, [replyingTo, editor, isForumThreadBody, suppressSuggestions])
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     handleDropRaw(event)
-    editor?.commands.focus()
+    suppressSuggestions(() => editor?.commands.focus())
   }
 
   return {

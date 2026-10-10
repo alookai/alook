@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from "vitest"
+import { beforeEach, describe, it, expect, vi } from "vitest"
 import {
-  buildCommunityChannelRefExtension,
+  buildCommunityChannelRefExtension as buildChannelRef,
   rankChannelRefItems,
   toChannelRefCandidate,
   toChannelRefCommandProps,
@@ -8,6 +8,15 @@ import {
   type ChannelRefCandidate,
   type ChannelRefPopupState,
 } from "./channel-ref-extension"
+
+import type { Editor } from "@tiptap/react"
+
+const editor = { isFocused: true, isDestroyed: false } as Editor
+const editorRef: { current: Editor | null } = { current: editor }
+const canSuggest = (candidate: Editor) => candidate === editorRef.current && candidate.isFocused && !candidate.isDestroyed
+const buildCommunityChannelRefExtension = (options: Omit<Parameters<typeof buildChannelRef>[0], "editorRef" | "canSuggest">) =>
+  buildChannelRef({ ...options, editorRef, canSuggest })
+beforeEach(() => { editorRef.current = editor; editor.isFocused = true })
 
 const candidate = (
   id: string,
@@ -64,7 +73,7 @@ function getItemsCallback(
   const opts = config.addOptions?.() ?? (ext as unknown as { options?: { suggestion?: { items?: unknown } } }).options
   const items = (opts?.suggestion as { items: (props: { query: string }) => unknown[] } | undefined)?.items
   if (!items) throw new Error("suggestion.items not found")
-  return items
+  return (props) => items({ ...props, editor } as never)
 }
 
 type RenderNodeProps = {
@@ -105,7 +114,7 @@ function getKeyDownCallback(
   const handlers = render()
   const onKeyDown = handlers.onKeyDown as ((props: { event: KeyboardEvent }) => boolean) | undefined
   if (!onKeyDown) throw new Error("onKeyDown not found")
-  return onKeyDown
+  return (props) => onKeyDown({ ...props, view: editor.view } as never)
 }
 
 function getExitCallback(
@@ -117,7 +126,7 @@ function getExitCallback(
   if (!render) throw new Error("suggestion.render not found")
   const onExit = render().onExit as (() => void) | undefined
   if (!onExit) throw new Error("suggestion.onExit not found")
-  return onExit
+  return () => onExit({ editor } as never)
 }
 
 function getPopupLifecycleCallbacks(
@@ -147,7 +156,11 @@ function getPopupLifecycleCallbacks(
   if (!render) throw new Error("suggestion.render not found")
   const { onStart, onUpdate } = render()
   if (!onStart || !onUpdate) throw new Error("suggestion popup lifecycle not found")
-  return { onStart, onUpdate } as ReturnType<typeof getPopupLifecycleCallbacks>
+  const callbacks = { onStart, onUpdate } as ReturnType<typeof getPopupLifecycleCallbacks>
+  return {
+    onStart: (props) => callbacks.onStart({ ...props, editor } as never),
+    onUpdate: (props) => callbacks.onUpdate({ ...props, editor } as never),
+  }
 }
 
 function build(
@@ -158,7 +171,9 @@ function build(
   const candidatesRef = { current: candidates }
   const popupRef = { current: popup }
   const onIntentRef = { current: onIntent }
-  const setPopup = vi.fn()
+  const setPopup = vi.fn((next: ChannelRefPopupState | ((current: ChannelRefPopupState) => ChannelRefPopupState)) => {
+    popupRef.current = typeof next === "function" ? next(popupRef.current) : next
+  })
   const queryRef = { current: "" }
   const ext = buildCommunityChannelRefExtension({ candidatesRef, popupRef, onIntentRef, setPopup, queryRef })
   return { ext, candidatesRef, popupRef, onIntentRef, setPopup, queryRef }
@@ -236,6 +251,36 @@ describe("buildCommunityChannelRefExtension — suggestion.items callback", () =
 })
 
 describe("buildCommunityChannelRefExtension — popup lifecycle", () => {
+  it("rejects unfocused intent/publication and late updates; an old command stays inert", () => {
+    const items = [candidate("c1", "general")], raw = vi.fn(), intent = vi.fn()
+    const { ext, popupRef } = build(items, EMPTY_CHANNEL_REF_STATE, intent)
+    const callbacks = getPopupLifecycleCallbacks(ext)
+    editor.isFocused = false
+    expect(getItemsCallback(ext)({ query: "gen" })).toEqual([])
+    callbacks.onStart({ items, query: "gen", command: raw })
+    expect(intent).not.toHaveBeenCalled()
+    expect(popupRef.current.command).toBeNull()
+    editor.isFocused = true
+    callbacks.onStart({ items, query: "gen", command: raw })
+    const stale = popupRef.current.command!
+    getExitCallback(ext)()
+    callbacks.onUpdate({ items, query: "gen", command: raw })
+    expect(popupRef.current.command).toBeNull()
+    callbacks.onStart({ items, query: "gen", command: raw })
+    stale(toChannelRefCommandProps(items[0]))
+    expect(raw).not.toHaveBeenCalled()
+    popupRef.current.command!(toChannelRefCommandProps(items[0]))
+    expect(raw).toHaveBeenCalledExactlyOnceWith(toChannelRefCommandProps(items[0]))
+  })
+
+  it("old editor exit cannot clear a replacement editor popup", () => {
+    const items = [candidate("c1", "general")], { ext, popupRef } = build(items)
+    getPopupLifecycleCallbacks(ext).onStart({ items, command: vi.fn() })
+    const current = popupRef.current
+    editorRef.current = { isFocused: true, isDestroyed: false } as Editor
+    getExitCallback(ext)()
+    expect(popupRef.current).toBe(current)
+  })
   it("passes the live query through onStart/onUpdate and defaults a missing query", () => {
     const items = [candidate("c1", "general")]
     const command = vi.fn()

@@ -1,4 +1,6 @@
 import Mention from "@tiptap/extension-mention"
+import type { Editor } from "@tiptap/react"
+import { PluginKey } from "@tiptap/pm/state"
 import { MENTION_TYPES, type MentionType } from "@alook/shared"
 import type { Member } from "@/lib/community/models/people"
 import {
@@ -114,7 +116,8 @@ export const EMPTY_MENTION_STATE: MentionPopupState = {
   getRect: null,
 }
 
-type SuggestionProps = SuggestionCaretAnchorProps & {
+type SuggestionProps = Omit<SuggestionCaretAnchorProps, "editor"> & {
+  editor: Editor
   items: MentionItem[]
   query?: string
   command: (props: { id: string; label: string }) => void
@@ -133,6 +136,8 @@ type SuggestionProps = SuggestionCaretAnchorProps & {
  * the mention.
  */
 export function buildCommunityMentionExtension(opts: {
+  editorRef: { current: Editor | null }
+  canSuggest: (editor: Editor) => boolean
   membersRef: { current: Member[] }
   contextRef: { current: MentionContext }
   popupRef: { current: MentionPopupState }
@@ -150,7 +155,15 @@ export function buildCommunityMentionExtension(opts: {
   // two paths in agreement.
   queryRef?: { current: string }
 }) {
-  const { membersRef, contextRef, popupRef, setPopup, onSearchMembersRef, queryRef } = opts
+  const { editorRef, canSuggest, membersRef, contextRef, popupRef, setPopup, onSearchMembersRef, queryRef } = opts
+  const eligible = (editor: Editor) => contextRef.current !== "dm" && canSuggest(editor)
+  const commandFor = (props: SuggestionProps) => {
+    const command: NonNullable<MentionPopupState["command"]> = (value) => {
+      if (!eligible(props.editor) || popupRef.current.command !== command) return
+      props.command(value)
+    }
+    return command
+  }
 
   return Mention.configure({
     HTMLAttributes: { class: "mention-highlight" },
@@ -159,16 +172,18 @@ export function buildCommunityMentionExtension(opts: {
       ["span", options.HTMLAttributes, `@${mentionDisplayLabel(node.attrs.label ?? node.attrs.id ?? "")}`],
     suggestion: {
       char: "@",
+      pluginKey: new PluginKey("communityMentionSuggestion"),
       // The extension is intentionally built once by the Composer, so this
       // boundary must read the live context ref. Returning no ranked items is
       // not enough: TipTap would still start the suggestion lifecycle and
       // capture keys for an empty popup in DMs.
-      allow: () => contextRef.current !== "dm",
-      items: ({ query }: { query: string }) => {
+      allow: ({ editor }) => eligible(editor),
+      shouldShow: ({ transaction }) => Boolean(popupRef.current.command) || transaction.docChanged || transaction.selectionSet,
+      items: ({ query, editor }: { query: string; editor: Editor }) => {
         // Defense-in-depth for an already-scheduled items callback during a
         // channel -> DM transition. A DM must not update query state or start
         // a remote member search even if TipTap invokes this stale callback.
-        if (contextRef.current === "dm") return []
+        if (!eligible(editor)) return []
         if (queryRef) queryRef.current = query
         onSearchMembersRef?.current?.(query)
         return rankMentionItems(
@@ -179,17 +194,17 @@ export function buildCommunityMentionExtension(opts: {
       },
       render: () => ({
         onStart: (props: SuggestionProps) => {
-          if (contextRef.current === "dm") return
+          if (!eligible(props.editor)) return
           setPopup({
             items: props.items ?? [],
             query: queryRef?.current ?? props.query ?? "",
             selectedIndex: 0,
-            command: props.command,
+            command: commandFor(props),
             getRect: createSuggestionCaretRectResolver(props),
           })
         },
         onUpdate: (props: SuggestionProps) => {
-          if (contextRef.current === "dm") return
+          if (!eligible(props.editor) || !popupRef.current.command) return
           setPopup((cur) => ({
             items: props.items ?? [],
             query: queryRef?.current ?? props.query ?? "",
@@ -197,12 +212,13 @@ export function buildCommunityMentionExtension(opts: {
               cur.selectedIndex < (props.items?.length ?? 0)
                 ? cur.selectedIndex
                 : 0,
-            command: props.command,
+            command: commandFor(props),
             getRect: createSuggestionCaretRectResolver(props),
           }))
         },
-        onKeyDown: ({ event }: { event: KeyboardEvent }) => {
-          if (contextRef.current === "dm") return false
+        onKeyDown: ({ event, view }) => {
+          const editor = editorRef.current
+          if (!editor || !eligible(editor) || editor.view !== view) return false
           if (event.isComposing) return false
           const cur = popupRef.current
           if (cur.items.length === 0) return false
@@ -238,9 +254,10 @@ export function buildCommunityMentionExtension(opts: {
           }
           return false
         },
-        onExit: () => {
-          if (contextRef.current === "dm") return
-          onSearchMembersRef?.current?.("")
+        onExit: ({ editor }) => {
+          if (editorRef.current !== editor) return
+          if (queryRef?.current || popupRef.current.command) onSearchMembersRef?.current?.("")
+          if (queryRef) queryRef.current = ""
           setPopup(EMPTY_MENTION_STATE)
         },
       }),

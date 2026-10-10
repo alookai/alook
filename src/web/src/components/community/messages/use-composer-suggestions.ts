@@ -1,5 +1,7 @@
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import type { Editor } from "@tiptap/react"
+import { exitSuggestion } from "@tiptap/suggestion"
 import {
   buildCommunityMentionExtension,
   EMPTY_MENTION_STATE,
@@ -24,6 +26,9 @@ import type {
 } from "./composer-types"
 
 type ComposerSuggestionsOptions = {
+  editorRef: { current: Editor | null }
+  canSuggest: (editor: Editor) => boolean
+  scope: string
   members: Member[]
   context: MentionContext
   mentionCandidates?: MentionCandidateSource
@@ -72,6 +77,9 @@ function channelRefItemsEqual(
 }
 
 export function useComposerSuggestions({
+  editorRef,
+  canSuggest,
+  scope,
   members,
   context,
   mentionCandidates,
@@ -81,9 +89,20 @@ export function useComposerSuggestions({
 }: ComposerSuggestionsOptions) {
   const [mentionPopup, setMentionPopup] = useAtom(useCreateAtom<MentionPopupState>(EMPTY_MENTION_STATE))
   const mentionPopupRef = useRef(mentionPopup)
-  useEffect(() => {
-    mentionPopupRef.current = mentionPopup
-  }, [mentionPopup])
+  const mentionQueryRef = useRef("")
+  const canSuggestRef = useRef(canSuggest)
+  useLayoutEffect(() => { canSuggestRef.current = canSuggest }, [canSuggest])
+  const eligible = useCallback((editor: Editor) => canSuggestRef.current(editor), [])
+  const isOpenEditor = useCallback(() => {
+    const editor = editorRef.current
+    return Boolean(editor && eligible(editor))
+  }, [editorRef, eligible])
+  const publishMention = useCallback((next: MentionPopupState | ((current: MentionPopupState) => MentionPopupState)) => {
+    const resolved = typeof next === "function" ? next(mentionPopupRef.current) : next
+    mentionPopupRef.current = resolved
+    mentionQueryRef.current = resolved.query
+    setMentionPopup(resolved)
+  }, [setMentionPopup])
 
   const [channelRefPopupState, setChannelRefPopup] =
     useAtom(useCreateAtom<ChannelRefPopupState>(EMPTY_CHANNEL_REF_STATE))
@@ -99,45 +118,35 @@ export function useComposerSuggestions({
         : 0,
     }
   }, [channelRefCandidates, channelRefPopupState])
-  useLayoutEffect(() => {
-    if (channelRefPopup !== channelRefPopupState) setChannelRefPopup(channelRefPopup)
-  }, [channelRefPopup, channelRefPopupState, setChannelRefPopup])
   const channelRefPopupRef = useRef(channelRefPopup)
+  const channelRefQueryRef = useRef("")
+  const publishChannelRef = useCallback((next: ChannelRefPopupState | ((current: ChannelRefPopupState) => ChannelRefPopupState)) => {
+    const resolved = typeof next === "function" ? next(channelRefPopupRef.current) : next
+    channelRefPopupRef.current = resolved
+    channelRefQueryRef.current = resolved.query ?? ""
+    setChannelRefPopup(resolved)
+  }, [setChannelRefPopup])
   useLayoutEffect(() => {
-    channelRefPopupRef.current = channelRefPopup
-  }, [channelRefPopup])
+    if (!isOpenEditor() || channelRefPopup.command !== channelRefPopupRef.current.command) return
+    if (channelRefPopup !== channelRefPopupState) publishChannelRef(channelRefPopup)
+  }, [channelRefPopup, channelRefPopupState, isOpenEditor, publishChannelRef])
 
   const membersRef = useRef(members)
   const contextRef = useRef(context)
   const onSearchMembersRef = useRef(mentionCandidates?.search)
-  const mentionQueryRef = useRef("")
   useEffect(() => {
     membersRef.current = members
   }, [members])
-  useLayoutEffect(() => {
-    const previousSearch = onSearchMembersRef.current
-    if (context === "dm" && mentionQueryRef.current) previousSearch?.("")
-    onSearchMembersRef.current = mentionCandidates?.search
-  }, [context, mentionCandidates?.search])
-  useLayoutEffect(() => {
-    contextRef.current = context
-    if (context !== "dm") return
-
-    // The mention extension is initialized once, so close any channel/thread
-    // lifecycle before the reused editor can handle input in a DM. Keep the
-    // channel-ref popup untouched: slash references remain supported in DMs.
-    mentionQueryRef.current = ""
-    mentionPopupRef.current = EMPTY_MENTION_STATE
-    setMentionPopup(EMPTY_MENTION_STATE)
-  }, [context, setMentionPopup])
 
   // eslint-disable-next-line react-hooks/refs -- runtime suggestion callbacks read these refs
   const [mentionExtension] = useState(() =>
     buildCommunityMentionExtension({
+      editorRef,
+      canSuggest: eligible,
       membersRef,
       contextRef,
       popupRef: mentionPopupRef,
-      setPopup: (next) => setMentionPopup((current) => typeof next === "function" ? next(current) : next),
+      setPopup: publishMention,
       onSearchMembersRef,
       queryRef: mentionQueryRef,
     }),
@@ -145,7 +154,6 @@ export function useComposerSuggestions({
 
   const channelRefCandidatesRef = useRef(channelRefCandidates)
   const onChannelRefIntentRef = useRef(onChannelRefIntent)
-  const channelRefQueryRef = useRef("")
   useEffect(() => {
     channelRefCandidatesRef.current = channelRefCandidates
   }, [channelRefCandidates])
@@ -169,16 +177,33 @@ export function useComposerSuggestions({
   // eslint-disable-next-line react-hooks/refs -- runtime suggestion callbacks read these refs
   const [channelRefExtension] = useState(() =>
     buildCommunityChannelRefExtension({
+      editorRef,
+      canSuggest: eligible,
       candidatesRef: channelRefCandidatesRef,
       popupRef: channelRefPopupRef,
       onIntentRef: onChannelRefIntentRef,
-      setPopup: (next) => setChannelRefPopup((current) => typeof next === "function" ? next(current) : next),
+      setPopup: publishChannelRef,
       queryRef: channelRefQueryRef,
     }),
   )
 
+  const resetPopups = useCallback((editor = editorRef.current, exit = true) => {
+    if (editor && editorRef.current !== editor) return
+    if (mentionQueryRef.current || mentionPopupRef.current.command) onSearchMembersRef.current?.("")
+    publishMention(EMPTY_MENTION_STATE)
+    publishChannelRef(EMPTY_CHANNEL_REF_STATE)
+    if (!exit || !editor || editor.isDestroyed) return
+    exitSuggestion(editor.view, mentionExtension.options.suggestion.pluginKey)
+    exitSuggestion(editor.view, channelRefExtension.options.suggestion.pluginKey)
+  }, [editorRef, mentionExtension, channelRefExtension, publishMention, publishChannelRef])
+  useLayoutEffect(() => { resetPopups() }, [scope, resetPopups])
+  useLayoutEffect(() => {
+    contextRef.current = context
+    onSearchMembersRef.current = mentionCandidates?.search
+  }, [context, mentionCandidates?.search])
+
   useEffect(() => {
-    if (context === "dm") return
+    if (context === "dm" || !isOpenEditor()) return
     const current = mentionPopupRef.current
     if (!current.command) return
     const query = mentionQueryRef.current
@@ -189,22 +214,23 @@ export function useComposerSuggestions({
       query,
     )
     if (mentionItemsEqual(current.items, items)) return
-    setMentionPopup({
+    publishMention({
       ...current,
       items,
       selectedIndex:
         current.selectedIndex < items.length ? current.selectedIndex : 0,
     })
-  }, [context, members, mentionCandidates, setMentionPopup])
+  }, [context, members, mentionCandidates, isOpenEditor, publishMention])
 
   useEffect(() => {
     const current = mentionPopupRef.current
+    if (!isOpenEditor()) return
     if (!current.command || current.query.trim()) return
     if (!mentionCandidates?.hasMore) return
     if (mentionCandidates.loading || mentionCandidates.loadingMore) return
     if (mentionCandidates.failed) return
     mentionCandidates.loadMore?.()
-  }, [mentionCandidates, mentionPopup.command, mentionPopup.query])
+  }, [mentionCandidates, mentionPopup.command, mentionPopup.query, isOpenEditor])
 
   const mentionPresentation: MentionCandidatePresentation = (() => {
     if (!mentionCandidates) {
@@ -222,12 +248,6 @@ export function useComposerSuggestions({
     }
     return { status: mentionPopup.items.length > 0 ? "ready" : "empty" }
   })()
-
-  const resetPopups = () => {
-    mentionCandidates?.search?.("")
-    setMentionPopup(EMPTY_MENTION_STATE)
-    setChannelRefPopup(EMPTY_CHANNEL_REF_STATE)
-  }
 
   return {
     mentionPopup,
