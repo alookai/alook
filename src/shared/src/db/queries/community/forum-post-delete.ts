@@ -1,6 +1,5 @@
-import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import {
-  communityAttachment,
   communityChannel,
   communityMention,
   communityMessage,
@@ -204,21 +203,6 @@ async function deleteForumPostAttempt(
     )
   )`;
 
-  const mediaSnapshot = db
-    .select({
-      r2Key: communityAttachment.r2Key,
-      thumbnailR2Key: communityAttachment.thumbnailR2Key,
-    })
-    .from(communityAttachment)
-    .where(or(
-      eq(communityAttachment.messageId, input.openerId),
-      inArray(communityAttachment.messageId, childMessageIds),
-      and(
-        isNull(communityAttachment.messageId),
-        eq(communityAttachment.targetId, input.childChannelId),
-      ),
-    ));
-
   const repairReadStates = db
     .update(communityReadState)
     .set({
@@ -244,15 +228,6 @@ async function deleteForumPostAttempt(
       sql<boolean>`NOT (${priorMessageExists})`,
       impactedHumansStable,
       rowBelongsToKnownHumanOrBot,
-    ));
-
-  const removePendingAttachments = db
-    .delete(communityAttachment)
-    .where(and(
-      isNull(communityAttachment.messageId),
-      eq(communityAttachment.targetId, input.childChannelId),
-      openerStillExists,
-      impactedHumansStable,
     ));
 
   const updateForum = db
@@ -285,10 +260,9 @@ async function deleteForumPostAttempt(
     ))
     .returning({ id: communityMessage.id });
 
-  const revisionIndex = 1;
-  const deleteIndex = impactedUserIds.length > 0 ? 6 : 5;
+  const revisionIndex = 0;
+  const deleteIndex = impactedUserIds.length > 0 ? 4 : 3;
   const results = (await db.batch([
-    mediaSnapshot,
     ...(impactedUserIds.length > 0
       ? [advanceReadStateRevisionsForUsersBuilder(
           db,
@@ -298,11 +272,9 @@ async function deleteForumPostAttempt(
       : []),
     repairReadStates,
     removeEmptyReadStates,
-    removePendingAttachments,
     updateForum,
     deleteOpener,
   ] as any)) as unknown[];
-  const mediaRows = results[0] as Array<{ r2Key: string; thumbnailR2Key: string | null }>;
   const deletedRows = results[deleteIndex] as Array<{ id: string }>;
   const revisions = impactedUserIds.length > 0
     ? results[revisionIndex] as Array<{ userId: string; revision: number }>
@@ -326,9 +298,7 @@ async function deleteForumPostAttempt(
 
   return {
     deleted,
-    mediaKeys: deleted
-      ? mediaRows.flatMap((row) => [row.r2Key, row.thumbnailR2Key].filter((key): key is string => !!key))
-      : [],
+    mediaKeys: [],
     readStateRevisions: deleted ? revisions : [],
   };
 }

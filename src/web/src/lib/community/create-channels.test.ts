@@ -9,7 +9,6 @@ const mockFanOutToChannel = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
 const mockDeleteChannel = vi.fn()
 const mockListMessageAttachments = vi.fn()
-const mockRebindPendingAttachmentsToChild = vi.fn()
 const mockGetMessage = vi.fn()
 const mockRequireChannelMember = vi.fn()
 
@@ -48,7 +47,6 @@ vi.mock("@alook/shared", async () => {
       communityAttachment: {
         ...actual.queries.communityAttachment,
         listMessageAttachments: (...a: unknown[]) => mockListMessageAttachments(...a),
-        rebindPendingAttachmentsToChild: (...a: unknown[]) => mockRebindPendingAttachmentsToChild(...a),
       },
       communityThread: {
         ...actual.queries.communityThread,
@@ -161,31 +159,19 @@ describe("createMessageWithThread — atomic message composition", () => {
     mockGetThreadChannelByParentMessage.mockReset().mockResolvedValue(thread)
   })
 
-  it("passes structure, pending attachments and activity to the same message write before broadcasting", async () => {
+  it("passes structure, attachments and activity to the same message write before broadcasting", async () => {
     const broadcast = vi.fn()
     mockCreateCommunityMessage.mockResolvedValue({ ok: true, row: { id: "msg_1" }, attachments: [], broadcast })
     const sent = { statement: "sent" }
-    const result = await createMessageWithThread({ ...input, expectedSeq: 8, pendingAttachmentIdsToRebind: ["a"], extraStatements: [sent] })
+    const result = await createMessageWithThread({ ...input, expectedSeq: 8, attachmentIds: ["a"], extraStatements: [sent] })
     expect(mockCreateCommunityMessage).toHaveBeenCalledWith(expect.objectContaining({
       expectedSeq: 8, extraStatements: [sent],
-      forumThread: { id: expect.any(String), name: "Title", serverId: "s1", pendingAttachmentIds: ["a"] },
+      forumThread: { id: expect.any(String), name: "Title", serverId: "s1" },
     }))
     expect(result).toEqual({ ok: true, message: { id: "msg_1" }, attachments: [], thread })
     expect(broadcast).not.toHaveBeenCalled()
     expect(mockFanOutToChannel).not.toHaveBeenCalled()
     expect(mockCreateChannel).not.toHaveBeenCalled()
-    expect(mockRebindPendingAttachmentsToChild).not.toHaveBeenCalled()
-  })
-
-  it("rejects oversized pending attachments before creating a forum opener", async () => {
-    const result = await createMessageWithThread({
-      ...input,
-      pendingAttachmentIdsToRebind: Array.from({ length: 11 }, (_, i) => `attachment-${i}`),
-    })
-    expect(result).toEqual({ ok: false, status: 400, error: "too many attachments (max 10)" })
-    expect(mockCreateCommunityMessage).not.toHaveBeenCalled()
-    expect(mockGetThreadChannelByParentMessage).not.toHaveBeenCalled()
-    expect(mockFanOutToChannel).not.toHaveBeenCalled()
   })
 
   it("bounds explicit and content-derived thread names", async () => {
@@ -195,13 +181,12 @@ describe("createMessageWithThread — atomic message composition", () => {
     expect(mockCreateCommunityMessage.mock.calls[1][0].forumThread.name).toBe("y".repeat(100))
   })
 
-  it("returns complete nonce replay without mutating pending attachments or broadcasting", async () => {
+  it("returns complete nonce replay without mutating attachments or broadcasting", async () => {
     const attachments = [{ id: "a", thumbnailUrl: "/thumbnail" }]
     mockCreateCommunityMessage.mockResolvedValue({ ok: true, row: { id: "msg_1" }, attachments, deduped: true })
-    const result = await createMessageWithThread({ ...input, clientNonce: "nonce", pendingAttachmentIdsToRebind: ["a"] })
+    const result = await createMessageWithThread({ ...input, clientNonce: "nonce", attachmentIds: ["a"] })
     expect(result).toEqual({ ok: true, message: { id: "msg_1" }, attachments, thread, deduped: true })
     expect(mockFanOutToChannel).not.toHaveBeenCalled()
-    expect(mockRebindPendingAttachmentsToChild).not.toHaveBeenCalled()
     expect(mockAddThreadParticipants).not.toHaveBeenCalled()
   })
 

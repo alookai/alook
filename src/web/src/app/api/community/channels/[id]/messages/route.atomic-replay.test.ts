@@ -70,16 +70,8 @@ describe("message HTTP route — concurrent nonce with real SQL writes", () => {
       ALTER TABLE user ADD COLUMN email TEXT;
       ALTER TABLE user ADD COLUMN image TEXT;
       ALTER TABLE user ADD COLUMN avatarVersion INTEGER DEFAULT 0;
-      ALTER TABLE community_attachment ADD COLUMN filename TEXT DEFAULT 'a.png';
-      ALTER TABLE community_attachment ADD COLUMN r2_key TEXT;
-      ALTER TABLE community_attachment ADD COLUMN thumbnail_r2_key TEXT;
-      ALTER TABLE community_attachment ADD COLUMN content_type TEXT;
-      ALTER TABLE community_attachment ADD COLUMN size INTEGER;
-      ALTER TABLE community_attachment ADD COLUMN width INTEGER;
-      ALTER TABLE community_attachment ADD COLUMN height INTEGER;
-      ALTER TABLE community_attachment ADD COLUMN created_at TEXT;
       CREATE TABLE community_bot_daily_activity (bot_id TEXT NOT NULL, day TEXT NOT NULL, handled_count INTEGER NOT NULL DEFAULT 0, sent_count INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(bot_id, day));
-      INSERT INTO community_attachment(id, uploader_id, target_id) VALUES ('a', 'author', 'channel');
+      INSERT INTO community_attachment(id, uploader_id, r2_key, filename, created_at) VALUES ('a', 'author', 'original', 'a.png', 'now');
     `)
   })
   afterEach(() => fixture.sqlite.close())
@@ -100,7 +92,7 @@ describe("message HTTP route — concurrent nonce with real SQL writes", () => {
     expect(bodies[0].message.id).toBe(bodies[1].message.id)
     expect(bodies.filter((body) => body.deduped)).toHaveLength(1)
     expect(fixture.sqlite.prepare("SELECT count(*) AS count FROM community_message").get()).toEqual({ count: 1 })
-    expect(fixture.sqlite.prepare("SELECT message_id FROM community_attachment").get()).toEqual({ message_id: bodies[0].message.id })
+    expect(fixture.sqlite.prepare("SELECT message_id FROM community_message_attachment").get()).toEqual({ message_id: bodies[0].message.id })
     expect(dispatchCommittedMessage).toHaveBeenCalledOnce()
     if (kind === "bot") expect(fixture.sqlite.prepare("SELECT sent_count FROM community_bot_daily_activity").get()).toEqual({ sent_count: 1 })
   })
@@ -114,7 +106,8 @@ describe("message HTTP route — concurrent nonce with real SQL writes", () => {
     expect(bodies[0].threadId).toBe(bodies[1].threadId)
     expect(bodies[0].threadId).toBeTruthy()
     expect(fixture.sqlite.prepare("SELECT count(*) AS count FROM community_channel WHERE type='thread'").get()).toEqual({ count: 1 })
-    expect(fixture.sqlite.prepare("SELECT target_id, message_id FROM community_attachment").get()).toEqual({ target_id: bodies[0].threadId, message_id: null })
+    expect(fixture.sqlite.prepare("SELECT id FROM community_attachment").get()).toEqual({ id: "a" })
+    expect(fixture.sqlite.prepare("SELECT * FROM community_message_attachment").all()).toEqual([])
     expect(fixture.sqlite.prepare("SELECT sent_count FROM community_bot_daily_activity").get()).toEqual({ sent_count: 1 })
   })
 

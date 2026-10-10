@@ -6,7 +6,7 @@ vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
   return { ...actual, queries: { ...actual.queries, communityMessage: {
     ...actual.queries.communityMessage, listRecentMessagesForDuplicateCheck: mocks.recent,
-  }, user: { ...actual.queries.user, getUserSelf: mocks.author }, communityAttachment: { findPendingAttachmentsForSender: mocks.pending, listByMessageIds: mocks.previous } } }
+  }, user: { ...actual.queries.user, getUserSelf: mocks.author }, communityAttachment: { listByMessageIds: mocks.previous } } }
 })
 vi.mock("./jev-wake-gate", async () => {
   const actual = await vi.importActual<typeof import("./jev-wake-gate")>("./jev-wake-gate")

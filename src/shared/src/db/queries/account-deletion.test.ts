@@ -269,12 +269,10 @@ describe("account deletion snapshot and delete queries", () => {
     )
     run("INSERT INTO community_message (id, author_id, content, created_at, channel_id, seq) VALUES (?, ?, 'reply', ?, ?, 1)", reply, reader, now, thread)
     run(
-      "INSERT INTO community_attachment (id, message_id, uploader_id, target_id, r2_key, thumbnail_r2_key, filename, position, created_at) VALUES ('thread_attachment', ?, ?, ?, 'community/thread/raw', 'community/thread/thumb', 'reply.txt', 0, ?), ('owner_attachment', ?, ?, ?, 'community/owner/raw', NULL, 'owner.txt', 0, ?), ('pending_server_attachment', NULL, ?, ?, 'community/pending-server/raw', NULL, 'pending-server.txt', 0, ?), ('pending_thread_attachment', NULL, ?, ?, 'community/pending-thread/raw', 'community/pending-thread/thumb', 'pending-thread.txt', 0, ?)",
-      reply, reader, thread, now,
-      authoredMessage, owner, dm, now,
-      reader, serverChannel, now,
-      reader, thread, now,
+      "INSERT INTO community_attachment (id, uploader_id, r2_key, thumbnail_r2_key, filename, created_at) VALUES ('thread_attachment', ?, 'community/thread/raw', 'community/thread/thumb', 'reply.txt', ?), ('owner_attachment', ?, 'community/owner/raw', NULL, 'owner.txt', ?), ('pending_server_attachment', ?, 'community/pending-server/raw', NULL, 'pending-server.txt', ?), ('pending_thread_attachment', ?, 'community/pending-thread/raw', 'community/pending-thread/thumb', 'pending-thread.txt', ?), ('owner_draft', ?, 'community/draft/raw', NULL, 'draft.txt', ?)",
+      reader, now, owner, now, reader, now, reader, now, owner, now,
     )
+    run("INSERT INTO community_message_attachment VALUES (?, 'thread_attachment', 0), (?, 'owner_attachment', 0), (?, 'owner_attachment', 0)", reply, authoredMessage, priorMessage)
     const createdAtMs = Date.parse(now)
     run(
       "INSERT INTO community_diagnostic_report (id, owner_user_id, agent_id, machine_id, client_nonce, rate_bucket, status, from_ms, created_at, deadline_at) VALUES ('dbr_owned', ?, ?, 'community_machine_1', 'nonce_123456789012', ?, 'pending', ?, ?, ?)",
@@ -302,12 +300,6 @@ describe("account deletion snapshot and delete queries", () => {
     expect(snapshot!.media.communityExactKeys).toEqual(expect.arrayContaining([
       `user-avatar/${owner}`,
       `bot-avatar/${bot}`,
-      "community/thread/raw",
-      "community/thread/thumb",
-      "community/owner/raw",
-      "community/pending-server/raw",
-      "community/pending-thread/raw",
-      "community/pending-thread/thumb",
     ]))
     expect(snapshot!.media.emailExactKeys).toEqual(expect.arrayContaining([
       "artifacts/raw",
@@ -334,10 +326,13 @@ describe("account deletion snapshot and delete queries", () => {
     expect(sqlite.prepare("SELECT id FROM workspace WHERE id = ?").get(ownedWorkspace)).toBeUndefined()
     expect(sqlite.prepare("SELECT id FROM workspace WHERE id = ?").get(sharedWorkspace)).toEqual({ id: sharedWorkspace })
     expect(sqlite.prepare("SELECT runtime_id FROM agent WHERE id = ?").get(survivingAgent)).toEqual({ runtime_id: null })
-    expect(sqlite.prepare("SELECT id FROM community_attachment WHERE id IN (?, ?)").get(
-      "pending_server_attachment",
-      "pending_thread_attachment",
-    )).toBeUndefined()
+    expect(sqlite.prepare("SELECT id FROM community_attachment ORDER BY id").all()).toEqual([
+      { id: "owner_attachment" }, { id: "pending_server_attachment" }, { id: "pending_thread_attachment" },
+    ])
+    expect(sqlite.prepare("SELECT message_id,attachment_id FROM community_message_attachment").all()).toEqual([
+      { message_id: priorMessage, attachment_id: "owner_attachment" },
+    ])
+    expect(snapshot!.media.communityExactKeys.some(key => key.startsWith("community/"))).toBe(false)
     expect(sqlite.prepare("SELECT id FROM user WHERE id = ?").get(reader)).toEqual({ id: reader })
     expect(sqlite.prepare(
       "SELECT COUNT(*) AS count FROM community_push_device WHERE user_id = ?",

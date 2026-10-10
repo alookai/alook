@@ -1,6 +1,5 @@
-import { and, eq, exists, inArray, isNull, or, sql } from "drizzle-orm"
+import { and, eq, exists, inArray, or, sql } from "drizzle-orm"
 import {
-  communityAttachment,
   communityChannel,
   communityMention,
   communityMessage,
@@ -22,13 +21,6 @@ export type DeleteCommunityMediaResult = {
 
 export type DeleteServerWithMediaResult = DeleteCommunityMediaResult & {
   iconKey: string | null
-}
-
-function flattenMediaRows(
-  rows: Array<{ r2Key: string; thumbnailR2Key: string | null }>,
-): string[] {
-  return rows.flatMap((row) => [row.r2Key, row.thumbnailR2Key]
-    .filter((key): key is string => key !== null && key.length > 0))
 }
 
 export async function deleteChannelWithMedia(
@@ -127,32 +119,6 @@ async function deleteChannelWithMediaAttempt(
   )`
   const enumeratedUserHasEffect = scopedHumanEffectSql(sql`CAST(value AS TEXT)`)
 
-  const mediaSnapshot = db
-    .select({
-      r2Key: communityAttachment.r2Key,
-      thumbnailR2Key: communityAttachment.thumbnailR2Key,
-    })
-    .from(communityAttachment)
-    .where(and(
-      rootStillExists,
-      or(
-        inArray(communityAttachment.messageId, scopedMessageIds),
-        and(
-          isNull(communityAttachment.messageId),
-          inArray(communityAttachment.targetId, scopedChannelIds),
-        ),
-      ),
-    ))
-
-  const removePendingAttachments = db
-    .delete(communityAttachment)
-    .where(and(
-      rootStillExists,
-      isNull(communityAttachment.messageId),
-      inArray(communityAttachment.targetId, scopedChannelIds),
-      impactedHumansStable,
-    ))
-
   const deleteRoot = db
     .delete(communityChannel)
     .where(and(
@@ -162,11 +128,9 @@ async function deleteChannelWithMediaAttempt(
     ))
     .returning({ id: communityChannel.id })
 
-  const revisionIndex = 2
-  const deleteIndex = impactedUserIds.length > 0 ? 3 : 2
+  const revisionIndex = 0
+  const deleteIndex = impactedUserIds.length > 0 ? 1 : 0
   const results = (await db.batch([
-    mediaSnapshot,
-    removePendingAttachments,
     ...(impactedUserIds.length > 0
       ? [advanceReadStateRevisionsForUsersBuilder(
           db,
@@ -176,7 +140,6 @@ async function deleteChannelWithMediaAttempt(
       : []),
     deleteRoot,
   ] as any)) as unknown[]
-  const mediaRows = results[0] as Array<{ r2Key: string; thumbnailR2Key: string | null }>
   const deletedRows = results[deleteIndex] as Array<{ id: string }>
   const deleted = deletedRows.length > 0
   const revisions = impactedUserIds.length > 0
@@ -194,7 +157,7 @@ async function deleteChannelWithMediaAttempt(
 
   return {
     deleted,
-    mediaKeys: deleted ? flattenMediaRows(mediaRows) : [],
+    mediaKeys: [],
     readStateRevisions: deleted ? revisions : [],
   }
 }
@@ -281,32 +244,6 @@ async function deleteServerWithMediaAttempt(
   )`
   const enumeratedUserHasEffect = scopedHumanEffectSql(sql`CAST(value AS TEXT)`)
 
-  const mediaSnapshot = db
-    .select({
-      r2Key: communityAttachment.r2Key,
-      thumbnailR2Key: communityAttachment.thumbnailR2Key,
-    })
-    .from(communityAttachment)
-    .where(and(
-      ownedServerStillExists,
-      or(
-        inArray(communityAttachment.messageId, scopedMessageIds),
-        and(
-          isNull(communityAttachment.messageId),
-          inArray(communityAttachment.targetId, scopedChannelIds),
-        ),
-      ),
-    ))
-
-  const removePendingAttachments = db
-    .delete(communityAttachment)
-    .where(and(
-      ownedServerStillExists,
-      isNull(communityAttachment.messageId),
-      inArray(communityAttachment.targetId, scopedChannelIds),
-      impactedHumansStable,
-    ))
-
   const deleteServer = db
     .delete(communityServer)
     .where(and(
@@ -316,11 +253,9 @@ async function deleteServerWithMediaAttempt(
     ))
     .returning({ id: communityServer.id, icon: communityServer.icon })
 
-  const revisionIndex = 2
-  const deleteIndex = impactedUserIds.length > 0 ? 3 : 2
+  const revisionIndex = 0
+  const deleteIndex = impactedUserIds.length > 0 ? 1 : 0
   const results = (await db.batch([
-    mediaSnapshot,
-    removePendingAttachments,
     ...(impactedUserIds.length > 0
       ? [advanceReadStateRevisionsForUsersBuilder(
           db,
@@ -330,7 +265,6 @@ async function deleteServerWithMediaAttempt(
       : []),
     deleteServer,
   ] as any)) as unknown[]
-  const mediaRows = results[0] as Array<{ r2Key: string; thumbnailR2Key: string | null }>
   const deletedRows = results[deleteIndex] as Array<{ id: string; icon: string | null }>
   const deleted = deletedRows.length > 0
   const revisions = impactedUserIds.length > 0
@@ -348,7 +282,7 @@ async function deleteServerWithMediaAttempt(
 
   return {
     deleted,
-    mediaKeys: deleted ? flattenMediaRows(mediaRows) : [],
+    mediaKeys: [],
     iconKey: deleted ? deletedRows[0]!.icon : null,
     readStateRevisions: deleted ? revisions : [],
   }

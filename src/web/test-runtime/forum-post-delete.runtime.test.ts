@@ -98,16 +98,11 @@ async function seedCanonicalPost() {
     `rs_owner_${id.opener}`, id.owner, id.forum, t3, id.opener,
     `rs_reader_${id.opener}`, id.reader, id.forum, t3, id.opener,
   );
-  await run(
-    `INSERT INTO community_attachment
-      (id, message_id, uploader_id, target_id, r2_key, thumbnail_r2_key, filename, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'opener.png', ?),
-            (?, ?, ?, ?, ?, ?, 'reply.png', ?),
-            (?, NULL, ?, ?, ?, ?, 'pending.png', ?)`,
-    `att_opener_${id.opener}`, id.opener, id.owner, id.child, `${id.opener}/original`, `${id.opener}/thumb`, t3,
-    `att_reply_${id.opener}`, id.reply, id.reader, id.child, `${id.reply}/original`, `${id.reply}/thumb`, childTime,
-    `att_pending_${id.opener}`, id.owner, id.child, `${id.child}/pending-original`, `${id.child}/pending-thumb`, childTime,
-  );
+  await run("INSERT INTO community_attachment(id,uploader_id,r2_key,thumbnail_r2_key,filename,created_at) VALUES (?,?,?,?, 'opener.png',?),(?,?,?,?, 'reply.png',?),(?,?,?,?, 'pending.png',?)",
+    `att_opener_${id.opener}`, id.owner, `${id.opener}/original`, `${id.opener}/thumb`, t3,
+    `att_reply_${id.opener}`, id.reader, `${id.reply}/original`, `${id.reply}/thumb`, childTime,
+    `att_pending_${id.opener}`, id.owner, `${id.child}/pending-original`, `${id.child}/pending-thumb`, childTime)
+  await run("INSERT INTO community_message_attachment VALUES (?,?,0),(?,?,0)", id.opener, `att_opener_${id.opener}`, id.reply, `att_reply_${id.opener}`)
   await run(
     `INSERT INTO community_channel_member
       (id, channel_id, user_id, relation, source, added_at)
@@ -291,7 +286,7 @@ describe("deleteForumPost real D1 batch", () => {
     )).toEqual({ message_count: 2, last_message_at: t2 });
   });
 
-  it("captures all media keys, repairs parent truth, and cascades only the selected post", async () => {
+  it("preserves unreferenced drafts, repairs parent truth, and cascades only the selected post", async () => {
     const { id, t2 } = await seedCanonicalPost();
     const db = createDb(runtimeEnv.DB);
 
@@ -303,21 +298,14 @@ describe("deleteForumPost real D1 batch", () => {
     });
 
     expect(result.deleted).toBe(true);
-    expect(new Set(result.mediaKeys)).toEqual(new Set([
-      `${id.opener}/original`,
-      `${id.opener}/thumb`,
-      `${id.reply}/original`,
-      `${id.reply}/thumb`,
-      `${id.child}/pending-original`,
-      `${id.child}/pending-thumb`,
-    ]));
+    expect(result.mediaKeys).toEqual([]);
     expect(await first<{ message_count: number; last_message_at: string }>(
       "SELECT message_count, last_message_at FROM community_channel WHERE id = ?",
       id.forum,
     )).toEqual({ message_count: 2, last_message_at: t2 });
     expect(await first("SELECT id FROM community_channel WHERE id = ?", id.child)).toBeNull();
     expect(await first("SELECT id FROM community_message WHERE id IN (?, ?)", id.opener, id.reply)).toBeNull();
-    expect(await first("SELECT id FROM community_attachment WHERE target_id = ?", id.child)).toBeNull();
+    expect(await first("SELECT id FROM community_attachment WHERE id = ?", `att_pending_${id.opener}`)).not.toBeNull();
     for (const [table, rowId] of [
       ["community_channel_member", `participant_${id.opener}`],
       ["community_read_state", `rs_child_${id.opener}`],
@@ -536,7 +524,7 @@ describe("deleteForumPost real D1 batch", () => {
     ]);
 
     expect(results.filter((result) => result.deleted)).toHaveLength(1);
-    expect(results.filter((result) => result.mediaKeys.length > 0)).toHaveLength(1);
+    expect(results.every((result) => result.mediaKeys.length === 0)).toBe(true);
     expect(await first<{ message_count: number; last_message_at: string }>(
       "SELECT message_count, last_message_at FROM community_channel WHERE id = ?",
       id.forum,

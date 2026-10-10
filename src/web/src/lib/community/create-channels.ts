@@ -4,7 +4,6 @@ import {
   isChannelType,
   channelCreation,
   MAX_CHANNEL_NAME_LENGTH,
-  MAX_ATTACHMENTS_PER_MESSAGE,
   MAX_CHANNEL_TOPIC_LENGTH,
   WS_EVENTS,
   slugify,
@@ -307,16 +306,12 @@ export async function createMessageWithThread(params: {
   suppressBroadcast?: boolean
   suppressThreadFanout?: boolean
   attachmentIds?: string[]
-  pendingAttachmentIdsToRebind?: string[]
   clientNonce?: string
   expectedSeq?: number
   source?: "cli" | "daemon-http" | "web"
   extraStatements?: unknown[]
 }): Promise<CreateMessageWithThreadResult> {
   const { db, authorId, parentChannelId, serverId } = params
-  if ((params.pendingAttachmentIdsToRebind?.length ?? 0) > MAX_ATTACHMENTS_PER_MESSAGE) {
-    return { ok: false, status: 400, error: `too many attachments (max ${MAX_ATTACHMENTS_PER_MESSAGE})` }
-  }
   const content = typeof params.body.content === "string" ? params.body.content : ""
   const threadName = (params.threadName?.trim() || content.trim() || "thread").slice(0, MAX_CHANNEL_NAME_LENGTH)
   const created = await createCommunityMessage({
@@ -336,7 +331,6 @@ export async function createMessageWithThread(params: {
       id: nanoid(),
       serverId,
       name: threadName,
-      pendingAttachmentIds: params.pendingAttachmentIdsToRebind ?? [],
     },
   })
   if (!created.ok) return { ok: false, status: created.status, error: created.error }

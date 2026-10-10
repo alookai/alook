@@ -1,7 +1,7 @@
 import { contentDisposition, encodeRfc5987 } from "@/lib/content-disposition"
 import { NextResponse, type NextRequest } from "next/server"
 import { createLogger } from "@alook/shared"
-import { getDb } from "@/lib/db"
+import { getPrimaryDb } from "@/lib/db"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { withPrivateMediaCache } from "@/lib/middleware/private-media-cache"
 import { authorizeAttachment } from "@/lib/community/attachment-authorization"
@@ -45,14 +45,7 @@ function parseByteRange(value: string, size: number): ParsedByteRange | null {
  *   - bot/CLI (crk_ bearer) → raw body + `X-Alook-Filename` (RFC 5987), the
  *     shape the daemon `callDownload` buffers and writes to disk.
  *
- * ⚠ CONFUSED-DEPUTY (top red line, Aigneis ② / Blondie): authorization is
- * derived from the ATTACHMENT ROW's OWN channel (attachmentId → row →
- * row.messageId → message.channelId → membership), NEVER from the path `[id]`.
- * The `[id]` segment is a routing anchor only; a member of channel A must not
- * reach an attachment of channel B by putting A's id in the path. The old flat
- * `attachmentDownload` did this correctly — the fold does not regress it.
- *
- * Enumeration-safe: every "you can't have this" path (pending non-owner,
+ * Enumeration-safe: every "you can't have this" path (unreadable file,
  * not-a-member, genuine miss) returns the SAME 404. A distinct 502 fires only
  * when the DB row exists but R2 has drifted (infra fault, not a user-facing
  * gate). Response FORM forks by actor; the authz core is identical.
@@ -65,9 +58,8 @@ export const GET = withPrivateMediaCache(withCommunityActor(async (req: NextRequ
 
   const userId = ctx.actor.userId
   try {
-    const db = getDb(ctx.env.DB)
+    const db = getPrimaryDb(ctx.env.DB)
 
-    // Authorize from the ROW's own channel — never trust the path `[id]`.
     const authz = await authorizeAttachment(ctx.actor, db, attachmentId)
     if (!authz.ok) {
       // Enumeration-safe: every deny is an indistinguishable 404.

@@ -19,7 +19,7 @@ vi.mock("@/lib/db", () => ({
 }))
 
 const mockGetChannelType = vi.fn()
-const mockCreatePendingAttachment = vi.fn()
+const mockCreateAttachment = vi.fn()
 const mockLogError = vi.fn()
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -34,15 +34,12 @@ vi.mock("@alook/shared", async () => {
       },
       communityAttachment: {
         ...actual.queries.communityAttachment,
-        createPendingAttachment: (...a: unknown[]) => mockCreatePendingAttachment(...a),
+        createAttachment: (...a: unknown[]) => mockCreateAttachment(...a),
       },
     },
   }
 })
 
-// runAttachmentUpload now owns access + surface dispatch via
-// requireMessageSurfaceCommunicationAccess (kind is DERIVED from its returned surface +
-// channel.type, no separate getChannelType re-query). Mock it to drive each arm.
 const mockRequireMessageSurfaceCommunicationAccess = vi.fn()
 vi.mock("./permissions", () => ({
   requireMessageSurfaceCommunicationAccess: (...a: unknown[]) =>
@@ -59,7 +56,13 @@ import {
 import { MAX_ATTACHMENT_SIZE_BYTES, MAX_SERVER_ICON_SIZE_BYTES } from "@alook/shared"
 
 function envWithR2(put: ReturnType<typeof vi.fn>, del = vi.fn().mockResolvedValue(undefined)) {
-  return { COMMUNITY_MEDIA: { put, delete: del } } as unknown as Env
+  return { COMMUNITY_MEDIA: {
+    put: async (key: string, body: File, options: { sha256?: string }) => {
+      const result = await put(key, body, options)
+      return result === undefined ? { size: body.size, checksums: { sha256: options?.sha256 ? Uint8Array.from(Buffer.from(options.sha256, "hex")).buffer : undefined } } : result
+    },
+    delete: del,
+  } } as unknown as Env
 }
 
 /**
@@ -70,16 +73,13 @@ function envWithR2(put: ReturnType<typeof vi.fn>, del = vi.fn().mockResolvedValu
 function reqWithFile(file: unknown | null): NextRequest {
   const fd = new FormData()
   if (file) {
-    // FormData.set requires a real Blob; stash the test object on the
-    // FormData proxy directly instead.
-    ; (fd as unknown as { __file: unknown }).__file = file
+            ; (fd as unknown as { __file: unknown }).__file = file
   }
   const req = new NextRequest("http://localhost/u", { method: "POST" })
   req.formData = (async () => {
     const real = new FormData()
     if (file) {
-      // get() on FormData looks up by key — we override to return our file.
-      Object.defineProperty(real, "get", {
+            Object.defineProperty(real, "get", {
         value: (key: string) => (key === "file" ? file : null),
       })
     } else {
@@ -112,8 +112,11 @@ function fakeFile(name: string, type: string, size: number) {
     name,
     type,
     size,
-    arrayBuffer: async () => new ArrayBuffer(0),
-    stream: () => new ReadableStream(),
+    arrayBuffer: async () => new ArrayBuffer(size),
+    stream() {
+      const read = this.arrayBuffer()
+      return new ReadableStream({ async start(controller) { controller.enqueue(new Uint8Array(await read)); controller.close() } })
+    },
   }
 }
 
@@ -164,27 +167,26 @@ function restartMarkerJpegFile() {
 describe("handleAttachmentUpload", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  const USER_TAG = { uploader: "user" as const, uploaderUserId: "u1" }
 
   it("uploads a file under the size cap", async () => {
     const put = vi.fn().mockResolvedValue(undefined)
     const file = fakeFile("hi.png", "image/png", 10)
-    const res = await handleAttachmentUpload(reqWithFile(file), envWithR2(put), "channel", "c1", USER_TAG)
+    const res = await handleAttachmentUpload(reqWithFile(file), envWithR2(put))
     expect(res.ok).toBe(true)
     if (!res.ok) return
-    expect(res.r2Key).toMatch(/^channel\/c1\/[0-9a-f-]+\/hi\.png$/)
+    expect(res.r2Key).toMatch(/^attachments\/sha256\/[0-9a-f]{64}$/)
     expect(res.contentType).toBe("image/png")
     expect(res.size).toBe(10)
     expect(put).toHaveBeenCalledOnce()
     const [, , options] = put.mock.calls[0]
-    expect(options.customMetadata).toMatchObject({ uploader: "user" })
+    expect(options).toMatchObject({ onlyIf: { etagDoesNotMatch: "*" }, sha256: expect.any(String) })
   })
 
   it("accepts an original-only image at the exact policy boundaries", async () => {
     const put = vi.fn().mockResolvedValue(undefined)
     const res = await handleAttachmentUpload(
       reqWithUpload(fakeFile("edge.png", "image/png", 256 * 1024), null, "720", "540"),
-      envWithR2(put), "channel", "c1", USER_TAG,
+      envWithR2(put),
     )
 
     expect(res.ok).toBe(true)
@@ -200,7 +202,7 @@ describe("handleAttachmentUpload", () => {
   ])("rejects a missing required thumbnail proved by %s before either R2 put", async (_label, file, width, height) => {
     const put = vi.fn()
     const res = await handleAttachmentUpload(
-      reqWithUpload(file, null, width, height), envWithR2(put), "channel", "c1", USER_TAG,
+      reqWithUpload(file, null, width, height), envWithR2(put),
     )
 
     expect(res.ok).toBe(false)
@@ -210,27 +212,19 @@ describe("handleAttachmentUpload", () => {
     expect(put).not.toHaveBeenCalled()
   })
 
-  it("stores a validated JPEG thumbnail beside the original with matching provenance", async () => {
+  it("stores a validated JPEG thumbnail with its own content key", async () => {
     const put = vi.fn().mockResolvedValue(undefined)
     const file = fakeFile("hi.png", "image/png", 10)
     const thumbnail = fakeJpegFile()
     const res = await handleAttachmentUpload(
-      reqWithUpload(file, thumbnail), envWithR2(put), "channel", "c1", USER_TAG,
+      reqWithUpload(file, thumbnail), envWithR2(put),
     )
     expect(res.ok).toBe(true)
     if (!res.ok) return
-    expect(res.thumbnailR2Key).toBe(`${res.r2Key}.thumbnail.jpg`)
+    expect(res.thumbnailR2Key).toMatch(/^attachment-thumbnails\/sha256\/[0-9a-f]{64}$/)
     expect(res).toMatchObject({ width: 640, height: 480 })
     expect(put).toHaveBeenCalledTimes(2)
-    expect(put.mock.calls[0]?.[2]?.customMetadata).toMatchObject({ variant: "original" })
-    expect(put.mock.calls[1]).toEqual([
-      res.thumbnailR2Key,
-      thumbnail,
-      expect.objectContaining({
-        httpMetadata: { contentType: "image/jpeg" },
-        customMetadata: expect.objectContaining({ uploader: "user", variant: "thumbnail" }),
-      }),
-    ])
+    expect(put.mock.calls[1]).toEqual([res.thumbnailR2Key, thumbnail, expect.objectContaining({ onlyIf: { etagDoesNotMatch: "*" } })])
   })
 
   it("rejects malformed supplied thumbnails before either R2 put", async () => {
@@ -241,7 +235,7 @@ describe("handleAttachmentUpload", () => {
     }
     const res = await handleAttachmentUpload(
       reqWithUpload(fakeFile("hi.png", "image/png", 10), thumbnail),
-      envWithR2(put), "channel", "c1", USER_TAG,
+      envWithR2(put),
     )
     expect(res.ok).toBe(false)
     expect(put).not.toHaveBeenCalled()
@@ -251,7 +245,7 @@ describe("handleAttachmentUpload", () => {
     const put = vi.fn()
     const res = await handleAttachmentUpload(
       reqWithUpload(fakeFile("hi.png", "image/png", 10), sofOnlyJpegFile()),
-      envWithR2(put), "channel", "c1", USER_TAG,
+      envWithR2(put),
     )
 
     expect(res.ok).toBe(false)
@@ -286,7 +280,7 @@ describe("handleAttachmentUpload", () => {
     const put = vi.fn()
     const res = await handleAttachmentUpload(
       reqWithUpload(fakeFile("hi.png", "image/png", 10), thumbnail),
-      envWithR2(put), "channel", "c1", USER_TAG,
+      envWithR2(put),
     )
 
     expect(res.ok).toBe(false)
@@ -299,7 +293,7 @@ describe("handleAttachmentUpload", () => {
     const put = vi.fn().mockResolvedValue(undefined)
     const res = await handleAttachmentUpload(
       reqWithUpload(fakeFile("hi.png", "image/png", 10), restartMarkerJpegFile()),
-      envWithR2(put), "channel", "c1", USER_TAG,
+      envWithR2(put),
     )
 
     expect(res.ok).toBe(true)
@@ -310,7 +304,7 @@ describe("handleAttachmentUpload", () => {
     const put = vi.fn()
     const res = await handleAttachmentUpload(
       reqWithUpload(fakeFile("hi.png", "image/png", 10), fakeJpegFile(721, 512)),
-      envWithR2(put), "channel", "c1", USER_TAG,
+      envWithR2(put),
     )
 
     expect(res.ok).toBe(false)
@@ -338,7 +332,7 @@ describe("handleAttachmentUpload", () => {
   ])("rejects $label before either R2 put", async ({ file, thumbnail }) => {
     const put = vi.fn()
     const res = await handleAttachmentUpload(
-      reqWithUpload(file, thumbnail), envWithR2(put), "channel", "c1", USER_TAG,
+      reqWithUpload(file, thumbnail), envWithR2(put),
     )
     expect(res.ok).toBe(false)
     if (res.ok) return
@@ -346,58 +340,18 @@ describe("handleAttachmentUpload", () => {
     expect(put).not.toHaveBeenCalled()
   })
 
-  it.each([
-    { uploader: "user" as const, uploaderUserId: "u1" },
-    { uploader: "bot" as const, uploaderUserId: "bot_ada" },
-  ])("sanitizes $uploader original-compensation failures after a thumbnail put rejects", async (uploaderTag) => {
-    const thumbnailFailure = new Error("r2 thumbnail")
-    const put = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(thumbnailFailure)
-    const cleanupSecret = "provider-secret channel/c1/original.png"
-    const del = vi.fn().mockRejectedValueOnce(new TypeError(cleanupSecret))
-    const thumbnail = fakeJpegFile()
-    const upload = handleAttachmentUpload(
-      reqWithUpload(fakeFile("hi.png", "image/png", 10), thumbnail),
-      envWithR2(put, del), "channel", "c1", uploaderTag,
-    )
-
-    await expect(upload).rejects.toBe(thumbnailFailure)
-    const originalKey = put.mock.calls[0]?.[0]
-    expect(originalKey).toMatch(/^channel\/c1\/[0-9a-f-]+\/hi\.png$/)
-    expect(del).toHaveBeenCalledTimes(1)
-    expect(del).toHaveBeenCalledWith(originalKey)
-    expect(mockLogError).toHaveBeenCalledTimes(1)
-    expect(mockLogError).toHaveBeenCalledWith("attachment_thumbnail_put_cleanup_failed", {
-      uploader: uploaderTag.uploader,
-      route: "channels/[id]/attachments",
-      phase: "thumbnail_put_original_compensation",
-      objectCount: 1,
-      errorCategory: "TypeError",
-    })
-    const serializedWarning = JSON.stringify(mockLogError.mock.calls)
-    expect(serializedWarning).not.toContain(cleanupSecret)
-    expect(serializedWarning).not.toContain(String(originalKey))
-  })
-
-  it("stamps customMetadata.uploader=bot + bot_user_id when the caller is a bot", async () => {
-    const put = vi.fn().mockResolvedValue(undefined)
-    const file = fakeFile("hi.png", "image/png", 10)
-    const res = await handleAttachmentUpload(reqWithFile(file), envWithR2(put), "channel", "c1", {
-      uploader: "bot",
-      uploaderUserId: "bot_ada",
-    })
-    expect(res.ok).toBe(true)
-    const [, , options] = put.mock.calls[0]
-    expect(options.customMetadata).toEqual({
-      uploader: "bot",
-      bot_user_id: "bot_ada",
-      variant: "original",
-    })
+  it("does not delete shared original content when thumbnail creation fails", async () => {
+    const failure = new Error("r2 thumbnail")
+    const put = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(failure)
+    const del = vi.fn()
+    await expect(handleAttachmentUpload(reqWithUpload(fakeFile("hi.png", "image/png", 10), fakeJpegFile()), envWithR2(put, del))).rejects.toBe(failure)
+    expect(del).not.toHaveBeenCalled()
   })
 
   it("passes a known-length File body to R2", async () => {
     const put = vi.fn().mockResolvedValue(undefined)
     const file = fakeFile("hi.png", "image/png", 10)
-    await handleAttachmentUpload(reqWithFile(file), envWithR2(put), "channel", "c1", USER_TAG)
+    await handleAttachmentUpload(reqWithFile(file), envWithR2(put))
     expect(put).toHaveBeenCalledOnce()
     const [, body] = put.mock.calls[0]
     expect(body).toBe(file)
@@ -408,7 +362,7 @@ describe("handleAttachmentUpload", () => {
 
   it("rejects when no file part is present (400)", async () => {
     const put = vi.fn()
-    const res = await handleAttachmentUpload(reqWithFile(null), envWithR2(put), "channel", "c1", USER_TAG)
+    const res = await handleAttachmentUpload(reqWithFile(null), envWithR2(put))
     expect(res.ok).toBe(false)
     if (res.ok) return
     expect(res.response.status).toBe(400)
@@ -418,7 +372,7 @@ describe("handleAttachmentUpload", () => {
   it("rejects oversize files with 413", async () => {
     const put = vi.fn()
     const file = fakeFile("big.png", "image/png", MAX_ATTACHMENT_SIZE_BYTES + 1)
-    const res = await handleAttachmentUpload(reqWithFile(file), envWithR2(put), "channel", "c1", USER_TAG)
+    const res = await handleAttachmentUpload(reqWithFile(file), envWithR2(put))
     expect(res.ok).toBe(false)
     if (res.ok) return
     expect(res.response.status).toBe(413)
@@ -428,22 +382,20 @@ describe("handleAttachmentUpload", () => {
   it("accepts arbitrary MIME types", async () => {
     const put = vi.fn().mockResolvedValue(undefined)
     const file = fakeFile("evil.exe", "application/x-msdownload", 2)
-    const res = await handleAttachmentUpload(reqWithFile(file), envWithR2(put), "channel", "c1", USER_TAG)
+    const res = await handleAttachmentUpload(reqWithFile(file), envWithR2(put))
     expect(res.ok).toBe(true)
     if (!res.ok) return
     expect(res.contentType).toBe("application/x-msdownload")
     expect(put).toHaveBeenCalledOnce()
-    expect(put.mock.calls[0]?.[2]?.httpMetadata).toEqual({ contentType: "application/x-msdownload" })
   })
 
   it("normalizes an empty browser MIME to application/octet-stream", async () => {
     const put = vi.fn().mockResolvedValue(undefined)
     const file = fakeFile("unknown.blend", "", 2)
-    const res = await handleAttachmentUpload(reqWithFile(file), envWithR2(put), "channel", "c1", USER_TAG)
+    const res = await handleAttachmentUpload(reqWithFile(file), envWithR2(put))
     expect(res.ok).toBe(true)
     if (!res.ok) return
     expect(res.contentType).toBe("application/octet-stream")
-    expect(put.mock.calls[0]?.[2]?.httpMetadata).toEqual({ contentType: "application/octet-stream" })
   })
 
   it("accepts video, audio, pdf and text MIME types", async () => {
@@ -456,7 +408,7 @@ describe("handleAttachmentUpload", () => {
     ]
     for (const { type, name } of cases) {
       const f = fakeFile(name, type, 1)
-      const res = await handleAttachmentUpload(reqWithFile(f), envWithR2(put), "dm", "d1", USER_TAG)
+      const res = await handleAttachmentUpload(reqWithFile(f), envWithR2(put))
       expect(res.ok).toBe(true)
     }
     expect(put).toHaveBeenCalledTimes(cases.length)
@@ -465,13 +417,11 @@ describe("handleAttachmentUpload", () => {
   it("sanitizes traversal + slash characters out of the R2 key", async () => {
     const put = vi.fn().mockResolvedValue(undefined)
     const file = fakeFile("../evil/../name.png", "image/png", 4)
-    const res = await handleAttachmentUpload(reqWithFile(file), envWithR2(put), "channel", "c1", USER_TAG)
+    const res = await handleAttachmentUpload(reqWithFile(file), envWithR2(put))
     expect(res.ok).toBe(true)
     if (!res.ok) return
-    // No `..`, no `/` beyond the three fixed structural separators.
-    const trailing = res.r2Key.replace(/^channel\/c1\/[0-9a-f-]+\//, "")
-    expect(trailing).not.toContain("..")
-    expect(trailing).not.toContain("/")
+    expect(res.r2Key).toMatch(/^attachments\/sha256\/[0-9a-f]{64}$/)
+    expect(res.filename).toBe(file.name)
   })
 })
 
@@ -637,9 +587,7 @@ describe("handleBotAvatarUpload", () => {
 describe("runAttachmentUpload", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    // Reserve-by-id: the human arm now creates a pending row at upload and
-    // returns its id. Default the query to echo a stable id.
-    mockCreatePendingAttachment.mockResolvedValue({ id: "att_1", filename: "hi.png" })
+            mockCreateAttachment.mockResolvedValue({ id: "att_1", filename: "hi.png" })
   })
 
   function ctxWith(env: Env, params: Record<string, string> | undefined) {
@@ -651,9 +599,7 @@ describe("runAttachmentUpload", () => {
     }
   }
 
-  // Drive the surface dispatch: `surface="dm"` or `surface="channel"` with a
-  // channel row carrying `.type`. kind is DERIVED from these (no getChannelType).
-  function surfaceChannel(type: string) {
+      function surfaceChannel(type: string) {
     mockRequireMessageSurfaceCommunicationAccess.mockResolvedValue({
       ok: true,
       value: { surface: "channel", channel: { id: "c1", type } },
@@ -696,13 +642,8 @@ describe("runAttachmentUpload", () => {
     expect(put).not.toHaveBeenCalled()
   })
 
-  it("channel (text) surface → kind 'channel', channel/ R2 prefix, creates a pending row + returns its id (reserve-by-id)", async () => {
-    // Happy path — access passes, streaming upload succeeds, a PENDING row is
-    // created and its id returned (reserve-by-id, route/disc step 2b). A text
-    // channel derives kind="channel" (== what the old channels/[id]/upload
-    // passed). NO `url` in the response anymore — the display url is id-addressed
-    // and derived client-side.
-    surfaceChannel("text")
+  it("authorized text upload creates a file record and returns its ID", async () => {
+                        surfaceChannel("text")
     const put = vi.fn().mockResolvedValue(undefined)
     const res = await runAttachmentUpload(
       reqWithFile(fakeFile("hi.png", "image/png", 10)),
@@ -720,30 +661,24 @@ describe("runAttachmentUpload", () => {
     expect(body.filename).toBe("hi.png")
     expect(body.contentType).toBe("image/png")
     expect(body.size).toBe(10)
-    // Single-source: the upload response carries NO url (client derives it).
-    expect(body.url).toBeUndefined()
-    // Pending row created with the credential uploaderId + resolved target.
-    expect(mockCreatePendingAttachment).toHaveBeenCalledWith(
+        expect(body.url).toBeUndefined()
+        expect(mockCreateAttachment).toHaveBeenCalledWith(
       primaryDb,
-      expect.objectContaining({ uploaderId: "u1", targetId: "c1" }),
+      expect.objectContaining({ uploaderId: "u1" }),
     )
     expect(put).toHaveBeenCalledOnce()
-    // Known-length R2 body rule applies here too — the shared helper must not
-    // hand R2 an unknown-length ReadableStream or buffer into ArrayBuffer.
-    const [key, streamed] = put.mock.calls[0]
-    expect(key).toMatch(/^channel\/c1\//)
+            const [key, streamed] = put.mock.calls[0]
+    expect(key).toMatch(/^attachments\/sha256\/[0-9a-f]{64}$/)
     expect(streamed).toMatchObject({ size: 10, type: "image/png" })
     expect(streamed).not.toBeInstanceOf(ReadableStream)
     expect(streamed).not.toBeInstanceOf(ArrayBuffer)
   })
 
-  it("threads client-supplied image dimensions onto the pending row (single source = upload)", async () => {
+  it("threads client-supplied image dimensions onto the file record (single source = upload)", async () => {
     surfaceChannel("text")
     const put = vi.fn().mockResolvedValue(undefined)
     const thumbnail = fakeJpegFile()
-    // reqWithFile only stubs `get('file')`; extend it to also return w/h so the
-    // form-dimension parse in readFile sees them.
-    const req = reqWithFile(fakeFile("hi.png", "image/png", 10))
+            const req = reqWithFile(fakeFile("hi.png", "image/png", 10))
     req.formData = (async () => {
       const real = new FormData()
       Object.defineProperty(real, "get", {
@@ -765,13 +700,13 @@ describe("runAttachmentUpload", () => {
     const body = (await res.json()) as { width?: number; height?: number }
     expect(body.width).toBe(1920)
     expect(body.height).toBe(1080)
-    expect(mockCreatePendingAttachment).toHaveBeenCalledWith(
+    expect(mockCreateAttachment).toHaveBeenCalledWith(
       primaryDb,
       expect.objectContaining({ width: 1920, height: 1080 }),
     )
   })
 
-  it("dm surface → kind 'dm', dm/ R2 prefix (== old dm/[id]/upload's kind, buildMediaKey parity)", async () => {
+  it("authorized DM upload uses content keys", async () => {
     surfaceDm()
     const put = vi.fn().mockResolvedValue(undefined)
     const res = await runAttachmentUpload(
@@ -780,10 +715,10 @@ describe("runAttachmentUpload", () => {
     )
     expect(res.status).toBe(200)
     const [key] = put.mock.calls[0]
-    expect(key).toMatch(/^dm\/d1\//)
+    expect(key).toMatch(/^attachments\/sha256\/[0-9a-f]{64}$/)
   })
 
-  it("channel surface + type 'thread' → kind 'thread', thread/ R2 prefix (== old threads/[id]/upload's kind)", async () => {
+  it("authorized thread upload uses content keys", async () => {
     surfaceChannel("thread")
     const put = vi.fn().mockResolvedValue(undefined)
     const res = await runAttachmentUpload(
@@ -792,10 +727,10 @@ describe("runAttachmentUpload", () => {
     )
     expect(res.status).toBe(200)
     const [key] = put.mock.calls[0]
-    expect(key).toMatch(/^thread\/c1\//)
+    expect(key).toMatch(/^attachments\/sha256\/[0-9a-f]{64}$/)
   })
 
-  it("channel surface + forum top-level → kind 'channel' (phase2 forum≡thread write-guard reversal — forum is now a message-bearing surface)", async () => {
+  it("authorized forum upload uses content keys", async () => {
     surfaceChannel("forum")
     const put = vi.fn().mockResolvedValue(undefined)
     const res = await runAttachmentUpload(
@@ -804,7 +739,7 @@ describe("runAttachmentUpload", () => {
     )
     expect(res.status).toBe(200)
     const [key] = put.mock.calls[0]
-    expect(key).toMatch(/^channel\/c1\//)
+    expect(key).toMatch(/^attachments\/sha256\/[0-9a-f]{64}$/)
   })
 
   it("forwards handleAttachmentUpload errors (e.g. oversize) unchanged", async () => {
@@ -818,47 +753,15 @@ describe("runAttachmentUpload", () => {
     expect(put).not.toHaveBeenCalled()
   })
 
-  it("deletes the original and thumbnail when the human pending-row insert fails", async () => {
+  it("preserves shared content when the human file insert fails", async () => {
     surfaceChannel("text")
-    mockCreatePendingAttachment.mockRejectedValueOnce(new Error("d1"))
-    const put = vi.fn().mockResolvedValue(undefined)
-    const del = vi.fn().mockResolvedValue(undefined)
-    const thumbnail = fakeJpegFile()
+    mockCreateAttachment.mockRejectedValueOnce(new Error("d1"))
+    const del = vi.fn()
     const response = await runAttachmentUpload(
-      reqWithUpload(fakeFile("hi.png", "image/png", 10), thumbnail),
-      ctxWith(envWithR2(put, del), { id: "c1" }),
+      reqWithUpload(fakeFile("hi.png", "image/png", 10), fakeJpegFile()),
+      ctxWith(envWithR2(vi.fn().mockResolvedValue(undefined), del), { id: "c1" }),
     )
     expect(response.status).toBe(500)
-    expect(del).toHaveBeenCalledOnce()
-    const keys = del.mock.calls[0]?.[0] as string[]
-    expect(keys).toHaveLength(2)
-    expect(keys[1]).toBe(`${keys[0]}.thumbnail.jpg`)
-  })
-
-  it("redacts object keys when human compensation cleanup also fails", async () => {
-    surfaceChannel("text")
-    mockCreatePendingAttachment.mockRejectedValueOnce(new Error("d1"))
-    const put = vi.fn().mockResolvedValue(undefined)
-    const del = vi.fn().mockRejectedValueOnce(new TypeError("secret provider detail"))
-    const thumbnail = fakeJpegFile()
-
-    const response = await runAttachmentUpload(
-      reqWithUpload(fakeFile("hi.png", "image/png", 10), thumbnail),
-      ctxWith(envWithR2(put, del), { id: "c1" }),
-    )
-
-    expect(response.status).toBe(500)
-    const keys = del.mock.calls[0]?.[0] as string[]
-    const cleanupLog = mockLogError.mock.calls.find(
-      ([event]) => event === "attachment_upload_r2_cleanup_failed",
-    )
-    expect(cleanupLog?.[1]).toEqual({
-      route: "channels/[id]/attachments",
-      actor: "human",
-      objectCount: 2,
-      errorCategory: "TypeError",
-    })
-    for (const key of keys) expect(JSON.stringify(cleanupLog)).not.toContain(key)
-    expect(JSON.stringify(cleanupLog)).not.toContain("secret provider detail")
+    expect(del).not.toHaveBeenCalled()
   })
 })

@@ -35,11 +35,10 @@ describe("community notification target query", () => {
       );
       CREATE TABLE community_attachment (
         id TEXT PRIMARY KEY NOT NULL,
-        message_id TEXT,
         content_type TEXT,
-        position INTEGER,
         created_at TEXT NOT NULL
       );
+      CREATE TABLE community_message_attachment (message_id TEXT, attachment_id TEXT, position INTEGER);
       INSERT INTO user (id, name) VALUES
         ('author-1', 'Alice'),
         ('author-blank', '   ');
@@ -65,10 +64,11 @@ describe("community notification target query", () => {
         ('message-fallback', 'author-blank', '**hello**', 'thread-blank'),
         ('message-orphan', 'author-1', '**hello**', 'thread-orphan');
       INSERT INTO community_attachment
-        (id, message_id, content_type, position, created_at)
+        (id, content_type, created_at)
         VALUES
-        ('attachment-2', 'message-channel', 'application/pdf', 1, '2026-09-12T00:00:01.000Z'),
-        ('attachment-1', 'message-channel', 'image/png', 0, '2026-09-12T00:00:00.000Z');
+        ('attachment-2', 'application/pdf', '2026-09-12T00:00:01.000Z'),
+        ('attachment-1', 'image/png', '2026-09-12T00:00:00.000Z');
+      INSERT INTO community_message_attachment VALUES ('message-channel', 'attachment-2', 1), ('message-channel', 'attachment-1', 0);
     `);
     db = drizzle(sqlite, { schema }) as unknown as Database;
   });

@@ -1,4 +1,4 @@
-import { eq, and, asc, desc, exists, gt, lt, or, sql, inArray, isNull, count, min, type SQL, type GetColumnData } from "drizzle-orm";
+import { eq, and, asc, desc, exists, gt, lt, or, sql, inArray, count, min, type SQL, type GetColumnData } from "drizzle-orm";
 import {
   communityMessage,
   communityChannel,
@@ -9,10 +9,12 @@ import {
   communityMention,
   communityMessageTag,
   communityAttachment,
+  communityMessageAttachment,
 } from "../../community-schema";
 import { user } from "../../schema";
 import { nanoid } from "nanoid";
 import type { Database } from "../../index";
+import { attachmentReadableSql } from "./attachment";
 import { MAX_ATTACHMENTS_PER_MESSAGE } from "../../../constants/community";
 import { createLogger } from "../../../logger";
 import { chunk, D1_MAX_IN_PARAMS, maxRowsPerInsert } from "../_chunk";
@@ -151,7 +153,6 @@ export type CreateMessageData = {
     id: string;
     serverId: string;
     name: string;
-    pendingAttachmentIds: string[];
   };
 };
 
@@ -216,19 +217,16 @@ async function insertMessageRow(db: Database, data: CreateMessageData, expectedS
     .returning({ nextSeq: communityMessageSeq.nextSeq });
 
   const attachmentIds = data.attachmentIds ?? [];
-  const pendingThreadIds = data.forumThread?.pendingAttachmentIds ?? [];
-  if (attachmentIds.length > MAX_ATTACHMENTS_PER_MESSAGE || pendingThreadIds.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+  if (attachmentIds.length > MAX_ATTACHMENTS_PER_MESSAGE) {
     throw new Error("too many message attachments");
   }
   const eligibleAttachments = (ids: string[]) => db.select({ value: count() })
     .from(communityAttachment)
     .where(and(
       inArray(communityAttachment.id, ids),
-      isNull(communityAttachment.messageId),
-      eq(communityAttachment.uploaderId, data.authorId),
-      eq(communityAttachment.targetId, data.channelId),
+      attachmentReadableSql(db, data.authorId),
     ));
-  const attachmentChecks = [attachmentIds, pendingThreadIds]
+  const attachmentChecks = [attachmentIds]
     .filter((ids) => ids.length > 0)
     .map((ids) => sql`(${eligibleAttachments(ids)}) = ${ids.length}`);
   const checkedContent = attachmentChecks.length === 0 ? data.content
@@ -276,10 +274,7 @@ async function insertMessageRow(db: Database, data: CreateMessageData, expectedS
       setWhere: sql`${communityReadState.lastReadSeq} < ${seq}`,
     });
   const attachmentStatements = attachmentIds.length === 0 ? [] : [
-    db.update(communityAttachment).set({
-      messageId,
-      position: sql`CASE ${communityAttachment.id} ${sql.join(attachmentIds.map((id, index) => sql`WHEN ${id} THEN ${index}`), sql` `)} END`,
-    }).where(and(inArray(communityAttachment.id, attachmentIds), isNull(communityAttachment.messageId))),
+    db.insert(communityMessageAttachment).values(attachmentIds.map((attachmentId, position) => ({ messageId, attachmentId, position }))),
   ];
   const threadStatements = data.forumThread ? [
     db.insert(communityChannel).values({
@@ -299,10 +294,6 @@ async function insertMessageRow(db: Database, data: CreateMessageData, expectedS
       relation: "notify",
       source: "spoke",
     }),
-    ...(pendingThreadIds.length === 0 ? [] : [
-      db.update(communityAttachment).set({ targetId: data.forumThread.id })
-        .where(and(inArray(communityAttachment.id, pendingThreadIds), isNull(communityAttachment.messageId))),
-    ]),
   ] : [];
   const mentionStatements = chunk(data.mentions ?? [], maxRowsPerInsert(5)).map((mentions) =>
     db.insert(communityMention).values(mentions.map((mention) => ({ messageId, ...mention })))

@@ -1,13 +1,11 @@
 import { describe, it, expect } from "vitest"
 import {
-  buildMediaKey,
   buildUserAvatarKey,
   buildUserAvatarObjectKey,
   buildBotAvatarKey,
   buildBotAvatarObjectKey,
   attachmentUrl,
   attachmentThumbnailUrl,
-  buildAttachmentThumbnailKey,
   ATTACHMENT_PRIVATE_IMMUTABLE_CACHE,
   sanitizeAttachmentFilename,
   userAvatarUrl,
@@ -125,14 +123,6 @@ describe("sanitizeAttachmentFilename", () => {
   })
 })
 
-describe("buildMediaKey", () => {
-  it("emits keys with no leading slash and the sanitized filename component", () => {
-    const key = buildMediaKey("channel", "c1", "uuid", "../evil.png")
-    expect(key.startsWith("/")).toBe(false)
-    expect(key).toBe("channel/c1/uuid/__evil.png")
-  })
-})
-
 describe("isOwnedServerIconKey", () => {
   it("accepts exactly one non-empty suffix under the expected server", () => {
     expect(isOwnedServerIconKey("server-icon/s1/icon-a", "s1")).toBe(true)
@@ -162,11 +152,7 @@ describe("attachment thumbnail addressing", () => {
     )
   })
 
-  it("uses a reserved suffix on the complete original key", () => {
-    expect(buildAttachmentThumbnailKey("channel/c1/id/thumbnail.jpg")).toBe(
-      "channel/c1/id/thumbnail.jpg.thumbnail.jpg",
-    )
-  })
+
 })
 
 it("uses a private immutable cache policy for authorized attachment bytes", () => {

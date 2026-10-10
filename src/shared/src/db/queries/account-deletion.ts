@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, or, sql } from "drizzle-orm"
+import { and, eq, inArray, isNull, notExists, or, sql } from "drizzle-orm"
 import { sqliteTable, text } from "drizzle-orm/sqlite-core"
 import {
   account,
@@ -19,6 +19,7 @@ import {
 } from "../schema"
 import {
   communityAttachment,
+  communityMessageAttachment,
   communityChannel,
   communityFriendship,
   communityMention,
@@ -229,10 +230,8 @@ export async function getAccountDeletionSnapshot(
     botBindings,
     serverRows,
     serverMemberRows,
-    channelRows,
     impactedReadStateRows,
     impactedMentionRows,
-    attachmentRows,
     artifactRows,
     deletingEmailRows,
     meetingRows,
@@ -279,9 +278,6 @@ export async function getAccountDeletionSnapshot(
     db.select({ serverId: communityServerMember.serverId, userId: communityServerMember.userId })
       .from(communityServerMember)
       .where(inArray(communityServerMember.serverId, ownedServerIdsQuery)),
-    db.select({ id: communityChannel.id, type: communityChannel.type })
-      .from(communityChannel)
-      .where(inArray(communityChannel.id, doomedChannelIdsQuery)),
     db.selectDistinct({ userId: communityReadState.userId })
       .from(communityReadState)
       .innerJoin(user, eq(user.id, communityReadState.userId))
@@ -302,14 +298,6 @@ export async function getAccountDeletionSnapshot(
         isNull(user.deletedAt),
         inArray(communityMention.messageId, doomedMessageIdsQuery),
       )),
-    db.select({
-      r2Key: communityAttachment.r2Key,
-      thumbnailR2Key: communityAttachment.thumbnailR2Key,
-    }).from(communityAttachment).where(or(
-      inArray(communityAttachment.uploaderId, identitiesQuery),
-      inArray(communityAttachment.targetId, doomedChannelIdsQuery),
-      inArray(communityAttachment.messageId, doomedMessageIdsQuery),
-    )),
     db.select({ r2Key: artifact.r2Key, thumbnailR2Key: artifact.thumbnailR2Key })
       .from(artifact)
       .where(affectedArtifactCondition),
@@ -382,12 +370,10 @@ export async function getAccountDeletionSnapshot(
         ...identities.map((row) => `${row.isBot ? "bot" : "user"}-avatar/${row.id}`),
         ...identities.map((row) => row.avatarObjectKey),
         ...serverRows.map((row) => row.icon),
-        ...attachmentRows.flatMap((row) => [row.r2Key, row.thumbnailR2Key]),
       ]),
       communityPrefixes: unique([
         ...identities.map((row) => `${row.isBot ? "bot" : "user"}-avatar/${row.id}/`),
         ...serverRows.map((row) => `server-icon/${row.id}/`),
-        ...channelRows.map((row) => `${row.type === "dm" ? "dm" : row.type === "thread" ? "thread" : "channel"}/${row.id}/`),
       ]),
       emailExactKeys: unique([
         ...artifactRows.flatMap((row) => [row.r2Key, row.thumbnailR2Key]),
@@ -434,13 +420,6 @@ export async function deleteAccountRows(
     .select({ id: communityMessage.id })
     .from(communityMessage)
     .where(inArray(communityMessage.authorId, identitiesQuery))
-  const doomedChannelIdsQuery = db
-    .select({ id: communityChannel.id })
-    .from(communityChannel)
-    .where(or(
-      inArray(communityChannel.serverId, ownedServerIdsQuery),
-      inArray(communityChannel.parentMessageId, authoredMessagesQuery),
-    ))
   const affectedChannelIdsQuery = db
     .select({ id: communityMessage.channelId })
     .from(communityMessage)
@@ -531,12 +510,13 @@ export async function deleteAccountRows(
     db.delete(machine).where(inArray(machine.ownerId, identitiesQuery)),
     db.delete(workspace).where(inArray(workspace.id, ownedWorkspaceIdsQuery)),
     db.delete(agent).where(inArray(agent.ownerId, identitiesQuery)),
-    db.delete(communityAttachment).where(and(
-      isNull(communityAttachment.messageId),
-      inArray(communityAttachment.targetId, doomedChannelIdsQuery),
-    )),
     db.delete(communityServer).where(inArray(communityServer.ownerId, identitiesQuery)),
-    db.delete(communityAttachment).where(inArray(communityAttachment.uploaderId, identitiesQuery)),
+    db.delete(communityAttachment).where(and(
+      inArray(communityAttachment.uploaderId, identitiesQuery),
+      notExists(db.select({ id: communityMessageAttachment.messageId })
+        .from(communityMessageAttachment)
+        .where(eq(communityMessageAttachment.attachmentId, communityAttachment.id))),
+    )),
     db.delete(communityDiagnosticReport).where(inArray(communityDiagnosticReport.ownerUserId, identitiesQuery)),
     db.delete(communityFriendship).where(inArray(communityFriendship.needsOwnerApproval, identitiesQuery)),
     db.delete(deviceCode).where(inArray(deviceCode.userId, identitiesQuery)),

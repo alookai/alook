@@ -55,7 +55,7 @@ afterEach(async () => {
 })
 
 describe("existing delete media real D1 batches", () => {
-  it("channel deletion snapshots root/child linked and pending keys for exactly one winner", async () => {
+  it("channel deletion removes last references, preserves drafts and advances read state for one winner", async () => {
     const { owner, server, stamp } = await seedOwnerAndServer()
     const root = `cdm_root_${stamp}`
     const child = `cdm_child_${stamp}`
@@ -82,20 +82,14 @@ describe("existing delete media real D1 batches", () => {
       childMessage, owner, child,
       unrelatedMessage, owner, unrelated,
     )
-    await run(
-      `INSERT INTO community_attachment
-        (id, message_id, uploader_id, target_id, r2_key, thumbnail_r2_key, filename, created_at) VALUES
-        (?, ?, ?, ?, 'root/original', 'root/thumb', 'root.png', '2026-08-23T00:00:00.000Z'),
-        (?, ?, ?, ?, 'child/original', 'child/thumb', 'child.png', '2026-08-23T00:00:00.000Z'),
-        (?, NULL, ?, ?, 'root/pending', 'root/pending-thumb', 'pending-root.png', '2026-08-23T00:00:00.000Z'),
-        (?, NULL, ?, ?, 'child/pending', NULL, 'pending-child.png', '2026-08-23T00:00:00.000Z'),
-        (?, ?, ?, ?, 'other/original', 'other/thumb', 'other.png', '2026-08-23T00:00:00.000Z')`,
-      `att_root_${stamp}`, rootMessage, owner, unrelated,
-      `att_child_${stamp}`, childMessage, owner, unrelated,
-      `att_pending_root_${stamp}`, owner, root,
-      `att_pending_child_${stamp}`, owner, child,
-      `att_other_${stamp}`, unrelatedMessage, owner, unrelated,
-    )
+    for (const [id, r2Key, thumbnailR2Key, filename] of [
+      [`att_root_${stamp}`, "root/original", "root/thumb", "root.png"],
+      [`att_child_${stamp}`, "child/original", "child/thumb", "child.png"],
+      [`att_pending_root_${stamp}`, "root/pending", "root/pending-thumb", "pending-root.png"],
+      [`att_pending_child_${stamp}`, "child/pending", null, "pending-child.png"],
+      [`att_other_${stamp}`, "other/original", "other/thumb", "other.png"],
+    ]) await run("INSERT INTO community_attachment(id,uploader_id,r2_key,thumbnail_r2_key,filename,created_at) VALUES (?,?,?,?,?,'now')", id, owner, r2Key, thumbnailR2Key, filename)
+    await run("INSERT INTO community_message_attachment VALUES (?,?,0),(?,?,0),(?,?,0)", rootMessage, `att_root_${stamp}`, childMessage, `att_child_${stamp}`, unrelatedMessage, `att_other_${stamp}`)
     await run(
       `INSERT INTO community_read_state
         (id, user_id, channel_id, last_read_at, last_read_message_id, last_read_seq) VALUES
@@ -115,10 +109,7 @@ describe("existing delete media real D1 batches", () => {
 
     expect(results.filter((result) => result.deleted)).toHaveLength(1)
     const winner = results.find((result) => result.deleted)!
-    expect(new Set(winner.mediaKeys)).toEqual(new Set([
-      "root/original", "root/thumb", "child/original", "child/thumb",
-      "root/pending", "root/pending-thumb", "child/pending",
-    ]))
+    expect(winner.mediaKeys).toEqual([])
     expect(winner.readStateRevisions).toEqual([{ userId: owner, revision: 1 }])
     await expect(queries.communityReadState.getAccountReadStateSnapshot(db, owner)).resolves.toEqual({
       revision: 1,
@@ -132,11 +123,11 @@ describe("existing delete media real D1 batches", () => {
     expect(results.find((result) => !result.deleted)?.mediaKeys).toEqual([])
     expect(await first("SELECT id FROM community_channel WHERE id = ?", root)).toBeNull()
     expect(await first("SELECT id FROM community_channel WHERE id = ?", child)).toBeNull()
-    expect(await first("SELECT id FROM community_attachment WHERE id = ?", `att_pending_child_${stamp}`)).toBeNull()
+    expect(await first("SELECT id FROM community_attachment WHERE id = ?", `att_pending_child_${stamp}`)).not.toBeNull()
     expect(await first("SELECT id FROM community_attachment WHERE id = ?", `att_other_${stamp}`)).not.toBeNull()
   })
 
-  it("server deletion is owner-scoped and returns attachment keys plus the winner icon once", async () => {
+  it("server deletion is owner-scoped and preserves drafts and returns only the winner icon once", async () => {
     const icon = "server-icon/runtime/icon-a"
     const { owner, server, stamp } = await seedOwnerAndServer(icon)
     const channel = `cdm_server_channel_${stamp}`
@@ -149,14 +140,8 @@ describe("existing delete media real D1 batches", () => {
       "INSERT INTO community_message (id, author_id, content, channel_id, seq, created_at) VALUES (?, ?, 'hello', ?, 1, '2026-08-23T00:00:00.000Z')",
       message, owner, channel,
     )
-    await run(
-      `INSERT INTO community_attachment
-        (id, message_id, uploader_id, target_id, r2_key, thumbnail_r2_key, filename, created_at) VALUES
-        (?, ?, ?, ?, 'server/original', 'server/thumb', 'linked.png', '2026-08-23T00:00:00.000Z'),
-        (?, NULL, ?, ?, 'server/pending', NULL, 'pending.png', '2026-08-23T00:00:00.000Z')`,
-      `att_server_${stamp}`, message, owner, channel,
-      `att_server_pending_${stamp}`, owner, channel,
-    )
+    await run("INSERT INTO community_attachment(id,uploader_id,r2_key,thumbnail_r2_key,filename,created_at) VALUES (?,?, 'server/original','server/thumb','linked.png','now'),(?,?,'server/pending',NULL,'pending.png','now')", `att_server_${stamp}`, owner, `att_server_pending_${stamp}`, owner)
+    await run("INSERT INTO community_message_attachment VALUES (?,?,0)", message, `att_server_${stamp}`)
     await run(
       `INSERT INTO community_read_state
         (id, user_id, channel_id, last_read_at, last_read_message_id, last_read_seq)
@@ -177,7 +162,7 @@ describe("existing delete media real D1 batches", () => {
     expect(results.filter((result) => result.deleted)).toHaveLength(1)
     expect(results.find((result) => result.deleted)).toEqual({
       deleted: true,
-      mediaKeys: ["server/original", "server/thumb", "server/pending"],
+      mediaKeys: [],
       iconKey: icon,
       readStateRevisions: [{ userId: owner, revision: 1 }],
     })
@@ -191,7 +176,7 @@ describe("existing delete media real D1 batches", () => {
   })
 })
 
-describe("guarded pending insert and server icon CAS in real D1", () => {
+describe("reusable file insert and server icon CAS in real D1", () => {
   it("accepts a live DM target with type=dm and server_id NULL", async () => {
     const { owner, stamp } = await seedOwnerAndServer()
     const dm = `cdm_dm_${stamp}`
@@ -202,20 +187,19 @@ describe("guarded pending insert and server icon CAS in real D1", () => {
     )
 
     const db = createDb(runtimeEnv.DB)
-    await expect(queries.communityAttachment.createPendingAttachment(db, {
+    await expect(queries.communityAttachment.createAttachment(db, {
       id: attachment,
       uploaderId: owner,
-      targetId: dm,
       r2Key: "pending/dm-live",
       filename: "dm-live.png",
-    })).resolves.toMatchObject({ id: attachment, targetId: dm, messageId: null })
+    })).resolves.toMatchObject({ id: attachment })
     expect(await first("SELECT id FROM community_attachment WHERE id = ?", attachment)).not.toBeNull()
 
     await run("DELETE FROM community_attachment WHERE id = ?", attachment)
     await run("DELETE FROM community_channel WHERE id = ?", dm)
   })
 
-  it("inserts only while the target channel exists", async () => {
+  it("files survive deleting an upload routing channel without message references", async () => {
     const { owner, server, stamp } = await seedOwnerAndServer()
     const channel = `cdm_pending_${stamp}`
     await run(
@@ -223,28 +207,26 @@ describe("guarded pending insert and server icon CAS in real D1", () => {
       channel, server,
     )
     const db = createDb(runtimeEnv.DB)
-    const inserted = await queries.communityAttachment.createPendingAttachment(db, {
+    const inserted = await queries.communityAttachment.createAttachment(db, {
       id: `att_live_${stamp}`,
       uploaderId: owner,
-      targetId: channel,
       r2Key: "pending/live",
       thumbnailR2Key: "pending/live-thumb",
       filename: "live.png",
     })
-    expect(inserted.targetId).toBe(channel)
+    expect(inserted.id).toBe(`att_live_${stamp}`)
 
     await queries.communityDeleteMedia.deleteChannelWithMedia(db, {
       channelId: channel,
       serverId: server,
     })
-    await expect(queries.communityAttachment.createPendingAttachment(db, {
+    await expect(queries.communityAttachment.createAttachment(db, {
       id: `att_deleted_${stamp}`,
       uploaderId: owner,
-      targetId: channel,
       r2Key: "pending/deleted",
       filename: "deleted.png",
-    })).rejects.toThrow("attachment target no longer exists")
-    expect(await first("SELECT id FROM community_attachment WHERE id = ?", `att_deleted_${stamp}`)).toBeNull()
+    })).resolves.toMatchObject({ id: `att_deleted_${stamp}` })
+    expect(await first("SELECT id FROM community_attachment WHERE id = ?", `att_deleted_${stamp}`)).not.toBeNull()
   })
 
   it("uses a null-safe old-value CAS with exactly one concurrent winner", async () => {

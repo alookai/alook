@@ -894,7 +894,7 @@ function buildProgram(stdin: CliInputStream): Command {
 
   attachment
     .command("upload")
-    .description("upload a local file as a pending attachment for a future send")
+    .description("upload a local file and get its reusable attachment id")
     .option("--target <ref>", "destination (channel, DM, or thread ref)")
     .option("--file <path>", "local file to upload")
     .exitOverride()
