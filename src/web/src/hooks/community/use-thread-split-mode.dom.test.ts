@@ -2,30 +2,16 @@ import React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, screen } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
-import {
-  resolveThreadSplitMode,
-  THREAD_SPLIT_MIN_CONTENT_WIDTH,
-  useThreadSplitMode,
-} from "./use-thread-split-mode"
+import type { Breakpoint } from "@/hooks/use-mobile"
+import { resolveThreadSplitMode, THREAD_SPLIT_MIN_CONTENT_WIDTH, useThreadSplitMode } from "./use-thread-split-mode"
 
-const mocks = vi.hoisted(() => ({
-  breakpoint: "desktop" as "desktop" | "mobile" | "unknown",
-  claimSecondary: vi.fn(),
-  releaseSecondary: vi.fn(),
-}))
-
-vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => mocks.breakpoint }))
-vi.mock("@/hooks/community/use-community-ws", () => ({
-  communityWsClaimSecondaryChannel: (...args: unknown[]) => mocks.claimSecondary(...args),
-  communityWsReleaseSecondaryChannel: (...args: unknown[]) => mocks.releaseSecondary(...args),
-}))
-
-function Harness({ forceFullscreen = false, parentChannelId = "parent_1", attach = true }: {
+function Harness({ forceFullscreen = false, breakpoint = "desktop", enabled = true, attach = true }: {
   forceFullscreen?: boolean
-  parentChannelId?: string | null
+  breakpoint?: Breakpoint
+  enabled?: boolean
   attach?: boolean
 }) {
-  const split = useThreadSplitMode({ parentChannelId, forceFullscreen })
+  const split = useThreadSplitMode({ breakpoint, enabled, forceFullscreen })
   return React.createElement("div", {
     ref: attach ? split.containerRef : undefined,
     "data-testid": "thread-split-mode",
@@ -35,25 +21,13 @@ function Harness({ forceFullscreen = false, parentChannelId = "parent_1", attach
 
 describe("resolveThreadSplitMode", () => {
   it("uses split only when a desktop content pane can hold both conversations", () => {
-    expect(resolveThreadSplitMode({
-      breakpoint: "desktop",
-      contentWidth: THREAD_SPLIT_MIN_CONTENT_WIDTH,
-      forceFullscreen: false,
-    })).toBe("split")
-    expect(resolveThreadSplitMode({
-      breakpoint: "desktop",
-      contentWidth: THREAD_SPLIT_MIN_CONTENT_WIDTH - 1,
-      forceFullscreen: false,
-    })).toBe("full")
+    expect(resolveThreadSplitMode({ breakpoint: "desktop", contentWidth: THREAD_SPLIT_MIN_CONTENT_WIDTH, forceFullscreen: false })).toBe("split")
+    expect(resolveThreadSplitMode({ breakpoint: "desktop", contentWidth: THREAD_SPLIT_MIN_CONTENT_WIDTH - 1, forceFullscreen: false })).toBe("full")
   })
 
   it("keeps mobile and explicit fullscreen layouts single-pane", () => {
     expect(resolveThreadSplitMode({ breakpoint: "mobile", contentWidth: 2000, forceFullscreen: false })).toBe("full")
-    expect(resolveThreadSplitMode({
-      breakpoint: "desktop",
-      contentWidth: 2000,
-      forceFullscreen: true,
-    })).toBe("full")
+    expect(resolveThreadSplitMode({ breakpoint: "desktop", contentWidth: 2000, forceFullscreen: true })).toBe("full")
   })
 
   it("keeps unconfirmed geometry pending instead of choosing a full layout", () => {
@@ -63,30 +37,19 @@ describe("resolveThreadSplitMode", () => {
   })
 })
 
-describe("useThreadSplitMode secondary live subscription", () => {
+describe("useThreadSplitMode shared geometry", () => {
   let observerCallback: ResizeObserverCallback | null
   let width: number
   const observe = vi.fn()
   const disconnect = vi.fn()
 
   beforeEach(() => {
-    mocks.breakpoint = "desktop"
-    mocks.claimSecondary.mockClear()
-    mocks.releaseSecondary.mockClear()
     observerCallback = null
     width = THREAD_SPLIT_MIN_CONTENT_WIDTH
     observe.mockClear()
     disconnect.mockClear()
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({
-      width,
-      height: 0,
-      top: 0,
-      right: width,
-      bottom: 0,
-      left: 0,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
+      width, height: 0, top: 0, right: width, bottom: 0, left: 0, x: 0, y: 0, toJSON: () => ({}),
     }))
     vi.stubGlobal("ResizeObserver", class {
       constructor(callback: ResizeObserverCallback) { observerCallback = callback }
@@ -95,87 +58,80 @@ describe("useThreadSplitMode secondary live subscription", () => {
     })
   })
 
-  it("measures the stable outer node before a parent is readable without claiming its channel", () => {
-    const renderer = render(React.createElement(Harness, { parentChannelId: null }))
-    const node = screen.getByTestId("thread-split-mode")
-    expect(node).toHaveAttribute("data-mode", "split")
-    expect(observe).toHaveBeenCalledWith(node)
-    expect(mocks.claimSecondary).not.toHaveBeenCalled()
-    renderer.rerender(React.createElement(Harness))
-    expect(screen.getByTestId("thread-split-mode")).toBe(node)
-    expect(observe).toHaveBeenCalledOnce()
-    expect(mocks.claimSecondary).toHaveBeenCalledOnce()
-    renderer.unmount()
-    expect(disconnect).toHaveBeenCalledOnce()
-  })
-
-  it("does not claim a qualified parent before either measurement or breakpoint is confirmed", () => {
-    const renderer = render(React.createElement(Harness, { attach: false }))
-    expect(screen.getByTestId("thread-split-mode")).toHaveAttribute("data-mode", "pending")
-    expect(mocks.claimSecondary).not.toHaveBeenCalled()
-    mocks.breakpoint = "unknown"
-    renderer.rerender(React.createElement(Harness))
-    expect(screen.getByTestId("thread-split-mode")).toHaveAttribute("data-mode", "pending")
-    expect(mocks.claimSecondary).not.toHaveBeenCalled()
-    mocks.breakpoint = "desktop"
-    renderer.rerender(React.createElement(Harness))
-    expect(screen.getByTestId("thread-split-mode")).toHaveAttribute("data-mode", "split")
-    expect(mocks.claimSecondary).toHaveBeenCalledOnce()
-    renderer.unmount()
-  })
-
-  it("releases a lost parent qualification while keeping the real measurement node and owner lifetime", () => {
-    const renderer = render(React.createElement(Harness))
-    const node = screen.getByTestId("thread-split-mode")
-    const [runtime, owner] = mocks.claimSecondary.mock.calls.at(-1)!
-    renderer.rerender(React.createElement(Harness, { parentChannelId: null }))
-    expect(screen.getByTestId("thread-split-mode")).toBe(node)
-    expect(node).toHaveAttribute("data-mode", "split")
-    expect(observe).toHaveBeenCalledOnce()
-    expect(disconnect).not.toHaveBeenCalled()
-    expect(mocks.releaseSecondary).toHaveBeenLastCalledWith(runtime, owner)
-    renderer.rerender(React.createElement(Harness))
-    expect(mocks.claimSecondary).toHaveBeenLastCalledWith(runtime, owner, "parent_1")
-    renderer.unmount()
-    expect(disconnect).toHaveBeenCalledOnce()
-  })
-
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })
 
-  it("adds the parent only for split mode and clears it for fullscreen", () => {
+  it("keeps a stable outer measurement node across target rerenders", () => {
     const renderer = render(React.createElement(Harness))
-    expect(screen.getByTestId("thread-split-mode")).toHaveAttribute("data-mode", "split")
-    const [runtime, owner] = mocks.claimSecondary.mock.calls.at(-1)!
-    expect(mocks.claimSecondary).toHaveBeenCalledWith(runtime, expect.any(Symbol), "parent_1")
-
-    renderer.rerender(React.createElement(Harness, { forceFullscreen: true }))
-    expect(screen.getByTestId("thread-split-mode")).toHaveAttribute("data-mode", "full")
-    expect(mocks.releaseSecondary).toHaveBeenCalledWith(runtime, owner)
-
+    const node = screen.getByTestId("thread-split-mode")
+    expect(node).toHaveAttribute("data-mode", "split")
+    expect(observe).toHaveBeenCalledWith(node)
+    renderer.rerender(React.createElement(Harness))
+    expect(screen.getByTestId("thread-split-mode")).toBe(node)
+    expect(observe).toHaveBeenCalledOnce()
     renderer.unmount()
-    expect(mocks.releaseSecondary).toHaveBeenCalledWith(runtime, owner)
-    expect(observerCallback).not.toBeNull()
+    expect(disconnect).toHaveBeenCalledOnce()
   })
 
-  it("releases the parent before a pane hidden by resize or mobile fallback can stay focused", () => {
-    const renderer = render(React.createElement(Harness))
-    const [runtime, owner] = mocks.claimSecondary.mock.calls.at(-1)!
+  it("consumes the shared unknown-to-mobile transition without starting measurement", () => {
+    const renderer = render(React.createElement(Harness, { breakpoint: "unknown" }))
+    const node = screen.getByTestId("thread-split-mode")
+    expect(node).toHaveAttribute("data-mode", "pending")
+    expect(observe).not.toHaveBeenCalled()
+    renderer.rerender(React.createElement(Harness, { breakpoint: "mobile" }))
+    expect(screen.getByTestId("thread-split-mode")).toBe(node)
+    expect(node).toHaveAttribute("data-mode", "full")
+    expect(observe).not.toHaveBeenCalled()
+    renderer.unmount()
+  })
 
-    act(() => {
-      observerCallback?.([{
-        contentRect: { width: THREAD_SPLIT_MIN_CONTENT_WIDTH - 1 },
-      } as unknown as ResizeObserverEntry], {} as ResizeObserver)
-    })
-    expect(screen.getByTestId("thread-split-mode")).toHaveAttribute("data-mode", "full")
-    expect(mocks.releaseSecondary).toHaveBeenCalledWith(runtime, owner)
+  it.each([{ enabled: false }, { forceFullscreen: true }, { breakpoint: "mobile" as const }])(
+    "starts no split preparation for %j", (props) => {
+      const renderer = render(React.createElement(Harness, props))
+      expect(screen.getByTestId("thread-split-mode")).toHaveAttribute("data-mode", "full")
+      expect(observe).not.toHaveBeenCalled()
+      renderer.unmount()
+    },
+  )
 
-    mocks.breakpoint = "mobile"
+  it("waits for the real attached host and then measures it", () => {
+    const renderer = render(React.createElement(Harness, { attach: false }))
+    expect(screen.getByTestId("thread-split-mode")).toHaveAttribute("data-mode", "pending")
+    expect(observe).not.toHaveBeenCalled()
     renderer.rerender(React.createElement(Harness))
-    expect(screen.getByTestId("thread-split-mode")).toHaveAttribute("data-mode", "full")
-    expect(mocks.releaseSecondary).toHaveBeenLastCalledWith(runtime, owner)
+    expect(screen.getByTestId("thread-split-mode")).toHaveAttribute("data-mode", "split")
+    expect(observe).toHaveBeenCalledOnce()
+    renderer.unmount()
+  })
+
+  it("keeps desktop automatic measurement live below and above the split threshold", () => {
+    const renderer = render(React.createElement(Harness))
+    const node = screen.getByTestId("thread-split-mode")
+    act(() => observerCallback?.([{ contentRect: { width: THREAD_SPLIT_MIN_CONTENT_WIDTH - 1 } } as unknown as ResizeObserverEntry], {} as ResizeObserver))
+    expect(node).toHaveAttribute("data-mode", "full")
+    expect(disconnect).not.toHaveBeenCalled()
+    act(() => observerCallback?.([{ contentRect: { width: THREAD_SPLIT_MIN_CONTENT_WIDTH } } as unknown as ResizeObserverEntry], {} as ResizeObserver))
+    expect(node).toHaveAttribute("data-mode", "split")
+    expect(observe).toHaveBeenCalledOnce()
+    renderer.unmount()
+  })
+
+  it("stops full/mobile preparation and measures the current width on return", () => {
+    const renderer = render(React.createElement(Harness))
+    const node = screen.getByTestId("thread-split-mode")
+    renderer.rerender(React.createElement(Harness, { forceFullscreen: true }))
+    expect(node).toHaveAttribute("data-mode", "full")
+    expect(disconnect).toHaveBeenCalledOnce()
+    width -= 1
+    renderer.rerender(React.createElement(Harness))
+    expect(screen.getByTestId("thread-split-mode")).toBe(node)
+    expect(node).toHaveAttribute("data-mode", "full")
+    expect(observe).toHaveBeenCalledTimes(2)
+    renderer.rerender(React.createElement(Harness, { breakpoint: "mobile" }))
+    expect(disconnect).toHaveBeenCalledTimes(2)
+    renderer.unmount()
   })
 
   it("falls back to window resize events when ResizeObserver is unavailable", () => {
@@ -184,14 +140,11 @@ describe("useThreadSplitMode secondary live subscription", () => {
     const removeEventListener = vi.spyOn(window, "removeEventListener")
     const renderer = render(React.createElement(Harness))
     expect(screen.getByTestId("thread-split-mode")).toHaveAttribute("data-mode", "split")
-    const resizeListener = addEventListener.mock.calls
-      .find(([type]) => type === "resize")?.[1] as () => void
+    const resizeListener = addEventListener.mock.calls.find(([type]) => type === "resize")?.[1] as () => void
     expect(resizeListener).toEqual(expect.any(Function))
-
     width -= 1
     act(() => resizeListener())
     expect(screen.getByTestId("thread-split-mode")).toHaveAttribute("data-mode", "full")
-
     renderer.unmount()
     expect(removeEventListener).toHaveBeenCalledWith("resize", resizeListener)
   })

@@ -181,6 +181,7 @@ test.describe.serial("mentions — candidate scope", () => {
     await recovered
     const editable = composerEditable(page)
     await editable.fill("")
+    await expect(editable).toHaveText("")
     const opt = await openMentionPopup(page)
     await expect(opt.bob).toBeVisible()
     await expect(opt.carol).toHaveCount(0)

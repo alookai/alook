@@ -114,6 +114,7 @@ function renderShell(breakpoint: "mobile" | "desktop" = "mobile", queryClient = 
       dismissUserBarExtension: vi.fn(),
     }
     return createElement(CommunityRouteContext, { value: {
+      breakpoint: props.breakpoint,
       frame: committedFrame, navigation, ownerDeleteRouteScope: undefined,
     } }, createElement(ShellFrameView, props,
       committedFrame.scope.kind === "server"

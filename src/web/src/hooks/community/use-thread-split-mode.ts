@@ -1,13 +1,7 @@
 "use client"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useCommunityRuntime } from "@/stores/community/runtime"
-
-import { useCallback, useLayoutEffect, useState, type RefCallback } from "react"
-import { useBreakpoint, type Breakpoint } from "@/hooks/use-mobile"
-import {
-  communityWsClaimSecondaryChannel,
-  communityWsReleaseSecondaryChannel,
-} from "@/hooks/community/use-community-ws"
+import { useCallback, useLayoutEffect, type RefCallback } from "react"
+import type { Breakpoint } from "@/hooks/use-mobile"
 
 export const THREAD_SPLIT_MIN_CONTENT_WIDTH = 880
 
@@ -26,18 +20,17 @@ export function resolveThreadSplitMode({
 }
 
 export function useThreadSplitMode({
-  parentChannelId,
+  breakpoint,
+  enabled,
   forceFullscreen,
 }: {
-  parentChannelId: string | null
+  breakpoint: Breakpoint
+  enabled: boolean
   forceFullscreen: boolean
 }): {
   containerRef: RefCallback<HTMLElement>
   mode: "pending" | "split" | "full"
 } {
-  const runtime = useCommunityRuntime()
-  const breakpoint = useBreakpoint()
-  const [subscriptionOwner] = useState(() => Symbol("thread-split-secondary"))
   const [container, setContainer] = useAtom(useCreateAtom<HTMLElement | null>(null))
   const [contentWidth, setContentWidth] = useAtom(useCreateAtom<number | null>(null))
   const containerRef = useCallback((node: HTMLElement | null) => {
@@ -45,8 +38,12 @@ export function useThreadSplitMode({
     setContainer(node)
   }, [setContainer, setContentWidth])
 
+  const measureEnabled = enabled && breakpoint === "desktop" && !forceFullscreen
   useLayoutEffect(() => {
-    if (!container) return
+    if (!container || !measureEnabled) {
+      setContentWidth(null)
+      return
+    }
     const measure = () => setContentWidth(container.getBoundingClientRect().width)
     measure()
     if (typeof ResizeObserver === "undefined") {
@@ -58,17 +55,9 @@ export function useThreadSplitMode({
     })
     observer.observe(container)
     return () => observer.disconnect()
-  }, [container, setContentWidth])
+  }, [container, measureEnabled, setContentWidth])
 
-  const mode = resolveThreadSplitMode({ breakpoint, contentWidth, forceFullscreen })
-  useLayoutEffect(() => {
-    if (mode === "split" && parentChannelId) {
-      communityWsClaimSecondaryChannel(runtime, subscriptionOwner, parentChannelId)
-    } else {
-      communityWsReleaseSecondaryChannel(runtime, subscriptionOwner)
-    }
-    return () => communityWsReleaseSecondaryChannel(runtime, subscriptionOwner)
-  }, [mode, parentChannelId, subscriptionOwner, runtime])
+  const mode = enabled ? resolveThreadSplitMode({ breakpoint, contentWidth, forceFullscreen }) : "full"
 
   return { containerRef, mode }
 }

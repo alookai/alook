@@ -9,7 +9,6 @@ import { toastApiError } from "@/lib/api/client"
 import { ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
 import { ConversationMessageSkeleton } from "@/components/community/channels/conversation-message-skeleton"
 import { ComposerSkeleton } from "@/components/community/messages/composer"
-import { ForumViewSkeleton } from "@/components/community/channels/forum-view"
 import { TextChannelSurface } from "@/components/community/channels/text-channel-surface"
 import { ThreadChannelSurface } from "@/components/community/channels/thread-channel-surface"
 import { ThreadSplitView } from "@/components/community/channels/thread-split-view"
@@ -27,7 +26,6 @@ import { toChannelRefCandidate } from "@/lib/community/channel-ref-extension"
 import { useCurrentChannelId, useUiHandlers } from "@/stores/community"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { useChannelRouteModel } from "@/hooks/community/use-channel-route-model"
-import { useChannelMetadata } from "@/hooks/community/use-channel-metadata"
 import { useForumOpenerHint } from "@/hooks/community/use-forum-opener-hint"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { useSetChannelNotif } from "@/hooks/community/mutations"
@@ -69,8 +67,7 @@ export function ChannelRoute({ serverParam, channelId, targetHref, routeCommitte
   const serverId = decodeURIComponent(serverParam)
   const currentUser = useCurrentUser()
   const routeModel = useChannelRouteModel(serverId, serverParam, channelId, currentUser.id)
-  const parentChannelId = routeModel.layoutHint.parentChannelId
-  return <ChannelRouteFrame key={JSON.stringify([currentUser.id, serverId, parentChannelId ?? channelId])}
+  return <ChannelRouteFrame key={JSON.stringify([currentUser.id, serverId])}
     serverId={serverId} serverParam={serverParam} channelId={channelId}
     searchParams={searchParams} routeCommitted={routeCommitted}
     routeModel={routeModel} currentUser={currentUser} />
@@ -84,16 +81,21 @@ function ChannelRouteFrame(target: RouteTarget) {
     .flatMap((category) => category.channels)
     .find((channel) => channel.id === parentChannelId && !channel.pending
       && (channel.type === "forum" || channel.type === "text")) : undefined
-  const parentMetadata = useChannelMetadata(serverId, parentChannelId ?? undefined)
+  const { navigation, breakpoint } = useCommunityRouteFrame()
+  const isThread = routeModel.skeletonSubtype === "thread"
+    || routeModel.routeLifecycle === "ready" && routeModel.isChild
   const { containerRef, mode } = useThreadSplitMode({
-    parentChannelId: parent && parentMetadata.canRead ? parentChannelId : null,
+    breakpoint,
+    enabled: isThread,
     forceFullscreen: searchParams.get(THREAD_VIEW_PARAM) === "full",
   })
   const uiHandlers = useUiHandlers()
-  const { navigation } = useCommunityRouteFrame()
-  const isThread = routeModel.skeletonSubtype === "thread"
-    || routeModel.routeLifecycle === "ready" && routeModel.isChild
   const split = isThread && mode === "split"
+  const [parentIdentity, setParentIdentity] = useAtom(useCreateAtom<{ id: string; confirmed: boolean } | null>(null))
+  const onParentIdentity = useCallback((id: string, confirmed: boolean) => {
+    setParentIdentity((current) => current?.id === id && current.confirmed === confirmed ? current : { id, confirmed })
+  }, [setParentIdentity])
+  const resolvingParent = split && (!parent || parentIdentity?.id !== parent.id || !parentIdentity.confirmed)
   const channelRefCandidates = useMemo(() => server?.categories
     .flatMap((category) => category.channels)
     .map((channel) => toChannelRefCandidate(server, channel)) ?? [], [server])
@@ -108,28 +110,19 @@ function ChannelRouteFrame(target: RouteTarget) {
     uiHandlers.openProfile?.(name, event, discriminator, userId)
   }, [uiHandlers])
   const pane = <ChannelTargetPane key={JSON.stringify([currentUser.id, serverId, channelId])}
-    {...target} split={split} onOpenChild={enterThread} />
-  return <div ref={containerRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
-    {isThread ? mode === "pending" ? <ConversationResolutionPendingFrame /> : <ThreadSplitView
-      split={split} conversationSubtype="thread"
-      parent={split ? server && parent ? <ThreadSplitParentSurface
+    {...target} split={split} resolvingParent={resolvingParent} onOpenChild={enterThread} />
+  const targetHref = `${channelHref(serverParam, channelId)}${searchParams.size ? `?${searchParams}` : ""}`
+  return <div ref={containerRef} data-community-target-href={targetHref} className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <ThreadSplitView
+      split={split} resolvingParent={resolvingParent} conversationSubtype={isThread ? "thread" : routeModel.skeletonSubtype}
+      parent={split && server && parent ? <ThreadSplitParentSurface
+        key={JSON.stringify([currentUser.id, serverId, parent.id])}
         serverId={serverId} serverParam={serverParam} server={server} channel={parent}
-        viewer={currentUser} metadata={parentMetadata} onNavigateParent={navigateServerRoot}
+        viewer={currentUser} onNavigateParent={navigateServerRoot}
         channelRefCandidates={channelRefCandidates} uiHandlers={uiHandlers}
-        onOpenChild={enterThread} onOpenProfile={openProfile} />
-        : <ParentPendingFrame subtype={routeModel.layoutHint.parentSubtype} /> : null}
-      thread={pane} /> : pane}
+        onOpenChild={enterThread} onOpenProfile={openProfile} onIdentity={onParentIdentity} /> : null}
+      thread={pane} />
   </div>
-}
-
-function ParentPendingFrame({ subtype }: { subtype: "unknown" | "forum" | "text" }) {
-  if (subtype === "unknown") return <ConversationResolutionPendingFrame />
-  return <>
-    <ChannelHeaderSkeleton kind={subtype} />
-    <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-      {subtype === "forum" ? <ForumViewSkeleton /> : <ConversationMessageSkeleton />}
-    </main>
-  </>
 }
 
 function QualifiedThreadSurface({ routeLifecycle, ...props }: ComponentProps<typeof ThreadChannelSurface> & {
@@ -146,8 +139,9 @@ function QualifiedThreadSurface({ routeLifecycle, ...props }: ComponentProps<typ
 }
 
 function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, routeCommitted,
-  routeModel, currentUser, split, onOpenChild }: RouteTarget & {
+  routeModel, currentUser, split, resolvingParent, onOpenChild }: RouteTarget & {
   split: boolean
+  resolvingParent: boolean
   onOpenChild: (id: string) => void
 }) {
   const router = useRouter()
@@ -199,7 +193,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
   const forumPostOpener = useForumOpenerHint(
     serverId,
     currentChannelMeta?.parentMessageId,
-    isForumPostChild && routeModel.routeHydrated && navigationGate.allowed,
+    isForumPostChild && !resolvingParent && routeModel.routeHydrated && navigationGate.allowed,
   )
   const { isFetching: fetchingOpener, refetch: refetchOpener } = forumPostOpener
   const openerScope = JSON.stringify([currentUser.id, serverId, channelId, currentChannelMeta?.parentMessageId, accessEpoch])
@@ -237,7 +231,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
     isChildChannel,
     isNotifyUnit,
     currentUser,
-    accessAllowed: routeCommitted && routeModel.routeLifecycle === "ready" && navigationGate.allowed,
+    accessAllowed: !resolvingParent && routeCommitted && routeModel.routeLifecycle === "ready" && navigationGate.allowed,
   })
   const {
     composerMembers,
@@ -312,7 +306,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
     currentChannelId === channelId &&
     routeModel.routeHydrated &&
     navigationGate.allowed
-  const channelHydrated = routeCommitted && channelReadReady &&
+  const channelHydrated = !resolvingParent && routeCommitted && channelReadReady &&
     (!isForumPostChild || (!forumPostOpener.isLoading && !openerError))
   useNativeSystemNotificationConversationDismissal(currentUser.id, {
     kind: "server",

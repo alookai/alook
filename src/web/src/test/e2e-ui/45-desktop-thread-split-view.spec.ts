@@ -348,6 +348,7 @@ test.describe.serial("desktop thread split view", () => {
     await resizeThreadPanel(page, 520)
     await parentInput.fill("Parent draft survives")
     await composerEditable(page, thread).fill("Child A draft")
+    await parent.getByTestId(tid.threadIndicator(openerB)).scrollIntoViewIfNeeded()
     const scrollTop = await scroller.evaluate((node) => node.scrollTop)
     expect(scrollTop).toBeGreaterThan(0)
     const width = (await thread.boundingBox())?.width ?? 0

@@ -269,7 +269,7 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
   }, [goBackMobile, profile.openProfile, profile.previewAttachment, profile.previewImage, rail.navigate, navigation.cancelPendingNavigation, navigation.push, navigation.replace, queryClient])
 
   return (
-    <CommunityRouteContext value={{ frame: committedFrame, navigation, ownerDeleteRouteScope }}>
+    <CommunityRouteContext value={{ breakpoint, frame: committedFrame, navigation, ownerDeleteRouteScope }}>
     <ShellFrameView
       breakpoint={breakpoint}
       checkpoint={checkpoint}

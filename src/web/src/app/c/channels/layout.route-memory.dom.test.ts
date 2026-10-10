@@ -259,6 +259,7 @@ function ServerLayout({ children }: { children?: React.ReactNode }) {
     registerOwnerServerDeleteRoute(mocks.queryClient, scope.serverId, scope.token)
   }, [scope.serverId, scope.token])
   return createElement(CommunityRouteContext, { value: {
+    breakpoint: "desktop",
     frame: { ...normalizeCommunityHref("/c/channels/missing-server/missing-channel"), revision: 0 },
     navigation: { captureIntent: mocks.captureIntent,
       navigationPending: mocks.navigationPending.current,

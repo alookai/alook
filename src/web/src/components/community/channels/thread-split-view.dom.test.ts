@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   useDefaultLayout: vi.fn(),
 }))
 
+vi.mock("@/components/brand/alook-loading/AlookLoading", () => ({ AlookLoading: () => null }))
+
 vi.mock("react-resizable-panels", () => ({
   useDefaultLayout: (options: unknown) => { mocks.useDefaultLayout(options); return ({
     defaultLayout: { parent: 56, thread: 44 },
@@ -26,12 +28,18 @@ vi.mock("@/components/ui/resizable", () => ({
     orientation,
     defaultLayout,
     onLayoutChanged,
+    disabled,
+    "aria-hidden": ariaHidden,
+    inert,
   }: PropsWithChildren<Record<string, unknown>>) => createElement("div", {
     "data-testid": "panel-group",
     "data-id": id,
     "data-orientation": orientation,
     "data-default-layout": JSON.stringify(defaultLayout),
     "data-persists-layout": String(typeof onLayoutChanged === "function"),
+    "data-disabled": String(disabled),
+    "data-hidden": String(ariaHidden),
+    "data-inert": String(inert),
   }, children),
   ResizablePanel: ({
     children,
@@ -108,10 +116,37 @@ describe("ThreadSplitView", () => {
       thread: createElement("span", null, "Thread content"),
     }))
 
-    expect(screen.queryByTestId("panel-group")).not.toBeInTheDocument()
+    expect(screen.getByTestId("panel-group")).toHaveAttribute("data-disabled", "true")
+    expect(screen.getByTestId("panel-group")).toHaveAttribute("data-persists-layout", "false")
     expect(screen.queryByText("Parent content")).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("Resize thread panel")).not.toBeInTheDocument()
     expect(screen.getByLabelText("Thread")).toHaveClass("flex-1")
     expect(screen.getByText("Thread content")).toBeVisible()
+  })
+
+  it("keeps the target input, section, panel and group across type resolution and layout changes", () => {
+    const thread = createElement("input", { "data-testid": "target-input" })
+    const renderer = render(createElement(ThreadSplitView, {
+      split: false, parent: null, thread, conversationSubtype: "unknown",
+    }))
+    const group = screen.getByTestId("panel-group")
+    const panel = screen.getByTestId("panel-thread")
+    const section = screen.getByLabelText("Conversation")
+    const input = screen.getByTestId("target-input") as HTMLInputElement
+    input.value = "Target draft"
+    for (const split of [false, true, false, true]) {
+      renderer.rerender(createElement(ThreadSplitView, {
+        split, parent: createElement("span", null, "Parent content"), thread, conversationSubtype: "thread",
+      }))
+      expect(screen.getByTestId("panel-group")).toBe(group)
+      expect(screen.getByTestId("panel-thread")).toBe(panel)
+      expect(screen.getByTestId("community-thread-split-panel")).toBe(section)
+      expect(screen.getByTestId("target-input")).toBe(input)
+      expect(input.value).toBe("Target draft")
+      expect(panel).toHaveAttribute("data-min-size", String(THREAD_SPLIT_PANEL_MIN_WIDTH))
+      expect(panel).toHaveAttribute("data-max-size", String(THREAD_SPLIT_PANEL_MAX_WIDTH))
+    }
+    renderer.unmount()
   })
 
   it("keeps both panels and their group when skeletons become content", () => {
@@ -133,5 +168,25 @@ describe("ThreadSplitView", () => {
     expect(screen.getByTestId("panel-thread")).toBe(thread)
     expect(screen.queryByText("Thread skeleton")).not.toBeInTheDocument()
     expect(mocks.onLayoutChanged).not.toHaveBeenCalled()
+  })
+
+  it("keeps the group and target slot inert behind parent resolution, then shows their own content", () => {
+    const props = {
+      split: true, parent: createElement("span", null, "Parent loading"),
+      thread: createElement("input", { "data-testid": "target-input" }),
+    }
+    const renderer = render(createElement(ThreadSplitView, { ...props, resolvingParent: true }))
+    const group = screen.getByTestId("panel-group")
+    const right = screen.getByTestId("community-thread-split-panel")
+    expect(group).toHaveAttribute("data-inert", "true")
+    expect(group).toHaveAttribute("data-hidden", "true")
+    expect(group).toHaveAttribute("data-persists-layout", "false")
+    expect(screen.getByLabelText("Resolving conversation")).toBeInTheDocument()
+    renderer.rerender(createElement(ThreadSplitView, props))
+    expect(screen.getByTestId("panel-group")).toBe(group)
+    expect(screen.getByTestId("community-thread-split-panel")).toBe(right)
+    expect(group).toHaveAttribute("data-inert", "undefined")
+    expect(screen.queryByLabelText("Resolving conversation")).not.toBeInTheDocument()
+    renderer.unmount()
   })
 })

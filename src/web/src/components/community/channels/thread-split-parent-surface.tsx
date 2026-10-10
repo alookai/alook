@@ -1,6 +1,6 @@
 "use client"
 
-import type { ComponentProps } from "react"
+import { useLayoutEffect, useState, type ComponentProps } from "react"
 import { canManageServer, isForum, USE_SERVER_DEFAULT } from "@alook/shared"
 import { toastApiError } from "@/lib/api/client"
 import type { Channel } from "@/lib/community/models/navigation"
@@ -17,7 +17,9 @@ import { ChannelHeaderSkeleton } from "@/components/community/channels/channel-h
 import { ConversationMessageSkeleton } from "@/components/community/channels/conversation-message-skeleton"
 import { ForumViewSkeleton } from "@/components/community/channels/forum-view"
 import { ConversationResolutionErrorFrame } from "@/components/community/channels/conversation-resolution-error-frame"
-import type { useChannelMetadata } from "@/hooks/community/use-channel-metadata"
+import { useChannelMetadata } from "@/hooks/community/use-channel-metadata"
+import { useCommunityRuntime } from "@/stores/community/runtime"
+import { communityWsClaimSecondaryChannel, communityWsReleaseSecondaryChannel } from "@/hooks/community/use-community-ws"
 
 export function ThreadSplitParentSurface({
   serverId,
@@ -25,25 +27,39 @@ export function ThreadSplitParentSurface({
   server,
   channel,
   viewer,
-  metadata,
   onNavigateParent,
   channelRefCandidates,
   uiHandlers,
   onOpenChild,
   onOpenProfile,
+  onIdentity,
 }: {
   serverId: string
   serverParam: string
   server: ServerDetail
   channel: Channel
   viewer: { id: string; name: string; discriminator?: string; avatar: string }
-  metadata: ReturnType<typeof useChannelMetadata>
   onNavigateParent?: () => void
   channelRefCandidates: ComposerProps["channelRefCandidates"]
   uiHandlers: ComponentProps<typeof TextChannelSurface>["uiHandlers"]
   onOpenChild: (childId: string) => void
   onOpenProfile: OpenProfile
+  onIdentity: (parentId: string, confirmed: boolean) => void
 }) {
+  const metadata = useChannelMetadata(serverId, channel.id)
+  const runtime = useCommunityRuntime()
+  const [subscriptionOwner] = useState(() => Symbol("thread-split-secondary"))
+  useLayoutEffect(() => {
+    onIdentity(channel.id, metadata.identityKnown)
+    return () => onIdentity(channel.id, false)
+  }, [channel.id, metadata.identityKnown, onIdentity])
+  useLayoutEffect(() => {
+    if (metadata.canRead) communityWsClaimSecondaryChannel(runtime, subscriptionOwner, channel.id)
+    else communityWsReleaseSecondaryChannel(runtime, subscriptionOwner)
+    return () => {
+      communityWsReleaseSecondaryChannel(runtime, subscriptionOwner)
+    }
+  }, [channel.id, metadata.canRead, runtime, subscriptionOwner])
   const members = useChannelMemberViewModel({
     serverId,
     channelId: channel.id,

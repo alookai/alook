@@ -1,11 +1,13 @@
 "use client"
 
 import { createContext, useContext } from "react"
+import type { Breakpoint } from "@/hooks/use-mobile"
 import type { CommunityCommittedFrame } from "@/lib/community/community-route"
 import type { ShellFrameProps } from "./shell-frame-types"
 import type { CommunityNavigationController } from "./use-community-navigation-controller"
 
 export const CommunityRouteContext = createContext<{
+  breakpoint: Breakpoint
   frame: CommunityCommittedFrame
   navigation: CommunityNavigationController
   ownerDeleteRouteScope: ShellFrameProps["ownerDeleteRouteScope"]

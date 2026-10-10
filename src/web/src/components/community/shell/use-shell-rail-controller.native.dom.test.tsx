@@ -60,7 +60,7 @@ function Probe({ sidebar = false }: { sidebar?: boolean }) {
     client = currentClient; controller = current; navigation = currentNavigation
     if (sidebar) getCommunityRuntime(currentClient).ui.actions.registerUiHandlers({ cancelPendingNavigation: currentNavigation.cancelPendingNavigation })
   })
-  return sidebar ? <CommunityRouteContext value={{ frame, navigation: currentNavigation, ownerDeleteRouteScope }}><ServerRail {...current.railProps} bottomInset={60} /><ServerSidebarSlot serverId={serverId} /></CommunityRouteContext> : null
+  return sidebar ? <CommunityRouteContext value={{ breakpoint: "desktop", frame, navigation: currentNavigation, ownerDeleteRouteScope }}><ServerRail {...current.railProps} bottomInset={60} /><ServerSidebarSlot serverId={serverId} /></CommunityRouteContext> : null
 }
 function Root({ visible = true, sidebar = false }: { visible?: boolean; sidebar?: boolean }) { return <QueryProvider userId="A">{visible && <Probe sidebar={sidebar} />}</QueryProvider> }
 async function mount(sidebar = false) {

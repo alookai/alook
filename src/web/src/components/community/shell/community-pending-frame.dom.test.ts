@@ -112,7 +112,7 @@ describe("CommunityPendingFrame", () => {
     expect(screen.getByLabelText("Loading server")).toHaveAttribute("aria-busy", "true")
   })
 
-  it.each(["text", "forum"] as const)("forwards a known navigation subtype without changing route ownership: %s", (subtype) => {
+  it.each(["text", "forum", "thread"] as const)("forwards a known navigation subtype without changing route ownership: %s", (subtype) => {
     const rendered = render(createElement(CommunityPendingFrame, {
       href: "/c/channels/s1/c1",
       conversationSubtype: subtype,
@@ -123,11 +123,11 @@ describe("CommunityPendingFrame", () => {
       .toBeInTheDocument()
   })
 
-  it("keeps a structural thread checkpoint neutral until its layout can be measured", () => {
+  it("retains a structural thread checkpoint independently of layout measurement", () => {
     const rendered = render(createElement(CommunityPendingFrame, {
       href: "/c/channels/s1/post1", conversationSubtype: "thread",
     }))
-    expect(screen.getByTestId("conversation-resolution")).toHaveAttribute("data-subtype", "unknown")
+    expect(screen.getByTestId("conversation-resolution")).toHaveAttribute("data-subtype", "thread")
     expect(screen.getByTestId("community-pending-main-server-conversation")).not.toHaveAttribute("aria-label")
     expect(rendered.container.querySelector('[data-community-main-kind="server-conversation"]')).toBeInTheDocument()
     expect(rendered.container.querySelectorAll("header, button, a, form, textarea")).toHaveLength(0)

@@ -119,6 +119,7 @@ import { normalizeCommunityHref } from "@/lib/community/community-route"
 
 function MeLayout({ children }: { children?: React.ReactNode }) {
   return createElement(CommunityRouteContext, { value: {
+    breakpoint: "desktop",
     frame: { ...normalizeCommunityHref(mocks.pathname), revision: 0 },
     navigation: {} as never,
     ownerDeleteRouteScope: undefined,
