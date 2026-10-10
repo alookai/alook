@@ -24,7 +24,7 @@ export function InboxUnreadIndicator({ count, partial = false, open, description
       <span id={descriptionId} className="sr-only">{count > 0 ? `${count}${partial ? "+" : ""} unread conversations or requests` : "No unread items"}</span>
       <span className={styles.indicator} data-unread={count > 0 && !open} data-count={count} data-partial={partial} aria-hidden="true" data-slot="inbox-unread-indicator">
         <span className={styles.circle} data-slot="inbox-unread-circle">
-          {overflow ? <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" data-slot="inbox-unread-ellipsis"><circle cx="3" cy="8" r="1.5" /><circle cx="8" cy="8" r="1.5" /><circle cx="13" cy="8" r="1.5" /></svg> : <NumberTicker value={displayCount} duration={220} />}
+          {overflow ? <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" data-slot="inbox-unread-ellipsis"><circle cx="3" cy="8" r="1.5" /><circle cx="8" cy="8" r="1.5" /><circle cx="13" cy="8" r="1.5" /></svg> : <NumberTicker value={displayCount} duration={220} isolate />}
         </span>
         <span className={styles.icon}><Inbox className="size-4" /></span>
       </span>

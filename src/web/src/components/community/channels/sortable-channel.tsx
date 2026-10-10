@@ -64,7 +64,7 @@ export function SortableChannel({ ch, href, active, onClick, onEdit, onDelete, o
     ref: setNodeRef,
     style,
     "data-testid": tid.channelRow(ch.id),
-    ...attributes,
+    ...(canReorder ? attributes : { role: "button", tabIndex: 0 }),
     ...listeners,
     className: [
       "group relative flex h-8 w-full cursor-pointer touch-manipulation items-center gap-2 rounded-md px-2 text-sm select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",

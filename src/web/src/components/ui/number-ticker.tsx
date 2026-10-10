@@ -24,6 +24,7 @@ export function NumberTicker({
   compact = false,
   className,
   duration,
+  isolate,
 }: {
   value: Value
   /** Fixed number of fraction digits. Defaults to 0 (integer display). */
@@ -32,10 +33,12 @@ export function NumberTicker({
   compact?: boolean
   className?: string
   duration?: number
+  isolate?: boolean
 }) {
   return (
     <NumberFlow
       value={value}
+      isolate={isolate}
       {...(duration === undefined ? {} : {
         transformTiming: { duration, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
         opacityTiming: { duration: Math.min(duration, 160), easing: "ease-out" },
