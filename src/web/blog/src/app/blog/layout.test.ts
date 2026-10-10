@@ -1,6 +1,8 @@
 import { createElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("./blog-footer", () => ({ BlogFooter: "blog-footer" }));
+
 vi.mock("@/components/theme-toggle", () => ({
   ThemeToggle: "theme-toggle",
 }));
@@ -24,7 +26,7 @@ describe("BlogLayout", () => {
     expect(layout.props).toMatchObject({
       zone: "blog",
       breadcrumb: "Blog",
-      footer: "rich",
+      footer: expect.objectContaining({ type: "blog-footer" }),
     });
     expect(layout.props.rightSlot.type).toBe("theme-toggle");
     expect(layout.props.children.type).toBe("github-outbound-boundary");

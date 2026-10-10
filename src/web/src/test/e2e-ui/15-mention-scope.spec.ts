@@ -188,7 +188,7 @@ test.describe.serial("mentions — candidate scope", () => {
     await expect(page.getByTestId(tid.mentionStatus)).toHaveCount(0)
     expect(accessReads).toBeGreaterThan(failedReads)
     await page.keyboard.press("Escape")
-    await editable.fill("")
+    await page.keyboard.press("Backspace")
     await editable.pressSequentially(`@${bob.name.slice(0, 3)}`)
     await expect(page.getByTestId(tid.mentionOption(bob.id))).toBeVisible()
     await expect(page.getByTestId(tid.mentionOption(carol.id))).toHaveCount(0)
