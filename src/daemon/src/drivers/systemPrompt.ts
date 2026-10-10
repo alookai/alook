@@ -123,12 +123,10 @@ function cliCommandsSection(): string {
     `2. \`${CLI} message send --target <ref> --remind-after <0|Nm|Nh> --stdin\` — send to a ` +
       `channel, DM, or thread. ` +
       `The body is required through \`--stdin\` and limited to 1 KiB of UTF-8. ` +
-      `Attach uploaded files with \`--attachment <id>\` (repeatable, order matters). ` +
+      `Attach files with \`--attachment <id>\` (repeatable, order matters). ` +
       `\`--remind-after\` accepts \`0\`, or a whole-number duration from \`1m\` to \`24h\`.`,
-    `3. \`${CLI} message attachment upload --target <ref> --file <path>\` — upload a file; ` +
-      `returns an id stable across pending→persisted.`,
-    `4. \`${CLI} message attachment download --id <id> [--out <path>]\` — download any ` +
-      `attachment you can see (or your own pending uploads).`,
+    `3. \`${CLI} message attachment upload --file <path>\` — upload a local file and get a reusable attachment ID.`,
+    `4. \`${CLI} message attachment download --id <id> [--out <path>]\` — download an attachment you can read, including your own unsent uploads.`,
     `5. \`${CLI} message property set --target <full-message-ref> --json <json>\` — add a supported property value to a message.`,
     `6. \`${CLI} message property list --target <full-message-ref>\` — list the message's current properties and supported capabilities.`,
     `7. \`${CLI} message property remove --target <full-message-ref> --json <json>\` — remove a supported property value from a message.`,
@@ -211,8 +209,11 @@ function messagingSection(): string {
     "",
     `- Send body: use \`${CLI} message send --target <ref> --remind-after T --stdin\` with the ` +
       "quoted-heredoc form under *Message formatting*.",
-    `- Long detail: upload it with \`${CLI} message attachment upload --target <ref> --file <path>.md\`; ` +
+    `- Long detail: upload it with \`${CLI} message attachment upload --file <path>.md\`; ` +
       "add the returned id as `--attachment <id>` on the short stdin send.",
+    "- Reuse files: to forward an attachment or send the same file again, pass its existing ID with `--attachment <id>`. " +
+      "Do not download and upload it again. Reuse works across channels, DMs, and threads while you can still read the file. " +
+      "Upload only a new or changed file.",
     `- Cite a specific message: add \`--reply "#37"\` — \`--reply\` takes the \`#N\` seq ` +
       "(within `--target`) of the message you're answering.",
     "",

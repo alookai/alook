@@ -1460,7 +1460,7 @@ describe("message mark", () => {
 });
 
 describe("message attachment upload", () => {
-  it("skips a separate thumbnail when the original satisfies both limits", async () => {
+  it.each([undefined, "/demo#0042/general"])("uploads with optional legacy target %s and no unnecessary thumbnail", async (target) => {
     const fs = await import("node:fs")
     const os = await import("node:os")
     const path = await import("node:path")
@@ -1479,12 +1479,13 @@ describe("message attachment upload", () => {
     }))
     setApiForTesting(stubApi({ attachmentUpload: uploadSpy }))
     try {
-      await main(["message", "attachment", "upload", "--target", "/demo#0042/general", "--file", file])
+      await main(["message", "attachment", "upload", ...(target !== undefined ? ["--target", target] : []), "--file", file])
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }
     const request = uploadSpy.mock.calls[0]![0]
     expect(request).toMatchObject({ width: 640, height: 480 })
+    expect(request.target).toBe(target)
     expect(request.thumbnail).toBeUndefined()
     expect(parseEnvelope(cap.lines())).toMatchObject({ success: { hasThumbnail: false } })
   })

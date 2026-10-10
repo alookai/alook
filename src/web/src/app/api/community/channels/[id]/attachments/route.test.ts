@@ -123,9 +123,22 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
     expect(res.status).toBe(401)
   })
 
-  it("400 when target query param is missing", async () => {
+  it("accepts target-free upload with the existing response and uploader identity", async () => {
     const res = await POST(botReq(null, { Authorization: "Bearer crk_abc" }), botCtx)
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ id: "att_1", filename: "hi.png", contentType: "image/png", size: 10, hasThumbnail: false })
+    expect(mockResolveServerByNameForMember).not.toHaveBeenCalled()
+    expect(mockCreateAttachment).toHaveBeenCalledWith(primaryDb, expect.objectContaining({ uploaderId: "bot_1" }))
+  })
+
+  it("rejects a target-free upload without authentication", async () => {
+    expect((await POST(botReq(null), botCtx)).status).toBe(401)
+    expect(mockHandleAttachmentUpload).not.toHaveBeenCalled()
+  })
+
+  it("preserves rejection of an explicitly empty legacy target", async () => {
+    expect((await POST(botReq("", { Authorization: "Bearer crk_abc" }), botCtx)).status).toBe(400)
+    expect(mockHandleAttachmentUpload).not.toHaveBeenCalled()
   })
 
   it("returns id + filename + contentType + size — no url, no r2Key", async () => {

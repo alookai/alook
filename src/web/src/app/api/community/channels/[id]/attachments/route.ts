@@ -43,26 +43,21 @@ async function handleBotAttachmentUpload(
   if (!gate0.ok) return gate0.response
   const botUserId = gate0.bot.userId
 
-
   try {
-    const target = req.nextUrl.searchParams.get("target")
-    if (!target) {
-      return NextResponse.json({ error: "missing target query param" }, { status: 400 })
-    }
-
-    // Resolve and authorize against primary before writing R2/D1 so a recent
-    // unfriend/block cannot be bypassed through a lagging replica.
     const db = getPrimaryDb(ctx.env.DB)
-
-    const resolved = await resolveTargetForMember(db, botUserId, target)
-    if ("error" in resolved) return resolveErrorResponse(resolved)
-
-    if (resolved.kind === "dm") {
-      const gate = await requireDMCommunicationAccess(db, resolved.channelId, botUserId)
-      if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status })
-    } else {
-      const gate = await requireChannelMember(db, resolved.channelId, botUserId)
-      if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status })
+    const target = req.nextUrl.searchParams.get("target")
+    if (target !== null) {
+      if (!target) return NextResponse.json({ error: "missing target query param" }, { status: 400 })
+      // Legacy callers retain their existing primary target authorization.
+      const resolved = await resolveTargetForMember(db, botUserId, target)
+      if ("error" in resolved) return resolveErrorResponse(resolved)
+      if (resolved.kind === "dm") {
+        const gate = await requireDMCommunicationAccess(db, resolved.channelId, botUserId)
+        if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status })
+      } else {
+        const gate = await requireChannelMember(db, resolved.channelId, botUserId)
+        if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status })
+      }
     }
 
     const result = await handleAttachmentUpload(req, ctx.env)

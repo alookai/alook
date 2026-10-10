@@ -620,7 +620,7 @@ describe("createProxyServerApi — callUpload via parseJsonResponse", () => {
     ).rejects.toThrow(/upstream returned 500 with non-JSON body during attachmentUpload/);
   });
 
-  it("POSTs the canonical attachments door with the ref on ?target= (retargeted, `resolve` placeholder id)", async () => {
+  it.each([undefined, "/demo#1234/general"])("keeps the upload API path with optional legacy target %s", async (target) => {
     const seen: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
       seen.push({ url, init });
@@ -629,13 +629,13 @@ describe("createProxyServerApi — callUpload via parseJsonResponse", () => {
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
     const out = await api.attachmentUpload({
       agentId: "a1",
-      target: "/demo#1234/general",
+      ...(target !== undefined ? { target } : {}),
       file: { data: new Uint8Array([1, 2, 3]), filename: "x.png", contentType: "image/png" },
     } as never);
     expect(out).toEqual({ id: "att_1", filename: "x.png", contentType: "image/png", size: 3 });
     const u = new URL(seen[0].url);
     expect(u.pathname).toBe("/api/community/channels/resolve/attachments");
-    expect(u.searchParams.get("target")).toBe("/demo#1234/general");
+    expect(u.searchParams.get("target")).toBe(target ?? null);
     expect(seen[0].init?.method).toBe("POST");
   });
 
