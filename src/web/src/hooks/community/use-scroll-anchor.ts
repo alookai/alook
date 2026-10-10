@@ -865,24 +865,42 @@ export function useScrollAnchor({
       }
       scheduleGeometry()
     }
-    const onUserIntent = () => {
-      userScrolledAwayRef.current = true
+    const restoreEndEligibility = () => {
+      const input = userInputRef.current
+      const native = virtualizerRef.current
+      if (input.touch || input.pointers.size > 0 || positionKind.get() !== "idle" || !readReady.get()
+        || nativeOrigin.get() === currentItemsRef.current[0]?.key) return
+      const geometry = readGeometry()
+      if (!geometry || geometry.isScrolling || !native?.isAtEnd(1)
+        || Math.abs(Math.max(0, geometry.scrollHeight - geometry.clientHeight) - geometry.scrollTop) > 1) return
+      wasAtEndRef.current = true
+      userScrolledAwayRef.current = false
+    }
+    const onUserIntent = (towardEnd = false) => {
       releasePosition(true)
       userScrolledAwayRef.current = true
       if (root.scrollTop <= 1) holdNativeOrigin(currentItemsRef.current[0]?.key ?? null)
+      if (towardEnd) restoreEndEligibility()
     }
-    const onWheel = (event: WheelEvent) => { if (event.deltaY !== 0) onUserIntent() }
+    const onWheel = (event: WheelEvent) => {
+      if (event.deltaY !== 0) onUserIntent(event.deltaY > 0)
+    }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) onUserIntent()
+      if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) {
+        onUserIntent(["ArrowDown", "PageDown", "End"].includes(event.key) || (event.key === " " && !event.shiftKey))
+      }
     }
     const onTouchStart = () => { userInputRef.current.touch = true; onUserIntent() }
     const onTouchEnd = (event: TouchEvent) => {
+      const registered = userInputRef.current.touch
       userInputRef.current.touch = event.touches.length > 0
+      if (registered) restoreEndEligibility()
       scheduleGeometry()
     }
     const onPointerDown = (event: PointerEvent) => { userInputRef.current.pointers.add(event.pointerId); onUserIntent() }
     const onPointerUp = (event: PointerEvent) => {
       if (!userInputRef.current.pointers.delete(event.pointerId)) return
+      restoreEndEligibility()
       scheduleGeometry()
     }
     const onBlur = () => {
