@@ -1,5 +1,6 @@
 import { aliasedTable, and, eq, gt, isNotNull, isNull, inArray, ne, or, sql } from "drizzle-orm";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
+import { jsonTextSet } from "../_json-set";
 import {
   communityChannel,
   communityChannelMember,
@@ -333,84 +334,76 @@ export async function listUnreadForumOpeners(
   if (forumParentIds.length === 0) return [];
 
   const childChannel = aliasedTable(communityChannel, "forum_inbox_child");
-  const rows = (
-    await Promise.all(
-      chunk(forumParentIds, D1_MAX_IN_PARAMS).map((ids) =>
-        db
-          .select({
-            forumChannelId: communityMessage.channelId,
-            openerMessageId: communityMessage.id,
-            openerContent: communityMessage.content,
-            openerSeq: communityMessage.seq,
-            childChannelId: childChannel.id,
-            childName: childChannel.name,
-            createdAt: communityMessage.createdAt,
-          })
-          .from(communityMessage)
-          .innerJoin(
-            communityChannel,
-            eq(communityChannel.id, communityMessage.channelId)
-          )
-          .innerJoin(
-            childChannel,
-            and(
-              eq(childChannel.parentChannelId, communityChannel.id),
-              eq(childChannel.parentMessageId, communityMessage.id)
-            )
-          )
-          .innerJoin(
-            communityServerMember,
-            and(
-              eq(communityServerMember.serverId, communityChannel.serverId),
-              eq(communityServerMember.userId, userId)
-            )
-          )
-          .leftJoin(
-            communityReadState,
-            and(
-              eq(communityReadState.channelId, communityChannel.id),
-              eq(communityReadState.userId, userId)
-            )
-          )
-          .where(
-            and(
-              inArray(communityChannel.id, ids),
-              isNull(communityChannel.parentChannelId),
-              eq(communityChannel.type, "forum"),
-              eq(communityChannel.archived, 0),
-              eq(childChannel.archived, 0),
-              or(
-                and(
-                  isNotNull(communityReadState.id),
-                  gt(
-                    communityMessage.seq,
-                    sql<number>`COALESCE(${communityReadState.lastReadSeq}, 0)`
-                  )
-                ),
-                and(
-                  isNull(communityReadState.id),
-                  gt(communityMessage.createdAt, communityServerMember.joinedAt)
-                )
-              ),
-              notificationEligibleSql(
-                userId,
-                {
-                  id: communityChannel.id,
-                  serverId: communityChannel.serverId,
-                  parentChannelId: communityChannel.parentChannelId,
-                },
-                {
-                  id: communityMessage.id,
-                }
-              )
-            )
-          )
+  const rows = await db
+    .select({
+      forumChannelId: communityMessage.channelId,
+      openerMessageId: communityMessage.id,
+      openerContent: communityMessage.content,
+      openerSeq: communityMessage.seq,
+      childChannelId: childChannel.id,
+      childName: childChannel.name,
+      createdAt: communityMessage.createdAt,
+    })
+    .from(communityMessage)
+    .innerJoin(
+      communityChannel,
+      eq(communityChannel.id, communityMessage.channelId)
+    )
+    .innerJoin(
+      childChannel,
+      and(
+        eq(childChannel.parentChannelId, communityChannel.id),
+        eq(childChannel.parentMessageId, communityMessage.id)
       )
     )
-  ).flat();
+    .innerJoin(
+      communityServerMember,
+      and(
+        eq(communityServerMember.serverId, communityChannel.serverId),
+        eq(communityServerMember.userId, userId)
+      )
+    )
+    .leftJoin(
+      communityReadState,
+      and(
+        eq(communityReadState.channelId, communityChannel.id),
+        eq(communityReadState.userId, userId)
+      )
+    )
+    .where(
+      and(
+        inArray(communityChannel.id, jsonTextSet(db, forumParentIds)),
+        isNull(communityChannel.parentChannelId),
+        eq(communityChannel.type, "forum"),
+        eq(communityChannel.archived, 0),
+        eq(childChannel.archived, 0),
+        or(
+          and(
+            isNotNull(communityReadState.id),
+            gt(
+              communityMessage.seq,
+              sql<number>`COALESCE(${communityReadState.lastReadSeq}, 0)`
+            )
+          ),
+          and(
+            isNull(communityReadState.id),
+            gt(communityMessage.createdAt, communityServerMember.joinedAt)
+          )
+        ),
+        notificationEligibleSql(
+          userId,
+          {
+            id: communityChannel.id,
+            serverId: communityChannel.serverId,
+            parentChannelId: communityChannel.parentChannelId,
+          },
+          {
+            id: communityMessage.id,
+          }
+        )
+      )
+    );
 
-  // D1 chunks are independent statements. Sort only after concatenation so a
-  // chunk boundary can never change the rows that survive the Inbox cap.
   rows.sort(
     (a, b) =>
       b.createdAt.localeCompare(a.createdAt) ||
@@ -447,74 +440,68 @@ export async function listThreadOpenersByChildIds(
 
   const childChannel = aliasedTable(communityChannel, "thread_inbox_child_lookup");
   const parentChannel = aliasedTable(communityChannel, "thread_inbox_parent_lookup");
-  const rows = (
-    await Promise.all(
-      chunk(childIds, D1_MAX_IN_PARAMS).map((ids) =>
-        db
-          .select({
-            parentChannelId: parentChannel.id,
-            parentType: parentChannel.type,
-            openerMessageId: communityMessage.id,
-            openerContent: communityMessage.content,
-            openerSeq: communityMessage.seq,
-            childChannelId: childChannel.id,
-            childName: childChannel.name,
-            createdAt: communityMessage.createdAt,
-            openerUnread: sql<number>`(
-              (
-                (${communityReadState.id} IS NOT NULL AND ${communityMessage.seq} > COALESCE(${communityReadState.lastReadSeq}, 0))
-                OR
-                (${communityReadState.id} IS NULL AND ${communityMessage.createdAt} > ${communityServerMember.joinedAt})
-              )
-              AND ${notificationEligibleSql(
-                userId,
-                {
-                  id: parentChannel.id,
-                  serverId: parentChannel.serverId,
-                  parentChannelId: parentChannel.parentChannelId,
-                },
-                { id: communityMessage.id }
-              )}
-            )`,
-          })
-          .from(childChannel)
-          .innerJoin(
-            parentChannel,
-            eq(parentChannel.id, childChannel.parentChannelId)
-          )
-          .innerJoin(
-            communityMessage,
-            and(
-              eq(communityMessage.id, childChannel.parentMessageId),
-              eq(communityMessage.channelId, parentChannel.id)
-            )
-          )
-          .innerJoin(
-            communityServerMember,
-            and(
-              eq(communityServerMember.serverId, parentChannel.serverId),
-              eq(communityServerMember.userId, userId)
-            )
-          )
-          .leftJoin(
-            communityReadState,
-            and(
-              eq(communityReadState.channelId, parentChannel.id),
-              eq(communityReadState.userId, userId)
-            )
-          )
-          .where(
-            and(
-              inArray(childChannel.id, ids),
-              eq(childChannel.type, "thread"),
-              eq(childChannel.archived, 0),
-              eq(parentChannel.archived, 0),
-              isNull(parentChannel.parentChannelId)
-            )
-          )
+  const rows = await db
+    .select({
+      parentChannelId: parentChannel.id,
+      parentType: parentChannel.type,
+      openerMessageId: communityMessage.id,
+      openerContent: communityMessage.content,
+      openerSeq: communityMessage.seq,
+      childChannelId: childChannel.id,
+      childName: childChannel.name,
+      createdAt: communityMessage.createdAt,
+      openerUnread: sql<number>`(
+        (
+          (${communityReadState.id} IS NOT NULL AND ${communityMessage.seq} > COALESCE(${communityReadState.lastReadSeq}, 0))
+          OR
+          (${communityReadState.id} IS NULL AND ${communityMessage.createdAt} > ${communityServerMember.joinedAt})
+        )
+        AND ${notificationEligibleSql(
+          userId,
+          {
+            id: parentChannel.id,
+            serverId: parentChannel.serverId,
+            parentChannelId: parentChannel.parentChannelId,
+          },
+          { id: communityMessage.id }
+        )}
+      )`,
+    })
+    .from(childChannel)
+    .innerJoin(
+      parentChannel,
+      eq(parentChannel.id, childChannel.parentChannelId)
+    )
+    .innerJoin(
+      communityMessage,
+      and(
+        eq(communityMessage.id, childChannel.parentMessageId),
+        eq(communityMessage.channelId, parentChannel.id)
       )
     )
-  ).flat();
+    .innerJoin(
+      communityServerMember,
+      and(
+        eq(communityServerMember.serverId, parentChannel.serverId),
+        eq(communityServerMember.userId, userId)
+      )
+    )
+    .leftJoin(
+      communityReadState,
+      and(
+        eq(communityReadState.channelId, parentChannel.id),
+        eq(communityReadState.userId, userId)
+      )
+    )
+    .where(
+      and(
+        inArray(childChannel.id, jsonTextSet(db, childIds)),
+        eq(childChannel.type, "thread"),
+        eq(childChannel.archived, 0),
+        eq(parentChannel.archived, 0),
+        isNull(parentChannel.parentChannelId)
+      )
+    );
 
   rows.sort(
     (a, b) =>

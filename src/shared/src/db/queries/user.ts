@@ -340,7 +340,8 @@ export async function getUserByNameAndDiscriminator(
 export async function withUniqueDiscriminator<T>(
   _db: Database,
   input: { id: string; name: string },
-  insertFn: (discriminator: string) => Promise<T>
+  insertFn: (discriminator: string) => Promise<T>,
+  collisionColumns?: readonly string[]
 ): Promise<T> {
   for (let width = MIN_DISCRIMINATOR_WIDTH; width <= MAX_DISCRIMINATOR_WIDTH; width++) {
     for (let attempt = 0; attempt < MAX_DISCRIMINATOR_ATTEMPTS; attempt++) {
@@ -351,7 +352,7 @@ export async function withUniqueDiscriminator<T>(
       try {
         return await insertFn(discriminator);
       } catch (err) {
-        if (!isUniqueConstraintError(err)) throw err;
+        if (!isUniqueConstraintError(err, collisionColumns)) throw err;
       }
     }
   }

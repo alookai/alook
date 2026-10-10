@@ -9,7 +9,7 @@
  * self-message-excluding) — a different shape from `message.ts`'s
  * `createdAt`-ordered, DB-shaped human-UI queries.
  */
-import { eq, and, inArray, gt, lt, ne, asc, desc, or, sql } from "drizzle-orm";
+import { eq, and, inArray, gt, lt, ne, asc, desc, sql } from "drizzle-orm";
 import {
   communityMessage,
   communityChannel,
@@ -38,6 +38,7 @@ import { listParticipatingThreadIds } from "./thread";
 import { getMessagesByIdsInScope, type MessageScope } from "./message";
 import { reachIsParticipantSet, type StoredChannelType } from "../../../utils/community-roles";
 import { chunk, D1_MAX_IN_PARAMS, maxInParams } from "../_chunk";
+import { jsonTextSet } from "../_json-set";
 import { withD1Retry } from "../../resilience";
 import { hasDirectMentionSql, notificationEligibleSql } from "./notification-eligibility";
 
@@ -769,8 +770,7 @@ export type InboxSnapshotRow = {
  * `community_channel_member(relation='notify')` row for the bot. Readability,
  * notification eligibility, unread cursor, and join baseline are all applied
  * before GROUP BY; aggregate metadata therefore describes exactly the rows a
- * pull can deliver. Latest sender is hydrated from each aggregate's exact
- * `(channelId, latestSeq)` pair in bounded batches.
+ * pull can deliver.
  */
 export async function getInboxSnapshotForAgent(
   db: Database,
@@ -784,120 +784,87 @@ export async function getInboxSnapshotForAgent(
   );
   if (allowedChannelIds.length === 0) return [];
 
-  // Chunk the `inArray` for D1's 100-param limit. GROUP BY channelId partitions
-  // cleanly across chunks — a channel id lands in exactly one chunk, so its
-  // COUNT/MIN/MAX and the correlated subselects are complete within that chunk.
-  // Concat is loss-free (no channel appears in two chunks).
-  const runChunk = (ids: string[]) =>
-    db
-      .select({
-        channelId: communityMessage.channelId,
-        pendingCount: sql<number>`COUNT(*)`,
-        firstPendingSeq: sql<number>`MIN(${communityMessage.seq})`,
-        latestSeq: sql<number>`MAX(${communityMessage.seq})`,
-        mentionCount: sql<number>`SUM(CASE WHEN ${hasDirectMentionSql(botUserId, communityMessage.id)} THEN 1 ELSE 0 END)`,
-      })
-      .from(communityMessage)
-      .leftJoin(
-        communityReadState,
-        and(
-          eq(communityReadState.userId, botUserId),
-          eq(communityReadState.channelId, communityMessage.channelId)
-        )
-      )
-      .leftJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
-      .leftJoin(
-        communityChannelMember,
-        and(
-          eq(communityChannelMember.channelId, communityMessage.channelId),
-          eq(communityChannelMember.userId, botUserId),
-          eq(communityChannelMember.relation, "access")
-        )
-      )
-      .leftJoin(
-        communityServerMember,
-        and(
-          eq(communityServerMember.serverId, communityChannel.serverId),
-          eq(communityServerMember.userId, botUserId)
-        )
-      )
-      .where(
-        and(
-          ne(communityMessage.authorId, botUserId),
-          sql`${communityMessage.seq} > COALESCE(${communityReadState.lastReadSeq}, 0)`,
-          inArray(communityMessage.channelId, ids),
-          channelJoinBaselineGuard,
-          notificationEligibleSql(
-            botUserId,
-            {
-              id: communityChannel.id,
-              serverId: communityChannel.serverId,
-              parentChannelId: communityChannel.parentChannelId,
-            },
-            {
-              id: communityMessage.id,
-            },
-          ),
-        )
-      )
-      .groupBy(communityMessage.channelId);
-
-  const rows = (
-    await Promise.all(chunk(allowedChannelIds, D1_MAX_IN_PARAMS).map(runChunk))
-  ).flat();
-
-  if (rows.length === 0) return [];
-
-  // Resolve the sender from each scope's exact latest ELIGIBLE seq. Looking up
-  // "latest message in channel" would let a newer muted row leak into the
-  // snapshot even though the aggregate above correctly excluded it.
-  const latestMessageRows = (
-    await Promise.all(
-      chunk(rows, Math.floor(D1_MAX_IN_PARAMS / 2)).map((pairs) =>
-        db
-          .select({
-            channelId: communityMessage.channelId,
-            seq: communityMessage.seq,
-            authorId: communityMessage.authorId,
-          })
-          .from(communityMessage)
-          .where(or(...pairs.map((r) => and(
-            eq(communityMessage.channelId, r.channelId),
-            eq(communityMessage.seq, r.latestSeq),
-          ))))
+  const pending = db
+    .select({
+      channelId: communityMessage.channelId,
+      pendingCount: sql<number>`COUNT(*)`.as("pending_count"),
+      firstPendingSeq: sql<number>`MIN(${communityMessage.seq})`.as("first_pending_seq"),
+      latestSeq: sql<number>`MAX(${communityMessage.seq})`.as("latest_seq"),
+      mentionCount: sql<number>`SUM(CASE WHEN ${hasDirectMentionSql(botUserId, communityMessage.id)} THEN 1 ELSE 0 END)`.as("mention_count"),
+    })
+    .from(communityMessage)
+    .leftJoin(
+      communityReadState,
+      and(
+        eq(communityReadState.userId, botUserId),
+        eq(communityReadState.channelId, communityMessage.channelId)
       )
     )
-  ).flat();
-  const latestSenderIdByChannel = new Map(
-    latestMessageRows.map((row) => [row.channelId, row.authorId]),
-  );
+    .leftJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
+    .leftJoin(
+      communityChannelMember,
+      and(
+        eq(communityChannelMember.channelId, communityMessage.channelId),
+        eq(communityChannelMember.userId, botUserId),
+        eq(communityChannelMember.relation, "access")
+      )
+    )
+    .leftJoin(
+      communityServerMember,
+      and(
+        eq(communityServerMember.serverId, communityChannel.serverId),
+        eq(communityServerMember.userId, botUserId)
+      )
+    )
+    .where(
+      and(
+        ne(communityMessage.authorId, botUserId),
+        sql`${communityMessage.seq} > COALESCE(${communityReadState.lastReadSeq}, 0)`,
+        inArray(communityMessage.channelId, jsonTextSet(db, allowedChannelIds)),
+        channelJoinBaselineGuard,
+        notificationEligibleSql(
+          botUserId,
+          {
+            id: communityChannel.id,
+            serverId: communityChannel.serverId,
+            parentChannelId: communityChannel.parentChannelId,
+          },
+          {
+            id: communityMessage.id,
+          },
+        ),
+      )
+    )
+    .groupBy(communityMessage.channelId)
+    .as("pending_inbox");
 
-  const senderIds = [...new Set(latestMessageRows.map((r) => r.authorId).filter(Boolean))];
-  // Chunk the `inArray` for D1's 100-param limit — one distinct sender per
-  // pending channel, so >100 channels yields >100 ids; no order/limit → concat.
-  const users = senderIds.length
-    ? (
-        await Promise.all(
-          chunk(senderIds, D1_MAX_IN_PARAMS).map((ids) =>
-            db
-              .select({ id: user.id, name: user.name, discriminator: user.discriminator })
-              .from(user)
-              .where(inArray(user.id, ids))
-          )
-        )
-      ).flat()
-    : [];
-  const userById = new Map(users.map((u) => [u.id, u]));
+  const rows = await db
+    .select({
+      channelId: pending.channelId,
+      pendingCount: pending.pendingCount,
+      firstPendingSeq: pending.firstPendingSeq,
+      latestSeq: pending.latestSeq,
+      mentionCount: pending.mentionCount,
+      sender: {
+        id: user.id,
+        name: user.name,
+        discriminator: user.discriminator,
+      },
+    })
+    .from(pending)
+    .innerJoin(communityMessage, and(
+      eq(communityMessage.channelId, pending.channelId),
+      eq(communityMessage.seq, pending.latestSeq),
+    ))
+    .leftJoin(user, eq(user.id, communityMessage.authorId));
 
   return rows.map((r) => {
-    const senderId = latestSenderIdByChannel.get(r.channelId);
-    const sender = senderId ? userById.get(senderId) : undefined;
     return {
       channelId: r.channelId,
       pendingCount: r.pendingCount,
       firstPendingSeq: r.firstPendingSeq,
       latestSeq: r.latestSeq,
-      latestSender: sender ? `@${formatHandle(sender.name, sender.discriminator)}` : "Deleted user",
+      latestSender: r.sender?.id ? `@${formatHandle(r.sender.name, r.sender.discriminator)}` : "Deleted user",
       hasMention: r.mentionCount > 0,
     };
   });

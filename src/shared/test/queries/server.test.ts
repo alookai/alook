@@ -34,6 +34,7 @@ function createDbMock(opts: {
   let selectIdx = 0;
 
   const db: any = {
+    batch: vi.fn(async (queries: PromiseLike<unknown>[]) => Promise.all(queries)),
     insert(table: unknown) {
       const call: InsertCall = { table, values: {}, returningArg: undefined };
       insertCalls.push(call);
@@ -47,7 +48,7 @@ function createDbMock(opts: {
           const thenable = {
             returning(arg?: unknown) {
               call.returningArg = arg;
-              return Promise.resolve(rowsForThisInsert);
+              return thenable;
             },
             then(resolve: (v: unknown) => void) {
               resolve(rowsForThisInsert);
@@ -199,6 +200,12 @@ describe("createServer", () => {
     });
 
     expect(insertCalls).toHaveLength(7);
+    expect(db.batch).toHaveBeenCalledTimes(1);
+    expect(db.batch.mock.calls[0][0]).toHaveLength(7);
+    const serverId = insertCalls[0].values.id;
+    const publicCategoryId = insertCalls[1].values.id;
+    const privateCategoryId = insertCalls[3].values.id;
+    const privateChannelId = insertCalls[4].values.id;
 
     // 1) communityServer
     expect(insertCalls[0].table).toBe(communityServer);
@@ -211,7 +218,7 @@ describe("createServer", () => {
     // 2) public communityCategory
     expect(insertCalls[1].table).toBe(communityCategory);
     expect(insertCalls[1].values).toMatchObject({
-      serverId: "srv_1",
+      serverId,
       name: "Public",
       position: 0,
       private: 0,
@@ -220,8 +227,8 @@ describe("createServer", () => {
     // 3) public communityChannel — /all
     expect(insertCalls[2].table).toBe(communityChannel);
     expect(insertCalls[2].values).toMatchObject({
-      serverId: "srv_1",
-      categoryId: "cat_public",
+      serverId,
+      categoryId: publicCategoryId,
       name: "all",
       type: "text",
       position: 0,
@@ -230,7 +237,7 @@ describe("createServer", () => {
     // 4) private communityCategory
     expect(insertCalls[3].table).toBe(communityCategory);
     expect(insertCalls[3].values).toMatchObject({
-      serverId: "srv_1",
+      serverId,
       name: "Private",
       position: 1,
       private: 1,
@@ -240,8 +247,8 @@ describe("createServer", () => {
     // 5) private communityChannel — /room
     expect(insertCalls[4].table).toBe(communityChannel);
     expect(insertCalls[4].values).toMatchObject({
-      serverId: "srv_1",
-      categoryId: "cat_private",
+      serverId,
+      categoryId: privateCategoryId,
       name: "room",
       type: "text",
       position: 0,
@@ -251,7 +258,7 @@ describe("createServer", () => {
     // 6) private channel roster includes the owner
     expect(insertCalls[5].table).toBe(communityChannelMember);
     expect(insertCalls[5].values).toMatchObject({
-      channelId: "ch_room",
+      channelId: privateChannelId,
       userId: ownerId,
       relation: "access",
       source: "added",
@@ -261,7 +268,7 @@ describe("createServer", () => {
     // 7) communityServerMember — exactly one owner row, railOrder=0
     expect(insertCalls[6].table).toBe(communityServerMember);
     expect(insertCalls[6].values).toMatchObject({
-      serverId: "srv_1",
+      serverId,
       userId: ownerId,
       role: "owner",
       railOrder: 0,

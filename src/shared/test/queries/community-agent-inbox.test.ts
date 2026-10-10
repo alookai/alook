@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { createDb } from "../../src/db";
 import * as agentInbox from "../../src/db/queries/community/agent-inbox";
 import * as marks from "../../src/db/queries/community/mark";
 import { formatRef, formatSeq, DM_SERVER } from "../../src/community-cli-contract";
@@ -19,10 +20,12 @@ import { formatRef, formatSeq, DM_SERVER } from "../../src/community-cli-contrac
 function createSequentialDb(responses: unknown[][]) {
   let call = 0;
   const methods = ["from", "where", "leftJoin", "innerJoin", "orderBy", "limit", "groupBy", "as"];
-  const select = vi.fn(() => {
+  const select = vi.fn((fields: any) => {
+    if (fields?.value) return createDb({} as any).select(fields);
     const idx = call++;
     const chain: any = {};
     for (const m of methods) chain[m] = vi.fn(() => chain);
+    chain.as = vi.fn(() => fields);
     chain.then = (resolve: any, reject: any) =>
       Promise.resolve(responses[idx] ?? []).then(resolve, reject);
     return chain;
@@ -712,15 +715,7 @@ describe("resolveUnreadNoticeChannel", () => {
 });
 
 describe("getInboxSnapshotForAgent", () => {
-  // Call order:
-  //  1-3. `listVisibleChannelIdsForUser` (memberships, channels, viewer members)
-  //  4. DM channels the bot has an access row on
-  //  5. Blocked-DM anti-join inner builder (part of call 4's SQL)
-  //  6. Visible-channel types lookup
-  //  7. `listParticipatingThreadIds` (skipped when no narrow types among visible)
-  //  8. The snapshot aggregation SQL
-  //  9. sender-name hydration
-  it("returns [] and skips the user-name lookup when there's no pending unread", async () => {
+  it("returns [] when the joined snapshot has no pending unread", async () => {
     const db = createSequentialDb([
       [{ serverId: "srv_1" }],
       [{ id: "ch_1", type: "text", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null }],
@@ -734,31 +729,21 @@ describe("getInboxSnapshotForAgent", () => {
     expect(result).toEqual([]);
   });
 
-  it("preserves 101 snapshot rows across latest-sender chunks with a missing boundary identity", async () => {
-    const channels = Array.from({ length: 101 }, (_, i) => ({
-      id: `ch_${i}`, type: "text", categoryId: null, categoryPrivate: null,
-      creatorId: "u_owner", parentChannelId: null,
-    }));
-    const channelTypes = channels.map(({ id, type }) => ({ id, type }));
-    const aggregated = Array.from({ length: 101 }, (_, i) => ({
-      channelId: `ch_${i}`, pendingCount: i + 1, firstPendingSeq: i + 2,
+  it("preserves 101 snapshot rows with a missing boundary identity", async () => {
+    const channelTypes = Array.from({ length: 101 }, (_, i) => ({ id: `ch_${i}`, type: "text" }));
+    const joined = channelTypes.map(({ id }, i) => ({
+      channelId: id, pendingCount: i + 1, firstPendingSeq: i + 2,
       latestSeq: i + 3, mentionCount: i % 2,
+      sender: i === 100 ? null : {
+        id: `sender_${i}`, name: `Sender${i}`, discriminator: String(i).padStart(4, "0"),
+      },
     }));
-    const latestMessages = Array.from({ length: 101 }, (_, i) => ({
-      channelId: `ch_${i}`, seq: i + 3, authorId: `sender_${i}`,
-    }));
-    const firstSenderChunk = Array.from({ length: 100 }, (_, i) => ({
-      id: `sender_${i}`, name: `Sender${i}`, discriminator: String(i).padStart(4, "0"),
-    }));
-    const db = createSequentialDb([
-      [{ serverId: "srv_1" }], channels, [], [], [], channelTypes.slice(0, 100), channelTypes.slice(100),
-      aggregated.slice(0, 100), aggregated.slice(100),
-      latestMessages.slice(0, 50), latestMessages.slice(50, 100), latestMessages.slice(100),
-      firstSenderChunk, [], // sender_100 is absent in the second hydration chunk
-    ]);
-    const out = await agentInbox.getInboxSnapshotForAgent(db, "bot_1");
+    const db = createSequentialDb([channelTypes.slice(0, 100), channelTypes.slice(100), [], joined]);
+    const out = await agentInbox.getInboxSnapshotForAgent(db, "bot_1", {
+      accessVisibleChannelIds: channelTypes.map(({ id }) => id),
+    });
     expect(out).toHaveLength(101);
-    expect(out.map((r) => r.channelId)).toEqual(channels.map((c) => c.id));
+    expect(out.map((r) => r.channelId)).toEqual(channelTypes.map((c) => c.id));
     expect(out[0]).toMatchObject({ latestSender: "@Sender0#0000", pendingCount: 1, latestSeq: 3 });
     expect(out[100]).toMatchObject({
       latestSender: "Deleted user", pendingCount: 101, firstPendingSeq: 102, latestSeq: 103,
@@ -766,62 +751,25 @@ describe("getInboxSnapshotForAgent", () => {
     expect(JSON.stringify(out)).not.toContain("sender_100");
   });
 
-  it("hydrates latestSender from the user table and sets hasMention from mentionCount", async () => {
+  it("projects latestSender and hasMention from the joined snapshot", async () => {
     const db = createSequentialDb([
-      [{ serverId: "srv_1" }],
-      [
-        { id: "ch_1", type: "text", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null },
-        { id: "ch_2", type: "text", categoryId: null, categoryPrivate: null, creatorId: "u_other", parentChannelId: null },
-      ],
+      [{ id: "ch_1", type: "text" }, { id: "ch_2", type: "text" }],
       [],
-      [], // DM access channels
-      [], // blocked-DM anti-join inner builder; same SQL statement
       [
-        { id: "ch_1", type: "text" },
-        { id: "ch_2", type: "text" },
-      ],
-      [
-        {
-          channelId: "ch_1",
-          pendingCount: 3,
-          firstPendingSeq: 5,
-          latestSeq: 7,
-          mentionCount: 1,
-        },
-        {
-          channelId: "ch_2",
-          pendingCount: 1,
-          firstPendingSeq: 9,
-          latestSeq: 9,
-          mentionCount: 0,
-        },
-      ],
-      [
-        { channelId: "ch_1", seq: 7, authorId: "u_1" },
-        { channelId: "ch_2", seq: 9, authorId: "u_2" },
-      ],
-      [
-        { id: "u_1", name: "Alice", discriminator: "1234" },
+        { channelId: "ch_1", pendingCount: 3, firstPendingSeq: 5, latestSeq: 7,
+          mentionCount: 1, sender: { id: "u_1", name: "Alice", discriminator: "1234" } },
+        { channelId: "ch_2", pendingCount: 1, firstPendingSeq: 9, latestSeq: 9,
+          mentionCount: 0, sender: null },
       ],
     ]);
-    const result = await agentInbox.getInboxSnapshotForAgent(db, "bot_1");
+    const result = await agentInbox.getInboxSnapshotForAgent(db, "bot_1", {
+      accessVisibleChannelIds: ["ch_1", "ch_2"],
+    });
     expect(result).toEqual([
-      {
-        channelId: "ch_1",
-        pendingCount: 3,
-        firstPendingSeq: 5,
-        latestSeq: 7,
-        latestSender: "@Alice#1234",
-        hasMention: true,
-      },
-      {
-        channelId: "ch_2",
-        pendingCount: 1,
-        firstPendingSeq: 9,
-        latestSeq: 9,
-        latestSender: "Deleted user",
-        hasMention: false,
-      },
+      { channelId: "ch_1", pendingCount: 3, firstPendingSeq: 5, latestSeq: 7,
+        latestSender: "@Alice#1234", hasMention: true },
+      { channelId: "ch_2", pendingCount: 1, firstPendingSeq: 9, latestSeq: 9,
+        latestSender: "Deleted user", hasMention: false },
     ]);
   });
 

@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import type { Database } from "../index";
+import { jsonTextSet } from "./_json-set";
 
 const UNREAD_ELIGIBLE_TYPES = ["user_dm_message", "email_notification", "calendar_event"];
 
@@ -131,7 +132,7 @@ export async function listUnreadConversations(
     : sql``;
 
   const types = opts?.types?.length ? opts.types : ["user_dm_message"];
-  const typePlaceholders = sql.join(types.map(t => sql`${t}`), sql`, `);
+  const typeSet = jsonTextSet(db, types).getSQL();
 
   const rows = await db.all<{
     id: string;
@@ -163,7 +164,7 @@ export async function listUnreadConversations(
     LEFT JOIN agent a ON a.id = u.agent_id AND a.workspace_id = u.workspace_id
     WHERE u.user_id = ${userId}
       AND u.workspace_id = ${workspaceId}
-      AND u.task_type IN (${typePlaceholders})
+      AND u.task_type IN (${typeSet})
       ${beforeClause}
     ORDER BY u.completed_at DESC
     LIMIT ${limit + 1}
@@ -182,7 +183,7 @@ export async function getUnreadCount(
   types?: string[],
 ) {
   const validTypes = types?.length ? types : ["user_dm_message"];
-  const typePlaceholders = sql.join(validTypes.map(t => sql`${t}`), sql`, `);
+  const typeSet = jsonTextSet(db, validTypes).getSQL();
 
   const rows = await db.all<{ count: number }>(sql`
     SELECT COUNT(*) AS count
@@ -190,7 +191,7 @@ export async function getUnreadCount(
     INNER JOIN conversation c ON c.id = u.conversation_id
     WHERE u.user_id = ${userId}
       AND u.workspace_id = ${workspaceId}
-      AND u.task_type IN (${typePlaceholders})
+      AND u.task_type IN (${typeSet})
   `);
 
   return rows[0]?.count ?? 0;

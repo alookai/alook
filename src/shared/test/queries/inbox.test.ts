@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
+import { createDb } from "../../src/db";
 import * as inboxQueries from "../../src/db/queries/inbox";
 
 function createMockDb(rows: any[]) {
-  const chain: any = {};
+  const chain: any = createDb({} as any);
   chain.all = vi.fn(() => Promise.resolve(rows));
   chain.run = vi.fn(() => Promise.resolve());
   return chain;
