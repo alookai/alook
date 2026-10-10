@@ -30,7 +30,7 @@ function MarkdownImageAttempt({
 }: MarkdownImageProps) {
   const sourceProps = useShareImageSource(src ?? "")
   void node
-  const [status, attempt, , imageRef, onLoad, onError, retry] = useRemoteImageAttempt()
+  const [status, attempt, , imageRef, onLoad, onError, retry] = useRemoteImageAttempt({ source: sourceProps.src })
   const imageWidth = dimension(width)
   const imageHeight = dimension(height)
   const aspectRatio = imageWidth && imageHeight ? `${imageWidth}/${imageHeight}` : "4/3"
@@ -67,7 +67,7 @@ function MarkdownImageAttempt({
         height={imageHeight}
         loading="lazy"
         className={cn(
-          "absolute inset-0 size-full rounded-lg object-contain transition-opacity duration-150 ease-out motion-reduce:transition-none",
+          "absolute inset-0 size-full rounded-lg object-contain",
           status === "ready" ? "opacity-100" : "opacity-0",
           className,
         )}
@@ -108,5 +108,6 @@ function MarkdownImageAttempt({
 }
 
 export function RemoteMarkdownImage(props: MarkdownImageProps) {
-  return props.src ? <MarkdownImageAttempt key={props.src} {...props} /> : null
+  const sourceProps = useShareImageSource(props.src ?? "")
+  return props.src ? <MarkdownImageAttempt key={JSON.stringify([props.src, "src" in sourceProps])} {...props} /> : null
 }

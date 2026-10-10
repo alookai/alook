@@ -2,7 +2,7 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
-import { useEffect, useMemo } from "react"
+import { useLayoutEffect, useMemo } from "react"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { MinusIcon, PlusIcon, RotateCcwIcon, XIcon } from "lucide-react"
@@ -22,7 +22,6 @@ function PreviewFrame({ image, onClose }: { image: ImagePreview; onClose: () => 
     [image.height, image.width],
   )
   const [dimensions, setDimensions] = useAtom(useCreateAtom<ImageDimensions | undefined>(knownDimensions))
-  const [revealedAttempt, setRevealedAttempt] = useAtom(useCreateAtom<number | null>(null))
   const [
     thumbnailStatus,
     thumbnailAttempt,
@@ -30,7 +29,7 @@ function PreviewFrame({ image, onClose }: { image: ImagePreview; onClose: () => 
     thumbnailRef,
     onThumbnailLoad,
     onThumbnailError,
-  ] = useRemoteImageAttempt()
+  ] = useRemoteImageAttempt({ source: image.thumbnailUrl })
   const [
     originalStatus,
     originalAttempt,
@@ -39,29 +38,19 @@ function PreviewFrame({ image, onClose }: { image: ImagePreview; onClose: () => 
     onOriginalLoad,
     onOriginalError,
     retryOriginal,
-  ] = useRemoteImageAttempt()
+  ] = useRemoteImageAttempt({ source: image.originalUrl })
 
   const frameStyle = previewFrameStyle(dimensions)
   const thumbnailReady = !!image.thumbnailUrl && thumbnailStatus === "ready"
-  const originalReady = originalStatus === "ready" && revealedAttempt === originalAttempt
+  const originalReady = originalStatus === "ready"
   const { frameRef, view, reset, zoomIn, zoomOut, handlers } = useImageLightboxZoom(originalReady)
   const imageTransform = { transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (originalStatus !== "ready" || !originalImage) return
-    const requestKey = originalAttempt
     const naturalDimensions = validImageDimensions(originalImage.naturalWidth, originalImage.naturalHeight)
-    const reveal = () => {
-      setDimensions(knownDimensions ?? naturalDimensions)
-      setRevealedAttempt(requestKey)
-    }
-    if (typeof requestAnimationFrame !== "function") {
-      reveal()
-      return
-    }
-    const frameId = requestAnimationFrame(reveal)
-    return () => cancelAnimationFrame(frameId)
-  }, [knownDimensions, originalAttempt, originalImage, originalStatus, setDimensions, setRevealedAttempt])
+    setDimensions(knownDimensions ?? naturalDimensions)
+  }, [knownDimensions, originalImage, originalStatus, setDimensions])
 
   return (
     <div className="relative w-fit">
@@ -90,7 +79,7 @@ function PreviewFrame({ image, onClose }: { image: ImagePreview; onClose: () => 
             style={imageTransform}
             onLoad={onThumbnailLoad}
             onError={onThumbnailError}
-            className={`absolute inset-0 size-full rounded-lg object-contain transition-opacity duration-150 ease-out motion-reduce:transition-none ${thumbnailReady && !originalReady ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
+            className={`absolute inset-0 size-full rounded-lg object-contain ${thumbnailReady && !originalReady ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
           />
         )}
         {!thumbnailReady && !originalReady && originalStatus === "pending" && (
@@ -115,7 +104,7 @@ function PreviewFrame({ image, onClose }: { image: ImagePreview; onClose: () => 
             style={imageTransform}
             onLoad={onOriginalLoad}
             onError={onOriginalError}
-            className={`absolute inset-0 size-full rounded-lg object-contain transition-opacity duration-150 ease-out motion-reduce:transition-none ${originalReady ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
+            className={`absolute inset-0 size-full rounded-lg object-contain ${originalReady ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
           />
         )}
       </div>

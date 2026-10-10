@@ -1702,6 +1702,52 @@ describe("Message desktop text selection", () => {
 })
 
 describe("Message image attachment layout", () => {
+  it.each([
+    { name: "attachment", fields: { attachments: [{ kind: "image" as const, name: "same.png", url: "/same.png" }] } },
+    { name: "embed", fields: { embeds: [{ image: { url: "/same.png", width: 320, height: 200 } }] } },
+    { name: "Markdown", fields: { content: "![Image](/same.png)" } },
+  ])("retains a same-message $name image but retires readiness and late decode for a different message", async ({ fields }) => {
+    const onOpenThread = vi.fn()
+    const tree = (id: string, suffix = "") => makeTree({
+      m: baseMsg({ ...fields, id, reactions: suffix ? [{ emoji: "🔥", count: 1, me: false, userIds: [] }] : [] }),
+      onOpenThread,
+    })
+    const renderer = render(tree("one"))
+    const current = () => renderer.root.element.querySelector<HTMLImageElement>('[data-remote-image-kind="content"]')!
+    const prepare = (image: HTMLImageElement, decode = () => Promise.resolve()) => Object.defineProperties(image, {
+      decode: { configurable: true, value: decode },
+      naturalWidth: { configurable: true, value: 320 },
+      naturalHeight: { configurable: true, value: 200 },
+    })
+    const first = current()
+    prepare(first)
+    fireEvent.load(first)
+    await act(async () => { await Promise.resolve() })
+    expect(first).toHaveAttribute("data-remote-image-state", "ready")
+    renderer.rerender(tree("one", " update"))
+    expect(current()).toBe(first)
+    expect(first).toHaveClass("opacity-100")
+
+    renderer.rerender(tree("two"))
+    const second = current()
+    expect(second).not.toBe(first)
+    expect(first.isConnected).toBe(false)
+    let finish!: () => void
+    const obsolete = new Promise<void>((resolve) => { finish = resolve })
+    prepare(second, () => obsolete)
+    fireEvent.load(second)
+    renderer.rerender(tree("three"))
+    const third = current()
+    expect(third).not.toBe(second)
+    await act(async () => { finish(); await obsolete })
+    expect(third).toHaveAttribute("data-remote-image-state", "pending")
+    expect(third).toHaveClass("opacity-0")
+    prepare(third)
+    fireEvent.load(third)
+    await act(async () => { await Promise.resolve() })
+    expect(third).toHaveAttribute("data-remote-image-state", "ready")
+  })
+
   it("keeps a known portrait image intrinsic and constrains it by message width + max height", () => {
     let renderer: DomRenderer
     act(() => {

@@ -1,6 +1,7 @@
 import React from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen } from "@/test/react-dom-harness"
+import { renderCommunity } from "@/test/community-owner-harness"
 import { RemoteContentImage, RemoteIdentityImage } from "./remote-image"
 import { RemoteMarkdownImage } from "./remote-markdown-image"
 import { ShareImagePreparationContext } from "./share-image-context"
@@ -66,30 +67,101 @@ describe("remote image state adapters", () => {
     }
   })
 
-  it("keeps content and Markdown cached pixels behind their original decode", async () => {
+  it.each([false, true])("shows content and Markdown cached pixels synchronously (StrictMode: %s)", (strict) => {
     const descriptor = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "decode")
-    let finish!: () => void
-    const pending = new Promise<void>((resolve) => { finish = resolve })
-    Object.defineProperty(HTMLImageElement.prototype, "decode", { configurable: true, value: () => pending })
+    const decode = vi.fn(() => new Promise<void>(() => {}))
+    Object.defineProperty(HTMLImageElement.prototype, "decode", { configurable: true, value: decode })
     vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(true)
     vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(40)
     vi.spyOn(HTMLImageElement.prototype, "naturalHeight", "get").mockReturnValue(40)
     const owner = createApplicationOwner("cached-content-viewer")
     try {
-      const rendered = render(React.createElement(ApplicationOwnerProvider, { owner },
+      const tree = React.createElement(ApplicationOwnerProvider, { owner },
         React.createElement(RemoteContentImage, { src: "/cached-content.png", alt: "Content" }),
         React.createElement(RemoteMarkdownImage, { src: "/cached-markdown.png", alt: "Markdown" }),
-      ))
-      const images = [...rendered.container.querySelectorAll("img")]
-      expect(images.every((image) => image.dataset.remoteImageState === "pending")).toBe(true)
-      await act(async () => { finish(); await pending })
-      expect(images.every((image) => image.dataset.remoteImageState === "ready")).toBe(true)
-      rendered.unmount()
+      )
+      for (let mount = 0; mount < 2; mount++) {
+        const rendered = render(strict ? React.createElement(React.StrictMode, null, tree) : tree)
+        const images = [...rendered.container.querySelectorAll("img")]
+        expect(images.every((image) => image.dataset.remoteImageState === "ready")).toBe(true)
+        expect(images.every((image) => image.classList.contains("opacity-100"))).toBe(true)
+        expect(images.every((image) => !image.classList.contains("transition-opacity"))).toBe(true)
+        expect(rendered.container.querySelector("[data-remote-image-placeholder]")).toBeNull()
+        rendered.unmount()
+      }
+      expect(decode).not.toHaveBeenCalled()
     } finally {
       owner.queryClient.clear()
       if (descriptor) Object.defineProperty(HTMLImageElement.prototype, "decode", descriptor)
       else delete (HTMLImageElement.prototype as Partial<HTMLImageElement>).decode
     }
+  })
+
+  it.each([
+    { name: "content", element: (src: string, alt: string) => React.createElement(RemoteContentImage, { src, alt }) },
+    { name: "Markdown", element: (src: string, alt: string) => React.createElement(RemoteMarkdownImage, { src, alt }) },
+  ])("keeps the same ready $name node on a same-source update and recovers the exact URL on online", async ({ element }) => {
+    const source = "/same.png?v=2&size=40"
+    const rendered = renderCommunity(element(source, "Before"))
+    const original = contentImage(rendered.container)
+    await makeReady(original)
+    rendered.rerender(element(source, "After"))
+    expect(contentImage(rendered.container)).toBe(original)
+    fireEvent(window, new Event("online"))
+    expect(contentImage(rendered.container)).toBe(original)
+    expect(original).toHaveAttribute("data-remote-image-state", "ready")
+
+    rendered.rerender(element("/failed.png?v=3&size=40", "Failed"))
+    const failed = contentImage(rendered.container)
+    fireEvent.error(failed)
+    fireEvent(window, new Event("online"))
+    const retried = contentImage(rendered.container)
+    expect(retried).not.toBe(failed)
+    expect(retried).toHaveAttribute("src", "/failed.png?v=3&size=40")
+    expect(retried).toHaveAttribute("data-remote-image-state", "pending")
+    await makeReady(retried)
+    expect(retried).toHaveAttribute("data-remote-image-state", "ready")
+  })
+
+  it.each([
+    { name: "identity", element: () => identityElement("/share.png") },
+    { name: "content", element: () => React.createElement(RemoteContentImage, { src: "/share.png", alt: "Content" }) },
+    { name: "Markdown", element: () => React.createElement(RemoteMarkdownImage, { src: "/share.png", alt: "Markdown" }) },
+  ])("retires $name readiness and keeps its URL inert throughout share preparation and online", async ({ element }) => {
+    const tree = (preparing: boolean) => React.createElement(ShareImagePreparationContext, { value: preparing }, element())
+    const rendered = renderCommunity(tree(false))
+    const live = rendered.container.querySelector<HTMLImageElement>("img")!
+    await makeReady(live)
+    rendered.rerender(tree(true))
+    const inert = rendered.container.querySelector<HTMLImageElement>("img")!
+    expect(inert).not.toBe(live)
+    expect(live.isConnected).toBe(false)
+    expect(inert).not.toHaveAttribute("src")
+    expect(inert).toHaveAttribute("data-share-image-src", "/share.png")
+    fireEvent(window, new Event("online"))
+    fireEvent.load(inert)
+    expect(rendered.container.querySelector("img")).toBe(inert)
+    expect(inert).not.toHaveAttribute("src")
+    expect(inert).toHaveAttribute("data-remote-image-state", "pending")
+    rendered.rerender(tree(false))
+    const resumed = rendered.container.querySelector<HTMLImageElement>("img")!
+    expect(resumed).not.toBe(inert)
+    expect(resumed).toHaveAttribute("src", "/share.png")
+    expect(resumed).toHaveAttribute("data-remote-image-state", "pending")
+  })
+
+  it.each([
+    { complete: true, width: 0, height: 0, currentSrc: "", status: "error" },
+    { complete: false, width: 40, height: 40, currentSrc: "", status: "pending" },
+    { complete: true, width: 40, height: 40, currentSrc: "https://wrong.example/old.png", status: "pending" },
+  ])("checks complete, current source and natural pixels before cached readiness: %j", ({ complete, width, height, currentSrc, status }) => {
+    vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(complete)
+    vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(width)
+    vi.spyOn(HTMLImageElement.prototype, "naturalHeight", "get").mockReturnValue(height)
+    vi.spyOn(HTMLImageElement.prototype, "currentSrc", "get").mockReturnValue(currentSrc)
+    const rendered = render(React.createElement(RemoteContentImage, { src: "/current.png", alt: "Current" }))
+    expect(contentImage(rendered.container)).toHaveAttribute("data-remote-image-state", status)
+    expect(contentImage(rendered.container)).toHaveClass("opacity-0")
   })
 
   it("keeps the same ready identity node when only its props update", async () => {
