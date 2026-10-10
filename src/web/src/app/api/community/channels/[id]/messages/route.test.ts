@@ -570,17 +570,13 @@ describe("POST /api/community/channels/[id]/messages", () => {
   })
 
   it("rejects more than MAX_ATTACHMENTS_PER_MESSAGE attachments with 400", async () => {
-    // Reserve-by-id: the human arm sends pending-row IDS. All ids validate as
-    // owned/attachable (findPending echoes them), so the over-cap rejection is
-    // the message handler's own MAX_ATTACHMENTS_PER_MESSAGE guard, not a
-    // validation miss.
     const attachmentIds = Array.from({ length: MAX_ATTACHMENTS_PER_MESSAGE + 1 }, (_, i) => `att_${i}`)
     const res = await POST(postReq({ content: "ok", attachments: attachmentIds }), ctx)
     expect(res.status).toBe(400)
     expect(mockCreateMessage).not.toHaveBeenCalled()
   })
 
-  it("reserve-by-id: validates the pending ids (uploader+target) then passes attachmentIds to the handler", async () => {
+  it("passes reusable attachment IDs to the atomic message handler", async () => {
     mockCreateMessage.mockResolvedValue({ id: "m_new" })
     mockListByMessageIds.mockResolvedValue([])
     const res = await POST(postReq({ content: "pics", attachments: ["att_1", "att_2"] }), ctx)
@@ -590,9 +586,9 @@ describe("POST /api/community/channels/[id]/messages", () => {
     }))
   })
 
-  it("reserve-by-id confused-deputy guard: a foreign/stolen pending id (count mismatch) → 400, no message", async () => {
+  it("an atomic missing-file conflict returns 400 without fanout", async () => {
     mockCreateMessage.mockRejectedValueOnce(new Error("NOT NULL constraint failed: community_message.content"))
-    const res = await POST(postReq({ content: "steal", attachments: ["att_mine", "att_theirs"] }), ctx)
+    const res = await POST(postReq({ content: "file", attachments: ["att_existing", "att_missing"] }), ctx)
     expect(res.status).toBe(400)
     expect(mockFanOutToChannel).not.toHaveBeenCalled()
   })
