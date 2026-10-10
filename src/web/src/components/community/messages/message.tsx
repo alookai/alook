@@ -694,6 +694,7 @@ function MessageImpl({
           ) : (
             visibleContent && (
               <MessageBody
+                key={m.id}
                 text={visibleContent}
                 onOpenProfile={onOpenProfile}
                 perspective={
@@ -712,7 +713,7 @@ function MessageImpl({
                   const frameStyle = attachmentImageFrameStyle(a.width, a.height)
                   return (
                     <RemoteContentImage
-                      key={i}
+                      key={`${m.id}:${i}`}
                       data-testid={tid.messageImage(m.id, i)}
                       src={a.thumbnailUrl ?? a.url}
                       alt={a.name}
@@ -743,7 +744,7 @@ function MessageImpl({
             <div className="flex flex-col gap-2">
               {m.embeds.map((embed, ei) => (
                 <article
-                  key={ei}
+                  key={`${m.id}:${ei}`}
                   className="flex max-w-108 items-start gap-2 overflow-hidden rounded-lg border border-border bg-card p-2"
                 >
                   {embed.color && (

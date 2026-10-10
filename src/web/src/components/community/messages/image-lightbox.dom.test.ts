@@ -73,7 +73,65 @@ describe("ImageLightbox", () => {
 
   afterEach(() => {
     vi.useRealTimers()
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
+  })
+
+  it("shows a complete cached original immediately without decode or a scheduled reveal", () => {
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "decode")
+    const decode = vi.fn(() => new Promise<void>(() => {}))
+    Object.defineProperty(HTMLImageElement.prototype, "decode", { configurable: true, value: decode })
+    vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(true)
+    vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(1000)
+    vi.spyOn(HTMLImageElement.prototype, "naturalHeight", "get").mockReturnValue(500)
+    const schedule = vi.fn()
+    vi.stubGlobal("requestAnimationFrame", schedule)
+    try {
+      for (let mount = 0; mount < 2; mount++) {
+        const { renderer } = renderLightbox({ originalUrl: "/cached-original", thumbnailUrl: "/cached-thumbnail", name: "cached" })
+        expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass("opacity-100", "pointer-events-auto")
+        expect(image(renderer, tid.imageLightboxOriginal)).not.toHaveClass("transition-opacity")
+        expect(image(renderer, tid.imageLightboxThumbnail)).toHaveClass("opacity-0")
+        expect(renderer.queryByTestId(tid.imageLightboxLoading)).not.toBeInTheDocument()
+        expect(renderer.getByTestId(tid.imageLightbox).style.aspectRatio).toBe("1000 / 500")
+        expect(renderer.getByRole("button", { name: "Zoom in" })).toBeEnabled()
+        renderer.unmount()
+      }
+      expect(decode).not.toHaveBeenCalled()
+      expect(schedule).not.toHaveBeenCalled()
+    } finally {
+      if (descriptor) Object.defineProperty(HTMLImageElement.prototype, "decode", descriptor)
+      else delete (HTMLImageElement.prototype as Partial<HTMLImageElement>).decode
+    }
+  })
+
+  it("recreates a failed original on online after its old node is removed and fences the old decode", async () => {
+    let finish!: () => void
+    const oldDecode = new Promise<void>((resolve) => { finish = resolve })
+    const { renderer } = renderLightbox({ originalUrl: "/original?v=3&size=640", thumbnailUrl: "/thumbnail", name: "photo" })
+    await loadThumbnail(renderer, 640, 480)
+    const thumbnail = image(renderer, tid.imageLightboxThumbnail)
+    const old = image(renderer, tid.imageLightboxOriginal)
+    prepareImage(old, 640, 480, () => oldDecode)
+    fireEvent.load(old)
+    fireEvent.error(old)
+    expect(old.isConnected).toBe(false)
+    expect(renderer.queryByTestId(tid.imageLightboxOriginal)).not.toBeInTheDocument()
+    fireEvent(window, new Event("online"))
+    const retried = image(renderer, tid.imageLightboxOriginal)
+    expect(retried).not.toBe(old)
+    expect(retried).toHaveAttribute("src", "/original?v=3&size=640")
+    expect(image(renderer, tid.imageLightboxThumbnail)).toBe(thumbnail)
+    expect(thumbnail).toHaveClass("opacity-100")
+    await act(async () => { finish(); await oldDecode })
+    expect(retried).toHaveAttribute("data-remote-image-state", "pending")
+    fireEvent.error(old)
+    expect(retried).toHaveAttribute("data-remote-image-state", "pending")
+    await loadImage(retried, 640, 480, () => Promise.resolve())
+    expect(retried).toHaveClass("opacity-100")
+    expect(renderer.queryByTestId(tid.imageLightboxError)).not.toBeInTheDocument()
+    fireEvent(window, new Event("online"))
+    expect(image(renderer, tid.imageLightboxOriginal)).toBe(retried)
   })
 
   it("reserves the known frame and reveals the original only after decode", async () => {
@@ -284,12 +342,9 @@ describe("ImageLightbox", () => {
     expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass("opacity-100")
   })
 
-  it("shows a cold pending frame, then paints the thumbnail before an already-decoded original", async () => {
-    let runAnimationFrame: FrameRequestCallback | undefined
-    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
-      runAnimationFrame = callback
-      return 1
-    })
+  it("keeps a cold thumbnail until the original is decoded without an additional reveal frame", async () => {
+    const schedule = vi.fn()
+    vi.stubGlobal("requestAnimationFrame", schedule)
     vi.stubGlobal("cancelAnimationFrame", vi.fn())
 
     try {
@@ -305,17 +360,14 @@ describe("ImageLightbox", () => {
 
       expect(frame().parentElement).not.toHaveClass("invisible")
       expect(renderer.getByTestId(tid.imageLightboxLoading)).toBeInTheDocument()
-      await loadImage(original, 1200, 630, () => Promise.resolve())
-      expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass("opacity-0")
-
       await loadThumbnail(renderer, 512, 269)
       expect(frame().parentElement).not.toHaveClass("invisible")
       expect(image(renderer, tid.imageLightboxThumbnail)).toHaveClass("opacity-100")
       expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass("opacity-0")
-      expect(runAnimationFrame).toBeTypeOf("function")
-
-      act(() => runAnimationFrame!(0))
+      await loadImage(original, 1200, 630, () => Promise.resolve())
       expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass("opacity-100")
+      expect(image(renderer, tid.imageLightboxThumbnail)).toHaveClass("opacity-0")
+      expect(schedule).not.toHaveBeenCalled()
     } finally {
       vi.unstubAllGlobals()
     }

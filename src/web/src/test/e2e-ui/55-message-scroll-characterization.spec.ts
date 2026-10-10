@@ -732,7 +732,7 @@ test.describe.serial("message scroll characterization", () => {
     for (const input of ["click", "wheel", "ArrowDown", "PageDown", "End", "Space"]) {
       await waitForStableTail(scroller, `bottom-${input}`)
       if (input !== "click" && input !== "wheel") {
-        await alice.page.getByTestId(tid.message(tailId)).getByRole("link", { name: "keyboard target" }).focus()
+        await alice.page.getByTestId(tid.message(tailId)).getByRole("link", { name: "Link: https://example.com/" }).focus()
       }
       const before = await waitForCommittedGeometry(scroller)
       expect(before.distanceToEnd).toBeLessThanOrEqual(1)
