@@ -1,7 +1,7 @@
 import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { createElement, useEffect, type RefObject } from "react"
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
-import { type InfiniteData } from "@tanstack/react-query"
+import { QueryClient, type InfiniteData } from "@tanstack/react-query"
 import { act, render } from "@/test/react-dom-harness"
 
 const apiFetchMock = vi.fn()
@@ -36,7 +36,8 @@ import {
   type MembersEnvelope,
 } from "./use-server-members"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
-import { serverMembershipKey, serverMembershipSchema } from "@/lib/community-db/schema"
+import { profileSchema, serverMembershipKey, serverMembershipSchema } from "@/lib/community-db/schema"
+import { createCommunityDbRegistry } from "@/lib/community-db/collections"
 import { captureCommunityLiveSnapshotToken, publishCommunityMemberRemoval } from "@/lib/community-db/sync"
 import { communityKeys } from "@/lib/query-keys"
 import type { Member } from "@/lib/community/models/people"
@@ -76,11 +77,13 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve, reject }
 }
 
-function HookProbe({ serverId, resultRef }: {
+function HookProbe({ serverId, resultRef, observations }: {
   serverId: string | null
   resultRef: RefObject<ServerMembersResult | null>
+  observations?: ServerMembersResult[]
 }) {
   const result = useServerMembers(serverId)
+  observations?.push(result)
   useEffect(() => {
     resultRef.current = result
   }, [result, resultRef])
@@ -428,6 +431,41 @@ describe("native member subscriptions", () => {
 })
 
 describe("useServerMembers search lifecycle", () => {
+  it("does not carry an earlier query failure into the next query debounce", async () => {
+    vi.useFakeTimers()
+    apiFetchMock.mockImplementation((url: unknown) => isSearchUrl(url) ? Promise.reject(new Error("controlled search error")) : Promise.resolve(makeEnvelope([], false, 0)))
+    const harness = await mountServerMembers()
+    await act(async () => { harness.resultRef.current!.searchMembers("failed"); await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS + 1) })
+    await flushEffects()
+    expect(harness.resultRef.current).toMatchObject({ searchStatus: "error", failed: true })
+    await act(async () => harness.resultRef.current!.searchMembers("next"))
+    expect(harness.resultRef.current).toMatchObject({ searchQuery: "next", searchStatus: "loading", failed: false, members: [] })
+    harness.renderer.unmount()
+    harness.queryClient.clear()
+  })
+  it("does not complete a cached transport window while its native profile projection is pending", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const restore = deferred<void>()
+    const registry = createCommunityDbRegistry(queryClient, "viewer", { waitForRestore: restore.promise })
+    const person = m("a")
+    queryClient.setQueryData(communityKeys.members("srv_1"), { pages: [{ members: [{ id: person.id, userId: person.userId }], hasMore: false, limit: 50, total: 1, liveRevision: 0 }], pageParams: [null] })
+    queryClient.setQueryData(communityKeys.communityDbCollection(registry.scopeId, "serverMemberships"), [serverMembershipSchema.parse({ id: serverMembershipKey("srv_1", person.userId), serverId: "srv_1", userId: person.userId, memberId: person.id, role: "member", viewer: false })])
+    const resultRef = { current: null } as RefObject<ServerMembersResult | null>
+    const observations: ServerMembersResult[] = []
+    const renderer = render(createElement(QueryClientProvider, { client: queryClient, registry }, createElement(HookProbe, { serverId: "srv_1", resultRef, observations })))
+    try {
+      await flushEffects()
+      expect(queryClient.getQueryState(communityKeys.members("srv_1"))?.status).toBe("success")
+      expect(resultRef.current).toMatchObject({ loading: true, failed: false })
+      expect(observations.every((value) => value.loading || value.failed)).toBe(true)
+      await act(async () => {
+        queryClient.setQueryData(communityKeys.communityDbCollection(registry.scopeId, "profiles"), [profileSchema.parse({ userId: person.userId, name: person.name, discriminator: person.discriminator, avatar: person.avatar, avatarVersion: 0 })])
+        restore.resolve(); await registry.preload()
+      })
+      await vi.waitFor(() => expect(resultRef.current).toMatchObject({ loading: false, failed: false, members: [expect.objectContaining({ id: "a", discriminator: "0000" })] }))
+      expect(apiFetchMock).not.toHaveBeenCalled()
+    } finally { restore.resolve(); renderer.unmount(); await registry.cleanup(); queryClient.clear() }
+  })
   it("debounces the first page, serially appends continuation pages, and ignores duplicate search calls", async () => {
     vi.useFakeTimers()
     const first = deferred<{ members: Member[]; hasMore: boolean; cursor?: string; limit: number }>()
@@ -551,7 +589,7 @@ describe("useServerMembers search lifecycle", () => {
     harness.queryClient.clear()
   })
 
-  it("retains accumulated members on a current continuation error and refreshes the active query", async () => {
+  it("retains accumulated members on a current continuation error and same-term refresh", async () => {
     vi.useFakeTimers()
     const first = deferred<{ members: Member[]; hasMore: boolean; cursor?: string; limit: number }>()
     const continuation = deferred<{ members: Member[]; hasMore: boolean; limit: number }>()
@@ -588,7 +626,7 @@ describe("useServerMembers search lifecycle", () => {
     })
     await flushEffects()
     expect(harness.resultRef.current).toMatchObject({
-      members: [],
+      members: [m("a")],
       searchStatus: "loading",
       searchQuery: "ad",
     })

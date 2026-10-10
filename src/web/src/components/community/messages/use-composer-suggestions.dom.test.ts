@@ -34,12 +34,18 @@ vi.mock("@/lib/community/channel-ref-extension", () => ({
   rankChannelRefItems: (...args: unknown[]) => mocks.rankChannel(...args),
 }))
 
+vi.mock("@tiptap/suggestion", () => ({ exitSuggestion: vi.fn() }))
+
 import { useComposerSuggestions } from "./use-composer-suggestions"
+import { exitSuggestion } from "@tiptap/suggestion"
 import type { ChannelRefCandidate } from "@/lib/community/channel-ref-extension"
 import type { Member } from "@/lib/community/models/people"
 
-type Options = Parameters<typeof useComposerSuggestions>[0]
+type Options = Omit<Parameters<typeof useComposerSuggestions>[0], "editorRef" | "canSuggest" | "scope">
 type Result = ReturnType<typeof useComposerSuggestions>
+const editor = { isFocused: true, isDestroyed: false } as import("@tiptap/react").Editor
+const editorRef = { current: editor }
+const canSuggest = (candidate: import("@tiptap/react").Editor) => candidate === editor && candidate.isFocused
 
 function Harness({
   resultRef,
@@ -49,7 +55,7 @@ function Harness({
   resultRef: { current: Result | null }
   presentationHistory?: Array<Result["channelRefPresentation"]>
 }) {
-  const result = useComposerSuggestions(options)
+  const result = useComposerSuggestions({ ...options, editorRef, canSuggest, scope: options.context })
   presentationHistory?.push(result.channelRefPresentation)
   useEffect(() => {
     resultRef.current = result
@@ -104,12 +110,15 @@ const channelRefSource = (
 
 describe("useComposerSuggestions", () => {
   beforeEach(() => {
+    editor.isFocused = true
+    vi.mocked(exitSuggestion).mockClear()
     mocks.buildMention.mockReset()
     mocks.buildChannel.mockReset()
     mocks.rankMention.mockReset()
     mocks.rankChannel.mockReset()
     mocks.buildMention.mockImplementation((options) => ({
       name: "mention-extension",
+      options: { suggestion: { pluginKey: {} } },
       allow: () => options.contextRef.current !== "dm",
       runQuery: (query: string) => {
         if (options.contextRef.current === "dm") return []
@@ -124,6 +133,7 @@ describe("useComposerSuggestions", () => {
     }))
     mocks.buildChannel.mockImplementation((options) => ({
       name: "channel-extension",
+      options: { suggestion: { pluginKey: {} } },
       runQuery: (query: string) => {
         options.queryRef.current = query
         options.onIntentRef.current?.()
@@ -132,6 +142,33 @@ describe("useComposerSuggestions", () => {
     }))
     mocks.rankMention.mockReturnValue([])
     mocks.rankChannel.mockReturnValue([])
+  })
+
+  it("clears refs synchronously, exits actual keys, and rejects old editor reset", () => {
+    const resultRef: { current: Result | null } = { current: null }
+    rtlRender(createElement(Harness, { members: [], context: "channel", channelRefCandidates: [], resultRef }))
+    const mention = mocks.buildMention.mock.calls[0][0]
+    act(() => mention.setPopup({ items: [], query: "a", selectedIndex: 0, command: vi.fn(), getRect: null }))
+    vi.mocked(exitSuggestion).mockClear()
+    const current = resultRef.current!
+    act(() => {
+      current.resetPopups(editor)
+      expect(current.mentionPopupRef.current.command).toBeNull()
+      expect(current.channelRefPopupRef.current.command).toBeNull()
+    })
+    expect(vi.mocked(exitSuggestion).mock.calls).toEqual([
+      [editor.view, current.mentionExtension.options.suggestion.pluginKey],
+      [editor.view, current.channelRefExtension.options.suggestion.pluginKey],
+    ])
+    vi.mocked(exitSuggestion).mockClear()
+    act(() => {
+      mention.setPopup({ items: [], query: "a", selectedIndex: 0, command: vi.fn(), getRect: null })
+      current.resetPopups({} as typeof editor)
+      expect(current.mentionPopupRef.current.command).toBeTypeOf("function")
+      current.resetPopups(editor, false)
+      expect(current.mentionPopupRef.current.command).toBeNull()
+    })
+    expect(exitSuggestion).not.toHaveBeenCalled()
   })
 
   it("builds only the two custom extensions once and refreshes live refs", async () => {
@@ -256,7 +293,7 @@ describe("useComposerSuggestions", () => {
     expect(mocks.rankChannel).toHaveBeenLastCalledWith(thirdChannels, "gen")
   })
 
-  it("disables mentions across a live DM transition without rebuilding or disturbing channel refs", async () => {
+  it("ends both old suggestions across a live DM transition without rebuilding extensions", async () => {
     const resultRef: { current: Result | null } = { current: null }
     const search = vi.fn()
     const mentionItem = {
@@ -329,9 +366,9 @@ describe("useComposerSuggestions", () => {
       getRect: null,
     })
     expect(resultRef.current!.channelRefPopup).toEqual({
-      items: [channelItem],
+      items: [],
       selectedIndex: 0,
-      command: channelCommand,
+      command: null,
       getRect: null,
     })
     expect(search).toHaveBeenCalledOnce()
@@ -619,6 +656,39 @@ describe("useComposerSuggestions", () => {
     )
     expect(resultRef.current!.mentionPopup.items).toEqual([])
     expect(resultRef.current!.mentionPresentation.status).toBe("empty")
+  })
+
+  it("uses common read state for local private search and retains matching cache on remote errors", async () => {
+    const resultRef: { current: Result | null } = { current: null }
+    const item = { kind: "member" as const, id: "member-1", userId: "user-1", label: "Ada#0001", name: "Ada", discriminator: "0001", avatar: "A", status: "online" as const }
+    mocks.rankMention.mockImplementation((rows: Member[]) => rows.length ? [item] : [])
+    const local = (loading: boolean, failed: boolean) => ({ loading, failed })
+    let renderer!: ReturnType<typeof rtlRender>
+    const show = async (source: Options["mentionCandidates"], members = [member()]) => {
+      await act(async () => renderer.rerender(createElement(Harness, { members, context: "channel", mentionCandidates: source, channelRefCandidates: [], resultRef })))
+    }
+    await act(async () => { renderer = rtlRender(createElement(Harness, { members: [member()], context: "channel", mentionCandidates: local(true, false), channelRefCandidates: [], resultRef })) })
+    const options = mocks.buildMention.mock.calls[0][0]
+    const query = (resultRef.current!.mentionExtension as unknown as { runQuery: (query: string) => unknown }).runQuery
+    await act(async () => { options.setPopup({ items: query("ad"), query: "ad", selectedIndex: 0, command: vi.fn(), getRect: null }) })
+    expect(resultRef.current!.mentionPresentation.status).toBe("loading")
+    expect(resultRef.current!.mentionPopup.items).toEqual([item])
+    await show(local(false, true))
+    expect(resultRef.current!.mentionPresentation.status).toBe("error")
+    expect(resultRef.current!.mentionPopup.items).toEqual([item])
+    await show(local(false, false))
+    expect(resultRef.current!.mentionPresentation.status).toBe("ready")
+    await show(local(false, false), [])
+    expect(resultRef.current!.mentionPresentation.status).toBe("empty")
+    await show(candidateSource(vi.fn(), { searchQuery: "ad", searchStatus: "error", failed: true }))
+    expect(resultRef.current!.mentionPresentation.status).toBe("error")
+    expect(resultRef.current!.mentionPopup.items).toEqual([item])
+    await show(candidateSource(vi.fn(), { searchQuery: "older", searchStatus: "ready" }))
+    expect(resultRef.current!.mentionPresentation.status).toBe("loading")
+    expect(resultRef.current!.mentionPopup.items).toEqual([])
+    await show(local(false, false))
+    await act(async () => resultRef.current!.resetPopups())
+    expect(resultRef.current!.mentionPopup.items).toEqual([])
   })
 
   it("keeps channel state when only serverName changes and resets both popups", async () => {

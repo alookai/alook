@@ -1,7 +1,7 @@
 import type { Locator, Page } from "@playwright/test"
 import { test, expect, userId } from "./_fixtures/community-fixture"
 import { tid } from "./_fixtures/testids"
-import { composerEditable } from "./_fixtures/actions"
+import { composerEditable, openChannel } from "./_fixtures/actions"
 import {
   seedServer,
   seedChannel,
@@ -155,6 +155,44 @@ test.describe.serial("mentions — candidate scope", () => {
     await expect(opt.everyone).toBeVisible()
     // Carol is outside the parent channel's audience.
     await expect(opt.carol).toHaveCount(0)
+  })
+
+  test("private local search reports a failed access read and recovers on warm channel re-entry", async ({ asUser }) => {
+    const { page } = await asUser("alice")
+    let failAccess = true
+    let accessReads = 0
+    await page.route(`**/api/community/channels/${privateChannelId}/members?*`, async (route) => {
+      if (new URL(route.request().url()).searchParams.get("relation") !== "access") return route.continue()
+      accessReads += 1
+      if (failAccess) return route.fulfill({ status: 500, json: { error: "controlled access read failure" } })
+      return route.continue()
+    })
+    await page.goto(`/c/channels/${serverId}/${privateChannelId}`)
+    await openMentionPopup(page)
+    await expect(page.getByTestId(tid.mentionStatus)).toHaveAttribute("data-state", "error")
+    await expect(page.getByTestId(tid.mentionOption(carol.id))).toHaveCount(0)
+    expect(accessReads).toBeGreaterThan(0)
+    const failedReads = accessReads
+    failAccess = false
+    await page.keyboard.press("Escape")
+    await openChannel(page, publicChannelId)
+    const recovered = page.waitForResponse((response) => response.status() === 200 && new URL(response.url()).pathname === `/api/community/channels/${privateChannelId}/members`)
+    await openChannel(page, privateChannelId)
+    await recovered
+    const editable = composerEditable(page)
+    await editable.fill("")
+    const opt = await openMentionPopup(page)
+    await expect(opt.bob).toBeVisible()
+    await expect(opt.carol).toHaveCount(0)
+    await expect(page.getByTestId(tid.mentionOption(alice.id))).toHaveCount(0)
+    await expect(page.getByTestId(tid.mentionStatus)).toHaveCount(0)
+    expect(accessReads).toBeGreaterThan(failedReads)
+    await page.keyboard.press("Escape")
+    await page.keyboard.press("Backspace")
+    await editable.pressSequentially(`@${bob.name.slice(0, 3)}`)
+    await expect(page.getByTestId(tid.mentionOption(bob.id))).toBeVisible()
+    await expect(page.getByTestId(tid.mentionOption(carol.id))).toHaveCount(0)
+    await expect(page.getByTestId(tid.mentionStatus)).toHaveCount(0)
   })
 
   test("forum post reply → post audience (bob present, carol absent)", async ({ asUser }) => {

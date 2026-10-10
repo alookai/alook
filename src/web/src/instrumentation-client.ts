@@ -1,17 +1,14 @@
-// Next.js client instrumentation entry — runs before the app hydrates, i.e.
-// before react-dom installs its DevTools global hook. This is the ONLY place
-// early enough to register react-scan's instrument() and capture the initial
-// mount.
-//
-// Distinct from the server-side `instrumentation.ts` `register()` hook — do not
-// conflate them. This file is diagnosis-only and self-noops unless
-// NEXT_PUBLIC_PERF_TRACE=1 in a non-production build.
-
 import { installReactScan } from "@/lib/perf/react-scan-install"
 import { bootstrapObservability, onObservedRouterTransition } from "@/lib/observability/client"
+import { isTauri } from "@alook/shared"
+import { bootstrapGoogleAnalytics, updateGooglePageFields } from "@/lib/analytics-consent"
 
+if (!isTauri()) bootstrapGoogleAnalytics()
 bootstrapObservability("web")
-export function onRouterTransitionStart(url: string) { onObservedRouterTransition(url) }
+export function onRouterTransitionStart(url: string) {
+  if (!isTauri()) updateGooglePageFields(url)
+  onObservedRouterTransition(url)
+}
 
 // Fire-and-forget: the guard inside is synchronous, only the dynamic
 // react-scan import is async. Any failure is swallowed so instrumentation can

@@ -4,6 +4,9 @@ import {
   analyticsConsentCookieValue,
   announceAnalyticsConsent,
   applyGoogleConsent,
+  bootstrapGoogleAnalytics,
+  isPublicAnalyticsPath,
+  updateGooglePageFields,
   hasAnalyticsConsent,
   parseAnalyticsConsentCookie,
   persistAnalyticsConsent,
@@ -37,7 +40,8 @@ describe("analytics consent browser contract", () => {
     applyGoogleConsent("granted", "default")
 
     expect(browser.dataLayer).toHaveLength(1)
-    expect(browser.dataLayer[0]).toEqual([
+    expect(Object.prototype.toString.call(browser.dataLayer[0])).toBe("[object Arguments]")
+    expect(Array.from(browser.dataLayer[0] as IArguments)).toEqual([
       "consent",
       "default",
       {
@@ -50,7 +54,7 @@ describe("analytics consent browser contract", () => {
 
     applyGoogleConsent("denied")
 
-    expect(browser.dataLayer[1]).toEqual([
+    expect(Array.from(browser.dataLayer[1] as IArguments)).toEqual([
       "consent",
       "update",
       {
@@ -60,6 +64,50 @@ describe("analytics consent browser contract", () => {
         ad_personalization: "denied",
       },
     ])
+  })
+
+
+  it.each([undefined, "", "v0.granted", "v1.invalid", "v1.denied", "v1.granted"])("boots from the original Cookie %s before measurement", value => {
+    const browser = { location: new URL("https://alook.ai/pricing?private=query#fragment"), dataLayer: [] as unknown[] }
+    vi.stubGlobal("window", browser)
+    vi.stubGlobal("document", { cookie: value === undefined ? "" : `alook_analytics_consent=${value}`, referrer: "https://alook.ai/c/private?secret=referrer" })
+    bootstrapGoogleAnalytics()
+    expect(Reflect.get(browser, "ga-disable-G-STBCL8F4ZY")).toBe(false)
+    expect(browser.dataLayer.map(command => Array.from(command as IArguments))).toEqual([
+      ["consent", "default", { analytics_storage: value === "v1.granted" ? "granted" : "denied", ad_storage: "denied", ad_user_data: "denied", ad_personalization: "denied" }],
+      ["set", { page_location: "https://alook.ai/pricing", page_referrer: "" }],
+    ])
+    browser.location = new URL("https://alook.ai/c/me")
+    expect(Reflect.get(browser, "ga-disable-G-STBCL8F4ZY")).toBe(true)
+  })
+
+  it.each(["/", "/pricing", "/contact", "/privacy", "/templates", "/templates/public", "/blog", "/blog/public/child"])("retains public path %s", path => {
+    expect(isPublicAnalyticsPath(path)).toBe(true)
+  })
+
+  it.each(["/c", "/c/me", "/sign-in", "/auth/callback", "/templates/public/child", "/pricing/extra"])("retains private path %s", path => {
+    expect(isPublicAnalyticsPath(path)).toBe(false)
+  })
+
+  it.each(["https://outside.example/path?secret=external#private", "https://alook.ai/blog/public?secret=internal", "not a URL"])("sanitizes existing referrer %s", referrer => {
+    const browser = { location: new URL("https://alook.ai/"), dataLayer: [] as unknown[] }
+    vi.stubGlobal("window", browser)
+    vi.stubGlobal("document", { referrer })
+    updateGooglePageFields("/templates/public?secret=query#fragment")
+    expect(Array.from(browser.dataLayer[0] as IArguments)).toEqual(["set", {
+      page_location: "https://alook.ai/templates/public",
+      page_referrer: referrer === "not a URL" ? "" : referrer.split("?")[0],
+    }])
+    const count = browser.dataLayer.length
+    for (const href of ["/c/me?secret=private", "https://outside.example/pricing", "http://["]) updateGooglePageFields(href)
+    expect(browser.dataLayer).toHaveLength(count)
+    expect(JSON.stringify(browser.dataLayer)).not.toMatch(/secret|fragment|page_view/)
+  })
+
+  it("does not initialize browser measurement on the server", () => {
+    vi.stubGlobal("window", undefined)
+    expect(() => bootstrapGoogleAnalytics()).not.toThrow()
+    expect(() => updateGooglePageFields("/pricing")).not.toThrow()
   })
 
   it("persists only after the API confirms the same decision", async () => {

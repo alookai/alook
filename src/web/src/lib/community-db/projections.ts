@@ -94,14 +94,14 @@ type CollectionWhere<N extends CommunityCollectionName> = WhereCallback<ContextF
 
 function useCollectionQuery<N extends CommunityCollectionName>(name: N, where?: CollectionWhere<N>, enabled = true) {
   const registry = useOptionalCommunityDbRegistry()
-  const data = useLiveQuery({
+  const result = useLiveQuery({
     query: (q) => {
       if (!registry || !enabled) return undefined
       const query = q.from({ row: registry.collections[name] })
       return where ? query.where(where) : query
     },
-  }).data as CommunityCollectionRows[N][] | undefined
-  return { registry, data }
+  })
+  return { ...result, registry, data: result.data as CommunityCollectionRows[N][] | undefined }
 }
 
 function useCollectionRows<N extends CommunityCollectionName>(name: N, where?: CollectionWhere<N>) {
@@ -418,23 +418,16 @@ export function useNotificationSettingsProjection() {
   }, [rows.notificationSettings])
 }
 
-function useProfileProjectionMap(userIds?: readonly string[]) {
-  const result = useCollectionQuery("profiles", ({ row }) => userIds === undefined ? eq(1, 1) : inArray(row.userId, [...userIds]))
-  return useMemo(() => new Map(
-    (result.data ?? []).map((profile) => [profile.userId, profile]),
-  ), [result.data])
-}
-
-export function useCanonicalProfilesByUserId(userIds?: readonly string[]): ReadonlyMap<string, CommunityProfile> {
+export function useCanonicalProfilesProjection(userIds?: readonly string[]) {
   const previewProfiles = useCommunityPreviewProfiles()
-  const canonicalProfiles = useProfileProjectionMap(userIds)
-  const registry = useOptionalCommunityDbRegistry()
+  const projection = useCollectionQuery("profiles", ({ row }) => userIds === undefined ? eq(1, 1) : inArray(row.userId, [...userIds]))
+  const { registry } = projection
   const livePresence = useSelector(registry?.runtime.ws ?? absentPresence, (state) => previewProfiles ? null : userIds === undefined ? [...state.presenceByUserId] : userIds.map((id) => [id, state.presenceByUserId.get(id)] as const), { compare: (left, right) => left === right || (!!left && !!right && left.length === right.length && left.every(([id, presence], index) => id === right[index]?.[0] && presence === right[index]?.[1])) })
-  return useMemo(() => {
+  const data: ReadonlyMap<string, CommunityProfile> = useMemo(() => {
     if (previewProfiles) return previewProfiles
     const merged = new Map<string, CommunityProfile>()
-    for (const [userId, profile] of canonicalProfiles) {
-      merged.set(userId, { ...profile, id: userId })
+    for (const profile of projection.data ?? []) {
+      merged.set(profile.userId, { ...profile, id: profile.userId })
     }
     for (const [userId, presence] of livePresence ?? []) {
       if (presence === undefined) continue
@@ -443,16 +436,43 @@ export function useCanonicalProfilesByUserId(userIds?: readonly string[]): Reado
       merged.set(userId, value)
     }
     return merged
-  }, [canonicalProfiles, livePresence, previewProfiles])
+  }, [projection.data, livePresence, previewProfiles])
+  return { ...projection, data, isReady: !!previewProfiles || projection.isReady, isError: !previewProfiles && projection.isError, isEnabled: !!previewProfiles || projection.isEnabled }
+}
+
+export function useCanonicalProfilesByUserId(userIds?: readonly string[]): ReadonlyMap<string, CommunityProfile> {
+  return useCanonicalProfilesProjection(userIds).data
+}
+
+export function getMemberReadState(
+  enabled: boolean,
+  transport: { pending: boolean; failed: boolean },
+  projections: readonly { isReady: boolean; isError: boolean; isEnabled: boolean }[],
+  userIds: readonly string[],
+  profiles: ReadonlyMap<string, CommunityProfile>,
+) {
+  if (!enabled) return { loading: false, failed: false }
+  const failed = transport.failed || projections.some((projection) => projection.isError)
+  const loading = !failed && (transport.pending || projections.some((projection) => !projection.isEnabled || !projection.isReady))
+  const missingProfile = !loading && userIds.some((id) => !profiles.get(id)?.name || !profiles.get(id)?.discriminator)
+  return { loading, failed: failed || missingProfile }
+}
+
+export function useServerMemberProjection(serverId: string | null, userIds: readonly string[]) {
+  return useCollectionQuery("serverMemberships", ({ row }) => and(eq(row.serverId, serverId), inArray(row.userId, [...userIds])), !!serverId)
 }
 
 export function useServerMemberRows(serverId: string | null, userIds: readonly string[]) {
-  const { data } = useCollectionQuery("serverMemberships", ({ row }) => and(eq(row.serverId, serverId), inArray(row.userId, [...userIds])), !!serverId)
+  const { data } = useServerMemberProjection(serverId, userIds)
   return data ?? []
 }
 
+export function useChannelRosterProjection(channelId: string, relation: "access" | "notify") {
+  return useCollectionQuery("channelMemberships", ({ row }) => and(eq(row.channelId, channelId), eq(row.relation, relation)), !!channelId)
+}
+
 export function useChannelRosterRows(channelId: string, relation: "access" | "notify") {
-  const { data } = useCollectionQuery("channelMemberships", ({ row }) => and(eq(row.channelId, channelId), eq(row.relation, relation)), !!channelId)
+  const { data } = useChannelRosterProjection(channelId, relation)
   return data ?? []
 }
 

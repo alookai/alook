@@ -1,4 +1,5 @@
 import Mention from "@tiptap/extension-mention"
+import type { Editor } from "@tiptap/react"
 import { PluginKey } from "@tiptap/pm/state"
 import { formatHandle } from "@alook/shared"
 import {
@@ -104,7 +105,8 @@ export function rankChannelRefItems(
   return [...prefix, ...substr].slice(0, CHANNEL_REF_LIMIT)
 }
 
-type SuggestionProps = SuggestionCaretAnchorProps & {
+type SuggestionProps = Omit<SuggestionCaretAnchorProps, "editor"> & {
+  editor: Editor
   items: ChannelRefCandidate[]
   query?: string
   command: (props: ChannelRefCommandProps) => void
@@ -137,11 +139,7 @@ const ChannelRefNode = Mention.extend({
  *
  * `suggestion.char = "/"`, `allowedPrefixes` left at the library default
  * (`[' ']`, start-of-line included) — exactly the "must follow a space"
- * rule from the spec, no custom `allow` callback needed. The explicit
- * `pluginKey` below is good practice for debugging/introspection but isn't
- * itself load-bearing (anonymous `new PluginKey()` calls already get an
- * auto-incrementing unique suffix in `prosemirror-state`) — the node
- * **name** rename above is what actually avoids the schema collision.
+ * rule from the spec.
  *
  * `renderText` inserts by display name, not id — server/channel names are
  * now guaranteed ref-safe at creation/rename time (`slugify()`, applied by
@@ -155,6 +153,8 @@ const ChannelRefNode = Mention.extend({
  * only, not the full path — keeping the compose box readable.
  */
 export function buildCommunityChannelRefExtension(opts: {
+  editorRef: { current: Editor | null }
+  canSuggest: (editor: Editor) => boolean
   candidatesRef: { current: ChannelRefCandidate[] }
   popupRef: { current: ChannelRefPopupState }
   onIntentRef?: { current: (() => void) | undefined }
@@ -167,8 +167,15 @@ export function buildCommunityChannelRefExtension(opts: {
   // extension's `queryRef`.
   queryRef?: { current: string }
 }) {
-  const { candidatesRef, popupRef, onIntentRef, setPopup, queryRef } = opts
+  const { editorRef, canSuggest, candidatesRef, popupRef, onIntentRef, setPopup, queryRef } = opts
   let intentSessionActive = false
+  const commandFor = (props: SuggestionProps) => {
+    const command: NonNullable<ChannelRefPopupState["command"]> = (value) => {
+      if (!canSuggest(props.editor) || popupRef.current.command !== command) return
+      props.command(value)
+    }
+    return command
+  }
 
   return ChannelRefNode.configure({
     HTMLAttributes: { class: "channel-ref-highlight" },
@@ -200,7 +207,10 @@ export function buildCommunityChannelRefExtension(opts: {
     suggestion: {
       char: "/",
       pluginKey: new PluginKey("channelRefSuggestion"),
-      items: ({ query }: { query: string }) => {
+      allow: ({ editor }) => canSuggest(editor),
+      shouldShow: ({ transaction }) => Boolean(popupRef.current.command) || transaction.docChanged || transaction.selectionSet,
+      items: ({ query, editor }: { query: string; editor: Editor }) => {
+        if (!canSuggest(editor)) return []
         if (!intentSessionActive) {
           intentSessionActive = true
           onIntentRef?.current?.()
@@ -210,15 +220,17 @@ export function buildCommunityChannelRefExtension(opts: {
       },
       render: () => ({
         onStart: (props: SuggestionProps) => {
+          if (!canSuggest(props.editor)) return
           setPopup({
             items: props.items ?? [],
             query: props.query ?? "",
             selectedIndex: 0,
-            command: props.command,
+            command: commandFor(props),
             getRect: createSuggestionCaretRectResolver(props),
           })
         },
         onUpdate: (props: SuggestionProps) => {
+          if (!canSuggest(props.editor) || !popupRef.current.command) return
           setPopup((cur) => ({
             items: props.items ?? [],
             query: props.query ?? "",
@@ -226,11 +238,13 @@ export function buildCommunityChannelRefExtension(opts: {
               cur.selectedIndex < (props.items?.length ?? 0)
                 ? cur.selectedIndex
                 : 0,
-            command: props.command,
+            command: commandFor(props),
             getRect: createSuggestionCaretRectResolver(props),
           }))
         },
-        onKeyDown: ({ event }: { event: KeyboardEvent }) => {
+        onKeyDown: ({ event, view }) => {
+          const editor = editorRef.current
+          if (!editor || !canSuggest(editor) || editor.view !== view) return false
           if (event.isComposing) return false
           const cur = popupRef.current
           if (cur.items.length === 0) return false
@@ -273,8 +287,10 @@ export function buildCommunityChannelRefExtension(opts: {
           }
           return false
         },
-        onExit: () => {
+        onExit: ({ editor }) => {
+          if (editorRef.current !== editor) return
           intentSessionActive = false
+          if (queryRef) queryRef.current = ""
           setPopup(EMPTY_CHANNEL_REF_STATE)
         },
       }),

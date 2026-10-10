@@ -7,10 +7,10 @@ import { QueryObserver,useMutation,useQuery,useQueryClient,type QueryClient,type
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { COMMUNITY_CONTRACT_VERSION, CommunityMembersReadSchema, CommunityResourceProfileSchema, type CommunityMembersRead, type CommunityRole, type CommunityChannelResource, type CommunityMemberRelation, type CommunityResourceProfile } from "@alook/shared"
-import type { CommunityUserCore, Presence } from "@/lib/community/models/people"
+import type { CommunityProfile, CommunityUserCore, Presence } from "@/lib/community/models/people"
 import { fetchAllServerMembers } from "./fetch-all-server-members"
 
-import { useCanonicalProfilesByUserId,useServerMemberRows,useChannelRosterRows } from "@/lib/community-db/projections"
+import { getMemberReadState, useCanonicalProfilesByUserId, useCanonicalProfilesProjection, useServerMemberRows, useServerMemberProjection, useChannelRosterRows, useChannelRosterProjection } from "@/lib/community-db/projections"
 import { captureCommunityLiveSnapshotToken,assertCommunityLiveSnapshotTokenCurrent,publishCommunityChannelMembersSnapshot,setCanonicalCommunityChannelMember } from "@/lib/community-db/sync"
 import { channelMembershipKey, type ChannelMembershipRow } from "@/lib/community-db/schema"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
@@ -95,24 +95,27 @@ async function addableMembersQueryFn(serverId: string, channelId: string, contex
   return { serverId, relation: roster.relation, members: serverMembers.map(({ id, userId }) => ({ id, userId })) }
 }
 
-export function useChannelMembers(channelId: string, enabled = true, serverId?: string, relation?: "access" | "notify"): UseQueryResult<{ members: ChannelMember[] }> & { members: ChannelMember[] } {
+export function useChannelMembers(channelId: string, enabled = true, serverId?: string, relation?: "access" | "notify"): UseQueryResult<{ members: ChannelMember[] }> & { members: ChannelMember[]; profiles: ReadonlyMap<string, CommunityProfile>; loading: boolean; failed: boolean } {
   const client = useQueryClient()
   const active = enabled && !!channelId
   const query = useQuery({ ...channelMembersOptions(client, channelId, serverId, relation), enabled: active, subscribed: active })
-  const roster = useChannelRosterRows(channelId, query.data?.relation ?? relation ?? "access")
-  const profiles = useCanonicalProfilesByUserId(roster.map((member) => member.userId))
-  const memberships = useServerMemberRows(query.data?.serverId ?? null, roster.map((member) => member.userId))
+  const rosterProjection = useChannelRosterProjection(active ? channelId : "", query.data?.relation ?? relation ?? "access")
+  const roster = rosterProjection.data
+  const profileProjection = useCanonicalProfilesProjection(roster?.map((member) => member.userId) ?? [])
+  const profiles = profileProjection.data
+  const membershipProjection = useServerMemberProjection(query.data?.serverId === null ? null : query.data?.serverId ?? serverId ?? null, roster?.map((member) => member.userId) ?? [])
   const members = useMemo<ChannelMember[]>(() => {
-    const byUser = new Map(memberships.map((member) => [member.userId, member]))
-    return roster.flatMap((participant) => {
+    const byUser = new Map((membershipProjection.data ?? []).map((member) => [member.userId, member]))
+    return (roster ?? []).flatMap((participant) => {
       const member = byUser.get(participant.userId)
       if (query.data?.serverId !== null && !member?.memberId) return []
       const profile = readCommunityProfile(profiles.get(participant.userId), participant.userId)
       return [{ id: member?.memberId ?? participant.userId, userId: participant.userId, name: member?.nickname ?? profile.name, discriminator: profile.discriminator, avatar: profile.avatar, avatarVersion: profile.avatarVersion, role: member ? member.role as CommunityRole : null, sub: "", status: member?.viewer ? "online" : profile.presence, statusEmoji: profile.statusEmoji ?? null, statusText: profile.statusText ?? "", source: participant.source ?? "explicit", isCreator: participant.isCreator ?? false }]
     })
-  }, [profiles, memberships, roster, query.data?.serverId])
-  const data = useMemo(() => query.data ? { members } : undefined, [query.data, members])
-  return { ...query, data, members } as UseQueryResult<{ members: ChannelMember[] }> & { members: ChannelMember[] }
+  }, [profiles, membershipProjection.data, roster, query.data?.serverId])
+  const readState = getMemberReadState(active, { pending: !query.data || query.isRefetching, failed: query.isError && !query.isFetching }, query.data?.serverId === null ? [rosterProjection, profileProjection] : [rosterProjection, membershipProjection, profileProjection], members.filter((member) => member.userId !== rosterProjection.registry?.accountId).map((member) => member.userId), profiles)
+  const data = useMemo(() => active && query.data ? { members } : undefined, [active, query.data, members])
+  return { ...query, data, members, profiles, ...readState } as UseQueryResult<{ members: ChannelMember[] }> & { members: ChannelMember[]; profiles: typeof profiles; loading: boolean; failed: boolean }
 }
 
 export function useAddableMembers(serverId: string, channelId: string, enabled = true): UseQueryResult<{ members: AddableMember[] }> & { members: AddableMember[] } {

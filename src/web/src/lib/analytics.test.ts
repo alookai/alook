@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   hasAnalyticsConsent: vi.fn(() => true),
@@ -7,7 +7,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@next/third-parties/google", () => ({
   sendGTMEvent: (...args: unknown[]) => mocks.sendGTMEvent(...args),
 }))
-vi.mock("./analytics-consent", () => ({
+vi.mock("./analytics-consent", async importOriginal => ({
+  ...await importOriginal<typeof import("./analytics-consent")>(),
   hasAnalyticsConsent: () => mocks.hasAnalyticsConsent(),
 }))
 
@@ -15,18 +16,58 @@ const mockSendGTMEvent = mocks.sendGTMEvent
 
 import { trackSignUp, trackSignInSuccess, trackInviteAccepted, trackCommunityRuntimeConnected, trackCommunityOnboardingCompleted, trackCommunityOnboardingSkipped, trackCommunityOnboardingStageCompleted, trackCommunityOnboardingStarted, trackFirstAgentReplyPersisted, trackHumanInvitationSent, trackHumanInvitationCopied, trackInvitedHumanJoined, trackGithubOutboundClicked, trackLandingCtaClicked, trackTemplatesBrowsed, trackCommunityWsFrameDropped, trackCommunityWsAuthFailure, trackCommunityWsLifecycleClose, trackCommunityWsLifecycleRecovery, trackCommunityWsLifecycleStage, trackCommunityWsReconcileComplete, trackCommunityWsReconcileFailure, trackCommunityWsRetryScheduled, toAnalyticsCurrentPlan, toAnalyticsPlanId, trackBeginCheckout, trackPricingCtaClick, trackPricingView } from "./analytics"
 
+afterEach(() => vi.unstubAllGlobals())
+
 describe("analytics utility", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.hasAnalyticsConsent.mockReturnValue(true)
   })
 
-  it("drops events while analytics consent is absent or denied", () => {
+  it("retains the original consent gate outside public Web", () => {
     mocks.hasAnalyticsConsent.mockReturnValue(false)
     trackSignUp("github")
     trackPricingView({ auth_state: "guest", current_plan: "none" })
     trackCommunityRuntimeConnected()
     expect(mockSendGTMEvent).not.toHaveBeenCalled()
+  })
+
+
+  it.each(["/", "/pricing", "/contact", "/privacy", "/templates/public", "/blog/public"])("sends the original public payloads on %s without a grant", path => {
+    mocks.hasAnalyticsConsent.mockReturnValue(false)
+    vi.stubGlobal("window", { location: new URL(`https://alook.ai${path}?private=query`) })
+    trackPricingView({ auth_state: "guest", current_plan: "none" })
+    trackLandingCtaClicked({ cta_name: "get_started" })
+    trackTemplatesBrowsed({ category_filter: "engineering" })
+    trackGithubOutboundClicked("blog")
+    expect(mockSendGTMEvent.mock.calls).toEqual([
+      [{ event: "pricing_view", auth_state: "guest", current_plan: "none" }],
+      [{ event: "landing_cta_clicked", cta_name: "get_started" }],
+      [{ event: "templates_browsed", category_filter: "engineering" }],
+      [{ event: "github_outbound_clicked", surface: "blog", destination: "alook_repo" }],
+    ])
+  })
+
+  it.each(["/c/me", "/sign-in", "/templates/public/child"])("does not expand denied private events on %s or replay them later", path => {
+    mocks.hasAnalyticsConsent.mockReturnValue(false)
+    const browser = { location: new URL(`https://alook.ai${path}`) }
+    vi.stubGlobal("window", browser)
+    trackCommunityRuntimeConnected()
+    trackSignUp("github")
+    expect(mockSendGTMEvent).not.toHaveBeenCalled()
+    browser.location = new URL("https://alook.ai/pricing")
+    trackPricingView({ auth_state: "guest", current_plan: "none" })
+    expect(mockSendGTMEvent.mock.calls).toEqual([[{ event: "pricing_view", auth_state: "guest", current_plan: "none" }]])
+  })
+
+  it("preserves the Native Allow gate on public paths", () => {
+    vi.stubGlobal("window", { __TAURI__: {}, location: new URL("https://alook.ai/") })
+    mocks.hasAnalyticsConsent.mockReturnValue(false)
+    trackSignUp("github")
+    expect(mockSendGTMEvent).not.toHaveBeenCalled()
+    mocks.hasAnalyticsConsent.mockReturnValue(true)
+    trackSignUp("github")
+    expect(mockSendGTMEvent.mock.calls).toEqual([[{ event: "sign_up", method: "github" }]])
   })
 
   describe("P0 — Core Funnel Events", () => {
