@@ -89,7 +89,7 @@ export function RecentPosts({ posts, topics }: RecentPostsProps) {
     <section aria-labelledby="recent-posts-heading" className="mt-12 sm:mt-20">
       <h2
         id="recent-posts-heading"
-        className="font-news text-2xl font-semibold tracking-tight sm:text-3xl"
+        className="font-sans text-2xl font-semibold tracking-tight sm:text-3xl"
       >
         Recent posts
       </h2>
@@ -147,7 +147,7 @@ export function RecentPosts({ posts, topics }: RecentPostsProps) {
                     className="object-cover transition-transform duration-200 group-hover:scale-[1.015] motion-reduce:transform-none"
                   />
                 </span>
-                <h3 className="mt-4 font-news text-lg font-semibold leading-snug tracking-tight">
+                <h3 className="mt-4 font-sans text-lg font-semibold leading-snug tracking-tight">
                   {post.title}
                 </h3>
                 <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-sans text-sm text-muted-foreground">

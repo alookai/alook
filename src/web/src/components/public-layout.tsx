@@ -21,7 +21,7 @@ export function isCrossZoneNavigation(href: string, zone: PublicZone): boolean {
   return zone === "main" ? blogOwned : !blogOwned;
 }
 
-function ZoneLink({
+export function ZoneLink({
   href,
   zone,
   className,
@@ -56,7 +56,7 @@ export function PublicLayout({
   leftSlot?: React.ReactNode;
   centerSlot?: React.ReactNode;
   rightSlot?: React.ReactNode;
-  footer?: "simple" | "rich" | "none";
+  footer?: "simple" | "rich" | "none" | React.ReactElement;
   mainClassName?: string;
   children: React.ReactNode;
 }) {
@@ -99,6 +99,8 @@ export function PublicLayout({
       </nav>
 
       <main className={mainClassName ? `flex-1 ${mainClassName}` : "flex-1"}>{children}</main>
+
+      {typeof footer !== "string" && footer}
 
       {footer === "simple" && (
         <footer className="border-t border-border px-6 py-12">

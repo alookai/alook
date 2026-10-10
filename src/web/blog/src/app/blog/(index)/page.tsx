@@ -55,7 +55,7 @@ export default async function BlogPage() {
       />
       <div className="mx-auto max-w-270 px-4 pb-24 pt-12 sm:px-6 sm:pt-20">
         <header>
-          <h1 className="font-news text-3xl font-semibold leading-none tracking-tight sm:text-[2.5rem] sm:leading-12">
+          <h1 className="font-sans text-3xl font-semibold leading-none tracking-tight sm:text-[2.5rem] sm:leading-12">
             Blog
           </h1>
         </header>
@@ -77,18 +77,15 @@ export default async function BlogPage() {
                 />
               </span>
               <span className="flex flex-col justify-center pt-6 sm:py-4">
-                <span className="flex flex-wrap items-center gap-x-3 gap-y-1 font-sans text-sm text-muted-foreground">
-                  <span>{featured.topicLabel}</span>
-                  <span aria-hidden="true">
-                    ·
-                  </span>
+                <h2 className="font-sans text-3xl font-semibold leading-tight tracking-tight">
+                  {featured.title}
+                </h2>
+                <span className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 font-sans text-sm text-muted-foreground">
+                  <span className="rounded-md bg-muted px-2 py-1 text-foreground">{featured.topicLabel}</span>
                   <time dateTime={featured.date}>
                     {formatBlogPostDate(featured.date)}
                   </time>
                 </span>
-                <h2 className="mt-3 font-news text-3xl font-semibold leading-tight tracking-tight">
-                  {featured.title}
-                </h2>
                 <span className="mt-3 line-clamp-3 font-sans leading-relaxed text-foreground/70">
                   {featured.excerpt}
                 </span>

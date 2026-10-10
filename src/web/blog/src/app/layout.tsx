@@ -26,7 +26,7 @@ export default function BlogRootLayout({
 				<meta name="mobile-web-app-capable" content="yes" />
 				<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 			</head>
-			<body className="min-h-full flex flex-col">
+			<body className="blog-shell min-h-full flex flex-col">
 				<script
 					type="application/ld+json"
 					dangerouslySetInnerHTML={{ __html: JSON.stringify(siteStructuredData) }}
