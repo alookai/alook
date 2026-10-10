@@ -44,6 +44,7 @@ const controller = {
   },
   closeProfile: vi.fn(),
   profileMessage: vi.fn(),
+  canMessage: true,
   updateOwnStatus: vi.fn(),
   openOwnerProfile: vi.fn(),
   openBotAudit: vi.fn(),
@@ -98,6 +99,7 @@ describe("ShellFrameOverlays", () => {
     expect("initialStatusText" in profileCard).toBe(false)
     expect(profileCard.onOpenOwnerProfile).toBe(controller.openOwnerProfile)
     expect(profileCard.onOpenBotAudit).toBe(controller.openBotAudit)
+    expect(profileCard.canMessage).toBe(true)
     expect(hostProps.get("crop-dialog")?.maskShape).toBe("circle")
 
     ;(hostProps.get("attachment-sheet")?.onOpenChange as (open: boolean) => void)(false)
@@ -118,6 +120,13 @@ describe("ShellFrameOverlays", () => {
     expect("initialStatusText" in profileCard).toBe(false)
     expect("activityStatusEmoji" in profileCard).toBe(false)
     expect("activityStatusText" in profileCard).toBe(false)
+  })
+
+  it.each(["desktop", "mobile"] as const)("forwards a withdrawn relationship without changing the target or sender on %s", (breakpoint) => {
+    const view = render(createElement(ShellFrameOverlays, { controller, breakpoint }))
+    expect(hostProps.get("profile-card")?.canMessage).toBe(true)
+    view.rerender(createElement(ShellFrameOverlays, { controller: { ...controller, canMessage: false } as never, breakpoint }))
+    expect(hostProps.get("profile-card")).toMatchObject({ canMessage: false, data: controller.profile.data, onMessage: controller.profileMessage })
   })
 
   it("omits nullable overlays while keeping closed sheet and settings wiring", () => {
