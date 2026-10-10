@@ -121,23 +121,24 @@ export default async function BlogPostPage({
             {relatedPosts.length > 0 && (
               <nav
                 aria-label={`More in ${topic.label}`}
-                className="mt-6 grid gap-8 sm:grid-cols-2"
+                className="mt-6 divide-y divide-border border-t border-border"
               >
                 {relatedPosts.map((relatedPost) => (
                   <Link
                     key={relatedPost.slug}
                     href={`/blog/${relatedPost.slug}`}
-                    className="group flex flex-col rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
+                    className="group grid grid-cols-[minmax(0,1fr)_auto] gap-x-6 py-6 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
                   >
-                    <span className="font-sans text-lg font-semibold leading-snug group-hover:text-muted-foreground transition-colors">
+                    <span className="col-start-1 font-sans text-lg font-semibold leading-snug group-hover:underline underline-offset-4">
                       {relatedPost.title}
                     </span>
-                    <span className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                    <span className="col-start-1 mt-2 text-sm leading-relaxed text-muted-foreground">
                       {getBlogTopicEntryBySlug(relatedPost.slug)?.userJob}
                     </span>
-                    <span className="mt-2 text-sm text-muted-foreground">
+                    <span className="col-start-1 mt-2 text-sm text-muted-foreground">
                       {relatedPost.readingTime}
                     </span>
+                    <ArrowRight aria-hidden="true" className="col-start-2 row-start-1 row-span-3 size-5 self-center text-muted-foreground group-hover:text-foreground" />
                   </Link>
                 ))}
               </nav>

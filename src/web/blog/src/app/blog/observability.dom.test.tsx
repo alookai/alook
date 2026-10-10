@@ -152,7 +152,7 @@ it("renders a related article title before its summary and retains its destinati
   expect(screen.getByRole("heading", { name: "Keep exploring", level: 2 })).toBeVisible();
   const link = screen.getByRole("link", { name: /AI agent vs chatbot/ });
   expect(link).toHaveAttribute("href", "/blog/ai-agent-vs-chatbot");
-  expect([...link.children].map(child => child.textContent)).toEqual([
+  expect([...link.querySelectorAll("span")].map(child => child.textContent)).toEqual([
     related.title, "Decide whether I need an agent or a chatbot", related.readingTime,
   ]);
 });
