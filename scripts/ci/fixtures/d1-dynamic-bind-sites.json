@@ -84,15 +84,6 @@
     "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:34"
   },
   {
-    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:35"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:36"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:37"
-  },
-  {
     "key": "src/shared/src/db/queries/account-deletion.ts:deleteAccountRows:inArray:4"
   },
   {
@@ -195,18 +186,6 @@
     "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:34"
   },
   {
-    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:35"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:36"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:37"
-  },
-  {
-    "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:38"
-  },
-  {
     "key": "src/shared/src/db/queries/account-deletion.ts:getAccountDeletionSnapshot:inArray:4"
   },
   {
@@ -270,31 +249,7 @@
     "key": "src/shared/src/db/queries/community/agent-inbox.ts:toAgentMessages:inArray:1"
   },
   {
-    "key": "src/shared/src/db/queries/community/attachment.ts:findPendingAttachmentsForSender:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/community/attachment.ts:listByMessageIds:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/community/attachment.ts:rebindPendingAttachmentsToChild:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/community/attachment.ts:rebindPendingAttachmentsToChild:inArray:2"
-  },
-  {
-    "key": "src/shared/src/db/queries/community/attachment.ts:rebindPendingAttachmentsToChild:inArray:3"
-  },
-  {
-    "key": "src/shared/src/db/queries/community/attachment.ts:rebindPendingAttachmentsToChild:inArray:4"
-  },
-  {
-    "key": "src/shared/src/db/queries/community/attachment.ts:reserveAttachmentsForMessage:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/community/attachment.ts:reserveAttachmentsForMessage:sql.join:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/community/attachment.ts:unreserveAttachments:inArray:1"
+    "key": "src/shared/src/db/queries/community/attachment.ts:messageAttachments:inArray:1"
   },
   {
     "key": "src/shared/src/db/queries/community/bot-audit-log.ts:pruneBotActivityEventsStatement:notInArray:1"
@@ -390,15 +345,6 @@
     "key": "src/shared/src/db/queries/community/delete-media.ts:deleteChannelWithMediaAttempt:inArray:3"
   },
   {
-    "key": "src/shared/src/db/queries/community/delete-media.ts:deleteChannelWithMediaAttempt:inArray:4"
-  },
-  {
-    "key": "src/shared/src/db/queries/community/delete-media.ts:deleteChannelWithMediaAttempt:inArray:5"
-  },
-  {
-    "key": "src/shared/src/db/queries/community/delete-media.ts:deleteChannelWithMediaAttempt:inArray:6"
-  },
-  {
     "key": "src/shared/src/db/queries/community/delete-media.ts:deleteServerWithMediaAttempt:inArray:1"
   },
   {
@@ -408,19 +354,7 @@
     "key": "src/shared/src/db/queries/community/delete-media.ts:deleteServerWithMediaAttempt:inArray:3"
   },
   {
-    "key": "src/shared/src/db/queries/community/delete-media.ts:deleteServerWithMediaAttempt:inArray:4"
-  },
-  {
-    "key": "src/shared/src/db/queries/community/delete-media.ts:deleteServerWithMediaAttempt:inArray:5"
-  },
-  {
-    "key": "src/shared/src/db/queries/community/delete-media.ts:deleteServerWithMediaAttempt:inArray:6"
-  },
-  {
     "key": "src/shared/src/db/queries/community/forum-post-delete.ts:deleteForumPostAttempt:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/community/forum-post-delete.ts:deleteForumPostAttempt:inArray:2"
   },
   {
     "key": "src/shared/src/db/queries/community/friendship.ts:findActive:inArray:1"
@@ -519,19 +453,13 @@
     "key": "src/shared/src/db/queries/community/message.ts:getMessagesByIdsInChannels:inArray:2"
   },
   {
-    "key": "src/shared/src/db/queries/community/message.ts:insertMessageRow:inArray:1"
-  },
-  {
-    "key": "src/shared/src/db/queries/community/message.ts:insertMessageRow:inArray:2"
-  },
-  {
-    "key": "src/shared/src/db/queries/community/message.ts:insertMessageRow:sql.join:1"
-  },
-  {
     "key": "src/shared/src/db/queries/community/message.ts:insertMessageRow:values:1"
   },
   {
     "key": "src/shared/src/db/queries/community/message.ts:insertMessageRow:values:2"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/message.ts:insertMessageRow:values:3"
   },
   {
     "key": "src/shared/src/db/queries/community/message.ts:listMessagesReferencingFriendship:inArray:1"
