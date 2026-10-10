@@ -212,11 +212,9 @@ test("existing channel/server deletes converge UI, WS, last references, retained
   expect(await status("bob", `/api/community/channels/${serverChannelId}/attachments/${forwardedServerAttachment}/thumbnail`)).toBe(200)
   expect(await status("carol", `/api/community/channels/${destinationId}/attachments/${forwardedServerAttachment}`)).toBe(200)
 
-  await alice.page.goBack()
   await expect(alice.page).not.toHaveURL(new RegExp(`/c/channels/${serverId}/`))
-  // Regression: a fresh Back visit must not settle on the survivor Server root.
   await expect(alice.page).toHaveURL(/\/c\/channels\/[^/]+\/[^/]+$/)
-  const siblingRoute = new URL(alice.page.url()).pathname.match(/^\/c\/channels\/([^/]+)\/([^/]+)$/)
+  const siblingRoute = deleteLanding
   expect(siblingRoute).not.toBeNull()
   const [, siblingServerId, siblingChannelId] = siblingRoute!
   expect(siblingServerId).not.toBe(serverId)

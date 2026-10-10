@@ -1,13 +1,16 @@
-import { createRef, useLayoutEffect } from "react"
+import { createRef, useLayoutEffect, type ComponentProps, type ReactNode } from "react"
 import { EditorContent, type Editor } from "@tiptap/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, fireEvent, screen, waitFor } from "@/test/react-dom-harness"
+import { USE_SERVER_DEFAULT } from "@alook/shared"
+import { act, fireEvent, screen, setupUser, waitFor } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
 import { readComposerDraft, writeComposerDraft } from "@/lib/community/composer-draft"
 import type { Member } from "@/lib/community/models/people"
 import { CommunityMentionList, ChannelRefList } from "./composer-suggestion-popups"
 import type { ComposerHandle, ComposerProps } from "./composer-types"
 import { useComposerController } from "./use-composer-controller"
+import { TextChannelSurface } from "../channels/text-channel-surface"
+import type { MessageChannelControllerValue } from "./message-channel-controller"
 
 const files = vi.hoisted(() => ({
   pendingFiles: [], readPendingFiles: () => [], setPendingFiles: vi.fn(),
@@ -19,6 +22,43 @@ const files = vi.hoisted(() => ({
 vi.mock("@/hooks/use-file-attachments", () => ({ useFileAttachments: () => files }))
 vi.mock("@/hooks/use-hover-capable", () => ({ useHoverCapable: () => true }))
 
+const surfaces = vi.hoisted(() => ({
+  breakpoint: "desktop" as "unknown" | "mobile" | "desktop",
+  probes: new Map<string, { current: ReturnType<typeof useComposerController> | null }>(),
+}))
+vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => surfaces.breakpoint }))
+vi.mock("@/hooks/community/use-channel-message-feed", () => ({
+  useChannelMessageFeed: () => ({ messages: [], isLoading: false, readSnapshotFetching: false, anchorInCache: true }),
+}))
+vi.mock("@/components/community/channels/channel-header", () => ({ ChannelHeader: () => null }))
+vi.mock("@/components/community/channels/channel-shell", () => ({ ChannelShell: ({ body }: { body: ReactNode }) => body }))
+vi.mock("@/components/community/shell/community-panel", () => ({ CommunityPanel: () => null }))
+vi.mock("@/components/community/messages/message-list", () => ({ MessageList: () => null }))
+vi.mock("@/components/community/messages/message-context-sheet", () => ({ MessageContextSheet: () => null }))
+vi.mock("@/components/community/messages/composer", async () => {
+  const { forwardRef } = await import("react")
+  return {
+    Composer: forwardRef<ComposerHandle, ComposerProps>((options, handle) => {
+      const key = options.draftKey!
+      if (!surfaces.probes.has(key)) surfaces.probes.set(key, { current: null })
+      return <Harness {...options} handle={handle} probeRef={surfaces.probes.get(key)!} />
+    }),
+  }
+})
+vi.mock("@/components/community/messages/message-channel-controller", () => ({
+  MessageChannelController: ({ children }: { children: (value: MessageChannelControllerValue) => ReactNode }) => children({
+    feed: {} as MessageChannelControllerValue["feed"],
+    pinnedIds: new Set(), replyTo: null, setReplyTo: vi.fn(),
+    searchQuery: "", searchResults: [], searchLoading: false, search: vi.fn(),
+    scrollTargetId: null, setScrollTargetId: vi.fn(), consumeScrollTarget: vi.fn(),
+    contextTarget: null, setContextTarget: vi.fn(), openContextSeq: vi.fn(),
+    onSheetReply: vi.fn(), jumpToSeq: vi.fn(),
+    messageActions: {} as MessageChannelControllerValue["messageActions"],
+    threadActions: {} as MessageChannelControllerValue["threadActions"],
+    acceptMessage: vi.fn(() => true), handleTyping: vi.fn(), typingUsers: [],
+  }),
+}))
+
 type View = ReturnType<typeof useComposerController>
 type Probe = { current: View | null }
 const ada: Member = { id: "member-ada", userId: "user-ada", name: "Ada", discriminator: "0001", avatar: "A", avatarVersion: 0, status: "online", sub: "", role: "member" }
@@ -26,6 +66,14 @@ const general = { id: "channel-general", name: "general", serverId: "server-one"
 const props: ComposerProps = {
   channel: "general", context: "channel", members: [ada], channelRefCandidates: [general],
   sendContract: "accepted", onAcceptSend: () => true, hideAttach: true, hideEmoji: true,
+}
+const textSurfaceProps: ComponentProps<typeof TextChannelSurface> = {
+  channelId: "parent", serverId: "server-one", serverParam: "server-one", channelName: "parent",
+  viewer: { id: "viewer", name: "Viewer", avatar: "V" }, canManagePins: false, anchorMessageId: null,
+  notificationLevel: USE_SERVER_DEFAULT, onSetNotificationLevel: vi.fn(),
+  composerMembers: [ada], composerMentionCandidates: undefined, channelRefCandidates: [general],
+  memberPanelProps: { members: [], membersLoading: false, membersLoadingMore: false, membersHasMore: false },
+  manageMembersDialog: null, uiHandlers: {}, onOpenThread: vi.fn(), onOpenProfile: vi.fn(), resolveUserName: (id) => id,
 }
 
 function Harness({ probeRef, handle, ...options }: ComposerProps & { probeRef: Probe; handle?: React.Ref<ComposerHandle> }) {
@@ -53,6 +101,8 @@ async function type(editor: Editor, value: string) {
 describe("composer suggestion focus with installed TipTap", () => {
   beforeEach(() => {
     localStorage.clear()
+    surfaces.breakpoint = "desktop"
+    surfaces.probes.clear()
     const rect = new DOMRect(10, 20, 1, 18)
     Object.defineProperty(Range.prototype, "getBoundingClientRect", { configurable: true, value: () => rect })
     Object.defineProperty(Range.prototype, "getClientRects", { configurable: true, value: () => [rect] })
@@ -60,6 +110,75 @@ describe("composer suggestion focus with installed TipTap", () => {
   afterEach(() => {
     delete (Range.prototype as Partial<Range>).getBoundingClientRect
     delete (Range.prototype as Partial<Range>).getClientRects
+    delete (document as Partial<Document>).elementFromPoint
+    vi.restoreAllMocks()
+  })
+
+  it("keeps the current thread edit and candidate when an embedded parent mounts late, then accepts a parent click", async () => {
+    const probeRef: Probe = { current: null }
+    const thread = <Harness key="thread" {...props} context="thread" draftKey="late-thread" probeRef={probeRef} autoFocus />
+    const renderer = render(<>{thread}</>)
+    const editor = await editorOf(probeRef)
+    await waitFor(() => expect(editor.isFocused).toBe(true))
+    await type(editor, "@a")
+    const candidateId = "community-mention-option-member-ada"
+    await screen.findByTestId(candidateId)
+    const input = editor.view.dom
+    const selection = editor.state.selection.toJSON()
+    const draft = editor.getJSON()
+    const candidateCommand = probeRef.current!.mentionPopup.command
+
+    for (const breakpoint of ["unknown", "desktop", "mobile", "desktop"] as const) {
+      surfaces.breakpoint = breakpoint
+      await act(async () => {
+        renderer.rerender(<><TextChannelSurface key="parent" {...textSurfaceProps} embedded />{thread}</>)
+      })
+      await act(async () => {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      })
+      expect(editor.view.dom).toBe(input)
+      expect(document.activeElement).toBe(input)
+      expect(editor.isFocused).toBe(true)
+      expect(editor.state.selection.toJSON()).toEqual(selection)
+      expect(editor.getJSON()).toEqual(draft)
+      expect(readComposerDraft("viewer:late-thread")).toEqual(draft)
+      expect(probeRef.current!.mentionPopup.command).toBe(candidateCommand)
+      expect(screen.getByTestId(candidateId)).toBeVisible()
+    }
+
+    const parent = await editorOf(surfaces.probes.get("server-one/parent")!)
+    document.elementFromPoint = vi.fn(() => parent.view.dom)
+    vi.spyOn(window, "scrollBy").mockImplementation(() => {})
+    await act(async () => { await setupUser().click(parent.view.dom) })
+    expect(document.activeElement).toBe(parent.view.dom)
+    expect(parent.isFocused).toBe(true)
+    await act(async () => { parent.commands.insertContent("parent input") })
+    expect(parent.getText()).toBe("parent input")
+    expect(readComposerDraft("viewer:server-one/parent")).toEqual(parent.getJSON())
+    expect(editor.getJSON()).toEqual(draft)
+    expect(readComposerDraft("viewer:late-thread")).toEqual(draft)
+    expect(probeRef.current!.mentionPopup.command).toBeNull()
+    expect(screen.queryByTestId(candidateId)).toBeNull()
+  })
+
+  it.each(["unknown", "mobile"] as const)("waits for desktop before focusing a full-page %s text conversation and accepts its input", async (breakpoint) => {
+    surfaces.breakpoint = breakpoint
+    const renderer = render(<TextChannelSurface {...textSurfaceProps} />)
+    const editor = await editorOf(surfaces.probes.get("server-one/parent")!)
+    await act(async () => {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    })
+    expect(document.activeElement).not.toBe(editor.view.dom)
+    expect(editor.isFocused).toBe(false)
+
+    surfaces.breakpoint = "desktop"
+    await act(async () => { renderer.rerender(<TextChannelSurface {...textSurfaceProps} />) })
+    await waitFor(() => expect(document.activeElement).toBe(editor.view.dom))
+    expect(surfaces.probes.get("server-one/parent")!.current!.editor).toBe(editor)
+    expect(editor.isFocused).toBe(true)
+    await act(async () => { editor.commands.insertContent("full-page input") })
+    expect(editor.getText()).toBe("full-page input")
+    expect(readComposerDraft("viewer:server-one/parent")).toEqual(editor.getJSON())
   })
 
   it.each(["@", "@a", "/"])("restores %s without opening; focus alone stays quiet and an edit opens", async (trigger) => {

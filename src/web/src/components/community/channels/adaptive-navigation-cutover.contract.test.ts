@@ -38,13 +38,11 @@ describe("adaptive navigation cutover contracts", () => {
     expect(existsSync(nestedPage)).toBe(false)
   })
 
-  it("autofocuses message composers only after desktop is known", () => {
+  it("autofocuses DM and thread composers only after desktop is known", () => {
     const dmPage = readSource("./dm-view.tsx")
-    const textSurface = readSource("./text-channel-surface.tsx")
     const threadSurface = readSource("./thread-channel-surface.tsx")
 
     expect(dmPage).toContain('autoFocus={bp === "desktop"}')
-    expect(textSurface).toContain('autoFocus={breakpoint === "desktop"}')
     expect(threadSurface).toContain('autoFocus={breakpoint === "desktop"}')
   })
 })

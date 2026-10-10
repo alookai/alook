@@ -15,7 +15,7 @@ import {
 // replace directly to their canonical hierarchy targets; DM keeps Header Back.
 test.use({ viewport: { width: 390, height: 844 } })
 
-const shellGroup = (page: Page) => page.locator('[data-slot="resizable-panel-group"]')
+const shellGroup = (page: Page) => page.locator('[data-slot="resizable-panel-group"][id="community-shell"]')
 const shellPanel = (page: Page, id: "sidebar" | "main") => (
   page.locator(`[data-slot="resizable-panel"][data-testid="${id}"]`)
 )

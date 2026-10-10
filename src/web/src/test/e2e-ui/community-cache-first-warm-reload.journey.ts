@@ -284,7 +284,9 @@ test("a warm channel reload qualifies its cached shell before showing persisted 
   await expectCacheFirstReload(page, async () => {
     await expect(page.getByTestId(tid.serverIcon(serverId))).toBeVisible({ timeout: 10_000 })
     await expect(page.getByTestId(tid.channelRow(channelId))).toBeVisible()
-    const main = page.locator('[data-community-conversation-subtype="text"]')
+    const main = page.locator(
+      `[data-community-target-href="/c/channels/${serverId}/${channelId}"]`,
+    ).locator('main[aria-label="Loading conversation"][aria-busy="true"][data-community-conversation-subtype="text"]')
     await expect(main).toBeVisible()
     await expect(main.locator("[data-message-list-skeleton]")).toBeVisible()
     await expect(page.getByTestId(tid.composerInput)).toHaveCount(0)

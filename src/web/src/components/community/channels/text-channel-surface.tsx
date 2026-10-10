@@ -185,7 +185,7 @@ export function TextChannelSurface({
                     onTyping={controller.handleTyping}
                     replyingTo={controller.replyTo ?? undefined}
                     onCancelReply={() => controller.setReplyTo(null)}
-                    autoFocus={breakpoint === "desktop"}
+                    autoFocus={breakpoint === "desktop" && !embedded}
                     draftKey={`${serverId}/${channelId}`}
                   />
                 </ConversationFooterShell>
