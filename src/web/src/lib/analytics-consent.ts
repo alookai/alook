@@ -6,6 +6,43 @@ export const ANALYTICS_CONSENT_CHANGE_EVENT = "alook:analytics-consent-change"
 
 export type AnalyticsConsentDecision = "granted" | "denied"
 
+export const isPublicAnalyticsPath = (path: string) => /^\/(?:pricing|contact|privacy|templates(?:\/[^/]+)?|blog(?:\/.*)?)?$/.test(path)
+
+function googleCommand(..._args: unknown[]): void {
+  window.dataLayer ??= []
+  // eslint-disable-next-line prefer-rest-params -- Google commands use dataLayer.push(arguments).
+  window.dataLayer.push(arguments)
+}
+
+export function updateGooglePageFields(href: string): void {
+  if (typeof window === "undefined" || typeof document === "undefined") return
+  try {
+    const location = new URL(href, window.location.origin)
+    if (location.origin !== window.location.origin || !isPublicAnalyticsPath(location.pathname)) return
+    let safeReferrer = ""
+    try {
+      const referrer = new URL(document.referrer || window.location.origin)
+      if (referrer.origin !== window.location.origin || isPublicAnalyticsPath(referrer.pathname)) {
+        safeReferrer = `${referrer.origin}${referrer.pathname}`
+      }
+    } catch {}
+    googleCommand("set", {
+      page_location: `${location.origin}${location.pathname}`,
+      page_referrer: safeReferrer,
+    })
+  } catch {}
+}
+
+export function bootstrapGoogleAnalytics(): void {
+  if (typeof window === "undefined") return
+  Object.defineProperty(window, "ga-disable-G-STBCL8F4ZY", {
+    configurable: true,
+    get: () => !isPublicAnalyticsPath(window.location.pathname),
+  })
+  applyGoogleConsent(readAnalyticsConsent() ?? "denied", "default")
+  updateGooglePageFields(window.location.href)
+}
+
 export function analyticsConsentCookieValue(decision: AnalyticsConsentDecision): string {
   return `${ANALYTICS_CONSENT_VERSION}.${decision}`
 }
@@ -42,11 +79,7 @@ export function applyGoogleConsent(
   mode: "default" | "update" = "update",
 ): void {
   if (typeof window === "undefined") return
-  window.dataLayer ??= []
-  function gtag(...args: unknown[]) {
-    window.dataLayer?.push(args)
-  }
-  gtag("consent", mode, {
+  googleCommand("consent", mode, {
     analytics_storage: decision,
     ad_storage: "denied",
     ad_user_data: "denied",

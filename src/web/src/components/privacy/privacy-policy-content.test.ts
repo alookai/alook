@@ -8,16 +8,23 @@ import {
 } from "./privacy-policy-content"
 
 describe("shared Privacy policy", () => {
-  it("preserves the published policy copy and update date", () => {
+  it("preserves the shared policy and identifies the implementation date", () => {
     const html = renderToStaticMarkup(createElement(PrivacyPolicyContent))
 
     expect(html).toContain(`data-privacy-policy="${PRIVACY_POLICY.lastUpdated}"`)
     expect(html).toContain(`Last updated: ${PRIVACY_POLICY.lastUpdated}`)
+    expect(PRIVACY_POLICY.lastUpdated).toBe("October 10, 2026")
     expect(html).toContain("Interpretation and Definitions")
     expect(html).toContain("Collecting and Using Your Personal Data")
     expect(html).toContain("Your Data Rights")
     expect(html).toContain("support@alook.ai")
     expect(html).not.toContain("durable background job")
+    expect(html).toContain("even without analytics cookies")
+    expect(html).toContain("other optional analytics")
+    expect(html).toContain("180 days")
+    expect(html).toContain("Google still receives signals without analytics cookies")
+    expect(html).not.toContain("keeps Google Tag Manager and")
+    expect(html).not.toContain("collected only after")
   })
 
   it("places analytics preferences after the policy content", () => {
