@@ -153,6 +153,7 @@ export function ThreadOpener({
 
           {visibleContent && (
             <MessageBody
+              key={msg.id}
               text={visibleContent}
               onOpenProfile={onOpenProfile}
               perspective={msg.authorId === viewerUserId ? "sender" : "recipient"}
@@ -166,7 +167,7 @@ export function ThreadOpener({
                   const frameStyle = attachmentImageFrameStyle(a.width, a.height)
                   return (
                     <RemoteContentImage
-                      key={i}
+                      key={`${msg.id}:${i}`}
                       data-testid={tid.threadOpenerImage(i)}
                       src={a.thumbnailUrl ?? a.url}
                       alt={a.name}

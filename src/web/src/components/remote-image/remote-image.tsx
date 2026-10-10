@@ -34,17 +34,9 @@ function IdentityImageAttempt({
   "data-testid": testId,
 }: IdentityImageProps) {
   const sourceProps = useShareImageSource(src)
-  const [status, , usableImage, imageRef, onLoad, onError, retry] = useRemoteImageAttempt({ source: src, cachedReady: true })
+  const [status, , usableImage, imageRef, onLoad, onError] = useRemoteImageAttempt({ source: sourceProps.src, retainImage: true })
   const visible = Boolean(usableImage)
   const placeholderStatus = visible ? "ready" : status
-  const retryAfterReconnect = useEffectEvent(() => {
-    if (status !== "ready") retry()
-  })
-  useEffect(() => {
-    const onOnline = () => retryAfterReconnect()
-    window.addEventListener("online", onOnline)
-    return () => window.removeEventListener("online", onOnline)
-  }, [])
   const legacyStatus = status === "error" ? "failed" : status
 
   return (
@@ -71,11 +63,10 @@ function IdentityImageAttempt({
         {...sourceProps}
         alt={alt}
         className={cn(
-          "absolute inset-0 size-full object-cover transition-opacity duration-150 ease-out motion-reduce:transition-none",
+          "absolute inset-0 size-full object-cover",
           visible ? "opacity-100" : "opacity-0",
           className,
         )}
-        style={{ transitionProperty: "none" }}
         onLoad={onLoad}
         onError={onError}
       />
@@ -127,7 +118,7 @@ function ContentImageAttempt({
   ...imageProps
 }: ContentImageProps) {
   const sourceProps = useShareImageSource(src)
-  const [status, attempt, readyImage, imageRef, onLoad, onError, retry] = useRemoteImageAttempt()
+  const [status, attempt, readyImage, imageRef, onLoad, onError, retry] = useRemoteImageAttempt({ source: sourceProps.src })
   const notifyReady = useEffectEvent((image: HTMLImageElement) => onReady?.(image))
 
   useEffect(() => onStateChange?.(status), [onStateChange, status])
@@ -160,7 +151,7 @@ function ContentImageAttempt({
         alt={alt}
         loading={loading}
         className={cn(
-          "absolute inset-0 size-full transition-opacity duration-150 ease-out motion-reduce:transition-none",
+          "absolute inset-0 size-full",
           status === "ready" ? "opacity-100" : "opacity-0",
           imageClassName,
         )}
@@ -208,5 +199,6 @@ function ContentImageAttempt({
 }
 
 export function RemoteContentImage(props: ContentImageProps) {
-  return <ContentImageAttempt key={props.src} {...props} />
+  const sourceProps = useShareImageSource(props.src)
+  return <ContentImageAttempt key={JSON.stringify([props.src, "src" in sourceProps])} {...props} />
 }

@@ -30,6 +30,44 @@ describe("ThreadOpener image attachment layout", () => {
     vi.unstubAllGlobals()
   })
 
+  it.each(["attachment", "Markdown"])("retires a previous opener's $name attempt even when its source is reused", async (kind) => {
+    const select = (id: string) => useMessageMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      message: {
+        id, type: "chat", authorId: "user_1", authorName: "Alice", createdAt: "2026-08-08T00:00:00.000Z",
+        content: kind === "Markdown" ? "![Image](/same.png)" : "Image",
+        attachments: kind === "attachment" ? [{ kind: "image", name: "same.png", url: "/same.png" }] : undefined,
+      },
+    })
+    const tree = (id: string) => React.createElement(ThreadOpener, {
+      parentMessageId: id, parentChannelId: "parent_1", serverId: "server_1", viewerUserId: "viewer_1",
+    })
+    select("one")
+    const renderer = render(tree("one"))
+    const current = () => renderer.container.querySelector<HTMLImageElement>('[data-remote-image-kind="content"]')!
+    const first = current()
+    let finish!: () => void
+    const obsolete = new Promise<void>((resolve) => { finish = resolve })
+    Object.defineProperties(first, {
+      decode: { configurable: true, value: () => obsolete },
+      naturalWidth: { configurable: true, value: 320 },
+      naturalHeight: { configurable: true, value: 200 },
+    })
+    fireEvent.load(first)
+    renderer.rerender(tree("one"))
+    expect(current()).toBe(first)
+    select("two")
+    renderer.rerender(tree("two"))
+    const next = current()
+    expect(next).not.toBe(first)
+    expect(first.isConnected).toBe(false)
+    await act(async () => { finish(); await obsolete })
+    expect(next).toHaveAttribute("src", "/same.png")
+    expect(next).toHaveAttribute("data-remote-image-state", "pending")
+    expect(next).toHaveClass("opacity-0")
+  })
+
   it("renders projected reply content in the opener", () => {
     useMessageMock.mockReturnValue({
       isLoading: false,
