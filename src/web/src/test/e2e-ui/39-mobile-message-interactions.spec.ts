@@ -978,6 +978,8 @@ test("mobile thread return uses server read state instead of tab-local pixel mem
 
   const draft = `stable navigation draft ${stamp}`
   await editable.fill(draft)
+  const scrollToPresent = alice.page.getByTestId(tid.scrollToPresent)
+  if (await scrollToPresent.isVisible()) await scrollToPresent.click()
   const threadIndicator = alice.page.getByTestId(tid.threadIndicator(openerId))
   await expect(threadIndicator).toBeVisible()
   await threadIndicator.click()
