@@ -63,7 +63,7 @@ function IdentityImageAttempt({
         {...sourceProps}
         alt={alt}
         className={cn(
-          "absolute inset-0 size-full object-cover",
+          "absolute inset-0 size-full object-cover transition-none",
           visible ? "opacity-100" : "opacity-0",
           className,
         )}

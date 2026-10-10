@@ -33,6 +33,7 @@ describe("ProfileAvatar", () => {
     expect(html).toContain('src="https://cdn.example.com/ada.png" alt="Ada"')
     expect(html).toContain("opacity-0")
     expect(html).not.toContain("transition-opacity")
+    expect(html).toContain("transition-none")
     expect(html).toContain("width:40px;height:40px")
     expect(html).toContain("ring-2")
   })
