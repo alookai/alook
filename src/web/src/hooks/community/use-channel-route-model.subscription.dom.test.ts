@@ -84,8 +84,8 @@ beforeEach(async () => {
   window.history.replaceState(null, "", "/c/channels/server-1/post-1")
   const owner = await createCommunityQueryOwner()
   queryClient = owner.client
-  mocks.subscribe.mockClear()
-  mocks.unsubscribe.mockClear()
+  mocks.subscribe.mockReset()
+  mocks.unsubscribe.mockReset()
   mocks.replace.mockClear()
   mocks.clearLastChannel.mockClear()
   mocks.consumeColdEntryFailure.mockReset()
@@ -107,6 +107,25 @@ beforeEach(async () => {
 
 
 describe("useChannelRouteModel subscription ownership", () => {
+  it("updates the primary child without clearing a real parent owner, then clears all on host exit", () => {
+    const runtime = getCommunityRuntime(queryClient)
+    mocks.subscribe.mockImplementation((owner, target) => owner.ui.actions.subscribe(target))
+    mocks.unsubscribe.mockImplementation((owner) => owner.ui.actions.unsubscribe())
+    const parentOwner = Symbol("parent")
+    runtime.ui.actions.claimSecondaryChannel(parentOwner, "forum-1")
+    const renderer = render(React.createElement(Harness))
+    expect(runtime.ui.get().subscription).toEqual({ channelId: "post-1", secondaryChannelId: "forum-1" })
+    renderer.rerender(React.createElement(Harness, { channelId: "post-2" }))
+    expect(runtime.ui.get().currentChannelId).toBe("post-2")
+    expect(runtime.ui.get().subscription).toEqual({ channelId: "post-2", secondaryChannelId: "forum-1" })
+    expect(runtime.ui.get().secondaryChannelOwner).toBe(parentOwner)
+    expect(mocks.unsubscribe).not.toHaveBeenCalled()
+    renderer.unmount()
+    expect(runtime.ui.get().currentChannelId).toBeNull()
+    expect(runtime.ui.get().subscription).toEqual({})
+    expect(runtime.ui.get().secondaryChannelOwner).toBeNull()
+    expect(mocks.unsubscribe).toHaveBeenCalledOnce()
+  })
   it("moves a top-level channel from pending to ready when server categories hydrate", () => {
     mocks.server = undefined
     let renderer: ReturnType<typeof render>

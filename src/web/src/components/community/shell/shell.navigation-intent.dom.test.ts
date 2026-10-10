@@ -14,6 +14,8 @@ import {
 } from "@/lib/community/conversation-navigation-proof"
 import { ShellFrameView } from "./shell-frame-view"
 import { useCommunityNavigationController } from "./use-community-navigation-controller"
+import { CommunityRouteContext } from "./community-route-context"
+import ServerLayout from "@/app/c/channels/layout"
 
 const mocks = vi.hoisted(() => ({
   pathname: "/c/channels/s1/a",
@@ -23,6 +25,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   usePathname: () => mocks.pathname,
+  useSelectedLayoutSegments: () => mocks.pathname.split("/").slice(3),
   useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ push: mocks.push, replace: mocks.replace, prefetch: vi.fn() }),
 }))
@@ -62,6 +65,19 @@ vi.mock("./community-pending-frame", () => ({
 }))
 vi.mock("@/components/community/channels/channel-sidebar", () => ({ ChannelSidebarSkeleton: () => null }))
 vi.mock("@/components/community/channels/dm-sidebar", () => ({ DmSidebarSkeleton: () => null }))
+vi.mock("@/contexts/community/current-user", () => ({ useCurrentUser: () => ({ id: "viewer" }) }))
+vi.mock("@/components/community/channels/channel-route", () => ({
+  ChannelRoute: ({ channelId, targetHref, routeCommitted }: {
+    channelId: string
+    targetHref: string
+    routeCommitted: boolean
+  }) => routeCommitted ? createElement("span", null, "Committed content")
+    : createElement("div", { role: "status", "data-channel-id": channelId, "data-target-href": targetHref },
+      createElement("span", null, "Target skeleton"),
+      createElement("span", null, "Blank area"),
+      createElement("input", { "aria-label": "Draft input" }),
+    ),
+}))
 
 type Navigation = ReturnType<typeof useCommunityNavigationController>
 const target = "/c/channels/s1/b"
@@ -97,7 +113,13 @@ function renderShell(breakpoint: "mobile" | "desktop" = "mobile", queryClient = 
       onUserBarOpenUpdate: vi.fn(),
       dismissUserBarExtension: vi.fn(),
     }
-    return createElement(ShellFrameView, props, createElement("span", null, "Committed content"))
+    return createElement(CommunityRouteContext, { value: {
+      frame: committedFrame, navigation, ownerDeleteRouteScope: undefined,
+    } }, createElement(ShellFrameView, props,
+      committedFrame.scope.kind === "server"
+        ? createElement(ServerLayout, null, createElement("span", null, "Committed content"))
+        : createElement("span", null, "Committed content"),
+    ))
   }
   const renderer = render(createElement(QueryClientProvider, { client: queryClient }, createElement(Capture)))
   return {
@@ -131,6 +153,8 @@ function expectPendingProof(shell: ReturnType<typeof renderShell>, epoch: number
   expect(shell.navigation.navigationPending).toBe(true)
   expect(getConversationNavigationProof(shell.queryClient)?.epoch).toBe(epoch)
   expect(screen.getByRole("status").textContent).toContain("Target skeleton")
+  expect(screen.getByRole("status")).toHaveAttribute("data-channel-id", "b")
+  expect(screen.getByRole("status")).toHaveAttribute("data-target-href", target)
   expect(screen.queryByText("Committed content")).toBeNull()
 }
 

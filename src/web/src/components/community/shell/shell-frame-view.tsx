@@ -110,13 +110,13 @@ export function ShellFrameView({
           ? <ChannelSidebarSkeleton targetServerId={checkpoint.sidebar.serverId} />
           : checkpoint.sidebar.kind === "me-skeleton" ? <DmSidebarSkeleton /> : null}
       </>}
-      main={checkpoint.main.kind === "target-skeleton" ? (
+      main={checkpoint.main.kind === "keep" || checkpoint.main.kind === "server-route" ? children : (
         <CommunityPendingFrame
           href={checkpoint.targetHref}
           reserveBackSlot={surface === "detail"}
           conversationSubtype={checkpoint.main.conversationSubtype}
         />
-      ) : children}
+      )}
       userBar={(
         <UserBar
           breakpoint={breakpoint}

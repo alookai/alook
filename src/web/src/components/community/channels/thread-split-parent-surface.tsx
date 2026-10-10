@@ -13,6 +13,11 @@ import type { OpenProfile } from "@/components/community/social/profile-types"
 import { ForumChannelSurface } from "@/components/community/channels/forum-channel-surface"
 import { TextChannelSurface } from "@/components/community/channels/text-channel-surface"
 import type { ChannelNotifLevel } from "@/components/community/channels/channel-header"
+import { ChannelHeaderSkeleton } from "@/components/community/channels/channel-header"
+import { ConversationMessageSkeleton } from "@/components/community/channels/conversation-message-skeleton"
+import { ForumViewSkeleton } from "@/components/community/channels/forum-view"
+import { ConversationResolutionErrorFrame } from "@/components/community/channels/conversation-resolution-error-frame"
+import type { useChannelMetadata } from "@/hooks/community/use-channel-metadata"
 
 export function ThreadSplitParentSurface({
   serverId,
@@ -20,6 +25,7 @@ export function ThreadSplitParentSurface({
   server,
   channel,
   viewer,
+  metadata,
   onNavigateParent,
   channelRefCandidates,
   uiHandlers,
@@ -31,6 +37,7 @@ export function ThreadSplitParentSurface({
   server: ServerDetail
   channel: Channel
   viewer: { id: string; name: string; discriminator?: string; avatar: string }
+  metadata: ReturnType<typeof useChannelMetadata>
   onNavigateParent?: () => void
   channelRefCandidates: ComposerProps["channelRefCandidates"]
   uiHandlers: ComponentProps<typeof TextChannelSurface>["uiHandlers"]
@@ -47,6 +54,7 @@ export function ThreadSplitParentSurface({
     isChildChannel: false,
     isNotifyUnit: false,
     currentUser: viewer,
+    accessAllowed: metadata.canRead,
   })
   const notifs = useNotificationSettings()
   const { mutate: setChannelNotif } = useSetChannelNotif()
@@ -55,6 +63,17 @@ export function ThreadSplitParentSurface({
     setChannelNotif({ channelId: channel.id, level }, {
       onError: (error) => toastApiError(error, "Failed to update notification level"),
     })
+  }
+
+  if (!metadata.canRead) {
+    if (metadata.status === "retryable-error") return <ConversationResolutionErrorFrame
+      retrying={metadata.retrying} onRetry={() => { void metadata.retry() }} />
+    return <>
+      <ChannelHeaderSkeleton kind={isForum(channel.type) ? "forum" : "text"} />
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {isForum(channel.type) ? <ForumViewSkeleton /> : <ConversationMessageSkeleton />}
+      </main>
+    </>
   }
 
   if (isForum(channel.type)) {

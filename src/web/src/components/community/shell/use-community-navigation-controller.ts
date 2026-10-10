@@ -19,7 +19,6 @@ import {
   normalizeCommunityHref,
   type CommunityCommittedFrame,
 } from "@/lib/community/community-route"
-import type { ShellRouter } from "./shell-frame-types"
 import { cancelActiveConversationNavigationProof } from "@/lib/community/conversation-navigation-proof"
 
 export type CommunityNavigationController = {
@@ -27,7 +26,7 @@ export type CommunityNavigationController = {
   publishedHref: string
   navigationPending: boolean
   pendingHref: string | null
-  push: (href: string) => void
+  push: ReturnType<typeof useRouter>["push"]
   pushImmediate: (href: string) => void
   replace: (href: string) => void
   resolveAndPush: (resolve: () => Promise<string>) => Promise<boolean>
@@ -37,7 +36,7 @@ export type CommunityNavigationController = {
 export function useCommunityNavigationController(
   committedFrame: CommunityCommittedFrame,
 ): CommunityNavigationController {
-  const router = useRouter() as ShellRouter
+  const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const search = searchParams.toString()
@@ -94,7 +93,8 @@ export function useCommunityNavigationController(
     }
   }, [cancelPendingNavigation])
 
-  const push = useCallback((href: string) => {
+  const push = useCallback((...args: Parameters<typeof router.push>) => {
+    const [href] = args
     if (href === publishedHref && !navigationPending) { navigationNoop(href); return }
     beginNavigation(href)
     void prepareNavigationMetadata(queryClient, href, "foreground")
@@ -109,7 +109,7 @@ export function useCommunityNavigationController(
       setNavigationPending(true)
       setPendingHref(href)
     })
-    router.push(href)
+    router.push(...args)
   }, [committedFrame.leafKey, committedFrame.revision, navigationPending, publishedHref, queryClient, router, setNavigationPending, setPendingHref])
 
   const pushImmediate = useCallback((href: string) => {

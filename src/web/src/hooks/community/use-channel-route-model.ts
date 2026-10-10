@@ -149,12 +149,14 @@ export function useChannelRouteModel(
   }), [skeletonSubtype, structuralParentId, parentSubtype])
   useEffect(() => {
     runtime.ui.actions.setCurrentChannelId(channelId)
-    return () => { runtime.ui.actions.setCurrentChannelId(null) }
   }, [channelId, runtime])
   useEffect(() => {
     communityWsSubscribe(runtime, { channelId })
-    return () => communityWsUnsubscribe(runtime)
   }, [channelId, runtime])
+  useEffect(() => () => {
+    runtime.ui.actions.setCurrentChannelId(null)
+    communityWsUnsubscribe(runtime)
+  }, [runtime])
   useEffect(() => {
     if (metaQuery.canRead) exited.current = null
     if (metaQuery.denied || metaQuery.isArchived) {

@@ -31,7 +31,7 @@ describe("adaptive navigation cutover contracts", () => {
     expect(layout).toContain(
       'import { ChannelRoute } from "@/components/community/channels/channel-route"',
     )
-    expect(layout).toContain("key={`${currentUser.id}/${serverId}/${routeChannelId}`}")
+    expect(layout).toContain("key={JSON.stringify([currentUser.id, serverId])}")
     expect(layout).not.toContain("parentChannelId={routeParent" + "ChannelId}")
     expect(flatPage).toContain("return null")
     expect(flatPage).not.toContain("<ChannelRoute")

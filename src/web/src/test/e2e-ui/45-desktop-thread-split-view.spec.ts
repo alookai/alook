@@ -1,4 +1,5 @@
 import { expect, test } from "./_fixtures/community-fixture"
+import { composerEditable } from "./_fixtures/actions"
 import {
   seedChannel,
   seedForumThread,
@@ -197,8 +198,8 @@ test.describe.serial("desktop thread split view", () => {
       const pendingPost = page.getByTestId(tid.threadSplitPanel)
       await expect(pendingShell).toHaveAttribute("data-layout", "split")
       await expect(pendingParent.getByTestId(tid.forumFilterBar)).toBeVisible()
-      await expect(pendingParent.getByRole("main").locator('[data-slot="skeleton"]').first()).toBeVisible()
-      await expect(pendingParent.getByTestId(tid.forumPostList)).toHaveCount(0)
+      await expect(pendingParent.getByTestId(tid.forumPostList)).toBeVisible()
+      await expect(pendingParent.getByTestId(tid.forumThreadCard(forumPostId))).toBeVisible()
       await expect(pendingPost.locator("[data-message-list-skeleton]")).toBeVisible()
       const group = await pendingShell.locator('[data-slot="resizable-panel-group"]').elementHandle()
       if (!group) throw new Error("Pending split group is unavailable")
@@ -235,5 +236,170 @@ test.describe.serial("desktop thread split view", () => {
     const forumSplit = testInfo.outputPath("1280-light-forum-split.png")
     await page.screenshot({ path: forumSplit })
     await testInfo.attach("1280-light-forum-split", { path: forumSplit, contentType: "image/png" })
+  })
+
+  test("keeps a cold parent placeholder until its own metadata is readable", async ({ asUser }) => {
+    const { page } = await asUser("alice")
+    await page.setViewportSize({ width: 1280, height: 900 })
+    let releaseMetadata!: () => void
+    const metadataGate = new Promise<void>((resolve) => { releaseMetadata = resolve })
+    const metadataPath = `/api/community/channels/${forumId}`
+    const metadataUrl = (url: URL) => url.pathname === metadataPath
+    await page.route(metadataUrl, async (route) => {
+      await metadataGate
+      await route.continue()
+    })
+    try {
+      const requested = page.waitForRequest((request) => new URL(request.url()).pathname === metadataPath)
+      await page.goto(`/c/channels/${serverId}/${forumPostId}`)
+      await requested
+      const parent = page.getByTestId(tid.threadSplitParent)
+      await expect(page.getByTestId(tid.threadSplit)).toHaveAttribute("data-layout", "split")
+      await expect(parent.getByTestId(tid.forumPostList)).toHaveCount(0)
+      await expect(parent.getByRole("main").locator('[data-slot="skeleton"]').first()).toBeVisible()
+      releaseMetadata()
+      await expect(parent.getByTestId(tid.forumPostList)).toBeVisible()
+      await expect(page.getByTestId(tid.threadSplitPanel).getByText("Forum reply", { exact: false }))
+        .toBeVisible()
+    } finally {
+      releaseMetadata()
+      await page.unrouteAll({ behavior: "wait" })
+    }
+  })
+
+  test("retains the forum scroll node and resized group across a held post switch", async ({ asUser }) => {
+    test.setTimeout(120_000)
+    for (let index = 0; index < 12; index++) {
+      await seedForumThread("alice", forumId, `Split filler ${index}`, `Filler reply ${index}`)
+    }
+    const postA = await seedForumThread("alice", forumId, "Switch post A", "Switch reply A")
+    const { page } = await asUser("alice")
+    await page.setViewportSize({ width: 1600, height: 900 })
+    await page.goto(`/c/channels/${serverId}/${postA}`)
+    const shell = page.getByTestId(tid.threadSplit)
+    const parent = page.getByTestId(tid.threadSplitParent)
+    const thread = page.getByTestId(tid.threadSplitPanel)
+    const list = parent.getByTestId(tid.forumPostList)
+    await expect(shell).toHaveAttribute("data-layout", "split", { timeout: 20_000 })
+    await expect(thread.getByText("Switch reply A", { exact: false })).toBeVisible()
+    await resizeThreadPanel(page, 520)
+    await list.evaluate((node) => { node.scrollTop = node.scrollHeight })
+    await expect(parent.getByTestId(tid.forumThreadCard(forumPostId))).toBeVisible()
+    const scrollTop = await list.evaluate((node) => node.scrollTop)
+    expect(scrollTop).toBeGreaterThan(0)
+    const width = (await thread.boundingBox())?.width ?? 0
+    const group = await shell.locator('[data-slot="resizable-panel-group"]').elementHandle()
+    const listNode = await list.elementHandle()
+    if (!group || !listNode) throw new Error("Forum split nodes are unavailable")
+    let releaseMetadata!: () => void
+    const metadataGate = new Promise<void>((resolve) => { releaseMetadata = resolve })
+    const metadataPath = `/api/community/channels/${forumPostId}`
+    const metadataUrl = (url: URL) => url.pathname === metadataPath
+    await page.route(metadataUrl, async (route) => {
+      await metadataGate
+      await route.continue()
+    })
+    try {
+      const requested = page.waitForRequest((request) => new URL(request.url()).pathname === metadataPath)
+      await parent.getByTestId(tid.forumThreadCard(forumPostId)).click()
+      await requested
+      await expect(thread.locator("[data-message-list-skeleton]")).toBeVisible()
+      await expect(thread.getByText("Switch reply A", { exact: false })).toHaveCount(0)
+      for (const phase of ["pending", "ready"] as const) {
+        if (phase === "ready") {
+          releaseMetadata()
+          await expect(thread.getByText("Forum reply", { exact: false })).toBeVisible()
+        }
+        expect(await list.evaluate((node, original) => node === original, listNode)).toBe(true)
+        expect(await shell.locator('[data-slot="resizable-panel-group"]')
+          .evaluate((node, original) => node === original, group)).toBe(true)
+        expect(await list.evaluate((node) => node.scrollTop)).toBe(scrollTop)
+        expect(Math.abs(((await thread.boundingBox())?.width ?? 0) - width)).toBeLessThanOrEqual(1)
+      }
+    } finally {
+      releaseMetadata()
+      await page.unrouteAll({ behavior: "wait" })
+      await Promise.all([group.dispose(), listNode.dispose()])
+    }
+  })
+
+  test("retains the text parent draft and scroll while child drafts stay separate", async ({ asUser }) => {
+    test.setTimeout(120_000)
+    for (let index = 0; index < 35; index++) {
+      await seedMessage("alice", textChannelId, `Parent scroll row ${index}`)
+    }
+    const openerA = await seedMessage("alice", textChannelId, "Draft switch opener A")
+    const childA = await seedThread("alice", openerA, "Draft thread A")
+    await seedMessage("alice", childA, "Draft reply A")
+    const openerB = await seedMessage("alice", textChannelId, "Draft switch opener B")
+    const childB = await seedThread("alice", openerB, "Draft thread B")
+    await seedMessage("alice", childB, "Draft reply B")
+    const { page } = await asUser("alice")
+    await page.setViewportSize({ width: 1600, height: 900 })
+    await page.goto(`/c/channels/${serverId}/${childA}`)
+    const shell = page.getByTestId(tid.threadSplit)
+    const parent = page.getByTestId(tid.threadSplitParent)
+    const thread = page.getByTestId(tid.threadSplitPanel)
+    const scroller = parent.getByTestId(tid.messageScroller)
+    const parentInput = composerEditable(page, parent)
+    await expect(shell).toHaveAttribute("data-layout", "split", { timeout: 20_000 })
+    await expect(thread.getByText("Draft reply A", { exact: false })).toBeVisible()
+    await expect(parent.getByTestId(tid.threadIndicator(openerB))).toBeVisible()
+    await resizeThreadPanel(page, 520)
+    await parentInput.fill("Parent draft survives")
+    await composerEditable(page, thread).fill("Child A draft")
+    const scrollTop = await scroller.evaluate((node) => node.scrollTop)
+    expect(scrollTop).toBeGreaterThan(0)
+    const width = (await thread.boundingBox())?.width ?? 0
+    const group = await shell.locator('[data-slot="resizable-panel-group"]').elementHandle()
+    const scrollNode = await scroller.elementHandle()
+    const inputNode = await parentInput.elementHandle()
+    if (!group || !scrollNode || !inputNode) throw new Error("Text split nodes are unavailable")
+    let releaseMetadata!: () => void
+    const metadataGate = new Promise<void>((resolve) => { releaseMetadata = resolve })
+    const metadataPath = `/api/community/channels/${childB}`
+    const metadataUrl = (url: URL) => url.pathname === metadataPath
+    await page.route(metadataUrl, async (route) => {
+      await metadataGate
+      await route.continue()
+    })
+    try {
+      const requested = page.waitForRequest((request) => new URL(request.url()).pathname === metadataPath)
+      await parent.getByTestId(tid.threadIndicator(openerB)).click()
+      await requested
+      await expect(thread.locator("[data-message-list-skeleton]")).toBeVisible()
+      await expect(thread.getByText("Draft reply A", { exact: false })).toHaveCount(0)
+      for (const phase of ["pending", "ready"] as const) {
+        if (phase === "ready") {
+          releaseMetadata()
+          await expect(thread.getByText("Draft reply B", { exact: false })).toBeVisible()
+        }
+        expect(await scroller.evaluate((node, original) => node === original, scrollNode)).toBe(true)
+        expect(await parentInput.evaluate((node, original) => node === original, inputNode)).toBe(true)
+        expect(await shell.locator('[data-slot="resizable-panel-group"]')
+          .evaluate((node, original) => node === original, group)).toBe(true)
+        expect(await scroller.evaluate((node) => node.scrollTop)).toBe(scrollTop)
+        await expect(parentInput).toHaveText("Parent draft survives")
+        expect(Math.abs(((await thread.boundingBox())?.width ?? 0) - width)).toBeLessThanOrEqual(1)
+      }
+      await expect(composerEditable(page, thread)).toBeEmpty()
+      await composerEditable(page, thread).fill("Child B draft")
+      await parent.getByTestId(tid.threadIndicator(openerA)).click()
+      await expect(thread.getByText("Draft reply A", { exact: false })).toBeVisible()
+      await expect(composerEditable(page, thread)).toHaveText("Child A draft")
+      await parent.getByTestId(tid.threadIndicator(openerB)).click()
+      await expect(composerEditable(page, thread)).toHaveText("Child B draft")
+      await expect(parentInput).toHaveText("Parent draft survives")
+      const parentLive = `switch parent live ${Date.now()}`
+      const childLive = `switch child live ${Date.now()}`
+      await seedMessage("alice", textChannelId, parentLive)
+      await seedMessage("alice", childB, childLive)
+      await expect(parent.getByText(parentLive, { exact: false })).toBeVisible({ timeout: 20_000 })
+      await expect(thread.getByText(childLive, { exact: false })).toBeVisible({ timeout: 20_000 })
+    } finally {
+      releaseMetadata()
+      await page.unrouteAll({ behavior: "wait" })
+      await Promise.all([group.dispose(), scrollNode.dispose(), inputNode.dispose()])
+    }
   })
 })

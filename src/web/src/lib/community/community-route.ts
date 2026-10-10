@@ -70,7 +70,7 @@ export type CommunityCheckpointPlan = {
     | { kind: "keep" }
     | { kind: "server-skeleton"; serverId: string }
     | { kind: "me-skeleton" }
-  main: { kind: "keep" } | {
+  main: { kind: "keep" } | { kind: "server-route"; href: string } | {
     kind: "target-skeleton"
     href: string
     conversationSubtype?: "text" | "forum" | "thread"
@@ -313,7 +313,9 @@ export function resolveCommunityCheckpointPlan({
       targetHref: target.href,
       rail: { kind: "keep" },
       sidebar: { kind: "keep" },
-      main: isConversationTarget
+      main: targetMainKind === "server-conversation"
+        ? { kind: "server-route", href: target.href }
+        : isConversationTarget
         ? {
             kind: "target-skeleton",
             href: target.href,

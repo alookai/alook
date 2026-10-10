@@ -41,6 +41,9 @@ const mocks = vi.hoisted(() => ({
   serverListLiveAuthoritative: { current: true },
   serverAccessRevoked: { current: false },
   queryClient: null as unknown as QueryClient,
+  navigationPending: { current: false },
+  pendingHref: { current: null as string | null },
+  channelRoute: vi.fn(),
 }))
 
 vi.mock("@tanstack/react-query", async (importOriginal) => ({ ...await importOriginal<typeof import("@tanstack/react-query")>(),
@@ -92,7 +95,7 @@ vi.mock("@/lib/community/community-route", async (importOriginal) => ({
 }))
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop" }))
 vi.mock("@/components/community/channels/channel-sidebar", () => ({ ChannelSidebar: () => null, ChannelSidebarSkeleton: () => null }))
-vi.mock("@/components/community/channels/channel-route", () => ({ ChannelRoute: () => null }))
+vi.mock("@/components/community/channels/channel-route", () => ({ ChannelRoute: (props: unknown) => { mocks.channelRoute(props); return null } }))
 vi.mock("@/components/community/shell/community-pending-frame", () => ({
   CommunityPendingFrame: ({ href }: { href: string }) => createElement("div", {
     "data-testid": "owner-delete-pending-frame",
@@ -257,7 +260,9 @@ function ServerLayout({ children }: { children?: React.ReactNode }) {
   }, [scope.serverId, scope.token])
   return createElement(CommunityRouteContext, { value: {
     frame: { ...normalizeCommunityHref("/c/channels/missing-server/missing-channel"), revision: 0 },
-    navigation: { captureIntent: mocks.captureIntent } as never,
+    navigation: { captureIntent: mocks.captureIntent,
+      navigationPending: mocks.navigationPending.current,
+      pendingHref: mocks.pendingHref.current } as never,
     ownerDeleteRouteScope: scope,
   } }, createElement(ServerSidebarSlot, { serverId: scope.serverId }), createElement(ServerContent, null, children))
 }
@@ -271,6 +276,9 @@ describe("ServerLayout deletion routing", () => {
   beforeEach(async () => {
     const { client, registry } = await createCommunityQueryOwner("viewer-1")
     mocks.queryClient = client
+    mocks.navigationPending.current = false
+    mocks.pendingHref.current = null
+    mocks.channelRoute.mockClear()
     const actual = await vi.importActual<typeof import("@/lib/community/eject-server")>("@/lib/community/eject-server")
     mocks.routeToken = actual.createOwnerServerDeleteRouteToken(client)
     registry.runtime.ui.actions.registerUiHandlers({ cancelPendingNavigation: mocks.cancelPendingNavigation, navigatePath: mocks.navigatePath })
@@ -345,6 +353,17 @@ describe("ServerLayout deletion routing", () => {
     })
     expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/me")
     view.unmount()
+  })
+
+  it("keeps an owner-delete transaction above a same-server pending conversation target", async () => {
+    mocks.navigationPending.current = true
+    mocks.pendingHref.current = "/c/channels/missing-server/other-channel?msg=other&threadView=full"
+    const actual = await vi.importActual<typeof import("@/lib/community/eject-server")>("@/lib/community/eject-server")
+    actual.beginOwnerServerDelete(mocks.queryClient, "missing-server", mocks.routeToken)
+    const renderer = render(createElement(ServerLayout))
+    expect(renderer.getByTestId("owner-delete-pending-frame")).toHaveAttribute("data-href", "/c/channels/missing-server/missing-channel")
+    expect(mocks.channelRoute).not.toHaveBeenCalled()
+    renderer.unmount()
   })
 
   it("checks the current pathname before running the generic eject", () => {

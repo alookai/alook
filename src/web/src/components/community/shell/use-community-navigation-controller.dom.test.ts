@@ -131,6 +131,18 @@ describe("useCommunityNavigationController", () => {
     expect(mocks.cancelProof).toHaveBeenCalledWith(mocks.queryClient)
   })
 
+  it("forwards scroll:false without changing target publication or cancellation", async () => {
+    const hook = await renderController()
+    await act(async () => hook.current.push("/c/channels/s1/post2?msg=m2", { scroll: false }))
+    expect(mocks.push).toHaveBeenCalledExactlyOnceWith("/c/channels/s1/post2?msg=m2", { scroll: false })
+    expect(hook.current.pendingHref).toBe("/c/channels/s1/post2?msg=m2")
+    expect(hook.current.navigationPending).toBe(true)
+    await act(async () => hook.current.cancelPendingNavigation())
+    expect(hook.current.pendingHref).toBeNull()
+    expect(mocks.replace).not.toHaveBeenCalled()
+    await hook.unmount()
+  })
+
   it("keeps a same-server root intent pending until the exact root frame commits", async () => {
     mocks.pathname.current = "/c/channels/s1/c1"
     mocks.frame.current = { ...normalizeCommunityHref("/c/channels/s1/c1"), revision: 6 }

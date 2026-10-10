@@ -49,6 +49,28 @@ vi.mock("@/components/ui/resizable", () => ({
 }))
 
 describe("ThreadSplitView", () => {
+  it("keeps parent input, scroll node and group when the keyed right child changes", () => {
+    const parent = createElement("div", { "data-testid": "parent-scroll" },
+      createElement("input", { "data-testid": "parent-draft", defaultValue: "" }))
+    const renderer = render(createElement(ThreadSplitView, {
+      split: true, parent, thread: createElement("span", { key: "A" }, "Child A"),
+    }))
+    const group = screen.getByTestId("panel-group")
+    const scroll = screen.getByTestId("parent-scroll")
+    const draft = screen.getByTestId("parent-draft") as HTMLInputElement
+    scroll.scrollTop = 72
+    draft.value = "Unsent parent"
+    renderer.rerender(createElement(ThreadSplitView, {
+      split: true, parent, thread: createElement("span", { key: "B" }, "Child B pending"),
+    }))
+    expect(screen.getByTestId("panel-group")).toBe(group)
+    expect(screen.getByTestId("parent-scroll")).toBe(scroll)
+    expect(scroll.scrollTop).toBe(72)
+    expect(screen.getByTestId("parent-draft")).toBe(draft)
+    expect(draft.value).toBe("Unsent parent")
+    expect(screen.queryByText("Child A")).not.toBeInTheDocument()
+    expect(screen.getByText("Child B pending")).toBeVisible()
+  })
   it("uses the shared persistent resize contract in split mode", () => {
     render(createElement(ThreadSplitView, {
       split: true,

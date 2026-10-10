@@ -192,26 +192,32 @@ describe("community route", () => {
       targetHref: "/c/channels/s1/c1",
       rail: { kind: "keep" },
       sidebar: { kind: "keep" },
-      main: { kind: "target-skeleton", href: "/c/channels/s1/c1" },
+      main: { kind: "server-route", href: "/c/channels/s1/c1" },
     })
   })
 
-  it("preserves a known target conversation subtype in the pending checkpoint", () => {
+  it("delegates the whole same-server target to its route host instead of a shell skeleton", () => {
     const committedFrame = {
       ...normalizeCommunityHref("/c/channels/s1/c1"),
       revision: 4,
     }
     expect(resolveCommunityCheckpointPlan({
       committedFrame,
-      targetHref: "/c/channels/s1/c2",
+      targetHref: "/c/channels/s1/c2?msg=m2&threadView=full",
       pending: true,
       targetReady: true,
       targetConversationSubtype: "forum",
     }).main).toEqual({
-      kind: "target-skeleton",
-      href: "/c/channels/s1/c2",
-      conversationSubtype: "forum",
+      kind: "server-route",
+      href: "/c/channels/s1/c2?msg=m2&threadView=full",
     })
+  })
+
+  it("retains the DM target skeleton inside the same me scope", () => {
+    expect(resolveCommunityCheckpointPlan({
+      committedFrame: { ...normalizeCommunityHref("/c/me/dm1"), revision: 2 },
+      targetHref: "/c/me/dm2", pending: true, targetReady: true,
+    }).main).toEqual({ kind: "target-skeleton", href: "/c/me/dm2" })
   })
 
   it("keeps committed A as the source after the router publishes B", () => {

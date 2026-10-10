@@ -124,6 +124,22 @@ describe("useThreadSplitMode secondary live subscription", () => {
     renderer.unmount()
   })
 
+  it("releases a lost parent qualification while keeping the real measurement node and owner lifetime", () => {
+    const renderer = render(React.createElement(Harness))
+    const node = screen.getByTestId("thread-split-mode")
+    const [runtime, owner] = mocks.claimSecondary.mock.calls.at(-1)!
+    renderer.rerender(React.createElement(Harness, { parentChannelId: null }))
+    expect(screen.getByTestId("thread-split-mode")).toBe(node)
+    expect(node).toHaveAttribute("data-mode", "split")
+    expect(observe).toHaveBeenCalledOnce()
+    expect(disconnect).not.toHaveBeenCalled()
+    expect(mocks.releaseSecondary).toHaveBeenLastCalledWith(runtime, owner)
+    renderer.rerender(React.createElement(Harness))
+    expect(mocks.claimSecondary).toHaveBeenLastCalledWith(runtime, owner, "parent_1")
+    renderer.unmount()
+    expect(disconnect).toHaveBeenCalledOnce()
+  })
+
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()

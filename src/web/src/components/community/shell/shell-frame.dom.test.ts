@@ -279,7 +279,7 @@ describe("ShellFrame orchestration", () => {
     })
   })
 
-  it("carries the canonical target subtype through the navigation checkpoint", () => {
+  it("delegates a same-server canonical conversation target to its stable route host", () => {
     mocks.currentHref.current = "/c/channels/s1/c1"
     mocks.pendingHref.current = "/c/channels/s1/c2"
     mocks.navigationPending.current = true
@@ -293,9 +293,8 @@ describe("ShellFrame orchestration", () => {
     expect(checkpoint()).toMatchObject({
       mode: "same-scope-leaf",
       main: {
-        kind: "target-skeleton",
+        kind: "server-route",
         href: "/c/channels/s1/c2",
-        conversationSubtype: "forum",
       },
     })
   })

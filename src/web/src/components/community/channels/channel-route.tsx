@@ -3,7 +3,7 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { getCommunityRuntime } from "@/stores/community/runtime"
 
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ComponentProps } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toastApiError } from "@/lib/api/client"
 import { ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
@@ -27,10 +27,12 @@ import { toChannelRefCandidate } from "@/lib/community/channel-ref-extension"
 import { useCurrentChannelId, useUiHandlers } from "@/stores/community"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { useChannelRouteModel } from "@/hooks/community/use-channel-route-model"
+import { useChannelMetadata } from "@/hooks/community/use-channel-metadata"
 import { useForumOpenerHint } from "@/hooks/community/use-forum-opener-hint"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { useSetChannelNotif } from "@/hooks/community/mutations"
-import { channelHref, removeCommunityParam, serverRootHref } from "@/lib/community/community-route"
+import { channelHref, normalizeCommunityHref, removeCommunityParam, serverRootHref } from "@/lib/community/community-route"
+import { useCommunityRouteFrame } from "@/components/community/shell/community-route-context"
 import {
   THREAD_OPENER_HANDOFF_PARAM,
   useThreadOpenerRouteGate,
@@ -45,21 +47,110 @@ import { useNativeSystemNotificationConversationDismissal } from "@/hooks/commun
 
 const THREAD_VIEW_PARAM = "threadView"
 
-/**
- * /c/channels/:serverId/:channelId
- *
- * - Forum channel: ForumView
- * - Text channel: MessageList + Composer + right panels
- * - Child thread opened via URL: child-channel view (current identity + list)
- */
-export function ChannelRoute({ serverParam, channelId }: {
+type RouteTarget = {
+  serverId: string
   serverParam: string
   channelId: string
+  searchParams: URLSearchParams
+  routeCommitted: boolean
+  routeModel: ReturnType<typeof useChannelRouteModel>
+  currentUser: ReturnType<typeof useCurrentUser>
+}
+
+export function ChannelRoute({ serverParam, channelId, targetHref, routeCommitted = true }: {
+  serverParam: string
+  channelId: string
+  targetHref?: string
+  routeCommitted?: boolean
 }) {
-  const router = useRouter()
-  const searchParams = useSearchParams()
+  const committedSearch = useSearchParams()
+  const search = targetHref === undefined ? committedSearch.toString() : normalizeCommunityHref(targetHref).search
+  const searchParams = useMemo(() => new URLSearchParams(search), [search])
   const serverId = decodeURIComponent(serverParam)
   const currentUser = useCurrentUser()
+  const routeModel = useChannelRouteModel(serverId, serverParam, channelId, currentUser.id)
+  const parentChannelId = routeModel.layoutHint.parentChannelId
+  return <ChannelRouteFrame key={JSON.stringify([currentUser.id, serverId, parentChannelId ?? channelId])}
+    serverId={serverId} serverParam={serverParam} channelId={channelId}
+    searchParams={searchParams} routeCommitted={routeCommitted}
+    routeModel={routeModel} currentUser={currentUser} />
+}
+
+function ChannelRouteFrame(target: RouteTarget) {
+  const { serverId, serverParam, channelId, searchParams, routeModel, currentUser } = target
+  const parentChannelId = routeModel.layoutHint.parentChannelId
+  const server = routeModel.server
+  const parent = server?.id === serverId ? server.categories
+    .flatMap((category) => category.channels)
+    .find((channel) => channel.id === parentChannelId && !channel.pending
+      && (channel.type === "forum" || channel.type === "text")) : undefined
+  const parentMetadata = useChannelMetadata(serverId, parentChannelId ?? undefined)
+  const { containerRef, mode } = useThreadSplitMode({
+    parentChannelId: parent && parentMetadata.canRead ? parentChannelId : null,
+    forceFullscreen: searchParams.get(THREAD_VIEW_PARAM) === "full",
+  })
+  const uiHandlers = useUiHandlers()
+  const { navigation } = useCommunityRouteFrame()
+  const isThread = routeModel.skeletonSubtype === "thread"
+    || routeModel.routeLifecycle === "ready" && routeModel.isChild
+  const split = isThread && mode === "split"
+  const channelRefCandidates = useMemo(() => server?.categories
+    .flatMap((category) => category.channels)
+    .map((channel) => toChannelRefCandidate(server, channel)) ?? [], [server])
+  const enterThread = useCallback((id: string) => {
+    if (split) navigation.push(channelHref(serverParam, id), { scroll: false })
+    else navigation.push(channelHref(serverParam, id))
+  }, [navigation, serverParam, split])
+  const navigateServerRoot = useCallback(() => {
+    uiHandlers.replacePath?.(serverRootHref(serverParam))
+  }, [serverParam, uiHandlers])
+  const openProfile = useCallback<OpenProfile>((name, event, discriminator, userId) => {
+    uiHandlers.openProfile?.(name, event, discriminator, userId)
+  }, [uiHandlers])
+  const pane = <ChannelTargetPane key={JSON.stringify([currentUser.id, serverId, channelId])}
+    {...target} split={split} onOpenChild={enterThread} />
+  return <div ref={containerRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
+    {isThread ? mode === "pending" ? <ConversationResolutionPendingFrame /> : <ThreadSplitView
+      split={split} conversationSubtype="thread"
+      parent={split ? server && parent ? <ThreadSplitParentSurface
+        serverId={serverId} serverParam={serverParam} server={server} channel={parent}
+        viewer={currentUser} metadata={parentMetadata} onNavigateParent={navigateServerRoot}
+        channelRefCandidates={channelRefCandidates} uiHandlers={uiHandlers}
+        onOpenChild={enterThread} onOpenProfile={openProfile} />
+        : <ParentPendingFrame subtype={routeModel.layoutHint.parentSubtype} /> : null}
+      thread={pane} /> : pane}
+  </div>
+}
+
+function ParentPendingFrame({ subtype }: { subtype: "unknown" | "forum" | "text" }) {
+  if (subtype === "unknown") return <ConversationResolutionPendingFrame />
+  return <>
+    <ChannelHeaderSkeleton kind={subtype} />
+    <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {subtype === "forum" ? <ForumViewSkeleton /> : <ConversationMessageSkeleton />}
+    </main>
+  </>
+}
+
+function QualifiedThreadSurface({ routeLifecycle, ...props }: ComponentProps<typeof ThreadChannelSurface> & {
+  routeLifecycle: RouteTarget["routeModel"]["routeLifecycle"]
+}) {
+  const threadOpenerHandoff = useThreadOpenerRouteGate({
+    serverId: props.serverId,
+    childChannelId: props.channelId,
+    parentChannelId: props.parentChannelId,
+    openerMessageId: props.parentMessageId,
+    lifecycle: routeLifecycle,
+  })
+  return <ThreadChannelSurface {...props} threadOpenerHandoff={threadOpenerHandoff} />
+}
+
+function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, routeCommitted,
+  routeModel, currentUser, split, onOpenChild }: RouteTarget & {
+  split: boolean
+  onOpenChild: (id: string) => void
+}) {
+  const router = useRouter()
   const [jumpTargetId, setJumpTargetId] = useAtom(useCreateAtom<string | null>((() => searchParams.get("msg"))()))
   const queryClient = useQueryClient()
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
@@ -70,25 +161,25 @@ export function ChannelRoute({ serverParam, channelId }: {
     accessEpoch,
   )
   const navigationTarget = navigationGate.target
+  const routeAnchorMessageId = searchParams.get("msg")
   const currentAnchorMessageId = navigationTarget
-    ? navigationTarget.anchorMessageId ?? null : jumpTargetId
+    ? navigationTarget.anchorMessageId ?? null : routeAnchorMessageId ?? jumpTargetId
   useLayoutEffect(() => {
     if (navigationTarget) setJumpTargetId(navigationTarget.anchorMessageId ?? null)
-  }, [navigationTarget, setJumpTargetId])
+    else if (routeAnchorMessageId !== null || !routeCommitted) setJumpTargetId(routeAnchorMessageId)
+  }, [navigationTarget, routeAnchorMessageId, routeCommitted, setJumpTargetId])
   const uiHandlers = useUiHandlers()
   const currentChannelId = useCurrentChannelId()
-  const routeModel = useChannelRouteModel(serverId, serverParam, channelId, currentUser.id)
   const {
     server: currentServer,
     channel: channelInServer,
-    parent: parentChannelInServer,
     currentChannelMeta,
     isForum,
     isChild: isChildChannel,
     isForumPostChild,
     isNotifyUnit,
   } = routeModel
-const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAtom((() => ({
+  const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAtom((() => ({
     channelId,
     wasTopLevel: channelInServer !== null,
   }))()))
@@ -128,13 +219,6 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
       setOpenerRetryAttempt((current) => current === attempt ? null : current)
     }
   }, [fetchingOpener, refetchOpener, openerError, openerScope, setOpenerRetryAttempt])
-  const threadOpenerHandoff = useThreadOpenerRouteGate({
-    serverId,
-    childChannelId: channelId,
-    parentChannelId: currentChannelMeta?.parentChannelId ?? null,
-    openerMessageId: currentChannelMeta?.parentMessageId ?? null,
-    lifecycle: routeModel.routeLifecycle,
-  })
   const channelName = useMemo(() => resolveChannelDisplayName({
     forumPostTitle: isForumPostChild ? forumPostOpener.data?.content : null,
     topLevelName: channelInServer?.name,
@@ -153,7 +237,7 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
     isChildChannel,
     isNotifyUnit,
     currentUser,
-    accessAllowed: routeModel.routeLifecycle === "ready" && navigationGate.allowed,
+    accessAllowed: routeCommitted && routeModel.routeLifecycle === "ready" && navigationGate.allowed,
   })
   const {
     composerMembers,
@@ -176,16 +260,12 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
   const notifs = useNotificationSettings()
   const channelNotif = notifs.channel
   const { mutate: setChannelNotif } = useSetChannelNotif()
-  const { containerRef: contentContainerRef, mode: threadSplitMode } = useThreadSplitMode({
-    parentChannelId: currentChannelMeta?.parentChannelId ?? null,
-    forceFullscreen: searchParams.get(THREAD_VIEW_PARAM) === "full",
-  })
 
   const navigateServerRoot = useCallback(() => {
     uiHandlers.replacePath?.(serverRootHref(serverParam))
   }, [serverParam, uiHandlers])
   useEffect(() => {
-    if (!routeWasTopLevel || channelInServer !== null
+    if (!routeCommitted || !routeWasTopLevel || channelInServer !== null
       || getCommunityRuntime(queryClient).ws.get().revokedServerIds.has(serverId)) return
     clearLastChannel(serverId)
     const survivor = currentServer?.categories
@@ -194,7 +274,7 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
     router.replace(survivor
       ? channelHref(serverParam, survivor.id)
       : serverRootHref(serverParam))
-  }, [channelId, channelInServer, currentServer, queryClient, routeWasTopLevel, router, serverId, serverParam])
+  }, [channelId, channelInServer, currentServer, queryClient, routeCommitted, routeWasTopLevel, router, serverId, serverParam])
   const navigateParent = useCallback(() => {
     const parentChannelId = currentChannelMeta?.parentChannelId
     if (!parentChannelId) return
@@ -207,7 +287,7 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
   }, [channelId, setChannelNotif])
 
   useEffect(() => {
-    if (!jumpTargetId || !searchParams.has("msg") || searchParams.has(THREAD_OPENER_HANDOFF_PARAM)) return
+    if (!routeCommitted || !jumpTargetId || !searchParams.has("msg") || searchParams.has(THREAD_OPENER_HANDOFF_PARAM)) return
     const search = searchParams.toString()
     const routePath = channelHref(serverParam, channelId)
     const href = `${routePath}${search ? `?${search}` : ""}`
@@ -215,13 +295,7 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
       removeCommunityParam(href, "msg"),
       { scroll: false },
     )
-  }, [channelId, jumpTargetId, router, searchParams, serverParam])
-
-  const enterThread = useCallback((id: string) => {
-    getCommunityRuntime(queryClient).ui.get().uiHandlers.navigatePath?.(
-      channelHref(serverParam, id),
-    )
-  }, [queryClient, serverParam])
+  }, [channelId, jumpTargetId, routeCommitted, router, searchParams, serverParam])
   const openThreadFullscreen = useCallback(() => {
     uiHandlers.cancelPendingNavigation?.()
     const params = new URLSearchParams(searchParams.toString())
@@ -238,7 +312,7 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
     currentChannelId === channelId &&
     routeModel.routeHydrated &&
     navigationGate.allowed
-  const channelHydrated = channelReadReady &&
+  const channelHydrated = routeCommitted && channelReadReady &&
     (!isForumPostChild || (!forumPostOpener.isLoading && !openerError))
   useNativeSystemNotificationConversationDismissal(currentUser.id, {
     kind: "server",
@@ -280,41 +354,9 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
     if (subtype === "unknown") {
       return <ConversationResolutionPendingFrame />
     }
-    // ── Child channel view (forum post / thread opened via URL) ─────────────
     if (subtype === "thread") {
-      if (threadSplitMode === "pending") return <ConversationResolutionPendingFrame />
-      const split = threadSplitMode === "split"
-      return (
-        <ThreadSplitView
-          split={split}
-          conversationSubtype="thread"
-          parent={split ? channelReadReady && isChildChannel && currentServer && parentChannelInServer ? (
-            <ThreadSplitParentSurface
-              serverId={serverId}
-              serverParam={serverParam}
-              server={currentServer}
-              channel={parentChannelInServer}
-              viewer={currentUser}
-              onNavigateParent={navigateServerRoot}
-              channelRefCandidates={channelRefCandidates}
-              uiHandlers={uiHandlers}
-              onOpenChild={enterThread}
-              onOpenProfile={openProfile}
-            />
-          ) : routeModel.layoutHint.parentSubtype === "unknown" ? (
-            <ConversationResolutionPendingFrame />
-          ) : (
-            <>
-              <ChannelHeaderSkeleton kind={routeModel.layoutHint.parentSubtype} />
-              <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-                {routeModel.layoutHint.parentSubtype === "forum"
-                  ? <ForumViewSkeleton />
-                  : <ConversationMessageSkeleton />}
-              </main>
-            </>
-          ) : null}
-          thread={channelHydrated ? (
-            <ThreadChannelSurface
+      return channelHydrated ? (
+        <QualifiedThreadSurface
               channelId={channelId}
               serverId={serverId}
               serverParam={serverParam}
@@ -325,7 +367,7 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
               parentChannelId={currentChannelMeta?.parentChannelId ?? null}
               parentMessageId={currentChannelMeta?.parentMessageId ?? null}
               parentIsForum={isForumPostChild}
-              threadOpenerHandoff={threadOpenerHandoff}
+              routeLifecycle={routeModel.routeLifecycle}
               childCreatorId={currentChannelMeta?.creatorId}
               canRenameThread={canManageServer(myRole)}
               onNavigateParent={navigateParent}
@@ -337,7 +379,7 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
               memberPanelProps={memberPanelProps}
               manageMembersDialog={manageMembersDialog}
               uiHandlers={uiHandlers}
-              onOpenChild={enterThread}
+              onOpenChild={onOpenChild}
               onOpenProfile={openProfile}
               resolveUserName={resolveUserName}
               embedded
@@ -345,17 +387,15 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
                 onFullscreen: openThreadFullscreen,
                 onClose: navigateParent,
               } : undefined}
-            />
-          ) : (
-            <>
-              <ChannelHeaderSkeleton kind="thread" compactActions={split} />
-              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                <ConversationMessageSkeleton />
-                <ComposerSkeleton />
-              </div>
-            </>
-          )}
         />
+      ) : (
+        <>
+          <ChannelHeaderSkeleton kind="thread" compactActions={split} />
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <ConversationMessageSkeleton />
+            <ComposerSkeleton />
+          </div>
+        </>
       )
     }
 
@@ -377,7 +417,7 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
           composerMentionCandidates={composerMentionCandidates}
           memberPanelProps={memberPanelProps}
           manageMembersDialog={manageMembersDialog}
-          onOpenPost={enterThread}
+          onOpenPost={onOpenChild}
           onOpenProfile={openProfile}
         />
       )
@@ -392,7 +432,7 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
         channelName={channelName}
         viewer={currentUser}
         canManagePins={canManageServer(myRole)}
-          anchorMessageId={currentAnchorMessageId}
+        anchorMessageId={currentAnchorMessageId}
         onNavigateParent={navigateServerRoot}
         notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
         onSetNotificationLevel={setNotificationLevel}
@@ -402,16 +442,11 @@ const [topLevelRouteOwnership, setTopLevelRouteOwnership] = useAtom(useCreateAto
         memberPanelProps={memberPanelProps}
         manageMembersDialog={manageMembersDialog}
         uiHandlers={uiHandlers}
-        onOpenThread={enterThread}
+        onOpenThread={onOpenChild}
         onOpenProfile={openProfile}
         resolveUserName={resolveUserName}
       />
     )
   })()
-  return (
-    <div ref={contentContainerRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
-      {content}
-    </div>
-  )
-
+  return content
 }

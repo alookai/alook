@@ -10,6 +10,7 @@ import ServerContent from "@/app/c/channels/layout"
 const mocks = vi.hoisted(() => ({
   segments: ["me", "friends"],
   pathname: "/c/me/friends",
+  search: "",
   mergedServerId: "wrong-sidebar-server",
   breakpoint: "desktop",
   userId: "viewer-a",
@@ -21,7 +22,7 @@ vi.mock("next/navigation", () => ({
   useSelectedLayoutSegments: () => mocks.segments,
   useParams: () => ({ serverId: mocks.mergedServerId }),
   usePathname: () => mocks.pathname,
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(mocks.search),
   useRouter: () => ({ push: mocks.push, replace: mocks.replace }),
 }))
 vi.mock("@/contexts/community/current-user", () => ({
@@ -78,6 +79,7 @@ beforeEach(async () => {
   mocks.userId = "viewer-a"
   mocks.segments = ["me", "friends"]
   mocks.pathname = "/c/me/friends"
+  mocks.search = ""
   mocks.breakpoint = "desktop"
   mocks.channel.mockClear()
   mocks.push.mockClear()
@@ -151,10 +153,23 @@ describe("common committed community frame", () => {
 
   it("takes server content identity from its own segments despite merged slot params", () => {
     mocks.segments = ["a", "channel-a"]
+    mocks.search = "msg=other-slot&threadView=full"
     const view = render(<CommunityTestProvider client={owner.client} registry={owner.registry} retainOwner>
       <CommunityRouteFrame sidebar={null}><ServerContent><span>static child</span></ServerContent></CommunityRouteFrame>
     </CommunityTestProvider>)
-    expect(mocks.channel).toHaveBeenLastCalledWith({ serverParam: "a", channelId: "channel-a" })
+    expect(mocks.channel).toHaveBeenLastCalledWith({
+      serverParam: "a", channelId: "channel-a",
+      targetHref: "/c/channels/a/channel-a", routeCommitted: false,
+    })
+    mocks.pathname = "/c/channels/a/channel-a"
+    mocks.search = "msg=own-anchor&threadView=full"
+    view.rerender(<CommunityTestProvider client={owner.client} registry={owner.registry} retainOwner>
+      <CommunityRouteFrame sidebar={null}><ServerContent><span>static child</span></ServerContent></CommunityRouteFrame>
+    </CommunityTestProvider>)
+    expect(mocks.channel).toHaveBeenLastCalledWith({
+      serverParam: "a", channelId: "channel-a",
+      targetHref: "/c/channels/a/channel-a?msg=own-anchor&threadView=full", routeCommitted: true,
+    })
     mocks.segments = ["a", "settings"]
     view.rerender(<CommunityTestProvider client={owner.client} registry={owner.registry} retainOwner>
       <CommunityRouteFrame sidebar={null}><ServerContent><span>static child</span></ServerContent></CommunityRouteFrame>
