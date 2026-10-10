@@ -37,7 +37,6 @@ describe("channel sidebar touch drag contracts", () => {
     expect(category).not.toContain("useDroppable")
 
     for (const source of [channel, category]) {
-      expect(source).toContain("...attributes")
       expect(source).toContain("...listeners")
       expect(source).toContain("touch-manipulation")
       expect(source).not.toContain("touch-none")

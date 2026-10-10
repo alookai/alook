@@ -1,7 +1,7 @@
 import type { Page, Request } from "@playwright/test"
 import { expect, sessionCookie, test } from "./_fixtures/community-fixture"
-import { GEOMETRY_EPSILON, gotoAfterUserWsAuth, ignoreNextDevToolsPointerCapture, waitForElementMotion } from "./_fixtures/actions"
-import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
+import { GEOMETRY_EPSILON, composerEditable, gotoAfterUserWsAuth, ignoreNextDevToolsPointerCapture, waitForElementMotion } from "./_fixtures/actions"
+import { communityFrameEvents, proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { WEB_URL } from "./_setup/paths"
 import {
   seedChannel,
@@ -163,6 +163,173 @@ function observeWrites(page: Page) {
 
 test.describe.serial("mobile Inbox interactive user-bar base", () => {
   test.setTimeout(180_000)
+
+  test("paints the retained Inbox digits after hidden messages and repeated detail returns", async ({ asUser }, testInfo) => {
+    const stamp = Date.now()
+    const serverId = await seedServer("alice", `Inbox digits ${stamp}`)
+    const landingId = await seedChannel("alice", serverId, `landing-${stamp}`)
+    const firstId = await seedChannel("alice", serverId, `unread-${stamp}`)
+    await seedJoinServer("alice", "bob", serverId)
+    const bob = await asUser("bob", {
+      viewport: { width: 390, height: 844 },
+      recordVideo: { dir: testInfo.outputPath("inbox-digits-video"), size: { width: 390, height: 844 } },
+    })
+    const alice = await asUser("alice")
+    const ws = await proxyCommunityWebSockets(bob.context)
+    const trigger = bob.page.getByTestId(tid.inboxTrigger)
+    const indicator = trigger.locator('[data-slot="inbox-unread-indicator"]')
+    const flow = indicator.locator("number-flow-react")
+    const overlay = bob.page.locator('[data-slot="community-user-bar-overlay"]')
+    const snapshots: Array<{ stage: string; count: number; digits: unknown }> = []
+    const video = bob.page.video()
+
+    const readDigits = () => flow.evaluate((element) => {
+      const number = element.shadowRoot?.querySelector('[part="number"]')
+      const circle = element.closest('[data-slot="inbox-unread-circle"]')!
+      const circleRect = circle.getBoundingClientRect()
+      const rect = number?.getBoundingClientRect()
+      const characters = [...element.shadowRoot?.querySelectorAll<HTMLElement>(
+        '[part~="integer"] > [part~="digit"]:not([inert]) .digit__num:not([inert])',
+      ) ?? []]
+      return {
+        text: characters.map((character) => character.textContent).join(""),
+        width: rect?.width ?? 0,
+        height: rect?.height ?? 0,
+        storedWidth: (number as HTMLElement | null)?.style.getPropertyValue("--width") ?? "",
+        characters: characters.map((character) => {
+          const bounds = character.getBoundingClientRect()
+          const style = getComputedStyle(character)
+          return {
+            text: character.textContent,
+            width: bounds.width,
+            height: bounds.height,
+            visibility: style.visibility,
+            opacity: style.opacity,
+            intersectsCircle: bounds.right > circleRect.left && bounds.left < circleRect.right
+              && bounds.bottom > circleRect.top && bounds.top < circleRect.bottom,
+          }
+        }),
+        animations: element.shadowRoot?.getAnimations().map((animation) => ({
+          playState: animation.playState,
+          pending: animation.pending,
+          currentTime: animation.currentTime,
+        })) ?? [],
+      }
+    })
+    const capture = async (stage: string, count: number) => {
+      const digits = await readDigits()
+      snapshots.push({ stage, count, digits })
+      await testInfo.attach(`inbox-digits-${stage}.json`, {
+        body: JSON.stringify({ stage, count, digits }, null, 2), contentType: "application/json",
+      })
+      await testInfo.attach(`inbox-digits-${stage}.png`, {
+        body: await bob.page.screenshot(), contentType: "image/png",
+      })
+      if (await trigger.isVisible()) {
+        await testInfo.attach(`inbox-digits-${stage}-circle.png`, {
+          body: await indicator.locator('[data-slot="inbox-unread-circle"]').screenshot(), contentType: "image/png",
+        })
+      }
+      return digits
+    }
+    const expectDigits = async (stage: string, count: number) => {
+      await expect(indicator).toHaveAttribute("data-count", String(count))
+      await expect(indicator).toHaveAttribute("data-unread", "true")
+      await expect.poll(async () => (await readDigits()).text).toBe(String(count))
+      snapshots.push({ stage: `${stage}-transition`, count, digits: await readDigits() })
+      await expect.poll(async () => (await readDigits()).animations.filter((animation) => (
+        animation.playState === "running" || animation.pending
+      )).length).toBe(0)
+      const digits = await capture(stage, count)
+      expect(digits.width).toBeGreaterThan(0)
+      expect(digits.height).toBeGreaterThan(0)
+      expect(digits.characters).toHaveLength(String(count).length)
+      for (const character of digits.characters) {
+        expect(character.width).toBeGreaterThan(0)
+        expect(character.height).toBeGreaterThan(0)
+        expect(character.visibility).toBe("visible")
+        expect(Number(character.opacity)).toBeGreaterThan(0)
+        expect(character.intersectsCircle).toBe(true)
+      }
+    }
+    const send = async (channelId: string, content: string) => {
+      await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${channelId}`)
+      const frameStart = ws.frames.length
+      const response = alice.page.waitForResponse((candidate) => (
+        candidate.request().method() === "POST"
+        && new URL(candidate.url()).pathname === `/api/community/channels/${channelId}/messages`
+      ))
+      await composerEditable(alice.page).fill(content)
+      await alice.page.keyboard.press("Enter")
+      const result = await response
+      expect(result.status()).toBe(201)
+      const messageId = (await result.json() as { message: { id: string } }).message.id
+      await expect.poll(() => {
+        const events = ws.frames.slice(frameStart).flatMap(communityFrameEvents)
+        return events.some((event) => event.type === "community:message.create" && event.message?.id === messageId)
+          && events.some((event) => event.type === "community:unread.bump" && event.channelId === channelId)
+      }, { timeout: 20_000 }).toBe(true)
+      await testInfo.attach(`inbox-message-${messageId}.json`, {
+        body: JSON.stringify({ channelId, messageId, status: result.status(), events: ws.frames.slice(frameStart).flatMap(communityFrameEvents) }),
+        contentType: "application/json",
+      })
+    }
+
+    try {
+      await gotoAfterUserWsAuth(bob.page, `/c/channels/${serverId}`)
+      await expect(trigger).toBeVisible()
+      await expect(indicator).toHaveAttribute("data-partial", "false")
+      const baseCount = Number(await indicator.getAttribute("data-count"))
+      expect(Number.isInteger(baseCount)).toBe(true)
+      expect(baseCount).toBeLessThan(98)
+      await send(firstId, `Visible Inbox digit ${stamp}`)
+      await expectDigits("visible", baseCount + 1)
+      const targetCount = Math.max(10, baseCount + 2)
+      for (let count = baseCount + 1; count < targetCount - 1; count += 1) {
+        const id = await seedChannel("alice", serverId, `digit-${stamp}-${count}`)
+        await seedMessage("alice", id, `Digit precondition ${stamp} ${count}`)
+        await expect(indicator).toHaveAttribute("data-count", String(count + 1))
+      }
+      await expectDigits("before-detail", targetCount - 1)
+      const retained = await flow.elementHandle()
+      expect(retained).not.toBeNull()
+      const hiddenId = await seedChannel("alice", serverId, `hidden-${stamp}`)
+      await bob.page.getByTestId(tid.channelRow(landingId)).click()
+      await expect(bob.page).toHaveURL(`/c/channels/${serverId}/${landingId}`)
+      await expect(overlay).toHaveCSS("display", "none")
+      await send(hiddenId, `Hidden Inbox digit ${stamp}`)
+      await expect(indicator).toHaveAttribute("data-count", String(targetCount))
+      await capture("hidden-update", targetCount)
+      await bob.page.getByRole("banner").getByRole("button", { name: "Back", exact: true }).click()
+      await expect(bob.page).toHaveURL(`/c/channels/${serverId}`)
+      expect(await flow.evaluate((element, prior) => element === prior, retained)).toBe(true)
+      await expectDigits("first-return", targetCount)
+
+      for (let cycle = 0; cycle < 2; cycle += 1) {
+        await bob.page.getByTestId(tid.channelRow(landingId)).click()
+        await expect(overlay).toHaveCSS("display", "none")
+        await send(hiddenId, `Repeated hidden Inbox ${stamp} ${cycle}`)
+        await expect(indicator).toHaveAttribute("data-count", String(targetCount))
+        await capture(`hidden-repeat-${cycle}`, targetCount)
+        await bob.page.getByRole("banner").getByRole("button", { name: "Back", exact: true }).click()
+        await expect(bob.page).toHaveURL(`/c/channels/${serverId}`)
+        expect(await flow.evaluate((element, prior) => element === prior, retained)).toBe(true)
+        await expectDigits(`repeat-return-${cycle}`, targetCount)
+      }
+      await trigger.click()
+      await expect(indicator).toHaveAttribute("data-unread", "false")
+      await trigger.click()
+      await expectDigits("closed-again", targetCount)
+    } finally {
+      await testInfo.attach("inbox-digit-stages.json", {
+        body: JSON.stringify(snapshots, null, 2), contentType: "application/json",
+      })
+      await bob.context.close()
+      if (video) await testInfo.attach("inbox-hidden-message-return-video", {
+        path: await video.path(), contentType: "video/webm",
+      })
+    }
+  })
 
   test("keeps the mobile shell unmasked and dismisses on outside press without writes", async ({ asUser }, testInfo) => {
     const stamp = Date.now()

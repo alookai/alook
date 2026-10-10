@@ -1,9 +1,9 @@
-import { eq, and, inArray, sql } from "drizzle-orm";
+import { eq, and, desc, inArray, sql } from "drizzle-orm";
 import { communityMessage, communityChannel } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import { escapeLikePattern } from "../../../utils/sql-like";
-import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
+import { jsonTextSet } from "../_json-set";
 
 const DEFAULT_LIMIT = 50;
 
@@ -57,6 +57,7 @@ export async function searchMessages(
     .from(communityMessage)
     .innerJoin(user, eq(communityMessage.authorId, user.id))
     .where(and(...conditions))
+    .orderBy(desc(communityMessage.createdAt))
     .limit(limit);
 }
 
@@ -83,35 +84,22 @@ export async function searchMessagesInServer(
     eq(communityChannel.serverId, opts.serverId),
   ];
 
-  const runQuery = (extra: ReturnType<typeof inArray>[] = []) =>
-    db
-      .select({
-        message: communityMessage,
-        author: user,
-      })
-      .from(communityMessage)
-      .innerJoin(user, eq(communityMessage.authorId, user.id))
-      .innerJoin(
-        communityChannel,
-        eq(communityMessage.channelId, communityChannel.id)
-      )
-      .where(and(...baseConditions, ...extra))
-      .limit(limit);
+  if (opts.visibleChannelIds !== undefined) {
+    baseConditions.push(inArray(communityMessage.channelId, jsonTextSet(db, opts.visibleChannelIds)));
+  }
 
-  if (!opts.visibleChannelIds) return runQuery();
-
-  // D1 caps a statement at 100 bound params; `visibleChannelIds` is unbounded.
-  // Chunk the `inArray` and merge. There's no ORDER BY contract today, so plain
-  // concat+slice would bias toward early-chunk channels (a match in a late chunk
-  // gets dropped once an early chunk fills `limit`). Sort the merged rows by
-  // createdAt desc before slicing → a defensible "most-recent matches" rule
-  // instead of chunk-order bias. `createdAt` is in the projection.
-  const chunks = chunk(opts.visibleChannelIds, D1_MAX_IN_PARAMS);
-  const merged = (
-    await Promise.all(
-      chunks.map((ids) => runQuery([inArray(communityMessage.channelId, ids)]))
+  return db
+    .select({
+      message: communityMessage,
+      author: user,
+    })
+    .from(communityMessage)
+    .innerJoin(user, eq(communityMessage.authorId, user.id))
+    .innerJoin(
+      communityChannel,
+      eq(communityMessage.channelId, communityChannel.id)
     )
-  ).flat();
-  merged.sort((a, b) => (a.message.createdAt < b.message.createdAt ? 1 : -1));
-  return merged.slice(0, limit);
+    .where(and(...baseConditions))
+    .orderBy(desc(communityMessage.createdAt))
+    .limit(limit);
 }

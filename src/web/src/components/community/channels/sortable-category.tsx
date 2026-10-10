@@ -42,7 +42,7 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
   // actions, so share its props/children across both branches to avoid drift.
   const headerProps = {
     ref: setActivatorNodeRef,
-    ...attributes,
+    ...(canReorder ? attributes : { role: "button", tabIndex: 0 }),
     ...listeners,
     onTouchStart: undefined,
     onTouchStartCapture: listeners?.onTouchStart

@@ -9,8 +9,6 @@ export interface DynamicBindSite {
   file: string
   functionName: string
   operator: DynamicBindOperator
-  strategyHint: "fixed-literal" | "exact-chunk" | "json-set" | "subquery" | "bounded-public-input"
-  fixedParamsHint?: number
 }
 
 function sourceFiles(directory: string): string[] {
@@ -63,35 +61,6 @@ function enclosingFunctionName(node: ts.Node): string {
   return "<module>"
 }
 
-function enclosingFunction(node: ts.Node): ts.FunctionLikeDeclaration | undefined {
-  for (let current: ts.Node | undefined = node.parent; current; current = current.parent) {
-    if (ts.isFunctionLike(current)) return current
-  }
-  return undefined
-}
-
-function bindStrategyHint(node: ts.CallExpression, operator: DynamicBindOperator) {
-  if (operator !== "inArray" && operator !== "notInArray") {
-    return { strategyHint: "exact-chunk" as const, fixedParamsHint: 10 }
-  }
-  const argument = node.arguments[1]
-  if (argument && ts.isArrayLiteralExpression(argument) && !argument.elements.some(ts.isSpreadElement)) {
-    return { strategyHint: "fixed-literal" as const }
-  }
-  const sourceFile = node.getSourceFile()
-  const argumentText = argument?.getText(sourceFile).replace(/!$/, "") ?? ""
-  const functionText = enclosingFunction(node)?.getText(sourceFile) ?? ""
-  if (argumentText.includes("jsonTextSet(")
-    || new RegExp(`(?:const|let)\\s+${argumentText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*=[\\s\\S]{0,80}?jsonTextSet\\(`).test(functionText)) {
-    return { strategyHint: "json-set" as const }
-  }
-  if (argumentText.includes(".select(")
-    || new RegExp(`(?:const|let)\\s+${argumentText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*=\\s*db[\\s\\S]{0,80}?\\.select\\(`).test(functionText)) {
-    return { strategyHint: "subquery" as const }
-  }
-  return { strategyHint: "exact-chunk" as const, fixedParamsHint: 10 }
-}
-
 function callOperator(node: ts.CallExpression): DynamicBindOperator | undefined {
   if (ts.isIdentifier(node.expression) && (node.expression.text === "inArray" || node.expression.text === "notInArray")) {
     return node.expression.text
@@ -130,31 +99,12 @@ export function scanDynamicBindSites(root: string, sourceOverride?: { file: stri
           ordinals.set(scope, ordinal)
           const relativeFile = sourceOverride ? sourceOverride.file : relative(root, file).replaceAll("\\", "/")
           const key = `${relativeFile}:${functionName}:${operator}:${ordinal}`
-          const hint = bindStrategyHint(node, operator)
-          const fixedParamsByKey: Record<string, number> = {
-            "src/shared/src/db/queries/community/channel.ts:createChannel:values:1": 0,
-            "src/shared/src/db/queries/community/message.ts:insertMessageRow:values:1": 0,
-            "src/shared/src/db/queries/community/message.ts:insertMessageRow:values:2": 0,
-            "src/shared/src/db/queries/community/channel.ts:resolveVisibleChannelIdSet:inArray:1": 0,
-            "src/shared/src/db/queries/community/channel.ts:resolveVisibleChannelIdSet:inArray:2": 2,
-            "src/shared/src/db/queries/community/member.ts:getMembersByUserIds:inArray:1": 1,
-            "src/shared/src/db/queries/community/reaction.ts:listReactionsByMessageIds:inArray:1": 0,
-          }
-          const boundedAttachmentSites = new Set([
-            "src/shared/src/db/queries/community/message.ts:eligibleAttachments:inArray:1",
-            "src/shared/src/db/queries/community/message.ts:insertMessageRow:inArray:1",
-            "src/shared/src/db/queries/community/message.ts:insertMessageRow:inArray:2",
-            "src/shared/src/db/queries/community/message.ts:insertMessageRow:sql.join:1",
-          ])
           sites.push({
             key,
             file: relativeFile,
             functionName,
             operator,
-            ...(boundedAttachmentSites.has(key) ? { strategyHint: "bounded-public-input" as const } : hint),
-            ...(hint.strategyHint === "exact-chunk" && key in fixedParamsByKey
-              ? { fixedParamsHint: fixedParamsByKey[key] }
-              : {}),
+
           })
         }
       }

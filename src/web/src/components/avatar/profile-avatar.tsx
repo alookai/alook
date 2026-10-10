@@ -51,6 +51,7 @@ export function ProfileAvatar({
     >
       {resolved.kind === "photo" ? (
         <RemoteIdentityImage
+          identityKey={seed ? `profile:${seed}` : undefined}
           src={resolved.url}
           alt={accessibleLabel}
           className="aspect-square rounded-full"

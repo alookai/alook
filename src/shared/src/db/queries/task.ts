@@ -737,11 +737,11 @@ export async function listTaskHistory(
   ];
 
   if (opts?.status && opts.status.length > 0) {
-    conditions.push(inArray(agentTaskQueue.status, opts.status));
+    conditions.push(inArray(agentTaskQueue.status, jsonTextSet(db, opts.status)));
   }
 
   if (opts?.type && opts.type.length > 0) {
-    conditions.push(inArray(agentTaskQueue.type, opts.type));
+    conditions.push(inArray(agentTaskQueue.type, jsonTextSet(db, opts.type)));
   }
 
   if (opts?.before) {
@@ -896,7 +896,7 @@ export async function listTraces(
     .where(
       and(
         eq(agentTaskQueue.workspaceId, workspaceId),
-        inArray(agentTaskQueue.traceId, traceIds),
+        inArray(agentTaskQueue.traceId, jsonTextSet(db, traceIds)),
         ne(agentTaskQueue.type, TASK_TYPES.KILL_TASK),
       )
     );

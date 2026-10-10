@@ -47,6 +47,7 @@ export function ServerIcon({
     >
       {icon ? (
         <RemoteIdentityImage
+          identityKey={id ? `server:${id}` : undefined}
           src={icon}
           alt=""
           className="rounded-[inherit]"

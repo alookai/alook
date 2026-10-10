@@ -1,6 +1,8 @@
 import Sqlite from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import type { Database } from "../../src/db";
+import { TASK_TYPES } from "../../src/constants";
 import * as taskQueries from "../../src/db/queries/task";
 
 function createMockDb(rows: any[]) {
@@ -262,5 +264,71 @@ describe("getTraceAgentsByTaskIds", () => {
     const result = await taskQueries.getTraceAgentsByTaskIds(null as any, [], "ws_1");
     expect(result).toBeInstanceOf(Map);
     expect(result.size).toBe(0);
+  });
+});
+
+describe("listTaskHistory against real SQLite", () => {
+  let sqlite: Sqlite.Database;
+  let db: Database;
+
+  beforeEach(() => {
+    sqlite = new Sqlite(":memory:");
+    sqlite.exec(`
+      CREATE TABLE agent_task_queue (
+        id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, runtime_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL, conversation_id TEXT NOT NULL, prompt TEXT NOT NULL,
+        type TEXT NOT NULL, context_key TEXT, status TEXT NOT NULL, priority INTEGER DEFAULT 0,
+        result TEXT, context TEXT, session_id TEXT, created_at TEXT NOT NULL,
+        dispatched_at TEXT, started_at TEXT, completed_at TEXT, error TEXT,
+        trace_id TEXT, parent_task_id TEXT
+      );
+    `);
+    const insert = sqlite.prepare(`
+      INSERT INTO agent_task_queue (
+        id, agent_id, runtime_id, workspace_id, conversation_id, prompt, status, type, created_at
+      ) VALUES (?, ?, 'runtime', ?, 'conversation', 'prompt', ?, ?, ?)
+    `);
+    insert.run("task-a", "agent", "workspace", "completed", TASK_TYPES.USER_DM_MESSAGE, "2026-09-01T00:00:00.000Z");
+    insert.run("task-b", "agent", "workspace", "completed", TASK_TYPES.USER_DM_MESSAGE, "2026-09-01T00:00:00.000Z");
+    insert.run("task-c", "agent", "workspace", "failed", TASK_TYPES.EMAIL_NOTIFICATION, "2026-09-01T00:01:00.000Z");
+    insert.run("wrong-status", "agent", "workspace", "running", TASK_TYPES.EMAIL_NOTIFICATION, "2026-09-01T00:02:00.000Z");
+    insert.run("wrong-type", "agent", "workspace", "completed", TASK_TYPES.CALENDAR_EVENT, "2026-09-01T00:03:00.000Z");
+    insert.run("kill", "agent", "workspace", "failed", TASK_TYPES.KILL_TASK, "2026-09-01T00:04:00.000Z");
+    insert.run("other-agent", "other-agent", "workspace", "completed", TASK_TYPES.USER_DM_MESSAGE, "2026-09-01T00:05:00.000Z");
+    insert.run("other-workspace", "agent", "other-workspace", "failed", TASK_TYPES.EMAIL_NOTIFICATION, "2026-09-01T00:06:00.000Z");
+    db = drizzle(sqlite) as unknown as Database;
+  });
+
+  afterEach(() => sqlite.close());
+
+  it("combines status and type scopes while preserving chronological cursor pages", async () => {
+    const filters = {
+      status: ["completed", "failed"],
+      type: [TASK_TYPES.USER_DM_MESSAGE, TASK_TYPES.EMAIL_NOTIFICATION, TASK_TYPES.KILL_TASK],
+      limit: 2,
+    };
+    const first = await taskQueries.listTaskHistory(db, "agent", "workspace", filters);
+    expect(first.tasks.map((row) => row.id)).toEqual(["task-b", "task-c"]);
+    expect(first.hasMore).toBe(true);
+    const second = await taskQueries.listTaskHistory(db, "agent", "workspace", {
+      ...filters, before: first.tasks[0].createdAt, beforeId: first.tasks[0].id,
+    });
+    expect(second.tasks.map((row) => row.id)).toEqual(["task-a"]);
+    expect(second.hasMore).toBe(false);
+  });
+
+  it.each([undefined, { status: [], type: [] }])("keeps omitted or empty filters unscoped without admitting kill or other owners: %j", async (opts) => {
+    const page = await taskQueries.listTaskHistory(db, "agent", "workspace", opts);
+    expect(page.tasks.map((row) => row.id)).toEqual(["task-a", "task-b", "task-c", "wrong-status", "wrong-type"]);
+    expect(page.hasMore).toBe(false);
+  });
+
+  it("keeps both large repeated collections equivalent to their eligible values", async () => {
+    const page = await taskQueries.listTaskHistory(db, "agent", "workspace", {
+      status: ["completed", "failed", ...Array.from({ length: 150 }, (_, i) => `missing-status-${i}`), "completed"],
+      type: [TASK_TYPES.USER_DM_MESSAGE, TASK_TYPES.EMAIL_NOTIFICATION, TASK_TYPES.KILL_TASK, ...Array.from({ length: 150 }, (_, i) => `missing-type-${i}`), TASK_TYPES.USER_DM_MESSAGE],
+    });
+    expect(page.tasks.map((row) => row.id)).toEqual(["task-a", "task-b", "task-c"]);
+    expect(page.hasMore).toBe(false);
   });
 });
