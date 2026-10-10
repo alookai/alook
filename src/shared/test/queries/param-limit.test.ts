@@ -138,6 +138,7 @@ function makeSelectCapture(rowsPerCall: unknown[][]) {
     select: vi.fn(() => {
       const chain: any = {};
       chain.from = vi.fn(() => chain);
+      chain.innerJoin = vi.fn(() => chain);
       chain.where = vi.fn(() => chain);
       chain.orderBy = vi.fn(() => Promise.resolve(rowsPerCall[call++] ?? []));
       return chain;

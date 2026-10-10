@@ -167,12 +167,12 @@ describe("minimal account deletion real D1 batch", () => {
       "INSERT INTO community_message (id, author_id, content, created_at, channel_id, seq) VALUES (?, ?, 'reply', ?, ?, 1)",
       reply, reader, now, thread,
     )
-    await run(
-      "INSERT INTO community_attachment (id, message_id, uploader_id, target_id, r2_key, filename, position, created_at) VALUES (?, ?, ?, ?, ?, 'reply.txt', 0, ?), (?, NULL, ?, ?, ?, 'pending-server.txt', 0, ?), (?, NULL, ?, ?, ?, 'pending-thread.txt', 0, ?)",
-      `attachment_${stamp}`, reply, reader, thread, threadAttachment, now,
-      pendingServerAttachment, reader, serverChannel, pendingServerAttachmentKey, now,
-      pendingThreadAttachment, reader, thread, pendingThreadAttachmentKey, now,
-    )
+    await run("INSERT INTO community_attachment(id,uploader_id,r2_key,filename,created_at) VALUES (?,?,?,'reply.txt',?),(?,?,?,'pending-server.txt',?),(?,?,?,'pending-thread.txt',?),(?,?,?,'forwarded.txt',?)",
+      `attachment_${stamp}`, reader, threadAttachment, now,
+      pendingServerAttachment, reader, pendingServerAttachmentKey, now,
+      pendingThreadAttachment, reader, pendingThreadAttachmentKey, now,
+      `forwarded_${stamp}`, owner, threadAttachment, now)
+    await run("INSERT INTO community_message_attachment VALUES (?,?,0),(?,?,0),(?,?,0)", reply, `attachment_${stamp}`, authored, `forwarded_${stamp}`, prior, `forwarded_${stamp}`)
 
     const db = createDb(runtimeEnv.DB)
     const snapshot = await queries.accountDeletion.getAccountDeletionSnapshot(db, owner)
@@ -180,9 +180,9 @@ describe("minimal account deletion real D1 batch", () => {
     expect(snapshot?.ownedWorkspaceIds).toEqual([workspace])
     expect(snapshot?.ownedAgentIds.sort()).toEqual([`agent_${stamp}`, ownedSharedAgent].sort())
     expect(snapshot?.machineTokens.sort()).toEqual([ownerMachineToken, workspaceMachineToken].sort())
-    expect(snapshot?.media.communityExactKeys).toContain(threadAttachment)
-    expect(snapshot?.media.communityExactKeys).toContain(pendingServerAttachmentKey)
-    expect(snapshot?.media.communityExactKeys).toContain(pendingThreadAttachmentKey)
+    expect(snapshot?.media.communityExactKeys).not.toContain(threadAttachment)
+    expect(snapshot?.media.communityExactKeys).not.toContain(pendingServerAttachmentKey)
+    expect(snapshot?.media.communityExactKeys).not.toContain(pendingThreadAttachmentKey)
     expect(snapshot?.media.deletingEmailAttachments).toContain(JSON.stringify([
       { key: sharedDraftKey },
       { key: privateDraftKey },
@@ -209,7 +209,9 @@ describe("minimal account deletion real D1 batch", () => {
     expect(await first("SELECT id FROM community_server WHERE id = ?", server)).toBeNull()
     expect(await first("SELECT id FROM community_channel WHERE id = ?", thread)).toBeNull()
     expect(await first("SELECT id FROM community_attachment WHERE id = ?", `attachment_${stamp}`)).toBeNull()
-    expect(await first("SELECT id FROM community_attachment WHERE id IN (?, ?)", pendingServerAttachment, pendingThreadAttachment)).toBeNull()
+    expect(await first("SELECT id FROM community_attachment WHERE id IN (?, ?)", pendingServerAttachment, pendingThreadAttachment)).not.toBeNull()
+    expect(await first("SELECT id FROM community_attachment WHERE id = ?", `forwarded_${stamp}`)).not.toBeNull()
+    expect(await first("SELECT attachment_id FROM community_message_attachment WHERE message_id = ?", prior)).toEqual({ attachment_id: `forwarded_${stamp}` })
     expect(await first("SELECT id FROM user WHERE id = ?", reader)).toEqual({ id: reader })
     expect(await first("SELECT id FROM deviceCode WHERE userId = ?", owner)).toBeNull()
     expect(await first("SELECT id FROM verification WHERE id IN (?, ?)", `otp_${stamp}`, `ott_${stamp}`)).toBeNull()

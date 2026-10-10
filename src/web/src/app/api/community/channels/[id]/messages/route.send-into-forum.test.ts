@@ -14,7 +14,6 @@ const mockRequireMessageSurfaceAccess = vi.fn()
 const mockGetLatestSeqForScope = vi.fn()
 const mockHasDeliverableUnreadForAgentScope = vi.fn()
 const mockGetReadState = vi.fn()
-const mockFindPendingAttachmentsForSender = vi.fn()
 const mockGetCommunityMessageReplay = vi.fn()
 
 vi.mock("@alook/shared", async () => {
@@ -36,7 +35,6 @@ vi.mock("@alook/shared", async () => {
       },
       communityAttachment: {
         ...actual.queries.communityAttachment,
-        findPendingAttachmentsForSender: (...args: unknown[]) => mockFindPendingAttachmentsForSender(...args),
       },
     },
   }
@@ -94,7 +92,6 @@ describe("forum sends open a thread through the canonical message route", () => 
     mockGetLatestSeqForScope.mockResolvedValue(4)
     mockGetReadState.mockResolvedValue({ lastReadSeq: 4 })
     mockHasDeliverableUnreadForAgentScope.mockResolvedValue(false)
-    mockFindPendingAttachmentsForSender.mockResolvedValue([{ id: "attachment_1" }])
   })
 
   it("creates only the opener and structural child thread", async () => {
@@ -106,7 +103,6 @@ describe("forum sends open a thread through the canonical message route", () => 
       parentChannelId: "forum_1",
       serverId: "server_1",
       body: { content: "Title" },
-      pendingAttachmentIdsToRebind: [],
       clientNonce: "command:opener",
       expectedSeq: 4,
     }))
@@ -119,7 +115,6 @@ describe("forum sends open a thread through the canonical message route", () => 
     await POST(request({ channel: "/demo/forum", content: { text: "Title" }, attachments: ["attachment_1"] }), ctx)
 
     expect(mockCreateMessageWithThread).toHaveBeenCalledWith(expect.objectContaining({
-      pendingAttachmentIdsToRebind: ["attachment_1"],
     }))
   })
 
@@ -142,7 +137,6 @@ describe("forum sends open a thread through the canonical message route", () => 
     expect(await response.json()).toEqual(expect.objectContaining({ deduped: true, threadId: "thread_1" }))
     expect(mockGetLatestSeqForScope).not.toHaveBeenCalled()
     expect(mockHasDeliverableUnreadForAgentScope).not.toHaveBeenCalled()
-    expect(mockFindPendingAttachmentsForSender).not.toHaveBeenCalled()
   })
 
   it("blocks an unread forum parent before opener or attachment side effects", async () => {
@@ -163,7 +157,6 @@ describe("forum sends open a thread through the canonical message route", () => 
       latestSeq: 5,
     })
     expect(mockCreateMessageWithThread).not.toHaveBeenCalled()
-    expect(mockFindPendingAttachmentsForSender).not.toHaveBeenCalled()
   })
 
   it("returns the fresh forum waterline when the opener loses the seq CAS", async () => {

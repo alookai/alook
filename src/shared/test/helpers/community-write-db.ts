@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import Sqlite from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import type { Database } from "../../src/db";
@@ -43,7 +44,9 @@ export function communityWriteDb() {
     CREATE TABLE community_read_state_revision (user_id TEXT PRIMARY KEY, revision INTEGER NOT NULL);
     CREATE TABLE community_attachment (
       id TEXT PRIMARY KEY, uploader_id TEXT NOT NULL, target_id TEXT NOT NULL REFERENCES community_channel(id),
-      message_id TEXT REFERENCES community_message(id), position INTEGER DEFAULT 0
+      message_id TEXT REFERENCES community_message(id) ON DELETE CASCADE, position INTEGER DEFAULT 0,
+      r2_key TEXT NOT NULL DEFAULT 'original', thumbnail_r2_key TEXT, filename TEXT NOT NULL DEFAULT 'file',
+      content_type TEXT, size INTEGER, width INTEGER, height INTEGER, created_at TEXT NOT NULL DEFAULT 'now'
     );
     CREATE TABLE community_mention (
       id TEXT PRIMARY KEY, message_id TEXT NOT NULL REFERENCES community_message(id), user_id TEXT NOT NULL REFERENCES user(id),
@@ -59,10 +62,14 @@ export function communityWriteDb() {
       created_at TEXT NOT NULL,
       claimed_at TEXT
     );
+    CREATE TABLE community_category (id TEXT PRIMARY KEY, private INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE community_server_member (id TEXT PRIMARY KEY, server_id TEXT NOT NULL, user_id TEXT NOT NULL);
+    CREATE TABLE community_friendship (id TEXT PRIMARY KEY, requester_id TEXT NOT NULL, addressee_id TEXT NOT NULL, status TEXT NOT NULL);
     CREATE TABLE activity (sent INTEGER NOT NULL);
     INSERT INTO activity VALUES (0);
     INSERT INTO community_channel (id, type, created_at) VALUES ('channel', 'text', 'now');
   `);
+  sqlite.exec(readFileSync(new URL("../../../web/migrations/0106_community_attachment_reuse.sql", import.meta.url), "utf8"));
   const orm = drizzle(sqlite);
   const batchSizes: number[][] = [];
   const db = orm as unknown as Database;

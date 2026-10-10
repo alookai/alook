@@ -182,12 +182,9 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     }
     if (req.width !== undefined) form.append("width", String(req.width));
     if (req.height !== undefined) form.append("height", String(req.height));
-    // Canonical attachments door: POST channels/{id}/attachments. The bot holds
-    // a REF (not an id), so it uses the `resolve` placeholder id and carries the
-    // ref on `?target=` (kept — Gener #68); the door's bot arm resolves it
-    // member-scoped → 404 (①-C). Same multipart BODY + `?target=` query as the
-    // old flat `attachmentUpload`; only the PATH changes.
-    const url = `${base}/api/community/channels/${REF_PLACEHOLDER_ID}/attachments?target=${encodeURIComponent(req.target)}`;
+    // Keep the existing API path and optional target query for legacy callers.
+    const query = req.target === undefined ? "" : `?target=${encodeURIComponent(req.target)}`;
+    const url = `${base}/api/community/channels/${REF_PLACEHOLDER_ID}/attachments${query}`;
     const res = await fetchImpl(url, {
       method: "POST",
       headers: { authorization: `Bearer ${config.voucher}` },

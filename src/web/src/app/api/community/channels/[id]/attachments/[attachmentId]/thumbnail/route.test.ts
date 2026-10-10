@@ -4,7 +4,7 @@ import { NextRequest } from "next/server"
 const mockAuthorizeAttachment = vi.fn()
 const mockR2Get = vi.fn()
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+vi.mock("@/lib/db", () => ({ getPrimaryDb: vi.fn(() => ({})) }))
 vi.mock("@/lib/community/attachment-authorization", () => ({
   authorizeAttachment: (...args: unknown[]) => mockAuthorizeAttachment(...args),
 }))

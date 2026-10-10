@@ -364,14 +364,10 @@ export interface SendRequest {
   nonce?: string;
 }
 
-/**
- * Upload a local file as a pending attachment for a future `send`. The returned
- * id is the same one that surfaces on the sent message (id continuity across
- * pending → persisted lifecycle).
- */
+/** Upload a local file and return a reusable ID; target is optional for legacy callers. */
 export interface AttachmentUploadRequest {
   agentId: AgentId;
-  target: ChannelRef;
+  target?: ChannelRef;
   file: FileHandle;
   thumbnail?: FileHandle;
   width?: number;

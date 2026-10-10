@@ -29,8 +29,6 @@ const mockListMessagesAround = vi.fn()
 const mockListMessagesSince = vi.fn()
 const mockGetLatestMessageSeq = vi.fn()
 const mockListByMessageIds = vi.fn()
-const mockFindPendingAttachmentsForSender = vi.fn()
-const mockReserveAttachmentsForMessage = vi.fn()
 const mockListReactionsByMessageIds = vi.fn()
 const mockGetUserInternal = vi.fn()
 const mockGetDM = vi.fn()
@@ -56,7 +54,6 @@ const mockAddThreadParticipant = vi.fn()
 const mockListThreadParticipantUserIds = vi.fn()
 const mockDeleteChannel = vi.fn()
 const mockHardDeleteMessage = vi.fn()
-const mockRebindPendingAttachmentsToChild = vi.fn()
 const mockRecordFirstAgentReplyPersistedStatement = vi.fn(() => ({ kind: "first-agent-reply-statement" }))
 
 const mockFanOutToChannel = vi.fn()
@@ -121,9 +118,6 @@ vi.mock("@alook/shared", async () => {
       },
       communityAttachment: {
         listByMessageIds: (...a: unknown[]) => mockListByMessageIds(...a),
-        findPendingAttachmentsForSender: (...a: unknown[]) => mockFindPendingAttachmentsForSender(...a),
-        reserveAttachmentsForMessage: (...a: unknown[]) => mockReserveAttachmentsForMessage(...a),
-        rebindPendingAttachmentsToChild: (...a: unknown[]) => mockRebindPendingAttachmentsToChild(...a),
       },
       communityReaction: {
         listReactionsByMessageIds: (...a: unknown[]) => mockListReactionsByMessageIds(...a),
@@ -281,7 +275,6 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockCheckMessageRateLimit.mockResolvedValue({ allowed: true })
     mockCreateChannel.mockResolvedValue({ id: "thread_1", creatorId: "u1", createdAt: "t0", name: "thread" })
     mockGetThreadChannelByParentMessage.mockResolvedValue({ id: "thread_1", creatorId: "u1", createdAt: "t0", name: "thread" })
-    mockRebindPendingAttachmentsToChild.mockResolvedValue(true)
     mockAddThreadParticipant.mockResolvedValue(null)
     mockListThreadParticipantUserIds.mockResolvedValue([])
     mockBroadcastToUserSafe.mockResolvedValue(undefined)
@@ -321,8 +314,6 @@ describe("POST /api/community/channels/[id]/messages", () => {
       replay: mockGetMessageByAuthorAndNonce,
       duplicate: mockDuplicateCheck,
       rateLimit: mockCheckMessageRateLimit,
-      pendingAttachments: mockFindPendingAttachmentsForSender,
-      reserveAttachments: mockReserveAttachmentsForMessage,
       createChannel: mockCreateChannel,
       createMessage: mockCreateMessage,
       createMentions: mockCreateMentions,
@@ -579,21 +570,14 @@ describe("POST /api/community/channels/[id]/messages", () => {
   })
 
   it("rejects more than MAX_ATTACHMENTS_PER_MESSAGE attachments with 400", async () => {
-    // Reserve-by-id: the human arm sends pending-row IDS. All ids validate as
-    // owned/attachable (findPending echoes them), so the over-cap rejection is
-    // the message handler's own MAX_ATTACHMENTS_PER_MESSAGE guard, not a
-    // validation miss.
     const attachmentIds = Array.from({ length: MAX_ATTACHMENTS_PER_MESSAGE + 1 }, (_, i) => `att_${i}`)
-    mockFindPendingAttachmentsForSender.mockResolvedValue(attachmentIds.map((id) => ({ id })))
     const res = await POST(postReq({ content: "ok", attachments: attachmentIds }), ctx)
     expect(res.status).toBe(400)
     expect(mockCreateMessage).not.toHaveBeenCalled()
   })
 
-  it("reserve-by-id: validates the pending ids (uploader+target) then passes attachmentIds to the handler", async () => {
-    mockFindPendingAttachmentsForSender.mockResolvedValue([{ id: "att_1" }, { id: "att_2" }])
+  it("passes reusable attachment IDs to the atomic message handler", async () => {
     mockCreateMessage.mockResolvedValue({ id: "m_new" })
-    mockReserveAttachmentsForMessage.mockResolvedValue(["att_1", "att_2"])
     mockListByMessageIds.mockResolvedValue([])
     const res = await POST(postReq({ content: "pics", attachments: ["att_1", "att_2"] }), ctx)
     expect(res.status).toBe(201)
@@ -602,9 +586,9 @@ describe("POST /api/community/channels/[id]/messages", () => {
     }))
   })
 
-  it("reserve-by-id confused-deputy guard: a foreign/stolen pending id (count mismatch) → 400, no message", async () => {
+  it("an atomic missing-file conflict returns 400 without fanout", async () => {
     mockCreateMessage.mockRejectedValueOnce(new Error("NOT NULL constraint failed: community_message.content"))
-    const res = await POST(postReq({ content: "steal", attachments: ["att_mine", "att_theirs"] }), ctx)
+    const res = await POST(postReq({ content: "file", attachments: ["att_existing", "att_missing"] }), ctx)
     expect(res.status).toBe(400)
     expect(mockFanOutToChannel).not.toHaveBeenCalled()
   })
@@ -721,8 +705,6 @@ describe("POST /api/community/channels/[id]/messages", () => {
 
   it("human full-command replay hydrates bound attachments before pending validation", async () => {
     const stored = { id: "a1", targetId: "c1", filename: "x.png", contentType: "image/png", size: 10, width: 1, height: 1 }
-    mockFindPendingAttachmentsForSender.mockResolvedValueOnce([stored])
-    mockReserveAttachmentsForMessage.mockResolvedValueOnce(["a1"])
     mockListByMessageIds.mockResolvedValue([stored])
     mockGetMessageByAuthorAndNonce
       .mockResolvedValueOnce(null)
@@ -735,7 +717,6 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(first.status).toBe(201)
     expect(replay.status).toBe(200)
     expect(await replay.json()).toEqual(expect.objectContaining({ deduped: true }))
-    expect(mockFindPendingAttachmentsForSender).not.toHaveBeenCalled()
     expect(mockCreateMessage).toHaveBeenCalledTimes(1)
     expect(mockCreateMessage.mock.calls[0][1].attachmentIds).toEqual(["a1"])
   })
@@ -955,8 +936,6 @@ describe("POST /api/community/channels/[id]/messages", () => {
     const row = { ...await mockGetMessage(), authorId: "bot_1", clientNonce: "cmd:reply" }
     mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
     mockResolveChannelByNameForMember.mockResolvedValue([{ id: "c1", serverId: "s1", type: "text", parentChannelId: null }])
-    mockFindPendingAttachmentsForSender.mockResolvedValueOnce([stored])
-    mockReserveAttachmentsForMessage.mockResolvedValueOnce(["a1"])
     mockListByMessageIds.mockResolvedValue([stored])
     mockGetMessageByAuthorAndNonce
       .mockResolvedValueOnce(null)
@@ -972,7 +951,6 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(first.status).toBe(200)
     expect(replay.status).toBe(200)
     expect(await replay.json()).toEqual(expect.objectContaining({ state: "sent", deduped: true }))
-    expect(mockFindPendingAttachmentsForSender).not.toHaveBeenCalled()
     expect(mockCreateMessage).toHaveBeenCalledTimes(1)
     expect(mockHasDeliverableUnreadForAgentScope).toHaveBeenCalledTimes(1)
   })

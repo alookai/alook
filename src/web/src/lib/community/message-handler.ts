@@ -178,14 +178,6 @@ export async function createCommunityMessage(params: {
    * cards) opt in — they never mention anyone.
    */
   skipMentions?: boolean
-  /**
-   * Reserve-by-id attachment path (the ONLY attachment path — human web and bot
-   * both use it, route/disc step 2b). Pending attachment ids the caller has
-   * already validated against (uploader, target). When present, the handler
-   * pre-mints the message id, reserves the pending rows in a single atomic
-   * UPDATE, then inserts the message — compensating unreserves on every failure
-   * path so no message row is ever committed with a partial attachment set.
-   */
   attachmentIds?: string[]
   /**
    * Do NOT run any WS side effect inline. Instead, on success, return a
@@ -274,9 +266,6 @@ export async function createCommunityMessage(params: {
 
   // Reserve-by-id is the SINGLE attachment path (route/disc step 2b unified the
   // human composer onto the bot flow): every caller — human web AND bot — passes
-  // pre-uploaded pending-row ids via `attachmentIds`; the route already validated
-  // them against (uploader, target). There is no longer a url-carried inline
-  // attachment path.
   const attachmentIdCount = Array.isArray(attachmentIds) ? attachmentIds.length : 0
   if (attachmentIdCount > MAX_ATTACHMENTS_PER_MESSAGE) {
     return {

@@ -271,7 +271,6 @@ async function handleHumanSend(
       parentChannelId: target.channelId,
       serverId: target.serverId,
       body: { content, mentionType: forumBody.mentionType },
-      pendingAttachmentIdsToRebind: attachmentIds,
       clientNonce,
       source: "web",
     })
@@ -347,7 +346,6 @@ async function handleBotSend(
       parentChannelId: channelId,
       serverId,
       body: { content: body.content.text },
-      pendingAttachmentIdsToRebind: body.attachments,
       clientNonce: body.nonce,
       ...(expectedSeq !== undefined ? { expectedSeq } : {}),
       source: "cli",

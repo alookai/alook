@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { createLogger } from "@alook/shared"
-import { getDb } from "@/lib/db"
+import { getPrimaryDb } from "@/lib/db"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { withPrivateMediaCache } from "@/lib/middleware/private-media-cache"
 import { authorizeAttachment } from "@/lib/community/attachment-authorization"
@@ -15,7 +15,7 @@ export const GET = withPrivateMediaCache(withCommunityActor(async (_req: NextReq
   }
 
   try {
-    const authz = await authorizeAttachment(ctx.actor, getDb(ctx.env.DB), attachmentId)
+    const authz = await authorizeAttachment(ctx.actor, getPrimaryDb(ctx.env.DB), attachmentId)
     if (!authz.ok || authz.row.thumbnailR2Key === null) {
       return NextResponse.json({ error: "attachment not found" }, { status: 404 })
     }

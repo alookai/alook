@@ -6,8 +6,6 @@ const mockGetMessageByAuthorAndNonce = vi.fn()
 const mockGetMessageInScope = vi.fn()
 const mockHardDeleteMessage = vi.fn()
 const mockGetUserInternal = vi.fn()
-const mockReserveAttachmentsForMessage = vi.fn()
-const mockUnreserveAttachments = vi.fn()
 const mockListByMessageIds = vi.fn()
 const mockListMembers = vi.fn()
 const mockListMemberUserIds = vi.fn()
@@ -42,8 +40,6 @@ vi.mock("@alook/shared", async () => {
         hardDeleteMessage: (...a: unknown[]) => mockHardDeleteMessage(...a),
       },
       communityAttachment: {
-        reserveAttachmentsForMessage: (...a: unknown[]) => mockReserveAttachmentsForMessage(...a),
-        unreserveAttachments: (...a: unknown[]) => mockUnreserveAttachments(...a),
         listByMessageIds: (...a: unknown[]) => mockListByMessageIds(...a),
       },
       communityMember: {
@@ -339,7 +335,6 @@ describe("createCommunityMessage — committed delivery handoff", () => {
     // reserved rows are re-read via listByMessageIds after the reserve. There is
     // no url-carried body path anymore — the caller passes attachmentIds.
     mockCreateMessage.mockResolvedValue({ id: "msg_1" })
-    mockReserveAttachmentsForMessage.mockResolvedValue(["att_1"])
     mockListByMessageIds.mockResolvedValue([
       {
         id: "att_1",
@@ -865,7 +860,6 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
     expect(res).toEqual({ ok: false, status: 400, error: "attachment not found or not attachable to this target" })
     expect(mockCreateMessage).toHaveBeenCalledWith({}, expect.objectContaining({ attachmentIds: ["att_1", "att_2"] }))
     expect(mockHardDeleteMessage).not.toHaveBeenCalled()
-    expect(mockUnreserveAttachments).not.toHaveBeenCalled()
     expect(mockDispatchCommittedMessage).not.toHaveBeenCalled()
   })
 
@@ -882,8 +876,6 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
       }),
     ).rejects.toThrow("d1_transient")
 
-    expect(mockReserveAttachmentsForMessage).not.toHaveBeenCalled()
-    expect(mockUnreserveAttachments).not.toHaveBeenCalled()
     expect(mockHardDeleteMessage).not.toHaveBeenCalled()
   })
 
@@ -903,13 +895,10 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
     if (res.ok) return
     expect(res.status).toBe(409)
     expect(res.error).toBe("seq_conflict")
-    expect(mockReserveAttachmentsForMessage).not.toHaveBeenCalled()
-    expect(mockUnreserveAttachments).not.toHaveBeenCalled()
     expect(mockHardDeleteMessage).not.toHaveBeenCalled()
   })
 
   it("attachment-only bot send (empty text) is NOT rejected by the empty-body guard", async () => {
-    mockReserveAttachmentsForMessage.mockResolvedValue(["att_1"])
     mockCreateMessage.mockResolvedValue({ id: "msg_preminted" })
     mockListByMessageIds.mockResolvedValue([
       {
@@ -939,7 +928,6 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
   })
 
   it("happy path — reserved rows are projected as CreatedAttachment via listByMessageIds", async () => {
-    mockReserveAttachmentsForMessage.mockResolvedValue(["att_1"])
     mockCreateMessage.mockResolvedValue({ id: "msg_preminted" })
     mockListByMessageIds.mockResolvedValue([
       {
@@ -977,7 +965,6 @@ describe("createCommunityMessage — attachment reservation-first flow (agent pa
         thumbnailUrl: "/api/community/channels/c1/attachments/att_1/thumbnail",
       }),
     ])
-    expect(mockUnreserveAttachments).not.toHaveBeenCalled()
   })
 })
 

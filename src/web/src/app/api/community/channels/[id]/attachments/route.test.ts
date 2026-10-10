@@ -37,7 +37,7 @@ const mockGetDM = vi.fn()
 const mockGetDMBetween = vi.fn()
 const mockGetDMPeer = vi.fn()
 const mockAreFriends = vi.fn()
-const mockCreatePendingAttachment = vi.fn()
+const mockCreateAttachment = vi.fn()
 const mockLogError = vi.fn()
 
 vi.mock("@alook/shared", async () => {
@@ -69,7 +69,7 @@ vi.mock("@alook/shared", async () => {
         areFriends: (...a: unknown[]) => mockAreFriends(...a),
       },
       communityAttachment: {
-        createPendingAttachment: (...a: unknown[]) => mockCreatePendingAttachment(...a),
+        createAttachment: (...a: unknown[]) => mockCreateAttachment(...a),
       },
     },
   }
@@ -101,7 +101,7 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
     mockFindActiveAgentRunnerKeyByBearer.mockResolvedValue({ userId: "owner_1", machineId: "m_1", agentId: "bot_1" })
     mockGetUserInternal.mockResolvedValue({ isBot: true, deletedAt: null })
     mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude", isActive: true })
-    mockCreatePendingAttachment.mockResolvedValue({
+    mockCreateAttachment.mockResolvedValue({
       id: "att_1",
       filename: "hi.png",
       contentType: "image/png",
@@ -123,9 +123,22 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
     expect(res.status).toBe(401)
   })
 
-  it("400 when target query param is missing", async () => {
+  it("accepts target-free upload with the existing response and uploader identity", async () => {
     const res = await POST(botReq(null, { Authorization: "Bearer crk_abc" }), botCtx)
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ id: "att_1", filename: "hi.png", contentType: "image/png", size: 10, hasThumbnail: false })
+    expect(mockResolveServerByNameForMember).not.toHaveBeenCalled()
+    expect(mockCreateAttachment).toHaveBeenCalledWith(primaryDb, expect.objectContaining({ uploaderId: "bot_1" }))
+  })
+
+  it("rejects a target-free upload without authentication", async () => {
+    expect((await POST(botReq(null), botCtx)).status).toBe(401)
+    expect(mockHandleAttachmentUpload).not.toHaveBeenCalled()
+  })
+
+  it("preserves rejection of an explicitly empty legacy target", async () => {
+    expect((await POST(botReq("", { Authorization: "Bearer crk_abc" }), botCtx)).status).toBe(400)
+    expect(mockHandleAttachmentUpload).not.toHaveBeenCalled()
   })
 
   it("returns id + filename + contentType + size — no url, no r2Key", async () => {
@@ -150,17 +163,10 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
     expect(body.r2Key).toBeUndefined()
     // Uploader tag threaded to the R2 primitive; the resolved id is used (not
     // the placeholder path id).
-    expect(mockHandleAttachmentUpload).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.anything(),
-      "channel",
-      "c1",
-      { uploader: "bot", uploaderUserId: "bot_1" },
-    )
+    expect(mockHandleAttachmentUpload).toHaveBeenCalledWith(expect.anything(), expect.anything())
     expect(mockGetPrimaryDb).toHaveBeenCalledOnce()
-    expect(mockCreatePendingAttachment).toHaveBeenCalledWith(primaryDb, expect.objectContaining({
+    expect(mockCreateAttachment).toHaveBeenCalledWith(primaryDb, expect.objectContaining({
       uploaderId: "bot_1",
-      targetId: "c1",
       r2Key: "channel/c1/uuid/hi.png",
     }))
   })
@@ -179,7 +185,7 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
     expect(res.status).toBe(403)
     expect(await res.json()).toEqual({ error: "accepted friendship required" })
     expect(mockHandleAttachmentUpload).not.toHaveBeenCalled()
-    expect(mockCreatePendingAttachment).not.toHaveBeenCalled()
+    expect(mockCreateAttachment).not.toHaveBeenCalled()
   })
 
   it("persists thumbnail key and dimensions, returning hasThumbnail true", async () => {
@@ -200,28 +206,28 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
     })
     const response = await POST(botReq("/studio#0042/general", { Authorization: "Bearer crk_abc" }), botCtx)
     expect(await response.json()).toMatchObject({ hasThumbnail: true })
-    expect(mockCreatePendingAttachment).toHaveBeenCalledWith(primaryDb, expect.objectContaining({
+    expect(mockCreateAttachment).toHaveBeenCalledWith(primaryDb, expect.objectContaining({
       thumbnailR2Key: "channel/c1/uuid/hi.png.thumbnail.jpg",
       width: 640,
       height: 480,
     }))
   })
 
-  it("createPendingAttachment throws → 500 JSON envelope, R2 delete fired with r2Key", async () => {
+  it("createAttachment throws → 500 JSON envelope, shared R2 content preserved", async () => {
     mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
     mockResolveChannelByNameForMember.mockResolvedValue([
       { id: "c1", serverId: "srv_1", parentChannelId: null },
     ])
     mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "srv_1", parentChannelId: null })
-    mockCreatePendingAttachment.mockRejectedValueOnce(new Error("d1_transient"))
+    mockCreateAttachment.mockRejectedValueOnce(new Error("d1_transient"))
 
     const res = await POST(botReq("/studio#0042/general", { Authorization: "Bearer crk_abc" }), botCtx)
     expect(res.status).toBe(500)
     expect(await res.json()).toEqual({ error: "internal error", code: "internal" })
-    expect(mockR2Delete).toHaveBeenCalledWith("channel/c1/uuid/hi.png")
+    expect(mockR2Delete).not.toHaveBeenCalled()
   })
 
-  it("D1 failure after a thumbnail upload deletes both objects together", async () => {
+  it("D1 failure preserves original and thumbnail shared objects", async () => {
     mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
     mockResolveChannelByNameForMember.mockResolvedValue([
       { id: "c1", serverId: "srv_1", parentChannelId: null },
@@ -235,46 +241,9 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
       contentType: "image/png",
       size: 10,
     })
-    mockCreatePendingAttachment.mockRejectedValueOnce(new Error("d1"))
+    mockCreateAttachment.mockRejectedValueOnce(new Error("d1"))
     expect((await POST(botReq("/studio#0042/general", { Authorization: "Bearer crk_abc" }), botCtx)).status).toBe(500)
-    expect(mockR2Delete).toHaveBeenCalledWith(["original-key", "thumbnail-key"])
-  })
-
-  it("redacts object keys when compensation cleanup also fails", async () => {
-    mockResolveServerByNameForMember.mockResolvedValue([{ id: "srv_1" }])
-    mockResolveChannelByNameForMember.mockResolvedValue([
-      { id: "c1", serverId: "srv_1", parentChannelId: null },
-    ])
-    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "srv_1", parentChannelId: null })
-    mockHandleAttachmentUpload.mockResolvedValue({
-      ok: true,
-      r2Key: "secret-original-key",
-      thumbnailR2Key: "secret-thumbnail-key",
-      filename: "hi.png",
-      contentType: "image/png",
-      size: 10,
-    })
-    mockCreatePendingAttachment.mockRejectedValueOnce(new Error("d1"))
-    mockR2Delete.mockRejectedValueOnce(new Error("secret provider detail"))
-
-    const response = await POST(
-      botReq("/studio#0042/general", { Authorization: "Bearer crk_abc" }),
-      botCtx,
-    )
-
-    expect(response.status).toBe(500)
-    const cleanupLog = mockLogError.mock.calls.find(
-      ([event]) => event === "attachment_route_r2_cleanup_failed",
-    )
-    expect(cleanupLog?.[1]).toEqual({
-      route: "channels/[id]/attachments",
-      actor: "bot",
-      objectCount: 2,
-      errorCategory: "Error",
-    })
-    expect(JSON.stringify(cleanupLog)).not.toContain("secret-original-key")
-    expect(JSON.stringify(cleanupLog)).not.toContain("secret-thumbnail-key")
-    expect(JSON.stringify(cleanupLog)).not.toContain("secret provider detail")
+    expect(mockR2Delete).not.toHaveBeenCalled()
   })
 
   it("pre-R2 throw (resolveTargetForMember errors) → 500 JSON, R2 delete NOT called", async () => {
@@ -298,7 +267,7 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
 
     const res = await POST(botReq("/studio#0042/general", { Authorization: "Bearer crk_abc" }), botCtx)
     expect(res.status).toBe(413)
-    expect(mockCreatePendingAttachment).not.toHaveBeenCalled()
+    expect(mockCreateAttachment).not.toHaveBeenCalled()
   })
 })
 
@@ -331,6 +300,6 @@ describe("POST /api/community/channels/[id]/attachments — human arm (re-homes 
     // The human arm forwards the id-in-path so the shared trunk resolves surface.
     expect(args[1]).toMatchObject({ userId: "u1", params: { id: "c1" } })
     // Bot-only pending-row insert never runs on the human arm.
-    expect(mockCreatePendingAttachment).not.toHaveBeenCalled()
+    expect(mockCreateAttachment).not.toHaveBeenCalled()
   })
 })

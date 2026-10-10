@@ -1,6 +1,7 @@
 import { aliasedTable, asc, eq } from "drizzle-orm";
 import {
   communityAttachment,
+  communityMessageAttachment,
   communityChannel,
   communityMessage,
   communityServer,
@@ -62,9 +63,10 @@ export async function getPushNotificationTarget(
   const attachments = await db
     .select({ contentType: communityAttachment.contentType })
     .from(communityAttachment)
-    .where(eq(communityAttachment.messageId, messageId))
+    .innerJoin(communityMessageAttachment, eq(communityMessageAttachment.attachmentId, communityAttachment.id))
+    .where(eq(communityMessageAttachment.messageId, messageId))
     .orderBy(
-      asc(communityAttachment.position),
+      asc(communityMessageAttachment.position),
       asc(communityAttachment.createdAt),
     );
 

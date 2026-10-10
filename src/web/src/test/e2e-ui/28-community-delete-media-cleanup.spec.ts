@@ -35,7 +35,7 @@ function headers(key: "alice" | "bob" | "carol") {
   return { Cookie: sessionCookie(key), Origin: WEB_URL }
 }
 
-async function uploadPending(
+async function uploadFile(
   key: "alice" | "bob" | "carol",
   channelId: string,
   name: string,
@@ -96,22 +96,33 @@ async function status(
   return (await fetch(`${WEB_URL}${path}`, { method, headers: headers(key) })).status
 }
 
-test("existing channel/server deletes converge UI, WS, pending rows, linked media, and icon reads", async ({ asUser }) => {
+test("existing channel/server deletes converge UI, WS, last references, retained files, and icon reads", async ({ asUser }) => {
   test.setTimeout(210_000)
   const stamp = Date.now()
+  const destinationServerId = await seedServer("alice", `C1 forwards ${stamp}`)
+  const destinationId = await seedChannel("alice", destinationServerId, `keep-media-${stamp}`, "text")
+  await seedJoinServer("alice", "bob", destinationServerId)
+  await seedJoinServer("alice", "carol", destinationServerId)
   const channelServerId = await seedServer("alice", `C1 channel ${stamp}`)
   const channelId = await seedChannel("alice", channelServerId, `delete-media-${stamp}`, "text")
   await seedJoinServer("alice", "bob", channelServerId)
-  const linkedChannelAttachment = await uploadPending("alice", channelId, "linked-channel.png", true)
-  const pendingChannelAttachment = await uploadPending("alice", channelId, "pending-channel.png", true)
+  const linkedChannelAttachment = await uploadFile("alice", channelId, "linked-channel.png", true)
+  const unsentChannelAttachment = await uploadFile("alice", channelId, "unsent-channel.png", true)
   await linkAttachment("alice", channelId, linkedChannelAttachment)
+  const forwardedChannelAttachment = await uploadFile("alice", channelId, "forwarded-channel.png", true)
+  await linkAttachment("alice", channelId, forwardedChannelAttachment)
+  await linkAttachment("bob", destinationId, forwardedChannelAttachment)
+  expect(await status("bob", `/api/community/channels/${channelId}/attachments/${unsentChannelAttachment}`)).toBe(404)
 
   const serverId = await seedServer("alice", `C1 server ${stamp}`)
   const serverChannelId = await seedChannel("alice", serverId, `delete-server-${stamp}`, "text")
   await seedJoinServer("alice", "bob", serverId)
-  const linkedServerAttachment = await uploadPending("alice", serverChannelId, "linked-server.png", true)
-  const pendingServerAttachment = await uploadPending("alice", serverChannelId, "pending-server.png", true)
+  const linkedServerAttachment = await uploadFile("alice", serverChannelId, "linked-server.png", true)
+  const unsentServerAttachment = await uploadFile("alice", serverChannelId, "unsent-server.png", true)
   await linkAttachment("alice", serverChannelId, linkedServerAttachment)
+  const forwardedServerAttachment = await uploadFile("alice", serverChannelId, "forwarded-server.png", true)
+  await linkAttachment("alice", serverChannelId, forwardedServerAttachment)
+  await linkAttachment("bob", destinationId, forwardedServerAttachment)
   await uploadServerIcon(serverId)
 
   const alice = await asUser("alice")
@@ -142,7 +153,12 @@ test("existing channel/server deletes converge UI, WS, pending rows, linked medi
   await expect.poll(() => aliceDeletes.frames.filter((frame) => frame.channelId === channelId)).toHaveLength(1)
   await expect.poll(() => bobDeletes.frames.filter((frame) => frame.channelId === channelId)).toHaveLength(1)
   expect(await status("alice", `/api/community/channels/${channelId}/attachments/${linkedChannelAttachment}`)).toBe(404)
-  expect(await status("alice", `/api/community/channels/${channelId}/attachments/${pendingChannelAttachment}`)).toBe(404)
+  expect(await status("alice", `/api/community/channels/${channelId}/attachments/${unsentChannelAttachment}`)).toBe(200)
+  expect(await status("alice", `/api/community/channels/${channelId}/attachments/${unsentChannelAttachment}/thumbnail`)).toBe(200)
+  expect(await status("bob", `/api/community/channels/${channelId}/attachments/${unsentChannelAttachment}`)).toBe(404)
+  expect(await status("bob", `/api/community/channels/${channelId}/attachments/${forwardedChannelAttachment}`)).toBe(200)
+  expect(await status("bob", `/api/community/channels/${channelId}/attachments/${forwardedChannelAttachment}/thumbnail`)).toBe(200)
+  expect(await status("carol", `/api/community/channels/${destinationId}/attachments/${forwardedChannelAttachment}`)).toBe(200)
 
   await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${serverChannelId}`)
   await gotoAfterUserWsAuth(bob.page, `/c/channels/${serverId}/${serverChannelId}`)
@@ -189,7 +205,12 @@ test("existing channel/server deletes converge UI, WS, pending rows, linked medi
   ))).toHaveLength(1)
   expect(await status("alice", `/api/community/servers/${serverId}/icon`)).toBe(404)
   expect(await status("alice", `/api/community/channels/${serverChannelId}/attachments/${linkedServerAttachment}`)).toBe(404)
-  expect(await status("alice", `/api/community/channels/${serverChannelId}/attachments/${pendingServerAttachment}`)).toBe(404)
+  expect(await status("alice", `/api/community/channels/${serverChannelId}/attachments/${unsentServerAttachment}`)).toBe(200)
+  expect(await status("alice", `/api/community/channels/${serverChannelId}/attachments/${unsentServerAttachment}/thumbnail`)).toBe(200)
+  expect(await status("bob", `/api/community/channels/${serverChannelId}/attachments/${unsentServerAttachment}`)).toBe(404)
+  expect(await status("bob", `/api/community/channels/${serverChannelId}/attachments/${forwardedServerAttachment}`)).toBe(200)
+  expect(await status("bob", `/api/community/channels/${serverChannelId}/attachments/${forwardedServerAttachment}/thumbnail`)).toBe(200)
+  expect(await status("carol", `/api/community/channels/${destinationId}/attachments/${forwardedServerAttachment}`)).toBe(200)
 
   await alice.page.goBack()
   await expect(alice.page).not.toHaveURL(new RegExp(`/c/channels/${serverId}/`))

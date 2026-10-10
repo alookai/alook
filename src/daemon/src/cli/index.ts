@@ -476,9 +476,8 @@ async function cmdMessageMarkList(opts: Record<string, unknown>): Promise<unknow
 async function cmdAttachmentUpload(opts: Record<string, unknown>): Promise<unknown> {
   const api = getApi();
   const agent = agentId(opts);
-  const target = opts.target as string;
+  const target = opts.target as string | undefined;
   const filePath = opts.file as string;
-  if (!target) throw new CliError("message attachment upload: --target <ref> is required");
   if (!filePath) throw new CliError("message attachment upload: --file <path> is required");
 
   const fs = await import("fs/promises");
@@ -521,7 +520,7 @@ async function cmdAttachmentUpload(opts: Record<string, unknown>): Promise<unkno
 
   const result = await api.attachmentUpload({
     agentId: agent,
-    target,
+    ...(target !== undefined ? { target } : {}),
     file: { data: new Uint8Array(bytes), filename, contentType },
     ...(thumbnail ? { thumbnail } : {}),
     ...(width !== undefined ? { width } : {}),
@@ -894,8 +893,8 @@ function buildProgram(stdin: CliInputStream): Command {
 
   attachment
     .command("upload")
-    .description("upload a local file as a pending attachment for a future send")
-    .option("--target <ref>", "destination (channel, DM, or thread ref)")
+    .description("upload a local file and get its reusable attachment id")
+    .option("--target <ref>", "optional legacy target (channel, DM, or thread ref)")
     .option("--file <path>", "local file to upload")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })

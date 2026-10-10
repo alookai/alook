@@ -16,32 +16,12 @@ export function sanitizeAttachmentFilename(input: string): string {
   return cleaned.length > 255 ? cleaned.slice(0, 255) : cleaned
 }
 
-/**
- * Read/render URL for a persisted attachment, served by the canonical
- * `GET /api/community/channels/{targetId}/attachments/{attachmentId}` door.
- * Every read-side call site (`groupAttachments`, the reserve/incoming arms of
- * the message-create handler) builds display URLs through this helper so the
- * id-addressed attachment scheme lives in one place.
- *
- * The `{targetId}` path segment is a routing anchor only — the download door
- * authorizes from the attachment ROW's own channel, never from the path — so a
- * stale/forged targetId can't reach another row's bytes.
- */
 export function attachmentUrl(targetId: string, attachmentId: string): string {
   return `/api/community/channels/${targetId}/attachments/${attachmentId}`
 }
 
 export function attachmentThumbnailUrl(targetId: string, attachmentId: string): string {
   return `${attachmentUrl(targetId, attachmentId)}/thumbnail`
-}
-
-export function buildAttachmentThumbnailKey(originalKey: string): string {
-  return `${originalKey}.thumbnail.jpg`
-}
-
-// R2 storage key builders
-export function buildMediaKey(type: "channel" | "dm" | "thread", id: string, fileId: string, filename: string): string {
-  return `${type}/${id}/${fileId}/${sanitizeAttachmentFilename(filename)}`
 }
 
 export function buildServerIconKey(serverId: string, fileId: string): string {

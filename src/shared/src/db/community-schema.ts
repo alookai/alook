@@ -402,22 +402,11 @@ export const communityReaction = sqliteTable(
   ]
 );
 
-// 14. community_attachment
-//
-// `messageId` is nullable — pending rows created by the agent
-// `attachment upload` command exist before the send that links them. The
-// human and bot uploads both create pending rows first; send reserves them by
-// id and sets `messageId`. `position` is stamped 0-indexed at link time in the
-// caller-specified order; NULL on pending rows.
 export const communityAttachment = sqliteTable(
   "community_attachment",
   {
     id: text("id").primaryKey().$defaultFn(() => nanoid()),
-    messageId: text("message_id").references(() => communityMessage.id, {
-      onDelete: "cascade",
-    }),
     uploaderId: text("uploader_id").notNull(),
-    targetId: text("target_id").notNull(),
     r2Key: text("r2_key").notNull(),
     thumbnailR2Key: text("thumbnail_r2_key"),
     filename: text("filename").notNull(),
@@ -425,17 +414,26 @@ export const communityAttachment = sqliteTable(
     size: integer("size"),
     width: integer("width"),
     height: integer("height"),
-    position: integer("position"),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [
-    // (message_id, position) matches ORDER BY position on the read path.
-    // Drizzle can't express a partial index for the pending lookup here, so
-    // migration 0071 also creates
-    //   idx_attachment_pending_uploader (uploader_id, target_id)
-    //     WHERE message_id IS NULL
-    // which the send-time validation query uses.
-    index("idx_attachment_message").on(t.messageId, t.position),
+    index("idx_attachment_uploader").on(t.uploaderId),
+    index("idx_attachment_r2_key").on(t.r2Key),
+    index("idx_attachment_thumbnail_r2_key").on(t.thumbnailR2Key),
+  ]
+);
+
+export const communityMessageAttachment = sqliteTable(
+  "community_message_attachment",
+  {
+    messageId: text("message_id").notNull().references(() => communityMessage.id, { onDelete: "cascade" }),
+    attachmentId: text("attachment_id").notNull().references(() => communityAttachment.id, { onDelete: "restrict" }),
+    position: integer("position").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.messageId, t.attachmentId] }),
+    unique("uq_message_attachment_position").on(t.messageId, t.position),
+    index("idx_message_attachment_file").on(t.attachmentId, t.messageId),
   ]
 );
 

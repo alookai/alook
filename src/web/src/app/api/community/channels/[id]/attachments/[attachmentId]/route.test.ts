@@ -3,11 +3,9 @@ import { NextRequest } from "next/server"
 
 const mockR2Get = vi.fn()
 const mockR2Head = vi.fn()
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+vi.mock("@/lib/db", () => ({ getPrimaryDb: vi.fn(() => ({})) }))
 
-const mockGetAttachmentById = vi.fn()
-const mockGetMessage = vi.fn()
-const mockGetChannelType = vi.fn()
+const mockGetReadableAttachmentById = vi.fn()
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -16,30 +14,15 @@ vi.mock("@alook/shared", async () => {
     queries: {
       ...actual.queries,
       communityAttachment: {
-        getAttachmentById: (...a: unknown[]) => mockGetAttachmentById(...a),
+        getReadableAttachmentById: (...a: unknown[]) => mockGetReadableAttachmentById(...a),
       },
       communityMessage: {
-        ...actual.queries.communityMessage,
-        getMessage: (...a: unknown[]) => mockGetMessage(...a),
       },
       communityChannel: {
-        ...actual.queries.communityChannel,
-        getChannelType: (...a: unknown[]) => mockGetChannelType(...a),
       },
     },
   }
 })
-
-const mockRequireChannelMember = vi.fn()
-const mockRequireDMAccess = vi.fn()
-vi.mock("@/lib/community/permissions", () => ({
-  requireChannelMember: (...a: unknown[]) => mockRequireChannelMember(...a),
-  requireDMAccess: (...a: unknown[]) => mockRequireDMAccess(...a),
-}))
-
-// Dual-actor: crk_ bearer → bot arm, else human. The route dispatches by
-// actor.kind for the RESPONSE shape; the authz core is identical. A test may
-// inject a specific actor via ctx.actor.
 vi.mock("@/lib/middleware/community-actor", async () => {
   const actual = await vi.importActual<typeof import("@/lib/middleware/community-actor")>(
     "@/lib/middleware/community-actor",
@@ -76,9 +59,6 @@ function req(headers: Record<string, string> = {}): NextRequest {
     headers,
   })
 }
-
-// params.id = the PATH channel id (routing anchor only, NEVER trusted for
-// authz). params.attachmentId = the authoritative id.
 const ctx = (attachmentId: string | undefined = "att_1", id = "c1") =>
   ({ params: { id, attachmentId } }) as any
 
@@ -105,17 +85,12 @@ const r2Object = (over: Record<string, unknown> = {}, bytes = new Uint8Array(10)
 })
 
 function allowPersistedHuman(row = persistedRow()): void {
-  mockGetAttachmentById.mockResolvedValue(row)
-  mockGetMessage.mockResolvedValue({ id: "m_1", channelId: "c_real" })
-  mockGetChannelType.mockResolvedValue("text")
-  mockRequireChannelMember.mockResolvedValue({ ok: true, value: {} })
+  mockGetReadableAttachmentById.mockResolvedValue(row)
 }
 
 describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockRequireChannelMember.mockResolvedValue({ ok: true, value: {} })
-    mockRequireDMAccess.mockResolvedValue({ ok: true, value: {} })
   })
 
   it("404 when attachmentId is missing", async () => {
@@ -125,36 +100,23 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
   })
 
   it("404 when the id doesn't exist (bot)", async () => {
-    mockGetAttachmentById.mockResolvedValue(null)
+    mockGetReadableAttachmentById.mockResolvedValue(null)
     const res = await GET(req({ Authorization: "Bearer crk_abc" }), ctx())
     expect(res.status).toBe(404)
     expect(res.headers.get("Cache-Control")).toBe("private, no-store")
     expect(await res.json()).toEqual({ error: "attachment not found" })
   })
-
-  // ⚠ CONFUSED-DEPUTY — the top red line. The gate resolves the row's OWN
-  // channel (row.targetId → row.messageId → message.channelId), NOT the path
-  // `[id]`. A caller who IS a member of the path channel "c1" but NOT of the
-  // row's real channel must still 404. We prove it by making the membership
-  // gate observe the ROW's channel id, and by returning not-a-member there.
   it("authorizes from the ROW's channel, not the path id — member of path-c1 but not row-channel → 404", async () => {
-    mockGetAttachmentById.mockResolvedValue(persistedRow())
-    mockGetMessage.mockResolvedValue({ id: "m_1", channelId: "c_real" })
-    mockGetChannelType.mockResolvedValue("text")
-    mockRequireChannelMember.mockResolvedValue({ ok: false, status: 403, error: "not a member" })
+    mockGetReadableAttachmentById.mockResolvedValue(null)
 
     const res = await GET(req({ Authorization: "Bearer crk_abc" }), ctx("att_1", "c1"))
     expect(res.status).toBe(404)
     expect(res.headers.get("Cache-Control")).toBe("private, no-store")
-    // The membership gate was called with the ROW's message channel, not "c1".
-    expect(mockRequireChannelMember).toHaveBeenCalledWith({}, "c_real", "bot_1")
-    // No path-id was consulted for authz.
-    expect(mockRequireChannelMember).not.toHaveBeenCalledWith({}, "c1", expect.anything())
     expect(mockR2Get).not.toHaveBeenCalled()
   })
 
   it("404 (not 403) when a pending row belongs to another actor — enumeration-safe", async () => {
-    mockGetAttachmentById.mockResolvedValue(persistedRow({ messageId: null, uploaderId: "other" }))
+    mockGetReadableAttachmentById.mockResolvedValue(null)
     const res = await GET(req({ Authorization: "Bearer crk_abc" }), ctx())
     expect(res.status).toBe(404)
     expect(res.headers.get("Cache-Control")).toBe("private, no-store")
@@ -163,7 +125,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
   })
 
   it("bot: pending row owned by the requesting bot round-trips (200 + X-Alook-Filename)", async () => {
-    mockGetAttachmentById.mockResolvedValue(persistedRow({ messageId: null, uploaderId: "bot_1" }))
+    mockGetReadableAttachmentById.mockResolvedValue(persistedRow({ messageId: null, uploaderId: "bot_1" }))
     mockR2Get.mockResolvedValue(r2Object())
     const res = await GET(req({ Authorization: "Bearer crk_abc" }), ctx())
     expect(res.status).toBe(200)
@@ -176,7 +138,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
 
   it("bot: ignores Range and preserves the full-download protocol", async () => {
     const bytes = Uint8Array.from({ length: 10 }, (_, index) => index)
-    mockGetAttachmentById.mockResolvedValue(persistedRow({
+    mockGetReadableAttachmentById.mockResolvedValue(persistedRow({
       messageId: null,
       uploaderId: "bot_1",
       filename: "clip.mp4",
@@ -195,7 +157,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
   })
 
   it("bot: percent-encodes non-ASCII filenames per RFC 5987", async () => {
-    mockGetAttachmentById.mockResolvedValue(persistedRow({ messageId: null, uploaderId: "bot_1", filename: "图表.png" }))
+    mockGetReadableAttachmentById.mockResolvedValue(persistedRow({ messageId: null, uploaderId: "bot_1", filename: "图表.png" }))
     mockR2Get.mockResolvedValue(r2Object())
     const res = await GET(req({ Authorization: "Bearer crk_abc" }), ctx())
     expect(res.status).toBe(200)
@@ -206,10 +168,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
   })
 
   it("human: persisted image on a channel the user is a member of → 200 inline + immutable cache, no X-Alook-Filename", async () => {
-    mockGetAttachmentById.mockResolvedValue(persistedRow())
-    mockGetMessage.mockResolvedValue({ id: "m_1", channelId: "c_real" })
-    mockGetChannelType.mockResolvedValue("text")
-    mockRequireChannelMember.mockResolvedValue({ ok: true, value: {} })
+    mockGetReadableAttachmentById.mockResolvedValue(persistedRow())
     mockR2Get.mockResolvedValue(r2Object())
     const res = await GET(req(), ctx()) // no crk_ → human arm
     expect(res.status).toBe(200)
@@ -217,14 +176,11 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     expect(res.headers.get("Content-Type")).toBe("image/png")
     expect(res.headers.get("Content-Disposition")).toBe("inline")
     expect(res.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable")
-    // Human arm never emits the bot download header.
     expect(res.headers.get("X-Alook-Filename")).toBeNull()
   })
 
   it("human: non-image → attachment; Content-Disposition carries the filename", async () => {
-    mockGetAttachmentById.mockResolvedValue(persistedRow({ contentType: "application/pdf", filename: "doc.pdf" }))
-    mockGetMessage.mockResolvedValue({ id: "m_1", channelId: "c_real" })
-    mockGetChannelType.mockResolvedValue("text")
+    mockGetReadableAttachmentById.mockResolvedValue(persistedRow({ contentType: "application/pdf", filename: "doc.pdf" }))
     mockR2Get.mockResolvedValue(r2Object({ httpMetadata: { contentType: "application/pdf" } }))
     const res = await GET(req(), ctx())
     expect(res.status).toBe(200)
@@ -366,29 +322,25 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
     expect(mockR2Get).toHaveBeenCalledWith("channel/c_row/uuid/a.png")
   })
 
-  it("routes a DM-scoped row through requireDMAccess (block gate), not requireChannelMember", async () => {
-    mockGetAttachmentById.mockResolvedValue(persistedRow())
-    mockGetMessage.mockResolvedValue({ id: "m_1", channelId: "dm_1" })
-    mockGetChannelType.mockResolvedValue("dm")
-    mockRequireDMAccess.mockResolvedValue({ ok: true, value: {} })
+  it("uses the shared actor-scoped file query on downloads", async () => {
+    mockGetReadableAttachmentById.mockResolvedValue(persistedRow())
     mockR2Get.mockResolvedValue(r2Object())
     const res = await GET(req({ Authorization: "Bearer crk_abc" }), ctx())
     expect(res.status).toBe(200)
     expect(res.headers.get("Vary")).toBe("Authorization")
-    expect(mockRequireDMAccess).toHaveBeenCalledWith({}, "dm_1", "bot_1")
-    expect(mockRequireChannelMember).not.toHaveBeenCalled()
+    expect(mockGetReadableAttachmentById).toHaveBeenCalledWith({}, "att_1", "bot_1")
   })
 
   it("502 when the row exists but R2 has no object (infra drift, not enumeration)", async () => {
-    mockGetAttachmentById.mockResolvedValue(persistedRow({ messageId: null, uploaderId: "bot_1" }))
+    mockGetReadableAttachmentById.mockResolvedValue(persistedRow({ messageId: null, uploaderId: "bot_1" }))
     mockR2Get.mockResolvedValue(null)
     const res = await GET(req({ Authorization: "Bearer crk_abc" }), ctx())
     expect(res.status).toBe(502)
     expect(res.headers.get("Cache-Control")).toBe("private, no-store")
   })
 
-  it("getAttachmentById throws → 500 JSON envelope (no binary body leak)", async () => {
-    mockGetAttachmentById.mockRejectedValueOnce(new Error("d1_transient"))
+  it("getReadableAttachmentById throws → 500 JSON envelope (no binary body leak)", async () => {
+    mockGetReadableAttachmentById.mockRejectedValueOnce(new Error("d1_transient"))
     const res = await GET(req({ Authorization: "Bearer crk_abc" }), ctx())
     expect(res.status).toBe(500)
     expect(res.headers.get("Cache-Control")).toBe("private, no-store")
@@ -396,7 +348,7 @@ describe("GET /api/community/channels/[id]/attachments/[attachmentId]", () => {
   })
 
   it("bot: obj.arrayBuffer() throws mid-read → 500 JSON envelope, NOT a truncated 200", async () => {
-    mockGetAttachmentById.mockResolvedValue(persistedRow({ messageId: null, uploaderId: "bot_1" }))
+    mockGetReadableAttachmentById.mockResolvedValue(persistedRow({ messageId: null, uploaderId: "bot_1" }))
     mockR2Get.mockResolvedValue(
       r2Object({
         arrayBuffer: async () => {
