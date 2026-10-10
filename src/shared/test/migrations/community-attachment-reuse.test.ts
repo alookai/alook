@@ -1,4 +1,7 @@
 import Sqlite from "better-sqlite3";
+import { getTableName } from "drizzle-orm";
+import { getTableConfig } from "drizzle-orm/sqlite-core";
+import { communityMessageAttachment } from "../../src/db/community-schema";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
@@ -28,6 +31,16 @@ describe("attachment schema migration preserves file identity", () => {
     try {
       const before = db.prepare("SELECT id,uploader_id,r2_key,thumbnail_r2_key,filename,content_type,size,width,height,created_at FROM community_attachment ORDER BY id").all();
       db.transaction(() => db.exec(migration))();
+      const declaredForeignKeys = getTableConfig(communityMessageAttachment).foreignKeys.map((key) => {
+        const reference = key.reference();
+        return { from: reference.columns[0].name, table: getTableName(reference.foreignTable),
+          to: reference.foreignColumns[0].name, on_delete: key.onDelete?.toUpperCase() };
+      }).sort((a, b) => a.from.localeCompare(b.from));
+      const migratedForeignKeys = (db.pragma("foreign_key_list(community_message_attachment)") as Array<{
+        from: string; table: string; to: string; on_delete: string;
+      }>).map(({ from, table, to, on_delete }) => ({ from, table, to, on_delete }))
+        .sort((a, b) => a.from.localeCompare(b.from));
+      expect(migratedForeignKeys).toEqual(declaredForeignKeys);
       expect(db.prepare("SELECT * FROM community_attachment ORDER BY id").all()).toEqual(before);
       expect(db.prepare("SELECT * FROM community_message_attachment ORDER BY position").all()).toEqual([
         { message_id: "source", attachment_id: "a", position: 0 },

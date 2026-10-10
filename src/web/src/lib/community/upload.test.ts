@@ -753,6 +753,26 @@ describe("runAttachmentUpload", () => {
     expect(put).not.toHaveBeenCalled()
   })
 
+  it.each(["missing", "wrong-size", "missing-checksum", "wrong-checksum"])(
+    "rejects an unverifiable existing R2 object (%s) without creating a file or deleting shared content",
+    async (failure) => {
+      surfaceChannel("text")
+      const file = new File(["shared bytes"], "reuse.txt", { type: "text/plain" })
+      const head = vi.fn().mockResolvedValue(failure === "missing" ? null : {
+        size: failure === "wrong-size" ? file.size + 1 : file.size,
+        checksums: { sha256: failure === "missing-checksum" ? undefined : new Uint8Array(32).buffer },
+      })
+      const put = vi.fn().mockResolvedValue(null)
+      const del = vi.fn()
+      const env = { COMMUNITY_MEDIA: { put, head, delete: del } } as unknown as Env
+      const response = await runAttachmentUpload(reqWithFile(file), ctxWith(env, { id: "c1" }))
+      expect(response.status).toBe(500)
+      expect(head).toHaveBeenCalledWith(put.mock.calls[0][0])
+      expect(mockCreateAttachment).not.toHaveBeenCalled()
+      expect(del).not.toHaveBeenCalled()
+    },
+  )
+
   it("preserves shared content when the human file insert fails", async () => {
     surfaceChannel("text")
     mockCreateAttachment.mockRejectedValueOnce(new Error("d1"))
