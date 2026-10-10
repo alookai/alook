@@ -22,7 +22,6 @@ let resizeObservers: Array<{
   elements: Map<Element, { box: "content-box" | "border-box"; lastSize: ResizeObserverSize }>
 }>
 let scrollbarWidth: number
-let scrollbarHeight: number
 let scrollCalls: number[]
 let scrollDescriptor: PropertyDescriptor | undefined
 
@@ -170,7 +169,6 @@ export function installMessageScrollFixture() {
   frameId = 0
   resizeObservers = []
   scrollbarWidth = 0
-  scrollbarHeight = 0
   scrollCalls = []
   vi.useFakeTimers()
   vi.spyOn(window, "requestAnimationFrame").mockImplementation(callback => { frames.set(++frameId, callback); return frameId })
@@ -187,7 +185,7 @@ export function installMessageScrollFixture() {
     disconnect() { this.record.elements.clear() }
   })
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) {
-    return isScrollRoot(this) ? Math.max(0, height - scrollbarHeight - (Number.parseFloat(this.style.borderTopWidth) || 0) - (Number.parseFloat(this.style.borderBottomWidth) || 0)) : rowGeometry(this).height
+    return isScrollRoot(this) ? Math.max(0, height - (Number.parseFloat(this.style.borderTopWidth) || 0) - (Number.parseFloat(this.style.borderBottomWidth) || 0)) : rowGeometry(this).height
   })
   vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) { return isScrollRoot(this) ? height : this.clientHeight })
   vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(() => width)
@@ -223,10 +221,7 @@ export const scrollFixture = {
   set width(value: number) { width = value },
   get height() { return height },
   set height(value: number) { height = value },
-  get scrollbarWidth() { return scrollbarWidth },
   set scrollbarWidth(value: number) { scrollbarWidth = value },
-  get scrollbarHeight() { return scrollbarHeight },
-  set scrollbarHeight(value: number) { scrollbarHeight = value },
   get firstPrefix() { return firstPrefix },
   set firstPrefix(value: number) { firstPrefix = value },
   get bodyHeights() { return bodyHeights },
