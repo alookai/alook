@@ -13,6 +13,13 @@ export function verifyDeprecatedReferences(packageRoot, locations, existing = []
     join(packageRoot, directory, `eslint-deprecation-${token}-${index}${extension}`),
   );
   const existingPaths = existing.map((path) => join(packageRoot, path));
+  const groups = new Map([["", []]]);
+  for (const [index, location] of locations.entries()) {
+    const group = location.group ?? "";
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(paths[index]);
+  }
+  groups.get("").push(...existingPaths);
   const deprecated = `import { parse } from "node:url";
 /** @deprecated Use currentApi. */
 export const legacyApi = () => "legacy";
@@ -27,24 +34,38 @@ export const compatibilityResult = caretRangeFromPoint();
 export const localResult = currentApi();
 export const dependencyResult = new URL("https://example.test/path");
 `;
-  const lint = () => {
-    const result = spawnSync(process.execPath, [cli, "--format", "json", ...paths, ...existingPaths], {
-      cwd: packageRoot,
-      encoding: "utf8",
-      timeout: 60_000,
-      maxBuffer: 4 * 1024 * 1024,
-    });
-    assert.equal(result.error, undefined, result.error?.message);
-    assert.equal(result.signal, null, result.stderr);
-    return { status: result.status, rows: JSON.parse(result.stdout) };
+  const lint = (expectedStatus) => {
+    const deadline = performance.now() + 60_000;
+    let remainingOutput = 4 * 1024 * 1024;
+    const rows = [];
+    for (const targets of groups.values()) {
+      if (targets.length === 0) continue;
+      const timeout = Math.floor(deadline - performance.now());
+      assert.ok(timeout > 0, "ESLint phase exceeded 60 seconds");
+      assert.ok(remainingOutput > 0, "ESLint phase exhausted its 4 MiB output budget");
+      const result = spawnSync(process.execPath, [cli, "--format", "json", ...targets], {
+        cwd: packageRoot,
+        timeout,
+        maxBuffer: remainingOutput,
+      });
+      assert.equal(result.error, undefined, result.error?.message);
+      assert.equal(result.signal, null, result.stderr?.toString("utf8"));
+      assert.equal(result.status, expectedStatus);
+      remainingOutput -= result.stdout.length + result.stderr.length;
+      assert.ok(remainingOutput >= 0, "ESLint phase exceeded 4 MiB of combined output");
+      const groupRows = JSON.parse(result.stdout.toString("utf8"));
+      assert.deepEqual(groupRows.map(({ filePath }) => filePath).sort(), [...targets].sort());
+      rows.push(...groupRows);
+      assert.ok(performance.now() <= deadline, "ESLint phase exceeded 60 seconds");
+    }
+    return { rows };
   };
   try {
     for (const path of paths) {
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, deprecated);
     }
-    const rejected = lint();
-    assert.equal(rejected.status, 1);
+    const rejected = lint(1);
     assert.equal(rejected.rows.length, paths.length + existingPaths.length);
     for (const row of rejected.rows) {
       if (existingPaths.includes(row.filePath)) {
@@ -60,8 +81,7 @@ export const dependencyResult = new URL("https://example.test/path");
       assert.ok(errors.some(({ message }) => message.includes("caretRangeFromPoint")));
     }
     for (const path of paths) writeFileSync(path, supported);
-    const accepted = lint();
-    assert.equal(accepted.status, 0);
+    const accepted = lint(0);
     assert.equal(accepted.rows.length, paths.length + existingPaths.length);
     assert.ok(accepted.rows.every(({ errorCount, fatalErrorCount }) => errorCount === 0 && fatalErrorCount === 0));
   } finally {
