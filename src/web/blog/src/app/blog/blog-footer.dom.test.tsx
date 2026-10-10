@@ -1,4 +1,4 @@
-import { renderToStaticMarkup } from "react-dom/server";
+import { render } from "@/test/react-dom-harness";
 import { describe, expect, it, vi } from "vitest";
 import { BlogFooter } from "./blog-footer";
 import { PublicLayout } from "@/components/public-layout";
@@ -9,8 +9,7 @@ vi.mock("@/components/github-outbound-link", () => ({
 
 describe("Blog footer", () => {
   it("keeps footer navigation outside main and preserves document links across Workers", () => {
-    const html = renderToStaticMarkup(<PublicLayout zone="blog" footer={<BlogFooter />}>Article</PublicLayout>);
-    const doc = new DOMParser().parseFromString(html, "text/html");
+    const { container: doc } = render(<PublicLayout zone="blog" footer={<BlogFooter />}>Article</PublicLayout>);
     expect(doc.querySelectorAll("footer")).toHaveLength(1);
     expect(doc.querySelector("main footer")).toBeNull();
     expect(doc.querySelector("main")?.nextElementSibling?.tagName).toBe("FOOTER");
