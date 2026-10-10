@@ -232,10 +232,10 @@ test("one human account converges read state across two browser profiles", async
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadDm(dmId))).toHaveCount(0)
 
-  await seedMessage("alice", channelId, `read-all channel ${stamp}`)
-  await seedDmMessage("alice", dmId, `read-all dm ${stamp}`)
   await gotoAfterUserWsAuth(deviceA.page, "/c/me/friends")
   await gotoAfterUserWsAuth(deviceB.page, "/c/me/friends")
+  await seedMessage("alice", channelId, `read-all channel ${stamp}`)
+  await seedDmMessage("alice", dmId, `read-all dm ${stamp}`)
   await deviceA.page.getByRole("button", { name: "Inbox" }).click()
   await deviceB.page.getByRole("button", { name: "Inbox" }).click()
   await expect(deviceA.page.getByRole("button", { name: "Mark all read" })).toBeEnabled()
