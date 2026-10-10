@@ -6,6 +6,121 @@ beforeEach(installMessageScrollFixture)
 afterEach(restoreMessageScrollFixture)
 
 describe("locked native adapter and existing message scroll owner", () => {
+  it("delivers only the changed observed box and keeps content, client and border sizes separate", () => {
+    scrollFixture.scrollbarWidth = 11
+    const h = mount()
+    h.root.style.padding = "7px 10px"
+    const content = vi.fn<ResizeObserverCallback>()
+    const border = vi.fn<ResizeObserverCallback>()
+    const contentObserver = new ResizeObserver(content)
+    const borderObserver = new ResizeObserver(border)
+    contentObserver.observe(h.root)
+    borderObserver.observe(h.root, { box: "border-box" })
+    resize(0)
+    expect(content).toHaveBeenCalledOnce()
+    expect(border).toHaveBeenCalledOnce()
+    expect(content.mock.calls[0][1]).toBe(contentObserver)
+    expect(h.root.clientWidth).toBe(309)
+    expect(content.mock.calls[0][0][0].target).toBe(h.root)
+    expect(content.mock.calls[0][0][0]).toMatchObject({
+      borderBoxSize: [{ inlineSize: 320, blockSize: 500 }],
+      contentBoxSize: [{ inlineSize: 289, blockSize: 486 }],
+      contentRect: { x: 10, y: 7, width: 289, height: 486 },
+    })
+    resize(0)
+    expect(content).toHaveBeenCalledOnce()
+    expect(border).toHaveBeenCalledOnce()
+    scrollFixture.scrollbarWidth = 21
+    resize(0)
+    expect(content).toHaveBeenCalledTimes(2)
+    expect(border).toHaveBeenCalledOnce()
+    expect(content.mock.lastCall![0][0]).toMatchObject({
+      borderBoxSize: [{ inlineSize: 320, blockSize: 500 }],
+      contentBoxSize: [{ inlineSize: 279, blockSize: 486 }],
+    })
+    contentObserver.disconnect()
+    borderObserver.disconnect()
+  })
+  it("retires removed observations and starts a fresh delivery after reobserve", () => {
+    const h = mount()
+    const callback = vi.fn<ResizeObserverCallback>()
+    const observer = new ResizeObserver(callback)
+    observer.observe(h.root)
+    resize(0)
+    expect(callback).toHaveBeenCalledOnce()
+    observer.unobserve(h.root)
+    scrollFixture.width += 10
+    resize(0)
+    expect(callback).toHaveBeenCalledOnce()
+    observer.observe(h.root, { box: "border-box" })
+    resize(0)
+    expect(callback).toHaveBeenCalledTimes(2)
+    resize(0)
+    expect(callback).toHaveBeenCalledTimes(2)
+    observer.disconnect()
+    scrollFixture.height += 10
+    resize(0)
+    expect(callback).toHaveBeenCalledTimes(2)
+    h.view.unmount()
+    const before = scrollFixture.scrollCalls.length
+    resize()
+    expect(scrollFixture.scrollCalls).toHaveLength(before)
+    expect(scrollFixture.frames.size).toBe(0)
+  })
+  it.each(["present", "away"])("keeps the %s position when the border height changes without a range change", position => {
+    scrollFixture.bodyHeights.set("m0", 1800)
+    const h = mount({ items: [message("m0")], hasMoreOlder: false })
+    if (position === "away") h.move(300)
+    const before = bodyTop(h.root, "m0")
+    const native = scrollFixture.latest.virtualizer
+    const range = { ...native.range }
+    expect(native.isScrolling).toBe(false)
+    scrollFixture.height -= 100
+    resize()
+    expect(native.range).toMatchObject({ startIndex: range.startIndex, endIndex: range.endIndex })
+    expect(native.isScrolling).toBe(false)
+    if (position === "present") expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+    else expect(bodyTop(h.root, "m0")).toBe(before)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+  })
+  it.each(["present", "away"])("keeps the %s position when only the client height changes at a stable border box", position => {
+    const h = mount()
+    if (position === "away") h.move(300)
+    const before = bodyTop(h.root, position === "away" ? "m2" : "m13")
+    const native = scrollFixture.latest.virtualizer
+    const rect = { ...native.scrollRect }
+    expect(scrollFixture.frames.size).toBe(0)
+    h.root.style.borderBottom = "100px solid transparent"
+    expect(h.root.clientHeight).toBe(400)
+    expect(h.root.offsetHeight).toBe(500)
+    resize()
+    expect(native.scrollRect).toEqual(rect)
+    if (position === "present") expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+    else expect(bodyTop(h.root, "m2")).toBe(before)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+  })
+  it("keeps a settled target and page anchor through a content-only gutter change", () => {
+    const positioned = vi.fn()
+    const h = mount({ onScrollTargetPositioned: positioned })
+    h.update({ scrollToMessageId: "m4" })
+    expect(positioned).toHaveBeenCalledWith("m4")
+    const top = bodyTop(h.root, "m4")
+    const rect = { ...scrollFixture.latest.virtualizer.scrollRect }
+    scrollFixture.scrollbarWidth = 11
+    resize()
+    expect(scrollFixture.latest.virtualizer.scrollRect).toEqual(rect)
+    expect(bodyTop(h.root, "m4")).toBe(top)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    h.move(0)
+    act(() => scrollFixture.latest.captureOlderPageAnchor())
+    h.update({ isFetchingOlder: true })
+    const before = bodyTop(h.root, "m0")
+    scrollFixture.scrollbarWidth = 21
+    resize()
+    h.update({ items: [message("older"), ...h.input.items], isFetchingOlder: false })
+    expect(bodyTop(h.root, "m0")).toBeCloseTo(before, 0)
+    expect(scrollFixture.latest.isOlderPageAnchorSettling).toBe(false)
+  })
   it("does not restore the old origin after a reader scroll with a rejected pending row position", () => {
     const h = mount({ items: Array.from({ length: 28 }, (_, i) => message(`m${i}`)) })
     h.move(0)
