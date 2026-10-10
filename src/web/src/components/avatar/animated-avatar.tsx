@@ -63,6 +63,7 @@ export function AnimatedAvatar({ seed, avatarUrl, size, className, isHovered, is
           style={{ width: size, height: size }}
         >
           <RemoteIdentityImage
+            identityKey={seed ? `animated:${seed}` : undefined}
             src={resolved.url}
             alt=""
             className="rounded-[inherit]"
