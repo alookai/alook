@@ -1,4 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest"
+import { createElement, Suspense, startTransition, use, type PropsWithChildren } from "react"
 import { act, fireEvent } from "@/test/react-dom-harness"
 import { bodyTop, installMessageScrollFixture, restoreMessageScrollFixture, message, mount, resize, runFrames, scrollFixture } from "@/test/message-scroll-fixture"
 
@@ -886,6 +887,82 @@ describe("locked native adapter and existing message scroll owner", () => {
     scrollFixture.bodyHeights.set("m13", 420)
     resize()
     expect(h.root.scrollTop).toBe(before)
+  })
+  it.each(["commit", "discard"])("retires a width request after a rendered tail suspends before %s", async outcome => {
+    let suspend = false
+    let resume!: () => void
+    const pending = new Promise<void>(resolve => { resume = resolve })
+    function Gate() {
+      if (suspend) use(pending)
+      return null
+    }
+    function Wrapper({ children }: PropsWithChildren) {
+      return createElement(Suspense, { fallback: createElement("div", { "data-testid": "pending-tail" }) },
+        children, createElement(Gate))
+    }
+    scrollFixture.width = 639
+    let layouts = 0
+    const h = mount({ tailPaddingEnd: 40 }, false, () => { layouts += 1 }, Wrapper)
+    const originalItems = h.input.items
+    const native = scrollFixture.latest.virtualizer
+    const count = native.options.count
+    const end = vi.spyOn(native, "scrollToEnd")
+    const offset = vi.spyOn(native, "scrollToOffset")
+    scrollFixture.width = 266
+    resize(0)
+    expect(end).not.toHaveBeenCalled()
+    const committedLayouts = layouts
+    suspend = true
+    await act(async () => {
+      startTransition(() => h.stage({ items: [...originalItems, message("pending-tail")] }))
+    })
+    expect(layouts).toBe(committedLayouts)
+    expect(native.options.count).toBe(count + 1)
+    expect(native.options.getItemKey(count)).toBe("msg:pending-tail")
+    expect(h.root.isConnected).toBe(true)
+    expect(h.root.querySelector('[data-msg-id="m13"]')).not.toBeNull()
+    expect(h.root.querySelector('[data-msg-id="pending-tail"]')).toBeNull()
+    expect(h.view.queryByTestId("pending-tail")).toBeNull()
+    await act(async () => {
+      runFrames(1)
+      expect(layouts).toBe(committedLayouts)
+      expect(h.root.querySelector('[data-msg-id="pending-tail"]')).toBeNull()
+      expect(h.view.queryByTestId("pending-tail")).toBeNull()
+      expect(end).not.toHaveBeenCalled()
+      expect(offset).not.toHaveBeenCalled()
+      suspend = false
+      if (outcome === "discard") h.stage({ items: originalItems })
+      resume()
+    })
+    resize()
+    expect(h.root.querySelector('[data-msg-id="pending-tail"]') !== null).toBe(outcome === "commit")
+    expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBeLessThanOrEqual(1)
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
+    if (outcome === "discard") expect(end).not.toHaveBeenCalled()
+    else expect(end).toHaveBeenCalledOnce()
+  })
+  it("does not revive a committed width request from late public frame callbacks", () => {
+    scrollFixture.width = 639
+    const h = mount({ tailPaddingEnd: 40 })
+    const native = scrollFixture.latest.virtualizer
+    const end = vi.spyOn(native, "scrollToEnd")
+    const offset = vi.spyOn(native, "scrollToOffset")
+    scrollFixture.width = 266
+    resize(2)
+    expect(end).toHaveBeenCalledOnce()
+    const pending = [...scrollFixture.frames.values()]
+    expect(pending.length).toBeGreaterThan(0)
+    h.stage({ items: [...h.input.items.slice(0, -1), message("replacement")] })
+    expect(offset).toHaveBeenCalledOnce()
+    expect(h.root.querySelector('[data-msg-id="replacement"]')).not.toBeNull()
+    resize()
+    const calls = [end.mock.calls.length, offset.mock.calls.length, scrollFixture.scrollCalls.length]
+    const top = h.root.scrollTop
+    act(() => { for (const callback of pending) callback(performance.now()) })
+    expect([end.mock.calls.length, offset.mock.calls.length, scrollFixture.scrollCalls.length]).toEqual(calls)
+    expect(h.root.scrollTop).toBe(top)
+    expect(h.root.querySelector('[data-msg-id="replacement"]')).not.toBeNull()
+    expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
   it("preserves a two-pixel DM tail distance through consecutive composer resizes", () => {
     const h = mount()
