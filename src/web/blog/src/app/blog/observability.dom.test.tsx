@@ -144,3 +144,15 @@ it("settles actual content mounted before the URL only after the independent rou
   await act(async () => { commitNavigation(window.location.pathname, "page"); });
   expect(ready(second.id)).toHaveLength(1);
 });
+
+it("renders a related article title before its summary and retains its destination", async () => {
+  const related = { ...posts[1]!, slug: "ai-agent-vs-chatbot", title: "AI agent vs chatbot" };
+  loaders.all.mockResolvedValueOnce([...posts, related]);
+  render(await BlogPostPage({ params: Promise.resolve({ slug: "local-ai-agents" }) }));
+  expect(screen.getByRole("heading", { name: "Keep exploring", level: 2 })).toBeVisible();
+  const link = screen.getByRole("link", { name: /AI agent vs chatbot/ });
+  expect(link).toHaveAttribute("href", "/blog/ai-agent-vs-chatbot");
+  expect([...link.children].map(child => child.textContent)).toEqual([
+    related.title, "Decide whether I need an agent or a chatbot", related.readingTime,
+  ]);
+});
