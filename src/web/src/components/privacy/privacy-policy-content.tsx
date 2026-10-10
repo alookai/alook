@@ -4,7 +4,7 @@ import { AnalyticsPreferenceControl } from "@/components/analytics-consent"
 export const PRIVACY_POLICY = {
   title: "Privacy Policy",
   description: "How Alook collects, uses, and protects your personal information.",
-  lastUpdated: "September 17, 2026",
+  lastUpdated: "October 10, 2026",
 } as const
 
 const linkClass =
@@ -53,8 +53,9 @@ export function PrivacyPolicyContent({ className }: { className?: string }) {
           <h4 className="mt-6 mb-2 text-base font-medium">Usage Data</h4>
           <p className="text-foreground/80">
             Necessary diagnostic data may be processed to keep the Service secure and reliable.
-            Optional analytics, such as the pages You visit and how You interact with product
-            features, is collected only after You choose to allow analytics in this browser.
+            Google receives page and feature signals when You use our public website and Blog,
+            even without analytics cookies. Allowing analytics enables analytics cookies and
+            other optional analytics. We do not use ad tracking.
           </p>
 
           <h4 className="mt-6 mb-2 text-base font-medium">
@@ -72,8 +73,9 @@ export function PrivacyPolicyContent({ className }: { className?: string }) {
             We use necessary cookies to provide sign-in, security, and saved preferences. We use
             optional analytics cookies only after You allow them. Your analytics choice is saved
             in a first-party cookie for 180 days and can be changed using the preference control
-            below at any time. Choosing only necessary cookies keeps Google Tag Manager and
-            optional analytics disabled.
+            below at any time. Choosing only necessary cookies denies analytics cookies;
+            Google still receives signals without analytics cookies on our public website and
+            Blog. Other optional analytics require Your permission.
           </p>
         </section>
 

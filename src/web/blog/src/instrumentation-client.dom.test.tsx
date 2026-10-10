@@ -10,6 +10,8 @@ afterEach(async () => {
     document.cookie = "alook_analytics_consent=v1.denied; path=/";
     announceAnalyticsConsent("denied");
   });
+  delete window.dataLayer;
+  Reflect.deleteProperty(window, "ga-disable-G-STBCL8F4ZY");
   vi.useRealTimers(); vi.unstubAllEnvs(); vi.unstubAllGlobals();
 });
 
@@ -33,12 +35,14 @@ it("boots the actual Blog entry with the native resumed session and exports its 
   const sent: Array<{ meta: { sdk: { name: string; version: string }; session: { id: string } }; events?: Array<{ name: string; attributes?: Record<string, string> }> }> = [];
   vi.stubGlobal("fetch", vi.fn(async (_url: unknown, options?: RequestInit) => { if (options?.body) sent.push(JSON.parse(String(options.body))); return new Response(null, { status: 204 }); }));
   const { onRouterTransitionStart } = await import("./instrumentation-client");
+  expect(Array.from(window.dataLayer![0] as IArguments)).toEqual(["consent", "default", { analytics_storage: "granted", ad_storage: "denied", ad_user_data: "denied", ad_personalization: "denied" }]);
   const { navigationForHref } = await import("@/lib/observability/context");
   const { ObservedStaticContent, ObservedRouteCommit } = await import("@/lib/observability/regions");
   await vi.waitFor(() => expect(sent.some(body => body.events?.some(event => event.name === "session_resume"))).toBe(true), { timeout: 5000 });
   const view = render(<ObservedStaticContent key="/blog" pathname="/blog" />);
   const route = render(<ObservedRouteCommit />);
   await act(async () => { onRouterTransitionStart("/blog/introducing-alook?private=article-title"); });
+  expect(Array.from(window.dataLayer!.at(-1) as IArguments)).toEqual(["set", { page_location: `${window.location.origin}/blog/introducing-alook`, page_referrer: `${window.location.origin}/` }]);
   const navigation = navigationForHref("/blog/introducing-alook?private=article-title")!;
   expect(navigation).toBeDefined();
   expect(navigation.done).toBe(false);
@@ -60,4 +64,26 @@ it("boots the actual Blog entry with the native resumed session and exports its 
   expect(JSON.stringify(sent)).not.toContain("alook_account");
   expect(JSON.stringify(exported)).not.toContain("article-title");
   expect(JSON.stringify(exported)).not.toContain("introducing-alook");
+});
+
+
+it.each(["", "v1.denied", "v0.granted", "v1.granted"])("boots the actual Blog document from %s without adding an optional telemetry grant", async value => {
+  vi.resetModules();
+  vi.stubEnv("NEXT_PUBLIC_FARO_COLLECTOR_URL", "");
+  window.history.replaceState(null, "", "/blog/public?secret=query#hash");
+  document.cookie = `alook_analytics_consent=${value}; path=/`;
+  window.dataLayer = [];
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  const { onRouterTransitionStart } = await import("./instrumentation-client");
+  expect(window.dataLayer.map(command => Array.from(command as IArguments))).toEqual([
+    ["consent", "default", { analytics_storage: value === "v1.granted" ? "granted" : "denied", ad_storage: "denied", ad_user_data: "denied", ad_personalization: "denied" }],
+    ["set", { page_location: `${window.location.origin}/blog/public`, page_referrer: `${window.location.origin}/` }],
+  ]);
+  onRouterTransitionStart("/blog/other?secret=route#hash");
+  onRouterTransitionStart("/c/me?secret=private");
+  expect(window.dataLayer).toHaveLength(3);
+  expect(Array.from(window.dataLayer.at(-1) as IArguments)).toEqual(["set", { page_location: `${window.location.origin}/blog/other`, page_referrer: `${window.location.origin}/` }]);
+  expect(JSON.stringify(window.dataLayer)).not.toMatch(/secret|page_view/);
+  expect(fetcher).not.toHaveBeenCalled();
 });

@@ -1,7 +1,8 @@
 "use client";
 
 import { sendGTMEvent } from "@next/third-parties/google";
-import { hasAnalyticsConsent } from "@/lib/analytics-consent"
+import { isTauri } from "@alook/shared"
+import { hasAnalyticsConsent, isPublicAnalyticsPath } from "@/lib/analytics-consent"
 
 const analyticsPlanIds = ["free", "studio", "house"] as const
 
@@ -33,7 +34,8 @@ const pricingCtaIdByEntryPoint: Record<BillingEntryPoint, Partial<Record<Analyti
 const analyticsPlanIdSet = new Set<string>(analyticsPlanIds)
 
 function sendConsentAwareGTMEvent(payload: Record<string, unknown>) {
-  if (!hasAnalyticsConsent()) return
+  const publicWeb = typeof window !== "undefined" && !isTauri() && isPublicAnalyticsPath(window.location.pathname)
+  if (!publicWeb && !hasAnalyticsConsent()) return
   try {
     sendGTMEvent(payload)
   } catch {
