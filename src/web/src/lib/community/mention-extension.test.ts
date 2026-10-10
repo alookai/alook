@@ -1,13 +1,22 @@
-import { describe, it, expect, vi } from "vitest"
+import { beforeEach, describe, it, expect, vi } from "vitest"
 import type { Member } from "@/lib/community/models/people"
 import {
-  buildCommunityMentionExtension,
+  buildCommunityMentionExtension as buildMention,
   rankMentionItems,
   detectMentionType,
   EMPTY_MENTION_STATE,
   type MentionContext,
   type MentionPopupState,
 } from "./mention-extension"
+
+import type { Editor } from "@tiptap/react"
+
+const editor = { isFocused: true, isDestroyed: false } as Editor
+const editorRef: { current: Editor | null } = { current: editor }
+const canSuggest = (candidate: Editor) => candidate === editorRef.current && candidate.isFocused && !candidate.isDestroyed
+const buildCommunityMentionExtension = (options: Omit<Parameters<typeof buildMention>[0], "editorRef" | "canSuggest">) =>
+  buildMention({ ...options, editorRef, canSuggest })
+beforeEach(() => { editorRef.current = editor; editor.isFocused = true })
 
 // A member must carry a discriminator to appear in the popup (disc-less members
 // are filtered out), so the helper defaults one. Labels are always tagged now.
@@ -191,7 +200,7 @@ function getItemsCallback(
   const opts = config.addOptions?.() ?? (ext as unknown as { options?: { suggestion?: { items?: unknown } } }).options
   const items = (opts?.suggestion as { items: (props: { query: string }) => unknown[] } | undefined)?.items
   if (!items) throw new Error("suggestion.items not found")
-  return items
+  return (props) => items({ ...props, editor } as never)
 }
 
 function getAllowCallback(
@@ -201,7 +210,7 @@ function getAllowCallback(
   const opts = config.addOptions?.() ?? (ext as unknown as { options?: { suggestion?: { allow?: unknown } } }).options
   const allow = (opts?.suggestion as { allow: () => boolean } | undefined)?.allow
   if (!allow) throw new Error("suggestion.allow not found")
-  return allow
+  return () => allow({ editor } as never)
 }
 
 type MentionRenderProps = {
@@ -229,7 +238,13 @@ function getRenderCallbacks(
     (ext as unknown as { options?: { suggestion?: { render?: unknown } } }).options
   const render = opts?.suggestion?.render as (() => MentionRenderCallbacks) | undefined
   if (!render) throw new Error("suggestion.render not found")
-  return render()
+  const callbacks = render()
+  return {
+    onStart: (props) => callbacks.onStart({ ...props, editor } as never),
+    onUpdate: (props) => callbacks.onUpdate({ ...props, editor } as never),
+    onKeyDown: (props) => callbacks.onKeyDown({ ...props, view: editor.view } as never),
+    onExit: () => callbacks.onExit({ editor } as never),
+  }
 }
 
 function keyboardEvent(key: string, isComposing = false) {
@@ -439,6 +454,34 @@ describe("buildCommunityMentionExtension — suggestion.render callbacks", () =>
     "ad",
   )
 
+  it("rejects unfocused publication and late updates; a retired command cannot insert", () => {
+    const harness = setup(), raw = vi.fn()
+    editor.isFocused = false
+    harness.callbacks.onStart({ items, query: "ad", command: raw })
+    expect(harness.popup().command).toBeNull()
+    editor.isFocused = true
+    harness.callbacks.onStart({ items, query: "ad", command: raw })
+    const stale = harness.popup().command!
+    harness.callbacks.onExit()
+    harness.callbacks.onUpdate({ items, query: "ad", command: raw })
+    expect(harness.popup().command).toBeNull()
+    harness.callbacks.onStart({ items, query: "ad", command: raw })
+    stale({ id: "m1", label: "Ada#0001" })
+    expect(raw).not.toHaveBeenCalled()
+    harness.popup().command!({ id: "m1", label: "Ada#0001" })
+    expect(raw).toHaveBeenCalledExactlyOnceWith({ id: "m1", label: "Ada#0001" })
+  })
+
+  it("old editor exit cannot clear a replacement editor popup or its search", () => {
+    const harness = setup()
+    harness.callbacks.onStart({ items, query: "ad", command: vi.fn() })
+    const current = harness.popup()
+    editorRef.current = { isFocused: true, isDestroyed: false } as Editor
+    harness.callbacks.onExit()
+    expect(harness.popup()).toBe(current)
+    expect(harness.search).not.toHaveBeenCalled()
+  })
+
   it("starts and updates popup state while preserving only an in-range selection", () => {
     const harness = setup()
     const firstCommand = vi.fn()
@@ -453,7 +496,7 @@ describe("buildCommunityMentionExtension — suggestion.render callbacks", () =>
       items,
       query: "ad",
       selectedIndex: 0,
-      command: firstCommand,
+      command: expect.any(Function),
       getRect: firstRect,
     })
 
@@ -470,7 +513,7 @@ describe("buildCommunityMentionExtension — suggestion.render callbacks", () =>
       items,
       query: "ade",
       selectedIndex: 1,
-      command: nextCommand,
+      command: expect.any(Function),
       getRect: nextRect,
     })
 
@@ -591,7 +634,7 @@ describe("buildCommunityMentionExtension — suggestion.render callbacks", () =>
     expect(harness.callbacks.onKeyDown({ event: keyboardEvent("Enter") })).toBe(false)
   })
 
-  it("ignores stale lifecycle, key, insertion, and exit callbacks after a live transition to DM", () => {
+  it("ignores stale publication and insertion in DM but still cleans up on exit", () => {
     const harness = setup()
     const staleCommand = vi.fn()
     harness.setPopup({
@@ -616,8 +659,8 @@ describe("buildCommunityMentionExtension — suggestion.render callbacks", () =>
     expect(staleCommand).not.toHaveBeenCalled()
 
     harness.callbacks.onExit()
-    expect(harness.search).not.toHaveBeenCalled()
-    expect(harness.popup()).toBe(beforeTransition)
+    expect(harness.search).toHaveBeenLastCalledWith("")
+    expect(harness.popup()).toEqual(EMPTY_MENTION_STATE)
   })
 })
 

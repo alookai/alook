@@ -11,11 +11,14 @@ const mocks = vi.hoisted(() => ({
   viewerRole: "admin" as "owner" | "admin" | "member" | undefined,
   serverMemberArgs: [] as Array<string | null>,
   channelMembers: new Map<string, Array<Record<string, unknown>>>(),
+  channelProfiles: new Map<string, Map<string, Record<string, unknown>>>(),
   channelQueryState: new Map<string, {
     resolved?: boolean
     isLoading?: boolean
     isError?: boolean
     isFetching?: boolean
+    loading?: boolean
+    failed?: boolean
   }>(),
   channelRefetches: new Map<string, ReturnType<typeof vi.fn>>(),
   addableMembers: [] as Array<Record<string, unknown>>,
@@ -47,6 +50,9 @@ vi.mock("@/hooks/community/use-server-members", () => ({
     return {
       members: mocks.serverMembers,
       loading: false,
+      failed: false,
+      searchQuery: "",
+      searchStatus: "idle",
       loadingMore: false,
       hasMore: true,
       loadMore: mocks.loadMore,
@@ -73,6 +79,9 @@ vi.mock("@/hooks/community/use-channel-members", () => ({
       isLoading: state?.isLoading ?? (enabled && !resolved && !state?.isError),
       isError: state?.isError ?? false,
       isFetching: state?.isFetching ?? false,
+      loading: state?.loading ?? (enabled && !resolved && !state?.isError),
+      failed: state?.failed ?? state?.isError ?? false,
+      profiles: mocks.channelProfiles.get(channelId) ?? profileRows(members),
       refetch,
     }
   }),
@@ -108,23 +117,7 @@ vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await 
       ...[...mocks.channelMembers.values()].flat(),
       ...mocks.addableMembers,
     ]
-    const profilesByUserId = new Map(rows.flatMap((row) => {
-      const userId = row.userId as string | undefined
-      if (!userId) return []
-      const status = mocks.userStatuses.get(userId)
-      return [[userId, {
-        id: userId,
-        name: row.name,
-        discriminator: row.discriminator,
-        avatar: row.avatar,
-        avatarVersion: row.avatarVersion ?? 0,
-        aboutMe: mocks.profileAboutMe.get(userId) ?? "",
-        presence: mocks.onlineUserIds.has(userId) ? "online" : "offline",
-        statusEmoji: status?.emoji,
-        statusText: status?.text,
-      }]]
-    }))
-    return profilesByUserId
+    return profileRows(rows)
   },
 }))
 vi.mock("@/components/community/members/add-members-dialog", () => ({
@@ -137,6 +130,25 @@ vi.mock("@/components/community/shell/community-panel", () => ({
 const mockedAddMembersDialog = vi.mocked(AddMembersDialog)
 const mockedUseAddableMembers = vi.mocked(useAddableMembers)
 const mockedUseChannelMembers = vi.mocked(useChannelMembers)
+
+function profileRows(rows: Array<Record<string, unknown>>) {
+  return new Map(rows.flatMap((row) => {
+    const userId = row.userId as string | undefined
+    if (!userId) return []
+    const status = mocks.userStatuses.get(userId)
+    return [[userId, {
+      id: userId,
+      name: row.name,
+      discriminator: row.discriminator,
+      avatar: row.avatar,
+      avatarVersion: row.avatarVersion ?? 0,
+      aboutMe: mocks.profileAboutMe.get(userId) ?? "",
+      presence: mocks.onlineUserIds.has(userId) ? "online" : "offline",
+      statusEmoji: status?.emoji,
+      statusText: status?.text,
+    }]]
+  }))
+}
 
 function member(userId: string, name: string, overrides: Record<string, unknown> = {}) {
   return {
@@ -200,6 +212,7 @@ describe("useChannelMemberViewModel", () => {
     ]
     mocks.serverMemberArgs = []
     mocks.channelMembers = new Map()
+    mocks.channelProfiles = new Map()
     mocks.channelQueryState = new Map()
     mocks.channelRefetches = new Map()
     mocks.addableMembers = []
@@ -394,6 +407,7 @@ describe("useChannelMemberViewModel", () => {
     expect(latestModel().memberPanelProps.members.map((row) => row.userId)).toEqual(["viewer_1", "alice_1"])
     expect(latestModel().memberPanelProps.members.every((row) => row.source === undefined)).toBe(true)
     expect(latestModel().composerMembers.map((row) => row.userId)).toEqual(["alice_1", "bob_1"])
+    expect(latestModel().composerMentionCandidates).toMatchObject({ loading: false, failed: false })
 
     act(() => {
       latestModel().memberPanelProps.onAddMember?.()
@@ -414,6 +428,27 @@ describe("useChannelMemberViewModel", () => {
     expect(mocks.removeThreadParticipant).toHaveBeenCalledWith({ userId: "alice_1", assertActive: expect.any(Function) })
     expect(mocks.addChannelMember).not.toHaveBeenCalled()
     expect(mocks.removeChannelMember).not.toHaveBeenCalled()
+  })
+
+  it("keeps private mentions on the parent access read and its own profile snapshot through notify failure and revocation", () => {
+    mocks.channelMembers.set("parent_1", [member("peer", "Nickname")])
+    mocks.channelProfiles.set("parent_1", new Map([["peer", { id: "peer", name: "Canonical", discriminator: "0042", avatar: "C", avatarVersion: 2, presence: "online" }]]))
+    mocks.channelQueryState.set("parent_1", { resolved: true, loading: true, failed: false })
+    mocks.channelQueryState.set("thread_1", { resolved: false, isError: true, failed: true })
+    const modelProps = props({ channelId: "thread_1", currentServer: { categories: [{ private: true, channels: [{ id: "parent_1" }] }] }, channelInServer: null, currentChannelMeta: { parentChannelId: "parent_1" }, isChildChannel: true, isNotifyUnit: true })
+    let renderer!: ReturnType<typeof rtlRender>
+    act(() => { renderer = rtlRender(renderHarness(modelProps)) })
+    expect(latestModel().composerMentionCandidates).toEqual({ loading: true, failed: false })
+    expect(latestModel().composerMembers).toEqual([expect.objectContaining({ userId: "peer", name: "Canonical", discriminator: "0042", avatar: "C", status: "online" })])
+    mocks.channelQueryState.set("parent_1", { resolved: true, loading: false, failed: true })
+    act(() => renderer.rerender(renderHarness(modelProps)))
+    expect(latestModel().composerMentionCandidates).toEqual({ loading: false, failed: true })
+    expect(latestModel().composerMembers).toHaveLength(1)
+    mocks.channelQueryState.set("parent_1", { resolved: true, loading: false, failed: false })
+    act(() => renderer.rerender(renderHarness(modelProps)))
+    expect(latestModel().composerMentionCandidates).toEqual({ loading: false, failed: false })
+    act(() => renderer.rerender(renderHarness({ ...modelProps, accessAllowed: false })))
+    expect(latestModel().composerMembers).toEqual([])
   })
 
   it("gates thread candidates on both query sources and retries only unresolved sources", () => {

@@ -64,6 +64,7 @@ test("@ candidates page to completion and shared popups stay anchored through vi
 
   const browse = Array.from({ length: 12 }, (_, index) => candidate("Browse", index + 1))
   const matches = Array.from({ length: 205 }, (_, index) => candidate("CapMatch", index + 1))
+  const searchReads = new Map<string, number>()
   let releaseSearchTail!: () => void
   const searchTailReleased = new Promise<void>((resolve) => {
     releaseSearchTail = resolve
@@ -77,6 +78,7 @@ test("@ candidates page to completion and shared popups stay anchored through vi
     const url = new URL(route.request().url())
     if (url.pathname.endsWith("/members/search")) {
       const query = url.searchParams.get("q") ?? ""
+      searchReads.set(query, (searchReads.get(query) ?? 0) + 1)
       const cursor = url.searchParams.get("cursor")
       if (query === "Fail") {
         await route.fulfill({ status: 500, json: { error: "forced failure" } })
@@ -219,6 +221,14 @@ test("@ candidates page to completion and shared popups stay anchored through vi
   await page.keyboard.press("Escape")
   await editable.press("ControlOrMeta+A")
   await editable.press("Backspace")
+  await editable.pressSequentially("@CapMatch")
+  await expect(page.getByTestId(tid.mentionOption(matches[204]!.id))).toHaveCount(1)
+  await expect(page.getByTestId(tid.mentionPopup).getByRole("option")).toHaveCount(205)
+  expect(searchReads.get("CapMatch")).toBe(2)
+
+  await page.keyboard.press("Escape")
+  await editable.press("ControlOrMeta+A")
+  await editable.press("Backspace")
   await editable.pressSequentially("@NoMatch")
   await expect(page.getByTestId(tid.mentionStatus)).toHaveAttribute("data-state", "empty")
 
@@ -227,4 +237,13 @@ test("@ candidates page to completion and shared popups stay anchored through vi
   await editable.press("Backspace")
   await editable.pressSequentially("@Fail")
   await expect(page.getByTestId(tid.mentionStatus)).toHaveAttribute("data-state", "error")
+
+  await page.keyboard.press("Escape")
+  await editable.press("ControlOrMeta+A")
+  await editable.press("Backspace")
+  await editable.pressSequentially("@CapMatch")
+  await expect(page.getByTestId(tid.mentionOption(matches[204]!.id))).toHaveCount(1)
+  await expect(page.getByTestId(tid.mentionPopup).getByRole("option")).toHaveCount(205)
+  await expect(page.getByTestId(tid.mentionStatus)).toHaveCount(0)
+  expect(searchReads.get("CapMatch")).toBe(2)
 })
