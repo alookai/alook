@@ -36,6 +36,7 @@ export function ShellFrameOverlays({
           bp={breakpoint}
           onClose={controller.closeProfile}
           onMessage={controller.profileMessage}
+          canMessage={controller.canMessage}
           isSelf={!!profile.data.userId && profile.data.userId === currentUser.id}
           onUpdateStatus={controller.updateOwnStatus}
           onOpenOwnerProfile={controller.openOwnerProfile}

@@ -68,7 +68,7 @@ vi.mock("@/stores/community/message-stream", async (importOriginal) => ({ ...awa
   }),
 }))
 vi.mock("@/hooks/community/use-friends", () => ({
-  useFriends: () => ({ friends: [{ id: "remote", userId: "remote", name: "Remote", avatar: "R", sub: "seed" }] }),
+  useFriends: () => ({ data: { ids: ["remote"] }, friends: [{ id: "remote", userId: "remote", name: "Remote", avatar: "R", sub: "seed" }], pending: [], blocked: [] }),
 }))
 vi.mock("@/hooks/community/use-server-members", () => ({
   useServerMembers: () => ({ members: [{ id: "remote", userId: "remote", name: "Remote", avatar: "R", sub: "seed" }] }),

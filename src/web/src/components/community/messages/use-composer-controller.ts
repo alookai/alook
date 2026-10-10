@@ -342,7 +342,7 @@ export function useComposerController(
   }))
 
   useEffect(() => {
-    if (!autoFocus || !editor || isForumThreadBody) return
+    if (!autoFocus || !editor || isForumThreadBody || editor.isFocused) return
     if (document.activeElement?.closest(`[data-testid="${tid.serverRailScroll}"]`)) return
     suppressSuggestions(() => editor.commands.focus("end"))
   }, [autoFocus, editor, channel, isForumThreadBody, suppressSuggestions])

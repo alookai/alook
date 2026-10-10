@@ -1,6 +1,6 @@
 import { createElement, StrictMode, useLayoutEffect, useMemo } from "react"
 import { vi } from "vitest"
-import { act, render, fireEvent } from "@/test/react-dom-harness"
+import { act, render, fireEvent, type RenderOptions } from "@/test/react-dom-harness"
 import { VirtualRows } from "@/components/community/messages/virtual-cursor-list"
 import type { FlatItem } from "@/lib/community/message-list-items"
 import { useScrollAnchor } from "@/hooks/community/use-scroll-anchor"
@@ -143,10 +143,10 @@ export function resize(frameCount = 26) {
   })
   runFrames(frameCount)
 }
-export function mount(overrides: Partial<Input> = {}, strict = false, onLayout?: (result: Result) => void) {
+export function mount(overrides: Partial<Input> = {}, strict = false, onLayout?: (result: Result) => void, wrapper?: RenderOptions["wrapper"]) {
   const input: Input = { items: Array.from({ length: 14 }, (_, i) => message(`m${i}`)), initialScrollReady: true, hasMoreOlder: true, ...overrides }
   const element = () => strict ? createElement(StrictMode, null, createElement(Probe, { input, onLayout })) : createElement(Probe, { input, onLayout })
-  const view = render(element())
+  const view = render(element(), { wrapper })
   const root = view.getByTestId("scroll") as HTMLElement
   resize()
   const stage = (next: Partial<Input>) => { Object.assign(input, next); view.rerender(element()) }

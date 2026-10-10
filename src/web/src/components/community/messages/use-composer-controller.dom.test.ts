@@ -973,6 +973,7 @@ describe("useComposerController", () => {
   })
 
   it("leaves a focused persistent rail item in charge when a conversation mounts", async () => {
+    editor.isFocused = false
     const rail = document.createElement("div")
     rail.setAttribute("data-testid", "community-server-rail-scroll")
     const button = document.createElement("button")
@@ -1004,6 +1005,7 @@ describe("useComposerController", () => {
   })
 
   it("preserves autofocus, reply edge, drop, dropdown, upload, and emoji timing", async () => {
+    editor.isFocused = false
     const accept = vi.fn(() => true)
     let renderer!: ReturnType<typeof render>
     await act(async () => {

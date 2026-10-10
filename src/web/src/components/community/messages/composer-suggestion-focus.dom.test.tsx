@@ -81,6 +81,36 @@ describe("composer suggestion focus with installed TipTap", () => {
     expect(editor.getText()).toBe(`${trigger}${suffix}`)
   })
 
+  it.each(["@", "/"])("keeps the active %s candidate and caret when automatic focus turns on", async (trigger) => {
+    const probeRef: Probe = { current: null }
+    const options = { ...props, probeRef, draftKey: "autofocus-boundary" }
+    const renderer = render(<Harness {...options} autoFocus={false} />)
+    const editor = await editorOf(probeRef)
+    await type(editor, trigger === "@" ? "@a" : "/g")
+    const rowId = trigger === "@" ? "community-mention-option-member-ada" : "community-channel-ref-option-channel-general"
+    await screen.findByTestId(rowId)
+    const selection = editor.state.selection.toJSON()
+    const draft = editor.getJSON()
+
+    for (const autoFocus of [true, false, true]) {
+      await act(async () => { renderer.rerender(<Harness {...options} autoFocus={autoFocus} />) })
+      expect(document.activeElement).toBe(editor.view.dom)
+      expect(editor.isFocused).toBe(true)
+      expect(editor.state.selection.toJSON()).toEqual(selection)
+      expect(editor.getJSON()).toEqual(draft)
+      expect(readComposerDraft("viewer:autofocus-boundary")).toEqual(draft)
+      expect(screen.getByTestId(rowId)).toBeVisible()
+    }
+
+    await act(async () => { fireEvent.mouseDown(screen.getByTestId(rowId)) })
+    const nodeType = trigger === "@" ? "mention" : "channelRef"
+    expect(editor.getJSON().content?.[0].content?.filter((node) => node.type === nodeType)).toEqual([
+      expect.objectContaining({ attrs: expect.objectContaining({ id: trigger === "@" ? ada.id : general.id }) }),
+    ])
+    expect(screen.queryByTestId(rowId)).toBeNull()
+    expect(readComposerDraft("viewer:autofocus-boundary")).toEqual(editor.getJSON())
+  })
+
   it.each(["@", "/"])("moves focus between composers with only one %s popup and inert old insertion", async (trigger) => {
     const parent: Probe = { current: null }, thread: Probe = { current: null }
     render(<><Harness {...props} probeRef={parent} draftKey="parent" /><Harness {...props} context="thread" channel="thread" probeRef={thread} draftKey="thread" /></>)
