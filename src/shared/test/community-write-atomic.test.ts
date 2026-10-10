@@ -105,15 +105,15 @@ describe("Community durable writes — real SQLite transactions", () => {
     expect(rows("community_message_seq")).toEqual([{ channel_id: "channel", next_seq: 1 }]);
   });
 
-  it("rejects missing and duplicate attachments without partial writes; permits known ID reuse", async () => {
+  it("rejects missing, unreadable and duplicate attachments without partial writes; permits reuse", async () => {
     fixture.sqlite.exec("INSERT INTO community_attachment (id, uploader_id, r2_key, filename, created_at) VALUES ('a', 'author', 'original', 'file', 'now'), ('foreign', 'peer', 'original', 'file', 'now')");
-    for (const ids of [["a", "missing"], ["a", "a"]]) {
+    for (const ids of [["a", "missing"], ["a", "foreign"], ["a", "a"]]) {
       const error = await send({ attachmentIds: ids }).catch((error) => error);
       expect(isMessageAttachmentConflict(error)).toBe(true);
       expect(rows("community_message")).toEqual([]);
       expect(rows("community_message_seq")).toEqual([]);
     }
-    await send({ attachmentIds: ["foreign"] });
+    await send({ attachmentIds: ["a"] });
     await send({ attachmentIds: ["a"] });
     expect(rows("community_message")).toHaveLength(2);
     expect(rows("community_message_attachment")).toHaveLength(2);

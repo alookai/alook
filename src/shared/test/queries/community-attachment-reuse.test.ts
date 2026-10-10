@@ -22,15 +22,14 @@ describe("reusable files with real SQLite authorization and transactions", () =>
     createMessage(fixture.db, { authorId, content: "file", channelId, attachmentIds, ...overrides });
   const read = (id: string, userId: string) => getReadableAttachmentById(fixture.db, id, userId);
 
-  it("an unsent file is private until a valid actor forwards its known ID", async () => {
+  it("only the uploader can read or use an unsent file", async () => {
     await upload("a");
     expect(await read("a", "author")).toMatchObject({ id: "a" });
     expect(await read("a", "peer")).toBeNull();
     expect(await read("missing", "author")).toBeNull();
-    await send("peer", "destination", ["a"]);
-    expect(await read("a", "peer")).not.toBeNull();
-    expect(await read("a", "recipient")).not.toBeNull();
-    expect(await read("a", "stranger")).toBeNull();
+    const error = await send("peer", "destination", ["a"]).catch(e => e);
+    expect(isMessageAttachmentConflict(error)).toBe(true);
+    expect(fixture.sqlite.prepare("SELECT * FROM community_message").all()).toEqual([]);
   });
 
   it("an upload finishing after uploader deletion cannot create a dead-owner file", async () => {
@@ -56,7 +55,7 @@ describe("reusable files with real SQLite authorization and transactions", () =>
     expect(await read("b", "author")).toBeNull();
   });
 
-  it("source revocation does not block forwarding a known ID", async () => {
+  it("rechecks source revocation at the message commit boundary", async () => {
     await upload("a"); await send("author", "channel", ["a"]);
     expect(await read("a", "peer")).not.toBeNull();
     const batch = fixture.db.batch.bind(fixture.db);
@@ -64,14 +63,13 @@ describe("reusable files with real SQLite authorization and transactions", () =>
       fixture.sqlite.exec("DELETE FROM community_server_member WHERE server_id = 's1' AND user_id = 'peer'");
       return batch(statements as any);
     }) as any;
-    await send("peer", "destination", ["a"]);
-    expect(fixture.sqlite.prepare("SELECT * FROM community_server_member WHERE server_id = 's1' AND user_id = 'peer'").all()).toEqual([]);
-    expect(fixture.sqlite.prepare("SELECT * FROM community_message WHERE channel_id = 'destination'").all()).toHaveLength(1);
-    expect(fixture.sqlite.prepare("SELECT * FROM community_message_seq WHERE channel_id = 'destination'").all()).toEqual([{ channel_id: "destination", next_seq: 1 }]);
-    expect(await read("a", "recipient")).not.toBeNull();
+    const error = await send("peer", "destination", ["a"]).catch(e => e);
+    expect(isMessageAttachmentConflict(error)).toBe(true);
+    expect(fixture.sqlite.prepare("SELECT * FROM community_message WHERE channel_id = 'destination'").all()).toEqual([]);
+    expect(fixture.sqlite.prepare("SELECT * FROM community_message_seq WHERE channel_id = 'destination'").all()).toEqual([]);
   });
 
-  it("last-reference deletion invalidates a known ID before forwarding", async () => {
+  it("last-reference deletion cannot race a stale forwarding permission proof", async () => {
     await upload("a"); const source = await send("author", "channel", ["a"]);
     expect(await read("a", "peer")).not.toBeNull();
     fixture.sqlite.prepare("DELETE FROM community_message WHERE id = ?").run(source!.id);

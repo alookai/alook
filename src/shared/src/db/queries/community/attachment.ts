@@ -24,7 +24,7 @@ export async function createAttachment(db: Database, data: typeof communityAttac
   return row;
 }
 
-function attachmentReadableSql(db: Database, userId: string) {
+export function attachmentReadableSql(db: Database, userId: string) {
   const peer = alias(communityChannelMember, "attachment_dm_peer");
   const hasPeer = db.select({ id: peer.id }).from(peer)
     .where(and(eq(peer.channelId, communityChannel.id), eq(peer.relation, "access"), ne(peer.userId, userId)));

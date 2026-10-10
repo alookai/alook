@@ -1,4 +1,4 @@
-import { eq, and, asc, desc, exists, gt, lt, or, sql, inArray, isNull, count, min, type SQL, type GetColumnData } from "drizzle-orm";
+import { eq, and, asc, desc, exists, gt, lt, or, sql, inArray, count, min, type SQL, type GetColumnData } from "drizzle-orm";
 import {
   communityMessage,
   communityChannel,
@@ -14,6 +14,7 @@ import {
 import { user } from "../../schema";
 import { nanoid } from "nanoid";
 import type { Database } from "../../index";
+import { attachmentReadableSql } from "./attachment";
 import { MAX_ATTACHMENTS_PER_MESSAGE } from "../../../constants/community";
 import { createLogger } from "../../../logger";
 import { chunk, D1_MAX_IN_PARAMS, maxRowsPerInsert } from "../_chunk";
@@ -223,8 +224,7 @@ async function insertMessageRow(db: Database, data: CreateMessageData, expectedS
     .from(communityAttachment)
     .where(and(
       inArray(communityAttachment.id, ids),
-      exists(db.select({ id: user.id }).from(user)
-        .where(and(eq(user.id, data.authorId), isNull(user.deletedAt)))),
+      attachmentReadableSql(db, data.authorId),
     ));
   const attachmentChecks = [attachmentIds]
     .filter((ids) => ids.length > 0)
