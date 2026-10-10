@@ -5,7 +5,7 @@ import { resolve } from "node:path"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, describe, it, expect, vi } from "vitest"
-import { act, render } from "@/test/react-dom-harness"
+import { act, fireEvent, render } from "@/test/react-dom-harness"
 import {
   displayOwnerHandle,
   resolveAuditPreviewPlacement,
@@ -154,6 +154,47 @@ function findInterruptButton(container: HTMLElement) {
 }
 
 describe("ProfileCard contextual metadata", () => {
+  it.each([
+    ["desktop", "button"], ["desktop", "Enter"],
+    ["mobile", "button"], ["mobile", "Enter"],
+  ] as const)("shows messaging only with current permission and sends through the original callback on %s via %s", (bp, action) => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const onMessage = vi.fn(), onClose = vi.fn()
+    const props = { embedded: true, data: { name: "Peer", userId: "peer" }, x: 0, y: 0, bp, onMessage, onClose }
+    const card = (overrides = {}) => createElement(CommunityTestProvider, { client }, createElement(ProfileCard, { ...props, ...overrides }))
+    const view = render(card())
+    expect(view.queryByRole("textbox")).toBeNull()
+    view.rerender(card({ canMessage: true }))
+    fireEvent.change(view.getByRole("textbox"), { target: { value: " hello " } })
+    view.rerender(card({ canMessage: false }))
+    expect(view.queryByRole("textbox")).toBeNull()
+    expect(view.queryByRole("button", { name: "Send message" })).toBeNull()
+    expect(onMessage).not.toHaveBeenCalled()
+    view.rerender(card({ canMessage: true }))
+    fireEvent.keyDown(view.getByRole("textbox"), { key: "Enter", isComposing: true })
+    expect(onMessage).not.toHaveBeenCalled()
+    if (action === "button") fireEvent.click(view.getByRole("button", { name: "Send message" }))
+    else fireEvent.keyDown(view.getByRole("textbox"), { key: "Enter" })
+    expect(onMessage).toHaveBeenCalledExactlyOnceWith("peer", "hello")
+    if (bp === "mobile") expect(onClose).toHaveBeenCalledOnce()
+    else expect(onClose).not.toHaveBeenCalled()
+    expect(view.getByRole<HTMLInputElement>("textbox").value).toBe("")
+  })
+
+  it.each([
+    { isSelf: true },
+    { onMessage: undefined },
+    { data: { name: "Unknown" } },
+  ])("withholds messaging even with a true permission when the card cannot send (%j)", (overrides) => {
+    const client = new QueryClient()
+    const view = render(createElement(CommunityTestProvider, { client }, createElement(ProfileCard, {
+      embedded: true, data: { name: "Peer", userId: "peer" }, x: 0, y: 0,
+      bp: "desktop", onClose: vi.fn(), onMessage: vi.fn(), canMessage: true, ...overrides,
+    })))
+    expect(view.queryByRole("textbox")).toBeNull()
+    expect(view.queryByRole("button", { name: "Send message" })).toBeNull()
+  })
+
   it("mounts the running-bots zone only for the signed-in user's profile", () => {
     const self = renderProfile({}, undefined, true)
     const peer = renderProfile()

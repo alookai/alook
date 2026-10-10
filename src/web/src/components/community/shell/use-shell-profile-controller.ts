@@ -82,7 +82,8 @@ export function useShellProfileController({
     }
   }
   const currentUser = useCurrentUser()
-  const { friends } = useFriends()
+  const friendsQuery = useFriends()
+  const { friends, blocked } = friendsQuery
   const profileServerId = resolveProfileServerId(view, activeServerId)
   const { members } = useServerMembers(profileServerId)
   const createOrGetDm = useCreateOrGetDm()
@@ -117,6 +118,10 @@ export function useShellProfileController({
     }
   }, [finishAvatarCrop, pendingAvatarCrop])
   const profileUserId = profileTarget?.data.userId
+  const canMessage = !!profileUserId && profileUserId !== currentUser.id
+    && friendsQuery.data !== undefined
+    && !blocked.some((user) => user.userId === profileUserId)
+    && friends.some((user) => user.userId === profileUserId)
   const canonicalProfile = useCanonicalCommunityProfile(profileUserId)
   useQuery({ queryKey: communityKeys.profile(profileUserId ?? "__none__"), enabled: !!profileUserId && profileUserId !== currentUser.id,
     queryFn: userProfileQueryFn(profileUserId ?? ""), staleTime: PROFILE_STALE_TIME_MS })
@@ -373,6 +378,7 @@ export function useShellProfileController({
     previewImage,
     previewAttachment,
     profile,
+    canMessage,
     closeProfile: () => setProfile(null),
     profileMessage,
     updateOwnStatus,

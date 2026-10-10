@@ -74,6 +74,7 @@ type ProfileCardProps = {
   bp: Breakpoint
   onClose: () => void
   onMessage?: (userId: string, text: string) => void
+  canMessage?: boolean
   isSelf?: boolean
   // Only used when `isSelf` — the inline status row opens `StatusEditor` and
   // calls this on a preset pick / free-text commit / emoji override / clear.
@@ -103,7 +104,7 @@ function SelfProfileCard(props: ProfileCardProps) {
 // Profile card — popover anchored at the click point on desktop, bottom sheet on mobile.
 // Identity, about, status, and presence are read from the global profile map
 // whenever a userId is present. Static cards use their supplied display data.
-function ProfileCardContent({ data, x, y, bp, onClose, onMessage, isSelf, onUpdateStatus, onOpenOwnerProfile, onOpenBotAudit, initialStatusEmoji, initialStatusText, activityStatusEmoji, activityStatusText, embedded, extension, hasSelfRunningBots }: ProfileCardProps & {
+function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = false, isSelf, onUpdateStatus, onOpenOwnerProfile, onOpenBotAudit, initialStatusEmoji, initialStatusText, activityStatusEmoji, activityStatusText, embedded, extension, hasSelfRunningBots }: ProfileCardProps & {
   hasSelfRunningBots: boolean
 }) {
   const registry = useOptionalCommunityDbRegistry()
@@ -159,9 +160,10 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
   )
   const backdropSeed = resolveProfileBackdropSeed(avatar, data.userId, name)
   const close = () => setOpen(false)
+  const canSendMessage = !isSelf && canMessage && !!data.userId && !!onMessage
   const send = () => {
     const text = msg.trim()
-    if (!text || !data.userId) return
+    if (!canSendMessage || !text || !data.userId) return
     onMessage?.(data.userId, text)
     setMsg("")
     if (mobile) onClose()
@@ -308,7 +310,7 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
               {mutual > 0 && <span>{mutual} mutual server{mutual > 1 ? "s" : ""}</span>}
             </div>
           )}
-          {!isSelf && (
+          {canSendMessage && (
             <div className="mt-4 flex h-9 items-center gap-2 rounded-md bg-secondary px-2">
               <input
                 value={msg}
