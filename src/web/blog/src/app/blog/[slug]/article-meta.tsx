@@ -46,7 +46,7 @@ export function BlogPostByline({
   post: Pick<BlogPost, "author" | "date" | "dateModified" | "readingTime">;
 }) {
   return (
-    <div className="mt-6 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+    <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
       <span className="font-medium text-foreground/70">{post.author}</span>
       <span className="text-muted-foreground/40">/</span>
       <time dateTime={post.date}>{formatArticleDate(post.date)}</time>

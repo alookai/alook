@@ -73,44 +73,42 @@ export default async function BlogPostPage({
           }}
         />
       )}
-      <article className="mx-auto max-w-3xl px-6 pt-12 sm:pt-24 pb-28">
+      <article className="blog-article mx-auto max-w-3xl px-6 py-12 sm:py-16">
         <Link
           href="/blog"
-          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-8 sm:mb-14"
+          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-8"
         >
           <ArrowLeft className="size-3.5" />
           All posts
         </Link>
 
-        <header className="mb-10 sm:mb-16">
+        <header className="mb-10">
+          <h1 className="font-sans text-3xl sm:text-[2.5rem] font-semibold tracking-tight leading-tight text-balance">
+            {post.title}
+          </h1>
           {topic && (
             <Link
               href={`/blog#${topic.id}`}
-              className="mb-4 inline-block font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground transition-colors hover:text-foreground"
+              className="mt-4 inline-flex rounded-md bg-muted px-2 py-1 text-sm font-medium text-foreground transition-colors hover:bg-accent"
             >
               {topic.label}
             </Link>
           )}
-          <h1 className="font-news text-4xl sm:text-5xl font-semibold tracking-tight leading-[1.12]">
-            {post.title}
-          </h1>
           <BlogPostByline post={post} />
         </header>
 
-        <div className="blog-content blog-content-editorial font-sans text-lg leading-[1.7] text-foreground max-w-[65ch] [&_h2]:font-sans [&_h2]:text-[1.625rem] [&_h2]:font-semibold [&_h2]:tracking-tight [&_h2]:mt-16 [&_h2]:mb-6 [&_p]:mb-8 [&_blockquote]:border-l-[3px] [&_blockquote]:border-foreground/20 [&_blockquote]:pl-6 [&_blockquote]:italic [&_blockquote]:text-foreground/70 [&_blockquote]:my-10 [&_blockquote]:text-xl [&_blockquote]:leading-relaxed [&_code]:font-mono [&_code]:bg-muted [&_code]:px-2 [&_code]:py-1 [&_code]:rounded [&_code]:text-[0.875em] [&_pre]:bg-muted [&_pre]:rounded-lg [&_pre]:px-4 [&_pre]:py-4 [&_pre]:my-10 [&_pre]:overflow-x-auto [&_pre]:text-[0.875rem] [&_pre]:leading-relaxed [&_pre]:max-w-none [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_img]:rounded-lg [&_img]:my-12 [&_img]:w-full [&_img]:max-w-none [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:mb-8 [&_ul]:-mt-1 [&_li]:mb-3 [&_li]:leading-[1.7] [&_strong]:font-semibold [&_em]:italic [&_a]:underline [&_a]:underline-offset-3 [&_a]:decoration-foreground/30 [&_a]:hover:decoration-foreground/60 [&_a]:transition-colors [&_table]:w-full [&_table]:my-10 [&_table]:border-collapse [&_table]:text-[0.9rem] [&_th]:text-left [&_th]:font-semibold [&_th]:py-3 [&_th]:px-4 [&_th]:border-b-2 [&_th]:border-border [&_td]:py-3 [&_td]:px-4 [&_td]:border-b [&_td]:border-border [&_tr:hover]:bg-muted/50">
+        <div className="blog-content blog-prose">
           <PostContent />
         </div>
 
         {topic && (relatedPosts.length > 0 || nextTopicBridge) && (
-          <aside className="mt-20 border-t border-border pt-10">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <aside className="mt-16 border-t border-border pt-8">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
               <div>
-                <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground/60">
+                <h2 className="font-sans text-2xl font-semibold tracking-tight">
                   Keep exploring
-                </p>
-                <h2 className="mt-2 font-news text-2xl sm:text-3xl font-semibold tracking-tight">
-                  {topic.label}
                 </h2>
+                <p className="mt-2 text-sm text-muted-foreground">{topic.label}</p>
               </div>
               <Link
                 href={`/blog#${topic.id}`}
@@ -123,21 +121,21 @@ export default async function BlogPostPage({
             {relatedPosts.length > 0 && (
               <nav
                 aria-label={`More in ${topic.label}`}
-                className="mt-7 grid gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-3"
+                className="mt-6 grid gap-8 sm:grid-cols-2"
               >
                 {relatedPosts.map((relatedPost) => (
                   <Link
                     key={relatedPost.slug}
                     href={`/blog/${relatedPost.slug}`}
-                    className="group flex min-h-44 flex-col bg-background p-5 transition-colors hover:bg-muted/50"
+                    className="group flex flex-col rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
                   >
-                    <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-muted-foreground/60">
-                      {getBlogTopicEntryBySlug(relatedPost.slug)?.userJob}
-                    </span>
-                    <span className="mt-3 font-news text-lg font-semibold leading-snug tracking-tight group-hover:translate-x-0.5 transition-transform duration-200">
+                    <span className="font-sans text-lg font-semibold leading-snug group-hover:text-muted-foreground transition-colors">
                       {relatedPost.title}
                     </span>
-                    <span className="mt-auto pt-4 text-xs text-muted-foreground">
+                    <span className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                      {getBlogTopicEntryBySlug(relatedPost.slug)?.userJob}
+                    </span>
+                    <span className="mt-2 text-sm text-muted-foreground">
                       {relatedPost.readingTime}
                     </span>
                   </Link>
@@ -148,20 +146,18 @@ export default async function BlogPostPage({
             {nextTopicBridge && (
               <Link
                 href={`/blog/${nextTopicBridge.post.slug}`}
-                className="group mt-5 grid gap-3 rounded-xl border border-border p-5 transition-colors hover:bg-muted/40 sm:grid-cols-[9rem_1fr_auto] sm:items-center sm:gap-6"
+                className="group mt-8 flex items-center justify-between gap-4 border-t border-border pt-6"
               >
-                <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60">
-                  Next topic
-                </span>
                 <span>
-                  <span className="block text-xs text-muted-foreground">
-                    {nextTopicBridge.topic.label}
-                  </span>
-                  <span className="mt-1 block font-news text-lg font-semibold leading-snug tracking-tight">
+                  <span className="block text-sm text-muted-foreground">Next Blog</span>
+                  <span className="mt-2 block font-sans text-lg font-semibold leading-snug group-hover:text-muted-foreground transition-colors">
                     {nextTopicBridge.post.title}
                   </span>
+                  <span className="mt-2 block text-sm text-muted-foreground">
+                    {nextTopicBridge.topic.label}
+                  </span>
                 </span>
-                <ArrowRight className="hidden size-4 text-muted-foreground transition-transform duration-200 group-hover:translate-x-1 sm:block" />
+                <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
               </Link>
             )}
           </aside>
