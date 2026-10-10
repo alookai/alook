@@ -215,11 +215,14 @@ export function AnalyticsConsent() {
           <div className={styles.bannerContent}>
             <div className={styles.copy}>
               <p className={styles.eyebrow}>PRIVACY · OPTIONAL SIGNAL</p>
-              <h2 className={styles.headline}>Cookies are your choice</h2>
+              <h2 className={styles.headline}>
+                {isTauri() ? "Analytics, only if you want" : "Cookies are your choice"}
+              </h2>
               <p className={styles.description}>
-                Google receives page and feature signals on our public website, even without
-                analytics cookies. Allow analytics enables analytics cookies and other optional
-                analytics. No ad tracking. Read our{" "}
+                {isTauri()
+                  ? "Optional analytics help us understand which parts of Alook are useful. "
+                  : "Google receives page and feature signals on our public website, even without analytics cookies. Allow analytics enables analytics cookies and other optional analytics. "}
+                No ad tracking. Read our{" "}
                 <a
                   href="/privacy#analytics-choices"
                   className={styles.privacyLink}

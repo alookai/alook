@@ -115,12 +115,31 @@ describe("AnalyticsConsent", () => {
     render(<AnalyticsConsent />)
     const banner = await screen.findByTestId(tid.analyticsConsentBanner)
     expect(within(banner).getByText("Cookies are your choice")).toBeVisible()
+    expect(banner).toHaveTextContent("Google receives page and feature signals on our public website, even without analytics cookies. Allow analytics enables analytics cookies and other optional analytics. No ad tracking. Read our privacy details.")
     expect(within(banner).getByRole("button", { name: "Only necessary" })).toBeVisible()
     expect(within(banner).getByRole("button", { name: "Allow analytics" })).toBeVisible()
     expect(within(banner).getByTestId(tid.analyticsConsentAvatarCluster).querySelectorAll("svg"))
       .toHaveLength(3)
     expect(screen.getByTestId("google-tag-manager")).toBeInTheDocument()
     expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
+  })
+
+  it.each(["/sign-in", "/pricing"])("retains the original Native desktop banner on %s without requiring a choice", async pathname => {
+    platform.isTauri.mockReturnValue(true)
+    route.pathname = pathname
+    window.history.replaceState({}, "", pathname)
+    const fetcher = vi.fn()
+    vi.stubGlobal("fetch", fetcher)
+
+    render(<AnalyticsConsent />)
+
+    const banner = await screen.findByTestId(tid.analyticsConsentBanner)
+    expect(within(banner).getByText("Analytics, only if you want")).toBeVisible()
+    expect(banner).toHaveTextContent("Optional analytics help us understand which parts of Alook are useful. No ad tracking. Read our privacy details.")
+    expect(banner).not.toHaveTextContent("Google receives page and feature signals")
+    expect(screen.queryByTestId("google-tag-manager")).not.toBeInTheDocument()
+    expect(document.cookie).toBe("")
+    expect(fetcher).not.toHaveBeenCalled()
   })
 
   it("hides the first-visit banner in native mobile clients", async () => {
