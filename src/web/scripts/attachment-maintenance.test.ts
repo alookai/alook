@@ -12,7 +12,9 @@ describe("attachment maintenance production restriction", () => {
 it("a complete hand-filled proof cannot enable remote CLI apply", async () => {
   const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs")
   const { tmpdir } = await import("node:os")
-  const { join, resolve } = await import("node:path")
+  const { join } = await import("node:path")
+  const { createRequire } = await import("node:module")
+  const { fileURLToPath } = await import("node:url")
   const { spawnSync } = await import("node:child_process")
   const directory = mkdtempSync(join(tmpdir(), "alook-attachment-guard-"))
   try {
@@ -27,7 +29,7 @@ it("a complete hand-filled proof cannot enable remote CLI apply", async () => {
     }))
     writeFileSync(proofPath, JSON.stringify({ configPath, localState, writersStopped: true, invocationsDrained: true,
       evidence: "hand-filled, no actual production evidence", stoppedWriterPids: [stopped.pid], expiresAt: new Date(Date.now() + 60_000).toISOString() }))
-    const result = spawnSync(process.execPath, [resolve("node_modules/tsx/dist/cli.mjs"), resolve("scripts/attachment-maintenance.ts"),
+    const result = spawnSync(process.execPath, [createRequire(import.meta.url).resolve("tsx/cli"), fileURLToPath(new URL("./attachment-maintenance.ts", import.meta.url)),
       "collect", "--config", configPath, "--manifest", join(directory, "manifest.jsonl"), "--apply", "--local-state", localState, "--quiescence-proof", proofPath],
       { encoding: "utf8", timeout: 20_000 })
     expect(result.status).toBe(1)
