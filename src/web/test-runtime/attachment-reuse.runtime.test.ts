@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { queries, createDb } from "@alook/shared"
 import { handleAttachmentUpload } from "../src/lib/community/upload"
-import { migrateAttachmentObjects, collectAttachmentObjects } from "../scripts/attachment-maintenance"
+import { collectAttachmentObjects } from "../scripts/attachment-maintenance"
 import { structuredJpegFixture } from "../src/test/fixtures/media"
 import type { NextRequest } from "next/server"
 
@@ -90,46 +90,29 @@ describe("file content storage on real D1/R2 bindings", () => {
     expect(await (await bindings.COMMUNITY_MEDIA.get(b.thumbnailR2Key!))!.arrayBuffer()).toEqual(Uint8Array.from(structuredJpegFixture(20, 10)).buffer)
   })
 
-  it("copies and verifies old keys before CAS, retains originals, and can rerun after checkpoint failure", async () => {
+  it("preserves legacy keys and bytes, and collects only explicit unreferenced objects offline", async () => {
     const id = crypto.randomUUID()
     files.push(id)
     const original = `channel/runtime/${id}/old.pdf`
     const thumb = `thread/runtime/${id}/thumbnail.jpg`
-    keys.add(original); keys.add(thumb)
+    const orphan = `dm/runtime/${id}/orphan.pdf`
+    keys.add(original); keys.add(thumb); keys.add(orphan)
     const bytes = crypto.getRandomValues(new Uint8Array(12))
     const thumbnail = crypto.getRandomValues(new Uint8Array(7))
     await bindings.COMMUNITY_MEDIA.put(original, bytes)
     await bindings.COMMUNITY_MEDIA.put(thumb, thumbnail)
+    await bindings.COMMUNITY_MEDIA.put(orphan, bytes)
     await queries.communityAttachment.createAttachment(createDb(bindings.DB), { id, uploaderId: uploader, filename: "old.pdf", r2Key: original, thumbnailR2Key: thumb, size: bytes.length })
-    const entries: any[] = []
-    const record = async (entry: any) => { entries.push(entry); if (entry.to) keys.add(entry.to) }
-    await migrateAttachmentObjects(bindings, { apply: false, record })
-    expect((await bindings.DB.prepare("SELECT r2_key FROM community_attachment WHERE id = ?").bind(id).first<any>()).r2_key).toBe(original)
-    await expect(migrateAttachmentObjects(bindings, { apply: true, beforeWrite: async () => {}, record: async entry => {
-      await record(entry)
-      if (entry.operation === "checkpoint") throw new Error("interrupted after commit")
-    } })).rejects.toThrow("interrupted after commit")
-    await migrateAttachmentObjects(bindings, { apply: true, beforeWrite: async () => {}, record })
-    const migrated = await bindings.DB.prepare("SELECT r2_key, thumbnail_r2_key, filename FROM community_attachment WHERE id = ?").bind(id).first<any>()
-    expect(migrated.r2_key).toMatch(/^attachments\/sha256\//)
-    expect(migrated.thumbnail_r2_key).toMatch(/^attachment-thumbnails\/sha256\//)
-    expect(migrated.filename).toBe("old.pdf")
-    expect(await bindings.COMMUNITY_MEDIA.get(original)).not.toBeNull()
-    expect(await bindings.COMMUNITY_MEDIA.get(thumb)).not.toBeNull()
-    await collectAttachmentObjects(bindings, { apply: false, record }, new Set([original, thumb]))
-    expect(await bindings.COMMUNITY_MEDIA.get(original)).not.toBeNull()
-    await expect(collectAttachmentObjects(bindings, { apply: true, record }, new Set([original]))).rejects.toThrow("quiescence")
-    await collectAttachmentObjects(bindings, { apply: true, beforeWrite: async () => {}, record }, new Set([original, thumb]))
-    expect(await bindings.COMMUNITY_MEDIA.get(original)).toBeNull()
-    expect(await bindings.COMMUNITY_MEDIA.get(migrated.r2_key)).not.toBeNull()
-    expect(entries.some(entry => entry.operation === "checkpoint")).toBe(true)
-  })
-
-  it("missing source objects fail without rewriting file metadata", async () => {
-    const id = crypto.randomUUID(); files.push(id)
-    const key = `dm/runtime/${id}/missing.txt`
-    await queries.communityAttachment.createAttachment(createDb(bindings.DB), { id, uploaderId: uploader, filename: "missing.txt", r2Key: key })
-    await expect(migrateAttachmentObjects(bindings, { apply: true, beforeWrite: async () => {}, record: async () => {} })).rejects.toThrow("missing attachment object")
-    expect((await bindings.DB.prepare("SELECT r2_key FROM community_attachment WHERE id = ?").bind(id).first<any>()).r2_key).toBe(key)
+    const record = async () => {}
+    const candidates = new Set([original, thumb, orphan])
+    await collectAttachmentObjects(bindings, { apply: false, record }, candidates)
+    expect(await bindings.COMMUNITY_MEDIA.get(orphan)).not.toBeNull()
+    await expect(collectAttachmentObjects(bindings, { apply: true, record }, candidates)).rejects.toThrow("quiescence")
+    await collectAttachmentObjects(bindings, { apply: true, beforeWrite: async () => {}, record }, candidates)
+    expect(await bindings.COMMUNITY_MEDIA.get(orphan)).toBeNull()
+    const retained = await bindings.DB.prepare("SELECT r2_key, thumbnail_r2_key, filename FROM community_attachment WHERE id = ?").bind(id).first<any>()
+    expect(retained).toEqual({ r2_key: original, thumbnail_r2_key: thumb, filename: "old.pdf" })
+    expect(new Uint8Array(await (await bindings.COMMUNITY_MEDIA.get(original))!.arrayBuffer())).toEqual(bytes)
+    expect(new Uint8Array(await (await bindings.COMMUNITY_MEDIA.get(thumb))!.arrayBuffer())).toEqual(thumbnail)
   })
 })
