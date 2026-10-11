@@ -212,14 +212,22 @@ pub fn finish_native_creation(window: &tauri::WebviewWindow) {
         }
         #[cfg(target_os = "ios")]
         unsafe {
-            extern "C" {
-                fn alook_finish_startup_overlay(
-                    controller: *mut std::ffi::c_void,
-                    webview: *mut std::ffi::c_void,
-                ) -> bool;
-            }
+            use objc2::{msg_send, runtime::AnyObject, sel};
+
             let _ = ready_window;
-            if !alook_finish_startup_overlay(platform.view_controller(), platform.inner()) {
+            let controller = platform.view_controller().cast::<AnyObject>();
+            let webview = platform.inner().cast::<AnyObject>();
+            let completed = if controller.is_null() || webview.is_null() {
+                false
+            } else if let Some(class) = apple_class_method(
+                c"UIViewController",
+                sel!(alook_finishStartupOverlayForController:webView:),
+            ) {
+                msg_send![class, alook_finishStartupOverlayForController: controller, webView: webview]
+            } else {
+                false
+            };
+            if !completed {
                 eprintln!("native WebView startup handoff unavailable");
                 show_native_creation_error();
             }
@@ -237,13 +245,25 @@ pub fn finish_native_creation(window: &tauri::WebviewWindow) {
     }
 }
 
+#[cfg(any(target_os = "ios", all(test, target_os = "macos")))]
+fn apple_class_method(
+    name: &std::ffi::CStr,
+    selector: objc2::runtime::Sel,
+) -> Option<&'static objc2::runtime::AnyClass> {
+    objc2::runtime::AnyClass::get(name).filter(|class| class.metaclass().responds_to(selector))
+}
+
 #[cfg(target_os = "ios")]
 fn show_native_creation_error() {
-    unsafe {
-        extern "C" {
-            fn alook_show_startup_initialization_error();
-        }
-        alook_show_startup_initialization_error();
+    use objc2::{msg_send, sel};
+
+    if let Some(class) = apple_class_method(
+        c"UIViewController",
+        sel!(alook_showStartupInitializationError),
+    ) {
+        let _: () = unsafe { msg_send![class, alook_showStartupInitializationError] };
+    } else {
+        eprintln!("native WebView initialization error bridge unavailable");
     }
 }
 
@@ -841,6 +861,31 @@ mod tests {
     use std::{fs, path::PathBuf};
 
     use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn apple_class_method_finds_registered_class_selector() {
+        assert!(apple_class_method(c"NSString", objc2::sel!(string)).is_some());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn apple_class_method_rejects_missing_class_and_selector() {
+        assert!(
+            apple_class_method(c"AlookMissingStartupBridgeClass", objc2::sel!(string)).is_none()
+        );
+        assert!(
+            apple_class_method(c"NSString", objc2::sel!(alookMissingStartupSelector)).is_none()
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn apple_class_method_rejects_instance_only_selector() {
+        let class = objc2::runtime::AnyClass::get(c"NSString").unwrap();
+        assert!(class.responds_to(objc2::sel!(length)));
+        assert!(apple_class_method(c"NSString", objc2::sel!(length)).is_none());
+    }
 
     fn assert_order(source: &str, parts: &[&str]) {
         let mut offset = 0;

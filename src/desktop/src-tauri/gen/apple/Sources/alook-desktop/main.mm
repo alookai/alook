@@ -156,29 +156,6 @@ static void alookFinishStartupOverlay(UIViewController *viewController) {
     );
 }
 
-extern "C" bool alook_finish_startup_overlay(void *controllerPointer, void *webviewPointer) {
-    if (![NSThread isMainThread] || gAlookStartupFailed) return false;
-    UIViewController *controller = (__bridge UIViewController *)controllerPointer;
-    WKWebView *webView = (__bridge WKWebView *)webviewPointer;
-    if (!alookIsTauriRootController(controller) ||
-        ![controller.view.subviews containsObject:webView]) return false;
-    if ([objc_getAssociatedObject(controller, kAlookStartupCompletedKey) boolValue]) return true;
-    alookPrepareStartupOverlay(controller);
-    if (objc_getAssociatedObject(controller, kAlookStartupOverlayKey) == nil) return false;
-    alookFinishStartupOverlay(controller);
-    return true;
-}
-
-extern "C" void alook_show_startup_initialization_error(void) {
-    if (![NSThread isMainThread] || gAlookStartupCompleted) return;
-    gAlookStartupFailed = YES;
-    UIView *host = gAlookStartupOverlay.superview;
-    if (host != nil) {
-        BOOL isDark = host.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
-        alookAttachStartupOverlay(gAlookStartupOverlay, host, isDark);
-    }
-}
-
 static NSString *const kThemeObserverScript =
     @"(function(){"
     "if(window.__alookThemeObserverInstalled)return;"
@@ -219,6 +196,28 @@ static NSString *const kThemeObserverScript =
 @end
 
 @implementation UIViewController (AlookSafeArea)
+
++ (BOOL)alook_finishStartupOverlayForController:(UIViewController *)controller
+                                      webView:(WKWebView *)webView {
+    if (![NSThread isMainThread] || gAlookStartupFailed) return NO;
+    if (!alookIsTauriRootController(controller) ||
+        ![controller.view.subviews containsObject:webView]) return NO;
+    if ([objc_getAssociatedObject(controller, kAlookStartupCompletedKey) boolValue]) return YES;
+    alookPrepareStartupOverlay(controller);
+    if (objc_getAssociatedObject(controller, kAlookStartupOverlayKey) == nil) return NO;
+    alookFinishStartupOverlay(controller);
+    return YES;
+}
+
++ (void)alook_showStartupInitializationError {
+    if (![NSThread isMainThread] || gAlookStartupCompleted) return;
+    gAlookStartupFailed = YES;
+    UIView *host = gAlookStartupOverlay.superview;
+    if (host != nil) {
+        BOOL isDark = host.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
+        alookAttachStartupOverlay(gAlookStartupOverlay, host, isDark);
+    }
+}
 
 + (void)load {
     static dispatch_once_t onceToken;
