@@ -173,11 +173,25 @@ test.describe("mobile notification chat routes (native bridge simulation)", () =
       await expect(unavailableAlert).toBeVisible()
       await expect(unavailableAlert).toHaveText("This conversation is unavailable.")
       await page.getByRole("button", { name: "Open Inbox", exact: true }).click()
+      await expect(page).toHaveURL(`${WEB_URL}/c/me`)
+      await expect(page.getByTestId(tid.inboxTrigger)).toBeVisible()
       await expect(page.getByTestId(tid.inboxTrigger)).toHaveAttribute("aria-expanded", "true")
+      const inbox = page.getByTestId(tid.userBarExtension)
+      await expect(inbox).toHaveCount(1)
+      await expect(inbox).toBeVisible()
+      await expect(inbox.locator("xpath=ancestor::*[@inert or @aria-hidden='true']")).toHaveCount(0)
       await expect.poll(() => page.evaluate(() => (
         window as typeof window & { __mobileNotificationQa: Bridge }
       ).__mobileNotificationQa.dismissed)).toEqual([activation.notificationId])
-      await testInfo.attach("fallback-evidence", { body: JSON.stringify({ kind, status, url: page.url() }), contentType: "application/json" })
+      const inboxHref = page.url()
+      await page.getByRole("link", { name: /^Friends(?:, \d+ new requests)?$/ }).click()
+      await expect(page).toHaveURL(`${WEB_URL}/c/me/friends`)
+      await expect(page.getByTestId(tid.inboxTrigger)).toHaveAttribute("aria-expanded", "false")
+      await expect(page.getByTestId(tid.userBarExtension)).toHaveCount(0)
+      await expect.poll(() => page.evaluate(() => (
+        window as typeof window & { __mobileNotificationQa: Bridge }
+      ).__mobileNotificationQa.dismissed)).toEqual([activation.notificationId])
+      await testInfo.attach("fallback-evidence", { body: JSON.stringify({ kind, status, inboxHref, url: page.url() }), contentType: "application/json" })
     })
   }
 

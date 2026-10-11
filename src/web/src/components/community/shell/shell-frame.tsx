@@ -184,7 +184,36 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     inbox.onOpenChange(true)
     dispatchUserBarExtension({ type: "extension.open", extension: "inbox" })
   }, [daemonUpdate, dispatchUserBarExtension, inbox, profile, userBarExtension.active])
-  const openInbox = useCallback(() => onUserBarInboxOpenChange(true), [onUserBarInboxOpenChange])
+  const [inboxOpenRequest, setInboxOpenRequest] = useAtom(useCreateAtom<{
+    viewerId: string
+    isCurrent: () => boolean
+  } | null>(null))
+  const openInbox = useCallback(() => {
+    setInboxOpenRequest(null)
+    if (breakpoint !== "mobile" || (committedFrame.surface !== "detail" && checkpoint.surface !== "detail")) {
+      onUserBarInboxOpenChange(true)
+      return
+    }
+    const request = {
+      viewerId: currentUser.id,
+      isCurrent: navigation.captureIntent({ nextCommitHref: "/c/me" }),
+    }
+    navigation.push("/c/me")
+    setInboxOpenRequest(request)
+  }, [breakpoint, checkpoint.surface, committedFrame.surface, currentUser.id, navigation, onUserBarInboxOpenChange, setInboxOpenRequest])
+  useEffect(() => {
+    if (!inboxOpenRequest) return
+    if (inboxOpenRequest.viewerId !== currentUser.id || !inboxOpenRequest.isCurrent()) {
+      setInboxOpenRequest(null)
+      return
+    }
+    if (navigation.navigationPending || navigation.pendingHref !== null
+      || navigation.publishedHref !== "/c/me" || committedFrame.href !== "/c/me"
+      || checkpoint.surface !== "list") return
+    setInboxOpenRequest(null)
+    onUserBarInboxOpenChange(true)
+  }, [checkpoint.surface, committedFrame.href, currentUser.id, inboxOpenRequest, navigation.navigationPending,
+    navigation.pendingHref, navigation.publishedHref, onUserBarInboxOpenChange, setInboxOpenRequest])
   useNativeSystemNotifications(currentUser.id, committedFrame, navigation, notificationConsumer)
   const onUserBarOpenProfile = useCallback<ReturnType<typeof useShellProfileController>["openProfile"]>((
     name,
