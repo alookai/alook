@@ -15,6 +15,7 @@ import { retryConversationRead, withConversationReadDeadline } from "@/lib/commu
 import { systemNotificationHref } from "@/lib/community/system-notification-route"
 import { communityKeys } from "@/lib/query-keys"
 import { ApiError } from "@/lib/errors"
+import { tid } from "@/lib/community/testids"
 
 const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/
 
@@ -70,7 +71,7 @@ export function MessageRoute({ messageId }: { messageId: string }) {
   if (!active || !query.isError) return <CommunityPendingFrame href={href} />
   const unavailable = query.error instanceof ApiError && [403, 404].includes(query.error.status)
   return <main className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6">
-    <p role="alert" className="text-sm text-muted-foreground">{unavailable ? "This conversation is unavailable." : "Could not open this conversation."}</p>
+    <p role="alert" data-testid={tid.messageRouteAlert(messageId)} className="text-sm text-muted-foreground">{unavailable ? "This conversation is unavailable." : "Could not open this conversation."}</p>
     <div className="flex gap-2">
       {!unavailable && <Button variant="outline" onClick={() => void query.refetch()}>Retry</Button>}
       <Button onClick={openInbox}>Open Inbox</Button>

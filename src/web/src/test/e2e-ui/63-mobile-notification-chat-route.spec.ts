@@ -168,7 +168,10 @@ test.describe("mobile notification chat routes (native bridge simulation)", () =
       const { status } = await door.result
       expect([403, 404]).toContain(status)
       await expect(page).toHaveURL(`${WEB_URL}/c/messages/${messageId}`)
-      await expect(page.getByRole("alert")).toHaveText("This conversation is unavailable.")
+      const unavailableAlert = page.getByTestId(tid.messageRouteAlert(messageId))
+      await expect(unavailableAlert).toHaveCount(1)
+      await expect(unavailableAlert).toBeVisible()
+      await expect(unavailableAlert).toHaveText("This conversation is unavailable.")
       await page.getByRole("button", { name: "Open Inbox", exact: true }).click()
       await expect(page.getByTestId(tid.inboxTrigger)).toHaveAttribute("aria-expanded", "true")
       await expect.poll(() => page.evaluate(() => (

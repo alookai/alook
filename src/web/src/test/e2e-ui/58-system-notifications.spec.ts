@@ -180,19 +180,34 @@ test.describe.serial("desktop system notifications", () => {
     await gotoAfterUserWsAuth(bob.page, "/c/me/friends")
     let release!: () => void
     const pending = new Promise<void>((resolve) => { release = resolve })
-    await bob.page.route(`**/api/community/channels/${channelId}`, async route => { await pending; await route.continue() })
-    await bob.page.evaluate(value => {
-      const state = (window as typeof window & {__desktopNotificationTest:{listener?:{onmessage?:(value:unknown)=>void}}}).__desktopNotificationTest
-      const core = (window as typeof window & {__TAURI__:{core:{invoke:(command:string,args?:Record<string,unknown>)=>Promise<unknown>}}}).__TAURI__.core
-      const original = core.invoke
-      let activation: unknown = value
-      core.invoke = async (command,args) => command === "desktop_system_notification_take_activation"
-        ? (()=>{const next=activation;activation=null;return next})() : original(command,args)
-      state.listener?.onmessage?.(undefined)
-    }, {notificationId:"4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f720",target:{kind:"server",serverId,channelId,messageId,seq:1}})
+    let permissionHeld = false
+    await bob.page.route(`**/api/community/channels/${channelId}`, async route => {
+      permissionHeld = true
+      await pending
+      permissionHeld = false
+      await route.continue()
+    })
+    const targetHref = `/c/channels/${serverId}/${channelId}`
+    const targetLoading = bob.page.locator(`[data-community-target-href="${targetHref}"] main[data-testid="${tid.conversationResolutionPending}"]`)
     try {
+      await bob.page.evaluate(value => {
+        const state = (window as typeof window & {__desktopNotificationTest:{listener?:{onmessage?:(value:unknown)=>void}}}).__desktopNotificationTest
+        const core = (window as typeof window & {__TAURI__:{core:{invoke:(command:string,args?:Record<string,unknown>)=>Promise<unknown>}}}).__TAURI__.core
+        const original = core.invoke
+        let activation: unknown = value
+        core.invoke = async (command,args) => command === "desktop_system_notification_take_activation"
+          ? (()=>{const next=activation;activation=null;return next})() : original(command,args)
+        state.listener?.onmessage?.(undefined)
+      }, {notificationId:"4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f720",target:{kind:"server",serverId,channelId,messageId,seq:1}})
+      await expect.poll(() => permissionHeld).toBe(true)
+      await expect(targetLoading).toHaveCount(1)
+      await expect(targetLoading).toBeVisible()
+      await expect(targetLoading).toHaveAttribute("aria-busy", "true")
       await expect(bob.page).toHaveURL(new RegExp(`/c/channels/${serverId}/${channelId}`))
-      await expect(bob.page.locator('[data-community-main-kind="server-conversation"]')).toBeVisible()
+      await expect(targetLoading).toHaveCount(1)
+      await expect(targetLoading).toBeVisible()
+      await expect(targetLoading).toHaveAttribute("aria-busy", "true")
+      expect(permissionHeld).toBe(true)
       expect(await retriedNotifications(bob.page)).toEqual([])
     } finally { release() }
     await expect(bob.page.getByTestId(tid.message(messageId))).toBeVisible({timeout:30_000})

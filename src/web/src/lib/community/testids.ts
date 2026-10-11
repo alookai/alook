@@ -17,6 +17,8 @@ export const tid = {
   initialRailPending: "community-initial-rail-pending",
   initialUserBarPending: "community-initial-user-bar-pending",
   pendingMain: (kind: string) => `community-pending-main-${kind}`,
+  conversationResolutionPending: "community-conversation-resolution-pending",
+  messageRouteAlert: (messageId: string) => `community-message-route-alert-${messageId}`,
   serverAdd: "community-server-add",
   serverRailScroll: "community-server-rail-scroll",
   serverRailFolder: (id: string) => `community-server-folder-${id}`,
