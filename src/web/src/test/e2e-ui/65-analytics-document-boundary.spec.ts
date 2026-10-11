@@ -60,15 +60,20 @@ test("a saved withdrawal replaces the public document once with the actual denie
   page.on("request", request => {
     if (request.isNavigationRequest() && request.frame() === page.mainFrame() && request.resourceType() === "document") documents.push(request.url())
   })
+  const consentResponse = page.waitForResponse(response => new URL(response.url()).pathname === "/api/privacy/analytics-consent" && response.request().method() === "POST")
+    .then(async response => ({
+      status: response.status(),
+      body: await response.json(),
+    }))
   const [response, documentRequest] = await Promise.all([
-    page.waitForResponse(response => new URL(response.url()).pathname === "/api/privacy/analytics-consent" && response.request().method() === "POST"),
+    consentResponse,
     page.waitForRequest(request => request.isNavigationRequest() && request.resourceType() === "document" && request.frame() === page.mainFrame()),
     page.waitForEvent("framenavigated", { predicate: frame => frame === page.mainFrame() }),
     control.getByTestId(tid.analyticsConsentNecessary).click(),
   ])
   await page.waitForLoadState("domcontentloaded")
-  expect(response.status()).toBe(200)
-  expect(await response.json()).toMatchObject({ decision: "denied" })
+  expect(response.status).toBe(200)
+  expect(response.body).toMatchObject({ decision: "denied" })
   await expect(control).toContainText("Analytics cookies denied")
   expect((await page.context().cookies()).find(cookie => cookie.name === "alook_analytics_consent")?.value).toBe("v1.denied")
   expect(await page.evaluate(() => performance.timeOrigin)).not.toBe(before.timeOrigin)
