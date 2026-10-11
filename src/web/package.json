@@ -61,6 +61,7 @@
     "@opennextjs/cloudflare": "^1.20.6",
     "@openrouter/sdk": "1.4.18",
     "@opentelemetry/api": "1.9.0",
+    "@opentelemetry/sdk-trace-web": "2.11.0",
     "@shikijs/core": "4.5.0",
     "@shikijs/engine-oniguruma": "4.5.0",
     "@shikijs/langs": "4.5.0",
