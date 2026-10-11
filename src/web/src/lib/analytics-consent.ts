@@ -52,7 +52,7 @@ function refreshDocumentConsent(
   if (changed || wasLocked !== state.startupLocked) announceAnalyticsConsent(next ?? "denied")
   if (replace && state.startupLocked && state.pendingSaves === 0 && !state.replacementRequested) {
     state.replacementRequested = true
-    state.browser.location.replace(state.browser.location.href)
+    state.browser.location.reload()
   }
   return next
 }

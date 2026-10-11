@@ -27,6 +27,7 @@ import { tid } from "@/lib/community/testids"
 
 const browserWindow = window
 let stopBootstrap = () => {}
+let reloadDocument = vi.fn()
 let replaceDocument = vi.fn()
 
 function bootstrap() {
@@ -103,9 +104,11 @@ beforeEach(() => {
   clearCookies()
   platform.isTauri.mockReset().mockReturnValue(false)
   platform.isMobile.mockReset().mockReturnValue(false)
+  reloadDocument = vi.fn()
   replaceDocument = vi.fn()
   const location = new Proxy({}, {
     get: (_target, key) => {
+      if (key === "reload") return reloadDocument
       if (key === "replace") return replaceDocument
       const value = Reflect.get(browserWindow.location, key, browserWindow.location)
       return typeof value === "function" ? value.bind(browserWindow.location) : value
@@ -238,7 +241,7 @@ describe("AnalyticsConsent", () => {
         body: JSON.stringify({ decision: "granted" }),
       }),
     )
-    expect(replaceDocument).not.toHaveBeenCalled()
+    expect(reloadDocument).not.toHaveBeenCalled()
     expect(isOptionalAnalyticsStartupLocked()).toBe(false)
   })
 
@@ -471,24 +474,28 @@ describe("AnalyticsConsent", () => {
         document.cookie = "alook_analytics_consent=v1.denied; Path=/"
         fireEvent(window, new Event("focus"))
         expect(isOptionalAnalyticsStartupLocked()).toBe(true)
-        expect(replaceDocument).not.toHaveBeenCalled()
+        expect(reloadDocument).not.toHaveBeenCalled()
       }
       return window.dataLayer!.length
     })
     render(<AnalyticsConsent />)
     fireEvent.click(await screen.findByTestId(tid.analyticsConsentAllow))
-    await waitFor(() => expect(replaceDocument).toHaveBeenCalledOnce())
+    await waitFor(() => expect(reloadDocument).toHaveBeenCalledOnce())
     expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
     expect(Reflect.has(window, "hj")).toBe(false)
     pushed.mockRestore()
   })
 
-  it("confirms withdrawal before one replacement and sends only an invalidation hint", async () => {
+  it.each(["/privacy#analytics-choices", "/privacy?qa=consent#analytics-choices"])("confirms withdrawal before one reload and retains %s", async pathname => {
+    route.pathname = "/privacy"
+    window.history.replaceState({}, "", pathname)
+    const href = window.location.href
+    const historyLength = window.history.length
     document.cookie = "alook_analytics_consent=v1.granted; Path=/"
     const channels = installBroadcast()
     const channel = channels.instances[0]
     vi.stubGlobal("fetch", successfulFetch("denied"))
-    replaceDocument.mockImplementation(() => {
+    reloadDocument.mockImplementation(() => {
       expect(isOptionalAnalyticsStartupLocked()).toBe(true)
       expect(consentCommands().at(-1)).toEqual(["consent", "update", expect.objectContaining({ analytics_storage: "denied" })])
       expect(channel.postMessage).toHaveBeenCalledWith({ kind: "analytics-consent-invalidated" })
@@ -496,12 +503,15 @@ describe("AnalyticsConsent", () => {
     render(<><AnalyticsConsent /><AnalyticsPreferenceControl /></>)
     await screen.findByTestId(tid.ahrefsAnalyticsFrame)
     fireEvent.click(within(screen.getByTestId(tid.analyticsPreferenceControl)).getByTestId(tid.analyticsConsentNecessary))
-    await waitFor(() => expect(replaceDocument).toHaveBeenCalledExactlyOnceWith(window.location.href))
+    await waitFor(() => expect(reloadDocument).toHaveBeenCalledExactlyOnceWith())
+    expect(replaceDocument).not.toHaveBeenCalled()
+    expect(window.location.href).toBe(href)
+    expect(window.history.length).toBe(historyLength)
     expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
     channel.receive({ kind: "analytics-consent-invalidated", decision: "granted" })
     fireEvent(window, new Event("focus"))
     transition("pageshow", false)
-    expect(replaceDocument).toHaveBeenCalledOnce()
+    expect(reloadDocument).toHaveBeenCalledOnce()
     expect(channel.postMessage.mock.calls).toEqual([[{ kind: "analytics-consent-invalidated" }]])
   })
 
@@ -522,14 +532,14 @@ describe("AnalyticsConsent", () => {
     await waitFor(() => expect(screen.getByTestId(tid.analyticsPreferenceControl)).toHaveTextContent("Analytics cookies denied"))
     expect(isOptionalAnalyticsStartupLocked()).toBe(true)
     expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
-    expect(replaceDocument).not.toHaveBeenCalled()
+    expect(reloadDocument).not.toHaveBeenCalled()
     await act(async () => finish({ decision: "denied" }))
     if (confirmed) {
-      expect(replaceDocument).toHaveBeenCalledOnce()
+      expect(reloadDocument).toHaveBeenCalledOnce()
       expect(channels.instances[0].postMessage).toHaveBeenCalledOnce()
     } else {
       expect(await screen.findByRole("alert")).toHaveTextContent("Couldn’t save this choice")
-      expect(replaceDocument).not.toHaveBeenCalled()
+      expect(reloadDocument).not.toHaveBeenCalled()
       expect(channels.instances[0].postMessage).not.toHaveBeenCalled()
     }
   })
@@ -544,7 +554,7 @@ describe("AnalyticsConsent", () => {
     fireEvent.click(within(control).getByTestId(tid.analyticsConsentNecessary))
     expect(await within(control).findByRole("alert")).toHaveTextContent("Couldn’t save this choice")
     expect(control).toHaveTextContent("Analytics cookies allowed")
-    expect(replaceDocument).not.toHaveBeenCalled()
+    expect(reloadDocument).not.toHaveBeenCalled()
     expect(channels.instances[0].postMessage).not.toHaveBeenCalled()
   })
 
@@ -561,7 +571,7 @@ describe("AnalyticsConsent", () => {
     expect(screen.getByTestId(tid.analyticsConsentBanner)).toBeVisible()
     expect(screen.getByTestId(tid.ahrefsAnalyticsFrame)).toBeInTheDocument()
     expect(channels.instances[0].postMessage).not.toHaveBeenCalled()
-    expect(replaceDocument).not.toHaveBeenCalled()
+    expect(reloadDocument).not.toHaveBeenCalled()
   })
 
   it("rereads a broadcast hint without trusting its value or echoing it", async () => {
@@ -576,10 +586,10 @@ describe("AnalyticsConsent", () => {
     expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
     channel.receive({ kind: "analytics-consent-invalidated", decision: "denied" })
     await screen.findByTestId(tid.ahrefsAnalyticsFrame)
-    expect(replaceDocument).not.toHaveBeenCalled()
+    expect(reloadDocument).not.toHaveBeenCalled()
     document.cookie = "alook_analytics_consent=v1.denied; Path=/"
     channel.receive({ kind: "analytics-consent-invalidated", decision: "granted" })
-    expect(replaceDocument).toHaveBeenCalledOnce()
+    expect(reloadDocument).toHaveBeenCalledOnce()
     expect(channel.postMessage).not.toHaveBeenCalled()
     view.unmount()
     stopBootstrap()
@@ -596,14 +606,14 @@ describe("AnalyticsConsent", () => {
     await screen.findByTestId(granted ? tid.ahrefsAnalyticsFrame : tid.analyticsConsentBanner)
     transition("pagehide", true)
     expect(channels.instances[0].close).toHaveBeenCalledOnce()
-    expect(replaceDocument).not.toHaveBeenCalled()
+    expect(reloadDocument).not.toHaveBeenCalled()
     transition("pageshow", true)
     expect(channels.instances).toHaveLength(2)
     expect(isOptionalAnalyticsStartupLocked()).toBe(granted)
-    expect(replaceDocument).toHaveBeenCalledTimes(granted ? 1 : 0)
+    expect(reloadDocument).toHaveBeenCalledTimes(granted ? 1 : 0)
     expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
     transition("pageshow", true)
-    expect(replaceDocument).toHaveBeenCalledTimes(granted ? 1 : 0)
+    expect(reloadDocument).toHaveBeenCalledTimes(granted ? 1 : 0)
     transition("pagehide", false)
     expect(channels.instances[1].close).toHaveBeenCalledOnce()
   })
@@ -617,7 +627,7 @@ describe("AnalyticsConsent", () => {
     fireEvent.click(await screen.findByTestId(tid.analyticsConsentAllow))
     await screen.findByTestId("google-tag-manager")
     expect(channels.instances).toHaveLength(0)
-    expect(replaceDocument).not.toHaveBeenCalled()
+    expect(reloadDocument).not.toHaveBeenCalled()
     expect(consentCommands().at(-1)).toEqual(["consent", "default", expect.objectContaining({ analytics_storage: "granted" })])
   })
 
