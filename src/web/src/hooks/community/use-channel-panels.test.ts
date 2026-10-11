@@ -20,6 +20,22 @@ beforeEach(async () => {
 const project = (data: ThreadsResponse) => materializeThreadsResponse(data, new Map(getCanonicalCommunityMessages(qc).map((row) => [row.id, row])), new Map(getCanonicalCommunityChannels(qc).map((row) => [row.id, row])))
 
 describe("useThreads / threadsQueryFn", () => {
+  it("carries batch participant numbers into canonical profiles without a DM read or erasing them on a legacy read", async () => {
+    const { threadsQueryFn } = await import("./use-channel-panels")
+    for (const discriminator of ["123456", undefined]) {
+      apiFetchMock.mockReset()
+      apiFetchMock
+        .mockResolvedValueOnce({ serverId: "s1", parentType: "forum", threads: [{ id: "t_1", name: "thread", type: "thread", creatorId: "u1", parentMessageId: "m1", messageCount: 1, lastMessageAt: null, createdAt: "now" }] })
+        .mockResolvedValueOnce({ messages: [{ id: "m1", channelId: "ch_1", content: "root", seq: 1, authorId: "u1", authorName: "Alice", authorImage: null }], firstMessages: [] })
+        .mockResolvedValueOnce({ tags: [] })
+        .mockResolvedValueOnce({ participants: [{ channelId: "t_1", userId: "u1", userName: "Alice", userImage: null, userAvatarVersion: 0, ...(discriminator === undefined ? {} : { discriminator }) }] })
+      await threadsQueryFn("ch_1", qc)()
+      expect(getCommunityDbRegistry(qc)!.collections.profiles.get("u1")).toMatchObject({ name: "Alice", discriminator: "123456" })
+      expect(apiFetchMock).toHaveBeenCalledTimes(4)
+      expect(apiFetchMock.mock.calls.some(([url]) => String(url).includes("/dm"))).toBe(false)
+    }
+  })
+
   it("fetches from /channels/:id/threads and returns { threads }", async () => {
     apiFetchMock
       .mockResolvedValueOnce({ serverId: "s1", parentType: "forum", threads: [{ id: "t_1", name: "t", type: "thread", creatorId: "u1", parentMessageId: "m1", messageCount: 1, lastMessageAt: null, createdAt: "now" }] })

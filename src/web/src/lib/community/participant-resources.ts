@@ -1,9 +1,9 @@
 import type { CommunityMemberRelation, CommunityResourceProfile, CommunityThreadsRead } from "@alook/shared"
 
 export function resourceProfile(
-  fields: Pick<CommunityResourceProfile, "id" | "name" | "avatar" | "avatarVersion"> & Partial<CommunityResourceProfile>,
+  fields: Pick<CommunityResourceProfile, "id" | "name" | "discriminator" | "avatar" | "avatarVersion"> & Partial<CommunityResourceProfile>,
 ): CommunityResourceProfile {
-  return { discriminator: null, statusEmoji: null, statusText: "", ...fields }
+  return { statusEmoji: null, statusText: "", ...fields }
 }
 
 type Participant = Pick<CommunityMemberRelation, "channelId" | "userId" | "isCreator"> & {

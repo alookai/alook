@@ -16,7 +16,7 @@ const row = (id: string, channelId: string) => ({ id, channelId, seq: 4, authorI
   content: id, type: "default", mentionType: null, replyToId: null as string | null, embeds: [], createdAt: "2026-10-07T12:00:00Z", clientNonce: "client-nonce" })
 type Included = NonNullable<Parameters<typeof writeCommunityThreadsRead>[4]>
 const included = (): Included => ({ messages: [row("opener", "forum"), { ...row("reply", "thread"), replyToId: "previous" }], tags: [{ messageId: "opener", tag: "bug" }],
-  participants: [{ channelId: "thread", userId: "viewer", userName: "Viewer", userImage: null, userAvatarVersion: 0, participantCount: 8 }] })
+  participants: [{ channelId: "thread", userId: "viewer", userName: "Viewer", discriminator: "123456", userImage: null, userAvatarVersion: 0, participantCount: 8 }] })
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -35,7 +35,7 @@ describe("complete thread read resource", () => {
     const body = CommunityThreadsReadSchema.parse(await response.json())
     expect(body).toMatchObject({ contractVersion: 2, channelId: "forum", channel: { id: "forum" }, threads: [{ id: "thread", parentChannelId: "forum" }],
       included: { tags: [{ messageId: "opener", tag: "bug" }], members: [{ channelId: "thread", userId: "viewer", relation: "notify", isCreator: true }],
-        profiles: [{ id: "viewer", name: "Viewer", avatarVersion: 0 }], participantCounts: [{ channelId: "thread", count: 8 }] }, page: { hasMore: true, nextCursor: "next" } })
+        profiles: [{ id: "viewer", name: "Viewer", discriminator: "123456", avatar: null, avatarVersion: 0 }], participantCounts: [{ channelId: "thread", count: 8 }] }, page: { hasMore: true, nextCursor: "next" } })
     expect(body.included.messages.find((message) => message.id === "reply")).toMatchObject({ channelId: "thread", seq: 4, clientNonce: "client-nonce", replyToId: "previous", type: "chat",
       replyTo: { id: "previous", text: "same-channel reply", authorId: "viewer" }, attachments: [{ kind: "file", name: "note.txt", sizeBytes: 42 }], reactions: [{ emoji: "👍", me: true, count: 1, userIds: ["viewer"] }] })
     expect(JSON.stringify(body)).not.toContain("foreign private body")
@@ -70,7 +70,7 @@ describe("complete thread read resource", () => {
   })
 
   it("deduplicates profiles while preserving the scoped participant counts", async () => {
-    const participant = { channelId: "thread", userId: "viewer", userName: null, userImage: null, userAvatarVersion: 0, participantCount: 2 }
+    const participant = { channelId: "thread", userId: "viewer", userName: null, discriminator: "123456", userImage: null, userAvatarVersion: 0, participantCount: 2 }
     const otherChild = { ...child, id: "other-thread", creatorId: "other" }
     const participants = [participant, { ...participant, userId: "other" }, { ...participant, channelId: "other-thread", participantCount: 1 }]
     const response = await writeCommunityThreadsRead(db, "viewer", parent, [child, otherChild], { messages: [], tags: [], participants })

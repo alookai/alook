@@ -2240,10 +2240,10 @@ describe("community DB sync", () => {
       }],
     })
     ingestAttentionSnapshot(db, { scopes: [], items: [
-      { id: "scope-item", kind: "mention", sourceId: "source-1", scopeId: "c1", createdAt: "now" },
-      { id: "child-item", kind: "forum_post", sourceId: "source-2", childChannelId: "c1", createdAt: "now" },
-      { id: "target-item", kind: "reply", sourceId: "source-3", readTarget: { channelId: "c1", seq: 1 }, createdAt: "now" },
-      { id: "dm-item", kind: "mention", sourceId: "source-4", scopeId: "dm1", createdAt: "now" },
+      { id: "scope-item", kind: "mention", sourceId: "source-1", scopeId: "c1", messageId: "message-1", actorUserId: "peer", createdAt: "now" },
+      { id: "child-item", kind: "forum_post", sourceId: "c1", scopeId: "forum", messageId: "opener-2", childChannelId: "c1", openerSeq: 2, readTarget: { channelId: "forum", seq: 2 }, createdAt: "now" },
+      { id: "target-item", kind: "forum_post", sourceId: "other-child", scopeId: "other-forum", messageId: "opener-3", childChannelId: "other-child", openerSeq: 3, readTarget: { channelId: "c1", seq: 3 }, createdAt: "now" },
+      { id: "dm-item", kind: "mention", sourceId: "source-4", scopeId: "dm1", messageId: "message-4", actorUserId: "peer", createdAt: "now" },
     ], limit: 100, truncated: false })
     purgeCommunityServer(db, "s1")
     expect(db.collections.servers.get("s1")).toBeUndefined()

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { PARTICIPANT_SOURCE } from "@alook/shared/constants/community"
+import { AttentionScopeSchema, AttentionItemSchema } from "@alook/shared"
 import {
   channelMembershipKey,
   channelMembershipSchema,
@@ -12,6 +13,29 @@ import {
 } from "./schema"
 
 describe("community DB schemas", () => {
+  it("uses shared attention schemas and rejects their invalid relationships on cache input", () => {
+    expect(communityCollectionSchemas.attentionScopes).toBe(AttentionScopeSchema)
+    expect(communityCollectionSchemas.attentionItems).toBe(AttentionItemSchema)
+    const valid = { id: "attention", kind: "forum_post", sourceId: "child", scopeId: "forum", messageId: "opener", childChannelId: "child", openerSeq: 9, readTarget: { channelId: "forum", seq: 9 }, createdAt: "2026-10-11T01:00:00Z" }
+    expect(communityCollectionSchemas.attentionItems.parse(valid)).toEqual(valid)
+    for (const invalid of [
+      { ...valid, sourceId: "other-child" },
+      { ...valid, readTarget: { channelId: "forum", seq: 8 } },
+      { ...valid, actorUserId: "actor" },
+      { ...valid, kind: "mention" },
+      { ...valid, kind: "reply", scopeId: null },
+      { ...valid, kind: "friend_request", actorUserId: "actor" },
+    ]) expect(communityCollectionSchemas.attentionItems.safeParse(invalid).success).toBe(false)
+    for (const kind of ["mention", "reply"]) {
+      const message = { id: "attention", kind, sourceId: "source", scopeId: "channel", messageId: "message", actorUserId: "actor", createdAt: valid.createdAt }
+      expect(communityCollectionSchemas.attentionItems.parse(message)).toEqual(message)
+      expect(communityCollectionSchemas.attentionItems.safeParse({ ...message, actorUserId: null }).success).toBe(false)
+    }
+    const friend = { id: "attention", kind: "friend_request", sourceId: "request", actorUserId: "actor", createdAt: valid.createdAt }
+    expect(communityCollectionSchemas.attentionItems.parse(friend)).toEqual(friend)
+    expect(communityCollectionSchemas.attentionItems.safeParse({ ...friend, scopeId: "channel" }).success).toBe(false)
+  })
+
   it("defines the canonical collection families, including independent attention state", () => {
     expect(Object.keys(communityCollectionSchemas)).toEqual([
       "servers",

@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { CommunityChannelResourceSchema, CommunityMessageResourceSchema, CommunityReadStateResourceSchema, CommunityMemberRelationSchema, CommunityResourceProfileSchema } from "@alook/shared"
+import { AttentionScopeSchema, AttentionItemSchema, CommunityChannelResourceSchema, CommunityMessageResourceSchema, CommunityReadStateResourceSchema, CommunityMemberRelationSchema, CommunityResourceProfileSchema } from "@alook/shared"
 import { PARTICIPANT_SOURCE } from "@alook/shared/constants/community"
 
 const nullableString = z.string().nullable()
@@ -119,33 +119,6 @@ export const readStateClockSchema = z.object({
   revision: z.number().int().nonnegative(),
 })
 
-export const attentionScopeSchema = z.strictObject({
-  scopeId: z.string().min(1),
-  channelId: z.string().min(1),
-  serverId: optionalNullableString,
-  parentChannelId: optionalNullableString,
-  ordinaryUnread: z.boolean(),
-  lastUnreadSeq: z.number().int().nonnegative(),
-  lastAttentionSeq: z.number().int().nonnegative().nullable().optional(),
-  attentionCount: z.number().int().nonnegative(),
-})
-
-export const attentionItemSchema = z.strictObject({
-  id: z.string().min(1),
-  kind: z.enum(["mention", "reply", "friend_request", "forum_post"]),
-  sourceId: z.string().min(1),
-  scopeId: optionalNullableString,
-  messageId: optionalNullableString,
-  actorUserId: optionalNullableString,
-  createdAt: z.string(),
-  childChannelId: z.string().min(1).optional(),
-  openerSeq: z.number().int().nonnegative().optional(),
-  readTarget: z.strictObject({
-    channelId: z.string().min(1),
-    seq: z.number().int().nonnegative(),
-  }).optional(),
-})
-
 export const folderSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
@@ -184,8 +157,8 @@ export const communityCollectionSchemas = {
   friendships: friendshipSchema,
   readStates: readStateSchema,
   readStateClock: readStateClockSchema,
-  attentionScopes: attentionScopeSchema,
-  attentionItems: attentionItemSchema,
+  attentionScopes: AttentionScopeSchema,
+  attentionItems: AttentionItemSchema,
   folders: folderSchema,
   folderItems: folderItemSchema,
   notificationSettings: notificationSettingSchema,
@@ -203,8 +176,8 @@ export type MessageRow = z.infer<typeof messageSchema>
 export type FriendshipRow = z.infer<typeof friendshipSchema>
 export type ReadStateRow = z.infer<typeof readStateSchema>
 export type ReadStateClockRow = z.infer<typeof readStateClockSchema>
-export type AttentionScopeRow = z.infer<typeof attentionScopeSchema>
-export type AttentionItemRow = z.infer<typeof attentionItemSchema>
+export type AttentionScopeRow = z.infer<typeof AttentionScopeSchema>
+export type AttentionItemRow = z.infer<typeof AttentionItemSchema>
 export type FolderRow = z.infer<typeof folderSchema>
 export type FolderItemRow = z.infer<typeof folderItemSchema>
 export type NotificationSettingRow = z.infer<typeof notificationSettingSchema>

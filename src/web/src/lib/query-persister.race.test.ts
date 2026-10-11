@@ -304,21 +304,22 @@ describe("native channel persistence fence", () => {
   it("retires attention by scope, child and read target while keeping unrelated items and friend requests", async () => {
     const user = "u_attention_retirement", owner = createIdbPersister(user)
     const snapshot = readingSnapshot(user), qc = new QueryClient()
-    const item = (id: string, extra: Record<string, unknown> = {}) => ({ id, kind: "reply", sourceId: id, createdAt: "2026-10-08T00:00:00Z", ...extra })
+    const createdAt = "2026-10-08T00:00:00Z"
+    const reply = (id: string, scopeId: string) => ({ id, kind: "reply", sourceId: id, scopeId, messageId: `m-${scopeId}`, actorUserId: "peer", createdAt })
+    const forumPost = (id: string, childChannelId: string, channelId: string) => ({ id, kind: "forum_post", sourceId: childChannelId, scopeId: "forum", messageId: `opener-${id}`, childChannelId, openerSeq: 1, readTarget: { channelId, seq: 1 }, createdAt })
     qc.setQueryData(communityKeys.communityDbCollection(user, "attentionItems"), [
-      item("scope", { scopeId: "dm-A" }), item("child", { childChannelId: "dm-A" }),
-      item("target", { readTarget: { channelId: "dm-A", seq: 1 } }),
-      item("sibling", { scopeId: "dm-B", readTarget: { channelId: "dm-B", seq: 1 } }),
-      item("unscoped"), item("friend", { kind: "friend_request", actorUserId: "peer" }),
+      reply("scope", "dm-A"), forumPost("child", "dm-A", "forum"),
+      forumPost("target", "other-child", "dm-A"), reply("sibling", "dm-B"),
+      reply("unrelated", "other-scope"), { id: "friend", kind: "friend_request", sourceId: "friend", actorUserId: "peer", createdAt },
     ])
     snapshot.clientState.queries.push(...dehydrate(qc).queries)
     await owner.persistClient(snapshot)
     await owner.retireChannels(["dm-A"])
     const restored = await owner.restoreClient()
-    expect(readingRows(restored, "attentionItems")?.map(row => row.id)).toEqual(["unscoped", "sibling", "friend"])
+    expect(readingRows(restored, "attentionItems")?.map(row => row.id)).toEqual(["unrelated", "sibling", "friend"])
     expect(readingRows(restored, "messages")?.map(row => row.channelId)).toEqual(["dm-B"])
     await owner.persistClient(snapshot)
-    expect(readingRows(await owner.restoreClient(), "attentionItems")?.map(row => row.id)).toEqual(["unscoped", "sibling", "friend"])
+    expect(readingRows(await owner.restoreClient(), "attentionItems")?.map(row => row.id)).toEqual(["unrelated", "sibling", "friend"])
   })
 
   it.each(["missing", "corrupt"])("fails closed for %s stored channel fence metadata", async (kind) => {

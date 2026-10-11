@@ -24,7 +24,7 @@ export async function writeCommunityThreadsRead(db: Database, userId: string, ch
   const participants = threadParticipantResources((included?.participants ?? []).map((row) => ({
     channelId: row.channelId, userId: row.userId, isCreator: children.find((child) => child.id === row.channelId)?.creatorId === row.userId,
     participantCount: "participantCount" in row ? Number(row.participantCount) : undefined,
-    profile: resourceProfile({ id: row.userId, name: row.userName ?? "", avatar: canonicalUserImage(row.userId, row.userImage, row.userAvatarVersion), avatarVersion: row.userAvatarVersion }),
+    profile: resourceProfile({ id: row.userId, name: row.userName ?? "", discriminator: row.discriminator, avatar: canonicalUserImage(row.userId, row.userImage, row.userAvatarVersion), avatarVersion: row.userAvatarVersion }),
   })))
   return writeCommunityContractJSON(CommunityThreadsReadSchema.parse({ contractVersion: COMMUNITY_CONTRACT_VERSION, channelId: parent.id, channel: parent, threads: children,
     included: { messages, ...participants, tags: included?.tags ?? [] }, page }))

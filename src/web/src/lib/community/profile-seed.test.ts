@@ -174,6 +174,16 @@ describe("profile seeding boundaries", () => {
     })
   })
 
+  it("keeps a known number when a name-only or unknown-number identity is seeded", () => {
+    writeCommunityProfilePatches([{ id: "numbered", identityAbout: { name: "Original", discriminator: "123456" }, status: { statusEmoji: "🌱", statusText: "Known" } }], registry)
+    const patch = communityUserProfilePatch("numbered", { name: "Renamed", discriminator: "", avatar: "avatar", avatarVersion: 1 })
+    expect(patch.identityAbout).toEqual({ name: "Renamed" })
+    expect(patch).not.toHaveProperty("status")
+    writeCommunityProfilePatches([patch], registry)
+    writeCommunityProfilePatches([{ id: "numbered", identityAbout: { name: "Latest", discriminator: "" } }], registry)
+    expect(registry.collections.profiles.get("numbered")).toMatchObject({ name: "Latest", discriminator: "123456", statusEmoji: "🌱", statusText: "Known" })
+  })
+
   it("rejects a request snapshot captured by a different registry", async () => {
     const other = createCommunityDbRegistry(new QueryClient(), "other")
     await other.preload()

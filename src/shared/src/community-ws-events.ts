@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { CommunityMachineRuntimeSchema } from "./schemas"
+import { CommunityMachineSummarySchema } from "./schemas"
 import { FriendApprovalPayloadSchema } from "./community-friend-approval"
 import { CommunityChannelResourceSchema, CommunityMessageResourceSchema, CommunityMemberRelationSchema } from "./community-resources"
 
@@ -405,28 +405,6 @@ const communityProfileUpdateSchema = z.strictObject({
   ownerUserId: nullableString,
 })
 
-const machineRuntimeSchema = CommunityMachineRuntimeSchema.strict()
-
-export const CommunityMachineSummarySchema = z.strictObject({
-  id: string,
-  hostname: string,
-  displayName: string,
-  platform: string,
-  arch: string,
-  osRelease: string,
-  daemonVersion: string,
-  lastSeenAt: nullableString,
-  status: z.enum(["online", "offline"]),
-  availableRuntimes: z.array(machineRuntimeSchema),
-  lastRuntimeError: z.strictObject({
-    requested: string,
-    available: z.array(string),
-    at: string,
-  }).optional(),
-  createdAt: string,
-  updatedAt: string,
-})
-
 const communityMachineCreatedSchema = z.strictObject({
   type: z.literal("community:machine.created"),
   machine: CommunityMachineSummarySchema,
@@ -577,8 +555,6 @@ export type CommunityMachineStatus = Extract<CommunityWsEvent, { type: "communit
 export type CommunityMachineUpdated = Extract<CommunityWsEvent, { type: "community:machine.updated" }>
 export type CommunityMachineRemoved = Extract<CommunityWsEvent, { type: "community:machine.removed" }>
 export type CommunityBotAuditEvent = Extract<CommunityWsEvent, { type: "community:bot.audit_event" }>
-export type CommunityMachineSummary = z.infer<typeof CommunityMachineSummarySchema>
-export type CommunityMachineRuntime = CommunityMachineSummary["availableRuntimes"][number]
 
 export type BotAddedFrame = {
   type: "bot:added"

@@ -61,7 +61,7 @@ export function communityUserProfilePatch(
     id: userId,
     identityAbout: {
       name: row.name,
-      discriminator: row.discriminator,
+      ...(row.discriminator ? { discriminator: row.discriminator } : {}),
     },
     avatar: { avatar: row.avatar, avatarVersion: row.avatarVersion },
     ...(row.statusEmoji === undefined && row.statusText === undefined
@@ -172,7 +172,7 @@ export function writeCommunityProfilePatches(
     const next = profileSchema.parse({
       userId: patch.id,
       name,
-      discriminator: identityAbout?.discriminator ?? current?.discriminator ?? "",
+      discriminator: identityAbout?.discriminator || current?.discriminator || "",
       avatar: incomingAvatar?.avatar ?? current?.avatar ?? avatarInitial(name),
       avatarVersion: incomingAvatar?.avatarVersion ?? current?.avatarVersion ?? 0,
       aboutMe: identityAbout?.aboutMe ?? current?.aboutMe,

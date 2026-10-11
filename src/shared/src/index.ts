@@ -217,7 +217,6 @@ export {
   TaskApiBaseSchema,
   TaskApiSchema,
   HeartbeatRequestSchema,
-  SweepRequestSchema,
   PollRequestSchema,
   MAX_POLL_TASKS,
   PollResponseSchema,
@@ -240,7 +239,6 @@ export {
   IssueStatusSchema,
   CreateIssueRequestSchema,
   UpdateIssueRequestSchema,
-  CreateIssueCommentRequestSchema,
   CreateIssueCommentBodySchema,
   IssueCommentApiSchema,
   IssueApiSchema,
@@ -346,7 +344,6 @@ export type {
   TaskApiBase,
   TaskApi,
   HeartbeatRequest,
-  SweepRequest,
   PollRequest,
   PollResponse,
   PollMeetingItem,
@@ -367,7 +364,6 @@ export type {
   CalendarEventApi,
   CreateIssueRequestInput,
   UpdateIssueRequestInput,
-  CreateIssueCommentRequestInput,
   CreateIssueCommentBody,
   IssueCommentApi,
   IssueApi,
@@ -581,7 +577,7 @@ export {
 } from "./community/bot-activity-presets";
 export type { BotActivityPreset } from "./community/bot-activity-presets";
 
-export type { CommunityMachineSummary, CommunityMachineRuntime } from "./community-ws-events";
+export type { CommunityMachineSummary, CommunityMachineRuntime } from "./schemas";
 export type {
   BotAddedFrame,
   BotUpdatedFrame,

@@ -28,7 +28,7 @@ export type ForumFeedTransportPage = Pick<CommunityThreadsRead["page"], "hasMore
     parentMessages: Array<Required<Pick<CommunityMessageResource, "id" | "channelId" | "seq" | "content" | "authorId" | "authorName" | "authorAvatarVersion">> & Partial<Pick<CommunityMessageResource, "createdAt">> & { authorImage: CommunityResourceProfile["avatar"] }>
     firstMessages: Array<Pick<CommunityMessageResource, "channelId" | "content">>
     tags: CommunityThreadsRead["included"]["tags"]
-    participants: Array<Pick<CommunityMemberRelation, "channelId" | "userId"> & { userName: CommunityResourceProfile["name"] | null; userImage: CommunityResourceProfile["avatar"]; userAvatarVersion: CommunityResourceProfile["avatarVersion"]; participantCount?: number }>
+    participants: Array<Pick<CommunityMemberRelation, "channelId" | "userId"> & { userName: CommunityResourceProfile["name"] | null; discriminator?: CommunityResourceProfile["discriminator"]; userImage: CommunityResourceProfile["avatar"]; userAvatarVersion: CommunityResourceProfile["avatarVersion"]; participantCount?: number }>
   }
   nextCursor?: NonNullable<CommunityThreadsRead["page"]["nextCursor"]>
 }
@@ -45,7 +45,7 @@ export function normalizeThreadResources(channelId: string, value: ForumFeedTran
   const participants = threadParticipantResources(value.included.participants.map((participant) => ({
     channelId: participant.channelId, userId: participant.userId, participantCount: participant.participantCount,
     isCreator: value.threads.some((thread) => thread.id === participant.channelId && thread.creatorId === participant.userId),
-    profile: resourceProfile({ id: participant.userId, name: participant.userName ?? "Deleted user", avatar: canonicalUserImage(participant.userId, participant.userImage, participant.userAvatarVersion), avatarVersion: participant.userAvatarVersion }),
+    profile: resourceProfile({ id: participant.userId, name: participant.userName ?? "Deleted user", discriminator: participant.discriminator ?? null, avatar: canonicalUserImage(participant.userId, participant.userImage, participant.userAvatarVersion), avatarVersion: participant.userAvatarVersion }),
   })))
   return {
     channel: { id: channelId, serverId: value.serverId, type: value.parentType === "forum" ? "forum" : "text" },
