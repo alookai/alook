@@ -84,6 +84,7 @@ export const SPEC_SECONDS = {
   "60-desktop-default-user-bar-width.spec.ts": 83.700,
   "63-mobile-notification-chat-route.spec.ts": DEFAULT_SPEC_SECONDS,
   "64-billing-contact.spec.ts": 6,
+  "65-analytics-document-boundary.spec.ts": DEFAULT_SPEC_SECONDS,
 }
 
 function walk(directory) {

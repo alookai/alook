@@ -5,6 +5,7 @@ import {
   announceAnalyticsConsent,
   applyGoogleConsent,
   bootstrapGoogleAnalytics,
+  isOptionalAnalyticsStartupLocked,
   isPublicAnalyticsPath,
   updateGooglePageFields,
   hasAnalyticsConsent,
@@ -18,6 +19,14 @@ afterEach(() => {
 })
 
 describe("analytics consent browser contract", () => {
+  it("has no optional startup lock without a browser document", () => {
+    vi.stubGlobal("window", undefined)
+    vi.stubGlobal("document", undefined)
+    expect(isOptionalAnalyticsStartupLocked()).toBe(false)
+    expect(readAnalyticsConsent()).toBeNull()
+    expect(bootstrapGoogleAnalytics()).toBeTypeOf("function")
+  })
+
   it("accepts only the current version and bounded decisions", () => {
     expect(analyticsConsentCookieValue("granted")).toBe("v1.granted")
     expect(parseAnalyticsConsentCookie("v1.granted")).toBe("granted")
@@ -111,6 +120,7 @@ describe("analytics consent browser contract", () => {
   })
 
   it("persists only after the API confirms the same decision", async () => {
+    vi.stubGlobal("document", { cookie: "alook_analytics_consent=v1.granted" })
     const fetcher = vi.fn(async () => new Response(
       JSON.stringify({ decision: "granted" }),
       { status: 200, headers: { "Content-Type": "application/json" } },
@@ -138,6 +148,17 @@ describe("analytics consent browser contract", () => {
   it("rejects a malformed API response", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("not json", { status: 200 })))
     await expect(persistAnalyticsConsent("granted")).rejects.toThrow("was not saved")
+  })
+
+  it.each(["", "alook_analytics_consent=v1.denied", "alook_analytics_consent=v0.granted"])("rejects a confirmed response without the actual requested Cookie: %s", async cookie => {
+    vi.stubGlobal("document", { cookie })
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ decision: "granted" })))
+    await expect(persistAnalyticsConsent("granted")).rejects.toThrow("was not saved")
+    expect(readAnalyticsConsent()).not.toBe("granted")
+  })
+
+  it("uses the last actual versioned Cookie and preserves arbitrary surrounding values", () => {
+    expect(readAnalyticsConsent("alook_analytics_consent=v1.granted; other=kept; alook_analytics_consent=v1.denied")).toBe("denied")
   })
 
   it("announces the exact saved decision", () => {
