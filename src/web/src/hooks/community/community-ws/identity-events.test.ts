@@ -20,7 +20,7 @@ async function harness() {
 function profile(queryClient: QueryClient, userId: string) {
   return queryClient.getQueryData<ProfileRow[]>(
     communityKeys.communityDbCollection("viewer", "profiles"),
-  )?.find((row) => row.userId === userId)
+  )?.find((row) => row.id === userId)
 }
 
 

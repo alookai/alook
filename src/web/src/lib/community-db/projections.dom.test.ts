@@ -44,7 +44,7 @@ describe("community DB projections", () => {
       await act(async () => reject(new Error("controlled profile restore failure")))
       await waitFor(() => expect(rendered.result.current.profiles.isError).toBe(true))
       expect(rendered.result.current.state).toEqual({ loading: false, failed: true })
-      await act(async () => client.setQueryData(communityKeys.communityDbCollection(registry.scopeId, "profiles"), [profileSchema.parse({ userId: "peer", name: "Peer", discriminator: "0042", avatar: "P", avatarVersion: 1 })]))
+      await act(async () => client.setQueryData(communityKeys.communityDbCollection(registry.scopeId, "profiles"), [profileSchema.parse({ identityComplete: false, id: "peer", name: "Peer", discriminator: "0042", avatar: "P", avatarVersion: 1 })]))
       await waitFor(() => expect(rendered.result.current.state).toEqual({ loading: false, failed: false }))
       expect(rendered.result.current.profiles.data.get("peer")?.discriminator).toBe("0042")
     } finally { rendered.unmount(); await registry.cleanup(); client.clear() }
@@ -400,9 +400,9 @@ describe("community DB projections", () => {
       { id: "dm-no-profile:ghost:access", channelId: "dm-no-profile", userId: "ghost", relation: "access" },
     ])
     collection("profiles", [
-      { userId: "viewer", name: "Viewer", discriminator: "0001", avatar: "V", avatarVersion: 1 },
-      { userId: "peer", name: "Peer", discriminator: "0002", avatar: "P", avatarVersion: 2 },
-      { userId: "quiet", name: "Quiet", discriminator: "0003", avatar: "Q", avatarVersion: 1 },
+      { identityComplete: true, id: "viewer", name: "Viewer", discriminator: "0001", avatar: "V", avatarVersion: 1 },
+      { identityComplete: true, id: "peer", name: "Peer", discriminator: "0002", avatar: "P", avatarVersion: 2 },
+      { identityComplete: true, id: "quiet", name: "Quiet", discriminator: "0003", avatar: "Q", avatarVersion: 1 },
     ])
     collection("messages", [
       { id: "m2", channelId: "c1", type: "chat", authorId: "peer", content: "second", seq: 2 },

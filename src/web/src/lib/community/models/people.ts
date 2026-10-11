@@ -2,25 +2,14 @@ import type { CommunityResourceProfile, CommunityMemberRelation, CommunityChanne
 
 export type Presence = "online" | "offline"
 
-export type CommunityProfile = Pick<CommunityResourceProfile, "id"> & Partial<CommunityUserCore> & {
-  aboutMe?: string
-  bannerColor?: string | null
-  kind?: "human" | "bot"
-  ownerUserId?: string | null
-  ownerHandle?: string | null
-  mutualServers?: number
-  ownedByViewer?: boolean
-  statusEmoji?: CommunityResourceProfile["statusEmoji"]
-  statusText?: CommunityResourceProfile["statusText"] | null
-  presence?: Presence
-}
+export type CommunityProfile = Pick<CommunityResourceProfile, "id"> & Partial<Omit<CommunityResourceProfile, "id">> & { presence?: Presence }
 
 export type CommunityProfilePatch = Pick<CommunityProfile, "id"> & {
   identityAbout?: Partial<Pick<
     CommunityProfile,
     "name" | "discriminator" | "aboutMe" | "bannerColor" | "kind" | "ownerUserId"
   >>
-  avatar?: Pick<CommunityUserCore, "avatar" | "avatarVersion">
+  avatar?: Pick<CommunityResourceProfile, "avatarVersion"> & Partial<Pick<CommunityResourceProfile, "avatar">>
   status?: Pick<CommunityProfile, "statusEmoji" | "statusText">
   card?: Pick<CommunityProfile, "ownerHandle" | "mutualServers" | "ownedByViewer">
   presence?: Presence
@@ -35,7 +24,7 @@ export type Member = CommunityUserCore & Pick<CommunityProfile, "statusEmoji" | 
   status: Presence
   sub: string
   role: import("@alook/shared").CommunityRole
-  source?: "explicit" | "inherited" | "admin" | import("@alook/shared").ParticipantSource
+  source?: CommunityMemberRelation["source"]
 }
 
 export type Friend = CommunityUserCore & Pick<CommunityProfile, "statusEmoji" | "statusText"> & Partial<Pick<CommunityMemberRelation, "userId">> & {

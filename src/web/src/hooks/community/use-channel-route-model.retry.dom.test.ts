@@ -64,7 +64,7 @@ function deferred() {
 }
 function payload(id = "post-1") {
   return {
-    id, serverId: "server-1", name: "post", type: "thread", parentChannelId: "parent-1",
+    categoryId: null, topic: "", position: 0, messageCount: 0, id, serverId: "server-1", name: "post", type: "thread", parentChannelId: "parent-1",
     parentMessageId: "opener-1", creatorId: "viewer-1", archived: false,
     lastMessageAt: "2026-08-09T00:00:00.000Z", createdAt: "2026-08-08T00:00:00.000Z",
   }

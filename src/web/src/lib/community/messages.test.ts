@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { groupAttachments, buildSinceResponse } from "./messages"
+import { presentMessageAttachment } from "./attachment-presentation"
 
 // A since response is a forward delta, but it can land as the sole/oldest page
 // in the cache (reconnect install, persister rehydrate). The client reads the
@@ -48,71 +49,38 @@ describe("buildSinceResponse", () => {
   })
 })
 
-// `groupAttachments` derives the render `url` from the row's `targetId` + `id`
-// via the shared `attachmentUrl` helper — the URL is id-addressed and served by
-// the canonical `channels/{id}/attachments/{attachmentId}` door (route/disc
-// attachments fold). The DB row carries no `url` column. `width`/`height` are
-// optional on the output shape, so we assert on the actual returned object
-// rather than relying on the declared type to catch a missing field.
 describe("groupAttachments", () => {
-  it("projects a canonical thumbnail URL only when the row declares one", () => {
+  it("retains stable IDs, attachment order, raw metadata and declared thumbnail URLs", () => {
     const result = groupAttachments([
-      { id: "att1", messageId: "m1", targetId: "c1", filename: "a.png", r2Key: "original", thumbnailR2Key: "thumb", contentType: "image/png", size: 1000 },
-      { id: "att2", messageId: "m2", targetId: "c1", filename: "legacy.png", r2Key: "legacy", thumbnailR2Key: null, contentType: "image/png", size: 1000 },
-    ])
-    expect(result.m1?.[0]).toMatchObject({
-      url: "/api/community/channels/c1/attachments/att1",
-      thumbnailUrl: "/api/community/channels/c1/attachments/att1/thumbnail",
-    })
-    expect(result.m2?.[0]).not.toHaveProperty("thumbnailUrl")
-  })
-
-  it("projects width/height onto an image-kind entry when present on the row", () => {
-    const result = groupAttachments([
-      { id: "att1", messageId: "m1", targetId: "c1", filename: "a.png", r2Key: "channel/c1/uuid/a.png", contentType: "image/png", size: 1000, width: 1920, height: 1080 },
+      { id: "att-b", messageId: "m1", targetId: "c1", filename: "photo.png", r2Key: "original", thumbnailR2Key: "thumb", contentType: "image/png", size: 1000, width: 1920, height: 1080 },
+      { id: "att-a", messageId: "m1", targetId: "c1", filename: "unknown.bin", r2Key: "legacy", thumbnailR2Key: null, contentType: null, size: null, width: null, height: null },
     ])
     expect(result.m1).toEqual([
-      { kind: "image", name: "a.png", url: "/api/community/channels/c1/attachments/att1", contentType: "image/png", sizeBytes: 1000, width: 1920, height: 1080 },
+      { id: "att-b", name: "photo.png", url: "/api/community/channels/c1/attachments/att-b", thumbnailUrl: "/api/community/channels/c1/attachments/att-b/thumbnail", contentType: "image/png", sizeBytes: 1000, width: 1920, height: 1080 },
+      { id: "att-a", name: "unknown.bin", url: "/api/community/channels/c1/attachments/att-a", thumbnailUrl: null, contentType: null, sizeBytes: null, width: null, height: null },
     ])
+    expect(result.m1?.[0]).not.toHaveProperty("kind")
+    expect(result.m1?.[1]).not.toHaveProperty("size")
   })
 
-  it("leaves width/height undefined on an image-kind entry when the row has none", () => {
-    const result = groupAttachments([
-      { id: "att1", messageId: "m1", targetId: "c1", filename: "a.png", r2Key: "channel/c1/uuid/a.png", contentType: "image/png", size: 1000, width: null, height: null },
-    ])
-    expect(result.m1).toEqual([
-      { kind: "image", name: "a.png", url: "/api/community/channels/c1/attachments/att1", contentType: "image/png", sizeBytes: 1000, width: undefined, height: undefined },
-    ])
+  it("retains file dimensions while formatting them only for the read view", () => {
+    const raw = groupAttachments([{ id: "att1", messageId: "m1", targetId: "c1", filename: "a.pdf", r2Key: "key", contentType: "application/pdf", size: 2048, width: 1920, height: 1080 }]).m1![0]!
+    expect(raw).toMatchObject({ id: "att1", width: 1920, height: 1080, sizeBytes: 2048, thumbnailUrl: null })
+    expect(presentMessageAttachment(raw)).toEqual({ kind: "file", name: "a.pdf", url: "/api/community/channels/c1/attachments/att1", contentType: "application/pdf", sizeBytes: 2048, size: "2.0 KB" })
   })
 
-  it("never adds width/height to a file-kind entry, even if present on the row", () => {
-    const result = groupAttachments([
-      { id: "att1", messageId: "m1", targetId: "c1", filename: "a.pdf", r2Key: "channel/c1/uuid/a.pdf", contentType: "application/pdf", size: 2048, width: 1920, height: 1080 },
-    ])
-    expect(result.m1).toEqual([
-      { kind: "file", name: "a.pdf", url: "/api/community/channels/c1/attachments/att1", contentType: "application/pdf", sizeBytes: 2048, size: "2.0 KB" },
-    ])
+  it.each(["image/svg+xml", "image/x-forged"])("preserves unsafe %s metadata and renders a file", (contentType) => {
+    const raw = groupAttachments([{ id: "att1", messageId: "m1", targetId: "c1", filename: "unsafe.img", r2Key: "key", contentType, size: 2048, width: 1920, height: 1080 }]).m1![0]!
+    expect(raw).toMatchObject({ id: "att1", contentType, width: 1920, height: 1080 })
+    expect(presentMessageAttachment(raw)).toMatchObject({ kind: "file", size: "2.0 KB" })
   })
 
-  it.each(["image/svg+xml", "image/x-forged"])(
-    "materializes unsafe %s attachments as file-kind",
-    (contentType) => {
-      const result = groupAttachments([
-        { id: "att1", messageId: "m1", targetId: "c1", filename: "unsafe.img", r2Key: "channel/c1/uuid/unsafe.img", contentType, size: 2048, width: 1920, height: 1080 },
-      ])
-      expect(result.m1).toEqual([
-        { kind: "file", name: "unsafe.img", url: "/api/community/channels/c1/attachments/att1", contentType, sizeBytes: 2048, size: "2.0 KB" },
-      ])
-    },
-  )
-
-  it("skips pending rows (messageId=null) so agent-uploaded pending attachments never surface", () => {
+  it("skips pending attachments without losing a linked row's NULL metadata", () => {
     const result = groupAttachments([
-      { id: "att0", messageId: null, targetId: "c1", filename: "pending.png", r2Key: "channel/c1/uuid/pending.png", contentType: "image/png", size: 100, width: null, height: null },
-      { id: "att1", messageId: "m1", targetId: "c1", filename: "linked.png", r2Key: "channel/c1/uuid/linked.png", contentType: "image/png", size: 100, width: null, height: null },
+      { id: "att0", messageId: null, targetId: "c1", filename: "pending.png", r2Key: "pending", contentType: "image/png", size: 100, width: null, height: null },
+      { id: "att1", messageId: "m1", targetId: "c1", filename: "linked.png", r2Key: "linked", contentType: "image/png", size: 100, width: null, height: null },
     ])
-    expect(result).toEqual({
-      m1: [{ kind: "image", name: "linked.png", url: "/api/community/channels/c1/attachments/att1", contentType: "image/png", sizeBytes: 100, width: undefined, height: undefined }],
-    })
+    expect(Object.keys(result)).toEqual(["m1"])
+    expect(result.m1).toEqual([{ id: "att1", name: "linked.png", url: "/api/community/channels/c1/attachments/att1", thumbnailUrl: null, contentType: "image/png", sizeBytes: 100, width: null, height: null }])
   })
 })

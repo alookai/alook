@@ -3,16 +3,16 @@ import type { CommunityMemberRelation, CommunityResourceProfile, CommunityThread
 export function resourceProfile(
   fields: Pick<CommunityResourceProfile, "id" | "name" | "discriminator" | "avatar" | "avatarVersion"> & Partial<CommunityResourceProfile>,
 ): CommunityResourceProfile {
-  return { statusEmoji: null, statusText: "", ...fields }
+  return { ...fields }
 }
 
-type Participant = Pick<CommunityMemberRelation, "channelId" | "userId" | "isCreator"> & {
-  profile: CommunityResourceProfile
+type Participant<Profile> = Pick<CommunityMemberRelation, "channelId" | "userId" | "isCreator"> & {
+  profile: Profile
   participantCount?: number
 }
 
-export function threadParticipantResources(rows: readonly Participant[]): Pick<CommunityThreadsRead["included"], "members" | "profiles" | "participantCounts"> {
-  const profiles = new Map<string, CommunityResourceProfile>()
+export function threadParticipantResources<Profile extends Pick<CommunityResourceProfile, "id">>(rows: readonly Participant<Profile>[]): Pick<CommunityThreadsRead["included"], "members" | "participantCounts"> & { profiles: Profile[] } {
+  const profiles = new Map<string, Profile>()
   const counts = new Map<string, number>()
   const authoritativeCounts = new Map<string, number>()
   const members = rows.map((row): CommunityMemberRelation => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { CommunityMessageCreate } from "@alook/shared"
-import { projectCommunityMessageCreate, projectPostedMessage } from "./message-wire"
+import { presentCanonicalMessage, projectCommunityMessageCreate, projectPostedMessage } from "./message-wire"
 
 function wire(
   overrides: Partial<CommunityMessageCreate["message"]> = {},
@@ -10,6 +10,7 @@ function wire(
     seq: 42,
     authorId: "u1",
     authorName: "Gus",
+    authorAvatarVersion: 0,
     content: "hello",
     type: "chat",
     createdAt: "2026-08-06T00:00:00.000Z",
@@ -59,17 +60,19 @@ describe("projectCommunityMessageCreate", () => {
   })
 
   it("keeps valid embed fields and omits an entirely malformed field list", () => {
-    const result = projectCommunityMessageCreate(wire({ embeds: [
+    const raw = projectCommunityMessageCreate(wire({ embeds: [
       { title: "Mixed", fields: [null, { name: "Key", value: "Value", inline: true }, { name: "Missing value" }] },
       { title: "Invalid", fields: [null, { name: "Missing value" }] },
     ] }), "channel-1")
+    const result = presentCanonicalMessage(raw)
+    expect(raw.embeds?.[0]).toMatchObject({ fields: [null, { name: "Key", value: "Value", inline: true }, { name: "Missing value" }] })
     expect(result.embeds).toEqual([
       { title: "Mixed", fields: [{ name: "Key", value: "Value", inline: true }] },
       { title: "Invalid", fields: undefined },
     ])
   })
   it("narrows embeds and maps safe image/file attachments", () => {
-    const projected = projectCommunityMessageCreate(wire({
+    const raw = projectCommunityMessageCreate(wire({
       embeds: [{ title: "Card", url: "https://example.com" }, { url: "missing-title" }, null],
       attachments: [
         { id: "a1", filename: "photo.png", url: "/photo", contentType: "image/png", size: 2048, width: 640, height: 480 },
@@ -77,6 +80,9 @@ describe("projectCommunityMessageCreate", () => {
         { id: "a3", filename: "unsafe.svg", url: "/unsafe", contentType: "image/svg+xml", size: 1024 },
       ],
     }), "channel-1")
+    const projected = presentCanonicalMessage(raw)
+    expect(raw.attachments?.map((row) => row.id)).toEqual(["a1", "a2", "a3"])
+    expect(raw.embeds).toHaveLength(3)
     expect(projected.embeds).toEqual([{ title: "Card", url: "https://example.com" }])
     expect(projected.attachments).toEqual([
       { kind: "image", name: "photo.png", url: "/photo", contentType: "image/png", sizeBytes: 2048, width: 640, height: 480 },
@@ -102,10 +108,11 @@ describe("projectPostedMessage", () => {
     }, "nonce-2", "dm-1")
 
     expect(projected).toMatchObject({
-      authorAvatar: "G",
+      authorAvatar: null,
       authorAvatarVersion: 0,
       clientNonce: "nonce-2",
     })
+    expect(presentCanonicalMessage(projected).authorAvatar).toBe("G")
   })
 
   it("rejects an absent or mismatched actual POST channel scope", () => {
@@ -123,7 +130,7 @@ describe("projectPostedMessage", () => {
     for (const message of [posted, projectCommunityMessageCreate(wire(), "channel-1")]) {
       expect(message).not.toHaveProperty("attachments")
       expect(message).not.toHaveProperty("embeds")
-      expect(message).not.toHaveProperty("channelId")
+      expect(message.channelId).toBe(message.id === "m4" ? "dm-1" : "channel-1")
       expect(message).not.toHaveProperty("replyToId")
       expect(message).not.toHaveProperty("replyTo")
     }

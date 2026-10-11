@@ -92,7 +92,7 @@ function buildCommunityDbRegistry(
   const channels = collectionFor("channels", channelSchema, (row) => row.id)
   const serverMemberships = collectionFor("serverMemberships", serverMembershipSchema, (row) => row.id)
   const channelMemberships = collectionFor("channelMemberships", channelMembershipSchema, (row) => row.id)
-  const profiles = collectionFor("profiles", profileSchema, (row) => row.userId)
+  const profiles = collectionFor("profiles", profileSchema, (row) => row.id)
   const messages = collectionFor("messages", messageSchema, (row) => row.id)
   const readStates = collectionFor("readStates", readStateSchema, (row) => row.channelId)
   const readStateClock = collectionFor("readStateClock", readStateClockSchema, (row) => row.id)

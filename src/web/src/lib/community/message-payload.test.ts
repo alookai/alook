@@ -195,3 +195,16 @@ describe("mapMessageForWs", () => {
     expect(mapMessageForWs({ ...baseRow, content: null }, emptyWsCtx).content).toBe("")
   })
 })
+
+
+describe("attachment contract selection", () => {
+  it("keeps NULL metadata in 3 and preserves the original absent size field in 1/2", () => {
+    const attachment = { id: "attachment", name: "file.bin", url: "/file", thumbnailUrl: null, contentType: null, sizeBytes: null, width: null, height: null }
+    const ctx = { ...emptyApiCtx, attachmentsByMessage: { m1: [attachment] } }
+    for (const contract of [1, 2] as const) {
+      const value = JSON.parse(JSON.stringify(mapMessageForApi(baseRow, ctx, contract)))
+      expect(value.attachments).toEqual([{ kind: "file", name: "file.bin", url: "/file" }])
+    }
+    expect(mapMessageForApi({ ...baseRow, authorAvatarVersion: 2 }, ctx, 3, "channel").attachments).toEqual([attachment])
+  })
+})

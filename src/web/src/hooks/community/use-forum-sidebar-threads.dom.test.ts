@@ -67,7 +67,7 @@ beforeEach(() => async () => {
 function envelope(overrides: Partial<SidebarThreadEnvelope> = {}): SidebarThreadEnvelope {
   const activityAt = new Date(Date.now() - 60_000).toISOString()
   return {
-    channels: [{
+    channels: [{ categoryId: null, topic: "", position: 0, messageCount: 0, createdAt: "2026-10-01T00:00:00Z",
       id: "post-1",
       name: "fallback",
       parentChannelId: "forum-1",
@@ -195,10 +195,10 @@ describe("forum sidebar canonical projection", () => {
     }), { wrapper })
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(2))
     const activityAt = new Date(Date.now() - 60_000).toISOString()
-    const metadata = {
+    const metadata = { categoryId: null, topic: "", position: 0, messageCount: 0,
       id: "post-1", serverId: "server-1", name: "Readable archived post", type: "thread",
       parentChannelId: "forum-1", parentMessageId: "opener-1", creatorId: "viewer",
-      archived: 0, lastMessageAt: activityAt, createdAt: activityAt,
+      archived: false, lastMessageAt: activityAt, createdAt: activityAt,
     }
     const negative: SidebarThreadEnvelope = {
       ...envelopeFor(["post-2", "post-3", "post-4", "post-5", "post-6"]),
@@ -368,7 +368,7 @@ describe("forum sidebar canonical projection", () => {
     await waitFor(() => expect(sidebar.result.current.threads[0]?.title).toBe("Canonical title"))
     let releaseRetained!: (value: SidebarThreadEnvelope) => void
     const retained = new Promise<SidebarThreadEnvelope>((resolve) => { releaseRetained = resolve })
-    apiFetchMock.mockImplementation((url) => url === "/api/community/channels/post-1" ? Promise.resolve({ ...envelope().channels[0], id: "post-1", serverId: "server-1", type: "thread", name: "Canonical title", archived: false, createdAt: new Date().toISOString() }) : retained)
+    apiFetchMock.mockImplementation((url) => url === "/api/community/channels/post-1" ? Promise.resolve({ categoryId: null, topic: "", position: 0, messageCount: 0, parentChannelId: null, parentMessageId: null, creatorId: null, lastMessageAt: null, ...envelope().channels[0], id: "post-1", serverId: "server-1", type: "thread", name: "Canonical title", archived: false, createdAt: new Date().toISOString() }) : retained)
     retainId = "post-1"
     sidebar.rerender()
     const route = renderHook(() => {
@@ -975,7 +975,7 @@ describe("forum sidebar canonical projection", () => {
     }))
     await act(async () => Promise.resolve())
     expect(registry.collections.channels.get("post-1")).toMatchObject({
-      serverId: "server-1", type: "thread", name: "", pending: true, tags: ["archived"],
+      serverId: "server-1", type: "thread", name: null, pending: true, tags: ["archived"],
       parentChannelId: null, parentMessageId: null,
     })
     expect(registry.collections.channelMemberships.get("post-1:viewer:access")).toBeUndefined()

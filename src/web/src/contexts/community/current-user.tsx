@@ -62,7 +62,7 @@ export function useCurrentUser(): CurrentUser {
     avatar: profile?.avatar ?? "",
     avatarVersion: profile?.avatarVersion,
     aboutMe: profile?.aboutMe,
-    discriminator: profile?.discriminator,
+    discriminator: profile?.discriminator ?? undefined,
     statusEmoji: profile?.statusEmoji,
     statusText: profile?.statusText,
     presence: profile?.presence,

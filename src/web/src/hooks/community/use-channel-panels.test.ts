@@ -116,8 +116,8 @@ describe("usePins / pinsQueryFn", () => {
     const rich = { id: "m_1", type: "system" as const, systemKind: "thread" as const,
       authorId: "u1", content: "full", clientNonce: "known-nonce",
       replyTo: { id: "reply", authorName: "Peer", text: "Prior" },
-      attachments: [{ kind: "file" as const, name: "known.txt", url: "/known", size: "1 KB" }],
-      embeds: [{ title: "Known" }], reactions: [{ emoji: "👍", count: 1 }],
+      attachments: [{ name: "known.txt", url: "/known", sizeBytes: 1024 }],
+      embeds: [{ title: "Known" }], reactions: [{ emoji: "👍", count: 1, me: false, userIds: ["peer"] }],
     }
     ingestMessages(getCommunityDbRegistry(qc)!, "ch_1", [rich])
     apiFetchMock.mockResolvedValueOnce({ pins: [{ id: rich.id, authorId: rich.authorId,

@@ -129,6 +129,7 @@ export type WsMessageIncoming = WsMessage & { [key: string]: unknown }
 export type UserWsConnectionPhase = "authenticated" | "reconnecting" | "suspended"
 
 export type UseUserWsOptions = {
+  communityContract?: CommunityContract
   onReconnect?: (info: { reconnectDurationMs: number }) => void | Promise<void>
   onDisconnect?: () => void | Promise<void>
   onAuthenticated?: () => void | Promise<void>
@@ -171,13 +172,14 @@ function reportDroppedFrame(
 }
 
 export function useUserWs(
-  onMessage: (msg: WsMessageIncoming, assertCurrent?: () => void) => void | Promise<void>,
+  onMessage: (msg: WsMessageIncoming, assertCurrent?: () => void, communityContract?: CommunityContract) => void | Promise<void>,
   options?: UseUserWsOptions,
 ): { send: (msg: object) => void; reconnectNow: () => void } {
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectDelay = useRef(WS_RECONNECT_INIT)
   const reconnectAttemptRef = useRef(0)
   const onMessageRef = useRef(onMessage)
+  const requestedCommunityContractRef = useRef(options?.communityContract ?? COMMUNITY_CONTRACT_VERSION)
   const onReconnectRef = useRef(options?.onReconnect)
   const onDisconnectRef = useRef(options?.onDisconnect)
   const onAuthenticatedRef = useRef(options?.onAuthenticated)
@@ -216,7 +218,8 @@ export function useUserWs(
 
   useEffect(() => {
     onMessageRef.current = onMessage
-  }, [onMessage])
+    requestedCommunityContractRef.current = options?.communityContract ?? COMMUNITY_CONTRACT_VERSION
+  }, [onMessage, options?.communityContract])
 
   useEffect(() => {
     onReconnectRef.current = options?.onReconnect
@@ -612,6 +615,7 @@ export function useUserWs(
     }
 
     let communityContract: CommunityContract = 1
+    const requestedCommunityContract = requestedCommunityContractRef.current
     let communityAdmission = Promise.resolve()
     let pendingAdmissions = 0
     let ws: WebSocket
@@ -651,7 +655,7 @@ export function useUserWs(
       openedAt = Date.now()
       reportOpenStage("success")
       try {
-        ws.send(JSON.stringify({ type: "auth", token: authToken, communityContract: COMMUNITY_CONTRACT_VERSION }))
+        ws.send(JSON.stringify({ type: "auth", token: authToken, communityContract: requestedCommunityContract }))
       } catch {
         reportAuthStage("failure")
         reportAuthFailure("network")
@@ -716,7 +720,14 @@ export function useUserWs(
           reportDroppedFrame("duplicate-auth-ok", msg)
           return
         }
-        communityContract = msg.communityContract === COMMUNITY_CONTRACT_VERSION ? COMMUNITY_CONTRACT_VERSION : 1
+        const confirmed = msg.communityContract ?? 1
+        if ((confirmed !== 1 && confirmed !== 2 && confirmed !== 3)
+          || (confirmed !== requestedCommunityContract && !(confirmed === 1 && requestedCommunityContract === 2))) {
+          reportDroppedFrame("invalid-payload", msg)
+          ws.close(1008, "Community contract confirmation mismatch")
+          return
+        }
+        communityContract = confirmed
         reportAuthStage("success")
         authenticatedGenerationRef.current = generation
         if (connectTimeoutRef.current !== null) {
@@ -770,30 +781,30 @@ export function useUserWs(
           return
         }
       }
-      if (communityContract !== COMMUNITY_CONTRACT_VERSION && (
-        msg.type === communityBrowserEventBatchType()
-        || msg.type === "community:channel.membership.change"
-        || (isCommunityBatch && Array.isArray(msg.events) && msg.events.some((event: unknown) =>
-          isCommunityEventCandidate(event) && event.type === "community:channel.membership.change"))
-      )) {
+      if ((isCommunityBatch && msg.type !== communityBrowserEventBatchType(communityContract)
+        && !(communityContract === 2 && msg.type === communityBrowserEventBatchType(1)))
+        || (communityContract === 1 && (msg.type === "community:channel.membership.change"
+          || (isCommunityBatch && Array.isArray(msg.events) && msg.events.some((event: unknown) =>
+            isCommunityEventCandidate(event) && event.type === "community:channel.membership.change"))))) {
         reportDroppedFrame("invalid-payload", msg)
         return
       }
+
       const callback = onMessageRef.current
       const assertAdmissionCurrent = () => {
         if (!ownsAuthenticatedConnection(ws, generation) || isOffline() || callback !== onMessageRef.current) throw new DOMException("Retired WebSocket admission", "AbortError")
       }
-      if (msg.type === communityBrowserEventBatchType() || pendingAdmissions > 0) {
+      if ((isCommunityBatch && msg.type !== communityBrowserEventBatchType(1)) || pendingAdmissions > 0) {
         if (pendingAdmissions >= 32) { ws.close(1011, "Community admission overloaded"); return }
         pendingAdmissions++
         communityAdmission = communityAdmission.then(async () => {
           if (!ownsAuthenticatedConnection(ws, generation) || isOffline() || callback !== onMessageRef.current) return
-          await callback(msg as WsMessageIncoming, assertAdmissionCurrent)
+          await callback(msg as WsMessageIncoming, assertAdmissionCurrent, communityContract)
         }).catch(() => { reportDroppedFrame("invalid-payload", msg) }).finally(() => { pendingAdmissions-- })
         return
       }
       try {
-        const callbackResult = callback(msg as WsMessageIncoming)
+        const callbackResult = callback(msg as WsMessageIncoming, undefined, communityContract)
         if (callbackResult) void callbackResult.catch(() => reportDroppedFrame("invalid-payload", msg))
       } catch {
         console.warn("[ws] message callback threw", {

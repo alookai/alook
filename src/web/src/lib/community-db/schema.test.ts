@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { PARTICIPANT_SOURCE } from "@alook/shared/constants/community"
 import { AttentionScopeSchema, AttentionItemSchema } from "@alook/shared"
 import {
+  canonicalChannelRow, channelSchema, messageSchema, profileSchema,
   channelMembershipKey,
   channelMembershipSchema,
   communityCollectionSchemas,
@@ -112,5 +113,31 @@ describe("community DB schemas", () => {
     })
     expect(parsed.detailComplete).toBe(false)
     expect(parsed).not.toHaveProperty("position")
+  })
+})
+
+
+describe("canonical completeness", () => {
+  const full = { id: "channel", type: "text" as const, serverId: "server", categoryId: null, name: "Channel", topic: "Preserve topic", parentChannelId: null, parentMessageId: null, creatorId: "author", position: 3, archived: false, createdAt: "created", lastMessageAt: null, messageCount: 0, resourceComplete: true as const }
+  it("keeps full fields through sparse deltas and rejects an invalid full claim before merging", () => {
+    const loaded = canonicalChannelRow(full)
+    expect(canonicalChannelRow({ id: full.id, type: full.type, name: "Renamed", topic: undefined }, loaded)).toEqual({ ...loaded, name: "Renamed" })
+    const stub = canonicalChannelRow({ id: "stub", type: "thread", name: "Preview" })
+    expect(stub.resourceComplete).toBe(false)
+    expect(stub).not.toHaveProperty("topic")
+    expect(canonicalChannelRow({ ...full, id: "stub" }, stub).resourceComplete).toBe(true)
+    const { topic: _topic, ...incomplete } = full
+    expect(() => canonicalChannelRow(incomplete, loaded)).toThrow()
+    expect(channelSchema.safeParse({ ...loaded, topic: undefined }).success).toBe(false)
+  })
+  it("uses profile id without relationship aliases and distinguishes incomplete identity", () => {
+    const profile = { id: "author", name: "Author", discriminator: "12345", avatar: null, avatarVersion: 0, identityComplete: true }
+    expect(profileSchema.parse(profile)).toEqual(profile)
+    expect(profileSchema.parse({ id: "author", name: "Author", identityComplete: false })).toEqual({ id: "author", name: "Author", identityComplete: false })
+    expect(profileSchema.safeParse({ ...profile, discriminator: null }).success).toBe(false)
+    expect(profileSchema.safeParse({ ...profile, avatarVersion: undefined }).success).toBe(false)
+    const preview = { id: "message", channelId: "channel", type: "chat", resourceComplete: false }
+    expect(messageSchema.parse(preview)).toEqual(preview)
+    expect(messageSchema.safeParse({ ...preview, resourceComplete: true }).success).toBe(false)
   })
 })
