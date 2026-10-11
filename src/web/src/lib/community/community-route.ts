@@ -7,6 +7,7 @@ type CommunityModuleRoute =
   | "me-machines"
   | "me-bots"
   | "dm-detail"
+  | "message-resolution"
   | "server-root"
   | "server-detail"
   | "server-settings-redirect"
@@ -132,6 +133,11 @@ export function resolveCommunityModulePlan(href: string): CommunityModulePlan {
       sidebar: { kind: "none" },
       main: { kind: "none" },
     }
+  }
+
+  if (segments[1] === "messages" && segments.length === 3 && /^[A-Za-z0-9_-]{1,128}$/.test(segments[2]!)) {
+    return { route: "message-resolution", surface: "detail", rail: "community",
+      sidebar: { kind: "none" }, main: { kind: "route-resolution" } }
   }
 
   if (segments[1] === "me") {
@@ -300,7 +306,13 @@ export function resolveCommunityCheckpointPlan({
   }
 
   const target = normalizeCommunityHref(targetHref)
-  const targetMainKind = resolveCommunityModulePlan(target.href).main.kind
+  const targetModule = resolveCommunityModulePlan(target.href)
+  if (targetModule.route === "message-resolution" && target.leafKey !== committedFrame.leafKey) {
+    return { mode: "cold-scope", surface: target.surface, targetHref: target.href,
+      rail: { kind: "keep" }, sidebar: { kind: "keep" },
+      main: { kind: "target-skeleton", href: target.href } }
+  }
+  const targetMainKind = targetModule.main.kind
   const isConversationTarget = targetMainKind === "server-conversation" || targetMainKind === "dm"
   if (target.scope.kind === "unknown" || target.leafKey === committedFrame.leafKey) {
     return committedPlan(committedFrame, target.href)

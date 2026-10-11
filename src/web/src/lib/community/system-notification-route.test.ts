@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   parseDesktopSystemNotificationActivation,
-  revalidateDesktopSystemNotificationTarget,
   systemNotificationHref,
   type DesktopSystemNotificationActivation,
 } from "./system-notification-route"
@@ -68,56 +67,4 @@ describe("desktop system notification routes", () => {
     })).toBe("/c/me/dm_1")
   })
 
-  it("revalidates the exact message through the authenticated API", async () => {
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ id: "message_3" }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    }))
-    await expect(revalidateDesktopSystemNotificationTarget(
-      activation.target,
-      fetchImpl,
-    )).resolves.toBe("allowed")
-    expect(fetchImpl).toHaveBeenCalledWith("/api/community/messages/message_3", {
-      method: "GET",
-      credentials: "same-origin",
-      cache: "no-store",
-    })
-  })
-
-  it("uses the global fetch implementation by default", async () => {
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ id: "message_3" }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    }))
-    vi.stubGlobal("fetch", fetchImpl)
-
-    await expect(revalidateDesktopSystemNotificationTarget(activation.target)).resolves.toBe("allowed")
-    expect(fetchImpl).toHaveBeenCalledOnce()
-  })
-
-  it("classifies deleted and revoked targets as permanently invalid", async () => {
-    for (const response of [
-      new Response(null, { status: 404 }),
-      new Response(null, { status: 403 }),
-    ]) {
-      await expect(revalidateDesktopSystemNotificationTarget(
-        activation.target,
-        vi.fn(async () => response),
-      )).resolves.toBe("invalid")
-    }
-  })
-
-  it("classifies network, server, malformed, and mismatched responses as retryable", async () => {
-    for (const fetchImpl of [
-      vi.fn(async () => { throw new Error("offline") }),
-      vi.fn(async () => new Response(null, { status: 503 })),
-      vi.fn(async () => new Response("nope", { status: 200 })),
-      vi.fn(async () => new Response(JSON.stringify({ id: "other" }), { status: 200 })),
-    ]) {
-      await expect(revalidateDesktopSystemNotificationTarget(
-        activation.target,
-        fetchImpl,
-      )).resolves.toBe("retryable")
-    }
-  })
 })

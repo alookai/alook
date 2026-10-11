@@ -20,18 +20,8 @@ import {
   type CommunityCommittedFrame,
 } from "@/lib/community/community-route"
 import { cancelActiveConversationNavigationProof } from "@/lib/community/conversation-navigation-proof"
-
-export type CommunityNavigationController = {
-  captureIntent: () => () => boolean
-  publishedHref: string
-  navigationPending: boolean
-  pendingHref: string | null
-  push: ReturnType<typeof useRouter>["push"]
-  pushImmediate: (href: string) => void
-  replace: (href: string) => void
-  resolveAndPush: (resolve: () => Promise<string>) => Promise<boolean>
-  cancelPendingNavigation: () => void
-}
+import type { CommunityNavigationController } from "@/contexts/community/route-frame"
+export type { CommunityNavigationController } from "@/contexts/community/route-frame"
 
 export function useCommunityNavigationController(
   committedFrame: CommunityCommittedFrame,

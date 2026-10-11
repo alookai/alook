@@ -13,7 +13,7 @@ import {
   parseMobileSystemNotificationRegistration,
   postMobileSystemNotificationRegistration,
   requestMobileSystemNotificationPermission,
-  revalidateMobileSystemNotificationActivation,
+  mobileSystemNotificationHref,
   resumeMobileSystemNotificationRegistration,
   snapshotMobileSystemNotificationRegistration,
   suspendMobileSystemNotificationRegistration,
@@ -279,17 +279,11 @@ describe("mobile notification HTTP adapter", () => {
       previousProviderToken: null,
     })
     await unregisterCurrentMobileSystemNotification()
-    await expect(revalidateMobileSystemNotificationActivation({
-      notificationId,
-      messageId: "message_1",
-      targetId: "channel_1",
-    })).resolves.toEqual({ href: "/c/me/channel_1" })
 
     expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
       "/api/community/notifications/devices",
       `/api/community/notifications/devices/${installationId}`,
       `/api/community/notifications/devices/${installationId}`,
-      "/api/community/channels/channel_1/messages?anchor=message_1&limit=1",
     ])
   })
 
@@ -506,172 +500,47 @@ describe("mobile notification registration controller", () => {
 
 describe("mobile notification activation", () => {
   const activation = { notificationId, messageId: "message_1", targetId: "channel_1" }
-
-  it.each([["channel", "text"], ["forum", "forum"], ["thread", "thread"]] as const)("opens chat pages after exact DM and %s revalidation", async (surfaceKind, type) => {
-    const dmFetch = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        messages: [{ id: "message_1", seq: 9 }],
-        surfaceReceipt: { channelId: "channel_1", surfaceKind: "dm" },
-      })))
-    await expect(revalidateMobileSystemNotificationActivation(activation, dmFetch)).resolves.toEqual({
-      href: "/c/me/channel_1",
-    })
-
-    const serverFetch = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        messages: [{ id: "message_1", seq: 9 }],
-        surfaceReceipt: { channelId: "channel_1", surfaceKind },
-      })))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        id: "channel_1",
-        serverId: "server_1",
-        type,
-      })))
-    await expect(revalidateMobileSystemNotificationActivation(activation, serverFetch)).resolves.toEqual({
-      href: "/c/channels/server_1/channel_1",
-    })
-    expect(serverFetch.mock.calls.map(([url]) => url)).toEqual([
-      "/api/community/channels/channel_1/messages?anchor=message_1&limit=1",
-      "/api/community/channels/channel_1",
-    ])
-  })
-
-  it.each([
-    ["cold", "dm"], ["resume", "dm"],
-    ["cold", "channel"], ["resume", "channel"],
-  ] as const)("navigates %s %s activation without selecting a message", async (lifecycle, kind) => {
-    const fetchImpl = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        messages: [{ id: activation.messageId, seq: 9 }],
-        surfaceReceipt: { channelId: activation.targetId, surfaceKind: kind },
-      })))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        id: activation.targetId, serverId: "server_1", type: "text",
-      })))
+  it.each(["cold", "resume"])("starts the ordinary message page immediately on %s activation", async (phase) => {
+    const fetchImpl = vi.fn(() => new Promise<Response>(() => undefined))
+    vi.stubGlobal("fetch", fetchImpl)
     const take = vi.fn()
-    if (lifecycle === "resume") take.mockResolvedValueOnce(null)
+    if (phase === "resume") take.mockResolvedValueOnce(null)
     take.mockResolvedValueOnce(activation)
     const navigate = vi.fn()
-    const openInbox = vi.fn()
     const queueDismiss = vi.fn()
-    const controller = createMobileSystemNotificationActivationController({
-      take,
-      revalidate: (value) => revalidateMobileSystemNotificationActivation(value, fetchImpl),
-      queueDismiss,
-      navigate,
-      openInbox,
-    })
-    if (lifecycle === "resume") {
-      await controller.drain()
-      expect(navigate).not.toHaveBeenCalled()
-    }
+    const controller = createMobileSystemNotificationActivationController({ take, queueDismiss, navigate })
+    if (phase === "resume") await controller.drain()
     await controller.drain()
-    const href = kind === "dm" ? "/c/me/channel_1" : "/c/channels/server_1/channel_1"
-    expect(navigate).toHaveBeenCalledExactlyOnceWith(href)
-    expect(queueDismiss).toHaveBeenCalledExactlyOnceWith(notificationId, href)
-    expect(new URL(href, "https://example.test").search).toBe("")
-    expect(openInbox).not.toHaveBeenCalled()
-    controller.dispose()
+    expect(navigate).toHaveBeenCalledExactlyOnceWith("/c/messages/message_1")
+    expect(queueDismiss).toHaveBeenCalledExactlyOnceWith(notificationId, "/c/messages/message_1")
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(mobileSystemNotificationHref(activation)).toBe("/c/messages/message_1")
   })
-
-  it.each([
-    ["deleted", new Response(null, { status: 404 })],
-    ["revoked", new Response(null, { status: 403 })],
-    ["wrong message", new Response(JSON.stringify({
-      messages: [{ id: "other", seq: 9 }],
-      surfaceReceipt: { channelId: "channel_1", surfaceKind: "dm" },
-    }))],
-    ["wrong target", new Response(JSON.stringify({
-      messages: [{ id: "message_1", seq: 9 }],
-      surfaceReceipt: { channelId: "other", surfaceKind: "dm" },
-    }))],
-    ["receipt extras", new Response(JSON.stringify({
-      messages: [{ id: "message_1", seq: 9 }],
-      surfaceReceipt: { channelId: "channel_1", surfaceKind: "dm", secret: true },
-    }))],
-    ["invalid surface", new Response(JSON.stringify({
-      messages: [{ id: "message_1", seq: 9 }],
-      surfaceReceipt: { channelId: "channel_1", surfaceKind: "private" },
-    }))],
-  ])("falls back for %s message-door results", async (_label, response) => {
-    await expect(revalidateMobileSystemNotificationActivation(
-      activation,
-      vi.fn(async () => response),
-    )).resolves.toBeNull()
-  })
-
-  it("opens Inbox for an unreadable destination but ignores unavailable activation reads", async () => {
-    const openInbox = vi.fn()
+  it("preserves navigation on storage failure and ignores unavailable native reads", async () => {
     const navigate = vi.fn()
     const controller = createMobileSystemNotificationActivationController({
-      take: vi.fn()
-        .mockResolvedValueOnce(activation)
-        .mockRejectedValueOnce(new Error("invalid native response")),
-      revalidate: vi.fn().mockRejectedValueOnce(new Error("offline")),
-      queueDismiss: vi.fn(),
-      navigate,
-      openInbox,
+      take: vi.fn().mockResolvedValueOnce(activation).mockRejectedValueOnce(new Error("native unavailable")),
+      queueDismiss: () => { throw new Error("blocked") }, navigate,
     })
     await controller.drain()
-    expect(openInbox).toHaveBeenCalledTimes(1)
     await controller.drain()
-    expect(openInbox).toHaveBeenCalledTimes(1)
-    expect(navigate).not.toHaveBeenCalled()
+    expect(navigate).toHaveBeenCalledExactlyOnceWith("/c/messages/message_1")
   })
-
-  it("still navigates when dismissal persistence fails", async () => {
+  it("drains a new signal after an active take and ignores a result after disposal", async () => {
+    let resolve!: (value: typeof activation | null) => void
+    const pending = new Promise<typeof activation | null>((done) => { resolve = done })
+    const take = vi.fn().mockReturnValueOnce(pending).mockResolvedValueOnce(activation)
     const navigate = vi.fn()
-    const controller = createMobileSystemNotificationActivationController({
-      take: vi.fn(async () => activation),
-      revalidate: vi.fn(async () => ({ href: "/c/me/channel_1" })),
-      queueDismiss: vi.fn(() => { throw new Error("storage unavailable") }),
-      navigate,
-      openInbox: vi.fn(),
-    })
-    await controller.drain()
-    expect(navigate).toHaveBeenCalledExactlyOnceWith("/c/me/channel_1")
-  })
-
-  it("coalesces a signal received while an activation drain is active", async () => {
-    let releaseTake = (_value: null) => undefined
-    const firstTake = new Promise<null>((resolve) => { releaseTake = resolve })
-    const take = vi.fn().mockReturnValueOnce(firstTake).mockResolvedValueOnce(null)
-    const controller = createMobileSystemNotificationActivationController({
-      take,
-      revalidate: vi.fn(),
-      queueDismiss: vi.fn(),
-      navigate: vi.fn(),
-      openInbox: vi.fn(),
-    })
-
+    const controller = createMobileSystemNotificationActivationController({ take, navigate, queueDismiss: vi.fn() })
     const first = controller.drain()
-    await vi.waitFor(() => expect(take).toHaveBeenCalledOnce())
     await controller.drain()
-    releaseTake(null)
+    resolve(null)
     await first
     expect(take).toHaveBeenCalledTimes(2)
-  })
-
-  it("rejects invalid server-channel payloads and network failures", async () => {
-    const messageResponse = () => new Response(JSON.stringify({
-      messages: [{ id: "message_1", seq: 9 }],
-      surfaceReceipt: { channelId: "channel_1", surfaceKind: "thread" },
-    }))
-    const invalidChannel = vi.fn()
-      .mockResolvedValueOnce(messageResponse())
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        id: "channel_1",
-        serverId: "server_1",
-        type: "dm",
-      })))
-    await expect(revalidateMobileSystemNotificationActivation(
-      activation,
-      invalidChannel,
-    )).resolves.toBeNull()
-
-    await expect(revalidateMobileSystemNotificationActivation(
-      activation,
-      vi.fn(async () => { throw new Error("offline") }),
-    )).resolves.toBeNull()
+    expect(navigate).toHaveBeenCalledOnce()
+    take.mockReturnValueOnce(pending)
+    controller.dispose()
+    await controller.drain()
+    expect(take).toHaveBeenCalledTimes(2)
   })
 })

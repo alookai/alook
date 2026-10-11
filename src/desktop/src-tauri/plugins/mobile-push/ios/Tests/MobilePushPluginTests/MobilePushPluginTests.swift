@@ -1,7 +1,41 @@
 import XCTest
+import UserNotifications
 @testable import tauri_plugin_mobile_push
 
 final class MobilePushPluginTests: XCTestCase {
+  func testPresentationRequiresViewerAndUsesOnlyIdentityInThePureScript() {
+    let route = MobilePushRoute(notificationId: "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e", messageId: "message_1", targetId: "channel_1")
+    XCTAssertNil(mobilePushPresentationScript(route))
+    let script = mobilePushPresentationScript(MobilePushRoute(notificationId: route.notificationId, messageId: route.messageId, targetId: route.targetId, viewerUserId: "viewer_1"))!
+    XCTAssertTrue(script.contains("alookNativeNotificationPresentationV1"))
+    XCTAssertTrue(script.contains("===true"))
+    XCTAssertFalse(script.contains(route.notificationId))
+    XCTAssertFalse(script.contains(route.messageId))
+  }
+
+  func testPresentationAuthorizationCompletesOnceAndCancelsFallback() {
+    let completed = expectation(description: "one empty completion")
+    completed.assertForOverFulfill = true
+    let decision = MobilePushPresentationCompletion { options in
+      XCTAssertTrue(options.isEmpty)
+      completed.fulfill()
+    }
+    XCTAssertTrue(decision.finish(suppress: true))
+    XCTAssertFalse(decision.finish(suppress: false))
+    wait(for: [completed], timeout: 1)
+  }
+
+  func testPresentationTimeoutUsesNormalOptionsAndRejectsLateAuthorization() {
+    let completed = expectation(description: "normal deadline completion")
+    completed.assertForOverFulfill = true
+    let decision = MobilePushPresentationCompletion { options in
+      XCTAssertEqual(options, [.banner, .list, .sound])
+      completed.fulfill()
+    }
+    wait(for: [completed], timeout: 2)
+    XCTAssertFalse(decision.finish(suppress: true))
+  }
+
   func testRouteAcceptsOnlyCanonicalAllowlistedValues() {
     XCTAssertEqual(
       MobilePushRoute.create(

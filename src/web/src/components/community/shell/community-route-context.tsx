@@ -1,31 +1,9 @@
 "use client"
 
-import { createContext, useContext } from "react"
-import type { Breakpoint } from "@/hooks/use-mobile"
-import type { CommunityCommittedFrame } from "@/lib/community/community-route"
-import type { ShellFrameProps } from "./shell-frame-types"
-import type { CommunityNavigationController } from "./use-community-navigation-controller"
-
-export const CommunityRouteContext = createContext<{
-  breakpoint: Breakpoint
-  frame: CommunityCommittedFrame
-  navigation: CommunityNavigationController
-  ownerDeleteRouteScope: ShellFrameProps["ownerDeleteRouteScope"]
-} | null>(null)
-
-export function useCommunityRouteFrame() {
-  const context = useContext(CommunityRouteContext)
-  if (!context) throw new Error("Missing community route frame")
-  return context
-}
-
-export const CommunityServerRouteContext = createContext<{
-  serverId: string
-  serverParam: string
-} | null>(null)
-
-export function useCommunityServerRoute() {
-  const context = useContext(CommunityServerRouteContext)
-  if (!context) throw new Error("Missing server content route")
-  return context
-}
+export {
+  CommunityRouteContext,
+  CommunityServerRouteContext,
+  useCommunityRouteFrame,
+  useCommunityServerRoute,
+  type NativeNotificationConversationConsumer,
+} from "@/contexts/community/route-frame"

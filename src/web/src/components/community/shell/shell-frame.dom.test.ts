@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => {
     cancelPendingNavigation: vi.fn(),
   }
   return {
+    nativeNotifications: vi.fn(),
     currentHref: { current: "/c/channels/s1" },
     pendingHref: { current: null as string | null },
     navigationPending: { current: false },
@@ -60,6 +61,8 @@ const mocks = vi.hoisted(() => {
     viewProps: { current: {} as Record<string, unknown> },
   }
 })
+
+vi.mock("@/hooks/community/use-native-system-notifications", () => ({useNativeSystemNotifications: (...args: unknown[]) => mocks.nativeNotifications(...args)}))
 
 vi.mock("@/hooks/community/community-ws/scope-eviction", () => ({
   flushOwnerServerDeleteRouteCommit: (...args: unknown[]) => mocks.flushOwnerDelete(...args),

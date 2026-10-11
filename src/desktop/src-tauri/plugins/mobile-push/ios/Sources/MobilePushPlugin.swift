@@ -230,13 +230,62 @@ final class MobilePushStore {
   }
 }
 
+func mobilePushPresentationScript(_ route: MobilePushRoute) -> String? {
+  guard let viewer = route.viewerUserId,
+        let data = try? JSONSerialization.data(withJSONObject: ["viewerUserId": viewer, "targetId": route.targetId]),
+        let identity = String(data: data, encoding: .utf8)
+  else { return nil }
+  return "(()=>{try{return window.alookNativeNotificationPresentationV1?.(\(identity))===true?'suppress':'present'}catch{return 'present'}})()"
+}
+
+final class MobilePushPresentationCompletion: @unchecked Sendable {
+  private let lock = NSLock()
+  private var completion: (@Sendable (UNNotificationPresentationOptions) -> Void)?
+  private var deadline: DispatchWorkItem?
+
+  init(_ completion: @escaping @Sendable (UNNotificationPresentationOptions) -> Void) {
+    self.completion = completion
+    let deadline = DispatchWorkItem { [weak self] in self?.finish(suppress: false) }
+    self.deadline = deadline
+    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + .milliseconds(500), execute: deadline)
+  }
+
+  @discardableResult
+  func finish(suppress: Bool) -> Bool {
+    lock.lock()
+    let callback = completion
+    completion = nil
+    let timeout = deadline
+    deadline = nil
+    lock.unlock()
+    guard let callback else { return false }
+    timeout?.cancel()
+    callback(suppress ? [] : [.banner, .list, .sound])
+    return true
+  }
+
+  deinit { finish(suppress: false) }
+}
+
 private final class MobilePushNotificationHandler: NSObject, UNUserNotificationCenterDelegate {
   func userNotificationCenter(
     _ center: UNUserNotificationCenter,
     willPresent notification: UNNotification,
-    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void
   ) {
-    completionHandler([.banner, .list, .sound])
+    guard let route = MobilePushRoute.from(notification.request.content.userInfo),
+          let script = mobilePushPresentationScript(route)
+    else { completionHandler([.banner, .list, .sound]); return }
+    let decision = MobilePushPresentationCompletion(completionHandler)
+    DispatchQueue.main.async {
+      guard let webview = MobilePushBridge.shared.plugin?.presentationWebview else {
+        decision.finish(suppress: false)
+        return
+      }
+      webview.evaluateJavaScript(script) { result, error in
+        decision.finish(suppress: error == nil && (result as? String) == "suppress")
+      }
+    }
   }
 
   func userNotificationCenter(
@@ -404,6 +453,12 @@ final class MobilePushPlugin: Plugin {
   private let bridge = MobilePushBridge.shared
   private var listener: Channel?
   private var lifecycleObserver: NSObjectProtocol?
+  weak var presentationWebview: WKWebView?
+
+  override public func load(webview: WKWebView) {
+    super.load(webview: webview)
+    presentationWebview = webview
+  }
 
   override init() {
     super.init()

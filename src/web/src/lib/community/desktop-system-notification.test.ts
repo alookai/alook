@@ -9,7 +9,6 @@ import {
   dismissDesktopSystemNotificationConversation,
   listenDesktopSystemNotificationActivations,
   resolveDesktopSystemNotificationCandidate,
-  retryDesktopSystemNotificationActivation,
   showDesktopSystemNotification,
   takeDesktopSystemNotificationActivation,
 } from "./desktop-system-notification"
@@ -443,13 +442,4 @@ describe("desktop system notification activation bridge", () => {
     )
   })
 
-  it("re-arms exactly one native notification id", async () => {
-    invoke.mockResolvedValueOnce(undefined)
-    const notificationId = "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e"
-    await expect(retryDesktopSystemNotificationActivation(notificationId)).resolves.toBeUndefined()
-    expect(invoke).toHaveBeenCalledWith(
-      "desktop_system_notification_retry_activation",
-      { notificationId },
-    )
-  })
 })

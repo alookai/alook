@@ -192,9 +192,10 @@ describe("mobile system notification contract", () => {
   })
 
   it("installs the iOS notification delegate synchronously before deferred app work", () => {
-    const initializer = iosPlugin.slice(
-      iosPlugin.indexOf("override init()"),
-      iosPlugin.indexOf("\n  deinit"),
+    const plugin = iosPlugin.slice(iosPlugin.indexOf("final class MobilePushPlugin: Plugin"))
+    const initializer = plugin.slice(
+      plugin.indexOf("override init()"),
+      plugin.indexOf("\n  deinit"),
     )
     const delegateAssignment = initializer.indexOf(
       "UNUserNotificationCenter.current().delegate = bridge.notificationHandler",

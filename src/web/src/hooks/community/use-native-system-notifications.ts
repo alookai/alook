@@ -1,24 +1,23 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useLayoutEffect, useRef, type RefObject } from "react"
 import { createStore } from "@tanstack/store"
 import { useQueryClient, QueryObserver, type QueryClient } from "@tanstack/react-query"
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent } from "@/lib/community-db/sync"
 import { useCommunityViewSource } from "./use-community-view-source"
 import { isAbortError } from "@/lib/errors"
+import { normalizeCommunityHref, type CommunityCommittedFrame } from "@/lib/community/community-route"
+import { useCommunityRouteFrame, type NativeNotificationConversationConsumer, type CommunityNavigationController } from "@/contexts/community/route-frame"
 import { isDesktop, isMobile } from "@alook/shared"
 import {
   dismissDesktopSystemNotification,
   dismissDesktopSystemNotificationConversation,
   listenDesktopSystemNotificationActivations,
-  retryDesktopSystemNotificationActivation,
   takeDesktopSystemNotificationActivation,
 } from "@/lib/community/desktop-system-notification"
 import {
-  revalidateDesktopSystemNotificationTarget,
   systemNotificationHref,
   type DesktopSystemNotificationActivation,
-  type DesktopSystemNotificationTargetValidation,
 } from "@/lib/community/system-notification-route"
 import {
   acknowledgeMobileSystemNotificationRegistration,
@@ -32,7 +31,6 @@ import {
   postMobileSystemNotificationRegistration,
   requestMobileSystemNotificationPermission,
   resumeMobileSystemNotificationRegistration,
-  revalidateMobileSystemNotificationActivation,
   snapshotMobileSystemNotificationRegistration,
   takeMobileSystemNotificationActivation,
 } from "@/lib/community/mobile-system-notification"
@@ -99,14 +97,19 @@ function drainNativeSystemNotificationConversationDismissals(
   client: QueryClient,
   original: OriginalView,
 ) {
-  for (const target of queue.pending(platform, viewerUserId)) {
+  for (const { target, revision } of queue.pending(platform, viewerUserId)) {
     const key = ["community", "native-conversation-dismiss", platform, viewerUserId, conversationKey(target)]
     if (client.getMutationCache().findAll({ mutationKey: key, status: "pending" }).length) continue
     void nativeCommand(client, key, original, async () => {
       await dismissNativeSystemNotificationConversation(platform, viewerUserId, target)
       original()
-      queue.complete(platform, viewerUserId, target)
-    }).catch(() => undefined)
+      queue.complete(platform, viewerUserId, target, revision)
+    }).catch(() => undefined).finally(() => {
+      try { original() } catch { return }
+      if (queue.pending(platform, viewerUserId).some((entry) => conversationKey(entry.target) === conversationKey(target) && entry.revision !== revision)) {
+        drainNativeSystemNotificationConversationDismissals(platform, viewerUserId, queue, client, original)
+      }
+    })
   }
 }
 
@@ -116,7 +119,11 @@ export function useNativeSystemNotificationConversationDismissal(
   ready: boolean,
 ) {
   const client = useQueryClient()
+  const { frame, navigation, notificationConsumer: notificationConsumerRef } = useCommunityRouteFrame()
+  const current = useRef({ frame, navigation })
+  useLayoutEffect(() => { current.current = { frame, navigation } }, [frame, navigation])
   const source = useCommunityViewSource(`native-conversation-dismiss:${viewerUserId}:${target.channelId}`, ready)
+  const captureIntent = navigation.captureIntent
   const kind = target.kind
   const channelId = target.channelId
   const serverId = target.kind === "server" ? target.serverId : undefined
@@ -124,178 +131,71 @@ export function useNativeSystemNotificationConversationDismissal(
     if (!ready || (!isDesktop() && !isMobile())) return
     const platform = isDesktop() ? "desktop" : "mobile"
     const dismissalTarget: NativeSystemNotificationConversation = kind === "server"
-      ? { kind, serverId: serverId!, channelId }
-      : { kind, channelId }
+      ? { kind, serverId: serverId!, channelId } : { kind, channelId }
     const queue = createNativeSystemNotificationConversationDismissalQueue({
       getItem: (storageKey) => window.localStorage.getItem(storageKey),
       setItem: (storageKey, value) => window.localStorage.setItem(storageKey, value),
       removeItem: (storageKey) => window.localStorage.removeItem(storageKey),
     })
-    queue.queue(platform, viewerUserId, dismissalTarget)
-    drainNativeSystemNotificationConversationDismissals(platform, viewerUserId, queue, client, source.capture())
-  }, [channelId, client, kind, ready, serverId, source, viewerUserId])
+    const original = source.capture()
+    const intent = captureIntent()
+    const consumer: NativeNotificationConversationConsumer = {
+      matches: (viewer, targetId) => {
+        try { original() } catch { return false }
+        const route = current.current
+        return viewer === viewerUserId && targetId === channelId && intent()
+          && document.visibilityState === "visible" && !route.navigation.navigationPending
+          && route.frame.pathname === systemNotificationHref(dismissalTarget)
+          && normalizeCommunityHref(route.navigation.publishedHref).pathname === route.frame.pathname
+      },
+      requestDismiss: () => {
+        if (!consumer.matches(viewerUserId, channelId)) return
+        queue.queue(platform, viewerUserId, dismissalTarget)
+        drainNativeSystemNotificationConversationDismissals(platform, viewerUserId, queue, client, original)
+      },
+    }
+    const actual = current.current
+    if (notificationConsumerRef && !actual.navigation.navigationPending
+      && actual.frame.pathname === systemNotificationHref(dismissalTarget)
+      && normalizeCommunityHref(actual.navigation.publishedHref).pathname === actual.frame.pathname) {
+      notificationConsumerRef.current = consumer
+    }
+    consumer.requestDismiss()
+    const onVisible = () => { if (document.visibilityState === "visible") consumer.requestDismiss() }
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible)
+      if (notificationConsumerRef?.current === consumer) notificationConsumerRef.current = null
+    }
+  }, [channelId, client, kind, ready, serverId, source, viewerUserId, notificationConsumerRef,
+    frame.pathname, navigation.publishedHref, navigation.navigationPending, captureIntent])
 }
 
 function dismissPendingNativeSystemNotification(
   platform: "desktop" | "mobile",
+  viewerUserId: string,
   pathname: string,
   dismissal: ReturnType<typeof createNativeSystemNotificationDismissalQueue>,
   dismiss: (notificationId: string) => Promise<void>,
   client: QueryClient,
   original: OriginalView,
 ) {
-  const notificationId = dismissal.peek(platform, pathname)
+  const notificationId = dismissal.peek(platform, viewerUserId, pathname)
   if (!notificationId) return
-  const key = ["community", "native-notification-dismiss", platform, pathname, notificationId]
+  const key = ["community", "native-notification-dismiss", platform, viewerUserId, pathname, notificationId]
   if (client.getMutationCache().findAll({ mutationKey: key, status: "pending" }).length) return
   void nativeCommand(client, key, original, async () => {
     await dismiss(notificationId)
     original()
-    dismissal.complete(platform, pathname, notificationId)
+    dismissal.complete(platform, viewerUserId, pathname, notificationId)
   }).catch(() => undefined)
 }
 
 export type DesktopSystemNotificationActivationDeps = {
   listen: (ready: () => void) => Promise<() => void>
   take: () => Promise<DesktopSystemNotificationActivation | null>
-  revalidate: (
-    activation: DesktopSystemNotificationActivation,
-  ) => Promise<DesktopSystemNotificationTargetValidation>
-  retryActivation: (notificationId: string) => Promise<void>
   queueDismiss: (notificationId: string, href: string) => void
   navigate: (href: string) => void
-  openInbox: () => Promise<void> | void
-}
-
-type InboxIntent = {
-  version: 1
-  expiresAt: number
-  navigationStarted: boolean
-}
-
-export type DesktopSystemNotificationInboxDeps = {
-  getItem: (key: string) => string | null
-  setItem: (key: string, value: string) => void
-  removeItem: (key: string) => void
-  findTrigger: () => { click: () => void } | null
-  navigateToCommunity: () => void
-  wait: () => Promise<void>
-  now: () => number
-  pollAttempts?: number
-}
-
-const INBOX_INTENT_KEY = "alook:desktop-system-notification:inbox-intent"
-const INBOX_INTENT_VERSION = 1
-const INBOX_INTENT_TTL_MS = 5 * 60 * 1000
-const INBOX_POLL_ATTEMPTS = 40
-
-export function createDesktopSystemNotificationInboxOpener(
-  deps: DesktopSystemNotificationInboxDeps,
-) {
-    const protocol = createStore({ disposed: false,
-        draining: null as Promise<void> | null });
-    function removeIntent() {
-        try {
-            deps.removeItem(INBOX_INTENT_KEY);
-        }
-        catch {
-            return;
-        }
-    }
-    function readIntent(): InboxIntent | null {
-        let raw: string | null;
-        try {
-            raw = deps.getItem(INBOX_INTENT_KEY);
-        }
-        catch {
-            return null;
-        }
-        if (raw === null)
-            return null;
-        try {
-            const value = JSON.parse(raw) as Partial<InboxIntent>;
-            if (value.version !== INBOX_INTENT_VERSION
-                || typeof value.expiresAt !== "number"
-                || !Number.isFinite(value.expiresAt)
-                || value.expiresAt <= deps.now()
-                || typeof value.navigationStarted !== "boolean"
-                || Object.keys(value).some((key) => !["version", "expiresAt", "navigationStarted"].includes(key))) {
-                removeIntent();
-                return null;
-            }
-            return value as InboxIntent;
-        }
-        catch {
-            removeIntent();
-            return null;
-        }
-    }
-    function writeIntent(intent: InboxIntent) {
-        try {
-            deps.setItem(INBOX_INTENT_KEY, JSON.stringify(intent));
-            return true;
-        }
-        catch {
-            return false;
-        }
-    }
-    function queueIntent() {
-        if (readIntent())
-            return true;
-        return writeIntent({
-            version: INBOX_INTENT_VERSION,
-            expiresAt: deps.now() + INBOX_INTENT_TTL_MS,
-            navigationStarted: false,
-        });
-    }
-    function consume() {
-        if (protocol.get().draining)
-            return protocol.get().draining;
-        const draining = Promise.resolve().then(async () => {
-                const attempts = Math.max(1, deps.pollAttempts ?? INBOX_POLL_ATTEMPTS);
-                for (let attempt = 0; attempt < attempts; attempt += 1) {
-                    if (protocol.get().disposed || !readIntent())
-                        return;
-                    const trigger = deps.findTrigger();
-                    if (trigger) {
-                        if (protocol.get().disposed)
-                            return;
-                        trigger.click();
-                        removeIntent();
-                        return;
-                    }
-                    if (attempt + 1 < attempts)
-                        await deps.wait();
-                }
-                if (protocol.get().disposed)
-                    return;
-                const intent = readIntent();
-                if (!intent || intent.navigationStarted)
-                    return;
-                if (!writeIntent({ ...intent, navigationStarted: true }))
-                    return;
-                deps.navigateToCommunity();
-            }).finally(() => {
-                protocol.setState(state => ({ ...state, draining: null }));
-            });
-        protocol.setState(state => ({ ...state, draining }));
-        return protocol.get().draining;
-    }
-    return {
-        async open() {
-            if (protocol.get().disposed || !queueIntent())
-                return;
-            await consume();
-        },
-        async resume() {
-            if (protocol.get().disposed || !readIntent())
-                return;
-            await consume();
-        },
-        dispose() {
-            protocol.setState(state => ({ ...state, disposed: true }));
-        },
-    };
 }
 
 export function createDesktopSystemNotificationActivationController(
@@ -317,26 +217,13 @@ export function createDesktopSystemNotificationActivationController(
                 const activation = await deps.take().catch(() => null);
                 if (!activation || protocol.get().disposed)
                     continue;
-                const validation = await deps.revalidate(activation).catch(() => "retryable" as const);
-                if (protocol.get().disposed)
-                    continue;
-                if (validation === "allowed") {
-                    const href = systemNotificationHref(activation.target);
-                    try {
-                        deps.queueDismiss(activation.notificationId, href);
-                    }
-                    catch { }
-                    if (!protocol.get().disposed)
-                        deps.navigate(href);
+                const href = systemNotificationHref(activation.target);
+                try {
+                    deps.queueDismiss(activation.notificationId, href);
                 }
-                else {
-                    if (validation === "retryable") {
-                        await deps.retryActivation(activation.notificationId).catch(() => undefined);
-                        if (protocol.get().disposed)
-                            continue;
-                    }
-                    await deps.openInbox();
-                }
+                catch { }
+                if (!protocol.get().disposed)
+                    deps.navigate(href);
             } while (protocol.get().rerun && !protocol.get().disposed);
         }
         finally {
@@ -363,12 +250,31 @@ export function createDesktopSystemNotificationActivationController(
     };
 }
 
-export function useNativeSystemNotifications(viewerUserId: string) {
+export function useNativeSystemNotifications(
+  viewerUserId: string,
+  frame: CommunityCommittedFrame,
+  navigation: CommunityNavigationController,
+  notificationConsumer: RefObject<NativeNotificationConversationConsumer | null>,
+) {
+  const currentRoute = useRef({ frame, navigation })
+  const committedDismissal = useRef<() => void>(() => undefined)
+  useLayoutEffect(() => { currentRoute.current = { frame, navigation } }, [frame, navigation])
   const client = useQueryClient()
   const source = useCommunityViewSource(`native-notifications:${viewerUserId}`)
   useEffect(() => {
     const original = source.capture()
     original()
+    const presentationWindow = window as Window & { alookNativeNotificationPresentationV1?: (identity: unknown) => boolean }
+    const presentation = (identity: unknown) => {
+      try { original() } catch { return false }
+      if (!identity || typeof identity !== "object" || Array.isArray(identity)) return false
+      const value = identity as Record<string, unknown>
+      return Object.keys(value).length === 2 && typeof value.viewerUserId === "string"
+        && typeof value.targetId === "string" && value.viewerUserId === viewerUserId
+        && notificationConsumer.current?.matches(value.viewerUserId, value.targetId) === true
+    }
+    presentationWindow.alookNativeNotificationPresentationV1 = presentation
+    const requestCurrentDismissal = () => { try { original() } catch { return }; notificationConsumer.current?.requestDismiss() }
     const key = (...parts: readonly unknown[]) => ["community", "native-notifications", viewerUserId, ...parts]
     const dismissal = createNativeSystemNotificationDismissalQueue({
       getItem: (key) => window.sessionStorage.getItem(key),
@@ -376,23 +282,27 @@ export function useNativeSystemNotifications(viewerUserId: string) {
       removeItem: (key) => window.sessionStorage.removeItem(key),
       now: () => Date.now(),
     })
-    const pathname = new URL(window.location.href).pathname
     const conversationDismissals = createNativeSystemNotificationConversationDismissalQueue({
       getItem: (key) => window.localStorage.getItem(key),
       setItem: (key, value) => window.localStorage.setItem(key, value),
       removeItem: (key) => window.localStorage.removeItem(key),
     })
-    const inbox = createDesktopSystemNotificationInboxOpener({
-      getItem: (key) => window.sessionStorage.getItem(key),
-      setItem: (key, value) => window.sessionStorage.setItem(key, value),
-      removeItem: (key) => window.sessionStorage.removeItem(key),
-      findTrigger: () => { original(); return document.querySelector<HTMLButtonElement>(
-        'button[aria-label="Inbox"], button[aria-label="Open Inbox"]',
-      ) },
-      navigateToCommunity: () => { original(); window.location.assign(new URL("/c", window.location.href).href) },
-      wait: () => new Promise<void>((resolve) => window.setTimeout(resolve, 50)),
-      now: () => Date.now(),
-    })
+    const dismissPending = () => {
+      try { original() } catch { return }
+      const { frame: actualFrame, navigation: currentNavigation } = currentRoute.current
+      if (currentNavigation.navigationPending
+        || normalizeCommunityHref(currentNavigation.publishedHref).href !== actualFrame.href) return
+      const platform = isDesktop() ? "desktop" : isMobile() ? "mobile" : null
+      if (!platform) return
+      dismissPendingNativeSystemNotification(platform, viewerUserId, actualFrame.pathname,
+        dismissal, platform === "desktop" ? dismissDesktopSystemNotification : dismissMobileSystemNotification,
+        client, original)
+    }
+    committedDismissal.current = dismissPending
+    const releaseDismissal = () => {
+      if (presentationWindow.alookNativeNotificationPresentationV1 === presentation) delete presentationWindow.alookNativeNotificationPresentationV1
+      if (committedDismissal.current === dismissPending) committedDismissal.current = () => undefined
+    }
 
     if (isDesktop()) {
       const drainConversations = () => drainNativeSystemNotificationConversationDismissals(
@@ -400,52 +310,35 @@ export function useNativeSystemNotifications(viewerUserId: string) {
         viewerUserId,
         conversationDismissals, client, original,
       )
-      const dismissPending = () => dismissPendingNativeSystemNotification(
-        "desktop",
-        pathname,
-        dismissal,
-        dismissDesktopSystemNotification, client, original,
-      )
       dismissPending()
       drainConversations()
       window.addEventListener("focus", dismissPending)
       window.addEventListener("focus", drainConversations)
+      window.addEventListener("focus", requestCurrentDismissal)
       window.addEventListener("online", drainConversations)
       const browserDeps: DesktopSystemNotificationActivationDeps = {
-        listen: listenDesktopSystemNotificationActivations,
+        listen: (wake) => listenDesktopSystemNotificationActivations(() => { requestCurrentDismissal(); wake() }),
         take: () => nativeCommand(client, key("desktop", "take"), original, takeDesktopSystemNotificationActivation),
-        revalidate: ({ target }) => nativeRead(client, key("desktop", "target", target), original, (options) => revalidateDesktopSystemNotificationTarget(target, fetch, options)),
-        retryActivation: (id) => nativeCommand(client, key("desktop", "retry", id), original, () => retryDesktopSystemNotificationActivation(id)),
         queueDismiss: (notificationId, href) => {
-          original(); dismissal.queue("desktop", notificationId, href)
+          original(); dismissal.queue("desktop", viewerUserId, notificationId, href)
         },
-        navigate: (href) => { original(); window.location.assign(href) },
-        openInbox: () => { original(); return inbox.open() },
+        navigate: (href) => { original(); currentRoute.current.navigation.pushImmediate(href); dismissPending() },
       }
       const controller = createDesktopSystemNotificationActivationController(browserDeps)
-      void inbox.resume().catch(() => undefined)
       void controller.connect().catch(() => controller.dispose())
       return () => {
         window.removeEventListener("focus", dismissPending)
         window.removeEventListener("focus", drainConversations)
+        window.removeEventListener("focus", requestCurrentDismissal)
         window.removeEventListener("online", drainConversations)
         controller.dispose()
-        inbox.dispose()
+        releaseDismissal()
       }
     }
 
-    if (!isMobile()) {
-      inbox.dispose()
-      return
-    }
+    if (!isMobile()) return releaseDismissal
 
     resumeMobileSystemNotificationRegistration()
-    const dismissPending = () => dismissPendingNativeSystemNotification(
-      "mobile",
-      pathname,
-      dismissal,
-      dismissMobileSystemNotification, client, original,
-    )
     dismissPending()
 
     const registration = createMobileSystemNotificationRegistrationController({
@@ -461,17 +354,16 @@ export function useNativeSystemNotifications(viewerUserId: string) {
     })
     const activation = createMobileSystemNotificationActivationController({
       take: () => nativeCommand(client, key("mobile", "take"), original, takeMobileSystemNotificationActivation),
-      revalidate: (activation) => nativeRead(client, key("mobile", "target", activation.targetId, activation.messageId), original, (options) => revalidateMobileSystemNotificationActivation(activation, fetch, options)),
       queueDismiss: (notificationId, href) => {
-        original(); dismissal.queue("mobile", notificationId, href)
+        original(); dismissal.queue("mobile", viewerUserId, notificationId, href)
       },
-      navigate: (href) => { original(); window.location.assign(href) },
-      openInbox: () => { original(); return inbox.open() },
+      navigate: (href) => { original(); currentRoute.current.navigation.pushImmediate(href); dismissPending() },
     })
     let disposed = false
     let unlisten: (() => void) | undefined
 
     const synchronize = () => {
+      requestCurrentDismissal()
       dismissPending()
       drainNativeSystemNotificationConversationDismissals("mobile", viewerUserId, conversationDismissals, client, original)
       void registration.sync().catch(() => undefined)
@@ -483,7 +375,6 @@ export function useNativeSystemNotifications(viewerUserId: string) {
     window.addEventListener("online", synchronize)
     document.addEventListener("visibilitychange", onVisibilityChange)
 
-    void inbox.resume().catch(() => undefined)
     drainNativeSystemNotificationConversationDismissals("mobile", viewerUserId, conversationDismissals, client, original)
     void (async () => {
       try {
@@ -504,7 +395,8 @@ export function useNativeSystemNotifications(viewerUserId: string) {
       unlisten?.()
       registration.dispose()
       activation.dispose()
-      inbox.dispose()
+      releaseDismissal()
     }
-  }, [viewerUserId, client, source])
+  }, [viewerUserId, client, source, notificationConsumer])
+  useEffect(() => { committedDismissal.current() }, [frame.href, navigation.publishedHref, navigation.navigationPending])
 }
