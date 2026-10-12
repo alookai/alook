@@ -8,7 +8,7 @@ const batch: MessageDeliveryBatch = { messageId: "message", messageEvent: { type
 describe("staged community event production", () => {
   it("defaults to the exact old control shape until v2 production is enabled", () => {
     expect(projectCommunityProducerEvent(event, {})).toEqual({ type: "community:channel.member_add", channelId: "thread", serverId: "server", userId: "peer" })
-    expect(projectCommunityProducerEvent(event, { COMMUNITY_EVENT_CONTRACT: "2" })).toBe(event)
+    expect(projectCommunityProducerEvent(event, { COMMUNITY_EVENT_CONTRACT: "2" })).toEqual(event)
     expect(() => projectCommunityProducerEvent({ ...event, serverId: null }, {})).toThrow("requires producer contract v2")
   })
   it("selects the old committed-delivery shape without mutating its source", () => {

@@ -189,7 +189,7 @@ export function dispatchCommunityWsEvents(
       const receipt = { id: telemetryId(), start: performance.now(), type: event.type }
       receipts.push(receipt)
       entry.handler(event, handlerContext)
-      if (event.type !== "community:message.create") projectCommunityWsEventToDb(context.queryClient, event)
+      if (event.type !== "community:message.create") projectCommunityWsEventToDb(context.queryClient, event, context.contract)
       if ([
         "community:server.delete",
         "community:channel.delete",

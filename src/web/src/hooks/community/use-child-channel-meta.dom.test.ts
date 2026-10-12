@@ -15,7 +15,7 @@ vi.mock("@/lib/api/client", () => ({
 
 import { useChannelMetadata } from "./use-channel-metadata"
 
-const meta = (overrides: Partial<ReturnType<typeof channelSchema.parse>> = {}) => channelSchema.parse({
+const meta = (overrides: Partial<ReturnType<typeof channelSchema.parse>> = {}) => channelSchema.parse({ categoryId: null, topic: "", messageCount: 0, createdAt: "2026-10-01T00:00:00Z",
   id: "post-1", serverId: "server-1", name: "post", type: "thread",
   parentChannelId: "forum-1", parentMessageId: "opener-1", creatorId: "user-1",
   archived: false, lastMessageAt: "2026-08-09T00:00:00.000Z",
@@ -32,7 +32,7 @@ async function fixture() {
 
 beforeEach(() => {
   apiFetchMock.mockReset()
-  apiFetchMock.mockResolvedValue({
+  apiFetchMock.mockResolvedValue({ categoryId: null, topic: "", position: 0, messageCount: 0,
     id: "post-1",
     serverId: "server-1",
     name: "post",
@@ -151,7 +151,7 @@ describe("child channel metadata stale rendering", () => {
   it("builds a structural placeholder from a complete canonical thread row", async () => {
     apiFetchMock.mockImplementation(() => new Promise(() => {}))
     const { client: queryClient } = await createCommunityQueryOwner()
-    createCommunityDbRegistry(queryClient, "viewer").collections.channels.utils.writeUpsert(channelSchema.parse({
+    createCommunityDbRegistry(queryClient, "viewer").collections.channels.utils.writeUpsert(channelSchema.parse({ categoryId: null, topic: "", messageCount: 0, createdAt: "2026-10-01T00:00:00Z",
       id: "post-1",
       serverId: "server-1",
       name: "post",

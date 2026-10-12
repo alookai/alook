@@ -76,7 +76,7 @@ describe("warmup original owner and complete intent resources", () => {
     await owner.registry.preload()
     const serverId = kind === "dm" ? null : "s1"
     if (serverId) owner.client.setQueryData(communityKeys.server(serverId), serverId)
-    const metadata = { id: "d1", serverId, type: kind, name: kind === "dm" ? null : "Thread",
+    const metadata = { categoryId: null, topic: "", position: 0, messageCount: 0, id: "d1", serverId, type: kind, name: kind === "dm" ? null : "Thread",
       parentChannelId: kind === "dm" ? null : "parent", parentMessageId: kind === "dm" ? null : "opener",
       creatorId: null, archived: false, lastMessageAt: null, createdAt: "2026-10-02T00:00:00Z" }
     const json = (value: unknown) => new Response(JSON.stringify(value), { status: 200, headers: { "Content-Type": "application/json" } })

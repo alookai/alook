@@ -15,7 +15,7 @@ import {
   type CommunityMessageCreate,
   type CommunityWsEvent,
 } from "../src/community-ws-events"
-import { communityWsEventFixtures, requiredFixturePaths } from "./community-ws-events.fixtures"
+import { communityWsEventFixtures, communityResourceMessageFixture, communityResourceChannelFixture, requiredFixturePaths } from "./community-ws-events.fixtures"
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
@@ -233,5 +233,25 @@ describe("Community browser event runtime contract", () => {
     expect(utf8ByteLength(emptyEventBody)).toBe(771_813)
     expect(utf8ByteLength(emptyEventBody) + COMMUNITY_BROWSER_EVENT_MAX_BYTES - 2)
       .toBe(COMMUNITY_BULK_BODY_MAX_BYTES)
+  })
+})
+
+
+describe("explicit v3 browser events", () => {
+  it("requires full resources on create and preserves partial deltas", () => {
+    expect(decodeCommunityBrowserEvent(communityResourceMessageFixture, 3)).toEqual({ ok: true, event: communityResourceMessageFixture })
+    expect(decodeCommunityBrowserEvent(communityResourceMessageFixture, 2).ok).toBe(false)
+    expect(decodeCommunityBrowserEvent(communityWsEventFixtures["community:message.create"], 3).ok).toBe(false)
+    expect(decodeCommunityBrowserEvent({ ...communityResourceMessageFixture, channelId: "other" }, 3).ok).toBe(false)
+    const create = { type: WS_EVENTS.CHANNEL_CREATE, serverId: "server-1", channel: communityResourceChannelFixture }
+    expect(decodeCommunityBrowserEvent(create, 3)).toEqual({ ok: true, event: create })
+    expect(decodeCommunityBrowserEvent({ ...create, serverId: "other" }, 3).ok).toBe(false)
+    expect(decodeCommunityBrowserEvent({ ...create, channel: { id: "channel-1", name: "Channel", type: "text" } }, 3).ok).toBe(false)
+    const delta = { type: WS_EVENTS.CHANNEL_UPDATE, serverId: "server-1", channelId: "channel-1", changes: { name: "Renamed" } }
+    expect(decodeCommunityBrowserEvent(delta, 3)).toEqual({ ok: true, event: delta })
+    const encoded = encodeCommunityBrowserEvent(communityResourceMessageFixture, 3)
+    expect(encoded.ok).toBe(true)
+    if (encoded.ok) expect(encoded.byteLength).toBe(utf8ByteLength(encoded.body))
+    expect(encodeCommunityBrowserEvent({ ...communityResourceMessageFixture, message: { ...communityResourceMessageFixture.message, content: "😀".repeat(COMMUNITY_BROWSER_EVENT_MAX_BYTES) } }, 3).ok).toBe(false)
   })
 })

@@ -4,7 +4,6 @@ import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import type { QueryFunctionContext } from "@tanstack/react-query"
 
 import { apiFetchProfiles } from "@/lib/community/profile-seed"
-import { avatarInitial } from "@/lib/community/avatar"
 
 /**
  * Fetches a public user profile card (avatar, name, aboutMe, mutual-server
@@ -50,7 +49,7 @@ export const userProfileQueryFn = (userId: string) => async (context: QueryFunct
         ownerUserId: profile.kind === "bot" ? profile.ownerProfile.id : null,
       },
       avatar: {
-        avatar: profile.image ?? avatarInitial(profile.name),
+        avatar: profile.image,
         avatarVersion: profile.avatarVersion,
       },
       status: {

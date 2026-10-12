@@ -8,11 +8,14 @@ import { CommunityRuntimeProvider } from "@/stores/community/runtime"
 import { notifLevelDisplay } from "@alook/shared"
 import { projectForumSidebar } from "@/lib/community/forum-sidebar"
 import { avatarInitial } from "@/lib/community/avatar"
+import { readCommunityProfile } from "@/lib/community/profile-read"
 import type { DM } from "@/lib/community/models/people"
 import { sortDmsByActivity } from "@/lib/community/dm-order"
 import type { CommunityProfile } from "@/lib/community/models/people"
 import type { Category, CommunityFolder, Server } from "@/lib/community/models/navigation"
 import type { Msg } from "@/lib/community/models/message"
+import { presentCanonicalMessage } from "@/lib/community/message-wire"
+import type { CommunityMessagePreview } from "@alook/shared"
 import type { ChannelRefDirectory } from "@/lib/community/channel-ref"
 import type { CommunityDbRegistry } from "./collections"
 import { useCommunityPreviewProfiles } from "@/stores/community/profile-preview"
@@ -29,10 +32,12 @@ import type {
   ServerRow,
 } from "./schema"
 
+function projectedCanonicalMessage(message: MessageRow, child?: ChannelRow): CommunityMessagePreview & { resourceComplete: boolean } {
+  return { ...message, ...(child ? { thread: { id: child.id, name: child.name ?? "", messageCount: child.messageCount ?? 0, lastReplyAt: child.lastMessageAt ?? undefined, tags: child.tags, preview: child.preview, participantCount: child.participantCount } } : {}) }
+}
+
 function projectedMessage(message: MessageRow, child?: ChannelRow): Msg {
-  const { channelId: _channelId, replyToId: _replyToId, ...model } = message
-  const value = { ...model, ...(child ? { thread: { id: child.id, name: child.name, messageCount: child.messageCount ?? 0, lastReplyAt: child.lastMessageAt ?? undefined, tags: child.tags, preview: child.preview, participantCount: child.participantCount } } : {}) } as Msg
-  return value
+  return presentCanonicalMessage(projectedCanonicalMessage(message, child))
 }
 
 let communityDbContext: Context<CommunityDbRegistry | null> | null = null
@@ -215,7 +220,7 @@ export function useServerTreeProjection(serverId: string | null) {
     ))
     const channelView = (channel: ChannelRow): Category["channels"][number] => ({
       id: channel.id,
-      name: channel.name,
+      name: channel.name ?? "",
       active: false,
       unread: channel.unread,
       muted: channel.muted,
@@ -262,14 +267,14 @@ export function useDmProjection() {
   const userIds = useMemo(() => (channelMemberships ?? []).filter((membership) => (
     membership.relation === "access" && membership.userId !== registry?.accountId
   )).map((membership) => membership.userId), [channelMemberships, registry?.accountId])
-  const profiles = useCollectionQuery("profiles", ({ row }) => inArray(row.userId, userIds)).data
+  const profiles = useCollectionQuery("profiles", ({ row }) => inArray(row.id, userIds)).data
   const readStates = useCollectionQuery("readStates", ({ row }) => inArray(row.channelId, channelIds)).data
   const rows = { registry, channels, channelMemberships, profiles, readStates }
   return useMemo(() => {
     const viewerId = rows.registry?.accountId
     if (!viewerId || !rows.channels || !rows.channelMemberships || !rows.profiles) return undefined
     const channelMemberships = rows.channelMemberships
-    const profileById = new Map(rows.profiles.map((profile) => [profile.userId, profile]))
+    const profileById = new Map(rows.profiles.map((profile) => [profile.id, profile]))
     const readStateByChannel = new Map((rows.readStates ?? []).map((state) => [state.channelId, state]))
     const result = sortDmsByActivity(rows.channels
       .filter((channel) => channel.type === "dm")
@@ -284,12 +289,9 @@ export function useDmProjection() {
         if (!profile) return []
         const readState = readStateByChannel.get(channel.id)
         return [{
+          ...readCommunityProfile(profile, profile.id),
           id: channel.id,
-          userId: profile.userId,
-          name: profile.name,
-          discriminator: profile.discriminator,
-          avatar: profile.avatar,
-          avatarVersion: profile.avatarVersion,
+          userId: profile.id,
           status: "offline",
           preview: channel.preview ?? "",
           ...(channel.lastMessageAt ? { activityAt: channel.lastMessageAt } : {}),
@@ -355,8 +357,12 @@ export function useMessageWindowProjection(channelId: string | null, ids: readon
     : undefined }).data as Array<{ id: string }> | undefined
   const selected = useMemo(() => ids ?? warm?.map((message) => message.id) ?? [], [ids, warm])
   const allIds = useMemo(() => [...new Set([...selected, ...liveIds])], [selected, liveIds])
-  const messages = useMessageProjection(channelId, allIds)
-  return { messages, windowIds: selected }
+  const { data } = useJoinedMessageQuery(channelId, allIds)
+  const canonicalMessages = useMemo(() => !channelId || !data ? undefined : data
+    .sort((a, b) => (a.message.seq ?? 0) - (b.message.seq ?? 0))
+    .map(({ message, child }) => projectedCanonicalMessage(message, child)), [channelId, data])
+  const messages = useMemo(() => canonicalMessages?.map(presentCanonicalMessage), [canonicalMessages])
+  return { messages, canonicalMessages, windowIds: selected }
 }
 
 function useCollectionById<N extends "channels" | "servers">(name: N) {
@@ -420,14 +426,14 @@ export function useNotificationSettingsProjection() {
 
 export function useCanonicalProfilesProjection(userIds?: readonly string[]) {
   const previewProfiles = useCommunityPreviewProfiles()
-  const projection = useCollectionQuery("profiles", ({ row }) => userIds === undefined ? eq(1, 1) : inArray(row.userId, [...userIds]))
+  const projection = useCollectionQuery("profiles", ({ row }) => userIds === undefined ? eq(1, 1) : inArray(row.id, [...userIds]))
   const { registry } = projection
   const livePresence = useSelector(registry?.runtime.ws ?? absentPresence, (state) => previewProfiles ? null : userIds === undefined ? [...state.presenceByUserId] : userIds.map((id) => [id, state.presenceByUserId.get(id)] as const), { compare: (left, right) => left === right || (!!left && !!right && left.length === right.length && left.every(([id, presence], index) => id === right[index]?.[0] && presence === right[index]?.[1])) })
   const data: ReadonlyMap<string, CommunityProfile> = useMemo(() => {
     if (previewProfiles) return previewProfiles
     const merged = new Map<string, CommunityProfile>()
     for (const profile of projection.data ?? []) {
-      merged.set(profile.userId, { ...profile, id: profile.userId })
+      merged.set(profile.id, { ...profile, id: profile.id })
     }
     for (const [userId, presence] of livePresence ?? []) {
       if (presence === undefined) continue
@@ -478,7 +484,7 @@ export function useChannelRosterRows(channelId: string, relation: "access" | "no
 
 export function useCanonicalCommunityProfile(userId: string | null | undefined) {
   const preview = useCommunityPreviewProfiles()
-  const { registry, data } = useCollectionQuery("profiles", ({ row }) => eq(row.userId, userId), !!userId)
+  const { registry, data } = useCollectionQuery("profiles", ({ row }) => eq(row.id, userId), !!userId)
   const profile = data?.[0]
   const presence = useSelector(registry?.runtime.ws ?? absentPresence, (state) => userId ? state.presenceByUserId.get(userId) : undefined)
   return useMemo(() => {
@@ -512,7 +518,7 @@ export function useChannelRefDirectoryProjection(): ChannelRefDirectory | undefi
         .filter((channel) => channel.serverId === server.id)
         .flatMap((channel) => (
           channel.type === "text" || channel.type === "forum"
-            ? [{ id: channel.id, name: channel.name, type: channel.type }]
+            ? [{ id: channel.id, name: channel.name ?? "", type: channel.type }]
             : []
         )),
     }))

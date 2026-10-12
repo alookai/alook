@@ -15,10 +15,10 @@ describe("protected community JSON policy", () => {
     if (status !== 200) expect(await response.json()).toMatchObject({ contractVersion: 2, error: { message: "blocked", retryable: status >= 500 || status === 429 } })
   })
   it("preserves the independent media policy and rejects unknown versions", async () => {
-    const request = new Request("https://alook.test/api/community/channels/c/icon", { headers: { [COMMUNITY_CONTRACT_HEADER]: "3" } })
+    const request = new Request("https://alook.test/api/community/channels/c/icon", { headers: { [COMMUNITY_CONTRACT_HEADER]: "4" } })
     const image = new Response("image", { headers: { "Content-Type": "image/png", "Cache-Control": "private, max-age=86400", "ETag": "asset" } })
     expect(await protectCommunityJsonResponse(request, image)).toBe(image)
     expect(rejectUnknownCommunityContract(request)?.status).toBe(400)
-    expect(rejectUnknownCommunityContract(new Request("https://alook.test/api/calendar", { headers: { [COMMUNITY_CONTRACT_HEADER]: "3" } }))).toBeNull()
+    expect(rejectUnknownCommunityContract(new Request("https://alook.test/api/calendar", { headers: { [COMMUNITY_CONTRACT_HEADER]: "4" } }))).toBeNull()
   })
 })

@@ -36,12 +36,14 @@ import type {
 import { flushPendingReadIntents } from "@/hooks/community/read-coordinator"
 import {
   decodeCommunityBrowserEvent,
+  communityBrowserEventBatchType,
   admitCommunityBrowserEventBatch,
   isCommunityBrowserEventBatchCandidate,
   isCommunityEventType,
   TYPING_INDICATOR_THROTTLE_MS,
   type AgentInterruptRequest,
   type CommunityWsEvent,
+  type CommunityContract,
 } from "@alook/shared"
 import { trackCommunityWsFrameDropped } from "@/lib/analytics"
 import {
@@ -349,7 +351,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
   }, [runInboxGeneration])
 
   const handleMessage = useCallback(
-    async (msg: { type: string;[key: string]: unknown }, assertAdmissionCurrent?: () => void) => {
+    async (msg: { type: string;[key: string]: unknown }, assertAdmissionCurrent?: () => void, contract: CommunityContract = 2) => {
       if (!msg.type.startsWith("community:")) return
       if (!runtime.lifecycle.get().active) return
       const communityStore = runtime.ui
@@ -371,6 +373,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         deliveryMode: "single" | "batch",
         requestInboxRefresh = scheduleInboxInvalidate,
       ): CommunityWsDispatchContext => ({
+        contract,
         deliveryMode,
         queryClient,
         communityStore,
@@ -397,6 +400,11 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
       }
 
       if (isCommunityBrowserEventBatchCandidate(msg)) {
+        if (msg.type !== communityBrowserEventBatchType(contract)
+          && !(contract === 2 && msg.type === communityBrowserEventBatchType(1))) {
+          trackCommunityWsFrameDropped({ reason: "invalid-payload", type: msg.type })
+          return
+        }
         const token = captureCommunityLiveSnapshotToken(queryClient)
         const admission = admitCommunityBrowserEventBatch(msg)
         const decoded = admission instanceof Promise ? await admission : admission
@@ -486,7 +494,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         return
       }
 
-      const decoded = decodeCommunityBrowserEvent(msg)
+      const decoded = decodeCommunityBrowserEvent(msg, contract)
       if (!decoded.ok) {
         const metadata = {
           reason: decoded.reason,
@@ -537,6 +545,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     return reconcileFocusedCommunityMessages(queryClient)
   }, [queryClient, runtime.ws, viewerUserId])
   const { send, reconnectNow } = useUserWs(handleMessage, {
+    communityContract: options?.communityContract,
     onReconnect: handleReconnect,
     onDisconnect: runtime.ws.actions.markAccessDisconnected,
     onAuthenticated: handleAuthenticated,

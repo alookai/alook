@@ -38,7 +38,7 @@ async function projectPages(pages: ForumFeedTransportPage[], canonical?: Readonl
   for (const page of pages) apiFetchMock.mockResolvedValueOnce(page)
   const data = await client.infiniteQuery({ queryKey: communityKeys.forumFeed("forum_1", null), queryFn: forumFeedPageQueryFn("forum_1", null, client), initialPageParam: null as string | null, getNextPageParam: (last) => last.hasMore ? last.nextCursor : undefined, pages: pages.length })
   const registry = getCommunityDbRegistry(client)!
-  return mapForumFeedPages(data.pages, canonical ?? new Map(getCanonicalCommunityMessages(client).map((row) => [row.id, row])), new Map(getCanonicalCommunityChannels(client).map((row) => [row.id, row])), new Map([...registry.collections.profiles.values()].map((row) => [row.userId, row])))
+  return mapForumFeedPages(data.pages, canonical ?? new Map(getCanonicalCommunityMessages(client).map((row) => [row.id, row])), new Map(getCanonicalCommunityChannels(client).map((row) => [row.id, row])), new Map([...registry.collections.profiles.values()].map((row) => [row.id, row])))
 }
 
 const emptyIncluded = {
@@ -175,10 +175,10 @@ describe("mapForumFeedPages", () => {
       included: { ...emptyIncluded, parentMessages: [{ id: "opener", channelId: "forum_1", seq: 0, content: "   ", authorId: "u1", authorName: "A", authorImage: null, authorAvatarVersion: 0 }], firstMessages: [{ channelId: "post", content: preview }] },
     }])
     expect(result).toHaveLength(1)
-    expect(result[0]).toMatchObject({ name: "Fallback", messageCount: 0, lastMessageAt: "created", parent: { authorId: "u1", authorName: "A", text: preview.slice(0, 100) }, parentSeq: 0, openerMessageId: "opener", preview: preview.slice(0, 100) })
+    expect(result[0]).toMatchObject({ name: "Fallback", messageCount: 0, lastMessageAt: "", parent: { authorId: "u1", authorName: "A", text: preview.slice(0, 100) }, parentSeq: 0, openerMessageId: "opener", preview: preview.slice(0, 100) })
     patchCanonicalCommunityChannel(client, "post", (row) => ({ ...row, preview, lastMessageAt: null }))
     const registry = getCommunityDbRegistry(client)!
-    const projected = mapForumFeedPages([{ serverId: "server_1", parentType: "forum", threads: [{ id: "post", openerMessageId: "opener", participantIds: [] }], hasMore: false }], new Map(getCanonicalCommunityMessages(client).map((row) => [row.id, row])), new Map(getCanonicalCommunityChannels(client).map((row) => [row.id, row])), new Map([...registry.collections.profiles.values()].map((row) => [row.userId, row])))
+    const projected = mapForumFeedPages([{ serverId: "server_1", parentType: "forum", threads: [{ id: "post", openerMessageId: "opener", participantIds: [] }], hasMore: false }], new Map(getCanonicalCommunityMessages(client).map((row) => [row.id, row])), new Map(getCanonicalCommunityChannels(client).map((row) => [row.id, row])), new Map([...registry.collections.profiles.values()].map((row) => [row.id, row])))
     expect(projected[0]).toMatchObject({ lastMessageAt: "", parent: { text: preview }, preview, parentSeq: 0 })
   })
   it("keeps one operation baseline across pages and excludes duplicate profile publications", async () => {

@@ -1,10 +1,11 @@
-import type { Msg, SendAttachment } from "@/lib/community/models/message"
-import type { MentionType, CommunityMessageResource } from "@alook/shared"
+import type { Msg, SendAttachment, CanonicalMessage } from "@/lib/community/models/message"
+import type { MentionType, CommunityMessagePreview } from "@alook/shared"
+import { presentCanonicalMessage } from "@/lib/community/message-wire"
 import { presentMessageAttachment } from "@/lib/community/attachment-presentation"
 
 export const MAX_LIVE_MESSAGE_DELTAS = 500
 
-export type CanonicalMessage = Msg & Pick<CommunityMessageResource, "seq"> & Partial<Pick<CommunityMessageResource, "replyToId">>
+export type { CanonicalMessage } from "@/lib/community/models/message"
 
 export type MessageScope =
   | { kind: "channel"; id: string; serverId: string }
@@ -103,7 +104,7 @@ function updateIntent(
   return { state: { ...state, outboxByNonce }, effects: [] }
 }
 
-function compoundIdentity(message: Pick<Msg, "authorId" | "clientNonce">): string | undefined {
+function compoundIdentity(message: Pick<CommunityMessagePreview, "authorId" | "clientNonce">): string | undefined {
   return message.authorId && message.clientNonce && !message.clientNonce.startsWith("srv:")
     ? JSON.stringify([message.authorId, message.clientNonce]) : undefined
 }
@@ -193,11 +194,11 @@ export function materializeMessageStream(
   for (const id of overlay.liveIds) {
     const message = canonical.get(id)
     if (message) upsertMaterialized(byId, idByIdentity, {
-      message: { ...message, failed: false },
+      message: { ...presentCanonicalMessage(message), failed: false },
     })
   }
   for (const message of baseMessages) {
-    upsertMaterialized(byId, idByIdentity, { message })
+    upsertMaterialized(byId, idByIdentity, { message: presentCanonicalMessage(message) })
   }
 
   return [...byId.values()].sort(materializedOrder).map((entry) => entry.message)

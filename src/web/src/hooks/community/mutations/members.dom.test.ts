@@ -23,7 +23,7 @@ async function setup(kind: "role" | "kick") {
   const key = serverMembershipKey("srv_1", "u_1")
   const member = { id: "mem_1", userId: "u_1", role: "member", name: "n", discriminator: "0000", avatar: "N", status: "offline", sub: "" }
   owner.registry.collections.serverMemberships.utils.writeUpsert({ id: key, serverId: "srv_1", userId: "u_1", memberId: "mem_1", role: "member", viewer: false })
-  owner.registry.collections.profiles.utils.writeUpsert(profileSchema.parse({ userId: "u_1", kind: "human", name: "n", discriminator: "0000", avatar: "N", avatarVersion: 0, presence: "offline" }))
+  owner.registry.collections.profiles.utils.writeUpsert(profileSchema.parse({ identityComplete: false, id: "u_1", kind: "human", name: "n", discriminator: "0000", avatar: "N", avatarVersion: 0, presence: "offline" }))
   owner.client.setQueryData(communityKeys.members("srv_1"), { pages: [{ members: [{ id: "mem_1", userId: "u_1" }], hasMore: false, limit: 50, total: 1, liveRevision: 0 }], pageParams: [null] })
   const held = deferred()
   let remote = [member]

@@ -97,7 +97,7 @@ describe("Native forum creation", () => {
   })
   it("publishes the actual returned opener and linked child before the reply settles", async () => {
     const view = await setup(), held = deferred()
-    const opener = { id: "created-opener", seq: 40, type: "chat", content: "New post", authorId: "viewer", authorName: "Viewer", createdAt: "2026-10-08T01:00:00Z" }
+    const opener = { id: "created-opener", seq: 40, type: "chat", content: "New post", authorId: "viewer", authorName: "Viewer", authorImage: null, authorAvatarVersion: 0, createdAt: "2026-10-08T01:00:00Z" }
     mocks.api.mockResolvedValueOnce({ threadId: "p_new", message: opener }).mockReturnValueOnce(held.promise)
     let request!: Promise<unknown>
     act(() => { request = view.view.result.current.create.mutateAsync({ nonce: "create_1", channelId: "forum_1", name: "New post", content: "Body" }) })

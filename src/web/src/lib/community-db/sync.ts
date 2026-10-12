@@ -11,12 +11,17 @@ import {
 UNCATEGORIZED_CATEGORY_ID,
 FORUM_ARCHIVE_TAG,
 normalizeCommunityChannelIdentity,
+normalizeCommunityChannelResourcePreview,
+CommunityChannelResourceSchema,
+CommunityMessageResourceSchema,
+CommunityResourceProfileSchema,
 type CommunityChannelIdentity,
 type CommunityMemberRelation,
 type CommunityResourceProfile,
 type CommunityMessageResource,
 type AccountAttentionSnapshot,
 type CommunityWsEvent,
+type CommunityContract,
 type ServerRailProjection,
 } from "@alook/shared"
 import type { DmsResponse } from "@/hooks/community/use-dms"
@@ -40,7 +45,8 @@ import type { ChannelRefDirectory } from "@/lib/community/channel-ref"
 
 
 import { avatarInitial } from "@/lib/community/avatar"
-import { projectCommunityMessageCreate, projectMessageRichContent } from "@/lib/community/message-wire"
+import { canonicalUserImage } from "@/lib/community/storage"
+import { projectCommunityMessageCreate } from "@/lib/community/message-wire"
 import { clearTypingIndicator } from "@/hooks/community/community-ws/typing"
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import { takeMessageIdsForAccessScope } from "./message-access-scope"
@@ -54,12 +60,11 @@ import {
 channelMembershipKey,
 canonicalChannelMembershipRow,
 channelMembershipSchema,
-channelSchema,
+channelLocalSchema,
 canonicalChannelRow,
 folderItemKey,
 messageSchema,
 notificationSettingKey,
-profileSchema,
 serverMembershipKey,
 serverSchema,
 communityCollectionSchemas,
@@ -425,7 +430,7 @@ function garbageCollectCommunityProfiles(registry: CommunityDbRegistry) {
   deleteRows(
     registry,
     "profiles",
-    (row) => !referenced.has(row.userId),
+    (row) => !referenced.has(row.id),
   )
 }
 
@@ -646,17 +651,23 @@ export function ingestServerDetail(
       })
     }
     category.channels.forEach((channel, channelIndex) => {
+      const previous = registry.collections.channels.get(channel.id)
+      const complete = "resourceComplete" in channel && channel.resourceComplete === true
+      const resource = complete ? CommunityChannelResourceSchema.strip().parse(channel)
+        : normalizeCommunityChannelResourcePreview(channel)
+      if (resource.serverId !== undefined && resource.serverId !== detail.id) throw new Error("Channel resource scope mismatch")
       channels.push(canonicalChannelRow({
+        ...resource,
         id: channel.id,
         serverId: detail.id,
         categoryId: uncategorized ? null : category.id,
         name: channel.name,
-        type: channel.type ?? "text",
+        type: channel.type ?? previous?.type ?? "text",
         parentChannelId: null,
         parentMessageId: null,
         creatorId: channel.creatorId,
-        position: channelIndex,
-        archived: false,
+        position: resource.position ?? channelIndex,
+        archived: resource.archived ?? previous?.archived ?? false,
         muted: channel.muted === true,
         unread: channel.unread,
         ...(channel.type === "forum" ? {
@@ -664,8 +675,8 @@ export function ingestServerDetail(
         } : {}),
         tags: channel.tags ?? [],
         pending: channel.pending === true,
-        lastMessageAt: null,
-      }))
+        resourceComplete: complete,
+      }, previous))
     })
   })
   const currentTopLevelIds = new Set(
@@ -757,9 +768,10 @@ function ingestChannelMetadata(
   input: unknown,
   proof?: CommunityFreshQueryProof,
 ) {
-  const metadata = normalizeCommunityChannelIdentity(input)
-  const hints = channelSchema.pick({ openerSeq: true, openerUnread: true }).parse(input)
-  const changes = { ...metadata, ...hints, name: metadata.name ?? "", pending: false }
+  const full = typeof input === "object" && input !== null && "resourceComplete" in input && input.resourceComplete === true
+  const metadata = full ? CommunityChannelResourceSchema.strip().parse(input) : normalizeCommunityChannelIdentity(input)
+  const hints = channelLocalSchema.pick({ openerSeq: true, openerUnread: true }).parse(input)
+  const changes = { ...metadata, ...hints, ...(full ? { resourceComplete: true as const } : {}), pending: false }
   const existing = registry.collections.channels.get(metadata.id)
   if (proof && existing) {
     publishConfirmedFields(registry.queryClient, "channels", metadata.id, changes, proof)
@@ -788,12 +800,12 @@ export function ingestDms(
       id: dm.id, type: "dm", position,
       unread: dm.unread === true, lastMessageAt: dm.activityAt ?? null, preview: dm.preview,
       ...(dm.lastUnreadSeq === undefined ? {} : { lastUnreadSeq: dm.lastUnreadSeq }),
-    }))
+    }, registry.collections.channels.get(dm.id)))
     memberships.push(
       canonicalChannelMembershipRow(dm.id, viewerId, "access"),
       canonicalChannelMembershipRow(dm.id, dm.userId, "access"),
     )
-    profilePatches.push(communityUserProfilePatch(dm.userId, dm))
+    profilePatches.push(communityUserProfilePatch(dm.userId, dm, { legacyPresentation: true }))
   }
   const dmIds = new Set(channels.map((row) => row.id))
   const authoritativeDmIds = new Set([...currentDmIds, ...dmIds])
@@ -885,14 +897,41 @@ export function publishCommunityServerRailCommit(queryClient: QueryClient, proje
 export function ingestMessages(
   registry: CommunityDbRegistry,
   channelId: string,
-  messages: readonly (MessageInput | CommunityMessageResource)[],
+  messages: readonly MessageInput[],
 ) {
   const previous = new Map(collectionRows(registry, "messages").map((message) => [message.id, message]))
+  for (const message of messages) {
+    if (message.id.startsWith("temp_") || message.failed === true) continue
+    if (message.channelId !== undefined && message.channelId !== channelId) throw new Error("Message channel mismatch")
+    if (message.resourceComplete === true) CommunityMessageResourceSchema.strip().parse(message)
+  }
+  const profileMessages: MessageInput[] = []
   const rows: MessageRow[] = messages
     .filter((message) => !message.id.startsWith("temp_") && !("failed" in message && message.failed === true))
     .map((message) => {
-      const { thread, clientNonce, ...fields } = message
+      const full = message.resourceComplete === true
+      const { thread: incomingThread, clientNonce, ...incoming } = message
+      const fields = Object.fromEntries(Object.entries(incoming).filter(([, value]) => value !== undefined))
+      if (message.resourceComplete !== true && message.authorAvatar === avatarInitial(message.authorName ?? "")) delete fields.authorAvatar
       const existingMessage = previous.get(message.id)
+      if (!full && existingMessage?.resourceComplete === true) delete fields.attachments
+      let thread = incomingThread
+      if (!full && incomingThread && existingMessage?.resourceComplete === true) {
+        const known = existingMessage.thread?.id === incomingThread.id ? existingMessage.thread : undefined
+        const fields = Object.fromEntries(Object.entries(incomingThread).filter(([, value]) => value !== undefined))
+        const participants = incomingThread.participants?.map((participant) => ({
+          ...known?.participants?.find((row) => row.id === participant.id),
+          ...Object.fromEntries(Object.entries(participant).filter(([, value]) => value !== undefined)),
+        }))
+        const merged = { ...known, ...fields, ...(participants ? { participants } : {}) }
+        const parsed = CommunityMessageResourceSchema.shape.thread.safeParse(merged)
+        if (parsed.success) thread = parsed.data
+        else {
+          const { participants: _participants, ...withoutUnknownParticipants } = fields
+          const partial = CommunityMessageResourceSchema.shape.thread.safeParse({ ...known, ...withoutUnknownParticipants })
+          thread = partial.success ? partial.data : known
+        }
+      }
       const retainReply = existingMessage?.channelId === channelId
         && (!message.authorId || message.authorId === existingMessage.authorId)
         && (clientNonce === undefined || clientNonce === existingMessage.clientNonce)
@@ -905,17 +944,24 @@ export function ingestMessages(
           id: thread.id, serverId: existing?.serverId ?? parent?.serverId, categoryId: null,
           name: thread.name, type: "thread", parentChannelId: channelId, parentMessageId: message.id,
           tags: thread.tags ?? existing?.tags ?? [], pending: false, messageCount: thread.messageCount,
-          ...(thread.lastReplyAt ? { lastMessageAt: thread.lastReplyAt } : {}),
+          ...(thread.lastReplyAt !== undefined ? { lastMessageAt: thread.lastReplyAt } : {}),
           ...(thread.preview !== undefined ? { preview: thread.preview } : {}),
           ...(thread.participantCount !== undefined ? { participantCount: thread.participantCount } : {}),
         }, existing)])
       }
-      return { ...fields, replyTo: retainReply ? existingMessage!.replyTo : message.replyTo, replyToId: retainReply ? existingMessage!.replyToId : message.replyTo?.id ?? message.replyToId ?? null, ...projectMessageRichContent(fields), type: message.type ?? existingMessage?.type ?? "chat", channelId,
-        ...("clientNonce" in message ? { clientNonce: clientNonce ?? undefined } : {}),
+      profileMessages.push({ ...fields, id: message.id, type: message.type, ...(incomingThread ? { thread: incomingThread } : {}) })
+      const merged = { ...existingMessage, ...fields,
+        ...(thread ? { thread } : {}),
+        replyTo: retainReply ? existingMessage!.replyTo : message.replyTo,
+        replyToId: retainReply ? existingMessage!.replyToId : "replyToId" in message ? message.replyToId : message.replyTo?.id ?? (retainReply ? existingMessage?.replyToId : null),
+        type: message.type ?? existingMessage?.type ?? "chat", channelId,
+        ...(clientNonce !== undefined ? { clientNonce } : {}),
+        resourceComplete: full || existingMessage?.resourceComplete === true,
       }
+      return messageSchema.parse(merged)
     })
   upsertRows(registry, "messages", rows)
-  writeCanonicalProfilePatches(registry, messageProfilePatches(messages))
+  writeCanonicalProfilePatches(registry, messageProfilePatches(profileMessages))
 }
 
 export function ingestReadStateSnapshot(
@@ -980,7 +1026,7 @@ function ingestAttentionIncluded(
       lastMessageAt: dm.lastMessageAt,
       preview: existing?.preview ?? "",
       lastUnreadSeq: dm.lastUnreadSeq,
-    })
+    }, existing)
   })
   upsertRows(registry, "channels", dmChannels)
   if (viewerId) {
@@ -994,23 +1040,17 @@ function ingestAttentionIncluded(
       ],
     )
   }
-  const profiles = profileSchema.array().safeParse(included?.profiles ?? [])
+  const profiles = CommunityResourceProfileSchema.array().safeParse((included?.profiles ?? []).map(({ userId, ...profile }) => ({
+    ...profile, id: userId, discriminator: profile.discriminator || null, avatar: canonicalUserImage(userId, profile.avatar, profile.avatarVersion),
+  })))
   if (profiles.success) {
     writeCanonicalProfilePatches(registry, profiles.data.map((profile) => (
-      communityUserProfilePatch(profile.userId, profile)
+      communityUserProfilePatch(profile.id, profile, { legacyPresentation: true })
     )))
   }
-  const messages = messageSchema.array().safeParse(included?.messages ?? [])
-  if (messages.success) {
-    const current = new Map(
-      collectionRows(registry, "messages").map((row) => [row.id, row]),
-    )
-    const merged = messages.data.map((message) => ({
-      ...current.get(message.id),
-      ...Object.fromEntries(Object.entries(message).filter(([, value]) => value !== undefined)),
-    })) as MessageRow[]
-    upsertRows(registry, "messages", merged)
-  }
+  const byChannel = new Map<string, MessageInput[]>()
+  for (const message of included?.messages ?? []) byChannel.set(message.channelId, [...(byChannel.get(message.channelId) ?? []), { ...message, resourceComplete: false }])
+  for (const [channelId, messages] of byChannel) ingestMessages(registry, channelId, messages)
 }
 
 type AttentionDomain = "channels" | "dms" | "mentions"
@@ -1540,14 +1580,14 @@ function withCommunityQueryProof<T>(queryClient: QueryClient, proof: CommunityFr
   return withCanonicalWriteContext(queryClient, { kind: "query", requestRevision: proof.token.canonicalRevision, profileSnapshot: proof.token.profileSnapshot }, () => publish(proof.token.registry!))
 }
 
-function ingestResourceProfiles(registry: CommunityDbRegistry, profiles: readonly CommunityResourceProfile[], proof: CommunityFreshQueryProof) {
-  writeCommunityProfilePatches(profiles.map((profile) => communityUserProfilePatch(profile.id, { ...profile, discriminator: profile.discriminator ?? "", avatar: profile.avatar ?? avatarInitial(profile.name) })), registry, { snapshot: proof.token.profileSnapshot })
+function ingestResourceProfiles(registry: CommunityDbRegistry, profiles: readonly (Pick<CommunityResourceProfile, "id"> & Partial<Omit<CommunityResourceProfile, "id">>)[], proof: CommunityFreshQueryProof, options?: { legacyPresentation: boolean }) {
+  writeCommunityProfilePatches(profiles.map((profile) => communityUserProfilePatch(profile.id, profile, options)), registry, { snapshot: proof.token.profileSnapshot })
 }
 
-export function publishCommunityChannelMembersSnapshot(queryClient: QueryClient, serverId: string | null, channelId: string, relation: CommunityMemberRelation["relation"], members: readonly CommunityMemberRelation[], proof: CommunityFreshQueryProof, profiles: readonly CommunityResourceProfile[] = []) {
+export function publishCommunityChannelMembersSnapshot(queryClient: QueryClient, serverId: string | null, channelId: string, relation: CommunityMemberRelation["relation"], members: readonly CommunityMemberRelation[], proof: CommunityFreshQueryProof, profiles: readonly CommunityResourceProfile[] = [], options?: { legacyPresentation: boolean }) {
   if (serverId) publishCommunityMembersSnapshot(queryClient, serverId, members.flatMap((member) => member.role === null || member.memberId === null ? [] : [{ ...member, id: member.memberId, role: member.role }]), proof)
   return withCommunityQueryProof(queryClient, proof, (registry) => {
-    ingestResourceProfiles(registry, profiles, proof)
+    ingestResourceProfiles(registry, profiles, proof, options)
     replaceRows(registry, "channelMemberships", members.map((member) => channelMembershipSchema.parse({ ...member, id: channelMembershipKey(channelId, member.userId, relation), memberId: member.memberId ?? undefined })), (row) => row.channelId === channelId && row.relation === relation)
   })
 }
@@ -1688,7 +1728,7 @@ export function publishCommunityMessages(
   queryClient: QueryClient,
   publication: {
     channelId: string
-    messages: Msg[]
+    messages: MessageInput[]
     proof: CommunityFreshQueryProof
   },
 ) {
@@ -1739,7 +1779,7 @@ function qualifyCanonicalChannelMetadata(registry: CommunityDbRegistry, channelI
 export function publishCommunityChannelMetadata(
   queryClient: QueryClient,
   publication: {
-    metadata: CommunityChannelIdentity
+    metadata: CommunityChannelIdentity & { resourceComplete?: boolean }
     proof: CommunityFreshQueryProof
   },
 ) {
@@ -2024,16 +2064,15 @@ export function publishCommunityForumFeed(queryClient: QueryClient, forumChannel
   return withCommunityQueryProof(queryClient, proof, (registry) => notifyManager.batch(() => {
     const rows = page.threads.map((thread) => canonicalChannelRow({
       ...thread, type: "thread", serverId: page.channel.serverId, parentChannelId: forumChannelId,
-      name: thread.name ?? "Post", pending: false,
+      pending: false,
       tags: page.included.tags.filter((tag) => tag.messageId === thread.parentMessageId).map((tag) => tag.tag),
-      lastMessageAt: thread.lastMessageAt ?? thread.createdAt,
       preview: page.included.previews.find((message) => message.channelId === thread.id)?.content.slice(0, 100) ?? "",
       participantCount: page.included.participantCounts.find((row) => row.channelId === thread.id)?.count ?? 0,
     }, registry.collections.channels.get(thread.id)))
     upsertRows(registry, "channels", rows)
     ingestResourceProfiles(registry, page.included.profiles, proof)
     publishCommunityEmbeddedMessages(queryClient, { entries: page.included.messages.map((message) => ({ channelId: message.channelId, message })), proof })
-    upsertRows(registry, "channelMemberships", page.included.members.map((member) => channelMembershipSchema.parse({ ...member, id: channelMembershipKey(member.channelId, member.userId, member.relation), memberId: member.memberId ?? undefined })))
+    upsertRows(registry, "channelMemberships", page.included.members.map((member) => channelMembershipSchema.parse({ ...member, id: channelMembershipKey(member.channelId, member.userId, member.relation) })))
   }))
 }
 
@@ -2137,7 +2176,8 @@ function publishCreatedTreeRow<N extends "channels" | "categories">(
   }
 }
 
-export function publishCommunityCreatedChannel(queryClient: QueryClient, row: ChannelRow, proof: CommunityFreshQueryProof) {
+export function publishCommunityCreatedChannel(queryClient: QueryClient, input: Parameters<typeof canonicalChannelRow>[0], proof: CommunityFreshQueryProof) {
+  const row = canonicalChannelRow(input, proof.token.registry!.collections.channels.get(input.id))
   publishCreatedTreeRow(queryClient, "channels", row, proof)
   const registry = proof.token.registry!
   if (!registry.accountId || !collectionRows(registry, "channels").some((current) => current.id === row.id)) return
@@ -2424,6 +2464,7 @@ function projectProfilePatch(
 export function projectCommunityWsEventToDb(
   queryClient: QueryClient,
   event: CommunityWsEvent,
+  contract: CommunityContract = 2,
 ) {
   const registry = getCommunityDbRegistry(queryClient)
   if (!registry) return
@@ -2458,7 +2499,7 @@ export function projectCommunityWsEventToDb(
       return
     }
     case "community:message.create": {
-      const projected = projectCommunityMessageCreate(event.message, event.channelId)
+      const projected = projectCommunityMessageCreate(event.message, event.channelId, contract)
       ingestMessages(registry, event.channelId, [projected])
       if (event.message.createdAt) {
         patchRows(
@@ -2503,11 +2544,14 @@ export function projectCommunityWsEventToDb(
       )
       return
     case "community:channel.child_create": {
-      if (!event.parentMessageId) return
+      const full = contract === 3 ? CommunityChannelResourceSchema.parse(event.channel) : null
+      if (!full && !event.parentMessageId) return
       const parent = collectionRows(registry, "channels")
         .find((row) => row.id === event.parentChannelId)
       if (!parent?.serverId) return
-      upsertRows(registry, "channels", [canonicalChannelRow({
+      if (full && full.serverId !== parent.serverId) throw new Error("Child channel server mismatch")
+      const existing = collectionRows(registry, "channels").find((row) => row.id === event.channel.id)
+      upsertRows(registry, "channels", [canonicalChannelRow(full ? { ...full, resourceComplete: true } : {
         id: event.channel.id,
         serverId: parent.serverId,
         name: event.channel.name,
@@ -2515,8 +2559,8 @@ export function projectCommunityWsEventToDb(
         parentChannelId: event.parentChannelId,
         parentMessageId: event.parentMessageId,
         creatorId: event.channel.creatorId ?? null,
-        lastMessageAt: event.channel.createdAt,
-      })])
+        createdAt: event.channel.createdAt,
+      }, existing)])
       if (registry.accountId) {
         upsertRows(
           registry,
@@ -2553,17 +2597,20 @@ export function projectCommunityWsEventToDb(
         Object.keys(event.changes),
       )
       return
-    case "community:channel.create":
-      upsertRows(registry, "channels", [canonicalChannelRow({
+    case "community:channel.create": {
+      const existing = collectionRows(registry, "channels").find((row) => row.id === event.channel.id)
+      const full = contract === 3 ? CommunityChannelResourceSchema.parse(event.channel) : null
+      upsertRows(registry, "channels", [canonicalChannelRow(full ? { ...full, resourceComplete: true } : {
         id: event.channel.id,
         serverId: event.serverId,
         categoryId: event.channel.categoryId ?? null,
         name: event.channel.name,
         type: event.channel.type,
         position: event.channel.position,
-        lastMessageAt: event.channel.createdAt,
-      })])
+        createdAt: event.channel.createdAt,
+      }, existing)])
       return
+    }
     case "community:channel.update":
       patchRows(
         registry,
@@ -2651,7 +2698,7 @@ export function projectCommunityWsEventToDb(
       writeCommunityProfilePatches([communityUserProfilePatch(event.member.userId, {
         name: event.member.name,
         discriminator: event.member.discriminator,
-        avatar: event.member.avatar ?? "",
+        ...(event.member.avatar === undefined ? {} : { avatar: canonicalUserImage(event.member.userId, event.member.avatar, event.member.avatarVersion) }),
         avatarVersion: event.member.avatarVersion,
       })], registry, { event: true })
       return

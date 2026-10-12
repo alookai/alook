@@ -22,7 +22,7 @@ import {
 } from "@/lib/community-db/sync"
 import type { CommunityFreshQueryProof } from "@/lib/community-db/sync"
 import { normalizeThreadResources, projectThread, type ForumFeedTransportPage } from "./forum-feed-window"
-import type { CommunityThreadsRead, CommunityChannelResource, CommunityMessageResource } from "@alook/shared"
+import { CommunityMessagePreviewSchema, type CommunityLegacyThreadsRead, type CommunityThreadsRead, type CommunityChannelResource, type CommunityMessageResource } from "@alook/shared"
 import type { ChannelRow } from "@/lib/community-db/schema"
 
 /**
@@ -43,7 +43,7 @@ export type ThreadsResponse = {
 
 async function loadThreadResources(queryClient: QueryClient, channelId: string, proof: CommunityFreshQueryProof) {
   const options = qualifiedCommunityRequestOptions(queryClient, proof.token, proof.signal)
-  const response = await apiFetch<ForumFeedTransportPage | CommunityThreadsRead>(`/api/community/channels/${channelId}/threads?include=parentMessage,firstMessage,tags,participants`, options)
+  const response = await apiFetch<ForumFeedTransportPage | CommunityThreadsRead | CommunityLegacyThreadsRead>(`/api/community/channels/${channelId}/threads?include=parentMessage,firstMessage,tags,participants`, options)
   assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
   if ("contractVersion" in response || response.included) return normalizeThreadResources(channelId, response)
   const openerIds = response.threads.flatMap((thread) => thread.parentMessageId ? [thread.parentMessageId] : [])
@@ -53,7 +53,7 @@ async function loadThreadResources(queryClient: QueryClient, channelId: string, 
     apiFetch<Pick<ForumFeedTransportPage["included"], "tags">>("/api/community/messages/tags/batch", { method: "POST", body: JSON.stringify({ channelId, messageIds: openerIds }), ...options }),
     apiFetch<Pick<ForumFeedTransportPage["included"], "participants">>("/api/community/channels/participants/batch", { method: "POST", body: JSON.stringify({ parentChannelId: channelId, channelIds: threadIds }), ...options }),
   ])
-  return normalizeThreadResources(channelId, { ...response, hasMore: false, included: { parentMessages: messages.messages.map((message) => ({ ...message, authorAvatarVersion: message.authorAvatarVersion ?? 0 })), firstMessages: messages.firstMessages, tags: tags.tags, participants: participants.participants.map((participant) => ({ ...participant, userAvatarVersion: participant.userAvatarVersion ?? 0 })) } })
+  return normalizeThreadResources(channelId, { ...response, hasMore: false, included: { parentMessages: messages.messages, firstMessages: messages.firstMessages, tags: tags.tags, participants: participants.participants } })
 }
 
 export const threadsQueryFn = (channelId: string, queryClient: QueryClient) => async ({ signal }: { signal?: AbortSignal } = {}) => {
@@ -123,7 +123,7 @@ export const pinsQueryFn = (channelId: string, queryClient: QueryClient) =>
     )
     {
       publishCommunityEmbeddedMessages(queryClient, {
-        entries: data.pins.map((message) => ({ channelId, message })),
+        entries: data.pins.map((message) => ({ channelId, message: { ...CommunityMessagePreviewSchema.partial({ type: true }).parse({ ...message, channelId }), resourceComplete: false } })),
         proof: { token: publicationToken, signal },
       })
     }

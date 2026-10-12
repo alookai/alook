@@ -10,7 +10,7 @@ vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => fetchMock
 const metadata = {
   id: "child", serverId: "server", type: "thread", name: "Child",
   parentChannelId: "parent", parentMessageId: "opener", creatorId: "owner",
-  archived: 0, lastMessageAt: null, createdAt: "2026-09-05T00:00:00Z",
+  topic: "Actual topic", categoryId: null, position: 0, messageCount: 0, archived: false, lastMessageAt: null, createdAt: "2026-09-05T00:00:00Z",
 }
 
 beforeEach(() => {
@@ -68,7 +68,7 @@ describe("canonical channel metadata lifecycle", () => {
     const serverId = type === "dm" ? null : "server"
     fetchMock.mockResolvedValue({ ...metadata, serverId, type, name: type === "dm" ? null : metadata.name })
     const { client, runtime } = await createCommunityQueryOwner()
-    await expect(fetchChannelMetadata(client, serverId, "child")).resolves.toMatchObject({ id: "child", serverId, type, name: type === "dm" ? "" : metadata.name })
+    await expect(fetchChannelMetadata(client, serverId, "child")).resolves.toMatchObject({ id: "child", serverId, type, name: type === "dm" ? null : metadata.name })
     expect(runtime.ws.get().channelAccessScopes.has("child")).toBe(true)
   })
   it.each(["account", "parent", "server", "membership"] as const)(

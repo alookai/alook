@@ -12,7 +12,8 @@ import {
 } from "@tanstack/react-query"
 import { apiFetchCommunity } from "@/lib/community/account-cache-lifecycle"
 import { communityKeys } from "@/lib/query-keys"
-import type { Msg } from "@/lib/community/models/message"
+import type { MessageInput, Msg } from "@/lib/community/models/message"
+import { presentCanonicalMessage } from "@/lib/community/message-wire"
 import {
   useCanonicalMessagesById,
   useOptionalCommunityDbRegistry,
@@ -51,7 +52,7 @@ export const messageQueryFn = (
 ) => async (context: QueryFunctionContext) => {
   if (context.client !== queryClient) throw new DOMException("Mismatched message query owner", "AbortError")
   const token = captureCommunityLiveSnapshotToken(queryClient, channelId)
-  const message = await apiFetchCommunity<OpenerPayload>(
+  const message = await apiFetchCommunity<MessageInput>(
     `/api/community/messages/${messageId}`,
     context.signal ? { signal: context.signal } : undefined, token,
   )
@@ -59,8 +60,7 @@ export const messageQueryFn = (
   if (publishChannelId) {
     publishCommunityMessages(queryClient, {
       channelId: publishChannelId,
-      messages: [{ ...message, attachments: message.attachments ?? [], embeds: message.embeds ?? [],
-        reactions: message.reactions ?? [], replyTo: message.replyTo }],
+      messages: [message],
       proof: { token, signal: context.signal },
     })
   }
@@ -73,11 +73,12 @@ export function findCachedMessage(
 ): OpenerPayload | undefined {
   const message = getCanonicalCommunityMessages(queryClient).find((row) => row.id === messageId)
   if (!message?.authorId || !message.createdAt) return undefined
+  const view = presentCanonicalMessage(message)
   return {
-    ...message,
+    ...view,
     authorId: message.authorId,
     authorName: message.authorName ?? "Deleted user",
-    authorAvatar: message.authorAvatar ?? "",
+    authorAvatar: view.authorAvatar ?? "",
     authorAvatarVersion: message.authorAvatarVersion ?? 0,
     content: message.content ?? "",
     createdAt: message.createdAt,

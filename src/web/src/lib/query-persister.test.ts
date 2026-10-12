@@ -4,6 +4,7 @@ import { del, get, set } from "idb-keyval"
 import { QueryClient } from "@tanstack/react-query"
 import type { PersistedClient } from "@tanstack/react-query-persist-client"
 import { communityKeys } from "@/lib/query-keys"
+import { canonicalChannelRow } from "@/lib/community-db/schema"
 import {
   PERSIST_BUSTER,
   PERSIST_VERSION,
@@ -293,6 +294,32 @@ describe("createIdbPersister — serialize filter", () => {
     expect(blob.clientState.queries.map((query) => query.queryKey)).toEqual([])
   })
 
+  it("round trips full nullable raw resources through qualified version 6", async () => {
+    const qc = new QueryClient()
+    const channel = canonicalChannelRow({ id: "dm_1", type: "dm", serverId: null, categoryId: null, name: null, topic: "Raw topic", parentChannelId: null, parentMessageId: null, creatorId: null, position: 0, archived: false, createdAt: "2026-10-11T00:00:00Z", lastMessageAt: null, messageCount: 1, resourceComplete: true })
+    const message = { id: "raw", channelId: channel.id, seq: 1, type: "chat", authorId: "peer", authorName: "Peer", authorAvatar: null, authorAvatarVersion: 4, createdAt: channel.createdAt, content: "raw", replyToId: null, clientNonce: "nonce", resourceComplete: true,
+      attachments: [{ id: "second", name: "raw", url: "/raw", thumbnailUrl: null, contentType: null, sizeBytes: null, width: null, height: null }, { id: "first", name: "image", url: "/image", thumbnailUrl: null, contentType: "image/png", sizeBytes: 1024, width: 20, height: 30 }], embeds: [null, { unsupported: true }] }
+    const data: Record<string, unknown[]> = {
+      channels: [channel], messages: [message],
+      profiles: [{ id: "peer", name: "Peer", discriminator: "0002", avatar: null, avatarVersion: 4, identityComplete: true }],
+      channelMemberships: [{ id: "dm_1:u_1:access", channelId: "dm_1", userId: "u_1", relation: "access" }],
+    }
+    const keys = Object.entries(data).map(([name, rows]) => {
+      const key = communityKeys.communityDbCollection("u_1", name)
+      qc.setQueryData(key, rows)
+      return key
+    })
+    const owner = createIdbPersister("u_1")
+    await owner.persistClient({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: { mutations: [], queries: keys.map((queryKey) => ({ queryKey, queryHash: JSON.stringify(queryKey), state: qc.getQueryState(queryKey)! })) } })
+    const raw = JSON.parse((await get<string>("alook:qc:cache:u_1:client"))!)
+    expect(raw.version).toBe(6)
+    const restored = await createIdbPersister("u_1").restoreClient()
+    const collection = (name: string) => restored!.clientState.queries.find((query) => query.queryKey[3] === name)!.state.data
+    expect(collection("channels")).toEqual([expect.objectContaining(channel)])
+    expect(collection("messages")).toEqual([message])
+    expect(collection("profiles")).toEqual(data.profiles)
+  })
+
   it("windows canonical server trees, message tails, and referenced profiles", async () => {
     const qc = new QueryClient()
     const detailKeys = Array.from({ length: 7 }, (_, index) => communityKeys.server(`srv_${index}`))
@@ -333,12 +360,13 @@ describe("createIdbPersister — serialize filter", () => {
         ...(scopeIndex === MAX_PERSISTED_MESSAGE_SCOPES + 1
           && messageIndex === MAX_PERSISTED_MESSAGES_PER_SCOPE ? {
           approval: {
-            otherProfile: { id: "approval_other" },
-            botProfile: { id: "approval_bot" },
-            waitingOnProfile: { id: "approval_waiting" },
+            friendshipId: "friendship", status: "pending", waitingOn: "you",
+            otherProfile: { id: "approval_other", name: "Other", discriminator: "0001", image: null, avatarVersion: 0 },
+            botProfile: { id: "approval_bot", name: "Bot", discriminator: "0001", image: null, avatarVersion: 0 },
+            waitingOnProfile: { id: "approval_waiting", name: "Owner", discriminator: "0001", image: null, avatarVersion: 0 },
           },
-          replyTo: { authorId: "reply_author" },
-          thread: { participants: [{ id: "thread_participant" }] },
+          replyTo: { id: "reply", authorId: "reply_author", authorName: "Reply", text: "Prior" },
+          thread: { id: "thread", name: "Thread", messageCount: 0, participants: [{ id: "thread_participant", name: "Participant", avatar: "P", avatarVersion: 0 }] },
         } : {}),
       }))
     )), {
@@ -392,33 +420,33 @@ describe("createIdbPersister — serialize filter", () => {
       messages,
       profiles: [
         ...Array.from({ length: MAX_PERSISTED_MESSAGE_SCOPES + 2 }, (_, index) => ({
-          userId: `author_${index}`,
+          id: `author_${index}`,
           name: `Author ${index}`,
           discriminator: "0001",
           avatar: "A",
-          avatarVersion: 0,
+          avatarVersion: 0, identityComplete: true,
         })),
         ...Array.from({ length: 7 }, (_, index) => ({
-          userId: `owner_${index}`,
+          id: `owner_${index}`,
           name: `Owner ${index}`,
           discriminator: "0001",
           avatar: "O",
-          avatarVersion: 0,
+          avatarVersion: 0, identityComplete: true,
         })),
         ...[
           "approval_other", "approval_bot", "approval_waiting", "reply_author",
           "thread_participant", "dm_peer", "roster_only", "notify_only",
         ].map(
           (userId) => ({
-            userId,
+            id: userId,
             name: userId,
             discriminator: "0001",
             avatar: "P",
-            avatarVersion: 0,
+            avatarVersion: 0, identityComplete: true,
           }),
         ),
-        { userId: "u_1", name: "Viewer", discriminator: "0001", avatar: "V", avatarVersion: 0 },
-        { userId: "orphan", name: "Orphan", discriminator: "0001", avatar: "O", avatarVersion: 0 },
+        { id: "u_1", name: "Viewer", discriminator: "0001", avatar: "V", avatarVersion: 0, identityComplete: true },
+        { id: "orphan", name: "Orphan", discriminator: "0001", avatar: "O", avatarVersion: 0, identityComplete: true },
       ],
       serverMemberships: [
         { id: "srv_6:u_1", serverId: "srv_6", userId: "u_1", role: "member", viewer: true },
@@ -496,8 +524,8 @@ describe("createIdbPersister — serialize filter", () => {
     ).map((row) => row.serverId)).toEqual([
       "srv_0", "srv_1", "srv_2", "srv_3", "srv_4", "srv_5", "srv_6",
     ])
-    const profileIds = new Set((collection("profiles") as Array<{ userId: string }>).map(
-      (row) => row.userId,
+    const profileIds = new Set((collection("profiles") as Array<{ id: string }>).map(
+      (row) => row.id,
     ))
     expect(profileIds.has("orphan")).toBe(false)
     expect(profileIds.has("u_1")).toBe(true)
@@ -532,6 +560,8 @@ describe("createIdbPersister — serialize filter", () => {
   })
 
   it("drops malformed shell payloads during deserialize scrub", async () => {
+    const owner = createIdbPersister("u_1")
+    await owner.restoreClient()
     const qc = new QueryClient()
     qc.setQueryData(communityKeys.servers(), { nope: [] })
     qc.setQueryData(communityKeys.server("srv_1"), { id: "other", categories: [] })
@@ -592,6 +622,8 @@ describe("createIdbPersister — serialize filter", () => {
       },
     ],
   ])("drops a malformed %s query as one unit during restore", async (_label, queryKey, data) => {
+    const owner = createIdbPersister("u_1")
+    await owner.restoreClient()
     const qc = new QueryClient()
     qc.setQueryData(queryKey, data)
     const injected: PersistedClient = {

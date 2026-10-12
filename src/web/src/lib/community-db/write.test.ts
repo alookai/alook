@@ -27,8 +27,8 @@ describe("canonical collection publication", () => {
     const registry = owner()
     if (ready) await registry.preload()
     const message = { id: "m-rich", seq: 3, type: "chat" as const, authorId: "peer", authorName: "Peer",
-      authorAvatar: "P", authorAvatarVersion: 0, content: "before", createdAt: "2026-08-07T10:00:00.000Z" }
-    const attachments = [{ kind: "file" as const, name: "notes.txt", url: "/notes.txt", size: "1 KB" }]
+      authorAvatar: "peer-avatar", authorAvatarVersion: 0, content: "before", createdAt: "2026-08-07T10:00:00.000Z" }
+    const attachments = [{ name: "notes.txt", url: "/notes.txt", sizeBytes: 1024 }]
     const embeds = [{ title: "Reference" }]
     ingestMessages(registry, "channel", [{ ...message, attachments, embeds }])
     const summaryFacts = { type: "system" as const, clientNonce: "known-nonce", replyToId: "reply" }
@@ -107,12 +107,12 @@ describe("canonical collection publication", () => {
     writeCommunityProfilePatches([{ id: "alice", identityAbout: { name: "Alicia" } }], registry)
 
     expect(upsert).toHaveBeenCalledOnce()
-    expect(upsert.mock.calls[0]?.[0]).toMatchObject([{ userId: "alice", name: "Alicia" }])
+    expect(upsert.mock.calls[0]?.[0]).toMatchObject([{ id: "alice", name: "Alicia" }])
     expect(publish).toHaveBeenCalledOnce()
     expect(registry.collections.profiles.get("bob")).toBe(bob)
     expect(registry.queryClient.getQueryData(
       communityKeys.communityDbCollection("viewer", "profiles"),
-    )).toMatchObject([{ userId: "alice", name: "Alicia" }, { userId: "bob", name: "Bob" }])
+    )).toMatchObject([{ id: "alice", name: "Alicia" }, { id: "bob", name: "Bob" }])
   })
 
   it("keeps equal rows silent and synchronizes deleting the final row", async () => {
@@ -122,10 +122,10 @@ describe("canonical collection publication", () => {
     const current = Array.from(registry.collections.profiles.values())
     const publish = vi.spyOn(registry.queryClient, "setQueryData")
 
-    writeCommunityCollectionRows(registry, "profiles", current.map((row) => ({ ...row })), (row) => row.userId)
+    writeCommunityCollectionRows(registry, "profiles", current.map((row) => ({ ...row })), (row) => row.id)
     expect(publish).not.toHaveBeenCalled()
 
-    writeCommunityCollectionRows(registry, "profiles", [], (row) => row.userId)
+    writeCommunityCollectionRows(registry, "profiles", [], (row) => row.id)
     expect(publish).toHaveBeenCalledOnce()
     expect(registry.collections.profiles.size).toBe(0)
     expect(registry.queryClient.getQueryData(
@@ -143,23 +143,23 @@ describe("canonical collection publication", () => {
     transaction.mutate(() => registry.collections.profiles.update("alice", (row) => { row.name = "Alicia" }))
     await transaction.when("settled")
     expect(registry.collections.profiles.get("alice")?.name).toBe("Alicia")
-    expect(registry.queryClient.getQueryData(communityKeys.communityDbCollection("viewer", "profiles"))).toMatchObject([{ userId: "alice", name: "Alicia" }])
+    expect(registry.queryClient.getQueryData(communityKeys.communityDbCollection("viewer", "profiles"))).toMatchObject([{ id: "alice", name: "Alicia" }])
   })
 
   it("seeds a not-ready collection through the restore snapshot and then synchronizes", async () => {
     const registry = owner()
-    const row = profileSchema.parse({
-      userId: "alice", name: "Alice", discriminator: "0001", avatar: "A", avatarVersion: 1,
+    const row = profileSchema.parse({ identityComplete: false,
+      id: "alice", name: "Alice", discriminator: "0001", avatar: "A", avatarVersion: 1,
     })
     expect(registry.collections.profiles.status).not.toBe("ready")
-    writeCommunityCollectionRows(registry, "profiles", [row], (profile) => profile.userId)
+    writeCommunityCollectionRows(registry, "profiles", [row], (profile) => profile.id)
     expect(registry.queryClient.getQueryData(
       communityKeys.communityDbCollection("viewer", "profiles"),
     )).toEqual([row])
 
     await registry.preload()
     expect(registry.collections.profiles.get("alice")).toMatchObject(row)
-    writeCommunityCollectionRows(registry, "profiles", [{ ...row, name: "Alicia" }], (profile) => profile.userId)
+    writeCommunityCollectionRows(registry, "profiles", [{ ...row, name: "Alicia" }], (profile) => profile.id)
     expect(registry.collections.profiles.get("alice")?.name).toBe("Alicia")
   })
 })

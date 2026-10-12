@@ -570,7 +570,7 @@ describe("useInboxAttention", () => {
         channel: "General",
         channelId: "channel",
         m: {
-          id: "message",
+          id: "message", authorId: "peer",
           type: "chat",
           seq: 5,
           createdAt: "2026-09-28T00:00:05.000Z",

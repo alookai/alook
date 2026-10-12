@@ -1,7 +1,7 @@
 import { projectPostedMessage } from "@/lib/community/message-wire"
 import { QueryClient } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { AccountAttentionSnapshotSchema, type CommunityWsEvent } from "@alook/shared"
+import { AccountAttentionSnapshotSchema, CommunityMessageResourceSchema, communityMessagePreviewFromLegacy, type CommunityWsEvent } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import { rememberMessageAccessScope } from "./message-access-scope"
@@ -33,6 +33,7 @@ import {
   publishCommunityDmSummary,
   publishCommunityMessages,
   publishCommunityChannelDirectory,
+  publishCommunityChannelMetadata,
   publishCommunityServerFields,
   publishCommunityChannelFields,
   publishCommunityLiveSnapshot as publishCommunityLiveSnapshotWithProof,
@@ -48,6 +49,11 @@ import {
 import { useCommunityStore } from "@/stores/community"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
+import { decodeCommunityReadResponse } from "@/lib/community/read-response"
+import type { MessageInput } from "@/lib/community/models/message"
+import { writeCommunityCollectionRows } from "./write"
+
+const pendingApproval = { friendshipId: "friendship", status: "pending" as const, waitingOn: null, otherProfile: { id: "approval", name: "Approval", discriminator: "0004", image: null, avatarVersion: 1 }, botProfile: { id: "bot", name: "Bot", discriminator: "0005", image: null, avatarVersion: 1 } }
 
 const registries: CommunityDbRegistry[] = []
 const unregisters: Array<() => void> = []
@@ -151,9 +157,127 @@ describe("community DB sync", () => {
     const identity = { id: "owned-reply", channelId: "c1", type: "chat" as const, authorId: "viewer", clientNonce: "nonce", seq: 1 }
     ingestMessages(db, "c1", [{ ...identity, replyTo: { id: "target", authorName: "Peer", text: "private" }, replyToId: "target" }])
     ingestMessages(db, field === "channel" ? "c2" : "c1", [{ ...identity,
-      ...(field === "author" ? { authorId: "other" } : field === "nonce" ? { clientNonce: "other" } : {}) }])
+      ...(field === "author" ? { authorId: "other" } : field === "nonce" ? { clientNonce: "other" } : { channelId: "c2" }) }])
     expect(db.collections.messages.get(identity.id)?.replyTo).toBeUndefined()
     expect(db.collections.messages.get(identity.id)?.replyToId).toBeNull()
+  })
+
+  it("keeps full raw facts across a weak preview and explicit full clearing", async () => {
+    const db = await registry()
+    const full = CommunityMessageResourceSchema.parse({ id: "raw", channelId: "c1", seq: 1, type: "chat", authorId: "peer", authorName: "Peer", authorAvatar: null, authorAvatarVersion: 4, content: "full", createdAt: "now", replyToId: "reply", replyTo: { id: "reply", authorName: "Peer", text: "prior" }, clientNonce: "nonce", attachments: [{ id: "a2", name: "raw", url: "/raw", thumbnailUrl: null, contentType: null, sizeBytes: null, width: null, height: null }], embeds: [null, { unsupported: true }], thread: { id: "thread", name: null, messageCount: 0, lastReplyAt: null, participants: [{ id: "peer", name: "Peer", avatar: null, avatarVersion: 4 }] } })
+    ingestMessages(db, "c1", [{ ...full, resourceComplete: true }])
+    const preview = communityMessagePreviewFromLegacy({ id: "raw", seq: 1, type: "chat", authorId: "peer", createdAt: "now", content: "preview" }, "c1")
+    ingestMessages(db, "c1", [preview])
+    expect(db.collections.messages.get(full.id)).toMatchObject({ ...full, content: "preview", resourceComplete: true })
+    ingestMessages(db, "c1", [{ id: "raw", thread: { id: "thread", participants: [{ id: "peer", avatarVersion: 4 }, { id: "unknown" }] } }])
+    expect(db.collections.messages.get(full.id)?.thread?.participants).toEqual(full.thread!.participants)
+    expect(db.collections.profiles.get("peer")).toMatchObject({ name: "Peer", avatar: null, avatarVersion: 4 })
+    expect(db.collections.profiles.get("unknown")).toMatchObject({ id: "unknown", identityComplete: false })
+    expect(db.collections.profiles.get("unknown")).not.toHaveProperty("name")
+    ingestMessages(db, "c1", [{ ...full, resourceComplete: true, attachments: [], embeds: [], clientNonce: null, replyToId: null, replyTo: undefined }])
+    expect(db.collections.messages.get(full.id)).toMatchObject({ resourceComplete: true, attachments: [], embeds: [], clientNonce: null, replyToId: null })
+    expect(db.collections.messages.get(full.id)?.replyTo).toBeUndefined()
+  })
+
+  it.each([
+    ["legacy", "empty"], ["legacy", "incomplete"],
+    ["confirmed2", "empty"], ["confirmed2", "incomplete"],
+  ] as const)("preserves full attachments through %s %s read publication", async (contract, shape) => {
+    const db = await registry()
+    const full = CommunityMessageResourceSchema.parse({
+      id: "attachment-read", channelId: "c1", seq: 1, type: "chat", authorId: "peer",
+      createdAt: "now", content: "full", replyToId: null, clientNonce: null,
+      attachments: [
+        { id: "a2", name: "unknown", url: "/a2", thumbnailUrl: null, contentType: null, sizeBytes: null, width: null, height: null },
+        { id: "a1", name: "photo", url: "/a1", thumbnailUrl: "/thumb", contentType: "image/png", sizeBytes: 12, width: 2, height: 3 },
+      ],
+    })
+    const legacy = { ...full, content: "read preview", attachments: shape === "empty" ? [] : [{ kind: "file", name: "old", url: "/old" }] }
+    const body = contract === "legacy" ? { messages: [legacy] } : {
+      contractVersion: 2, channelId: "c1", messages: [legacy],
+      page: { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 1 },
+      surfaceReceipt: { channelId: "c1", surfaceKind: "channel" },
+    }
+    const response = new Response(null, { headers: contract === "legacy" ? {} : { "X-Alook-Community-Contract": "2" } })
+    const read = decodeCommunityReadResponse("/api/community/channels/c1/messages", "GET", response, body, 2) as { messages: MessageInput[] }
+    expect(read.messages[0]).toMatchObject({ resourceComplete: false, attachments: shape === "empty" ? [] : [{ name: "old", url: "/old" }] })
+    ingestMessages(db, "c1", [{ ...read.messages[0]!, id: "weak-only" }])
+    expect(db.collections.messages.get("weak-only")).toMatchObject({ resourceComplete: false, attachments: read.messages[0]!.attachments })
+    ingestMessages(db, "c1", [{ ...full, resourceComplete: true }])
+    expect(() => ingestMessages(db, "c1", read.messages)).not.toThrow()
+    expect(db.collections.messages.get(full.id)).toMatchObject({ content: "read preview", resourceComplete: true, attachments: full.attachments })
+    ingestMessages(db, "c1", [{ ...full, resourceComplete: true, attachments: [...full.attachments].reverse() }])
+    expect(db.collections.messages.get(full.id)?.attachments).toEqual([...full.attachments].reverse())
+    ingestMessages(db, "c1", [{ ...full, resourceComplete: true, attachments: [] }])
+    expect(db.collections.messages.get(full.id)?.attachments).toEqual([])
+  })
+
+  it.each([false, true])("does not canonicalize an Attention initial for a known full profile=%s", async known => {
+    const db = await registry()
+    if (known) {
+      writeCommunityCollectionRows(db, "profiles", [{
+        id: "peer", name: "Peer", discriminator: "0002", aboutMe: "actual bio",
+        avatar: null, avatarVersion: 4, statusEmoji: "🌿", statusText: "Actual status",
+        ownerHandle: "owner#12345", mutualServers: 2, ownedByViewer: false, identityComplete: true,
+      }], row => row.id)
+      expect(db.collections.profiles.get("peer")).toMatchObject({ identityComplete: true, avatar: null, avatarVersion: 4 })
+    }
+    const snapshot = forumAttentionSnapshot()
+    snapshot.included.profiles[0]!.avatarVersion = 4
+    ingestAttentionSnapshot(db, snapshot)
+    const profile = db.collections.profiles.get("peer")
+    expect(profile).toMatchObject({ id: "peer", name: "Peer", discriminator: "0002", avatarVersion: 4, identityComplete: known })
+    if (known) expect(profile).toMatchObject({ avatar: null, aboutMe: "actual bio", statusEmoji: "🌿", statusText: "Actual status", ownerHandle: "owner#12345", mutualServers: 2, ownedByViewer: false })
+    else expect(profile).not.toHaveProperty("avatar")
+    snapshot.included.profiles[0]!.avatar = "https://cdn.example/peer.png"
+    snapshot.included.profiles[0]!.avatarVersion = 5
+    ingestAttentionSnapshot(db, snapshot)
+    expect(db.collections.profiles.get("peer")).toMatchObject({ avatar: "https://cdn.example/peer.png", avatarVersion: 5, identityComplete: true })
+    snapshot.included.profiles[0]!.avatar = "P"
+    snapshot.included.profiles[0]!.avatarVersion = 4
+    ingestAttentionSnapshot(db, snapshot)
+    expect(db.collections.profiles.get("peer")).toMatchObject({ avatar: "https://cdn.example/peer.png", avatarVersion: 5, identityComplete: true })
+  })
+
+  it("rejects invalid full batches before writing child rows", async () => {
+    const db = await registry()
+    const good = { id: "good", channelId: "c1", seq: 1, type: "chat" as const, authorId: "peer", createdAt: "now", content: "body", clientNonce: null, replyToId: null, attachments: [], resourceComplete: true, thread: { id: "child", name: "Child", messageCount: 0 } }
+    expect(() => ingestMessages(db, "c1", [good, { ...good, id: "bad", attachments: undefined }])).toThrow()
+    expect(db.collections.messages.size).toBe(0)
+    expect(db.collections.channels.get("child")).toBeUndefined()
+  })
+
+  it("keeps full topic and times through a later weak sidebar read", async () => {
+    const db = await registry()
+    const full = { id: "c1", type: "text" as const, serverId: "s1", categoryId: "cat1", name: "Channel", topic: "Full topic", parentChannelId: null, parentMessageId: null, creatorId: "peer", position: 2, archived: false, createdAt: "created", lastMessageAt: "last", messageCount: 7, resourceComplete: true }
+    publishCommunityChannelMetadata(db.queryClient, { metadata: full, proof: { token: captureCommunityLiveSnapshotToken(db.queryClient), signal: undefined } })
+    const detail = { id: "s1", name: "Server", discriminator: "0001", description: "", ownerId: "viewer", icon: null, categories: [{ id: "cat1", name: "Category", channels: [{ id: "c1", name: "Renamed", active: false, unread: false, archived: 0 }] }] }
+    ingestServerDetail(db, detail)
+    expect(db.collections.channels.get(full.id)).toMatchObject({ topic: "Full topic", createdAt: "created", lastMessageAt: "last", messageCount: 7, archived: false, resourceComplete: true, name: "Renamed" })
+    ingestServerDetail(db, { ...detail, categories: [{ ...detail.categories[0], channels: [{ ...detail.categories[0].channels[0], archived: 1 }] }] })
+    expect(db.collections.channels.get(full.id)).toMatchObject({ archived: true, resourceComplete: true, topic: "Full topic", lastMessageAt: "last", messageCount: 7 })
+    const { archived: _archived, ...omitted } = detail.categories[0].channels[0]
+    ingestServerDetail(db, { ...detail, categories: [{ ...detail.categories[0], channels: [omitted] }] })
+    expect(db.collections.channels.get(full.id)).toMatchObject({ archived: true, resourceComplete: true, topic: "Full topic", createdAt: "created", lastMessageAt: "last", messageCount: 7 })
+    const before = db.collections.channels.get(full.id)
+    expect(() => ingestServerDetail(db, { ...detail, categories: [{ ...detail.categories[0], channels: [{ ...detail.categories[0].channels[0], archived: false, resourceComplete: true }] }] })).toThrow()
+    expect(() => ingestServerDetail(db, { ...detail, categories: [{ ...detail.categories[0], channels: [{ ...full, active: false, unread: false, archived: 0 }] }] })).toThrow()
+    expect(db.collections.channels.get(full.id)).toEqual(before)
+  })
+
+  it.each([{ archived: 2 }, { archived: "0" }, { archived: null }, { topic: null }, { messageCount: -1 }, { serverId: "foreign" }])("rejects an invalid later sidebar row before publication %j", async (fields) => {
+    const db = await registry()
+    const original = { id: "s1", name: "Server", discriminator: "0001", description: "", ownerId: "viewer", icon: null, categories: [{ id: "cat1", name: "Category", channels: [{ id: "old", name: "Old", active: false, unread: false }] }] }
+    ingestServerDetail(db, original)
+    const previousServer = db.collections.servers.get("s1")
+    const previousChannel = db.collections.channels.get("old")
+    const valid = { id: "new", name: "New", active: false, unread: false, archived: 0 }
+    const invalid = { ...valid, id: "bad", ...fields }
+    expect(() => ingestServerDetail(db, { ...original, name: "Changed", categories: [{ ...original.categories[0], channels: [valid, invalid] }] })).toThrow()
+    expect(db.collections.servers.get("s1")).toEqual(previousServer)
+    expect(db.collections.channels.get("old")).toEqual(previousChannel)
+    expect(db.collections.channels.has("new")).toBe(false)
+    expect(db.collections.channels.has("bad")).toBe(false)
   })
 
   it("cannot resurrect a deleted channel through a confirmed field patch or the older snapshot", async () => {
@@ -365,14 +489,14 @@ describe("community DB sync", () => {
       seq: 1,
       content: "message",
       createdAt: "2026-09-26T00:00:00.000Z",
-      reactions: [{ emoji: "👍", count: 1, me: false }],
+      reactions: [{ emoji: "👍", count: 1, me: false, userIds: ["peer"] }],
     }
     ingestMessages(db, "c1", [staleMessage])
     const token = captureCommunityLiveSnapshotToken(db.queryClient)
 
     patchCanonicalCommunityMessage(db.queryClient, "m-local", (message) => ({
       ...message,
-      reactions: [{ emoji: "👍", count: 2, me: true }],
+      reactions: [{ emoji: "👍", count: 2, me: true, userIds: ["peer", "viewer"] }],
     }))
     publishCommunityMessages(db.queryClient, {
       channelId: "c1",
@@ -381,7 +505,7 @@ describe("community DB sync", () => {
     })
 
     expect(db.collections.messages.get("m-local")?.reactions).toEqual([
-      { emoji: "👍", count: 2, me: true },
+      { emoji: "👍", count: 2, me: true, userIds: ["peer", "viewer"] },
     ])
   })
 
@@ -1957,8 +2081,8 @@ describe("community DB sync", () => {
       authorId: "u2",
       authorName: "Alice",
       content: "rich",
-      attachments: [{ kind: "image", name: "proof.png", url: "/proof.png" }],
-      replyTo: { id: "m0", authorId: "u3", authorName: "Bob", content: "earlier" },
+      attachments: [{ name: "proof.png", url: "/proof.png", contentType: "image/png" }],
+      replyTo: { id: "m0", authorId: "u3", authorName: "Bob", text: "earlier" },
     }])
 
     ingestAttentionSnapshot(db, {
@@ -1993,7 +2117,7 @@ describe("community DB sync", () => {
     })
     expect(db.collections.messages.get("m1")).toMatchObject({
       content: "new preview",
-      attachments: [{ kind: "image", name: "proof.png", url: "/proof.png" }],
+      attachments: [{ name: "proof.png", url: "/proof.png", contentType: "image/png" }],
       replyTo: { id: "m0", authorId: "u3" },
     })
   })
@@ -2240,10 +2364,10 @@ describe("community DB sync", () => {
       }],
     })
     ingestAttentionSnapshot(db, { scopes: [], items: [
-      { id: "scope-item", kind: "mention", sourceId: "source-1", scopeId: "c1", createdAt: "now" },
-      { id: "child-item", kind: "forum_post", sourceId: "source-2", childChannelId: "c1", createdAt: "now" },
-      { id: "target-item", kind: "reply", sourceId: "source-3", readTarget: { channelId: "c1", seq: 1 }, createdAt: "now" },
-      { id: "dm-item", kind: "mention", sourceId: "source-4", scopeId: "dm1", createdAt: "now" },
+      { id: "scope-item", kind: "mention", sourceId: "source-1", scopeId: "c1", messageId: "message-1", actorUserId: "peer", createdAt: "now" },
+      { id: "child-item", kind: "forum_post", sourceId: "c1", scopeId: "forum", messageId: "opener-2", childChannelId: "c1", openerSeq: 2, readTarget: { channelId: "forum", seq: 2 }, createdAt: "now" },
+      { id: "target-item", kind: "forum_post", sourceId: "other-child", scopeId: "other-forum", messageId: "opener-3", childChannelId: "other-child", openerSeq: 3, readTarget: { channelId: "c1", seq: 3 }, createdAt: "now" },
+      { id: "dm-item", kind: "mention", sourceId: "source-4", scopeId: "dm1", messageId: "message-4", actorUserId: "peer", createdAt: "now" },
     ], limit: 100, truncated: false })
     purgeCommunityServer(db, "s1")
     expect(db.collections.servers.get("s1")).toBeUndefined()
@@ -2368,10 +2492,7 @@ describe("community DB sync", () => {
         id: "thread1", name: "Thread", messageCount: 1,
         participants: [{ id: "participant", name: "Participant", avatar: "P", avatarVersion: 1 }],
       },
-      approval: {
-        status: "pending",
-        otherProfile: { id: "approval", name: "Approval", discriminator: "0004", image: null, avatarVersion: 1 },
-      },
+      approval: pendingApproval,
     }])
     ingestReadStateSnapshot(db, {
       revision: 1,
@@ -2567,7 +2688,7 @@ describe("community DB sync", () => {
       channelId: "c1",
       serverId: "s1",
       message: {
-        id: "m1", seq: 1,
+        id: "m1", seq: 1, authorAvatarVersion: 0,
         type: "chat",
         authorId: "peer",
         authorName: "Peer",
@@ -2640,23 +2761,8 @@ describe("community DB sync", () => {
     } as CommunityWsEvent)
 
     expect(db.collections.messages.get("m-attachment")?.attachments).toEqual([
-      {
-        kind: "image",
-        name: "photo.png",
-        url: "/photo.png",
-        contentType: "image/png",
-        sizeBytes: 2_048,
-        width: undefined,
-        height: 480,
-      },
-      {
-        kind: "file",
-        name: "notes.txt",
-        url: "/notes.txt",
-        contentType: undefined,
-        sizeBytes: undefined,
-        size: "",
-      },
+      { id: "image", name: "photo.png", url: "/photo.png", contentType: "image/png", sizeBytes: 2048, width: null, height: 480, thumbnailUrl: undefined },
+      { id: "file", name: "notes.txt", url: "/notes.txt", contentType: undefined, sizeBytes: undefined, width: undefined, height: undefined, thumbnailUrl: undefined },
     ])
   })
 
@@ -2697,7 +2803,7 @@ describe("community DB sync", () => {
       channel: { id: "missing-parent", name: "Missing", type: "thread", createdAt: "2026-09-25T00:00:00.000Z" },
     })
     event({ type: "community:unread.bump", serverId: "s1", channelId: "c1", userId: "other", isMention: true })
-    event({ type: "community:message.updated", channelId: "c1", messageId: "m1", approval: { status: "pending" } })
+    event({ type: "community:message.updated", channelId: "c1", messageId: "m1", approval: pendingApproval })
     event({ type: "community:reaction.add", channelId: "c1", messageId: "m1", userId: "viewer", emoji: "👍" })
     event({ type: "community:reaction.remove", channelId: "c1", messageId: "m1", userId: "peer", emoji: "👍" })
     event({ type: "community:server.update", serverId: "s1", changes: { name: "Renamed" } })
