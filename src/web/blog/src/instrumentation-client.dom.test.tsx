@@ -67,7 +67,7 @@ it("boots the actual Blog entry with the native resumed session and exports its 
 });
 
 
-it.each(["", "v1.denied", "v0.granted", "v1.granted"])("boots the actual Blog document from %s without adding an optional telemetry grant", async value => {
+it.each(["", "v1.denied", "v0.granted", "v1.granted"])("boots the actual Blog document from %s with default public collection and saved denial preserved", async value => {
   vi.resetModules();
   vi.stubEnv("NEXT_PUBLIC_FARO_COLLECTOR_URL", "");
   window.history.replaceState(null, "", "/blog/public?secret=query#hash");
@@ -77,7 +77,7 @@ it.each(["", "v1.denied", "v0.granted", "v1.granted"])("boots the actual Blog do
   vi.stubGlobal("fetch", fetcher);
   const { onRouterTransitionStart } = await import("./instrumentation-client");
   expect(window.dataLayer.map(command => Array.from(command as IArguments))).toEqual([
-    ["consent", "default", { analytics_storage: value === "v1.granted" ? "granted" : "denied", ad_storage: "denied", ad_user_data: "denied", ad_personalization: "denied" }],
+    ["consent", "default", { analytics_storage: value === "v1.denied" ? "denied" : "granted", ad_storage: "denied", ad_user_data: "denied", ad_personalization: "denied" }],
     ["set", { page_location: `${window.location.origin}/blog/public`, page_referrer: `${window.location.origin}/` }],
   ]);
   onRouterTransitionStart("/blog/other?secret=route#hash");

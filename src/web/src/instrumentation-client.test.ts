@@ -40,7 +40,7 @@ it.each(["", "v1.denied", "v0.granted", "v1.granted"])("initializes the real Web
   bootstrapObservabilityMock.mockImplementation(() => {
     expect(Reflect.get(browser, "ga-disable-G-STBCL8F4ZY")).toBe(false)
     expect(browser.dataLayer.map(command => Array.from(command as IArguments))).toEqual([
-      ["consent", "default", { analytics_storage: cookie === "v1.granted" ? "granted" : "denied", ad_storage: "denied", ad_user_data: "denied", ad_personalization: "denied" }],
+      ["consent", "default", { analytics_storage: cookie === "v1.denied" ? "denied" : "granted", ad_storage: "denied", ad_user_data: "denied", ad_personalization: "denied" }],
       ["set", { page_location: "https://alook.ai/", page_referrer: "" }],
     ])
     browser.dataLayer.push({ event: "existing-consumer" })

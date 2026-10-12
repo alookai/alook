@@ -22,6 +22,14 @@ import { tid } from "@/lib/community/testids"
 const GTM_ID = "GTM-56VHCCQZ"
 const GA_DISABLE = "ga-disable-G-STBCL8F4ZY"
 
+const reloadingDocuments = new WeakSet<object>()
+
+function reloadAnalyticsDocument() {
+  if (reloadingDocuments.has(window)) return
+  reloadingDocuments.add(window)
+  window.location.reload()
+}
+
 function useStoredAnalyticsConsent(syncGoogleConsent = false) {
   const [ready, setReady] = useAtom(useCreateAtom(false))
   const [decision, setDecision] = useAtom(useCreateAtom<AnalyticsConsentDecision | null>(null))
@@ -36,6 +44,10 @@ function useStoredAnalyticsConsent(syncGoogleConsent = false) {
       if (syncGoogleConsent && (changed || initial)) {
         if (!native) applyGoogleConsent(isPublicAnalyticsPath(window.location.pathname) ? next ?? "granted" : "denied")
         else if (initial && next === "granted") applyGoogleConsent(next, "default")
+      }
+      if (syncGoogleConsent && !native && !initial && next === "denied"
+        && decisionRef.current === "granted" && isPublicAnalyticsPath(window.location.pathname)) {
+        reloadAnalyticsDocument()
       }
       decisionRef.current = next
       setDecision(next)
@@ -103,7 +115,7 @@ function useAnalyticsConsentChoice() {
     try {
       await persistAnalyticsConsent(decision)
       announceAnalyticsConsent(decision)
-      if (!isTauri()) window.location.reload()
+      if (!isTauri()) reloadAnalyticsDocument()
     } catch {
       setError(true)
     } finally {

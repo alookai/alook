@@ -43,6 +43,17 @@ function successfulFetch(decision: "granted" | "denied") {
 }
 
 
+function installCookieStore() {
+  const store = new EventTarget()
+  vi.stubGlobal("cookieStore", store)
+  const change = () => {
+    const event = new Event("change")
+    Object.assign(event, { changed: [{ name: "alook_analytics_consent" }], deleted: [] })
+    act(() => store.dispatchEvent(event))
+  }
+  return { change }
+}
+
 function consentCommands() {
   return window.dataLayer!.map(command => Array.from(command as IArguments)).filter(command => command[0] === "consent")
 }
@@ -215,6 +226,22 @@ describe("AnalyticsConsent", () => {
     vi.stubGlobal("fetch", successfulFetch("denied"))
     fireEvent.click(screen.getByRole("button", { name: "Only necessary" }))
     await screen.findByText(/Analytics cookies denied/u)
+    expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
+  })
+
+  it.each(["/privacy", "/blog", "/c/me"])("synchronizes another tab's denial on %s without disrupting product drafts", pathname => {
+    route.pathname = pathname
+    window.history.replaceState({}, "", pathname)
+    document.cookie = "alook_analytics_consent=v1.granted; Path=/"
+    const cookie = installCookieStore()
+    render(<AnalyticsConsent />)
+    cookie.change()
+    expect(navigation.reload).not.toHaveBeenCalled()
+    document.cookie = "alook_analytics_consent=v1.denied; Path=/"
+    cookie.change()
+    fireEvent(window, new Event("focus"))
+    fireEvent(window, new CustomEvent("alook:analytics-consent-change", { detail: "granted" }))
+    expect(navigation.reload).toHaveBeenCalledTimes(pathname.startsWith("/c") ? 0 : 1)
     expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
   })
 
