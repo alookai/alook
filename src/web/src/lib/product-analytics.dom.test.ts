@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { waitFor } from "@/test/react-dom-harness"
 const mocks = vi.hoisted(() => ({ native: false, consent: null as string | null }))
 vi.mock("@alook/shared", async original => ({ ...await original<typeof import("@alook/shared")>(), isTauri: () => mocks.native }))
 vi.mock("@/lib/analytics-consent", () => ({ readAnalyticsConsent: () => mocks.consent }))
@@ -9,9 +10,9 @@ afterEach(() => vi.unstubAllGlobals())
 describe("product analytics browser transport", () => {
   it("sends keepalive fixed events with a reusable mount nonce", async () => {
     await captureProductAnalytics({ event: "login_page_view" }, "fixed-mount-id")
-    expect(fetch).toHaveBeenCalledWith("/api/community/analytics/product-events", expect.objectContaining({
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/community/analytics/product-events", expect.objectContaining({
       keepalive: true, credentials: "include", body: JSON.stringify({ event: "login_page_view", requestId: "fixed-mount-id" }),
-    }))
+    })))
   })
   it("seeds one browser id before delayed requests and reuses it on fast navigation", async () => {
     let resolve: (() => void) | undefined
