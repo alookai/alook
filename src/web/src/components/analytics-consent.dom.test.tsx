@@ -123,7 +123,7 @@ describe("AnalyticsConsent", () => {
     expect(screen.getByTestId(tid.ahrefsAnalyticsFrame)).toBeInTheDocument()
     expect(getComputedStyle(screen.getByTestId("consent-page")).height).toBe("100dvh")
     expect(document.cookie).not.toContain("alook_analytics_consent=")
-    expect(document.cookie).toMatch(/_ga=GA1\.1\.\d+\.\d+/u)
+    expect(document.cookie).not.toContain("_ga=")
   })
 
   it("does not resave an existing grant", async () => {

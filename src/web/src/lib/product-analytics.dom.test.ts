@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { fireEvent } from "@/test/react-dom-harness"
 const mocks = vi.hoisted(() => ({ native: false, consent: null as string | null }))
 vi.mock("@alook/shared", async original => ({ ...await original<typeof import("@alook/shared")>(), isTauri: () => mocks.native }))
 vi.mock("@/lib/analytics-consent", async original => ({ ...await original<typeof import("@/lib/analytics-consent")>(), readAnalyticsConsent: () => mocks.consent }))
@@ -18,7 +19,7 @@ function loadFrame() {
   const frame = document.getElementById("alook-product-events") as HTMLIFrameElement
   const send = vi.fn()
   Object.defineProperty(frame.contentWindow, "sendProductEvent", { value: send, configurable: true })
-  frame.dispatchEvent(new Event("load"))
+  fireEvent.load(frame)
   return { frame, send }
 }
 
