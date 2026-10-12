@@ -981,8 +981,8 @@ describe("verified web OAuth callback failure hooks", () => {
     const createAuth = await loadCreateAuth()
     return (createAuth(makeEnv({ NODE_ENV: "production", BETTER_AUTH_URL: "https://alook.ai" }) as never) as { __options: AuthOptions }).__options.hooks!
   }
-  function ctx(path = "/callback/github") {
-    return { path, request: new Request(`https://alook.ai/api/auth${path}`, { headers: { origin: "https://alook.ai", cookie: "_ga=GA1.1.100.200" } }),
+  function ctx(path = "/callback/:id") {
+    return { path, params: { id: "github" }, request: new Request(`https://alook.ai/api/auth${path.replace(":id", "github")}`, { headers: { origin: "https://alook.ai", cookie: "_ga=GA1.1.100.200" } }),
       body: { callbackURL: "/c/me" }, context: { responseHeaders: new Headers({ location: "https://alook.ai/api/auth/error?error=access_denied&error_description=private-value" }), returned: { statusCode: 302 }, newSession: null as unknown }, setCookie: vi.fn() }
   }
   it("marks same-origin web social starts in server-controlled state", async () => {
@@ -1006,6 +1006,14 @@ describe("verified web OAuth callback failure hooks", () => {
     }
     expect(productMocks.failure).toHaveBeenCalledTimes(3)
     expect(productMocks.failure).toHaveBeenLastCalledWith(expect.anything(), { method: "github", attemptId: attempt, cookies: "_ga=GA1.1.100.200", actorUserId: undefined })
+  })
+  it("does not count unsupported providers or another endpoint as provider callbacks", async () => {
+    productMocks.oauthState.mockResolvedValue({ callbackURL: "https://alook.ai/c/me", serverContext: { productAnalyticsWebAttempt: attempt } })
+    const h = await hooks()
+    const unsupported = ctx(); unsupported.params.id = "unsupported"
+    await h.after(unsupported)
+    await h.after(ctx("/sign-in/social"))
+    expect(productMocks.failure).not.toHaveBeenCalled()
   })
   it("passes a validated existing session actor so cross-device account denial can win", async () => {
     productMocks.oauthState.mockResolvedValue({ callbackURL: "https://alook.ai/c/me", serverContext: { productAnalyticsWebAttempt: attempt } })

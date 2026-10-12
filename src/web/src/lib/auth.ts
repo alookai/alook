@@ -235,8 +235,8 @@ export function createAuth(env: Env) {
         } catch { log.warn("OAuth analytics provenance unavailable") }
       }),
       after: createAuthMiddleware(async ctx => {
-        const method = /^\/callback\/(github|google|apple)$/u.exec(ctx.path)?.[1] as "github" | "google" | "apple" | undefined
-        if (!method || ctx.context.newSession) return
+        const method = ctx.params?.id
+        if (ctx.path !== "/callback/:id" || (method !== "github" && method !== "google" && method !== "apple") || ctx.context.newSession) return
         try {
           const state = await getOAuthState()
           const attemptId = state?.serverContext?.productAnalyticsWebAttempt
