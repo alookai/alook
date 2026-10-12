@@ -512,6 +512,25 @@ function messageCreateCount(
     && event.message?.content?.includes(body))).length
 }
 
+type PostedMessageIdentity = { id: string; seq: number; channelId: string; authorId: string; content: string }
+
+async function expectMessageCreateIdentity(
+  frames: Awaited<ReturnType<typeof proxyCommunityWebSockets>>["frames"],
+  channelId: string,
+  message: PostedMessageIdentity,
+  nonce: string,
+): Promise<void> {
+  expect(message.id.length).toBeGreaterThan(0)
+  expect(message.seq).toBeGreaterThan(0)
+  await expect.poll(() => frames.flatMap(communityFrameEvents).filter(event =>
+    event.type === "community:message.create" && event.channelId === channelId && event.message?.id === message.id,
+  ).length).toBe(1)
+  const created = frames.flatMap(communityFrameEvents).find(event =>
+    event.type === "community:message.create" && event.channelId === channelId && event.message?.id === message.id,
+  )!
+  expect(created.message).toMatchObject({ id: message.id, seq: message.seq, authorId: message.authorId, clientNonce: nonce })
+}
+
 test.describe.serial("message scroll characterization", () => {
   let serverId: string
   let coldChannelId: string
@@ -795,9 +814,10 @@ test.describe.serial("message scroll characterization", () => {
       expect(response.status()).toBe(201)
       const nonce = response.request().postDataJSON().nonce as string
       expect(nonce.length).toBeGreaterThan(0)
-      const result = await response.json() as { message: { id: string; authorId: string; clientNonce: string } }
-      expect(result.message).toMatchObject({ authorId: userId("alice"), clientNonce: nonce })
+      const result = await response.json() as { message: PostedMessageIdentity }
+      expect(result.message).toMatchObject({ authorId: userId("alice"), channelId, content: localContent })
       await expect.poll(() => messageCreateCount(proxy.frames, channelId, localContent)).toBe(1)
+      await expectMessageCreateIdentity(proxy.frames, channelId, result.message, nonce)
       await expect(alice.page.getByTestId(tid.message(result.message.id))).toBeVisible()
       await expect(alice.page.getByText(localContent, { exact: true })).toHaveCount(1)
       await waitForStableTail(scroller, "local-history-submission-ack")
@@ -820,15 +840,12 @@ test.describe.serial("message scroll characterization", () => {
           body: JSON.stringify({ content, nonce }),
         })
         expect(response.status).toBe(201)
-        const result = await response.json() as { message: { id: string; authorId: string; clientNonce: string } }
-        expect(result.message).toMatchObject({ authorId: userId(author), clientNonce: nonce })
+        const result = await response.json() as { message: PostedMessageIdentity }
+        expect(result.message).toMatchObject({ authorId: userId(author), channelId, content })
         await expect.poll(() => proxy.frames.filter(frame => communityFrameEvents(frame).some(event =>
           event.type === "community:message.create" && event.channelId === channelId && event.message?.id === result.message.id,
         )).length).toBe(1)
-        const frame = proxy.frames.flatMap(communityFrameEvents).find(event =>
-          event.type === "community:message.create" && event.channelId === channelId && event.message?.id === result.message.id,
-        )!
-        expect(frame.message).toMatchObject({ authorId: userId(author), clientNonce: nonce })
+        await expectMessageCreateIdentity(proxy.frames, channelId, result.message, nonce)
         if (distance <= 1) {
           await expect(alice.page.getByTestId(tid.message(result.message.id))).toBeVisible()
           await waitForStableTail(scroller, `${author}-${distance}-received`)
@@ -1195,9 +1212,10 @@ test.describe.serial("message scroll characterization", () => {
     expect(response.status()).toBe(201)
     const nonce = response.request().postDataJSON().nonce as string
     expect(nonce.length).toBeGreaterThan(0)
-    const result = await response.json() as { message: { id: string; authorId: string; clientNonce: string } }
-    expect(result.message).toMatchObject({ authorId: userId("alice"), clientNonce: nonce })
+    const result = await response.json() as { message: PostedMessageIdentity }
+    expect(result.message).toMatchObject({ authorId: userId("alice"), channelId: composerDmId, content })
     await expect.poll(() => messageCreateCount(proxy.frames, composerDmId, content)).toBe(1)
+    await expectMessageCreateIdentity(proxy.frames, composerDmId, result.message, nonce)
     await expect(alice.page.getByTestId(tid.message(result.message.id))).toBeVisible()
     await expect(alice.page.getByText(content, { exact: true })).toHaveCount(1)
     await waitForStableTail(scroller, "dm-local-submit-ack")
@@ -1471,9 +1489,10 @@ test.describe.serial("message scroll characterization", () => {
     expect(response.status()).toBe(201)
     const nonce = response.request().postDataJSON().nonce as string
     expect(nonce.length).toBeGreaterThan(0)
-    const result = await response.json() as { message: { id: string; authorId: string; clientNonce: string } }
-    expect(result.message).toMatchObject({ authorId: userId("alice"), clientNonce: nonce })
+    const result = await response.json() as { message: PostedMessageIdentity }
+    expect(result.message).toMatchObject({ authorId: userId("alice"), channelId: splitThreadId, content })
     await expect.poll(() => messageCreateCount(proxy.frames, splitThreadId, content)).toBe(1)
+    await expectMessageCreateIdentity(proxy.frames, splitThreadId, result.message, nonce)
     await expect(threadPanel.getByTestId(tid.message(result.message.id))).toBeVisible()
     await expect(threadPanel.getByText(content, { exact: true })).toHaveCount(1)
     await waitForStableTail(threadScroller, "thread-local-submit-ack")
