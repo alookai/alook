@@ -30,7 +30,7 @@
     "@types/node": "^25.9.4",
     "better-sqlite3": "^12.11.1",
     "knip": "^6.32.2",
-    "playwright-core": "^1.63.0",
+    "playwright-core": "^1.64.0",
     "typescript": "^6.0.3",
     "vitest": "4.1.11"
   }
