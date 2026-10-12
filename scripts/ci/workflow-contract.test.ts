@@ -248,7 +248,7 @@ function ciJob(name: string): string {
 
 describe("E2E UI workflow", () => {
   it("isolates resizable-panels upgrades after adopting the latest compatible release", () => {
-    expect(webPackageManifest.dependencies["react-resizable-panels"]).toBe("4.14.1")
+    expect(webPackageManifest.dependencies["react-resizable-panels"]).toBe("4.14.3")
     expect(dependabotConfig).toMatch(/^[ ]{6}resizable-panels:\n[ ]{8}patterns:\n[ ]{10}- "react-resizable-panels"$/m)
     expect(dependabotConfig).toMatch(/^[ ]{8}exclude-patterns:[\s\S]*?^[ ]{10}- "react-resizable-panels"$/m)
     expect(dependabotConfig).not.toMatch(/^[ ]{6}- dependency-name: "react-resizable-panels"$/m)
