@@ -76,7 +76,10 @@ export function CommunityOnboardingForm() {
               avatar: { avatar: bot.image ?? requested.image, avatarVersion: bot.avatarVersion },
             }], origin.registry, { snapshot: profileSnapshot })
           },
-          resolveBot: (id) => origin.registry?.collections.profiles.get(id),
+          resolveBot: (id) => {
+            const profile = origin.registry?.collections.profiles.get(id)
+            return profile?.name === undefined ? undefined : { name: profile.name, discriminator: profile.discriminator ?? undefined }
+          },
           readChannels: async (serverId) => {
             assert()
             await queryClient.invalidateQueries({ queryKey: communityKeys.servers(), exact: true })
@@ -89,7 +92,7 @@ export function CommunityOnboardingForm() {
               assert()
               await queryClient.query({ ...options, select: undefined })
               assert()
-              return [...origin.registry!.collections.channels.values()].filter((channel) => channel.serverId === serverId && !channel.parentChannelId).map(({ id, name, type, categoryId }) => ({ id, name, type, categoryId: categoryId ?? null }))
+              return [...origin.registry!.collections.channels.values()].filter((channel) => channel.serverId === serverId && !channel.parentChannelId).map(({ id, name, type, categoryId }) => ({ id, name: name ?? "", type, categoryId: categoryId ?? null }))
             } finally { assert.signal.removeEventListener("abort", unsubscribe); unsubscribe() }
           },
         },

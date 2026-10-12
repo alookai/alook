@@ -1,4 +1,5 @@
 import type { z } from "zod"
+import { AttentionScopeSchema, AttentionItemSchema } from "@alook/shared"
 import { clearPersistedCache, type QualifiedPersister } from "@/lib/query-persister"
 import { disposeQueryDiagnostics } from "@/lib/observability/query-observer"
 import {
@@ -19,8 +20,6 @@ import type { CanonicalMessage } from "@/lib/community/message-stream"
 import { communityKeys } from "@/lib/query-keys"
 import {
   categorySchema,
-  attentionItemSchema,
-  attentionScopeSchema,
   channelMembershipSchema,
   channelSchema,
   folderItemSchema,
@@ -93,12 +92,12 @@ function buildCommunityDbRegistry(
   const channels = collectionFor("channels", channelSchema, (row) => row.id)
   const serverMemberships = collectionFor("serverMemberships", serverMembershipSchema, (row) => row.id)
   const channelMemberships = collectionFor("channelMemberships", channelMembershipSchema, (row) => row.id)
-  const profiles = collectionFor("profiles", profileSchema, (row) => row.userId)
+  const profiles = collectionFor("profiles", profileSchema, (row) => row.id)
   const messages = collectionFor("messages", messageSchema, (row) => row.id)
   const readStates = collectionFor("readStates", readStateSchema, (row) => row.channelId)
   const readStateClock = collectionFor("readStateClock", readStateClockSchema, (row) => row.id)
-  const attentionScopes = collectionFor("attentionScopes", attentionScopeSchema, (row) => row.scopeId)
-  const attentionItems = collectionFor("attentionItems", attentionItemSchema, (row) => row.id)
+  const attentionScopes = collectionFor("attentionScopes", AttentionScopeSchema, (row) => row.scopeId)
+  const attentionItems = collectionFor("attentionItems", AttentionItemSchema, (row) => row.id)
   const folders = collectionFor("folders", folderSchema, (row) => row.id)
   const folderItems = collectionFor("folderItems", folderItemSchema, (row) => row.id)
   const notificationSettings = collectionFor("notificationSettings", notificationSettingSchema, (row) => row.id)

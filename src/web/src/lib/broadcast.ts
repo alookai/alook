@@ -2,24 +2,30 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 import type { WsMessage, DaemonPushMessage } from "@alook/shared"
 import {
   COMMUNITY_BULK_BODY_MAX_BYTES,
+  COMMUNITY_CONTRACT_HEADER,
   DEV_WS_DO_URL,
   createLogger,
   encodeCommunityBrowserEvent,
   encodeCommunityUserTargetPathSegment,
   isValidCommunityUserTarget,
+  type CommunityContract,
 } from "@alook/shared"
 import { fetchViaBindingOrDevFallback } from "./dev-binding-fetch"
-import { projectCommunityProducerEvent } from "./community/producer-contract"
+import { communityProducerContract, projectCommunityProducerEvent } from "./community/producer-contract"
 
 const log = createLogger({ service: "broadcast" })
 const bulkBroadcastMaxUserIds = 1000
 const bulkBroadcastMaxActive = 3
 
 function encodeCommunityProducerEvent(message: unknown) {
-  const encoded = encodeCommunityBrowserEvent(message)
-  if (!encoded.ok || encoded.event.type !== "community:channel.membership.change") return encoded
   const { env } = getCloudflareContext()
-  return encodeCommunityBrowserEvent(projectCommunityProducerEvent(encoded.event, env as Env))
+  const contract = communityProducerContract(env as Env)
+  const encoded = encodeCommunityBrowserEvent(message, contract === 3 ? 3 : 2)
+  if (!encoded.ok) return encoded
+  const wire = encoded.event.type === "community:channel.membership.change"
+    ? encodeCommunityBrowserEvent(projectCommunityProducerEvent(encoded.event, env as Env, contract === 3 ? 3 : 2), contract)
+    : encoded
+  return wire.ok ? { ...wire, contract } : wire
 }
 
 /**
@@ -54,12 +60,12 @@ export async function wsDoFetch(
 async function doSend(
   url: string,
   body: string,
-  opts: { label: string; type: string },
+  opts: { label: string; type: string; contract?: CommunityContract },
 ): Promise<{ sent: number }> {
   const { env } = getCloudflareContext()
   const res = await wsDoFetch(env as Env, url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(opts.contract === 3 ? { [COMMUNITY_CONTRACT_HEADER]: "3" } : {}) },
     body,
   }, opts)
   if (!res.ok) {
@@ -73,7 +79,7 @@ async function doSend(
   }
 }
 
-function sendBroadcast(url: string, body: string, opts: { label: string; type: string }): Promise<void> {
+function sendBroadcast(url: string, body: string, opts: { label: string; type: string; contract?: CommunityContract }): Promise<void> {
   const promise = doSend(url, body, opts)
   try {
     const { ctx } = getCloudflareContext()
@@ -163,7 +169,7 @@ async function runBroadcastToUsers(
         const result = await doSend(
           community ? "/broadcast/community/users" : "/broadcast/users",
           serializeBulkBroadcast(chunk, wireMessage, excludeUserId, community),
-          { label: `${target}:chunk:${chunkNumber}/${chunks.length}`, type: message.type },
+          { label: `${target}:chunk:${chunkNumber}/${chunks.length}`, type: message.type, contract: encoded?.contract },
         )
         safeLog(() => log.info("broadcast_users_chunk_complete", {
           target,
@@ -233,7 +239,7 @@ export function broadcastToUser(userId: string, message: WsMessage): Promise<voi
     return sendBroadcast(
       `/broadcast/community/user/${encodeCommunityUserTargetPathSegment(userId)}`,
       encoded.body,
-      { label: userId, type: message.type },
+      { label: userId, type: message.type, contract: encoded.contract },
     )
   }
   return sendBroadcast(

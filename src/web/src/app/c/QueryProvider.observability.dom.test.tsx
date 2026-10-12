@@ -32,7 +32,7 @@ function activate(id: string) {
 }
 async function seed(id: string) {
   const client = new QueryClient()
-  client.setQueryData(key(id), [{ userId: id, name: "Private " + id, discriminator: "0001", avatar: "A", avatarVersion: 0 }], { updatedAt: Date.now() - 1000 })
+  client.setQueryData(key(id), [{ id, identityComplete: true, name: "Private " + id, discriminator: "0001", avatar: "A", avatarVersion: 0 }], { updatedAt: Date.now() - 1000 })
   await createIdbPersister(id).persistClient({ timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(client) })
   client.clear()
 }
@@ -82,7 +82,7 @@ it("attributes a delayed real IDB snapshot only after the actual Provider hydrat
   expect(events.some(event => event.name === "cache.restore.finish" && event.attributes.phase === "hydrate")).toBe(false)
   await act(async () => read.release())
   await waitFor(() => expect(restoring.get("account-a")).toBe(false))
-  expect(client.getQueryData(key("account-a"))).toEqual([expect.objectContaining({ userId: "account-a" })])
+  expect(client.getQueryData(key("account-a"))).toEqual([expect.objectContaining({ id: "account-a" })])
   expect(events.filter(event => event.name === "cache.restore.finish").map(event => [event.attributes.phase, event.attributes.outcome])).toEqual([["idb_read", "hit"], ["deserialize", "hit"], ["hydrate", "success"]])
   expect(JSON.stringify(events)).not.toContain("Private")
 })
@@ -123,6 +123,6 @@ it("regrant during a real Provider restore preserves business hydration without 
   events.length = 0
   await act(async () => read.release())
   await waitFor(() => expect(restoring.get("account-a")).toBe(false))
-  expect(client.getQueryData(key("account-a"))).toEqual([expect.objectContaining({ userId: "account-a" })])
+  expect(client.getQueryData(key("account-a"))).toEqual([expect.objectContaining({ id: "account-a" })])
   expect(events.filter(event => event.name.startsWith("cache.restore."))).toEqual([])
 })

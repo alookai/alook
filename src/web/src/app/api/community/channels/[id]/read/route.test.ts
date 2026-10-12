@@ -118,6 +118,20 @@ describe("PUT /api/community/channels/[id]/read", () => {
     mockIsBlocked.mockResolvedValue(false)
   })
 
+  it.each([2, 3] as const)("confirms contract %s with the committed exact target and revision", async (contract) => {
+    allow()
+    mockGetMessage.mockResolvedValue({ id: "m1", channelId: "c1", createdAt: "now", seq: 6 })
+    const request = putReq({ lastReadMessageId: "m1" })
+    request.headers.set("x-alook-community-contract", String(contract))
+    const response = await PUT(request, { params: { id: "c1" } } as never)
+    expect(response.status).toBe(200)
+    expect(response.headers.get("x-alook-community-contract")).toBe(String(contract))
+    expect(await response.json()).toEqual({ contractVersion: contract, channelId: "c1", changed: true, targetSeq: 6, revision: 7 })
+    expect(mockMarkReadToExistingMessageBuilder).toHaveBeenCalledWith(expect.anything(), { userId: "u1", channelId: "c1",
+      message: { id: "m1", channelId: "c1", createdAt: "now", seq: 6 } })
+    expect(mockBroadcastToUserSafe).toHaveBeenCalledOnce()
+  })
+
   it.each(["text", "forum", "thread", "dm"])(
     "uses the same exact-target cursor path for %s channels",
     async (type) => {

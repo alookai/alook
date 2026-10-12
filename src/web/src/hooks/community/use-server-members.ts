@@ -271,7 +271,7 @@ export const membersPageQueryFn = (serverId: string, search = "", limit?: number
     const data = await apiFetch<MembersEnvelope | SearchEnvelope>(path, communityRequestOptions(client, token, signal, assert))
     assert()
     if (data.hasMore && !data.cursor) throw new Error("members page missing cursor")
-    writeCommunityProfilePatches(data.members.map((member) => communityUserProfilePatch(member.userId, member)), registry, { snapshot: profileSnapshot })
+    writeCommunityProfilePatches(data.members.map((member) => communityUserProfilePatch(member.userId, member, { legacyPresentation: true })), registry, { snapshot: profileSnapshot })
     publishCommunityMembersSnapshot(client, serverId, data.members, { token, signal })
     assert()
     return { members: data.members.map(({ id, userId }) => ({ id, userId })), hasMore: data.hasMore, cursor: data.cursor, limit: data.limit, ...("total" in data ? { total: data.total } : {}), liveRevision: protocol.liveRevision }

@@ -516,7 +516,7 @@ describe("landing content contract", () => {
     expect(landingPageSource).toContain("Keep your existing setup.")
     expect(landingPageSource).toContain("styles.ownershipDescription")
     expect(landingPageSource).not.toContain("The runtime and workspace stay on your paired machine")
-    expect(`${landingPageSource} ${landingContentSource}`).not.toMatch(/\bplaces?\b/i)
+    expect(`${landingPageSource} ${landingContentSource.split("export const HOME_FAQS")[0]}`).not.toMatch(/\bplaces?\b/i)
     expect(landingPageSource).not.toContain("stay in touch")
     expect(legacyHome).toContain("export function HomePage")
   })

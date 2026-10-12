@@ -1,5 +1,5 @@
 import "fake-indexeddb/auto"
-import { del, get, set } from "idb-keyval"
+import { createStore, del, get, promisifyRequest, set } from "idb-keyval"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { QueryClient, dehydrate } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
@@ -145,7 +145,7 @@ function readingSnapshot(user: string): PersistedClient {
   const queryClient = new QueryClient()
   const setRows = (name: string, rows: unknown[]) => queryClient.setQueryData(communityKeys.communityDbCollection(user, name), rows)
   setRows("channels", ["dm-A", "dm-B"].map((id) => canonicalChannelRow({ id, type: "dm", name: id, preview: `body-${id}`, unread: true })))
-  setRows("messages", ["dm-A", "dm-B"].map((channelId) => ({ id: `m-${channelId}`, channelId, type: "chat", authorId: user, authorName: "Viewer", authorAvatar: "V", authorAvatarVersion: 0, seq: 1, content: `body-${channelId}` })))
+  setRows("messages", ["dm-A", "dm-B"].map((channelId) => ({ id: `m-${channelId}`, channelId, type: "chat", resourceComplete: false, authorId: user, authorName: "Viewer", authorAvatar: "V", authorAvatarVersion: 0, seq: 1, content: `body-${channelId}` })))
   setRows("channelMemberships", ["dm-A", "dm-B"].map((channelId) => ({ id: `${channelId}:peer:access`, channelId, userId: "peer", relation: "access" })))
   return { timestamp: Date.now(), buster: PERSIST_BUSTER, clientState: dehydrate(queryClient) }
 }
@@ -304,21 +304,22 @@ describe("native channel persistence fence", () => {
   it("retires attention by scope, child and read target while keeping unrelated items and friend requests", async () => {
     const user = "u_attention_retirement", owner = createIdbPersister(user)
     const snapshot = readingSnapshot(user), qc = new QueryClient()
-    const item = (id: string, extra: Record<string, unknown> = {}) => ({ id, kind: "reply", sourceId: id, createdAt: "2026-10-08T00:00:00Z", ...extra })
+    const createdAt = "2026-10-08T00:00:00Z"
+    const reply = (id: string, scopeId: string) => ({ id, kind: "reply", sourceId: id, scopeId, messageId: `m-${scopeId}`, actorUserId: "peer", createdAt })
+    const forumPost = (id: string, childChannelId: string, channelId: string) => ({ id, kind: "forum_post", sourceId: childChannelId, scopeId: "forum", messageId: `opener-${id}`, childChannelId, openerSeq: 1, readTarget: { channelId, seq: 1 }, createdAt })
     qc.setQueryData(communityKeys.communityDbCollection(user, "attentionItems"), [
-      item("scope", { scopeId: "dm-A" }), item("child", { childChannelId: "dm-A" }),
-      item("target", { readTarget: { channelId: "dm-A", seq: 1 } }),
-      item("sibling", { scopeId: "dm-B", readTarget: { channelId: "dm-B", seq: 1 } }),
-      item("unscoped"), item("friend", { kind: "friend_request", actorUserId: "peer" }),
+      reply("scope", "dm-A"), forumPost("child", "dm-A", "forum"),
+      forumPost("target", "other-child", "dm-A"), reply("sibling", "dm-B"),
+      reply("unrelated", "other-scope"), { id: "friend", kind: "friend_request", sourceId: "friend", actorUserId: "peer", createdAt },
     ])
     snapshot.clientState.queries.push(...dehydrate(qc).queries)
     await owner.persistClient(snapshot)
     await owner.retireChannels(["dm-A"])
     const restored = await owner.restoreClient()
-    expect(readingRows(restored, "attentionItems")?.map(row => row.id)).toEqual(["unscoped", "sibling", "friend"])
+    expect(readingRows(restored, "attentionItems")?.map(row => row.id)).toEqual(["unrelated", "sibling", "friend"])
     expect(readingRows(restored, "messages")?.map(row => row.channelId)).toEqual(["dm-B"])
     await owner.persistClient(snapshot)
-    expect(readingRows(await owner.restoreClient(), "attentionItems")?.map(row => row.id)).toEqual(["unscoped", "sibling", "friend"])
+    expect(readingRows(await owner.restoreClient(), "attentionItems")?.map(row => row.id)).toEqual(["unrelated", "sibling", "friend"])
   })
 
   it.each(["missing", "corrupt"])("fails closed for %s stored channel fence metadata", async (kind) => {
@@ -344,4 +345,110 @@ it("a retired account owner cannot fence a newer same-account snapshot", async (
   await old.retireChannels(["dm-A"], true)
   expect(readingRows(await fresh.restoreClient(), "messages")).toHaveLength(2)
   expect(readingRows(await fresh.restoreClient(), "channels")).toHaveLength(2)
+})
+
+// The old writer compares the captured UUID directly in the same native IDB
+// transaction. This fixture checks that guard; it is not an old-browser receipt.
+describe("v6 community scope qualification", () => {
+  it.each([false, true])("retires a v5 UUID scope with payload=%s while preserving other domains", async (hasPayload) => {
+    const user = `u_v6_scope_${hasPayload}`
+    const owner = createIdbPersister(user)
+    await owner.restoreClient()
+    const namespace = `${PERSIST_CACHE_PREFIX}:${user}`
+    const device = await get("alook:qc:device-epoch")
+    const account = await get(`${namespace}:account-epoch`)
+    const fences = new Map([["channel", { epoch: crypto.randomUUID(), deleted: true }]])
+    await set(`${namespace}:account-epoch:channels`, fences)
+    const oldScope = crypto.randomUUID()
+    await set(`${blobKey(user)}:epoch`, oldScope)
+    if (hasPayload) await set(blobKey(user), JSON.stringify({ ...client, version: 5, buster: "5", channelFences: [] }))
+    else await del(blobKey(user))
+    const applicationKey = `${namespace}:application:client`
+    const applicationScope = crypto.randomUUID()
+    await set(applicationKey, "application payload")
+    await set(`${applicationKey}:epoch`, applicationScope)
+    const legacyStore = createStore("keyval-store", "keyval")
+    const legacyPayload = JSON.stringify({ ...client, version: 5, buster: "5", channelFences: [] })
+    const legacyOperation = (operation: "write" | "remove" | "channel" | "account") => legacyStore("readwrite", async (store) => {
+      const committed = promisifyRequest(store.transaction)
+      const [currentDevice, currentScope, currentAccount, currentFences] = await Promise.all([
+        promisifyRequest<unknown>(store.get("alook:qc:device-epoch")),
+        promisifyRequest<unknown>(store.get(`${blobKey(user)}:epoch`)),
+        promisifyRequest<unknown>(store.get(`${namespace}:account-epoch`)),
+        promisifyRequest<unknown>(store.get(`${namespace}:account-epoch:channels`)),
+      ])
+      const validFences = currentFences instanceof Map && [...currentFences].every(([id, fence]) => (
+        typeof id === "string" && id.length > 0 && fence !== null && typeof fence === "object"
+        && typeof fence.epoch === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(fence.epoch)
+        && typeof fence.deleted === "boolean"
+      ))
+      const eligible = currentDevice === device && currentScope === oldScope && currentAccount === account && validFences
+      if (eligible) {
+        if (operation === "write") store.put(legacyPayload, blobKey(user))
+        else store.delete(blobKey(user))
+        if (operation === "channel") store.put(new Map([["channel", { epoch: crypto.randomUUID(), deleted: true }]]), `${namespace}:account-epoch:channels`)
+        if (operation === "account") {
+          store.put(crypto.randomUUID(), `${namespace}:account-epoch`)
+          store.put(new Map(), `${namespace}:account-epoch:channels`)
+          for (const key of [blobKey(user), applicationKey]) {
+            store.delete(key)
+            store.put(crypto.randomUUID(), `${key}:epoch`)
+          }
+        }
+      }
+      await committed
+      return eligible
+    })
+    expect(await legacyOperation(hasPayload ? "write" : "remove")).toBe(true)
+    expect(await get(blobKey(user))).toBe(hasPayload ? legacyPayload : undefined)
+    const sibling = createIdbPersister(`${user}_other`)
+    await sibling.persistClient(client)
+    const fresh = createIdbPersister(user)
+    expect(await fresh.restoreClient()).toBeUndefined()
+    const qualified = await get<{ version: number; epoch: string }>(`${blobKey(user)}:epoch`)
+    expect(qualified).toEqual({ version: 6, epoch: expect.any(String) })
+    expect(qualified!.epoch).not.toBe(oldScope)
+    expect(await get("alook:qc:device-epoch")).toBe(device)
+    expect(await get(`${namespace}:account-epoch`)).toBe(account)
+    expect(await get(`${namespace}:account-epoch:channels`)).toEqual(fences)
+    expect(await get(applicationKey)).toBe("application payload")
+    expect(await get(`${applicationKey}:epoch`)).toBe(applicationScope)
+    expect(await sibling.restoreClient()).toEqual(client)
+    await fresh.persistClient(client)
+    const before = await get(blobKey(user))
+    for (const operation of ["write", "remove", "channel", "account"] as const) {
+      expect(await legacyOperation(operation)).toBe(false)
+      expect(await get(blobKey(user))).toBe(before)
+      expect(await get("alook:qc:device-epoch")).toBe(device)
+      expect(await get(`${namespace}:account-epoch`)).toBe(account)
+      expect(await get(`${namespace}:account-epoch:channels`)).toEqual(fences)
+      expect(await get(applicationKey)).toBe("application payload")
+      expect(await get(`${applicationKey}:epoch`)).toBe(applicationScope)
+      expect(await sibling.restoreClient()).toEqual(client)
+    }
+    await owner.persistClient({ ...client, timestamp: 99 })
+    await owner.removeClient()
+    await owner.retireChannels(["channel"], true)
+    await owner.retireAccount()
+    expect(await get(blobKey(user))).toBe(before)
+    expect(await get(`${namespace}:account-epoch:channels`)).toEqual(fences)
+    expect(await fresh.isCurrent()).toBe(true)
+  })
+
+  it.each([false, true])("allows two v6 owners to share a valid scope with payload=%s", async (hasPayload) => {
+    const user = `u_two_v6_${hasPayload}`
+    const first = createIdbPersister(user)
+    await first.restoreClient()
+    if (hasPayload) await first.persistClient(client)
+    const scope = await get(`${blobKey(user)}:epoch`)
+    const second = createIdbPersister(user)
+    await second.restoreClient()
+    expect(await get(`${blobKey(user)}:epoch`)).toEqual(scope)
+    expect(await first.isCurrent()).toBe(true)
+    expect(await second.isCurrent()).toBe(true)
+    await first.persistClient(client)
+    expect(await second.restoreClient()).toEqual(client)
+    await second.persistClient({ ...client, timestamp: 2 })
+    expect(await first.restoreClient()).toMatchObject({ timestamp: 2 })
+  })
 })

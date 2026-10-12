@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
+vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: () => ({ env: {} }) }))
+
 const mockCreateMessage = vi.fn()
 const mockGetMessage = vi.fn()
 const mockGetMessageByAuthorAndNonce = vi.fn()

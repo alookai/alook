@@ -372,12 +372,16 @@ describe("useServer / projected canonical detail", () => {
   })
 
   it("composes a single server detail from canonical resources", async () => {
-    apiFetchMock.mockImplementation((url: string) => url.endsWith("/channels") ? { channels: [{ id: "ch_1", name: "general", categoryId: "cat_1" }, { id: "ch_2", name: "loose", categoryId: null }] } : detailApi(url))
+    const legacyChannel = { id: "ch_1", name: "general", type: "text", serverId: identity.id, categoryId: "cat_1", topic: "Legacy topic", parentChannelId: null,
+      parentMessageId: null, creatorId: "viewer", position: 2, archived: 0, createdAt: "created", lastMessageAt: null, messageCount: 3 }
+    apiFetchMock.mockImplementation((url: string) => url.endsWith("/channels") ? { channels: [legacyChannel, { ...legacyChannel, id: "ch_2", name: "loose", categoryId: null, archived: 1 }] } : detailApi(url))
     await fetchDetail()
     const rendered = renderHook(() => useServer(identity.id), { wrapper: Owner })
     await waitFor(() => expect(rendered.result.current.server).toMatchObject({ ...identity, categories: [{ id: "cat_1", channels: [{ id: "ch_1", unread: false }] }, { id: "__uncategorized__", channels: [{ id: "ch_2", unread: false }] }] }))
     expect(client.getQueryData(communityKeys.server(identity.id))).toBe(identity.id)
     expect(client.getQueryData(communityKeys.servers())).toEqual([identity.id])
+    expect(registry.collections.channels.get("ch_1")).toMatchObject({ topic: "Legacy topic", createdAt: "created", messageCount: 3, archived: false, resourceComplete: false })
+    expect(registry.collections.channels.get("ch_2")).toMatchObject({ archived: true, resourceComplete: false })
   })
 
   it("passes the navigation AbortSignal to every server-detail resource", async () => {

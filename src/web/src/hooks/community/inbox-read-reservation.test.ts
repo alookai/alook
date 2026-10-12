@@ -53,14 +53,14 @@ async function seedProjection(queryClient: QueryClient, data: {
   const registry = getCommunityDbRegistry(queryClient)!
   await registry.preload()
   const scopes: Array<{ scopeId: string; channelId: string; serverId: string; parentChannelId: string | null; ordinaryUnread: boolean; lastUnreadSeq: number; lastAttentionSeq: number | null; attentionCount: number }> = []
-  const items: Array<{ id: string; kind: "forum_post"; sourceId: string; scopeId: string; childChannelId: string; messageId: string; openerSeq: number; createdAt: string }> = []
+  const items: Array<{ id: string; kind: "forum_post"; sourceId: string; scopeId: string; childChannelId: string; messageId: string; openerSeq: number; readTarget: { channelId: string; seq: number }; createdAt: string }> = []
   for (const server of data.servers) {
     const serverId = server.serverId ?? "server"
     const channels = server.channels.flatMap((parent) => {
       scopes.push({ scopeId: parent.channelId, channelId: parent.channelId, serverId, parentChannelId: null, ordinaryUnread: true, lastUnreadSeq: 7, lastAttentionSeq: null, attentionCount: 0 })
       for (const child of parent.children ?? []) if (child.openerUnread && child.openerMessageId && child.openerSeq !== undefined) {
         ingestMessages(registry, parent.channelId, [{ id: child.openerMessageId, type: "chat", seq: child.openerSeq, createdAt: child.lastMessageAt }])
-        items.push({ id: "forum:" + child.channelId, kind: "forum_post", sourceId: child.channelId, scopeId: parent.channelId, childChannelId: child.channelId, messageId: child.openerMessageId, openerSeq: child.openerSeq, createdAt: child.lastMessageAt })
+        items.push({ id: "forum:" + child.channelId, kind: "forum_post", sourceId: child.channelId, scopeId: parent.channelId, childChannelId: child.channelId, messageId: child.openerMessageId, openerSeq: child.openerSeq, readTarget: { channelId: parent.channelId, seq: child.openerSeq }, createdAt: child.lastMessageAt })
       }
       return [{ id: parent.channelId, name: parent.channelId, type: parent.children?.length ? "forum" as const : "text" as const, active: false, unread: true, lastMessageAt: parent.lastMessageAt }, ...(parent.children ?? []).map((child) => ({ id: child.channelId, name: child.channelId, type: "thread" as const, active: false, unread: true, lastMessageAt: child.lastMessageAt, parentChannelId: parent.channelId, parentMessageId: child.openerMessageId }))]
     })

@@ -1,7 +1,8 @@
 import { z } from "zod"
-import { CommunityMachineRuntimeSchema } from "./schemas"
+import type { CommunityContract } from "./community-contract"
+import { CommunityMachineSummarySchema } from "./schemas"
 import { FriendApprovalPayloadSchema } from "./community-friend-approval"
-import { CommunityChannelResourceSchema, CommunityMessageResourceSchema, CommunityMemberRelationSchema } from "./community-resources"
+import { CommunityChannelResourceSchema, CommunityMessageResourceSchema, CommunityMemberRelationSchema, CommunityResourceProfileSchema } from "./community-resources"
 
 export { FriendApprovalPayloadSchema } from "./community-friend-approval"
 export type { FriendApprovalPayload, FriendApprovalProfile } from "./community-friend-approval"
@@ -29,6 +30,7 @@ const messageSchema = CommunityMessageResourceSchema.pick({
   seq: z.number(),
   authorId: string,
   authorName: string,
+  authorAvatar: string.optional(),
   authorAvatarVersion: CommunityMessageResourceSchema.shape.authorAvatarVersion.unwrap(),
   replyToId: nullableString.optional(),
   replyTo: CommunityMessageResourceSchema.shape.replyTo.unwrap().extend({
@@ -39,7 +41,7 @@ const messageSchema = CommunityMessageResourceSchema.pick({
   clientNonce: string.optional(),
 })
 
-const communityMessageCreateSchema = z.strictObject({
+export const CommunityLegacyMessageCreateSchema = z.strictObject({
   type: z.literal("community:message.create"),
   channelId: string,
   serverId: string.optional(),
@@ -405,28 +407,6 @@ const communityProfileUpdateSchema = z.strictObject({
   ownerUserId: nullableString,
 })
 
-const machineRuntimeSchema = CommunityMachineRuntimeSchema.strict()
-
-export const CommunityMachineSummarySchema = z.strictObject({
-  id: string,
-  hostname: string,
-  displayName: string,
-  platform: string,
-  arch: string,
-  osRelease: string,
-  daemonVersion: string,
-  lastSeenAt: nullableString,
-  status: z.enum(["online", "offline"]),
-  availableRuntimes: z.array(machineRuntimeSchema),
-  lastRuntimeError: z.strictObject({
-    requested: string,
-    available: z.array(string),
-    at: string,
-  }).optional(),
-  createdAt: string,
-  updatedAt: string,
-})
-
 const communityMachineCreatedSchema = z.strictObject({
   type: z.literal("community:machine.created"),
   machine: CommunityMachineSummarySchema,
@@ -461,8 +441,7 @@ const communityBotAuditEventSchema = z.strictObject({
   createdAt: string,
 }).refine((event) => Object.prototype.hasOwnProperty.call(event, "payload"))
 
-const CommunityWsEventDiscriminatedSchema = z.discriminatedUnion("type", [
-  communityMessageCreateSchema,
+const commonCommunityEventSchemas = [
   communityMessageUpdatedSchema,
   communityMessageEditedSchema,
   communityReactionAddSchema,
@@ -471,12 +450,8 @@ const CommunityWsEventDiscriminatedSchema = z.discriminatedUnion("type", [
   communityPinRemoveSchema,
   communityTypingStartSchema,
   communityTypingStopSchema,
-  communityChildChannelCreateSchema,
-  communityChildChannelUpdateSchema,
   communityServerUpdateSchema,
   communityServerDeleteSchema,
-  communityChannelCreateSchema,
-  communityChannelUpdateSchema,
   communityChannelDeleteSchema,
   communityChannelReorderSchema,
   communityChannelMemberAddSchema,
@@ -501,14 +476,38 @@ const CommunityWsEventDiscriminatedSchema = z.discriminatedUnion("type", [
   communityInboxChangedSchema,
   communityPresenceUpdateSchema,
   communityStatusUpdateSchema,
-  communityIdentityUpdateSchema,
-  communityProfileUpdateSchema,
   communityMachineCreatedSchema,
   communityMachineStatusSchema,
   communityMachineUpdatedSchema,
   communityMachineRemovedSchema,
   communityBotAuditEventSchema,
+] as const
+
+const CommunityWsEventDiscriminatedSchema = z.discriminatedUnion("type", [
+  ...commonCommunityEventSchemas, CommunityLegacyMessageCreateSchema, communityChildChannelCreateSchema,
+  communityChannelCreateSchema, communityChildChannelUpdateSchema, communityChannelUpdateSchema,
+  communityIdentityUpdateSchema, communityProfileUpdateSchema,
 ])
+
+const CommunityResourceWsEventDiscriminatedSchema = z.discriminatedUnion("type", [
+  ...commonCommunityEventSchemas,
+  CommunityLegacyMessageCreateSchema.extend({ message: CommunityMessageResourceSchema.required({ authorName: true, authorAvatarVersion: true }) }).refine((event) => event.message.channelId === event.channelId),
+  communityChildChannelCreateSchema.extend({ channel: CommunityChannelResourceSchema.extend({ type: z.literal("thread") }) })
+    .refine((event) => event.channel.parentChannelId === event.parentChannelId && (event.parentMessageId === undefined || event.parentMessageId === event.channel.parentMessageId)),
+  communityChannelCreateSchema.extend({ channel: CommunityChannelResourceSchema.extend({ type: channelTypeSchema }) })
+    .refine((event) => event.channel.serverId === event.serverId),
+  communityChildChannelUpdateSchema.extend({ changes: CommunityChannelResourceSchema.pick({ name: true, archived: true, lastMessageAt: true, messageCount: true }).partial()
+    .extend({ tags: z.array(string).nullable().optional() }) }),
+  communityChannelUpdateSchema.extend({ changes: CommunityChannelResourceSchema.pick({ name: true, topic: true, categoryId: true, type: true }).partial()
+    .extend({ type: channelTypeSchema.optional() }) }),
+  communityIdentityUpdateSchema.extend({ avatar: CommunityResourceProfileSchema.shape.avatar, avatarVersion: CommunityResourceProfileSchema.shape.avatarVersion.refine((version) => version > 0) }),
+  CommunityResourceProfileSchema.pick({ name: true, discriminator: true, aboutMe: true, bannerColor: true, kind: true, ownerUserId: true }).required()
+    .extend({ type: z.literal("community:profile.update"), userId: string }),
+])
+
+export function communityWsEventSchemaForContract(contract: CommunityContract) {
+  return contract === 3 ? CommunityResourceWsEventSchema : CommunityWsEventSchema
+}
 
 type InferredCommunityWsEvent = z.infer<typeof CommunityWsEventDiscriminatedSchema>
 type InferredCommunityMessageEdited = Extract<
@@ -530,7 +529,18 @@ export const CommunityWsEventSchema = CommunityWsEventDiscriminatedSchema.transf
   (event): CommunityWsEventOutput => event as CommunityWsEventOutput,
 )
 
-export type CommunityWsEvent = z.infer<typeof CommunityWsEventSchema>
+type CommunityResourceWsEventOutput = Exclude<
+  z.infer<typeof CommunityResourceWsEventDiscriminatedSchema>,
+  { type: "community:message.edited" }
+> | CommunityMessageEditedOutput
+export const CommunityResourceWsEventSchema = CommunityResourceWsEventDiscriminatedSchema.transform(
+  (event): CommunityResourceWsEventOutput => event as CommunityResourceWsEventOutput,
+)
+
+export type CommunityLegacyWsEvent = z.infer<typeof CommunityWsEventSchema>
+export type CommunityResourceWsEvent = z.infer<typeof CommunityResourceWsEventSchema>
+export type CommunityWsEvent = CommunityLegacyWsEvent | CommunityResourceWsEvent
+export type CommunityLegacyMessageCreate = z.infer<typeof CommunityLegacyMessageCreateSchema>
 export type CommunityMessageCreate = Extract<CommunityWsEvent, { type: "community:message.create" }>
 export type CommunityMessageUpdated = Extract<CommunityWsEvent, { type: "community:message.updated" }>
 export type CommunityMessageEdited = Extract<CommunityWsEvent, { type: "community:message.edited" }>
@@ -577,8 +587,6 @@ export type CommunityMachineStatus = Extract<CommunityWsEvent, { type: "communit
 export type CommunityMachineUpdated = Extract<CommunityWsEvent, { type: "community:machine.updated" }>
 export type CommunityMachineRemoved = Extract<CommunityWsEvent, { type: "community:machine.removed" }>
 export type CommunityBotAuditEvent = Extract<CommunityWsEvent, { type: "community:bot.audit_event" }>
-export type CommunityMachineSummary = z.infer<typeof CommunityMachineSummarySchema>
-export type CommunityMachineRuntime = CommunityMachineSummary["availableRuntimes"][number]
 
 export type BotAddedFrame = {
   type: "bot:added"
@@ -682,18 +690,18 @@ export type CommunityBrowserEventFailureReason =
   | "pre-auth-frame"
   | "duplicate-auth-ok"
 
-export type CommunityBrowserEventDecodeResult =
-  | { ok: true; event: CommunityWsEvent }
+export type CommunityBrowserEventDecodeResult<Event = CommunityWsEvent> =
+  | { ok: true; event: Event }
   | {
       ok: false
       reason: CommunityBrowserEventFailureReason
       type: CommunityWsEvent["type"] | "unknown"
     }
 
-export type CommunityBrowserEventEncodeResult =
+export type CommunityBrowserEventEncodeResult<Event = CommunityWsEvent> =
   | {
       ok: true
-      event: CommunityWsEvent
+      event: Event
       body: string
       byteLength: number
     }
@@ -749,7 +757,10 @@ export function encodeCommunityUserTargetPathSegment(target: string): string {
   return `${COMMUNITY_USER_TARGET_PATH_PREFIX}${encodeURIComponent(target)}`
 }
 
-export function decodeCommunityBrowserEvent(value: unknown): CommunityBrowserEventDecodeResult {
+export function decodeCommunityBrowserEvent(value: unknown, contract: 3): CommunityBrowserEventDecodeResult<CommunityResourceWsEvent>
+export function decodeCommunityBrowserEvent(value: unknown, contract?: 1 | 2): CommunityBrowserEventDecodeResult<CommunityLegacyWsEvent>
+export function decodeCommunityBrowserEvent(value: unknown, contract: CommunityContract): CommunityBrowserEventDecodeResult
+export function decodeCommunityBrowserEvent(value: unknown, contract: CommunityContract = 2): CommunityBrowserEventDecodeResult {
   if (!isRecord(value)) return { ok: false, reason: "non-object", type: "unknown" }
   if (typeof value.type !== "string" || value.type.length === 0) {
     return { ok: false, reason: "missing-type", type: "unknown" }
@@ -761,13 +772,16 @@ export function decodeCommunityBrowserEvent(value: unknown): CommunityBrowserEve
     return { ok: false, reason: "unknown-community-type", type: "unknown" }
   }
 
-  const parsed = CommunityWsEventSchema.safeParse(value)
+  const parsed = communityWsEventSchemaForContract(contract).safeParse(value)
   if (!parsed.success) return { ok: false, reason: "invalid-payload", type: value.type }
   return { ok: true, event: parsed.data }
 }
 
-export function encodeCommunityBrowserEvent(value: unknown): CommunityBrowserEventEncodeResult {
-  const parsed = CommunityWsEventSchema.safeParse(value)
+export function encodeCommunityBrowserEvent(value: unknown, contract: 3): CommunityBrowserEventEncodeResult<CommunityResourceWsEvent>
+export function encodeCommunityBrowserEvent(value: unknown, contract?: 1 | 2): CommunityBrowserEventEncodeResult<CommunityLegacyWsEvent>
+export function encodeCommunityBrowserEvent(value: unknown, contract: CommunityContract): CommunityBrowserEventEncodeResult
+export function encodeCommunityBrowserEvent(value: unknown, contract: CommunityContract = 2): CommunityBrowserEventEncodeResult {
+  const parsed = communityWsEventSchemaForContract(contract).safeParse(value)
   const type = isRecord(value) && isCommunityEventType(value.type) ? value.type : "unknown"
   if (!parsed.success) return { ok: false, reason: "invalid-payload", type }
   const event = parsed.data

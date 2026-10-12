@@ -135,8 +135,6 @@ export const HeartbeatRequestSchema = z.object({
 });
 export type HeartbeatRequest = z.infer<typeof HeartbeatRequestSchema>;
 
-export const SweepRequestSchema = HeartbeatRequestSchema;
-export type SweepRequest = HeartbeatRequest;
 
 // ---------------------------------------------------------------------------
 // Poll request/response (replaces heartbeat + per-runtime claim)
@@ -437,9 +435,6 @@ export const CreateIssueCommentBodySchema = z.object({
 });
 export type CreateIssueCommentBody = z.infer<typeof CreateIssueCommentBodySchema>;
 
-/** @deprecated Use CreateIssueCommentBodySchema instead */
-export const CreateIssueCommentRequestSchema = CreateIssueCommentBodySchema;
-export type CreateIssueCommentRequestInput = CreateIssueCommentBody;
 
 export const IssueCommentApiSchema = z.object({
   id: z.string(),
@@ -948,7 +943,7 @@ const CommunityRunningAgentListSchema = z.array(z.string()).transform((list) => 
   return out;
 });
 
-export const CommunityMachineSummarySchema = z.object({
+export const CommunityMachineSummarySchema = z.strictObject({
   id: z.string(),
   hostname: z.string(),
   displayName: z.string(),
@@ -958,14 +953,14 @@ export const CommunityMachineSummarySchema = z.object({
   daemonVersion: z.string(),
   lastSeenAt: z.string().nullable(),
   status: z.enum(["online", "offline"]),
-  availableRuntimes: z.array(CommunityMachineRuntimeSchema).default([]),
+  availableRuntimes: z.array(CommunityMachineRuntimeSchema.strict()),
   /**
    * Last runtime error reported by the daemon (optimistically cleared on
    * subsequent `agent:wake` forward). Optional so pre-error summaries
    * omit the field entirely — undefined == "no known error."
    */
   lastRuntimeError: z
-    .object({
+    .strictObject({
       requested: z.string(),
       available: z.array(z.string()),
       at: z.string(),
@@ -974,6 +969,7 @@ export const CommunityMachineSummarySchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
 });
+export type CommunityMachineSummary = z.infer<typeof CommunityMachineSummarySchema>;
 
 /**
  * `HostReady` message — the daemon's post-connect state dump. `runtimes`

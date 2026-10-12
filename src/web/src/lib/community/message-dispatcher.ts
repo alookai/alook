@@ -1,21 +1,24 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import {
   deriveCommunityDeliveryOperationId,
+  decodeCommunityBrowserEvent,
   reachIsParticipantSet,
   WS_EVENTS,
   createLogger,
   queries,
   withD1Retry,
-  type CommunityMessageCreate,
   type CommunityDeliveryOperationId,
   type Database,
   type MessageDeliveryBatch,
+  type CommunityContract,
   type AlookQueueTask,
 } from "@alook/shared"
 import { mapMessageForWs, type MessageRow } from "./message-payload"
 import { sendMessageDeliveryBatch } from "./message-delivery-transport"
 import { enqueueQueueTasks } from "./queue-producer"
 import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
+import { communityProducerContract } from "./producer-contract"
+import { groupAttachments } from "./messages"
 
 const log = createLogger({ service: "committed-message-dispatcher" })
 
@@ -57,6 +60,7 @@ export async function planCommittedMessage(
   db: Database,
   messageId: string,
   structural: CommittedMessageStructuralOutcome = {},
+  contract: CommunityContract = 2,
 ): Promise<MessageDeliveryPlan> {
   const message = await withD1Retry(
     () => queries.communityMessage.getMessage(db, messageId),
@@ -178,7 +182,7 @@ export async function planCommittedMessage(
       content: replyTarget.content,
     })
   }
-  const messageEvent: CommunityMessageCreate = {
+  const messageInput = {
     type: WS_EVENTS.MESSAGE_CREATE,
     channelId: message.channelId,
     ...(channel.serverId ? { serverId: channel.serverId } : {}),
@@ -186,6 +190,7 @@ export async function planCommittedMessage(
     message: mapMessageForWs(message, {
       replyMap,
       clientNonce: clientNonce ?? undefined,
+      ...(contract === 3 ? { resourceAttachments: groupAttachments(attachments)[message.id] ?? [] } : {}),
       attachments: attachments.map((attachment) => ({
         id: attachment.id,
         filename: attachment.filename,
@@ -198,8 +203,11 @@ export async function planCommittedMessage(
         width: attachment.width ?? undefined,
         height: attachment.height ?? undefined,
       })),
-    }),
+    }, contract, message.channelId),
   }
+  const messageResult = decodeCommunityBrowserEvent(messageInput, contract)
+  if (!messageResult.ok || messageResult.event.type !== WS_EVENTS.MESSAGE_CREATE) throw new Error("Invalid committed message event")
+  const messageEvent = messageResult.event
 
   const includeParent = Boolean(channel.parentChannelId && !structural.suppressParentProjection)
   const parentProjectionUserIds = includeParent
@@ -212,7 +220,7 @@ export async function planCommittedMessage(
         channelId: channel.id,
         changes: {
           messageCount: channel.messageCount,
-          lastMessageAt: channel.lastMessageAt ?? message.createdAt,
+          lastMessageAt: contract === 3 ? channel.lastMessageAt : channel.lastMessageAt ?? message.createdAt,
         },
       } as const
     : undefined
@@ -227,6 +235,7 @@ export async function planCommittedMessage(
   }
 
   return {
+    ...(contract === 3 ? { communityContract: 3 as const } : {}),
     operationId: await deriveCommunityDeliveryOperationId(message.id),
     messageId: message.id,
     messageEvent,
@@ -258,10 +267,13 @@ async function runCommittedMessageDispatch(
   structural: CommittedMessageStructuralOutcome,
 ): Promise<void> {
   const startedAt = Date.now()
+  const { env } = getCloudflareContext()
+  const contract = communityProducerContract(env as Env)
   const plan = await planCommittedMessage(
     db,
     messageId,
     structural,
+    contract,
   )
   const { operationId, wakeBotUserIds, pushUserIds, ...browserBatch } = plan
   const pushTasks: AlookQueueTask[] = pushUserIds.map((userId) => ({

@@ -1,5 +1,7 @@
 import {
   encodeCommunityBrowserEvent,
+  COMMUNITY_CONTRACT_HEADER,
+  type CommunityContract,
   isCommunityEventCandidate,
 } from "@alook/shared"
 
@@ -29,11 +31,13 @@ export function createInternalUserBroadcastRequest(
 export function createInternalCommunityUserBroadcastRequest(
   targetUserId: string,
   body: BodyInit | null,
+  contract: CommunityContract = 2,
 ): Request {
   const headers = new Headers({
     "content-type": "application/json",
     [INTERNAL_USER_TARGET_HEADER]: encodeURIComponent(targetUserId),
   })
+  if (contract === 3) headers.set(COMMUNITY_CONTRACT_HEADER, "3")
   return new Request("http://internal/community-broadcast", {
     method: "POST",
     headers,
@@ -46,6 +50,7 @@ export function createInternalCommunityUserBundleRequest(
   operationId: string,
   operationDigest: string,
   events: readonly unknown[],
+  contract: CommunityContract = 2,
 ): Request {
   const headers = new Headers({
     "content-type": "application/json",
@@ -54,7 +59,7 @@ export function createInternalCommunityUserBundleRequest(
   return new Request("http://internal/community-broadcast-bundle", {
     method: "POST",
     headers,
-    body: JSON.stringify({ operationId, operationDigest, events }),
+    body: JSON.stringify({ operationId, operationDigest, events, ...(contract === 3 ? { communityContract: 3 } : {}) }),
   })
 }
 

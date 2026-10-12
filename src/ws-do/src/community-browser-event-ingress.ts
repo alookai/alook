@@ -1,5 +1,7 @@
 import {
   COMMUNITY_BROWSER_EVENT_MAX_BYTES,
+  COMMUNITY_CONTRACT_HEADER,
+  type CommunityContract,
   MESSAGE_DELIVERY_BODY_MAX_BYTES,
   MESSAGE_DELIVERY_MAX_EVENTS_PER_USER,
   COMMUNITY_USER_TARGET_PATH_PREFIX,
@@ -29,6 +31,7 @@ type CommunityBrowserEventIngressSuccess = {
   envelope: CommunityWsEvent
   body: string
   byteCount: number
+  contract: CommunityContract
 }
 
 export type CommunityBrowserEventIngressResult =
@@ -94,10 +97,11 @@ export async function readBoundedJsonRequest(
 export function normalizeCommunityBrowserEvent(
   value: unknown,
   byteCount?: number,
+  contract: CommunityContract = 2,
 ): CommunityBrowserEventIngressResult {
-  const decoded = decodeCommunityBrowserEvent(value)
+  const decoded = decodeCommunityBrowserEvent(value, contract)
   if (!decoded.ok) return { ...decoded, ok: false, ...(byteCount === undefined ? {} : { byteCount }) }
-  const encoded = encodeCommunityBrowserEvent(decoded.event)
+  const encoded = encodeCommunityBrowserEvent(decoded.event, contract)
   if (!encoded.ok) {
     return {
       ok: false,
@@ -112,6 +116,7 @@ export function normalizeCommunityBrowserEvent(
     envelope: encoded.event,
     body: encoded.body,
     byteCount: encoded.byteLength,
+    contract,
   }
 }
 
@@ -120,7 +125,9 @@ export async function readCommunityBrowserEventRequest(
 ): Promise<CommunityBrowserEventIngressResult> {
   const parsed = await readBoundedJsonRequest(request, COMMUNITY_BROWSER_EVENT_MAX_BYTES)
   if (!parsed.ok) return parsed
-  return normalizeCommunityBrowserEvent(parsed.value, parsed.byteCount)
+  const version = request.headers.get(COMMUNITY_CONTRACT_HEADER)
+  if (version !== null && version !== "1" && version !== "2" && version !== "3") return { ok: false, reason: "invalid-payload", type: "unknown", byteCount: parsed.byteCount }
+  return normalizeCommunityBrowserEvent(parsed.value, parsed.byteCount, version === "3" ? 3 : version === "1" ? 1 : 2)
 }
 
 export async function readCommunityBrowserEventBundleRequest(
@@ -141,7 +148,7 @@ export async function readCommunityBrowserEventBundleRequest(
     typeof parsed.value !== "object"
     || parsed.value === null
     || Array.isArray(parsed.value)
-    || Object.keys(parsed.value).length !== 3
+    || Object.keys(parsed.value).length !== ("communityContract" in parsed.value && parsed.value.communityContract === 3 ? 4 : 3)
     || !Object.prototype.hasOwnProperty.call(parsed.value, "operationId")
     || !Object.prototype.hasOwnProperty.call(parsed.value, "operationDigest")
     || !Object.prototype.hasOwnProperty.call(parsed.value, "events")
@@ -149,12 +156,14 @@ export async function readCommunityBrowserEventBundleRequest(
     return { ok: false, reason: "invalid-payload", type: "unknown", byteCount: parsed.byteCount }
   }
   const input = parsed.value as {
+    communityContract?: unknown
     operationId?: unknown
     operationDigest?: unknown
     events?: unknown
   }
   if (
-    !isCommunityDeliveryOperationId(input.operationId)
+    (Object.hasOwn(input, "communityContract") && input.communityContract !== 3)
+    || !isCommunityDeliveryOperationId(input.operationId)
     || !isCommunityDeliveryDigest(input.operationDigest)
   ) {
     return { ok: false, reason: "invalid-payload", type: "unknown", byteCount: parsed.byteCount }
@@ -167,7 +176,7 @@ export async function readCommunityBrowserEventBundleRequest(
   ) {
     return { ok: false, reason: "invalid-payload", type: "unknown", byteCount: parsed.byteCount }
   }
-  const prepared = await prepareCommunityDeliveryEvents(events)
+  const prepared = await prepareCommunityDeliveryEvents(events, input.communityContract === 3 ? 3 : 2)
   if (!prepared.ok || prepared.prepared.digest !== input.operationDigest) {
     return { ok: false, reason: "invalid-payload", type: "unknown", byteCount: parsed.byteCount }
   }

@@ -80,6 +80,7 @@ const message = {
   authorName: "Author",
   authorEmail: "a@example.test",
   authorImage: null,
+  authorAvatarVersion: 0,
   content: "hello",
   type: "default",
   mentionType: null,
