@@ -1,4 +1,6 @@
 import { test, expect, sessionCookie } from "./_fixtures/community-fixture"
+import { gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
+import { communityFrameEvents, proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { tid } from "./_fixtures/testids"
 import { seedChannel, seedJoinServer, seedMessage, seedServer } from "./_fixtures/seed"
 import { WEB_URL } from "./_setup/paths"
@@ -43,8 +45,9 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
     )
   }
 
-  const { page } = await asUser("alice")
-  await page.goto(`/c/channels/${serverId}/${channelId}`)
+  const { page, context } = await asUser("alice")
+  const proxy = await proxyCommunityWebSockets(context)
+  await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
   await page.waitForURL(new RegExp(channelId), { timeout: 20_000, waitUntil: "commit" })
   const divider = page.getByTestId(tid.newDivider)
   await expect(divider).toBeVisible({ timeout: 30_000 })
@@ -91,6 +94,7 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
   })
 
   let bodySamples: BodySample[] = []
+  let liveMessageId = ""
   try {
     const liveAppend = (async () => {
       await page.waitForTimeout(250) // inject the append during the upward-scroll gesture
@@ -101,13 +105,16 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
       await page.waitForTimeout(24) // fixed wheel-event cadence under test
       await recorder.evaluate((recording) => recording.sample())
     }
-    await liveAppend
+    liveMessageId = await liveAppend
     await page.waitForTimeout(250) // post-append scroll-correction exclusion window
   } finally {
     bodySamples = await recorder.evaluate((recording) => recording.finish())
     await recorder.dispose()
   }
 
+  await expect.poll(() => proxy.frames.filter(frame => communityFrameEvents(frame).some(event =>
+    event.type === "community:message.create" && event.channelId === channelId && event.message?.id === liveMessageId,
+  )).length).toBe(1)
   expect(bodySamples.length).toBeGreaterThan(1)
   let upwardProgress = 0
   for (let index = 1; index < bodySamples.length; index++) {
@@ -126,4 +133,52 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
     upwardProgress += deltas[Math.floor(deltas.length / 2)]!
   }
   expect(upwardProgress).toBeGreaterThan(600)
+})
+
+test("New reading near the tail survives peer and remote-self messages until the current composer submits", async ({ asUser }) => {
+  test.setTimeout(120_000)
+  const serverId = await seedServer("alice", `NEW near tail ${Date.now()}`)
+  const channelId = await seedChannel("alice", serverId, "new-near-tail")
+  await seedJoinServer("alice", "bob", serverId)
+  await seedJoinServer("alice", "carol", serverId)
+  let readThroughId = ""
+  for (let index = 0; index < 18; index++) readThroughId = await seedMessage("alice", channelId, `read ${index}`)
+  const read = await fetch(`${WEB_URL}/api/community/channels/${channelId}/read`, {
+    method: "PUT",
+    headers: { Cookie: sessionCookie("alice"), "Content-Type": "application/json", Origin: WEB_URL },
+    body: JSON.stringify({ lastReadMessageId: readThroughId }),
+  })
+  expect(read.status).toBe(200)
+  for (let index = 0; index < 5; index++) await seedMessage(index % 2 ? "bob" : "carol", channelId, `unread ${index}`)
+  const { page, context } = await asUser("alice")
+  await page.setViewportSize({ width: 1280, height: 800 })
+  const proxy = await proxyCommunityWebSockets(context)
+  await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
+  const scroller = page.getByTestId(tid.messageScroller)
+  const divider = page.getByTestId(tid.newDivider)
+  await expect(divider).toBeVisible()
+  await expect(scroller.locator('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "true")
+  await scroller.evaluate(element => {
+    element.scrollTop = element.scrollHeight - element.clientHeight - 20
+    element.dispatchEvent(new Event("scroll"))
+  })
+  await expect.poll(() => scroller.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop)).toBe(20)
+  await expect(divider).toBeVisible()
+  const before = await divider.evaluate(element => element.getBoundingClientRect().top)
+  for (const author of ["bob", "alice"] as const) {
+    const id = await seedMessage(author, channelId, `remote ${author} near New ${Date.now()}`)
+    await expect.poll(() => proxy.frames.filter(frame => communityFrameEvents(frame).some(event =>
+      event.type === "community:message.create" && event.channelId === channelId && event.message?.id === id,
+    )).length).toBe(1)
+    await expect(divider).toBeVisible()
+    await page.waitForTimeout(250)
+    expect(Math.abs(await divider.evaluate(element => element.getBoundingClientRect().top) - before)).toBeLessThanOrEqual(1)
+  }
+  const content = `local composer near New ${Date.now()}`
+  await sendMessage(page, content)
+  await expect(page.getByText(content, { exact: true })).toHaveCount(1)
+  await expect.poll(() => proxy.frames.filter(frame => communityFrameEvents(frame).some(event =>
+    event.type === "community:message.create" && event.channelId === channelId && event.message?.content === content,
+  )).length).toBe(1)
+  await expect.poll(() => scroller.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThanOrEqual(1)
 })

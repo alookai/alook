@@ -8,5 +8,5 @@ diff --git a/dist/cli/build/patches/plugins/load-manifest.js b/dist/cli/build/pa
 -    const manifests = await glob(join(dotNextDir, "**/{*-manifest,required-server-files,prefetch-hints}.json"), {
 +    const manifests = await glob(join(dotNextDir, "**/{*-manifest,required-server-files,prefetch-hints,preview-props}.json"), {
          windowsPathsNoEscape: true,
+         nodir: true,
      });
-     const returnManifests = (await Promise.all(manifests.map(async (manifest) => `

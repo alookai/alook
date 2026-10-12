@@ -725,11 +725,17 @@ test.describe.serial("desktop default User Bar width", () => {
           await expect(bob.page.getByTestId(tid.inboxFriendRequestAccept(friendRequestId))).toBeVisible()
           await expect(bob.page.getByTestId(tid.inboxFriendRequestReject(friendRequestId))).toBeVisible()
         } else {
+          const content = tab === "Mentions" ? `Mention ${stamp}` : `Marked ${stamp}`
           await expect(activeBody).toContainText(
-            tab === "Mentions" ? `Mention ${stamp}` : `Marked ${stamp}`,
+            content,
           )
-          await activeBody.getByRole("button").first().hover()
-          await expect(activeBody.getByRole("button", { name: "More" })).toBeVisible()
+          const rowButton = activeBody.getByRole("button", { name: new RegExp(content) })
+          const row = rowButton.locator("..")
+          const more = row.getByRole("button", { name: "More", exact: true })
+          await expect(row).toHaveCount(1)
+          await expect(more).toHaveCount(1)
+          await row.hover()
+          await expect(more).toBeVisible()
         }
 
         const sample = await extension.evaluate((element, ids) => {

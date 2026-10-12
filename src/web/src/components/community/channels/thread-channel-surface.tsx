@@ -275,6 +275,7 @@ export function ThreadChannelSurface({
                   onLoadNewer={controller.feed.fetchNewer}
                   onJumpToPresent={controller.feed.jumpToPresent}
                   presentVersion={controller.feed.presentVersion}
+                  localSubmitVersion={controller.localSubmitVersion}
                   unreadCount={controller.feed.unreadCount}
                   typingUsers={controller.typingUsers}
                 />

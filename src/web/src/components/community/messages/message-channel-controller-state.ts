@@ -75,6 +75,7 @@ export function useMessageChannelController({
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [replyTo, setReplyTo] = useAtom(useCreateAtom<ReplyTarget | null>(null))
+  const [localSubmitVersion, setLocalSubmitVersion] = useAtom(useCreateAtom(0))
   const [searchQuery, setSearchQuery] = useAtom(useCreateAtom(""))
   const [scrollTargetId, setScrollTargetId] = useAtom(useCreateAtom<string | null>(anchorMessageId))
   const [contextTarget, setContextTarget] = useAtom(useCreateAtom<MessageContextTarget | null>(null))
@@ -293,19 +294,24 @@ export function useMessageChannelController({
     mentionType?: MentionType,
   ): boolean => {
     const command = captureSendCommand()
-    return acceptChannelMessage({
-    runtime: communityRuntime,
-    markdown,
-    attachments,
-    mentionType,
-    messageScope,
-    viewer: { id: viewer.id, name: viewer.name, avatar: viewer.avatar },
-    replyTo,
-    runAcceptedIntent: (nonce) => runAcceptedIntent(nonce, command),
-    channelId,
-    clearReply: () => setReplyTo(null),
+    const accepted = acceptChannelMessage({
+      runtime: communityRuntime,
+      markdown,
+      attachments,
+      mentionType,
+      messageScope,
+      viewer: { id: viewer.id, name: viewer.name, avatar: viewer.avatar },
+      replyTo,
+      runAcceptedIntent: (nonce) => runAcceptedIntent(nonce, command),
+      channelId,
+      clearReply: () => setReplyTo(null),
     })
-  }, [captureSendCommand, channelId, communityRuntime, messageScope, replyTo, runAcceptedIntent, setReplyTo, viewer.avatar, viewer.id, viewer.name])
+    if (accepted) {
+      setLocalSubmitVersion((version) => version + 1)
+      if (feed.hasMoreNewer) feed.jumpToPresent()
+    }
+    return accepted
+  }, [captureSendCommand, channelId, communityRuntime, feed.hasMoreNewer, feed.jumpToPresent, messageScope, replyTo, runAcceptedIntent, setLocalSubmitVersion, setReplyTo, viewer.avatar, viewer.id, viewer.name])
 
   return useMemo<MessageChannelControllerValue>(() => ({
     feed,
@@ -328,7 +334,8 @@ export function useMessageChannelController({
     messageActions,
     threadActions: { ...messageActions, onCreateThread: undefined },
     acceptMessage,
+    localSubmitVersion,
     handleTyping: () => communityWsSendTyping(communityRuntime, { channelId }),
     typingUsers: typingUserIds.map((id) => typingNames[id] ?? resolveUserName(id)),
-  }), [feed, pinnedIds, replyTo, setReplyTo, searchQuery, searchResults, searchResource.isError, searchResource.isFetching, search, scrollTargetId, setScrollTargetId, consumeScrollTarget, contextTarget, setContextTarget, openContextSeq, onSheetReply, jumpToSeq, messageActions, acceptMessage, typingUserIds, communityRuntime, channelId, typingNames, resolveUserName])
+  }), [feed, pinnedIds, replyTo, setReplyTo, searchQuery, searchResults, searchResource.isError, searchResource.isFetching, search, scrollTargetId, setScrollTargetId, consumeScrollTarget, contextTarget, setContextTarget, openContextSeq, onSheetReply, jumpToSeq, messageActions, acceptMessage, localSubmitVersion, typingUserIds, communityRuntime, channelId, typingNames, resolveUserName])
 }

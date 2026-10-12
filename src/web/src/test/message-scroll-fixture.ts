@@ -23,11 +23,18 @@ let resizeObservers: Array<{
 }>
 let scrollbarWidth: number
 let scrollCalls: number[]
+let pendingScrollEvents: Set<HTMLElement>
 let scrollDescriptor: PropertyDescriptor | undefined
 
 const ROOT_SELECTOR = '[data-testid="scroll"], [data-testid="community-message-scroller"]'
 function isScrollRoot(node: HTMLElement) { return node.matches(ROOT_SELECTOR) }
 function rootFor(node: HTMLElement) { return node.closest<HTMLElement>(ROOT_SELECTOR) }
+function deliverScrollEvents() {
+  for (const root of pendingScrollEvents) {
+    if (root.isConnected) root.dispatchEvent(new Event("scroll"))
+  }
+  pendingScrollEvents.clear()
+}
 function rowGeometry(node: HTMLElement) {
   const wrapper = node.matches('[data-index]') ? node : node.closest<HTMLElement>('[data-index]')
   const root = rootFor(node)
@@ -101,9 +108,10 @@ export function runFrames(count = 26) {
         const clamped = Math.max(0, Math.min(root.scrollTop, root.scrollHeight - root.clientHeight))
         if (root.scrollTop !== clamped) {
           root.scrollTop = clamped
-          root.dispatchEvent(new Event("scroll"))
+          pendingScrollEvents.add(root)
         }
       }
+      deliverScrollEvents()
       const pending = [...frames]
       frames.clear()
       for (const [, callback] of pending) callback(performance.now())
@@ -112,6 +120,7 @@ export function runFrames(count = 26) {
 }
 export function resize(frameCount = 26) {
   act(() => {
+    deliverScrollEvents()
     for (const observer of [...resizeObservers]) {
       const entries: ResizeObserverEntry[] = []
       for (const [target, observation] of observer.elements) {
@@ -170,6 +179,7 @@ export function installMessageScrollFixture() {
   resizeObservers = []
   scrollbarWidth = 0
   scrollCalls = []
+  pendingScrollEvents = new Set()
   vi.useFakeTimers()
   vi.spyOn(window, "requestAnimationFrame").mockImplementation(callback => { frames.set(++frameId, callback); return frameId })
   vi.spyOn(window, "cancelAnimationFrame").mockImplementation(id => { frames.delete(id) })
@@ -202,12 +212,14 @@ export function installMessageScrollFixture() {
   })
   scrollDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo")
   Object.defineProperty(HTMLElement.prototype, "scrollTo", { configurable: true, value(this: HTMLElement, options: ScrollToOptions) {
+    const previous = this.scrollTop
     this.scrollTop = Math.max(0, Math.min(options.top ?? this.scrollTop, this.scrollHeight - this.clientHeight))
     scrollCalls.push(this.scrollTop)
-    this.dispatchEvent(new Event("scroll"))
+    if (this.scrollTop !== previous) pendingScrollEvents.add(this)
   } })
 }
 export function restoreMessageScrollFixture() {
+  pendingScrollEvents.clear()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   vi.useRealTimers()

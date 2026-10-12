@@ -46,15 +46,15 @@ describe("OpenNext and Wrangler refresh", () => {
   })
 
   it("locks the reviewed OpenNext patches and keeps one Workers types range", () => {
-    expect(dependency("src/web/package.json", "@opennextjs/cloudflare")).toBe("^1.20.6")
+    expect(dependency("src/web/package.json", "@opennextjs/cloudflare")).toBe("^1.20.10")
 
     const rootManifest = readPackage("package.json")
     expect(rootManifest.pnpm?.patchedDependencies).toEqual({
-      "@opennextjs/aws@4.1.4": "patches/@opennextjs__aws@4.1.4.patch",
-      "@opennextjs/cloudflare@1.20.6": "patches/@opennextjs__cloudflare@1.20.6.patch",
+      "@opennextjs/cloudflare@1.20.10": "patches/@opennextjs__cloudflare@1.20.10.patch",
     })
-    expect(existsSync(new URL("patches/@opennextjs__aws@4.1.4.patch", repositoryRoot))).toBe(true)
-    expect(existsSync(new URL("patches/@opennextjs__cloudflare@1.20.6.patch", repositoryRoot))).toBe(true)
+    expect(existsSync(new URL("patches/@opennextjs__aws@4.1.4.patch", repositoryRoot))).toBe(false)
+    expect(existsSync(new URL("patches/@opennextjs__cloudflare@1.20.6.patch", repositoryRoot))).toBe(false)
+    expect(existsSync(new URL("patches/@opennextjs__cloudflare@1.20.10.patch", repositoryRoot))).toBe(true)
     expect(existsSync(new URL("patches/@opennextjs__aws@4.1.0.patch", repositoryRoot))).toBe(false)
 
     const workerManifests = [
@@ -71,8 +71,10 @@ describe("OpenNext and Wrangler refresh", () => {
     }
 
     const lockfile = readRepositoryFile("pnpm-lock.yaml")
-    expect(lockfile).toContain("'@opennextjs/aws@4.1.4':")
-    expect(lockfile).toContain("'@opennextjs/cloudflare@1.20.6':")
+    expect(lockfile).toContain("'@opennextjs/aws@4.1.9':")
+    expect(lockfile).toContain("'@opennextjs/cloudflare@1.20.10':")
+    expect(lockfile).not.toContain("'@opennextjs/aws@4.1.4':")
+    expect(lockfile).not.toContain("'@opennextjs/cloudflare@1.20.6':")
     expect(lockfile).not.toContain("'@opennextjs/aws@4.1.0':")
   })
 

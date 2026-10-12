@@ -64,8 +64,7 @@
       "@vitest/snapshot": "4.1.11"
     },
     "patchedDependencies": {
-      "@opennextjs/aws@4.1.4": "patches/@opennextjs__aws@4.1.4.patch",
-      "@opennextjs/cloudflare@1.20.6": "patches/@opennextjs__cloudflare@1.20.6.patch"
+      "@opennextjs/cloudflare@1.20.10": "patches/@opennextjs__cloudflare@1.20.10.patch"
     },
     "onlyBuiltDependencies": [
       "better-sqlite3",

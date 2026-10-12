@@ -46,6 +46,7 @@ type ExpectedMessageListProps = {
   onLoadNewer?: () => void
   onJumpToPresent?: () => void
   presentVersion?: number
+  localSubmitVersion?: number
   unreadCount?: number
 }
 

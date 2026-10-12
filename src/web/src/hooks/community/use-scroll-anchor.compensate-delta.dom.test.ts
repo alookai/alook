@@ -13,7 +13,9 @@ describe("locked native iOS deferred adjustment controls, with simulated DOM geo
     const h = mount()
     h.move(500)
     const offset = vi.spyOn(scrollFixture.latest.virtualizer, "scrollToOffset")
+    const cancel = vi.spyOn(scrollFixture.latest.virtualizer, "cancelScroll")
     fireEvent.touchStart(h.root, { touches: [{ clientY: 300 }] })
+    expect(cancel).toHaveBeenCalledOnce()
     const before = h.root.scrollTop
     h.update({ items: [message("older"), ...h.input.items] })
     expect(offset).not.toHaveBeenCalled()

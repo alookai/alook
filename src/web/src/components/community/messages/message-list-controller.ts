@@ -29,8 +29,8 @@ export function useMessageListController({
   onLoadNewer,
   onJumpToPresent,
   presentVersion,
+  localSubmitVersion,
   unreadCount,
-  viewerUserId,
   onScrollRoot,
   onScrollTargetConsumed,
 }: ResolvedMessageListProps) {
@@ -113,7 +113,7 @@ export function useMessageListController({
     isFetchingOlder,
     isFetchingNewer,
     presentVersion,
-    viewerUserId,
+    localSubmitVersion,
     hasMoreOlder: hasMore,
     tailPaddingEnd,
     onInitialPositionSettled: settleAnchorPosition,

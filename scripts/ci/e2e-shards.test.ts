@@ -75,17 +75,18 @@ describe("planE2eShards", () => {
 
     expect(first).toEqual(second)
     expect(Object.keys(SPEC_SECONDS).sort()).toEqual(specs)
-    expect(first).toHaveLength(14)
+    expect(first).toHaveLength(15)
     expect([...assigned].sort()).toEqual(specs)
     expect(new Set(assigned).size).toBe(specs.length)
-    expect(SPEC_SECONDS["55-message-scroll-characterization.spec.ts"]).toBe(109.548)
+    expect(SPEC_SECONDS["18-new-divider-scroll.spec.ts"]).toBe(DEFAULT_SPEC_SECONDS)
+    expect(SPEC_SECONDS["55-message-scroll-characterization.spec.ts"]).toBe(DEFAULT_SPEC_SECONDS)
     expect(specSeconds).toEqual([
-      165, 165, 165, 151.379, 152.389, 150.76, 151.219, 151.183,
-      153.805, 154.219, 151.127, 150.794, 154.182, 153.225,
+      165, 165, 165, 165, 165, 155.638, 154.234, 155.283,
+      156.095, 155.905, 156.323, 155.711, 153.963, 154.488, 156.138,
     ])
     expect(predictedSeconds).toEqual([
-      240, 240, 240, 226.379, 227.389, 225.76, 226.219, 226.183,
-      228.805, 229.219, 226.127, 225.794, 229.182, 228.225,
+      240, 240, 240, 240, 240, 230.638, 229.234, 230.283,
+      231.095, 230.905, 231.323, 230.711, 228.963, 229.488, 231.138,
     ])
     expect(first.every((shard) => (
       shard.fixed_setup_seconds === E2E_FIXED_SETUP_SECONDS

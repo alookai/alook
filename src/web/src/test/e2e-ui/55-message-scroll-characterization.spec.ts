@@ -512,6 +512,25 @@ function messageCreateCount(
     && event.message?.content?.includes(body))).length
 }
 
+type PostedMessageIdentity = { id: string; seq: number; channelId: string; authorId: string; content: string }
+
+async function expectMessageCreateIdentity(
+  frames: Awaited<ReturnType<typeof proxyCommunityWebSockets>>["frames"],
+  channelId: string,
+  message: PostedMessageIdentity,
+  nonce: string,
+): Promise<void> {
+  expect(message.id.length).toBeGreaterThan(0)
+  expect(message.seq).toBeGreaterThan(0)
+  await expect.poll(() => frames.flatMap(communityFrameEvents).filter(event =>
+    event.type === "community:message.create" && event.channelId === channelId && event.message?.id === message.id,
+  ).length).toBe(1)
+  const created = frames.flatMap(communityFrameEvents).find(event =>
+    event.type === "community:message.create" && event.channelId === channelId && event.message?.id === message.id,
+  )!
+  expect(created.message).toMatchObject({ id: message.id, seq: message.seq, authorId: message.authorId, clientNonce: nonce })
+}
+
 test.describe.serial("message scroll characterization", () => {
   let serverId: string
   let coldChannelId: string
@@ -754,6 +773,97 @@ test.describe.serial("message scroll characterization", () => {
       await waitForStableTail(scroller, `received-${input}`)
       await expect(alice.page.getByTestId(tid.scrollToPresent)).toHaveCount(0)
     }
+  })
+
+  test("local history submission and passive remote append use distinct owners", async ({ asUser }) => {
+    test.setTimeout(120_000)
+    const channelId = await seedChannel("alice", serverId, `scroll-passive-threshold-${Date.now()}`)
+    await seedProfile(channelId, 130, false, "rotate", 18)
+    const alice = await asUser("alice")
+    await alice.page.setViewportSize(VIEWPORT)
+    const proxy = await proxyCommunityWebSockets(alice.context)
+    let composerPosts = 0
+    alice.page.on("request", request => {
+      if (request.method() === "POST" && new URL(request.url()).pathname === `/api/community/channels/${channelId}/messages`) composerPosts += 1
+    })
+    const anchorResponse = alice.page.waitForResponse(response => response.request().method() === "GET"
+      && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`
+      && new URL(response.url()).searchParams.has("anchor"))
+    await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${channelId}`)
+    const scroller = alice.page.getByTestId(tid.messageScroller)
+    await expect(scroller.locator('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "true")
+    const anchored = await anchorResponse
+    expect(anchored.status()).toBe(200)
+    const anchorPage = await anchored.json() as { page: { hasMoreNewer: boolean } }
+    expect(anchorPage.page.hasMoreNewer).toBe(true)
+    let newestGets = 0
+    alice.page.on("request", request => {
+      const url = new URL(request.url())
+      if (request.method() === "GET" && url.pathname === `/api/community/channels/${channelId}/messages` && url.search === "") newestGets += 1
+    })
+    const newest = await holdNextRequest(alice.page, `**/api/community/channels/${channelId}/messages**`, url => url.search === "")
+    const localContent = `local history submission ${Date.now()}`
+    const localPost = alice.page.waitForResponse(response => response.request().method() === "POST"
+      && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`
+      && response.request().postDataJSON().content === localContent)
+    try {
+      await sendMessage(alice.page, localContent)
+      await newest.matched
+      newest.release()
+      const response = await localPost
+      expect(response.status()).toBe(201)
+      const nonce = response.request().postDataJSON().nonce as string
+      expect(nonce.length).toBeGreaterThan(0)
+      const result = await response.json() as { message: PostedMessageIdentity }
+      expect(result.message).toMatchObject({ authorId: userId("alice"), channelId, content: localContent })
+      await expect.poll(() => messageCreateCount(proxy.frames, channelId, localContent)).toBe(1)
+      await expectMessageCreateIdentity(proxy.frames, channelId, result.message, nonce)
+      await expect(alice.page.getByTestId(tid.message(result.message.id))).toBeVisible()
+      await expect(alice.page.getByText(localContent, { exact: true })).toHaveCount(1)
+      await waitForStableTail(scroller, "local-history-submission-ack")
+      expect(newestGets).toBe(1)
+      expect(composerPosts).toBe(1)
+    } finally {
+      await newest.dispose()
+    }
+    for (const author of ["bob", "alice"] as const) {
+      for (const distance of [0, 1, 2, 20, 100, 101]) {
+        await establishScrollDistancePrecondition(scroller, `${author}-${distance}`, distance)
+        const before = await waitForCommittedGeometry(scroller)
+        expect(before.firstVisibleId).not.toBeNull()
+        expect(Math.abs(before.distanceToEnd - distance)).toBeLessThanOrEqual(0.01)
+        const nonce = `scroll186_${author}_${distance}_${Date.now()}`
+        const content = `passive ${author} at ${distance} ${nonce}`
+        const response = await fetch(`${WEB_URL}/api/community/channels/${channelId}/messages`, {
+          method: "POST",
+          headers: { Cookie: sessionCookie(author), "Content-Type": "application/json", Origin: WEB_URL },
+          body: JSON.stringify({ content, nonce }),
+        })
+        expect(response.status).toBe(201)
+        const result = await response.json() as { message: PostedMessageIdentity }
+        expect(result.message).toMatchObject({ authorId: userId(author), channelId, content })
+        await expect.poll(() => proxy.frames.filter(frame => communityFrameEvents(frame).some(event =>
+          event.type === "community:message.create" && event.channelId === channelId && event.message?.id === result.message.id,
+        )).length).toBe(1)
+        await expectMessageCreateIdentity(proxy.frames, channelId, result.message, nonce)
+        if (distance <= 1) {
+          await expect(alice.page.getByTestId(tid.message(result.message.id))).toBeVisible()
+          await waitForStableTail(scroller, `${author}-${distance}-received`)
+        } else {
+          await alice.page.waitForTimeout(250)
+          const bodyOffset = await scroller.locator(`[data-msg-id="${before.firstVisibleId}"]`).evaluate((element, scrollerTestId) => {
+            const root = element.closest<HTMLElement>(`[data-testid="${scrollerTestId}"]`)!
+            return element.getBoundingClientRect().top - root.getBoundingClientRect().top
+          }, tid.messageScroller)
+          expect(Math.abs(bodyOffset - before.firstVisibleOffset!)).toBeLessThanOrEqual(1)
+          const after = await waitForCommittedGeometry(scroller)
+          expect(Math.abs(after.scrollTop - before.scrollTop)).toBeLessThanOrEqual(1)
+          expect(after.distanceToEnd).toBeGreaterThan(distance)
+        }
+        expect(composerPosts).toBe(1)
+      }
+    }
+    expect(newestGets).toBe(1)
   })
 
   test("remote receive states and sustained upward input produce diagnostic traces", async ({ asUser }, testInfo) => {
@@ -1091,6 +1201,25 @@ test.describe.serial("message scroll characterization", () => {
     expect(messagePosts).toBe(0)
     expect(proxy.frames.flatMap(communityFrameEvents).filter((event) =>
       event.type === "community:message.create" && event.channelId === composerDmId)).toHaveLength(0)
+
+    await establishScrollDistancePrecondition(scroller, "dm-local-submit-away", 300)
+    const content = `dm local acceptance ${Date.now()}`
+    const post = alice.page.waitForResponse(response => response.request().method() === "POST"
+      && new URL(response.url()).pathname === `/api/community/channels/${composerDmId}/messages`
+      && response.request().postDataJSON().content === content)
+    await sendMessage(alice.page, content)
+    const response = await post
+    expect(response.status()).toBe(201)
+    const nonce = response.request().postDataJSON().nonce as string
+    expect(nonce.length).toBeGreaterThan(0)
+    const result = await response.json() as { message: PostedMessageIdentity }
+    expect(result.message).toMatchObject({ authorId: userId("alice"), channelId: composerDmId, content })
+    await expect.poll(() => messageCreateCount(proxy.frames, composerDmId, content)).toBe(1)
+    await expectMessageCreateIdentity(proxy.frames, composerDmId, result.message, nonce)
+    await expect(alice.page.getByTestId(tid.message(result.message.id))).toBeVisible()
+    await expect(alice.page.getByText(content, { exact: true })).toHaveCount(1)
+    await waitForStableTail(scroller, "dm-local-submit-ack")
+    expect(messagePosts).toBe(1)
   })
 
   test("normal-flow composer resizes preserve semantic anchors and interaction boundaries", async ({ asUser }, testInfo) => {
@@ -1347,6 +1476,28 @@ test.describe.serial("message scroll characterization", () => {
     expectInFlowMessageGeometry(parentGeometry, "split-parent")
     expectInFlowMessageGeometry(threadGeometry, "split-thread")
     expect(mutationPosts).toBe(0)
+
+    await parentEditable.fill("")
+    await threadEditable.fill("")
+    const parentBefore = await waitForCommittedGeometry(parentScroller)
+    const content = `thread local acceptance ${Date.now()}`
+    const post = alice.page.waitForResponse(response => response.request().method() === "POST"
+      && new URL(response.url()).pathname === `/api/community/channels/${splitThreadId}/messages`
+      && response.request().postDataJSON().content === content)
+    await sendMessage(alice.page, content, threadPanel)
+    const response = await post
+    expect(response.status()).toBe(201)
+    const nonce = response.request().postDataJSON().nonce as string
+    expect(nonce.length).toBeGreaterThan(0)
+    const result = await response.json() as { message: PostedMessageIdentity }
+    expect(result.message).toMatchObject({ authorId: userId("alice"), channelId: splitThreadId, content })
+    await expect.poll(() => messageCreateCount(proxy.frames, splitThreadId, content)).toBe(1)
+    await expectMessageCreateIdentity(proxy.frames, splitThreadId, result.message, nonce)
+    await expect(threadPanel.getByTestId(tid.message(result.message.id))).toBeVisible()
+    await expect(threadPanel.getByText(content, { exact: true })).toHaveCount(1)
+    await waitForStableTail(threadScroller, "thread-local-submit-ack")
+    const parentAfter = await waitForCommittedGeometry(parentScroller)
+    expectViewportAnchorPreserved(parentBefore, parentAfter, "thread-local-submit-parent")
   })
 
   test.afterEach(async ({ page }) => {

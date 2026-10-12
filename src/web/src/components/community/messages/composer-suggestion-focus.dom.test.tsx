@@ -55,6 +55,7 @@ vi.mock("@/components/community/messages/message-channel-controller", () => ({
     onSheetReply: vi.fn(), jumpToSeq: vi.fn(),
     messageActions: {} as MessageChannelControllerValue["messageActions"],
     threadActions: {} as MessageChannelControllerValue["threadActions"],
+    localSubmitVersion: 0,
     acceptMessage: vi.fn(() => true), handleTyping: vi.fn(), typingUsers: [],
   }),
 }))

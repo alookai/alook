@@ -308,6 +308,7 @@ export function DmView({ dmId }: { dmId: string }) {
   }, [communityRuntime, dmId])
 
   const [replyTo, setReplyTo] = useAtom(useCreateAtom<ReplyTarget | null>(null))
+  const [localSubmitVersion, setLocalSubmitVersion] = useAtom(useCreateAtom(0))
 
   useEffect(() => {
     setReplyTo(null)
@@ -406,6 +407,8 @@ export function DmView({ dmId }: { dmId: string }) {
       },
     })
     if (!receipt.accepted) return false
+    setLocalSubmitVersion((version) => version + 1)
+    if (hasMoreNewerMessages) jumpToPresent()
     void receipt.committed.then((result) => {
       try { assertActive() } catch { return }
       if (result.ok) advanceOnboardingAfterSend()
@@ -505,6 +508,7 @@ export function DmView({ dmId }: { dmId: string }) {
             onLoadNewer={fetchNewerMessages}
             onJumpToPresent={jumpToPresent}
             presentVersion={presentVersion}
+            localSubmitVersion={localSubmitVersion}
             unreadCount={unreadCount}
             typingUsers={typingUsers.map((id) => typingNames[id] ?? resolveUserName(id))}
             hero={

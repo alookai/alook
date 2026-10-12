@@ -63,7 +63,7 @@ describe("OpenNext query encoding patch", () => {
     expect(result.value).toBe(expected)
     expect(result.url.hash).toBe("")
     expect(result.query).not.toContain("#")
-    expect(result.internalQuery.ref).toBe(encoded)
+    expect(result.internalQuery.ref).toBe(expected)
   })
 
   it("preserves repeated encoded values and their order", () => {
@@ -71,7 +71,7 @@ describe("OpenNext query encoding patch", () => {
     const second = "%2Fb%230002%2Fy%2F%233"
     const result = roundTrip(`ref=${first}&ref=${second}`)
 
-    expect(result.internalQuery.ref).toEqual([first, second])
+    expect(result.internalQuery.ref).toEqual(["/a#0001/x", "/b#0002/y/#3"])
     expect(result.url.searchParams.getAll("ref")).toEqual(["/a#0001/x", "/b#0002/y/#3"])
   })
 
