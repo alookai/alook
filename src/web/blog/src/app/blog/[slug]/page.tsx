@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight } from "lucide-react";
+import { isGuide } from "@blog/lib/blog/guides";
 import { getAllPosts, getPostBySlug } from "@blog/lib/blog/posts";
 import { buildBlogPostingJsonLd } from "@blog/lib/blog/json-ld";
 import {
@@ -44,6 +45,7 @@ export default async function BlogPostPage({
   const post = await getPostBySlug(slug);
   if (!post) notFound();
 
+  const directory = isGuide(post) ? "/guides" : "/blog";
   const posts = await getAllPosts();
   const topic = getBlogTopicBySlug(slug);
   const relatedPosts = getRelatedPosts(slug, posts);
@@ -75,11 +77,11 @@ export default async function BlogPostPage({
       )}
       <article className="blog-article mx-auto max-w-3xl px-6 py-12 sm:py-16">
         <Link
-          href="/blog"
+          href={directory}
           className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-8"
         >
           <ArrowLeft className="size-3.5" />
-          All posts
+          {isGuide(post) ? "All guides" : "All posts"}
         </Link>
 
         <header className="mb-10">
@@ -88,7 +90,7 @@ export default async function BlogPostPage({
           </h1>
           {topic && (
             <Link
-              href={`/blog#${topic.id}`}
+              href={`${directory}#${topic.id}`}
               className="mt-4 inline-flex rounded-md bg-muted px-2 py-1 text-sm font-medium text-foreground transition-colors hover:bg-accent"
             >
               {topic.label}
@@ -102,7 +104,7 @@ export default async function BlogPostPage({
         </div>
 
         {topic && (relatedPosts.length > 0 || nextTopicBridge) && (
-          <aside className="mt-16 border-t border-border pt-8">
+          <aside data-blog-recommendations className="mt-16 border-t border-border pt-8">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <h2 className="font-sans text-2xl font-semibold tracking-tight">

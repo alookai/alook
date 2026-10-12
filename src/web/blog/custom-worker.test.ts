@@ -34,8 +34,8 @@ describe("Blog Worker entrypoint", () => {
 		worker = new BlogWorker({} as ExecutionContext, { ASSETS: {} as Fetcher });
 	});
 
-	it("delegates public fetches and finalizes cache headers", async () => {
-		const response = await worker.fetch(new Request("https://alook.ai/blog"));
+	it.each(["/blog", "/guides", "/guides/"])("finalizes public document headers for %s", async (path) => {
+		const response = await worker.fetch(new Request(`https://alook.ai${path}`));
 		expect(await response.text()).toBe("node-open-next");
 		expect(response.headers.get("Cache-Control")).toBe("public, max-age=0, must-revalidate");
 	});

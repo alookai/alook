@@ -217,7 +217,6 @@ export {
   TaskApiBaseSchema,
   TaskApiSchema,
   HeartbeatRequestSchema,
-  SweepRequestSchema,
   PollRequestSchema,
   MAX_POLL_TASKS,
   PollResponseSchema,
@@ -240,7 +239,6 @@ export {
   IssueStatusSchema,
   CreateIssueRequestSchema,
   UpdateIssueRequestSchema,
-  CreateIssueCommentRequestSchema,
   CreateIssueCommentBodySchema,
   IssueCommentApiSchema,
   IssueApiSchema,
@@ -346,7 +344,6 @@ export type {
   TaskApiBase,
   TaskApi,
   HeartbeatRequest,
-  SweepRequest,
   PollRequest,
   PollResponse,
   PollMeetingItem,
@@ -367,7 +364,6 @@ export type {
   CalendarEventApi,
   CreateIssueRequestInput,
   UpdateIssueRequestInput,
-  CreateIssueCommentRequestInput,
   CreateIssueCommentBody,
   IssueCommentApi,
   IssueApi,
@@ -581,7 +577,7 @@ export {
 } from "./community/bot-activity-presets";
 export type { BotActivityPreset } from "./community/bot-activity-presets";
 
-export type { CommunityMachineSummary, CommunityMachineRuntime } from "./community-ws-events";
+export type { CommunityMachineSummary, CommunityMachineRuntime } from "./schemas";
 export type {
   BotAddedFrame,
   BotUpdatedFrame,
@@ -640,12 +636,18 @@ export type {
   CommunityMachineRemoved,
   CommunityBotAuditEvent,
   CommunityWsEvent,
+  CommunityLegacyWsEvent,
+  CommunityResourceWsEvent,
+  CommunityLegacyMessageCreate,
   CommunityBrowserEventFailureReason,
   CommunityBrowserEventDecodeResult,
   CommunityBrowserEventEncodeResult,
 } from "./community-ws-events";
 export {
   CommunityWsEventSchema,
+  CommunityResourceWsEventSchema,
+  CommunityLegacyMessageCreateSchema,
+  communityWsEventSchemaForContract,
   FriendApprovalPayloadSchema,
   COMMUNITY_BROWSER_EVENT_MAX_BYTES,
   COMMUNITY_USER_TARGET_MAX_BYTES,
@@ -822,5 +824,5 @@ export { parseReleaseVersion, releaseVersionGte, semverGte } from "./semver";
 export type { ReleaseVersion } from "./semver";
 export { resolveMode, cliCommand, cliPackageName, updateCommand, daemonCommand, getBaseUrl, isTauri, isDesktop, isMobile, tauriInvoke } from "./mode";
 export type { AlookMode, ModeSignals, BaseUrlSignals } from "./mode";
-export { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION, requestsCommunityContract, type CommunityContract } from "./community-contract";
+export { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION, COMMUNITY_RESOURCE_CONTRACT_VERSION, requestedCommunityContract, requestsCommunityContract, type CommunityContract } from "./community-contract";
 export * from "./community-resources";

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import {
-  CommunityWsEventSchema,
+  communityWsEventSchemaForContract,
   isValidCommunityUserTarget,
   utf8ByteLength,
 } from "./community-ws-events";
@@ -20,6 +20,7 @@ export type MessageDeliveryMemberAdded = {
 };
 
 export type MessageDeliveryBatch = {
+  communityContract?: 3;
   messageId: string;
   messageEvent: CommunityMessageCreate;
   contentUserIds: string[];
@@ -44,6 +45,7 @@ const memberAddedSchema = z.strictObject({
 });
 
 const batchShape = z.strictObject({
+  communityContract: z.literal(3).optional(),
   messageId: z.string().min(1),
   messageEvent: z.unknown(),
   contentUserIds: targetList,
@@ -73,7 +75,8 @@ export function parseMessageDeliveryBatch(value: unknown): MessageDeliveryBatchP
   const outer = batchShape.safeParse(value);
   if (!outer.success) return { ok: false, reason: "invalid-payload" };
   const data = outer.data;
-  const message = CommunityWsEventSchema.safeParse(data.messageEvent);
+  const schema = communityWsEventSchemaForContract(data.communityContract ?? 2);
+  const message = schema.safeParse(data.messageEvent);
   if (!message.success || message.data.type !== "community:message.create") {
     return { ok: false, reason: "invalid-payload" };
   }
@@ -83,7 +86,7 @@ export function parseMessageDeliveryBatch(value: unknown): MessageDeliveryBatchP
 
   let parentProjection: CommunityChildChannelUpdate | undefined;
   if (data.parentProjection !== undefined) {
-    const parsed = CommunityWsEventSchema.safeParse(data.parentProjection);
+    const parsed = schema.safeParse(data.parentProjection);
     if (!parsed.success || parsed.data.type !== "community:channel.child_update") {
       return { ok: false, reason: "invalid-payload" };
     }
@@ -143,6 +146,7 @@ export function parseMessageDeliveryBatch(value: unknown): MessageDeliveryBatchP
   return {
     ok: true,
     batch: {
+      ...(data.communityContract === 3 ? { communityContract: 3 } : {}),
       messageId: data.messageId,
       messageEvent: message.data,
       contentUserIds: data.contentUserIds,

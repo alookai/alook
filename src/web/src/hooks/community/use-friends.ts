@@ -62,7 +62,7 @@ export const friendsQueryFn = async (context: QueryFunctionContext) => {
       "/api/community/friends/accepted",
       (data) => {
         throwIfStale(data)
-        return data.friends.map((friend) => communityUserProfilePatch(friend.userId ?? friend.id, friend))
+        return data.friends.map((friend) => communityUserProfilePatch(friend.userId ?? friend.id, friend, { legacyPresentation: true }))
       }, { signal: context.signal }, getCommunityDbRegistry(context.client),
     ),
     apiFetchProfiles<{ blocked: BlockedUser[]; stale?: boolean }>(

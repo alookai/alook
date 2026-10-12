@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { SweepRequestSchema } from "@alook/shared";
+import { HeartbeatRequestSchema } from "@alook/shared";
 import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
@@ -10,7 +10,7 @@ import { log } from "@/lib/logger";
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const { throttled } = await import("@/lib/cache");
 
-  const [, err] = await parseBody(req, SweepRequestSchema);
+  const [, err] = await parseBody(req, HeartbeatRequestSchema);
   if (err) return err;
 
   if (!ctx.workspaceId) {

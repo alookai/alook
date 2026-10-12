@@ -17,7 +17,7 @@ export type PublicZone = "main" | "blog";
 
 export function isCrossZoneNavigation(href: string, zone: PublicZone): boolean {
   if (!href.startsWith("/")) return false;
-  const blogOwned = href.startsWith("/blog") || href.startsWith("/og/blog");
+  const blogOwned = href.startsWith("/blog") || href.startsWith("/og/blog") || href.startsWith("/guides");
   return zone === "main" ? blogOwned : !blogOwned;
 }
 

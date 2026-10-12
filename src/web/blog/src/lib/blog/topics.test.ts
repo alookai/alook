@@ -47,14 +47,14 @@ describe("blogTopics", () => {
     expect(registrySlugs).toEqual(publishedSlugs);
   });
 
-  it("covers all 26 published slugs exactly once", () => {
+  it("covers all 29 published slugs exactly once", () => {
     const orderedSlugs = blogTopics.map((topic) =>
       topic.entries.map((entry) => entry.slug)
     );
     const slugs = orderedSlugs.flat();
 
-    expect(slugs).toHaveLength(26);
-    expect(new Set(slugs).size).toBe(26);
+    expect(slugs).toHaveLength(29);
+    expect(new Set(slugs).size).toBe(29);
     expect(orderedSlugs).toEqual([
       [
         "ai-agent-vs-chatbot",
@@ -72,6 +72,9 @@ describe("blogTopics", () => {
         "claude-code-dynamic-workflow-alternative",
         "keep-context-across-coding-agent-sessions",
         "multiple-ai-agents-edit-same-repository",
+        "prevent-claude-code-codex-duplicating-work",
+        "prevent-codex-opencode-duplicating-work",
+        "prevent-claude-code-opencode-duplicating-work",
         "prevent-coding-agents-duplicating-work",
       ],
       [
@@ -109,6 +112,9 @@ describe("blogTopics", () => {
         )
       )
     ).toEqual({
+      "prevent-claude-code-codex-duplicating-work": "Prevent Claude Code and Codex from duplicating work",
+      "prevent-codex-opencode-duplicating-work": "Prevent Codex and OpenCode from duplicating work",
+      "prevent-claude-code-opencode-duplicating-work": "Prevent Claude Code and OpenCode from duplicating work",
       "ai-agent-vs-chatbot": "Decide whether I need an agent or a chatbot",
       "local-ai-agents":
         "Choose which parts of an AI agent should run locally",
@@ -226,5 +232,21 @@ describe("topic discovery", () => {
     expect(getNextTopicBridge("personal-ai-company", allPosts)?.post.slug).toBe(
       "ai-agent-team"
     );
+  });
+});
+
+describe("Guides recommendation isolation", () => {
+  it("excludes a tagged pillar and neighboring articles from Keep exploring", () => {
+    const current = blogTopics[1].entries[0].slug;
+    const guides = new Set([blogTopics[1].pillarSlug, blogTopics[1].entries[1].slug]);
+    const posts = allPosts.map((post) => guides.has(post.slug) ? { ...post, tags: ["guides"] } : post);
+    const related = getRelatedPosts(current, posts, 20);
+    expect(related.length).toBeGreaterThan(0);
+    expect(related.every((post) => !guides.has(post.slug))).toBe(true);
+  });
+  it("omits Next Blog when the next pillar is a guide, without refilling from the full registry", () => {
+    const nextPillar = blogTopics[1].pillarSlug;
+    const posts = allPosts.map((post) => post.slug === nextPillar ? { ...post, tags: ["guides"] } : post);
+    expect(getNextTopicBridge(blogTopics[0].pillarSlug, posts)).toBeUndefined();
   });
 });

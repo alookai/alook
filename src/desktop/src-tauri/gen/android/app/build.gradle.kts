@@ -29,13 +29,7 @@ val modernRecoveryDispatch = """
         }
 
 """.trim('\n')
-val pageCommitVisibleDispatch = """
-
-    override fun onPageCommitVisible(view: WebView, url: String?) {
-        super.onPageCommitVisible(view, url)
-        WebviewRecovery.handlePageCommitVisible(view, url)
-    }
-""".trim('\n')
+val pageLoadedCall = "        Rust.onPageLoaded((view as RustWebView).id, url)"
 val legacyAndSslRecoveryDispatch = "\n\n" + """
     @Suppress("DEPRECATION")
     override fun onReceivedError(
@@ -63,12 +57,8 @@ fun String.occurrencesOf(value: String): Int = windowed(value.length).count { it
 
 fun wireGeneratedWebViewRecovery(sourceFile: File) {
     var source = sourceFile.readText()
-    if (!source.contains("WebviewRecovery.handlePageCommitVisible(view, url)")) {
-        val classEnd = source.lastIndexOf("\n}")
-        if (classEnd < 0) {
-            throw GradleException("Wry RustWebViewClient class boundary is missing")
-        }
-        source = source.substring(0, classEnd) + "\n\n" + pageCommitVisibleDispatch + source.substring(classEnd)
+    if (listOf("handlePageCommitVisible", "handlePageStarted", "handlePageFinished").any(source::contains)) {
+        throw GradleException("Stale Wry page-ready callback; regenerate RustWebViewClient")
     }
     if (!source.contains(modernRecoveryDispatch)) {
         if (source.occurrencesOf(modernErrorMethod) != 1) {
@@ -91,17 +81,25 @@ fun verifyGeneratedWebViewRecovery(sourceFile: File) {
     val required = listOf(
         "modern main-frame recovery dispatch" to
             (modernErrorMethod + "\n" + modernRecoveryDispatch),
-        "startup visual-state dispatch" to
-            "WebviewRecovery.handlePageCommitVisible(view, url)",
         "legacy recovery dispatch" to
             "WebviewRecovery.handleError(view, errorCode, currentUrl, failingUrl)",
         "SSL recovery dispatch" to
             "WebviewRecovery.handleSslError(view, currentUrl, error.url)",
         "Wry fallback" to "super.onReceivedError(view, request, error)",
     )
-    val missing = required.filterNot { source.contains(it.second) }.map { it.first }
+    val missing = required.filterNot { source.occurrencesOf(it.second) == 1 }.map { it.first }
     if (missing.isNotEmpty()) {
         throw GradleException("Generated RustWebViewClient recovery gate failed: ${missing.joinToString()}")
+    }
+    val originalCalls = listOf(
+        "currentUrl = url",
+        "for (script in webView.initScripts)",
+        "return Rust.onPageLoading((view as RustWebView).id, url)",
+        pageLoadedCall,
+        modernRecoveryDispatch,
+    )
+    if (originalCalls.any { source.occurrencesOf(it) != 1 } || listOf("handlePageCommitVisible", "handlePageStarted", "handlePageFinished").any(source::contains)) {
+        throw GradleException("Generated RustWebViewClient lost Wry startup behavior")
     }
 }
 
@@ -144,7 +142,7 @@ android {
     }
     buildTypes {
         getByName("debug") {
-            applicationIdSuffix = ".qa.madox.nav112v2local"
+            applicationIdSuffix = ".qa.livia.startup184container"
             manifestPlaceholders["usesCleartextTraffic"] = "true"
             isDebuggable = true
             isJniDebuggable = true

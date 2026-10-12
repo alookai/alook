@@ -1,4 +1,4 @@
-import type { CommunityMessageAttachment } from "@alook/shared"
+import type { CommunityMessagePreviewAttachment, CommunityLegacyMessageAttachment } from "@alook/shared"
 import type { Attachment } from "./models/message"
 import { isInlineAttachmentContentType } from "./attachment-content-type"
 
@@ -280,11 +280,20 @@ export function formatAttachmentSize(bytes?: number): string {
 }
 
 export function presentMessageAttachment(
-  attachment: Omit<CommunityMessageAttachment, "kind"> & Partial<Pick<CommunityMessageAttachment, "kind">>,
+  attachment: CommunityMessagePreviewAttachment | CommunityLegacyMessageAttachment,
 ): Attachment {
-  const kind = attachment.kind ?? (isInlineAttachmentContentType(attachment.contentType) ? "image" : "file")
-  if (kind === "image") return { ...attachment, kind }
-  const { width: _width, height: _height, thumbnailUrl: _thumbnailUrl, ...file } = attachment
-  return { ...(attachment.kind ? attachment : file), kind,
-    size: attachment.size ?? formatAttachmentSize(attachment.kind ? attachment.sizeBytes ?? 0 : attachment.sizeBytes) }
+  const legacy = "kind" in attachment ? attachment : undefined
+  const kind = legacy?.kind ?? (isInlineAttachmentContentType(attachment.contentType) ? "image" : "file")
+  const metadata = {
+    name: attachment.name, url: attachment.url,
+    ...(attachment.contentType != null ? { contentType: attachment.contentType } : {}),
+    ...(attachment.sizeBytes != null ? { sizeBytes: attachment.sizeBytes } : {}),
+  }
+  if (kind === "image") return {
+    ...metadata, kind,
+    ...(attachment.thumbnailUrl != null ? { thumbnailUrl: attachment.thumbnailUrl } : {}),
+    ...(attachment.width != null ? { width: attachment.width } : {}),
+    ...(attachment.height != null ? { height: attachment.height } : {}),
+  }
+  return { ...metadata, kind, size: legacy?.size ?? formatAttachmentSize(attachment.sizeBytes ?? undefined) }
 }

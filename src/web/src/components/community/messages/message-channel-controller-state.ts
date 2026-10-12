@@ -11,14 +11,14 @@ import { useCommunityRuntime } from "@/stores/community/runtime"
 
 
 import { useCallback, useEffect, useLayoutEffect, useMemo } from "react"
-import { materializeIntent, type CanonicalMessage } from "@/lib/community/message-stream"
+import { materializeIntent } from "@/lib/community/message-stream"
+import { presentCanonicalMessage } from "@/lib/community/message-wire"
 import { messageScopeKey } from "@/stores/community/message-stream-store"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import type { MentionType, CommunityMessageResource, CommunityResourceProfile } from "@alook/shared"
 
 import { apiFetchProfiles } from "@/lib/community/profile-seed"
-import { avatarInitial } from "@/lib/community/avatar"
 import type { Msg } from "@/lib/community/models/message"
 import type { SendAttachment } from "./composer"
 import {
@@ -127,7 +127,7 @@ export function useMessageChannelController({
         "/api/community/messages/search?" + params,
         (response) => response.results.map((result) => ({
           id: result.author.id, identityAbout: { name: result.author.name },
-          avatar: { avatar: result.author.image ?? avatarInitial(result.author.name), avatarVersion: result.author.avatarVersion },
+          avatar: { avatar: result.author.image, avatarVersion: result.author.avatarVersion },
         })),
         communityRequestOptions(profileQueryClient, token, signal), token.registry,
       )
@@ -204,7 +204,7 @@ export function useMessageChannelController({
   const getMessage = useCallback((id: string): Msg | undefined => {
     const registry = getCommunityDbRegistry(profileQueryClient)
     const row = registry?.collections.messages.get(id)
-    let message: Msg | undefined = row?.channelId === channelId ? row as CanonicalMessage : undefined
+    let message: Msg | undefined = row?.channelId === channelId ? presentCanonicalMessage(row) : undefined
     if (!message) {
       const intents = communityRuntime.messageStream.get().entries.get(messageScopeKey({ kind: "channel", id: channelId }))?.state.outboxByNonce.values()
       const intent = [...(intents ?? [])].find((item) => item.tempId === id)
@@ -212,7 +212,8 @@ export function useMessageChannelController({
     }
     if (!message) return undefined
     const profile = message.authorId ? registry?.collections.profiles.get(message.authorId) : undefined
-    return profile ? { ...message, authorName: profile.name, authorAvatar: profile.avatar, authorAvatarVersion: profile.avatarVersion } : message
+    const identity = profile ? readCommunityProfile(profile, profile.id) : null
+    return identity ? { ...message, authorName: identity.name, authorAvatar: identity.avatar, authorAvatarVersion: identity.avatarVersion } : message
   }, [profileQueryClient, communityRuntime, channelId])
 
   const jumpToSeq = useCallback((seq: number) => {

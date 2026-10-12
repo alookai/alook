@@ -3,12 +3,9 @@ package ai.alook.android
 import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
-import android.webkit.WebView.VisualStateCallback
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.core.graphics.Insets
@@ -25,7 +22,7 @@ class MainActivity : TauriActivity() {
 
     private var isReady = false
     private var mainWebView: WebView? = null
-    @Volatile private var startupOffsetYCssPx = 0.0
+    private var startupAttachListener: View.OnAttachStateChangeListener? = null
     private lateinit var nativeBackCallback: OnBackPressedCallback
     private lateinit var nativeBackDispatcher: NativeBackDispatcher
     private val mobileShareImageDocumentOwner = MobileShareImageDocumentOwner(this)
@@ -48,16 +45,6 @@ class MainActivity : TauriActivity() {
                 new MutationObserver(sync).observe(document.documentElement, {
                     attributes: true, attributeFilter: ['class']
                 });
-            })();
-        """
-
-        const val STARTUP_LAYOUT_SCRIPT = """
-            (function() {
-                if (!window.AlookNative) return;
-                document.documentElement.style.setProperty(
-                    '--alook-mobile-splash-offset-y',
-                    window.AlookNative.startupOffsetYCssPx() + 'px'
-                );
             })();
         """
     }
@@ -84,12 +71,8 @@ class MainActivity : TauriActivity() {
 
         splashScreen.setKeepOnScreenCondition { !isReady }
         splashScreen.setOnExitAnimationListener { provider ->
-            provider.view.postOnAnimation {
-                provider.view.postOnAnimation { provider.remove() }
-            }
+            provider.remove()
         }
-
-        Handler(Looper.getMainLooper()).postDelayed({ isReady = true }, 10000)
 
         val rootView: View = findViewById(android.R.id.content)
 
@@ -103,11 +86,7 @@ class MainActivity : TauriActivity() {
             val imeInsets = insets.getInsets(imeType)
             val imeVisible = insets.isVisible(imeType)
             val bottomPadding = if (imeVisible) imeInsets.bottom else chromeInsets.bottom
-            startupOffsetYCssPx =
-                (chromeInsets.bottom - chromeInsets.top) / (2.0 * resources.displayMetrics.density)
-
             v.setPadding(chromeInsets.left, chromeInsets.top, chromeInsets.right, bottomPadding)
-            syncStartupOffset()
             WindowInsetsCompat.Builder(insets)
                 .setInsets(chromeTypes, Insets.NONE)
                 .setInsets(imeType, Insets.of(imeInsets.left, imeInsets.top, imeInsets.right, 0))
@@ -122,6 +101,7 @@ class MainActivity : TauriActivity() {
 
     override fun onDestroy() {
         nativeBackDispatcher.close()
+        clearStartupAttachListener()
         mainWebView = null
         mobileShareImageDocumentOwner.detach()
         super.onDestroy()
@@ -129,34 +109,31 @@ class MainActivity : TauriActivity() {
 
     override fun onWebViewCreate(webView: WebView) {
         super.onWebViewCreate(webView)
+        clearStartupAttachListener()
         mainWebView = webView
+        if (!isReady && !isDestroyed && !isFinishing) {
+            val listener = object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(view: View) {
+                    if (view !== mainWebView || isDestroyed || isFinishing) return
+                    isReady = true
+                    clearStartupAttachListener()
+                }
+                override fun onViewDetachedFromWindow(view: View) {}
+            }
+            startupAttachListener = listener
+            webView.addOnAttachStateChangeListener(listener)
+            if (webView.isAttachedToWindow) listener.onViewAttachedToWindow(webView)
+        }
         webView.addJavascriptInterface(ThemeBridge(this), "AlookNative")
 
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
-            WebViewCompat.addDocumentStartJavaScript(webView, STARTUP_LAYOUT_SCRIPT, setOf("*"))
             WebViewCompat.addDocumentStartJavaScript(webView, THEME_OBSERVER_SCRIPT, setOf("*"))
         }
     }
 
-    fun markStartupSurfaceReady(webView: WebView) {
-        if (isReady || webView !== mainWebView) return
-        syncStartupOffset(webView) {
-            webView.postVisualStateCallback(0L, object : VisualStateCallback() {
-                override fun onComplete(requestId: Long) {
-                    isReady = true
-                }
-            })
-        }
-    }
-
-    private fun syncStartupOffset(webView: WebView? = mainWebView, onComplete: (() -> Unit)? = null) {
-        if (webView == null) {
-            onComplete?.invoke()
-            return
-        }
-        val script = "document.documentElement.style.setProperty(" +
-            "'--alook-mobile-splash-offset-y','${startupOffsetYCssPx}px')"
-        webView.evaluateJavascript(script) { onComplete?.invoke() }
+    private fun clearStartupAttachListener() {
+        startupAttachListener?.let { mainWebView?.removeOnAttachStateChangeListener(it) }
+        startupAttachListener = null
     }
 
     private fun delegateBackToSystem() {
@@ -187,8 +164,5 @@ class MainActivity : TauriActivity() {
         fun setWindowTheme(dark: Boolean) {
             activity.applyWindowTheme(dark)
         }
-
-        @JavascriptInterface
-        fun startupOffsetYCssPx(): Double = activity.startupOffsetYCssPx
     }
 }

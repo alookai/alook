@@ -25,10 +25,12 @@ it("binds the initial navigation before ready and parents a real native HTTP spa
   vi.stubEnv("NEXT_PUBLIC_FARO_COLLECTOR_URL", "https://collector.example/collect/public")
   let now = 240
   vi.spyOn(performance, "now").mockImplementation(() => now)
+  vi.setSystemTime(performance.timeOrigin + now + 230_000)
   vi.spyOn(performance, "getEntriesByType").mockReturnValue([])
   const sent: unknown[] = []
   vi.stubGlobal("fetch", vi.fn(async (url: unknown, options?: RequestInit) => {
     if (String(url) === "https://collector.example/collect/public" && options?.body) sent.push(JSON.parse(String(options.body)))
+    else { now = 1012; vi.setSystemTime(Date.now() - 120_000) }
     return new Response(null, { status: 204 })
   }))
   document.cookie = "alook_analytics_consent=v1.granted; path=/"
@@ -81,6 +83,12 @@ it("binds the initial navigation before ready and parents a real native HTTP spa
   expect(ready).toHaveLength(1)
   expect(ready[0]?.attributes).toMatchObject({ navigation_kind: "document", start_ms: "0", duration_ms: "1250", trace_id: parent.traceId, span_id: parent.spanId, action_id: navigation.id })
   const http = spans.find(span => span.parentSpanId === parent.spanId)!
+  expect(Number(http.startTimeUnixNano) / 1e6 - performance.timeOrigin).toBeCloseTo(900, 2)
+  expect(Number(http.endTimeUnixNano) / 1e6 - performance.timeOrigin).toBeCloseTo(1012, 2)
+  const mirrors = events.filter(event => event.name === "faro.tracing.fetch")
+  expect(mirrors).toHaveLength(1)
+  expect(Number(mirrors[0]!.attributes.duration_ms)).toBeCloseTo(112, 2)
+  expect(JSON.stringify(sent)).not.toContain("alook.internal.http")
   const requests = events.filter(event => event.name.startsWith("request."))
   expect(requests.map(event => event.name)).toEqual(["request.start", "request.headers", "request.finish"])
   expect(requests[0]?.attributes).toMatchObject({ trace_id: parent.traceId, span_id: parent.spanId })

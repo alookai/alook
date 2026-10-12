@@ -1,3 +1,4 @@
+import { isGuide } from "./guides";
 import type { BlogPost } from "./types";
 
 export type BlogTopicEntry = {
@@ -58,6 +59,9 @@ export const blogTopics = [
         slug: "multiple-ai-agents-edit-same-repository",
         userJob: "Run parallel agents on one repo without conflicts",
       },
+      { slug: "prevent-claude-code-codex-duplicating-work", userJob: "Prevent Claude Code and Codex from duplicating work" },
+      { slug: "prevent-codex-opencode-duplicating-work", userJob: "Prevent Codex and OpenCode from duplicating work" },
+      { slug: "prevent-claude-code-opencode-duplicating-work", userJob: "Prevent Claude Code and OpenCode from duplicating work" },
       {
         slug: "prevent-coding-agents-duplicating-work",
         userJob: "Stop agents from redoing each other's work",
@@ -151,6 +155,7 @@ export function getRelatedPosts(
   posts: readonly BlogPost[],
   limit = 3
 ): BlogPost[] {
+  posts = posts.filter((post) => !isGuide(post));
   const topic = getBlogTopicBySlug(slug);
   if (!topic || limit <= 0) return [];
 
@@ -190,6 +195,6 @@ export function getNextTopicBridge(
   if (topicIndex === -1) return undefined;
 
   const nextTopic = blogTopics[(topicIndex + 1) % blogTopics.length];
-  const pillar = posts.find((post) => post.slug === nextTopic.pillarSlug);
+  const pillar = posts.find((post) => !isGuide(post) && post.slug === nextTopic.pillarSlug);
   return pillar ? { topic: nextTopic, post: pillar } : undefined;
 }

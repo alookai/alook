@@ -18,6 +18,7 @@ describe("GET /blog/feed.xml", () => {
 
   it("returns RSS with blog posts and correct content type", async () => {
     vi.mocked(getAllPosts).mockResolvedValue([
+      { slug: "guide", title: "Guide", date: "2026-10-12", author: "Alook", excerpt: "Guide", readingTime: "2 min read", tags: ["guides"] },
       {
         slug: "why-we-built-alook",
         title: "Why We Built Alook",
@@ -35,5 +36,6 @@ describe("GET /blog/feed.xml", () => {
     expect(body).toContain("<title>Alook Blog</title>");
     expect(body).toContain("https://alook.ai/blog/why-we-built-alook");
     expect(body).toContain("Why We Built Alook");
+    expect(body).not.toContain("https://alook.ai/blog/guide");
   });
 });

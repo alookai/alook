@@ -1,5 +1,5 @@
 import {
-  COMMUNITY_CONTRACT_VERSION,
+  type CommunityContract,
   createDb,
   encodeCommunityBrowserEventBatchForContract,
   encodeCommunityBrowserEvent,
@@ -97,7 +97,7 @@ export async function handleUserFetch(
       return invalidCommunityBrowserEventResponse(event)
     }
     if (!hasAuthenticatedTargetSocket(context, targetUserId)) {
-      return jsonResponse({ sent: broadcastCommunity(context, event.event, targetUserId) })
+      return jsonResponse({ sent: broadcastCommunity(context, event.event, targetUserId, event.contract) })
     }
     try {
       if (!await canDeliverCommunityContent(createDb(context.env.DB), targetUserId, [event.event])) {
@@ -108,7 +108,7 @@ export async function handleUserFetch(
       context.log.warn("community_content_access_failed", { targetUserId, error: String(error) })
       return jsonResponse({ error: "access_check_failed" }, 503)
     }
-    const sent = broadcastCommunity(context, event.event, targetUserId)
+    const sent = broadcastCommunity(context, event.event, targetUserId, event.contract)
     return new Response(JSON.stringify({ sent }), {
       headers: { "Content-Type": "application/json" },
     })
@@ -296,8 +296,13 @@ export async function handleWebSocketMessage(
       return
     }
     const wasOnline = countAuthenticatedUserConnections(context, userId) > 0
-    const communityContract = state?.type === "user" && state.authenticated
-      ? state.communityContract === COMMUNITY_CONTRACT_VERSION ? COMMUNITY_CONTRACT_VERSION : 1 : msg.communityContract === COMMUNITY_CONTRACT_VERSION ? COMMUNITY_CONTRACT_VERSION : 1
+    const selected = state?.type === "user" && state.authenticated ? state.communityContract : msg.communityContract
+    if (selected !== undefined && selected !== 1 && selected !== 2 && selected !== 3) {
+      ws.send(JSON.stringify({ type: "auth.error", error: "Unsupported community contract" }))
+      ws.close(1008, "Unsupported community contract")
+      return
+    }
+    const communityContract: CommunityContract = selected ?? 1
     ws.serializeAttachment({
       type: "user",
       userId,
@@ -311,7 +316,7 @@ export async function handleWebSocketMessage(
         : {}),
     } as ConnectionState)
     context.log.info("websocket authenticated", { userId })
-    ws.send(JSON.stringify({ type: "auth.ok", ...(communityContract === COMMUNITY_CONTRACT_VERSION ? { communityContract: COMMUNITY_CONTRACT_VERSION } : {}) }))
+    ws.send(JSON.stringify({ type: "auth.ok", ...(communityContract !== 1 ? { communityContract } : {}) }))
     if (!wasOnline) {
       broadcastPresence(context, userId, true).catch(() => { })
     }
@@ -418,14 +423,16 @@ function broadcast(
   return sent
 }
 
-function broadcastCommunity(context: WsDurableContext, event: import("@alook/shared").CommunityWsEvent, targetUserId: string) {
+function broadcastCommunity(context: WsDurableContext, event: import("@alook/shared").CommunityWsEvent, targetUserId: string, sourceContract: CommunityContract = 2) {
   let sent = 0
   for (const ws of context.ctx.getWebSockets()) {
     const state = ws.deserializeAttachment() as ConnectionState
     if (state?.type !== "user" || !state.authenticated || state.userId !== targetUserId) continue
-    const projected = projectCommunityEventForContract(event, state.communityContract === COMMUNITY_CONTRACT_VERSION ? COMMUNITY_CONTRACT_VERSION : 1)
+    const contract = state.communityContract ?? 1
+    if (contract !== 1 && contract !== 2 && contract !== 3) continue
+    const projected = projectCommunityEventForContract(event, contract, sourceContract)
     if (!projected) continue
-    const encoded = encodeCommunityBrowserEvent(projected)
+    const encoded = encodeCommunityBrowserEvent(projected, contract)
     if (!encoded.ok) continue
     try { ws.send(encoded.body); sent++ } catch { }
   }
@@ -490,10 +497,10 @@ async function deliverCommunityBundle(
   bundle: ValidCommunityBundle,
   targetUserId: string,
 ): Promise<Response> {
-  const formats = await Promise.all(([1, COMMUNITY_CONTRACT_VERSION] as const).map((contract) => encodeCommunityBrowserEventBatchForContract({
+  const formats = await Promise.all(([1, 2, 3] as const).map((contract) => encodeCommunityBrowserEventBatchForContract({
     operationId: bundle.operationId, prepared: bundle.prepared, contract,
   })))
-  const encodedBatch = formats[1]!
+  const encodedBatch = formats[bundle.prepared.contract === 3 ? 2 : 1]!
   const targetSockets: Array<{
     ws: WebSocket
     state: Extract<ConnectionState, { type: "user" }>
@@ -511,8 +518,9 @@ async function deliverCommunityBundle(
   }
 
   const plans: DeliveryPlan[] = targetSockets.map(({ ws, state }, socketIndex) => {
-    const encoded = formats[state.communityContract === COMMUNITY_CONTRACT_VERSION ? 1 : 0]!
-    return { socketIndex, ws, state, frames: encoded.ok ? [encoded.body] : [], progress: null }
+    const contract = state.communityContract ?? 1
+    const encoded = contract === 1 || contract === 2 || contract === 3 ? formats[contract - 1] : undefined
+    return { socketIndex, ws, state, frames: encoded?.ok ? [encoded.body] : [], progress: null }
   })
 
   if (!encodedBatch.ok) {
@@ -535,7 +543,6 @@ async function deliverCommunityBundle(
 
   let hasConflict = false
   for (const plan of plans) {
-    if (plan.frames.length === 0) { plan.outcome = "preflightFailed"; continue }
     const decoded = readCommunityDeliveryProgress(plan.state)
     if (!decoded.ok) {
       plan.outcome = "preflightFailed"
@@ -547,6 +554,7 @@ async function deliverCommunityBundle(
       hasConflict = true
       continue
     }
+    if (plan.frames.length === 0) { plan.outcome = "preflightFailed"; continue }
     if (progress && progress.frameCount !== plan.frames.length) {
       plan.outcome = "preflightFailed"
       continue

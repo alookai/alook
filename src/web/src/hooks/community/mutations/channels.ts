@@ -101,7 +101,7 @@ export function useCreateChannel() {
       return persistTreeChange(origin, queryClient, args, (db) => {
         const rows = [...db.collections.channels.values()].filter((row) => row.serverId === args.serverId && row.categoryId === categoryId)
         const position = Math.max(-1, ...rows.map((row) => row.position)) + 1
-        pending = { id, serverId: args.serverId, categoryId, name: args.name.trim(), type: args.type,
+        pending = { id, serverId: args.serverId, categoryId, name: args.name.trim(), type: args.type, resourceComplete: false,
           parentChannelId: null, parentMessageId: null, creatorId: db.accountId,
           position, archived: false, muted: false, unread: false, tags: [], pending: true, lastMessageAt: null }
         db.collections.channels.insert(pending)

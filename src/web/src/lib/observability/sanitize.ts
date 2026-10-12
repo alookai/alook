@@ -65,7 +65,7 @@ export function sanitizeTrace(input: unknown, sessionId: string, origin: string,
   return resources.length ? { resourceSpans: resources } : null
 }
 
-export function sanitizeItem(item: TransportItem, sessionId: string, origin: string, identity?: Partial<FrontendIdentity>, since = 0, documentVitalsEligible = true): TransportItem | null {
+export function sanitizeItem(item: TransportItem, sessionId: string, origin: string, identity?: Partial<FrontendIdentity>, since = 0, documentVitalsEligible = true, spanSince = since): TransportItem | null {
   if (item.meta.session?.id !== sessionId) return null
   const sdk = item.meta.sdk
   if (sdk?.name !== "faro-web" || !/^\d{1,3}\.\d{1,3}\.\d{1,3}(?:-[a-zA-Z0-9.-]{1,32})?$/.test(sdk.version ?? "")) return null
@@ -100,7 +100,7 @@ export function sanitizeItem(item: TransportItem, sessionId: string, origin: str
     }
     if (payload.name.startsWith("faro.tracing.")) {
       const fields = payload.attributes ?? {}
-      if (!(Date.parse(payload.timestamp) - Number(fields.duration_ns) / 1e6 >= since)) return null
+      if (!(Date.parse(payload.timestamp) - Number(fields.duration_ns) / 1e6 >= spanSince)) return null
       const url = String(fields["url.full"] ?? fields["http.url"] ?? "")
       let kind = "unknown"
       try { const parsed = new URL(url, origin); kind = parsed.origin !== origin ? "external" : parsed.searchParams.has("_rsc") ? "rsc" : parsed.pathname.startsWith("/api/") ? "api" : "resource" } catch {}
@@ -137,7 +137,7 @@ export function sanitizeItem(item: TransportItem, sessionId: string, origin: str
     return Object.keys(values).length ? { ...item, meta: documentMeta, payload: { type: payload.type, timestamp: payload.timestamp, values } } : null
   }
   if (item.type === "trace") {
-    const payload = sanitizeTrace(item.payload, sessionId, origin, { ...identity, release: item.meta.app?.release, environment: item.meta.app?.environment }, since)
+    const payload = sanitizeTrace(item.payload, sessionId, origin, { ...identity, release: item.meta.app?.release, environment: item.meta.app?.environment }, spanSince)
     return payload ? { ...item, meta, payload: payload as TraceEvent } : null
   }
   return null

@@ -98,15 +98,16 @@ describe("useMessages — instant channel switch", () => {
   it.each(["channel", "dm"] as const)("reads one canonical rich body for the %s window and live IDs", async (kind) => {
     const { client, registry } = await createCommunityQueryOwner()
     const scope: MessageScope = kind === "channel" ? { kind, id: "ch_new", serverId: "s1" } : { kind, id: "dm_new" }
-    const attachments = [{ kind: "file" as const, name: "notes.txt", url: "/notes.txt", size: "1 KB" }]
+    const attachments = [{ name: "notes.txt", url: "/notes.txt", sizeBytes: 1024 }]
+    const presentedAttachments = [{ ...attachments[0], kind: "file", size: "1.0 KB" }]
     const embeds = [{ title: "Existing embed" }], replyTo = { id: "reply", authorName: "Peer", text: "reply" }
     const message: CanonicalMessage = { id: "rich", seq: 3, type: "chat", authorId: "peer", authorName: "Peer", content: "before", clientNonce: "rich-nonce", createdAt: "2026-08-07T10:00:00.000Z" }
     ingestMessages(registry, scope.id, [{ ...message, attachments, embeds, replyTo }])
     const rendered = kind === "channel" ? await renderChannelMessages(undefined, [{ id: message.id, seq: message.seq }], client) : await renderDmMessages([{ id: message.id, seq: message.seq }], client)
-    expect(rendered.result.current.messages).toEqual([expect.objectContaining({ id: message.id, attachments, embeds, replyTo })])
+    expect(rendered.result.current.messages).toEqual([expect.objectContaining({ id: message.id, attachments: presentedAttachments, embeds, replyTo })])
     await act(async () => { dispatchLive(client, scope, { type: "wsMessage", message: { ...message, content: "sparse live" } }) })
     expect(registry.collections.messages.get(message.id)).toMatchObject({ content: "sparse live", attachments, embeds, replyTo })
-    expect(rendered.result.current.messages).toEqual([expect.objectContaining({ id: message.id, content: "sparse live", attachments, embeds, replyTo })])
+    expect(rendered.result.current.messages).toEqual([expect.objectContaining({ id: message.id, content: "sparse live", attachments: presentedAttachments, embeds, replyTo })])
     await act(async () => { dispatchLive(client, scope, { type: "wsMessage", message: { ...message, content: "cleared", attachments: [], embeds: [] } }) })
     expect(registry.collections.messages.get(message.id)).toMatchObject({ attachments: [], embeds: [] })
     expect(rendered.result.current.messages).toEqual([expect.objectContaining({ id: message.id, content: "cleared", attachments: [], embeds: [], replyTo })])

@@ -381,13 +381,7 @@ async fn probe_runtime_command(command: &'static str, path: String) -> Result<St
 static SPLASH_CLOSED: AtomicBool = AtomicBool::new(false);
 
 #[cfg(desktop)]
-static SPLASH_FRONTEND_READY: AtomicBool = AtomicBool::new(false);
-
-#[cfg(desktop)]
-static SPLASH_MIN_ELAPSED: AtomicBool = AtomicBool::new(false);
-
-#[cfg(desktop)]
-static SPLASH_MAX_WAIT_ELAPSED: AtomicBool = AtomicBool::new(false);
+static SPLASH_NATIVE_READY: AtomicBool = AtomicBool::new(false);
 
 #[cfg(desktop)]
 pub fn should_hide_on_close(window_label: &str) -> bool {
@@ -395,8 +389,8 @@ pub fn should_hide_on_close(window_label: &str) -> bool {
 }
 
 #[cfg(desktop)]
-fn should_close_splash(frontend_ready: bool, min_elapsed: bool, max_wait_elapsed: bool) -> bool {
-    max_wait_elapsed || (frontend_ready && min_elapsed)
+fn should_close_splash(native_ready: bool, closed: bool) -> bool {
+    native_ready && !closed
 }
 
 #[cfg(desktop)]
@@ -516,49 +510,61 @@ pub fn create_splash_window(app: &tauri::App) -> Result<(), Box<dyn std::error::
 }
 
 #[cfg(desktop)]
-fn do_close_splashscreen(handle: &AppHandle) {
-    if SPLASH_CLOSED.swap(true, Ordering::SeqCst) {
-        return;
+pub fn finish_native_startup(handle: &AppHandle) -> bool {
+    SPLASH_NATIVE_READY.store(true, Ordering::SeqCst);
+    try_close_splashscreen(handle)
+}
+
+#[cfg(target_os = "macos")]
+pub fn show_startup_initialization_error<R: tauri::Runtime>(handle: &AppHandle<R>) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+
+    let mut dialog = handle
+        .dialog()
+        .message("Alook could not start. Close and reopen the app.")
+        .title("Alook")
+        .kind(MessageDialogKind::Error)
+        .buttons(MessageDialogButtons::OkCustom("Close Alook".into()));
+    if let Some(splash) = handle.get_webview_window("splash") {
+        dialog = dialog.parent(&splash);
     }
-    let app = handle.clone();
-    let _ = handle.run_on_main_thread(move || {
-        if let Some(main) = app.get_webview_window("main") {
-            let _ = main.show();
-            let _ = main.set_focus();
-        }
-        if let Some(splash) = app.get_webview_window("splash") {
-            let _ = splash.close();
-        }
-    });
+    let exit_handle = handle.clone();
+    dialog.show(move |_| exit_handle.exit(1));
 }
 
 #[cfg(desktop)]
-fn try_close_splashscreen(handle: &AppHandle) {
-    let frontend = SPLASH_FRONTEND_READY.load(Ordering::SeqCst);
-    let min = SPLASH_MIN_ELAPSED.load(Ordering::SeqCst);
-    let max = SPLASH_MAX_WAIT_ELAPSED.load(Ordering::SeqCst);
-    if should_close_splash(frontend, min, max) {
-        do_close_splashscreen(handle);
+fn try_close_splashscreen(handle: &AppHandle) -> bool {
+    if SPLASH_CLOSED.load(Ordering::SeqCst) {
+        return true;
     }
-}
-
-#[cfg(desktop)]
-pub fn mark_splash_min_elapsed(handle: &AppHandle) {
-    SPLASH_MIN_ELAPSED.store(true, Ordering::SeqCst);
-    try_close_splashscreen(handle);
-}
-
-#[cfg(desktop)]
-pub fn mark_splash_max_wait_elapsed(handle: &AppHandle) {
-    SPLASH_MAX_WAIT_ELAPSED.store(true, Ordering::SeqCst);
-    try_close_splashscreen(handle);
+    if !should_close_splash(SPLASH_NATIVE_READY.load(Ordering::SeqCst), false) {
+        return false;
+    }
+    let Some(main) = handle.get_webview_window("main") else {
+        return false;
+    };
+    if let Err(error) = main.show() {
+        eprintln!("startup main window unavailable: {error}");
+        return false;
+    }
+    let _ = main.set_focus();
+    if let Some(splash) = handle.get_webview_window("splash") {
+        if let Err(error) = splash.close() {
+            eprintln!("startup splash close unavailable: {error}");
+            return false;
+        }
+    }
+    SPLASH_CLOSED.store(true, Ordering::SeqCst);
+    true
 }
 
 #[cfg(desktop)]
 #[tauri::command]
 pub fn close_splashscreen(app: AppHandle) {
-    SPLASH_FRONTEND_READY.store(true, Ordering::SeqCst);
-    try_close_splashscreen(&app);
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        try_close_splashscreen(&handle);
+    });
 }
 
 // --- Daemon commands ---
@@ -626,6 +632,13 @@ pub fn set_window_theme(window: tauri::WebviewWindow, dark: bool) {
 
 #[cfg(desktop)]
 pub fn show_main_window(app: &AppHandle) {
+    if !SPLASH_CLOSED.load(Ordering::SeqCst) {
+        if let Some(splash) = app.get_webview_window("splash") {
+            let _ = splash.show();
+            let _ = splash.set_focus();
+        }
+        return;
+    }
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
@@ -960,16 +973,11 @@ mod tests {
     }
 
     #[test]
-    fn splash_closes_when_ready_or_when_the_native_deadline_expires() {
-        assert!(!should_close_splash(false, false, false));
-        assert!(!should_close_splash(true, false, false));
-        assert!(!should_close_splash(false, true, false));
-        assert!(should_close_splash(true, true, false));
-        assert!(should_close_splash(false, false, true));
-
-        let app_source = include_str!("lib.rs");
-        assert!(app_source.contains("Duration::from_secs(10)"));
-        assert!(app_source.contains("mark_splash_max_wait_elapsed"));
+    fn splash_closes_only_after_native_readiness_and_only_once() {
+        assert!(!should_close_splash(false, false));
+        assert!(should_close_splash(true, false));
+        assert!(!should_close_splash(false, true));
+        assert!(!should_close_splash(true, true));
     }
 
     #[test]

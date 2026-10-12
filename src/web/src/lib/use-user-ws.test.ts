@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import {
   COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES,
+  admitCommunityBrowserEventBatch,
   decodeCommunityBrowserEvent,
   decodeCommunityBrowserEventBatch,
   deriveCommunityDeliveryOperationId,
@@ -8,6 +9,7 @@ import {
   encodeCommunityBrowserEventBatchForContract,
   prepareCommunityDeliveryEvents,
   type CommunityWsEvent,
+  type CommunityContract,
   type WsMessage,
 } from "@alook/shared"
 import type { UseUserWsOptions } from "./use-user-ws"
@@ -257,7 +259,7 @@ describe("useUserWs", () => {
   })
 
   async function mountHook(
-    onMessage: (msg: WsMessage, assertCurrent?: () => void) => void | Promise<void>,
+    onMessage: (msg: WsMessage, assertCurrent?: () => void, communityContract?: CommunityContract) => void | Promise<void>,
     options?: UseUserWsOptions,
   ) {
     // Re-import to get fresh module with fresh mocks
@@ -320,7 +322,7 @@ describe("useUserWs", () => {
     await flushPromises()
     expect(callback).not.toHaveBeenCalled()
     ws.simulateMessage(legacyMembership)
-    expect(callback).toHaveBeenCalledExactlyOnceWith(legacyMembership)
+    expect(callback).toHaveBeenCalledExactlyOnceWith(legacyMembership, undefined, 1)
   })
 
   it.each([undefined, 1] as const)("rejects an entire legacy batch containing a new membership child without V2 confirmation (%s)", async (contract) => {
@@ -336,7 +338,7 @@ describe("useUserWs", () => {
     await flushPromises()
     expect(callback).not.toHaveBeenCalled()
     ws.simulateMessage(compatibleBatch)
-    expect(callback).toHaveBeenCalledExactlyOnceWith(compatibleBatch)
+    expect(callback).toHaveBeenCalledExactlyOnceWith(compatibleBatch, undefined, 1)
   })
 
   it("admits new representations and older producer frames after V2 confirmation", async () => {
@@ -362,6 +364,104 @@ describe("useUserWs", () => {
     ws.simulateMessage(newBatch.batch)
     await flushPromises()
     expect(received).toEqual([explicitMembership, legacyMembership, oldBatch, newBatch.batch])
+  })
+
+  const resourceMessage = {
+    type: "community:message.create", channelId: "channel-1", serverId: "server-1",
+    message: {
+      id: "resource-message", channelId: "channel-1", seq: 1, type: "chat", authorId: "user-1", authorName: "User", authorAvatarVersion: 4,
+      createdAt: "2026-10-11T00:00:00Z", content: "actual body", replyToId: null, clientNonce: null,
+      attachments: [{ id: "a1", name: "file", url: "/file", thumbnailUrl: null, contentType: null, sizeBytes: null, width: null, height: null }],
+      embeds: [null, { unsupported: true }],
+    },
+  } as const
+
+  async function resourceBatch() {
+    const prepared = await prepareCommunityDeliveryEvents([resourceMessage], 3)
+    if (!prepared.ok) throw new Error("invalid resource regression event")
+    const encoded = await encodeCommunityBrowserEventBatchForContract({
+      operationId: await deriveCommunityDeliveryOperationId("protocol-regression-v3"),
+      prepared: prepared.prepared, contract: 3,
+    })
+    if (!encoded.ok) throw new Error("invalid resource regression batch")
+    expect((await admitCommunityBrowserEventBatch(encoded.batch)).ok).toBe(true)
+    return encoded.batch
+  }
+
+  async function mountResourceConnection() {
+    setupTokenFetch()
+    const received: CommunityWsEvent[] = []
+    const callback = vi.fn(async (message: WsMessage, assertCurrent?: () => void, contract?: CommunityContract) => {
+      expect(contract).toBe(3)
+      if (message.type === "community:events.batch.v3") {
+        const admitted = await admitCommunityBrowserEventBatch(message)
+        if (!admitted.ok) throw new Error("invalid resource batch")
+        assertCurrent?.()
+        received.push(...admitted.batch.events)
+      } else {
+        const decoded = decodeCommunityBrowserEvent(message, 3)
+        if (!decoded.ok) throw new Error("invalid resource event")
+        assertCurrent?.()
+        received.push(decoded.event)
+      }
+    })
+    const onAuthenticated = vi.fn()
+    await mountHook(callback, { communityContract: 3, requestDaemonStatusOnAuth: false, onAuthenticated })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    expect(JSON.parse(ws.sent[0]!)).toEqual({ type: "auth", token: "tok-123", communityContract: 3 })
+    return { ws, callback, received, onAuthenticated }
+  }
+
+  it("requests and positively confirms explicit v3 before real resource admission", async () => {
+    const batch = await resourceBatch()
+    const { ws, callback, received, onAuthenticated } = await mountResourceConnection()
+    ws.simulateMessage(batch)
+    await flushPromises()
+    expect(callback).not.toHaveBeenCalled()
+    ws.simulateMessage({ type: "auth.ok", communityContract: 3 })
+    expect(onAuthenticated).toHaveBeenCalledOnce()
+    ws.simulateMessage(resourceMessage)
+    ws.simulateMessage(batch)
+    await vi.waitFor(() => expect(received).toEqual([resourceMessage, resourceMessage]))
+    expect(callback).toHaveBeenLastCalledWith(batch, expect.any(Function), 3)
+    expect(ws.closed).toBe(false)
+  })
+
+  it.each([undefined, 1, 2, 4] as const)("rejects mismatched or unknown explicit v3 confirmation %s", async confirmed => {
+    const { ws, callback, received, onAuthenticated } = await mountResourceConnection()
+    ws.simulateMessage({ type: "auth.ok", ...(confirmed === undefined ? {} : { communityContract: confirmed }) })
+    expect(ws.closed).toBe(true)
+    expect(onAuthenticated).not.toHaveBeenCalled()
+    ws.simulateMessage(resourceMessage)
+    await flushPromises()
+    expect(callback).not.toHaveBeenCalled()
+    expect(received).toEqual([])
+  })
+
+  it("rejects v2 representations on explicit v3 while retaining valid resource delivery", async () => {
+    const prepared = await prepareCommunityDeliveryEvents([legacyMembership], 2)
+    if (!prepared.ok) throw new Error("invalid legacy regression event")
+    const oldBatch = await encodeCommunityBrowserEventBatchForContract({
+      operationId: await deriveCommunityDeliveryOperationId("protocol-v2-on-v3"), prepared: prepared.prepared, contract: 2,
+    })
+    if (!oldBatch.ok) throw new Error("invalid legacy regression batch")
+    const batch = await resourceBatch()
+    const { ws, callback, received } = await mountResourceConnection()
+    ws.simulateMessage({ type: "auth.ok", communityContract: 3 })
+    ws.simulateMessage(oldBatch.batch)
+    await flushPromises()
+    expect(callback).not.toHaveBeenCalled()
+    const { channelId: _channel, attachments: _attachments, replyToId: _reply, clientNonce: _nonce, ...legacyMessage } = resourceMessage.message
+    const oldSingle = { ...resourceMessage, message: legacyMessage }
+    expect(decodeCommunityBrowserEvent(oldSingle, 2).ok).toBe(true)
+    expect(decodeCommunityBrowserEvent(oldSingle, 3).ok).toBe(false)
+    ws.simulateMessage(oldSingle)
+    await flushPromises()
+    expect(received).toEqual([])
+    ws.simulateMessage(batch)
+    await vi.waitFor(() => expect(received).toEqual([resourceMessage]))
+    expect(ws.closed).toBe(false)
   })
 
   it("preserves frame order behind asynchronous v2 admission", async () => {
@@ -583,7 +683,7 @@ describe("useUserWs", () => {
 
     // Deliver a message — should go to cb1
     ws.simulateMessage({ type: "test", data: "hello" })
-    expect(cb1).toHaveBeenCalledWith({ type: "test", data: "hello" })
+    expect(cb1).toHaveBeenCalledWith({ type: "test", data: "hello" }, undefined, 1)
 
     // Now simulate a re-render with a new callback by updating the ref directly
     // In real React, the hook body runs `onMessageRef.current = onMessage` on each render
@@ -594,7 +694,7 @@ describe("useUserWs", () => {
     if (onMessageRef) onMessageRef.current = cb2
 
     ws.simulateMessage({ type: "test", data: "world" })
-    expect(cb2).toHaveBeenCalledWith({ type: "test", data: "world" })
+    expect(cb2).toHaveBeenCalledWith({ type: "test", data: "world" }, undefined, 1)
     expect(cb1).toHaveBeenCalledTimes(1) // cb1 not called again
   })
 
@@ -2417,7 +2517,7 @@ describe("useUserWs", () => {
 
     ws.simulateMessage({ type: "auth.ok" })
     ws.simulateMessage({ type: "task.updated", taskId: "after" })
-    expect(onMessage).toHaveBeenCalledWith({ type: "task.updated", taskId: "after" })
+    expect(onMessage).toHaveBeenCalledWith({ type: "task.updated", taskId: "after" }, undefined, 1)
   })
 
   it("does not report an access disconnect for a socket that never authenticated", async () => {
@@ -2468,7 +2568,7 @@ describe("useUserWs", () => {
     ws.simulateMessage({ type: "auth.ok" })
     const valid = { type: "email.received", agentId: "agent-1" }
     ws.simulateMessage(valid)
-    expect(onMessage).toHaveBeenCalledWith(valid)
+    expect(onMessage).toHaveBeenCalledWith(valid, undefined, 1)
   })
 
   it("consumes the raw pong liveness response without reporting a dropped frame", async () => {
@@ -2659,7 +2759,7 @@ describe("useUserWs", () => {
       payload: "x".repeat(70_000),
     }
     ws.simulateMessage(legalLargeBatch)
-    expect(onMessage).toHaveBeenCalledWith(legalLargeBatch)
+    expect(onMessage).toHaveBeenCalledWith(legalLargeBatch, undefined, 1)
 
     onMessage.mockClear()
     ws.simulateRawMessage(JSON.stringify({
@@ -2670,6 +2770,6 @@ describe("useUserWs", () => {
 
     const generic = { type: "task.updated", payload: "x".repeat(65_536) }
     ws.simulateMessage(generic)
-    expect(onMessage).toHaveBeenCalledWith(generic)
+    expect(onMessage).toHaveBeenCalledWith(generic, undefined, 1)
   })
 })

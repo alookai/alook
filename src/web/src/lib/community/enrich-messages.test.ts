@@ -248,4 +248,15 @@ describe("enrichMessages attachment projection", () => {
       },
     })
   })
+  it("keeps actual NULL thread facts in contract 3 and rejects unknown participant identity", async () => {
+    mocks.listAttachments.mockResolvedValue([])
+    mocks.listForumChildren.mockResolvedValue([{ id: "thread", parentMessageId: "m1", name: null, messageCount: 0, lastMessageAt: null, createdAt: "now" }])
+    mocks.listParticipants.mockResolvedValue([{ channelId: "thread", userId: "peer", userName: "Peer", userImage: null, userAvatarVersion: 4, participantCount: 1 }])
+    const row = { id: "m1", channelId: "forum", seq: 1, authorId: "author", authorName: "Author", authorImage: null, authorAvatarVersion: 2, content: "body", type: "default", mentionType: null, replyToId: null, embeds: null, createdAt: "now" }
+    const result = await enrichMessages({} as never, "viewer", { channelId: "forum", isForum: true, contract: 3 }, [row])
+    expect(result.messages[0]).toMatchObject({ authorAvatar: null, thread: { name: null, messageCount: 0, lastReplyAt: null, participants: [{ id: "peer", name: "Peer", avatar: null, avatarVersion: 4 }] } })
+    mocks.listParticipants.mockResolvedValue([{ channelId: "thread", userId: "peer", userName: null, userImage: null, userAvatarVersion: 4 }])
+    await expect(enrichMessages({} as never, "viewer", { channelId: "forum", isForum: true, contract: 3 }, [row])).rejects.toThrow()
+  })
+
 })

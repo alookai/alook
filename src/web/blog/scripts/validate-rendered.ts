@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 const { JSDOM } = createRequire(import.meta.url)("jsdom") as { JSDOM: new (html: string, options?: { contentType: string }) => { window: { document: Document } } };
+import { isGuide } from "../src/lib/blog/guides";
 import { blogTopics } from "../src/lib/blog/topics";
 import { parseBlogDiscoveryManifest } from "../../src/lib/blog-discovery-manifest";
 import { isDraftBlogPost, readBlogMetadata, type BlogMetadata } from "../src/lib/blog/validate-assets";
@@ -84,7 +85,8 @@ export function validateBlogBuild(blogRoot: string): void {
   const posts: RenderedPost[] = [];
   for (const file of readdirSync(content).filter((file) => file.endsWith(".mdx"))) {
     const source = readFileSync(resolve(content, file), "utf8");
-    const { metadata } = readBlogMetadata(source, file.slice(0, -4));
+    const { metadata, errors } = readBlogMetadata(source, file.slice(0, -4));
+    if (errors.length) throw new Error(errors.join("\n"));
     const builtFile = resolve(output, `${metadata.slug}.html`);
     if (isDraftBlogPost(source)) {
       if (existsSync(builtFile)) throw new Error(`Draft was prerendered: ${metadata.slug}`);
@@ -93,17 +95,33 @@ export function validateBlogBuild(blogRoot: string): void {
     posts.push({ metadata, html: readFileSync(builtFile, "utf8") });
   }
   const expected = posts.map(({ metadata }) => metadata.slug).sort();
-  const samePosts = (label: string, slugs: string[]) => {
-    if (JSON.stringify([...slugs].sort()) !== JSON.stringify(expected)) throw new Error(`${label} differs from published articles`);
+  const samePosts = (label: string, slugs: string[], expectedSlugs = expected) => {
+    if (JSON.stringify([...slugs].sort()) !== JSON.stringify([...expectedSlugs].sort())) throw new Error(`${label} differs from published articles`);
   };
   samePosts("Topics", blogTopics.flatMap((topic) => topic.entries.map((entry) => entry.slug)));
   const serverRoot = resolve(blogRoot, ".next/server/app");
   const discovery = parseBlogDiscoveryManifest(JSON.parse(readFileSync(resolve(serverRoot, "internal/blog-discovery.body"), "utf8")));
   samePosts("Discovery manifest", discovery.posts.map((post) => post.slug));
+  const mainSlugs = posts.filter(({ metadata }) => !isGuide(metadata)).map(({ metadata }) => metadata.slug);
+  const guideSlugs = posts.filter(({ metadata }) => isGuide(metadata)).map(({ metadata }) => metadata.slug);
   const feed = new JSDOM(readFileSync(resolve(serverRoot, "blog/feed.xml.body"), "utf8"), { contentType: "application/xml" });
-  samePosts("RSS", [...feed.window.document.querySelectorAll("item > link")].map((link) => link.textContent?.split("/blog/")[1] ?? ""));
-  const index = new JSDOM(readFileSync(resolve(serverRoot, "blog.html"), "utf8"));
-  samePosts("Blog index", [...new Set([...index.window.document.querySelectorAll<HTMLAnchorElement>('a[href^="/blog/"]')].map((link) => link.getAttribute("href")!.slice(6)).filter((slug) => !slug.includes("/") && slug !== "feed.xml"))]);
+  samePosts("RSS", [...feed.window.document.querySelectorAll("item > link")].map((link) => link.textContent?.split("/blog/")[1] ?? ""), mainSlugs);
+  const articleLinks = (html: string) => [...new Set([...new JSDOM(html).window.document.querySelectorAll<HTMLAnchorElement>('a[href^="/blog/"]')]
+    .map((link) => link.getAttribute("href")!.slice(6))
+    .filter((slug) => !slug.includes("/") && slug !== "feed.xml"))];
+  const mainIndex = readFileSync(resolve(serverRoot, "blog.html"), "utf8");
+  const guidesIndex = readFileSync(resolve(serverRoot, "guides.html"), "utf8");
+  samePosts("Blog index", articleLinks(mainIndex), mainSlugs);
+  samePosts("Guides index", articleLinks(guidesIndex), guideSlugs);
+  for (const html of [mainIndex, ...posts.map((post) => post.html)]) {
+    const doc = new JSDOM(html).window.document;
+    for (const link of doc.querySelectorAll<HTMLAnchorElement>('footer a[href], [data-blog-recommendations] a[href]')) {
+      const url = new URL(link.getAttribute("href")!, origin);
+      if (url.origin === origin && (/^\/guides\/?$/.test(url.pathname) || guideSlugs.some((slug) => url.pathname.replace(/\/$/, "") === `/blog/${slug}`))) {
+        throw new Error("Guides leaked into Blog footer or recommendations");
+      }
+    }
+  }
   const imageAssets = JSON.parse(readFileSync(resolve(blogRoot, "src/lib/blog/image-assets.json"), "utf8"));
   const redirects = JSON.parse(readFileSync(resolve(blogRoot, "src/lib/blog/redirects.json"), "utf8")) as { source: string; destination: string }[];
   const errors = validateRenderedPosts(posts, (pathname) => { const file = resolve(blogRoot, "public", `.${pathname}`); return existsSync(file) && statSync(file).isFile(); }, imageAssets, Object.fromEntries(redirects.map(({ source, destination }) => [source, destination])));

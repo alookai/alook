@@ -59,8 +59,18 @@ describe("Native DM sender", () => {
     const receipt = owner.accept({ content: "@Peer\nhello", replyTo: { id: "prior", authorName: "Peer", text: "quoted" } })
     expect(owner.overlay().outboxByNonce.get("fresh_nonce")?.message).toMatchObject({ authorId: "u_me", authorName: "Me", content: "@Peer\nhello", replyTo: { id: "prior", authorName: "Peer", text: "quoted" } })
     await waitFor(() => expect(mocks.post).toHaveBeenCalledExactlyOnceWith({ content: "@Peer\nhello", replyToId: "prior", nonce: "fresh_nonce" }))
-    resolve(posted())
+    resolve({ message: Object.assign({}, posted().message, { channelId: scope.id, type: "default", replyToId: "prior",
+      authorEmail: "legacy@example.test", storageMetadata: { legacy: true } }) })
     expect(await owner.settle(receipt)).toMatchObject({ ok: true, message: { id: "server_1", seq: 7 } })
+    const canonical = owner.registry.collections.messages.get("server_1")
+    expect(canonical).toMatchObject({ id: "server_1", seq: 7, channelId: scope.id, clientNonce: "fresh_nonce",
+      type: "chat", content: "hello", replyToId: "prior", replyTo: { id: "prior", authorName: "Peer", text: "quoted" } })
+    expect(canonical).not.toHaveProperty("authorEmail")
+    expect(canonical).not.toHaveProperty("storageMetadata")
+    const { awaitCommittedInvite } = await import("@/components/community/social/invite-dialog")
+    const onCommitted = vi.fn()
+    await awaitCommittedInvite(receipt, onCommitted)
+    expect(onCommitted).toHaveBeenCalledOnce()
   })
 
   it("normalizes upload failure, marks the intent failed and never POSTs", async () => {

@@ -128,7 +128,7 @@ describe("messageProfilePatches", () => {
       {
         id: "other",
         identityAbout: { name: "Other", discriminator: "0002" },
-        avatar: { avatar: "O", avatarVersion: 2 },
+        avatar: { avatar: null, avatarVersion: 2 },
       },
       {
         id: "bot",
@@ -140,6 +140,20 @@ describe("messageProfilePatches", () => {
 })
 
 describe("profile seeding boundaries", () => {
+  it.each([null, "/actual.png"])("upgrades real complete identity with avatar %s and retained enrichment", avatar => {
+    writeCommunityProfilePatches([{
+      id: "complete", identityAbout: { name: "Complete", discriminator: "12345", aboutMe: "actual bio" },
+      avatar: { avatar, avatarVersion: 4 }, status: { statusEmoji: null, statusText: "actual status" },
+    }], registry)
+    expect(registry.collections.profiles.get("complete")).toMatchObject({
+      id: "complete", name: "Complete", discriminator: "12345", avatar, avatarVersion: 4,
+      aboutMe: "actual bio", statusEmoji: null, statusText: "actual status", identityComplete: true,
+    })
+    writeCommunityProfilePatches([{ id: "partial", identityAbout: { name: "Partial", discriminator: "67890" }, avatar: { avatarVersion: 4 } }], registry)
+    expect(registry.collections.profiles.get("partial")).toMatchObject({ identityComplete: false, avatarVersion: 4 })
+    expect(registry.collections.profiles.get("partial")).not.toHaveProperty("avatar")
+  })
+
   it("writes profile patches into the canonical collection", () => {
     writeCommunityProfilePatches([{
       id: "u1",
@@ -172,6 +186,16 @@ describe("profile seeding boundaries", () => {
       discriminator: "0009",
       statusEmoji: "🌱",
     })
+  })
+
+  it("keeps a known number when a name-only or unknown-number identity is seeded", () => {
+    writeCommunityProfilePatches([{ id: "numbered", identityAbout: { name: "Original", discriminator: "123456" }, status: { statusEmoji: "🌱", statusText: "Known" } }], registry)
+    const patch = communityUserProfilePatch("numbered", { name: "Renamed", discriminator: "", avatar: "avatar", avatarVersion: 1 })
+    expect(patch.identityAbout).toEqual({ name: "Renamed" })
+    expect(patch).not.toHaveProperty("status")
+    writeCommunityProfilePatches([patch], registry)
+    writeCommunityProfilePatches([{ id: "numbered", identityAbout: { name: "Latest", discriminator: "" } }], registry)
+    expect(registry.collections.profiles.get("numbered")).toMatchObject({ name: "Latest", discriminator: "123456", statusEmoji: "🌱", statusText: "Known" })
   })
 
   it("rejects a request snapshot captured by a different registry", async () => {
@@ -232,5 +256,17 @@ describe("profile seeding boundaries", () => {
       statusEmoji: null,
       statusText: null,
     })
+  })
+})
+
+
+describe("partial identity facts", () => {
+  it("keeps the actual legacy avatar version and does not manufacture an unknown identity", () => {
+    expect(communityUserProfilePatch("peer", { name: "Peer", avatar: "P", avatarVersion: 4 }, { legacyPresentation: true }))
+      .toEqual({ id: "peer", identityAbout: { name: "Peer" }, avatar: { avatarVersion: 4 } })
+    expect(communityUserProfilePatch("peer", {})).toEqual({ id: "peer", identityAbout: {} })
+    expect(communityUserProfilePatch("peer", { name: "Peer", avatar: "P", avatarVersion: 4 }).avatar).toEqual({ avatar: "P", avatarVersion: 4 })
+    expect(messageProfilePatches([{ thread: { id: "thread", participants: [{ id: "peer", avatar: null, avatarVersion: 4 }] } }]))
+      .toEqual([{ id: "peer", avatar: { avatar: null, avatarVersion: 4 } }])
   })
 })

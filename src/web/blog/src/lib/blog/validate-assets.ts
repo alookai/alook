@@ -1,5 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "fs";
 import { extname, join } from "path";
+import ts from "typescript";
+import { validBlogTags } from "./guides";
 
 export type BlogAssetError = string;
 
@@ -29,7 +31,7 @@ const OPTIONAL_METADATA_FIELDS = ["dateModified", "image", "seoTitle"] as const;
 const ALLOWED_IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".svg", ".webp"]);
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 
-export type BlogMetadata = Record<string, string>;
+export type BlogMetadata = Record<(typeof REQUIRED_METADATA_FIELDS)[number] | (typeof OPTIONAL_METADATA_FIELDS)[number], string> & { tags?: string[] };
 
 function extractMetadataObject(content: string): string | null {
   const declaration = /export\s+const\s+metadata\s*=\s*\{/.exec(content);
@@ -109,16 +111,30 @@ export function readBlogMetadata(
   const object = extractMetadataObject(content);
   if (!object) {
     return {
-      metadata: {},
+      metadata: {} as BlogMetadata,
       errors: [`[post: ${fileSlug}] Missing or unterminated export const metadata object.`],
     };
   }
 
-  const metadata: BlogMetadata = {};
+  const metadata = {} as BlogMetadata;
   const errors: BlogAssetError[] = [];
   for (const field of [...REQUIRED_METADATA_FIELDS, ...OPTIONAL_METADATA_FIELDS]) {
     const value = readStringProperty(object, field);
     if (value !== null) metadata[field] = value;
+  }
+
+  const parsed = ts.createSourceFile("metadata.ts", `const metadata = {${object}}`, ts.ScriptTarget.Latest, true);
+  const declaration = (parsed.statements[0] as ts.VariableStatement).declarationList.declarations[0];
+  const expression = declaration.initializer;
+  if (expression && ts.isObjectLiteralExpression(expression)) {
+    const tags = expression.properties.find((property) => property.name && property.name.getText(parsed).replace(/^['"]|['"]$/g, "") === "tags");
+    if (tags) {
+      const value = ts.isPropertyAssignment(tags) && ts.isArrayLiteralExpression(tags.initializer)
+        ? tags.initializer.elements.map((element) => ts.isStringLiteral(element) ? element.text : null)
+        : null;
+      if (validBlogTags(value)) metadata.tags = value;
+      else errors.push(`[post: ${fileSlug}] tags must be an array of unique lowercase kebab-case strings.`);
+    }
   }
 
   if (/(?:^|[,\n])\s*seoTitle\s*:/.test(object) && !metadata.seoTitle?.trim()) {

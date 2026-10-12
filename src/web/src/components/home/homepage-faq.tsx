@@ -22,14 +22,24 @@ export function HomepageFaq() {
           <p>What runs where, who stays in control, and how Alook fits beside the tools you already use.</p>
         </div>
         <div className={styles.faqList}>
-          {HOME_FAQS.map(({ question, answer }) => (
+          {HOME_FAQS.map(({ question, answer, link }) => (
             <details key={question} className={styles.faqItem}>
               <summary>
                 <span>{question}</span>
                 <span className={styles.faqMarker} aria-hidden="true" />
               </summary>
               <div className={styles.faqAnswer}>
-                <p>{answer}</p>
+                {answer.split("\n\n").map((paragraph) => (
+                  <p key={paragraph}>
+                    {link && paragraph.includes(link.label) ? (
+                      <>
+                        {paragraph.split(link.label)[0]}
+                        <a href={link.href}>{link.label}</a>
+                        {paragraph.split(link.label)[1]}
+                      </>
+                    ) : paragraph}
+                  </p>
+                ))}
               </div>
             </details>
           ))}

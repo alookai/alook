@@ -82,10 +82,6 @@ export function readinessExitMessage(
     : `${service} exited before readiness (code ${exitCode}, signal ${signalCode})`
 }
 
-// Reuse a server the developer already has running (local iteration). CI
-// always starts fresh. Migration-sensitive focused journeys may opt into the
-// same fresh path locally; backupState/restoreState preserve developer data.
-export const REUSE_EXISTING = !process.env.CI && !process.env.ALOOK_E2E_FORCE_FRESH
 export const SINGLE_RUNTIME = !!process.env.CI
 
 // Local D1/DO state that `db:reset` wipes. Backing it up to a sibling path
@@ -96,7 +92,7 @@ const STATE_DIR = resolve(REPO_ROOT, "src/web/.wrangler/state")
 const STATE_BACKUP_DIR = resolve(REPO_ROOT, "src/web/.wrangler/state.e2e-backup")
 
 // Returns true if a backup was taken (i.e. there was existing state to save).
-export function backupState(): boolean {
+function backupState(): boolean {
   if (process.env.CI || !existsSync(STATE_DIR)) return false
   rmSync(STATE_BACKUP_DIR, { recursive: true, force: true })
   cpSync(STATE_DIR, STATE_BACKUP_DIR, { recursive: true })
@@ -276,7 +272,7 @@ export function prepareServices(): void {
   }
 }
 
-export function resetDb(): void {
+function resetDb(): void {
   // `wrangler d1 migrations apply` prints the full migrations table (twice) on
   // every run — noise in CI when it succeeds. DROP stdout entirely (that table
   // is the noise) and capture only stderr so a real failure is still legible.
@@ -495,8 +491,9 @@ async function warmUpRoutes(): Promise<void> {
 
 export async function startServices(): Promise<ManagedService[]> {
   const definitions = serviceDefinitions(SINGLE_RUNTIME)
+  const reuseExisting = !process.env.CI && !process.env.ALOOK_E2E_FORCE_FRESH
 
-  if (REUSE_EXISTING && (await Promise.all(definitions.map(({ healthUrl }) => hasExactHealth(healthUrl)))).every((health) => health.ok)) {
+  if (reuseExisting && (await Promise.all(definitions.map(({ healthUrl }) => hasExactHealth(healthUrl)))).every((health) => health.ok)) {
     const state = readLifecycleState(SERVICE_STATE_PATH)
     if (state) writeLifecycleState(SERVICE_STATE_PATH, { ...state, status: "healthy" })
     await warmUpRoutes()
@@ -512,6 +509,11 @@ export async function startServices(): Promise<ManagedService[]> {
   killPortOrphans(ports)
   // Give the OS a moment to release the sockets before we bind them.
   await new Promise((r) => setTimeout(r, 1000))
+  const initialState = readLifecycleState(SERVICE_STATE_PATH)
+  if (!initialState) throw new Error("service lifecycle state was not initialized")
+  const restorePending = backupState()
+  writeLifecycleState(SERVICE_STATE_PATH, { ...initialState, restorePending })
+  resetDb()
   rmSync(SERVICE_LOG_DIR, { recursive: true, force: true })
   mkdirSync(SERVICE_LOG_DIR, { recursive: true })
 

@@ -17,7 +17,7 @@ import { isPresenceOnline } from "../../../utils/status";
 import type {
   CommunityMachineRuntime,
   CommunityMachineSummary,
-} from "../../../community-ws-events";
+} from "../../../schemas";
 import type { ProviderQuotaObservation, ProviderQuotaSnapshot } from "../../../provider-telemetry";
 
 // ---------------------------------------------------------------------------

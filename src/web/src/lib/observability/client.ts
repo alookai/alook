@@ -11,6 +11,7 @@ import { resolveCommunityModulePlan } from "../community/community-route"
 import { observeTransportSpan, finishTransportSpan, installNavigationFetchContext } from "./requests"
 import { resolveFrontendIdentity } from "./runtime"
 import { resolveObservationBuild } from "./build"
+import { observationEpoch, finishTransportClock } from "./clock"
 
 type BuildProfile = { url?: string; environment?: string; release?: string; release_status: string; environment_status: string }
 function validBuildProfile(profile: BuildProfile) {
@@ -75,8 +76,8 @@ async function activate() {
   configure()
   if (pendingInitialNavigation) { pendingInitialNavigation = false; beginNavigation(window.location.href, "document") }
   const capturedSession = sessionId
-  const [{ initializeFaro, FetchTransport: NativeFetchTransport, getWebInstrumentations, InternalLoggerLevel, VolatileSessionsManager }, { TracingInstrumentation, getDefaultOTELInstrumentations: createHttp }] = await Promise.all([
-    import("@grafana/faro-web-sdk"), import("@grafana/faro-web-tracing"),
+  const [{ initializeFaro, FetchTransport: NativeFetchTransport, getWebInstrumentations, InternalLoggerLevel, VolatileSessionsManager }, { getDefaultOTELInstrumentations: createHttp }, { ObservationTracingInstrumentation }] = await Promise.all([
+    import("@grafana/faro-web-sdk"), import("@grafana/faro-web-tracing"), import("./clock-tracing"),
   ])
   clearNativeSession = () => VolatileSessionsManager.removeUserSession()
   if (documentSuspended || !hasAnalyticsConsent() || capturedSession !== sessionId || !isTelemetryEligible()) return
@@ -91,7 +92,7 @@ async function activate() {
     let storedScope: string | undefined
     try { storedScope = VolatileSessionsManager.fetchUserSession()?.sessionMeta?.attributes?.alook_account } catch { clearNativeSession() }
     if (!mayResume || storedScope !== accountScope) clearNativeSession()
-    httpInstrumentations = createHttp({ fetchInstrumentationOptions: { requestHook: observeTransportSpan, applyCustomAttributesOnSpan: (span, _request, result) => finishTransportSpan(span, result) }, ignoreUrls: [build.url!], propagateTraceHeaderCorsUrls: [new RegExp("^" + window.location.origin.replace(/[.*+?^$(){}|[\]\\]/g, "\\$&") + "/")] })
+    httpInstrumentations = createHttp({ fetchInstrumentationOptions: { requestHook: observeTransportSpan, applyCustomAttributesOnSpan: (span, _request, result) => finishTransportSpan(span, result) }, xhrInstrumentationOptions: { applyCustomAttributesOnSpan: finishTransportClock }, ignoreUrls: [build.url!], propagateTraceHeaderCorsUrls: [new RegExp("^" + window.location.origin.replace(/[.*+?^$(){}|[\]\\]/g, "\\$&") + "/")] })
     const defaults = getWebInstrumentations({ captureConsole: false, enableContentSecurityPolicyInstrumentation: false, enablePerformanceInstrumentation: true })
     const initialTransport = transport
     faro = initializeFaro({
@@ -100,7 +101,7 @@ async function activate() {
       dedupe: false,
       internalLoggerLevel: InternalLoggerLevel.OFF,
       transports: [transport],
-      instrumentations: [...defaults, new TracingInstrumentation({ instrumentations: httpInstrumentations })],
+      instrumentations: [...defaults, new ObservationTracingInstrumentation({ instrumentations: httpInstrumentations })],
       sessionTracking: { enabled: true, persistent: false, samplingRate: 1, generateSessionId: telemetryId, session: { attributes: { alook_account: accountScope } }, onSessionChange: (_previous, next) => { if (next.id) adoptNativeSession(next.id) } },
       pageTracking: { generatePageId: () => pageId },
       trackGeolocation: false,
@@ -108,7 +109,7 @@ async function activate() {
       ignoreUrls: [build.url!],
       webVitalsInstrumentation: { trackAttributionSources: false },
       batching: { enabled: true, itemLimit: 40, sendTimeout: 1000 },
-      beforeSend: item => hasAnalyticsConsent() && isTelemetryEligible() ? sanitizeItem(item, sessionId, window.location.origin, identity, eligibleTimestamp, documentVitalsEligible) : null,
+      beforeSend: item => hasAnalyticsConsent() && isTelemetryEligible() ? sanitizeItem(item, sessionId, window.location.origin, identity, eligibleTimestamp, documentVitalsEligible, observationEpoch(eligibleSince)) : null,
     })
     const initialized = faro?.api.getSession()
     if (!faro || !initialized?.id || !/^[a-zA-Z0-9_-]{1,80}$/.test(initialized.id) || initialized.attributes?.alook_account !== accountScope) { deactivate(); return }

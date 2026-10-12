@@ -11,6 +11,8 @@ import {
   withD1Retry,
   reachIsParticipantSet,
   WS_EVENTS,
+  CommunityResourceWsEventSchema,
+  communityChannelResourceFromStorage,
 } from "@alook/shared"
 import type { MentionType } from "@alook/shared"
 import type { Database } from "@alook/shared"
@@ -18,6 +20,8 @@ import { nanoid } from "nanoid"
 import { dispatchCommittedMessage } from "./message-dispatcher"
 import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
 import { broadcastToUserSafe, fanOutToChannel } from "./fanout"
+import { getCloudflareContext } from "@opennextjs/cloudflare"
+import { communityProducerContract } from "./producer-contract"
 
 const log = createLogger({ service: "community-message-handler" })
 
@@ -560,11 +564,16 @@ export async function createCommunityMessage(params: {
       }))
     }
     if (created.createdThread && !params.suppressThreadFanout) {
-      deliveries.push(fanOutToChannel(target.channelId, {
+      const contract = communityProducerContract(getCloudflareContext().env as Env)
+      const child = contract === 3 ? await queries.communityChannel.getThreadChannelByParentMessage(db, target.channelId, created.id) : null
+      const event = {
         type: WS_EVENTS.CHILD_CHANNEL_CREATE,
         parentChannelId: target.channelId,
         parentMessageId: created.id,
-        channel: { ...created.createdThread, type: "thread", creatorId: authorId },
+        channel: contract === 3 ? communityChannelResourceFromStorage(child) : { ...created.createdThread, type: "thread" as const, creatorId: authorId },
+      }
+      deliveries.push(fanOutToChannel(target.channelId, contract === 3 ? CommunityResourceWsEventSchema.parse(event) : {
+        ...event, channel: { ...created.createdThread, type: "thread", creatorId: authorId },
       }))
     }
     await Promise.all(deliveries)

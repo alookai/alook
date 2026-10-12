@@ -113,6 +113,8 @@ Use `export const metadata = { ... }` — NOT YAML `---` frontmatter. The loader
 
 Required fields (see `src/web/blog/src/lib/blog/types.ts`): `slug`, `title`, `date`, `author`, `excerpt`, `readingTime`. Missing any → post is skipped with a warning.
 
+Same-topic article variants MUST use `tags: ["guides"]` in MDX metadata and belong in the supplementary `/guides` directory, not repeated main-Blog posts. See `src/web/blog/README.md` for placement and publishing rules.
+
 ### Images
 - Path: `src/web/blog/public/blog/<slug>/<name>.<ext>`, referenced from MDX as `/blog/<slug>/<name>.<ext>`.
 - Naming: short semantic names (`hero.png`, `timeline.png`, `workflow-1-dev-team-pipeline.svg`). No date prefix. Don't repeat the slug — the parent directory already carries it.

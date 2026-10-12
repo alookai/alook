@@ -116,6 +116,8 @@ fn run_mobile(mut builder: tauri::Builder<tauri::Wry>) {
         }
         if let Some(window) = app.get_webview_window("main") {
             webview_recovery::attach(&window);
+            #[cfg(target_os = "ios")]
+            webview_recovery::finish_native_creation(&window);
         }
         if native_oauth_runtime::setup(app.handle()).is_err() {
             eprintln!("native OAuth storage unavailable");
@@ -178,6 +180,7 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
 
     // System tray + window setup (desktop only)
     builder = builder.setup(|app| {
+        commands::create_splash_window(app)?;
         if file_save_runtime::setup(app.handle()).is_err() {
             eprintln!("file save storage unavailable");
         }
@@ -194,22 +197,6 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
         commands::setup_tray(app)?;
         updater::auto_check_updates(app.handle().clone());
 
-        // Serve the splash independently through its inline local protocol.
-        commands::create_splash_window(app)?;
-
-        // Minimum splash display time (1s) to prevent flash
-        let h1 = app.handle().clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(1000));
-            commands::mark_splash_min_elapsed(&h1);
-        });
-
-        let h2 = app.handle().clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_secs(10));
-            commands::mark_splash_max_wait_elapsed(&h2);
-        });
-
         // macOS: inset the webview with rounded corners, window bg as frame
         #[cfg(target_os = "macos")]
         {
@@ -217,6 +204,9 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
                 commands::set_window_theme(window.clone(), false);
                 macos_window::setup_inset_webview(&window);
             }
+        }
+        if let Some(window) = app.get_webview_window("main") {
+            webview_recovery::finish_native_creation(&window);
         }
 
         Ok(())

@@ -8,6 +8,8 @@ import {
   WS_EVENTS,
   slugify,
   PARTICIPANT_SOURCE,
+  CommunityResourceWsEventSchema,
+  communityChannelResourceFromStorage,
   type ChannelType,
   type StoredChannelType,
   type Database,
@@ -19,6 +21,8 @@ import { requireMessageBearingSurface } from "@/lib/community/channel-write-guar
 import { guardDmOpen } from "@/lib/community/dm-guard"
 import { createCommunityMessage, type IncomingMessageBody } from "@/lib/community/message-handler"
 import { nanoid } from "nanoid"
+import { getCloudflareContext } from "@opennextjs/cloudflare"
+import { communityProducerContract } from "./producer-contract"
 
 /**
  * Single-source creation cores for the `POST /channels` create door (route/disc
@@ -134,18 +138,18 @@ export async function createServerChannelForUser(
     createdAt: row.createdAt,
   }
 
+  const contract = communityProducerContract(getCloudflareContext().env as Env)
+  const event = contract === 3
+    ? CommunityResourceWsEventSchema.parse({ type: WS_EVENTS.CHANNEL_CREATE, serverId, channel: communityChannelResourceFromStorage(row) })
+    : {
+      type: WS_EVENTS.CHANNEL_CREATE,
+      serverId,
+      channel,
+    }
   if (isPrivateCategory) {
-    await fanOutToChannel(row.id, {
-      type: WS_EVENTS.CHANNEL_CREATE,
-      serverId,
-      channel,
-    })
+    await fanOutToChannel(row.id, event)
   } else {
-    await fanOutToServerMembers(serverId, {
-      type: WS_EVENTS.CHANNEL_CREATE,
-      serverId,
-      channel,
-    })
+    await fanOutToServerMembers(serverId, event)
   }
 
 
@@ -266,10 +270,11 @@ export async function createThreadForUser(
   if (!threadResult.ok) return { ok: false, status: 404, error: "thread not found" }
   const childChannel = threadResult.value
   if (createdByThisAttempt) {
-    void fanOutToChannel(message.channelId, {
+    const contract = communityProducerContract(getCloudflareContext().env as Env)
+    const event = {
       type: WS_EVENTS.CHILD_CHANNEL_CREATE,
       parentChannelId: message.channelId,
-      channel: {
+      channel: contract === 3 ? communityChannelResourceFromStorage(childChannel) : {
         id: childChannel.id,
         name: childChannel.name,
         type: "thread" as const,
@@ -277,6 +282,9 @@ export async function createThreadForUser(
         createdAt: childChannel.createdAt,
       },
       parentMessageId: messageId,
+    }
+    void fanOutToChannel(message.channelId, contract === 3 ? CommunityResourceWsEventSchema.parse(event) : {
+      ...event, channel: { id: childChannel.id, name: childChannel.name, type: "thread", creatorId: actorUserId, createdAt: childChannel.createdAt },
     })
   }
 

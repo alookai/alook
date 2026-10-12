@@ -21,7 +21,7 @@ describe("syncTauriWindowTheme", () => {
     mocks.invoke.mockReset();
   });
 
-  it("closes the splash after applying the native theme", async () => {
+  it("sends the legacy startup notification after applying the native theme", async () => {
     mocks.invoke.mockResolvedValue(undefined);
 
     await syncTauriWindowTheme(true);
@@ -32,12 +32,37 @@ describe("syncTauriWindowTheme", () => {
     ]);
   });
 
-  it("still closes the splash when native theme application rejects", async () => {
+  it("still sends the legacy startup notification when the native theme rejects", async () => {
     mocks.invoke
       .mockRejectedValueOnce(new Error("theme unavailable"))
       .mockResolvedValueOnce(undefined);
 
     await expect(syncTauriWindowTheme(false)).rejects.toThrow("theme unavailable");
+    expect(mocks.invoke.mock.calls).toEqual([
+      ["set_window_theme", { dark: false }],
+      ["close_splashscreen"],
+    ]);
+  });
+
+  it("keeps a successful theme result when the legacy notification rejects", async () => {
+    mocks.invoke
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("startup notification unavailable"));
+
+    await expect(syncTauriWindowTheme(true)).resolves.toBeUndefined();
+    expect(mocks.invoke.mock.calls).toEqual([
+      ["set_window_theme", { dark: true }],
+      ["close_splashscreen"],
+    ]);
+  });
+
+  it("keeps the original theme failure when the legacy notification also rejects", async () => {
+    const themeError = new Error("theme unavailable");
+    mocks.invoke
+      .mockRejectedValueOnce(themeError)
+      .mockRejectedValueOnce(new Error("startup notification unavailable"));
+
+    await expect(syncTauriWindowTheme(false)).rejects.toBe(themeError);
     expect(mocks.invoke.mock.calls).toEqual([
       ["set_window_theme", { dark: false }],
       ["close_splashscreen"],

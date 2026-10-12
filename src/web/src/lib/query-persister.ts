@@ -15,7 +15,7 @@ import {
   type CommunityCollectionRows,
 } from "@/lib/community-db/schema"
 
-export const PERSIST_VERSION = 5
+export const PERSIST_VERSION = 6
 export const PERSIST_BUSTER = String(PERSIST_VERSION)
 export const PERSIST_CACHE_PREFIX = "alook:qc:cache"
 const IDB_PREFIX = PERSIST_CACHE_PREFIX
@@ -174,7 +174,7 @@ function scrubDehydratedClient(
     attentionScopes,
     attentionItems: retainedAttentionItems,
     profiles: rows("profiles").filter(
-      (row) => referencedProfileIds.has(row.userId),
+      (row) => referencedProfileIds.has(row.id),
     ),
   }
   for (const q of client.clientState.queries) {
@@ -255,6 +255,13 @@ const isEpoch = (value: unknown): value is string => (
   typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
 )
 
+function communityScopeEpoch(value: unknown): string | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined
+  const scope = value as Record<string, unknown>
+  return Object.keys(scope).length === 2 && scope.version === PERSIST_VERSION && isEpoch(scope.epoch)
+    ? scope.epoch : undefined
+}
+
 async function cacheTransaction<T>(
   mode: IDBTransactionMode,
   operation: (store: IDBObjectStore) => Promise<T>,
@@ -289,15 +296,14 @@ function qualifyPersister(key: string, userId: string | null): Promise<PersistEl
   return cacheTransaction("readwrite", async (store) => {
     await clearAccountRows(store, userId, true)
     const raw = await promisifyRequest<unknown>(store.get(key))
-    if (raw !== undefined) {
-      if (!decodeDiskSnapshot(raw)) await clearAccountRows(store, userId)
-    }
     const current = await readEligibility(store, key, userId)
     const device = isEpoch(current.device) ? current.device : crypto.randomUUID()
     const intact = isEpoch(current.account) && isChannelFences(current.channels)
     const account = intact ? current.account as string : crypto.randomUUID()
     const channels = intact ? current.channels as Map<string, ChannelDiskFence> : new Map<string, ChannelDiskFence>()
-    let scope = isEpoch(current.scope) ? current.scope : crypto.randomUUID()
+    const currentScope = communityScopeEpoch(current.scope)
+    const compatiblePayload = raw === undefined || Boolean(decodeDiskSnapshot(raw))
+    let scope = currentScope && compatiblePayload ? currentScope : crypto.randomUUID()
     if (!intact) {
       for (const domain of ["community", "application"] as const) {
         const payloadKey = blobKeyFor(userId, domain)
@@ -309,9 +315,9 @@ function qualifyPersister(key: string, userId: string | null): Promise<PersistEl
       store.put(account, accountEpochKey(userId))
       store.put(channels, channelFenceKey(userId))
     }
-    if (!isEpoch(current.device) || !isEpoch(current.scope)) store.delete(key)
+    if (!isEpoch(current.device) || !currentScope || !compatiblePayload) store.delete(key)
     if (!isEpoch(current.device)) store.put(device, DEVICE_EPOCH_KEY)
-    store.put(scope, scopeEpochKey(key))
+    store.put({ version: PERSIST_VERSION, epoch: scope }, scopeEpochKey(key))
     return { device, scope, account, channels }
   })
 }
@@ -327,7 +333,7 @@ async function withEligiblePersister<T>(
   const expected = await eligibility
   return cacheTransaction(mode, async (store) => {
     const current = await readEligibility(store, key, userId)
-    if (current.device !== expected.device || current.scope !== expected.scope || current.account !== expected.account || !isChannelFences(current.channels)) return staleValue
+    if (current.device !== expected.device || communityScopeEpoch(current.scope) !== expected.scope || current.account !== expected.account || !isChannelFences(current.channels)) return staleValue
     return operation(store, current.channels, expected.channels)
   })
 }

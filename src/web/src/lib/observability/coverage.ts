@@ -16,6 +16,7 @@ export const pageRoutes = [
   "/c/onboarding-preview",
   "/contact",
   "/device",
+  "/guides",
   "/landing-legacy",
   "/onboarding-preview",
   "/pricing",

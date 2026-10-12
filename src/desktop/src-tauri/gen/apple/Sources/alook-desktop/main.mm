@@ -14,11 +14,12 @@ static UIColor *alookDarkColor(void) {
 static const void *kAlookResolvedDarkThemeKey = &kAlookResolvedDarkThemeKey;
 static const void *kAlookWebDarkThemeKey = &kAlookWebDarkThemeKey;
 static const void *kAlookStartupOverlayKey = &kAlookStartupOverlayKey;
-static const void *kAlookStartupProbeStartedKey = &kAlookStartupProbeStartedKey;
 static const void *kAlookStartupCompletedKey = &kAlookStartupCompletedKey;
 static const NSInteger kAlookStartupLogoTag = 8738;
+static const NSInteger kAlookStartupErrorTag = 8739;
 static UIView *gAlookStartupOverlay = nil;
 static BOOL gAlookStartupCompleted = NO;
+static BOOL gAlookStartupFailed = NO;
 
 static BOOL alookIsTauriRootController(UIViewController *viewController) {
     Class taoViewController = NSClassFromString(@"TaoUIViewController");
@@ -67,6 +68,24 @@ static void alookAttachStartupOverlay(UIView *overlay, UIView *host, BOOL isDark
         size,
         size
     );
+    if (gAlookStartupFailed) {
+        logo.hidden = YES;
+        overlay.accessibilityElementsHidden = NO;
+        UILabel *message = (UILabel *)[overlay viewWithTag:kAlookStartupErrorTag];
+        if (message == nil) {
+            message = [[UILabel alloc] initWithFrame:CGRectZero];
+            message.tag = kAlookStartupErrorTag;
+            message.text = @"Alook could not start. Close and reopen the app.";
+            message.textAlignment = NSTextAlignmentCenter;
+            message.numberOfLines = 0;
+            message.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+            message.adjustsFontForContentSizeCategory = YES;
+            message.isAccessibilityElement = YES;
+            [overlay addSubview:message];
+        }
+        message.textColor = isDark ? UIColor.whiteColor : UIColor.blackColor;
+        message.frame = CGRectInset(safeBounds, 24.0, 24.0);
+    }
     [host bringSubviewToFront:overlay];
 }
 
@@ -123,7 +142,7 @@ static void alookPrepareStartupOverlay(UIViewController *viewController) {
 }
 
 static void alookFinishStartupOverlay(UIViewController *viewController) {
-    if (viewController == nil) return;
+    if (viewController == nil || gAlookStartupFailed) return;
     UIView *overlay = objc_getAssociatedObject(viewController, kAlookStartupOverlayKey);
     [overlay removeFromSuperview];
     if (overlay == gAlookStartupOverlay) gAlookStartupOverlay = nil;
@@ -135,54 +154,6 @@ static void alookFinishStartupOverlay(UIViewController *viewController) {
         @YES,
         OBJC_ASSOCIATION_RETAIN_NONATOMIC
     );
-}
-
-static void alookWaitForWebViewSurface(
-    UIViewController *viewController,
-    WKWebView *webView,
-    NSInteger attempt
-) {
-    if (viewController == nil || webView == nil) return;
-    if (attempt >= 200) {
-        alookFinishStartupOverlay(viewController);
-        return;
-    }
-    NSString *probe =
-        @"(function(){"
-        "if(location.hostname==='alook-recovery.localhost'&&location.pathname==='/bootstrap')return false;"
-        "return document.readyState==='complete'&&!!document.body&&"
-        "document.body.children.length>0&&document.body.getBoundingClientRect().height>0;"
-        "})()";
-    __weak UIViewController *weakViewController = viewController;
-    __weak WKWebView *weakWebView = webView;
-    [webView evaluateJavaScript:probe completionHandler:^(id result, NSError *error) {
-        UIViewController *strongViewController = weakViewController;
-        WKWebView *strongWebView = weakWebView;
-        if (strongViewController == nil || strongWebView == nil) return;
-        if (error == nil && [result respondsToSelector:@selector(boolValue)] && [result boolValue]) {
-            [strongWebView takeSnapshotWithConfiguration:nil completionHandler:^(UIImage *image, NSError *snapshotError) {
-                if (image == nil || snapshotError != nil) {
-                    dispatch_after(
-                        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)),
-                        dispatch_get_main_queue(),
-                        ^{ alookWaitForWebViewSurface(strongViewController, strongWebView, attempt + 1); }
-                    );
-                    return;
-                }
-                dispatch_after(
-                    dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)),
-                    dispatch_get_main_queue(),
-                    ^{ alookFinishStartupOverlay(strongViewController); }
-                );
-            }];
-            return;
-        }
-        dispatch_after(
-            dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)),
-            dispatch_get_main_queue(),
-            ^{ alookWaitForWebViewSurface(strongViewController, strongWebView, attempt + 1); }
-        );
-    }];
 }
 
 static NSString *const kThemeObserverScript =
@@ -225,6 +196,28 @@ static NSString *const kThemeObserverScript =
 @end
 
 @implementation UIViewController (AlookSafeArea)
+
++ (BOOL)alook_finishStartupOverlayForController:(UIViewController *)controller
+                                      webView:(WKWebView *)webView {
+    if (![NSThread isMainThread] || gAlookStartupFailed) return NO;
+    if (!alookIsTauriRootController(controller) ||
+        ![controller.view.subviews containsObject:webView]) return NO;
+    if ([objc_getAssociatedObject(controller, kAlookStartupCompletedKey) boolValue]) return YES;
+    alookPrepareStartupOverlay(controller);
+    if (objc_getAssociatedObject(controller, kAlookStartupOverlayKey) == nil) return NO;
+    alookFinishStartupOverlay(controller);
+    return YES;
+}
+
++ (void)alook_showStartupInitializationError {
+    if (![NSThread isMainThread] || gAlookStartupCompleted) return;
+    gAlookStartupFailed = YES;
+    UIView *host = gAlookStartupOverlay.superview;
+    if (host != nil) {
+        BOOL isDark = host.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
+        alookAttachStartupOverlay(gAlookStartupOverlay, host, isDark);
+    }
+}
 
 + (void)load {
     static dispatch_once_t onceToken;
@@ -281,7 +274,6 @@ static NSString *const kThemeObserverScript =
     BOOL isTauriRoot = alookIsTauriRootController(self);
     if (isTauriRoot) alookPrepareStartupOverlay(self);
     UIEdgeInsets insets = self.view.safeAreaInsets;
-    WKWebView *startupWebView = nil;
     for (UIView *subview in self.view.subviews) {
         if ([subview isKindOfClass:[WKWebView class]]) {
             CGRect bounds = self.view.bounds;
@@ -293,7 +285,6 @@ static NSString *const kThemeObserverScript =
             );
 
             WKWebView *webView = (WKWebView *)subview;
-            startupWebView = webView;
             static dispatch_once_t scriptToken;
             dispatch_once(&scriptToken, ^{
                 AlookThemeHandler *handler = [[AlookThemeHandler alloc] init];
@@ -310,20 +301,7 @@ static NSString *const kThemeObserverScript =
             alookApplyTheme(self, alookEffectiveDarkTheme(self));
         }
     }
-    if (startupWebView != nil) {
-        UIView *overlay = isTauriRoot ? objc_getAssociatedObject(self, kAlookStartupOverlayKey)
-                                     : alookInstallStartupOverlay(self);
-        if (overlay != nil) alookLayoutStartupOverlay(self, overlay);
-        if (![objc_getAssociatedObject(self, kAlookStartupProbeStartedKey) boolValue]) {
-            objc_setAssociatedObject(
-                self,
-                kAlookStartupProbeStartedKey,
-                @YES,
-                OBJC_ASSOCIATION_RETAIN_NONATOMIC
-            );
-            alookWaitForWebViewSurface(self, startupWebView, 0);
-        }
-    }
+
 }
 
 @end

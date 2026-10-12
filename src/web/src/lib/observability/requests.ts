@@ -3,6 +3,7 @@ import { routeTemplate } from "./coverage"
 import { emitTelemetry, isTelemetryEligible, telemetryGeneration } from "./telemetry"
 import { cleanAttributes, type Attributes } from "./schema"
 import { context, trace, createContextKey, type Span } from "@opentelemetry/api"
+import { finishTransportClock } from "./clock"
 
 export type RequestObservation = { id: string; start: number; generation: number; fields: Attributes; done: boolean; action?: Action }
 const responses = new WeakMap<Response, RequestObservation>()
@@ -33,6 +34,7 @@ export function observeTransportSpan(span: Span) {
 }
 
 export function finishTransportSpan(span: Span, result: unknown) {
+  finishTransportClock(span)
   const request = transportRequests.get(span)
   transportRequests.delete(span)
   if (request?.fields.request_kind !== "rsc") return

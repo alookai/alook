@@ -11,3 +11,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 ## Blog publishing contract
 
 Read [README.md](README.md) before adding or revising articles. It defines required metadata, images, links, editorial review, and the checks enforced by Blog build. Keep the documentation and build checks in sync when changing this contract.
+
+## Guides placement
+
+Same-topic content variants (for example, adapting one collaboration task to a different coding-agent combination) MUST use `tags: ["guides"]` in the exported MDX metadata. They belong in the supplementary `/guides` directory, not repeated entries in the main Blog. A genuinely new main-Blog topic needs an editorial explanation of its distinct reader question. Update an existing article when the answer is the same. See README.md for the publishing contract.

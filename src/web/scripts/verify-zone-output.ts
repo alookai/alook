@@ -27,7 +27,7 @@ export function verifyZoneManifests(args: {
 }): void {
   const mainRoutes = Object.keys(args.mainAppPaths)
   assert(
-    mainRoutes.every((route) => !route.startsWith("/blog") && !route.startsWith("/og/blog")),
+    mainRoutes.every((route) => !route.startsWith("/blog") && !route.startsWith("/og/blog") && !route.startsWith("/guides/")),
     "Main Next output still owns a Blog route",
   )
   assert(
@@ -40,6 +40,7 @@ export function verifyZoneManifests(args: {
   const blogRoutes = Object.keys(args.blogAppPaths)
   for (const required of [
     "/blog/(index)/page",
+    "/guides/page",
     "/blog/[slug]/page",
     "/blog/feed.xml/route",
     "/og/blog/[slug]/route",
@@ -49,6 +50,7 @@ export function verifyZoneManifests(args: {
   }
   assert(
     blogRoutes.every((route) => (
+      route === "/guides/page" ||
       route.startsWith("/blog") ||
       route.startsWith("/og/blog") ||
       route.startsWith("/internal/blog-discovery") ||

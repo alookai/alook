@@ -1,6 +1,4 @@
 import { DEFAULT_MESSAGE_PAGE_SIZE, MAX_MESSAGE_PAGE_SIZE, type CommunityMessageAttachment, type CommunityMessageResource } from "@alook/shared"
-import { isInlineAttachmentContentType } from "./attachment-content-type"
-import { formatAttachmentSize } from "./attachment-presentation"
 import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
 
 export function parseCommunityMessageWindow(params: URLSearchParams) {
@@ -172,18 +170,15 @@ export function groupAttachments(
   const map: Record<string, CommunityMessageAttachment[]> = {}
   for (const a of attachments) {
     if (!a.messageId) continue
-    const kind = isInlineAttachmentContentType(a.contentType) ? "image" : "file"
     const entry: CommunityMessageAttachment = {
-      kind,
+      id: a.id,
       name: a.filename,
       url: attachmentUrl(a.targetId, a.id),
-      ...(a.contentType ? { contentType: a.contentType } : {}),
-      ...(a.size !== null ? { sizeBytes: a.size } : {}),
-      ...(kind === "image" && a.thumbnailR2Key
-        ? { thumbnailUrl: attachmentThumbnailUrl(a.targetId, a.id) }
-        : {}),
-      ...(kind === "file" && a.size !== null ? { size: formatAttachmentSize(a.size) } : {}),
-      ...(kind === "image" ? { width: a.width ?? undefined, height: a.height ?? undefined } : {}),
+      thumbnailUrl: a.thumbnailR2Key ? attachmentThumbnailUrl(a.targetId, a.id) : null,
+      contentType: a.contentType,
+      sizeBytes: a.size,
+      width: a.width ?? null,
+      height: a.height ?? null,
     }
     ;(map[a.messageId] ??= []).push(entry)
   }

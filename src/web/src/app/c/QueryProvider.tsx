@@ -35,6 +35,7 @@ import { retireCommunityAccount } from "@/lib/community/account-cache-lifecycle"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { installCommunityDbSync } from "@/lib/community-db/sync"
 import { profileSchema } from "@/lib/community-db/schema"
+import { avatarInitial } from "@/lib/community/avatar"
 import type { CurrentUser } from "@/contexts/community/current-user"
 import { observeHydration, discardHydration } from "@/lib/observability/restore"
 import { captureTelemetryIdentityRetirement, setTelemetryUser } from "@/lib/observability/client"
@@ -129,8 +130,10 @@ function ScopedQueryProvider({
     const client = createQueryClient()
     if (initialUser && initialUser.id === userId) {
       client.setQueryData(communityKeys.communityDbCollection(userId, "profiles"), [profileSchema.parse({
-        userId, name: initialUser.name, discriminator: initialUser.discriminator ?? "",
-        avatar: initialUser.avatar, avatarVersion: initialUser.avatarVersion ?? 0,
+        id: userId, name: initialUser.name, discriminator: initialUser.discriminator || null,
+        ...(initialUser.avatar === avatarInitial(initialUser.name) ? {} : { avatar: initialUser.avatar }),
+        avatarVersion: initialUser.avatarVersion,
+        identityComplete: !!initialUser.discriminator && initialUser.avatar !== avatarInitial(initialUser.name) && initialUser.avatarVersion !== undefined,
         aboutMe: initialUser.aboutMe, statusEmoji: initialUser.statusEmoji, statusText: initialUser.statusText,
       })], { updatedAt: 0 })
     }

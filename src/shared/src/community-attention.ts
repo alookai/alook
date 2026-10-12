@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { CommunityChannelResourceSchema, CommunityMessagePreviewSchema, CommunityResourceProfileSchema } from "./community-resources"
 
 const id = z.string().min(1)
 
@@ -67,16 +68,13 @@ export const AttentionIncludedServerSchema = z.strictObject({
   discriminator: z.string(),
 })
 
-export const AttentionIncludedChannelSchema = z.strictObject({
-  id,
-  serverId: id,
-  name: z.string(),
-  type: z.enum(["text", "forum", "thread"]),
-  parentChannelId: id.nullable(),
-  parentMessageId: id.nullable(),
-  creatorId: id.nullable(),
-  archived: z.boolean(),
-  lastMessageAt: z.string().nullable(),
+export const AttentionIncludedChannelSchema = CommunityChannelResourceSchema.pick({
+  id: true, serverId: true, name: true, type: true, parentChannelId: true, parentMessageId: true,
+  creatorId: true, archived: true, lastMessageAt: true,
+}).extend({
+  serverId: CommunityChannelResourceSchema.shape.serverId.unwrap(),
+  name: CommunityChannelResourceSchema.shape.name.unwrap(),
+  type: CommunityChannelResourceSchema.shape.type.extract(["text", "forum", "thread"]),
   openerSeq: z.number().int().nonnegative().optional(),
   openerUnread: z.boolean().optional(),
 })
@@ -93,23 +91,16 @@ export const AttentionIncludedDmSchema = z.strictObject({
 })
 
 export const AttentionIncludedProfileSchema = z.strictObject({
-  userId: id,
-  name: z.string(),
+  userId: CommunityResourceProfileSchema.shape.id,
+  ...CommunityResourceProfileSchema.pick({ name: true, discriminator: true, avatar: true, avatarVersion: true }).shape,
+  // The existing unversioned Attention wire uses strings for absent identity.
   discriminator: z.string(),
   avatar: z.string(),
-  avatarVersion: z.number().int().nonnegative(),
 })
 
-export const AttentionIncludedMessageSchema = z.strictObject({
-  id,
-  channelId: id,
-  type: z.enum(["chat", "system"]),
-  authorId: id.optional(),
-  authorName: z.string().optional(),
-  seq: z.number().int().nonnegative(),
-  createdAt: z.string(),
-  content: z.string(),
-})
+export const AttentionIncludedMessageSchema = CommunityMessagePreviewSchema.pick({
+  id: true, channelId: true, type: true, authorId: true, authorName: true, seq: true, createdAt: true, content: true,
+}).required({ channelId: true, seq: true, createdAt: true, content: true })
 
 export const AttentionIncludedSchema = z.strictObject({
   servers: z.array(AttentionIncludedServerSchema),
