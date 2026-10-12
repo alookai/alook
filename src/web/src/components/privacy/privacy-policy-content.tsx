@@ -71,11 +71,11 @@ export function PrivacyPolicyContent({ className, showAnalyticsChoices = false }
           <h4 className="mt-6 mb-2 text-base font-medium">Tracking Technologies and Cookies</h4>
           <p className="text-foreground/80">
             We use necessary cookies to provide sign-in, security, and saved preferences. We use
-            optional analytics cookies by default; You can disable them on this page. Your analytics choice is saved
-            in a first-party cookie for 180 days and can be changed using the preference control
-            below at any time. Choosing only necessary cookies denies analytics cookies;
+            optional analytics cookies by default. Your analytics choice is saved in a first-party
+            cookie for 180 days and can be changed using the preference control on the{" "}
+            <a href="/privacy#analytics-choices" className={linkClass}>Privacy page</a> at any time. Choosing only necessary cookies denies analytics cookies;
             Google still receives signals without analytics cookies on our public website and
-            Blog. Other optional analytics require Your permission.
+            Blog. Other optional analytics follow the same choice.
           </p>
         </section>
 

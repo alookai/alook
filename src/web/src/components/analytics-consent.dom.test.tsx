@@ -7,6 +7,8 @@ const platform = vi.hoisted(() => ({
   isMobile: vi.fn(() => false),
 }))
 
+const navigation = vi.hoisted(() => ({ reload: vi.fn() }))
+
 const route = vi.hoisted(() => ({ pathname: "/" }))
 vi.mock("next/navigation", () => ({ usePathname: () => route.pathname }))
 
@@ -46,6 +48,13 @@ function consentCommands() {
 }
 
 beforeEach(() => {
+  const originalWindow = window
+  navigation.reload.mockReset()
+  vi.stubGlobal("window", new Proxy(originalWindow, {
+    get: (target, key) => key === "location" ? new Proxy({}, {
+      get: (_location, field) => field === "reload" ? navigation.reload : Reflect.get(originalWindow.location, field, originalWindow.location),
+    }) : Reflect.get(target, key, target),
+  }))
   route.pathname = "/"
   window.history.replaceState({}, "", "/")
   clearCookies()
@@ -65,7 +74,7 @@ afterEach(() => {
 })
 
 describe("AnalyticsConsent", () => {
-  it.each(["/", "/privacy", "/blog/public-article"])("tracks public %s without a choice UI while saving the grant", async pathname => {
+  it.each(["/", "/privacy", "/blog/public-article"])("waits for default persistence before loading GTM on public %s without a choice UI", async pathname => {
     route.pathname = pathname
     window.history.replaceState({}, "", pathname)
     let finish!: (response: Response) => void
@@ -75,10 +84,14 @@ describe("AnalyticsConsent", () => {
     await waitFor(() => expect(fetcher).toHaveBeenCalledOnce())
     expect(screen.queryByTestId(tid.analyticsConsentBanner)).not.toBeInTheDocument()
     expect(screen.queryByTestId(tid.analyticsPreferenceControl)).not.toBeInTheDocument()
-    expect(screen.getByTestId("google-tag-manager")).toBeInTheDocument()
+    expect(screen.queryByTestId("google-tag-manager")).not.toBeInTheDocument()
     expect(screen.getByTestId(tid.ahrefsAnalyticsFrame)).toHaveAttribute("sandbox", "allow-scripts")
     expect(consentCommands().at(-1)?.[2]).toEqual(expect.objectContaining({ analytics_storage: "granted", ad_storage: "denied" }))
-    await act(async () => finish(new Response(JSON.stringify({ decision: "granted" }))))
+    await act(async () => {
+      document.cookie = "alook_analytics_consent=v1.granted; Path=/"
+      finish(new Response(JSON.stringify({ decision: "granted" })))
+    })
+    await screen.findByTestId("google-tag-manager")
   })
 
   it("honors a previous Privacy denial without resaving it", async () => {
@@ -95,7 +108,7 @@ describe("AnalyticsConsent", () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledOnce())
     expect(screen.queryByTestId(tid.analyticsConsentBanner)).not.toBeInTheDocument()
     expect(screen.queryByRole("alert")).not.toBeInTheDocument()
-    expect(screen.getByTestId("google-tag-manager")).toBeInTheDocument()
+    expect(await screen.findByTestId("google-tag-manager")).toBeInTheDocument()
     expect(screen.getByTestId(tid.ahrefsAnalyticsFrame)).toBeInTheDocument()
     expect(getComputedStyle(screen.getByTestId("consent-page")).height).toBe("100dvh")
     expect(document.cookie).toBe("")
@@ -158,6 +171,7 @@ describe("AnalyticsConsent", () => {
     expect(within(control).getByTestId(tid.analyticsConsentAvatarCluster).querySelectorAll("svg")).toHaveLength(3)
     fireEvent.click(within(control).getByRole("button", { name: "Only necessary" }))
     await within(control).findByText(/Analytics cookies denied/u)
+    expect(navigation.reload).toHaveBeenCalledOnce()
     expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
     view.unmount()
     const reload = render(<><AnalyticsConsent /><AnalyticsPreferenceControl /></>)
@@ -197,6 +211,7 @@ describe("AnalyticsConsent", () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledOnce())
     fireEvent.click(screen.getByRole("button", { name: "Only necessary" }))
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn’t save this choice")
+    expect(navigation.reload).not.toHaveBeenCalled()
     vi.stubGlobal("fetch", successfulFetch("denied"))
     fireEvent.click(screen.getByRole("button", { name: "Only necessary" }))
     await screen.findByText(/Analytics cookies denied/u)

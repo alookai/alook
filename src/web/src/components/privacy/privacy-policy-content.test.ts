@@ -22,7 +22,7 @@ describe("shared Privacy policy", () => {
     expect(html).toContain("even without analytics cookies")
     expect(html).toContain("other optional analytics")
     expect(html).toContain("180 days")
-    expect(html).toContain("optional analytics cookies by default; You can disable them on this page")
+    expect(html).toContain("optional analytics cookies by default")
     expect(html).toContain("Google still receives signals without analytics cookies")
     expect(html).not.toContain("keeps Google Tag Manager and")
     expect(html).not.toContain("collected only after")
@@ -33,7 +33,9 @@ describe("shared Privacy policy", () => {
 
     expect(html.indexOf("Analytics choices")).toBeGreaterThan(html.indexOf("Contact Us"))
     expect(html).toContain('<div class="mt-12"><section id="analytics-choices"')
-    expect(html).toContain("using the preference control below at any time")
+    expect(html).toContain("using the preference control on the")
+    expect(html).toContain('href="/privacy#analytics-choices"')
+    expect(html).toContain("Other optional analytics follow the same choice")
     expect(renderToStaticMarkup(createElement(PrivacyPolicyContent))).not.toContain("Analytics choices")
   })
 

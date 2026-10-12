@@ -103,6 +103,7 @@ function useAnalyticsConsentChoice() {
     try {
       await persistAnalyticsConsent(decision)
       announceAnalyticsConsent(decision)
+      if (!isTauri()) window.location.reload()
     } catch {
       setError(true)
     } finally {
@@ -173,13 +174,14 @@ export function AnalyticsConsent() {
   const pathname = usePathname()
   const { ready, decision, nativeMobile } = useStoredAnalyticsConsent(true)
   const defaultStarted = useRef(false)
+  const [defaultSettled, setDefaultSettled] = useAtom(useCreateAtom(false))
 
   useEffect(() => {
     if (!ready || nativeMobile || decision !== null || defaultStarted.current) return
     if (!pathname || !isPublicAnalyticsPath(pathname)) return
     defaultStarted.current = true
-    void persistAnalyticsConsent("granted").then(() => announceAnalyticsConsent("granted")).catch(() => {})
-  }, [ready, nativeMobile, decision, pathname])
+    void persistAnalyticsConsent("granted").then(() => announceAnalyticsConsent("granted")).catch(() => {}).finally(() => setDefaultSettled(true))
+  }, [ready, nativeMobile, decision, pathname, setDefaultSettled])
 
   const googleAllowed = ready && !!pathname && isPublicAnalyticsPath(pathname) && (!isTauri() || decision === "granted")
   const allowed = googleAllowed && (isTauri() ? decision === "granted" : decision !== "denied")
@@ -202,7 +204,7 @@ export function AnalyticsConsent() {
 
   return (
     <>
-      {googleAllowed ? <GoogleTagManager gtmId={GTM_ID} /> : null}
+      {googleAllowed && (decision !== null || defaultSettled) ? <GoogleTagManager gtmId={GTM_ID} /> : null}
       {allowed ? (
         <iframe
           key={pathname}
