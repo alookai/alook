@@ -1135,10 +1135,10 @@ describe("Desktop updater release", () => {
     expect(desktopReleaseWorkflow).toContain("cancel-in-progress: false")
     expect(desktopReleaseWorkflow).toContain("needs: [build-unix, build-windows]")
     expect(desktopReleaseWorkflow).toContain(
-      "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7",
+      "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7",
     )
     expect(desktopReleaseWorkflow).toContain(
-      "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8",
+      "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8",
     )
     expect(desktopReleaseWorkflow).toContain("pattern: desktop-release-*")
     expect(desktopReleaseWorkflow).toContain("merge-multiple: false")
@@ -1378,7 +1378,7 @@ describe("Mobile release availability", () => {
       'entitlements["aps-environment"] == "production"',
     )
     expect(mobileReleaseWorkflow).toContain("xcrun altool --upload-app")
-    expect(mobileReleaseWorkflow).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a")
+    expect(mobileReleaseWorkflow).toContain("actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9")
     expect(bumpScript).toContain('args.includes("--mobile")')
     expect(bumpScript).toContain("src/desktop/.deploy-version-mobile")
     expect(bumpScript).toContain("automatic TestFlight upload")
