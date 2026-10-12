@@ -192,6 +192,7 @@ export * from "./provider-telemetry";
 export * from "./product-entitlements";
 export * from "./billing";
 export type { CheckoutAttempt } from "./db/billing-schema";
+export type { ProductAnalyticsEvent, ProductAnalyticsEventName } from "./db/product-analytics-schema";
 export type {
   CommunityFunnelAnalyticsEvent,
   CommunityFunnelConversationType,

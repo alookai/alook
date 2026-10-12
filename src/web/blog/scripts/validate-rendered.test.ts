@@ -89,8 +89,13 @@ describe("Blog build gate", () => {
       expect(() => validateBlogBuild(root)).not.toThrow();
       put(".next/server/app/blog/example.html", html + '<aside data-blog-recommendations><a href="/blog/example">Guide</a></aside>');
       expect(() => validateBlogBuild(root)).toThrow("Guides leaked");
-      put(".next/server/app/blog/example.html", html + '<footer><a href="/guides">Guides</a></footer>');
+      put(".next/server/app/blog/example.html", html + '<footer><a href="/blog/example">Guide article</a></footer>');
       expect(() => validateBlogBuild(root)).toThrow("Guides leaked");
+      put(".next/server/app/blog/example.html", html + '<aside data-blog-recommendations><a href="/guides">Guides</a></aside>');
+      expect(() => validateBlogBuild(root)).toThrow("Guides leaked");
+      put(".next/server/app/blog/example.html", html + '<footer><a href="/guides">Guides</a></footer>');
+      put(".next/server/app/blog.html", '<h1>Blog</h1><footer><a href="/guides">Guides</a></footer>');
+      expect(() => validateBlogBuild(root)).not.toThrow();
       put(".next/server/app/blog/example.html", html);
       put("src/content/draft.mdx", source({ ...metadata, slug: "draft", draft: true }));
       expect(() => validateBlogBuild(root)).not.toThrow();

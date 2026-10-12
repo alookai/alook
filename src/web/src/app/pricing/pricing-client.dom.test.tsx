@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { render, setupUser, waitFor } from "@/test/react-dom-harness"
 import PricingClient from "./pricing-client"
 
@@ -7,17 +7,17 @@ vi.mock("./pricing.module.css", () => ({ default: new Proxy({}, { get: (_target,
 const state = vi.hoisted(() => ({
   session: { data: null as null | { user: { id: string } }, isPending: false, error: null },
   search: new URLSearchParams(),
-  push: vi.fn(), api: vi.fn(), checkout: vi.fn(), portal: vi.fn(), refresh: vi.fn(),
+  assign: vi.fn(), api: vi.fn(), checkout: vi.fn(), portal: vi.fn(), refresh: vi.fn(),
   billing: {} as Record<string, unknown>,
-  pricingView: vi.fn(), pricingCta: vi.fn(),
+  landing: vi.fn(), pricingView: vi.fn(), pricingCta: vi.fn(),
 }))
 vi.mock("@/lib/auth-client", () => { const sessionSDK = { useSession: () => state.session }; return { ...sessionSDK, currentSessionViewer: () => { const value = sessionSDK.useSession(); return !value || value.isPending || value.error ? undefined : value.data?.user.id ?? null } } })
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: state.push }), useSearchParams: () => state.search }))
+vi.mock("next/navigation", () => ({ useSearchParams: () => state.search }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: state.api }))
 vi.mock("@/hooks/community/use-billing", () => ({ useBilling: () => ({ ...state.billing, checkout: state.checkout, portal: state.portal, refresh: state.refresh }) }))
 vi.mock("@/lib/analytics", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/analytics")>()
-  return { ...original, trackPricingView: state.pricingView, trackPricingCtaClick: state.pricingCta }
+  return { ...original, trackLandingCtaClicked: state.landing, trackPricingView: state.pricingView, trackPricingCtaClick: state.pricingCta }
 })
 
 const offers = [
@@ -28,7 +28,15 @@ const catalog = { free: { plan: { id: "free", displayName: "Free" }, botLimit: 3
 const free = { plan: catalog.free.plan, isFounder: false, subscription: null, offers }
 const subscription = { plan: offers[0].plan, status: "active", currentPeriodEnd: null, cancelAt: null, scheduledChange: null }
 
+afterEach(() => vi.unstubAllGlobals())
+
 beforeEach(() => {
+  const originalWindow = window
+  vi.stubGlobal("window", new Proxy(originalWindow, {
+    get: (target, key) => key === "location" ? new Proxy({}, {
+      get: (_location, field) => field === "assign" ? state.assign : Reflect.get(originalWindow.location, field, originalWindow.location),
+    }) : Reflect.get(target, key, target),
+  }))
   vi.clearAllMocks()
   state.session = { data: null, isPending: false, error: null }
   state.search = new URLSearchParams()
@@ -39,11 +47,20 @@ beforeEach(() => {
 it("sends guests to sign-in with a valid selected plan preserved", async () => {
   const view = render(<PricingClient />)
   await setupUser().click(await view.findByRole("button", { name: "Choose Studio" }))
-  const url = new URL(state.push.mock.calls[0][0], "https://alook.ai")
+  const url = new URL(state.assign.mock.calls[0][0], "https://alook.ai")
   expect(url.pathname).toBe("/sign-in")
+  expect(state.landing).toHaveBeenCalledWith({ cta_name: "pricing_get_started" })
   expect(url.searchParams.get("redirect")).toBe("/pricing?plan=studio")
   expect(state.checkout).not.toHaveBeenCalled()
   expect(state.pricingCta).toHaveBeenCalledWith({ plan_id: "studio", cta_action: "choose_plan", auth_state: "guest", current_plan: "none", entry_point: "pricing_page" })
+})
+
+it("opens the free product with document navigation rather than leaving public trackers alive", async () => {
+  state.session.data = { user: { id: "buyer" } }
+  state.billing.data = free
+  const view = render(<PricingClient />)
+  await setupUser().click(await view.findByRole("button", { name: "Open Alook" }))
+  expect(state.assign).toHaveBeenCalledWith("/c/me/bots")
 })
 
 it("preserves selected plan after sign-in without automatically starting payment", async () => {

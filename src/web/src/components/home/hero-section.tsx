@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-html-link-for-pages -- Product entrances require a new document to unload public tracking. */
+
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
@@ -268,7 +270,7 @@ export function HeroSection({
             OPEN SOURCE
           </a> */}
           {isLoggedIn ? (
-            <Link
+            <a
               href="/c/me"
               onClick={() => trackLandingCtaClicked({ cta_name: "open_app" })}
               className={`inline-flex items-center gap-2 transition-all duration-200 hover:opacity-80 ${ctaSizingClassName}`}
@@ -285,7 +287,7 @@ export function HeroSection({
                 <line x1="15" y1="12" x2="3" y2="12" />
               </svg>
               {primaryCtaLabel ?? "OPEN APP"}
-            </Link>
+            </a>
           ) : (
             <a
               href="/sign-in"

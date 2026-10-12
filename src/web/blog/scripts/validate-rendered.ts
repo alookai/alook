@@ -117,7 +117,7 @@ export function validateBlogBuild(blogRoot: string): void {
     const doc = new JSDOM(html).window.document;
     for (const link of doc.querySelectorAll<HTMLAnchorElement>('footer a[href], [data-blog-recommendations] a[href]')) {
       const url = new URL(link.getAttribute("href")!, origin);
-      if (url.origin === origin && (/^\/guides\/?$/.test(url.pathname) || guideSlugs.some((slug) => url.pathname.replace(/\/$/, "") === `/blog/${slug}`))) {
+      if (url.origin === origin && ((link.closest("[data-blog-recommendations]") && /^\/guides\/?$/.test(url.pathname)) || guideSlugs.some((slug) => url.pathname.replace(/\/$/, "") === `/blog/${slug}`))) {
         throw new Error("Guides leaked into Blog footer or recommendations");
       }
     }

@@ -1,7 +1,6 @@
 "use client"
 
 import Image from "next/image"
-import Link from "next/link"
 import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react"
 import { LANDING_HUMAN_AVATARS } from "./landing-human-avatars"
 import { GeneratedAvatar } from "@/components/avatar"
@@ -33,14 +32,14 @@ function SectionCta({ isLoggedIn, section, children }: {
   children: React.ReactNode
 }) {
   return (
-    <Link
+    <a
       href={isLoggedIn ? "/c/me" : "/sign-in"}
       className={styles.sectionCta}
       data-testid={`landing-section-cta-${section}`}
       onClick={() => trackLandingCtaClicked({ cta_name: `${section}_${isLoggedIn ? "open_app" : "get_started"}` })}
     >
       {children}
-    </Link>
+    </a>
   )
 }
 
@@ -387,14 +386,15 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
                 )}
               </span>
             ))}
-            <Link
+            <a
               href={isLoggedIn ? "/c/me" : "/sign-in"}
               className={styles.closingAction}
               data-testid="landing-closing-open"
+              onClick={() => trackLandingCtaClicked({ cta_name: isLoggedIn ? "closing_open_app" : "closing_get_started" })}
             >
               {isLoggedIn ? LANDING_HERO.loggedInCta : LANDING_HERO.loggedOutCta}{" "}
               <span aria-hidden>↗</span>
-            </Link>
+            </a>
           </div>
         </div>
       </section>

@@ -1,3 +1,4 @@
+import { setOnboardingFirstMessageCookies } from "@/lib/product-analytics-server"
 import { flattenError } from "zod"
 import { NextRequest, NextResponse } from "next/server"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
@@ -218,7 +219,7 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   if (ctx.actor.kind === "bot") {
     return handleBotSend(db, ctx.actor.userId, ctx.env, raw)
   }
-  return handleHumanSend(db, ctx.actor.userId, ctx.env, ctx.params?.id, raw, requestedCommunityContract(req.headers) ?? 1)
+  return handleHumanSend(db, ctx.actor.userId, ctx.env, ctx.params?.id, raw, requestedCommunityContract(req.headers) ?? 1, req.headers.get("cookie") ?? "")
 })
 
 /**
@@ -234,6 +235,7 @@ async function handleHumanSend(
   pathId: string | undefined,
   raw: unknown,
   contract: CommunityContract,
+  cookies: string,
 ): Promise<NextResponse> {
   if (!pathId || pathId === REF_PLACEHOLDER_ID) {
     return NextResponse.json({ error: "missing channel id" }, { status: 400 })
@@ -276,11 +278,13 @@ async function handleHumanSend(
       source: "web",
     })
     if (!created.ok) return NextResponse.json({ error: created.error }, { status: created.status })
-    return humanMessageConfirmation(contract, target.channelId, {
+    const response = humanMessageConfirmation(contract, target.channelId, {
       message: contract === 3 ? await mapPostedMessageForApi(db, target.channelId, created.message, contract) : created.message,
       threadId: created.thread.id,
       deduped: created.deduped,
     }, created.deduped ? 200 : 201)
+    if (!created.deduped) await setOnboardingFirstMessageCookies(response, db, env, userId, target.serverId, cookies, created.message.id)
+    return response
   }
 
   const replay = await getCommunityMessageReplay({
@@ -304,7 +308,9 @@ async function handleHumanSend(
     attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
   })
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
-  return humanMessageConfirmation(contract, target.channelId, { message: await mapPostedMessageForApi(db, target.channelId, result.row, contract), deduped: result.deduped }, 201)
+  const response = humanMessageConfirmation(contract, target.channelId, { message: await mapPostedMessageForApi(db, target.channelId, result.row, contract), deduped: result.deduped }, 201)
+  if (!result.deduped && target.kind !== "dm") await setOnboardingFirstMessageCookies(response, db, env, userId, target.serverId, cookies, result.row.id)
+  return response
 }
 
 function humanMessageConfirmation(contract: CommunityContract, channelId: string, payload: { message: unknown; deduped?: boolean; threadId?: string }, status: number): NextResponse {

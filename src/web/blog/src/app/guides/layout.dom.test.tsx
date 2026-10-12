@@ -17,7 +17,7 @@ describe("Guides layout", () => {
     render(<GuidesLayout><h1>Guide directory</h1></GuidesLayout>);
 
     expect(within(screen.getByRole("main")).getByRole("heading", { name: "Guide directory" })).toBeVisible();
-    const breadcrumb = screen.getByRole("link", { name: "Guides", exact: true });
+    const breadcrumb = within(screen.getByRole("navigation", { name: "", exact: true })).getByRole("link", { name: "Guides", exact: true });
     expect(breadcrumb).toHaveAttribute("href", "/guides");
     expect(breadcrumb).toHaveAttribute("data-next-link", "true");
     expect(screen.getByRole("button", { name: "Toggle theme" })).toBeVisible();
@@ -29,12 +29,11 @@ describe("Guides layout", () => {
     const footer = within(screen.getByRole("contentinfo"));
     const navigation = within(footer.getByRole("navigation", { name: "Footer navigation" }));
     expect(navigation.getAllByRole("link").map((link) => link.getAttribute("href")))
-      .toEqual(["/templates", "/blog", "/llms.txt", "/privacy"]);
+      .toEqual(["/templates", "/blog", "/guides", "/llms.txt", "/privacy"]);
     expect(navigation.getByRole("link", { name: "Blog", exact: true })).toHaveAttribute("data-next-link", "true");
     for (const name of ["Templates", "llms.txt", "Privacy"]) {
       expect(navigation.getByRole("link", { name, exact: true })).not.toHaveAttribute("data-next-link");
     }
-    expect(footer.queryByRole("link", { name: "Guides", exact: true })).not.toBeInTheDocument();
-    expect(footer.getAllByRole("link").some((link) => link.getAttribute("href")?.startsWith("/guides"))).toBe(false);
+    expect(navigation.getByRole("link", { name: "Guides", exact: true })).toHaveAttribute("data-next-link", "true");
   });
 });

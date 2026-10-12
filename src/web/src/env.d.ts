@@ -4,11 +4,14 @@ interface RuntimeEnv {
   STRIPE_PORTAL_CONFIGURATION_ID?: string
   STRIPE_RETURN_ORIGIN?: string
   GA4_API_SECRET?: string
+  DEV_PRODUCT_ANALYTICS_COLLECTOR?: string
+  DEV_PRODUCT_ANALYTICS_MEASUREMENT_ID?: string
   ENCRYPTION_KEY: string
   APP_REVIEW_EMAIL?: string
   APP_REVIEW_OTP?: string
   AUTH_OTP_RATE_LIMIT_MAX?: string
   AUTH_OTP_RATE_LIMIT_WINDOW_SEC?: string
+  DEV_AUTH_OTP?: string
   DEVICE_CLIENT_IDS?: string
   NODE_ENV?: string
   DEV_WS_DO_URL?: string

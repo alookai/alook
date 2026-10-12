@@ -1,3 +1,5 @@
+import { ensureBrowserAnalyticsIdentity } from "@/lib/product-analytics-identity"
+
 export const ANALYTICS_CONSENT_COOKIE = "alook_analytics_consent"
 export const ANALYTICS_CONSENT_PROOF_COOKIE = "alook_analytics_consent_proof"
 export const ANALYTICS_CONSENT_VERSION = "v1"
@@ -39,7 +41,8 @@ export function bootstrapGoogleAnalytics(): void {
     configurable: true,
     get: () => !isPublicAnalyticsPath(window.location.pathname),
   })
-  applyGoogleConsent(readAnalyticsConsent() ?? "denied", "default")
+  if (isPublicAnalyticsPath(window.location.pathname) && readAnalyticsConsent() !== "denied") ensureBrowserAnalyticsIdentity()
+  applyGoogleConsent(isPublicAnalyticsPath(window.location.pathname) ? readAnalyticsConsent() ?? "granted" : "denied", "default")
   updateGooglePageFields(window.location.href)
 }
 
@@ -87,15 +90,22 @@ export function applyGoogleConsent(
   })
 }
 
-export async function persistAnalyticsConsent(decision: AnalyticsConsentDecision): Promise<void> {
-  const response = await fetch("/api/privacy/analytics-consent", {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ decision }),
+let pendingConsentSave = Promise.resolve()
+
+export function persistAnalyticsConsent(decision: AnalyticsConsentDecision): Promise<void> {
+  const save = pendingConsentSave.then(async () => {
+    if (decision === "granted") ensureBrowserAnalyticsIdentity()
+    const response = await fetch("/api/privacy/analytics-consent", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decision }),
+    })
+    const body = await response.json().catch(() => null) as { decision?: unknown } | null
+    if (!response.ok || body?.decision !== decision) throw new Error("analytics consent was not saved")
   })
-  const body = await response.json().catch(() => null) as { decision?: unknown } | null
-  if (!response.ok || body?.decision !== decision) throw new Error("analytics consent was not saved")
+  pendingConsentSave = save.catch(() => {})
+  return save
 }
 
 export function announceAnalyticsConsent(decision: AnalyticsConsentDecision): void {

@@ -15,6 +15,7 @@ function render(node: React.ReactNode) {
 const mocks = vi.hoisted(() => ({
   pathname: "/c/me/machines",
   complete: vi.fn(),
+  capture: vi.fn(async () => {}),
   navigate: vi.fn(),
   initialize: vi.fn(),
   recoverHarness: vi.fn(),
@@ -27,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   } as Record<string, unknown>,
 }))
 
+vi.mock("@/lib/product-analytics", () => ({ captureProductAnalytics: mocks.capture }))
 vi.mock("next/navigation", () => ({
   usePathname: () => mocks.pathname,
 }))
@@ -95,6 +97,7 @@ describe("CommunityOnboardingForm room navigation", () => {
       harness: "codex",
       identity: "work",
     }
+    mocks.capture.mockReset().mockResolvedValue(undefined)
     mocks.complete.mockClear()
     mocks.navigate.mockClear()
     mocks.recoverHarness.mockClear()
@@ -121,12 +124,23 @@ describe("CommunityOnboardingForm room navigation", () => {
     }))
 
     fireEvent.click(screen.getByTestId("onboarding-status-dialog"))
-    expect(mocks.navigate).toHaveBeenCalledWith("server-1", "channel-1")
+    await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith("server-1", "channel-1"))
+    expect(mocks.capture).toHaveBeenCalledWith({ event: "onboarding_enter_clicked", serverId: "server-1" })
     expect(mocks.complete).not.toHaveBeenCalled()
 
     mocks.pathname = "/c/channels/server-1/channel-1"
     rendered.rerender(createElement(CommunityOnboardingForm))
     expect(mocks.complete).toHaveBeenCalledTimes(1)
+  })
+
+  it("counts Enter even when the shell cannot navigate to the room", async () => {
+    render(createElement(CommunityOnboardingForm))
+    await waitFor(() => expect(screen.getByTestId("onboarding-status-dialog")).toHaveAttribute("data-status", "success"))
+    owner.runtime.ui.setState(state => ({ ...state, uiHandlers: { ...state.uiHandlers, navigate: undefined } }))
+    fireEvent.click(screen.getByTestId("onboarding-status-dialog"))
+    await waitFor(() => expect(mocks.capture).toHaveBeenCalledWith({ event: "onboarding_enter_clicked", serverId: "server-1" }))
+    expect(mocks.navigate).not.toHaveBeenCalled()
+    expect(mocks.complete).not.toHaveBeenCalled()
   })
 
   it("clears the local harness choice when recovering from the machine limit", async () => {

@@ -63,6 +63,13 @@ const mockBroadcastToUser = vi.fn()
 const mockCheckMessageRateLimit = vi.fn()
 const mockGetDb = vi.fn(() => ({}))
 const mockGetPrimaryDb = vi.fn(() => ({}))
+const mockOnboardingCookies = vi.fn(async (response: import("next/server").NextResponse) => {
+  response.cookies.set("alook_ga_session", "1791792000", { httpOnly: true })
+})
+
+vi.mock("@/lib/product-analytics-server", () => ({
+  setOnboardingFirstMessageCookies: (...args: unknown[]) => mockOnboardingCookies(...args as Parameters<typeof mockOnboardingCookies>),
+}))
 
 vi.mock("@/lib/db", () => ({
   getDb: (...a: unknown[]) => mockGetDb(...a),
@@ -290,9 +297,13 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockGetMessageByAuthorAndNonce.mockResolvedValue(replay ? row : null)
     const request = postReq({ content: "hello", nonce: "v3-nonce" })
     request.headers.set("x-alook-community-contract", "3")
+    request.headers.set("cookie", "_ga=GA1.1.123.456")
     const response = await POST(request, ctx)
     expect(response.status).toBe(replay ? 200 : 201)
     expect(response.headers.get("x-alook-community-contract")).toBe("3")
+    expect(response.cookies.get("alook_ga_session")?.value).toBe(replay ? undefined : "1791792000")
+    if (replay) expect(mockOnboardingCookies).not.toHaveBeenCalled()
+    else expect(mockOnboardingCookies).toHaveBeenCalledWith(response, expect.anything(), expect.anything(), "u1", "s1", "_ga=GA1.1.123.456", "m1")
     expect(await response.json()).toEqual({ contractVersion: 3, channelId: "c1", deduped: replay, message: {
       id: "m1", channelId: "c1", seq: 12, authorId: "u1", authorName: "Alice", authorAvatar: null, authorAvatarVersion: 0,
       content: "hello", type: "chat", mentionType: null, replyToId: null, clientNonce: "v3-nonce", createdAt: "now", attachments: [],
@@ -421,12 +432,19 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(mockDuplicateCheck).not.toHaveBeenCalled()
   })
 
-  it("accepts a bare message to a forum top-level (phase2 forum≡thread write-guard reversal — forum is now directly sendable)", async () => {
+  it.each([1, 3])("accepts a forum opener with contract %s and keeps analytics cookies on the confirmation", async (contract) => {
     mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum", parentChannelId: null })
     mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum", parentChannelId: null })
-    const res = await POST(postReq({ content: "a post's opener message" }), ctx)
+    const request = postReq({ content: "a post's opener message" })
+    request.headers.set("x-alook-community-contract", String(contract))
+    const res = await POST(request, ctx)
     expect(res.status).toBe(201)
     expect(mockCreateMessage).toHaveBeenCalled()
+    expect(res.cookies.get("alook_ga_session")?.value).toBe("1791792000")
+    expect(res.headers.get("x-alook-community-contract")).toBe(contract === 3 ? "3" : null)
+    const confirmation = await res.json()
+    expect(confirmation).toMatchObject({ message: { id: "m1" }, threadId: "thread_1", ...(contract === 3 ? { contractVersion: 3, channelId: "c1", deduped: false } : {}) })
+    if (contract === 1) expect(confirmation).not.toHaveProperty("deduped")
   })
 
   it("a DM id via the door routes to the DM arm — the block gate runs (blocked peer → 403, not a silent channel-route bypass)", async () => {
@@ -577,6 +595,8 @@ describe("POST /api/community/channels/[id]/messages", () => {
     const response = await POST(postReq({ content: "canonical content", nonce: "client-1" }), ctx)
 
     expect(response.status).toBe(201)
+    expect(response.headers.get("x-alook-community-contract")).toBeNull()
+    expect(response.cookies.get("alook_ga_session")?.value).toBe("1791792000")
     expect(await response.json()).toEqual({ message: row })
   })
 

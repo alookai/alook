@@ -1,10 +1,13 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@/test/react-dom-harness"
+import { StrictMode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const platform = vi.hoisted(() => ({
   isTauri: vi.fn(() => false),
   isMobile: vi.fn(() => false),
 }))
+
+const navigation = vi.hoisted(() => ({ reload: vi.fn() }))
 
 const route = vi.hoisted(() => ({ pathname: "/" }))
 vi.mock("next/navigation", () => ({ usePathname: () => route.pathname }))
@@ -43,14 +46,12 @@ function successfulFetch(decision: "granted" | "denied") {
 function installCookieStore() {
   const store = new EventTarget()
   vi.stubGlobal("cookieStore", store)
-  const added = vi.spyOn(store, "addEventListener")
-  const removed = vi.spyOn(store, "removeEventListener")
-  const change = (changed: Array<{ name: string; value?: string }> = [], deleted: Array<{ name: string }> = []) => {
+  const change = () => {
     const event = new Event("change")
-    Object.assign(event, { changed, deleted })
-    act(() => { store.dispatchEvent(event) })
+    Object.assign(event, { changed: [{ name: "alook_analytics_consent" }], deleted: [] })
+    act(() => store.dispatchEvent(event))
   }
-  return { store, added, removed, change }
+  return { change }
 }
 
 function consentCommands() {
@@ -58,6 +59,13 @@ function consentCommands() {
 }
 
 beforeEach(() => {
+  const originalWindow = window
+  navigation.reload.mockReset()
+  vi.stubGlobal("window", new Proxy(originalWindow, {
+    get: (target, key) => key === "location" ? new Proxy({}, {
+      get: (_location, field) => field === "reload" ? navigation.reload : Reflect.get(originalWindow.location, field, originalWindow.location),
+    }) : Reflect.get(target, key, target),
+  }))
   route.pathname = "/"
   window.history.replaceState({}, "", "/")
   clearCookies()
@@ -66,6 +74,7 @@ beforeEach(() => {
   window.dataLayer = []
   vi.stubGlobal("cookieStore", undefined)
   bootstrapGoogleAnalytics()
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 503 })))
 })
 
 afterEach(() => {
@@ -76,331 +85,175 @@ afterEach(() => {
 })
 
 describe("AnalyticsConsent", () => {
-  it("preserves page layout while the floating banner is open and dismissed", async () => {
-    vi.stubGlobal("fetch", successfulFetch("denied"))
-    const layoutStyle = document.createElement("style")
-    layoutStyle.textContent = `
-      body { padding-bottom: 0px; }
-      .hero-section, .workspace-shell { height: 100dvh; }
-    `
-    document.head.appendChild(layoutStyle)
-    try {
-      render(
-        <>
-          <main className="hero-section" data-testid="consent-hero" />
-          <main className="workspace-shell" data-testid="consent-workspace" />
-          <AnalyticsConsent />
-        </>,
-      )
-      const banner = await screen.findByTestId(tid.analyticsConsentBanner)
-      const expectPageLayout = () => {
-        expect(getComputedStyle(document.body).paddingBottom).toBe("0px")
-        expect(getComputedStyle(screen.getByTestId("consent-hero")).height).toBe("100dvh")
-        expect(getComputedStyle(screen.getByTestId("consent-workspace")).height).toBe("100dvh")
-      }
-      expectPageLayout()
-      fireEvent(window, new Event("resize"))
-      expectPageLayout()
-      fireEvent.click(within(banner).getByRole("button", { name: "Only necessary" }))
-      await waitFor(() => {
-        expect(screen.queryByTestId(tid.analyticsConsentBanner)).not.toBeInTheDocument()
-      })
-      expectPageLayout()
-    } finally {
-      layoutStyle.remove()
-    }
-  })
-
-  it("loads public GTM with denied cookies and retains the first-visit banner", async () => {
-    render(<AnalyticsConsent />)
-    const banner = await screen.findByTestId(tid.analyticsConsentBanner)
-    expect(within(banner).getByText("Cookies are your choice")).toBeVisible()
-    expect(banner).toHaveTextContent("Google receives page and feature signals on our public website, even without analytics cookies. Allow analytics enables analytics cookies and other optional analytics. No ad tracking. Read our privacy details.")
-    expect(within(banner).getByRole("button", { name: "Only necessary" })).toBeVisible()
-    expect(within(banner).getByRole("button", { name: "Allow analytics" })).toBeVisible()
-    expect(within(banner).getByTestId(tid.analyticsConsentAvatarCluster).querySelectorAll("svg"))
-      .toHaveLength(3)
-    expect(screen.getByTestId("google-tag-manager")).toBeInTheDocument()
-    expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
-  })
-
-  it.each(["/sign-in", "/pricing"])("retains the original Native desktop banner on %s without requiring a choice", async pathname => {
-    platform.isTauri.mockReturnValue(true)
+  it.each(["/", "/privacy", "/blog/public-article"])("waits for default persistence before loading GTM on public %s without a choice UI", async pathname => {
     route.pathname = pathname
     window.history.replaceState({}, "", pathname)
-    const fetcher = vi.fn()
+    let finish!: (response: Response) => void
+    const fetcher = vi.fn(() => new Promise<Response>(resolve => { finish = resolve }))
     vi.stubGlobal("fetch", fetcher)
-
-    render(<AnalyticsConsent />)
-
-    const banner = await screen.findByTestId(tid.analyticsConsentBanner)
-    expect(within(banner).getByText("Analytics, only if you want")).toBeVisible()
-    expect(banner).toHaveTextContent("Optional analytics help us understand which parts of Alook are useful. No ad tracking. Read our privacy details.")
-    expect(banner).not.toHaveTextContent("Google receives page and feature signals")
-    expect(screen.queryByTestId("google-tag-manager")).not.toBeInTheDocument()
-    expect(document.cookie).toBe("")
-    expect(fetcher).not.toHaveBeenCalled()
-  })
-
-  it("hides the first-visit banner in native mobile clients", async () => {
-    platform.isTauri.mockReturnValue(true)
-    platform.isMobile.mockReturnValue(true)
-
-    render(<AnalyticsConsent />)
-
-    await waitFor(() => {
-      expect(platform.isMobile).toHaveBeenCalled()
-    })
+    render(<StrictMode><AnalyticsConsent /></StrictMode>)
+    await waitFor(() => expect(fetcher).toHaveBeenCalledOnce())
     expect(screen.queryByTestId(tid.analyticsConsentBanner)).not.toBeInTheDocument()
+    expect(screen.queryByTestId(tid.analyticsPreferenceControl)).not.toBeInTheDocument()
     expect(screen.queryByTestId("google-tag-manager")).not.toBeInTheDocument()
-  })
-
-  it("keeps public GTM and enables Ahrefs after the API confirms a grant", async () => {
-    const fetcher = successfulFetch("granted")
-    vi.stubGlobal("fetch", fetcher)
-    render(<AnalyticsConsent />)
-    const banner = await screen.findByTestId(tid.analyticsConsentBanner)
-
-    fireEvent.click(within(banner).getByRole("button", { name: "Allow analytics" }))
-
-    expect(await screen.findByTestId("google-tag-manager")).toHaveAttribute(
-      "data-gtm-id",
-      "GTM-56VHCCQZ",
-    )
-    expect(await screen.findByTestId(tid.ahrefsAnalyticsFrame)).toHaveAttribute("sandbox", "allow-scripts")
-    expect(screen.queryByTestId(tid.analyticsConsentBanner)).not.toBeInTheDocument()
-    expect(Array.from(window.dataLayer!.at(-1) as IArguments)).toEqual([
-      "consent",
-      "update",
-      expect.objectContaining({ analytics_storage: "granted", ad_storage: "denied" }),
-    ])
-    expect(fetcher).toHaveBeenCalledWith(
-      "/api/privacy/analytics-consent",
-      expect.objectContaining({
-        method: "POST",
-        credentials: "same-origin",
-        body: JSON.stringify({ decision: "granted" }),
-      }),
-    )
-  })
-
-  it("stores a denial while retaining public GTM and excluding Ahrefs", async () => {
-    vi.stubGlobal("fetch", successfulFetch("denied"))
-    render(<AnalyticsConsent />)
-    const banner = await screen.findByTestId(tid.analyticsConsentBanner)
-
-    fireEvent.click(within(banner).getByRole("button", { name: "Only necessary" }))
-
-    await waitFor(() => {
-      expect(screen.queryByTestId(tid.analyticsConsentBanner)).not.toBeInTheDocument()
+    expect(screen.getByTestId(tid.ahrefsAnalyticsFrame)).toHaveAttribute("sandbox", "allow-scripts")
+    expect(consentCommands().at(-1)?.[2]).toEqual(expect.objectContaining({ analytics_storage: "granted", ad_storage: "denied" }))
+    await act(async () => {
+      document.cookie = "alook_analytics_consent=v1.granted; Path=/"
+      finish(new Response(JSON.stringify({ decision: "granted" })))
     })
+    await screen.findByTestId("google-tag-manager")
+  })
+
+  it("honors a previous Privacy denial without resaving it", async () => {
+    document.cookie = "alook_analytics_consent=v1.denied; Path=/"
+    render(<AnalyticsConsent />)
     expect(screen.getByTestId("google-tag-manager")).toBeInTheDocument()
     expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
+    expect(fetch).not.toHaveBeenCalled()
+    expect(consentCommands().at(-1)?.[2]).toEqual(expect.objectContaining({ analytics_storage: "denied" }))
   })
 
-  it("honors stored grant and denial choices on mount", async () => {
+  it("keeps public tracking and page layout when grant persistence fails", async () => {
+    render(<><main style={{ height: "100dvh" }} data-testid="consent-page" /><AnalyticsConsent /></>)
+    await waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    expect(screen.queryByTestId(tid.analyticsConsentBanner)).not.toBeInTheDocument()
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    expect(await screen.findByTestId("google-tag-manager")).toBeInTheDocument()
+    expect(screen.getByTestId(tid.ahrefsAnalyticsFrame)).toBeInTheDocument()
+    expect(getComputedStyle(screen.getByTestId("consent-page")).height).toBe("100dvh")
+    expect(document.cookie).not.toContain("alook_analytics_consent=")
+    expect(document.cookie).toMatch(/_ga=GA1\.1\.\d+\.\d+/u)
+  })
+
+  it("does not resave an existing grant", async () => {
     document.cookie = "alook_analytics_consent=v1.granted; Path=/"
-    const granted = render(<AnalyticsConsent />)
-    expect(await screen.findByTestId("google-tag-manager")).toBeInTheDocument()
-    expect(screen.queryByTestId(tid.analyticsConsentBanner)).not.toBeInTheDocument()
-    const home = screen.getByTestId(tid.ahrefsAnalyticsFrame)
-    for (const pathname of ["/c", "/c/me", "/c/channels/private/channel", "/sign-in", "/auth/callback"]) {
-      route.pathname = pathname
-      granted.rerender(<AnalyticsConsent />)
-      expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
-      expect(screen.queryByTestId("google-tag-manager")).not.toBeInTheDocument()
-    }
-    route.pathname = "/pricing"
-    granted.rerender(<AnalyticsConsent />)
-    expect(screen.getByTestId(tid.ahrefsAnalyticsFrame)).not.toBe(home)
-    expect(screen.getByTestId(tid.ahrefsAnalyticsFrame).getAttribute("srcdoc"))
-      .toContain(`data-page-location="${window.location.origin}/pricing"`)
-    document.cookie = "alook_analytics_consent=v1.denied; Path=/"
-    fireEvent(window, new CustomEvent("alook:analytics-consent-change", { detail: "denied" }))
-    await waitFor(() => expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument())
-    granted.unmount()
+    render(<AnalyticsConsent />)
+    expect(await screen.findByTestId(tid.ahrefsAnalyticsFrame)).toBeInTheDocument()
+    expect(fetch).not.toHaveBeenCalled()
+  })
 
+  it.each(["/c", "/c/me", "/c/channels/private/channel", "/sign-in"])("does not grant or load analytics directly on %s", async pathname => {
+    route.pathname = pathname
+    window.history.replaceState({}, "", pathname)
     clearCookies()
-    document.cookie = "alook_analytics_consent=v1.denied; Path=/"
+    bootstrapGoogleAnalytics()
     render(<AnalyticsConsent />)
-    await waitFor(() => {
-      expect(screen.queryByTestId(tid.analyticsConsentBanner)).not.toBeInTheDocument()
-    })
-    expect(screen.getByTestId("google-tag-manager")).toBeInTheDocument()
-  })
-
-  it("keeps the banner open and explains a save failure", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(
-      JSON.stringify({ error: "unavailable" }),
-      { status: 503, headers: { "Content-Type": "application/json" } },
-    )))
-    render(<AnalyticsConsent />)
-    const banner = await screen.findByTestId(tid.analyticsConsentBanner)
-    fireEvent.click(within(banner).getByRole("button", { name: "Allow analytics" }))
-    expect(await within(banner).findByRole("alert")).toHaveTextContent("Couldn’t save this choice")
-    expect(screen.getByTestId("google-tag-manager")).toBeInTheDocument()
+    expect(screen.queryByTestId(tid.analyticsConsentBanner)).not.toBeInTheDocument()
+    expect(screen.queryByTestId("google-tag-manager")).not.toBeInTheDocument()
     expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
+    expect(fetch).not.toHaveBeenCalled()
+    expect(document.cookie).toBe("")
   })
 
-  it("changes a stored preference from the Privacy control", async () => {
-    document.cookie = "alook_analytics_consent=v1.denied; Path=/"
-    vi.stubGlobal("fetch", successfulFetch("granted"))
-    render(
-      <>
-        <AnalyticsConsent />
-        <AnalyticsPreferenceControl />
-      </>,
-    )
-    const control = await screen.findByTestId(tid.analyticsPreferenceControl)
-    expect(within(control).getByText(/Analytics cookies denied/u)).toBeVisible()
-
-    fireEvent.click(within(control).getByRole("button", { name: "Allow analytics" }))
-
-    expect(await within(control).findByText(/Analytics cookies allowed/u)).toBeVisible()
-    expect(await screen.findByTestId("google-tag-manager")).toBeInTheDocument()
-    expect(Array.from(window.dataLayer!.at(-1) as IArguments)).toEqual([
-      "consent",
-      "update",
-      expect.objectContaining({ analytics_storage: "granted", ad_storage: "denied" }),
-    ])
-  })
-
-  it("blocks already-loaded GA4 immediately on private history changes", async () => {
+  it("removes public analytics and blocks Google synchronously when entering the product", async () => {
     document.cookie = "alook_analytics_consent=v1.granted; Path=/"
     const view = render(<AnalyticsConsent />)
-    await screen.findByTestId("google-tag-manager")
-    expect(Reflect.get(window, "ga-disable-G-STBCL8F4ZY")).toBe(false)
+    await screen.findByTestId(tid.ahrefsAnalyticsFrame)
     window.history.pushState({}, "", "/c/me?private=canary")
     expect(Reflect.get(window, "ga-disable-G-STBCL8F4ZY")).toBe(true)
-    window.history.replaceState({}, "", "/pricing")
-    expect(Reflect.get(window, "ga-disable-G-STBCL8F4ZY")).toBe(false)
-    document.cookie = "alook_analytics_consent=v1.denied; Path=/"
-    expect(Reflect.get(window, "ga-disable-G-STBCL8F4ZY")).toBe(false)
-    view.unmount()
-    window.history.replaceState({}, "", "/")
-  })
-
-  it.each(["/blog", "/blog/public-article", "/pricing", "/contact"])("keeps %s measured", async pathname => {
-    route.pathname = pathname
-    window.history.replaceState({}, "", `${pathname}?private=canary`)
-    document.cookie = "alook_analytics_consent=v1.granted; Path=/"
-    render(<AnalyticsConsent />)
-    expect(await screen.findByTestId("google-tag-manager")).toBeInTheDocument()
-    expect(screen.getByTestId(tid.ahrefsAnalyticsFrame).getAttribute("srcdoc"))
-      .toContain(`data-page-location="${window.location.origin}${pathname}"`)
-  })
-
-  it("registers the root CookieStore listener before the mount reread and keeps one Google update owner", async () => {
-    document.cookie = "alook_analytics_consent=v1.denied; Path=/"
-    const cookie = installCookieStore()
-    cookie.added.mockImplementation((type, listener, options) => {
-      document.cookie = "alook_analytics_consent=v1.granted; Path=/"
-      EventTarget.prototype.addEventListener.call(cookie.store, type, listener, options)
-    })
-    render(<><AnalyticsConsent /><AnalyticsPreferenceControl /></>)
-    expect(await screen.findByTestId(tid.ahrefsAnalyticsFrame)).toBeInTheDocument()
-    expect(cookie.added).toHaveBeenCalledOnce()
-    expect(consentCommands()).toEqual([
-      ["consent", "default", expect.objectContaining({ analytics_storage: "denied" })],
-      ["consent", "update", expect.objectContaining({ analytics_storage: "granted" })],
-    ])
-  })
-
-  it("rereads changed and deleted Cookies, rejects late values and deduplicates the original API event", async () => {
-    const cookie = installCookieStore()
-    const wake = vi.fn()
-    window.addEventListener("alook:analytics-consent-change", wake)
-    const view = render(<><AnalyticsConsent /><AnalyticsPreferenceControl /></>)
-    await screen.findByTestId(tid.analyticsConsentBanner)
-    wake.mockClear()
-    const initial = consentCommands().length
-    cookie.change([{ name: "alook_analytics_consent_proof", value: "ignored" }])
-    expect(consentCommands()).toHaveLength(initial)
-    document.cookie = "alook_analytics_consent=v1.granted; Path=/"
-    cookie.change([{ name: "alook_analytics_consent", value: "v1.denied" }])
-    await screen.findByTestId(tid.ahrefsAnalyticsFrame)
-    expect(screen.getByTestId(tid.analyticsPreferenceControl)).toHaveTextContent("Analytics cookies allowed")
-    expect(wake).toHaveBeenCalledOnce()
-    fireEvent(window, new CustomEvent("alook:analytics-consent-change", { detail: "granted" }))
-    cookie.change([{ name: "alook_analytics_consent", value: "v1.granted" }])
-    expect(consentCommands()).toHaveLength(initial + 1)
-    document.cookie = "alook_analytics_consent=v1.denied; Path=/"
-    cookie.change([{ name: "alook_analytics_consent", value: "v1.granted" }])
+    route.pathname = "/c/me"
+    view.rerender(<AnalyticsConsent />)
+    expect(screen.queryByTestId("google-tag-manager")).not.toBeInTheDocument()
     expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
-    expect(screen.getByTestId("google-tag-manager")).toBeInTheDocument()
-    document.cookie = "alook_analytics_consent=; Max-Age=0; Path=/"
-    cookie.change([], [{ name: "alook_analytics_consent" }])
-    expect(screen.getByTestId(tid.analyticsConsentBanner)).toBeInTheDocument()
-    expect(screen.getByTestId(tid.analyticsPreferenceControl)).toHaveTextContent("No choice saved — analytics cookies denied")
-    document.cookie = "alook_analytics_consent=v0.granted; Path=/"
-    cookie.change([{ name: "alook_analytics_consent", value: "v1.granted" }])
-    expect(consentCommands()).toHaveLength(initial + 3)
-    expect(consentCommands().slice(initial).map(command => (command[2] as { analytics_storage: string }).analytics_storage)).toEqual(["granted", "denied", "denied"])
-    view.unmount()
-    expect(cookie.removed).toHaveBeenCalledWith("change", cookie.added.mock.calls[0][1])
-    const prior = consentCommands().length
-    cookie.change([{ name: "alook_analytics_consent", value: "v1.granted" }])
-    expect(consentCommands()).toHaveLength(prior)
-    window.removeEventListener("alook:analytics-consent-change", wake)
+    expect(fetch).not.toHaveBeenCalled()
   })
 
-  it("uses the committed Cookie while JSON remains pending and preserves an eventual response error", async () => {
-    const cookie = installCookieStore()
-    let rejectJson!: (error: Error) => void
-    const json = new Promise((_resolve, reject) => { rejectJson = reject })
-    vi.stubGlobal("fetch", vi.fn(async () => {
-      document.cookie = "alook_analytics_consent=v1.granted; Path=/"
-      cookie.change([{ name: "alook_analytics_consent", value: "v1.granted" }])
-      return { ok: true, json: () => json }
-    }))
-    render(<><AnalyticsConsent /><AnalyticsPreferenceControl /></>)
-    await screen.findByTestId(tid.analyticsConsentBanner)
-    const control = screen.getByTestId(tid.analyticsPreferenceControl)
-    fireEvent.click(within(control).getByRole("button", { name: "Allow analytics" }))
-    await screen.findByTestId(tid.ahrefsAnalyticsFrame)
-    expect(control).toHaveTextContent("Analytics cookies allowed")
-    expect(consentCommands().at(-1)).toEqual(["consent", "update", expect.objectContaining({ analytics_storage: "granted" })])
-    await act(async () => rejectJson(new Error("response unavailable")))
-    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn’t save this choice")
-    expect(control).toHaveTextContent("Analytics cookies allowed")
-    expect(screen.getByTestId(tid.ahrefsAnalyticsFrame)).toBeInTheDocument()
-  })
-
-  it.each(["focus", "pageshow", "visibilitychange"])("rereads on %s without promising unsupported cross-page notification", async type => {
+  it.each(["focus", "pageshow", "visibilitychange"])("rereads an explicit denial on %s and disables optional public tracking", async type => {
+    document.cookie = "alook_analytics_consent=v1.granted; Path=/"
     const view = render(<AnalyticsConsent />)
-    await screen.findByTestId(tid.analyticsConsentBanner)
-    document.cookie = "alook_analytics_consent=v1.granted; Path=/"
-    expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
+    await screen.findByTestId(tid.ahrefsAnalyticsFrame)
+    document.cookie = "alook_analytics_consent=v1.denied; Path=/"
     if (type === "visibilitychange") {
       vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible")
       fireEvent(document, new Event(type))
     } else fireEvent(window, new Event(type))
-    await screen.findByTestId(tid.ahrefsAnalyticsFrame)
+    expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
+    expect(consentCommands().at(-1)?.[2]).toEqual(expect.objectContaining({ analytics_storage: "denied" }))
+    expect(fetch).not.toHaveBeenCalled()
     view.unmount()
-    const count = consentCommands().length
-    document.cookie = "alook_analytics_consent=v1.denied; Path=/"
-    fireEvent(window, new Event("focus"))
-    fireEvent(window, new Event("pageshow"))
-    fireEvent(document, new Event("visibilitychange"))
-    expect(consentCommands()).toHaveLength(count)
     vi.restoreAllMocks()
   })
 
-  it("retains Native defaults, detail updates, optional gates and immediate Cookie-based disabling", async () => {
-    platform.isTauri.mockReturnValue(true)
+  it("keeps the existing Privacy choices usable and preserves denial on reload", async () => {
+    route.pathname = "/privacy"
+    window.history.replaceState({}, "", "/privacy")
     document.cookie = "alook_analytics_consent=v1.granted; Path=/"
-    window.dataLayer = []
-    const cookie = installCookieStore()
-    render(<AnalyticsConsent />)
-    await screen.findByTestId("google-tag-manager")
-    expect(cookie.added).not.toHaveBeenCalled()
-    expect(consentCommands()[0]).toEqual(["consent", "default", expect.objectContaining({ analytics_storage: "granted" })])
-    document.cookie = "alook_analytics_consent=v1.denied; Path=/"
-    fireEvent(window, new CustomEvent("alook:analytics-consent-change", { detail: "denied" }))
-    expect(screen.queryByTestId("google-tag-manager")).not.toBeInTheDocument()
+    vi.stubGlobal("fetch", successfulFetch("denied"))
+    const view = render(<><AnalyticsConsent /><AnalyticsPreferenceControl /></>)
+    const control = screen.getByTestId(tid.analyticsPreferenceControl)
+    expect(within(control).getByTestId(tid.analyticsConsentAvatarCluster).querySelectorAll("svg")).toHaveLength(3)
+    fireEvent.click(within(control).getByRole("button", { name: "Only necessary" }))
+    await within(control).findByText(/Analytics cookies denied/u)
+    expect(navigation.reload).toHaveBeenCalledOnce()
     expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
-    expect(Reflect.get(window, "ga-disable-G-STBCL8F4ZY")).toBe(true)
-    expect(consentCommands().at(-1)).toEqual(["consent", "update", expect.objectContaining({ analytics_storage: "denied" })])
+    view.unmount()
+    const reload = render(<><AnalyticsConsent /><AnalyticsPreferenceControl /></>)
+    expect(screen.getByTestId(tid.analyticsPreferenceControl)).toHaveTextContent("Analytics cookies denied")
+    expect(fetch).toHaveBeenCalledOnce()
+    vi.stubGlobal("fetch", successfulFetch("granted"))
+    fireEvent.click(screen.getByRole("button", { name: "Allow analytics" }))
+    await screen.findByText(/Analytics cookies allowed/u)
+    await screen.findByTestId(tid.ahrefsAnalyticsFrame)
+    reload.unmount()
   })
 
+  it("saves an immediate Privacy denial after the pending automatic grant", async () => {
+    route.pathname = "/privacy"
+    let finish!: (response: Response) => void
+    const fetcher = vi.fn()
+      .mockImplementationOnce(() => new Promise<Response>(resolve => { finish = resolve }))
+      .mockImplementationOnce(successfulFetch("denied"))
+    vi.stubGlobal("fetch", fetcher)
+    render(<><AnalyticsConsent /><AnalyticsPreferenceControl /></>)
+    await waitFor(() => expect(fetcher).toHaveBeenCalledOnce())
+    fireEvent.click(screen.getByRole("button", { name: "Only necessary" }))
+    expect(fetcher).toHaveBeenCalledOnce()
+    await act(async () => {
+      document.cookie = "alook_analytics_consent=v1.granted; Path=/"
+      finish(new Response(JSON.stringify({ decision: "granted" })))
+    })
+    await screen.findByText(/Analytics cookies denied/u)
+    expect(fetcher.mock.calls.map(call => JSON.parse(call[1].body).decision)).toEqual(["granted", "denied"])
+    expect(document.cookie).toContain("v1.denied")
+    expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
+  })
+
+  it("shows a Privacy save error and can retry after automatic saving fails", async () => {
+    route.pathname = "/privacy"
+    render(<><AnalyticsConsent /><AnalyticsPreferenceControl /></>)
+    await waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    fireEvent.click(screen.getByRole("button", { name: "Only necessary" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn’t save this choice")
+    expect(navigation.reload).not.toHaveBeenCalled()
+    vi.stubGlobal("fetch", successfulFetch("denied"))
+    fireEvent.click(screen.getByRole("button", { name: "Only necessary" }))
+    await screen.findByText(/Analytics cookies denied/u)
+    expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
+  })
+
+  it.each(["/privacy", "/blog", "/c/me"])("synchronizes another tab's denial on %s without disrupting product drafts", pathname => {
+    route.pathname = pathname
+    window.history.replaceState({}, "", pathname)
+    document.cookie = "alook_analytics_consent=v1.granted; Path=/"
+    const cookie = installCookieStore()
+    render(<AnalyticsConsent />)
+    cookie.change()
+    expect(navigation.reload).not.toHaveBeenCalled()
+    document.cookie = "alook_analytics_consent=v1.denied; Path=/"
+    cookie.change()
+    fireEvent(window, new Event("focus"))
+    fireEvent(window, new CustomEvent("alook:analytics-consent-change", { detail: "granted" }))
+    expect(navigation.reload).toHaveBeenCalledTimes(pathname.startsWith("/c") ? 0 : 1)
+    expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
+  })
+
+  it("keeps the native mobile exclusion", async () => {
+    platform.isTauri.mockReturnValue(true)
+    platform.isMobile.mockReturnValue(true)
+    render(<AnalyticsConsent />)
+    expect(screen.queryByTestId("google-tag-manager")).not.toBeInTheDocument()
+    expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
+    expect(fetch).not.toHaveBeenCalled()
+  })
 })

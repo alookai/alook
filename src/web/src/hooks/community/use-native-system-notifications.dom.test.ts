@@ -10,6 +10,7 @@ import {
   useNativeSystemNotifications,
 } from "./use-native-system-notifications"
 import type { DesktopSystemNotificationActivation } from "@/lib/community/system-notification-route"
+import { createNativeSystemNotificationDismissalQueue } from "@/lib/community/native-system-notification-dismissal"
 
 
 const hookMocks = vi.hoisted(() => ({
@@ -150,6 +151,60 @@ describe("notification activation",()=>{
     setRoute("/c/channels/server_1/channel_1");rendered.rerender()
     await waitFor(()=>expect(hookMocks.dismiss).toHaveBeenCalledExactlyOnceWith(activation.notificationId))
     await waitFor(()=>expect(window.sessionStorage.length).toBe(0));rendered.unmount()
+  })
+  it("queues a mobile activation before navigating and dismisses only its committed target", async () => {
+    hookMocks.desktop = false
+    hookMocks.mobile = true
+    setRoute("/c/me/friends")
+    const clicked = { notificationId: activation.notificationId, messageId: "message_1", targetId: "channel_1" }
+    hookMocks.mobileTake.mockResolvedValueOnce(clicked)
+    const fetch = vi.fn(() => new Promise<Response>(() => undefined))
+    vi.stubGlobal("fetch", fetch)
+    const queue = createNativeSystemNotificationDismissalQueue({
+      getItem: (key) => window.sessionStorage.getItem(key),
+      setItem: (key, value) => window.sessionStorage.setItem(key, value),
+      removeItem: (key) => window.sessionStorage.removeItem(key),
+      now: () => Date.now(),
+    })
+    let queuedAtNavigation: string | null = null
+    vi.mocked(route.navigation.pushImmediate).mockImplementation((href) => {
+      queuedAtNavigation = queue.peek("mobile", "viewer", href)
+      intentRevision++
+    })
+    const rendered = renderHook(useNotifications, { wrapper })
+    await waitFor(() => expect(route.navigation.pushImmediate).toHaveBeenCalledExactlyOnceWith("/c/messages/message_1"))
+    expect(queuedAtNavigation).toBe(clicked.notificationId)
+    expect(queue.peek("mobile", "viewer", "/c/messages/message_1")).toBe(clicked.notificationId)
+    expect(hookMocks.mobileRevalidate).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+    expect(hookMocks.mobileDismiss).not.toHaveBeenCalled()
+    setRoute("/c/messages/message_1", true)
+    rendered.rerender()
+    expect(hookMocks.mobileDismiss).not.toHaveBeenCalled()
+    setRoute("/c/messages/other_message")
+    rendered.rerender()
+    expect(hookMocks.mobileDismiss).not.toHaveBeenCalled()
+    expect(queue.peek("mobile", "viewer", "/c/messages/message_1")).toBe(clicked.notificationId)
+    setRoute("/c/messages/message_1")
+    rendered.rerender()
+    await waitFor(() => expect(hookMocks.mobileDismiss).toHaveBeenCalledExactlyOnceWith(clicked.notificationId))
+    await waitFor(() => expect(window.sessionStorage.length).toBe(0))
+    rendered.unmount()
+  })
+  it("discards a delayed mobile activation after the hook retires", async () => {
+    hookMocks.desktop = false
+    hookMocks.mobile = true
+    setRoute("/c/me/friends")
+    const clicked = { notificationId: activation.notificationId, messageId: "message_1", targetId: "channel_1" }
+    let release!: (value: typeof clicked) => void
+    hookMocks.mobileTake.mockReturnValueOnce(new Promise<typeof clicked>(resolve => { release = resolve }))
+    const rendered = renderHook(useNotifications, { wrapper })
+    await waitFor(() => expect(hookMocks.mobileTake).toHaveBeenCalledOnce())
+    rendered.unmount()
+    await act(async () => { release(clicked) })
+    expect(route.navigation.pushImmediate).not.toHaveBeenCalled()
+    expect(window.sessionStorage.length).toBe(0)
+    expect(hookMocks.mobileDismiss).not.toHaveBeenCalled()
   })
 })
 describe("current native conversation",()=>{

@@ -42,7 +42,7 @@ describe("SignupTracker account-owned initiation", () => {
     const { registry, rerender } = mount("/c/me/machines")
     mocks.breakpoint = "mobile"; rerender()
     mocks.breakpoint = "desktop"; rerender()
-    expect(mocks.track).toHaveBeenCalledOnce()
+    expect(mocks.track).not.toHaveBeenCalled()
     expect(registry.runtime.ui.get().onboardingState).toBeNull()
     expect(mocks.replace).not.toHaveBeenCalled()
   })
@@ -53,7 +53,7 @@ describe("SignupTracker account-owned initiation", () => {
     const { registry, rerender } = mount("/c/me/machines")
     mocks.replace.mockImplementation(() => expect(registry.runtime.ui.get().onboardingState).toMatchObject({ stage: "harness" }))
     mocks.breakpoint = "desktop"; rerender()
-    expect(mocks.track).toHaveBeenCalledWith("email")
+    expect(mocks.track).not.toHaveBeenCalled()
     expect(registry.runtime.ui.get().onboardingState).toMatchObject({ stage: "harness" })
     expect(mocks.replace).toHaveBeenCalledWith("/c/me/machines")
   })
@@ -62,7 +62,7 @@ describe("SignupTracker account-owned initiation", () => {
     mocks.breakpoint = "mobile"
     document.cookie = "is_new_signup=email; path=/"
     const { registry } = mount("/c/me/machines")
-    expect(mocks.track).toHaveBeenCalledWith("email")
+    expect(mocks.track).not.toHaveBeenCalled()
     expect(registry.runtime.ui.get().onboardingState).toBeNull()
     expect(mocks.replace).not.toHaveBeenCalled()
   })
@@ -71,14 +71,14 @@ describe("SignupTracker account-owned initiation", () => {
     document.cookie = "is_new_signup=email; path=/"
     const { rerender } = mount("/c/me/machines")
     rerender()
-    expect(mocks.track).toHaveBeenCalledOnce()
+    expect(mocks.track).not.toHaveBeenCalled()
     expect(mocks.replace).toHaveBeenCalledOnce()
   })
 
-  it("keeps signup method tracking intact on a public entry without an owner", () => {
+  it("does not duplicate server signup tracking on a public entry without an owner", () => {
     document.cookie = "is_new_signup=github; path=/"
     render(<SignupTracker />)
-    expect(mocks.track).toHaveBeenCalledWith("github")
+    expect(mocks.track).not.toHaveBeenCalled()
     expect(mocks.replace).not.toHaveBeenCalled()
   })
 

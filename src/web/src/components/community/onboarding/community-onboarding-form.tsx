@@ -19,6 +19,7 @@ import {
   ONBOARDING_HARNESSES,
   ONBOARDING_IDENTITIES,
 } from "./onboarding-form-options"
+import { captureProductAnalytics } from "@/lib/product-analytics"
 import { initializeCommunityOnboarding } from "./initialize-community-onboarding"
 import { tid } from "@/lib/community/testids"
 import { useCurrentUser } from "@/contexts/community/current-user"
@@ -238,13 +239,16 @@ export function CommunityOnboardingForm() {
               : "Follow along as your room comes together."
         }
         onRetry={() => void runInitialization()}
-        onContinue={() => {
+        onContinue={async () => {
           if (!initializationResult) return
           const destination = `/c/channels/${initializationResult.serverId}/${initializationResult.publicChannelId}`
-          const navigate = communityRuntime.ui.get().uiHandlers.navigate
-          if (!navigate) return
           const assert = source.capture()
           assert()
+          await captureProductAnalytics({ event: "onboarding_enter_clicked", serverId: initializationResult.serverId })
+          if (!communityRuntime.lifecycle.get().active) return
+          try { assert() } catch { return }
+          const navigate = communityRuntime.ui.get().uiHandlers.navigate
+          if (!navigate) return
           updateCommunityOnboardingInitialization(communityRuntime, (current) => ({ ...current, pendingDestination: destination }))
           navigate(initializationResult.serverId, initializationResult.publicChannelId)
         }}
