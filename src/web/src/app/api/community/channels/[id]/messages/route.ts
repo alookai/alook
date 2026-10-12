@@ -1,4 +1,4 @@
-import { scheduleOnboardingFirstMessage } from "@/lib/product-analytics-server"
+import { setOnboardingFirstMessageCookies } from "@/lib/product-analytics-server"
 import { flattenError } from "zod"
 import { NextRequest, NextResponse } from "next/server"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
@@ -277,12 +277,13 @@ async function handleHumanSend(
       source: "web",
     })
     if (!created.ok) return NextResponse.json({ error: created.error }, { status: created.status })
-    if (!created.deduped) await scheduleOnboardingFirstMessage(env, userId, target.serverId, cookies, created.message.id)
-    return NextResponse.json({
+    const response = NextResponse.json({
       message: created.message,
       threadId: created.thread.id,
       deduped: created.deduped,
     }, { status: created.deduped ? 200 : 201 })
+    if (!created.deduped) await setOnboardingFirstMessageCookies(response, db, env, userId, target.serverId, cookies, created.message.id)
+    return response
   }
 
   const replay = await getCommunityMessageReplay({
@@ -306,8 +307,9 @@ async function handleHumanSend(
     attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
   })
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
-  if (!result.deduped && target.kind !== "dm") await scheduleOnboardingFirstMessage(env, userId, target.serverId, cookies, result.row.id)
-  return NextResponse.json({ message: await mapPostedMessageForApi(db, target.channelId, result.row), deduped: result.deduped }, { status: 201 })
+  const response = NextResponse.json({ message: await mapPostedMessageForApi(db, target.channelId, result.row), deduped: result.deduped }, { status: 201 })
+  if (!result.deduped && target.kind !== "dm") await setOnboardingFirstMessageCookies(response, db, env, userId, target.serverId, cookies, result.row.id)
+  return response
 }
 
 /**

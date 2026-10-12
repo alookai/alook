@@ -9,8 +9,8 @@ vi.mock("@alook/shared", async original => ({ ...await original<typeof import("@
 } }))
 vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: async () => ({ ctx: { waitUntil: mocks.waitUntil } }) }))
 vi.mock("@/lib/db", () => ({ getPrimaryDb: () => ({}) }))
-import { analyticsCookiesAfterResponse, captureAuthentication, captureOnboardingFirstMessage, deliverProductAnalytics, productAnalyticsAllowed,
-  productAnalyticsIdentity, productAnalyticsMeasurementId, productAnalyticsPayload, setProductAnalyticsCookies, webAuthenticationMethod } from "./product-analytics-server"
+import { analyticsCookiesAfterResponse, captureAuthentication, captureOAuthCallbackFailure, captureOnboardingFirstMessage, deliverProductAnalytics, productAnalyticsAllowed,
+  productAnalyticsIdentity, productAnalyticsMeasurementId, productAnalyticsPayload, setProductAnalyticsCookies, setOnboardingFirstMessageCookies, webAuthenticationMethod } from "./product-analytics-server"
 
 const db = {} as Database
 const env = { BETTER_AUTH_SECRET: "fixture-auth-secret", GA4_API_SECRET: "fixture-only", NODE_ENV: "development", DEV_PRODUCT_ANALYTICS_COLLECTOR: "http://127.0.0.1:3345/collect" } as Env
@@ -23,8 +23,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.consent.mockResolvedValue(null)
   mocks.claim.mockResolvedValue(event)
-  mocks.record.mockResolvedValue({ row: event })
-  mocks.first.mockResolvedValue({ row: event })
+  mocks.record.mockResolvedValue({ row: event, inserted: true })
+  mocks.first.mockResolvedValue({ row: event, inserted: true })
   mocks.signup.mockResolvedValue(true)
   vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 204 })))
 })
@@ -120,6 +120,55 @@ describe("product analytics server boundaries", () => {
     vi.useFakeTimers(); vi.setSystemTime(1791781230000)
     await captureOnboardingFirstMessage(db, env, "private-user", "private-server", cookies, "first")
     expect(mocks.first).toHaveBeenCalledWith(db, "private-user", "private-server", expect.objectContaining(identity("1791781200")), "first")
+  })
+  it("returns a new late session in the eligible human response without waiting for collection", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(1792040400000)
+    vi.mocked(fetch).mockImplementation(() => new Promise(() => {}))
+    const response = { cookies: { set: vi.fn() } }
+    await setOnboardingFirstMessageCookies(response, db, env, "owner", "server", cookies, "first")
+    expect(mocks.first).toHaveBeenCalledWith(db, "owner", "server", expect.objectContaining(identity("1792040400")), "first")
+    expect(response.cookies.set).toHaveBeenCalledWith("alook_product_analytics_session", "1792040400.1792040400", expect.objectContaining({ httpOnly: true }))
+    expect(mocks.waitUntil).toHaveBeenCalledOnce()
+    expect(productAnalyticsIdentity(analyticsCookiesAfterResponse(cookies, ["alook_product_analytics_session=1792040400.1792040400; HttpOnly"]), 1792040405000).sessionId).toBe("1792040400")
+  })
+  it("does not change response cookies for ineligible or duplicate first-message records", async () => {
+    const response = { cookies: { set: vi.fn() } }
+    for (const result of [null, { row: event, inserted: false }]) {
+      mocks.first.mockResolvedValueOnce(result)
+      await setOnboardingFirstMessageCookies(response, db, env, "owner", "server", cookies, "later")
+    }
+    expect(response.cookies.set).not.toHaveBeenCalled()
+    expect(mocks.waitUntil).not.toHaveBeenCalled()
+  })
+  it("isolates first-message ledger errors from the committed human response", async () => {
+    mocks.first.mockRejectedValueOnce(new Error("database unavailable"))
+    const response = { cookies: { set: vi.fn() } }
+    await expect(setOnboardingFirstMessageCookies(response, db, env, "owner", "server", cookies, "first")).resolves.toBeUndefined()
+    expect(response.cookies.set).not.toHaveBeenCalled()
+  })
+  it("records bounded callback failures without exporting the state or provider error", async () => {
+    await captureOAuthCallbackFailure(env, { method: "github", attemptId: "private-attempt", cookies })
+    expect(mocks.record).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+      eventName: "sign_in_failed", method: "github", failureStage: "provider_callback", sourceId: "private-attempt",
+    }))
+    const input = mocks.record.mock.calls.at(-1)![1]
+    const payload = await productAnalyticsPayload({ ...event, ...input }, env.BETTER_AUTH_SECRET)
+    expect(payload.events[0].params).toMatchObject({ method: "github", failure_stage: "provider_callback" })
+    expect(JSON.stringify(payload)).not.toContain("private-attempt")
+  })
+  it("suppresses denied and duplicate OAuth failure delivery and cookie updates", async () => {
+    expect(await captureOAuthCallbackFailure(env, { method: "github", attemptId: "attempt", cookies: `${cookies}; alook_analytics_consent=v1.denied` })).toBeUndefined()
+    expect(mocks.record).not.toHaveBeenCalled()
+    mocks.record.mockResolvedValueOnce({ row: event, inserted: false })
+    expect(await captureOAuthCallbackFailure(env, { method: "github", attemptId: "attempt", cookies })).toBeUndefined()
+    expect(mocks.waitUntil).not.toHaveBeenCalled()
+  })
+  it("rechecks primary denial for an identified account before OAuth failure capture", async () => {
+    mocks.consent.mockResolvedValue({ decision: "denied" })
+    expect(await captureOAuthCallbackFailure(env, { method: "github", attemptId: "attempt", cookies, actorUserId: "owner" })).toBeUndefined()
+    expect(mocks.consent).toHaveBeenCalledWith(expect.anything(), "owner")
+    expect(mocks.record).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
   })
   it("records real auth outcomes from durable registration/session association", async () => {
     const input = { actorUserId: "private-user", cookies, path: "/api/auth/sign-in/email-otp", createdAt: new Date(event.createdAt) }

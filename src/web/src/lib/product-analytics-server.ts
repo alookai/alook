@@ -141,11 +141,16 @@ export async function captureOnboardingFirstMessage(db: Database, env: Env, acto
   if (!parseGaClientId(analyticsCookieValue(cookies, "_ga")) || !await productAnalyticsAllowed(db, env, cookies, actorUserId)) return
   const identity = productAnalyticsIdentity(cookies, Date.now(), productAnalyticsMeasurementId(env))
   const event = await queries.productAnalytics.recordFirstHumanMessage(db, actorUserId, serverId, identity, messageId)
-  if (event) await deliverProductAnalytics(db, env, event.row)
+  if (!event?.inserted) return
+  await scheduleProductAnalytics(() => deliverProductAnalytics(db, env, event.row))
+  return identity
 }
 
-export async function scheduleOnboardingFirstMessage(env: Env, actorUserId: string, serverId: string, cookies: string, messageId: string) {
-  await scheduleProductAnalytics(() => captureOnboardingFirstMessage(getPrimaryDb(env.DB), env, actorUserId, serverId, cookies, messageId))
+export async function setOnboardingFirstMessageCookies(response: { cookies: { set: Parameters<typeof setProductAnalyticsCookies>[0] } }, db: Database, env: Env, actorUserId: string, serverId: string, cookies: string, messageId: string) {
+  try {
+    const identity = await captureOnboardingFirstMessage(db, env, actorUserId, serverId, cookies, messageId)
+    if (identity) setProductAnalyticsCookies((...args) => response.cookies.set(...args), identity, env.BETTER_AUTH_URL?.startsWith("https:") ?? false)
+  } catch { log.warn("first-message analytics capture failed") }
 }
 
 export function webAuthenticationMethod(path: string): string | null {
@@ -173,6 +178,20 @@ export async function captureAuthentication(env: Env, input: {
     clientId: identity.clientId, sessionId: identity.sessionId, createdAt: input.createdAt.toISOString(), method, accountKind,
   })
   if (event) await scheduleProductAnalytics(() => deliverProductAnalytics(db, env, event.row))
+  return identity
+}
+
+export async function captureOAuthCallbackFailure(env: Env, input: { method: "github" | "google" | "apple"; attemptId: string; cookies: string; actorUserId?: string }) {
+  const db = getPrimaryDb(env.DB)
+  if (!await productAnalyticsAllowed(db, env, input.cookies, input.actorUserId)) return
+  const identity = productAnalyticsIdentity(input.cookies, Date.now(), productAnalyticsMeasurementId(env))
+  const event = await queries.productAnalytics.recordEvent(db, {
+    eventName: "sign_in_failed", actorUserId: input.actorUserId, sourceId: input.attemptId, dedupeKey: `oauth-callback-failed:${input.attemptId}`,
+    clientId: identity.clientId, sessionId: identity.sessionId, createdAt: new Date().toISOString(),
+    method: input.method, failureStage: "provider_callback",
+  })
+  if (!event?.inserted) return
+  await scheduleProductAnalytics(() => deliverProductAnalytics(db, env, event.row))
   return identity
 }
 

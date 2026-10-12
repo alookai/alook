@@ -1,6 +1,6 @@
 import { annotateWorkerSpan, observeWorkerOperation } from "./observability/worker"
 import { betterAuth } from "better-auth"
-import { getOAuthState } from "better-auth/api"
+import { addOAuthServerContext, createAuthMiddleware, getOAuthState, getSessionFromCtx } from "better-auth/api"
 import { emailOTP, deviceAuthorization, bearer, oneTimeToken } from "better-auth/plugins"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { nanoid } from "nanoid"
@@ -25,7 +25,7 @@ import {
 import { appleOauthHardeningPlugin } from "@/lib/apple-oauth-hardening"
 import { getOtpSubject, renderOtpEmail, type OtpType } from "./email-templates"
 
-import { analyticsCookiesAfterResponse, captureAuthentication, setProductAnalyticsCookies } from "@/lib/product-analytics-server"
+import { analyticsCookiesAfterResponse, captureAuthentication, captureOAuthCallbackFailure, setProductAnalyticsCookies } from "@/lib/product-analytics-server"
 
 const log = createLogger({ service: "auth" })
 
@@ -222,6 +222,36 @@ export function createAuth(env: Env) {
     // rate limit going through the shared `RATE_LIMITS` registry.
     rateLimit: {
       enabled: false,
+    },
+    hooks: {
+      before: createAuthMiddleware(async ctx => {
+        if (ctx.path !== "/sign-in/social" || !ctx.request) return
+        try {
+          const origin = new URL(env.BETTER_AUTH_URL).origin
+          const callback = new URL(ctx.body?.callbackURL ?? origin, origin)
+          if (ctx.request.headers.get("origin") !== origin || callback.origin !== origin
+            || callback.pathname === "/auth/native/callback") return
+          await addOAuthServerContext({ productAnalyticsWebAttempt: crypto.randomUUID() })
+        } catch { log.warn("OAuth analytics provenance unavailable") }
+      }),
+      after: createAuthMiddleware(async ctx => {
+        const method = /^\/callback\/(github|google|apple)$/u.exec(ctx.path)?.[1] as "github" | "google" | "apple" | undefined
+        if (!method || ctx.context.newSession) return
+        try {
+          const state = await getOAuthState()
+          const attemptId = state?.serverContext?.productAnalyticsWebAttempt
+          if (typeof attemptId !== "string" || !/^[a-f0-9-]{36}$/u.test(attemptId)
+            || await nativeAuthenticationFlow(ctx.request?.url ?? "")) return
+          const location = ctx.context.responseHeaders?.get("location")
+          const failedRedirect = location && new URL(location, env.BETTER_AUTH_URL).searchParams.has("error")
+          const returned = ctx.context.returned as { statusCode?: number } | undefined
+          if (!failedRedirect && !(returned?.statusCode && returned.statusCode >= 400)) return
+          const cookies = analyticsCookiesAfterResponse(ctx.request?.headers.get("cookie") ?? "", ctx.context.responseHeaders?.getSetCookie() ?? [])
+          const session = await getSessionFromCtx(ctx, { disableRefresh: true })
+          const identity = await captureOAuthCallbackFailure(env, { method, attemptId, cookies, actorUserId: session?.user.id })
+          if (identity) setProductAnalyticsCookies((...args) => ctx.setCookie(...args), identity, env.BETTER_AUTH_URL.startsWith("https:"))
+        } catch { log.warn("OAuth callback failure analytics capture failed") }
+      }),
     },
     databaseHooks: {
       user: {

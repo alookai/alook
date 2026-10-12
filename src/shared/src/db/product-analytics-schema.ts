@@ -28,7 +28,7 @@ export const productAnalyticsEvent = sqliteTable("product_analytics_event", {
   method: text("method"),
   accountKind: text("account_kind").$type<"new" | "existing">(),
   ctaName: text("cta_name"),
-  failureStage: text("failure_stage").$type<"send_code" | "verify_code" | "social_start">(),
+  failureStage: text("failure_stage").$type<"send_code" | "verify_code" | "social_start" | "provider_callback">(),
   createdAt: text("created_at").notNull(),
   deliveryStatus: text("delivery_status").notNull().default("pending").$type<ProductAnalyticsDeliveryStatus>(),
   deliveryReason: text("delivery_reason"),
