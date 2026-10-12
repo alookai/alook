@@ -81,6 +81,15 @@ describe("frontend product analytics", () => {
     send.mockImplementation(() => { throw new Error("offline") })
     await expect(captureProductAnalytics({ event: "onboarding_enter_clicked", serverId: "server" })).resolves.toBeUndefined()
   })
+  it("finishes without a backend fallback when the analytics document cannot attach", async () => {
+    const append = vi.spyOn(document.body, "appendChild").mockImplementationOnce(() => { throw new Error("DOM insertion blocked") })
+    try {
+      await expect(captureProductAnalytics({ event: "onboarding_enter_clicked", serverId: "server" })).resolves.toBeUndefined()
+      expect(append).toHaveBeenCalledOnce()
+      expect(document.getElementById("alook-product-events")).toBeNull()
+      expect(fetch).not.toHaveBeenCalled()
+    } finally { append.mockRestore() }
+  })
   it("reports only the current onboarding room's first successful message", () => {
     beginOnboardingAnalytics("owner", "onboarding-server")
     const { send } = loadFrame()
