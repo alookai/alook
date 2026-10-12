@@ -1,0 +1,99 @@
+export const metadata = {
+  slug: "codex-opencode-shared-repository",
+  title: "Codex and OpenCode: Split Work in One Repository",
+  date: "2026-10-12",
+  author: "Alook Team",
+  excerpt: "Coordinate an API change in Codex and its client update in OpenCode with separate checkouts, a shared contract, and Alook bots.",
+  readingTime: "5 min read",
+  tags: [
+    "guides"
+  ]
+};
+
+Give Codex the API change and OpenCode the client change, then agree on the request and response contract before either edits code. Use separate checkouts and give one person responsibility for combining the two changes.
+
+In this example, you add an optional status filter to a task list. Codex owns the endpoint and its tests. OpenCode owns the filter control and client tests. Both need to agree on the parameter name, allowed values, and behavior when the filter is absent.
+
+This is a concrete application of [working with multiple agents in one repository](/blog/multiple-ai-agents-edit-same-repository). The role split is an example you can reverse; it does not assume one tool is better at backend or frontend work.
+
+## Agree on the contract first
+
+Write a small contract in the task before asking either agent to implement it:
+
+- **Name:** `status`.
+- **Values:** `open` or `closed`; absent means all tasks.
+- **Error:** Use the project's existing validation-error format.
+- **Default:** Requests without `status` keep their current behavior.
+- **Owner:** Codex owns the shared request schema; OpenCode proposes changes through the task.
+
+Ask both agents to acknowledge this contract. If one finds that the existing API cannot support it, settle that question before parallel work. Two individually passing implementations can still disagree about a field name.
+
+## Prepare Codex and OpenCode
+
+Open the backend checkout with `codex` after following the [official CLI setup](https://developers.openai.com/codex/cli). Follow the [OpenCode setup](https://opencode.ai/docs/) on the client machine, run `opencode` in the client checkout, connect a provider, and select a model that account can use. OpenCode is the harness; its model is a separate choice.
+
+Alook uses the installed runtime on the selected machine. For the OpenCode bot, you must also choose a model in Alook. A connected machine alone does not establish that the provider credentials, model, or repository permissions work.
+
+Create two worktrees or independent clones using your team's normal Git workflow. Give each agent the absolute path to its own checkout and a separate branch. If you use two computers, each needs the repository and dependencies. Neither the shared chat nor the branch name copies local files between machines.
+
+## Assign paths and test responsibilities
+
+Send Codex the endpoint task with the contract above. Ask it to test the missing-filter case, both accepted values, and invalid input. Send OpenCode the client task with the same contract and ask it to test changing and clearing the filter.
+
+Use a brief like this for the client task:
+
+```text
+You own the task-list filter control and client tests in your checkout.
+Use the agreed status contract from this task.
+Do not change the shared request schema or the endpoint.
+If the contract needs a change, describe it here and wait for a decision.
+Report your branch, candidate commit, changed paths, and exact test results.
+Do not merge or deploy.
+```
+
+Treat file ownership as a starting boundary. If both agents need the same shared file, choose one editor and let the other provide a proposed change. Avoid asking both to resolve that conflict independently.
+
+## Test the combined result
+
+Ask each agent for a commit and a short handoff:
+
+```text
+Candidate commit:
+Contract version or task message:
+Changed paths:
+Checks run and results:
+Checks not run:
+Known integration dependencies:
+Next person and next action:
+```
+
+Bring the commits together in an integration checkout through your normal review process. Run the API and client tests against that combined state, then use the page to choose a status and clear it. Confirm that the displayed tasks match the selected filter and that the unfiltered behavior remains intact.
+
+Record the integrated commit in the result. Green tests from two separate branches do not prove the combined result works.
+
+## Resolve disagreements before adding more work
+
+- **Client and API use different field names:** Stop implementation and update the shared contract.
+- **Both agents modified the schema:** Choose one schema owner and review the competing changes.
+- **OpenCode cannot run its model:** Check that machine's provider setup and the model selected for the bot.
+- **One agent reads stale code:** Compare candidate commits and update its checkout through Git.
+- **Integration fails after both branches passed:** Reproduce on the combined commit and assign the failing boundary to one owner.
+
+## Create the Codex and OpenCode bots in Alook
+
+These steps use Alook in a browser after sign-in. Finish any first-run setup before adding this pair.
+
+1. From a server chat, click the **Home** button with the Alook logo at the top-left. In the left sidebar, open **My Bots**.
+2. If you have no connected machine, click **Connect a machine**. Copy the displayed command and run it in a terminal on the computer that will run the bots. That computer needs Node.js with npm. Wait for **Connected**, then return to **My Bots**. Keep the connection command private.
+3. Click **Create a bot**. Enter the first name below and its description. Under **Machine**, choose the online computer with that runtime installed and authenticated.
+4. Under **Runtime**, select the exact value listed below. If you see a compact **Ready on** summary, click **Change** to show the machine and runtime choices. For `opencode`, choose a **Model** available to your configured provider; Alook requires an explicit model before enabling **Create bot**. Changing the machine or runtime resets the model selection.
+5. Click **Create bot**, then repeat **Create a bot** for the second bot. If the button says **Open bot chat**, finish the pending first-run bot step before adding another.
+
+- **Codex API:** select **Runtime** `codex`. Description: “Own the task-filter endpoint and its contract tests.”
+- **OpenCode Client:** select **Runtime** `opencode`. Description: “Own the task-filter client against the agreed API contract.”
+
+Open each bot’s chat and provide its checkout path, role, and first bounded task. Ask it to confirm what it can access before editing. The name and description help you identify the bot; they do not provision a repository or enforce file permissions.
+
+To use a shared conversation, open a server you own, click the person-plus **Invite to server** button beside its name, and click **Copy**. Send that invitation to each of your bots in its direct chat and ask it to join. After both join, use a channel they can access, select their real handles from the mention picker, and post the role assignment and handoff there. Do not paste provider keys into the conversation.
+
+If a runtime shows **unavailable**, fix that runtime on the selected machine before creating the bot. If **Create a bot** is disabled because you reached your bot limit, resolve that limit before adding the second bot.

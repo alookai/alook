@@ -1,0 +1,92 @@
+export const metadata = {
+  slug: "claude-code-opencode-handoff",
+  title: "Claude Code to OpenCode: Continue Work With a Clear Handoff",
+  date: "2026-10-12",
+  author: "Alook Team",
+  excerpt: "Move a scoped refactor from Claude Code to OpenCode with an exact code state, decisions and next step, then create both bots in Alook.",
+  readingTime: "5 min read",
+  tags: [
+    "guides"
+  ]
+};
+
+Before handing a refactor from Claude Code to OpenCode, ask Claude Code to record the code state, the decisions you accepted, and the next unfinished step. Ask OpenCode to verify that record against its checkout before continuing.
+
+Suppose Claude Code extracted one validation helper and updated its first caller. You want OpenCode to migrate the remaining callers without reopening the design or replacing the helper. Your handoff must identify which callers remain and which behavior must stay the same.
+
+This guide applies [carrying context across coding-agent sessions](/blog/keep-context-across-coding-agent-sessions) to two named harnesses. It describes a proposed workflow, not a benchmark or a claim that the two products share session history.
+
+## Prepare the receiving environment
+
+- **Code:** The exact candidate commit, plus any uncommitted changes called out separately.
+- **Project instructions:** The relevant repository rules and test commands.
+- **Decisions:** The helper contract and the reason you chose it.
+- **Remaining work:** Named callers and a bounded next action.
+- **Access:** A checkout and provider/model access on its own machine.
+
+Start Claude Code with `claude` and complete its authentication as described in the [Claude Code quickstart](https://code.claude.com/docs/en/quickstart). Set up OpenCode and its provider using the [OpenCode introduction](https://opencode.ai/docs/). Run `opencode` in the receiving checkout and choose its model; the harness name does not identify the model.
+
+OpenCode reads project instructions from `AGENTS.md` and can fall back to `CLAUDE.md` when no `AGENTS.md` exists, as described in its [rules documentation](https://opencode.ai/docs/rules/). Check which file your project supplies and resolve conflicting instructions. An instruction file describes how to work; it does not establish the current state of this refactor.
+
+## Ask Claude Code to leave a verifiable handoff
+
+Stop at a reviewable point. Preserve the work in a commit, or explain exactly where any uncommitted changes live. Then ask Claude Code to fill this record with facts from the current checkout:
+
+```text
+Goal: migrate the remaining callers to the agreed validation helper.
+Candidate commit:
+Uncommitted files, if any:
+Completed: helper extraction and the first caller.
+Decision: preserve the existing validation-error format.
+Remaining callers:
+Checks run, exact commands, and results:
+Rejected approach and reason:
+Next action: inspect the helper, then migrate one remaining caller.
+Do not change: public error shape or unrelated validation rules.
+```
+
+Keep the record with the task or repository where the receiving agent can read it. If the machines differ, share the commit through Git and the handoff through the agreed conversation. A path in Claude Code's environment is not accessible to OpenCode merely because you pasted its name.
+
+## Have OpenCode verify before editing
+
+Give OpenCode the candidate SHA and handoff. Its first response should name the checkout, confirm the code state, and list any mismatch. Ask it to read the helper and the first migrated caller before choosing its next edit.
+
+```text
+Read the handoff and inspect the supplied commit.
+Before changing files, confirm the helper contract and remaining callers.
+Report any difference between the note and the actual code.
+Then migrate one caller, run its relevant tests, and report the new candidate.
+Keep the public error format unchanged. Do not merge or deploy.
+```
+
+For an interactive OpenCode inspection, its documented Plan agent asks before file edits and shell commands by default. Check the effective permissions rather than assuming the word “Plan” makes every action impossible. See [OpenCode agents](https://opencode.ai/docs/agents/). Selecting the `opencode` runtime in Alook does not by itself select that interactive Plan agent.
+
+## Review the first continuation before the rest
+
+Have OpenCode show the first migrated caller and its test result. Compare the error behavior with the version before migration. If you accept that step, let it continue with the remaining named callers.
+
+Update the handoff after each accepted checkpoint. Include the new commit and remove completed items from the remaining-work list. If you return the work to Claude Code, give it this new record instead of expecting its earlier conversation to contain OpenCode's changes.
+
+- **The note says a caller is done but the code disagrees:** Stop and reconcile the checkout and candidate SHA.
+- **OpenCode proposes the rejected rewrite:** Supply the decision and reason, then restate the bounded task.
+- **Tests cannot run on the receiving machine:** Restore the documented dependencies or report the missing prerequisite.
+- **The receiving agent changes the public error shape:** Return to the acceptance criteria and review that change before proceeding.
+
+## Create the Claude Code and OpenCode bots in Alook
+
+These steps use Alook in a browser after sign-in. Finish any first-run setup before adding this pair.
+
+1. From a server chat, click the **Home** button with the Alook logo at the top-left. In the left sidebar, open **My Bots**.
+2. If you have no connected machine, click **Connect a machine**. Copy the displayed command and run it in a terminal on the computer that will run the bots. That computer needs Node.js with npm. Wait for **Connected**, then return to **My Bots**. Keep the connection command private.
+3. Click **Create a bot**. Enter the first name below and its description. Under **Machine**, choose the online computer with that runtime installed and authenticated.
+4. Under **Runtime**, select the exact value listed below. If you see a compact **Ready on** summary, click **Change** to show the machine and runtime choices. For `opencode`, choose a **Model** available to your configured provider; Alook requires an explicit model before enabling **Create bot**. Changing the machine or runtime resets the model selection.
+5. Click **Create bot**, then repeat **Create a bot** for the second bot. If the button says **Open bot chat**, finish the pending first-run bot step before adding another.
+
+- **Claude Refactor:** select **Runtime** `claude`. Description: “Extract the agreed helper and leave a verifiable handoff.”
+- **OpenCode Continuation:** select **Runtime** `opencode`. Description: “Verify the handoff and migrate the remaining named callers.”
+
+Open each bot’s chat and provide its checkout path, role, and first bounded task. Ask it to confirm what it can access before editing. The name and description help you identify the bot; they do not provision a repository or enforce file permissions.
+
+To use a shared conversation, open a server you own, click the person-plus **Invite to server** button beside its name, and click **Copy**. Send that invitation to each of your bots in its direct chat and ask it to join. After both join, use a channel they can access, select their real handles from the mention picker, and post the role assignment and handoff there. Do not paste provider keys into the conversation.
+
+If a runtime shows **unavailable**, fix that runtime on the selected machine before creating the bot. If **Create a bot** is disabled because you reached your bot limit, resolve that limit before adding the second bot.

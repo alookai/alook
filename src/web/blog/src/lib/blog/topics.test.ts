@@ -47,14 +47,14 @@ describe("blogTopics", () => {
     expect(registrySlugs).toEqual(publishedSlugs);
   });
 
-  it("covers all 26 published slugs exactly once", () => {
+  it("covers all 29 published slugs exactly once", () => {
     const orderedSlugs = blogTopics.map((topic) =>
       topic.entries.map((entry) => entry.slug)
     );
     const slugs = orderedSlugs.flat();
 
-    expect(slugs).toHaveLength(26);
-    expect(new Set(slugs).size).toBe(26);
+    expect(slugs).toHaveLength(29);
+    expect(new Set(slugs).size).toBe(29);
     expect(orderedSlugs).toEqual([
       [
         "ai-agent-vs-chatbot",
@@ -72,6 +72,9 @@ describe("blogTopics", () => {
         "claude-code-dynamic-workflow-alternative",
         "keep-context-across-coding-agent-sessions",
         "multiple-ai-agents-edit-same-repository",
+        "claude-code-codex-bug-fix-review",
+        "codex-opencode-shared-repository",
+        "claude-code-opencode-handoff",
         "prevent-coding-agents-duplicating-work",
       ],
       [
@@ -109,6 +112,9 @@ describe("blogTopics", () => {
         )
       )
     ).toEqual({
+      "claude-code-codex-bug-fix-review": "Hand a Claude Code bug fix to Codex for review",
+      "codex-opencode-shared-repository": "Split repository work between Codex and OpenCode",
+      "claude-code-opencode-handoff": "Continue a Claude Code refactor in OpenCode",
       "ai-agent-vs-chatbot": "Decide whether I need an agent or a chatbot",
       "local-ai-agents":
         "Choose which parts of an AI agent should run locally",

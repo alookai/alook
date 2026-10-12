@@ -1,0 +1,87 @@
+export const metadata = {
+  slug: "claude-code-codex-bug-fix-review",
+  title: "Claude Code and Codex: Fix a Bug, Then Review the Same Commit",
+  date: "2026-10-12",
+  author: "Alook Team",
+  excerpt: "Give Claude Code a bounded fix and Codex an exact commit to review, then create both bots in Alook.",
+  readingTime: "5 min read",
+  tags: [
+    "guides"
+  ]
+};
+
+Use Claude Code to fix one reproducible bug, then ask Codex to review the resulting commit. Give the two agents different jobs and point both at the same acceptance test. You can reverse the roles; this example assigns responsibility, not a ranking of the tools.
+
+Suppose a form submits twice when someone clicks Save twice. You want one request per submission and a test that catches the duplicate. Claude Code owns the fix. Codex checks whether the fix covers double clicks, failures, and retries. You decide whether to merge.
+
+This applies the ownership rules from [preventing duplicate agent work](/blog/prevent-coding-agents-duplicating-work) to one review cycle. For the broader choices, see [using Claude Code and Codex together](/blog/claude-code-and-codex-same-team).
+
+## Prepare two working environments
+
+- **Claude Code:** Install and authenticate the CLI; open the implementation checkout. Reproduce the duplicate, change the handler, add a regression test.
+- **Codex:** Install and authenticate the CLI; give it access to the same repository and review commit. Inspect the diff and test the failure and retry paths.
+- **You:** Define the expected behavior and the repository test command. Resolve scope questions and approve the result.
+
+Start `claude` in the implementation directory and complete its sign-in prompts. Start `codex` in the review directory and complete its sign-in prompts. Follow the current [Claude Code quickstart](https://code.claude.com/docs/en/quickstart) and [Codex CLI setup](https://developers.openai.com/codex/cli); Alook bot creation does not replace either provider's authentication.
+
+Use separate checkouts if both agents will run at once. A branch name alone does not isolate uncommitted files in a shared directory. Tell each agent its absolute checkout path, permitted files, and test command before it changes anything.
+
+## Give Claude Code one implementation task
+
+Send a bounded brief, replacing the example paths and command with your project's values:
+
+```text
+Goal: prevent a second Save request while the first request is pending.
+You own implementation in the checkout I provided.
+Scope: the submit handler and its regression tests.
+Acceptance: two clicks while pending produce one request.
+A failed request must allow a later retry.
+Run the repository's relevant test command and report its exact result.
+Leave unrelated edits alone. Do not merge or deploy.
+```
+
+Ask Claude Code to reproduce the failure before editing. After the change, ask for the changed paths, the regression result, and any case it did not test. A passing test for the happy path does not establish the retry behavior.
+
+## Give Codex a fixed review target
+
+When Claude Code finishes, preserve the candidate in a commit and give Codex its full SHA. If the review checkout lives on another computer, make the commit available through your repository's normal sharing process. A local path on one machine is not a file transfer.
+
+```text
+Review target: paste the full candidate commit SHA here.
+Base: paste the base commit SHA here.
+Task: review the double-submit fix without editing the author's checkout.
+Check: double click, slow response, failed response, then a successful retry.
+For each finding, give the file, the triggering case, and the expected behavior.
+State which checks you ran and which you only inspected.
+Do not merge or deploy.
+```
+
+Have Codex confirm the checked-out SHA before reviewing. If it finds a defect, Claude Code fixes it and supplies a new SHA. Codex then reviews the affected behavior on that candidate. A review of the old commit cannot approve the replacement.
+
+## Close the review with evidence
+
+You should have one candidate commit, a regression result from the implementer, and a review that names the same commit. Resolve each finding before approving the change. Keep a note of untested behavior, such as a browser-specific interaction you could not reproduce.
+
+- **Codex cannot see the fix:** Compare commit SHAs and confirm the commit exists in its checkout.
+- **Both agents changed the handler:** Stop concurrent edits; choose the implementation owner and inspect both diffs.
+- **Tests pass but Save stays disabled:** Recheck the rejected-request path and the state reset.
+- **The second agent repeats the investigation:** Supply the reproduction, changed paths, test output, and rejected approaches.
+
+## Create the Claude Code and Codex bots in Alook
+
+These steps use Alook in a browser after sign-in. Finish any first-run setup before adding this pair.
+
+1. From a server chat, click the **Home** button with the Alook logo at the top-left. In the left sidebar, open **My Bots**.
+2. If you have no connected machine, click **Connect a machine**. Copy the displayed command and run it in a terminal on the computer that will run the bots. That computer needs Node.js with npm. Wait for **Connected**, then return to **My Bots**. Keep the connection command private.
+3. Click **Create a bot**. Enter the first name below and its description. Under **Machine**, choose the online computer with that runtime installed and authenticated.
+4. Under **Runtime**, select the exact value listed below. If you see a compact **Ready on** summary, click **Change** to show the machine and runtime choices. Review the **Model** choice; you can retain the runtime’s displayed default or choose an available model.
+5. Click **Create bot**, then repeat **Create a bot** for the second bot. If the button says **Open bot chat**, finish the pending first-run bot step before adding another.
+
+- **Claude Fixer:** select **Runtime** `claude`. Description: “Implement the scoped form fix and report the candidate commit.”
+- **Codex Reviewer:** select **Runtime** `codex`. Description: “Review the supplied candidate and return findings with evidence.”
+
+Open each bot’s chat and provide its checkout path, role, and first bounded task. Ask it to confirm what it can access before editing. The name and description help you identify the bot; they do not provision a repository or enforce file permissions.
+
+To use a shared conversation, open a server you own, click the person-plus **Invite to server** button beside its name, and click **Copy**. Send that invitation to each of your bots in its direct chat and ask it to join. After both join, use a channel they can access, select their real handles from the mention picker, and post the role assignment and handoff there. Do not paste provider keys into the conversation.
+
+If a runtime shows **unavailable**, fix that runtime on the selected machine before creating the bot. If **Create a bot** is disabled because you reached your bot limit, resolve that limit before adding the second bot.
