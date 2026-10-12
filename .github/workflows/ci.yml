@@ -128,7 +128,7 @@ jobs:
             args+=(--base "$EVENT_SHA" --head "$EVENT_SHA" --force-full)
           fi
           node scripts/ci/changed-scopes.mjs "${args[@]}"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: execution-plan-${{ github.run_id }}-${{ github.run_attempt }}
           path: .ci/execution-plan.json
@@ -151,7 +151,7 @@ jobs:
           CI_PROJECTION_VALUE: ${{ needs.scope.outputs.run_auth_build }}
         run: node scripts/ci/validate-execution-plan.mjs
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: pnpm
@@ -180,7 +180,7 @@ jobs:
           CI_PROJECTION_VALUE: ${{ needs.scope.outputs.run_blog_build }}
         run: node scripts/ci/validate-execution-plan.mjs
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: pnpm
@@ -210,7 +210,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.11
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: pnpm
@@ -276,7 +276,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.11
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: pnpm
@@ -410,7 +410,7 @@ jobs:
           fail_ci_if_error: true
       - name: Upload coverage plan evidence
         if: env.RUN_COVERAGE == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: coverage-plan-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -432,7 +432,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.11
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: pnpm
@@ -508,7 +508,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.11
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: pnpm
@@ -526,7 +526,7 @@ jobs:
           test -f "$RUNNER_TEMP/alook-app-packed-artifact/artifact-verification/negative-wrangler.log"
       - name: Upload app packed artifact evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: app-packed-artifact-${{ needs.scope.outputs.head_sha }}
           path: |
@@ -549,7 +549,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: pnpm
@@ -661,7 +661,7 @@ jobs:
           CI_PROJECTION_VALUE: ${{ needs.scope.outputs.run_lighthouse }}
         run: node scripts/ci/validate-execution-plan.mjs
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: pnpm
@@ -696,7 +696,7 @@ jobs:
           CI_PROJECTION_VALUE: ${{ needs.scope.outputs.e2e_matrix }}
         run: node scripts/ci/validate-execution-plan.mjs
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: pnpm
@@ -720,7 +720,7 @@ jobs:
             --run-id "${{ github.run_id }}" \
             --attempt "${{ steps.artifact_identity.outputs.artifact_attempt }}" \
             --head-sha "${{ github.sha }}"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ steps.artifact_identity.outputs.artifact_name }}
           path: |
@@ -768,13 +768,13 @@ jobs:
             --shard "${{ matrix.shard }}" \
             --total "${{ matrix.total }}"
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: printf 'BETTER_AUTH_SECRET=ci-e2e-ui-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\nDEV_WS_DO_URL=http://localhost:3000\nNODE_ENV=development\n' > src/web/.dev.vars
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: ${{ needs.ui-e2e-build.outputs.artifact_name }}
           path: .ci/ui-e2e-build
@@ -792,7 +792,7 @@ jobs:
           mapfile -t specs < <(node -e 'for (const spec of JSON.parse(process.env.E2E_SPECS)) console.log(spec)')
           pnpm --filter @alook/web exec playwright test "${specs[@]}"
       - if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: blob-report-${{ github.run_id }}-${{ matrix.shard }}
           path: |
@@ -803,7 +803,7 @@ jobs:
           retention-days: 7
       - if: failure()
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: playwright-artifacts-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           path: |
@@ -837,13 +837,13 @@ jobs:
           CI_PROJECTION_VALUE: ${{ needs.scope.outputs.e2e_matrix }}
         run: node scripts/ci/validate-execution-plan.mjs
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: printf 'BETTER_AUTH_SECRET=ci-e2e-ui-secret\nBETTER_AUTH_URL=http://localhost:3000\nDEVICE_CLIENT_IDS=e2e-test-client\nENCRYPTION_KEY=ci-e2e-encryption-key-32chars!!\nDEV_WS_DO_URL=http://localhost:3000\nNODE_ENV=development\n' > src/web/.dev.vars
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: ${{ needs.ui-e2e-build.outputs.artifact_name }}
           path: .ci/ui-e2e-build
@@ -864,7 +864,7 @@ jobs:
             --grep 'preserves Marked tab, scroll, and request ownership across 639↔640|restores fresh and saved mobile-first desktop entries before paint'
       - if: failure()
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: resizable-panels-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -889,12 +889,12 @@ jobs:
           CI_PROJECTION_VALUE: ${{ needs.scope.outputs.e2e_matrix }}
         run: node scripts/ci/validate-execution-plan.mjs
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: blob-report-${{ github.run_id }}-*
           path: downloaded-blob-reports
@@ -916,7 +916,7 @@ jobs:
       - env:
           E2E_MATRIX: ${{ needs.scope.outputs.e2e_matrix }}
         run: node scripts/ci/e2e-shard-artifacts.mjs verify-merged --report merged-report.json
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: playwright-report-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
