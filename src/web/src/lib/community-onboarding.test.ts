@@ -7,16 +7,12 @@ const analytics = vi.hoisted(() => ({
   skipped: vi.fn(),
 }));
 
-vi.mock("@/lib/analytics", async importOriginal => {
-  const actual = await importOriginal<typeof import("@/lib/analytics")>();
-  return {
-    ...actual,
-    trackCommunityOnboardingStarted: () => { analytics.started(); actual.trackCommunityOnboardingStarted(); },
-    trackCommunityOnboardingStageCompleted: (stage: Parameters<typeof actual.trackCommunityOnboardingStageCompleted>[0]) => { analytics.stageCompleted(stage); actual.trackCommunityOnboardingStageCompleted(stage); },
-    trackCommunityOnboardingCompleted: () => { analytics.completed(); actual.trackCommunityOnboardingCompleted(); },
-    trackCommunityOnboardingSkipped: (stage: Parameters<typeof actual.trackCommunityOnboardingSkipped>[0]) => { analytics.skipped(stage); actual.trackCommunityOnboardingSkipped(stage); },
-  };
-});
+vi.mock("@/lib/analytics", () => ({
+  trackCommunityOnboardingStarted: analytics.started,
+  trackCommunityOnboardingStageCompleted: analytics.stageCompleted,
+  trackCommunityOnboardingCompleted: analytics.completed,
+  trackCommunityOnboardingSkipped: analytics.skipped,
+}));
 
 import { QueryClient } from "@tanstack/react-query";
 import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections";
@@ -136,31 +132,7 @@ describe("community onboarding journey", () => {
     completeCommunityOnboarding(runtime());
     expect(readCommunityOnboardingState(runtime())).toBeNull();
     expect(analytics.stageCompleted).toHaveBeenLastCalledWith("initializing");
-    expect(analytics.completed).toHaveBeenCalledOnce();
-  });
-
-  it.each(["", "v1.denied", "v1.granted"])("queues actual completion once after initialization on private Web with Cookie %s", cookie => {
-    const browser = { location: new URL("https://alook.ai/c/channels/private-server/private-room"), dataLayer: [] as unknown[] };
-    vi.stubGlobal("window", browser);
-    vi.stubGlobal("document", { cookie: `alook_analytics_consent=${cookie}` });
-    completeCommunityOnboarding(runtime());
-    startCommunityOnboarding(runtime());
-    completeCommunityOnboarding(runtime());
-    expect(browser.dataLayer).toEqual([{ event: "community_onboarding_started" }]);
-    advanceCommunityOnboarding(runtime(), "harness", "machine");
-    advanceCommunityOnboarding(runtime(), "machine", "identity");
-    advanceCommunityOnboarding(runtime(), "identity", "initializing");
-    completeCommunityOnboarding(runtime());
-    completeCommunityOnboarding(runtime());
-    expect(browser.dataLayer).toEqual([
-      { event: "community_onboarding_started" },
-      { event: "community_onboarding_stage_completed", stage: "harness" },
-      { event: "community_onboarding_stage_completed", stage: "machine" },
-      { event: "community_onboarding_stage_completed", stage: "identity" },
-      { event: "community_onboarding_stage_completed", stage: "initializing" },
-      { event: "community_onboarding_completed" },
-    ]);
-    expect(JSON.stringify(browser.dataLayer)).not.toMatch(/private|viewer|machineId/);
+    expect(analytics.completed).not.toHaveBeenCalled();
   });
 
   it("does not complete before initialization finishes", () => {

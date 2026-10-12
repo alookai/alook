@@ -389,7 +389,7 @@ describe("useShellInboxController", () => {
     const actualVerifier = await vi.importActual<typeof import("@/hooks/community/channel-route-verification")>("@/hooks/community/channel-route-verification")
     mocks.warmup.mockImplementation(actualWarmup.startConversationNavigationWarmup)
     mocks.verifyDm.mockImplementation(actualVerifier.startChannelRouteVerification)
-    const metadata = { id: "dm1", serverId: null, type: "dm", name: null,
+    const metadata = { categoryId: null, topic: "", position: 0, messageCount: 0, id: "dm1", serverId: null, type: "dm", name: null,
       parentChannelId: null, parentMessageId: null, creatorId: null, archived: false,
       lastMessageAt: null, createdAt: "2026-10-02T00:00:00Z" }
     const json = (value: unknown) => new Response(JSON.stringify(value), { status: 200, headers: { "Content-Type": "application/json" } })

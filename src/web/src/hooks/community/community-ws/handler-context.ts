@@ -1,7 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query"
 import type { CommunityRuntime } from "@/stores/community/runtime"
 import type { CommunityWsProjectionTransaction } from "@/hooks/community/community-ws/projection-transaction"
-import type { CommunityWsEvent } from "@alook/shared"
+import type { CommunityWsEvent, CommunityContract } from "@alook/shared"
 
 export type Subscription = {
   // The focused regular channel/thread.
@@ -20,6 +20,7 @@ export type Subscription = {
  * hook usable in places where the viewer identity isn't yet loaded.
  */
 export type UseCommunityWsOptions = {
+  communityContract?: CommunityContract
   viewerUserId?: string | null
 }
 
@@ -29,6 +30,7 @@ export type CommunityInboxRefreshRequest = {
 }
 
 export type CommunityWsDispatchContext = {
+  contract?: CommunityContract
   deliveryMode: "single" | "batch"
   queryClient: QueryClient
   communityStore: CommunityRuntime["ui"]

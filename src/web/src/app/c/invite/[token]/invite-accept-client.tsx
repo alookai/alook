@@ -16,6 +16,7 @@ import { apiFetch } from "@/lib/api/client"
 import { ApiError } from "@/lib/errors"
 import { ServerIcon } from "@/components/community/server-icon"
 import { Avatar } from "@/components/community/avatar"
+import { captureProductAnalytics } from "@/lib/product-analytics"
 import { tid } from "@/lib/community/testids"
 
 type InviteInfo = {
@@ -41,14 +42,16 @@ function isDeadInvite(err: unknown): boolean {
  * Fetches invite info, displays server preview, and joins on button click.
  */
 export function InviteAcceptClient({ token }: { token: string }) {
-  return <PublicQueryProvider><InviteAcceptInner token={token} /></PublicQueryProvider>
+  const visitId = useMemo(() => ({ token, id: crypto.randomUUID() }), [token]).id
+  return <PublicQueryProvider><InviteAcceptInner token={token} visitId={visitId} /></PublicQueryProvider>
 }
 
-function InviteAcceptInner({ token }: { token: string }) {
+function InviteAcceptInner({ token, visitId }: { token: string; visitId: string }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const source = useApplicationViewSource(`community-invite:${token}`)
   const { owner } = source
+  useEffect(() => { void captureProductAnalytics({ event: "invitation_link_visit", token }, visitId) }, [token, visitId])
   const query = useQuery({ queryKey: applicationKey(owner, "community-invite", token), retry: false,
     queryFn: ({ signal }) => runApplicationRequest(owner, (options) => apiFetch<InviteInfo>(`/api/community/invites/${token}/info`, {
       ...options, onUnauthorized: async () => { options.assertActive?.(); return false },

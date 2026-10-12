@@ -14,7 +14,7 @@ import { materializeMessageStream } from "@/lib/community/message-stream"
 
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done }); return { promise, resolve } }
 const author = { id: "u_me", name: "Me", avatar: "M" }
-const posted = { message: { id: "confirmed", seq: 12, type: "chat", content: "hello", authorId: "u_me", authorName: "Me", createdAt: "2026-10-09T01:00:00Z", embeds: [] } }
+const posted = { message: { id: "confirmed", seq: 12, type: "chat", content: "hello", authorId: "u_me", authorName: "Me", authorImage: null, authorAvatarVersion: 0, createdAt: "2026-10-09T01:00:00Z", embeds: [] } }
 afterEach(() => vi.unstubAllGlobals())
 
 describe("accepted IO survives real view retirement", () => {

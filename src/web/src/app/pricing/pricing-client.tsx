@@ -1,5 +1,7 @@
 "use client"
 
+/* eslint-disable @next/next/no-location-assign-relative-destination -- Product entrances require a new document to unload public tracking. */
+
 import { useObservedRegion } from "@/lib/observability/regions"
 
 import { useEffect, useRef, type RefObject } from "react"
@@ -12,7 +14,7 @@ import { useBilling } from "@/hooks/community/use-billing"
 import { PublicQueryProvider, useApplicationOwner } from "@/lib/application-owner"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { FounderPlanChangeDialog } from "@/components/community/billing/founder-plan-change-dialog"
-import { toAnalyticsCurrentPlan, toAnalyticsPlanId, trackPricingCtaClick, trackPricingView, type PricingCtaAction } from "@/lib/analytics"
+import { trackLandingCtaClicked, toAnalyticsCurrentPlan, toAnalyticsPlanId, trackPricingCtaClick, trackPricingView, type PricingCtaAction } from "@/lib/analytics"
 import { PricingView } from "./pricing-view"
 
 function PricingContent({ signedIn, sessionPending, sessionError, viewTrackedRef }: {
@@ -73,17 +75,14 @@ function PricingContent({ signedIn, sessionPending, sessionError, viewTrackedRef
       })
     }
     if (!signedIn) {
+      trackLandingCtaClicked({ cta_name: "pricing_get_started" })
       const destination = plan === "free" ? "/c/me/bots" : `/pricing?${new URLSearchParams({ plan })}`
-      // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- Public analytics and private DOM must use different documents.
       window.location.assign(`/sign-in?${new URLSearchParams({ redirect: destination })}`)
       return
     }
     if (plan === "free") {
       if (summary?.subscription && !summary.isFounder) void billing.portal()
-      else {
-        // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- Public analytics and private DOM must use different documents.
-        window.location.assign("/c/me/bots")
-      }
+      else { trackLandingCtaClicked({ cta_name: "pricing_open_app" }); window.location.assign("/c/me/bots") }
       return
     }
     const item = paymentOffer(plan)

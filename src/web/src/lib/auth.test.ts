@@ -1,5 +1,9 @@
 import { afterEach, describe, it, expect, vi, beforeEach } from "vitest"
 
+const productMocks = vi.hoisted(() => ({ capture: vi.fn(async () => undefined), failure: vi.fn(async () => undefined), serverContext: vi.fn(), currentSession: vi.fn<() => Promise<null | { user: { id: string } }>>(async () => null), oauthState: vi.fn<() => Promise<null | { callbackURL: string; serverContext?: Record<string, unknown> }>>(async () => null) }))
+vi.mock("@/lib/product-analytics-server", async original => ({ ...await original<typeof import("@/lib/product-analytics-server")>(), captureAuthentication: productMocks.capture, captureOAuthCallbackFailure: productMocks.failure }))
+vi.mock("better-auth/api", async original => ({ ...await original<typeof import("better-auth/api")>(), getOAuthState: productMocks.oauthState, addOAuthServerContext: productMocks.serverContext, getSessionFromCtx: productMocks.currentSession, createAuthMiddleware: (handler: unknown) => handler }))
+
 const appleMocks = vi.hoisted(() => ({
   generateClientSecret: vi.fn(async () => "signed-apple-client-secret"),
 }))
@@ -153,6 +157,7 @@ type AuthOptions = {
       maxAge?: number
     }
   }
+  hooks?: { before: (ctx: unknown) => Promise<void>; after: (ctx: unknown) => Promise<void> }
   databaseHooks?: {
     user?: {
       create?: {
@@ -932,5 +937,118 @@ describe("createAuth databaseHooks — user.create.before", () => {
     // Salt scheme is now `id:width:attempt`; the first retry stays at width 4.
     expect(result.data.discriminator).toBe(computeDiscriminator("u_collide:4:1", 4))
     expect(result.data.discriminator).toMatch(/^\d{4}$/)
+  })
+})
+
+
+describe("auth funnel committed hooks", () => {
+  beforeEach(() => { vi.clearAllMocks(); productMocks.capture.mockResolvedValue(undefined); productMocks.oauthState.mockResolvedValue(null) })
+  function context(path: string) {
+    return { request: new Request(`https://alook.ai/api/auth${path}`, { headers: { cookie: "_ga=GA1.1.100.200; is_new_signup=forged" } }),
+      responseHeaders: new Headers(), setCookie: vi.fn(), getCookie: vi.fn(() => "forged") }
+  }
+  it("captures saved account/session rows even if the readable signup cookie is forged", async () => {
+    const createAuth = await loadCreateAuth()
+    const hooks = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options.databaseHooks!
+    const createdAt = new Date("2026-10-12T05:00:00.000Z")
+    await hooks.user!.create!.after!({ id: "owner", createdAt }, context("/sign-in/email-otp"))
+    expect(productMocks.capture).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ actorUserId: "owner", createdAt }))
+    await hooks.session!.create!.after!({ id: "saved-session", userId: "owner", createdAt }, context("/sign-in/email-otp"))
+    expect(productMocks.capture).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ sessionId: "saved-session", actorUserId: "owner", createdAt }))
+  })
+  it("does not break successful auth or cookie behavior when analytics fails", async () => {
+    productMocks.capture.mockRejectedValueOnce(new Error("D1 unavailable"))
+    const createAuth = await loadCreateAuth()
+    const hooks = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options.databaseHooks!
+    const ctx = context("/sign-in/email-otp")
+    await expect(hooks.user!.create!.after!({ id: "owner", createdAt: new Date() }, ctx)).resolves.toBeUndefined()
+    expect(ctx.setCookie).toHaveBeenCalledWith("is_new_signup", "email", expect.anything())
+  })
+  it("allows real OTP only under the explicit development QA opt-in", async () => {
+    const createAuth = await loadCreateAuth()
+    const options = (createAuth(makeEnv({ NODE_ENV: "development", DEV_AUTH_OTP: "1" }) as never) as { __options: AuthOptions }).__options
+    expect(options.plugins).toContainEqual(expect.objectContaining({ __plugin: "emailOTP" }))
+    const defaultOptions = (createAuth(makeEnv({ NODE_ENV: "development" }) as never) as { __options: AuthOptions }).__options
+    expect(defaultOptions.plugins).not.toContainEqual(expect.objectContaining({ __plugin: "emailOTP" }))
+  })
+})
+
+
+describe("verified web OAuth callback failure hooks", () => {
+  const attempt = "12345678-1234-4234-8234-123456789abc"
+  beforeEach(() => { vi.clearAllMocks(); productMocks.oauthState.mockResolvedValue(null); productMocks.failure.mockResolvedValue(undefined); productMocks.currentSession.mockResolvedValue(null) })
+  async function hooks() {
+    const createAuth = await loadCreateAuth()
+    return (createAuth(makeEnv({ NODE_ENV: "production", BETTER_AUTH_URL: "https://alook.ai" }) as never) as { __options: AuthOptions }).__options.hooks!
+  }
+  function ctx(path = "/callback/:id") {
+    return { path, params: { id: "github" }, request: new Request(`https://alook.ai/api/auth${path.replace(":id", "github")}`, { headers: { origin: "https://alook.ai", cookie: "_ga=GA1.1.100.200" } }),
+      body: { callbackURL: "/c/me" }, context: { responseHeaders: new Headers({ location: "https://alook.ai/api/auth/error?error=access_denied&error_description=private-value" }), returned: { statusCode: 302 }, newSession: null as unknown }, setCookie: vi.fn() }
+  }
+  it("marks same-origin web social starts in server-controlled state", async () => {
+    await (await hooks()).before(ctx("/sign-in/social"))
+    expect(productMocks.serverContext).toHaveBeenCalledWith({ productAnalyticsWebAttempt: expect.stringMatching(/^[a-f0-9-]{36}$/u) })
+  })
+  it("does not mark native continuations or foreign-origin starts as web", async () => {
+    const h = await hooks()
+    const native = ctx("/sign-in/social"); native.body.callbackURL = "/auth/native/callback?attempt=private"
+    await h.before(native)
+    const foreign = ctx("/sign-in/social"); foreign.request = new Request("https://alook.ai/api/auth/sign-in/social", { headers: { origin: "https://foreign.invalid" } })
+    await h.before(foreign)
+    expect(productMocks.serverContext).not.toHaveBeenCalled()
+  })
+  it("does not fail web social start if analytics provenance storage fails", async () => {
+    productMocks.serverContext.mockRejectedValueOnce(new Error("state context unavailable"))
+    await expect((await hooks()).before(ctx("/sign-in/social"))).resolves.toBeUndefined()
+    expect(authLogMocks.warn).toHaveBeenCalledWith("OAuth analytics provenance unavailable")
+  })
+  it("counts cancellation and exchange failure only after verified web state", async () => {
+    productMocks.oauthState.mockResolvedValue({ callbackURL: "https://alook.ai/c/me", serverContext: { productAnalyticsWebAttempt: attempt } })
+    const h = await hooks()
+    for (const error of ["access_denied", "invalid_code", "unable_to_get_user_info"]) {
+      const c = ctx(); c.context.responseHeaders.set("location", `https://alook.ai/api/auth/error?error=${error}`)
+      await h.after(c)
+    }
+    expect(productMocks.failure).toHaveBeenCalledTimes(3)
+    expect(productMocks.failure).toHaveBeenLastCalledWith(expect.anything(), { method: "github", attemptId: attempt, cookies: "_ga=GA1.1.100.200", actorUserId: undefined })
+  })
+  it("does not count unsupported providers or another endpoint as provider callbacks", async () => {
+    productMocks.oauthState.mockResolvedValue({ callbackURL: "https://alook.ai/c/me", serverContext: { productAnalyticsWebAttempt: attempt } })
+    const h = await hooks()
+    const unsupported = ctx(); unsupported.params.id = "unsupported"
+    await h.after(unsupported)
+    await h.after(ctx("/sign-in/social"))
+    expect(productMocks.failure).not.toHaveBeenCalled()
+  })
+  it("passes a validated existing session actor so cross-device account denial can win", async () => {
+    productMocks.oauthState.mockResolvedValue({ callbackURL: "https://alook.ai/c/me", serverContext: { productAnalyticsWebAttempt: attempt } })
+    productMocks.currentSession.mockResolvedValue({ user: { id: "current-owner" } })
+    await (await hooks()).after(ctx())
+    expect(productMocks.currentSession).toHaveBeenCalledWith(expect.anything(), { disableRefresh: true })
+    expect(productMocks.failure).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ actorUserId: "current-owner" }))
+  })
+  it("does not classify missing/invalid state, native callbacks or committed success as web failures", async () => {
+    const h = await hooks()
+    await h.after(ctx())
+    productMocks.oauthState.mockResolvedValue({ callbackURL: "https://alook.ai/auth/native/callback", serverContext: { productAnalyticsWebAttempt: attempt } })
+    await h.after(ctx())
+    productMocks.oauthState.mockResolvedValue({ callbackURL: "https://alook.ai/c/me", serverContext: { productAnalyticsWebAttempt: attempt } })
+    const success = ctx(); success.context.newSession = { session: { id: "committed" } }
+    await h.after(success)
+    expect(productMocks.failure).not.toHaveBeenCalled()
+  })
+  it("does not turn non-error redirects into failure", async () => {
+    productMocks.oauthState.mockResolvedValue({ callbackURL: "https://alook.ai/c/me", serverContext: { productAnalyticsWebAttempt: attempt } })
+    const c = ctx(); c.context.responseHeaders.set("location", "https://alook.ai/c/me")
+    await (await hooks()).after(c)
+    expect(productMocks.failure).not.toHaveBeenCalled()
+  })
+  it("preserves auth error behavior when the failure ledger is unavailable", async () => {
+    productMocks.oauthState.mockResolvedValue({ callbackURL: "https://alook.ai/c/me", serverContext: { productAnalyticsWebAttempt: attempt } })
+    productMocks.failure.mockRejectedValueOnce(new Error("D1 unavailable"))
+    const c = ctx()
+    await expect((await hooks()).after(c)).resolves.toBeUndefined()
+    expect(c.context.responseHeaders.get("location")).toContain("access_denied")
+    expect(c.setCookie).not.toHaveBeenCalled()
   })
 })

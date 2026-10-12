@@ -1,8 +1,8 @@
 import { z } from "zod"
-import type { CommunityChannelResource, CommunityMessageResource, CommunityMessageAttachment, CommunityMessagesRead } from "@alook/shared"
+import type { CommunityChannelResource, CommunityMessageResource, CommunityMessagePreview, CommunityLegacyMessageResource, CommunityLegacyMessageAttachment, CommunityMessagesRead } from "@alook/shared"
 
 // ── Messages ───────────────────────────────────────────────────────────────
-type AttachmentMetadata = Pick<CommunityMessageAttachment, "name" | "url" | "contentType" | "sizeBytes">
+type AttachmentMetadata = Pick<CommunityLegacyMessageAttachment, "name" | "url" | "contentType" | "sizeBytes">
 
 export type FileAttachment = AttachmentMetadata & { kind: "file"; size: string }
 
@@ -39,16 +39,19 @@ export type Reaction = NonNullable<CommunityMessageResource["reactions"]>[number
 export type ReplyTarget = Pick<NonNullable<CommunityMessageResource["replyTo"]>, "id" | "authorName" | "text">
 
 export type Msg = Pick<CommunityMessageResource, "id" | "type"> & Partial<Omit<CommunityMessageResource,
-  "id" | "type" | "channelId" | "replyToId" | "clientNonce" | "attachments" | "embeds"
+  "id" | "type" | "channelId" | "replyToId" | "clientNonce" | "attachments" | "embeds" | "authorAvatar" | "thread"
 >> & {
   color?: string
   failed?: boolean
   clientNonce?: string
   attachments?: Attachment[]
   embeds?: Embed[]
+  authorAvatar?: string
+  thread?: CommunityLegacyMessageResource["thread"]
 }
 
-export type MessageInput = Pick<Msg, "id"> & Partial<Msg> & Partial<Pick<CommunityMessageResource, "replyToId">>
+export type MessageInput = Pick<CommunityMessagePreview, "id"> & Partial<Omit<CommunityMessagePreview, "id">> & { resourceComplete?: boolean; failed?: boolean }
+export type CanonicalMessage = CommunityMessagePreview & Pick<CommunityMessageResource, "seq"> & { resourceComplete?: boolean }
 
 export function applyMessageReaction(source: Msg["reactions"], emoji: string, userId: string, add: boolean, viewerId: string | null): Reaction[] {
   const rows = (source ?? []).map((row) => ({ ...row, userIds: [...row.userIds] }))
@@ -60,7 +63,7 @@ export function applyMessageReaction(source: Msg["reactions"], emoji: string, us
   return rows.filter((row) => row.userIds.length).map((row) => ({ ...row, count: row.userIds.length, me: viewerId !== null && row.userIds.includes(viewerId) }))
 }
 
-export function messageProfileIds(message: Pick<Msg, "authorId" | "replyTo" | "thread" | "approval">): string[] {
+export function messageProfileIds(message: Pick<CommunityMessagePreview, "authorId" | "replyTo" | "thread" | "approval">): string[] {
   return [
     ...(message.authorId ? [message.authorId] : []),
     ...(message.replyTo?.authorId ? [message.replyTo.authorId] : []),
@@ -96,7 +99,7 @@ export type ForumThread = Thread & Required<Pick<CommunityMessageResource,
   openerCreatedAt?: CommunityMessageResource["createdAt"]
   tags: NonNullable<NonNullable<CommunityMessageResource["thread"]>["tags"]>
   preview: NonNullable<NonNullable<CommunityMessageResource["thread"]>["preview"]>
-  participants: NonNullable<NonNullable<CommunityMessageResource["thread"]>["participants"]>
+  participants: NonNullable<NonNullable<CommunityLegacyMessageResource["thread"]>["participants"]>
   participantCount: NonNullable<NonNullable<CommunityMessageResource["thread"]>["participantCount"]>
 }
 
@@ -109,7 +112,7 @@ export type SendAttachment = {
 }
 
 export type MessagesPage = Partial<{ [Field in keyof CommunityMessagesRead["page"]]: NonNullable<CommunityMessagesRead["page"][Field]> }> & {
-  messages: Msg[]
+  messages: MessageInput[]
   hasMore?: CommunityMessagesRead["page"]["hasMoreOlder"]
   cursor?: NonNullable<CommunityMessagesRead["page"]["olderCursor"]>
 }

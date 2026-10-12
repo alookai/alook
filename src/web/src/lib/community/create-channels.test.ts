@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
+const producerEnv = vi.hoisted(() => ({ COMMUNITY_EVENT_CONTRACT: "1" }))
+vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: () => ({ env: producerEnv, ctx: {} }) }))
+
 const mockCreateCommunityMessage = vi.fn()
 const mockCreateChannel = vi.fn()
 const mockGetThreadChannelByParentMessage = vi.fn()
@@ -11,19 +14,23 @@ const mockDeleteChannel = vi.fn()
 const mockListMessageAttachments = vi.fn()
 const mockGetMessage = vi.fn()
 const mockRequireChannelMember = vi.fn()
+const mockRequireServerMember = vi.fn()
+const mockGetCategory = vi.fn()
+const mockCreateChannelMember = vi.fn()
+const mockFanOutToServerMembers = vi.fn()
 
 vi.mock("@/lib/community/message-handler", () => ({
   createCommunityMessage: (...a: unknown[]) => mockCreateCommunityMessage(...a),
 }))
 
 vi.mock("@/lib/community/fanout", () => ({
-  fanOutToServerMembers: vi.fn(),
+  fanOutToServerMembers: (...a: unknown[]) => mockFanOutToServerMembers(...a),
   fanOutToChannel: (...a: unknown[]) => mockFanOutToChannel(...a),
   broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
 }))
 
 vi.mock("@/lib/community/permissions", () => ({
-  requireServerMember: vi.fn(),
+  requireServerMember: (...a: unknown[]) => mockRequireServerMember(...a),
   requireChannelMember: (...a: unknown[]) => mockRequireChannelMember(...a),
 }))
 
@@ -38,7 +45,9 @@ vi.mock("@alook/shared", async () => {
         createChannel: (...a: unknown[]) => mockCreateChannel(...a),
         getThreadChannelByParentMessage: (...a: unknown[]) => mockGetThreadChannelByParentMessage(...a),
         deleteChannel: (...a: unknown[]) => mockDeleteChannel(...a),
+        createChannelMember: (...a: unknown[]) => mockCreateChannelMember(...a),
       },
+      communityCategory: { ...actual.queries.communityCategory, getCategory: (...a: unknown[]) => mockGetCategory(...a) },
       communityMessage: {
         ...actual.queries.communityMessage,
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
@@ -56,7 +65,36 @@ vi.mock("@alook/shared", async () => {
   }
 })
 
-import { createMessageWithThread, createThreadForUser } from "./create-channels"
+import { createMessageWithThread, createThreadForUser, createServerChannelForUser } from "./create-channels"
+
+describe("createServerChannelForUser producer contracts", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    producerEnv.COMMUNITY_EVENT_CONTRACT = "1"
+    mockRequireServerMember.mockResolvedValue({ ok: true, value: { role: "owner" } })
+  })
+  it.each([["1", false], ["1", true], ["3", false], ["3", true]] as const)("fans out contract %s only to the private=%s audience", async (contract, privateCategory) => {
+    producerEnv.COMMUNITY_EVENT_CONTRACT = contract
+    const row = { id: "channel", type: "text", serverId: "server", name: "channel", categoryId: "category", topic: "Topic",
+      parentChannelId: null, parentMessageId: null, creatorId: "viewer", position: 4, archived: 0, createdAt: "now", lastMessageAt: null, messageCount: 0 }
+    mockGetCategory.mockResolvedValue({ id: "category", serverId: "server", private: privateCategory })
+    mockCreateChannel.mockResolvedValue(row)
+    const result = await createServerChannelForUser({} as never, { serverId: "server", actorUserId: "viewer", name: "channel", type: "text", categoryId: "category", topic: "Topic" })
+    const legacyChannel = { id: "channel", name: "channel", type: "text", categoryId: "category", topic: "Topic", position: 4, createdAt: "now" }
+    expect(result).toEqual({ ok: true, value: legacyChannel })
+    const event = { type: "community:channel.create", serverId: "server", channel: contract === "3" ? { ...row, archived: false } : legacyChannel }
+    if (privateCategory) {
+      expect(mockCreateChannelMember).toHaveBeenCalledWith(expect.anything(), { channelId: "channel", userId: "viewer", addedBy: "viewer" })
+      expect(mockFanOutToChannel).toHaveBeenCalledExactlyOnceWith("channel", event)
+      expect(mockFanOutToServerMembers).not.toHaveBeenCalled()
+    } else {
+      expect(mockFanOutToServerMembers).toHaveBeenCalledExactlyOnceWith("server", event)
+      expect(mockFanOutToChannel).not.toHaveBeenCalled()
+      expect(mockCreateChannelMember).not.toHaveBeenCalled()
+    }
+    producerEnv.COMMUNITY_EVENT_CONTRACT = "1"
+  })
+})
 
 describe("createThreadForUser", () => {
   beforeEach(() => {

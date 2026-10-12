@@ -136,7 +136,7 @@ describe("useFriends / friendsQueryFn", () => {
       ...raw.blocked.map((blocked) => ({ id: "blocked:" + ("userId" in blocked ? blocked.userId : blocked.id), userId: "userId" in blocked ? blocked.userId : blocked.id, kind: "blocked" }))]) await act(async () => { registry.collections.friendships.utils.writeUpsert(friendshipSchema.parse(row)) });
     for (const row of [...raw.friends, ...raw.pending, ...raw.blocked]) {
       const userId = "userId" in row ? row.userId : row.id
-      await act(async () => { registry.collections.profiles.utils.writeUpsert(profileSchema.parse({ discriminator: "", ...row, kind: "human", userId })) });
+      await act(async () => { registry.collections.profiles.utils.writeUpsert(profileSchema.parse({ identityComplete: false, discriminator: null, ...row, kind: "human", id: userId })) });
     }
     const window = { ids: [...registry.collections.friendships.values()].map((row) => row.id) }
     queryClient.setQueryData(communityKeys.friends(), window)
@@ -164,7 +164,7 @@ describe("useFriends / friendsQueryFn", () => {
         avatarVersion: 6,
       }],
     ])
-    for (const [userId, fields] of canonicalProfiles) await act(async () => { registry.collections.profiles.utils.writeUpsert(profileSchema.parse({ ...registry.collections.profiles.get(userId), ...fields, userId })) });
+    for (const [userId, fields] of canonicalProfiles) await act(async () => { registry.collections.profiles.utils.writeUpsert(profileSchema.parse({ identityComplete: false, ...registry.collections.profiles.get(userId), ...fields, id: userId })) });
     await act(async () => { registry.runtime.ws.actions.seedPresence(registry.runtime.ws.actions.beginPresenceSnapshot(), [["friend_1", "online"]]) });
     let rendered!: ReturnType<typeof renderHook<ReturnType<typeof useFriends>, unknown>>
     await act(async () => { rendered = renderHook(() => useFriends(), {

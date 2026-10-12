@@ -26,13 +26,15 @@ async function offerFor(stripe: Stripe, env: Env, mapping: Mapping) {
   })
 }
 
-export async function getOffers(db: Database, stripe: Stripe, env: Env) {
+export async function getOffers(db: Database, stripe: () => Stripe, env: Env) {
   const mappings = await queries.billing.listPrices(db)
-  const offers = await Promise.all(mappings.map((mapping) => offerFor(stripe, env, mapping)))
+  if (mappings.length === 0) return []
+  const client = stripe()
+  const offers = await Promise.all(mappings.map((mapping) => offerFor(client, env, mapping)))
   return offers.filter((offer) => offer !== null)
 }
 
-export async function getPublicPricing(db: Database, stripe: Stripe, env: Env) {
+export async function getPublicPricing(db: Database, stripe: () => Stripe, env: Env) {
   const [free, offers] = await Promise.all([
     queries.billing.getDefaultPlanOffer(db),
     getOffers(db, stripe, env),

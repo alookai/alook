@@ -390,6 +390,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
               href={isLoggedIn ? "/c/me" : "/sign-in"}
               className={styles.closingAction}
               data-testid="landing-closing-open"
+              onClick={() => trackLandingCtaClicked({ cta_name: isLoggedIn ? "closing_open_app" : "closing_get_started" })}
             >
               {isLoggedIn ? LANDING_HERO.loggedInCta : LANDING_HERO.loggedOutCta}{" "}
               <span aria-hidden>↗</span>

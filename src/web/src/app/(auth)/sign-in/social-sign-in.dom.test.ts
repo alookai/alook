@@ -11,6 +11,7 @@ const webRoot = existsSync(resolve(process.cwd(), "next.config.ts"))
   : resolve(process.cwd(), "src/web")
 
 const mocks = vi.hoisted(() => ({
+  capture: vi.fn(),
   tauri: false,
   social: vi.fn(),
   start: vi.fn(),
@@ -19,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   emit: undefined as undefined | ((view: NativeOauthView) => void),
 }))
 
+vi.mock("@/lib/product-analytics", () => ({ captureProductAnalytics: mocks.capture }))
 vi.mock("@alook/shared", async importOriginal => ({
   ...await importOriginal<typeof import("@alook/shared")>(),
   isTauri: () => mocks.tauri,

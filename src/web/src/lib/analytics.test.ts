@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 
 const mocks = vi.hoisted(() => ({
+  product: vi.fn(),
   hasAnalyticsConsent: vi.fn(() => true),
   sendGTMEvent: vi.fn(),
 }))
+vi.mock("@/lib/product-analytics", () => ({ captureProductAnalytics: mocks.product }))
 vi.mock("@next/third-parties/google", () => ({
   sendGTMEvent: (...args: unknown[]) => mocks.sendGTMEvent(...args),
 }))
@@ -42,29 +44,40 @@ describe("analytics utility", () => {
     trackGithubOutboundClicked("blog")
     expect(mockSendGTMEvent.mock.calls).toEqual([
       [{ event: "pricing_view", auth_state: "guest", current_plan: "none" }],
-      [{ event: "landing_cta_clicked", cta_name: "get_started" }],
       [{ event: "templates_browsed", category_filter: "engineering" }],
       [{ event: "github_outbound_clicked", surface: "blog", destination: "alook_repo" }],
     ])
   })
 
-  it.each(["/c/me", "/sign-in", "/auth/callback", "/c/invite/private-token", "/templates/public/child", "/unknown/private-resource"])("queues the original Web payloads immediately on %s without a grant", path => {
+  it.each(["/c/me", "/sign-in", "/templates/public/child"])("does not expand denied private events on %s or replay them later", path => {
     mocks.hasAnalyticsConsent.mockReturnValue(false)
     const browser = { location: new URL(`https://alook.ai${path}`) }
     vi.stubGlobal("window", browser)
     trackCommunityRuntimeConnected()
     trackSignUp("github")
-    expect(mockSendGTMEvent.mock.calls).toEqual([
-      [{ event: "runtime_connected", surface: "community", connection_type: "local_daemon" }],
-      [{ event: "sign_up", method: "github" }],
-    ])
+    expect(mockSendGTMEvent).not.toHaveBeenCalled()
     browser.location = new URL("https://alook.ai/pricing")
     trackPricingView({ auth_state: "guest", current_plan: "none" })
-    expect(mockSendGTMEvent.mock.calls).toEqual([
-      [{ event: "runtime_connected", surface: "community", connection_type: "local_daemon" }],
-      [{ event: "sign_up", method: "github" }],
-      [{ event: "pricing_view", auth_state: "guest", current_plan: "none" }],
-    ])
+    expect(mockSendGTMEvent.mock.calls).toEqual([[{ event: "pricing_view", auth_state: "guest", current_plan: "none" }]])
+  })
+
+  it.each(["/c", "/c/me", "/c/channels/private/channel"])("blocks granted product events on %s after public tracking", path => {
+    const browser = { location: new URL("https://alook.ai/pricing") }
+    vi.stubGlobal("window", browser)
+    trackPricingView({ auth_state: "guest", current_plan: "none" })
+    mockSendGTMEvent.mockClear()
+    browser.location = new URL(`https://alook.ai${path}`)
+    trackSignUp("github")
+    trackCommunityOnboardingStarted()
+    trackHumanInvitationCopied()
+    trackCommunityRuntimeConnected()
+    trackFirstAgentReplyPersisted("thread")
+    trackHumanInvitationSent()
+    trackInvitedHumanJoined()
+    trackCommunityOnboardingCompleted()
+    trackCommunityOnboardingSkipped("complete")
+    trackCommunityWsFrameDropped({ type: "message.new", reason: "invalid-json" })
+    expect(mockSendGTMEvent).not.toHaveBeenCalled()
   })
 
   it("preserves the Native Allow gate on public paths", () => {
@@ -150,11 +163,10 @@ describe("analytics utility", () => {
 
   describe("P3 — Page-Level Behavior", () => {
     it("trackLandingCtaClicked sends landing_cta_clicked event", () => {
+      vi.stubGlobal("window", { location: new URL("https://alook.ai/") })
       trackLandingCtaClicked({ cta_name: "get_started" })
-      expect(mockSendGTMEvent).toHaveBeenCalledWith({
-        event: "landing_cta_clicked",
-        cta_name: "get_started",
-      })
+      expect(mocks.product).toHaveBeenCalledWith({ event: "landing_cta_clicked", ctaName: "get_started" })
+      expect(mockSendGTMEvent).not.toHaveBeenCalled()
     })
 
     it("trackTemplatesBrowsed sends templates_browsed event", () => {

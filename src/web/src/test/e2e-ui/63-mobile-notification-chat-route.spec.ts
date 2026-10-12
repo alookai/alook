@@ -6,13 +6,16 @@ import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
 
 type Activation = { notificationId: string; messageId: string; targetId: string }
-type Bridge = { pending: Activation | null; listener: unknown; takes: number; dismissed: string[]; visibility: DocumentVisibilityState }
+type Bridge = { pending: Activation | null; listener: unknown; takes: number; dismissed: string[]; visibility: DocumentVisibilityState; documentLoads: number }
 
 async function installMobileBridge(page: Page, activation: Activation | null) {
   await page.addInitScript((initial) => {
     const key = `qa-mobile-consumed:${initial?.notificationId}`
     const dismissedKey = "qa-mobile-notification-dismissed"
+    const documentLoads = Number(sessionStorage.getItem("qa-mobile-document-loads") ?? "0") + 1
+    sessionStorage.setItem("qa-mobile-document-loads", String(documentLoads))
     const state: Bridge = {
+      documentLoads,
       pending: initial && !sessionStorage.getItem(key) ? initial : null,
       listener: null,
       takes: 0,
@@ -59,7 +62,7 @@ async function resumeActivation(page: Page, activation: Activation) {
 
 type MessageDoorEvidence = {
   status: number
-  payload: { surfaceReceipt?: unknown; messages?: unknown }
+  payload: { id?: string; channelId?: string }
 }
 
 async function captureMessageDoor(page: Page, targetId: string, messageId: string) {
@@ -69,12 +72,12 @@ async function captureMessageDoor(page: Page, targetId: string, messageId: strin
     capture = resolve
     fail = reject
   })
-  await page.route((url) => url.pathname === `/api/community/channels/${targetId}/messages`
-    && url.searchParams.get("anchor") === messageId && url.searchParams.get("limit") === "1", async (route) => {
+  await page.route((url) => url.pathname === `/api/community/messages/${messageId}`, async (route) => {
     try {
       const response = await route.fetch()
       const payload = await response.json()
       const evidence = { status: response.status(), payload }
+      if (response.ok()) expect(payload.channelId).toBe(targetId)
       await route.fulfill({ response })
       capture(evidence)
     } catch (error) {
@@ -130,24 +133,25 @@ test.describe("mobile notification chat routes (native bridge simulation)", () =
         if (mode === "resume") await resumeActivation(page, activation)
         const { status, payload } = await door.result
         expect(status).toBe(200)
-        expect(payload.surfaceReceipt).toEqual({ channelId: targetId, surfaceKind: surface })
-        expect(payload.messages).toEqual(expect.arrayContaining([expect.objectContaining({ id: messageId })]))
+        expect(payload.id).toBe(messageId)
+        expect(payload.channelId).toBe(targetId)
         const path = surface === "dm" ? `/c/me/${targetId}` : `/c/channels/${serverId}/${targetId}`
         await expect(page).toHaveURL(`${WEB_URL}${path}`)
         await expect.poll(() => page.evaluate(() => (
           window as typeof window & { __mobileNotificationQa: Bridge }
         ).__mobileNotificationQa.dismissed)).toEqual([activation.notificationId])
+        expect(await page.evaluate(() => (window as typeof window & { __mobileNotificationQa: Bridge }).__mobileNotificationQa.documentLoads)).toBe(1)
         await expect(composerEditable(page)).toBeVisible({ timeout: 30_000 })
         await expect(page.getByTestId(tid.message(messageId))).toBeVisible()
         await expect(page.locator('[data-slot="sheet-content"]')).toHaveCount(0)
-        await testInfo.attach("message-door-evidence", { body: JSON.stringify({ simulation: "iPhone UA + Tauri command shim + browser visibility events", status, surfaceReceipt: payload.surfaceReceipt, messageId, url: page.url() }), contentType: "application/json" })
+        await testInfo.attach("message-door-evidence", { body: JSON.stringify({ simulation: "iPhone UA + Tauri command shim + browser visibility events", status, channelId: payload.channelId, messageId, url: page.url() }), contentType: "application/json" })
         await testInfo.attach("chat", { body: await page.screenshot(), contentType: "image/png" })
       })
     }
   }
 
   for (const kind of ["deleted", "revoked"] as const) {
-    test(`${kind} target opens Inbox without unauthorized navigation`, async ({ asUser }, testInfo) => {
+    test(`${kind} target shows an unavailable message page with the normal Inbox action`, async ({ asUser }, testInfo) => {
       const categoryId = kind === "revoked" ? await seedCategory("alice", serverId, `private-${Date.now()}`, { private: true }) : undefined
       const targetId = await seedChannel("alice", serverId, `${kind}-${Date.now()}`, "text", categoryId)
       if (kind === "revoked") await seedChannelMember("alice", targetId, userId("bob"))
@@ -159,15 +163,35 @@ test.describe("mobile notification chat routes (native bridge simulation)", () =
       const route = `/c/channels/${serverId}`
       await page.goto(route)
       await expect(page.getByTestId(tid.inboxTrigger)).toBeVisible({ timeout: 30_000 })
-      await resumeActivation(page, { notificationId: crypto.randomUUID(), targetId, messageId })
+      const activation = { notificationId: crypto.randomUUID(), targetId, messageId }
+      await resumeActivation(page, activation)
       const { status } = await door.result
       expect([403, 404]).toContain(status)
+      await expect(page).toHaveURL(`${WEB_URL}/c/messages/${messageId}`)
+      const unavailableAlert = page.getByTestId(tid.messageRouteAlert(messageId))
+      await expect(unavailableAlert).toHaveCount(1)
+      await expect(unavailableAlert).toBeVisible()
+      await expect(unavailableAlert).toHaveText("This conversation is unavailable.")
+      await page.getByRole("button", { name: "Open Inbox", exact: true }).click()
+      await expect(page).toHaveURL(`${WEB_URL}/c/me`)
+      await expect(page.getByTestId(tid.inboxTrigger)).toBeVisible()
       await expect(page.getByTestId(tid.inboxTrigger)).toHaveAttribute("aria-expanded", "true")
-      await expect(page).toHaveURL(`${WEB_URL}${route}`)
-      expect(await page.evaluate(() => (
+      const inbox = page.getByTestId(tid.userBarExtension)
+      await expect(inbox).toHaveCount(1)
+      await expect(inbox).toBeVisible()
+      await expect(inbox.locator("xpath=ancestor::*[@inert or @aria-hidden='true']")).toHaveCount(0)
+      await expect.poll(() => page.evaluate(() => (
         window as typeof window & { __mobileNotificationQa: Bridge }
-      ).__mobileNotificationQa.dismissed)).toEqual([])
-      await testInfo.attach("fallback-evidence", { body: JSON.stringify({ kind, status, url: page.url() }), contentType: "application/json" })
+      ).__mobileNotificationQa.dismissed)).toEqual([activation.notificationId])
+      const inboxHref = page.url()
+      await page.getByRole("link", { name: /^Friends(?:, \d+ new requests)?$/ }).click()
+      await expect(page).toHaveURL(`${WEB_URL}/c/me/friends`)
+      await expect(page.getByTestId(tid.inboxTrigger)).toHaveAttribute("aria-expanded", "false")
+      await expect(page.getByTestId(tid.userBarExtension)).toHaveCount(0)
+      await expect.poll(() => page.evaluate(() => (
+        window as typeof window & { __mobileNotificationQa: Bridge }
+      ).__mobileNotificationQa.dismissed)).toEqual([activation.notificationId])
+      await testInfo.attach("fallback-evidence", { body: JSON.stringify({ kind, status, inboxHref, url: page.url() }), contentType: "application/json" })
     })
   }
 

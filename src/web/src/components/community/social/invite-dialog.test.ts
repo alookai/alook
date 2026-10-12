@@ -1,7 +1,7 @@
 import { createElement } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { renderToStaticMarkup } from "react-dom/server"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { readFileSync } from "node:fs"
 import type { Friend } from "@/lib/community/models/people"
 
@@ -59,16 +59,10 @@ vi.mock("@/hooks/community/use-dm-message-sender", () => ({
 vi.mock("@/contexts/community/current-user", () => ({
   useCurrentUser: () => ({ id: "viewer", name: "Viewer", avatar: "V" }),
 }))
-vi.mock("@/lib/analytics", async importOriginal => {
-  const actual = await importOriginal<typeof import("@/lib/analytics")>()
-  return {
-    ...actual,
-    trackHumanInvitationSent: () => { mocks.trackHumanInvitationSent(); actual.trackHumanInvitationSent() },
-    trackHumanInvitationCopied: () => { mocks.trackHumanInvitationCopied(); actual.trackHumanInvitationCopied() },
-  }
-})
-
-afterEach(() => vi.unstubAllGlobals())
+vi.mock("@/lib/analytics", () => ({
+  trackHumanInvitationSent: mocks.trackHumanInvitationSent,
+  trackHumanInvitationCopied: mocks.trackHumanInvitationCopied,
+}))
 vi.mock("@/components/ui/dialog", async () => {
   const { createElement } = await import("react")
   return {
@@ -337,30 +331,6 @@ describe("invite funnel completion boundaries", () => {
   beforeEach(() => {
     mocks.trackHumanInvitationSent.mockClear()
     mocks.trackHumanInvitationCopied.mockClear()
-  })
-
-  it.each(["", "v1.denied", "v1.granted"])("uses the actual private Web queue after commit and clipboard success with Cookie %s", async cookie => {
-    const browser = { location: new URL("https://alook.ai/c/me/private-dm"), dataLayer: [] as unknown[] }
-    vi.stubGlobal("window", browser)
-    vi.stubGlobal("document", { cookie: `alook_analytics_consent=${cookie}` })
-    const gate = deferred()
-    const sent = awaitCommittedInvite({
-      accepted: true,
-      nonce: "private-nonce",
-      committed: gate.promise.then(() => ({ ok: true as const, message: { id: "private-message", seq: 1 } })),
-    })
-    expect(browser.dataLayer).toEqual([])
-    gate.resolve()
-    await sent
-    await expect(awaitCommittedInvite({ accepted: false })).rejects.toThrow()
-    await expect(copyInviteLink("https://alook.ai/c/invite/private-token", vi.fn().mockRejectedValue(new Error("clipboard denied")))).rejects.toThrow()
-    expect(browser.dataLayer).toEqual([{ event: "human_invitation_sent", surface: "community", invite_method: "dm" }])
-    await copyInviteLink("https://alook.ai/c/invite/private-token", vi.fn().mockResolvedValue(undefined))
-    expect(browser.dataLayer).toEqual([
-      { event: "human_invitation_sent", surface: "community", invite_method: "dm" },
-      { event: "human_invitation_copied", surface: "community", invite_method: "link_copy" },
-    ])
-    expect(JSON.stringify(browser.dataLayer)).not.toMatch(/private|nonce|token|message_id|user_id/)
   })
 
   it("reports sent only after the DM receipt commits", async () => {

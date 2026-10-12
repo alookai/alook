@@ -23,6 +23,7 @@ export function BlogFooter() {
         <nav className="blog-footer-navigation" aria-label="Footer navigation">
           <ZoneLink href="/templates" zone="blog">Templates</ZoneLink>
           <ZoneLink href="/blog" zone="blog">Blog</ZoneLink>
+          <ZoneLink href="/guides" zone="blog">Guides</ZoneLink>
           <ZoneLink href="/llms.txt" zone="blog">llms.txt</ZoneLink>
           <ZoneLink href="/privacy" zone="blog">Privacy</ZoneLink>
         </nav>

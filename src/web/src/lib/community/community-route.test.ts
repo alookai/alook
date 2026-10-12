@@ -318,3 +318,16 @@ describe("community route", () => {
     ).toBe("/c/channels/server_1/channel_1")
   })
 })
+
+
+describe("ordinary message resolution route", () => {
+  it("recognizes only one safe message ID", () => {
+    expect(resolveCommunityModulePlan("/c/messages/message_1")).toMatchObject({route:"message-resolution",sidebar:{kind:"none"},main:{kind:"route-resolution"}})
+    for (const href of ["/c/messages", "/c/messages/a/b", "/c/messages/%2F", "/c/messages/."]) expect(resolveCommunityModulePlan(href).route).toBe("unknown")
+  })
+  it("publishes a target checkpoint before a message leaf commits", () => {
+    const committedFrame={...normalizeCommunityHref("/c/me/friends"),revision:1}
+    expect(resolveCommunityCheckpointPlan({committedFrame,targetHref:"/c/messages/message_1",pending:true,targetReady:false})).toMatchObject({main:{kind:"target-skeleton",href:"/c/messages/message_1"}})
+    expect(resolveCommunityCheckpointPlan({committedFrame,targetHref:"/c/unknown",pending:true,targetReady:false}).main.kind).toBe("keep")
+  })
+})

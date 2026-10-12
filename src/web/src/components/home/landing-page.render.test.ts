@@ -1,13 +1,7 @@
-import { createElement, type AnchorHTMLAttributes } from "react"
+import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
 import { LandingPage } from "./landing-page"
-
-vi.mock("next/link", () => ({
-  default: ({ children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) => (
-    createElement("a", { ...props, "data-next-navigation": "true" }, children)
-  ),
-}))
 
 vi.mock("./landing-page.module.css", () => ({
   default: new Proxy({}, { get: (_target, key) => String(key) }),
@@ -73,35 +67,7 @@ describe("landing section calls to action", () => {
     expect(new Set(labels).size).toBe(5)
     for (const link of links) {
       expect(link[0]).toContain(`href="${isLoggedIn ? "/c/me" : "/sign-in"}"`)
-      expect(link[0]).not.toContain("data-next-navigation")
       expect(link[2].trim().split(/\s+/).length).toBeLessThanOrEqual(3)
-    }
-    const closing = markup.match(/<a\b[^>]*data-testid="landing-closing-open"[^>]*>/)?.[0]
-    expect(closing).toContain(`href="${isLoggedIn ? "/c/me" : "/sign-in"}"`)
-    expect(closing).not.toContain("data-next-navigation")
-  })
-
-  it.each([false, true])("renders Home and Templates private entries as native links for signed-in=%s", async isLoggedIn => {
-    const { HeroSection } = await vi.importActual<typeof import("./hero-section")>("./hero-section")
-    const { MarketingNav } = await vi.importActual<typeof import("./marketing-nav")>("./marketing-nav")
-    const { TemplatesClient } = await import("@/app/templates/client")
-    const { TemplateDetailClient } = await import("@/app/templates/[id]/client")
-    const { TEMPLATES } = await import("@/lib/templates")
-    const renderings = [
-      createElement(HeroSection, { isLoggedIn, showClipboard: false, showCommunityLinks: false }),
-      createElement(MarketingNav, { isLoggedIn }),
-      createElement(TemplatesClient, { isLoggedIn, templates: TEMPLATES, categories: [] }),
-      createElement(TemplateDetailClient, { isLoggedIn, template: TEMPLATES[0] }),
-    ]
-    for (const component of renderings) {
-      const markup = renderToStaticMarkup(component)
-      const links = [...markup.matchAll(/<a\b[^>]*href="(?:\/c\/me|\/sign-in)"[^>]*>/g)]
-      expect(links).toHaveLength(1)
-      expect(links[0][0]).toContain(`href="${isLoggedIn ? "/c/me" : "/sign-in"}"`)
-      expect(links[0][0]).not.toContain("data-next-navigation")
-      const publicLinks = [...markup.matchAll(/<a\b[^>]*href="\/templates"[^>]*>/g)]
-      expect(publicLinks.length).toBeGreaterThan(0)
-      expect(publicLinks.every(link => link[0].includes("data-next-navigation"))).toBe(true)
     }
   })
 })

@@ -1,11 +1,18 @@
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import type { QueryClient } from "@tanstack/react-query"
-import { createElement } from "react"
+import { createElement, useCallback, useLayoutEffect, type ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { render as renderDom } from "@/test/react-dom-harness"
+import { act, fireEvent, render as renderDom, screen } from "@/test/react-dom-harness"
 import { ShellFrame } from "./shell-frame"
 import { communityKeys } from "@/lib/query-keys"
+import { useInboxAutoCollapse } from "@/hooks/community/use-inbox-auto-collapse"
+import { CommunityShellLayout } from "./community-shell-layout"
+import { UserBarExtensionSlot } from "./user-bar-extension-slot"
+import { useCommunityRouteFrame } from "./community-route-context"
+import { tid } from "@/lib/community/testids"
+import type { ShellFrameView } from "./shell-frame-view"
+import type { useShellInboxController } from "./use-shell-inbox-controller"
 
 const mocks = vi.hoisted(() => {
   const serverCache = new Set<string>()
@@ -17,6 +24,11 @@ const mocks = vi.hoisted(() => {
     cancelPendingNavigation: vi.fn(),
   }
   return {
+    nativeNotifications: vi.fn(),
+    lifecycle: false,
+    viewerId: "viewer",
+    openChanges: vi.fn(),
+    outsideAction: vi.fn(),
     currentHref: { current: "/c/channels/s1" },
     pendingHref: { current: null as string | null },
     navigationPending: { current: false },
@@ -61,6 +73,8 @@ const mocks = vi.hoisted(() => {
   }
 })
 
+vi.mock("@/hooks/community/use-native-system-notifications", () => ({useNativeSystemNotifications: (...args: unknown[]) => mocks.nativeNotifications(...args)}))
+
 vi.mock("@/hooks/community/community-ws/scope-eviction", () => ({
   flushOwnerServerDeleteRouteCommit: (...args: unknown[]) => mocks.flushOwnerDelete(...args),
 }))
@@ -72,18 +86,36 @@ vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => mocks.breakpoint.cur
 vi.mock("@/lib/community-onboarding", () => ({
   useCommunityOnboarding: () => mocks.onboardingState.current,
 }))
-vi.mock("./use-community-navigation-controller", () => ({
-  useCommunityNavigationController: () => ({
-    publishedHref: mocks.currentHref.current,
-    navigationPending: mocks.navigationPending.current,
-    pendingHref: mocks.pendingHref.current,
-    push: mocks.push,
-    replace: mocks.replace,
-    prefetch: vi.fn(),
-    resolveAndPush: vi.fn(),
-    cancelPendingNavigation: mocks.handlers.cancelPendingNavigation,
-  }),
+vi.mock("next/navigation", () => ({
+  usePathname: () => mocks.currentHref.current.split("?")[0],
+  useSearchParams: () => new URLSearchParams(mocks.currentHref.current.split("?")[1]),
+  useRouter: () => ({ push: mocks.push, replace: mocks.replace, prefetch: vi.fn() }),
 }))
+vi.mock("@/lib/community/navigation-metadata", () => ({ prepareNavigationMetadata: vi.fn(async () => undefined) }))
+vi.mock("react-resizable-panels", () => ({
+  useDefaultLayout: () => ({ defaultLayout: undefined, onLayoutChanged: vi.fn() }),
+}))
+vi.mock("@/components/ui/resizable", () => {
+  const Panel = ({ children }: { children: ReactNode }) => createElement("div", null, children)
+  return { ResizablePanelGroup: Panel, ResizablePanel: Panel, ResizableHandle: () => null }
+})
+vi.mock("./use-hydrated-client", () => ({ useHydratedClient: () => true }))
+vi.mock("./use-community-navigation-controller", async (importOriginal) => {
+  const { useCommunityNavigationController } = await importOriginal<typeof import("./use-community-navigation-controller")>()
+  return { useCommunityNavigationController: (frame: Parameters<typeof useCommunityNavigationController>[0]) => {
+    const actual = useCommunityNavigationController(frame)
+    return mocks.lifecycle ? actual : {
+      publishedHref: mocks.currentHref.current,
+      navigationPending: mocks.navigationPending.current,
+      pendingHref: mocks.pendingHref.current,
+      push: mocks.push,
+      replace: mocks.replace,
+      prefetch: vi.fn(),
+      resolveAndPush: vi.fn(),
+      cancelPendingNavigation: mocks.handlers.cancelPendingNavigation,
+    }
+  } }
+})
 vi.mock("@/stores/community", async (importOriginal) => ({ ...await importOriginal<typeof import("@/stores/community")>(),
   useCommunityStore: Object.assign(vi.fn(), {
     getState: () => ({ registerUiHandlers: mocks.registerUiHandlers }),
@@ -93,7 +125,7 @@ vi.mock("@/stores/community/ws", async (importOriginal) => ({ ...await importOri
   useCommunityWsStore: (selector: (state: { accessEpoch: number }) => unknown) => selector({ accessEpoch: 0 }),
 }))
 vi.mock("@/contexts/community/current-user", () => ({
-  useCurrentUser: () => ({ id: "viewer" }),
+  useCurrentUser: () => ({ id: mocks.viewerId }),
 }))
 vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
   useServerTreeProjection: () => mocks.projectedServer.current,
@@ -109,9 +141,15 @@ vi.mock("./use-shell-profile-controller", () => ({
   useShellProfileController: () => mocks.profile,
 }))
 vi.mock("./use-shell-inbox-controller", () => ({
-  useShellInboxController: (options: unknown) => {
+  useShellInboxController: (options: Parameters<typeof useShellInboxController>[0]) => {
     mocks.inboxOptions(options)
-    return mocks.inbox
+    const inbox = useInboxAutoCollapse(options)
+    const changeInboxOpen = inbox.onOpenChange
+    const onOpenChange = useCallback((open: boolean) => {
+      mocks.openChanges(open)
+      changeInboxOpen(open)
+    }, [changeInboxOpen])
+    return mocks.lifecycle ? { ...inbox, onOpenChange } : mocks.inbox
   },
 }))
 vi.mock("./use-shell-daemon-update-controller", () => ({
@@ -120,7 +158,27 @@ vi.mock("./use-shell-daemon-update-controller", () => ({
 vi.mock("./shell-frame-view", () => ({
   ShellFrameView: (props: Record<string, unknown>) => {
     mocks.viewProps.current = props
-    return createElement("div", { "data-testid": "shell-frame-view" })
+    if (!mocks.lifecycle) return createElement("div", { "data-testid": "shell-frame-view" })
+    const view = props as Parameters<typeof ShellFrameView>[0]
+    return createElement(CommunityShellLayout, {
+      breakpoint: view.breakpoint,
+      surface: view.checkpoint.surface,
+      preserveHiddenMobileModules: true,
+      rail: null,
+      sidebar: createElement("button", { onClick: mocks.outsideAction }, "Outside action"),
+      main: view.children,
+      userBar: createElement("div", { "data-testid": tid.userBar },
+        view.userBarExtension.active === "inbox" ? createElement(UserBarExtensionSlot, {
+          active: "inbox", inbox: "Inbox contents", update: null, eligibleMachines: [],
+          onDismiss: view.dismissUserBarExtension, onRequestUpdate: vi.fn(),
+        }) : null,
+        createElement("button", {
+          "data-testid": tid.inboxTrigger,
+          "aria-expanded": view.userBarExtension.active === "inbox",
+          onClick: () => view.onUserBarInboxOpenChange(view.userBarExtension.active !== "inbox"),
+        }, "Inbox trigger"),
+      ),
+    })
   },
 }))
 
@@ -139,12 +197,55 @@ function checkpoint() {
   return mocks.viewProps.current.checkpoint as Record<string, unknown>
 }
 
+function renderInboxLifecycle(href = "/c/messages/unavailable", breakpoint = "mobile") {
+  mocks.lifecycle = true
+  mocks.breakpoint.current = breakpoint
+  mocks.currentHref.current = href
+  let frameHref = href
+  let context!: ReturnType<typeof useCommunityRouteFrame>
+  function Action() {
+    const current = useCommunityRouteFrame()
+    useLayoutEffect(() => { context = current }, [current])
+    return createElement("button", { onClick: current.openInbox }, "Open Inbox")
+  }
+  const node = () => createElement(ShellFrame, {
+    ...baseProps, view: "dm", activeServerId: undefined, frameHref,
+  }, createElement(Action))
+  const renderer = render(node())
+  return {
+    get context() { return context },
+    update(options: { publishedHref?: string; frameHref?: string; viewerId?: string } = {}) {
+      if (options.publishedHref !== undefined) mocks.currentHref.current = options.publishedHref
+      if (options.frameHref !== undefined) frameHref = options.frameHref
+      if (options.viewerId !== undefined) mocks.viewerId = options.viewerId
+      renderer.rerender(node())
+    },
+    unmount: renderer.unmount,
+  }
+}
+
+function expectVisibleInbox() {
+  expect(screen.getByTestId(tid.inboxTrigger)).toHaveAttribute("aria-expanded", "true")
+  expect(screen.getAllByTestId(tid.userBarExtension)).toHaveLength(1)
+  const overlay = screen.getByTestId(tid.inboxTrigger).closest("[data-slot='community-user-bar-overlay']")!
+  expect(overlay).not.toHaveAttribute("inert")
+  expect(overlay).not.toHaveAttribute("aria-hidden", "true")
+  expect(overlay.classList.contains("hidden")).toBe(false)
+  expect(screen.getByTestId(tid.userBarExtension)).toHaveTextContent("Inbox contents")
+}
+
 describe("ShellFrame orchestration", () => {
   beforeEach(async () => {
     const owner = await createCommunityQueryOwner()
     queryClient = owner.client
     const register = owner.runtime.ui.actions.registerUiHandlers
     vi.spyOn(owner.runtime.ui.actions, "registerUiHandlers").mockImplementation((handlers) => { mocks.registerUiHandlers(handlers); register(handlers) })
+    mocks.lifecycle = false
+    mocks.viewerId = "viewer"
+    mocks.openChanges.mockReset()
+    mocks.outsideAction.mockReset()
+    mocks.push.mockReset()
+    mocks.replace.mockReset()
     mocks.currentHref.current = "/c/channels/s1"
     mocks.pendingHref.current = null
     mocks.navigationPending.current = false
@@ -408,4 +509,113 @@ describe("ShellFrame orchestration", () => {
     renderer.rerender(createElement(ShellFrame, baseProps, "mobile"))
     expect(mocks.railOptions).toHaveBeenLastCalledWith(expect.objectContaining({ breakpoint: "mobile" }))
   })
+
+  describe("shared Open Inbox commit handoff", () => {
+    it("opens once after exact frame, publication and auto-collapse, then keeps outside action before dismiss", () => {
+      const shell = renderInboxLifecycle()
+      const overlay = screen.getByTestId(tid.inboxTrigger).closest("[data-slot='community-user-bar-overlay']")!
+      expect(overlay).toHaveAttribute("inert")
+      expect(overlay.classList.contains("hidden")).toBe(true)
+      fireEvent.click(screen.getByRole("button", { name: "Open Inbox" }))
+      expect(mocks.push).toHaveBeenCalledExactlyOnceWith("/c/me")
+      expect(shell.context.navigation.navigationPending).toBe(true)
+      expect(screen.queryByTestId(tid.userBarExtension)).toBeNull()
+      shell.update({ publishedHref: "/c/me" })
+      expect(shell.context.navigation.navigationPending).toBe(true)
+      expect(mocks.openChanges).not.toHaveBeenCalled()
+      shell.update({ frameHref: "/c/me" })
+      expect(shell.context.navigation.navigationPending).toBe(false)
+      expectVisibleInbox()
+      expect(mocks.openChanges).toHaveBeenCalledExactlyOnceWith(true)
+      shell.update()
+      expect(mocks.openChanges).toHaveBeenCalledTimes(1)
+      fireEvent.click(screen.getByRole("button", { name: "Outside action" }))
+      expect(mocks.outsideAction).toHaveBeenCalledTimes(1)
+      expect(mocks.openChanges).toHaveBeenLastCalledWith(false)
+      expect(mocks.outsideAction.mock.invocationCallOrder[0]).toBeLessThan(mocks.openChanges.mock.invocationCallOrder[1]!)
+      expect(screen.getByTestId(tid.inboxTrigger)).toHaveAttribute("aria-expanded", "false")
+    })
+
+    it("waits for publication when the exact frame settles first", () => {
+      const shell = renderInboxLifecycle()
+      fireEvent.click(screen.getByRole("button", { name: "Open Inbox" }))
+      shell.update({ frameHref: "/c/me" })
+      expect(shell.context.navigation.navigationPending).toBe(false)
+      expect(mocks.openChanges).not.toHaveBeenCalled()
+      shell.update({ publishedHref: "/c/me" })
+      expectVisibleInbox()
+      expect(mocks.openChanges).toHaveBeenCalledExactlyOnceWith(true)
+    })
+
+    it.each([["desktop", "/c/messages/unavailable"], ["mobile", "/c/me"]])(
+      "keeps direct opening on %s at %s", (breakpoint, href) => {
+        const shell = renderInboxLifecycle(href, breakpoint)
+        act(() => shell.context.openInbox!())
+        expect(mocks.push).not.toHaveBeenCalled()
+        expectVisibleInbox()
+        fireEvent.click(screen.getByTestId(tid.inboxTrigger))
+        expect(screen.getByTestId(tid.inboxTrigger)).toHaveAttribute("aria-expanded", "false")
+      },
+    )
+
+    it.each(["push", "replace", "resolver", "cancel", "Back"])(
+      "discards the request on %s and does not revive on a later same URL", async (entry) => {
+        const shell = renderInboxLifecycle()
+        fireEvent.click(screen.getByRole("button", { name: "Open Inbox" }))
+        await act(async () => {
+          const nav = shell.context.navigation
+          if (entry === "push") nav.push("/c/me/friends")
+          if (entry === "replace") nav.replace("/c/me/friends")
+          if (entry === "resolver") await nav.resolveAndPush(async () => "/c/me/friends")
+          if (entry === "cancel") nav.cancelPendingNavigation()
+          if (entry === "Back") window.dispatchEvent(new Event("popstate"))
+        })
+        shell.update({ publishedHref: "/c/me", frameHref: "/c/me" })
+        shell.update({ publishedHref: "/c/me/friends", frameHref: "/c/me/friends" })
+        shell.update({ publishedHref: "/c/me", frameHref: "/c/me" })
+        expect(mocks.openChanges).not.toHaveBeenCalledWith(true)
+        expect(screen.queryByTestId(tid.userBarExtension)).toBeNull()
+      },
+    )
+
+    it("discards on account change even if the original account returns before the destination", () => {
+      const shell = renderInboxLifecycle()
+      fireEvent.click(screen.getByRole("button", { name: "Open Inbox" }))
+      shell.update({ viewerId: "other-viewer" })
+      shell.update({ viewerId: "viewer" })
+      shell.update({ publishedHref: "/c/me", frameHref: "/c/me" })
+      expect(mocks.openChanges).not.toHaveBeenCalledWith(true)
+    })
+
+    it("clears a synchronous push failure and cannot reopen on a later destination commit", () => {
+      const shell = renderInboxLifecycle()
+      mocks.push.mockImplementationOnce(() => { throw new Error("push failed") })
+      act(() => { expect(() => shell.context.openInbox!()).toThrow("push failed") })
+      expect(shell.context.navigation.navigationPending).toBe(false)
+      expect(shell.context.navigation.pendingHref).toBeNull()
+      shell.update({ publishedHref: "/c/me", frameHref: "/c/me" })
+      expect(mocks.openChanges).not.toHaveBeenCalledWith(true)
+    })
+
+    it("loses the request on unmount", () => {
+      const shell = renderInboxLifecycle()
+      fireEvent.click(screen.getByRole("button", { name: "Open Inbox" }))
+      shell.unmount()
+      renderInboxLifecycle("/c/me")
+      expect(mocks.openChanges).not.toHaveBeenCalledWith(true)
+      expect(screen.queryByTestId(tid.userBarExtension)).toBeNull()
+    })
+
+    it("keeps a repeated external request pending until its latest exact commit", () => {
+      const shell = renderInboxLifecycle()
+      fireEvent.click(screen.getByRole("button", { name: "Open Inbox" }))
+      act(() => shell.context.openInbox!())
+      expect(mocks.push).toHaveBeenCalledTimes(2)
+      expect(mocks.openChanges).not.toHaveBeenCalled()
+      shell.update({ publishedHref: "/c/me", frameHref: "/c/me" })
+      expectVisibleInbox()
+      expect(mocks.openChanges).toHaveBeenCalledExactlyOnceWith(true)
+    })
+  })
+
 })

@@ -54,6 +54,7 @@ describe("listForumThreadsByCreatedAt against real SQLite", () => {
         image TEXT
         ,avatarVersion INTEGER NOT NULL DEFAULT 0
         ,avatarObjectKey TEXT
+        ,discriminator TEXT
       );
       CREATE TABLE community_channel_member (
         id TEXT PRIMARY KEY,
@@ -174,6 +175,24 @@ describe("listForumThreadsByCreatedAt against real SQLite", () => {
     );
 
     expect(rows.map((row) => row.userId)).toEqual(["A", "a"]);
+  });
+
+  it.each([undefined, 1])("retains real participant numbers across chunks and duplicate channel ids (limit %s)", async (limit) => {
+    sqlite.prepare("INSERT INTO user (id, name, discriminator) VALUES (?, ?, ?)").run("numbered", "Numbered", "123456");
+    sqlite.prepare("INSERT INTO user (id, name, discriminator) VALUES (?, ?, ?)").run("later", "Later", "0042");
+    const insert = sqlite.prepare("INSERT INTO community_channel_member (id, channel_id, user_id, relation, source, added_at) VALUES (?, ?, ?, 'notify', 'added', ?)");
+    const channelIds = Array.from({ length: 100 }, (_, index) => `numbered_thread_${index}`);
+    for (const channelId of channelIds) {
+      insert.run(`${channelId}:first`, channelId, "numbered", "2026-10-11T01:00:00Z");
+      insert.run(`${channelId}:second`, channelId, "later", "2026-10-11T02:00:00Z");
+    }
+    const rows = await threadQueries.listParticipantsForChannels(db as never, [...channelIds, ...channelIds], limit);
+    expect(rows).toHaveLength(limit === undefined ? 200 : 100);
+    expect(rows.filter((row) => row.userId === "numbered")).toHaveLength(100);
+    expect(rows.filter((row) => row.userId === "numbered").every((row) => row.discriminator === "123456")).toBe(true);
+    expect(new Set(rows.map((row) => `${row.channelId}:${row.userId}`)).size).toBe(rows.length);
+    if (limit !== undefined) expect(rows.every((row) => "participantCount" in row && row.participantCount === 2)).toBe(true);
+    else expect(rows.filter((row) => row.userId === "later").every((row) => row.discriminator === "0042")).toBe(true);
   });
 
   it("keeps retained disposition explicit when the participating query is disabled", async () => {

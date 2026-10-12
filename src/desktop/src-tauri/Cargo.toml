@@ -36,7 +36,7 @@ tauri-plugin-notification = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"
-tokio = { version = "1", features = ["macros"] }
+tokio = { version = "1", features = ["macros", "time"] }
 command-group = "5.0.1"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
@@ -48,7 +48,7 @@ objc2-foundation = { version = "=0.3.2", features = ["NSArray", "NSDictionary", 
 block2 = "=0.6.2"
 objc2-app-kit = { version = "=0.3.2", features = ["NSView", "NSWindow", "NSColor"] }
 objc2-user-notifications = { version = "=0.3.2", default-features = false, features = ["std", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationSound", "UNNotificationTrigger", "UNUserNotificationCenter", "block2"] }
-objc2-web-kit = { version = "=0.3.2", features = ["WKWebView"], default-features = false }
+objc2-web-kit = { version = "=0.3.2", features = ["WKWebView", "block2"], default-features = false }
 
 [target."cfg(windows)".dependencies]
 webview2-com = "=0.39.1"

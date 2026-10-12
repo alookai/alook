@@ -1,14 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
-const mocked = vi.hoisted(() => ({ listPrices: vi.fn(), getDefaultPlanOffer: vi.fn(), retrieve: vi.fn() }))
-vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: vi.fn(() => ({ env: { DB: {}, STRIPE_SECRET_KEY: "sk_test_fake" } })) }))
+const mocked = vi.hoisted(() => ({
+  listPrices: vi.fn(), getDefaultPlanOffer: vi.fn(), retrieve: vi.fn(), clientCreated: vi.fn(),
+  env: { DB: {}, STRIPE_SECRET_KEY: "sk_test_fake" as string | undefined },
+}))
+vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: vi.fn(() => ({ env: mocked.env })) }))
 vi.mock("@/lib/db", () => ({ getPrimaryDb: vi.fn(() => ({})) }))
 vi.mock("@alook/shared", async (original) => ({
   ...await original<typeof import("@alook/shared")>(),
   queries: { billing: mocked },
 }))
 vi.mock("stripe", () => ({ default: class {
+  constructor() { mocked.clientCreated() }
   static createFetchHttpClient() { return {} }
   prices = { retrieve: mocked.retrieve }
 } }))
@@ -20,6 +24,7 @@ const request = () => GET(new NextRequest("http://localhost/api/pricing"))
 
 beforeEach(() => {
   vi.resetAllMocks()
+  mocked.env.STRIPE_SECRET_KEY = "sk_test_fake"
   mocked.listPrices.mockResolvedValue([mapping])
   mocked.getDefaultPlanOffer.mockResolvedValue({ plan: { id: "free", displayName: "Free" }, botLimit: 3, machineLimit: 1 })
   mocked.retrieve.mockResolvedValue(price)
@@ -55,10 +60,43 @@ describe("public pricing", () => {
     expect(await (await request()).json()).toMatchObject({ offers: [] })
   })
 
-  it("returns an empty paid catalog without inventing prices", async () => {
+  it("returns the actual free catalog without Stripe configuration when no paid prices exist", async () => {
+    mocked.env.STRIPE_SECRET_KEY = undefined
     mocked.listPrices.mockResolvedValue([])
-    expect(await (await request()).json()).toMatchObject({ offers: [] })
+    mocked.getDefaultPlanOffer.mockResolvedValue({ plan: { id: "starter", displayName: "Starter" }, botLimit: 5, machineLimit: 2 })
+    const response = await request()
+    expect(response.status).toBe(200)
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(response.headers.get("set-cookie")).toBeNull()
+    expect(await response.json()).toEqual({
+      free: { plan: { id: "starter", displayName: "Starter" }, botLimit: 5, machineLimit: 2 },
+      offers: [],
+    })
+    expect(mocked.clientCreated).not.toHaveBeenCalled()
     expect(mocked.retrieve).not.toHaveBeenCalled()
+  })
+
+  it("keeps mapped paid prices unavailable without Stripe configuration", async () => {
+    mocked.env.STRIPE_SECRET_KEY = undefined
+    const response = await request()
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ error: "BILLING_UNAVAILABLE" })
+    expect(mocked.listPrices).toHaveBeenCalledOnce()
+    expect(mocked.clientCreated).not.toHaveBeenCalled()
+  })
+
+  it.each(["mapping", "default", "invalid quota"])("does not manufacture an empty free catalog after %s failure", async (failure) => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {})
+    mocked.env.STRIPE_SECRET_KEY = undefined
+    mocked.listPrices.mockResolvedValue([])
+    if (failure === "mapping") mocked.listPrices.mockRejectedValue(new Error("database unavailable"))
+    if (failure === "default") mocked.getDefaultPlanOffer.mockRejectedValue(new Error("DEFAULT_PLAN_UNAVAILABLE"))
+    if (failure === "invalid quota") mocked.getDefaultPlanOffer.mockResolvedValue({ plan: { id: "free", displayName: "Free" }, botLimit: -1 })
+    const response = await request()
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ error: "BILLING_UNAVAILABLE" })
+    expect(mocked.clientCreated).not.toHaveBeenCalled()
+    log.mockRestore()
   })
 
   it("fails closed on a Stripe environment mismatch", async () => {

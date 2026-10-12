@@ -13,7 +13,7 @@ describe("Blog footer", () => {
     expect(doc.querySelectorAll("footer")).toHaveLength(1);
     expect(doc.querySelector("main footer")).toBeNull();
     expect(doc.querySelector("main")?.nextElementSibling?.tagName).toBe("FOOTER");
-    expect([...doc.querySelectorAll("footer nav a")].map((a) => a.getAttribute("href"))).toEqual(["/templates", "/blog", "/llms.txt", "/privacy"]);
+    expect([...doc.querySelectorAll("footer nav a")].map((a) => a.getAttribute("href"))).toEqual(["/templates", "/blog", "/guides", "/llms.txt", "/privacy"]);
     expect(doc.querySelectorAll(".blog-footer-socials a")).toHaveLength(3);
     expect(doc.querySelector(".blog-footer-slogan")?.textContent).toContain("Share your agents");
   });

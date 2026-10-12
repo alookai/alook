@@ -1,6 +1,7 @@
-use base64::{engine::general_purpose::STANDARD, Engine as _};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::http::{Request, Response, StatusCode};
+#[cfg(desktop)]
+use tauri::Manager;
 use url::Url;
 
 pub const SCHEME: &str = "alook-recovery";
@@ -10,15 +11,13 @@ const RECOVERY_PATH: &str = "/network-error";
 const PRODUCTION_TARGET: &str = "https://alook.ai/c";
 const SPLASH_BACKGROUND_LIGHT: &str = "#fff";
 const SPLASH_BACKGROUND_DARK: &str = "#100d0a";
-const SPLASH_LOGO_SIZE: u16 = 106;
-const SPLASH_ICON_PNG: &[u8] =
-    include_bytes!("../gen/apple/Assets.xcassets/SplashIcon.imageset/splash_icon@3x.png");
 static STARTUP: StartupRendezvous = StartupRendezvous::new();
 
 struct StartupRendezvous {
     hooks_ready: AtomicBool,
     bootstrap_finished: AtomicBool,
     navigation_started: AtomicBool,
+    abandoned: AtomicBool,
 }
 
 impl StartupRendezvous {
@@ -27,6 +26,7 @@ impl StartupRendezvous {
             hooks_ready: AtomicBool::new(false),
             bootstrap_finished: AtomicBool::new(false),
             navigation_started: AtomicBool::new(false),
+            abandoned: AtomicBool::new(false),
         }
     }
 
@@ -41,9 +41,18 @@ impl StartupRendezvous {
     }
 
     fn claim_navigation(&self) -> bool {
-        self.hooks_ready.load(Ordering::Acquire)
+        !self.abandoned.load(Ordering::Acquire)
+            && self.hooks_ready.load(Ordering::Acquire)
             && self.bootstrap_finished.load(Ordering::Acquire)
             && !self.navigation_started.swap(true, Ordering::AcqRel)
+    }
+
+    fn signal_failure(&self) -> bool {
+        !self.abandoned.swap(true, Ordering::AcqRel)
+    }
+
+    fn abandon(&self) {
+        self.abandoned.store(true, Ordering::Release);
     }
 }
 
@@ -87,7 +96,7 @@ fn response(request: Request<Vec<u8>>) -> Response<Vec<u8>> {
     let (status, csp, body) = match request.uri().path() {
         BOOTSTRAP_PATH => (
             StatusCode::OK,
-            "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+            "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
             bootstrap_html().into_bytes(),
         ),
         RECOVERY_PATH => (
@@ -189,16 +198,91 @@ fn windows_recovers(error_code: i32) -> bool {
     matches!(error_code, 1..=7 | 9..=13)
 }
 
+#[cfg(any(desktop, target_os = "ios"))]
+pub fn finish_native_creation(window: &tauri::WebviewWindow) {
+    let ready_window = window.clone();
+    let error_window = window.clone();
+    if let Err(error) = window.with_webview(move |platform| {
+        #[cfg(desktop)]
+        {
+            let _ = platform;
+            if !crate::commands::finish_native_startup(ready_window.app_handle()) {
+                eprintln!("native WebView startup handoff unavailable");
+            }
+        }
+        #[cfg(target_os = "ios")]
+        unsafe {
+            use objc2::{msg_send, runtime::AnyObject, sel};
+
+            let _ = ready_window;
+            let controller = platform.view_controller().cast::<AnyObject>();
+            let webview = platform.inner().cast::<AnyObject>();
+            let completed = if controller.is_null() || webview.is_null() {
+                false
+            } else if let Some(class) = apple_class_method(
+                c"UIViewController",
+                sel!(alook_finishStartupOverlayForController:webView:),
+            ) {
+                msg_send![class, alook_finishStartupOverlayForController: controller, webView: webview]
+            } else {
+                false
+            };
+            if !completed {
+                eprintln!("native WebView startup handoff unavailable");
+                show_native_creation_error();
+            }
+        }
+    }) {
+        eprintln!("native WebView startup callback unavailable: {error}");
+        #[cfg(target_os = "macos")]
+        crate::commands::show_startup_initialization_error(error_window.app_handle());
+        #[cfg(target_os = "ios")]
+        if let Err(error) = error_window.run_on_main_thread(show_native_creation_error) {
+            eprintln!("native WebView error dispatch unavailable: {error}");
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+        let _ = error_window;
+    }
+}
+
+#[cfg(any(target_os = "ios", all(test, target_os = "macos")))]
+fn apple_class_method(
+    name: &std::ffi::CStr,
+    selector: objc2::runtime::Sel,
+) -> Option<&'static objc2::runtime::AnyClass> {
+    objc2::runtime::AnyClass::get(name).filter(|class| class.metaclass().responds_to(selector))
+}
+
+#[cfg(target_os = "ios")]
+fn show_native_creation_error() {
+    use objc2::{msg_send, sel};
+
+    if let Some(class) = apple_class_method(
+        c"UIViewController",
+        sel!(alook_showStartupInitializationError),
+    ) {
+        let _: () = unsafe { msg_send![class, alook_showStartupInitializationError] };
+    } else {
+        eprintln!("native WebView initialization error bridge unavailable");
+    }
+}
+
 pub fn attach(window: &tauri::WebviewWindow) {
     let startup_window = window.clone();
+    let error_window = window.clone();
     if let Err(error) = window.with_webview(move |webview| match platform::attach(webview) {
-        Ok(()) if !tauri::is_dev() && STARTUP.signal_hooks_ready() => {
-            replace_window_with_production(&startup_window)
+        Ok(()) => {
+            if !tauri::is_dev() && STARTUP.signal_hooks_ready() {
+                replace_window_with_production(&startup_window);
+            }
         }
-        Ok(()) => {}
-        Err(error) => eprintln!("webview recovery unavailable: {error}"),
+        Err(error) => {
+            eprintln!("webview recovery unavailable: {error}");
+            initialization_failure(&startup_window);
+        }
     }) {
-        eprintln!("webview recovery unavailable: {error}");
+        eprintln!("webview recovery callback unavailable: {error}");
+        initialization_failure(&error_window);
     }
 }
 
@@ -206,6 +290,12 @@ pub fn on_page_load<R: tauri::Runtime>(
     webview: &tauri::Webview<R>,
     payload: &tauri::webview::PageLoadPayload<'_>,
 ) {
+    if webview.label() == "main"
+        && is_recovery_url(payload.url())
+        && payload.url().path() == RECOVERY_PATH
+    {
+        STARTUP.abandon();
+    }
     if webview.label() != "main"
         || tauri::is_dev()
         || !matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
@@ -227,28 +317,55 @@ fn production_replace_script() -> String {
 fn replace_window_with_production(window: &tauri::WebviewWindow) {
     if let Err(error) = window.eval(production_replace_script()) {
         eprintln!("webview recovery initial navigation unavailable: {error}");
+        initialization_failure(window);
     }
 }
 
 fn replace_webview_with_production<R: tauri::Runtime>(webview: &tauri::Webview<R>) {
     if let Err(error) = webview.eval(production_replace_script()) {
         eprintln!("webview recovery initial navigation unavailable: {error}");
+        if STARTUP.signal_failure() {
+            if let Err(error) = webview.navigate(initialization_error_url()) {
+                eprintln!("webview initialization error navigation unavailable: {error}");
+            }
+        }
+    }
+}
+
+fn initialization_error_url() -> Url {
+    #[cfg(any(windows, target_os = "android"))]
+    let base = format!("http://{HOST}{RECOVERY_PATH}#reason=initialization");
+    #[cfg(not(any(windows, target_os = "android")))]
+    let base = format!("{SCHEME}://localhost{RECOVERY_PATH}#reason=initialization");
+    Url::parse(&base).unwrap()
+}
+
+fn initialization_failure(window: &tauri::WebviewWindow) {
+    if STARTUP.signal_failure() {
+        if let Err(error) = window.navigate(initialization_error_url()) {
+            eprintln!("webview initialization error navigation unavailable: {error}");
+        }
     }
 }
 
 fn bootstrap_html() -> String {
-    let icon = STANDARD.encode(SPLASH_ICON_PNG);
     format!(
-        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Alook</title><style>:root{{color-scheme:light dark;--background:{light};--alook-mobile-splash-offset-y:0px}}html,body{{width:100%;height:100%;margin:0;overflow:hidden;background:var(--background)}}body{{display:grid;place-items:center;transform:translateY(var(--alook-mobile-splash-offset-y))}}img{{display:block;width:{size}px;height:{size}px;pointer-events:none;user-select:none}}@media(prefers-color-scheme:dark){{:root{{--background:{dark}}}}}</style></head><body><img src="data:image/png;base64,{icon}" width="{size}" height="{size}" alt="" aria-hidden="true" draggable="false"></body></html>"#,
+        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Alook</title><style>:root{{color-scheme:light dark;--background:{light}}}html,body{{width:100%;height:100%;margin:0;overflow:hidden;background:var(--background)}}@media(prefers-color-scheme:dark){{:root{{--background:{dark}}}}}</style></head><body></body></html>"#,
         light = SPLASH_BACKGROUND_LIGHT,
         dark = SPLASH_BACKGROUND_DARK,
-        size = SPLASH_LOGO_SIZE,
     )
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod platform {
-    use std::{ffi::c_void, panic::AssertUnwindSafe};
+    use std::{
+        ffi::c_void,
+        panic::AssertUnwindSafe,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            OnceLock,
+        },
+    };
 
     use super::{accepts_target, apple_recovers, recovery_url};
     use objc2::{
@@ -265,13 +382,18 @@ mod platform {
     };
 
     static MAIN_WEBVIEW_MARKER: u8 = 0;
+    struct Hooks {
+        class: usize,
+        originals: [Option<Imp>; 2],
+        installed: AtomicBool,
+    }
+    static HOOKS: OnceLock<Hooks> = OnceLock::new();
 
     pub fn attach(platform: tauri::webview::PlatformWebview) -> Result<(), String> {
         let webview = unsafe { webview_object(platform.inner()) };
         let delegate: *mut AnyObject = unsafe { msg_send![webview, navigationDelegate] };
         let delegate = unsafe { delegate.as_ref() }
             .ok_or_else(|| "missing Wry navigation delegate".to_string())?;
-        let delegate_class = delegate.class() as *const AnyClass as *mut AnyClass;
 
         unsafe {
             #[cfg(target_os = "ios")]
@@ -282,11 +404,7 @@ mod platform {
                 webview as *const AnyObject as *mut AnyObject,
                 OBJC_ASSOCIATION_ASSIGN,
             );
-            add_failure_method(
-                delegate_class,
-                sel!(webView:didFailProvisionalNavigation:withError:),
-            )?;
-            add_failure_method(delegate_class, sel!(webView:didFailNavigation:withError:))?;
+            install_hooks(delegate.class())?;
             let _: () = msg_send![webview, setNavigationDelegate: delegate];
         }
 
@@ -308,32 +426,156 @@ mod platform {
         &*pointer.cast::<AnyObject>()
     }
 
-    unsafe fn add_failure_method(class: *mut AnyClass, selector: Sel) -> Result<(), String> {
-        let implementation: Imp = std::mem::transmute::<
-            unsafe extern "C-unwind" fn(&AnyObject, Sel, &AnyObject, *mut AnyObject, &NSError),
-            Imp,
-        >(did_fail_navigation);
-        if bool::from(class_addMethod(
-            class,
-            selector,
-            implementation,
-            b"v@:@@@\0".as_ptr().cast(),
-        )) {
-            Ok(())
-        } else {
-            Err("failed to install WebKit navigation failure hook".to_string())
+    unsafe fn install_hooks(class: &AnyClass) -> Result<(), String> {
+        if let Some(hooks) = HOOKS.get() {
+            return if hooks.class == class as *const AnyClass as usize
+                && hooks.installed.load(Ordering::Acquire)
+            {
+                Ok(())
+            } else {
+                Err("Wry recovery hook installation unavailable".into())
+            };
         }
+        let selectors = [
+            sel!(webView:didFailProvisionalNavigation:withError:),
+            sel!(webView:didFailNavigation:withError:),
+        ];
+        let originals =
+            selectors.map(|selector| class.instance_method(selector).map(|m| m.implementation()));
+        HOOKS
+            .set(Hooks {
+                class: class as *const AnyClass as usize,
+                originals,
+                installed: AtomicBool::new(false),
+            })
+            .map_err(|_| "Wry recovery hooks already recorded".to_string())?;
+        let implementations: [Imp; 2] = [
+            std::mem::transmute(
+                did_fail_provisional
+                    as unsafe extern "C-unwind" fn(
+                        &AnyObject,
+                        Sel,
+                        &AnyObject,
+                        *mut AnyObject,
+                        &NSError,
+                    ),
+            ),
+            std::mem::transmute(
+                did_fail
+                    as unsafe extern "C-unwind" fn(
+                        &AnyObject,
+                        Sel,
+                        &AnyObject,
+                        *mut AnyObject,
+                        &NSError,
+                    ),
+            ),
+        ];
+        let hooks = HOOKS.get().unwrap();
+        install_hook_sequence(
+            &hooks.installed,
+            |index| {
+                if let Some(method) = class.instance_method(selectors[index]) {
+                    method.set_implementation(implementations[index]);
+                    true
+                } else {
+                    bool::from(class_addMethod(
+                        class as *const AnyClass as *mut AnyClass,
+                        selectors[index],
+                        implementations[index],
+                        b"v@:@@@\0".as_ptr().cast(),
+                    ))
+                }
+            },
+            || {
+                selectors
+                    .iter()
+                    .zip(implementations)
+                    .all(|(selector, implementation)| {
+                        class.instance_method(*selector).is_some_and(|m| {
+                            m.implementation() as *const () == implementation as *const ()
+                        })
+                    })
+            },
+            || {
+                for (selector, original) in selectors.iter().zip(hooks.originals) {
+                    if let Some(original) = original {
+                        if let Some(method) = class.instance_method(*selector) {
+                            method.set_implementation(original);
+                        }
+                    }
+                }
+            },
+        )
     }
 
-    unsafe extern "C-unwind" fn did_fail_navigation(
-        _delegate: &AnyObject,
-        _selector: Sel,
+    fn install_hook_sequence(
+        installed: &AtomicBool,
+        mut install: impl FnMut(usize) -> bool,
+        verify: impl FnOnce() -> bool,
+        rollback: impl FnOnce(),
+    ) -> Result<(), String> {
+        for index in 0..2 {
+            if !install(index) {
+                rollback();
+                return Err("failed to install WebKit recovery hook".into());
+            }
+        }
+        if !verify() {
+            rollback();
+            return Err("WebKit recovery hook verification failed".into());
+        }
+        installed.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    unsafe fn failure(
+        index: usize,
+        delegate: &AnyObject,
+        selector: Sel,
         webview: &AnyObject,
-        _navigation: *mut AnyObject,
+        navigation: *mut AnyObject,
+        error: &NSError,
+    ) {
+        if let Some(original) = HOOKS.get().and_then(|hooks| hooks.originals[index]) {
+            let callback: unsafe extern "C-unwind" fn(
+                &AnyObject,
+                Sel,
+                &AnyObject,
+                *mut AnyObject,
+                &NSError,
+            ) = std::mem::transmute(original);
+            callback(delegate, selector, webview, navigation, error);
+        }
+        if !HOOKS
+            .get()
+            .is_some_and(|hooks| hooks.installed.load(Ordering::Acquire))
+        {
+            return;
+        }
+        handle_failure(webview, error);
+    }
+
+    unsafe extern "C-unwind" fn did_fail_provisional(
+        delegate: &AnyObject,
+        selector: Sel,
+        webview: &AnyObject,
+        navigation: *mut AnyObject,
         error: &NSError,
     ) {
         let _ = std::panic::catch_unwind(AssertUnwindSafe(|| unsafe {
-            handle_failure(webview, error)
+            failure(0, delegate, selector, webview, navigation, error)
+        }));
+    }
+    unsafe extern "C-unwind" fn did_fail(
+        delegate: &AnyObject,
+        selector: Sel,
+        webview: &AnyObject,
+        navigation: *mut AnyObject,
+        error: &NSError,
+    ) {
+        let _ = std::panic::catch_unwind(AssertUnwindSafe(|| unsafe {
+            failure(1, delegate, selector, webview, navigation, error)
         }));
     }
 
@@ -369,6 +611,78 @@ mod platform {
         let request = NSURLRequest::requestWithURL(&url);
         let _: *mut AnyObject = msg_send![webview, loadRequest: &*request];
         Ok(())
+    }
+    #[cfg(test)]
+    mod hook_tests {
+        use super::*;
+        use std::cell::RefCell;
+
+        #[test]
+        fn hook_completion_is_published_only_after_all_installs_and_verification() {
+            let installed = AtomicBool::new(false);
+            let steps = RefCell::new(Vec::new());
+            assert!(install_hook_sequence(
+                &installed,
+                |index| {
+                    assert!(!installed.load(Ordering::Acquire));
+                    steps.borrow_mut().push(index);
+                    true
+                },
+                || {
+                    assert!(!installed.load(Ordering::Acquire));
+                    assert_eq!(*steps.borrow(), vec![0, 1]);
+                    true
+                },
+                || panic!("successful installation must not roll back"),
+            )
+            .is_ok());
+            assert!(installed.load(Ordering::Acquire));
+        }
+
+        #[test]
+        fn every_partial_install_failure_rolls_back_without_publishing_completion() {
+            for failure in 0..2 {
+                let installed = AtomicBool::new(false);
+                let methods = RefCell::new([false; 2]);
+                let rolled_back = AtomicBool::new(false);
+                assert!(install_hook_sequence(
+                    &installed,
+                    |index| {
+                        assert!(!installed.load(Ordering::Acquire));
+                        if index == failure {
+                            return false;
+                        }
+                        methods.borrow_mut()[index] = true;
+                        true
+                    },
+                    || panic!("partial installation must not verify"),
+                    || {
+                        assert!(!installed.load(Ordering::Acquire));
+                        *methods.borrow_mut() = [false; 2];
+                        rolled_back.store(true, Ordering::Release);
+                    },
+                )
+                .is_err());
+                assert!(!installed.load(Ordering::Acquire));
+                assert!(rolled_back.load(Ordering::Acquire));
+                assert_eq!(*methods.borrow(), [false; 2]);
+            }
+        }
+
+        #[test]
+        fn unexpected_installed_imp_rolls_back_and_keeps_completion_false() {
+            let installed = AtomicBool::new(false);
+            let rolled_back = AtomicBool::new(false);
+            assert!(install_hook_sequence(
+                &installed,
+                |_| true,
+                || false,
+                || rolled_back.store(true, Ordering::Release),
+            )
+            .is_err());
+            assert!(!installed.load(Ordering::Acquire));
+            assert!(rolled_back.load(Ordering::Acquire));
+        }
     }
 }
 
@@ -513,12 +827,14 @@ fn recovery_html() -> &'static str {
     const candidate=params.get("target")||"";
     const surface=document.querySelector('[data-testid="webview-recovery"]');
     const message=document.querySelector('[data-testid="recovery-message"]');
+    if(params.get("reason")==="initialization")message.textContent="App initialization failed. Close and reopen Alook";
     const originalMessage=message.textContent;
     let target="";
     let retrying=false;
     let blurred=false;
     let hidden=document.hidden;
     try{const parsed=new URL(candidate);if((parsed.protocol==="http:"||parsed.protocol==="https:")&&parsed.hostname!=="alook-recovery.localhost")target=candidate}catch(_error){}
+    if(params.get("reason")==="initialization")target="";
     if(!target)surface.setAttribute("aria-disabled","true");
     const refresh=()=>{if(retrying||!target)return;retrying=true;surface.setAttribute("aria-disabled","true");message.textContent="Retrying…";try{location.replace(target)}catch(_error){retrying=false;surface.setAttribute("aria-disabled","false");message.textContent=originalMessage}};
     const onKeydown=event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();refresh()}};
@@ -535,7 +851,6 @@ fn recovery_html() -> &'static str {
     listen(window,"focus",onFocus);
     listen(document,"visibilitychange",onVisibilityChange);
     listen(window,"pagehide",cleanup);
-    if(window.__TAURI_INTERNALS__)window.__TAURI_INTERNALS__.invoke("close_splashscreen").catch(()=>{});
   </script>
 </body>
 </html>"##
@@ -546,6 +861,31 @@ mod tests {
     use std::{fs, path::PathBuf};
 
     use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn apple_class_method_finds_registered_class_selector() {
+        assert!(apple_class_method(c"NSString", objc2::sel!(string)).is_some());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn apple_class_method_rejects_missing_class_and_selector() {
+        assert!(
+            apple_class_method(c"AlookMissingStartupBridgeClass", objc2::sel!(string)).is_none()
+        );
+        assert!(
+            apple_class_method(c"NSString", objc2::sel!(alookMissingStartupSelector)).is_none()
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn apple_class_method_rejects_instance_only_selector() {
+        let class = objc2::runtime::AnyClass::get(c"NSString").unwrap();
+        assert!(class.responds_to(objc2::sel!(length)));
+        assert!(apple_class_method(c"NSString", objc2::sel!(length)).is_none());
+    }
 
     fn assert_order(source: &str, parts: &[&str]) {
         let mut offset = 0;
@@ -719,7 +1059,7 @@ mod tests {
         assert_eq!(bootstrap_response.status(), 200);
         assert_eq!(
             bootstrap_response.headers()["content-security-policy"],
-            "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+            "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
         );
         assert_eq!(
             bootstrap_response.headers()["x-content-type-options"],
@@ -742,50 +1082,14 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_matches_the_ios_launch_screen() {
+    fn bootstrap_is_theme_background_without_another_startup_logo() {
         let html = bootstrap_html();
-        let storyboard = include_str!("../gen/apple/LaunchScreen.storyboard");
-        let colors =
-            include_str!("../gen/apple/Assets.xcassets/SplashBackground.colorset/Contents.json");
-
         assert!(html.contains("--background:#fff"));
         assert!(html.contains("--background:#100d0a"));
-        assert!(html.contains("--alook-mobile-splash-offset-y:0px"));
-        assert!(html.contains(
-            "body{display:grid;place-items:center;transform:translateY(var(--alook-mobile-splash-offset-y))}"
-        ));
-        assert!(html.contains("img{display:block;width:106px;height:106px"));
-        assert!(html.contains("width=\"106\" height=\"106\""));
-        assert!(!html.contains("animation"));
-        assert!(!html.contains("transition"));
-
-        assert!(storyboard.contains("image=\"SplashIcon\""));
-        assert!(storyboard.contains("name=\"SplashBackground\""));
-        assert_eq!(storyboard.matches("constant=\"106\"").count(), 2);
-        assert!(storyboard.contains(
-            "firstAttribute=\"centerX\" secondItem=\"vDu-zF-Fre\" secondAttribute=\"centerX\""
-        ));
-        assert!(storyboard.contains(
-            "firstAttribute=\"centerY\" secondItem=\"vDu-zF-Fre\" secondAttribute=\"centerY\""
-        ));
-
-        for component in [
-            "\"red\": \"1.000\"",
-            "\"green\": \"1.000\"",
-            "\"blue\": \"1.000\"",
-            "\"red\": \"0.063\"",
-            "\"green\": \"0.051\"",
-            "\"blue\": \"0.039\"",
-        ] {
-            assert!(colors.contains(component));
-        }
-
-        let encoded = html
-            .split_once("src=\"data:image/png;base64,")
-            .and_then(|(_, source)| source.split_once('\"'))
-            .map(|(encoded, _)| encoded)
-            .expect("bootstrap must contain an inline PNG");
-        assert_eq!(STANDARD.decode(encoded).unwrap(), SPLASH_ICON_PNG);
+        assert!(html.contains("<body></body>"));
+        assert!(!html.contains("<img"));
+        assert!(!html.contains("data:image"));
+        assert!(!html.contains("--alook-mobile-splash-offset-y"));
     }
 
     #[test]
@@ -880,78 +1184,65 @@ mod tests {
     }
 
     #[test]
-    fn native_source_installs_hooks_before_finished_bootstrap_navigation() {
-        let source = include_str!("webview_recovery.rs");
-        assert_order(
-            source,
-            &[
-                "objc_setAssociatedObject(",
-                "add_failure_method(",
-                "setNavigationDelegate: delegate",
-            ],
-        );
-        assert_order(
-            source,
-            &[
-                "connect_load_failed(move",
-                "connect_load_failed_with_tls_errors(move",
-            ],
-        );
-        assert_order(
-            source,
-            &[
-                "SetIsBuiltInErrorPageEnabled(false)",
-                "add_NavigationCompleted(&handler",
-            ],
-        );
-        assert!(source.contains("tauri::webview::PageLoadEvent::Finished"));
-        assert!(source.contains("is_bootstrap_url(payload.url())"));
-        assert_order(
-            source,
-            &[
-                "self.hooks_ready.load(Ordering::Acquire)",
-                "self.bootstrap_finished.load(Ordering::Acquire)",
-                "self.navigation_started.swap(true, Ordering::AcqRel)",
-            ],
-        );
-        assert!(source.contains("STARTUP.signal_hooks_ready()"));
-        assert!(source.contains("STARTUP.signal_bootstrap_finished()"));
-        assert!(source.contains("replace_window_with_production(&startup_window)"));
-        assert!(source.contains("replace_webview_with_production(webview)"));
+    fn container_handoff_is_independent_of_page_and_recovery() {
+        let lib = include_str!("lib.rs");
         assert_eq!(
-            production_replace_script(),
-            "location.replace(\"https://alook.ai/c\")"
+            lib.matches("webview_recovery::finish_native_creation(&window);")
+                .count(),
+            2
         );
-        assert!(source.contains("setAllowsBackForwardNavigationGestures: false"));
-        assert!(!source.contains(&["window", ".url()"].concat()));
-
         let apple = include_str!("../gen/apple/Sources/alook-desktop/main.mm");
-        assert!(apple.contains("[UIImage imageNamed:@\"SplashIcon\"]"));
-        assert!(apple.contains("static const NSInteger kAlookStartupLogoTag = 8738"));
-        assert!(apple.contains("CGFloat size = 106.0"));
-        assert!(apple.contains("viewController.view.window ?: viewController.view"));
-        assert!(apple.contains("NSClassFromString(@\"TaoUIViewController\")"));
-        assert!(apple.contains("[host bringSubviewToFront:overlay]"));
-        assert!(apple.contains("UIWindowDidBecomeVisibleNotification"));
-        assert!(apple.contains("gAlookStartupOverlay.superview isKindOfClass:[UIWindow class]"));
-        assert!(apple.contains("queue:nil"));
-        assert!(apple.contains("alookInstallStartupOverlayInWindow(window)"));
-        assert!(apple.contains("@selector(alook_viewDidLoad)"));
-        assert!(apple.contains("@selector(alook_viewDidAppear:)"));
-        assert!(apple.contains("alookPrepareStartupOverlay(self)"));
-        assert!(apple.contains("UIEdgeInsetsInsetRect(overlay.bounds, host.safeAreaInsets)"));
-        assert!(apple.contains("takeSnapshotWithConfiguration:nil"));
-        assert!(!apple.contains("--alook-mobile-splash-offset-y"));
-        assert!(apple.contains("alookWaitForWebViewSurface(self, startupWebView, 0)"));
+        assert!(apple.contains("[controller.view.subviews containsObject:webView]"));
+        assert!(apple.contains("gAlookStartupCompleted = YES"));
+        assert!(!apple.contains("takeSnapshot"));
+        assert!(!apple.contains("document.readyState"));
+        let activity =
+            include_str!("../gen/android/app/src/main/java/ai/alook/android/MainActivity.kt");
+        assert!(activity.contains("webView.addOnAttachStateChangeListener(listener)"));
+        assert!(activity
+            .contains("if (webView.isAttachedToWindow) listener.onViewAttachedToWindow(webView)"));
+        assert!(activity.contains("view !== mainWebView || isDestroyed || isFinishing"));
+        assert!(activity.contains("mainWebView?.removeOnAttachStateChangeListener(it)"));
+        assert!(!activity.contains("postVisualStateCallback"));
+        assert!(!activity.contains("postDelayed"));
+        assert!(!activity.contains("StartupDocument"));
+        let commands = include_str!("commands.rs");
         assert_order(
-            apple,
+            commands,
             &[
-                "location.hostname==='alook-recovery.localhost'",
-                "location.pathname==='/bootstrap'",
-                "document.readyState==='complete'",
-                "alookFinishStartupOverlay(strongViewController)",
+                "if let Err(error) = main.show()",
+                "if let Err(error) = splash.close()",
+                "SPLASH_CLOSED.store(true",
             ],
         );
+    }
+
+    #[test]
+    fn recovery_install_failure_and_bootstrap_finish_cannot_restart_production() {
+        for finished_first in [false, true] {
+            let startup = StartupRendezvous::new();
+            if finished_first {
+                assert!(!startup.signal_bootstrap_finished());
+            }
+            assert!(startup.signal_failure());
+            assert!(!startup.signal_failure());
+            assert!(!startup.signal_hooks_ready());
+            assert!(!startup.signal_bootstrap_finished());
+            assert!(!startup.navigation_started.load(Ordering::Acquire));
+        }
+        let startup = StartupRendezvous::new();
+        assert!(!startup.signal_hooks_ready());
+        assert!(startup.signal_bootstrap_finished());
+        assert!(startup.signal_failure());
+        assert!(!startup.signal_failure());
+        assert!(!startup.signal_hooks_ready());
+        assert!(!startup.signal_bootstrap_finished());
+        assert!(
+            recovery_html().contains("if(params.get(\"reason\")===\"initialization\")target=\"\"")
+        );
+        assert!(initialization_error_url()
+            .as_str()
+            .ends_with("#reason=initialization"));
     }
 
     #[test]
@@ -986,14 +1277,10 @@ mod tests {
     }
 
     #[test]
-    fn android_extension_preserves_wry_client_and_cancels_ssl() {
+    fn android_extension_preserves_network_and_wry_without_page_ready() {
         let extension = include_str!("../.cargo/config.toml");
-        assert!(extension.contains("WRY_RUSTWEBVIEWCLIENT_CLASS_EXTENSION"));
-        assert!(extension.contains("override fun onPageCommitVisible(view: WebView, url: String?)"));
-        assert!(extension.contains("WebviewRecovery.handlePageCommitVisible(view, url)"));
-        assert!(extension.contains("override fun onReceivedError("));
-        assert!(extension
-            .contains("WebviewRecovery.handleError(view, errorCode, currentUrl, failingUrl)"));
+        assert!(!extension.contains("onPageCommitVisible"));
+        assert!(!extension.contains("setWebViewClient"));
         assert_order(
             extension,
             &[
@@ -1002,68 +1289,17 @@ mod tests {
                 "WebviewRecovery.handleSslError(view, currentUrl, error.url)",
             ],
         );
-        assert!(!extension.contains("setWebViewClient"));
-
-        let helper =
-            include_str!("../gen/android/app/src/main/java/ai/alook/android/WebviewRecovery.kt");
-        assert!(helper.contains("findActivity(view.context)?.markStartupSurfaceReady(view)"));
-        assert!(helper.contains("parsed.host.equals(RECOVERY_ORIGIN"));
-        assert!(helper.contains("parsed.host.equals(\"alook.ai\""));
-        assert!(helper.contains("documentIdentity(currentUrl) != documentIdentity(failingUrl)"));
-        assert!(helper.contains("return recoveryUrl(currentUrl)"));
-
-        let lock = include_str!("../Cargo.lock");
-        assert!(lock.contains("name = \"wry\"\nversion = \"0.57.0\""));
         let wry = wry_android_client_source();
-        assert!(wry.contains("request: WebResourceRequest"));
-        assert!(wry.contains("request.isForMainFrame"));
-        assert!(wry.contains("super.onReceivedError(view, request, error)"));
-
+        assert!(wry.contains("return Rust.onPageLoading((view as RustWebView).id, url)"));
+        assert!(wry.contains("Rust.onPageLoaded((view as RustWebView).id, url)"));
         let gradle = include_str!("../gen/android/app/build.gradle.kts");
-        assert_order(
-            gradle,
-            &[
-                "request.isForMainFrame &&",
-                "WebviewRecovery.handleError(",
-                "error.errorCode",
-                "request.url.toString()",
-                "super.onReceivedError(view, request, error)",
-            ],
-        );
-        assert!(
-            gradle.contains("WebviewRecovery.handleError(view, errorCode, currentUrl, failingUrl)")
-        );
-        assert!(gradle.contains("WebviewRecovery.handleSslError(view, currentUrl, error.url)"));
+        assert!(gradle.contains("source.occurrencesOf(it.second) == 1"));
         assert!(gradle.contains("wireGeneratedWebViewRecovery"));
         assert!(gradle.contains("verifyGeneratedWebViewRecovery"));
-        assert!(gradle.contains("it.name == \"rustBuild$variant\""));
-        assert!(gradle.contains("mustRunAfter(\"rustBuild$variant\")"));
-        assert!(gradle.contains("dependsOn(verify)"));
-
-        let activity =
-            include_str!("../gen/android/app/src/main/java/ai/alook/android/MainActivity.kt");
-        assert!(activity.contains("override val handleBackNavigation: Boolean = false"));
-        assert!(activity.contains("NativeBackDispatcher(::delegateBackToSystem)"));
-        assert!(activity.contains("(chromeInsets.bottom - chromeInsets.top)"));
-        assert!(activity.contains("--alook-mobile-splash-offset-y"));
-        assert!(activity.contains("webView.postVisualStateCallback"));
-        assert_order(
-            activity,
-            &[
-                "splashScreen.setOnExitAnimationListener",
-                "provider.view.postOnAnimation",
-                "provider.view.postOnAnimation { provider.remove() }",
-            ],
-        );
-        assert!(activity
-            .contains("Handler(Looper.getMainLooper()).postDelayed({ isReady = true }, 10000)"));
-        assert!(!activity.contains(&["can", "GoBack()"].concat()));
-        assert!(!activity.contains(&[".", "goBack()"].concat()));
-
-        let dispatcher = include_str!(
-            "../gen/android/app/src/main/java/ai/alook/android/NativeBackDispatcher.kt"
-        );
-        assert!(dispatcher.contains("alook:native-back"));
-        assert!(dispatcher.contains("if (closed || inFlight) return"));
+        assert!(gradle.contains("handler.cancel()"));
+        assert!(gradle.contains("return Rust.onPageLoading((view as RustWebView).id, url)"));
+        assert!(gradle.contains("Rust.onPageLoaded((view as RustWebView).id, url)"));
+        assert!(!gradle.contains("WebviewRecovery.handlePageFinished(view, url)"));
+        assert!(!gradle.contains("WebviewRecovery.handlePageStarted(view)"));
     }
 }

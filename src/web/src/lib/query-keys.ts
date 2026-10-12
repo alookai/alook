@@ -113,6 +113,8 @@ export const communityKeys = {
     [...communityKeys.all, "attention"] as const,
 
   // Single hydrated message (opener block, deep-link previews).
+  messageRoute: (messageId: string) =>
+    [...communityKeys.all, "message-route", messageId] as const,
   message: (messageId: string) =>
     [...communityKeys.all, "message", messageId] as const,
   messageContexts: (_type: "channel" | "dm", channelId: string) =>

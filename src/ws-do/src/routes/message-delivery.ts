@@ -36,8 +36,9 @@ async function deliverTarget(
   userId: string,
   events: CommunityWsEvent[],
   operationId: CommunityDeliveryOperationId,
+  contract: 2 | 3,
 ): Promise<TargetResult> {
-  const prepared = await prepareCommunityDeliveryEvents(events)
+  const prepared = await prepareCommunityDeliveryEvents(events, contract)
   if (!prepared.ok) return { ok: false, kind: "invalid-receipt" }
   try {
     const id = env.WS_DO.idFromName(`user:${userId}`)
@@ -47,6 +48,7 @@ async function deliverTarget(
         operationId,
         prepared.prepared.digest,
         prepared.prepared.envelopes,
+        contract,
       ),
     )
     if (!response.ok) return { ok: false, kind: "non-ok" }
@@ -180,7 +182,7 @@ export async function handleMessageDelivery(
   const startedAt = Date.now()
   const results = await settleInBatches(
     entries,
-    ([userId, events]) => deliverTarget(env, userId, events, operationId),
+    ([userId, events]) => deliverTarget(env, userId, events, operationId, batch.communityContract ?? 2),
     targetBatchSize,
   )
   const failedUserIds: string[] = []

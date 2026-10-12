@@ -9,7 +9,6 @@ import {
   dismissDesktopSystemNotificationConversation,
   listenDesktopSystemNotificationActivations,
   resolveDesktopSystemNotificationCandidate,
-  retryDesktopSystemNotificationActivation,
   showDesktopSystemNotification,
   takeDesktopSystemNotificationActivation,
 } from "./desktop-system-notification"
@@ -58,7 +57,7 @@ const serverRows = [{
     mentions: 0,
 }]
 const channelRows = [
-  {
+  { topic: "", messageCount: 0, createdAt: "2026-10-01T00:00:00Z",
     id: "channel_1",
     serverId: "server_1",
     categoryId: null,
@@ -75,7 +74,7 @@ const channelRows = [
     pending: false,
     lastMessageAt: null,
   },
-  {
+  { topic: "", messageCount: 0, createdAt: "2026-10-01T00:00:00Z",
     id: "thread_1",
     serverId: "server_1",
     categoryId: null,
@@ -178,7 +177,7 @@ describe("desktop system notification candidates", () => {
   it("resolves a cold channel name before formatting the desktop copy", async () => {
     const queryClient = await createClient()
     seedCanonicalDirectory(queryClient, { channels: false })
-    channelMetadataMocks.fetch.mockResolvedValue({
+    channelMetadataMocks.fetch.mockResolvedValue({ categoryId: null, topic: "", position: 0, messageCount: 0,
       id: "channel_1",
       serverId: "server_1",
       name: "general",
@@ -204,7 +203,7 @@ describe("desktop system notification candidates", () => {
 
   it("uses the default empty snapshot while resolving cold channel metadata", async () => {
     const queryClient = await createClient()
-    channelMetadataMocks.fetch.mockResolvedValue({
+    channelMetadataMocks.fetch.mockResolvedValue({ categoryId: null, topic: "", position: 0, messageCount: 0,
       id: "channel_1",
       serverId: "server_1",
       name: "general",
@@ -232,7 +231,7 @@ describe("desktop system notification candidates", () => {
   it("resolves cold thread and parent channel names before formatting the desktop copy", async () => {
     const queryClient = await createClient()
     seedCanonicalDirectory(queryClient, { channels: false })
-    channelMetadataMocks.fetch.mockResolvedValueOnce({
+    channelMetadataMocks.fetch.mockResolvedValueOnce({ categoryId: null, topic: "", position: 0, messageCount: 0,
       id: "thread_1",
       serverId: "server_1",
       name: "Release notes",
@@ -243,7 +242,7 @@ describe("desktop system notification candidates", () => {
       archived: false,
       lastMessageAt: null,
       createdAt: "2026-09-12T00:00:00.000Z",
-    }).mockResolvedValueOnce({
+    }).mockResolvedValueOnce({ categoryId: null, topic: "", position: 0, messageCount: 0,
       id: "channel_1",
       serverId: "server_1",
       name: "general",
@@ -443,13 +442,4 @@ describe("desktop system notification activation bridge", () => {
     )
   })
 
-  it("re-arms exactly one native notification id", async () => {
-    invoke.mockResolvedValueOnce(undefined)
-    const notificationId = "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e"
-    await expect(retryDesktopSystemNotificationActivation(notificationId)).resolves.toBeUndefined()
-    expect(invoke).toHaveBeenCalledWith(
-      "desktop_system_notification_retry_activation",
-      { notificationId },
-    )
-  })
 })

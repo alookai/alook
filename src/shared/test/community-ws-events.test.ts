@@ -5,8 +5,8 @@ import type {
   CommunityMessageEdited,
   CommunityMachineCreated,
   CommunityMachineUpdated,
-  CommunityMachineSummary,
 } from "../src/community-ws-events";
+import type { CommunityMachineSummary } from "../src/schemas";
 
 describe("CommunityChannelDelete post-unit address contract", () => {
   it("accepts canonical post identity while preserving legacy/top-level compatibility", () => {

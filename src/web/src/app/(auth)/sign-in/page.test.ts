@@ -41,6 +41,11 @@ describe("sign-in server configuration", () => {
     expect(JSON.stringify(page.props)).not.toContain("private-key-never-passed-to-the-client")
   })
 
+  it("shows the real OTP form for the explicit local QA configuration", async () => {
+    mocks.getCloudflareContext.mockResolvedValueOnce({ env: { NODE_ENV: "development", DEV_AUTH_OTP: "1" } })
+    expect((await SignInPage()).props.isProd).toBe(true)
+  })
+
   it("fails closed instead of rendering with partial Apple configuration", async () => {
     mocks.getCloudflareContext.mockResolvedValueOnce({
       env: { APPLE_CLIENT_ID: "ai.alook.web" },

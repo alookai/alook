@@ -97,11 +97,11 @@ function attentionIncluded(overrides: {
 } = {}) {
   return {
     servers: [{ id: "s_1", name: "Server", discriminator: "0001" }],
-    channels: [{
+    channels: [{ categoryId: null, topic: "", position: 0, messageCount: 0, createdAt: "2026-10-01T00:00:00Z",
       id: "channel", serverId: "s_1", name: "Channel", type: "text",
       parentChannelId: null, parentMessageId: null, creatorId: null,
       archived: false, lastMessageAt: null,
-    }, {
+    }, { categoryId: null, topic: "", position: 0, messageCount: 0, createdAt: "2026-10-01T00:00:00Z",
       id: "ch_1", serverId: "s_1", name: "Channel", type: "text",
       parentChannelId: null, parentMessageId: null, creatorId: null,
       archived: false, lastMessageAt: null,
@@ -309,7 +309,7 @@ describe("useSendMessage — happy path", () => {
             if (typeof canonical?.seq !== "number") throw new Error("Missing confirmed canonical seq")
             currentBase = [older, { ...canonical, seq: canonical.seq }]
             runtime.messageStream.actions.dispatch(scope, { type: "baseChanged", messages: currentBase, latestSeq: 9 }) })
-          expect(canonicalRegistry.collections.messages.get(confirmed.id)?.attachments).toEqual([remoteAttachment])
+          expect(canonicalRegistry.collections.messages.get(confirmed.id)?.attachments).toEqual([{ name: remoteAttachment.name, url: remoteAttachment.url, contentType: remoteAttachment.contentType, sizeBytes: remoteAttachment.sizeBytes }])
           expect(materializeMessageStream(currentBase, getMessageStreamState(capturedQc, scope), canonicalMessageReader(capturedQc))).toEqual([
             expect.objectContaining({ id: older.id }),
             expect.objectContaining({ id: confirmed.id, replyTo, attachments: [remoteAttachment] }),
@@ -576,7 +576,7 @@ describe("useSendDmMessage — overlay terminal emitter", () => {
   })
 
   it("continues the upload intent when its view retires after upload succeeds, before native POST", async () => {
-    apiFetchMock.mockResolvedValueOnce({ message: { id: "confirmed", seq: 12, type: "chat", content: "keep optimistic", authorId: "u_me", authorName: "Me", createdAt: "2026-10-09T01:00:00Z", embeds: [] } })
+    apiFetchMock.mockResolvedValueOnce({ message: { id: "confirmed", seq: 12, type: "chat", content: "keep optimistic", authorId: "u_me", authorName: "Me", authorImage: null, authorAvatarVersion: 0, createdAt: "2026-10-09T01:00:00Z", embeds: [] } })
     const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }, runtime = canonicalRegistry.runtime
     const file = new File(["x"], "x.txt", { type: "text/plain" })
     runtime.messageStream.actions.accept(scope, { nonce: "upload-view", tempId: "temp-upload-view", message: { type: "chat", content: "file", authorId: "u_me" }, localUploads: [{ file, previewObjectUrl: "blob:view" }] })
@@ -600,7 +600,7 @@ describe("useSendDmMessage — overlay terminal emitter", () => {
   })
 
   it("continues the accepted channel intent when its view retires before native POST starts", async () => {
-    apiFetchMock.mockResolvedValueOnce({ message: { id: "confirmed", seq: 12, type: "chat", content: "keep optimistic", authorId: "u_me", authorName: "Me", createdAt: "2026-10-09T01:00:00Z", embeds: [] } })
+    apiFetchMock.mockResolvedValueOnce({ message: { id: "confirmed", seq: 12, type: "chat", content: "keep optimistic", authorId: "u_me", authorName: "Me", authorImage: null, authorAvatarVersion: 0, createdAt: "2026-10-09T01:00:00Z", embeds: [] } })
     const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
     const runtime = canonicalRegistry.runtime
     runtime.messageStream.actions.accept(scope, { nonce: "retired_view", tempId: "temp_retired_view",

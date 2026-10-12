@@ -51,6 +51,7 @@ class AlookFirebaseMessagingService : FirebaseMessagingService() {
             requestCode,
             notification,
         )
+        MobilePushPlugin.signalCurrent()
     }
 
     companion object {

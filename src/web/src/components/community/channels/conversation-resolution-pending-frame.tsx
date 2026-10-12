@@ -3,6 +3,7 @@ import { ChannelHeaderSkeleton } from "./channel-header"
 import { ConversationMessageSkeleton } from "./conversation-message-skeleton"
 import { ForumViewSkeleton } from "./forum-view"
 import { ComposerSkeleton } from "../messages/composer"
+import { tid } from "@/lib/community/testids"
 
 /** Inert main-area placeholder used until canonical route metadata proves the subtype. */
 export function ConversationResolutionPendingFrame({
@@ -15,6 +16,7 @@ export function ConversationResolutionPendingFrame({
       <>
         <ChannelHeaderSkeleton kind="forum" />
         <main
+          data-testid={tid.conversationResolutionPending}
           aria-busy="true"
           aria-label="Loading forum"
           data-community-conversation-subtype="forum"
@@ -30,6 +32,7 @@ export function ConversationResolutionPendingFrame({
       <>
         <ChannelHeaderSkeleton kind={subtype} />
         <main
+          data-testid={tid.conversationResolutionPending}
           aria-busy="true"
           aria-label={subtype === "thread" ? "Loading thread" : "Loading conversation"}
           data-community-conversation-subtype={subtype}
@@ -43,6 +46,7 @@ export function ConversationResolutionPendingFrame({
   }
   return (
     <main
+      data-testid={tid.conversationResolutionPending}
       aria-busy="true"
       aria-label="Resolving conversation"
       data-community-conversation-subtype="unknown"

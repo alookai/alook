@@ -1,6 +1,6 @@
 import { z } from "zod"
-import { CommunityChannelResourceSchema, CommunityMessageResourceSchema, CommunityReadStateResourceSchema, CommunityMemberRelationSchema, CommunityResourceProfileSchema } from "@alook/shared"
 import { PARTICIPANT_SOURCE } from "@alook/shared/constants/community"
+import { AttentionScopeSchema, AttentionItemSchema, CommunityChannelResourceSchema, CommunityMessageResourceSchema, CommunityMessagePreviewSchema, CommunityReadStateResourceSchema, CommunityMemberRelationSchema, CommunityResourceProfileSchema } from "@alook/shared"
 
 const nullableString = z.string().nullable()
 const optionalNullableString = nullableString.optional()
@@ -32,15 +32,7 @@ export const categorySchema = z.object({
   pending: z.boolean(),
 })
 
-export const channelSchema = CommunityChannelResourceSchema.pick({
-  id: true, serverId: true, categoryId: true, type: true, parentChannelId: true,
-  parentMessageId: true, creatorId: true, position: true, archived: true,
-  lastMessageAt: true, createdAt: true, messageCount: true,
-}).strip().partial({
-  serverId: true, categoryId: true, parentChannelId: true, parentMessageId: true,
-  creatorId: true, lastMessageAt: true, createdAt: true, messageCount: true,
-}).extend({
-  name: CommunityChannelResourceSchema.shape.name.unwrap(),
+export const channelLocalSchema = z.object({
   muted: z.boolean(),
   unread: z.boolean(),
   /** Forum channel's own unread bit, excluding participating child rows. */
@@ -54,6 +46,20 @@ export const channelSchema = CommunityChannelResourceSchema.pick({
   participantCount: z.number().int().nonnegative().optional(),
 })
 
+export const channelSchema = z.discriminatedUnion("resourceComplete", [
+  CommunityChannelResourceSchema.strip().extend({
+    ...channelLocalSchema.shape,
+    resourceComplete: z.literal(true),
+  }),
+  CommunityChannelResourceSchema.partial({
+    serverId: true, categoryId: true, parentChannelId: true, parentMessageId: true,
+    creatorId: true, lastMessageAt: true, createdAt: true, messageCount: true, topic: true,
+  }).strip().extend({
+    ...channelLocalSchema.shape,
+    resourceComplete: z.literal(false).default(false),
+  }),
+])
+
 export const serverMembershipSchema = z.object({
   id: z.string().min(1),
   serverId: z.string().min(1),
@@ -65,44 +71,31 @@ export const serverMembershipSchema = z.object({
   viewer: z.boolean(),
 })
 
-export const channelMembershipSchema = CommunityMemberRelationSchema.pick({
-  channelId: true, userId: true, relation: true, isCreator: true,
-}).strip().partial({ isCreator: true }).extend({
+export const channelMembershipSchema = CommunityMemberRelationSchema.strip().partial({
+  source: true, isCreator: true, role: true, memberId: true,
+}).extend({
   id: z.string().min(1),
-  memberId: z.string().optional(),
-  source: z.enum([
-    "explicit",
-    "inherited",
-    "admin",
-    PARTICIPANT_SOURCE.MENTION,
-    PARTICIPANT_SOURCE.SPOKE,
-    PARTICIPANT_SOURCE.ADDED,
-  ]).optional(),
+  source: z.enum(["explicit", "inherited", "admin", PARTICIPANT_SOURCE.MENTION, PARTICIPANT_SOURCE.SPOKE, PARTICIPANT_SOURCE.ADDED]).optional(),
 })
 
-export const profileSchema = CommunityResourceProfileSchema.omit({ id: true }).strip().extend({
-  userId: CommunityResourceProfileSchema.shape.id,
-  discriminator: CommunityResourceProfileSchema.shape.discriminator.unwrap(),
-  avatar: CommunityResourceProfileSchema.shape.avatar.unwrap(),
-  aboutMe: z.string().optional(),
-  bannerColor: optionalNullableString,
-  kind: z.enum(["human", "bot"]).optional(),
-  ownerUserId: optionalNullableString,
-  ownerHandle: optionalNullableString,
-  mutualServers: z.number().int().nonnegative().optional(),
-  ownedByViewer: z.boolean().optional(),
-  statusEmoji: CommunityResourceProfileSchema.shape.statusEmoji.optional(),
-  statusText: CommunityResourceProfileSchema.shape.statusText.nullable().optional(),
+const incompleteProfileSchema = CommunityResourceProfileSchema.partial().required({ id: true }).strip().extend({
+  identityComplete: z.literal(false),
 })
 
-export const messageSchema = CommunityMessageResourceSchema.pick({
-  id: true, channelId: true, type: true, systemKind: true, authorId: true, authorName: true,
-  authorAvatar: true, authorAvatarVersion: true, seq: true, createdAt: true, content: true,
-}).partial({ authorId: true, seq: true, createdAt: true, content: true }).extend({
-  clientNonce: z.string().optional(),
-  failed: z.boolean().optional(),
-  replyToId: z.string().nullable().optional(),
-}).loose()
+export const profileSchema = z.discriminatedUnion("identityComplete", [
+  CommunityResourceProfileSchema.strip().extend({
+    discriminator: CommunityResourceProfileSchema.shape.discriminator.unwrap(),
+    identityComplete: z.literal(true),
+  }),
+  incompleteProfileSchema,
+])
+
+export const messageSchema = z.discriminatedUnion("resourceComplete", [
+  CommunityMessageResourceSchema.strip().extend({ resourceComplete: z.literal(true) }),
+  CommunityMessagePreviewSchema.strip().required({ channelId: true }).extend({
+    resourceComplete: z.literal(false).default(false),
+  }),
+])
 
 export const readStateSchema = CommunityReadStateResourceSchema.strip()
 
@@ -117,33 +110,6 @@ export const friendshipSchema = z.object({
 export const readStateClockSchema = z.object({
   id: z.literal("account"),
   revision: z.number().int().nonnegative(),
-})
-
-export const attentionScopeSchema = z.strictObject({
-  scopeId: z.string().min(1),
-  channelId: z.string().min(1),
-  serverId: optionalNullableString,
-  parentChannelId: optionalNullableString,
-  ordinaryUnread: z.boolean(),
-  lastUnreadSeq: z.number().int().nonnegative(),
-  lastAttentionSeq: z.number().int().nonnegative().nullable().optional(),
-  attentionCount: z.number().int().nonnegative(),
-})
-
-export const attentionItemSchema = z.strictObject({
-  id: z.string().min(1),
-  kind: z.enum(["mention", "reply", "friend_request", "forum_post"]),
-  sourceId: z.string().min(1),
-  scopeId: optionalNullableString,
-  messageId: optionalNullableString,
-  actorUserId: optionalNullableString,
-  createdAt: z.string(),
-  childChannelId: z.string().min(1).optional(),
-  openerSeq: z.number().int().nonnegative().optional(),
-  readTarget: z.strictObject({
-    channelId: z.string().min(1),
-    seq: z.number().int().nonnegative(),
-  }).optional(),
 })
 
 export const folderSchema = z.object({
@@ -184,8 +150,8 @@ export const communityCollectionSchemas = {
   friendships: friendshipSchema,
   readStates: readStateSchema,
   readStateClock: readStateClockSchema,
-  attentionScopes: attentionScopeSchema,
-  attentionItems: attentionItemSchema,
+  attentionScopes: AttentionScopeSchema,
+  attentionItems: AttentionItemSchema,
   folders: folderSchema,
   folderItems: folderItemSchema,
   notificationSettings: notificationSettingSchema,
@@ -203,8 +169,8 @@ export type MessageRow = z.infer<typeof messageSchema>
 export type FriendshipRow = z.infer<typeof friendshipSchema>
 export type ReadStateRow = z.infer<typeof readStateSchema>
 export type ReadStateClockRow = z.infer<typeof readStateClockSchema>
-export type AttentionScopeRow = z.infer<typeof attentionScopeSchema>
-export type AttentionItemRow = z.infer<typeof attentionItemSchema>
+export type AttentionScopeRow = z.infer<typeof AttentionScopeSchema>
+export type AttentionItemRow = z.infer<typeof AttentionItemSchema>
 export type FolderRow = z.infer<typeof folderSchema>
 export type FolderItemRow = z.infer<typeof folderItemSchema>
 export type NotificationSettingRow = z.infer<typeof notificationSettingSchema>
@@ -213,6 +179,8 @@ export function canonicalChannelRow(
   input: Pick<ChannelRow, "id" | "type"> & Partial<Omit<ChannelRow, "id" | "type" | "name">> & { name?: string | null },
   previous?: ChannelRow,
 ): ChannelRow {
+  if (input.resourceComplete === true) CommunityChannelResourceSchema.strip().parse(input)
+  const fields = Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined))
   return channelSchema.parse({
     serverId: null,
     categoryId: null,
@@ -227,8 +195,9 @@ export function canonicalChannelRow(
     pending: false,
     lastMessageAt: null,
     ...previous,
-    ...input,
-    name: input.name === undefined ? previous?.name ?? "" : input.name ?? "",
+    ...fields,
+    name: input.name === undefined ? previous?.name ?? null : input.name,
+    resourceComplete: input.resourceComplete === true || previous?.resourceComplete === true,
   })
 }
 

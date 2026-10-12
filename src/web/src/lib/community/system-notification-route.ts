@@ -18,11 +18,6 @@ export type DesktopSystemNotificationActivation = {
   target: DesktopSystemNotificationTarget
 }
 
-export type DesktopSystemNotificationTargetValidation =
-  | "allowed"
-  | "invalid"
-  | "retryable"
-
 export type SystemNotificationRouteTarget =
   | { kind: "server"; serverId: string; channelId: string }
   | { kind: "dm"; channelId: string }
@@ -93,29 +88,4 @@ export function systemNotificationHref(target: SystemNotificationRouteTarget): s
     return `/c/me/${encodeURIComponent(target.channelId)}`
   }
   return `/c/channels/${encodeURIComponent(target.serverId)}/${encodeURIComponent(target.channelId)}`
-}
-
-export async function revalidateDesktopSystemNotificationTarget(
-  target: DesktopSystemNotificationTarget,
-  fetchImpl: typeof fetch = fetch,
-  options: { signal?: AbortSignal; assertActive?: () => void } = {},
-): Promise<DesktopSystemNotificationTargetValidation> {
-  try {
-    options.assertActive?.()
-    const response = await fetchImpl(`/api/community/messages/${encodeURIComponent(target.messageId)}`, {
-      method: "GET",
-      credentials: "same-origin",
-      cache: "no-store",
-      signal: options.signal,
-    })
-    options.assertActive?.()
-    if (response.status === 403 || response.status === 404) return "invalid"
-    if (!response.ok) return "retryable"
-    const payload: unknown = await response.json()
-    options.assertActive?.()
-    return isObject(payload) && payload.id === target.messageId ? "allowed" : "retryable"
-  } catch {
-    options.assertActive?.()
-    return "retryable"
-  }
 }

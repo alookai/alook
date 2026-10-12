@@ -1,3 +1,4 @@
+import { validBlogTags } from "../guides";
 import type { BlogPost } from "../types";
 
 const REQUIRED_FIELDS: (keyof BlogPost)[] = [
@@ -20,6 +21,10 @@ export function validateMetadata(
       );
       return false;
     }
+  }
+  if (!validBlogTags(metadata.tags)) {
+    console.warn(`[blog] Skipping ${file}: invalid tags`);
+    return false;
   }
   return true;
 }

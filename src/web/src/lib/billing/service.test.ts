@@ -69,6 +69,52 @@ beforeEach(() => {
 })
 const checkout = (price = "studio") => createCheckout(db, stripe, env, "owner", "qa@example.test", price)
 
+describe("billing summary offer loading", () => {
+  it.each([false, true])("preserves the database plan without constructing Stripe for an empty catalog, Founder=%s", async (isFounder) => {
+    founder = isFounder
+    const client = vi.fn(() => { throw new BillingError("BILLING_UNAVAILABLE", 503) })
+    expect(await getBillingSummary(db, client, env, "owner")).toEqual({
+      plan: { id: isFounder ? "house" : "free", displayName: isFounder ? "House" : "Free" },
+      isFounder, offers: [], subscription: null,
+    })
+    expect(mocked.getOffers).toHaveBeenCalledExactlyOnceWith(db, client, env)
+    expect(client).not.toHaveBeenCalled()
+    expect(customerCreates).not.toHaveBeenCalled()
+    expect(sessionCreates).not.toHaveBeenCalled()
+  })
+  it("keeps the existing subscription and current plan when the paid catalog is empty", async () => {
+    const subscription = {
+      plan: { id: "studio", displayName: "Studio" }, status: "active", currentPeriodEnd: null,
+      cancelAt: null, scheduledChange: null,
+    }
+    mocked.getEffectivePlan.mockResolvedValue({ plan: subscription.plan, isFounder: false })
+    mocked.getBilling.mockResolvedValue({ ...row, subscription })
+    const client = vi.fn(() => { throw new BillingError("BILLING_UNAVAILABLE", 503) })
+    expect(await getBillingSummary(db, client, env, "owner")).toEqual({
+      plan: subscription.plan, isFounder: false, offers: [], subscription,
+    })
+    expect(client).not.toHaveBeenCalled()
+    expect(mocked.getBilling).toHaveBeenCalledExactlyOnceWith(db, "owner")
+  })
+  it("preserves Stripe configuration failures when the catalog requires the client", async () => {
+    mocked.getOffers.mockImplementation(async (_db: Database, client: () => Stripe) => {
+      client()
+      return []
+    })
+    const client = vi.fn(() => { throw new BillingError("BILLING_UNAVAILABLE", 503) })
+    await expect(getBillingSummary(db, client, env, "owner"))
+      .rejects.toMatchObject({ code: "BILLING_UNAVAILABLE", status: 503 })
+    expect(client).toHaveBeenCalledOnce()
+  })
+  it("does not turn a failed plan lookup into a free account", async () => {
+    mocked.getEffectivePlan.mockRejectedValue(new Error("plan lookup unavailable"))
+    const client = vi.fn(() => stripe)
+    await expect(getBillingSummary(db, client, env, "owner")).rejects.toThrow("plan lookup unavailable")
+    expect(mocked.getOffers).not.toHaveBeenCalled()
+    expect(client).not.toHaveBeenCalled()
+  })
+})
+
 describe("one unresolved Checkout per owner", () => {
   it("converges parallel same-offer requests to one customer and session", async () => {
     const results = await Promise.all([checkout(), checkout(), checkout()])
@@ -198,7 +244,8 @@ describe("one unresolved Checkout per owner", () => {
     await expect(createPortal(db, stripe, env, "owner")).rejects.toMatchObject({ code: "BILLING_FOUNDER_PROTECTED" })
     const client = vi.fn(() => stripe)
     expect(await getBillingSummary(db, client, env, "owner")).toMatchObject({ isFounder: true, offers: [], subscription: null })
-    expect(client).toHaveBeenCalledOnce()
+    expect(mocked.getOffers).toHaveBeenCalledWith(db, client, env)
+    expect(client).not.toHaveBeenCalled()
     expect(customerCreates).not.toHaveBeenCalled()
   })
   it("freezes Founder consent and reuses the session while keeping Founder until payment", async () => {

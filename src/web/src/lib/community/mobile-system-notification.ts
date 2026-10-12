@@ -1,7 +1,6 @@
 import { isMobile, isTauri, tauriInvoke } from "@alook/shared"
 import { createStore } from "@tanstack/store"
 import { QueryClient } from "@tanstack/react-query"
-import { systemNotificationHref } from "./system-notification-route"
 
 export type MobileSystemNotificationPermission = "granted" | "denied" | "prompt"
 
@@ -18,10 +17,6 @@ export type MobileSystemNotificationActivation = {
   notificationId: string
   messageId: string
   targetId: string
-}
-
-export type MobileSystemNotificationDestination = {
-  href: string
 }
 
 const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/
@@ -371,12 +366,8 @@ export function createMobileSystemNotificationRegistrationController(
 
 export type MobileSystemNotificationActivationDeps = {
   take: () => Promise<MobileSystemNotificationActivation | null>
-  revalidate: (
-    activation: MobileSystemNotificationActivation,
-  ) => Promise<MobileSystemNotificationDestination | null>
   queueDismiss: (notificationId: string, href: string) => void
   navigate: (href: string) => void
-  openInbox: () => Promise<void> | void
 }
 
 export function createMobileSystemNotificationActivationController(
@@ -403,19 +394,13 @@ export function createMobileSystemNotificationActivationController(
                 }
                 if (!activation || protocol.get().disposed)
                     continue;
-                const destination = await deps.revalidate(activation).catch(() => null);
-                if (protocol.get().disposed)
-                    continue;
-                if (destination) {
-                    try {
-                        deps.queueDismiss(activation.notificationId, destination.href);
-                    }
-                    catch { }
-                    if (!protocol.get().disposed)
-                        deps.navigate(destination.href);
+                const href = mobileSystemNotificationHref(activation);
+                try {
+                    deps.queueDismiss(activation.notificationId, href);
                 }
-                else
-                    await deps.openInbox();
+                catch { }
+                if (!protocol.get().disposed)
+                    deps.navigate(href);
             } while (protocol.get().rerun && !protocol.get().disposed);
         }
         finally {
@@ -430,76 +415,6 @@ export function createMobileSystemNotificationActivationController(
     };
 }
 
-type SurfaceKind = "channel" | "forum" | "thread" | "dm"
-
-function surfaceReceipt(value: unknown): { channelId: string; surfaceKind: SurfaceKind } | null {
-  if (!isObject(value) || !hasExactKeys(value, ["channelId", "surfaceKind"])) return null
-  if (!isSafeId(value.channelId)) return null
-  if (value.surfaceKind !== "channel"
-    && value.surfaceKind !== "forum"
-    && value.surfaceKind !== "thread"
-    && value.surfaceKind !== "dm") return null
-  return { channelId: value.channelId, surfaceKind: value.surfaceKind }
-}
-
-export async function revalidateMobileSystemNotificationActivation(
-  activation: MobileSystemNotificationActivation,
-  fetchImpl: typeof fetch = fetch,
-  options: { signal?: AbortSignal; assertActive?: () => void } = {},
-): Promise<MobileSystemNotificationDestination | null> {
-  try {
-    options.assertActive?.()
-    const messageResponse = await fetchImpl(
-      `/api/community/channels/${encodeURIComponent(activation.targetId)}/messages?anchor=${encodeURIComponent(activation.messageId)}&limit=1`,
-      { method: "GET", credentials: "same-origin", cache: "no-store", signal: options.signal },
-    )
-    options.assertActive?.()
-    if (!messageResponse.ok) return null
-    const messagePayload: unknown = await messageResponse.json()
-    options.assertActive?.()
-    if (!isObject(messagePayload) || !Array.isArray(messagePayload.messages)) return null
-    const receipt = surfaceReceipt(messagePayload.surfaceReceipt)
-    if (!receipt || receipt.channelId !== activation.targetId) return null
-    const message = messagePayload.messages.find((candidate) => (
-      isObject(candidate)
-      && candidate.id === activation.messageId
-      && typeof candidate.seq === "number"
-      && Number.isSafeInteger(candidate.seq)
-      && candidate.seq > 0
-    ))
-    if (!isObject(message) || typeof message.seq !== "number") return null
-
-    if (receipt.surfaceKind === "dm") {
-      return {
-        href: systemNotificationHref({ kind: "dm", channelId: activation.targetId }),
-      }
-    }
-
-    const channelResponse = await fetchImpl(
-      `/api/community/channels/${encodeURIComponent(activation.targetId)}`,
-      { method: "GET", credentials: "same-origin", cache: "no-store", signal: options.signal },
-    )
-    options.assertActive?.()
-    if (!channelResponse.ok) return null
-    const channel: unknown = await channelResponse.json()
-    options.assertActive?.()
-    if (!isObject(channel)
-      || channel.id !== activation.targetId
-      || !isSafeId(channel.serverId)
-      || (channel.type !== "text" && channel.type !== "forum" && channel.type !== "thread")) {
-      return null
-    }
-    const expectedType = receipt.surfaceKind === "channel" ? "text" : receipt.surfaceKind
-    if (channel.type !== expectedType) return null
-    return {
-      href: systemNotificationHref({
-        kind: "server",
-        serverId: channel.serverId,
-        channelId: activation.targetId,
-      }),
-    }
-  } catch {
-    options.assertActive?.()
-    return null
-  }
+export function mobileSystemNotificationHref(activation: MobileSystemNotificationActivation): string {
+  return `/c/messages/${encodeURIComponent(activation.messageId)}`
 }

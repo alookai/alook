@@ -89,6 +89,13 @@ impl NotificationConversation {
 }
 
 impl NotificationTarget {
+    #[cfg(any(target_os = "macos", test))]
+    fn channel_id(&self) -> &str {
+        match self {
+            Self::Server { channel_id, .. } | Self::Dm { channel_id, .. } => channel_id,
+        }
+    }
+
     fn message_id(&self) -> &str {
         match self {
             Self::Server { message_id, .. } | Self::Dm { message_id, .. } => message_id,
@@ -237,6 +244,19 @@ impl NotificationRecord {
         };
         item.activated = false;
         true
+    }
+
+    #[cfg(any(target_os = "macos", test))]
+    fn presentation_identity(&self, notification_id: &str) -> Option<(String, String)> {
+        self.recent
+            .iter()
+            .find(|item| item.notification_id == notification_id)
+            .map(|item| {
+                (
+                    item.viewer_user_id.clone(),
+                    item.target.channel_id().to_string(),
+                )
+            })
     }
 
     fn notification_ids(
@@ -505,6 +525,8 @@ pub async fn desktop_system_notification_show(
         })?;
         return Err("notification_unavailable");
     }
+    #[cfg(any(windows, target_os = "linux"))]
+    state.notify();
     Ok(())
 }
 
@@ -765,6 +787,169 @@ async fn wait_for_macos_completion(
 }
 
 #[cfg(target_os = "macos")]
+struct SendablePresentationCompletion(
+    block2::RcBlock<dyn Fn(objc2_user_notifications::UNNotificationPresentationOptions)>,
+);
+
+// SAFETY: This is only Apple's escaping UN presentation completion. Apple permits
+// its invocation from any queue. The owned heap copy is taken once under a mutex;
+// no WebKit object, arbitrary block, or borrowed delegate value crosses threads.
+#[cfg(target_os = "macos")]
+unsafe impl Send for SendablePresentationCompletion {}
+
+#[cfg(target_os = "macos")]
+struct PresentationCompletion {
+    pending: Mutex<Option<SendablePresentationCompletion>>,
+    deadline: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+}
+
+#[cfg(target_os = "macos")]
+impl PresentationCompletion {
+    fn new(owned: SendablePresentationCompletion) -> Arc<Self> {
+        let decision = Arc::new(Self {
+            pending: Mutex::new(Some(owned)),
+            deadline: Mutex::new(None),
+        });
+        let deadline_decision = decision.clone();
+        let deadline = tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            deadline_decision.finish(false);
+        });
+        {
+            let mut slot = decision
+                .deadline
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if decision
+                .pending
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .is_some()
+            {
+                *slot = Some(deadline);
+            } else {
+                deadline.abort();
+            }
+        }
+        decision
+    }
+
+    fn finish(&self, suppress: bool) -> bool {
+        let completion = self
+            .pending
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
+        let Some(completion) = completion else {
+            return false;
+        };
+        if let Some(deadline) = self
+            .deadline
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take()
+        {
+            deadline.abort();
+        }
+        completion.0.call((macos_presentation_options(suppress),));
+        true
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for PresentationCompletion {
+    fn drop(&mut self) {
+        self.finish(false);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_presentation_options(
+    suppress: bool,
+) -> objc2_user_notifications::UNNotificationPresentationOptions {
+    use objc2_user_notifications::UNNotificationPresentationOptions as Options;
+    if suppress {
+        Options::empty()
+    } else {
+        Options::Banner | Options::List | Options::Sound
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn decide_macos_presentation(
+    app: &AppHandle,
+    identifier: String,
+    completion: &block2::DynBlock<
+        dyn Fn(objc2_user_notifications::UNNotificationPresentationOptions),
+    >,
+) {
+    use block2::RcBlock;
+    use objc2::{runtime::AnyObject, MainThreadMarker};
+    use objc2_foundation::{NSError, NSString};
+    use objc2_web_kit::WKWebView;
+
+    let identity = app
+        .try_state::<DesktopSystemNotificationState>()
+        .and_then(|state| state.record.lock().ok()?.presentation_identity(&identifier));
+    let Some((viewer, target)) = identity else {
+        completion.call((macos_presentation_options(false),));
+        return;
+    };
+    // SAFETY: The delegate supplies a valid block with this exact signature.
+    // Heap-copy it before returning from the delegate callback.
+    let owned = unsafe { RcBlock::copy(completion as *const _ as *mut _) };
+    let Some(owned) = owned else {
+        completion.call((macos_presentation_options(false),));
+        return;
+    };
+    let decision = PresentationCompletion::new(SendablePresentationCompletion(owned));
+    let Some(window) = app.get_webview_window("main") else {
+        decision.finish(false);
+        return;
+    };
+    let identity = serde_json::json!({ "viewerUserId": viewer, "targetId": target });
+    let script = format!("(()=>{{try{{return window.alookNativeNotificationPresentationV1?.({identity})===true?'suppress':'present'}}catch{{return 'present'}}}})()");
+    let main_decision = decision.clone();
+    let app = app.clone();
+    if window
+        .with_webview(move |platform| {
+            if MainThreadMarker::new().is_none() {
+                main_decision.finish(false);
+                return;
+            }
+            let result_decision = main_decision.clone();
+            let callback = RcBlock::new(move |result: *mut AnyObject, error: *mut NSError| {
+                // SAFETY: WK owns these callback arguments until this invocation ends.
+                let suppress = error.is_null()
+                    && unsafe { result.as_ref() }
+                        .and_then(|value| value.downcast_ref::<NSString>())
+                        .is_some_and(|value| value.to_string() == "suppress");
+                if result_decision.finish(suppress) && suppress {
+                    if let Some(state) = app.try_state::<DesktopSystemNotificationState>() {
+                        let _ = state.transact(|record| {
+                            record.complete_dismissals(&[identifier.clone()]);
+                            Ok(())
+                        });
+                    }
+                }
+            });
+            // SAFETY: Tauri supplies the live WKWebView on the main thread. This
+            // borrowed pointer is used only here; WK copies its escaping completion.
+            unsafe {
+                let webview = &*platform.inner().cast::<WKWebView>();
+                webview.evaluateJavaScript_completionHandler(
+                    &NSString::from_str(&script),
+                    Some(&callback),
+                );
+            }
+        })
+        .is_err()
+    {
+        decision.finish(false);
+    }
+}
+
+#[cfg(target_os = "macos")]
 fn install_macos_delegate(app: &AppHandle) {
     use block2::DynBlock;
     use objc2::rc::Retained;
@@ -793,12 +978,14 @@ fn install_macos_delegate(app: &AppHandle) {
             fn will_present(
                 &self,
                 _center: &UNUserNotificationCenter,
-                _notification: &UNNotification,
+                notification: &UNNotification,
                 completion: &DynBlock<dyn Fn(UNNotificationPresentationOptions)>,
             ) {
-                completion.call((UNNotificationPresentationOptions::Banner
-                    | UNNotificationPresentationOptions::List
-                    | UNNotificationPresentationOptions::Sound,));
+                decide_macos_presentation(
+                    &self.ivars().app,
+                    notification.request().identifier().to_string(),
+                    completion,
+                );
             }
 
             #[unsafe(method(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:))]
@@ -936,6 +1123,75 @@ mod tests {
                 seq: 1,
             },
         }
+    }
+
+    #[test]
+    fn presentation_identity_uses_only_the_original_bounded_record_including_dismissed_items() {
+        let mut record = NotificationRecord::new();
+        let id = record.claim(&candidate("viewer_1", "message_1")).unwrap();
+        record.complete_dismissals(&[id.clone()]);
+        assert_eq!(
+            record.presentation_identity(&id),
+            Some(("viewer_1".into(), "channel_1".into()))
+        );
+        assert_eq!(record.presentation_identity("unknown"), None);
+    }
+
+    #[cfg(target_os = "macos")]
+    fn presentation_test_completion(
+    ) -> (Arc<PresentationCompletion>, std::sync::mpsc::Receiver<u64>) {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let callback = block2::RcBlock::new(
+            move |options: objc2_user_notifications::UNNotificationPresentationOptions| {
+                sender.send(options.bits() as u64).unwrap();
+            },
+        );
+        (
+            PresentationCompletion::new(SendablePresentationCompletion(callback)),
+            receiver,
+        )
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn presentation_first_completion_wins_and_cancels_the_deadline() {
+        let (decision, receiver) = presentation_test_completion();
+        assert!(decision.finish(true));
+        assert!(!decision.finish(false));
+        assert_eq!(receiver.recv().unwrap(), 0);
+        assert!(receiver
+            .recv_timeout(std::time::Duration::from_millis(600))
+            .is_err());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn presentation_deadline_shows_normally_and_late_true_cannot_consume_it() {
+        let (decision, receiver) = presentation_test_completion();
+        assert_eq!(
+            receiver
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .unwrap(),
+            macos_presentation_options(false).bits() as u64
+        );
+        assert!(!decision.finish(true));
+        assert!(receiver.try_recv().is_err());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn presentation_racing_outcomes_take_the_completion_once() {
+        let (decision, receiver) = presentation_test_completion();
+        let fallback = decision.clone();
+        let thread = std::thread::spawn(move || fallback.finish(false));
+        let authorized = decision.finish(true);
+        let normal = thread.join().unwrap();
+        assert_ne!(authorized, normal);
+        assert_eq!(
+            receiver.recv().unwrap(),
+            macos_presentation_options(authorized).bits() as u64
+        );
+        assert!(receiver.try_recv().is_err());
     }
 
     #[test]

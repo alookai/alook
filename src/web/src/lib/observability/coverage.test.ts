@@ -2,11 +2,14 @@ import { readFileSync, readdirSync } from "node:fs"
 import { resolve, relative } from "node:path"
 import ts from "typescript"
 import { expect, it } from "vitest"
-import { actionNames, pageRoutes } from "./coverage"
+import { actionNames, pageRoutes, routeTemplate } from "./coverage"
 import { actionVariants } from "./actions"
 
 const web = resolve(import.meta.dirname, "../../..")
 const files = (root: string) => readdirSync(root, { recursive: true }).filter((file): file is string => typeof file === "string" && /\.tsx?$/.test(file)).map(file => resolve(root, file))
+it("normalizes the ordinary message route without retaining a message ID or query", () => {
+  expect(routeTemplate("/c/messages/private_message_188?seq=123")).toBe("/c/messages/[messageId]")
+})
 it("keeps the route whitelist aligned with both builds and parallel route slots", () => {
   const routes = new Set(["src/app", "blog/src/app"].flatMap(root => files(resolve(web, root)).filter(file => file.endsWith("/page.tsx")).map(file => "/" + relative(resolve(web, root), file).split("/").slice(0, -1).filter(segment => !segment.startsWith("(") && !segment.startsWith("@")).join("/"))))
   expect([...routes].sort()).toEqual([...pageRoutes].sort())

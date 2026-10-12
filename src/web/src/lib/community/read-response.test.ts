@@ -16,10 +16,18 @@ const members = () => ({ contractVersion: 2, channelId: "thread", relation: "not
 const decodeMembers = (body: unknown, path = "/api/community/channels/thread/members?relation=notify") => decodeCommunityReadResponse(path, "GET", confirmed(), body)
 
 describe("common read response publication", () => {
+  it("admits a legacy single-message preview only with an explicit valid scope", () => {
+    const value = { id: "legacy", channelId: "thread", seq: 1, authorId: "viewer", createdAt: "now", type: "chat", content: "body" }
+    expect(decodeCommunityReadResponse("/api/community/messages/legacy", "GET", new Response(), value))
+      .toEqual({ ...value, resourceComplete: false })
+    for (const invalid of [null, {}, { ...value, channelId: undefined }, { ...value, channelId: 4 }, { ...value, channelId: "" }]) {
+      expect(() => decodeCommunityReadResponse("/api/community/messages/legacy", "GET", new Response(), invalid)).toThrow()
+    }
+  })
   it("recognizes only complete read routes and decodes their encoded channel identity", () => {
     expect(communityReadTarget("/api/community/channels/a%2Fb/read?lastReadSeq=4", "put")).toEqual({ channelId: "a/b", resource: "read" })
     expect(communityReadTarget("/api/community/channels/thread/members?relation=notify")).toEqual({ channelId: "thread", resource: "members" })
-    for (const [path, method] of [["/api/community/channels/thread/read", "GET"], ["/api/community/channels/thread/messages/extra", "GET"], ["/api/community/channels/thread", "PUT"], ["/api/community/channels/thread/messages", "POST"]]) {
+    for (const [path, method] of [["/api/community/channels/thread/read", "GET"], ["/api/community/channels/thread/messages/extra", "GET"], ["/api/community/channels/thread", "PUT"], ["/api/community/messages/search?q=term", "GET"], ["/api/community/messages/batch", "GET"]]) {
       expect(communityReadTarget(path!, method)).toBeNull()
       const body = { contractVersion: 2, private: "unrelated endpoint" }
       expect(decodeCommunityReadResponse(path!, method, confirmed(), body)).toBe(body)
@@ -31,7 +39,7 @@ describe("common read response publication", () => {
     const access = { channelId: channel.id, canRead: false, canSend: false, canCreateDiscussion: false }
     const path = `/api/community/channels/${channel.id}`
     const current = decodeCommunityReadResponse(path, "GET", confirmed(), { contractVersion: 2, channelId: channel.id, channel, access })
-    expect(current).toEqual({ ...channel, accessDecision: access })
+    expect(current).toEqual({ ...channel, resourceComplete: true, accessDecision: access })
     expect(current).not.toHaveProperty("readContractVersion")
     expect(decodeCommunityReadResponse(path, "GET", new Response(), { ...channel, readContractVersion: 2, accessDecision: access })).toEqual(channel)
   })
@@ -97,5 +105,31 @@ describe("common read response publication", () => {
     expect(decodeCommunityReadResponse("/api/community/channels/thread/members", "GET", new Response(), legacy)).toBe(legacy)
     expect(() => decodeMembers({ ...members(), contractVersion: 1 })).toThrow("confirmation mismatch")
     expect(() => decodeCommunityReadResponse("/api/community/channels/thread/messages", "GET", new Response(), {})).toThrow("resource missing")
+  })
+})
+
+
+describe("explicit v3 HTTP confirmation", () => {
+  const full = { ...message("message", "thread"), authorAvatar: null, attachments: [
+    { id: "a2", name: "unknown", url: "/a2", thumbnailUrl: null, contentType: null, sizeBytes: null, width: null, height: null },
+    { id: "a1", name: "photo", url: "/a1", thumbnailUrl: null, contentType: "image/png", sizeBytes: 12, width: 1, height: 1 },
+  ], embeds: [null, { raw: "unknown" }] }
+  const response = (version: string | null) => new Response(null, { headers: version === null ? {} : { [COMMUNITY_CONTRACT_HEADER]: version } })
+  const body = { contractVersion: 3, channelId: "thread", message: full, deduped: false }
+  it("retains full POST and single-read resources with exact positive v3 claims", () => {
+    expect(communityReadTarget("/api/community/channels/thread/messages", "POST")).toEqual({ channelId: "thread", resource: "posted" })
+    expect(decodeCommunityReadResponse("/api/community/channels/thread/messages", "POST", response("3"), body, 3)).toEqual({ message: { ...full, resourceComplete: true }, deduped: false })
+    const { deduped: _deduped, ...read } = body
+    expect(decodeCommunityReadResponse("/api/community/messages/message", "GET", response("3"), read, 3)).toEqual({ ...full, resourceComplete: true })
+    expect(() => decodeCommunityReadResponse("/api/community/messages/other", "GET", response("3"), read, 3)).toThrow("scope mismatch")
+    expect(() => decodeCommunityReadResponse("/api/community/channels/other/messages", "POST", response("3"), body, 3)).toThrow("scope mismatch")
+    expect(() => decodeCommunityReadResponse("/api/community/channels/thread/messages", "POST", response("3"), { ...body, message: { ...full, attachments: undefined } }, 3)).toThrow()
+  })
+  it("refuses missing, mixed and unknown confirmation without downgrading a v3 request", () => {
+    for (const header of [null, "1", "2", "4"]) expect(() => decodeCommunityReadResponse("/api/community/channels/thread/messages", "POST", response(header), body, 3)).toThrow("confirmation mismatch")
+    for (const contractVersion of [undefined, 1, 2, 4]) expect(() => decodeCommunityReadResponse("/api/community/channels/thread/messages", "POST", response("3"), { ...body, contractVersion }, 3)).toThrow("confirmation mismatch")
+    expect(() => decodeCommunityReadResponse("/api/community/channels/thread/messages", "POST", response(null), { message: full }, 3)).toThrow("confirmation mismatch")
+    const old = { message: { id: "old" } }
+    expect(decodeCommunityReadResponse("/api/community/channels/thread/messages", "POST", response(null), old, 2)).toBe(old)
   })
 })

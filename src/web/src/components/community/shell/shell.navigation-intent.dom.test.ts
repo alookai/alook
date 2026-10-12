@@ -126,11 +126,16 @@ function renderShell(breakpoint: "mobile" | "desktop" = "mobile", queryClient = 
   return {
     queryClient,
     get navigation() { return navigation },
-    commit(href: string, revision: number) {
-      mocks.pathname = href
+    commit(href: string, revision: number, publish = true) {
+      if (publish) mocks.pathname = href
       committedFrame = frame(href, revision)
       renderer.rerender(createElement(QueryClientProvider, { client: queryClient }, createElement(Capture)))
     },
+    publish(href: string) {
+      mocks.pathname = href
+      renderer.rerender(createElement(QueryClientProvider, { client: queryClient }, createElement(Capture)))
+    },
+    unmount: renderer.unmount,
   }
 }
 
@@ -275,4 +280,119 @@ describe("Shell input and explicit navigation ownership", () => {
     expect(mocks.push).toHaveBeenCalledTimes(1)
     expect(mocks.replace).not.toHaveBeenCalled()
   })
+
+  describe("optional exact next-commit qualification", () => {
+    it("retains only its own exact commit while default capture still retires", () => {
+      const shell = renderShell("desktop")
+      const ownCommit = shell.navigation.captureIntent({ nextCommitHref: target })
+      expect(ownCommit()).toBe(false)
+      act(() => shell.navigation.push(target))
+      const ordinary = shell.navigation.captureIntent()
+      expect(ownCommit()).toBe(true)
+      expect(ordinary()).toBe(true)
+      shell.publish(target)
+      expect(shell.navigation.navigationPending).toBe(true)
+      shell.commit(target, 1)
+      expect(shell.navigation.navigationPending).toBe(false)
+      expect(ordinary()).toBe(false)
+      expect(ownCommit()).toBe(true)
+      shell.commit(target, 1)
+      expect(ownCommit()).toBe(true)
+      shell.commit(nextTarget, 2)
+      shell.commit(target, 3)
+      expect(ownCommit()).toBe(false)
+    })
+
+    it("preserves own frame settlement until its separately published URL arrives", () => {
+      const shell = renderShell("desktop")
+      const ownCommit = shell.navigation.captureIntent({ nextCommitHref: target })
+      act(() => shell.navigation.push(target))
+      shell.commit(target, 1, false)
+      expect(shell.navigation.navigationPending).toBe(false)
+      expect(shell.navigation.publishedHref).not.toBe(target)
+      expect(ownCommit()).toBe(true)
+      shell.publish(target)
+      expect(ownCommit()).toBe(true)
+    })
+
+    it.each(["push", "pushImmediate", "replace", "resolver", "cancel", "Back"])(
+      "retires at a competing %s entry and rejects a later identical destination", async (entry) => {
+        const shell = renderShell("desktop")
+        const ownCommit = shell.navigation.captureIntent({ nextCommitHref: target })
+        act(() => shell.navigation.push(target))
+        await act(async () => {
+          if (entry === "push") shell.navigation.push(nextTarget)
+          if (entry === "pushImmediate") shell.navigation.pushImmediate(nextTarget)
+          if (entry === "replace") shell.navigation.replace(nextTarget)
+          if (entry === "resolver") await shell.navigation.resolveAndPush(async () => nextTarget)
+          if (entry === "cancel") shell.navigation.cancelPendingNavigation()
+          if (entry === "Back") window.dispatchEvent(new Event("popstate"))
+        })
+        expect(ownCommit()).toBe(false)
+        shell.commit(nextTarget, 1)
+        act(() => shell.navigation.push(target))
+        shell.commit(target, 2)
+        expect(ownCommit()).toBe(false)
+      },
+    )
+
+    it("rejects an intervening unrelated frame even if the pending target later commits", () => {
+      const shell = renderShell("desktop")
+      const ownCommit = shell.navigation.captureIntent({ nextCommitHref: target })
+      act(() => shell.navigation.push(target))
+      shell.commit(nextTarget, 1)
+      expect(ownCommit()).toBe(false)
+      shell.commit(target, 2)
+      expect(shell.navigation.navigationPending).toBe(false)
+      expect(ownCommit()).toBe(false)
+    })
+
+    it.each(["push", "pushImmediate", "replace"] as const)(
+      "discards a synchronous %s failure before any later same-URL commit", (entry) => {
+        const shell = renderShell("desktop")
+        const ownCommit = shell.navigation.captureIntent({ nextCommitHref: target })
+        mocks[entry === "replace" ? "replace" : "push"].mockImplementationOnce(() => { throw new Error("router failed") })
+        act(() => { expect(() => shell.navigation[entry](target)).toThrow("router failed") })
+        expect(shell.navigation.navigationPending).toBe(false)
+        expect(shell.navigation.pendingHref).toBeNull()
+        expect(ownCommit()).toBe(false)
+        act(() => shell.navigation.push(target))
+        shell.commit(target, 1)
+        expect(ownCommit()).toBe(false)
+      },
+    )
+
+    it("does not clear a newer pending intent when an older router call throws", () => {
+      const shell = renderShell("desktop")
+      const ownCommit = shell.navigation.captureIntent({ nextCommitHref: target })
+      mocks.push.mockImplementationOnce(() => {
+        shell.navigation.push(nextTarget)
+        throw new Error("old push failed")
+      })
+      act(() => { expect(() => shell.navigation.push(target)).toThrow("old push failed") })
+      expect(shell.navigation.pendingHref).toBe(nextTarget)
+      expect(shell.navigation.navigationPending).toBe(true)
+      expect(ownCommit()).toBe(false)
+    })
+
+    it("retires a settled qualification on a same-URL no-op without changing default capture", () => {
+      const shell = renderShell("desktop")
+      const ownCommit = shell.navigation.captureIntent({ nextCommitHref: target })
+      act(() => shell.navigation.push(target))
+      shell.commit(target, 1)
+      const ordinary = shell.navigation.captureIntent()
+      act(() => shell.navigation.push(target))
+      expect(ownCommit()).toBe(false)
+      expect(ordinary()).toBe(true)
+    })
+
+    it("retires on unmount", () => {
+      const shell = renderShell("desktop")
+      const ownCommit = shell.navigation.captureIntent({ nextCommitHref: target })
+      act(() => shell.navigation.push(target))
+      shell.unmount()
+      expect(ownCommit()).toBe(false)
+    })
+  })
+
 })

@@ -19,6 +19,7 @@ import {
   ONBOARDING_HARNESSES,
   ONBOARDING_IDENTITIES,
 } from "./onboarding-form-options"
+import { captureProductAnalytics } from "@/lib/product-analytics"
 import { initializeCommunityOnboarding } from "./initialize-community-onboarding"
 import { tid } from "@/lib/community/testids"
 import { useCurrentUser } from "@/contexts/community/current-user"
@@ -76,7 +77,10 @@ export function CommunityOnboardingForm() {
               avatar: { avatar: bot.image ?? requested.image, avatarVersion: bot.avatarVersion },
             }], origin.registry, { snapshot: profileSnapshot })
           },
-          resolveBot: (id) => origin.registry?.collections.profiles.get(id),
+          resolveBot: (id) => {
+            const profile = origin.registry?.collections.profiles.get(id)
+            return profile?.name === undefined ? undefined : { name: profile.name, discriminator: profile.discriminator ?? undefined }
+          },
           readChannels: async (serverId) => {
             assert()
             await queryClient.invalidateQueries({ queryKey: communityKeys.servers(), exact: true })
@@ -89,7 +93,7 @@ export function CommunityOnboardingForm() {
               assert()
               await queryClient.query({ ...options, select: undefined })
               assert()
-              return [...origin.registry!.collections.channels.values()].filter((channel) => channel.serverId === serverId && !channel.parentChannelId).map(({ id, name, type, categoryId }) => ({ id, name, type, categoryId: categoryId ?? null }))
+              return [...origin.registry!.collections.channels.values()].filter((channel) => channel.serverId === serverId && !channel.parentChannelId).map(({ id, name, type, categoryId }) => ({ id, name: name ?? "", type, categoryId: categoryId ?? null }))
             } finally { assert.signal.removeEventListener("abort", unsubscribe); unsubscribe() }
           },
         },
@@ -235,13 +239,16 @@ export function CommunityOnboardingForm() {
               : "Follow along as your room comes together."
         }
         onRetry={() => void runInitialization()}
-        onContinue={() => {
+        onContinue={async () => {
           if (!initializationResult) return
           const destination = `/c/channels/${initializationResult.serverId}/${initializationResult.publicChannelId}`
-          const navigate = communityRuntime.ui.get().uiHandlers.navigate
-          if (!navigate) return
           const assert = source.capture()
           assert()
+          await captureProductAnalytics({ event: "onboarding_enter_clicked", serverId: initializationResult.serverId })
+          if (!communityRuntime.lifecycle.get().active) return
+          try { assert() } catch { return }
+          const navigate = communityRuntime.ui.get().uiHandlers.navigate
+          if (!navigate) return
           updateCommunityOnboardingInitialization(communityRuntime, (current) => ({ ...current, pendingDestination: destination }))
           navigate(initializationResult.serverId, initializationResult.publicChannelId)
         }}

@@ -21,7 +21,8 @@ import { communityKeys } from "@/lib/query-keys"
 
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { useCurrentUser } from "@/contexts/community/current-user"
-import { CommunityRouteContext } from "./community-route-context"
+import { useNativeSystemNotifications } from "@/hooks/community/use-native-system-notifications"
+import { CommunityRouteContext, type NativeNotificationConversationConsumer } from "./community-route-context"
 import { ShellFrameView } from "./shell-frame-view"
 import { useShellRailController } from "./use-shell-rail-controller"
 import { useShellProfileController } from "./use-shell-profile-controller"
@@ -57,6 +58,7 @@ export function ShellFrame(props: ShellFrameProps) {
     onOpenActiveServerInvite,
     ownerDeleteRouteScope,
   } = props
+  const notificationConsumer = useRef<NativeNotificationConversationConsumer | null>(null)
   const queryClient = useQueryClient()
   const currentUser = useCurrentUser()
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
@@ -182,6 +184,37 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     inbox.onOpenChange(true)
     dispatchUserBarExtension({ type: "extension.open", extension: "inbox" })
   }, [daemonUpdate, dispatchUserBarExtension, inbox, profile, userBarExtension.active])
+  const [inboxOpenRequest, setInboxOpenRequest] = useAtom(useCreateAtom<{
+    viewerId: string
+    isCurrent: () => boolean
+  } | null>(null))
+  const openInbox = useCallback(() => {
+    setInboxOpenRequest(null)
+    if (breakpoint !== "mobile" || (committedFrame.surface !== "detail" && checkpoint.surface !== "detail")) {
+      onUserBarInboxOpenChange(true)
+      return
+    }
+    const request = {
+      viewerId: currentUser.id,
+      isCurrent: navigation.captureIntent({ nextCommitHref: "/c/me" }),
+    }
+    navigation.push("/c/me")
+    setInboxOpenRequest(request)
+  }, [breakpoint, checkpoint.surface, committedFrame.surface, currentUser.id, navigation, onUserBarInboxOpenChange, setInboxOpenRequest])
+  useEffect(() => {
+    if (!inboxOpenRequest) return
+    if (inboxOpenRequest.viewerId !== currentUser.id || !inboxOpenRequest.isCurrent()) {
+      setInboxOpenRequest(null)
+      return
+    }
+    if (navigation.navigationPending || navigation.pendingHref !== null
+      || navigation.publishedHref !== "/c/me" || committedFrame.href !== "/c/me"
+      || checkpoint.surface !== "list") return
+    setInboxOpenRequest(null)
+    onUserBarInboxOpenChange(true)
+  }, [checkpoint.surface, committedFrame.href, currentUser.id, inboxOpenRequest, navigation.navigationPending,
+    navigation.pendingHref, navigation.publishedHref, onUserBarInboxOpenChange, setInboxOpenRequest])
+  useNativeSystemNotifications(currentUser.id, committedFrame, navigation, notificationConsumer)
   const onUserBarOpenProfile = useCallback<ReturnType<typeof useShellProfileController>["openProfile"]>((
     name,
     event,
@@ -269,7 +302,7 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
   }, [goBackMobile, profile.openProfile, profile.previewAttachment, profile.previewImage, rail.navigate, navigation.cancelPendingNavigation, navigation.push, navigation.replace, queryClient])
 
   return (
-    <CommunityRouteContext value={{ breakpoint, frame: committedFrame, navigation, ownerDeleteRouteScope }}>
+    <CommunityRouteContext value={{ breakpoint, frame: committedFrame, navigation, ownerDeleteRouteScope, openInbox, notificationConsumer }}>
     <ShellFrameView
       breakpoint={breakpoint}
       checkpoint={checkpoint}

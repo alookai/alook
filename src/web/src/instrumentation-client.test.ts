@@ -38,10 +38,10 @@ it.each(["", "v1.denied", "v0.granted", "v1.granted"])("initializes the real Web
   vi.stubGlobal("window", browser)
   vi.stubGlobal("document", { cookie: `alook_analytics_consent=${cookie}`, referrer: "https://alook.ai/c/me?secret=referrer" })
   bootstrapObservabilityMock.mockImplementation(() => {
-    expect(Reflect.has(browser, "ga-disable-G-STBCL8F4ZY")).toBe(false)
+    expect(Reflect.get(browser, "ga-disable-G-STBCL8F4ZY")).toBe(false)
     expect(browser.dataLayer.map(command => Array.from(command as IArguments))).toEqual([
-      ["consent", "default", { analytics_storage: cookie === "v1.granted" ? "granted" : "denied", ad_storage: "denied", ad_user_data: "denied", ad_personalization: "denied" }],
-      ["set", { page_location: "https://alook.ai/", page_referrer: "", page_title: "Alook public website" }],
+      ["consent", "default", { analytics_storage: cookie === "v1.denied" ? "denied" : "granted", ad_storage: "denied", ad_user_data: "denied", ad_personalization: "denied" }],
+      ["set", { page_location: "https://alook.ai/", page_referrer: "" }],
     ])
     browser.dataLayer.push({ event: "existing-consumer" })
   })
@@ -49,10 +49,9 @@ it.each(["", "v1.denied", "v0.granted", "v1.granted"])("initializes the real Web
   expect(bootstrapObservabilityMock).toHaveBeenCalledWith("web")
   expect(installReactScanMock).toHaveBeenCalledOnce()
   entry.onRouterTransitionStart("/pricing?secret=route#hash")
-  expect(Array.from(browser.dataLayer[3] as IArguments)).toEqual(["set", { page_location: "https://alook.ai/pricing", page_referrer: "", page_title: "Alook public website" }])
+  expect(Array.from(browser.dataLayer[3] as IArguments)).toEqual(["set", { page_location: "https://alook.ai/pricing", page_referrer: "" }])
   entry.onRouterTransitionStart("/c/me?secret=private")
-  expect(browser.dataLayer).toHaveLength(5)
-  expect(Array.from(browser.dataLayer[4] as IArguments)).toEqual(["set", { page_location: "https://alook.ai/c", page_referrer: "", page_title: "Alook application" }])
+  expect(browser.dataLayer).toHaveLength(4)
   expect(onObservedRouterTransitionMock.mock.calls).toEqual([["/pricing?secret=route#hash"], ["/c/me?secret=private"]])
   expect(JSON.stringify(browser.dataLayer)).not.toMatch(/secret|page_view/)
 })

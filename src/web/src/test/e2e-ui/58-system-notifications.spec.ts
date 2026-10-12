@@ -28,7 +28,10 @@ async function installDesktopNotificationBridge(
     let pending = initialActivation && sessionStorage.getItem(usedKey) !== "used"
       ? initialActivation
       : null
+    const documentLoads = Number(sessionStorage.getItem("qa-desktop-document-loads") ?? "0") + 1
+    sessionStorage.setItem("qa-desktop-document-loads", String(documentLoads))
     const state = {
+      documentLoads,
       shows: [] as unknown[],
       dismissed,
       retryActivations: [] as unknown[],
@@ -114,12 +117,6 @@ async function retriedNotifications(page: Page) {
   ).__desktopNotificationTest.retryActivations)
 }
 
-async function clickDesktopNotification(page: Page) {
-  await page.evaluate(() => (
-    window as typeof window & { __desktopNotificationTest: { click: () => void } }
-  ).__desktopNotificationTest.click())
-}
-
 test.describe.serial("desktop system notifications", () => {
   test("a delivered message+bump bundle invokes the native command with the exact target", async ({ asUser }) => {
     const stamp = Date.now()
@@ -150,7 +147,7 @@ test.describe.serial("desktop system notifications", () => {
     ])
   })
 
-  test("a cold activation revalidates access and opens the exact message", async ({ asUser }) => {
+  test("a cold activation starts ordinary conversation navigation without a document reload", async ({ asUser }) => {
     test.setTimeout(90_000)
     const stamp = Date.now()
     const serverId = await seedServer("alice", `notification-cold-${stamp}`)
@@ -169,56 +166,51 @@ test.describe.serial("desktop system notifications", () => {
       "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71e",
     ])
     await expect(bob.page.getByTestId(tid.message(messageId))).toBeVisible({ timeout: 30_000 })
+    expect(await bob.page.evaluate(() => (window as typeof window & { __desktopNotificationTest: {documentLoads:number} }).__desktopNotificationTest.documentLoads)).toBe(1)
   })
 
-  test("a deleted or inaccessible activation falls back to Inbox", async ({ asUser }) => {
-    const bob = await asUser("bob")
-    await installDesktopNotificationBridge(bob.page, {
-      notificationId: "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f71f",
-      target: {
-        kind: "server",
-        serverId: "missing_server",
-        channelId: "missing_channel",
-        messageId: "missing_message",
-        seq: 1,
-      },
-    })
-    await gotoAfterUserWsAuth(bob.page, "/c/me/friends")
-    await expect(bob.page.getByTestId(tid.inboxTrigger)).toHaveAttribute("aria-expanded", "true")
-    expect(await dismissedNotifications(bob.page)).toEqual([])
-  })
-
-  test("a transient validation failure re-arms the exact notification for a later click", async ({ asUser }) => {
-    test.setTimeout(90_000)
+  test("activation starts its target checkpoint before a slow permission response", async ({ asUser }) => {
     const stamp = Date.now()
-    const serverId = await seedServer("alice", `notification-retry-${stamp}`)
-    const channelId = await seedChannel("alice", serverId, `notification-retry-${stamp}`)
+    const serverId = await seedServer("alice", `notification-delayed-${stamp}`)
+    const channelId = await seedChannel("alice", serverId, `notification-delayed-${stamp}`)
     await seedJoinServer("alice", "bob", serverId)
-    const messageId = await seedMessage("alice", channelId, `Retry activation ${stamp}`)
-    const notificationId = "4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f720"
+    const messageId = await seedMessage("alice", channelId, `Delayed activation ${stamp}`)
     const bob = await asUser("bob")
-    let attempts = 0
-    await bob.page.route(`**/api/community/messages/${messageId}`, async (route) => {
-      attempts += 1
-      if (attempts === 1) {
-        await route.fulfill({ status: 503, body: "temporarily unavailable" })
-        return
-      }
+    await installDesktopNotificationBridge(bob.page)
+    await gotoAfterUserWsAuth(bob.page, "/c/me/friends")
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => { release = resolve })
+    let permissionHeld = false
+    await bob.page.route(`**/api/community/channels/${channelId}`, async route => {
+      permissionHeld = true
+      await pending
+      permissionHeld = false
       await route.continue()
     })
-    await installDesktopNotificationBridge(bob.page, {
-      notificationId,
-      target: { kind: "server", serverId, channelId, messageId, seq: 1 },
-    })
-
-    await gotoAfterUserWsAuth(bob.page, "/c/me/friends")
-    await expect(bob.page.getByTestId(tid.inboxTrigger)).toHaveAttribute("aria-expanded", "true")
-    await expect.poll(() => retriedNotifications(bob.page)).toEqual([notificationId])
-    expect(await dismissedNotifications(bob.page)).toEqual([])
-
-    await clickDesktopNotification(bob.page)
-    await expect(bob.page).toHaveURL(new RegExp(`/c/channels/${serverId}/${channelId}`))
-    await expect.poll(() => dismissedNotifications(bob.page)).toEqual([notificationId])
-    expect(attempts).toBe(2)
+    const targetHref = `/c/channels/${serverId}/${channelId}`
+    const targetLoading = bob.page.locator(`[data-community-target-href="${targetHref}"] main[data-testid="${tid.conversationResolutionPending}"]`)
+    try {
+      await bob.page.evaluate(value => {
+        const state = (window as typeof window & {__desktopNotificationTest:{listener?:{onmessage?:(value:unknown)=>void}}}).__desktopNotificationTest
+        const core = (window as typeof window & {__TAURI__:{core:{invoke:(command:string,args?:Record<string,unknown>)=>Promise<unknown>}}}).__TAURI__.core
+        const original = core.invoke
+        let activation: unknown = value
+        core.invoke = async (command,args) => command === "desktop_system_notification_take_activation"
+          ? (()=>{const next=activation;activation=null;return next})() : original(command,args)
+        state.listener?.onmessage?.(undefined)
+      }, {notificationId:"4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f720",target:{kind:"server",serverId,channelId,messageId,seq:1}})
+      await expect.poll(() => permissionHeld).toBe(true)
+      await expect(targetLoading).toHaveCount(1)
+      await expect(targetLoading).toBeVisible()
+      await expect(targetLoading).toHaveAttribute("aria-busy", "true")
+      await expect(bob.page).toHaveURL(new RegExp(`/c/channels/${serverId}/${channelId}`))
+      await expect(targetLoading).toHaveCount(1)
+      await expect(targetLoading).toBeVisible()
+      await expect(targetLoading).toHaveAttribute("aria-busy", "true")
+      expect(permissionHeld).toBe(true)
+      expect(await retriedNotifications(bob.page)).toEqual([])
+    } finally { release() }
+    await expect(bob.page.getByTestId(tid.message(messageId))).toBeVisible({timeout:30_000})
+    await expect.poll(()=>dismissedNotifications(bob.page)).toEqual(["4f3bb3fd-5d7f-4a26-8e0e-3ddd1154f720"])
   })
 })

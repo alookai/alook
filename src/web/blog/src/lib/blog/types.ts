@@ -1,5 +1,6 @@
 export type BlogPost = {
   slug: string;
+  tags?: string[];
   title: string;
   seoTitle?: string;
   date: string;

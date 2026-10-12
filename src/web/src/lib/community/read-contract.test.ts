@@ -3,6 +3,8 @@ import { COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
 import { writeCommunityChannelRead, writeCommunityMessagesRead, writeCommunityReadState } from "./read-contract"
 import { decodeCommunityReadResponse } from "./read-response"
 import { parseCommunityMessageWindow } from "./messages"
+import { mapMessageForWs } from "./message-payload"
+import { projectCommunityMessageCreate } from "./message-wire"
 import { communityKeys } from "@/lib/query-keys"
 
 const request = (version?: string) => new Request("https://alook.test/api/community/channels/channel", { headers: version ? { [COMMUNITY_CONTRACT_HEADER]: version } : {} })
@@ -28,6 +30,7 @@ describe("common reading negotiation", () => {
     const response = writeCommunityMessagesRead(request("2"), "channel", { messages: [message], latestSeq: 1, hasMore: true, cursor: "cursor", surfaceReceipt: { channelId: "channel", surfaceKind } })
     const body = await response.json()
     expect(body.messages[0]).toMatchObject({ channelId: "channel", clientNonce: null, replyToId: null, attachments: [] })
+    expect(body.messages[0]).not.toHaveProperty("resourceComplete")
     expect(decodeCommunityReadResponse("/api/community/channels/channel/messages", "GET", response, body)).toMatchObject({ olderCursor: "cursor", hasMoreOlder: true, surfaceReceipt: { surfaceKind } })
     const state = writeCommunityReadState(request("2"), "channel", { lastReadAt: null, lastReadMessageId: null, lastReadSeq: 0 })
     expect(decodeCommunityReadResponse("/api/community/channels/channel/read-state", "GET", state, await state.json())).toEqual({ channelId: "channel", lastReadAt: null, lastReadMessageId: null, lastReadSeq: 0 })
@@ -41,12 +44,30 @@ describe("common reading negotiation", () => {
   it("normalizes legacy message bytes with the same core resource validator", () => {
     const message = { id: "message", authorId: "author", seq: 1, createdAt: "2026-10-07T12:00:00Z", type: "chat", content: "hello" }
     const decoded = decodeCommunityReadResponse("/api/community/channels/channel/messages", "GET", new Response(), { messages: [message], latestSeq: 1 })
-    expect(decoded).toMatchObject({ latestSeq: 1, messages: [{ ...message, channelId: "channel", replyToId: null, attachments: [] }] })
+    expect(decoded).toMatchObject({ latestSeq: 1, messages: [{ ...message, channelId: "channel", resourceComplete: false }] })
     expect(() => decodeCommunityReadResponse("/api/community/channels/channel/messages", "GET", new Response(), { messages: [{ ...message, seq: undefined }] })).toThrow()
     expect(() => decodeCommunityReadResponse("/api/community/channels/channel/messages", "GET", new Response(), { messages: [{ ...message, channelId: "foreign" }] })).toThrow("scope mismatch")
   })
   it("validates window exclusivity, cursors and limits", () => {
     expect(parseCommunityMessageWindow(new URLSearchParams("window=after&cursor=2026-10-07T12%3A00%3A00Z%7Cm1&limit=10"))).toMatchObject({ since: { id: "m1" }, pageSize: 10 })
     for (const input of ["window=before", "window=around&cursor=x&anchorMessageId=m1", "cursor=x", "cursor=a%7Cb%7Cc", "limit=1.5", "window=tail&since=x", "anchor=m1&cursor=x"]) expect(() => parseCommunityMessageWindow(new URLSearchParams(input))).toThrow()
+  })
+})
+
+
+describe("explicit resource 3 ingress", () => {
+  it.each(["channel", "forum", "thread", "dm"] as const)("converges HTTP and WS raw facts for %s", async (surfaceKind) => {
+    const attachments = [{ id: "a2", name: "first", url: "/first", thumbnailUrl: null, contentType: null, sizeBytes: null, width: null, height: null }, { id: "a1", name: "second", url: "/second", thumbnailUrl: null, contentType: "image/png", sizeBytes: 1024, width: 40, height: 50 }]
+    const row = { id: "full", seq: 2, authorId: "peer", authorName: "Peer", authorImage: null, authorAvatarVersion: 4, createdAt: "now", type: "chat", content: "body", clientNonce: "nonce", replyToId: null, mentionType: null, embeds: [null, { unsupported: true }] }
+    const full = mapMessageForWs(row, { replyMap: new Map(), attachments: [], resourceAttachments: attachments, clientNonce: "nonce" }, 3, "channel")
+    const response = writeCommunityMessagesRead(request("3"), "channel", { messages: [full], latestSeq: 2, surfaceReceipt: { channelId: "channel", surfaceKind } })
+    const body = await response.json()
+    const http = decodeCommunityReadResponse("/api/community/channels/channel/messages", "GET", response, body, 3) as { messages: unknown[] }
+    const ws = projectCommunityMessageCreate(full, "channel", 3)
+    expect(http.messages).toEqual([ws])
+    expect(ws).toMatchObject({ resourceComplete: true, authorAvatar: null, attachments, embeds: row.embeds, clientNonce: "nonce" })
+    const missing = { ...body, messages: [{ ...full, attachments: undefined }] }
+    expect(() => decodeCommunityReadResponse("/api/community/channels/channel/messages", "GET", response, missing, 3)).toThrow()
+    expect(() => projectCommunityMessageCreate({ ...full, channelId: "foreign" }, "channel", 3)).toThrow("scope mismatch")
   })
 })

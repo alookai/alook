@@ -22,8 +22,8 @@ async function requireBillingOwner(db: Database, userId: string, founderAcknowle
 
 export async function getBillingSummary(db: Database, stripe: () => Stripe, env: Env, userId: string): Promise<BillingSummary> {
   const effective = await queries.billing.getEffectivePlan(db, userId)
-  if (effective.isFounder) return { plan: effective.plan, isFounder: true, offers: await getOffers(db, stripe(), env), subscription: null }
-  const [row, offers] = await Promise.all([queries.billing.getBilling(db, userId), getOffers(db, stripe(), env)])
+  if (effective.isFounder) return { plan: effective.plan, isFounder: true, offers: await getOffers(db, stripe, env), subscription: null }
+  const [row, offers] = await Promise.all([queries.billing.getBilling(db, userId), getOffers(db, stripe, env)])
   return { plan: effective.plan, isFounder: false, offers, subscription: row?.subscription ?? null }
 }
 

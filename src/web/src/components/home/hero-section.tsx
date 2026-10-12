@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-html-link-for-pages -- Product entrances require a new document to unload public tracking. */
+
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
@@ -268,7 +270,6 @@ export function HeroSection({
             OPEN SOURCE
           </a> */}
           {isLoggedIn ? (
-            // eslint-disable-next-line @next/next/no-html-link-for-pages -- Public analytics and private DOM must use different documents.
             <a
               href="/c/me"
               onClick={() => trackLandingCtaClicked({ cta_name: "open_app" })}

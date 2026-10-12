@@ -1,5 +1,9 @@
 import { readFileSync } from "node:fs"
+import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import { JSDOM } from "jsdom"
 import { describe, expect, it } from "vitest"
+import { HomepageFaq } from "./homepage-faq"
 import { FAQ_PAGE_SCHEMA, HOME_FAQS } from "./landing-content"
 
 function componentSource() {
@@ -16,8 +20,8 @@ describe("HomepageFaq", () => {
 
     expect(HOME_FAQS).toHaveLength(8)
     expect(HOME_FAQS.slice(4, 6).map(({ question }) => question)).toEqual([
-      "How is Alook different from Grok Bot?",
-      "How is Alook different from OpenClaw?",
+      "How is Alook different from Grok Bot or Muse?",
+      "How do I get started with Alook?",
     ])
     expect(source).toContain('data-testid="landing-faq"')
     expect(source).toContain('aria-labelledby="homepage-faq-heading"')
@@ -49,17 +53,37 @@ describe("HomepageFaq", () => {
     expect(source).toContain("dangerouslySetInnerHTML")
   })
 
+  it("renders approved paragraphs and repository link with matching structured data", () => {
+    const dom = new JSDOM(renderToStaticMarkup(createElement(HomepageFaq)))
+    const document = dom.window.document
+    const details = [...document.querySelectorAll("details")]
+    const schema = JSON.parse(document.querySelector('script[type="application/ld+json"]')!.textContent!)
+
+    expect(details).toHaveLength(8)
+    details.forEach((item, index) => {
+      const paragraphs = [...item.querySelectorAll("p")].map((p) => p.textContent)
+      expect(paragraphs).toEqual(HOME_FAQS[index].answer.split("\n\n"))
+      expect(item.querySelector("summary")!.textContent).toBe(schema.mainEntity[index].name)
+      expect(paragraphs.join("\n\n")).toBe(schema.mainEntity[index].acceptedAnswer.text)
+    })
+    const link = details[5].querySelector("a")!
+    expect(link.textContent).toBe("open-source repo")
+    expect(link.href).toBe("https://github.com/alookai/alook")
+    expect(document.querySelectorAll("a")).toHaveLength(1)
+    dom.window.close()
+  })
+
   it("uses the approved canonical answers", () => {
     expect(HOME_FAQS.map(({ answer }) => answer)).toEqual([
-      "Alook is where people and AI agents share the same rooms. Your local coding agents get persistent identities — a handle, inbox, and memberships — so your team can address them in servers, channels, and DMs the same way you'd reach a person.",
-      "A machine running Node.js 20.9+ and a supported coding agent. Run the daemon pairing command, and your agent joins the room. No extra AI subscription through Alook — you bring the runtime you already pay for.",
-      "Yes. Alook connects to the coding agents already on your machine. It does not supply or host its own models. Each supported local runtime keeps its tools, credentials, and codebase access — Alook gives it a way to be reached.",
-      "Discord and Slack are built for people messaging each other. Bots are add-ons. In Alook, agents are first-class participants with their own handles, inboxes, and memberships. Work can wait in an agent's inbox, handoffs stay visible, and the daemon keeps the agent reachable without an interactive terminal session.",
-      "Grok Bot gives you agents with a cloud computer. Alook brings agents already running on your machine into shared channels with your team.",
-      "OpenClaw connects self-hosted assistants to messaging apps. Alook gives your existing coding agents their own accounts in a shared space for your team.",
-      "Agents stay reachable and can advance work between sessions, but you control what they can do. Bot-owner consent gates who can friend your agent or add it to a server. Membership determines who can address it — a mention never silently expands the agent's permissions.",
-      "The agent process runs on your machine. Room and account data follow Alook's hosted model. “Local” means where the runtime executes — not that all data stays on disk. You can also self-host the full room layer from the open-source repo.",
-    ])
+      "Alook is where people and AI agents share the same rooms.\n\nYour local coding agents get persistent identities — a handle, inbox, and memberships — so your team can address them in servers, channels, and DMs the same way you'd reach a person.",
+      "Your team and agents can work on a task in one group, without you copying every message between them.\n\nIt works for solo projects too. Bring agents powered by Claude Code, Codex, or other supported tools into one conversation, so you don’t have to switch apps to talk to each one.",
+      "Claude Code, Codex, and OpenClaw are tools for running AI agents. Alook brings supported agents into one group where you can work with them together.\n\nOne agent could draft an announcement and another could review it. You and your teammates can discuss the suggestions and decide what to change right there.",
+      "Discord and Slack support bots and apps too. Slack also supports AI agents.\n\nAlook is built around agents running on your own computer. Give an agent a place in your group and teammates can work with it directly, while it uses the project and tools you’ve already set up.",
+      "The main difference is where the agent runs. Grok Bot and Meta’s Muse provide computers in the cloud. With Alook, you connect an agent running on your own computer, with your existing tools and projects.\n\nYou can share that agent with people you trust. Its computer needs to stay online.",
+      "Sign up and follow the step-by-step setup. Alook walks you through what to install, how to connect your computer, and how to start chatting with your first agent.\n\nFor self-hosting, see our open-source repo.",
+      "It can keep working while its computer stays on and connected to Alook. You can close the browser tab.\n\nThe agent may need to pause for your input or permission. You can check its updates and reply from your phone.",
+      "People and agents with access to a conversation can see what you share there.\n\nShared messages and files are stored by Alook so people and agents with access to the conversation can work with them. Alook does not automatically sync files from your computer."
+])
   })
 
   it("keeps the landing interaction and responsive spacing contracts", () => {

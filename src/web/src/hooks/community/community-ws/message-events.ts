@@ -62,6 +62,7 @@ export function handleMessageCreate(
     viewerUserIdRef,
     matchesFocus,
     projection,
+    contract,
   }: CommunityWsHandlerContext,
 ) {
   warmLiveForumChildOwner(queryClient, event)
@@ -69,7 +70,7 @@ export function handleMessageCreate(
   const hasSeenMessage = wsStore.actions.hasSeenMessage(event.message.id)
   const isForeignFocused = event.message.authorId !== viewerId
     && matchesFocus(event)
-  const projected = projectCommunityWsEventToDb(queryClient, event)
+  const projected = projectCommunityWsEventToDb(queryClient, event, contract)
   if (!projected) return
   if (isForeignFocused && !hasSeenMessage) {
     armInboxReadReservationCandidate(queryClient, {
