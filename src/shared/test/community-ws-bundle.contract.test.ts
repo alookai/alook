@@ -22,7 +22,7 @@ import {
   type CommunityBotAuditEvent,
   type CommunityWsEvent,
 } from "../src"
-import { communityWsEventFixtures, communityResourceMessageFixture } from "./community-ws-events.fixtures"
+import { communityWsEventFixtures, communityResourceMessageFixture, communityResourceChannelFixture } from "./community-ws-events.fixtures"
 
 function maximizeAuditPadding(): CommunityBotAuditEvent {
   let low = 0
@@ -299,6 +299,34 @@ describe("community WS batch transport contract", () => {
 
 
 describe("explicit v3 delivery codec", () => {
+  it.each([1, 2] as const)("projects empty attachments and full channel/identity facts to contract %s", async (contract) => {
+    const events = [
+      { ...communityResourceMessageFixture, message: { ...communityResourceMessageFixture.message, attachments: [] } },
+      { type: WS_EVENTS.CHANNEL_CREATE, serverId: "server-1", channel: { ...communityResourceChannelFixture, name: null } },
+      { type: "community:channel.child_create", parentChannelId: "channel-1", parentMessageId: "message-1", channel: {
+        ...communityResourceChannelFixture, id: "thread-1", type: "thread", name: null, creatorId: null,
+        parentChannelId: "channel-1", parentMessageId: "message-1",
+      } },
+      { type: WS_EVENTS.IDENTITY_UPDATE, userId: "user-1", avatar: null, avatarVersion: 1 },
+    ]
+    const prepared = await prepareCommunityDeliveryEvents(events, 3)
+    if (!prepared.ok) throw new Error("invalid resource fixtures")
+    const encoded = await encodeCommunityBrowserEventBatchForContract({
+      operationId: await deriveCommunityDeliveryOperationId("legacy-resource-projection"), prepared: prepared.prepared, contract,
+    })
+    if (!encoded.ok) throw new Error("invalid legacy projection")
+    const wire = JSON.parse(encoded.body)
+    expect(wire.type).toBe(communityBrowserEventBatchType(contract))
+    expect(wire.events[0].message).not.toHaveProperty("attachments")
+    expect(wire.events[0].message).not.toHaveProperty("channelId")
+    expect(wire.events[1]).toEqual({ type: WS_EVENTS.CHANNEL_CREATE, serverId: "server-1", channel: {
+      id: "channel-1", name: "", type: "text", categoryId: null, topic: "Keep this topic", position: 4, createdAt: communityResourceChannelFixture.createdAt,
+    } })
+    expect(wire.events[2]).toEqual({ type: "community:channel.child_create", parentChannelId: "channel-1", parentMessageId: "message-1",
+      channel: { id: "thread-1", name: "", type: "thread", createdAt: communityResourceChannelFixture.createdAt } })
+    expect(wire.events[3]).toEqual({ ...events[3], avatar: "" })
+    expect(await admitCommunityBrowserEventBatch(wire)).toMatchObject({ ok: true, events: wire.events })
+  })
   it("captures original source bytes before digest and projects strict 1/2/3 frames", async () => {
     const prepared = await prepareCommunityDeliveryEvents([communityResourceMessageFixture], 3)
     if (!prepared.ok) throw new Error("invalid v3 fixture")

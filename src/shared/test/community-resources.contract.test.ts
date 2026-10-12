@@ -2,8 +2,17 @@ import { describe, expect, it } from "vitest"
 import { communityMessagePreviewFromLegacy, CommunityLegacyMessageResourceSchema, communityChannelResourceFromStorage, CommunityMessageAttachmentSchema, CommunityMessagePreviewSchema, CommunityResourceProfileSchema, CommunityChannelResourceSchema, CommunityMessageResourceSchema, normalizeCommunityChannelIdentity, normalizeCommunityChannelResource, normalizeCommunityChannelResourcePreview, normalizeCommunityMessageResource } from "../src"
 import { communityResourceChannelFixture, communityResourceMessageFixture } from "./community-ws-events.fixtures"
 import { COMMUNITY_CONTRACT_HEADER, requestsCommunityContract } from "../src/community-contract"
+import { communityReadSchemas } from "../src/community-resources"
 
 describe("common community resources", () => {
+  it.each([2, 3] as const)("selects read contract %s without accepting the other version", (contractVersion) => {
+    const schemas = communityReadSchemas(contractVersion)
+    const body = { contractVersion, channelId: "channel", changed: true, targetSeq: 7, revision: 9 }
+    expect(schemas.readAdvance.parse(body)).toEqual(body)
+    expect(schemas.readAdvance.safeParse({ ...body, contractVersion: contractVersion === 2 ? 3 : 2 }).success).toBe(false)
+    expect(schemas.error.parse({ contractVersion, error: { code: "not_allowed", message: "Denied", retryable: false } }))
+      .toEqual({ contractVersion, error: { code: "not_allowed", message: "Denied", retryable: false } })
+  })
   it.each([undefined, "1", "2", "02", "3"])("negotiates only the exact supported read contract %s", (version) => {
     const headers = new Headers(version === undefined ? undefined : { [COMMUNITY_CONTRACT_HEADER]: version })
     expect(requestsCommunityContract(headers)).toBe(version === "2" || version === "3")

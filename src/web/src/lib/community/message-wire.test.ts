@@ -19,6 +19,22 @@ function wire(
 }
 
 describe("projectCommunityMessageCreate", () => {
+  it("presents sparse thread participants without altering stored facts", () => {
+    const thread = { id: "thread", name: null, messageCount: 2, lastReplyAt: null, participants: [
+      { id: "unknown" },
+      { id: "initial", name: "Peer", avatar: null },
+      { id: "known", name: "Author", avatar: "/avatar", avatarVersion: 4 },
+    ] }
+    expect(presentCanonicalMessage({ id: "opener", type: "chat", thread }).thread).toEqual({
+      id: "thread", name: "", messageCount: 2, lastReplyAt: undefined, participants: [
+        { id: "unknown", name: "", avatar: "?", avatarVersion: 0 },
+        { id: "initial", name: "Peer", avatar: "P", avatarVersion: 0 },
+        { id: "known", name: "Author", avatar: "/avatar", avatarVersion: 4 },
+      ],
+    })
+    expect(thread.participants[0]).toEqual({ id: "unknown" })
+    expect(thread.participants[1].avatar).toBeNull()
+  })
   it("keeps explicit empty rich fields distinct from omission", () => {
     expect(projectCommunityMessageCreate(wire({ attachments: [], embeds: [] }), "channel-1"))
       .toMatchObject({ attachments: [], embeds: [] })

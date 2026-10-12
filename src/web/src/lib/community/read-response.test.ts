@@ -16,6 +16,14 @@ const members = () => ({ contractVersion: 2, channelId: "thread", relation: "not
 const decodeMembers = (body: unknown, path = "/api/community/channels/thread/members?relation=notify") => decodeCommunityReadResponse(path, "GET", confirmed(), body)
 
 describe("common read response publication", () => {
+  it("admits a legacy single-message preview only with an explicit valid scope", () => {
+    const value = { id: "legacy", channelId: "thread", seq: 1, authorId: "viewer", createdAt: "now", type: "chat", content: "body" }
+    expect(decodeCommunityReadResponse("/api/community/messages/legacy", "GET", new Response(), value))
+      .toEqual({ ...value, resourceComplete: false })
+    for (const invalid of [null, {}, { ...value, channelId: undefined }, { ...value, channelId: 4 }, { ...value, channelId: "" }]) {
+      expect(() => decodeCommunityReadResponse("/api/community/messages/legacy", "GET", new Response(), invalid)).toThrow()
+    }
+  })
   it("recognizes only complete read routes and decodes their encoded channel identity", () => {
     expect(communityReadTarget("/api/community/channels/a%2Fb/read?lastReadSeq=4", "put")).toEqual({ channelId: "a/b", resource: "read" })
     expect(communityReadTarget("/api/community/channels/thread/members?relation=notify")).toEqual({ channelId: "thread", resource: "members" })

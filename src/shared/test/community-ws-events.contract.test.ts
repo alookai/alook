@@ -238,6 +238,24 @@ describe("Community browser event runtime contract", () => {
 
 
 describe("explicit v3 browser events", () => {
+  it("admits child resources only with matching parent identities", () => {
+    const event = { type: "community:channel.child_create", parentChannelId: "parent", parentMessageId: "opener", channel: {
+      ...communityResourceChannelFixture, id: "thread", type: "thread", parentChannelId: "parent", parentMessageId: "opener",
+    } }
+    expect(decodeCommunityBrowserEvent(event, 3)).toEqual({ ok: true, event })
+    const { parentMessageId: _parentMessageId, ...withoutOpenerClaim } = event
+    expect(decodeCommunityBrowserEvent(withoutOpenerClaim, 3)).toEqual({ ok: true, event: withoutOpenerClaim })
+    for (const fields of [{ parentChannelId: "other" }, { parentMessageId: "other" }]) {
+      expect(decodeCommunityBrowserEvent({ ...event, ...fields }, 3)).toMatchObject({ ok: false, reason: "invalid-payload" })
+    }
+  })
+  it("requires a positive avatar version on a v3 identity update", () => {
+    const event = { type: WS_EVENTS.IDENTITY_UPDATE, userId: "user-1", avatar: null, avatarVersion: 1 }
+    expect(decodeCommunityBrowserEvent(event, 3)).toEqual({ ok: true, event })
+    for (const avatarVersion of [0, -1, 0.5]) {
+      expect(decodeCommunityBrowserEvent({ ...event, avatarVersion }, 3)).toMatchObject({ ok: false, reason: "invalid-payload" })
+    }
+  })
   it("requires full resources on create and preserves partial deltas", () => {
     expect(decodeCommunityBrowserEvent(communityResourceMessageFixture, 3)).toEqual({ ok: true, event: communityResourceMessageFixture })
     expect(decodeCommunityBrowserEvent(communityResourceMessageFixture, 2).ok).toBe(false)
