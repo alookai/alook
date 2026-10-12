@@ -9,13 +9,15 @@ import { SignupTracker } from "./signup-tracker"
 const mocks = vi.hoisted(() => ({ breakpoint: "desktop", replace: vi.fn(), track: vi.fn() }))
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: mocks.replace }) }))
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => mocks.breakpoint }))
-vi.mock("@/lib/analytics", () => ({ trackSignUp: mocks.track, trackCommunityOnboardingStarted: vi.fn() }))
+vi.mock("@/lib/analytics", () => ({ trackCommunityOnboardingStarted: vi.fn() }))
+vi.mock("@/lib/product-analytics", () => ({ captureProductAnalytics: mocks.track }))
 
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.replace.mockReset()
   mocks.breakpoint = "desktop"
   document.cookie = "is_new_signup=; max-age=0; path=/"
+  document.cookie = "is_sign_in=; max-age=0; path=/"
 })
 
 function mount(redirectTo?: string) {
@@ -42,7 +44,7 @@ describe("SignupTracker account-owned initiation", () => {
     const { registry, rerender } = mount("/c/me/machines")
     mocks.breakpoint = "mobile"; rerender()
     mocks.breakpoint = "desktop"; rerender()
-    expect(mocks.track).not.toHaveBeenCalled()
+    expect(mocks.track).toHaveBeenCalledWith({ event: "sign_up", method: "email" })
     expect(registry.runtime.ui.get().onboardingState).toBeNull()
     expect(mocks.replace).not.toHaveBeenCalled()
   })
@@ -53,7 +55,7 @@ describe("SignupTracker account-owned initiation", () => {
     const { registry, rerender } = mount("/c/me/machines")
     mocks.replace.mockImplementation(() => expect(registry.runtime.ui.get().onboardingState).toMatchObject({ stage: "harness" }))
     mocks.breakpoint = "desktop"; rerender()
-    expect(mocks.track).not.toHaveBeenCalled()
+    expect(mocks.track).toHaveBeenCalledWith({ event: "sign_up", method: "email" })
     expect(registry.runtime.ui.get().onboardingState).toMatchObject({ stage: "harness" })
     expect(mocks.replace).toHaveBeenCalledWith("/c/me/machines")
   })
@@ -62,7 +64,7 @@ describe("SignupTracker account-owned initiation", () => {
     mocks.breakpoint = "mobile"
     document.cookie = "is_new_signup=email; path=/"
     const { registry } = mount("/c/me/machines")
-    expect(mocks.track).not.toHaveBeenCalled()
+    expect(mocks.track).toHaveBeenCalledWith({ event: "sign_up", method: "email" })
     expect(registry.runtime.ui.get().onboardingState).toBeNull()
     expect(mocks.replace).not.toHaveBeenCalled()
   })
@@ -71,14 +73,14 @@ describe("SignupTracker account-owned initiation", () => {
     document.cookie = "is_new_signup=email; path=/"
     const { rerender } = mount("/c/me/machines")
     rerender()
-    expect(mocks.track).not.toHaveBeenCalled()
+    expect(mocks.track).toHaveBeenCalledWith({ event: "sign_up", method: "email" })
     expect(mocks.replace).toHaveBeenCalledOnce()
   })
 
-  it("does not duplicate server signup tracking on a public entry without an owner", () => {
+  it("reports an existing signup success marker even without an onboarding owner", () => {
     document.cookie = "is_new_signup=github; path=/"
     render(<SignupTracker />)
-    expect(mocks.track).not.toHaveBeenCalled()
+    expect(mocks.track).toHaveBeenCalledWith({ event: "sign_up", method: "github" })
     expect(mocks.replace).not.toHaveBeenCalled()
   })
 
@@ -99,4 +101,15 @@ describe("SignupTracker account-owned initiation", () => {
     expect(mocks.replace).toHaveBeenCalledOnce()
     write.mockRestore()
   })
+  it("reports existing sign-in success and leaves onboarding untouched", () => {
+    document.cookie = "is_sign_in=email_otp; path=/"
+    const { registry, rerender } = mount("/c/me/machines")
+    rerender()
+    expect(mocks.track).toHaveBeenCalledOnce()
+    expect(mocks.track).toHaveBeenCalledWith({ event: "sign_in_success", method: "email_otp" })
+    expect(document.cookie).not.toContain("is_sign_in=")
+    expect(registry.runtime.ui.get().onboardingState).toBeNull()
+    expect(mocks.replace).not.toHaveBeenCalled()
+  })
+
 })

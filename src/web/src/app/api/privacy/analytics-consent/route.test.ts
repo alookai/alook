@@ -44,7 +44,7 @@ describe("POST /api/privacy/analytics-consent", () => {
     expect(response.status).toBe(200)
     expect(response.headers.get("Cache-Control")).toBe("no-store, max-age=0")
     expect(await response.json()).toEqual({ decision })
-    expect(cookies).toHaveLength(decision === "granted" ? 4 : 2)
+    expect(cookies).toHaveLength(2)
     expect(cookies[0]).toContain(`alook_analytics_consent=v1.${decision}`)
     expect(cookies[0]).toContain("Path=/")
     expect(cookies[0]).toContain("Max-Age=15552000")

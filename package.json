@@ -56,7 +56,7 @@
     "turbo": "^2.11.7",
     "typescript": "^6.0.3",
     "vitest": "4.1.11",
-    "wrangler": "4.146.0"
+    "wrangler": "4.149.0"
   },
   "pnpm": {
     "overrides": {
@@ -64,7 +64,8 @@
       "@vitest/snapshot": "4.1.11"
     },
     "patchedDependencies": {
-      "@opennextjs/aws@4.1.4": "patches/@opennextjs__aws@4.1.4.patch"
+      "@opennextjs/aws@4.1.4": "patches/@opennextjs__aws@4.1.4.patch",
+      "@opennextjs/cloudflare@1.20.6": "patches/@opennextjs__cloudflare@1.20.6.patch"
     },
     "onlyBuiltDependencies": [
       "better-sqlite3",

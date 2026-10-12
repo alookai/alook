@@ -1,5 +1,7 @@
 "use client"
 
+import { captureOnboardingFirstMessage } from "@/lib/product-analytics"
+
 import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
 
 import { useCallback } from "react"
@@ -278,6 +280,7 @@ function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(
     },
     onSuccess: (data, args) => {
       try { origin.assert(args.original); args.assertCommand?.() } catch { return }
+      if ("serverId" in args) captureOnboardingFirstMessage(args.author.id, args.serverId)
       if (
         "serverId" in args && args.forumParentChannelId &&
         isForumSidebarParent(queryClient, args.serverId, args.forumParentChannelId)

@@ -28,7 +28,7 @@ const mocks = vi.hoisted(() => ({
   } as Record<string, unknown>,
 }))
 
-vi.mock("@/lib/product-analytics", () => ({ captureProductAnalytics: mocks.capture }))
+vi.mock("@/lib/product-analytics", () => ({ beginOnboardingAnalytics: (_userId: string, serverId: string) => mocks.capture({ event: "onboarding_enter_clicked", serverId }) }))
 vi.mock("next/navigation", () => ({
   usePathname: () => mocks.pathname,
 }))

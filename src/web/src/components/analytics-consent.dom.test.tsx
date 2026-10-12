@@ -123,7 +123,7 @@ describe("AnalyticsConsent", () => {
     expect(screen.getByTestId(tid.ahrefsAnalyticsFrame)).toBeInTheDocument()
     expect(getComputedStyle(screen.getByTestId("consent-page")).height).toBe("100dvh")
     expect(document.cookie).not.toContain("alook_analytics_consent=")
-    expect(document.cookie).toMatch(/_ga=GA1\.1\.\d+\.\d+/u)
+    expect(document.cookie).not.toContain("_ga=")
   })
 
   it("does not resave an existing grant", async () => {
@@ -240,11 +240,15 @@ describe("AnalyticsConsent", () => {
     render(<AnalyticsConsent />)
     cookie.change()
     expect(navigation.reload).not.toHaveBeenCalled()
+    const events = document.getElementById("alook-product-events") ?? document.createElement("iframe")
+    events.id = "alook-product-events"
+    document.body.appendChild(events)
     document.cookie = "alook_analytics_consent=v1.denied; Path=/"
     cookie.change()
     fireEvent(window, new Event("focus"))
     fireEvent(window, new CustomEvent("alook:analytics-consent-change", { detail: "granted" }))
     expect(navigation.reload).toHaveBeenCalledTimes(pathname.startsWith("/c") ? 0 : 1)
+    expect(document.getElementById("alook-product-events")).toBeNull()
     expect(screen.queryByTestId(tid.ahrefsAnalyticsFrame)).not.toBeInTheDocument()
   })
 

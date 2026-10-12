@@ -11,7 +11,6 @@ import {
 } from "@/lib/analytics-consent"
 import { createAnalyticsConsentProof } from "@/lib/analytics-consent-server"
 
-import { productAnalyticsIdentity, productAnalyticsMeasurementId, setProductAnalyticsCookies } from "@/lib/product-analytics-server"
 
 function sameOriginUrl(request: NextRequest): URL | null {
   const origin = request.headers.get("Origin")
@@ -80,10 +79,6 @@ export const POST = withOptionalAuth(async (request, ctx) => {
     await createAnalyticsConsentProof(decision, ctx.env.BETTER_AUTH_SECRET, issuedAtMs),
     { ...shared, httpOnly: true },
   )
-  if (decision === "granted") {
-    const identity = productAnalyticsIdentity(request.headers.get("cookie") ?? "", issuedAtMs, productAnalyticsMeasurementId(ctx.env))
-    setProductAnalyticsCookies(response.cookies.set.bind(response.cookies), identity, origin.protocol === "https:")
-  }
   response.headers.set("Cache-Control", "no-store, max-age=0")
   return response
 })

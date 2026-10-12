@@ -40,6 +40,7 @@ function useStoredAnalyticsConsent(syncGoogleConsent = false) {
     const native = isTauri()
     const refresh = (announce = false, initial = false) => {
       const next = readAnalyticsConsent()
+      if (syncGoogleConsent && next === "denied") document.getElementById("alook-product-events")?.remove()
       const changed = next !== decisionRef.current
       if (syncGoogleConsent && (changed || initial)) {
         if (!native) applyGoogleConsent(isPublicAnalyticsPath(window.location.pathname) ? next ?? "granted" : "denied")
@@ -197,7 +198,6 @@ export function AnalyticsConsent() {
 
   const googleAllowed = ready && !!pathname && isPublicAnalyticsPath(pathname) && (!isTauri() || decision === "granted")
   const allowed = googleAllowed && (isTauri() ? decision === "granted" : decision !== "denied")
-
   useEffect(() => {
     if (!isTauri()) return
     Object.defineProperty(window, GA_DISABLE, {

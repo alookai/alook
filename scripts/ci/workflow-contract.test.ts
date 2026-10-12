@@ -248,7 +248,7 @@ function ciJob(name: string): string {
 
 describe("E2E UI workflow", () => {
   it("isolates resizable-panels upgrades after adopting the latest compatible release", () => {
-    expect(webPackageManifest.dependencies["react-resizable-panels"]).toBe("4.14.1")
+    expect(webPackageManifest.dependencies["react-resizable-panels"]).toBe("4.14.3")
     expect(dependabotConfig).toMatch(/^[ ]{6}resizable-panels:\n[ ]{8}patterns:\n[ ]{10}- "react-resizable-panels"$/m)
     expect(dependabotConfig).toMatch(/^[ ]{8}exclude-patterns:[\s\S]*?^[ ]{10}- "react-resizable-panels"$/m)
     expect(dependabotConfig).not.toMatch(/^[ ]{6}- dependency-name: "react-resizable-panels"$/m)
@@ -1135,10 +1135,10 @@ describe("Desktop updater release", () => {
     expect(desktopReleaseWorkflow).toContain("cancel-in-progress: false")
     expect(desktopReleaseWorkflow).toContain("needs: [build-unix, build-windows]")
     expect(desktopReleaseWorkflow).toContain(
-      "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7",
+      "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7",
     )
     expect(desktopReleaseWorkflow).toContain(
-      "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8",
+      "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8",
     )
     expect(desktopReleaseWorkflow).toContain("pattern: desktop-release-*")
     expect(desktopReleaseWorkflow).toContain("merge-multiple: false")
@@ -1378,7 +1378,7 @@ describe("Mobile release availability", () => {
       'entitlements["aps-environment"] == "production"',
     )
     expect(mobileReleaseWorkflow).toContain("xcrun altool --upload-app")
-    expect(mobileReleaseWorkflow).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a")
+    expect(mobileReleaseWorkflow).toContain("actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9")
     expect(bumpScript).toContain('args.includes("--mobile")')
     expect(bumpScript).toContain("src/desktop/.deploy-version-mobile")
     expect(bumpScript).toContain("automatic TestFlight upload")

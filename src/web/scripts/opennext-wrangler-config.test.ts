@@ -45,14 +45,16 @@ describe("OpenNext and Wrangler refresh", () => {
     expect(dependency("src/web/package.json", "wrangler-e2e")).toBeUndefined()
   })
 
-  it("locks the OpenNext AWS patch and keeps one Workers types range", () => {
+  it("locks the reviewed OpenNext patches and keeps one Workers types range", () => {
     expect(dependency("src/web/package.json", "@opennextjs/cloudflare")).toBe("^1.20.6")
 
     const rootManifest = readPackage("package.json")
     expect(rootManifest.pnpm?.patchedDependencies).toEqual({
       "@opennextjs/aws@4.1.4": "patches/@opennextjs__aws@4.1.4.patch",
+      "@opennextjs/cloudflare@1.20.6": "patches/@opennextjs__cloudflare@1.20.6.patch",
     })
     expect(existsSync(new URL("patches/@opennextjs__aws@4.1.4.patch", repositoryRoot))).toBe(true)
+    expect(existsSync(new URL("patches/@opennextjs__cloudflare@1.20.6.patch", repositoryRoot))).toBe(true)
     expect(existsSync(new URL("patches/@opennextjs__aws@4.1.0.patch", repositoryRoot))).toBe(false)
 
     const workerManifests = [

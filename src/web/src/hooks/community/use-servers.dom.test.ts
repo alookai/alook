@@ -1,6 +1,6 @@
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClient, QueryClientProvider, CancelledError } from "@tanstack/react-query"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
@@ -18,11 +18,12 @@ beforeEach(async () => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   registry = createCommunityDbRegistry(client, "viewer")
   await registry.preload()
-})
-afterEach(async () => {
-  await act(async () => {
-    await client.cancelQueries(); await registry.cleanup(); client.clear()
-  })
+  const ownerClient = client, ownerRegistry = registry
+  return async () => {
+    await act(async () => {
+      await ownerClient.cancelQueries(); await ownerRegistry.cleanup(); ownerClient.clear()
+    })
+  }
 })
 function Owner({ children }: PropsWithChildren) { return createElement(QueryClientProvider, { client }, createElement(CommunityDbProvider, { registry }, children)) }
 const identity = { id: "srv_1", name: "Alook", discriminator: "0001", description: "Build together", icon: null, ownerId: "viewer" }

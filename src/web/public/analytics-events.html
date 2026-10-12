@@ -1,0 +1,15 @@
+<!doctype html>
+<title>Alook</title>
+<script>
+window.dataLayer = [];
+function gtag() { window.dataLayer.push(arguments); }
+gtag('consent', 'default', { analytics_storage: 'granted', ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied' });
+gtag('js', new Date());
+const fields = { page_location: 'https://alook.ai/analytics/product', page_referrer: '', page_title: 'Alook' };
+gtag('config', 'G-STBCL8F4ZY', { send_page_view: false, allow_google_signals: false, allow_ad_personalization_signals: false, ...fields });
+window.sendProductEvent = function ({ event, params }) {
+  if (!['landing_cta_clicked', 'login_page_view', 'sign_up', 'sign_in_success', 'sign_in_failed', 'onboarding_enter_clicked', 'onboarding_first_message', 'invitation_link_visit'].includes(event)) return;
+  gtag('event', event, { ...params, ...fields, send_to: 'G-STBCL8F4ZY' });
+};
+</script>
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-STBCL8F4ZY"></script>

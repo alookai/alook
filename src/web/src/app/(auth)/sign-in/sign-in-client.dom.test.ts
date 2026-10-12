@@ -64,7 +64,7 @@ describe("sign-in client Apple availability", () => {
 
   it("counts login entry once and records only bounded OTP failure dimensions", async () => {
     render(createElement(SignInPageClient, { isProd: true, appleEnabled: false }))
-    expect(mocks.capture).toHaveBeenCalledWith({ event: "login_page_view" }, expect.any(String))
+    expect(mocks.capture).toHaveBeenCalledWith({ event: "login_page_view" })
     await setupUser().click(screen.getByRole("button", { name: "Send Code" }))
     expect(mocks.capture).toHaveBeenCalledTimes(1)
     await act(async () => { await mocks.verifyInput!("123456") })

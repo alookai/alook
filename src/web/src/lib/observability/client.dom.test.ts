@@ -34,7 +34,10 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   expect(native.release).toBeTypeOf("function")
   consent("denied"); setTelemetryUser("account-b"); consent("granted")
   native.release?.()
-  for (let i = 0; i < 10; i++) await vi.advanceTimersByTimeAsync(0)
+  await vi.waitFor(() => {
+    expect(isTelemetryEligible()).toBe(true)
+    expect(native.faro?.api.getSession()).toMatchObject({ id: expect.any(String), attributes: { alook_account: "account-b" } })
+  })
   expect(isTelemetryEligible()).toBe(true)
   expect((native.vitals as { initialize: unknown }).initialize).toBe(native.initialize)
   expect(native.defaults).toEqual(expect.arrayContaining(["@grafana/faro-web-sdk:instrumentation-errors", "@grafana/faro-web-sdk:instrumentation-performance", "@grafana/faro-web-sdk:instrumentation-navigation"]))
@@ -84,7 +87,11 @@ it("real Faro sessions align after interrupted import, regrant, account changes,
   emitTelemetry("business.result", { action_name: "message.edit", outcome: "success" })
   const beforeAccount = sent.length
   setTelemetryUser("account-c")
-  for (let i = 0; i < 10; i++) await vi.advanceTimersByTimeAsync(0)
+  await vi.waitFor(() => {
+    expect(isTelemetryEligible()).toBe(true)
+    expect(native.faro?.api.getSession()).toMatchObject({ id: expect.any(String), attributes: { alook_account: "account-c" } })
+    expect(native.faro!.api.getSession()!.id).not.toBe(session)
+  })
   expect(native.faro!.api.getSession()!.id).not.toBe(session)
   expect(telemetryGeneration()).toBeGreaterThan(generation)
   emitTelemetry("business.result", { action_name: "message.pin", outcome: "success" })
