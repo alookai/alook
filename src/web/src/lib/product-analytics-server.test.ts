@@ -2,12 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Database, ProductAnalyticsEvent } from "@alook/shared"
 import { createAnalyticsConsentProof } from "./analytics-consent-server"
 
-const mocks = vi.hoisted(() => ({ consent: vi.fn(), claim: vi.fn(), finish: vi.fn(), note: vi.fn(), first: vi.fn(), record: vi.fn(), signup: vi.fn(), waitUntil: vi.fn() }))
+const mocks = vi.hoisted(() => ({ consent: vi.fn(), claim: vi.fn(), finish: vi.fn(), note: vi.fn(), first: vi.fn(), record: vi.fn(), signup: vi.fn(), waitUntil: vi.fn(), context: vi.fn() }))
 vi.mock("@alook/shared", async original => ({ ...await original<typeof import("@alook/shared")>(), queries: {
   billing: { getAnalyticsConsent: mocks.consent }, productAnalytics: { claimDelivery: mocks.claim, finishDelivery: mocks.finish,
     notePendingReason: mocks.note, recordFirstHumanMessage: mocks.first, recordEvent: mocks.record, claimSignupSession: mocks.signup },
 } }))
-vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: async () => ({ ctx: { waitUntil: mocks.waitUntil } }) }))
+vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: mocks.context }))
 vi.mock("@/lib/db", () => ({ getPrimaryDb: () => ({}) }))
 import { analyticsCookiesAfterResponse, captureAuthentication, captureOAuthCallbackFailure, captureOnboardingFirstMessage, deliverProductAnalytics, productAnalyticsAllowed,
   productAnalyticsIdentity, productAnalyticsMeasurementId, productAnalyticsPayload, setProductAnalyticsCookies, setOnboardingFirstMessageCookies, webAuthenticationMethod } from "./product-analytics-server"
@@ -21,6 +21,7 @@ const cookies = "_ga=GA1.1.100.200; alook_product_analytics_session=1791781200.1
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.context.mockResolvedValue({ ctx: { waitUntil: mocks.waitUntil } })
   mocks.consent.mockResolvedValue(null)
   mocks.claim.mockResolvedValue(event)
   mocks.record.mockResolvedValue({ row: event, inserted: true })
@@ -139,6 +140,14 @@ describe("product analytics server boundaries", () => {
     }
     expect(response.cookies.set).not.toHaveBeenCalled()
     expect(mocks.waitUntil).not.toHaveBeenCalled()
+  })
+  it("preserves an eligible human response when background execution context is unavailable", async () => {
+    mocks.context.mockRejectedValueOnce(new Error("context unavailable"))
+    const response = { cookies: { set: vi.fn() } }
+    await expect(setOnboardingFirstMessageCookies(response, db, env, "owner", "server", cookies, "first")).resolves.toBeUndefined()
+    expect(response.cookies.set).toHaveBeenCalledWith("alook_product_analytics_session", expect.any(String), expect.objectContaining({ httpOnly: true }))
+    expect(mocks.waitUntil).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
   })
   it("isolates first-message ledger errors from the committed human response", async () => {
     mocks.first.mockRejectedValueOnce(new Error("database unavailable"))

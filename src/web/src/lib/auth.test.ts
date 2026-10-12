@@ -997,6 +997,11 @@ describe("verified web OAuth callback failure hooks", () => {
     await h.before(foreign)
     expect(productMocks.serverContext).not.toHaveBeenCalled()
   })
+  it("does not fail web social start if analytics provenance storage fails", async () => {
+    productMocks.serverContext.mockRejectedValueOnce(new Error("state context unavailable"))
+    await expect((await hooks()).before(ctx("/sign-in/social"))).resolves.toBeUndefined()
+    expect(authLogMocks.warn).toHaveBeenCalledWith("OAuth analytics provenance unavailable")
+  })
   it("counts cancellation and exchange failure only after verified web state", async () => {
     productMocks.oauthState.mockResolvedValue({ callbackURL: "https://alook.ai/c/me", serverContext: { productAnalyticsWebAttempt: attempt } })
     const h = await hooks()

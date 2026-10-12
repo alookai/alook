@@ -1,6 +1,9 @@
 import Sqlite from "better-sqlite3"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
+import { getTableName } from "drizzle-orm"
+import { getTableConfig } from "drizzle-orm/sqlite-core"
+import { productAnalyticsEvent } from "../../product-analytics-schema"
 import { drizzle } from "drizzle-orm/better-sqlite3"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import type { Database } from "../../index"
@@ -35,6 +38,24 @@ describe("product analytics durable ledger", () => {
     sqlite.prepare("INSERT INTO community_message VALUES (?, ?, ?, ?, ?)").run(id, author, channel, type, createdAt)
   }
 
+  it("keeps migration foreign keys and dedupe/scope indexes aligned with the Drizzle schema", () => {
+    const config = getTableConfig(productAnalyticsEvent)
+    const declaredKeys = config.foreignKeys.map(key => {
+      const ref = key.reference()
+      return { from: ref.columns[0].name, table: getTableName(ref.foreignTable), to: ref.foreignColumns[0].name, on_delete: key.onDelete?.toUpperCase() }
+    }).sort((a, b) => a.from.localeCompare(b.from))
+    const actualKeys = (sqlite.pragma("foreign_key_list(product_analytics_event)") as { from: string; table: string; to: string; on_delete: string }[])
+      .map(({ from, table, to, on_delete }) => ({ from, table, to, on_delete })).sort((a, b) => a.from.localeCompare(b.from))
+    expect(actualKeys).toEqual(declaredKeys)
+    const actualIndexes = sqlite.pragma("index_list(product_analytics_event)") as { name: string; unique: number; origin: string }[]
+    expect(actualIndexes.filter(index => index.origin === "c").map(index => index.name).sort())
+      .toEqual(config.indexes.map(index => index.config.name).sort())
+    for (const { config: index } of config.indexes) {
+      expect(actualIndexes.find(item => item.name === index.name)?.unique).toBe(index.unique ? 1 : 0)
+      const columns = sqlite.pragma(`index_info('${index.name}')`) as { name: string }[]
+      expect(columns.map(column => column.name)).toEqual(index.columns.map(column => "name" in column ? column.name : null))
+    }
+  })
   it("scopes onboarding servers to the actual owner", async () => {
     expect(await getOwnedServer(db, "owner", "server")).toEqual({ id: "server" })
     expect(await getOwnedServer(db, "other", "server")).toBeNull()

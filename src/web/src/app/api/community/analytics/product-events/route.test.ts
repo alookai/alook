@@ -39,6 +39,15 @@ describe("restricted browser product-event endpoint", () => {
     expect((await POST(request(body, { authorization: "Bearer synthetic" }))).status).toBe(403)
     expect(mocks.record).not.toHaveBeenCalled()
   })
+  it("rejects missing and malformed Origin before recording an event", async () => {
+    for (const origin of [undefined, "not a URL"]) {
+      const req = request({ event: "login_page_view", requestId: id })
+      if (origin === undefined) req.headers.delete("origin")
+      else req.headers.set("origin", origin)
+      expect((await POST(req)).status).toBe(403)
+    }
+    expect(mocks.record).not.toHaveBeenCalled()
+  })
   it("rejects forged success, arbitrary private events, extra dimensions and invalid nonce", async () => {
     for (const body of [
       { event: "sign_in_success", requestId: id }, { event: "page_view", requestId: id },
