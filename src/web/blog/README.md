@@ -27,10 +27,25 @@ Include useful explanations, evidence, and relevant links.
 ```
 
 - Required metadata: `slug`, `title`, `date`, `author`, `excerpt`, `readingTime`. Slug must match the filename, using lowercase words separated by hyphens. Dates use valid `YYYY-MM-DD`; reading time uses `N min read`.
-- Optional: `seoTitle` (nonempty when supplied), `dateModified`, `image`, `draft`, `agentSummary`. `seoTitle` changes search/social titles, not the visible H1. Set `dateModified` only for a substantive revision, never earlier than `date`.
+- Optional: `tags` (unique lowercase kebab-case strings), `seoTitle` (nonempty when supplied), `dateModified`, `image`, `draft`, `agentSummary`. `seoTitle` changes search/social titles, not the visible H1. Set `dateModified` only for a substantive revision, never earlier than `date`.
 - The template owns the single H1. Start body sections at `##`, then use `###` for subsections. Do not add another `# Title`.
 - Register every published article once in `src/lib/blog/topics.ts`, with its real topic and reader job. A draft uses `draft: true` and must stay out of public discovery/navigation.
 - Use valid article paths and existing heading fragments for internal links. Prefer links that help the reader over a required link count. When publishing, check whether a relevant older article should link to this one.
+
+## Main Blog or Guides?
+
+**Same-topic content variants must use `tags: ["guides"]`.** For example, applying the same collaboration problem to another coding-agent combination belongs in the supplementary `/guides` directory, not another similar main-Blog post. If the question and answer are unchanged, revise/link the existing article instead of creating a duplicate. Main-Blog additions need a distinct reader question explained during editorial review; the build cannot infer semantic similarity.
+
+```js
+export const metadata = {
+  // Keep the normal required article fields.
+  tags: ["guides"],
+};
+```
+
+Continue registering the article once in `src/lib/blog/topics.ts` for its category. Guides reuses those categories and the existing `/blog/<slug>` article URL, author/date display, images and reading template. Missing tags keeps old articles in the main Blog; other tags alone do not move an article. Do not retag existing posts without an editorial decision.
+
+The tag excludes an article from the main Blog list and RSS, Keep exploring and Next Blog. Never add Guides or its articles to the main Blog footer navigation. Readers find guides through `/guides`, direct/search links and relevant editorial body links. A guide's back/category links return to `/guides`. It remains in the existing discovery manifest and sitemap, with its own original canonical URL; **do not add noindex merely because it is absent from the main list**. Drafts remain private.
 
 ## Images and sharing
 
@@ -52,7 +67,7 @@ pnpm --filter @alook/web build:blog
 
 This includes source validation, image preparation, Next compilation, and rendered article validation before Worker packaging. `build:blog:next` is the internal Next/standalone preparation step used by that command. `validate:blog` alone checks source files; it is not the full publishing gate.
 
-Build errors include missing/invalid required metadata, invalid optional SEO title, duplicate H1 in Markdown, invalid/missing/oversized source images; then, in rendered articles: missing body/title/description, a missing or extra H1, incorrect canonical, noindex, duplicate heading IDs, conflicting/unparseable BlogPosting JSON-LD, missing local article/fragment/image resources, and inconsistent image or OG dimensions. Generated responsive resources must exist. Drafts must not become prerendered public articles. The published article set must match topics, the built index, RSS and discovery manifest (the manifest supplies the main site sitemap).
+Build errors include missing/invalid required metadata, invalid optional SEO title, duplicate H1 in Markdown, invalid/missing/oversized source images; then, in rendered articles: missing body/title/description, a missing or extra H1, incorrect canonical, noindex, duplicate heading IDs, conflicting/unparseable BlogPosting JSON-LD, missing local article/fragment/image resources, and inconsistent image or OG dimensions. Generated responsive resources must exist. Drafts must not become prerendered public articles. The full published article set must match topics and the discovery manifest (which supplies the main site sitemap). The main index and RSS contain only articles without the `guides` tag; `/guides` contains only articles with that tag. Their two index sets must partition the published articles. Footer navigation and Keep exploring / Next Blog recommendations must not expose Guides.
 
 The existing topic tests compare published MDX and the topic registry in both directions. Run related tests when changing templates or publication behavior; negative fixtures must demonstrate that invalid output actually fails. Keep `image-assets.json` regenerated with any source-image change so a clean checkout can typecheck before its first build.
 

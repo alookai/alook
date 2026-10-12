@@ -228,3 +228,19 @@ describe("topic discovery", () => {
     );
   });
 });
+
+describe("Guides recommendation isolation", () => {
+  it("excludes a tagged pillar and neighboring articles from Keep exploring", () => {
+    const current = blogTopics[1].entries[0].slug;
+    const guides = new Set([blogTopics[1].pillarSlug, blogTopics[1].entries[1].slug]);
+    const posts = allPosts.map((post) => guides.has(post.slug) ? { ...post, tags: ["guides"] } : post);
+    const related = getRelatedPosts(current, posts, 20);
+    expect(related.length).toBeGreaterThan(0);
+    expect(related.every((post) => !guides.has(post.slug))).toBe(true);
+  });
+  it("omits Next Blog when the next pillar is a guide, without refilling from the full registry", () => {
+    const nextPillar = blogTopics[1].pillarSlug;
+    const posts = allPosts.map((post) => post.slug === nextPillar ? { ...post, tags: ["guides"] } : post);
+    expect(getNextTopicBridge(blogTopics[0].pillarSlug, posts)).toBeUndefined();
+  });
+});

@@ -6,7 +6,7 @@ export const ZONE_BACKENDS = Object.freeze({
   blog: Object.freeze({ hostname: "127.0.0.1", port: 3002 }),
 })
 
-export const BLOG_ROUTE_PREFIXES = Object.freeze(["/blog", "/og/blog"])
+export const BLOG_ROUTE_PREFIXES = Object.freeze(["/blog", "/og/blog", "/guides"])
 
 export function selectZone(pathname) {
   return BLOG_ROUTE_PREFIXES.some((prefix) => pathname.startsWith(prefix))

@@ -71,6 +71,7 @@ describe("Blog build gate", () => {
       put(".next/server/app/internal/blog-discovery.body", JSON.stringify({ version: 1, posts: [discoveryPost] }));
       put(".next/server/app/blog/feed.xml.body", "<rss><channel><item><link>https://alook.ai/blog/example</link></item></channel></rss>");
       put(".next/server/app/blog.html", '<a href="/blog/example">Example</a>');
+      put(".next/server/app/guides.html", "<h1>Guides</h1>");
       expect(() => validateBlogBuild(root)).not.toThrow();
       put(".next/server/app/blog/example.html", html.replace("<h1>Example</h1>", ""));
       expect(() => validateBlogBuild(root)).toThrow("one H1");
@@ -78,6 +79,19 @@ describe("Blog build gate", () => {
       put(".next/server/app/blog.html", '<a href="/blog/draft">Draft</a>');
       expect(() => validateBlogBuild(root)).toThrow("Blog index differs");
       put(".next/server/app/blog.html", '<a href="/blog/example">Example</a>');
+      put("src/content/example.mdx", source({ ...metadata, tags: ["guides"] }));
+      expect(() => validateBlogBuild(root)).toThrow("RSS differs");
+      put(".next/server/app/blog/feed.xml.body", "<rss><channel></channel></rss>");
+      expect(() => validateBlogBuild(root)).toThrow("Blog index differs");
+      put(".next/server/app/blog.html", "<h1>Blog</h1>");
+      expect(() => validateBlogBuild(root)).toThrow("Guides index differs");
+      put(".next/server/app/guides.html", '<a href="/blog/example">Example</a>');
+      expect(() => validateBlogBuild(root)).not.toThrow();
+      put(".next/server/app/blog/example.html", html + '<aside data-blog-recommendations><a href="/blog/example">Guide</a></aside>');
+      expect(() => validateBlogBuild(root)).toThrow("Guides leaked");
+      put(".next/server/app/blog/example.html", html + '<footer><a href="/guides">Guides</a></footer>');
+      expect(() => validateBlogBuild(root)).toThrow("Guides leaked");
+      put(".next/server/app/blog/example.html", html);
       put("src/content/draft.mdx", source({ ...metadata, slug: "draft", draft: true }));
       expect(() => validateBlogBuild(root)).not.toThrow();
       put(".next/server/app/blog/draft.html", html);
