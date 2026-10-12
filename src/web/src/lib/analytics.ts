@@ -4,6 +4,9 @@ import { sendGTMEvent } from "@next/third-parties/google";
 import { isTauri } from "@alook/shared"
 import { hasAnalyticsConsent, isPublicAnalyticsPath } from "@/lib/analytics-consent"
 
+import { captureProductAnalytics } from "@/lib/product-analytics"
+import { LANDING_CTA_NAMES } from "@/lib/product-analytics-contract"
+
 const analyticsPlanIds = ["free", "studio", "house"] as const
 
 export type AnalyticsAuthState = "guest" | "signed_in"
@@ -406,7 +409,9 @@ export function trackCommunityWsRetryScheduled(params: {
 // ─── P3 — Page-Level Behavior ───────────────────────────────────────────────
 
 export function trackLandingCtaClicked(params: { cta_name: string }) {
-  sendConsentAwareGTMEvent({ event: "landing_cta_clicked", ...params });
+  if (typeof window === "undefined" || !isPublicAnalyticsPath(window.location.pathname)
+    || !LANDING_CTA_NAMES.includes(params.cta_name)) return
+  void captureProductAnalytics({ event: "landing_cta_clicked", ctaName: params.cta_name })
 }
 
 export function trackTemplatesBrowsed(params: { category_filter: string }) {

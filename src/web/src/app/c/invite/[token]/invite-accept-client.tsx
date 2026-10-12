@@ -16,6 +16,7 @@ import { apiFetch } from "@/lib/api/client"
 import { ApiError } from "@/lib/errors"
 import { ServerIcon } from "@/components/community/server-icon"
 import { Avatar } from "@/components/community/avatar"
+import { captureProductAnalytics } from "@/lib/product-analytics"
 import { tid } from "@/lib/community/testids"
 
 type InviteInfo = {
@@ -49,6 +50,8 @@ function InviteAcceptInner({ token }: { token: string }) {
   const searchParams = useSearchParams()
   const source = useApplicationViewSource(`community-invite:${token}`)
   const { owner } = source
+  const visitId = useMemo(() => ({ scope: [owner, token], id: crypto.randomUUID() }), [owner, token]).id
+  useEffect(() => { void captureProductAnalytics({ event: "invitation_link_visit", token }, visitId) }, [token, visitId])
   const query = useQuery({ queryKey: applicationKey(owner, "community-invite", token), retry: false,
     queryFn: ({ signal }) => runApplicationRequest(owner, (options) => apiFetch<InviteInfo>(`/api/community/invites/${token}/info`, {
       ...options, onUnauthorized: async () => { options.assertActive?.(); return false },

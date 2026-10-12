@@ -1,9 +1,10 @@
 "use client"
 
+import { captureProductAnalytics } from "@/lib/product-analytics"
 import { startAction, finishAction } from "@/lib/observability/context"
 import { ObservedStaticContent } from "@/lib/observability/regions"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useEffect } from "react"
+import { useEffect, useMemo } from "react"
 import { useSearchParams } from "next/navigation"
 import { signIn, signUp, authClient } from "@/lib/auth-client"
 import { parseRetryAfterSeconds } from "@/lib/retry-after"
@@ -49,6 +50,11 @@ function SignInForm({
   accountDeleted: boolean
   appleEnabled: boolean
 }) {
+  const viewId = useMemo(() => crypto.randomUUID(), [])
+  useEffect(() => { void captureProductAnalytics({ event: "login_page_view" }, viewId) }, [viewId])
+  const failed = (failureStage: "send_code" | "verify_code") => {
+    void captureProductAnalytics({ event: "sign_in_failed", method: "email_otp", failureStage })
+  }
   const [email, setEmail] = useAtom(useCreateAtom(""))
   const [emailError, setEmailError] = useAtom(useCreateAtom(""))
   const [otpError, setOtpError] = useAtom(useCreateAtom(""))
@@ -91,6 +97,7 @@ function SignInForm({
       })
       finishAction(observation, error ? "error" : "success")
       if (error) {
+        failed("send_code")
         if (error.status !== 429) setEmailError(error.message ?? "Failed to send code")
       } else {
         setEmailError("")
@@ -99,6 +106,7 @@ function SignInForm({
       }
     } catch {
       finishAction(observation, "error")
+      failed("send_code")
       setEmailError("Failed to send code")
     }
     setLoading(false)
@@ -118,6 +126,7 @@ function SignInForm({
       })
       finishAction(observation, error ? "error" : "success")
       if (error) {
+        failed("verify_code")
         setOtpError(error.message ?? "Invalid code")
         setCode("")
       } else {
@@ -127,6 +136,7 @@ function SignInForm({
       }
     } catch {
       finishAction(observation, "error")
+      failed("verify_code")
       setOtpError("Invalid code")
       setCode("")
     }

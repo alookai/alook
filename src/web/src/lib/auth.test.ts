@@ -1,5 +1,9 @@
 import { afterEach, describe, it, expect, vi, beforeEach } from "vitest"
 
+const productMocks = vi.hoisted(() => ({ capture: vi.fn(async () => undefined), oauthState: vi.fn(async () => null) }))
+vi.mock("@/lib/product-analytics-server", async original => ({ ...await original<typeof import("@/lib/product-analytics-server")>(), captureAuthentication: productMocks.capture }))
+vi.mock("better-auth/api", async original => ({ ...await original<typeof import("better-auth/api")>(), getOAuthState: productMocks.oauthState }))
+
 const appleMocks = vi.hoisted(() => ({
   generateClientSecret: vi.fn(async () => "signed-apple-client-secret"),
 }))
@@ -932,5 +936,38 @@ describe("createAuth databaseHooks — user.create.before", () => {
     // Salt scheme is now `id:width:attempt`; the first retry stays at width 4.
     expect(result.data.discriminator).toBe(computeDiscriminator("u_collide:4:1", 4))
     expect(result.data.discriminator).toMatch(/^\d{4}$/)
+  })
+})
+
+
+describe("auth funnel committed hooks", () => {
+  beforeEach(() => { vi.clearAllMocks(); productMocks.capture.mockResolvedValue(undefined); productMocks.oauthState.mockResolvedValue(null) })
+  function context(path: string) {
+    return { request: new Request(`https://alook.ai/api/auth${path}`, { headers: { cookie: "_ga=GA1.1.100.200; is_new_signup=forged" } }),
+      responseHeaders: new Headers(), setCookie: vi.fn(), getCookie: vi.fn(() => "forged") }
+  }
+  it("captures saved account/session rows even if the readable signup cookie is forged", async () => {
+    const createAuth = await loadCreateAuth()
+    const hooks = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options.databaseHooks!
+    const createdAt = new Date("2026-10-12T05:00:00.000Z")
+    await hooks.user!.create!.after!({ id: "owner", createdAt }, context("/sign-in/email-otp"))
+    expect(productMocks.capture).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ actorUserId: "owner", createdAt }))
+    await hooks.session!.create!.after!({ id: "saved-session", userId: "owner", createdAt }, context("/sign-in/email-otp"))
+    expect(productMocks.capture).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ sessionId: "saved-session", actorUserId: "owner", createdAt }))
+  })
+  it("does not break successful auth or cookie behavior when analytics fails", async () => {
+    productMocks.capture.mockRejectedValueOnce(new Error("D1 unavailable"))
+    const createAuth = await loadCreateAuth()
+    const hooks = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options.databaseHooks!
+    const ctx = context("/sign-in/email-otp")
+    await expect(hooks.user!.create!.after!({ id: "owner", createdAt: new Date() }, ctx)).resolves.toBeUndefined()
+    expect(ctx.setCookie).toHaveBeenCalledWith("is_new_signup", "email", expect.anything())
+  })
+  it("allows real OTP only under the explicit development QA opt-in", async () => {
+    const createAuth = await loadCreateAuth()
+    const options = (createAuth(makeEnv({ NODE_ENV: "development", DEV_AUTH_OTP: "1" }) as never) as { __options: AuthOptions }).__options
+    expect(options.plugins).toContainEqual(expect.objectContaining({ __plugin: "emailOTP" }))
+    const defaultOptions = (createAuth(makeEnv({ NODE_ENV: "development" }) as never) as { __options: AuthOptions }).__options
+    expect(defaultOptions.plugins).not.toContainEqual(expect.objectContaining({ __plugin: "emailOTP" }))
   })
 })

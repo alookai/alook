@@ -5,7 +5,6 @@ import { useCommunityRuntime, type CommunityRuntime } from "@/stores/community/r
 import type { OnboardingInitializationProtocol } from "./community/models/onboarding";
 
 import {
-  trackCommunityOnboardingCompleted,
   trackCommunityOnboardingSkipped,
   trackCommunityOnboardingStageCompleted,
   trackCommunityOnboardingStarted,
@@ -111,7 +110,6 @@ export function completeCommunityOnboarding(runtime: CommunityRuntime) {
   }
   publish(runtime, null);
   trackCommunityOnboardingStageCompleted("initializing");
-  trackCommunityOnboardingCompleted();
   return null;
 }
 

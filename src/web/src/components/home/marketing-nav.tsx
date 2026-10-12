@@ -2,6 +2,8 @@
 
 /* eslint-disable @next/next/no-html-link-for-pages -- Product entrances require a new document to unload public tracking. */
 
+import { trackLandingCtaClicked } from "@/lib/analytics"
+
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import Image from "next/image";
 import Link from "next/link";
@@ -169,6 +171,7 @@ export function MarketingNav({
           {isLoggedIn ? (
             <a
               href="/c/me"
+              onClick={() => trackLandingCtaClicked({ cta_name: "public_nav_open_app" })}
               className="inline-flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
               style={{
                 fontFamily: "var(--font-mono)",
@@ -194,6 +197,7 @@ export function MarketingNav({
           ) : (
             <a
               href="/sign-in"
+              onClick={() => trackLandingCtaClicked({ cta_name: "public_nav_get_started" })}
               className="inline-flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
               style={{
                 fontFamily: "var(--font-mono)",

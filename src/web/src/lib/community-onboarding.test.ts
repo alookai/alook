@@ -132,7 +132,7 @@ describe("community onboarding journey", () => {
     completeCommunityOnboarding(runtime());
     expect(readCommunityOnboardingState(runtime())).toBeNull();
     expect(analytics.stageCompleted).toHaveBeenLastCalledWith("initializing");
-    expect(analytics.completed).toHaveBeenCalledOnce();
+    expect(analytics.completed).not.toHaveBeenCalled();
   });
 
   it("does not complete before initialization finishes", () => {

@@ -122,7 +122,8 @@ describe("AnalyticsConsent", () => {
     expect(await screen.findByTestId("google-tag-manager")).toBeInTheDocument()
     expect(screen.getByTestId(tid.ahrefsAnalyticsFrame)).toBeInTheDocument()
     expect(getComputedStyle(screen.getByTestId("consent-page")).height).toBe("100dvh")
-    expect(document.cookie).toBe("")
+    expect(document.cookie).not.toContain("alook_analytics_consent=")
+    expect(document.cookie).toMatch(/_ga=GA1\.1\.\d+\.\d+/u)
   })
 
   it("does not resave an existing grant", async () => {
@@ -135,6 +136,8 @@ describe("AnalyticsConsent", () => {
   it.each(["/c", "/c/me", "/c/channels/private/channel", "/sign-in"])("does not grant or load analytics directly on %s", async pathname => {
     route.pathname = pathname
     window.history.replaceState({}, "", pathname)
+    clearCookies()
+    bootstrapGoogleAnalytics()
     render(<AnalyticsConsent />)
     expect(screen.queryByTestId(tid.analyticsConsentBanner)).not.toBeInTheDocument()
     expect(screen.queryByTestId("google-tag-manager")).not.toBeInTheDocument()

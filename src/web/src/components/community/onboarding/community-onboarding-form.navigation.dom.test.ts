@@ -15,6 +15,7 @@ function render(node: React.ReactNode) {
 const mocks = vi.hoisted(() => ({
   pathname: "/c/me/machines",
   complete: vi.fn(),
+  capture: vi.fn(async () => {}),
   navigate: vi.fn(),
   initialize: vi.fn(),
   recoverHarness: vi.fn(),
@@ -27,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   } as Record<string, unknown>,
 }))
 
+vi.mock("@/lib/product-analytics", () => ({ captureProductAnalytics: mocks.capture }))
 vi.mock("next/navigation", () => ({
   usePathname: () => mocks.pathname,
 }))
@@ -121,7 +123,8 @@ describe("CommunityOnboardingForm room navigation", () => {
     }))
 
     fireEvent.click(screen.getByTestId("onboarding-status-dialog"))
-    expect(mocks.navigate).toHaveBeenCalledWith("server-1", "channel-1")
+    await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith("server-1", "channel-1"))
+    expect(mocks.capture).toHaveBeenCalledWith({ event: "onboarding_enter_clicked", serverId: "server-1" })
     expect(mocks.complete).not.toHaveBeenCalled()
 
     mocks.pathname = "/c/channels/server-1/channel-1"

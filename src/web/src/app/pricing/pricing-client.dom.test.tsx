@@ -9,7 +9,7 @@ const state = vi.hoisted(() => ({
   search: new URLSearchParams(),
   assign: vi.fn(), api: vi.fn(), checkout: vi.fn(), portal: vi.fn(), refresh: vi.fn(),
   billing: {} as Record<string, unknown>,
-  pricingView: vi.fn(), pricingCta: vi.fn(),
+  landing: vi.fn(), pricingView: vi.fn(), pricingCta: vi.fn(),
 }))
 vi.mock("@/lib/auth-client", () => { const sessionSDK = { useSession: () => state.session }; return { ...sessionSDK, currentSessionViewer: () => { const value = sessionSDK.useSession(); return !value || value.isPending || value.error ? undefined : value.data?.user.id ?? null } } })
 vi.mock("next/navigation", () => ({ useSearchParams: () => state.search }))
@@ -17,7 +17,7 @@ vi.mock("@/lib/api/client", () => ({ apiFetch: state.api }))
 vi.mock("@/hooks/community/use-billing", () => ({ useBilling: () => ({ ...state.billing, checkout: state.checkout, portal: state.portal, refresh: state.refresh }) }))
 vi.mock("@/lib/analytics", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/analytics")>()
-  return { ...original, trackPricingView: state.pricingView, trackPricingCtaClick: state.pricingCta }
+  return { ...original, trackLandingCtaClicked: state.landing, trackPricingView: state.pricingView, trackPricingCtaClick: state.pricingCta }
 })
 
 const offers = [
@@ -49,6 +49,7 @@ it("sends guests to sign-in with a valid selected plan preserved", async () => {
   await setupUser().click(await view.findByRole("button", { name: "Choose Studio" }))
   const url = new URL(state.assign.mock.calls[0][0], "https://alook.ai")
   expect(url.pathname).toBe("/sign-in")
+  expect(state.landing).toHaveBeenCalledWith({ cta_name: "pricing_get_started" })
   expect(url.searchParams.get("redirect")).toBe("/pricing?plan=studio")
   expect(state.checkout).not.toHaveBeenCalled()
   expect(state.pricingCta).toHaveBeenCalledWith({ plan_id: "studio", cta_action: "choose_plan", auth_state: "guest", current_plan: "none", entry_point: "pricing_page" })

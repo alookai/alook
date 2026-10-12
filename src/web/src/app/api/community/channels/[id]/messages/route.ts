@@ -1,3 +1,4 @@
+import { scheduleOnboardingFirstMessage } from "@/lib/product-analytics-server"
 import { flattenError } from "zod"
 import { NextRequest, NextResponse } from "next/server"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
@@ -218,7 +219,7 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   if (ctx.actor.kind === "bot") {
     return handleBotSend(db, ctx.actor.userId, ctx.env, raw)
   }
-  return handleHumanSend(db, ctx.actor.userId, ctx.env, ctx.params?.id, raw)
+  return handleHumanSend(db, ctx.actor.userId, ctx.env, ctx.params?.id, raw, req.headers.get("cookie") ?? "")
 })
 
 /**
@@ -233,6 +234,7 @@ async function handleHumanSend(
   env: Env,
   pathId: string | undefined,
   raw: unknown,
+  cookies: string,
 ): Promise<NextResponse> {
   if (!pathId || pathId === REF_PLACEHOLDER_ID) {
     return NextResponse.json({ error: "missing channel id" }, { status: 400 })
@@ -275,6 +277,7 @@ async function handleHumanSend(
       source: "web",
     })
     if (!created.ok) return NextResponse.json({ error: created.error }, { status: created.status })
+    if (!created.deduped) await scheduleOnboardingFirstMessage(env, userId, target.serverId, cookies, created.message.id)
     return NextResponse.json({
       message: created.message,
       threadId: created.thread.id,
@@ -303,6 +306,7 @@ async function handleHumanSend(
     attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
   })
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
+  if (!result.deduped && target.kind !== "dm") await scheduleOnboardingFirstMessage(env, userId, target.serverId, cookies, result.row.id)
   return NextResponse.json({ message: await mapPostedMessageForApi(db, target.channelId, result.row), deduped: result.deduped }, { status: 201 })
 }
 
