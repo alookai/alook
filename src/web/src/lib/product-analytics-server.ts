@@ -4,11 +4,11 @@ import { getPrimaryDb } from "@/lib/db"
 import { readAnalyticsConsent, ANALYTICS_CONSENT_MAX_AGE_SECONDS, ANALYTICS_CONSENT_PROOF_COOKIE } from "@/lib/analytics-consent"
 import { GA4_MEASUREMENT_ID, parseGaClientId, parseGaSessionId, verifyAnalyticsConsentProof } from "@/lib/analytics-consent-server"
 
-export const PRODUCT_SESSION_COOKIE = "alook_product_analytics_session"
+const PRODUCT_SESSION_COOKIE = "alook_product_analytics_session"
 const log = createLogger({ service: "product-analytics" })
 const idleSeconds = 30 * 60
 
-export function analyticsCookieValue(header: string, name: string): string | null {
+function analyticsCookieValue(header: string, name: string): string | null {
   for (const part of header.split(";")) {
     const separator = part.indexOf("=")
     if (separator < 0 || part.slice(0, separator).trim() !== name) continue
