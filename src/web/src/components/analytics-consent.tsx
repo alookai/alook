@@ -5,7 +5,6 @@ import { GoogleTagManager } from "@next/third-parties/google"
 import { isMobile, isTauri } from "@alook/shared"
 import { usePathname } from "next/navigation"
 import { useCallback, useEffect, useRef } from "react"
-import { GeneratedAvatar } from "@/components/avatar"
 import {
   ANALYTICS_CONSENT_CHANGE_EVENT,
   ANALYTICS_CONSENT_COOKIE,
@@ -16,8 +15,9 @@ import {
   readAnalyticsConsent,
   type AnalyticsConsentDecision,
 } from "@/lib/analytics-consent"
-import { tid } from "@/lib/community/testids"
+import { GeneratedAvatar } from "@/components/avatar"
 import styles from "./analytics-consent.module.css"
+import { tid } from "@/lib/community/testids"
 
 const GTM_ID = "GTM-56VHCCQZ"
 const GA_DISABLE = "ga-disable-G-STBCL8F4ZY"
@@ -34,7 +34,7 @@ function useStoredAnalyticsConsent(syncGoogleConsent = false) {
       const next = readAnalyticsConsent()
       const changed = next !== decisionRef.current
       if (syncGoogleConsent && (changed || initial)) {
-        if (!native) applyGoogleConsent(next ?? "denied")
+        if (!native) applyGoogleConsent(isPublicAnalyticsPath(window.location.pathname) ? next ?? "granted" : "denied")
         else if (initial && next === "granted") applyGoogleConsent(next, "default")
       }
       decisionRef.current = next
@@ -172,9 +172,17 @@ function ConsentButtons({
 export function AnalyticsConsent() {
   const pathname = usePathname()
   const { ready, decision, nativeMobile } = useStoredAnalyticsConsent(true)
-  const { choose, saving, error } = useAnalyticsConsentChoice()
-  const allowed = ready && decision === "granted" && !!pathname && isPublicAnalyticsPath(pathname)
+  const defaultStarted = useRef(false)
+
+  useEffect(() => {
+    if (!ready || nativeMobile || decision !== null || defaultStarted.current) return
+    if (!pathname || !isPublicAnalyticsPath(pathname)) return
+    defaultStarted.current = true
+    void persistAnalyticsConsent("granted").then(() => announceAnalyticsConsent("granted")).catch(() => {})
+  }, [ready, nativeMobile, decision, pathname])
+
   const googleAllowed = ready && !!pathname && isPublicAnalyticsPath(pathname) && (!isTauri() || decision === "granted")
+  const allowed = googleAllowed && (isTauri() ? decision === "granted" : decision !== "denied")
 
   useEffect(() => {
     if (!isTauri()) return
@@ -206,44 +214,9 @@ export function AnalyticsConsent() {
           srcDoc={`<title>Alook</title><script async src="https://analytics.ahrefs.com/analytics.js" data-key="Td2Wr/poHD0pDEV30W9xMw" data-page-location="${new URL(pathname!, window.location.origin).href.replace(/"/g, "%22")}"></script>`}
         />
       ) : null}
-      {ready && !nativeMobile && decision === null ? (
-        <section
-          aria-label="Analytics choices"
-          className={styles.banner}
-          data-testid={tid.analyticsConsentBanner}
-        >
-          <div className={styles.bannerContent}>
-            <div className={styles.copy}>
-              <p className={styles.eyebrow}>PRIVACY · OPTIONAL SIGNAL</p>
-              <h2 className={styles.headline}>
-                {isTauri() ? "Analytics, only if you want" : "Cookies are your choice"}
-              </h2>
-              <p className={styles.description}>
-                {isTauri()
-                  ? "Optional analytics help us understand which parts of Alook are useful. "
-                  : "Google receives page and feature signals on our public website, even without analytics cookies. Allow analytics enables analytics cookies and other optional analytics. "}
-                No ad tracking. Read our{" "}
-                <a
-                  href="/privacy#analytics-choices"
-                  className={styles.privacyLink}
-                >
-                  privacy details
-                </a>{"."}
-              </p>
-              {error ? (
-                <p className={styles.error} role="alert">
-                  Couldn’t save this choice. Try again.
-                </p>
-              ) : null}
-            </div>
-            <ConsentButtons saving={saving} onChoose={choose} />
-          </div>
-        </section>
-      ) : null}
     </>
   )
 }
-
 export function AnalyticsPreferenceControl() {
   const { ready, decision } = useStoredAnalyticsConsent()
   const { choose, saving, error } = useAnalyticsConsentChoice()
@@ -251,7 +224,7 @@ export function AnalyticsPreferenceControl() {
     ? "Analytics cookies allowed"
     : decision === "denied"
       ? "Analytics cookies denied"
-      : "No choice saved — analytics cookies denied"
+      : "Analytics cookies allowed by default"
 
   return (
     <section

@@ -60,6 +60,20 @@ describe("analytics utility", () => {
     expect(mockSendGTMEvent.mock.calls).toEqual([[{ event: "pricing_view", auth_state: "guest", current_plan: "none" }]])
   })
 
+  it.each(["/c", "/c/me", "/c/channels/private/channel"])("blocks granted product events on %s after public tracking", path => {
+    const browser = { location: new URL("https://alook.ai/pricing") }
+    vi.stubGlobal("window", browser)
+    trackPricingView({ auth_state: "guest", current_plan: "none" })
+    mockSendGTMEvent.mockClear()
+    browser.location = new URL(`https://alook.ai${path}`)
+    trackSignUp("github")
+    trackCommunityOnboardingStarted()
+    trackHumanInvitationCopied()
+    trackCommunityRuntimeConnected()
+    trackCommunityWsFrameDropped({ type: "message.new", reason: "invalid-json" })
+    expect(mockSendGTMEvent).not.toHaveBeenCalled()
+  })
+
   it("preserves the Native Allow gate on public paths", () => {
     vi.stubGlobal("window", { __TAURI__: {}, location: new URL("https://alook.ai/") })
     mocks.hasAnalyticsConsent.mockReturnValue(false)

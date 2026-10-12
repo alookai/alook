@@ -74,7 +74,7 @@ describe("analytics consent browser contract", () => {
     bootstrapGoogleAnalytics()
     expect(Reflect.get(browser, "ga-disable-G-STBCL8F4ZY")).toBe(false)
     expect(browser.dataLayer.map(command => Array.from(command as IArguments))).toEqual([
-      ["consent", "default", { analytics_storage: value === "v1.granted" ? "granted" : "denied", ad_storage: "denied", ad_user_data: "denied", ad_personalization: "denied" }],
+      ["consent", "default", { analytics_storage: value === "v1.denied" ? "denied" : "granted", ad_storage: "denied", ad_user_data: "denied", ad_personalization: "denied" }],
       ["set", { page_location: "https://alook.ai/pricing", page_referrer: "" }],
     ])
     browser.location = new URL("https://alook.ai/c/me")
@@ -102,6 +102,17 @@ describe("analytics consent browser contract", () => {
     for (const href of ["/c/me?secret=private", "https://outside.example/pricing", "http://["]) updateGooglePageFields(href)
     expect(browser.dataLayer).toHaveLength(count)
     expect(JSON.stringify(browser.dataLayer)).not.toMatch(/secret|fragment|page_view/)
+  })
+
+  it.each(["/c", "/c/me"])("keeps Google disabled at private startup on %s even with a grant", path => {
+    const browser = { location: new URL(`https://alook.ai${path}`), dataLayer: [] as unknown[] }
+    vi.stubGlobal("window", browser)
+    vi.stubGlobal("document", { cookie: "alook_analytics_consent=v1.granted" })
+    bootstrapGoogleAnalytics()
+    expect(Reflect.get(browser, "ga-disable-G-STBCL8F4ZY")).toBe(true)
+    expect(browser.dataLayer.map(command => Array.from(command as IArguments))).toEqual([
+      ["consent", "default", expect.objectContaining({ analytics_storage: "denied" })],
+    ])
   })
 
   it("does not initialize browser measurement on the server", () => {

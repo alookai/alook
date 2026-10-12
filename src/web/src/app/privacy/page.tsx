@@ -27,7 +27,7 @@ export default function PrivacyPage() {
       <h1 className="mb-4 text-4xl font-semibold tracking-tight sm:text-5xl">
         {PRIVACY_POLICY.title}
       </h1>
-      <PrivacyPolicyContent />
+      <PrivacyPolicyContent showAnalyticsChoices />
     </main></>
   )
 }

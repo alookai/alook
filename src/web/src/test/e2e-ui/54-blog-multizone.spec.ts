@@ -11,8 +11,6 @@ test("main and Blog navigate across Workers through one public origin", async ({
 
   await page.goto("/")
   const consentBanner = page.getByTestId(tid.analyticsConsentBanner)
-  await expect(consentBanner).toBeVisible()
-  await consentBanner.getByRole("button", { name: "Only necessary", exact: true }).click()
   await expect(consentBanner).toHaveCount(0)
   await expect(consentBanner).toBeHidden()
   const publicOrigin = new URL(page.url()).origin

@@ -34,6 +34,7 @@ const pricingCtaIdByEntryPoint: Record<BillingEntryPoint, Partial<Record<Analyti
 const analyticsPlanIdSet = new Set<string>(analyticsPlanIds)
 
 function sendConsentAwareGTMEvent(payload: Record<string, unknown>) {
+  if (typeof window !== "undefined" && /^\/c(?:\/|$)/u.test(window.location.pathname)) return
   const publicWeb = typeof window !== "undefined" && !isTauri() && isPublicAnalyticsPath(window.location.pathname)
   if (!publicWeb && !hasAnalyticsConsent()) return
   try {
