@@ -217,6 +217,18 @@ export function getConfirmedSentMessage(
   }
 }
 
+function postedMessageForIntent(message: PostedMessage, nonce: string, channelId: string, attachments?: readonly UploadFileResult[]) {
+  const canonical = projectPostedMessage(message, nonce, channelId)
+  if (canonical.resourceComplete || canonical.attachments !== undefined || !attachments?.length) return canonical
+  return { ...canonical, attachments: attachments.map((attachment) => ({
+    id: attachment.id, name: attachment.filename, url: attachmentUrl(channelId, attachment.id),
+    contentType: attachment.contentType, sizeBytes: attachment.size,
+    ...(attachment.hasThumbnail === undefined ? {} : { thumbnailUrl: attachment.hasThumbnail ? attachmentThumbnailUrl(channelId, attachment.id) : null }),
+    ...(attachment.width === undefined ? {} : { width: attachment.width }),
+    ...(attachment.height === undefined ? {} : { height: attachment.height }),
+  })) }
+}
+
 function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(kind: MessageScope["kind"]) {
   const origin = useCommunityMutationOrigin()
   const queryClient = useQueryClient()
@@ -236,9 +248,9 @@ function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(
       })
       await origin.registry!.collections.messages.preload()
       origin.assert(token); (assertCommand ?? assertActive)?.()
-      const message = projectPostedMessage(result.message, nonce ?? "", scope.id)
+      const message = postedMessageForIntent(result.message, nonce ?? "", scope.id, attachments)
       publishCommunityMessages(queryClient, { channelId: scope.id,
-        messages: [{ ...message, ...(attachments?.length ? { attachments: attachments.map((attachment) => toAttachmentVm(scope.id, attachment)) } : {}), ...(acceptedReply && !("replyTo" in result.message) && (!("replyToId" in result.message) || result.message.replyToId === acceptedReply.id) ? { replyTo: acceptedReply } : {}) }],
+        messages: [{ ...message, ...(acceptedReply && !("replyTo" in result.message) && (!("replyToId" in result.message) || result.message.replyToId === acceptedReply.id) ? { replyTo: acceptedReply } : {}) }],
         proof: { token, ...(scope.kind === "channel" && !assertCommand ? { signal: assertActive?.signal } : {}) } })
       return result
     },
@@ -288,7 +300,7 @@ function useSendScopedMessage<Args extends SendMessageArgs | SendDmMessageArgs>(
       const scope = sendMessageScope(args)
       const nonce = args.nonce ?? ""
       if (scope.kind === "dm" || args.nonce) getCommunityRuntime(queryClient).messageStream.actions.dispatch(scope, {
-        type: "postAck", nonce, message: projectPostedMessage(data.message, nonce, scope.id),
+        type: "postAck", nonce, message: postedMessageForIntent(data.message, nonce, scope.id, args.attachments),
       })
     },
   })

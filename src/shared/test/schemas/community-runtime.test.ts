@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   CommunityMachineRuntimeSchema,
   CommunityMachineRuntimeListSchema,
+  CommunityMachineSummarySchema,
   CommunityDaemonReadySchema,
   HostReadyMessageSchema,
   MachineHeartbeatAckMessageSchema,
@@ -12,6 +13,29 @@ import {
   COMMUNITY_REASONING_DESCRIPTION_MAX,
   COMMUNITY_REASONING_MODELS_MAX,
 } from "../../src/schemas";
+import { CommunityWsEventSchema } from "../../src/community-ws-events";
+
+describe("CommunityMachineSummarySchema", () => {
+  const summary = { id: "machine", hostname: "host", displayName: "Host", platform: "darwin", arch: "arm64", osRelease: "26", daemonVersion: "0.1.48", lastSeenAt: null, status: "offline", availableRuntimes: [], createdAt: "2026-10-11T01:00:00Z", updatedAt: "2026-10-11T01:00:00Z" };
+  it("keeps actual empty runtime lists and applies the same complete contract to WS", () => {
+    expect(CommunityMachineSummarySchema.parse(summary)).toEqual(summary);
+    expect(CommunityWsEventSchema.parse({ type: "community:machine.updated", machine: summary })).toEqual({ type: "community:machine.updated", machine: summary });
+    const { availableRuntimes: _runtimes, ...missing } = summary;
+    expect(CommunityMachineSummarySchema.safeParse(missing).success).toBe(false);
+    expect(CommunityWsEventSchema.safeParse({ type: "community:machine.updated", machine: missing }).success).toBe(false);
+  });
+  it("rejects unknown summary, runtime and error fields without changing runtime health tolerance", () => {
+    for (const invalid of [
+      { ...summary, extra: true },
+      { ...summary, availableRuntimes: [{ id: "codex", extra: true }] },
+      { ...summary, lastRuntimeError: { requested: "codex", available: [], at: summary.updatedAt, extra: true } },
+    ]) {
+      expect(CommunityMachineSummarySchema.safeParse(invalid).success).toBe(false);
+      expect(CommunityWsEventSchema.safeParse({ type: "community:machine.updated", machine: invalid }).success).toBe(false);
+    }
+    expect(CommunityMachineSummarySchema.parse({ ...summary, availableRuntimes: [{ id: "codex", status: null }] }).availableRuntimes).toEqual([{ id: "codex", status: "healthy" }]);
+  });
+});
 
 describe("CommunityMachineRuntimeSchema", () => {
   it("accepts a plain id and defaults status to 'healthy' (wire back-compat for older daemons)", () => {

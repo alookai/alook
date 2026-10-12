@@ -620,7 +620,7 @@ describe("membership metadata and access lifetime", () => {
     const content = { pages: [{ messages: [{ id: "private" }] }] }
     capturedQueryClient.setQueryData(key, content)
     const api = getCommunityApiFetchMock()
-    api.mockResolvedValue({ id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener", name: "Child", archived: false })
+    api.mockResolvedValue({ categoryId: null, topic: "", position: 0, messageCount: 0, creatorId: null, createdAt: "2026-10-01T00:00:00Z", lastMessageAt: null, id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener", name: "Child", archived: false })
     capturedOnMessage!({ type: "community:channel.membership.change", channelId: "child", serverId: "server", userId: "u_me", relation: "access", present })
     if (!present) expect(capturedQueryClient.getQueryData(key)).toBeUndefined()
     else expect(capturedQueryClient.getQueryData(key)).toEqual(content)
@@ -679,7 +679,7 @@ describe("membership metadata and access lifetime", () => {
     const api = getCommunityApiFetchMock()
     const fallback = api.getMockImplementation()!
     api.mockImplementation((...args) => args[0] === "/api/community/channels/child"
-      ? Promise.resolve({ id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener", creatorId: "u_me", name: "Child", archived: true, lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z" }) : fallback(...args))
+      ? Promise.resolve({ categoryId: null, topic: "", position: 0, messageCount: 0, id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener", creatorId: "u_me", name: "Child", archived: true, lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z" }) : fallback(...args))
     const key = communityKeys.channelMessages("child")
     capturedQueryClient.setQueryData(key, { pages: [{ messages: [{ id: "private" }] }] })
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child", "server")).toBe(false)
@@ -695,7 +695,7 @@ describe("membership metadata and access lifetime", () => {
   it("publishes the current notify roster and rejects the retired response without replacing the body", async () => {
     await mountHook({ viewerUserId: "u_me" })
     seedCanonicalThread("server", "parent", "forum", "child")
-    const payload = { id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener",
+    const payload = { categoryId: null, topic: "", position: 0, messageCount: 0, id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener",
       creatorId: "u_me", name: "Child", archived: false, lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z",
       readContractVersion: 2, accessDecision: { channelId: "child", canRead: true, canSend: true, canCreateDiscussion: false } }
     const member = { id: "member", userId: "u_me", role: "member", name: "Viewer", discriminator: "0001",
@@ -743,7 +743,7 @@ describe("membership metadata and access lifetime", () => {
   it.each([true, false])("keeps the verified body and access generation for explicit notify present=%s", async (present) => {
     await mountHook({ viewerUserId: "u_me" })
     seedCanonicalThread("server", "parent", "forum", "child")
-    const payload = { id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener",
+    const payload = { categoryId: null, topic: "", position: 0, messageCount: 0, id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener",
       creatorId: "u_me", name: "Child", archived: false, lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z" }
     getCommunityApiFetchMock().mockResolvedValue(payload)
     const metadata = await mountCanonicalHook(() => useChannelMetadata("server", "child"))
@@ -763,7 +763,7 @@ describe("membership metadata and access lifetime", () => {
   it.each(["text", "forum"] as const)("replaces an in-flight %s child metadata read when participation changes again", async (parentType) => {
     await mountHook({ viewerUserId: "u_me" })
     seedCanonicalThread("server", "parent", parentType, "child")
-    const payload = {
+    const payload = { categoryId: null, topic: "", position: 0, messageCount: 0,
       id: "child", serverId: "server", type: "thread", parentChannelId: "parent",
       parentMessageId: "opener", creatorId: "u_me", name: "Current child", archived: false,
       lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z",
@@ -807,7 +807,7 @@ describe("membership metadata and access lifetime", () => {
   it("hands one batched add/remove to the latest participation generation", async () => {
     await mountHook({ viewerUserId: "u_me" })
     seedCanonicalThread("server", "parent", "text", "child")
-    const payload = {
+    const payload = { categoryId: null, topic: "", position: 0, messageCount: 0,
       id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener",
       creatorId: "u_me", name: "Child", archived: false, lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z",
     }
@@ -838,7 +838,7 @@ describe("membership metadata and access lifetime", () => {
   it("settles a failed current-generation read without rebuilding it and recovers on explicit Retry", async () => {
     await mountHook({ viewerUserId: "u_me" })
     seedCanonicalThread("server", "parent", "forum", "child")
-    const payload = {
+    const payload = { categoryId: null, topic: "", position: 0, messageCount: 0,
       id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener",
       creatorId: "u_me", name: "Child", archived: false, lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z",
     }
@@ -864,7 +864,7 @@ describe("membership metadata and access lifetime", () => {
   it.each(["parent", "server", "account", "unmount"] as const)("does not restart participation metadata after %s retirement before handoff", async (race) => {
     await mountHook({ viewerUserId: "u_me" })
     seedCanonicalThread("server", "parent", "forum", "child")
-    const payload = {
+    const payload = { categoryId: null, topic: "", position: 0, messageCount: 0,
       id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener",
       creatorId: "u_me", name: "Child", archived: false, lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z",
     }
@@ -906,7 +906,7 @@ describe("membership metadata and access lifetime", () => {
     await mountHook({ viewerUserId: "u_me" })
     seedCanonicalThread("server", "parent", parentType, "child")
     act(() => { setCanonicalCommunityChannelMember(capturedQueryClient, "child", "u_me", "notify", true) })
-    getCommunityApiFetchMock().mockResolvedValue({
+    getCommunityApiFetchMock().mockResolvedValue({ categoryId: null, topic: "", position: 0, messageCount: 0,
       id: "child", serverId: "server", type: "thread", parentChannelId: "parent",
       parentMessageId: "opener", creatorId: "u_me", name: "Child", archived: false,
       lastMessageAt: null, createdAt: "2026-08-01T00:00:00.000Z",
@@ -931,7 +931,7 @@ describe("membership metadata and access lifetime", () => {
   it("retires unqualified legacy content before a cold relationship recheck", async () => {
     await mountHook({ viewerUserId: "u_me" })
     const api = getCommunityApiFetchMock()
-    api.mockResolvedValue({ id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener", name: "Child", archived: false })
+    api.mockResolvedValue({ categoryId: null, topic: "", position: 0, messageCount: 0, creatorId: null, createdAt: "2026-10-01T00:00:00Z", lastMessageAt: null, id: "child", serverId: "server", type: "thread", parentChannelId: "parent", parentMessageId: "opener", name: "Child", archived: false })
     const key = communityKeys.channelMessages("child")
     const content = { pages: [{ messages: [{ id: "m1", content: "readable" }] }] }
     capturedQueryClient.setQueryData(key, content)
@@ -965,7 +965,7 @@ describe("membership metadata and access lifetime", () => {
     api.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
     capturedOnMessage!({ type: "community:channel.member_remove", channelId: "child", serverId: "server", userId: "u_me" })
     await vi.waitFor(() => expect(release).toBeTypeOf("function"))
-    const meta = {
+    const meta = { categoryId: null, topic: "", position: 0, messageCount: 0, createdAt: "2026-10-01T00:00:00Z",
       id: "child", serverId: "server", name: "Child", type: "thread",
       parentChannelId: "parent", parentMessageId: "opener", creatorId: null,
       archived: false, lastMessageAt: null,

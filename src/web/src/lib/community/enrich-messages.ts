@@ -1,4 +1,4 @@
-import { queries, withD1Retry, type CommunityMessageResource } from "@alook/shared"
+import { queries, withD1Retry, CommunityChannelResourceSchema, CommunityMessageThreadParticipantSchema, type CommunityMessageResource, type CommunityContract } from "@alook/shared"
 import type { getDb } from "@/lib/db"
 import { loadApiMessageContext, mapMessageForApi } from "@/lib/community/message-payload"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -16,7 +16,7 @@ import { canonicalUserImage } from "@/lib/community/storage"
 
 type Db = ReturnType<typeof getDb>
 
-export type MessageScope = { channelId: string; isDm?: boolean; isForum?: boolean }
+export type MessageScope = { channelId: string; isDm?: boolean; isForum?: boolean; contract?: CommunityContract }
 
 export async function enrichMessages(
   db: Db,
@@ -75,9 +75,9 @@ export async function enrichMessages(
       ...(participantsByChannel.get(row.channelId) ?? []),
       {
         id: row.userId,
-        name: row.userName ?? "",
-        avatar: canonicalUserImage(row.userId, row.userImage, row.userAvatarVersion)
-          ?? avatarInitial(row.userName ?? ""),
+        name: scope.contract === 3 ? CommunityMessageThreadParticipantSchema.shape.name.parse(row.userName) : row.userName ?? "",
+        avatar: scope.contract === 3 ? canonicalUserImage(row.userId, row.userImage, row.userAvatarVersion)
+          : canonicalUserImage(row.userId, row.userImage, row.userAvatarVersion) ?? avatarInitial(row.userName ?? ""),
         avatarVersion: row.userAvatarVersion,
       },
     ])
@@ -91,8 +91,8 @@ export async function enrichMessages(
         return [c.parentMessageId!, {
           id: c.id,
           name: c.name,
-          messageCount: c.messageCount ?? 0,
-          lastReplyAt: c.lastMessageAt ?? c.createdAt,
+          messageCount: scope.contract === 3 ? CommunityChannelResourceSchema.shape.messageCount.parse(c.messageCount) : c.messageCount ?? 0,
+          lastReplyAt: scope.contract === 3 ? c.lastMessageAt : c.lastMessageAt ?? c.createdAt,
           ...(scope.isForum ? {
             tags: tagsByMessage.get(c.parentMessageId!) ?? [],
             preview: (first?.content ?? "").slice(0, 100),
@@ -108,7 +108,7 @@ export async function enrichMessages(
       ...context,
       threadByMessageId,
       approvalByMessageId: approvalByMessageId as Map<string, import("@alook/shared").FriendApprovalPayload>,
-    }),
+    }, scope.contract, scope.channelId),
   )
   return { messages, latestSeq }
 }

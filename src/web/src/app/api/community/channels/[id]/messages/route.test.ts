@@ -283,6 +283,24 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockGetDMBetween.mockResolvedValue(null)
   })
 
+  it.each([false, true])("confirms a full v3 human message with replay=%s", async (replay) => {
+    const row = { id: "m1", channelId: "c1", seq: 12, authorId: "u1", authorName: "Alice", authorImage: null, authorAvatarVersion: 0,
+      content: "hello", type: "default", mentionType: null, replyToId: null, clientNonce: "v3-nonce", embeds: null, createdAt: "now" }
+    mockGetMessage.mockResolvedValue(row)
+    mockGetMessageByAuthorAndNonce.mockResolvedValue(replay ? row : null)
+    const request = postReq({ content: "hello", nonce: "v3-nonce" })
+    request.headers.set("x-alook-community-contract", "3")
+    const response = await POST(request, ctx)
+    expect(response.status).toBe(replay ? 200 : 201)
+    expect(response.headers.get("x-alook-community-contract")).toBe("3")
+    expect(await response.json()).toEqual({ contractVersion: 3, channelId: "c1", deduped: replay, message: {
+      id: "m1", channelId: "c1", seq: 12, authorId: "u1", authorName: "Alice", authorAvatar: null, authorAvatarVersion: 0,
+      content: "hello", type: "chat", mentionType: null, replyToId: null, clientNonce: "v3-nonce", createdAt: "now", attachments: [],
+    } })
+    if (replay) expect(mockCreateMessage).not.toHaveBeenCalled()
+    else expect(mockCreateMessage).toHaveBeenCalledOnce()
+  })
+
   it.each([
     {
       name: "field types",

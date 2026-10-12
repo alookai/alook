@@ -29,7 +29,6 @@ import type {
 import { messageWindowPage } from "@/lib/community/models/message"
 import {
   materializeMessageStream,
-  type CanonicalMessage,
   type MessageScope,
 } from "@/lib/community/message-stream"
 import { useMessageOverlayIds } from "@/stores/community/message-stream"
@@ -815,12 +814,13 @@ function useMessagesInner(
   const transportMessages = useMemo(() => query.data ? mergeMessagesPages(query.data.pages) : [], [query.data])
   const windowIds = useMemo(() => transportMessages.map((message) => message.id), [transportMessages])
   const projection = useMessageWindowProjection(scopeId, transportWindowObserved ? windowIds : undefined, liveIds)
-  const canonicalById = useMemo(() => new Map((projection.messages ?? []).flatMap((message) =>
-    typeof message.seq === "number" ? [[message.id, message as CanonicalMessage] as const] : [])), [projection.messages])
-  const messages = useMemo<Msg[]>(() => {
-    const selected = projection.windowIds.flatMap((id) => { const message = canonicalById.get(id); return message ? [message] : [] }).sort((a, b) => a.seq - b.seq)
-    return selected
-  }, [projection.windowIds, canonicalById])
+  const canonicalById = useMemo(() => new Map((projection.canonicalMessages ?? []).flatMap((message) =>
+    typeof message.seq === "number" ? [[message.id, { ...message, seq: message.seq }] as const] : [])), [projection.canonicalMessages])
+  const canonicalMessages = useMemo(() => projection.windowIds.flatMap((id) => {
+    const message = canonicalById.get(id)
+    return message ? [message] : []
+  }).sort((a, b) => a.seq - b.seq), [projection.windowIds, canonicalById])
+  const messages = useMemo<Msg[]>(() => (projection.messages ?? []).filter((message) => projection.windowIds.includes(message.id)), [projection.messages, projection.windowIds])
 
   const latestSeq = useMemo<number>(() => {
     if (!query.data) return 0
@@ -897,6 +897,7 @@ function useMessagesInner(
     isLoading: query.isLoading || (!anchorResolved && messages.length === 0),
     navigationBlocked: false,
     canonicalById,
+    canonicalMessages,
     messages,
     latestSeq,
     hasMoreOlder,
@@ -947,9 +948,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | Channe
   const scope = useMemo<MessageScope>(() => serverId === null ? { kind: "dm", id: channelId ?? "__none__" } : { kind: "channel", id: channelId ?? "__none__", serverId }, [channelId, serverId])
   const state = useMessageOverlayIds(scope)
   const base = useMessagesInner(channelId, queryKey, queryFn, opts, state.liveIds)
-  const canonicalBase = useMemo(() => base.messages.filter(
-    (message): message is CanonicalMessage => typeof message.seq === "number",
-  ), [base.messages])
+  const canonicalBase = base.canonicalMessages
   useEffect(() => {
     if (!channelId) return
     getCommunityRuntime(queryClient).messageStream.actions.dispatch(scope, {

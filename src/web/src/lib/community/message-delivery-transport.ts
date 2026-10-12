@@ -35,6 +35,7 @@ function selectTargets(batch: MessageDeliveryBatch, selected: ReadonlySet<string
   const keep = (ids: readonly string[]) => ids.filter((id) => selected.has(id))
   const parentProjectionUserIds = keep(batch.parentProjectionUserIds ?? [])
   return {
+    ...(batch.communityContract === 3 ? { communityContract: 3 as const } : {}),
     messageId: batch.messageId,
     messageEvent: batch.messageEvent,
     contentUserIds: keep(batch.contentUserIds),

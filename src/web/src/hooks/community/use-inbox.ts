@@ -14,6 +14,7 @@ import { communityRequestOptions } from "@/lib/community-db/sync"
 import { apiFetch } from "@/lib/api/client"
 import { apiFetchCommunity } from "@/lib/community/account-cache-lifecycle"
 import { communityKeys } from "@/lib/query-keys"
+import { communityMessagePreviewFromLegacy } from "@alook/shared"
 import type {
 InboxFriendRequest,
 Marked,
@@ -102,7 +103,7 @@ export function useInboxAttention() {
         if (!parent) continue
         const parentRow = serverChannels.get(parent.id) ?? {
           channelId: parent.id,
-          channelName: parent.name,
+          channelName: parent.name ?? "",
           type: parent.type === "forum" ? "forum" : "text",
           lastMessageAt: parent.lastMessageAt ?? "",
           mentionCount: 0,
@@ -111,7 +112,7 @@ export function useInboxAttention() {
         }
         parentRow.children.push({
           channelId: channel.id,
-          channelName: channel.name,
+          channelName: channel.name ?? "",
           type: "thread",
           lastMessageAt: channel.lastMessageAt ?? "",
           lastUnreadSeq: scope.lastUnreadSeq,
@@ -128,7 +129,7 @@ export function useInboxAttention() {
       const previous = serverChannels.get(channel.id)
       serverChannels.set(channel.id, {
         channelId: channel.id,
-        channelName: channel.name,
+        channelName: channel.name ?? "",
         type: channel.type === "forum" ? "forum" : "text",
         lastMessageAt: channel.lastMessageAt ?? "",
         lastUnreadSeq: scope.lastUnreadSeq,
@@ -157,7 +158,7 @@ export function useInboxAttention() {
       grouped.set(scope.serverId, serverChannels)
       const parentRow = serverChannels.get(parent.id) ?? {
         channelId: parent.id,
-        channelName: parent.name,
+        channelName: parent.name ?? "",
         type: "forum",
         lastMessageAt: parent.lastMessageAt ?? "",
         mentionCount: scope.attentionCount,
@@ -167,7 +168,7 @@ export function useInboxAttention() {
       const existingIndex = parentRow.children.findIndex((row) => row.channelId === child.id)
       const childRow = {
         channelId: child.id,
-        channelName: opener.content?.trim() || child.name,
+        channelName: opener.content?.trim() || child.name || "",
         type: "thread" as const,
         lastMessageAt: opener.createdAt ?? child.lastMessageAt ?? "",
         lastUnreadSeq: item.openerSeq,
@@ -228,7 +229,7 @@ export function useInboxAttention() {
           ? serversById.get(scope.serverId)?.name ?? ""
           : dmById.get(scope.channelId)?.name ?? "",
         ...(scope.serverId ? { serverId: scope.serverId } : {}),
-        channel: channel.name,
+        channel: channel.name ?? "",
         channelId: channel.id,
         m: message,
       }]
@@ -290,7 +291,7 @@ const inboxMarkedQueryFn = (queryClient: QueryClient) =>
       publishCommunityEmbeddedMessages(queryClient, {
         entries: data.marked.map((marked) => ({
           channelId: marked.channelId,
-          message: marked.m,
+          message: { ...communityMessagePreviewFromLegacy(marked.m, marked.channelId), resourceComplete: false },
         })),
         proof: { token: publicationToken, signal },
       })

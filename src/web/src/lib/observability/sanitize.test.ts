@@ -101,6 +101,24 @@ describe("outbound whitelist", () => {
     expect(sanitizeItem(old, session, origin)).toBeNull()
   })
 
+  it("uses canonical admission for both HTTP exports while retaining wall-time checks for other SDK payloads", () => {
+    const mirror = { type: "event", meta, payload: { name: "faro.tracing.fetch", timestamp: "1970-01-01T00:00:02Z", attributes: { "session.id": session, duration_ns: "1000000000", "alook.internal.http.start_ms": "SECRET" } } } as TransportItem
+    const span = { traceId: "a".repeat(32), spanId: "b".repeat(16), name: "GET", kind: 3, startTimeUnixNano: "1000000000", endTimeUnixNano: "2000000000", attributes: [{ key: "session.id", value: { stringValue: session } }, { key: "alook.internal.http.start_ms", value: { stringValue: "SECRET" } }] }
+    const trace = { type: "trace", meta, payload: { resourceSpans: [{ scopeSpans: [{ spans: [span] }] }] } } as TransportItem
+    for (const item of [mirror, trace]) {
+      expect(sanitizeItem(item, session, origin, undefined, 230_000, true, 500)).not.toBeNull()
+      expect(JSON.stringify(sanitizeItem(item, session, origin, undefined, 230_000, true, 500))).not.toContain("SECRET")
+      expect(sanitizeItem(item, session, origin, undefined, 230_000, true, 1500)).toBeNull()
+      expect(sanitizeItem(item, "retired-session", origin, undefined, 230_000, true, 500)).toBeNull()
+    }
+    for (const item of [
+      { type: "event", meta, payload: { name: "faro.performance.resource", timestamp: "1970-01-01T00:00:02Z", attributes: { duration: "1" } } },
+      { type: "exception", meta, payload: { type: "Error", value: "SECRET", timestamp: "1970-01-01T00:00:02Z" } },
+      { type: "measurement", meta, payload: { type: "web-vitals", timestamp: "1970-01-01T00:00:02Z", values: { LCP: 1 } } },
+      { type: "event", meta, payload: { name: "faro.user.action", timestamp: "1970-01-01T00:00:02Z", attributes: { userActionName: "ui_interaction", userActionStartTime: "1000" } } },
+    ]) expect(sanitizeItem(item as TransportItem, session, origin, undefined, 230_000, true, 500)).toBeNull()
+  })
+
   it("retains only known native action names and finite nonnegative action timings", () => {
     const item = (attributes: Record<string, string>) => ({ type: "event", meta, payload: { name: "faro.user.action", timestamp: "2026-10-05T00:00:00Z", attributes } }) as TransportItem
     const clean = sanitizeItem(item({ userActionName: "ui_interaction", userActionDuration: "12", userActionStartTime: "0", userActionEndTime: "Infinity", private: "SECRET" }), session, origin)!

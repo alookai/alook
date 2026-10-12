@@ -438,7 +438,7 @@ function reconcileForumSidebarNotifyMembershipsFromBase(
       id: channel.id,
       parentChannelId: channel.parentChannelId,
       parentMessageId: channel.parentMessageId ?? "",
-      title: channel.name,
+      title: channel.name ?? "",
       activityAt,
       expiresAt: Number.isFinite(activityMs)
         ? new Date(activityMs + SIDEBAR_ACTIVITY_WINDOW_MS).toISOString()

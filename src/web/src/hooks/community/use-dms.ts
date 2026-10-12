@@ -52,7 +52,7 @@ const loadDms = (
 ) =>
   apiFetchProfiles<DmsResponse>(
     "/api/community/users/me/dms",
-    (data) => data.conversations.map((dm) => communityUserProfilePatch(dm.userId, dm)),
+    (data) => data.conversations.map((dm) => communityUserProfilePatch(dm.userId, dm, { legacyPresentation: true })),
     context.signal ? { signal: context.signal } : undefined, getCommunityDbRegistry(context.client),
   )
 

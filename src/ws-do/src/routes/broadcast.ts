@@ -1,7 +1,9 @@
 import type { RouterContext } from "../router-context"
 import {
   COMMUNITY_BULK_BODY_MAX_BYTES,
+  COMMUNITY_CONTRACT_HEADER,
   isValidCommunityUserTarget,
+  type CommunityContract,
 } from "@alook/shared"
 import {
   createInternalCommunityUserBroadcastRequest,
@@ -105,10 +107,11 @@ async function broadcastCommunityToBulkTarget(
   env: Env,
   userId: string,
   messageBody: string,
+  contract: CommunityContract,
 ): Promise<BulkTargetResult> {
   const doId = env.WS_DO.idFromName("user:" + userId)
   const stub = env.WS_DO.get(doId)
-  const response = await stub.fetch(createInternalCommunityUserBroadcastRequest(userId, messageBody))
+  const response = await stub.fetch(createInternalCommunityUserBroadcastRequest(userId, messageBody, contract))
   if (!response.ok) return { ok: false, failureKind: "non-ok", status: response.status }
   let payload: unknown
   try {
@@ -168,7 +171,7 @@ export async function handleCommunityUserBroadcast({ request, env, url, traceId,
   reqLog.debug("broadcasting community event to user")
   const doId = env.WS_DO.idFromName("user:" + target.target)
   const stub = env.WS_DO.get(doId)
-  return stub.fetch(createInternalCommunityUserBroadcastRequest(target.target, event.body))
+  return stub.fetch(createInternalCommunityUserBroadcastRequest(target.target, event.body, event.contract))
 }
 
 export async function handleUsersBroadcast({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
@@ -291,7 +294,9 @@ export async function handleCommunityUsersBroadcast({ request, env, url, traceId
     logCommunityBrowserEventRejected(log, "strict-bulk", failure, body.userIds.length)
     return invalidCommunityBrowserEventResponse(failure)
   }
-  const event = normalizeCommunityBrowserEvent(body.message)
+  const version = request.headers.get(COMMUNITY_CONTRACT_HEADER)
+  if (version !== null && version !== "1" && version !== "2" && version !== "3") return invalidCommunityBrowserEventResponse(strictFailure("invalid-payload", parsed.byteCount))
+  const event = normalizeCommunityBrowserEvent(body.message, undefined, version === "3" ? 3 : version === "1" ? 1 : 2)
   if (!event.ok) {
     logCommunityBrowserEventRejected(log, "strict-bulk", event, body.userIds.length)
     return invalidCommunityBrowserEventResponse(event)
@@ -319,7 +324,7 @@ export async function handleCommunityUsersBroadcast({ request, env, url, traceId
       active += 1
       maxActive = Math.max(maxActive, active)
       try {
-        return await broadcastCommunityToBulkTarget(env, userId, event.body)
+        return await broadcastCommunityToBulkTarget(env, userId, event.body, event.contract)
       } finally {
         active -= 1
       }

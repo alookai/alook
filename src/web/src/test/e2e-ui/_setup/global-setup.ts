@@ -5,10 +5,7 @@ import { AUTH_DIR, MANIFEST_PATH, SERVICE_STATE_PATH } from "./paths"
 import { loginAndSaveState } from "./auth"
 import {
   prepareServices,
-  resetDb,
   startServices,
-  backupState,
-  REUSE_EXISTING,
   stopServicesAndRestore,
 } from "./services"
 import { createLifecycleState, writeLifecycleState } from "./service-lifecycle"
@@ -22,14 +19,6 @@ export default async function globalSetup(): Promise<void> {
   try {
     prepareServices()
 
-    // Local runs: back up the developer's D1/DO state, wipe to a clean DB, and
-    // restore it on teardown (see global-teardown). CI has no prior state.
-    let backedUp = false
-    if (!REUSE_EXISTING) {
-      backedUp = backupState()
-      writeLifecycleState(SERVICE_STATE_PATH, createLifecycleState(backedUp))
-      resetDb()
-    }
     await startServices()
 
     // Unique-per-run stamp so re-runs against a non-reset DB don't collide.

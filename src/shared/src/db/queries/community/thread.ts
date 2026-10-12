@@ -144,6 +144,7 @@ export async function listParticipantsForChannels(
           userName: user.name,
           userImage: user.image,
           userAvatarVersion: user.avatarVersion,
+          discriminator: user.discriminator,
           participantCount: sql<number>`count(*) over (partition by ${communityChannelMember.channelId})`.as("participant_count"),
           rank: sql<number>`row_number() over (partition by ${communityChannelMember.channelId} order by ${communityChannelMember.addedAt}, ${communityChannelMember.userId})`.as("participant_rank"),
         })
@@ -162,6 +163,7 @@ export async function listParticipantsForChannels(
           userName: ranked.userName,
           userImage: ranked.userImage,
           userAvatarVersion: ranked.userAvatarVersion,
+          discriminator: ranked.discriminator,
           participantCount: ranked.participantCount,
         })
         .from(ranked)
@@ -182,6 +184,7 @@ export async function listParticipantsForChannels(
       userName: user.name,
       userImage: user.image,
       userAvatarVersion: user.avatarVersion,
+      discriminator: user.discriminator,
     })
     .from(communityChannelMember)
     .innerJoin(user, eq(user.id, communityChannelMember.userId))

@@ -342,3 +342,24 @@ export const requiredFixturePaths = {
   "community:machine.removed": ["machineId"],
   "community:bot.audit_event": ["payload"],
 } satisfies Record<CommunityWsEvent["type"], readonly [string, ...string[]]>
+
+export const communityResourceChannelFixture = {
+  id: "channel-1", type: "text", serverId: "server-1", categoryId: null,
+  name: "Channel", topic: "Keep this topic", parentChannelId: null, parentMessageId: null,
+  creatorId: "user-1", position: 4, archived: false, createdAt: "2026-01-01T00:00:00.000Z",
+  lastMessageAt: null, messageCount: 0,
+} as const
+
+export const communityResourceMessageFixture = {
+  ...communityWsEventFixtures["community:message.create"],
+  message: {
+    id: "message-1", channelId: "channel-1", seq: 1, authorId: "user-1", authorName: "Author",
+    authorAvatar: null, authorAvatarVersion: 0, type: "chat", content: "é 😀", replyToId: null,
+    clientNonce: null, createdAt: "2026-01-01T00:00:00.000Z",
+    attachments: [
+      { id: "attachment-2", name: "unknown.bin", url: "/file", thumbnailUrl: null, contentType: null, sizeBytes: null, width: null, height: null },
+      { id: "attachment-1", name: "photo.png", url: "/photo", thumbnailUrl: "/thumbnail", contentType: "image/png", sizeBytes: 2048, width: 640, height: 480 },
+    ],
+    embeds: [null, { title: "Card", fields: [null, { name: "Key", value: "Value" }] }, { raw: "unknown" }],
+  },
+} as const

@@ -9,7 +9,6 @@ writeCommunityProfilePatches,
 } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import type { BotActivityDay,CommunityProfilePatch } from "@/lib/community/models/people"
-import { avatarInitial } from "@/lib/community/avatar"
 import type { DailyUsageMetric,ReasoningEffort } from "@alook/shared"
 import { useCallback,useMemo } from "react"
 import { useNativeMutationFacade } from "@/hooks/use-native-mutation-facade"
@@ -80,7 +79,7 @@ type OriginalBotView = (() => void) & { signal: AbortSignal }
 type BotViewInput = { assertActive?: OriginalBotView }
 
 function botProfilePatch(bot: Pick<BotSummary, "id" | "name" | "image" | "avatarVersion"> & { description?: string }): CommunityProfilePatch {
-  return { id: bot.id, identityAbout: { name: bot.name, kind: "bot", ...("discriminator" in bot && typeof bot.discriminator === "string" ? { discriminator: bot.discriminator } : {}), ...(bot.description === undefined ? {} : { aboutMe: bot.description }) }, avatar: { avatar: bot.image ?? avatarInitial(bot.name), avatarVersion: bot.avatarVersion } }
+  return { id: bot.id, identityAbout: { name: bot.name, kind: "bot", ...("discriminator" in bot && typeof bot.discriminator === "string" ? { discriminator: bot.discriminator } : {}), ...(bot.description === undefined ? {} : { aboutMe: bot.description }) }, avatar: { avatar: bot.image, avatarVersion: bot.avatarVersion } }
 }
 
 export function useBots(): UseQueryResult<BotsResourceResponse> & { bots: BotSummary[] } {

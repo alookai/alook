@@ -18,11 +18,11 @@ describe("useMessage / messageQueryFn", () => {
   it("clears absent rich fields from a fresh complete exact response", async () => {
     const { client, registry } = await createCommunityQueryOwner()
     ingestMessages(registry, payload.channelId, [{ ...payload,
-      attachments: [{ kind: "file", name: "old.txt", url: "/old", size: "1 KB" }],
-      embeds: [{ title: "Old" }], reactions: [{ emoji: "👍", count: 1 }],
+      attachments: [{ name: "old.txt", url: "/old", sizeBytes: 1024 }],
+      embeds: [{ title: "Old" }], reactions: [{ emoji: "👍", count: 1, me: false, userIds: ["peer"] }],
       replyTo: { id: "reply", authorName: "Peer", text: "Old reply" },
     }])
-    apiFetchMock.mockResolvedValueOnce(payload)
+    apiFetchMock.mockResolvedValueOnce({ ...payload, resourceComplete: true, seq: 1, replyToId: null, clientNonce: null, attachments: [], embeds: [], reactions: [] })
     await client.query({ queryKey: communityKeys.message(payload.id), queryFn: messageQueryFn(payload.id, client) })
     expect(registry.collections.messages.get(payload.id)).toMatchObject({ attachments: [], embeds: [], reactions: [], replyToId: null })
     expect(registry.collections.messages.get(payload.id)?.replyTo).toBeUndefined()
@@ -57,13 +57,14 @@ describe("useMessage / messageQueryFn", () => {
     const message = {
       ...payload, content: "cached opener",
       replyTo: { id: "m_0", authorName: "Bob", text: "parent" },
-      attachments: [{ kind: "file" as const, name: "notes.txt", url: "/notes.txt", size: "1 KB" }],
+      attachments: [{ name: "notes.txt", url: "/notes.txt", sizeBytes: 1024 }],
       embeds: [{ title: "Reference" }],
       reactions: [{ emoji: "👍", count: 1, me: true, userIds: ["u_1"] }],
     }
     ingestMessages(registry, "channel-1", [message])
     client.setQueryData(communityKeys.channelMessages("channel-1"), { pages: [{ ids: [message.id], hasMoreOlder: false, hasMoreNewer: false }], pageParams: [{ mode: "newest" }] })
-    expect(findCachedMessage(client, message.id)).toMatchObject(message)
+    const { channelId: _channelId, ...view } = message
+    expect(findCachedMessage(client, message.id)).toMatchObject({ ...view, attachments: [{ kind: "file", name: "notes.txt", url: "/notes.txt", sizeBytes: 1024, size: "1.0 KB" }] })
     expect(findCachedMessage(client, "missing")).toBeUndefined()
   })
 

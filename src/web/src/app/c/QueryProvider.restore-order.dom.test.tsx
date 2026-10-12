@@ -86,7 +86,7 @@ describe("QueryProvider persistence ordering", () => {
     const viewerId = "restore-order-viewer"
     const profileKey = communityKeys.communityDbCollection(viewerId, "profiles")
     const seed = new QueryClient()
-    seed.setQueryData(profileKey, [{ userId: viewerId, name: "Disk viewer", discriminator: "0001", avatar: "D", avatarVersion: 1 }], { updatedAt: Date.now() - 60_000 })
+    seed.setQueryData(profileKey, [{ id: viewerId, identityComplete: true, name: "Disk viewer", discriminator: "0001", avatar: "D", avatarVersion: 1 }], { updatedAt: Date.now() - 60_000 })
     persister.restoreClient.mockResolvedValue(hasDiskSnapshot ? { buster: PERSIST_BUSTER, timestamp: Date.now(), clientState: dehydrate(seed) } : undefined)
     const mark = vi.spyOn(performance, "mark")
     mark.mockClear()
@@ -130,7 +130,7 @@ describe("QueryProvider persistence ordering", () => {
     )
     seedClient.setQueryData(
       communityKeys.communityDbCollection(viewerId, "channels"),
-      [{
+      [{ topic: "", messageCount: 0, createdAt: "2026-10-01T00:00:00Z",
         id: "persisted-dm",
         serverId: null,
         categoryId: null,
@@ -170,7 +170,7 @@ describe("QueryProvider persistence ordering", () => {
     seedClient.setQueryData(
       communityKeys.communityDbCollection(viewerId, "profiles"),
       [{
-        userId: "peer",
+        identityComplete: true, id: "peer",
         name: "Persisted peer",
         discriminator: "0001",
         avatar: "P",

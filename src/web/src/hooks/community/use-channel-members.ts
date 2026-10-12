@@ -6,7 +6,7 @@ import { useCallback,useMemo } from "react"
 import { QueryObserver,useMutation,useQuery,useQueryClient,type QueryClient,type QueryFunctionContext,type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import { COMMUNITY_CONTRACT_VERSION, CommunityMembersReadSchema, CommunityResourceProfileSchema, type CommunityMembersRead, type CommunityRole, type CommunityChannelResource, type CommunityMemberRelation, type CommunityResourceProfile } from "@alook/shared"
+import { communityReadSchemas, CommunityResourceProfileSchema, type CommunityMembersRead, type CommunityRole, type CommunityChannelResource, type CommunityMemberRelation, type CommunityResourceProfile } from "@alook/shared"
 import type { CommunityProfile, CommunityUserCore, Presence } from "@/lib/community/models/people"
 import { fetchAllServerMembers } from "./fetch-all-server-members"
 
@@ -26,11 +26,11 @@ export type ChannelMember = CommunityUserCore & Pick<CommunityMemberRelation, "u
   source: NonNullable<ChannelMembershipRow["source"]>
 }
 
-function normalizeChannelRoster(channelId: string, relation: CommunityMemberRelation["relation"], response: { members: ChannelMember[] } | CommunityMembersRead): CommunityMembersRead {
+function normalizeChannelRoster(channelId: string, relation: CommunityMemberRelation["relation"], response: { members: ChannelMember[] } | CommunityMembersRead): Omit<CommunityMembersRead, "contractVersion"> & { contractVersion: 2 | 3 } {
   if ("contractVersion" in response) return response
-  return CommunityMembersReadSchema.parse({ contractVersion: COMMUNITY_CONTRACT_VERSION, channelId, relation,
+  return communityReadSchemas(2).members.parse({ contractVersion: 2, channelId, relation,
     members: response.members.map((member) => ({ channelId, userId: member.userId, relation, memberId: member.id, source: member.source, isCreator: member.isCreator, role: member.role })),
-    profiles: response.members.map((member) => CommunityResourceProfileSchema.strip().parse({ ...member, id: member.userId, statusEmoji: member.statusEmoji ?? null, statusText: member.statusText ?? "" })),
+    profiles: response.members.map((member) => CommunityResourceProfileSchema.strip().parse({ ...member, id: member.userId, discriminator: member.discriminator || null, statusEmoji: member.statusEmoji ?? null, statusText: member.statusText ?? "" })),
   })
 }
 export type AddableMember = Pick<ChannelMember, "userId" | "avatar" | "avatarVersion"> & { [Field in "name" | "discriminator"]: ChannelMember[Field] | null }
@@ -62,7 +62,7 @@ function channelMembersOptions(client: QueryClient, channelId: string, serverId?
       const response = await apiFetch<{ members: ChannelMember[] } | CommunityMembersRead>("/api/community/channels/" + encodeURIComponent(channelId) + "/members?relation=" + dimension, communityRequestOptions(client, token, signal, assert))
       assert()
       const resources = normalizeChannelRoster(channelId, dimension, response)
-      publishCommunityChannelMembersSnapshot(client, scopeId, channelId, dimension, resources.members, { token, signal }, resources.profiles)
+      publishCommunityChannelMembersSnapshot(client, scopeId, channelId, dimension, resources.members, { token, signal }, resources.profiles, { legacyPresentation: resources.contractVersion !== 3 })
       assert()
       return { serverId: scopeId, relation: dimension, members: resources.members.map(({ memberId, userId }) => ({ id: memberId ?? userId, userId })) }
     },
