@@ -1,6 +1,5 @@
 import { annotateWorkerSpan, observeWorkerOperation } from "./observability/worker"
 import { betterAuth } from "better-auth"
-import { addOAuthServerContext, createAuthMiddleware, getOAuthState, getSessionFromCtx } from "better-auth/api"
 import { emailOTP, deviceAuthorization, bearer, oneTimeToken } from "better-auth/plugins"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { nanoid } from "nanoid"
@@ -25,7 +24,6 @@ import {
 import { appleOauthHardeningPlugin } from "@/lib/apple-oauth-hardening"
 import { getOtpSubject, renderOtpEmail, type OtpType } from "./email-templates"
 
-import { analyticsCookiesAfterResponse, captureAuthentication, captureOAuthCallbackFailure, setProductAnalyticsCookies } from "@/lib/product-analytics-server"
 
 const log = createLogger({ service: "auth" })
 
@@ -109,13 +107,6 @@ export async function sendOtpEmail(
     log.error("OTP email failed", { to: input.email, type: input.type, error })
     throw error
   }
-}
-
-async function nativeAuthenticationFlow(requestUrl: string) {
-  if (!/\/callback\/(?:github|google|apple)(?:\?|$)/u.test(requestUrl)) return false
-  const state = await getOAuthState()
-  if (!state?.callbackURL) return false
-  try { return new URL(state.callbackURL, requestUrl).pathname === "/auth/native/callback" } catch { return false }
 }
 
 export function createAuth(env: Env) {
@@ -223,36 +214,6 @@ export function createAuth(env: Env) {
     rateLimit: {
       enabled: false,
     },
-    hooks: {
-      before: createAuthMiddleware(async ctx => {
-        if (ctx.path !== "/sign-in/social" || !ctx.request) return
-        try {
-          const origin = new URL(env.BETTER_AUTH_URL).origin
-          const callback = new URL(ctx.body?.callbackURL ?? origin, origin)
-          if (ctx.request.headers.get("origin") !== origin || callback.origin !== origin
-            || callback.pathname === "/auth/native/callback") return
-          await addOAuthServerContext({ productAnalyticsWebAttempt: crypto.randomUUID() })
-        } catch { log.warn("OAuth analytics provenance unavailable") }
-      }),
-      after: createAuthMiddleware(async ctx => {
-        const method = ctx.params?.id
-        if (ctx.path !== "/callback/:id" || (method !== "github" && method !== "google" && method !== "apple") || ctx.context.newSession) return
-        try {
-          const state = await getOAuthState()
-          const attemptId = state?.serverContext?.productAnalyticsWebAttempt
-          if (typeof attemptId !== "string" || !/^[a-f0-9-]{36}$/u.test(attemptId)
-            || await nativeAuthenticationFlow(ctx.request?.url ?? "")) return
-          const location = ctx.context.responseHeaders?.get("location")
-          const failedRedirect = location && new URL(location, env.BETTER_AUTH_URL).searchParams.has("error")
-          const returned = ctx.context.returned as { statusCode?: number } | undefined
-          if (!failedRedirect && !(returned?.statusCode && returned.statusCode >= 400)) return
-          const cookies = analyticsCookiesAfterResponse(ctx.request?.headers.get("cookie") ?? "", ctx.context.responseHeaders?.getSetCookie() ?? [])
-          const session = await getSessionFromCtx(ctx, { disableRefresh: true })
-          const identity = await captureOAuthCallbackFailure(env, { method, attemptId, cookies, actorUserId: session?.user.id })
-          if (identity) setProductAnalyticsCookies((...args) => ctx.setCookie(...args), identity, env.BETTER_AUTH_URL.startsWith("https:"))
-        } catch { log.warn("OAuth callback failure analytics capture failed") }
-      }),
-    },
     databaseHooks: {
       user: {
         create: {
@@ -288,13 +249,6 @@ export function createAuth(env: Env) {
           },
           after: async (user, ctx) => {
             if (!ctx) return
-            try {
-              const cookies = analyticsCookiesAfterResponse(ctx.request?.headers.get("cookie") ?? "", ctx.responseHeaders?.getSetCookie() ?? [])
-              const identity = await captureAuthentication(env, { actorUserId: user.id, cookies,
-                path: ctx.request?.url ? new URL(ctx.request.url).pathname : "",
-                nativeFlow: await nativeAuthenticationFlow(ctx.request?.url ?? ""), createdAt: user.createdAt })
-              if (identity) setProductAnalyticsCookies(ctx.setCookie, identity, isProd)
-            } catch { log.warn("signup analytics capture failed") }
             const path = ctx.request?.url ? new URL(ctx.request.url).pathname : ""
             let method = "unknown"
             if (path.includes("email-otp")) method = "email"
@@ -347,13 +301,6 @@ export function createAuth(env: Env) {
           },
           after: async (session, ctx) => {
             if (!ctx) return
-            try {
-              const cookies = analyticsCookiesAfterResponse(ctx.request?.headers.get("cookie") ?? "", ctx.responseHeaders?.getSetCookie() ?? [])
-              const identity = await captureAuthentication(env, { actorUserId: session.userId, sessionId: session.id, cookies,
-                path: ctx.request?.url ? new URL(ctx.request.url).pathname : "",
-                nativeFlow: await nativeAuthenticationFlow(ctx.request?.url ?? ""), createdAt: session.createdAt })
-              if (identity) setProductAnalyticsCookies(ctx.setCookie, identity, isProd)
-            } catch { log.warn("login analytics capture failed") }
             const signupCookie = ctx.getCookie("is_new_signup")
             if (signupCookie) return
             const path = ctx.request?.url ? new URL(ctx.request.url).pathname : ""
@@ -477,9 +424,6 @@ function authConfiguration(env: Env): readonly (string | undefined)[] {
     env.APP_REVIEW_EMAIL,
     env.APP_REVIEW_OTP,
     env.DEV_AUTH_OTP,
-    env.GA4_API_SECRET,
-    env.DEV_PRODUCT_ANALYTICS_COLLECTOR,
-    env.DEV_PRODUCT_ANALYTICS_MEASUREMENT_ID,
     env.AUTH_OTP_RATE_LIMIT_MAX,
     env.AUTH_OTP_RATE_LIMIT_WINDOW_SEC,
   ]

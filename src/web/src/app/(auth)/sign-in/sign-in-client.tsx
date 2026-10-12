@@ -4,7 +4,7 @@ import { captureProductAnalytics } from "@/lib/product-analytics"
 import { startAction, finishAction } from "@/lib/observability/context"
 import { ObservedStaticContent } from "@/lib/observability/regions"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useEffect, useMemo } from "react"
+import { useEffect } from "react"
 import { useSearchParams } from "next/navigation"
 import { signIn, signUp, authClient } from "@/lib/auth-client"
 import { parseRetryAfterSeconds } from "@/lib/retry-after"
@@ -50,8 +50,7 @@ function SignInForm({
   accountDeleted: boolean
   appleEnabled: boolean
 }) {
-  const viewId = useMemo(() => crypto.randomUUID(), [])
-  useEffect(() => { void captureProductAnalytics({ event: "login_page_view" }, viewId) }, [viewId])
+  useEffect(() => { void captureProductAnalytics({ event: "login_page_view" }) }, [])
   const failed = (failureStage: "send_code" | "verify_code") => {
     void captureProductAnalytics({ event: "sign_in_failed", method: "email_otp", failureStage })
   }
