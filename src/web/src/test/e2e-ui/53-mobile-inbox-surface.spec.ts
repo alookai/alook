@@ -1,15 +1,8 @@
 import type { Page, Request } from "@playwright/test"
-import { expect, sessionCookie, test } from "./_fixtures/community-fixture"
+import { expect, test, type CaseActors } from "./_fixtures/case-fixture"
 import { GEOMETRY_EPSILON, composerEditable, gotoAfterUserWsAuth, ignoreNextDevToolsPointerCapture, waitForElementMotion } from "./_fixtures/actions"
 import { communityFrameEvents, proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { WEB_URL } from "./_setup/paths"
-import {
-  seedChannel,
-  seedJoinServer,
-  seedMark,
-  seedMessage,
-  seedServer,
-} from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 
 type SurfaceGeometry = {
@@ -40,7 +33,7 @@ type BorderGeometry = Record<"top" | "right" | "bottom" | "left", {
   color: string
 }>
 
-async function removeServerChannels(serverId: string) {
+async function removeServerChannels(serverId: string, sessionCookie: CaseActors["sessionCookie"]) {
   const headers = { Cookie: sessionCookie("alice"), Origin: WEB_URL }
   const response = await fetch(`${WEB_URL}/api/community/servers/${serverId}/channels`, { headers })
   if (!response.ok) throw new Error(`list server channels failed (${response.status})`)
@@ -161,10 +154,14 @@ function observeWrites(page: Page) {
   return { writes, stop: () => page.off("request", listener) }
 }
 
-test.describe.serial("mobile Inbox interactive user-bar base", () => {
+test.describe("mobile Inbox interactive user-bar base", () => {
   test.setTimeout(180_000)
 
-  test("paints the retained Inbox digits after hidden messages and repeated detail returns", async ({ asUser }, testInfo) => {
+  test("paints the retained Inbox digits after hidden messages and repeated detail returns", async ({ caseActors }, testInfo) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { seedChannel, seedJoinServer, seedMessage, seedServer } = actors.seed
+
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Inbox digits ${stamp}`)
     const landingId = await seedChannel("alice", serverId, `landing-${stamp}`)
@@ -331,7 +328,11 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     }
   })
 
-  test("keeps the mobile shell unmasked and dismisses on outside press without writes", async ({ asUser }, testInfo) => {
+  test("keeps the mobile shell unmasked and dismisses on outside press without writes", async ({ caseActors }, testInfo) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { seedChannel, seedJoinServer, seedMessage, seedServer } = actors.seed
+
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Inbox surface ${stamp}`)
     const channelId = await seedChannel("alice", serverId, `inbox-${stamp}`)
@@ -536,7 +537,11 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     writes.stop()
   })
 
-  test("matches the mobile Composer width, height, and bottom margin", async ({ asUser }) => {
+  test("matches the mobile Composer width, height, and bottom margin", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { seedChannel, seedJoinServer, seedServer } = actors.seed
+
     const stamp = Date.now()
     const serverId = await seedServer("alice", `User Bar alignment ${stamp}`)
     const channelId = await seedChannel("alice", serverId, `alignment-${stamp}`)
@@ -588,12 +593,16 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     }
   })
 
-  test("preserves Marked tab, scroll, and request ownership across 639↔640", async ({ asUser }, testInfo) => {
+  test("preserves Marked tab, scroll, and request ownership across 639↔640", async ({ caseActors }, testInfo) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { seedChannel, seedJoinServer, seedMark, seedMessage, seedServer } = actors.seed
+
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Inbox continuity ${stamp}`)
     const channelId = await seedChannel("alice", serverId, `continuity-${stamp}`)
     const emptyServerId = await seedServer("alice", `Inbox continuity empty ${stamp}`)
-    await removeServerChannels(emptyServerId)
+    await removeServerChannels(emptyServerId, actors.sessionCookie)
     await seedJoinServer("alice", "bob", serverId)
     await seedJoinServer("alice", "bob", emptyServerId)
     for (let index = 0; index < 14; index += 1) {

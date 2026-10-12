@@ -14,411 +14,512 @@ import { manifest } from "./manifest"
 // (429), and transient service failures (5xx). Other 4xx responses are real
 // precondition failures and must not be masked.
 
-async function postRaw(key: UserKey, path: string, body?: unknown): Promise<Response> {
-  return fetch(`${WEB_URL}${path}`, {
-    method: "POST",
-    headers: {
-      Cookie: sessionCookie(key),
-      "Content-Type": "application/json",
-      Origin: WEB_URL,
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
+type SeedResource = "server" | "channel" | "category" | "message" | "user" | "friendship"
+
+type SeedIdentity = {
+  sessionCookie: (key: UserKey) => string
+  userId: (key: UserKey) => string
+  users: () => Partial<Record<UserKey, { userId: string }>>
+  assertResource?: (kind: SeedResource, id: string) => void
+  onResourceCreated?: (kind: SeedResource, id: string) => void
+  onServerCreated?: (owner: UserKey, serverId: string) => void
+  onDmCreated?: (first: UserKey, second: UserKey, dmId: string) => Promise<void>
 }
 
-async function post(key: UserKey, path: string, body?: unknown): Promise<Response> {
-  const response = await retrySeedRequest(() => postRaw(key, path, body))
-  if (response.ok) return response
-  throw new Error(`POST ${path} failed (${response.status})`)
-}
-
-export async function seedServer(owner: UserKey, name: string): Promise<string> {
-  const res = await post(owner, "/api/community/servers", { name })
-  const data = (await res.json()) as { server: { id: string } }
-  return data.server.id
-}
-
-export async function retireSeedServers(owner: UserKey, serverIds: readonly string[]): Promise<void> {
-  const errors: unknown[] = []
-  for (const serverId of serverIds) {
-    try {
-      const response = await retrySeedRequest(() => fetch(`${WEB_URL}/api/community/servers/${serverId}`, {
-        method: "DELETE",
-        headers: { Cookie: sessionCookie(owner), Origin: WEB_URL },
-      }))
-      if (response.status !== 204 && response.status !== 404) {
-        throw new Error(`DELETE fixture server ${serverId} failed (${response.status})`)
-      }
-    } catch (error) {
-      errors.push(error)
-    }
-  }
-  if (errors.length > 0) throw new AggregateError(errors, "Fixture server retirement failed")
-}
-
-export async function seedChannel(
-  owner: UserKey,
-  serverId: string,
-  name: string,
-  type?: "text" | "forum",
-  categoryId?: string,
-): Promise<string> {
-  const res = await post(owner, "/api/community/channels", { serverId, name, type, categoryId })
-  const data = (await res.json()) as { channel: { id: string } }
-  return data.channel.id
-}
-
-// Create a category (optionally private) and return its id. A private category
-// is what turns its channels' @-mention scope from server-wide to the channel
-// audience — the whole point of the scope spec.
-export async function seedCategory(
-  owner: UserKey,
-  serverId: string,
-  name: string,
-  opts?: { private?: boolean },
-): Promise<string> {
-  const res = await post(owner, `/api/community/servers/${serverId}/categories`, {
-    name,
-    private: opts?.private,
-  })
-  const data = (await res.json()) as { category: { id: string } }
-  return data.category.id
-}
-
-// Server membership comes from joining via invite (channels/[id]/members is
-// only for private-category channels and requires prior server membership).
-// Owner mints an invite, the joiner accepts it. Idempotent-ish: an
-// "Already a member" 400 is treated as success.
-export async function seedJoinServer(owner: UserKey, joiner: UserKey, serverId: string): Promise<void> {
-  const token = await createInvite(owner, serverId)
-  // Retry a transient auth race (401/403) and D1/WAL contention (5xx); a 400 is
-  // "Already a member" and counts as success (idempotent on a Playwright retry).
-  let lastStatus = 0
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const res = await fetch(`${WEB_URL}/api/community/invites/${token}/join`, {
+export function createSeed(identity: SeedIdentity) {
+  const { sessionCookie, userId } = identity
+  async function postRaw(key: UserKey, path: string, body?: unknown): Promise<Response> {
+    return fetch(`${WEB_URL}${path}`, {
       method: "POST",
-      headers: { Cookie: sessionCookie(joiner), "Content-Type": "application/json", Origin: WEB_URL },
-    })
-    if (res.ok || res.status === 400) return
-    lastStatus = res.status
-    if (!isRetryableSeedStatus(res.status)) break
-    await new Promise((r) => setTimeout(r, seedRetryDelayMs(res)))
-  }
-  throw new Error(`seedJoinServer join failed (${lastStatus})`)
-}
-
-// Add a server member to a PRIVATE-category channel's roster. Requires the
-// target to already be a server member (call seedJoinServer first).
-export async function seedChannelMember(owner: UserKey, channelId: string, userId: string): Promise<void> {
-  await post(owner, `/api/community/channels/${channelId}/members`, { userId })
-}
-
-export async function seedDm(from: UserKey, targetUserId: string): Promise<string> {
-  const addressee = (Object.entries(manifest().users) as Array<[
-    UserKey,
-    { userId: string },
-  ]>).find(([, user]) => user.userId === targetUserId)?.[0]
-  if (!addressee) throw new Error(`seedDm: unknown fixture user ${targetUserId}`)
-
-  // A normal DM fixture models an accepted conversation. Tests that need
-  // non-friend history must create the DM/message first, then remove the
-  // friendship; creating a non-friend DM is no longer a valid precondition.
-  await seedFriendship(from, addressee, targetUserId)
-  const res = await post(from, "/api/community/channels", { type: "dm", userId: targetUserId })
-  const data = (await res.json()) as { conversation: { id: string } }
-  return data.conversation.id
-}
-
-// Post a DM message via API so the conversation shows in both sidebars with a
-// preview. Returns the message id.
-export async function seedDmMessage(author: UserKey, dmId: string, content: string): Promise<string> {
-  const res = await post(author, `/api/community/channels/${dmId}/messages`, { content })
-  const data = (await res.json()) as { message: { id: string } }
-  return data.message.id
-}
-
-export async function seedBlock(blocker: UserKey, targetUserId: string): Promise<void> {
-  await post(blocker, `/api/community/users/${targetUserId}/block`)
-}
-
-// Look up an existing accepted-friendship id between the requester and a target
-// user, from the requester's friends list. Used to recover idempotently when a
-// re-run (Playwright retry) finds the pair already friends.
-async function findFriendshipId(requester: UserKey, targetUserId: string): Promise<string | undefined> {
-  const res = await retrySeedRequest(() => fetch(
-    `${WEB_URL}/api/community/friends/accepted`,
-    { headers: { Cookie: sessionCookie(requester), Origin: WEB_URL } },
-  ))
-  if (!res.ok) return undefined
-  const data = (await res.json()) as { friends: Array<{ id: string; userId: string }> }
-  return data.friends.find((f) => f.userId === targetUserId)?.id
-}
-
-type SeedRelationship = {
-  id: string
-  userId: string
-  kind?: "incoming" | "outgoing"
-}
-
-async function listSeedRelationships(key: UserKey): Promise<{
-  accepted: SeedRelationship[]
-  pending: SeedRelationship[]
-}> {
-  const headers = { Cookie: sessionCookie(key), Origin: WEB_URL }
-  const [accepted, pending] = await Promise.all([
-    retrySeedRequest(() => fetch(`${WEB_URL}/api/community/friends/accepted`, { headers })),
-    retrySeedRequest(() => fetch(`${WEB_URL}/api/community/friends/pending`, { headers })),
-  ])
-  if (!accepted.ok) throw new Error(`listSeedRelationships accepted failed (${accepted.status})`)
-  if (!pending.ok) throw new Error(`listSeedRelationships pending failed (${pending.status})`)
-  return {
-    accepted: ((await accepted.json()) as { friends: SeedRelationship[] }).friends,
-    pending: ((await pending.json()) as { pending: SeedRelationship[] }).pending,
-  }
-}
-
-async function deleteSeedRelationship(key: UserKey, id: string): Promise<Response> {
-  return retrySeedRequest(() => fetch(`${WEB_URL}/api/community/friends/${id}`, {
-    method: "DELETE",
-    headers: { Cookie: sessionCookie(key), Origin: WEB_URL },
-  }))
-}
-
-// Remove an accepted friendship while preserving any existing DM and history.
-// Use after seedDm/seedDmMessage when a spec needs the post-unfriend read-only
-// state; creating a DM directly as non-friends is no longer a valid fixture.
-export async function seedRemoveFriendship(
-  requester: UserKey,
-  targetUserId: string,
-): Promise<void> {
-  const friendshipId = await findFriendshipId(requester, targetUserId)
-  if (!friendshipId) throw new Error("seedRemoveFriendship: accepted friendship not found")
-  const response = await deleteSeedRelationship(requester, friendshipId)
-  if (!response.ok) throw new Error(`seedRemoveFriendship failed (${response.status})`)
-}
-
-async function acceptSeedFriendship(
-  requester: UserKey,
-  addressee: UserKey,
-  targetUserId: string,
-  pending: SeedRelationship,
-): Promise<string> {
-  const accepter = pending.kind === "outgoing" ? addressee : requester
-  const response = await retrySeedRequest(() => postRaw(
-    accepter,
-    `/api/community/friends/${pending.id}/accept`,
-  ))
-  if (response.ok) return pending.id
-  // Parallel fixtures may both observe the same pending row; one wins the
-  // accept while the other receives a terminal-state response. Confirm the
-  // accepted state instead of treating that harmless race as a seed failure.
-  if (response.status === 400 || response.status === 409) {
-    const existing = await findFriendshipId(requester, targetUserId)
-    if (existing) return existing
-  }
-  throw new Error(`seedFriendship accept failed (${response.status})`)
-}
-
-// Normalize a human-to-human pair to one actionable pending request. This uses
-// only the public HTTP routes and is repeatable after an earlier E2E spec (or a
-// Playwright retry) left the pair accepted, blocked, or pending in either
-// direction.
-export async function seedPendingFriendRequest(
-  requester: UserKey,
-  addressee: UserKey,
-  targetUserId: string,
-): Promise<string> {
-  await Promise.all([
-    post(requester, `/api/community/users/${targetUserId}/unblock`),
-    post(addressee, `/api/community/users/${userId(requester)}/unblock`),
-  ])
-
-  const relationships = await listSeedRelationships(requester)
-  const accepted = relationships.accepted.find((row) => row.userId === targetUserId)
-  if (accepted) {
-    const response = await deleteSeedRelationship(requester, accepted.id)
-    if (!response.ok) throw new Error(`seedPendingFriendRequest remove failed (${response.status})`)
-  }
-  const pending = relationships.pending.find((row) => row.userId === targetUserId)
-  if (pending) {
-    const response = pending.kind === "outgoing"
-      ? await deleteSeedRelationship(requester, pending.id)
-      : await post(requester, `/api/community/friends/${pending.id}/reject`)
-    if (!response.ok) throw new Error(`seedPendingFriendRequest clear pending failed (${response.status})`)
-  }
-
-  const response = await retrySeedRequest(() => postRaw(
-    requester,
-    "/api/community/friends/request",
-    { userId: targetUserId },
-  ))
-  if (!response.ok) throw new Error(`seedPendingFriendRequest request failed (${response.status})`)
-  const body = (await response.json()) as { id?: string; friendship?: { id: string } | null }
-  const id = body.id ?? body.friendship?.id
-  if (!id) throw new Error("seedPendingFriendRequest: no friendship id in response")
-  return id
-}
-
-// Withdraw a pending request through the same route used by the product. A
-// terminal/missing row is already cancelled for fixture-cleanup purposes.
-export async function seedCancelFriendRequest(requester: UserKey, friendshipId: string): Promise<void> {
-  const response = await deleteSeedRelationship(requester, friendshipId)
-  if (response.ok || response.status === 400 || response.status === 404) return
-  throw new Error(`seedCancelFriendRequest failed (${response.status})`)
-}
-
-// Full friend handshake: requester sends, addressee accepts (accept is
-// addressee-only, hence two keys). Returns the friendship id. Idempotent on a
-// Playwright retry: if the pair is already friends the request 409s, so we
-// recover the existing friendship id and skip the accept.
-export async function seedFriendship(requester: UserKey, addressee: UserKey, targetUserId: string): Promise<string> {
-  await Promise.all([
-    post(requester, `/api/community/users/${targetUserId}/unblock`),
-    post(addressee, `/api/community/users/${userId(requester)}/unblock`),
-  ])
-
-  const relationships = await listSeedRelationships(requester)
-  const accepted = relationships.accepted.find((row) => row.userId === targetUserId)
-  if (accepted) return accepted.id
-  const pending = relationships.pending.find((row) => row.userId === targetUserId)
-  if (pending) {
-    return acceptSeedFriendship(requester, addressee, targetUserId, pending)
-  }
-
-  let reqRes: Response | undefined
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const response = await postRaw(requester, "/api/community/friends/request", { userId: targetUserId })
-    reqRes = response
-    // 409 = already friends / request already sent — a valid idempotent state.
-    if (response.ok || response.status === 409 || !isRetryableSeedStatus(response.status)) break
-    await new Promise((r) => setTimeout(r, seedRetryDelayMs(response)))
-  }
-  if (reqRes!.status === 409) {
-    const existing = await findFriendshipId(requester, targetUserId)
-    if (existing) return existing
-    const refreshed = await listSeedRelationships(requester)
-    const pending = refreshed.pending.find((row) => row.userId === targetUserId)
-    if (pending) return acceptSeedFriendship(requester, addressee, targetUserId, pending)
-    throw new Error("seedFriendship: 409 but no accepted or pending friendship found")
-  }
-  if (!reqRes!.ok) throw new Error(`seedFriendship request failed (${reqRes!.status})`)
-  const reqData = (await reqRes!.json()) as { id?: string; friendship?: { id: string } | null }
-  const friendshipId = reqData.id ?? reqData.friendship?.id
-  if (!friendshipId) throw new Error("seedFriendship: no friendship id in response")
-  return acceptSeedFriendship(requester, addressee, targetUserId, {
-    id: friendshipId,
-    userId: targetUserId,
-    kind: "outgoing",
-  })
-}
-
-// Post a message into a channel via API (persisted with a real server id).
-// Use when a spec needs a pre-existing message as a precondition rather than
-// exercising the send UI itself. Returns the message id.
-export async function seedMessage(author: UserKey, channelId: string, content: string): Promise<string> {
-  const res = await post(author, `/api/community/channels/${channelId}/messages`, { content })
-  const data = (await res.json()) as { message: { id: string } }
-  return data.message.id
-}
-
-export async function seedReaction(author: UserKey, messageId: string, emoji: string): Promise<void> {
-  const response = await retrySeedRequest(() => fetch(
-    `${WEB_URL}/api/community/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`,
-    { method: "PUT", headers: { Cookie: sessionCookie(author), Origin: WEB_URL } },
-  ))
-  if (!response.ok) throw new Error(`seedReaction failed (${response.status})`)
-}
-
-export async function seedMark(author: UserKey, channelId: string, messageId: string): Promise<void> {
-  const response = await retrySeedRequest(() => fetch(
-    `${WEB_URL}/api/community/messages/${messageId}/marks`,
-    {
-      method: "PUT",
       headers: {
-        Cookie: sessionCookie(author),
+        Cookie: sessionCookie(key),
         "Content-Type": "application/json",
         Origin: WEB_URL,
       },
-      body: JSON.stringify({ channelId }),
-    },
-  ))
-  if (!response.ok) throw new Error(`seedMark failed (${response.status})`)
-}
-
-// Create a forum post (a child channel of a `type:"forum"` channel) via API.
-// Returns the post's own channel id. The creator is enrolled as a participant
-// server-side. Use when a spec needs an existing post before driving the UI.
-export async function seedForumThread(
-  author: UserKey,
-  forumChannelId: string,
-  name: string,
-  content: string,
-): Promise<string> {
-  const nonce = `e2e:${crypto.randomUUID()}`
-  const structure = await post(author, `/api/community/channels/${forumChannelId}/messages`, {
-    content: name,
-    nonce: `${nonce}:opener`,
-  })
-  const data = (await structure.json()) as { threadId: string }
-  await post(author, `/api/community/channels/${data.threadId}/messages`, {
-    content,
-    nonce: `${nonce}:reply`,
-  })
-  return data.threadId
-}
-
-// Create a thread rooted on an existing message. Returns the thread's own
-// child-channel id. A thread has NO roster of its own — its @-mention scope is
-// the PARENT channel's audience — which is exactly what the scope spec probes.
-export async function seedThread(author: UserKey, messageId: string, name: string): Promise<string> {
-  const res = await post(author, "/api/community/channels", { type: "thread", messageId, name })
-  const data = (await res.json()) as { id: string }
-  return data.id
-}
-
-export async function createInvite(owner: UserKey, serverId: string): Promise<string> {
-  const res = await post(owner, `/api/community/servers/${serverId}/invites`, {})
-  const data = (await res.json()) as { invite: { token: string } }
-  return data.invite.token
-}
-
-// Rename a user's community display name. Used by the mention specs to force
-// two members to share a name (each keeps its own auto-assigned discriminator),
-// which is the whole point of the same-name-disambiguation journey.
-export async function renameUser(key: UserKey, name: string): Promise<void> {
-  let lastStatus = 0
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const res = await fetch(`${WEB_URL}/api/community/users/me/profile`, {
-      method: "PATCH",
-      headers: { Cookie: sessionCookie(key), "Content-Type": "application/json", Origin: WEB_URL },
-      body: JSON.stringify({ name }),
+      body: body === undefined ? undefined : JSON.stringify(body),
     })
-    if (res.ok) return
-    lastStatus = res.status
-    if (!isRetryableSeedStatus(res.status)) break
-    await new Promise((r) => setTimeout(r, seedRetryDelayMs(res)))
   }
-  throw new Error(`renameUser failed (${lastStatus})`)
+
+  async function post(key: UserKey, path: string, body?: unknown): Promise<Response> {
+    const response = await retrySeedRequest(() => postRaw(key, path, body))
+    if (response.ok) return response
+    throw new Error(`POST ${path} failed (${response.status})`)
+  }
+
+  async function seedServer(owner: UserKey, name: string): Promise<string> {
+    const res = await post(owner, "/api/community/servers", { name })
+    const data = (await res.json()) as { server: { id: string } }
+    identity.onServerCreated?.(owner, data.server.id)
+    identity.onResourceCreated?.("server", data.server.id)
+    return data.server.id
+  }
+
+  async function retireSeedServers(owner: UserKey, serverIds: readonly string[]): Promise<void> {
+    for (const id of serverIds) identity.assertResource?.("server", id)
+    const errors: unknown[] = []
+    for (const serverId of serverIds) {
+      try {
+        const response = await retrySeedRequest(() => fetch(`${WEB_URL}/api/community/servers/${serverId}`, {
+          method: "DELETE",
+          headers: { Cookie: sessionCookie(owner), Origin: WEB_URL },
+        }))
+        if (response.status !== 204 && response.status !== 404) {
+          throw new Error(`DELETE fixture server ${serverId} failed (${response.status})`)
+        }
+      } catch (error) {
+        errors.push(error)
+      }
+    }
+    if (errors.length > 0) throw new AggregateError(errors, "Fixture server retirement failed")
+  }
+
+  async function seedChannel(
+    owner: UserKey,
+    serverId: string,
+    name: string,
+    type?: "text" | "forum",
+    categoryId?: string,
+  ): Promise<string> {
+    identity.assertResource?.("server", serverId)
+    if (categoryId) identity.assertResource?.("category", categoryId)
+    const res = await post(owner, "/api/community/channels", { serverId, name, type, categoryId })
+    const data = (await res.json()) as { channel: { id: string } }
+    identity.onResourceCreated?.("channel", data.channel.id)
+    return data.channel.id
+  }
+
+  // Create a category (optionally private) and return its id. A private category
+  // is what turns its channels' @-mention scope from server-wide to the channel
+  // audience — the whole point of the scope spec.
+  async function seedCategory(
+    owner: UserKey,
+    serverId: string,
+    name: string,
+    opts?: { private?: boolean },
+  ): Promise<string> {
+    identity.assertResource?.("server", serverId)
+    const res = await post(owner, `/api/community/servers/${serverId}/categories`, {
+      name,
+      private: opts?.private,
+    })
+    const data = (await res.json()) as { category: { id: string } }
+    identity.onResourceCreated?.("category", data.category.id)
+    return data.category.id
+  }
+
+  // Server membership comes from joining via invite (channels/[id]/members is
+  // only for private-category channels and requires prior server membership).
+  // Owner mints an invite, the joiner accepts it. Idempotent-ish: an
+  // "Already a member" 400 is treated as success.
+  async function seedJoinServer(owner: UserKey, joiner: UserKey, serverId: string): Promise<void> {
+    if (identity.assertResource) identity.assertResource("user", userId(joiner))
+    identity.assertResource?.("server", serverId)
+    const token = await createInvite(owner, serverId)
+    // Retry a transient auth race (401/403) and D1/WAL contention (5xx); a 400 is
+    // "Already a member" and counts as success (idempotent on a Playwright retry).
+    let lastStatus = 0
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const res = await fetch(`${WEB_URL}/api/community/invites/${token}/join`, {
+        method: "POST",
+        headers: { Cookie: sessionCookie(joiner), "Content-Type": "application/json", Origin: WEB_URL },
+      })
+      if (res.ok || res.status === 400) return
+      lastStatus = res.status
+      if (!isRetryableSeedStatus(res.status)) break
+      await new Promise((r) => setTimeout(r, seedRetryDelayMs(res)))
+    }
+    throw new Error(`seedJoinServer join failed (${lastStatus})`)
+  }
+
+  // Add a server member to a PRIVATE-category channel's roster. Requires the
+  // target to already be a server member (call seedJoinServer first).
+  async function seedChannelMember(owner: UserKey, channelId: string, userId: string): Promise<void> {
+    identity.assertResource?.("channel", channelId)
+    identity.assertResource?.("user", userId)
+    await post(owner, `/api/community/channels/${channelId}/members`, { userId })
+  }
+
+  async function seedDm(from: UserKey, targetUserId: string): Promise<string> {
+    const addressee = (Object.entries(identity.users()) as Array<[
+      UserKey,
+      { userId: string },
+    ]>).find(([, user]) => user.userId === targetUserId)?.[0]
+    if (!addressee) throw new Error(`seedDm: unknown fixture user ${targetUserId}`)
+
+    // A normal DM fixture models an accepted conversation. Tests that need
+    // non-friend history must create the DM/message first, then remove the
+    // friendship; creating a non-friend DM is no longer a valid precondition.
+    await seedFriendship(from, addressee, targetUserId)
+    const res = await post(from, "/api/community/channels", { type: "dm", userId: targetUserId })
+    const data = (await res.json()) as { conversation: { id: string } }
+    identity.onResourceCreated?.("channel", data.conversation.id)
+    if (identity.onDmCreated) await identity.onDmCreated(from, addressee, data.conversation.id)
+    return data.conversation.id
+  }
+
+  // Post a DM message via API so the conversation shows in both sidebars with a
+  // preview. Returns the message id.
+  async function seedDmMessage(author: UserKey, dmId: string, content: string): Promise<string> {
+    identity.assertResource?.("channel", dmId)
+    const res = await post(author, `/api/community/channels/${dmId}/messages`, { content })
+    const data = (await res.json()) as { message: { id: string } }
+    identity.onResourceCreated?.("message", data.message.id)
+    return data.message.id
+  }
+
+  async function seedBlock(blocker: UserKey, targetUserId: string): Promise<void> {
+    identity.assertResource?.("user", targetUserId)
+    await post(blocker, `/api/community/users/${targetUserId}/block`)
+  }
+
+  // Look up an existing accepted-friendship id between the requester and a target
+  // user, from the requester's friends list. Used to recover idempotently when a
+  // re-run (Playwright retry) finds the pair already friends.
+  async function findFriendshipId(requester: UserKey, targetUserId: string): Promise<string | undefined> {
+    const res = await retrySeedRequest(() => fetch(
+      `${WEB_URL}/api/community/friends/accepted`,
+      { headers: { Cookie: sessionCookie(requester), Origin: WEB_URL } },
+    ))
+    if (!res.ok) return undefined
+    const data = (await res.json()) as { friends: Array<{ id: string; userId: string }> }
+    return data.friends.find((f) => f.userId === targetUserId)?.id
+  }
+
+  type SeedRelationship = {
+    id: string
+    userId: string
+    kind?: "incoming" | "outgoing"
+  }
+
+  async function listSeedRelationships(key: UserKey): Promise<{
+    accepted: SeedRelationship[]
+    pending: SeedRelationship[]
+  }> {
+    const headers = { Cookie: sessionCookie(key), Origin: WEB_URL }
+    const [accepted, pending] = await Promise.all([
+      retrySeedRequest(() => fetch(`${WEB_URL}/api/community/friends/accepted`, { headers })),
+      retrySeedRequest(() => fetch(`${WEB_URL}/api/community/friends/pending`, { headers })),
+    ])
+    if (!accepted.ok) throw new Error(`listSeedRelationships accepted failed (${accepted.status})`)
+    if (!pending.ok) throw new Error(`listSeedRelationships pending failed (${pending.status})`)
+    return {
+      accepted: ((await accepted.json()) as { friends: SeedRelationship[] }).friends,
+      pending: ((await pending.json()) as { pending: SeedRelationship[] }).pending,
+    }
+  }
+
+  async function deleteSeedRelationship(key: UserKey, id: string): Promise<Response> {
+    return retrySeedRequest(() => fetch(`${WEB_URL}/api/community/friends/${id}`, {
+      method: "DELETE",
+      headers: { Cookie: sessionCookie(key), Origin: WEB_URL },
+    }))
+  }
+
+  // Remove an accepted friendship while preserving any existing DM and history.
+  // Use after seedDm/seedDmMessage when a spec needs the post-unfriend read-only
+  // state; creating a DM directly as non-friends is no longer a valid fixture.
+  async function seedRemoveFriendship(
+    requester: UserKey,
+    targetUserId: string,
+  ): Promise<void> {
+    identity.assertResource?.("user", targetUserId)
+    const friendshipId = await findFriendshipId(requester, targetUserId)
+    if (!friendshipId) throw new Error("seedRemoveFriendship: accepted friendship not found")
+    const response = await deleteSeedRelationship(requester, friendshipId)
+    if (!response.ok) throw new Error(`seedRemoveFriendship failed (${response.status})`)
+  }
+
+  async function acceptSeedFriendship(
+    requester: UserKey,
+    addressee: UserKey,
+    targetUserId: string,
+    pending: SeedRelationship,
+  ): Promise<string> {
+    const accepter = pending.kind === "outgoing" ? addressee : requester
+    const response = await retrySeedRequest(() => postRaw(
+      accepter,
+      `/api/community/friends/${pending.id}/accept`,
+    ))
+    if (response.ok) return pending.id
+    // Parallel fixtures may both observe the same pending row; one wins the
+    // accept while the other receives a terminal-state response. Confirm the
+    // accepted state instead of treating that harmless race as a seed failure.
+    if (response.status === 400 || response.status === 409) {
+      const existing = await findFriendshipId(requester, targetUserId)
+      if (existing) return existing
+    }
+    throw new Error(`seedFriendship accept failed (${response.status})`)
+  }
+
+  // Normalize a human-to-human pair to one actionable pending request. This uses
+  // only the public HTTP routes and is repeatable after an earlier E2E spec (or a
+  // Playwright retry) left the pair accepted, blocked, or pending in either
+  // direction.
+  async function seedPendingFriendRequest(
+    requester: UserKey,
+    addressee: UserKey,
+    targetUserId: string,
+  ): Promise<string> {
+    if (identity.assertResource) identity.assertResource("user", userId(addressee))
+    identity.assertResource?.("user", targetUserId)
+    await Promise.all([
+      post(requester, `/api/community/users/${targetUserId}/unblock`),
+      post(addressee, `/api/community/users/${userId(requester)}/unblock`),
+    ])
+
+    const relationships = await listSeedRelationships(requester)
+    const accepted = relationships.accepted.find((row) => row.userId === targetUserId)
+    if (accepted) {
+      const response = await deleteSeedRelationship(requester, accepted.id)
+      if (!response.ok) throw new Error(`seedPendingFriendRequest remove failed (${response.status})`)
+    }
+    const pending = relationships.pending.find((row) => row.userId === targetUserId)
+    if (pending) {
+      const response = pending.kind === "outgoing"
+        ? await deleteSeedRelationship(requester, pending.id)
+        : await post(requester, `/api/community/friends/${pending.id}/reject`)
+      if (!response.ok) throw new Error(`seedPendingFriendRequest clear pending failed (${response.status})`)
+    }
+
+    const response = await retrySeedRequest(() => postRaw(
+      requester,
+      "/api/community/friends/request",
+      { userId: targetUserId },
+    ))
+    if (!response.ok) throw new Error(`seedPendingFriendRequest request failed (${response.status})`)
+    const body = (await response.json()) as { id?: string; friendship?: { id: string } | null }
+    const id = body.id ?? body.friendship?.id
+    if (!id) throw new Error("seedPendingFriendRequest: no friendship id in response")
+    identity.onResourceCreated?.("friendship", id)
+    return id
+  }
+
+  // Withdraw a pending request through the same route used by the product. A
+  // terminal/missing row is already cancelled for fixture-cleanup purposes.
+  async function seedCancelFriendRequest(requester: UserKey, friendshipId: string): Promise<void> {
+    identity.assertResource?.("friendship", friendshipId)
+    const response = await deleteSeedRelationship(requester, friendshipId)
+    if (response.ok || response.status === 400 || response.status === 404) return
+    throw new Error(`seedCancelFriendRequest failed (${response.status})`)
+  }
+
+  // Full friend handshake: requester sends, addressee accepts (accept is
+  // addressee-only, hence two keys). Returns the friendship id. Idempotent on a
+  // Playwright retry: if the pair is already friends the request 409s, so we
+  // recover the existing friendship id and skip the accept.
+  async function seedFriendship(requester: UserKey, addressee: UserKey, targetUserId: string): Promise<string> {
+    if (identity.assertResource) identity.assertResource("user", userId(addressee))
+    identity.assertResource?.("user", targetUserId)
+    await Promise.all([
+      post(requester, `/api/community/users/${targetUserId}/unblock`),
+      post(addressee, `/api/community/users/${userId(requester)}/unblock`),
+    ])
+
+    const relationships = await listSeedRelationships(requester)
+    const accepted = relationships.accepted.find((row) => row.userId === targetUserId)
+    if (accepted) return accepted.id
+    const pending = relationships.pending.find((row) => row.userId === targetUserId)
+    if (pending) {
+      return acceptSeedFriendship(requester, addressee, targetUserId, pending)
+    }
+
+    let reqRes: Response | undefined
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const response = await postRaw(requester, "/api/community/friends/request", { userId: targetUserId })
+      reqRes = response
+      // 409 = already friends / request already sent — a valid idempotent state.
+      if (response.ok || response.status === 409 || !isRetryableSeedStatus(response.status)) break
+      await new Promise((r) => setTimeout(r, seedRetryDelayMs(response)))
+    }
+    if (reqRes!.status === 409) {
+      const existing = await findFriendshipId(requester, targetUserId)
+      if (existing) return existing
+      const refreshed = await listSeedRelationships(requester)
+      const pending = refreshed.pending.find((row) => row.userId === targetUserId)
+      if (pending) return acceptSeedFriendship(requester, addressee, targetUserId, pending)
+      throw new Error("seedFriendship: 409 but no accepted or pending friendship found")
+    }
+    if (!reqRes!.ok) throw new Error(`seedFriendship request failed (${reqRes!.status})`)
+    const reqData = (await reqRes!.json()) as { id?: string; friendship?: { id: string } | null }
+    const friendshipId = reqData.id ?? reqData.friendship?.id
+    if (!friendshipId) throw new Error("seedFriendship: no friendship id in response")
+    return acceptSeedFriendship(requester, addressee, targetUserId, {
+      id: friendshipId,
+      userId: targetUserId,
+      kind: "outgoing",
+    })
+  }
+
+  // Post a message into a channel via API (persisted with a real server id).
+  // Use when a spec needs a pre-existing message as a precondition rather than
+  // exercising the send UI itself. Returns the message id.
+  async function seedMessage(author: UserKey, channelId: string, content: string): Promise<string> {
+    identity.assertResource?.("channel", channelId)
+    const res = await post(author, `/api/community/channels/${channelId}/messages`, { content })
+    const data = (await res.json()) as { message: { id: string } }
+    identity.onResourceCreated?.("message", data.message.id)
+    return data.message.id
+  }
+
+  async function seedReaction(author: UserKey, messageId: string, emoji: string): Promise<void> {
+    identity.assertResource?.("message", messageId)
+    const response = await retrySeedRequest(() => fetch(
+      `${WEB_URL}/api/community/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`,
+      { method: "PUT", headers: { Cookie: sessionCookie(author), Origin: WEB_URL } },
+    ))
+    if (!response.ok) throw new Error(`seedReaction failed (${response.status})`)
+  }
+
+  async function seedMark(author: UserKey, channelId: string, messageId: string): Promise<void> {
+    identity.assertResource?.("channel", channelId)
+    identity.assertResource?.("message", messageId)
+    const response = await retrySeedRequest(() => fetch(
+      `${WEB_URL}/api/community/messages/${messageId}/marks`,
+      {
+        method: "PUT",
+        headers: {
+          Cookie: sessionCookie(author),
+          "Content-Type": "application/json",
+          Origin: WEB_URL,
+        },
+        body: JSON.stringify({ channelId }),
+      },
+    ))
+    if (!response.ok) throw new Error(`seedMark failed (${response.status})`)
+  }
+
+  // Create a forum post (a child channel of a `type:"forum"` channel) via API.
+  // Returns the post's own channel id. The creator is enrolled as a participant
+  // server-side. Use when a spec needs an existing post before driving the UI.
+  async function seedForumThread(
+    author: UserKey,
+    forumChannelId: string,
+    name: string,
+    content: string,
+  ): Promise<string> {
+    identity.assertResource?.("channel", forumChannelId)
+    const nonce = `e2e:${crypto.randomUUID()}`
+    const structure = await post(author, `/api/community/channels/${forumChannelId}/messages`, {
+      content: name,
+      nonce: `${nonce}:opener`,
+    })
+    const data = (await structure.json()) as { threadId: string }
+    identity.onResourceCreated?.("channel", data.threadId)
+    await post(author, `/api/community/channels/${data.threadId}/messages`, {
+      content,
+      nonce: `${nonce}:reply`,
+    })
+    return data.threadId
+  }
+
+  // Create a thread rooted on an existing message. Returns the thread's own
+  // child-channel id. A thread has NO roster of its own — its @-mention scope is
+  // the PARENT channel's audience — which is exactly what the scope spec probes.
+  async function seedThread(author: UserKey, messageId: string, name: string): Promise<string> {
+    identity.assertResource?.("message", messageId)
+    const res = await post(author, "/api/community/channels", { type: "thread", messageId, name })
+    const data = (await res.json()) as { id: string }
+    identity.onResourceCreated?.("channel", data.id)
+    return data.id
+  }
+
+  async function createInvite(owner: UserKey, serverId: string): Promise<string> {
+    identity.assertResource?.("server", serverId)
+    const res = await post(owner, `/api/community/servers/${serverId}/invites`, {})
+    const data = (await res.json()) as { invite: { token: string } }
+    return data.invite.token
+  }
+
+  // Rename a user's community display name. Used by the mention specs to force
+  // two members to share a name (each keeps its own auto-assigned discriminator),
+  // which is the whole point of the same-name-disambiguation journey.
+  async function renameUser(key: UserKey, name: string): Promise<void> {
+    let lastStatus = 0
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const res = await fetch(`${WEB_URL}/api/community/users/me/profile`, {
+        method: "PATCH",
+        headers: { Cookie: sessionCookie(key), "Content-Type": "application/json", Origin: WEB_URL },
+        body: JSON.stringify({ name }),
+      })
+      if (res.ok) return
+      lastStatus = res.status
+      if (!isRetryableSeedStatus(res.status)) break
+      await new Promise((r) => setTimeout(r, seedRetryDelayMs(res)))
+    }
+    throw new Error(`renameUser failed (${lastStatus})`)
+  }
+
+  // A member's row id + display name + discriminator, read from a server's member
+  // list (the same NOT NULL column the mention grammar depends on). The mention
+  // popup keys its option testid off the row `id`, filters candidates by `name`
+  // prefix, and the pill/profile card shows the `discriminator` — so the mention
+  // specs need all three (a hardcoded query like "@bob" breaks once an earlier
+  // serial spec renames the account). `viewer` must be a member of `serverId`;
+  // `targetUserId` is the member being looked up.
+  async function memberInfo(
+    viewer: UserKey,
+    serverId: string,
+    targetUserId: string,
+  ): Promise<{ id: string; name: string; discriminator: string }> {
+    identity.assertResource?.("server", serverId)
+    identity.assertResource?.("user", targetUserId)
+    const res = await fetch(`${WEB_URL}/api/community/servers/${serverId}/members`, {
+      headers: { Cookie: sessionCookie(viewer), Origin: WEB_URL },
+    })
+    if (!res.ok) throw new Error(`memberInfo list failed (${res.status})`)
+    const data = (await res.json()) as { members: Array<{ id: string; userId: string; name: string; discriminator?: string }> }
+    const found = data.members.find((m) => m.userId === targetUserId)
+    if (!found?.discriminator) throw new Error(`memberInfo: no discriminator for ${targetUserId}`)
+    return { id: found.id, name: found.name, discriminator: found.discriminator }
+  }
+
+  return {
+    seedServer,
+    retireSeedServers,
+    seedChannel,
+    seedCategory,
+    seedJoinServer,
+    seedChannelMember,
+    seedDm,
+    seedDmMessage,
+    seedBlock,
+    seedRemoveFriendship,
+    seedPendingFriendRequest,
+    seedCancelFriendRequest,
+    seedFriendship,
+    seedMessage,
+    seedReaction,
+    seedMark,
+    seedForumThread,
+    seedThread,
+    createInvite,
+    renameUser,
+    memberInfo,
+  }
 }
 
-// A member's row id + display name + discriminator, read from a server's member
-// list (the same NOT NULL column the mention grammar depends on). The mention
-// popup keys its option testid off the row `id`, filters candidates by `name`
-// prefix, and the pill/profile card shows the `discriminator` — so the mention
-// specs need all three (a hardcoded query like "@bob" breaks once an earlier
-// serial spec renames the account). `viewer` must be a member of `serverId`;
-// `targetUserId` is the member being looked up.
-export async function memberInfo(
-  viewer: UserKey,
-  serverId: string,
-  targetUserId: string,
-): Promise<{ id: string; name: string; discriminator: string }> {
-  const res = await fetch(`${WEB_URL}/api/community/servers/${serverId}/members`, {
-    headers: { Cookie: sessionCookie(viewer), Origin: WEB_URL },
-  })
-  if (!res.ok) throw new Error(`memberInfo list failed (${res.status})`)
-  const data = (await res.json()) as { members: Array<{ id: string; userId: string; name: string; discriminator?: string }> }
-  const found = data.members.find((m) => m.userId === targetUserId)
-  if (!found?.discriminator) throw new Error(`memberInfo: no discriminator for ${targetUserId}`)
-  return { id: found.id, name: found.name, discriminator: found.discriminator }
-}
+export const {
+  seedServer,
+  retireSeedServers,
+  seedChannel,
+  seedCategory,
+  seedJoinServer,
+  seedChannelMember,
+  seedDm,
+  seedDmMessage,
+  seedBlock,
+  seedRemoveFriendship,
+  seedPendingFriendRequest,
+  seedCancelFriendRequest,
+  seedFriendship,
+  seedMessage,
+  seedReaction,
+  seedMark,
+  seedForumThread,
+  seedThread,
+  createInvite,
+  renameUser,
+  memberInfo,
+} = createSeed({ sessionCookie, userId, users: () => manifest().users })
+
+export type CaseSeed = ReturnType<typeof createSeed>

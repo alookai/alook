@@ -1,19 +1,10 @@
 import type { Locator, Page, Route, TestInfo } from "@playwright/test"
-import { test, expect, sessionCookie, userId } from "./_fixtures/community-fixture"
+import { test, expect, type CaseActors } from "./_fixtures/case-fixture"
 import { composerEditable, gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
 import {
   communityFrameEvents,
   proxyCommunityWebSockets,
 } from "./_fixtures/community-ws-proxy"
-import {
-  seedChannel,
-  seedDm,
-  seedDmMessage,
-  seedJoinServer,
-  seedMessage,
-  seedServer,
-  seedThread,
-} from "./_fixtures/seed"
 import {
   abortScrollTrace,
   attachScrollTrace,
@@ -41,6 +32,7 @@ type HeldRequest = {
 }
 
 async function holdNextRequest(
+  actors: CaseActors,
   page: Page,
   pattern: string,
   predicate: (url: URL) => boolean,
@@ -67,15 +59,17 @@ async function holdNextRequest(
     await route.continue()
   }
   await page.route(pattern, handler)
-  return {
+  const held = {
     matched,
     release,
     dispose: async () => {
       if (timeout) clearTimeout(timeout)
       release()
-      await page.unroute(pattern, handler)
+      if (!page.isClosed()) await page.unroute(pattern, handler)
     },
   }
+  actors.onCleanup(() => held.dispose())
+  return held
 }
 
 function profileContent(index: number): string {
@@ -95,12 +89,14 @@ function estimatePlainMessage(content: string): number {
 }
 
 async function seedProfile(
+  actors: CaseActors,
   channelId: string,
   count: number,
   imageAtTail = false,
   authors: "rotate" | "alice" = "rotate",
   checkpointAt?: number,
 ): Promise<{ ids: string[]; estimates: Record<string, number> }> {
+  const { seedMessage } = actors.seed
   const ids: string[] = []
   const estimates: Record<string, number> = {}
   for (let index = 0; index < count; index += 1) {
@@ -116,15 +112,17 @@ async function seedProfile(
     const id = await seedMessage(author, channelId, content)
     ids.push(id)
     estimates[id] = estimatePlainMessage(content)
-    if (index === checkpointAt) await setReadCheckpoint(channelId, id)
+    if (index === checkpointAt) await setReadCheckpoint(actors, channelId, id)
   }
   return { ids, estimates }
 }
 
 async function seedDmProfile(
+  actors: CaseActors,
   dmId: string,
   count: number,
 ): Promise<{ ids: string[]; estimates: Record<string, number> }> {
+  const { seedDmMessage } = actors.seed
   const ids: string[] = []
   const estimates: Record<string, number> = {}
   for (let index = 0; index < count; index += 1) {
@@ -136,11 +134,11 @@ async function seedDmProfile(
   return { ids, estimates }
 }
 
-async function setReadCheckpoint(channelId: string, messageId: string): Promise<void> {
+async function setReadCheckpoint(actors: CaseActors, channelId: string, messageId: string): Promise<void> {
   const response = await fetch(`${WEB_URL}/api/community/channels/${channelId}/read`, {
     method: "PUT",
     headers: {
-      Cookie: sessionCookie("alice"),
+      Cookie: actors.sessionCookie("alice"),
       "Content-Type": "application/json",
       Origin: WEB_URL,
     },
@@ -531,46 +529,51 @@ async function expectMessageCreateIdentity(
   expect(created.message).toMatchObject({ id: message.id, seq: message.seq, authorId: message.authorId, clientNonce: nonce })
 }
 
-test.describe.serial("message scroll characterization", () => {
-  let serverId: string
-  let coldChannelId: string
-  let loadingChannelId: string
-  let upwardChannelId: string
-  let composerChannelId: string
-  let composerDmId: string
-  let loadingProfile: Awaited<ReturnType<typeof seedProfile>>
-  let upwardProfile: Awaited<ReturnType<typeof seedProfile>>
-  let composerProfile: Awaited<ReturnType<typeof seedProfile>>
-  let composerDmProfile: Awaited<ReturnType<typeof seedDmProfile>>
+async function seedScrollCase(actors: CaseActors) {
+  const { seedServer, seedJoinServer, seedChannel, seedDm } = actors.seed
+  const { userId } = actors
+  const stamp = Date.now()
+  const serverId = await seedServer("alice", `Scroll characterization ${stamp}`)
+  await seedJoinServer("alice", "bob", serverId)
+  await seedJoinServer("alice", "carol", serverId)
+  const coldChannelId = await seedChannel("alice", serverId, `scroll-cold-${stamp}`)
+  const loadingChannelId = await seedChannel("alice", serverId, `scroll-loading-${stamp}`)
+  const upwardChannelId = await seedChannel("alice", serverId, `scroll-upward-${stamp}`)
+  const composerChannelId = await seedChannel("alice", serverId, `scroll-composer-${stamp}`)
+  const composerDmId = await seedDm("alice", userId("bob"))
+  const loadingProfile = await seedProfile(actors, loadingChannelId, 130, false, "rotate", 64)
+  const upwardProfile = await seedProfile(actors, upwardChannelId, 72, false, "rotate", 23)
+  const composerProfile = await seedProfile(actors, composerChannelId, 36, true, "alice")
+  const composerDmProfile = await seedDmProfile(actors, composerDmId, 36)
+  return { serverId, coldChannelId, loadingChannelId, upwardChannelId, composerChannelId, composerDmId, loadingProfile, upwardProfile, composerProfile, composerDmProfile }
+}
 
-  test.beforeAll(async () => {
-    test.setTimeout(240_000)
-    const stamp = Date.now()
-    serverId = await seedServer("alice", `Scroll characterization ${stamp}`)
-    await seedJoinServer("alice", "bob", serverId)
-    await seedJoinServer("alice", "carol", serverId)
-    coldChannelId = await seedChannel("alice", serverId, `scroll-cold-${stamp}`)
-    loadingChannelId = await seedChannel("alice", serverId, `scroll-loading-${stamp}`)
-    upwardChannelId = await seedChannel("alice", serverId, `scroll-upward-${stamp}`)
-    composerChannelId = await seedChannel("alice", serverId, `scroll-composer-${stamp}`)
-    composerDmId = await seedDm("alice", userId("bob"))
-    loadingProfile = await seedProfile(loadingChannelId, 130, false, "rotate", 64)
-    upwardProfile = await seedProfile(upwardChannelId, 72, false, "rotate", 23)
-    composerProfile = await seedProfile(composerChannelId, 36, true, "alice")
-    composerDmProfile = await seedDmProfile(composerDmId, 36)
-  })
+function tracedAsUser(actors: CaseActors): CaseActors["asUser"] {
+  return async (key, options) => {
+    const opened = await actors.asUser(key, options)
+    actors.onCleanup(async () => {
+      if (!opened.page.isClosed()) await abortScrollTrace(opened.page)
+    })
+    return opened
+  }
+}
 
-  test("cold and warm loading, older prepend, and jump-to-present remain observable", async ({ asUser }, testInfo) => {
+test.describe("message scroll characterization", () => {
+  test("cold and warm loading, older prepend, and jump-to-present remain observable", async ({ caseActors }, testInfo) => {
     test.setTimeout(180_000)
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const asUser = tracedAsUser(actors)
+    const { serverId, coldChannelId, loadingChannelId, loadingProfile } = await seedScrollCase(actors)
+
     const alice = await asUser("alice")
     await alice.page.setViewportSize(VIEWPORT)
     await installScrollTrace(alice.page)
-    const initialMessages = await holdNextRequest(
+    const initialMessages = await holdNextRequest(actors,
       alice.page,
       `**/api/community/channels/${coldChannelId}/messages**`,
       () => true,
     )
-    const image = await holdNextRequest(
+    const image = await holdNextRequest(actors,
       alice.page,
       "**/icon-512.png?scroll-trace=1",
       () => true,
@@ -599,7 +602,7 @@ test.describe.serial("message scroll characterization", () => {
       dataTransitionSource: "initial-cold",
     })
     await markScrollTrace(alice.page, "cold-request-held", { dataTransitionSource: "initial-cold" })
-    const coldProfile = await seedProfile(coldChannelId, 12, true, "alice")
+    const coldProfile = await seedProfile(actors, coldChannelId, 12, true, "alice")
     initialMessages.release()
     await image.matched
     await expect(alice.page.getByTestId(tid.message(coldProfile.ids.at(-1)!))).toBeVisible({ timeout: 30_000 })
@@ -616,7 +619,7 @@ test.describe.serial("message scroll characterization", () => {
 
     const mobile = await asUser("alice")
     await mobile.page.setViewportSize({ width: 390, height: 844 })
-    const mobileInitialMessages = await holdNextRequest(
+    const mobileInitialMessages = await holdNextRequest(actors,
       mobile.page,
       `**/api/community/channels/${coldChannelId}/messages**`,
       () => true,
@@ -635,7 +638,7 @@ test.describe.serial("message scroll characterization", () => {
     await alice.page.getByTestId(tid.channelRow(loadingChannelId)).click()
     await alice.page.waitForURL(new RegExp(loadingChannelId), { waitUntil: "commit" })
     await expect(alice.page.getByTestId(tid.messageScroller)).toBeVisible()
-    const warmRequest = await holdNextRequest(
+    const warmRequest = await holdNextRequest(actors,
       alice.page,
       `**/api/community/channels/${coldChannelId}/messages**`,
       () => true,
@@ -666,7 +669,7 @@ test.describe.serial("message scroll characterization", () => {
     await installScrollTrace(anchored.page)
     await anchored.page.goto(`/c/channels/${serverId}/${loadingChannelId}`, { waitUntil: "commit" })
     await expect(anchored.page.getByTestId(tid.newDivider)).toBeVisible({ timeout: 30_000 })
-    const older = await holdNextRequest(
+    const older = await holdNextRequest(actors,
       anchored.page,
       `**/api/community/channels/${loadingChannelId}/messages**`,
       (url) => url.searchParams.has("cursor"),
@@ -708,7 +711,7 @@ test.describe.serial("message scroll characterization", () => {
         && url.search === ""
       ) newestGets += 1
     })
-    const newest = await holdNextRequest(
+    const newest = await holdNextRequest(actors,
       anchored.page,
       `**/api/community/channels/${loadingChannelId}/messages**`,
       (url) => url.search === "",
@@ -736,12 +739,17 @@ test.describe.serial("message scroll characterization", () => {
     await newest.dispose()
   })
 
-  test("peer receives follow after clamped bottom input without movement", async ({ asUser }) => {
+  test("peer receives follow after clamped bottom input without movement", async ({ caseActors }) => {
     test.setTimeout(120_000)
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const asUser = tracedAsUser(actors)
+    const { serverId } = await seedScrollCase(actors)
+    const { seedChannel, seedMessage } = actors.seed
+
     const channelId = await seedChannel("alice", serverId, `scroll-bottom-input-${Date.now()}`)
-    await seedProfile(channelId, 18)
+    await seedProfile(actors, channelId, 18)
     let tailId = await seedMessage("bob", channelId, "bottom input start\n[keyboard target](https://example.com)")
-    await setReadCheckpoint(channelId, tailId)
+    await setReadCheckpoint(actors, channelId, tailId)
     const alice = await asUser("alice")
     await alice.page.setViewportSize(VIEWPORT)
     const proxy = await proxyCommunityWebSockets(alice.context)
@@ -775,10 +783,15 @@ test.describe.serial("message scroll characterization", () => {
     }
   })
 
-  test("local history submission and passive remote append use distinct owners", async ({ asUser }) => {
+  test("local history submission and passive remote append use distinct owners", async ({ caseActors }) => {
     test.setTimeout(120_000)
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const asUser = tracedAsUser(actors)
+    const { userId, sessionCookie } = actors
+    const { serverId } = await seedScrollCase(actors)
+    const { seedChannel } = actors.seed
     const channelId = await seedChannel("alice", serverId, `scroll-passive-threshold-${Date.now()}`)
-    await seedProfile(channelId, 130, false, "rotate", 18)
+    await seedProfile(actors, channelId, 130, false, "rotate", 18)
     const alice = await asUser("alice")
     await alice.page.setViewportSize(VIEWPORT)
     const proxy = await proxyCommunityWebSockets(alice.context)
@@ -801,7 +814,7 @@ test.describe.serial("message scroll characterization", () => {
       const url = new URL(request.url())
       if (request.method() === "GET" && url.pathname === `/api/community/channels/${channelId}/messages` && url.search === "") newestGets += 1
     })
-    const newest = await holdNextRequest(alice.page, `**/api/community/channels/${channelId}/messages**`, url => url.search === "")
+    const newest = await holdNextRequest(actors, alice.page, `**/api/community/channels/${channelId}/messages**`, url => url.search === "")
     const localContent = `local history submission ${Date.now()}`
     const localPost = alice.page.waitForResponse(response => response.request().method() === "POST"
       && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`
@@ -866,8 +879,13 @@ test.describe.serial("message scroll characterization", () => {
     expect(newestGets).toBe(1)
   })
 
-  test("remote receive states and sustained upward input produce diagnostic traces", async ({ asUser }, testInfo) => {
+  test("remote receive states and sustained upward input produce diagnostic traces", async ({ caseActors }, testInfo) => {
     test.setTimeout(180_000)
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const asUser = tracedAsUser(actors)
+    const { serverId, upwardChannelId, upwardProfile } = await seedScrollCase(actors)
+    const { seedMessage } = actors.seed
+
     const alice = await asUser("alice")
     await alice.page.setViewportSize(VIEWPORT)
     await installScrollTrace(alice.page)
@@ -979,8 +997,12 @@ test.describe.serial("message scroll characterization", () => {
       .toBeGreaterThanOrEqual(7)
   })
 
-  test("manual draft clear and optimistic send stay distinct through viewport changes", async ({ asUser }, testInfo) => {
+  test("manual draft clear and optimistic send stay distinct through viewport changes", async ({ caseActors }, testInfo) => {
     test.setTimeout(180_000)
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const asUser = tracedAsUser(actors)
+    const { serverId, composerChannelId, composerProfile } = await seedScrollCase(actors)
+
     const alice = await asUser("alice")
     await alice.page.setViewportSize(VIEWPORT)
     await installScrollTrace(alice.page)
@@ -1107,8 +1129,13 @@ test.describe.serial("message scroll characterization", () => {
     expect(messageCreateCount(proxy.frames, composerChannelId, awaySend)).toBe(1)
   })
 
-  test("DM composer clear preserves pinned and away viewport geometry", async ({ asUser }, testInfo) => {
+  test("DM composer clear preserves pinned and away viewport geometry", async ({ caseActors }, testInfo) => {
     test.setTimeout(180_000)
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const asUser = tracedAsUser(actors)
+    const { userId } = actors
+    const { composerDmId, composerDmProfile } = await seedScrollCase(actors)
+
     const alice = await asUser("alice")
     await alice.page.setViewportSize(VIEWPORT)
     await installScrollTrace(alice.page)
@@ -1222,14 +1249,20 @@ test.describe.serial("message scroll characterization", () => {
     expect(messagePosts).toBe(1)
   })
 
-  test("normal-flow composer resizes preserve semantic anchors and interaction boundaries", async ({ asUser }, testInfo) => {
+  test("normal-flow composer resizes preserve semantic anchors and interaction boundaries", async ({ caseActors }, testInfo) => {
     test.setTimeout(180_000)
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const asUser = tracedAsUser(actors)
+    const { userId } = actors
+    const { serverId, composerChannelId, composerProfile } = await seedScrollCase(actors)
+    const { seedThread } = actors.seed
+
     const splitThreadId = await seedThread(
       "alice",
       composerProfile.ids.at(-1)!,
       `scroll split ${Date.now()}`,
     )
-    const splitProfile = await seedProfile(splitThreadId, 24, false, "alice")
+    const splitProfile = await seedProfile(actors, splitThreadId, 24, false, "alice")
     const alice = await asUser("alice")
     const bob = await asUser("bob")
     await alice.page.setViewportSize(VIEWPORT)
@@ -1498,9 +1531,5 @@ test.describe.serial("message scroll characterization", () => {
     await waitForStableTail(threadScroller, "thread-local-submit-ack")
     const parentAfter = await waitForCommittedGeometry(parentScroller)
     expectViewportAnchorPreserved(parentBefore, parentAfter, "thread-local-submit-parent")
-  })
-
-  test.afterEach(async ({ page }) => {
-    await abortScrollTrace(page)
   })
 })

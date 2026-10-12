@@ -1,7 +1,10 @@
-import { expect, test } from "./_fixtures/community-fixture"
+import { expect, test } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 
-test("plan Contact stays usable without billing data and preserves the plan tab", async ({ asUser }, testInfo) => {
+test("plan Contact stays usable without billing data and preserves the plan tab", async ({ caseActors }, testInfo) => {
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+
   for (const width of [1280, 390]) {
     const { page, context } = await asUser("alice", { viewport: { width, height: 844 } })
     const billingWrites: string[] = []
@@ -10,6 +13,7 @@ test("plan Contact stays usable without billing data and preserves the plan tab"
     })
     let releaseBilling!: () => void
     const billingGate = new Promise<void>((resolve) => { releaseBilling = resolve })
+    actors.onCleanup(async () => { releaseBilling() })
     await page.route("**/api/community/billing", async (route) => {
       await billingGate
       await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Unavailable" }) })

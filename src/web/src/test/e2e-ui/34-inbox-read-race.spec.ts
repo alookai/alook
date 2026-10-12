@@ -1,15 +1,6 @@
-import { expect, test, userId } from "./_fixtures/community-fixture"
+import { expect, test } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { tid } from "./_fixtures/testids"
-import {
-  seedChannel,
-  seedDm,
-  seedDmMessage,
-  seedJoinServer,
-  seedMessage,
-  seedServer,
-  seedThread,
-} from "./_fixtures/seed"
 import {
   communityFrameEvents,
   isCommunityBatchFrame,
@@ -112,10 +103,14 @@ async function watchInboxRow(page: Parameters<typeof gotoAfterUserWsAuth>[0], te
   }, key)
 }
 
-test.describe.serial("Inbox/read refresh ownership", () => {
+test.describe("Inbox/read refresh ownership", () => {
   test.setTimeout(180_000)
 
-  test("an Inbox click closes, publishes, and hides only its exact row before read settles", async ({ asUser }) => {
+  test("an Inbox click closes, publishes, and hides only its exact row before read settles", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { seedChannel, seedJoinServer, seedMessage, seedServer } = actors.seed
+
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Inbox projection ${stamp}`)
     const channelAName = `project-a-${stamp}`
@@ -132,7 +127,9 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelB))).toBeVisible()
 
     const readGate = deferred()
+    actors.onCleanup(async () => { readGate.resolve() })
     const readStarted = deferred()
+    actors.onCleanup(async () => { readStarted.resolve() })
     const hrefsAtRead: string[] = []
     await page.route(`**/api/community/channels/${channelA}/read`, async (route) => {
       if (route.request().method() !== "PUT") return route.continue()
@@ -167,7 +164,11 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelB))).toBeVisible()
   })
 
-  test("focused A never flashes while same-window B and DM remain unread", async ({ asUser }) => {
+  test("focused A never flashes while same-window B and DM remain unread", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser, userId } = actors
+    const { seedChannel, seedDm, seedDmMessage, seedJoinServer, seedMessage, seedServer } = actors.seed
+
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Inbox race mixed ${stamp}`)
     const channelAName = `focused-a-${stamp}`
@@ -269,7 +270,11 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     expect(readSeq(dmId)).toBe(0)
   })
 
-  test("a failed focused read falls back once, then retry converges", async ({ asUser }) => {
+  test("a failed focused read falls back once, then retry converges", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { seedChannel, seedJoinServer, seedMessage, seedServer } = actors.seed
+
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Inbox race failure ${stamp}`)
     const channelName = `failure-${stamp}`
@@ -289,6 +294,7 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
 
     const retryGate = deferred()
+    actors.onCleanup(async () => { retryGate.resolve() })
     let puts = 0
     await page.route(`**/api/community/channels/${channelId}/read`, async (route) => {
       if (route.request().method() !== "PUT") return route.continue()
@@ -316,7 +322,11 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     expect(puts).toBe(2)
   })
 
-  test("cold forum openers publish exact child units and read only the selected opener", async ({ asUser }) => {
+  test("cold forum openers publish exact child units and read only the selected opener", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { seedChannel, seedJoinServer, seedServer } = actors.seed
+
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Inbox opener handoff ${stamp}`)
     const forumId = await seedChannel("alice", serverId, `handoff-forum-${stamp}`, "forum")
@@ -390,7 +400,11 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     expect(snapshot.readStates.some((row) => row.channelId === firstChildId)).toBe(false)
   })
 
-  test("cold text-child evidence projects through the canonical parent row", async ({ asUser }) => {
+  test("cold text-child evidence projects through the canonical parent row", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { seedChannel, seedJoinServer, seedMessage, seedServer, seedThread } = actors.seed
+
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Inbox text opener ${stamp}`)
     const parentId = await seedChannel("alice", serverId, `text-parent-${stamp}`)
@@ -490,7 +504,11 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     expect(cursor(unreadChildId)).toBe(beforeCursor(unreadChildId))
   })
 
-  test("a later focused intent keeps its own 500ms generation", async ({ asUser }) => {
+  test("a later focused intent keeps its own 500ms generation", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { seedChannel, seedJoinServer, seedMessage, seedServer } = actors.seed
+
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Inbox race cutoff ${stamp}`)
     const channelName = `cutoff-${stamp}`
@@ -511,7 +529,9 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     const stopWatching = await watchInboxRow(page, tid.inboxUnreadChannel(channelId))
 
     const firstGate = deferred()
+    actors.onCleanup(async () => { firstGate.resolve() })
     const firstStarted = deferred()
+    actors.onCleanup(async () => { firstStarted.resolve() })
     const putStarts: number[] = []
     await page.route(`**/api/community/channels/${channelId}/read`, async (route) => {
       if (route.request().method() !== "PUT") return route.continue()

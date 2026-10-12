@@ -1,11 +1,6 @@
 import type { Page } from "@playwright/test"
-import { expect, test, userId } from "./_fixtures/community-fixture"
+import { expect, test, type CaseActors } from "./_fixtures/case-fixture"
 import { composerEditable } from "./_fixtures/actions"
-import {
-  seedChannel,
-  seedDm,
-  seedServer,
-} from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 
 const DIRECTORY_PATH = "/api/community/users/me/channel-directory"
@@ -68,24 +63,27 @@ async function closeSuggestion(page: Page) {
   await expect(page.getByTestId(tid.channelRefPopup)).toHaveCount(0)
 }
 
-test.describe.serial("DM channel-reference directory states", () => {
+async function seedDirectoryCase(actors: CaseActors) {
+  const { seedServer, seedChannel, seedDm } = actors.seed
+  const { userId } = actors
+  const serverId = await seedServer("alice", `Channel ref states ${Date.now()}`)
+  const channelId = await seedChannel("alice", serverId, "general")
+  const firstDmId = await seedDm("alice", userId("bob"))
+  const secondDmId = await seedDm("alice", userId("carol"))
+  return { serverId, channelId, firstDmId, secondDmId }
+}
+
+test.describe("DM channel-reference directory states", () => {
   test.setTimeout(120_000)
 
-  let serverId: string
-  let channelId: string
-  let firstDmId: string
-  let secondDmId: string
+  test("cold pending stays anchored through query updates and resolves without false-empty", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, channelId, firstDmId } = await seedDirectoryCase(actors)
 
-  test.beforeAll(async () => {
-    serverId = await seedServer("alice", `Channel ref states ${Date.now()}`)
-    channelId = await seedChannel("alice", serverId, "general")
-    firstDmId = await seedDm("alice", userId("bob"))
-    secondDmId = await seedDm("alice", userId("carol"))
-  })
-
-  test("cold pending stays anchored through query updates and resolves without false-empty", async ({ asUser }) => {
     const { page } = await asUser("alice")
     const gate = deferred()
+    actors.onCleanup(async () => { gate.resolve() })
     let directoryGets = 0
     await page.route(`**${DIRECTORY_PATH}`, async (route) => {
       directoryGets += 1
@@ -116,7 +114,11 @@ test.describe.serial("DM channel-reference directory states", () => {
     expect(directoryGets).toBe(1)
   })
 
-  test("resolved empty stays anchored with explicit copy", async ({ asUser }) => {
+  test("resolved empty stays anchored with explicit copy", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { firstDmId } = await seedDirectoryCase(actors)
+
     const { page } = await asUser("alice")
     let directoryGets = 0
     await page.route(`**${DIRECTORY_PATH}`, async (route) => {
@@ -136,7 +138,11 @@ test.describe.serial("DM channel-reference directory states", () => {
     expect(directoryGets).toBe(1)
   })
 
-  test("cold 500 is one attempt, same-popup input is inert, and a new session retries once", async ({ asUser }) => {
+  test("cold 500 is one attempt, same-popup input is inert, and a new session retries once", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, channelId, firstDmId } = await seedDirectoryCase(actors)
+
     const { page } = await asUser("alice")
     const statuses: number[] = []
     await page.route(`**${DIRECTORY_PATH}`, async (route) => {
@@ -169,7 +175,11 @@ test.describe.serial("DM channel-reference directory states", () => {
     expect(statuses).toEqual([500, 200])
   })
 
-  test("warm cache crosses DM routes without a duplicate request or status flash", async ({ asUser }) => {
+  test("warm cache crosses DM routes without a duplicate request or status flash", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, channelId, firstDmId, secondDmId } = await seedDirectoryCase(actors)
+
     const { page } = await asUser("alice")
     let directoryGets = 0
     await page.route(`**${DIRECTORY_PATH}`, async (route) => {
@@ -201,9 +211,14 @@ test.describe.serial("DM channel-reference directory states", () => {
     expect(directoryGets).toBe(1)
   })
 
-  test("late completion after exit and SPA route switch only warms the new DM", async ({ asUser }) => {
+  test("late completion after exit and SPA route switch only warms the new DM", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, channelId, firstDmId, secondDmId } = await seedDirectoryCase(actors)
+
     const { page } = await asUser("alice")
     const gate = deferred()
+    actors.onCleanup(async () => { gate.resolve() })
     let directoryGets = 0
     await page.route(`**${DIRECTORY_PATH}`, async (route) => {
       directoryGets += 1
@@ -240,7 +255,11 @@ test.describe.serial("DM channel-reference directory states", () => {
     expect(directoryGets).toBe(1)
   })
 
-  test("server channel keeps local categories and never requests the directory", async ({ asUser }) => {
+  test("server channel keeps local categories and never requests the directory", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, channelId } = await seedDirectoryCase(actors)
+
     const { page } = await asUser("alice")
     let directoryGets = 0
     await page.route(`**${DIRECTORY_PATH}`, async (route) => {

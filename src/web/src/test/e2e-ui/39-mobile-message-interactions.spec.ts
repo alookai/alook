@@ -1,5 +1,5 @@
 import type { Locator, Page, Request, Route } from "@playwright/test"
-import { test, expect, userId } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import {
   composerEditable,
   expectMessageVisible,
@@ -7,15 +7,6 @@ import {
   ignoreNextDevToolsPointerCapture,
   installInputCapability,
 } from "./_fixtures/actions"
-import {
-  memberInfo,
-  seedChannel,
-  seedDm,
-  seedJoinServer,
-  seedMessage,
-  seedServer,
-  seedThread,
-} from "./_fixtures/seed"
 import {
   communityFrameEvents,
   proxyCommunityWebSockets,
@@ -349,7 +340,11 @@ async function expectRetainedMountGets(
   expect(tracker.failures).toEqual([])
 }
 
-test("same message row recovers its action menu from mouse to touch", async ({ asUser }) => {
+test("same message row recovers its action menu from mouse to touch", async ({ caseActors }) => {
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedMessage, seedServer } = actors.seed
+
   const stamp = Date.now()
   const serverId = await seedServer("alice", `Pointer-modality-${stamp}`)
   const channelId = await seedChannel("alice", serverId, "pointer-modality")
@@ -382,8 +377,12 @@ test("same message row recovers its action menu from mouse to touch", async ({ a
   ))).toHaveLength(messageCreatesBefore)
 })
 
-test("mobile reply, avatar mention, and typing rail keep exact backend and WS identity", async ({ asUser }) => {
+test("mobile reply, avatar mention, and typing rail keep exact backend and WS identity", async ({ caseActors }) => {
   test.setTimeout(240_000)
+  const actors = await caseActors(["alice", "bob"])
+  const { asUser, userId } = actors
+  const { memberInfo, seedChannel, seedDm, seedJoinServer, seedMessage, seedServer, seedThread } = actors.seed
+
   const stamp = Date.now()
   const serverName = `Mobile-interactions-${stamp}`
   const serverId = await seedServer("alice", serverName)
@@ -934,7 +933,11 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   channelReturnGets.stop()
 })
 
-test("mobile thread return uses server read state instead of tab-local pixel memory", async ({ asUser }) => {
+test("mobile thread return uses server read state instead of tab-local pixel memory", async ({ caseActors }) => {
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedMessage, seedServer, seedThread } = actors.seed
+
   const stamp = Date.now()
   const serverName = `Mobile-scroll-${stamp}`
   const serverId = await seedServer("alice", serverName)

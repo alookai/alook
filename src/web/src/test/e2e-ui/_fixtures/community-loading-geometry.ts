@@ -5,7 +5,7 @@ import type {
   Page,
   TestInfo,
 } from "@playwright/test"
-import { test, expect, sessionCookie, userId } from "./community-fixture"
+import { test, expect, sessionCookie } from "./community-fixture"
 import {
   COMMUNITY_RAIL_WIDTH,
   COMMUNITY_SEPARATOR_WIDTH,
@@ -13,15 +13,7 @@ import {
   COMMUNITY_SIDEBAR_MIN_WIDTH,
   COMMUNITY_SURFACE_BORDER_WIDTH,
 } from "@/components/community/shell/shell-frame-geometry"
-import {
-  retireSeedServers,
-  seedChannel,
-  seedDm,
-  seedForumThread,
-  seedMessage,
-  seedServer,
-  seedThread,
-} from "./seed"
+import type { CaseSeed } from "./seed"
 import { tid } from "./testids"
 import { WEB_URL } from "../_setup/paths"
 import { ssrGeometryErrors, type SsrLifecycleSample } from "./community-ssr-geometry"
@@ -435,11 +427,16 @@ async function visibleSkeletonAnimationProperties(page: Page) {
   )).sort())
 }
 
-export async function cleanupGeometryServers(serverIds: readonly string[]): Promise<void> {
-  await retireSeedServers(ISOLATED_GEOMETRY_USER, serverIds)
+export async function cleanupGeometryServers(serverIds: readonly string[], seed: CaseSeed): Promise<void> {
+  await seed.retireSeedServers(ISOLATED_GEOMETRY_USER, serverIds)
 }
 
-export async function seedGeometryRoutes(serverIds: string[]): Promise<Omit<MatrixCase, "width">[]> {
+export async function seedGeometryRoutes(
+  serverIds: string[],
+  seed: CaseSeed,
+  userId: (key: UserKey) => string,
+): Promise<Omit<MatrixCase, "width">[]> {
+  const { seedChannel, seedDm, seedForumThread, seedMessage, seedServer, seedThread } = seed
   const stamp = Date.now()
     const serverId = await seedServer(ISOLATED_GEOMETRY_USER, `Geometry ${stamp}`)
     serverIds.push(serverId)
@@ -593,6 +590,7 @@ export async function runAndroidLoadingGeometry(asUser: CommunityAsUser, testInf
 export async function runDesktopPersistedPendingGeometry(
   theme: Theme,
   asUser: CommunityAsUser,
+  onCleanup: (operation: () => Promise<unknown>) => void,
 ) {
   const cases = ([640, 768, 1024, 1280] as const).flatMap((viewportWidth) =>
     ([null, 100, 160, 240, 350, 360] as const).flatMap((sidebarWidth) =>
@@ -655,7 +653,9 @@ export async function runDesktopPersistedPendingGeometry(
         } finally {
           scripts?.release()
           communityReads?.release()
-          await context.close()
+          try { await context.close() } catch (error) {
+            onCleanup(async () => { throw error })
+          }
         }
       })
     }
@@ -693,6 +693,8 @@ export async function runNeutralRootGeometry(
   theme: Theme,
   asUser: CommunityAsUser,
   testInfo: TestInfo,
+  userId: (key: UserKey) => string,
+  onCleanup: (operation: () => Promise<unknown>) => void,
 ) {
       for (const width of [390, 1280] as const) {
         const { context, page } = await asUser(ISOLATED_GEOMETRY_USER)
@@ -702,6 +704,7 @@ export async function runNeutralRootGeometry(
           localStorage.removeItem(storageKey)
         }, `community:lastRoute:${encodeURIComponent(userId(ISOLATED_GEOMETRY_USER))}`)
         const scripts = await holdApplicationScripts(page)
+        onCleanup(async () => { scripts.release() })
         await page.goto("/c", { waitUntil: "commit" })
         await expect.poll(() => scripts.blocked.length).toBeGreaterThan(0)
         expect(scripts.received).toEqual([])
@@ -746,6 +749,7 @@ export async function runRouteLoadingGeometry(
   routes: Omit<MatrixCase, "width">[],
   asUser: CommunityAsUser,
   testInfo: TestInfo,
+  onCleanup: (operation: () => Promise<unknown>) => void,
 ) {
       const cases: MatrixCase[] = routes.flatMap((route) => ([
         { ...route, width: 390 },
@@ -759,10 +763,13 @@ export async function runRouteLoadingGeometry(
         await page.emulateMedia({ colorScheme: theme })
         await startClsObserver(page)
         const scripts = await holdApplicationScripts(page)
+        onCleanup(async () => { scripts.release() })
         const communityReads = await holdCommunityReads(page)
+        onCleanup(async () => { communityReads.release() })
         const intermediate = entry.intermediate
           ? await holdRequest(page, entry.intermediate.requestPattern)
           : null
+        if (intermediate) onCleanup(async () => { intermediate.release() })
         await page.goto(entry.pathname, { waitUntil: "commit" })
         await expect.poll(() => scripts.blocked.length).toBeGreaterThan(0)
         expect(scripts.received).toEqual([])

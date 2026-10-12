@@ -1,10 +1,15 @@
-import type { Browser, Page } from "@playwright/test"
+import type { Browser, BrowserContext, Page } from "@playwright/test"
 import {
   ANALYTICS_CONSENT_COOKIE,
   analyticsConsentCookieValue,
 } from "../../../lib/analytics-consent"
 import { WEB_URL } from "./paths"
 import { emailFor, type SeededUser, type UserKey } from "./users"
+
+type LoginContextOwner = {
+  created: (context: BrowserContext) => void
+  closed: (context: BrowserContext) => void
+}
 
 async function signIn(page: Page, email: string): Promise<void> {
   const attempts = [`${WEB_URL}/c`, `${WEB_URL}/sign-in?redirect=/c`]
@@ -40,14 +45,17 @@ export async function loginAndSaveState(
   key: UserKey,
   stamp: string,
   storageStatePath: string,
+  owner?: LoginContextOwner,
 ): Promise<SeededUser> {
   const email = emailFor(key, stamp)
   // Dev sign-up derives the display name from the email local-part
   // (`handleDevSignIn`: `name: email.split("@")[0]`), so mirror that here.
   const name = email.split("@")[0]
   const context = await browser.newContext()
-  const page = await context.newPage()
+  let outcome: { value: SeededUser } | { error: unknown }
   try {
+    owner?.created(context)
+    const page = await context.newPage()
     await signIn(page, email)
 
     // Resolve the seeded userId via the authenticated community profile API,
@@ -71,8 +79,17 @@ export async function loginAndSaveState(
 
     await context.clearCookies({ name: /^(?:is_new_signup|is_sign_in)$/ })
     await context.storageState({ path: storageStatePath })
-    return { key, email, name, userId: me.userId, storageState: storageStatePath }
-  } finally {
-    await context.close()
+    outcome = { value: { key, email, name, userId: me.userId, storageState: storageStatePath } }
+  } catch (error) {
+    outcome = { error }
   }
+  try {
+    await context.close()
+    owner?.closed(context)
+  } catch (error) {
+    if ("error" in outcome) throw new AggregateError([outcome.error, error], "Login and context cleanup failed")
+    throw error
+  }
+  if ("error" in outcome) throw outcome.error
+  return outcome.value
 }
