@@ -68,7 +68,7 @@ export function useCreateForumThread() {
       const parent = origin.registry!.collections.channels.get(channelId)
       if (parent && structure.message) {
         publishCommunityMessages(queryClient, { channelId, messages: [projectPostedMessage(structure.message, `${nonce}:opener`, channelId)], proof: { token, signal: assertActive?.signal } })
-        publishCommunityCreatedChannel(queryClient, { id: structure.threadId, serverId: parent.serverId, categoryId: null, name, type: "thread", parentChannelId: channelId, parentMessageId: structure.message.id, creatorId: structure.message.authorId, position: 0, archived: false, muted: false, unread: false, tags: [], pending: false, createdAt: structure.message.createdAt, lastMessageAt: structure.message.createdAt, messageCount: 0 }, { token, signal: assertActive?.signal })
+        publishCommunityCreatedChannel(queryClient, { id: structure.threadId, serverId: parent.serverId, categoryId: null, name, type: "thread", parentChannelId: channelId, parentMessageId: structure.message.id, creatorId: structure.message.authorId, position: 0, archived: false, muted: false, unread: false, tags: [], pending: false, resourceComplete: false }, { token, signal: assertActive?.signal })
       }
       assert()
       const reply = await origin.request<{ message: PostedMessage }>(token, `/api/community/channels/${structure.threadId}/messages`, {

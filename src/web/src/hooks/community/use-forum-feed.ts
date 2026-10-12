@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo } from "react"
 import { createStore, useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useInfiniteQuery, useIsMutating, useQueryClient, type Query } from "@tanstack/react-query"
-import { compareAsciiSqliteBinary, DEFAULT_MESSAGE_PAGE_SIZE, type CommunityThreadsRead } from "@alook/shared"
+import { compareAsciiSqliteBinary, DEFAULT_MESSAGE_PAGE_SIZE, type CommunityLegacyThreadsRead, type CommunityThreadsRead } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
 import { conversationReadRetryPolicy, withConversationReadDeadline } from "@/lib/community/conversation-read"
@@ -51,7 +51,7 @@ export function forumFeedPageQueryFn(channelId: string, tag: string | null, quer
     const params = new URLSearchParams({ order: "createdAt", limit: String(DEFAULT_MESSAGE_PAGE_SIZE), include: "parentMessage,firstMessage,tags,participants" })
     if (tag) params.set("tag", tag)
     if (pageParam) params.set("cursor", pageParam)
-    const transport = await apiFetch<ForumFeedTransportPage | CommunityThreadsRead>(`/api/community/channels/${channelId}/threads?${params}`, communityRequestOptions(queryClient, token, readSignal))
+    const transport = await apiFetch<ForumFeedTransportPage | CommunityThreadsRead | CommunityLegacyThreadsRead>(`/api/community/channels/${channelId}/threads?${params}`, communityRequestOptions(queryClient, token, readSignal))
     assertCommunityLiveSnapshotTokenCurrent(queryClient, token, readSignal)
     const page = normalizeThreadResources(channelId, transport)
     const freshThreads = page.threads.filter((thread) => !protocol.get().publishedIds.has(thread.id))

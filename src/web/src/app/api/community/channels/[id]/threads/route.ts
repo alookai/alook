@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { FORUM_ARCHIVE_TAG, isForum, queries, MAX_FORUM_TAG_LENGTH, requestsCommunityContract } from "@alook/shared"
+import { FORUM_ARCHIVE_TAG, isForum, queries, MAX_FORUM_TAG_LENGTH, requestsCommunityContract, requestedCommunityContract } from "@alook/shared"
 import { requireMessageSurfaceAccess } from "@/lib/community/permissions"
 import { writeCommunityThreadsRead } from "@/lib/community/thread-read"
 import { parseBoundedInt } from "@/lib/community/messages"
@@ -15,13 +15,14 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
 
   const currentContract = requestsCommunityContract(req.headers)
+  const contract = requestedCommunityContract(req.headers) === 3 ? 3 : 2
   const access = await requireMessageSurfaceAccess(db, channelId, ctx.userId)
   if (!access.ok) return writeError(currentContract ? access.error : "forbidden", currentContract ? access.status : 403)
   if (!currentContract && access.value.surface === "dm") return writeError("forbidden", 403)
   const channel = access.value.surface === "channel" ? access.value.channel
     : await queries.communityChannel.getChannelForMember(db, channelId, ctx.userId)
   if (!channel) return writeError("not found", 404)
-  if (channel.type === "dm") return writeCommunityThreadsRead(db, ctx.userId, channel, [])
+  if (channel.type === "dm") return writeCommunityThreadsRead(db, ctx.userId, channel, [], undefined, undefined, contract)
 
   const archivedParam = req.nextUrl.searchParams.get("archived")
   const archived = archivedParam === "true" ? true : archivedParam === "false" ? false : undefined
@@ -124,7 +125,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   ])
 
   if (currentContract) {
-    return writeCommunityThreadsRead(db, ctx.userId, channel, threads, { messages: [...parentMessages, ...firstMessages], tags, participants }, { hasMore, nextCursor: nextCursor ?? null })
+    return writeCommunityThreadsRead(db, ctx.userId, channel, threads, { messages: [...parentMessages, ...firstMessages], tags, participants }, { hasMore, nextCursor: nextCursor ?? null }, contract)
   }
   return writeJSON({
     serverId: channel.serverId,

@@ -21,7 +21,7 @@ import {
 import { getForumSidebarBase } from "@/hooks/community/use-forum-sidebar-threads"
 import { useAccountAttention } from "@/hooks/community/use-account-attention"
 import { useCanonicalMessagesById } from "@/lib/community-db/projections"
-import type { Msg } from "@/lib/community/models/message"
+import type { MessageInput } from "@/lib/community/models/message"
 import type { MessageScope, MessageOverlayEvent } from "@/lib/community/message-stream"
 
 const communityApiFetch = vi.hoisted(() => vi.fn(async (...args: unknown[]) => {
@@ -215,7 +215,7 @@ export function unmountHook() {
   renderedHook = null
 }
 
-export function seedCanonicalMessages(channelId: string, messages: Array<Partial<Msg> & Pick<Msg, "id">>) {
+export function seedCanonicalMessages(channelId: string, messages: MessageInput[]) {
   if (!canonicalRegistry) throw new Error("Community test owner missing")
   act(() => ingestMessages(canonicalRegistry!, channelId, messages.map((message) => ({ type: "chat", content: "", seq: 1, ...message }))))
 }

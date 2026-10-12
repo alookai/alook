@@ -2,7 +2,7 @@ import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } fro
 import { sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { user } from "./schema";
-import type { CommunityMachineRuntime } from "../community-ws-events";
+import type { CommunityMachineRuntime } from "../schemas";
 import type { QuotaLimit } from "../provider-telemetry";
 
 export const DIAGNOSTIC_REPORT_FAILURE_CODES = [

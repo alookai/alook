@@ -14,7 +14,7 @@ import {
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { ingestMessages } from "@/lib/community-db/sync"
 
-function message(id: string, seq: number, extra: Partial<Msg> = {}): CanonicalMessage {
+function message(id: string, seq: number, extra: Partial<CanonicalMessage> = {}): CanonicalMessage {
   return {
     id,
     seq,
@@ -79,12 +79,12 @@ function canonical(
   id = "m1",
   seq = 11,
   nonce = "n1",
-  extra: Partial<Msg> = {},
+  extra: Partial<CanonicalMessage> = {},
 ): CanonicalMessage {
   return message(id, seq, { clientNonce: nonce, authorName: "Canonical", ...extra })
 }
 
-function confirmation(nonce = "n1", id = "m1", seq = 11, extra: Partial<Msg> = {}): MessageOverlayEvent {
+function confirmation(nonce = "n1", id = "m1", seq = 11, extra: Partial<CanonicalMessage> = {}): MessageOverlayEvent {
   return { type: "wsMessage", message: canonical(id, seq, nonce, extra) }
 }
 
@@ -418,13 +418,14 @@ describe("attachment ownership effects", () => {
   const retryFile = { name: "notes.txt", size: 1024, type: "text/plain" } as File
   const retryThumbnail = new Blob(["thumbnail"], { type: "image/jpeg" })
   const settledAttachments: NonNullable<Msg["attachments"]> = [{
-    kind: "image",
+    kind: "image", contentType: "image/png",
     name: "photo.png",
     url: "/media/photo",
     thumbnailUrl: "/media/photo/thumbnail",
     width: 320,
     height: 240,
   }]
+  const settledResourceAttachments = [{ id: "photo", name: "photo.png", url: "/media/photo", thumbnailUrl: "/media/photo/thumbnail", contentType: "image/png", sizeBytes: null, width: 320, height: 240 }]
   const attachedIntent = () => intent("files", 1, {
     localUploads: [
       { file: retryFile, thumbnailBlob: retryThumbnail, previewObjectUrl: "blob:a", width: 640, height: 480 },
@@ -496,7 +497,7 @@ describe("attachment ownership effects", () => {
     ["WS then base", (state: MessageOverlayIds) => {
       const ws = apply(state, {
         type: "wsMessage",
-        message: canonical("mf", 20, "files", { attachments: settledAttachments }),
+        message: canonical("mf", 20, "files", { attachments: settledResourceAttachments }),
       })
       return apply(ws.state, {
         type: "baseChanged",
@@ -516,7 +517,7 @@ describe("attachment ownership effects", () => {
 
     expect(converged.outboxByNonce.size).toBe(0)
     expect(converged.liveIds).toContain("mf")
-    expect(canonicalRows().get("mf")?.attachments).toEqual(settledAttachments)
+    expect(canonicalRows().get("mf")?.attachments).toEqual(settledResourceAttachments)
     expect(materializeMessageStream([currentBase], converged)[0]?.attachments).toEqual(
       settledAttachments,
     )
@@ -525,7 +526,7 @@ describe("attachment ownership effects", () => {
   it("lets an explicit canonical empty attachment list replace prior attachments", () => {
     let state = apply(emptyMessageOverlay(), {
       type: "wsMessage",
-      message: canonical("mf", 20, "files", { attachments: settledAttachments }),
+      message: canonical("mf", 20, "files", { attachments: settledResourceAttachments }),
     }).state
 
     const emptyCanonical = canonical("mf", 20, "files", { attachments: [] })
@@ -544,15 +545,15 @@ describe("attachment ownership effects", () => {
       kind: "file",
       name: "canonical.txt",
       url: "/media/canonical",
-      size: "2 KB",
+      sizeBytes: 2048, size: "2.0 KB",
     }]
     let state = apply(emptyMessageOverlay(), {
       type: "wsMessage",
-      message: canonical("mf", 20, "files", { attachments: settledAttachments }),
+      message: canonical("mf", 20, "files", { attachments: settledResourceAttachments }),
     }).state
 
     const replacementCanonical = canonical("mf", 20, "files", {
-      attachments: replacement,
+      attachments: [{ id: "replacement", name: "canonical.txt", url: "/media/canonical", sizeBytes: 2048 }],
     })
     state = apply(state, {
       type: "baseChanged",
@@ -560,7 +561,7 @@ describe("attachment ownership effects", () => {
     }).state
 
     expect(state.liveIds).toContain("mf")
-    expect(canonicalRows().get("mf")?.attachments).toEqual(replacement)
+    expect(canonicalRows().get("mf")?.attachments).toEqual([{ id: "replacement", name: "canonical.txt", url: "/media/canonical", sizeBytes: 2048 }])
     expect(materializeMessageStream([replacementCanonical], state)[0]?.attachments).toEqual(
       replacement,
     )
@@ -569,9 +570,9 @@ describe("attachment ownership effects", () => {
   it("preserves complete canonical attachments when reconciling a matching nonce under a new id", () => {
     let state = apply(emptyMessageOverlay(), {
       type: "wsMessage",
-      message: canonical("ws-id", 20, "files", { attachments: settledAttachments }),
+      message: canonical("ws-id", 20, "files", { attachments: settledResourceAttachments }),
     }).state
-    const completeBase = canonical("base-id", 20, "files", { attachments: settledAttachments })
+    const completeBase = canonical("base-id", 20, "files", { attachments: settledResourceAttachments })
     state = apply(state, { type: "baseChanged", messages: [completeBase] }).state
 
     expect(materializeMessageStream([completeBase], state)).toEqual([

@@ -1,4 +1,4 @@
-import { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION } from "@alook/shared"
+import { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION, requestedCommunityContract } from "@alook/shared"
 import { communityReadTarget, decodeCommunityReadResponse } from "@/lib/community/read-response"
 import { createStore } from "@tanstack/store";
 import { ApiError, UnauthorizedError, isAbortError } from "@/lib/errors";
@@ -171,7 +171,7 @@ async function fetchQualifiedResponse(path: string, options?: ApiRequestOptions,
 export async function apiFetch<T>(path: string, options?: ApiRequestOptions): Promise<T> {
   const res = await apiFetchResponse(path, options, true);
   if (res.status === 204) return readObservedResponse(res, async () => undefined as T);
-  const data = await readObservedResponse(res, async () => decodeCommunityReadResponse(path, options?.method, res, await res.json()) as T, () => {
+  const data = await readObservedResponse(res, async () => decodeCommunityReadResponse(path, options?.method, res, await res.json(), new Headers(options?.headers).has(COMMUNITY_CONTRACT_HEADER) ? requestedCommunityContract(new Headers(options?.headers)) ?? COMMUNITY_CONTRACT_VERSION : COMMUNITY_CONTRACT_VERSION) as T, () => {
     options?.assertActive?.();
     if (options?.signal?.aborted) throw new DOMException("Cancelled request", "AbortError");
   });

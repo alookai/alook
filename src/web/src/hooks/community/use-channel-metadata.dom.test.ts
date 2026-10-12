@@ -18,7 +18,7 @@ import { startChannelRouteVerification } from "./channel-route-verification"
 
 const apiFetch = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }))
-const metadata = { id: "dm-a", serverId: null, type: "dm", name: null,
+const metadata = { categoryId: null, topic: "", position: 0, messageCount: 0, id: "dm-a", serverId: null, type: "dm", name: null,
   parentChannelId: null, parentMessageId: null, creatorId: null, archived: false,
   lastMessageAt: null, createdAt: "2026-10-02T00:00:00Z" }
 const dms = { conversations: [{ id: metadata.id, userId: "peer", name: "Peer", discriminator: "0001",
@@ -307,7 +307,7 @@ describe("shared Channel resource and canonical DM publication", () => {
     const route = renderHook(() => ({ route: useChannelMetadata(null, metadata.id), peers: useDmProjection() }), { wrapper })
     await waitFor(() => expect(route.result.current.route.status).toBe("readable"))
     await waitFor(() => expect(route.result.current.peers?.[0]).toMatchObject({ id: metadata.id, name: "Peer", preview: "canonical preview" }))
-    expect(registry.collections.channels.get(metadata.id)).toMatchObject({ name: "", serverId: null, type: "dm" })
+    expect(registry.collections.channels.get(metadata.id)).toMatchObject({ name: null, serverId: null, type: "dm" })
     expect(registry.runtime.ws.get().channelAccessScopes.get(metadata.id)).toMatchObject({ serverId: null, generation: 0, revoked: false })
     expect(registry.runtime.ws.get().revokedServerIds.size).toBe(0)
     expect(apiFetch).toHaveBeenCalledOnce()
@@ -585,7 +585,7 @@ describe("restored forum archive ambiguity", () => {
 
 it("retires a protected archived channel and clears its exact flat navigation memory", async () => {
   const { client, registry, wrapper } = await fixture()
-  const post = { ...metadata, id: "post-archived", serverId: "server-1", type: "thread", name: "Post", parentChannelId: "forum-1", parentMessageId: "opener-archived", archived: true }
+  const post = { categoryId: null, topic: "", position: 0, messageCount: 0, creatorId: null, createdAt: "2026-10-01T00:00:00Z", lastMessageAt: null, ...metadata, id: "post-archived", serverId: "server-1", type: "thread", name: "Post", parentChannelId: "forum-1", parentMessageId: "opener-archived", archived: true }
   setLastChannel("server-1", post.id)
   apiFetch.mockResolvedValue(post)
   const route = renderHook(() => useChannelMetadata("server-1", post.id), { wrapper })

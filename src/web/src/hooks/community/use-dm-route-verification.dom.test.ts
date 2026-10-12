@@ -14,7 +14,7 @@ const apiFetch = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }))
 
 const dm = { id: "dm-a", userId: "peer", name: "Peer", discriminator: "0001", avatar: "P", status: "offline" as const, preview: "" }
-const metadata = { id: dm.id, serverId: null, type: "dm", name: null, parentChannelId: null,
+const metadata = { categoryId: null, topic: "", position: 0, messageCount: 0, id: dm.id, serverId: null, type: "dm", name: null, parentChannelId: null,
   parentMessageId: null, creatorId: null, archived: false, lastMessageAt: null, createdAt: "2026-10-02T00:00:00Z" }
 const denied = () => Object.assign(new Error("missing"), { status: 404 })
 function deferred<T>() {

@@ -5,9 +5,10 @@ import { retryConversationRead, withConversationReadDeadline } from "@/lib/commu
 import { captureCommunityLiveSnapshotToken, assertCommunityLiveSnapshotTokenCurrent, publishCommunityChannelMetadata, retireCommunityChannelReading } from "@/lib/community-db/sync"
 import { ApiError } from "@/lib/errors"
 import { communityRequestOptions } from "@/lib/community/account-cache-lifecycle"
-import { normalizeCommunityChannelIdentity, type CommunityChannelIdentity, type CommunityAccessDecision } from "@alook/shared"
+import { CommunityChannelResourceSchema, type CommunityChannelIdentity, type CommunityChannelResource, type CommunityAccessDecision } from "@alook/shared"
 
-export type ChannelMetadata = CommunityChannelIdentity & {
+export type ChannelMetadata = CommunityChannelResource & {
+  resourceComplete: true
   accessDecision?: CommunityAccessDecision
 }
 
@@ -50,7 +51,7 @@ export async function fetchChannelMetadata(
     let meta: ChannelMetadata
     try {
       const response = await apiFetch<ChannelMetadata>(`/api/community/channels/${encodeURIComponent(channelId)}`, { ...communityRequestOptions(queryClient, token, readSignal, assertActive), ...(observation && { observation }) })
-      meta = { ...response, ...normalizeCommunityChannelIdentity(response) }
+      meta = { ...response, ...CommunityChannelResourceSchema.strip().parse(response), resourceComplete: true }
       assertActive()
     } catch (error) {
       assertActive()
@@ -67,7 +68,7 @@ export async function fetchChannelMetadata(
       if (serverId) token.registry!.runtime.ws.actions.grantServerAccess(serverId)
       token.registry!.runtime.ws.actions.rememberChannelAccess(serverId, channelId, meta.parentChannelId)
     }
-    return { ...meta, name: meta.name ?? "",
+    return { ...meta,
       activityAt: meta.lastMessageAt ?? meta.createdAt ?? "", identityProof: token }
   })
 }

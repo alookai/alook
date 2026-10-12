@@ -160,7 +160,7 @@ describe("useCommunityWs — message.create", () => {
     expect(hasCanonicalChannel("post_live")).toBe(false)
     getCommunityApiFetchMock().mockImplementation(async (url: string) => {
       if (url === "/api/community/channels/post_live") {
-        return {
+        return { categoryId: null, topic: "", position: 0, messageCount: 0,
           id: "post_live",
           serverId: "srv_1",
           name: "Live post",
@@ -1320,7 +1320,7 @@ describe("canonical message refresh and edit ownership", () => {
     await mountHook()
     const event = messageCreate(scope.id)
     seedCanonicalMessages(scope.id, [{ ...event.message,
-      attachments: [{ kind: "file", name: "settled.txt", url: "/media/settled", size: "1 KB" }],
+      attachments: [{ name: "settled.txt", url: "/media/settled", sizeBytes: 1024 }],
       embeds: [{ title: "Prior" }],
     }])
     await act(async () => { capturedOnMessage!({ ...event, message: { ...event.message, attachments: [], embeds: [] } }) })
@@ -1333,13 +1333,13 @@ describe("canonical message refresh and edit ownership", () => {
     getCapturedRuntime().ui.actions.setCurrentServerId(scope.serverId)
     getCapturedRuntime().ui.actions.subscribe({ channelId: scope.id })
     await mountHook()
-    const attachments = [{ kind: "file" as const, name: "settled.txt", url: "/media/settled", size: "1 KB" }]
+    const attachments = [{ name: "settled.txt", url: "/media/settled", sizeBytes: 1024 }]
     const event = messageCreate(scope.id)
     seedCanonicalMessages(scope.id, [{ ...event.message, attachments }])
     await act(async () => { capturedOnMessage!(event) })
     expect(getCommunityDbRegistry(capturedQueryClient)!.collections.messages.get(event.message.id)?.attachments).toEqual(attachments)
     expect(getMessageStreamState(capturedQueryClient, scope).liveIds).toContain(event.message.id)
-    expect(canonicalMessage(event.message.id)?.attachments).toEqual(attachments)
+    expect(canonicalMessage(event.message.id)?.attachments).toEqual([{ ...attachments[0], kind: "file", size: "1.0 KB" }])
   })
 
   it("refreshes only an existing live fallback and never absorbs outbox", async () => {

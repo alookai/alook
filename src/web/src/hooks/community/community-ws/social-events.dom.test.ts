@@ -332,7 +332,7 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
     })) })
     seedCanonicalMessages("dm_u_a", [{ id: "private", content: "private body" }])
     seedCanonicalMessages("dm_u_other", [{ id: "other", content: "other body" }])
-    const metadata = { id: "dm_u_a", serverId: null, name: null, type: "dm", parentChannelId: null,
+    const metadata = { categoryId: null, topic: "", position: 0, messageCount: 0, id: "dm_u_a", serverId: null, name: null, type: "dm", parentChannelId: null,
       parentMessageId: null, creatorId: null, archived: false, lastMessageAt: null, createdAt: "2026-10-08T00:00:00Z",
       readContractVersion: 2, accessDecision: { channelId: "dm_u_a", canRead: true, canSend: true, canCreateDiscussion: false } }
     const api = getCommunityApiFetchMock()

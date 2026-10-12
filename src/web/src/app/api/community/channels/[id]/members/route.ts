@@ -18,7 +18,7 @@ import { requireChannelAccess } from "@/lib/community/permissions"
 import { resolveTargetForMember } from "@/lib/community/resolve-ref"
 import { mapMemberForApi } from "@/lib/community/member-payload"
 import { fetchOnlineUserIds, toMemberStatus } from "@/lib/community/member-presence"
-import { requestsCommunityContract } from "@alook/shared"
+import { requestsCommunityContract, requestedCommunityContract } from "@alook/shared"
 import { readCommunityMembers } from "@/lib/community/member-read"
 import { resolveMessageTarget } from "@/lib/community/message-door"
 
@@ -49,7 +49,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
     const target = ctx.actor.kind === "bot" && ref ? { ref } : { id: ctx.params?.id ?? "" }
     const resolved = await resolveMessageTarget(db, ctx.actor.userId, target, ctx.actor.kind)
     if (!resolved.ok) return writeError(resolved.error, resolved.status)
-    return readCommunityMembers(db, resolved.value.target.channelId, ctx.actor.userId, req.nextUrl.searchParams.get("relation"))
+    return readCommunityMembers(db, resolved.value.target.channelId, ctx.actor.userId, req.nextUrl.searchParams.get("relation"), requestedCommunityContract(req.headers) === 3 ? 3 : 2)
   }
 
   if (ctx.actor.kind === "bot") {
