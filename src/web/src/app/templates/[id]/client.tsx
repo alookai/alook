@@ -38,19 +38,20 @@ export function TemplateDetailClient({
             Blog
           </a>
           {isLoggedIn ? (
-            <Link
+            // eslint-disable-next-line @next/next/no-html-link-for-pages -- Public analytics and private DOM must use different documents.
+            <a
               href="/c/me"
               className="inline-flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-widest font-mono border border-current transition-opacity hover:opacity-70"
             >
               App
-            </Link>
+            </a>
           ) : (
-            <Link
+            <a
               href="/sign-in"
               className="inline-flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-widest font-mono bg-foreground text-background transition-opacity hover:opacity-70"
             >
               Get Started
-            </Link>
+            </a>
           )}
         </>
       }

@@ -268,7 +268,8 @@ export function HeroSection({
             OPEN SOURCE
           </a> */}
           {isLoggedIn ? (
-            <Link
+            // eslint-disable-next-line @next/next/no-html-link-for-pages -- Public analytics and private DOM must use different documents.
+            <a
               href="/c/me"
               onClick={() => trackLandingCtaClicked({ cta_name: "open_app" })}
               className={`inline-flex items-center gap-2 transition-all duration-200 hover:opacity-80 ${ctaSizingClassName}`}
@@ -285,7 +286,7 @@ export function HeroSection({
                 <line x1="15" y1="12" x2="3" y2="12" />
               </svg>
               {primaryCtaLabel ?? "OPEN APP"}
-            </Link>
+            </a>
           ) : (
             <a
               href="/sign-in"

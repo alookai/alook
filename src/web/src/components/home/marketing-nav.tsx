@@ -165,7 +165,8 @@ export function MarketingNav({
             </details>
           )}
           {isLoggedIn ? (
-            <Link
+            // eslint-disable-next-line @next/next/no-html-link-for-pages -- Public analytics and private DOM must use different documents.
+            <a
               href="/c/me"
               className="inline-flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
               style={{
@@ -188,7 +189,7 @@ export function MarketingNav({
               >
                 <path d="M5 12h14M12 5l7 7-7 7" />
               </svg>
-            </Link>
+            </a>
           ) : (
             <a
               href="/sign-in"

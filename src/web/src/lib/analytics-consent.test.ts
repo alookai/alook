@@ -5,6 +5,7 @@ import {
   announceAnalyticsConsent,
   applyGoogleConsent,
   bootstrapGoogleAnalytics,
+  isOptionalAnalyticsStartupLocked,
   isPublicAnalyticsPath,
   updateGooglePageFields,
   hasAnalyticsConsent,
@@ -18,6 +19,14 @@ afterEach(() => {
 })
 
 describe("analytics consent browser contract", () => {
+  it("has no optional startup lock without a browser document", () => {
+    vi.stubGlobal("window", undefined)
+    vi.stubGlobal("document", undefined)
+    expect(isOptionalAnalyticsStartupLocked()).toBe(false)
+    expect(readAnalyticsConsent()).toBeNull()
+    expect(bootstrapGoogleAnalytics()).toBeTypeOf("function")
+  })
+
   it("accepts only the current version and bounded decisions", () => {
     expect(analyticsConsentCookieValue("granted")).toBe("v1.granted")
     expect(parseAnalyticsConsentCookie("v1.granted")).toBe("granted")
@@ -72,13 +81,13 @@ describe("analytics consent browser contract", () => {
     vi.stubGlobal("window", browser)
     vi.stubGlobal("document", { cookie: value === undefined ? "" : `alook_analytics_consent=${value}`, referrer: "https://alook.ai/c/private?secret=referrer" })
     bootstrapGoogleAnalytics()
-    expect(Reflect.get(browser, "ga-disable-G-STBCL8F4ZY")).toBe(false)
+    expect(Reflect.has(browser, "ga-disable-G-STBCL8F4ZY")).toBe(false)
     expect(browser.dataLayer.map(command => Array.from(command as IArguments))).toEqual([
       ["consent", "default", { analytics_storage: value === "v1.granted" ? "granted" : "denied", ad_storage: "denied", ad_user_data: "denied", ad_personalization: "denied" }],
-      ["set", { page_location: "https://alook.ai/pricing", page_referrer: "" }],
+      ["set", { page_location: "https://alook.ai/pricing", page_referrer: "", page_title: "Alook public website" }],
     ])
     browser.location = new URL("https://alook.ai/c/me")
-    expect(Reflect.get(browser, "ga-disable-G-STBCL8F4ZY")).toBe(true)
+    expect(Reflect.has(browser, "ga-disable-G-STBCL8F4ZY")).toBe(false)
   })
 
   it.each(["/", "/pricing", "/contact", "/privacy", "/templates", "/templates/public", "/blog", "/blog/public/child"])("retains public path %s", path => {
@@ -95,13 +104,66 @@ describe("analytics consent browser contract", () => {
     vi.stubGlobal("document", { referrer })
     updateGooglePageFields("/templates/public?secret=query#fragment")
     expect(Array.from(browser.dataLayer[0] as IArguments)).toEqual(["set", {
-      page_location: "https://alook.ai/templates/public",
-      page_referrer: referrer === "not a URL" ? "" : referrer.split("?")[0],
+      page_location: "https://alook.ai/templates",
+      page_referrer: "",
+      page_title: "Alook public website",
     }])
     const count = browser.dataLayer.length
-    for (const href of ["/c/me?secret=private", "https://outside.example/pricing", "http://["]) updateGooglePageFields(href)
+    for (const href of ["https://outside.example/pricing", "http://[", "javascript:alert(1)"]) updateGooglePageFields(href)
     expect(browser.dataLayer).toHaveLength(count)
     expect(JSON.stringify(browser.dataLayer)).not.toMatch(/secret|fragment|page_view/)
+  })
+
+  it.each([
+    ["/c/me/private-user", "/c", "Alook application"],
+    ["/c/channels/private-server/private-channel", "/c", "Alook application"],
+    ["/c/invite/private-token", "/c", "Alook application"],
+    ["/sign-in", "/sign-in", "Alook account"],
+    ["/auth/callback/private-code", "/sign-in", "Alook account"],
+    ["/unknown/private-resource", "/c", "Alook application"],
+    ["/templates/public/child", "/c", "Alook application"],
+    ["/pricing/extra", "/c", "Alook application"],
+  ])("uses fixed Web context for %s with every original Cookie decision", (path, category, title) => {
+    for (const value of ["", "v1.denied", "v1.granted"]) {
+      const browser = { location: new URL(`https://alook.ai${path}?private=query#fragment`), dataLayer: [] as unknown[] }
+      vi.stubGlobal("window", browser)
+      vi.stubGlobal("document", { cookie: `alook_analytics_consent=${value}`, referrer: "https://outside.example/private-referrer?private=query", title: "private title" })
+      bootstrapGoogleAnalytics()
+      expect(browser.dataLayer.map(command => Array.from(command as IArguments))).toEqual([
+        ["consent", "default", { analytics_storage: value === "v1.granted" ? "granted" : "denied", ad_storage: "denied", ad_user_data: "denied", ad_personalization: "denied" }],
+        ["set", { page_location: `https://alook.ai${category}`, page_referrer: "", page_title: title }],
+      ])
+      expect(Reflect.has(browser, "ga-disable-G-STBCL8F4ZY")).toBe(false)
+      expect(JSON.stringify(browser.dataLayer)).not.toMatch(/private|query|fragment|page_view/)
+    }
+  })
+
+  it.each([
+    ["/", "/"], ["/pricing", "/pricing"], ["/contact", "/contact"],
+    ["/privacy", "/privacy"], ["/templates/public-detail", "/templates"],
+    ["/blog/public-article/child", "/blog"],
+  ])("uses one of the six public Web categories for %s", (path, category) => {
+    const browser = { location: new URL("https://alook.ai/"), dataLayer: [] as unknown[] }
+    vi.stubGlobal("window", browser)
+    vi.stubGlobal("document", { referrer: "https://outside.example/private-token?q=private" })
+    updateGooglePageFields(`${path}?private=query#fragment`)
+    expect(Array.from(browser.dataLayer[0] as IArguments)).toEqual(["set", {
+      page_location: `https://alook.ai${category}`, page_referrer: "", page_title: "Alook public website",
+    }])
+    expect(JSON.stringify(browser.dataLayer)).not.toMatch(/private|detail|article|child/)
+  })
+
+  it("retains Native public context and skips its private context", () => {
+    const browser = { __TAURI__: {}, location: new URL("https://alook.ai/"), dataLayer: [] as unknown[] }
+    vi.stubGlobal("window", browser)
+    vi.stubGlobal("document", { referrer: "https://alook.ai/blog/public?private=query" })
+    bootstrapGoogleAnalytics()
+    expect(browser.dataLayer).toEqual([])
+    updateGooglePageFields("/pricing")
+    updateGooglePageFields("/c/private")
+    expect(browser.dataLayer.map(command => Array.from(command as IArguments))).toEqual([
+      ["set", { page_location: "https://alook.ai/pricing", page_referrer: "https://alook.ai/blog/public" }],
+    ])
   })
 
   it("does not initialize browser measurement on the server", () => {
@@ -111,6 +173,7 @@ describe("analytics consent browser contract", () => {
   })
 
   it("persists only after the API confirms the same decision", async () => {
+    vi.stubGlobal("document", { cookie: "alook_analytics_consent=v1.granted" })
     const fetcher = vi.fn(async () => new Response(
       JSON.stringify({ decision: "granted" }),
       { status: 200, headers: { "Content-Type": "application/json" } },
@@ -138,6 +201,17 @@ describe("analytics consent browser contract", () => {
   it("rejects a malformed API response", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("not json", { status: 200 })))
     await expect(persistAnalyticsConsent("granted")).rejects.toThrow("was not saved")
+  })
+
+  it.each(["", "alook_analytics_consent=v1.denied", "alook_analytics_consent=v0.granted"])("rejects a confirmed response without the actual requested Cookie: %s", async cookie => {
+    vi.stubGlobal("document", { cookie })
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ decision: "granted" })))
+    await expect(persistAnalyticsConsent("granted")).rejects.toThrow("was not saved")
+    expect(readAnalyticsConsent()).not.toBe("granted")
+  })
+
+  it("uses the last actual versioned Cookie and preserves arbitrary surrounding values", () => {
+    expect(readAnalyticsConsent("alook_analytics_consent=v1.granted; other=kept; alook_analytics_consent=v1.denied")).toBe("denied")
   })
 
   it("announces the exact saved decision", () => {

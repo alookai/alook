@@ -4,7 +4,7 @@ import { AnalyticsPreferenceControl } from "@/components/analytics-consent"
 export const PRIVACY_POLICY = {
   title: "Privacy Policy",
   description: "How Alook collects, uses, and protects your personal information.",
-  lastUpdated: "October 10, 2026",
+  lastUpdated: "October 12, 2026",
 } as const
 
 const linkClass =
@@ -53,8 +53,12 @@ export function PrivacyPolicyContent({ className }: { className?: string }) {
           <h4 className="mt-6 mb-2 text-base font-medium">Usage Data</h4>
           <p className="text-foreground/80">
             Necessary diagnostic data may be processed to keep the Service secure and reliable.
-            Google receives page and feature signals when You use our public website and Blog,
-            even without analytics cookies. Allowing analytics enables analytics cookies and
+            Google receives limited page and feature signals across our website and Blog,
+            even without analytics cookies. These include page views and supported automatic
+            interactions such as scrolling, outbound clicks, searches, downloads, forms and videos,
+            plus existing feature completion events. Pages use fixed categories and titles,
+            without article or template details. We exclude chat content, private names, links, search terms
+            and form text from these signals. Allowing analytics enables analytics cookies and
             other optional analytics. We do not use ad tracking.
           </p>
 
@@ -74,8 +78,10 @@ export function PrivacyPolicyContent({ className }: { className?: string }) {
             optional analytics cookies only after You allow them. Your analytics choice is saved
             in a first-party cookie for 180 days and can be changed using the preference control
             below at any time. Choosing only necessary cookies denies analytics cookies;
-            Google still receives signals without analytics cookies on our public website and
-            Blog. Other optional analytics require Your permission.
+            Google still receives these limited signals without analytics cookies across our
+            website and Blog. Native apps retain their analytics permission requirement;
+            supported automatic interactions also apply to their permitted public pages.
+            Other optional analytics require Your permission.
           </p>
         </section>
 

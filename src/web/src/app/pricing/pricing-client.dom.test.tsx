@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { render, setupUser, waitFor } from "@/test/react-dom-harness"
 import PricingClient from "./pricing-client"
 
@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   session: { data: null as null | { user: { id: string } }, isPending: false, error: null },
   search: new URLSearchParams(),
   push: vi.fn(), api: vi.fn(), checkout: vi.fn(), portal: vi.fn(), refresh: vi.fn(),
+  assign: vi.fn(),
   billing: {} as Record<string, unknown>,
   pricingView: vi.fn(), pricingCta: vi.fn(),
 }))
@@ -34,15 +35,29 @@ beforeEach(() => {
   state.search = new URLSearchParams()
   state.api.mockResolvedValue(catalog)
   state.billing = { data: undefined, isPending: false, isBusy: false, isError: false, actionError: null }
+  const browser = window
+  const location = new Proxy({}, {
+    get: (_target, key) => {
+      if (key === "assign") return state.assign
+      const value = Reflect.get(browser.location, key, browser.location)
+      return typeof value === "function" ? value.bind(browser.location) : value
+    },
+  })
+  vi.stubGlobal("window", new Proxy(browser, {
+    get: (target, key) => key === "location" ? location : Reflect.get(target, key, target),
+  }))
 })
+
+afterEach(() => vi.unstubAllGlobals())
 
 it("sends guests to sign-in with a valid selected plan preserved", async () => {
   const view = render(<PricingClient />)
   await setupUser().click(await view.findByRole("button", { name: "Choose Studio" }))
-  const url = new URL(state.push.mock.calls[0][0], "https://alook.ai")
+  const url = new URL(state.assign.mock.calls[0][0], "https://alook.ai")
   expect(url.pathname).toBe("/sign-in")
   expect(url.searchParams.get("redirect")).toBe("/pricing?plan=studio")
   expect(state.checkout).not.toHaveBeenCalled()
+  expect(state.push).not.toHaveBeenCalled()
   expect(state.pricingCta).toHaveBeenCalledWith({ plan_id: "studio", cta_action: "choose_plan", auth_state: "guest", current_plan: "none", entry_point: "pricing_page" })
 })
 
@@ -147,6 +162,8 @@ it("uses fixed CTA actions instead of deriving analytics from button labels", as
   state.billing.data = free
   const signed = render(<PricingClient />)
   await setupUser().click(await signed.findByRole("button", { name: "Open Alook" }))
+  expect(state.assign).toHaveBeenCalledWith("/c/me/bots")
+  expect(state.push).not.toHaveBeenCalled()
   expect(state.pricingCta).toHaveBeenLastCalledWith({ plan_id: "free", cta_action: "open_app", auth_state: "signed_in", current_plan: "free", entry_point: "pricing_page" })
 })
 

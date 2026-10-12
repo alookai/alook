@@ -3,7 +3,7 @@
 import { useObservedRegion } from "@/lib/observability/regions"
 
 import { useEffect, useRef, type RefObject } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import { useQuery } from "@tanstack/react-query"
 import { PublicPricingSchema, type PublicPricing, type BillingOffer } from "@alook/shared"
 import { useSession } from "@/lib/auth-client"
@@ -21,7 +21,6 @@ function PricingContent({ signedIn, sessionPending, sessionError, viewTrackedRef
   sessionError: boolean
   viewTrackedRef: RefObject<boolean>
 }) {
-  const router = useRouter()
   const search = useSearchParams()
   const catalog = useQuery({
     queryKey: ["public-pricing"],
@@ -75,12 +74,16 @@ function PricingContent({ signedIn, sessionPending, sessionError, viewTrackedRef
     }
     if (!signedIn) {
       const destination = plan === "free" ? "/c/me/bots" : `/pricing?${new URLSearchParams({ plan })}`
-      router.push(`/sign-in?${new URLSearchParams({ redirect: destination })}`)
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- Public analytics and private DOM must use different documents.
+      window.location.assign(`/sign-in?${new URLSearchParams({ redirect: destination })}`)
       return
     }
     if (plan === "free") {
       if (summary?.subscription && !summary.isFounder) void billing.portal()
-      else router.push("/c/me/bots")
+      else {
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- Public analytics and private DOM must use different documents.
+        window.location.assign("/c/me/bots")
+      }
       return
     }
     const item = paymentOffer(plan)

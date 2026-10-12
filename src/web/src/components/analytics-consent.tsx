@@ -8,12 +8,13 @@ import { useCallback, useEffect, useRef } from "react"
 import { GeneratedAvatar } from "@/components/avatar"
 import {
   ANALYTICS_CONSENT_CHANGE_EVENT,
-  ANALYTICS_CONSENT_COOKIE,
-  announceAnalyticsConsent,
   applyGoogleConsent,
+  isOptionalAnalyticsStartupLocked,
   isPublicAnalyticsPath,
+  observeAnalyticsConsent,
   persistAnalyticsConsent,
   readAnalyticsConsent,
+  refreshAnalyticsConsent,
   type AnalyticsConsentDecision,
 } from "@/lib/analytics-consent"
 import { tid } from "@/lib/community/testids"
@@ -26,24 +27,21 @@ function useStoredAnalyticsConsent(syncGoogleConsent = false) {
   const [ready, setReady] = useAtom(useCreateAtom(false))
   const [decision, setDecision] = useAtom(useCreateAtom<AnalyticsConsentDecision | null>(null))
   const [nativeMobile, setNativeMobile] = useAtom(useCreateAtom(false))
+  const [startupLocked, setStartupLocked] = useAtom(useCreateAtom(false))
   const decisionRef = useRef<AnalyticsConsentDecision | null>(null)
 
   useEffect(() => {
     const native = isTauri()
-    const refresh = (announce = false, initial = false) => {
-      const next = readAnalyticsConsent()
-      const changed = next !== decisionRef.current
-      if (syncGoogleConsent && (changed || initial)) {
-        if (!native) applyGoogleConsent(next ?? "denied")
-        else if (initial && next === "granted") applyGoogleConsent(next, "default")
-      }
+    const refresh = (initial = false, replace = true) => {
+      const next = native ? readAnalyticsConsent() : refreshAnalyticsConsent({ syncGoogle: syncGoogleConsent && initial, replace })
+      if (native && syncGoogleConsent && initial && next === "granted") applyGoogleConsent(next, "default")
       decisionRef.current = next
       setDecision(next)
-      if (syncGoogleConsent && announce && changed) announceAnalyticsConsent(next ?? "denied")
+      setStartupLocked(!native && isOptionalAnalyticsStartupLocked())
     }
     const onChange = (event: Event) => {
       if (!native) {
-        refresh()
+        refresh(false, false)
         return
       }
       const next = (event as CustomEvent<AnalyticsConsentDecision>).detail
@@ -54,43 +52,18 @@ function useStoredAnalyticsConsent(syncGoogleConsent = false) {
       decisionRef.current = next
       setDecision(next)
     }
-    const onCookieChange = (event: CookieChangeEvent) => {
-      if ([...event.changed, ...event.deleted].some(cookie => cookie.name === ANALYTICS_CONSENT_COOKIE)) {
-        refresh(true)
-      }
-    }
-    const onResume = () => refresh(true)
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") onResume()
-    }
     window.addEventListener(ANALYTICS_CONSENT_CHANGE_EVENT, onChange)
-    let cookieStore: CookieStore | undefined
-    if (!native) {
-      if (syncGoogleConsent) {
-        try {
-          cookieStore = window.cookieStore
-          cookieStore?.addEventListener("change", onCookieChange)
-        } catch {
-          cookieStore = undefined
-        }
-      }
-      window.addEventListener("focus", onResume)
-      window.addEventListener("pageshow", onResume)
-      document.addEventListener("visibilitychange", onVisibility)
-    }
-    refresh(!native, true)
+    const stopObserving = native ? () => {} : observeAnalyticsConsent()
+    refresh(true)
     setNativeMobile(native && isMobile())
     setReady(true)
     return () => {
       window.removeEventListener(ANALYTICS_CONSENT_CHANGE_EVENT, onChange)
-      cookieStore?.removeEventListener("change", onCookieChange)
-      window.removeEventListener("focus", onResume)
-      window.removeEventListener("pageshow", onResume)
-      document.removeEventListener("visibilitychange", onVisibility)
+      stopObserving()
     }
-  }, [setDecision, setNativeMobile, setReady, syncGoogleConsent])
+  }, [setDecision, setNativeMobile, setReady, setStartupLocked, syncGoogleConsent])
 
-  return { ready, decision, nativeMobile }
+  return { ready, decision, nativeMobile, startupLocked }
 }
 
 function useAnalyticsConsentChoice() {
@@ -102,7 +75,6 @@ function useAnalyticsConsentChoice() {
     setError(false)
     try {
       await persistAnalyticsConsent(decision)
-      announceAnalyticsConsent(decision)
     } catch {
       setError(true)
     } finally {
@@ -171,10 +143,10 @@ function ConsentButtons({
 
 export function AnalyticsConsent() {
   const pathname = usePathname()
-  const { ready, decision, nativeMobile } = useStoredAnalyticsConsent(true)
+  const { ready, decision, nativeMobile, startupLocked } = useStoredAnalyticsConsent(true)
   const { choose, saving, error } = useAnalyticsConsentChoice()
-  const allowed = ready && decision === "granted" && !!pathname && isPublicAnalyticsPath(pathname)
-  const googleAllowed = ready && !!pathname && isPublicAnalyticsPath(pathname) && (!isTauri() || decision === "granted")
+  const allowed = ready && !startupLocked && !isOptionalAnalyticsStartupLocked() && decision === "granted" && !!pathname && isPublicAnalyticsPath(pathname)
+  const googleAllowed = ready && !!pathname && (!isTauri() || decision === "granted" && isPublicAnalyticsPath(pathname))
 
   useEffect(() => {
     if (!isTauri()) return
@@ -206,7 +178,7 @@ export function AnalyticsConsent() {
           srcDoc={`<title>Alook</title><script async src="https://analytics.ahrefs.com/analytics.js" data-key="Td2Wr/poHD0pDEV30W9xMw" data-page-location="${new URL(pathname!, window.location.origin).href.replace(/"/g, "%22")}"></script>`}
         />
       ) : null}
-      {ready && !nativeMobile && decision === null ? (
+      {ready && !nativeMobile && (decision === null || error) ? (
         <section
           aria-label="Analytics choices"
           className={styles.banner}
@@ -221,7 +193,7 @@ export function AnalyticsConsent() {
               <p className={styles.description}>
                 {isTauri()
                   ? "Optional analytics help us understand which parts of Alook are useful. "
-                  : "Google receives page and feature signals on our public website, even without analytics cookies. Allow analytics enables analytics cookies and other optional analytics. "}
+                  : "Google receives limited page and feature signals across our website, even without analytics cookies. Pages use fixed categories, without chat content or private names, links and search terms. Allow analytics enables analytics cookies and other optional analytics. "}
                 No ad tracking. Read our{" "}
                 <a
                   href="/privacy#analytics-choices"
@@ -233,6 +205,7 @@ export function AnalyticsConsent() {
               {error ? (
                 <p className={styles.error} role="alert">
                   Couldn’t save this choice. Try again.
+                  {decision !== null ? ` Analytics cookies ${decision === "granted" ? "allowed" : "denied"}.` : null}
                 </p>
               ) : null}
             </div>

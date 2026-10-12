@@ -42,7 +42,7 @@ it("boots the actual Blog entry with the native resumed session and exports its 
   const view = render(<ObservedStaticContent key="/blog" pathname="/blog" />);
   const route = render(<ObservedRouteCommit />);
   await act(async () => { onRouterTransitionStart("/blog/introducing-alook?private=article-title"); });
-  expect(Array.from(window.dataLayer!.at(-1) as IArguments)).toEqual(["set", { page_location: `${window.location.origin}/blog/introducing-alook`, page_referrer: `${window.location.origin}/` }]);
+  expect(Array.from(window.dataLayer!.at(-1) as IArguments)).toEqual(["set", { page_location: `${window.location.origin}/blog`, page_referrer: "", page_title: "Alook public website" }]);
   const navigation = navigationForHref("/blog/introducing-alook?private=article-title")!;
   expect(navigation).toBeDefined();
   expect(navigation.done).toBe(false);
@@ -78,12 +78,13 @@ it.each(["", "v1.denied", "v0.granted", "v1.granted"])("boots the actual Blog do
   const { onRouterTransitionStart } = await import("./instrumentation-client");
   expect(window.dataLayer.map(command => Array.from(command as IArguments))).toEqual([
     ["consent", "default", { analytics_storage: value === "v1.granted" ? "granted" : "denied", ad_storage: "denied", ad_user_data: "denied", ad_personalization: "denied" }],
-    ["set", { page_location: `${window.location.origin}/blog/public`, page_referrer: `${window.location.origin}/` }],
+    ["set", { page_location: `${window.location.origin}/blog`, page_referrer: "", page_title: "Alook public website" }],
   ]);
   onRouterTransitionStart("/blog/other?secret=route#hash");
   onRouterTransitionStart("/c/me?secret=private");
-  expect(window.dataLayer).toHaveLength(3);
-  expect(Array.from(window.dataLayer.at(-1) as IArguments)).toEqual(["set", { page_location: `${window.location.origin}/blog/other`, page_referrer: `${window.location.origin}/` }]);
+  expect(window.dataLayer).toHaveLength(4);
+  expect(Array.from(window.dataLayer[2] as IArguments)).toEqual(["set", { page_location: `${window.location.origin}/blog`, page_referrer: "", page_title: "Alook public website" }]);
+  expect(Array.from(window.dataLayer[3] as IArguments)).toEqual(["set", { page_location: `${window.location.origin}/c`, page_referrer: "", page_title: "Alook application" }]);
   expect(JSON.stringify(window.dataLayer)).not.toMatch(/secret|page_view/);
   expect(fetcher).not.toHaveBeenCalled();
 });

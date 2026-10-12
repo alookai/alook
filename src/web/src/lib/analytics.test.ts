@@ -48,16 +48,23 @@ describe("analytics utility", () => {
     ])
   })
 
-  it.each(["/c/me", "/sign-in", "/templates/public/child"])("does not expand denied private events on %s or replay them later", path => {
+  it.each(["/c/me", "/sign-in", "/auth/callback", "/c/invite/private-token", "/templates/public/child", "/unknown/private-resource"])("queues the original Web payloads immediately on %s without a grant", path => {
     mocks.hasAnalyticsConsent.mockReturnValue(false)
     const browser = { location: new URL(`https://alook.ai${path}`) }
     vi.stubGlobal("window", browser)
     trackCommunityRuntimeConnected()
     trackSignUp("github")
-    expect(mockSendGTMEvent).not.toHaveBeenCalled()
+    expect(mockSendGTMEvent.mock.calls).toEqual([
+      [{ event: "runtime_connected", surface: "community", connection_type: "local_daemon" }],
+      [{ event: "sign_up", method: "github" }],
+    ])
     browser.location = new URL("https://alook.ai/pricing")
     trackPricingView({ auth_state: "guest", current_plan: "none" })
-    expect(mockSendGTMEvent.mock.calls).toEqual([[{ event: "pricing_view", auth_state: "guest", current_plan: "none" }]])
+    expect(mockSendGTMEvent.mock.calls).toEqual([
+      [{ event: "runtime_connected", surface: "community", connection_type: "local_daemon" }],
+      [{ event: "sign_up", method: "github" }],
+      [{ event: "pricing_view", auth_state: "guest", current_plan: "none" }],
+    ])
   })
 
   it("preserves the Native Allow gate on public paths", () => {
