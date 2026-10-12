@@ -58,6 +58,7 @@ type ExpectedControllerValue = {
     attachments?: SendAttachment[],
     mentionType?: MentionType,
   ) => boolean
+  localSubmitVersion: number
   handleTyping: () => void
   typingUsers: string[]
 }
@@ -145,7 +146,7 @@ describe("MessageChannelController facade contract", () => {
       expect(position, token).toBeGreaterThan(cursor)
       cursor = position
     }
-    expect(body.match(/\buseCreateAtom(?:<[^>]+>)?\(/g)).toHaveLength(4)
+    expect(body.match(/\buseCreateAtom(?:<[^>]+>)?\(/g)).toHaveLength(5)
     expect(body).toContain('queryKey: ["community", "message-search", channelId, term]')
     expect(body).toContain("const searchMessages = useCanonicalMessagesById(searchIds)")
     expect(body).not.toMatch(/\buseState(?:<[^>]+>)?\(/)

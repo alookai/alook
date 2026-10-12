@@ -64,6 +64,7 @@ export type MessageChannelControllerValue = {
     attachments?: SendAttachment[],
     mentionType?: MentionType,
   ) => boolean
+  localSubmitVersion: number
   handleTyping: () => void
   typingUsers: string[]
 }

@@ -182,6 +182,16 @@ describe("useMessageListController", () => {
     return entry[0]
   }
 
+  it("passes only the current composer acceptance version through loading and loaded commits", () => {
+    const value = props({ messages: [], loading: true, localSubmitVersion: 7, presentVersion: 3 })
+    const view = rtlRender(React.createElement(Probe, { value }))
+    expect(mocks.scrollInputs.at(-1)).toMatchObject({ localSubmitVersion: 7, presentVersion: 3 })
+    view.rerender(React.createElement(Probe, { value: { ...value, messages: [baseMessage], loading: false } }))
+    expect(mocks.scrollInputs.at(-1)).toMatchObject({ localSubmitVersion: 7, presentVersion: 3 })
+    view.rerender(React.createElement(Probe, { value: { ...value, messages: [baseMessage], loading: false, localSubmitVersion: 8 } }))
+    expect(mocks.scrollInputs.at(-1)).toMatchObject({ localSubmitVersion: 8, presentVersion: 3 })
+  })
+
   it("uses whole Query activity to pause both pagination directions", () => {
     const onLoadOlder = vi.fn(), onLoadNewer = vi.fn()
     rtlRender(React.createElement(Probe, { value: props({ isFetching: true, hasMore: true, hasMoreNewer: true, onLoadOlder, onLoadNewer }) }))
@@ -208,7 +218,7 @@ describe("useMessageListController", () => {
       isFetchingOlder: undefined,
       isFetchingNewer: undefined,
       presentVersion: undefined,
-      viewerUserId: undefined,
+      localSubmitVersion: undefined,
       hasMoreOlder: undefined,
       tailPaddingEnd: 48,
       onInitialPositionSettled: expect.any(Function),
@@ -355,7 +365,7 @@ describe("useMessageListController", () => {
       isFetchingOlder: true,
       isFetchingNewer: true,
       presentVersion: 7,
-      viewerUserId: "viewer_1",
+      localSubmitVersion: undefined,
       hasMoreOlder: true,
       tailPaddingEnd: 48,
       onInitialPositionSettled: expect.any(Function),

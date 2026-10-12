@@ -130,6 +130,7 @@ vi.mock("@/components/community/messages/message-channel-controller", () => ({
       onPreviewImage: vi.fn(),
     },
     acceptMessage: mocks.acceptMessage,
+    localSubmitVersion: 0,
     handleTyping: mocks.handleTyping,
     typingUsers: ["Alice"],
   }),

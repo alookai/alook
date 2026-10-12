@@ -166,6 +166,7 @@ export function TextChannelSurface({
                   onLoadNewer={feed.fetchNewer}
                   onJumpToPresent={feed.jumpToPresent}
                   presentVersion={feed.presentVersion}
+                  localSubmitVersion={controller.localSubmitVersion}
                   unreadCount={feed.unreadCount}
                   typingUsers={controller.typingUsers}
                 />

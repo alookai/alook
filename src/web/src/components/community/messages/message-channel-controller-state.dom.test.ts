@@ -166,6 +166,7 @@ describe("useMessageChannelController", () => {
     mocks.seq = null
     mocks.storeState.pendingReply = null
     mocks.apiFetch.mockResolvedValue({ results: [] })
+    mocks.accept.mockReturnValue(true)
     mocks.createActions.mockImplementation(() => mocks.messageActions)
     mocks.typingScopes.users.length = 0
     mocks.typingScopes.names.length = 0
@@ -316,6 +317,32 @@ describe("useMessageChannelController", () => {
     })
     act(() => input.clearReply())
     expect(latest.replyTo).toBeNull()
+  })
+
+  it("publishes one local intent per accepted submission and requests the newest history window", () => {
+    const jumpToPresent = vi.fn()
+    const view = rtlRender(React.createElement(Probe, {
+      value: props({ feed: { ...feed, hasMoreNewer: true, jumpToPresent } }),
+    }))
+    expect(latest.localSubmitVersion).toBe(0)
+    mocks.accept.mockReturnValueOnce(false)
+    act(() => { expect(latest.acceptMessage("")).toBe(false) })
+    expect(latest.localSubmitVersion).toBe(0)
+    expect(jumpToPresent).not.toHaveBeenCalled()
+    act(() => { expect(latest.acceptMessage("new text")).toBe(true) })
+    expect(latest.localSubmitVersion).toBe(1)
+    expect(jumpToPresent).toHaveBeenCalledOnce()
+    act(() => { expect(latest.acceptMessage("", [{ file: {} as File }])).toBe(true) })
+    expect(latest.localSubmitVersion).toBe(2)
+    expect(jumpToPresent).toHaveBeenCalledTimes(2)
+    act(() => latest.messageActions.onRetry("failed-nonce"))
+    expect(latest.localSubmitVersion).toBe(2)
+    view.rerender(React.createElement(Probe, {
+      value: props({ feed: { ...feed, hasMoreNewer: false, jumpToPresent } }),
+    }))
+    act(() => { expect(latest.acceptMessage("at present")).toBe(true) })
+    expect(latest.localSubmitVersion).toBe(3)
+    expect(jumpToPresent).toHaveBeenCalledTimes(2)
   })
 
   it("preserves pending/context/seq navigation without claiming global pane handlers", () => {
@@ -601,7 +628,7 @@ describe("useMessageChannelController", () => {
       "feed", "pinnedIds", "replyTo", "setReplyTo", "searchQuery", "searchResults", "searchError", "searchLoading",
       "search", "scrollTargetId", "setScrollTargetId", "consumeScrollTarget",
       "contextTarget", "setContextTarget", "openContextSeq", "onSheetReply", "jumpToSeq",
-      "messageActions", "threadActions", "acceptMessage", "handleTyping", "typingUsers",
+      "messageActions", "threadActions", "acceptMessage", "localSubmitVersion", "handleTyping", "typingUsers",
     ])
     const actionKeys = [
       "onToggleReaction", "onReact", "onReply", "onPin", "onMark", "onCreateThread",
