@@ -59,9 +59,9 @@ export const blogTopics = [
         slug: "multiple-ai-agents-edit-same-repository",
         userJob: "Run parallel agents on one repo without conflicts",
       },
-      { slug: "claude-code-codex-bug-fix-review", userJob: "Hand a Claude Code bug fix to Codex for review" },
-      { slug: "codex-opencode-shared-repository", userJob: "Split repository work between Codex and OpenCode" },
-      { slug: "claude-code-opencode-handoff", userJob: "Continue a Claude Code refactor in OpenCode" },
+      { slug: "prevent-claude-code-codex-duplicating-work", userJob: "Prevent Claude Code and Codex from duplicating work" },
+      { slug: "prevent-codex-opencode-duplicating-work", userJob: "Prevent Codex and OpenCode from duplicating work" },
+      { slug: "prevent-claude-code-opencode-duplicating-work", userJob: "Prevent Claude Code and OpenCode from duplicating work" },
       {
         slug: "prevent-coding-agents-duplicating-work",
         userJob: "Stop agents from redoing each other's work",

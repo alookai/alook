@@ -72,9 +72,9 @@ describe("blogTopics", () => {
         "claude-code-dynamic-workflow-alternative",
         "keep-context-across-coding-agent-sessions",
         "multiple-ai-agents-edit-same-repository",
-        "claude-code-codex-bug-fix-review",
-        "codex-opencode-shared-repository",
-        "claude-code-opencode-handoff",
+        "prevent-claude-code-codex-duplicating-work",
+        "prevent-codex-opencode-duplicating-work",
+        "prevent-claude-code-opencode-duplicating-work",
         "prevent-coding-agents-duplicating-work",
       ],
       [
@@ -112,9 +112,9 @@ describe("blogTopics", () => {
         )
       )
     ).toEqual({
-      "claude-code-codex-bug-fix-review": "Hand a Claude Code bug fix to Codex for review",
-      "codex-opencode-shared-repository": "Split repository work between Codex and OpenCode",
-      "claude-code-opencode-handoff": "Continue a Claude Code refactor in OpenCode",
+      "prevent-claude-code-codex-duplicating-work": "Prevent Claude Code and Codex from duplicating work",
+      "prevent-codex-opencode-duplicating-work": "Prevent Codex and OpenCode from duplicating work",
+      "prevent-claude-code-opencode-duplicating-work": "Prevent Claude Code and OpenCode from duplicating work",
       "ai-agent-vs-chatbot": "Decide whether I need an agent or a chatbot",
       "local-ai-agents":
         "Choose which parts of an AI agent should run locally",
