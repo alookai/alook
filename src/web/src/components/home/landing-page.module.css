@@ -1047,6 +1047,15 @@
   line-height: 1.75;
 }
 
+.faqAnswer p + p {
+  margin-top: 1em;
+}
+
+.faqAnswer a {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
 .closingCta {
   position: relative;
   isolation: isolate;
