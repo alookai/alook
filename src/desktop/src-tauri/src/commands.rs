@@ -460,13 +460,17 @@ function apply(frame){
   }
 }
 const media=window.matchMedia("(prefers-reduced-motion: reduce)");
+const DESKTOP_START_FRAME=61;
 let elapsed=0;
 let last;
 let request=0;
+function currentFrame(){
+  return (DESKTOP_START_FRAME+Math.floor(elapsed*60/1000))%DURATION;
+}
 function tick(now){
   if(last!==undefined)elapsed+=now-last;
   last=now;
-  apply(Math.floor(elapsed*60/1000)%DURATION);
+  apply(currentFrame());
   request=requestAnimationFrame(tick);
 }
 function sync(){
@@ -474,7 +478,7 @@ function sync(){
   last=undefined;
   if(media.matches)apply(REDUCED_MOTION_FRAME);
   else{
-    apply(0);
+    apply(currentFrame());
     if(!document.hidden)request=requestAnimationFrame(tick);
   }
 }
@@ -1010,7 +1014,7 @@ mod tests {
     }
 
     #[test]
-    fn desktop_splash_applies_complete_frame_before_the_first_animation_request() {
+    fn desktop_splash_applies_active_phase_before_the_first_animation_request() {
         let html = splash_html();
         let sync_start = html.find("function sync(){").unwrap();
         let sync_end = html[sync_start..]
@@ -1018,10 +1022,12 @@ mod tests {
             .map(|offset| sync_start + offset)
             .unwrap();
         let sync = &html[sync_start..sync_end];
-        let complete_frame = sync.find("apply(0);").unwrap();
+        let active_frame = sync.find("apply(currentFrame());").unwrap();
         let first_request = sync.find("request=requestAnimationFrame(tick);").unwrap();
 
-        assert!(complete_frame < first_request);
+        assert!(active_frame < first_request);
+        assert!(html.contains("const DESKTOP_START_FRAME=61;"));
+        assert!(html.contains("(DESKTOP_START_FRAME+Math.floor(elapsed*60/1000))%DURATION"));
         assert!(html.contains(
             "clip.style.clipPath=`inset(${-300*(1-joined)}px round ${152.109375*joined}px)`"
         ));
