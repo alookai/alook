@@ -1,16 +1,6 @@
 import type { Locator, Page } from "@playwright/test"
-import { expect, test, userId, userName } from "./_fixtures/community-fixture"
+import { expect, test } from "./_fixtures/case-fixture"
 import { GEOMETRY_EPSILON, gotoAfterUserWsAuth, waitForElementMotion } from "./_fixtures/actions"
-import {
-  seedCancelFriendRequest,
-  seedChannel,
-  seedDm,
-  seedDmMessage,
-  seedJoinServer,
-  seedMessage,
-  seedPendingFriendRequest,
-  seedServer,
-} from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 
 async function expectInboxUnreadCount(page: Page) {
@@ -79,16 +69,21 @@ async function expectExactRect(
   ).toEqual({ width: size, height: size })
 }
 
-test.describe.serial("actionable Inbox friend requests", () => {
+test.describe("actionable Inbox friend requests", () => {
   test.setTimeout(120_000)
 
-  test("fans out live, survives opening, and owns the Friends New URL", async ({ asUser }) => {
+  test("fans out live, survives opening, and owns the Friends New URL", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser, userId } = actors
+    const { seedPendingFriendRequest, seedCancelFriendRequest } = actors.seed
+
     const bob = await asUser("bob")
     await bob.page.setViewportSize({ width: 1280, height: 900 })
     await clearMessageInbox(bob.page)
     await gotoAfterUserWsAuth(bob.page, "/c/me/friends")
 
     const friendshipId = await seedPendingFriendRequest("alice", "bob", userId("bob"))
+    actors.onCleanup(() => seedCancelFriendRequest("alice", friendshipId))
     try {
       await expect(bob.page.getByTestId(tid.friendsShortcutBadge)).toHaveText("1")
       await expect(bob.page.getByTestId(tid.friendsNewBadge)).toHaveText("1")
@@ -141,7 +136,20 @@ test.describe.serial("actionable Inbox friend requests", () => {
     }
   })
 
-  test("keeps requests above DM/server unread and Mark all is message-only", async ({ asUser }) => {
+  test("keeps requests above DM/server unread and Mark all is message-only", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser, userId } = actors
+    const {
+      seedServer,
+      seedChannel,
+      seedJoinServer,
+      seedDm,
+      seedMessage,
+      seedDmMessage,
+      seedPendingFriendRequest,
+      seedCancelFriendRequest,
+    } = actors.seed
+
     const stamp = Date.now()
     const serverName = `Friend request mix ${stamp}`
     const serverId = await seedServer("alice", serverName)
@@ -153,6 +161,7 @@ test.describe.serial("actionable Inbox friend requests", () => {
     await clearMessageInbox(bob.page)
     await gotoAfterUserWsAuth(bob.page, "/c/me/friends")
     const friendshipId = await seedPendingFriendRequest("carol", "bob", userId("bob"))
+    actors.onCleanup(() => seedCancelFriendRequest("carol", friendshipId))
     try {
       await seedMessage("alice", channelId, `Friend request channel unread ${stamp}`)
       await seedDmMessage("alice", dmId, `Friend request DM unread ${stamp}`)
@@ -188,15 +197,25 @@ test.describe.serial("actionable Inbox friend requests", () => {
     }
   })
 
-  test("a failed action keeps its keyed row while another request remains usable", async ({ asUser }) => {
+  test("a failed action keeps its keyed row while another request remains usable", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser, userId } = actors
+    const { seedPendingFriendRequest, seedCancelFriendRequest } = actors.seed
+
     const firstId = await seedPendingFriendRequest("alice", "bob", userId("bob"))
+    actors.onCleanup(() => seedCancelFriendRequest("alice", firstId))
     const secondId = await seedPendingFriendRequest("carol", "bob", userId("bob"))
+    actors.onCleanup(() => seedCancelFriendRequest("carol", secondId))
     const bob = await asUser("bob")
     let releaseFailure!: () => void
     let markFirstAttempt!: () => void
     const failureGate = new Promise<void>((resolve) => { releaseFailure = resolve })
     const firstAttempt = new Promise<void>((resolve) => { markFirstAttempt = resolve })
     let attempts = 0
+    actors.onCleanup(async () => {
+      if (!bob.page.isClosed()) await bob.page.unroute(`**/api/community/friends/${firstId}/accept`)
+    })
+    actors.onCleanup(async () => { releaseFailure() })
     await bob.page.route(`**/api/community/friends/${firstId}/accept`, async (route) => {
       attempts += 1
       if (attempts === 1) {
@@ -262,10 +281,16 @@ test.describe.serial("actionable Inbox friend requests", () => {
     }
   })
 
-  test("reconnect reconciles a request cancelled while its event was missed", async ({ asUser }) => {
+  test("reconnect reconciles a request cancelled while its event was missed", async ({ caseActors }) => {
+    const actors = await caseActors(["bob", "dave"])
+    const { asUser, userId } = actors
+    const { seedPendingFriendRequest, seedCancelFriendRequest } = actors.seed
+
     const bob = await asUser("bob")
+    actors.onCleanup(() => bob.context.setOffline(false))
     await gotoAfterUserWsAuth(bob.page, "/c/me/friends")
     const friendshipId = await seedPendingFriendRequest("dave", "bob", userId("bob"))
+    actors.onCleanup(() => seedCancelFriendRequest("dave", friendshipId))
     const row = bob.page.getByTestId(tid.inboxFriendRequest(friendshipId))
 
     try {
@@ -282,7 +307,17 @@ test.describe.serial("actionable Inbox friend requests", () => {
     }
   })
 
-  test("mobile actions keep 44px targets, readable labels, focus, and row-local busy state", async ({ asUser }) => {
+  test("mobile actions keep 44px targets, readable labels, focus, and row-local busy state", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser, userId } = actors
+    const {
+      seedServer,
+      seedChannel,
+      seedJoinServer,
+      seedPendingFriendRequest,
+      seedCancelFriendRequest,
+    } = actors.seed
+
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Friend request mobile ${stamp}`)
     await seedChannel("alice", serverId, `friend-mobile-${stamp}`)
@@ -295,6 +330,7 @@ test.describe.serial("actionable Inbox friend requests", () => {
     await expect(inboxTrigger).toBeVisible()
     const startingUrl = bob.page.url()
     const friendshipId = await seedPendingFriendRequest("alice", "bob", userId("bob"))
+    actors.onCleanup(() => seedCancelFriendRequest("alice", friendshipId))
 
     try {
       await inboxTrigger.click()
@@ -329,16 +365,34 @@ test.describe.serial("actionable Inbox friend requests", () => {
     }
   })
 
-  test("locks 390px navigation and retry targets plus 640px action geometry on both surfaces", async ({ asUser }) => {
+  test("locks 390px navigation and retry targets plus 640px action geometry on both surfaces", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser, userId, userName } = actors
+    const {
+      seedServer,
+      seedChannel,
+      seedJoinServer,
+      seedPendingFriendRequest,
+      seedCancelFriendRequest,
+    } = actors.seed
+
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Friend request geometry ${stamp}`)
     await seedChannel("alice", serverId, `friend-geometry-${stamp}`)
     await seedJoinServer("alice", "bob", serverId)
     const inboxRequestId = await seedPendingFriendRequest("alice", "bob", userId("bob"))
+    actors.onCleanup(() => seedCancelFriendRequest("alice", inboxRequestId))
     const friendsRequestId = await seedPendingFriendRequest("carol", "bob", userId("bob"))
+    actors.onCleanup(() => seedCancelFriendRequest("carol", friendsRequestId))
     const bob = await asUser("bob")
     const inboxAcceptPath = `/api/community/friends/${inboxRequestId}/accept`
     const friendsAcceptPath = `/api/community/friends/${friendsRequestId}/accept`
+    actors.onCleanup(async () => {
+      if (!bob.page.isClosed()) await bob.page.unroute(`**${inboxAcceptPath}`)
+    })
+    actors.onCleanup(async () => {
+      if (!bob.page.isClosed()) await bob.page.unroute(`**${friendsAcceptPath}`)
+    })
     await bob.page.route(`**${inboxAcceptPath}`, async (route) => {
       await route.fulfill({ status: 503, json: { error: "forced inbox geometry retry" } })
     })
