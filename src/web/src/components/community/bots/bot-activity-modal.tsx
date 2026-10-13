@@ -385,9 +385,9 @@ export function BotActivityModal({
                       className="min-h-11 rounded-md px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-8"
                     >
                       {isFetchingNextPage ? "Loading older" : "Retry older"}
-                    </button> : <span role="status" className="py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-                      {isFetchingNextPage ? "Loading older" : "Scroll up for older"}
-                    </span>}
+                    </button> : isFetchingNextPage ? <span role="status" className="py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                      Loading older
+                    </span> : null}
                   </div>
                 ) : (
                   <div className="py-2 text-center font-mono text-[10px] uppercase tracking-wider text-muted-foreground/40">
