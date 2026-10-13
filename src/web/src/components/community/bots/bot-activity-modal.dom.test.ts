@@ -127,7 +127,7 @@ function updateModal(renderer: ReturnType<typeof render>, {
   open = true,
   onOpenChange = vi.fn(),
   onOpenChangeComplete = vi.fn(),
-}: ModalOptions = {}) {
+}: ModalOptions = {}, settle = true) {
   act(() => renderer.rerender(
     React.createElement(BotActivityModal, {
       bot: selectedBot,
@@ -136,7 +136,7 @@ function updateModal(renderer: ReturnType<typeof render>, {
       onOpenChangeComplete,
     }),
   ))
-  act(() => vi.advanceTimersByTime(500))
+  if (settle) act(() => vi.advanceTimersByTime(500))
 }
 
 function scrollBody(renderer: ReturnType<typeof render>, offset: number) {
@@ -352,6 +352,152 @@ describe("BotActivityModal CommunitySheet contract", () => {
     await completePage([event("old", "2026-08-27T11:00:00.000Z")])
     expect(eventTop(renderer, id)).toBe(top)
     expect(root.scrollTop).toBe(offset + 44)
+  })
+
+  it.each(["2026-08-27", "2026-08-26"])("keeps a single Home reader when its pending page crosses into the header before a %s prepend", async day => {
+    auditState.events = events(30)
+    auditState.hasNextPage = true
+    const completePage = prepareOlderPage()
+    const { renderer, onOpenChange } = renderModal()
+    const root = scrollBody(renderer, 200)
+    root.focus()
+    expect(document.activeElement).toBe(root)
+    fireEvent.keyDown(document.activeElement!, { key: "Home" })
+    act(() => {
+      root.scrollTop = 100
+      fireEvent.scroll(root)
+      vi.advanceTimersByTime(16)
+    })
+    expect(fetchNextPage).toHaveBeenCalledOnce()
+    auditState.isFetchingNextPage = true
+    updateModal(renderer, { onOpenChange }, false)
+    act(() => {
+      root.scrollTop = 0
+      fireEvent.scroll(root)
+      vi.advanceTimersByTime(16)
+    })
+    const top = eventTop(renderer, "event-0")
+    expect(root.scrollTop).toBe(0)
+    const start = Date.parse(`${day}T11:00:00.000Z`)
+    const older = Array.from({ length: 50 }, (_, index) => event(`older-${index}`, new Date(start + index * 60_000).toISOString()))
+    auditState.events = [...auditState.events, ...older]
+    auditState.loadedPageCount = 2
+    auditState.isFetchingNextPage = false
+    updateModal(renderer, { onOpenChange }, false)
+    await completePage(older)
+    expect(renderer.container.querySelector('[data-activity-event-id="event-0"]')).toBeInTheDocument()
+    expect(eventTop(renderer, "event-0")).toBe(top)
+    expect(fetchNextPage).toHaveBeenCalledOnce()
+  })
+
+  it("uses the measured header when one pending Home continues across its size change", async () => {
+    auditState.events = events(30)
+    auditState.hasNextPage = true
+    const completePage = prepareOlderPage()
+    const { renderer, onOpenChange } = renderModal()
+    const root = scrollBody(renderer, 200)
+    root.focus()
+    fireEvent.keyDown(document.activeElement!, { key: "Home" })
+    act(() => {
+      root.scrollTop = 100
+      fireEvent.scroll(root)
+      vi.advanceTimersByTime(16)
+    })
+    auditState.isFetchingNextPage = true
+    updateModal(renderer, { onOpenChange }, false)
+    rowHeights.set("", 60)
+    act(() => {
+      for (const observer of bodyResizeObservers) {
+        const entries = [...observer.elements].filter(element => element.isConnected).map(target => ({
+          target,
+          borderBoxSize: [{ blockSize: (target as HTMLElement).offsetHeight, inlineSize: 672 }],
+        } as unknown as ResizeObserverEntry))
+        if (entries.length) observer.callback(entries, {} as ResizeObserver)
+      }
+      vi.advanceTimersByTime(16)
+      root.scrollTop = 0
+      fireEvent.scroll(root)
+      vi.advanceTimersByTime(16)
+    })
+    const top = eventTop(renderer, "event-0")
+    expect(top).toBe(84)
+    const older = Array.from({ length: 50 }, (_, index) => event(`older-${index}`, new Date(Date.parse("2026-08-27T11:00:00.000Z") + index * 60_000).toISOString()))
+    auditState.events = [...auditState.events, ...older]
+    auditState.loadedPageCount = 2
+    auditState.isFetchingNextPage = false
+    updateModal(renderer, { onOpenChange }, false)
+    await completePage(older)
+    expect(renderer.container.querySelector('[data-activity-event-id="event-0"]')).toBeInTheDocument()
+    expect(eventTop(renderer, "event-0")).toBe(top)
+    expect(fetchNextPage).toHaveBeenCalledOnce()
+  })
+
+  it("keeps an accepted old event across live arrivals before and after late Home qualification", async () => {
+    auditState.events = events(30)
+    auditState.hasNextPage = true
+    const completePage = prepareOlderPage()
+    const { renderer, onOpenChange } = renderModal()
+    const root = scrollBody(renderer, 200)
+    root.focus()
+    fireEvent.keyDown(document.activeElement!, { key: "Home" })
+    act(() => {
+      root.scrollTop = 100
+      fireEvent.scroll(root)
+      vi.advanceTimersByTime(16)
+    })
+    auditState.isFetchingNextPage = true
+    auditState.events = [...auditState.events, event("first-live", "2026-08-27T11:59:00.000Z")]
+    updateModal(renderer, { onOpenChange }, false)
+    act(() => {
+      root.scrollTop = 0
+      fireEvent.scroll(root)
+      vi.advanceTimersByTime(16)
+    })
+    const top = eventTop(renderer, "event-0")
+    auditState.events = [...auditState.events, event("second-live", "2026-08-27T11:59:30.000Z")]
+    updateModal(renderer, { onOpenChange }, false)
+    const older = Array.from({ length: 50 }, (_, index) => event(`older-${index}`, new Date(Date.parse("2026-08-27T11:00:00.000Z") + index * 60_000).toISOString()))
+    auditState.events = [...auditState.events, ...older]
+    auditState.loadedPageCount = 2
+    auditState.isFetchingNextPage = false
+    updateModal(renderer, { onOpenChange }, false)
+    await completePage(older)
+    expect(renderer.container.querySelector('[data-activity-event-id="event-0"]')).toBeInTheDocument()
+    expect(eventTop(renderer, "event-0")).toBe(top)
+    expect(fetchNextPage).toHaveBeenCalledOnce()
+  })
+
+  it("yields a late Home header qualification to a new reader input before the old reply", async () => {
+    auditState.events = events(30)
+    auditState.hasNextPage = true
+    const completePage = prepareOlderPage()
+    const { renderer, onOpenChange } = renderModal()
+    const root = scrollBody(renderer, 200)
+    root.focus()
+    fireEvent.keyDown(document.activeElement!, { key: "Home" })
+    act(() => {
+      root.scrollTop = 100
+      fireEvent.scroll(root)
+      vi.advanceTimersByTime(16)
+    })
+    auditState.isFetchingNextPage = true
+    updateModal(renderer, { onOpenChange }, false)
+    act(() => {
+      root.scrollTop = 0
+      fireEvent.scroll(root)
+      vi.advanceTimersByTime(16)
+    })
+    scrollBody(renderer, 600)
+    const top = eventTop(renderer, "event-15")
+    const older = Array.from({ length: 50 }, (_, index) => event(`older-${index}`, new Date(Date.parse("2026-08-27T11:00:00.000Z") + index * 60_000).toISOString()))
+    auditState.events = [...auditState.events, ...older]
+    auditState.loadedPageCount = 2
+    auditState.isFetchingNextPage = false
+    updateModal(renderer, { onOpenChange }, false)
+    await completePage(older)
+    expect(eventTop(renderer, "event-15")).toBe(top)
+    expect(root.scrollTop).toBeGreaterThan(600)
+    expect(fetchNextPage).toHaveBeenCalledOnce()
   })
 
   it("pins a new live row only while the reader is near the tail", () => {

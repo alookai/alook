@@ -83,7 +83,9 @@ export function BotActivityModal({
   const stickyIndexes = useMemo(() => rows.flatMap((row, index) => row.kind === "date" ? [index] : []), [rows])
   const activeStickyIndexRef = useRef<number | null>(null)
   const [pendingOlderAnchor, setPendingOlderAnchor] = useAtom(useCreateAtom<{
-    key: string
+    request: object
+    eventKeys: ReadonlySet<string>
+    key: string | null
     viewportOffset: number
     pageCount: number
     receivedOlderRows: boolean
@@ -108,6 +110,21 @@ export function BotActivityModal({
     didInitialTailScrollRef.current = false
   }, [open, bot?.id, scrollRoot, setPendingOlderAnchor])
 
+  const getHeaderAnchor = useCallback((instance: {
+    options: { count: number }
+    getVirtualItemForOffset: (offset: number) => VirtualItem | undefined
+    getVirtualItems: () => VirtualItem[]
+  }, eventKeys: ReadonlySet<string>, key: string | null) => {
+    if (!scrollRoot || instance.options.count !== rows.length) return null
+    const offset = scrollRoot.scrollTop
+    const fold = instance.getVirtualItemForOffset(offset)
+    if (!fold || rows[fold.index]?.key !== String(fold.key) || rows[fold.index]?.kind === "event") return null
+    const event = instance.getVirtualItems().find((item) => rows[item.index]?.kind === "event"
+      && rows[item.index]?.key === String(item.key) && eventKeys.has(String(item.key))
+      && (key ? String(item.key) === key : item.end > offset))
+    return event ? { key: String(event.key), viewportOffset: event.start - offset } : null
+  }, [scrollRoot, rows])
+
   const getItemKey = useCallback((index: number) => rows[index].key, [rows])
   const estimateSize = useCallback((index: number) => rows[index].kind === "date" ? 24 : 44, [rows])
   const rangeExtractor = useCallback((range: Range) => {
@@ -126,7 +143,7 @@ export function BotActivityModal({
     estimateSize,
     rangeExtractor,
     anchorTo: "end",
-    followOnAppend: open && didInitialTailScrollRef.current && !isFetchingNextPage && !pendingOlderAnchor,
+    followOnAppend: open && didInitialTailScrollRef.current && !isFetchingNextPage && !pendingOlderAnchor?.key,
     scrollEndThreshold: 80,
     scrollPaddingStart: scrollPaddingStartRef.current,
     paddingEnd: 12,
@@ -155,7 +172,7 @@ export function BotActivityModal({
     const pending = pendingOlderAnchor
     if (!pending || !pending.settled || isFetchingNextPage) return
     setPendingOlderAnchor(null)
-    if (pending.receivedOlderRows) {
+    if (pending.receivedOlderRows && pending.key) {
       const index = rows.findIndex((row) => row.key === pending.key)
       if (index >= 0) {
         scrollPaddingStartRef.current = pending.viewportOffset
@@ -170,23 +187,21 @@ export function BotActivityModal({
     if (!open || !bot?.id || !scrollRoot || scrollRoot.clientHeight <= 0
       || !didInitialTailScrollRef.current || !hasNextPage || isFetching
       || (!retry && (isFetchNextPageError || ownsIndexRef.current))) return
-    const offset = scrollRoot.scrollTop
-    const fold = virtualizer.getVirtualItemForOffset(offset)
-    let pending: typeof pendingOlderAnchor = null
-    if (fold && rows[fold.index]?.kind !== "event") {
-      const event = virtualizer.getVirtualItems().find((item) => rows[item.index]?.kind === "event" && item.end > offset)
-      if (event) pending = {
-        key: String(event.key),
-        viewportOffset: event.start - offset,
-        pageCount: loadedPageCount,
-        receivedOlderRows: false,
-        settled: false,
-      }
+    const request = {}
+    const eventKeys = new Set(rows.filter(row => row.kind === "event").map(row => row.key))
+    const anchor = getHeaderAnchor(virtualizer, eventKeys, null)
+    const pending = {
+      request,
+      eventKeys,
+      key: anchor?.key ?? null,
+      viewportOffset: anchor?.viewportOffset ?? 0,
+      pageCount: loadedPageCount,
+      receivedOlderRows: false,
+      settled: false,
     }
     setPendingOlderAnchor(pending)
     const settle = (result: Awaited<ReturnType<typeof fetchNextPage>> | null) => {
-      if (!pending) return
-      setPendingOlderAnchor(current => current === pending ? {
+      setPendingOlderAnchor(current => current?.request === request ? {
         ...current,
         settled: true,
         receivedOlderRows: Boolean(result && !result.isError
@@ -194,7 +209,7 @@ export function BotActivityModal({
       } : current)
     }
     void fetchNextPage({ cancelRefetch: false }).then(settle, () => settle(null))
-  }, [open, bot?.id, scrollRoot, hasNextPage, isFetching, isFetchNextPageError, rows, loadedPageCount, fetchNextPage, setPendingOlderAnchor, virtualizer])
+  }, [open, bot?.id, scrollRoot, hasNextPage, isFetching, isFetchNextPageError, rows, loadedPageCount, fetchNextPage, setPendingOlderAnchor, virtualizer, getHeaderAnchor])
 
   useEffect(() => {
     if (!scrollRoot || !open) return
@@ -228,6 +243,12 @@ export function BotActivityModal({
       const upwards = offset < previousOffset
       const downwards = offset > previousOffset
       previousOffset = offset
+      if (upwards) setPendingOlderAnchor(current => {
+        if (!current || current.settled || current.pageCount !== loadedPageCount) return current
+        const anchor = getHeaderAnchor(virtualizer, current.eventKeys, current.key)
+        if (!anchor || (anchor.key === current.key && anchor.viewportOffset === current.viewportOffset)) return current
+        return { ...current, ...anchor }
+      })
       const input = readingInputRef.current
       if (!input) return
       const fold = virtualizer.getVirtualItemForOffset(input.offset)
@@ -320,7 +341,7 @@ export function BotActivityModal({
       window.removeEventListener("pointercancel", pointerCancel)
       scrollRoot.removeEventListener("keydown", key)
     }
-  }, [open, scrollRoot, onLoadOlder, setPendingOlderAnchor, virtualizer])
+  }, [open, scrollRoot, onLoadOlder, setPendingOlderAnchor, virtualizer, getHeaderAnchor, loadedPageCount])
 
   return (
     <CommunitySheet
