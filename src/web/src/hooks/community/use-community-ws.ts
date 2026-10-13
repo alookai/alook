@@ -545,6 +545,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     return reconcileFocusedCommunityMessages(queryClient)
   }, [queryClient, runtime.ws, viewerUserId])
   const { send, reconnectNow } = useUserWs(handleMessage, {
+    viewerUserId,
     communityContract: options?.communityContract,
     onReconnect: handleReconnect,
     onDisconnect: runtime.ws.actions.markAccessDisconnected,

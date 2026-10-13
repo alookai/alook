@@ -204,7 +204,7 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
   await setVisibility("visible", false)
   await dispatchDuplicateResumeSignals()
   await expect.poll(() => proxy.connectionCount()).toBe(freezeConnectionBaseline + 1)
-  await expect.poll(() => tokenRequests).toBe(freezeTokenBaseline + 1)
+  await expect.poll(() => tokenRequests).toBe(freezeTokenBaseline)
   await expect.poll(() => proxy.connectionFrames.filter((frame) =>
     frame.direction === "server-to-client"
     && frame.type === "auth.ok"
@@ -232,12 +232,12 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
 
   await expect.poll(() => proxy.connectionCount()).toBe(failedConnectionBaseline + 1)
   await expect(wsOverlay).toHaveCount(0)
-  await expect.poll(() => tokenRequests).toBe(failedTokenBaseline + 1)
+  await expect.poll(() => tokenRequests).toBe(failedTokenBaseline)
   await expect.poll(() => proxy.heldConnectionCount()).toBe(1)
   await dispatchDuplicateResumeSignals()
   await alice.page.waitForTimeout(250)
   expect(proxy.connectionCount()).toBe(failedConnectionBaseline + 1)
-  expect(tokenRequests).toBe(failedTokenBaseline + 1)
+  expect(tokenRequests).toBe(failedTokenBaseline)
   expect(proxy.heldConnectionCount()).toBe(1)
   expect(proxy.connectionFrames.filter((frame) =>
     frame.direction === "client-to-server"
@@ -284,7 +284,7 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
     { timeout: WS_CONNECTION_VALIDATION_TIMEOUT_MS + 5_000 },
   ).toBe(sentinelConnectionBaseline + 1)
   await expect(wsOverlay).toHaveCount(0)
-  await expect.poll(() => tokenRequests).toBe(sentinelTokenBaseline + 1)
+  await expect.poll(() => tokenRequests).toBe(sentinelTokenBaseline)
   await expect.poll(() => proxy.heldConnectionCount()).toBe(1)
   expect(proxy.connectionFrames.slice(sentinelRecoveryStart).filter((frame) =>
     frame.direction === "client-to-server" && frame.type === "connection.ping",
@@ -337,7 +337,7 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
     { timeout: 20_000 },
   )
   await expect.poll(() => proxy.connectionCount()).toBe(onlineRecoveryConnectionBaseline + 1)
-  await expect.poll(() => successfulTokenResponses).toBe(onlineRecoverySuccessfulTokenBaseline + 1)
+  await expect.poll(() => successfulTokenResponses).toBe(onlineRecoverySuccessfulTokenBaseline)
   expect(proxy.connectionFrames.slice(onlineRecoveryFrameStart).filter((frame) =>
     frame.direction === "server-to-client"
     && frame.connectionId === onlineRecoveryConnectionBaseline + 1

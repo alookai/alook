@@ -14,6 +14,37 @@ import {
 } from "@alook/shared"
 import type { UseUserWsOptions } from "./use-user-ws"
 
+type TestSdkSession = {
+  data: { user: { id: string }; session?: { id: string; userId: string; token: string; expiresAt: Date } } | null
+  isPending: boolean
+  error: unknown
+}
+
+const mockSdkSession = vi.hoisted(() => {
+  let current: TestSdkSession = { data: null, isPending: true, error: null }
+  const listeners = new Set<(value: TestSdkSession, previous: TestSdkSession) => void>()
+  const refetch = vi.fn(async () => {})
+  return {
+    refetch,
+    get: () => ({ ...current, refetch }),
+    listen: (listener: (value: TestSdkSession, previous: TestSdkSession) => void) => {
+      listeners.add(listener)
+      return () => { listeners.delete(listener) }
+    },
+    set: (value: TestSdkSession) => {
+      const previous = current
+      current = value
+      for (const listener of listeners) listener(value, previous)
+    },
+    reset: () => {
+      current = { data: null, isPending: true, error: null }
+      listeners.clear()
+      refetch.mockClear()
+    },
+  }
+})
+vi.mock("@/lib/auth-client", () => ({ authClient: { $store: { atoms: { session: mockSdkSession } } } }))
+
 const mockTrackCommunityWsLifecycleRecovery = vi.hoisted(() => vi.fn())
 const mockTrackCommunityWsAuthFailure = vi.hoisted(() => vi.fn())
 const mockTrackCommunityWsLifecycleClose = vi.hoisted(() => vi.fn())
@@ -196,6 +227,14 @@ function setupTokenFetch() {
   })
 }
 
+function sdkSession(userId = "user-1", id = "sdk-session-1", token = "current-sdk-token"): TestSdkSession {
+  return {
+    data: { user: { id: userId }, session: { id, userId, token, expiresAt: new Date(Date.now() + 3_600_000) } },
+    isPending: false,
+    error: null,
+  }
+}
+
 function connectionPings(ws: MockWebSocket): Array<{ type: "connection.ping"; nonce: string }> {
   return ws.sent.flatMap((value) => {
     try {
@@ -229,6 +268,7 @@ function resetMockState() {
   vi.stubGlobal("WebSocket", MockWebSocket)
   MockWebSocket.instances = []
   mockFetch.mockReset()
+  mockSdkSession.reset()
   effectCleanup = null
   refs = new Map()
   refCounter = 0
@@ -269,6 +309,176 @@ describe("useUserWs", () => {
     await flushPromises()
     return mod
   }
+
+  it("keeps bootstrap port discovery and authenticates a current SDK reconnect without another HTTP request", async () => {
+    mockSdkSession.set(sdkSession())
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ userId: "user-1", token: "bootstrap-token", wsPort: 9123 }) })
+    await mountHook(vi.fn(), { viewerUserId: "user-1", communityContract: 2, requestDaemonStatusOnAuth: false })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    first.simulateMessage({ type: "auth.ok", communityContract: 2 })
+    expect(mockFetch).toHaveBeenCalledOnce()
+    expect(first.sent).toEqual([JSON.stringify({ type: "auth", token: "bootstrap-token", communityContract: 2 })])
+    latestHookResult!.reconnectNow()
+    await flushPromises()
+    const replacement = MockWebSocket.instances[1]!
+    expect(replacement.url).toBe("ws://localhost:9123/api/ws/user?userId=user-1")
+    replacement.simulateOpen()
+    expect(replacement.sent).toEqual([JSON.stringify({ type: "auth", token: "current-sdk-token", communityContract: 2 })])
+    replacement.simulateMessage({ type: "auth.ok", communityContract: 2 })
+    expect(mockFetch).toHaveBeenCalledOnce()
+  })
+
+  it.each(["pending", "error", "missing", "missing-session", "empty-id", "session-owner", "expired", "invalid-expiry"])("falls back without admitting %s SDK credentials", async (state) => {
+    mockSdkSession.set(sdkSession())
+    setupTokenFetch()
+    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    first.simulateMessage({ type: "auth.ok" })
+    const value = sdkSession()
+    if (state === "pending") value.isPending = true
+    if (state === "error") value.error = new Error("session unavailable")
+    if (state === "missing") value.data!.session!.token = ""
+    if (state === "missing-session") value.data!.session = undefined
+    if (state === "empty-id") value.data!.session!.id = ""
+    if (state === "session-owner") value.data!.session!.userId = "user-2"
+    if (state === "expired") value.data!.session!.expiresAt = new Date(Date.now() - 1)
+    if (state === "invalid-expiry") value.data!.session!.expiresAt = new Date(Number.NaN)
+    mockSdkSession.set(value)
+    if (!["missing", "missing-session", "empty-id"].includes(state)) latestHookResult!.reconnectNow()
+    await flushPromises()
+    const replacement = MockWebSocket.instances.at(-1)!
+    replacement.simulateOpen()
+    expect(mockFetch.mock.calls.map(([url]) => url)).toEqual(["/api/ws/token", "/api/ws/token"])
+    expect(replacement.sent.some((frame) => JSON.parse(frame).token === "current-sdk-token")).toBe(false)
+    expect(replacement.sent.some((frame) => JSON.parse(frame).token === "tok-123")).toBe(true)
+  })
+
+  it("retires an old-owner token request and ignores its late response after a native SDK account change", async () => {
+    mockSdkSession.set(sdkSession())
+    const response = deferred<Response>()
+    mockFetch.mockReturnValue(response.promise)
+    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    const signal = mockFetch.mock.calls[0]![1].signal as AbortSignal
+    mockSdkSession.set(sdkSession("user-2", "sdk-session-2", "other-sdk-token"))
+    expect(signal.aborted).toBe(true)
+    response.resolve(Response.json({ userId: "user-1", token: "old-owner-token" }))
+    await flushPromises()
+    mockWindow.dispatch("focus")
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(MockWebSocket.instances).toEqual([])
+    expect(mockFetch).toHaveBeenCalledOnce()
+    expect(mockSdkSession.refetch).not.toHaveBeenCalled()
+  })
+
+  it("rejects a foreign HTTP identity before socket construction", async () => {
+    mockSdkSession.set(sdkSession())
+    mockFetch.mockResolvedValue(Response.json({ userId: "user-2", token: "foreign-fixture-token" }))
+    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(MockWebSocket.instances).toEqual([])
+    expect(mockFetch).toHaveBeenCalledOnce()
+    expect(mockSdkSession.refetch).toHaveBeenCalledOnce()
+  })
+
+  it.each([401, 403])("stops an HTTP%s credential sequence and refetches the native SDK at most once", async (status) => {
+    mockSdkSession.set(sdkSession())
+    mockFetch.mockResolvedValue({ ok: false, status })
+    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    mockDocument.dispatch("resume")
+    mockWindow.dispatch("focus")
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(mockFetch).toHaveBeenCalledOnce()
+    expect(mockSdkSession.refetch).toHaveBeenCalledExactlyOnceWith({ query: { disableCookieCache: true } })
+    expect(MockWebSocket.instances).toEqual([])
+    latestHookResult!.reconnectNow()
+    await flushPromises()
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+    expect(mockSdkSession.refetch).toHaveBeenCalledTimes(2)
+  })
+
+  it("makes one authoritative fallback for a rejected SDK session and stops a fresh rejection until explicit Retry", async () => {
+    mockSdkSession.set(sdkSession())
+    setupTokenFetch()
+    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    first.simulateMessage({ type: "auth.ok" })
+    latestHookResult!.reconnectNow()
+    await flushPromises()
+    const sdk = MockWebSocket.instances[1]!
+    sdk.simulateOpen()
+    sdk.simulateClose(1008, "Unauthorized", false)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(mockFetch.mock.calls.map(([url]) => url)).toEqual(["/api/ws/token", "/api/ws/token?refresh=1"])
+    const fallback = MockWebSocket.instances[2]!
+    fallback.simulateOpen()
+    fallback.simulateClose(1008, "Unauthorized", false)
+    mockDocument.dispatch("resume")
+    mockWindow.dispatch("focus")
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+    expect(MockWebSocket.instances).toHaveLength(3)
+    expect(mockSdkSession.refetch).toHaveBeenCalledOnce()
+    latestHookResult!.reconnectNow()
+    await flushPromises()
+    expect(mockFetch.mock.calls.map(([url]) => url)).toEqual(["/api/ws/token", "/api/ws/token?refresh=1", "/api/ws/token?refresh=1"])
+  })
+
+  it("does not repeat an authoritative read after a transient fallback failure", async () => {
+    mockSdkSession.set(sdkSession())
+    setupTokenFetch()
+    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    first.simulateMessage({ type: "auth.ok" })
+    latestHookResult!.reconnectNow()
+    await flushPromises()
+    mockFetch.mockRejectedValueOnce(new Error("fixture transport unavailable"))
+    const sdk = MockWebSocket.instances[1]!
+    sdk.simulateOpen()
+    sdk.simulateClose(1008, "Unauthorized", false)
+    await vi.advanceTimersByTimeAsync(4_000)
+    expect(mockFetch.mock.calls.map(([url]) => url)).toEqual(["/api/ws/token", "/api/ws/token?refresh=1", "/api/ws/token"])
+  })
+
+  it.each(["Unsupported community contract", "Invalid JSON", "Not authenticated"])("keeps protocol policy close %s out of credential refresh", async (reason) => {
+    mockSdkSession.set(sdkSession())
+    setupTokenFetch()
+    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    first.simulateMessage({ type: "auth.ok" })
+    latestHookResult!.reconnectNow()
+    await flushPromises()
+    const sdk = MockWebSocket.instances[1]!
+    sdk.simulateOpen()
+    sdk.simulateClose(1008, reason, false)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(mockFetch).toHaveBeenCalledOnce()
+    expect(mockSdkSession.refetch).not.toHaveBeenCalled()
+    expect(mockTrackCommunityWsAuthFailure).toHaveBeenLastCalledWith({ failureClass: "unknown" })
+  })
+
+  it("does not refresh credentials after a server contract frame even with an Unauthorized close", async () => {
+    mockSdkSession.set(sdkSession())
+    setupTokenFetch()
+    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    first.simulateMessage({ type: "auth.ok" })
+    latestHookResult!.reconnectNow()
+    await flushPromises()
+    const sdk = MockWebSocket.instances[1]!
+    sdk.simulateOpen()
+    sdk.simulateMessage({ type: "auth.error", error: "Unsupported community contract" })
+    sdk.simulateClose(1008, "Unauthorized", false)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(mockFetch).toHaveBeenCalledOnce()
+    expect(mockSdkSession.refetch).not.toHaveBeenCalled()
+    expect(mockTrackCommunityWsAuthFailure).toHaveBeenLastCalledWith({ failureClass: "unknown" })
+  })
 
   it("requires protocol confirmation before a v2 batch reaches the callback", async () => {
     setupTokenFetch()

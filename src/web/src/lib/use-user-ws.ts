@@ -32,6 +32,7 @@ import {
 } from "@/lib/analytics"
 import { isLocalServiceEnvironment, WS_DO_PORT_DEFAULT } from "@/lib/utils"
 import { websocketUrl } from "@/lib/websocket-url"
+import { authClient } from "@/lib/auth-client"
 
 const useLocalServices = isLocalServiceEnvironment()
 const WS_RECONNECT_INIT = Number(process.env.NEXT_PUBLIC_WS_RECONNECT_DELAY_MS) || 1000
@@ -55,6 +56,37 @@ type PendingTokenAttempt = {
   startedAt: number
   reported: boolean
   observationGeneration: number
+}
+
+type CredentialRetry = {
+  rejectedSessionId: string | null
+  refreshUsed: boolean
+  stopped: boolean
+  refetchUsed: boolean
+}
+
+function currentSdkWsSession(viewerUserId: string | null | undefined) {
+  if (!viewerUserId) return
+  const current = authClient.$store.atoms.session.get()
+  const data = current.data
+  const session = data?.session
+  if (current.isPending || current.error || data?.user?.id !== viewerUserId
+    || !session || session.userId !== viewerUserId || !session.id || !session.token) return
+  const expiresAt = session.expiresAt
+  if (!(expiresAt instanceof Date) || !Number.isFinite(expiresAt.getTime())
+    || expiresAt.getTime() <= Date.now()) return
+  return data
+}
+
+function isCurrentWsAccount(viewerUserId: string | null | undefined) {
+  if (viewerUserId === undefined) return true
+  if (!viewerUserId) return false
+  const current = authClient.$store.atoms.session.get()
+  return current.isPending || Boolean(current.error) || current.data?.user?.id === viewerUserId
+}
+
+function isWsCredentialRejection(event?: Pick<CloseEvent, "code" | "reason">) {
+  return event?.code === 1008 && event.reason === "Unauthorized"
 }
 
 function isPageHidden(): boolean {
@@ -129,6 +161,7 @@ export type WsMessageIncoming = WsMessage & { [key: string]: unknown }
 export type UserWsConnectionPhase = "authenticated" | "reconnecting" | "suspended"
 
 export type UseUserWsOptions = {
+  viewerUserId?: string | null
   communityContract?: CommunityContract
   onReconnect?: (info: { reconnectDurationMs: number }) => void | Promise<void>
   onDisconnect?: () => void | Promise<void>
@@ -175,6 +208,12 @@ export function useUserWs(
   onMessage: (msg: WsMessageIncoming, assertCurrent?: () => void, communityContract?: CommunityContract) => void | Promise<void>,
   options?: UseUserWsOptions,
 ): { send: (msg: object) => void; reconnectNow: () => void } {
+  const viewerUserId = options?.viewerUserId
+  const previousViewerRef = useRef(viewerUserId)
+  const wsPortRef = useRef(WS_DO_PORT_DEFAULT)
+  const credentialRetryRef = useRef<CredentialRetry>({
+    rejectedSessionId: null, refreshUsed: false, stopped: false, refetchUsed: false,
+  })
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectDelay = useRef(WS_RECONNECT_INIT)
   const reconnectAttemptRef = useRef(0)
@@ -255,7 +294,8 @@ export function useUserWs(
 
   const ownsConnection = useCallback((ws: WebSocket, generation: number) => (
     ws === wsRef.current && generation === connectionGenerationRef.current
-  ), [])
+    && isCurrentWsAccount(viewerUserId)
+  ), [viewerUserId])
 
   const ownsAuthenticatedConnection = useCallback((ws: WebSocket, generation: number) => (
     ownsConnection(ws, generation)
@@ -390,6 +430,21 @@ export function useUserWs(
     if (ws) closeSocket(ws, initiator)
   }, [clearConnectionValidation, closeSocket, stopHeartbeat])
 
+  const stopCredentialRetry = useCallback(() => {
+    const retry = credentialRetryRef.current
+    retry.stopped = true
+    if (reconnectTimerRef.current !== null) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+    retireSocket(true, "auth-failure")
+    if (viewerUserId === undefined || retry.refetchUsed) return
+    retry.refetchUsed = true
+    void authClient.$store.atoms.session.get().refetch({ query: { disableCookieCache: true } }).catch(() => {
+      console.warn("[ws] session refetch failed")
+    })
+  }, [retireSocket, viewerUserId])
+
   const failConnectionValidation = useCallback((
     ws: WebSocket,
     generation: number,
@@ -457,6 +512,7 @@ export function useUserWs(
 
   const scheduleReconnect = useCallback((generation: number) => {
     if (generation !== connectionGenerationRef.current) return
+    if (credentialRetryRef.current.stopped || !isCurrentWsAccount(viewerUserId)) return
     if (isPageHidden() || isOffline() || frozenRef.current) return
     if (reconnectTimerRef.current !== null) {
       clearTimeout(reconnectTimerRef.current)
@@ -479,9 +535,10 @@ export function useUserWs(
       ) return
       void connectRef.current?.()
     }, delayMs)
-  }, [isOffline])
+  }, [isOffline, viewerUserId])
 
   const connect = useCallback(async () => {
+    if (credentialRetryRef.current.stopped || !isCurrentWsAccount(viewerUserId)) return
     if (isPageHidden() || isOffline() || frozenRef.current) {
       publishConnectionPhase(
         isPageHidden() || frozenRef.current ? "suspended" : "reconnecting",
@@ -497,6 +554,7 @@ export function useUserWs(
       || isPageHidden()
       || isOffline()
       || frozenRef.current
+      || !isCurrentWsAccount(viewerUserId)
     ) return
     const generation = previousGeneration + 1
     connectionGenerationRef.current = generation
@@ -504,81 +562,105 @@ export function useUserWs(
       clearTimeout(reconnectTimerRef.current)
       reconnectTimerRef.current = null
     }
-    const tokenController = new AbortController()
-    const tokenAttempt: PendingTokenAttempt = {
-      controller: tokenController,
-      generation,
-      startedAt: Date.now(),
-      reported: false,
-      observationGeneration: telemetryGeneration(),
-    }
-    if (isTelemetryEligible()) emitTelemetry("ws.connect", { phase: "token", start_ms: performance.now(), outcome: "observed" })
-    pendingTokenRef.current = tokenAttempt
-    let tokenTimedOut = false
-    tokenTimeoutRef.current = setTimeout(() => {
-      if (pendingTokenRef.current !== tokenAttempt) return
-      tokenTimedOut = true
-      pendingTokenRef.current = null
-      tokenTimeoutRef.current = null
-      reportTokenAttempt(tokenAttempt, "timeout")
-      trackCommunityWsAuthFailure({ failureClass: "timeout" })
-      tokenController.abort()
-      scheduleReconnect(generation)
-    }, WS_TOKEN_TIMEOUT_MS)
+    const observationGeneration = telemetryGeneration()
+    const currentSession = currentSdkWsSession(viewerUserId)
+    const sdkSession = hasAuthenticatedBeforeRef.current
+      && currentSession?.session.id !== credentialRetryRef.current.rejectedSessionId
+      ? currentSession : undefined
     let userId: string
     let authToken: string
-    let wsPort: number = WS_DO_PORT_DEFAULT
-    let tokenResponseReceived = false
-    try {
-      const res = await fetch("/api/ws/token", { signal: tokenController.signal })
-      tokenResponseReceived = true
-      if (
-        pendingTokenRef.current !== tokenAttempt
-        || generation !== connectionGenerationRef.current
-        || isOffline()
-      ) return
-      if (!res.ok) {
+    let wsPort = wsPortRef.current
+    if (sdkSession) {
+      userId = sdkSession.user.id
+      authToken = sdkSession.session.token
+    } else {
+      const tokenController = new AbortController()
+      const tokenAttempt: PendingTokenAttempt = {
+        controller: tokenController,
+        generation,
+        startedAt: Date.now(),
+        reported: false,
+        observationGeneration,
+      }
+      if (isTelemetryEligible()) emitTelemetry("ws.connect", { phase: "token", start_ms: performance.now(), outcome: "observed" })
+      pendingTokenRef.current = tokenAttempt
+      let tokenTimedOut = false
+      tokenTimeoutRef.current = setTimeout(() => {
+        if (pendingTokenRef.current !== tokenAttempt) return
+        tokenTimedOut = true
+        pendingTokenRef.current = null
+        tokenTimeoutRef.current = null
+        reportTokenAttempt(tokenAttempt, "timeout")
+        trackCommunityWsAuthFailure({ failureClass: "timeout" })
+        tokenController.abort()
+        scheduleReconnect(generation)
+      }, WS_TOKEN_TIMEOUT_MS)
+      const retry = credentialRetryRef.current
+      const refresh = Boolean(retry.rejectedSessionId) && !retry.refreshUsed
+      if (refresh) retry.refreshUsed = true
+      let tokenResponseReceived = false
+      try {
+        const res = await fetch(refresh ? "/api/ws/token?refresh=1" : "/api/ws/token", { signal: tokenController.signal })
+        tokenResponseReceived = true
+        if (
+          pendingTokenRef.current !== tokenAttempt
+          || generation !== connectionGenerationRef.current
+          || isOffline()
+          || !isCurrentWsAccount(viewerUserId)
+        ) return
+        if (!res.ok) {
+          reportTokenAttempt(tokenAttempt, "failure")
+          trackCommunityWsAuthFailure({ failureClass: tokenFailureClass(res.status) })
+          console.warn("[ws] token fetch failed:", res.status)
+          if (viewerUserId !== undefined && (res.status === 401 || res.status === 403)) stopCredentialRetry()
+          else scheduleReconnect(generation)
+          return
+        }
+        const body = await res.json() as { userId: string; token: string; wsPort?: number }
+        if (
+          pendingTokenRef.current !== tokenAttempt
+          || generation !== connectionGenerationRef.current
+          || isOffline()
+          || !isCurrentWsAccount(viewerUserId)
+        ) return
+        if (viewerUserId !== undefined && body.userId !== viewerUserId) {
+          reportTokenAttempt(tokenAttempt, "failure")
+          trackCommunityWsAuthFailure({ failureClass: "credentials" })
+          stopCredentialRetry()
+          return
+        }
+        reportTokenAttempt(tokenAttempt, "success")
+        userId = body.userId
+        authToken = body.token
+        if (body.wsPort) wsPort = body.wsPort
+        wsPortRef.current = wsPort
+      } catch (err) {
+        if (
+          pendingTokenRef.current !== tokenAttempt
+          || generation !== connectionGenerationRef.current
+          || isOffline()
+          || !isCurrentWsAccount(viewerUserId)
+        ) return
+        if (tokenController.signal.aborted || tokenTimedOut) return
         reportTokenAttempt(tokenAttempt, "failure")
-        trackCommunityWsAuthFailure({ failureClass: tokenFailureClass(res.status) })
-        console.warn("[ws] token fetch failed:", res.status)
+        trackCommunityWsAuthFailure({
+          failureClass: tokenResponseReceived ? "unknown" : "network",
+        })
+        console.warn("[ws] token fetch error:", err)
         scheduleReconnect(generation)
         return
-      }
-      const body = await res.json() as { userId: string; token: string; wsPort?: number }
-      if (
-        pendingTokenRef.current !== tokenAttempt
-        || generation !== connectionGenerationRef.current
-        || isOffline()
-      ) return
-      reportTokenAttempt(tokenAttempt, "success")
-      userId = body.userId
-      authToken = body.token
-      if (body.wsPort) wsPort = body.wsPort
-    } catch (err) {
-      if (
-        pendingTokenRef.current !== tokenAttempt
-        || generation !== connectionGenerationRef.current
-        || isOffline()
-      ) return
-      if (tokenController.signal.aborted || tokenTimedOut) return
-      reportTokenAttempt(tokenAttempt, "failure")
-      trackCommunityWsAuthFailure({
-        failureClass: tokenResponseReceived ? "unknown" : "network",
-      })
-      console.warn("[ws] token fetch error:", err)
-      scheduleReconnect(generation)
-      return
-    } finally {
-      if (pendingTokenRef.current === tokenAttempt) {
-        if (tokenTimeoutRef.current !== null) {
-          clearTimeout(tokenTimeoutRef.current)
-          tokenTimeoutRef.current = null
+      } finally {
+        if (pendingTokenRef.current === tokenAttempt) {
+          if (tokenTimeoutRef.current !== null) {
+            clearTimeout(tokenTimeoutRef.current)
+            tokenTimeoutRef.current = null
+          }
+          pendingTokenRef.current = null
         }
-        pendingTokenRef.current = null
       }
     }
 
-    if (generation !== connectionGenerationRef.current || isOffline()) return
+    if (generation !== connectionGenerationRef.current || isOffline() || !isCurrentWsAccount(viewerUserId)) return
 
     const wsBaseUrl = useLocalServices
       ? websocketUrl("user", { local: true, port: wsPort })
@@ -590,6 +672,7 @@ export function useUserWs(
     let openStageReported = false
     let authStageReported = false
     let authFailureReported = false
+    let protocolRejected = false
     const reportOpenStage = (result: CommunityWsLifecycleStageResult) => {
       if (openStageReported) return
       openStageReported = true
@@ -620,9 +703,9 @@ export function useUserWs(
     let pendingAdmissions = 0
     let ws: WebSocket
     try {
-      if (generation !== connectionGenerationRef.current || isOffline()) return
+      if (generation !== connectionGenerationRef.current || isOffline() || !isCurrentWsAccount(viewerUserId)) return
       retireSocket(true, "local-retire")
-      if (generation !== connectionGenerationRef.current || isOffline()) return
+      if (generation !== connectionGenerationRef.current || isOffline() || !isCurrentWsAccount(viewerUserId)) return
       ws = new WebSocket(url)
     } catch (err) {
       if (generation !== connectionGenerationRef.current) return
@@ -631,8 +714,8 @@ export function useUserWs(
       scheduleReconnect(generation)
       return
     }
-    observedSockets.current.set(ws, { generation: tokenAttempt.observationGeneration, start: performance.now() })
-    if (tokenAttempt.observationGeneration === telemetryGeneration()) emitTelemetry("ws.connect", { phase: "transport", outcome: "observed" })
+    observedSockets.current.set(ws, { generation: observationGeneration, start: performance.now() })
+    if (observationGeneration === telemetryGeneration()) emitTelemetry("ws.connect", { phase: "transport", outcome: "observed" })
     wsRef.current = ws
     connectStartedAtRef.current = Date.now()
     connectTimeoutRef.current = setTimeout(() => {
@@ -683,6 +766,7 @@ export function useUserWs(
         return
       }
       const msg = parsed as Record<string, unknown>
+      if (msg.type === "auth.error") protocolRejected = true
       if (typeof msg.type !== "string" || msg.type.length === 0) {
         reportDroppedFrame("missing-type", msg)
         return
@@ -723,6 +807,7 @@ export function useUserWs(
         const confirmed = msg.communityContract ?? 1
         if ((confirmed !== 1 && confirmed !== 2 && confirmed !== 3)
           || (confirmed !== requestedCommunityContract && !(confirmed === 1 && requestedCommunityContract === 2))) {
+          protocolRejected = true
           reportDroppedFrame("invalid-payload", msg)
           ws.close(1008, "Community contract confirmation mismatch")
           return
@@ -827,10 +912,10 @@ export function useUserWs(
         reportAuthStage(timeout ? "timeout" : aborted ? "aborted" : "failure")
         if (initiator === "auth-failure") {
           const code = normalizedCloseCode(event?.code)
-          reportAuthFailure(code === 1008 ? "credentials" : "network")
+          reportAuthFailure(isWsCredentialRejection(event) && !protocolRejected ? "credentials" : code === 1008 ? "unknown" : "network")
         } else if (initiator === "remote") {
           const code = normalizedCloseCode(event?.code)
-          reportAuthFailure(code === 1008 ? "credentials" : code === 1011 ? "server" : "network")
+          reportAuthFailure(isWsCredentialRejection(event) && !protocolRejected ? "credentials" : code === 1008 ? "unknown" : code === 1011 ? "server" : "network")
         }
       }
       if (!ownsConnection(ws, generation)) return
@@ -852,6 +937,10 @@ export function useUserWs(
       }
       stopHeartbeat()
       if (connectTimeoutRef.current !== null) { clearTimeout(connectTimeoutRef.current); connectTimeoutRef.current = null }
+      if (!wasAuthenticated && viewerUserId !== undefined && !protocolRejected && isWsCredentialRejection(event)) {
+        if (sdkSession) credentialRetryRef.current.rejectedSessionId = sdkSession.session.id
+        else stopCredentialRetry()
+      }
       publishConnectionPhase(
         isPageHidden() || frozenRef.current ? "suspended" : "reconnecting",
       )
@@ -874,7 +963,9 @@ export function useUserWs(
     retireSocket,
     scheduleReconnect,
     startHeartbeat,
+    stopCredentialRetry,
     stopHeartbeat,
+    viewerUserId,
   ])
 
   useEffect(() => {
@@ -1022,6 +1113,40 @@ export function useUserWs(
   ])
 
   useEffect(() => {
+    if (previousViewerRef.current !== viewerUserId) {
+      previousViewerRef.current = viewerUserId
+      credentialRetryRef.current = { rejectedSessionId: null, refreshUsed: false, stopped: false, refetchUsed: false }
+      wsPortRef.current = WS_DO_PORT_DEFAULT
+      hasAuthenticatedBeforeRef.current = false
+      authenticatedGenerationRef.current = null
+      disconnectedAtRef.current = null
+      reconnectDelay.current = WS_RECONNECT_INIT
+      reconnectAttemptRef.current = 0
+    }
+    if (!viewerUserId) return
+    return authClient.$store.atoms.session.listen((current, previous) => {
+      if (current.isPending || current.error) return
+      const sameOwner = current.data?.user?.id === viewerUserId
+      const previousSession = previous?.data?.session
+      const session = current.data?.session
+      const changed = previousSession?.id !== session?.id || previousSession?.token !== session?.token
+      if (sameOwner && !changed) return
+      if (sameOwner) {
+        credentialRetryRef.current = { rejectedSessionId: null, refreshUsed: false, stopped: false, refetchUsed: false }
+        if (!previousSession && (wsRef.current || pendingTokenRef.current)) return
+      } else credentialRetryRef.current.stopped = true
+      connectionGenerationRef.current += 1
+      abortPendingToken()
+      if (reconnectTimerRef.current !== null) {
+        clearTimeout(reconnectTimerRef.current)
+        reconnectTimerRef.current = null
+      }
+      retireSocket(true, "local-retire")
+      if (sameOwner) void connectRef.current?.()
+    })
+  }, [abortPendingToken, retireSocket, viewerUserId])
+
+  useEffect(() => {
     const mountedAt = Date.now()
     if (isPageHidden() || isOffline()) suspendedAtRef.current = mountedAt
     lastSentinelTickAtRef.current = mountedAt
@@ -1116,12 +1241,16 @@ export function useUserWs(
 
   const send = useCallback((msg: object) => {
     const ws = wsRef.current
-    if (!isOffline() && ws?.readyState === WebSocket.OPEN) {
+    if (!isOffline() && isCurrentWsAccount(viewerUserId) && ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(msg))
     }
-  }, [isOffline])
+  }, [isOffline, viewerUserId])
 
   const reconnectNow = useCallback(() => {
+    credentialRetryRef.current = {
+      rejectedSessionId: credentialRetryRef.current.rejectedSessionId,
+      refreshUsed: false, stopped: false, refetchUsed: false,
+    }
     clearConnectionValidation("aborted")
     if (reconnectTimerRef.current !== null) {
       clearTimeout(reconnectTimerRef.current)
