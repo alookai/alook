@@ -150,6 +150,71 @@ function heldPage() {
 }
 
 describe("canonical audit pagination and retention", () => {
+  it("keeps the complete 50/50/live/503/retry/last-one cursor chain", async () => {
+    const seed = Array.from({ length: 101 }, (_, index) => auditEvent(`seed-${String(index).padStart(3, "0")}`, index))
+    const head = seed.slice(51).reverse()
+    const older = seed.slice(1, 51).reverse()
+    const live = auditEvent("live", 101)
+    const firstCursor = { beforeCreatedAt: seed[51]!.createdAt, beforeId: seed[51]!.id }
+    const finalCursor = { beforeCreatedAt: seed[1]!.createdAt, beforeId: seed[1]!.id }
+    const firstHeld = heldPage()
+    const retryHeld = heldPage()
+    mockApiFetch.mockResolvedValueOnce({ events: head, nextCursor: firstCursor })
+      .mockReturnValueOnce(firstHeld.promise)
+      .mockRejectedValueOnce(new ApiError("older page unavailable", 503))
+      .mockRejectedValueOnce(new ApiError("older page unavailable", 503))
+      .mockReturnValueOnce(retryHeld.promise)
+    const { result, queryClient, unmount } = renderAuditLog("b1")
+    try {
+      await waitFor(() => expect(result.current.events).toEqual(head))
+      let fetching!: ReturnType<typeof result.current.fetchNextPage>
+      act(() => { fetching = result.current.fetchNextPage({ cancelRefetch: false }) })
+      await waitFor(() => expect(result.current.isFetchingNextPage).toBe(true))
+      expect(mockApiFetch).toHaveBeenCalledTimes(2)
+      await act(async () => {
+        firstHeld.resolve({ events: older, nextCursor: finalCursor })
+        await fetching
+      })
+      await waitFor(() => expect(result.current.loadedPageCount).toBe(2))
+      act(() => { appendBotAuditEvent(queryClient, "b1", live) })
+      await waitFor(() => expect(result.current.events).toEqual([live, ...head, ...older]))
+      await act(async () => { await result.current.fetchNextPage({ cancelRefetch: false }) })
+      await waitFor(() => expect(result.current.isFetchNextPageError).toBe(true))
+      expect(mockApiFetch).toHaveBeenCalledTimes(4)
+      expect(result.current.isFetching).toBe(false)
+      expect(result.current.loadedPageCount).toBe(2)
+      expect(result.current.hasNextPage).toBe(true)
+      expect(result.current.events).toEqual([live, ...head, ...older])
+      expect(queryClient.getQueryData<InfiniteData<AuditLogPage>>(communityKeys.botAuditLog("b1"))?.pageParams).toEqual([null, firstCursor])
+      act(() => { fetching = result.current.fetchNextPage({ cancelRefetch: false }) })
+      await waitFor(() => expect(result.current.isFetchingNextPage).toBe(true))
+      expect(mockApiFetch).toHaveBeenCalledTimes(5)
+      expect(result.current.events).toEqual([live, ...head, ...older])
+      await act(async () => {
+        retryHeld.resolve({ events: [seed[0]!], nextCursor: null })
+        await fetching
+      })
+      await waitFor(() => expect(result.current.loadedPageCount).toBe(3))
+      expect(result.current.isFetchNextPageError).toBe(false)
+      expect(result.current.isFetching).toBe(false)
+      expect(result.current.hasNextPage).toBe(false)
+      expect(result.current.events).toEqual([live, ...head, ...older, seed[0]])
+      expect(new Set(result.current.events.map(row => row.id)).size).toBe(102)
+      expect(queryClient.getQueryData<InfiniteData<AuditLogPage>>(communityKeys.botAuditLog("b1"))?.pageParams).toEqual([null, firstCursor, finalCursor])
+      for (const [index, call] of mockApiFetch.mock.calls.entries()) {
+        const url = new URL(call[0], "https://alook.invalid")
+        expect(url.pathname).toBe("/api/community/bots/b1/audit-log")
+        expect(Object.fromEntries(url.searchParams)).toEqual({ limit: "50", ...(index === 0 ? {} : index === 1 ? firstCursor : finalCursor) })
+        expect(call[1].signal).toBeInstanceOf(AbortSignal)
+      }
+      await act(async () => { await result.current.fetchNextPage({ cancelRefetch: false }) })
+      expect(mockApiFetch).toHaveBeenCalledTimes(5)
+    } finally {
+      unmount()
+      queryClient.clear()
+    }
+  })
+
   it("keeps a WS head while fetchNextPage waits for an older HTTP page", async () => {
     const held = heldPage()
     mockApiFetch.mockResolvedValueOnce({ events: [auditEvent("head", 1)], nextCursor: cursor })

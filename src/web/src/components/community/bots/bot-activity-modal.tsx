@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useLayoutEffect, useMemo, useRef, useEffect } from "react"
+import { useCallback, useLayoutEffect, useMemo, useRef, useEffect, useEffectEvent } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { defaultRangeExtractor, useVirtualizer, type Range, type VirtualItem } from "@tanstack/react-virtual"
 import { AgentAvatar } from "@/components/avatar"
@@ -13,6 +13,12 @@ import {
 import type { BotSummary } from "@/hooks/community/use-bots"
 import { tid } from "@/lib/community/testids"
 import { BotActivityRow } from "./bot-activity-row"
+
+type HeaderReadingBand = {
+  key: string
+  prefixKeys: readonly string[]
+  eventGap: number
+}
 
 /**
  * Modal audit log for one bot. Owner-only surface (the API enforces 404 for
@@ -87,6 +93,7 @@ export function BotActivityModal({
     eventKeys: ReadonlySet<string>
     key: string | null
     viewportOffset: number
+    band: HeaderReadingBand | null
     pageCount: number
     receivedOlderRows: boolean
     settled: boolean
@@ -95,6 +102,8 @@ export function BotActivityModal({
   const ownsIndexRef = useRef(false)
   const readingInputRef = useRef<{
     moved: boolean
+    home: boolean
+    relativeQualified: boolean
     offset: number
     height: number
     totalSize: number
@@ -115,15 +124,33 @@ export function BotActivityModal({
     options: { count: number }
     getVirtualItemForOffset: (offset: number) => VirtualItem | undefined
     getVirtualItems: () => VirtualItem[]
-  }, eventKeys: ReadonlySet<string>, key: string | null) => {
+  }, eventKeys: ReadonlySet<string>, key: string | null, band: HeaderReadingBand | null) => {
     if (!scrollRoot || instance.options.count !== rows.length) return null
     const offset = scrollRoot.scrollTop
     const fold = instance.getVirtualItemForOffset(offset)
     if (!fold || rows[fold.index]?.key !== String(fold.key) || rows[fold.index]?.kind === "event") return null
-    const event = instance.getVirtualItems().find((item) => rows[item.index]?.kind === "event"
-      && rows[item.index]?.key === String(item.key) && eventKeys.has(String(item.key))
-      && (key ? String(item.key) === key : item.end > offset))
-    return event ? { key: String(event.key), viewportOffset: event.start - offset } : null
+    const items = instance.getVirtualItems()
+    const headerIndex = fold.index <= 1 ? 1 : fold.index
+    const bandStartIndex = fold.index <= 1 ? 0 : fold.index
+    const header = items.find(item => item.index === headerIndex && rows[item.index]?.kind === "date"
+      && rows[item.index]?.key === String(item.key))
+    if (!header || !items.some(item => item.index === bandStartIndex && rows[item.index]?.key === String(item.key))) return null
+    const bandKey = JSON.stringify(rows.slice(bandStartIndex, headerIndex + 1).map(row => row.key))
+    const prefixKeys = rows.slice(0, bandStartIndex).map(row => row.key)
+    if (key) {
+      if (!band || band.key !== bandKey || prefixKeys.length !== band.prefixKeys.length
+        || prefixKeys.some((prefixKey, index) => prefixKey !== band.prefixKeys[index])
+        || !eventKeys.has(key) || !rows.some(row => row.kind === "event" && row.key === key)) return null
+      return { key, viewportOffset: band.eventGap + header.end - offset, band }
+    }
+    const event = items.find((item) => rows[item.index]?.kind === "event"
+      && rows[item.index]?.key === String(item.key) && eventKeys.has(String(item.key)) && item.end > offset)
+    if (!event) return null
+    return {
+      key: String(event.key),
+      viewportOffset: event.start - offset,
+      band: { key: bandKey, prefixKeys, eventGap: event.start - header.end },
+    }
   }, [scrollRoot, rows])
 
   const getItemKey = useCallback((index: number) => rows[index].key, [rows])
@@ -159,6 +186,10 @@ export function BotActivityModal({
   useLayoutEffect(() => () => virtualizer.cancelScroll(), [open, bot?.id, scrollRoot, virtualizer])
 
   useLayoutEffect(() => {
+    if (isFetching || isFetchNextPageError || !hasNextPage) readingInputRef.current = null
+  }, [isFetching, isFetchNextPageError, hasNextPage])
+
+  useLayoutEffect(() => {
     if (!open || !scrollRoot || chronological.length === 0) return
     if (!didInitialTailScrollRef.current && scrollRoot.clientHeight > 0
       && scrollRoot.querySelector("[data-activity-event-id]")) {
@@ -170,6 +201,12 @@ export function BotActivityModal({
     if (previousTailKeyRef.current && tailKey !== previousTailKeyRef.current
       && virtualizer.options.followOnAppend && virtualizer.isAtEnd(80)) ownsIndexRef.current = true
     previousTailKeyRef.current = tailKey
+    setPendingOlderAnchor(current => {
+      if (!current || current.settled || current.pageCount !== loadedPageCount) return current
+      const anchor = getHeaderAnchor(virtualizer, current.eventKeys, current.key, current.band)
+      if (!anchor || (anchor.key === current.key && anchor.viewportOffset === current.viewportOffset)) return current
+      return { ...current, ...anchor }
+    })
     const pending = pendingOlderAnchor
     if (!pending || !pending.settled || isFetchingNextPage) return
     setPendingOlderAnchor(null)
@@ -190,12 +227,13 @@ export function BotActivityModal({
       || (!retry && (isFetchNextPageError || ownsIndexRef.current))) return
     const request = {}
     const eventKeys = new Set(rows.filter(row => row.kind === "event").map(row => row.key))
-    const anchor = getHeaderAnchor(virtualizer, eventKeys, null)
+    const anchor = getHeaderAnchor(virtualizer, eventKeys, null, null)
     const pending = {
       request,
       eventKeys,
       key: anchor?.key ?? null,
       viewportOffset: anchor?.viewportOffset ?? 0,
+      band: anchor?.band ?? null,
       pageCount: loadedPageCount,
       receivedOlderRows: false,
       settled: false,
@@ -212,62 +250,92 @@ export function BotActivityModal({
     void fetchNextPage({ cancelRefetch: false }).then(settle, () => settle(null))
   }, [open, bot?.id, scrollRoot, hasNextPage, isFetching, isFetchNextPageError, rows, loadedPageCount, fetchNextPage, setPendingOlderAnchor, virtualizer, getHeaderAnchor])
 
-  useEffect(() => {
-    if (!scrollRoot || !open) return
-    let previousOffset = scrollRoot.scrollTop
-    let touchY: number | null = null
-    let pointerId: number | null = null
-    const cancel = () => {
-      readingInputRef.current = null
+  const isInputOwner = useEffectEvent((element: HTMLDivElement, botId: string | undefined) =>
+    open && scrollRoot === element && bot?.id === botId)
+  const cancelInput = useEffectEvent((element: HTMLDivElement, botId: string | undefined, cancelTarget = true) => {
+    if (!isInputOwner(element, botId)) return false
+    readingInputRef.current = null
+    if (cancelTarget) {
       setPendingOlderAnchor(null)
       scrollPaddingStartRef.current = 0
       virtualizer.cancelScroll()
       ownsIndexRef.current = false
       didInitialTailScrollRef.current = true
     }
-    const qualifyInput = () => {
-      const offset = scrollRoot.scrollTop
-      const fold = virtualizer.getVirtualItemForOffset(offset)
-      readingInputRef.current = {
-        moved: false,
-        offset,
-        height: scrollRoot.clientHeight,
-        totalSize: virtualizer.getTotalSize(),
-        fold: fold ? { key: fold.key, start: fold.start, size: fold.size } : null,
-      }
-    }
-    const load = () => {
+    return true
+  })
+  const qualifyReading = useEffectEvent((element: HTMLDivElement, botId: string | undefined, home = false) => {
+    if (!isInputOwner(element, botId)) return
+    if (!botId || element.clientHeight <= 0 || isFetching || isFetchNextPageError || !hasNextPage) {
       readingInputRef.current = null
-      onLoadOlder()
+      return
     }
-    const scroll = () => {
-      const offset = scrollRoot.scrollTop
-      const upwards = offset < previousOffset
-      const downwards = offset > previousOffset
-      previousOffset = offset
-      if (upwards) setPendingOlderAnchor(current => {
-        if (!current || current.settled || current.pageCount !== loadedPageCount) return current
-        const anchor = getHeaderAnchor(virtualizer, current.eventKeys, current.key)
-        if (!anchor || (anchor.key === current.key && anchor.viewportOffset === current.viewportOffset)) return current
-        return { ...current, ...anchor }
-      })
-      const input = readingInputRef.current
-      if (!input) return
-      const fold = virtualizer.getVirtualItemForOffset(input.offset)
-      if (downwards || scrollRoot.clientHeight !== input.height || virtualizer.getTotalSize() !== input.totalSize
-        || (fold?.key ?? null) !== (input.fold?.key ?? null)
-        || fold?.start !== input.fold?.start || fold?.size !== input.fold?.size) {
+    const offset = element.scrollTop
+    const fold = virtualizer.getVirtualItemForOffset(offset)
+    readingInputRef.current = {
+      moved: false,
+      home,
+      relativeQualified: true,
+      offset,
+      height: element.clientHeight,
+      totalSize: virtualizer.getTotalSize(),
+      fold: fold ? { key: fold.key, start: fold.start, size: fold.size } : null,
+    }
+  })
+  const loadReading = useEffectEvent((element: HTMLDivElement, botId: string | undefined) => {
+    if (!isInputOwner(element, botId)) return
+    readingInputRef.current = null
+    onLoadOlder()
+  })
+  const scrollReading = useEffectEvent((element: HTMLDivElement, botId: string | undefined, previousOffset: number) => {
+    if (!isInputOwner(element, botId)) return
+    const offset = element.scrollTop
+    const upwards = offset < previousOffset
+    const downwards = offset > previousOffset
+    if (upwards) setPendingOlderAnchor(current => {
+      if (!current || current.settled || current.pageCount !== loadedPageCount) return current
+      const anchor = getHeaderAnchor(virtualizer, current.eventKeys, current.key, current.band)
+      if (!anchor || (anchor.key === current.key && anchor.viewportOffset === current.viewportOffset)) return current
+      return { ...current, ...anchor }
+    })
+    const input = readingInputRef.current
+    if (!input) return
+    if (downwards || element.clientHeight !== input.height) {
+      readingInputRef.current = null
+      return
+    }
+    const fold = virtualizer.getVirtualItemForOffset(input.offset)
+    if (virtualizer.getTotalSize() !== input.totalSize || (fold?.key ?? null) !== (input.fold?.key ?? null)
+      || fold?.start !== input.fold?.start || fold?.size !== input.fold?.size) {
+      if (!input.home) {
         readingInputRef.current = null
         return
       }
-      if (upwards) {
-        input.moved = true
-        if (offset <= 160) load()
-      }
+      input.relativeQualified = false
+    }
+    if (upwards) {
+      input.moved = true
+      if ((input.relativeQualified && offset <= 160) || (input.home && offset === 0)) loadReading(element, botId)
+    }
+  })
+
+  useEffect(() => {
+    if (!scrollRoot || !open) return
+    const ownerBotId = bot?.id
+    let previousOffset = scrollRoot.scrollTop
+    let touchY: number | null = null
+    let pointerId: number | null = null
+    const cancel = () => cancelInput(scrollRoot, ownerBotId)
+    const qualifyInput = (home = false) => qualifyReading(scrollRoot, ownerBotId, home)
+    const load = () => loadReading(scrollRoot, ownerBotId)
+    const scroll = () => {
+      const offset = previousOffset
+      previousOffset = scrollRoot.scrollTop
+      scrollReading(scrollRoot, ownerBotId, offset)
     }
     const wheel = (event: WheelEvent) => {
       if (event.deltaY === 0) return
-      cancel()
+      if (!cancel()) return
       if (event.deltaY < 0) {
         qualifyInput()
         if (scrollRoot.scrollTop <= 0) load()
@@ -276,9 +344,10 @@ export function BotActivityModal({
     const touchStart = (event: TouchEvent) => {
       pointerId = null
       touchY = event.touches[0]?.clientY ?? null
-      cancel()
+      if (!cancel()) return
     }
     const touchMove = (event: TouchEvent) => {
+      if (!isInputOwner(scrollRoot, ownerBotId)) return
       const nextY = event.touches[0]?.clientY ?? null
       if (touchY !== null && nextY !== null && nextY !== touchY) {
         if (nextY > touchY) {
@@ -291,10 +360,10 @@ export function BotActivityModal({
     const touchEnd = () => { touchY = null }
     const touchCancel = () => {
       touchY = null
-      readingInputRef.current = null
+      cancelInput(scrollRoot, ownerBotId, false)
     }
     const pointerDown = (event: PointerEvent) => {
-      cancel()
+      if (!cancel()) return
       if (event.button === 0 && event.pointerType !== "touch") {
         pointerId = event.pointerId
         qualifyInput()
@@ -307,17 +376,17 @@ export function BotActivityModal({
       if (event.pointerId !== pointerId) return
       scroll()
       pointerId = null
-      readingInputRef.current = null
+      cancelInput(scrollRoot, ownerBotId, false)
     }
     const pointerCancel = (event: PointerEvent) => {
       if (event.pointerId !== pointerId) return
       pointerId = null
-      readingInputRef.current = null
+      cancelInput(scrollRoot, ownerBotId, false)
     }
     const key = (event: KeyboardEvent) => {
-      if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) cancel()
+      if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key) && !cancel()) return
       if (["ArrowUp", "PageUp", "Home"].includes(event.key) || (event.key === " " && event.shiftKey)) {
-        qualifyInput()
+        qualifyInput(event.key === "Home")
         if (scrollRoot.scrollTop <= 0) load()
       }
     }
@@ -346,7 +415,7 @@ export function BotActivityModal({
       window.removeEventListener("pointercancel", pointerCancel)
       scrollRoot.removeEventListener("keydown", key)
     }
-  }, [open, scrollRoot, onLoadOlder, setPendingOlderAnchor, virtualizer, getHeaderAnchor, loadedPageCount])
+  }, [open, bot?.id, scrollRoot])
 
   return (
     <CommunitySheet
