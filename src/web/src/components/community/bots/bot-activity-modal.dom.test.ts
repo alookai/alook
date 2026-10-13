@@ -876,6 +876,88 @@ describe("BotActivityModal CommunitySheet contract", () => {
     expect(fetchNextPage).toHaveBeenCalledOnce()
   })
 
+  it("keeps new Home qualification through the preceding wheel's idle callback", async () => {
+    auditState.events = events(50)
+    auditState.hasNextPage = true
+    const completePage = prepareOlderPage()
+    const { renderer } = renderModal()
+    act(() => vi.advanceTimersByTime(500))
+    const root = renderer.getByRole("region", { name: "Activity log" })
+    act(() => {
+      fireEvent.wheel(root, { deltaY: -20 })
+      root.scrollTo({ top: 200 })
+      vi.advanceTimersByTime(149)
+      root.focus()
+    })
+    expect(root).toHaveFocus()
+    fireEvent.keyDown(document.activeElement!, { key: "Home" })
+    act(() => vi.advanceTimersByTime(1))
+    expect(root.scrollTop).toBe(200)
+    expect(fetchNextPage).not.toHaveBeenCalled()
+    act(() => root.scrollTo({ top: 150 }))
+    expect(fetchNextPage).toHaveBeenCalledExactlyOnceWith({ cancelRefetch: false })
+    auditState.isFetchingNextPage = true
+    updateModal(renderer, {}, false)
+    act(() => {
+      root.scrollTo({ top: 0 })
+      vi.advanceTimersByTime(16)
+    })
+    const top = eventTop(renderer, "event-0")
+    const older = Array.from({ length: 50 }, (_, index) => event(
+      `input-old-${index}`,
+      new Date(Date.parse("2026-08-27T11:00:00.000Z") + index * 60_000).toISOString(),
+    ))
+    auditState.events = [...auditState.events, ...older]
+    auditState.isFetchingNextPage = false
+    await completePage(older)
+    updateModal(renderer)
+    expect(eventTop(renderer, "event-0")).toBe(top)
+    expect(fetchNextPage).toHaveBeenCalledOnce()
+  })
+
+  it("retires moved input before later raw scrolling into the top band", async () => {
+    auditState.events = events(30)
+    auditState.hasNextPage = true
+    const { renderer } = renderModal()
+    const root = scrollBody(renderer, 600)
+    act(() => root.focus())
+    expect(root).toHaveFocus()
+    fireEvent.keyDown(document.activeElement!, { key: "PageUp" })
+    act(() => {
+      root.scrollTo({ top: 300 })
+      vi.advanceTimersByTime(150)
+    })
+    expect(fetchNextPage).not.toHaveBeenCalled()
+    act(() => root.scrollTo({ top: 150 }))
+    expect(fetchNextPage).not.toHaveBeenCalled()
+    await act(async () => {
+      fireEvent.keyDown(document.activeElement!, { key: "Home" })
+      root.scrollTo({ top: 100 })
+    })
+    expect(fetchNextPage).toHaveBeenCalledExactlyOnceWith({ cancelRefetch: false })
+  })
+
+  it("resets movement ownership when a new Home replaces moving input", async () => {
+    auditState.events = events(30)
+    auditState.hasNextPage = true
+    const completePage = prepareOlderPage()
+    const { renderer } = renderModal()
+    const root = scrollBody(renderer, 600)
+    act(() => root.focus())
+    expect(root).toHaveFocus()
+    fireEvent.keyDown(document.activeElement!, { key: "PageUp" })
+    act(() => {
+      root.scrollTo({ top: 300 })
+      vi.advanceTimersByTime(149)
+    })
+    fireEvent.keyDown(document.activeElement!, { key: "Home" })
+    act(() => vi.advanceTimersByTime(1))
+    expect(root.scrollTop).toBe(300)
+    act(() => root.scrollTo({ top: 150 }))
+    expect(fetchNextPage).toHaveBeenCalledExactlyOnceWith({ cancelRefetch: false })
+    await completePage([])
+  })
+
   it.each(["key", "touch", "pointer"])("retains upward %s reading into the real top band", async gesture => {
     auditState.events = events(30)
     auditState.hasNextPage = true

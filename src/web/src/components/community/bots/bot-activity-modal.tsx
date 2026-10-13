@@ -94,6 +94,7 @@ export function BotActivityModal({
   const scrollPaddingStartRef = useRef(0)
   const ownsIndexRef = useRef(false)
   const readingInputRef = useRef<{
+    moved: boolean
     offset: number
     height: number
     totalSize: number
@@ -151,7 +152,7 @@ export function BotActivityModal({
     enabled: scrollRoot !== null,
     useFlushSync: false,
     onChange: (instance) => {
-      if (!instance.isScrolling) readingInputRef.current = null
+      if (!instance.isScrolling && readingInputRef.current?.moved) readingInputRef.current = null
     },
   })
 
@@ -228,6 +229,7 @@ export function BotActivityModal({
       const offset = scrollRoot.scrollTop
       const fold = virtualizer.getVirtualItemForOffset(offset)
       readingInputRef.current = {
+        moved: false,
         offset,
         height: scrollRoot.clientHeight,
         totalSize: virtualizer.getTotalSize(),
@@ -258,7 +260,10 @@ export function BotActivityModal({
         readingInputRef.current = null
         return
       }
-      if (upwards && offset <= 160) load()
+      if (upwards) {
+        input.moved = true
+        if (offset <= 160) load()
+      }
     }
     const wheel = (event: WheelEvent) => {
       if (event.deltaY === 0) return
