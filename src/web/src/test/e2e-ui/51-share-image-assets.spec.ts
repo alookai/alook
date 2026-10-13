@@ -902,6 +902,8 @@ test("avatar failure is deterministic while content-image failure is atomic and 
     else await avatarRoute.continue()
   })
   await reloadWithUnavailableImage(page, route, page.getByTestId(tid.message(avatarMessage.id)).locator('[data-slot="avatar-image"]'))
+  await expect(page.getByTestId(tid.message(contentMessage.id))).toBeVisible()
+  await expect(page.getByTestId(tid.messageScroller).locator("[data-message-list-content]")).toHaveAttribute("data-read-position-ready", "true")
   let dialog = await openShareDialog(page, avatarMessage.id)
   let card = await waitForReady(dialog)
   const fallback = card.locator("[data-share-identity-fallback=beam]")
