@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -90,9 +90,26 @@ describe("createAgentDriverSdk", () => {
       const result = await createAgentDriverSdk().probe({ backend, command: process.execPath });
       expect(result).toMatchObject(backend === "grok"
         ? { status: "unhealthy", error: { code: "grok_acp_process_failed" } }
-        : { status: "healthy" });
+        : backend === "opencode"
+          ? { status: "unhealthy", error: { code: "unsupported_opencode_cli_version" } }
+          : { status: "healthy" });
     },
   );
+
+  it("probes a supported OpenCode CLI through an actual executable override", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "opencode-sdk-probe-"));
+    const command = join(directory, process.platform === "win32" ? "opencode.cmd" : "opencode");
+    try {
+      writeFileSync(command, process.platform === "win32"
+        ? '@echo off\r\nif "%~1"=="--version" (echo opencode v2.0.28) else (echo opencode/space-bunny-free)\r\n'
+        : '#!/usr/bin/env node\nconsole.log(process.argv[2] === "--version" ? "opencode v2.0.28" : "opencode/space-bunny-free");\n');
+      if (process.platform !== "win32") chmodSync(command, 0o755);
+      await expect(createAgentDriverSdk().probe({ backend: "opencode", command })).resolves.toMatchObject({
+        status: "healthy", version: "opencode v2.0.28",
+        reasoning: { models: [{ id: "opencode/space-bunny-free" }] },
+      });
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
 
   it("public SDK factory delegates to the built-in logical SDK", () => {
     expect(createPublicAgentDriverSdk().backendIds).toEqual(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity"]);

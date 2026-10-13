@@ -52,6 +52,7 @@ export class OpenCodeDriver implements BackendAdapter, OpenCodeServiceProcessFac
   ) {}
 
   discoverRecentContext(request: Parameters<typeof discoverOpenCodeRecentContext>[0]) {
+    if (request.recentProjectsTopK === 0) return discoverOpenCodeRecentContext(request);
     const result = this.versionProbe("opencode", {}, request.command);
     if (result.status !== "healthy") throw new Error("Installed OpenCode CLI could not report its version");
     return discoverOpenCodeRecentContext(request, { compatibility: resolveOpenCodeCompatibility(result.version) });
