@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeLaunchContext, fakePrepared } from "../../testing/adapter-fixture.js";
 import { OpenCodeDriver } from "./index.js";
+import { resolveOpenCodeCompatibility } from "./compatibility.js";
+import { OpenCodeV2ServiceLane } from "./v2-service-lane.js";
 
 const spawnAgentProcess = vi.hoisted(() => vi.fn());
 vi.mock("../../internal/killTree.js", async () => ({
@@ -24,7 +26,7 @@ describe("OpenCodeDriver persistent v2 service", () => {
 
   beforeEach(() => {
     spawnAgentProcess.mockClear();
-    driver = new OpenCodeDriver();
+    driver = new OpenCodeDriver(undefined, () => ({ status: "healthy", version: "1.18.35" }));
   });
 
   it("uses models --pure output for a non-fatal startup catalog", () => {
@@ -32,7 +34,7 @@ describe("OpenCodeDriver persistent v2 service", () => {
       ok: true as const,
       output: "openai/gpt-5\nanthropic/claude-sonnet\n",
     }));
-    const result = new OpenCodeDriver(outputProbe).probe(process.execPath);
+    const result = new OpenCodeDriver(outputProbe, () => ({ status: "healthy", version: "1.18.35" })).probe(process.execPath);
 
     expect(outputProbe).toHaveBeenCalledWith(process.execPath, ["models", "--pure"]);
     expect(result).toMatchObject({
@@ -46,8 +48,45 @@ describe("OpenCodeDriver persistent v2 service", () => {
     });
   });
 
+  it("probes the configured CLI major and uses its model catalog arguments", () => {
+    const output = vi.fn(() => ({ ok: true as const, output: "opencode/space-bunny-free\n" }));
+    const version = vi.fn(() => ({ status: "healthy" as const, version: "opencode v2.0.28" }));
+    const result = new OpenCodeDriver(output, version).probe("opencode-v2-custom");
+    expect(version).toHaveBeenCalledWith("opencode", {}, "opencode-v2-custom");
+    expect(output).toHaveBeenCalledWith("opencode-v2-custom", ["models", "--standalone"]);
+    expect(result.status).toBe("healthy");
+  });
+
+  it("rejects an unknown CLI major before catalog or service startup", async () => {
+    const output = vi.fn();
+    const unknown = new OpenCodeDriver(output, () => ({ status: "healthy", version: "3.0.0" }));
+    expect(unknown.probe()).toMatchObject({ status: "unhealthy", lastError: "unsupported_opencode_cli_version" });
+    await expect(unknown.openLane(fakeLaunchContext("opencode", "/tmp"))).rejects.toThrow("unsupported major");
+    expect(output).not.toHaveBeenCalled();
+    expect(spawnAgentProcess).not.toHaveBeenCalled();
+  });
+
+  it("selects the CLI v2 lane from the actual command override", async () => {
+    const version = vi.fn(() => ({ status: "healthy" as const, version: "2.0.28" }));
+    const lane = await new OpenCodeDriver(undefined, version).openLane(fakeLaunchContext("opencode", "/tmp", {
+      config: { runtimeConfig: { command: "opencode-v2-custom", model: { kind: "default" } } },
+    }));
+    expect(version).toHaveBeenCalledWith("opencode", {}, "opencode-v2-custom");
+    expect(lane).toBeInstanceOf(OpenCodeV2ServiceLane);
+    expect(spawnAgentProcess).not.toHaveBeenCalled();
+  });
+
+  it("protects CLI v2 service authentication without passing legacy flags", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "opencode-v2-spawn-")); directories.push(directory);
+    await driver.spawnService(fakeLaunchContext("opencode", directory), 43123, "session-secret", resolveOpenCodeCompatibility("2.0.28"));
+    const [, args, options] = spawnAgentProcess.mock.calls[0]!;
+    expect(args).toEqual(["serve", "--hostname", "127.0.0.1", "--port", "43123"]);
+    expect(options.env.OPENCODE_PASSWORD).toBe("session-secret");
+    expect(JSON.stringify(args)).not.toContain("session-secret");
+  });
+
   it("keeps runtime health healthy when models --pure fails", () => {
-    expect(new OpenCodeDriver(() => ({ ok: false, error: "ETIMEDOUT" })).probe(process.execPath))
+    expect(new OpenCodeDriver(() => ({ ok: false, error: "ETIMEDOUT" }), () => ({ status: "healthy", version: "1.18.35" })).probe(process.execPath))
       .toMatchObject({ status: "healthy", reasoning: undefined });
   });
 

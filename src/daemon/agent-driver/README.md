@@ -119,6 +119,14 @@ closes the boundary again. Compaction and review remain closed until their
 matching finished events. Cursor, OpenCode, and Pi steer immediately and do not
 participate in this boundary latch.
 
+OpenCode selects a private compatibility lane from the actual CLI version.
+CLI v1 retains its `--pure` launch and durable event admission frontier; CLI v2
+recovers native inbox/messages and requires a new idle record after every
+accepted input. Both retain one authenticated service/session and the same
+public contract. Recent-project discovery stays global: v1 uses session list,
+while v2 queries its native session API without a project filter. Unknown CLI
+majors and missing required capabilities fail explicitly.
+
 Pi's runtime behavior did not change in this migration. It already kept one
 SDK session and used prompt/steer/abort/dispose on that session; contract v1
 formalizes that existing persistent behavior as an `in_process_sdk`

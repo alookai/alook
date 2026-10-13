@@ -1,5 +1,17 @@
 # Release notes
 
+## OpenCode CLI major compatibility
+
+- Select CLI v1 or v2 within the existing OpenCode harness using the actual
+  configured command version. Keep v1 launch flags and durable protocol.
+- Support v2 readiness, selected model variants, prompt receipts, permissions,
+  tool lifecycle, and recovery through persisted native inbox/messages. A new
+  idle record after all current inputs owns completion; a live stream or
+  streamed assistant response cannot complete the root.
+- Preserve global recent-project discovery through the v2 native session API.
+- Include scrubbed native exit details in readiness failures. No public SDK
+  contract, process authority, dependency, or user configuration change.
+
 ## Bounded recent-context discovery
 
 - Added `AgentDriverSdk.discoverRecentContext()` with independent

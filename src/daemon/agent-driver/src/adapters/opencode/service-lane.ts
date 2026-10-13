@@ -17,6 +17,7 @@ import type {
 import { SettledUsageProjector } from "../../internal/token-usage.js";
 import { resolveLaunchFieldsOrDefault } from "../../internal/config.js";
 import { killProcessTree, SESSION_STOP_GRACE_MS } from "../../internal/killTree.js";
+import { scrubDriverErrorMessage } from "../../internal/errors.js";
 
 const HOST = "127.0.0.1";
 const START_TIMEOUT_MS = 15_000;
@@ -79,10 +80,10 @@ export interface OpenCodeServiceProcessFactory {
 class OpenCodeIncompatibleError extends Error {}
 class OpenCodeResetRequiredError extends Error {}
 class OpenCodePortBindError extends Error {}
-class OpenCodeProtocolError extends Error {}
+export class OpenCodeProtocolError extends Error {}
 class OpenCodeStoppedError extends Error {}
 
-class OpenCodeHttpError extends Error {
+export class OpenCodeHttpError extends Error {
   constructor(
     readonly status: number,
     operation: string,
@@ -91,7 +92,7 @@ class OpenCodeHttpError extends Error {
   }
 }
 
-function record(value: unknown): JsonRecord | null {
+export function record(value: unknown): JsonRecord | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as JsonRecord
     : null;
@@ -158,20 +159,20 @@ function codeFromError(value: unknown): string {
 }
 
 export class OpenCodeServiceLane implements RuntimeLane {
-  private readonly events = new EventEmitter();
+  protected readonly events = new EventEmitter();
   private readonly fetchFn: typeof fetch;
   private readonly password: string;
   private readonly requestControllers = new Set<AbortController>();
   private process: SpawnedProcessHandle | null = null;
-  private identity: ServiceIdentity | null = null;
+  protected identity: ServiceIdentity | null = null;
   private baseUrl = "";
-  private sessionId: string | null = null;
+  protected sessionId: string | null = null;
   private stdoutBuffer = "";
   private stderrBuffer = "";
   private serviceGeneration = 0;
   private started = false;
-  private ready = false;
-  private stopping = false;
+  protected ready = false;
+  protected stopping = false;
   private requestedStopReason?: string;
   private suppressExit = false;
   private serviceActivated = false;
@@ -183,7 +184,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
   private durableAbort?: AbortController;
   private liveAbort?: AbortController;
   private durableTask?: Promise<void>;
-  private liveTask?: Promise<void>;
+  protected liveTask?: Promise<void>;
   private durableBootstrapAdmissionUsed = false;
   private durableGate = makeGate();
   private liveGate = makeGate();
@@ -207,7 +208,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
   constructor(
     private readonly factory: OpenCodeServiceProcessFactory,
     private readonly ctx: AdapterLaunchContext,
-    private readonly options: OpenCodeServiceLaneOptions = {},
+    protected readonly options: OpenCodeServiceLaneOptions = {},
   ) {
     this.fetchFn = options.fetch ?? fetch;
     this.password = options.password ?? randomBytes(32).toString("base64url");
@@ -491,7 +492,9 @@ export class OpenCodeServiceLane implements RuntimeLane {
       if (this.processStartError) throw this.processStartError;
       if (!this.identity || this.identity.generation !== generation || this.isProcessClosed(this.identity.process)) {
         if (/EADDRINUSE|address already in use/i.test(this.stderrBuffer)) throw new OpenCodePortBindError("OpenCode service port bind raced");
-        throw new Error("OpenCode service exited before readiness");
+        const process = this.identity?.process;
+        const detail = scrubDriverErrorMessage(this.stderrBuffer.replaceAll(this.password, "[redacted]"), "no native stderr");
+        throw new Error(`OpenCode service exited before readiness (code=${process?.exitCode ?? "unknown"}, signal=${process?.signalCode ?? "none"}): ${detail}`);
       }
       try {
         const healthTimeoutMs = Math.max(1, Math.min(
@@ -500,14 +503,14 @@ export class OpenCodeServiceLane implements RuntimeLane {
           this.options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
         ));
         const { response, body } = await this.fetchJsonWithTimeout(
-          "/global/health",
+          this.healthPath,
           { method: "GET" },
           "health",
           healthTimeoutMs,
         );
         if (response.ok) {
           const health = record(body);
-          if (health?.healthy !== true) {
+          if (!this.acceptsHealth(health)) {
             throw new OpenCodeIncompatibleError("Installed OpenCode service did not report healthy status");
           }
           await this.verifyOpenApi();
@@ -523,11 +526,24 @@ export class OpenCodeServiceLane implements RuntimeLane {
   }
 
   private async verifyOpenApi(): Promise<void> {
-    const { response, body } = await this.fetchJsonWithTimeout("/doc", { method: "GET" }, "OpenAPI");
+    const { response, body } = await this.fetchJsonWithTimeout(this.openApiPath, { method: "GET" }, "OpenAPI");
     if (!response.ok) throw new OpenCodeIncompatibleError("Installed OpenCode service does not expose its OpenAPI document");
     const document = record(body);
     const paths = record(document?.paths);
-    const required = [
+    const required = this.requiredApiPaths;
+    if (!paths || required.some((path) => !record(paths[path]))) {
+      throw new OpenCodeIncompatibleError("Installed OpenCode service is missing required session capabilities");
+    }
+  }
+
+  protected get healthPath(): string { return "/global/health"; }
+
+  protected get openApiPath(): string { return "/doc"; }
+
+  protected acceptsHealth(health: JsonRecord | null): boolean { return health?.healthy === true; }
+
+  protected get requiredApiPaths(): readonly string[] {
+    return [
       "/api/session",
       "/api/session/active",
       "/api/session/{sessionID}/prompt",
@@ -539,13 +555,14 @@ export class OpenCodeServiceLane implements RuntimeLane {
       "/api/session/{sessionID}/permission/{requestID}/reply",
       "/api/event",
     ];
-    if (!paths || required.some((path) => !record(paths[path]))) {
-      throw new OpenCodeIncompatibleError("Installed OpenCode service is missing required v2 session capabilities");
-    }
+  }
+
+  protected get selectedModel(): JsonRecord | undefined {
+    return parseModelRef(resolveLaunchFieldsOrDefault(this.ctx.config.runtimeConfig).model);
   }
 
   private async openSession(resumeId: string | undefined): Promise<void> {
-    const model = parseModelRef(resolveLaunchFieldsOrDefault(this.ctx.config.runtimeConfig).model);
+    const model = this.selectedModel;
     if (resumeId) {
       const { response, body } = await this.fetchJsonWithTimeout(
         `/api/session/${encodeURIComponent(resumeId)}`,
@@ -589,11 +606,11 @@ export class OpenCodeServiceLane implements RuntimeLane {
     this.sessionId = session.id;
   }
 
-  private async primeHistory(): Promise<void> {
+  protected async primeHistory(): Promise<void> {
     await this.catchUpHistory(false);
   }
 
-  private startStreams(): void {
+  protected startStreams(): void {
     const identity = this.identity;
     if (!identity || !this.sessionId) throw new Error("OpenCode service streams started before session initialization");
     this.durableTask = this.runDurableStream(identity).catch((error) => this.streamFailure("durable", error));
@@ -640,7 +657,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
     }
   }
 
-  private async runLiveStream(identity: ServiceIdentity): Promise<void> {
+  protected async runLiveStream(identity: ServiceIdentity): Promise<void> {
     while (!this.stopping && this.isIdentity(identity)) {
       const gate = this.liveGate;
       const controller = new AbortController();
@@ -678,7 +695,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
     this.protocolFailure(`OpenCode ${kind} stream stopped unexpectedly`, error);
   }
 
-  private async openStream(path: string, lifecycle: AbortController, operation: string): Promise<Response> {
+  protected async openStream(path: string, lifecycle: AbortController, operation: string): Promise<Response> {
     const deadline = new AbortController();
     const timeout = setTimeout(() => deadline.abort(), this.options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS);
     timeout.unref?.();
@@ -695,7 +712,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
     }
   }
 
-  private async consumeSse(response: Response, consume: (value: unknown) => Promise<void>): Promise<void> {
+  protected async consumeSse(response: Response, consume: (value: unknown) => Promise<void>): Promise<void> {
     const reader = response.body!.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -898,17 +915,17 @@ export class OpenCodeServiceLane implements RuntimeLane {
     return seq;
   }
 
-  private async handleLiveEvent(value: unknown): Promise<void> {
+  protected async handleLiveEvent(value: unknown): Promise<void> {
     const event = record(value);
     const data = record(event?.data);
-    if (event?.type !== "permission.v2.asked" || data?.sessionID !== this.sessionId) return;
+    if (event?.type !== this.permissionEventType || data?.sessionID !== this.sessionId) return;
     if (typeof data.id !== "string" || !/^per/.test(data.id)) {
       throw new OpenCodeProtocolError("OpenCode emitted a malformed permission request");
     }
     await this.replyPermission(data.id);
   }
 
-  private async recoverPendingPermissions(): Promise<void> {
+  protected async recoverPendingPermissions(): Promise<void> {
     if (!this.sessionId) return;
     const { response, body: responseBody } = await this.fetchJsonWithTimeout(
       `/api/session/${encodeURIComponent(this.sessionId)}/permission`,
@@ -926,14 +943,18 @@ export class OpenCodeServiceLane implements RuntimeLane {
     }
   }
 
-  private async replyPermission(requestId: string): Promise<void> {
+  protected get permissionEventType(): string { return "permission.v2.asked"; }
+
+  protected get permissionReply(): JsonRecord { return { reply: "once" }; }
+
+  protected async replyPermission(requestId: string): Promise<void> {
     if (this.handledPermissions.has(requestId)) return;
     const existing = this.permissionFlights.get(requestId);
     if (existing) return existing;
     const flight = this.requestNoContent(
         `/api/session/${encodeURIComponent(this.sessionId!)}/permission/${encodeURIComponent(requestId)}/reply`,
         "POST",
-        { reply: "once" },
+        this.permissionReply,
         "permission reply",
       )
       .catch((error) => {
@@ -945,7 +966,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
     return flight;
   }
 
-  private async beginRoot(input: LaneStartInput): Promise<LaneAdmission> {
+  protected async beginRoot(input: LaneStartInput): Promise<LaneAdmission> {
     const receipt = input.terminalOwner?.startsWith("msg_") ? input.terminalOwner : this.newMessageId();
     this.activeRoot = {
       receipt,
@@ -1172,7 +1193,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
     } satisfies AdapterEvent);
   }
 
-  private async requestNoContent(
+  protected async requestNoContent(
     path: string,
     method: "POST",
     body: JsonRecord | undefined,
@@ -1213,7 +1234,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
     }
   }
 
-  private async fetchJsonWithTimeout(
+  protected async fetchJsonWithTimeout(
     path: string,
     init: RequestInit,
     operation: string,
@@ -1258,11 +1279,11 @@ export class OpenCodeServiceLane implements RuntimeLane {
     return headers;
   }
 
-  private newMessageId(): string {
+  protected newMessageId(): string {
     return `msg_${randomBytes(16).toString("hex")}`;
   }
 
-  private diagnostic(severity: "warning" | "error", message: string): void {
+  protected diagnostic(severity: "warning" | "error", message: string): void {
     this.events.emit("runtime_event", {
       kind: "runtime_diagnostic",
       severity,
@@ -1271,13 +1292,13 @@ export class OpenCodeServiceLane implements RuntimeLane {
     } satisfies AdapterEvent);
   }
 
-  private protocolFailure(message: string, _cause?: unknown): void {
+  protected protocolFailure(message: string, _cause?: unknown): void {
     if (this.stopping) return;
     void this.stop({ reason: "protocol_error", forceAfterMs: 0 });
     this.events.emit("error", new Error(message));
   }
 
-  private identityMatches(): boolean {
+  protected identityMatches(): boolean {
     const identity = this.identity;
     const matches = !!identity
       && identity.process === this.process
@@ -1296,7 +1317,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
     return matches;
   }
 
-  private isIdentity(identity: ServiceIdentity): boolean {
+  protected isIdentity(identity: ServiceIdentity): boolean {
     return this.identity === identity && this.identityMatches();
   }
 
@@ -1304,7 +1325,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
     return proc.exitCode !== null || proc.signalCode !== null;
   }
 
-  private async waitForLiveStream(): Promise<void> {
+  protected async waitForLiveStream(): Promise<void> {
     while (!this.stopping) {
       const live = this.liveGate;
       await live.promise;

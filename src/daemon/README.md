@@ -108,10 +108,12 @@ without killing the process.
 
 ### Persistent service runtime (OpenCode)
 
-OpenCode starts one authenticated, loopback-only v2 service per logical session.
-Root prompts and busy steers share the same service and vendor session. Durable
-session SSE is replayed by event id and sequence across reconnects; a separate
-live stream handles permissions.
+OpenCode starts one authenticated, loopback-only service per logical session.
+The actual CLI major selects its adapter: v1 retains `--pure` and durable event
+replay; v2 uses its native API, persisted inbox/messages, and a new idle record
+after all accepted inputs. Root prompts and busy steers share the same service
+and vendor session. Live SSE handles permissions and tool progress. Unknown
+majors or missing native capabilities fail explicitly.
 
 ---
 
@@ -123,7 +125,7 @@ live stream handles permissions.
 | **codex** | persistent session | JSON-RPC 2.0 (`app-server --listen stdio://`) | `safe_boundary_queue` | `initialize` → `thread/start`/`resume` | JSON-RPC notifications |
 | **pi** | persistent session | `@earendil-works/pi-coding-agent` | `steer` | `session.prompt()` | SDK callback |
 | **cursor** | persistent session | ACP JSON-RPC 2.0 (`cursor-agent acp`) | `steer` | `session/prompt` | `session/update` + correlated prompt response |
-| **opencode** | persistent session | authenticated HTTP + SSE (`opencode serve --pure`) | `steer` | v2 session prompt API | durable + live SSE |
+| **opencode** | persistent session | authenticated HTTP + SSE (`opencode serve`; v1 adds `--pure`) | `steer` | CLI-major session prompt API | native recovery + live SSE |
 
 (Exact launch flags live in `agent-driver/src/adapters/<backend>/`.)
 

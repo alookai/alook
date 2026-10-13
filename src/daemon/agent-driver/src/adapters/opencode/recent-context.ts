@@ -7,11 +7,14 @@ import { spawnAgentProcess } from "../../internal/killTree.js";
 import { resolveSpawnSpec } from "../../internal/probe.js";
 import { RecentContextCollector } from "../../internal/recent-context.js";
 import { asRecord } from "../../internal/utils.js";
+import { OPEN_CODE_V1, type OpenCodeCompatibility } from "./compatibility.js";
 
 const OPENCODE_DISCOVERY_TIMEOUT_MS = 15_000;
 const OPENCODE_DISCOVERY_OUTPUT_MAX_BYTES = 4 * 1024 * 1024;
 
-type OpenCodeRecentContextDependencies = DiscoveryProcessDependencies;
+interface OpenCodeRecentContextDependencies extends DiscoveryProcessDependencies {
+  readonly compatibility?: OpenCodeCompatibility;
+}
 
 interface CommandOutput {
   readonly output: string;
@@ -56,6 +59,7 @@ export async function discoverOpenCodeRecentContext(
 ): Promise<RecentContextDiscoveryData> {
   const collector = new RecentContextCollector(request, "unavailable");
   if (collector.satisfied) return collector.result();
+  const compatibility = dependencies.compatibility ?? OPEN_CODE_V1;
   const startedAt = Date.now();
   const timeoutMs = dependencies.timeoutMs ?? OPENCODE_DISCOVERY_TIMEOUT_MS;
   let remainingOutputBytes = dependencies.outputMaxBytes ?? OPENCODE_DISCOVERY_OUTPUT_MAX_BYTES;
@@ -65,7 +69,7 @@ export async function discoverOpenCodeRecentContext(
     if (remainingTimeoutMs <= 0) throw new Error("OpenCode discovery timed out");
     const spec = resolveSpawnSpec(
       "opencode",
-      ["session", "list", "--format", "json", "--max-count", String(maxCount), "--pure"],
+      [...compatibility.sessionListArgs(maxCount)],
       request.command,
     );
     const commandOutput = await collectCommandOutput(
@@ -83,12 +87,14 @@ export async function discoverOpenCodeRecentContext(
     } catch {
       throw new Error("OpenCode session listing returned invalid JSON");
     }
+    if (compatibility.major === 2) parsed = asRecord(parsed)?.data;
     if (!Array.isArray(parsed)) throw new Error("OpenCode session listing returned an invalid response");
     for (const value of parsed) {
       const session = asRecord(value);
       if (!session) continue;
-      const modifiedAt = session.updated ?? session.updatedAt;
-      collector.add({ projectPath: session.directory, modifiedAt });
+      const modifiedAt = compatibility.major === 2 ? asRecord(session.time)?.updated : session.updated ?? session.updatedAt;
+      const projectPath = compatibility.major === 2 ? asRecord(session.location)?.directory : session.directory;
+      collector.add({ projectPath, modifiedAt });
     }
     if (collector.satisfied || parsed.length < maxCount) break;
     const nextMaxCount = Math.min(Number.MAX_SAFE_INTEGER, maxCount * 2);

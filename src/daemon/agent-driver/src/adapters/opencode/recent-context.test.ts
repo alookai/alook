@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SpawnedProcessHandle } from "../../internal/adapter.js";
 import { discoverOpenCodeRecentContext } from "./recent-context.js";
 import path from "node:path";
+import { resolveOpenCodeCompatibility } from "./compatibility.js";
 
 const projectPath = (...segments: string[]) => path.join(path.parse(process.cwd()).root, "projects", ...segments);
 const killTreeMocks = vi.hoisted(() => ({ killProcessTree: vi.fn(async () => {}) }));
@@ -101,6 +102,15 @@ describe("OpenCode recent-context discovery", () => {
       { projectPath: projectPath("b"), modifiedAt: "2026-01-01T00:00:00.000Z" },
     ]);
     expect(cleanup).toHaveBeenCalledOnce();
+  });
+
+  it("uses the CLI v2 global native API without a current-project filter", async () => {
+    const spawn = vi.fn(() => fakeCommandProcess(JSON.stringify({ data: [{ location: { directory: projectPath("v2") }, time: { updated: "2026-01-01T00:00:00Z" } }], cursor: {} })));
+    const result = await discoverOpenCodeRecentContext({ recentSessionFilesTopK: 0, recentProjectsTopK: 1, command: "opencode-v2-custom" }, {
+      spawn, cleanup: async () => {}, compatibility: resolveOpenCodeCompatibility("2.0.28"),
+    });
+    expect(spawn.mock.calls[0]?.slice(0, 2)).toEqual(["opencode-v2-custom", ["api", "--standalone", "GET", "/api/session?parentID=null&order=desc&limit=10"]]);
+    expect(result.recentProjects).toHaveLength(1);
   });
 
   it("fails closed on invalid JSON", async () => {

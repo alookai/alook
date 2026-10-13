@@ -1,9 +1,9 @@
 /**
- * OpenCode driver — persistent v2 service over authenticated loopback HTTP/SSE.
+ * OpenCode driver — CLI-major lanes over authenticated loopback HTTP/SSE.
  *
- * One `opencode serve` process owns one logical Alook session. The lane uses
- * caller-generated message ids for durable prompt admission and an
- * admission-frontier-bound `/api/session/active` query as the terminal owner.
+ * One `opencode serve` process owns one logical Alook session. CLI v1 retains
+ * its durable event admission frontier. CLI v2 recovers persisted inputs and
+ * messages and requires a new native idle record after every accepted input.
  */
 import { randomBytes } from "node:crypto";
 import type {
@@ -29,6 +29,8 @@ import {
 } from "./service-lane.js";
 import { legacyOpenCodeApiEnvironment } from "./legacy-auth.js";
 import { discoverOpenCodeRecentContext } from "./recent-context.js";
+import { OPEN_CODE_V1, resolveOpenCodeCompatibility, type OpenCodeCompatibility } from "./compatibility.js";
+import { OpenCodeV2ServiceLane } from "./v2-service-lane.js";
 
 function createOpenCodeMessageId(): string {
   return `msg_${randomBytes(16).toString("hex")}`;
@@ -46,16 +48,25 @@ export class OpenCodeDriver implements BackendAdapter, OpenCodeServiceProcessFac
 
   constructor(
     private readonly outputProbe: (command: string, args: string[]) => CommandOutputProbeResult = probeCommandOutput,
+    private readonly versionProbe: typeof probeCliRuntime = probeCliRuntime,
   ) {}
 
   discoverRecentContext(request: Parameters<typeof discoverOpenCodeRecentContext>[0]) {
-    return discoverOpenCodeRecentContext(request);
+    const result = this.versionProbe("opencode", {}, request.command);
+    if (result.status !== "healthy") throw new Error("Installed OpenCode CLI could not report its version");
+    return discoverOpenCodeRecentContext(request, { compatibility: resolveOpenCodeCompatibility(result.version) });
   }
 
   probe(command?: string) {
-    const result = probeCliRuntime("opencode", {}, command);
+    const result = this.versionProbe("opencode", {}, command);
     if (result.status !== "healthy") return result;
-    const spec = resolveSpawnSpec("opencode", ["models", "--pure"], command);
+    let compatibility: OpenCodeCompatibility;
+    try {
+      compatibility = resolveOpenCodeCompatibility(result.version);
+    } catch {
+      return { ...result, status: "unhealthy" as const, lastError: "unsupported_opencode_cli_version" };
+    }
+    const spec = resolveSpawnSpec("opencode", [...compatibility.modelArgs], command);
     const output = this.outputProbe(spec.command, spec.args);
     return {
       ...result,
@@ -68,21 +79,34 @@ export class OpenCodeDriver implements BackendAdapter, OpenCodeServiceProcessFac
   }
 
   async openLane(ctx: AdapterLaunchContext, options?: RuntimeLaneOpenOptions): Promise<RuntimeLane> {
-    return new OpenCodeServiceLane(this, ctx, {
+    const command = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig).command;
+    const result = this.versionProbe("opencode", {}, command);
+    if (result.status !== "healthy") throw new Error("Installed OpenCode CLI could not report its version");
+    const compatibility = resolveOpenCodeCompatibility(result.version);
+    const factory: OpenCodeServiceProcessFactory = {
+      spawnService: (launch, port, password) => this.spawnService(launch, port, password, compatibility),
+    };
+    const Lane = compatibility.major === 1 ? OpenCodeServiceLane : OpenCodeV2ServiceLane;
+    return new Lane(factory, ctx, {
       onRawStdoutLine: options?.onRawStdoutLine,
     });
   }
 
-  async spawnService(ctx: AdapterLaunchContext, port: number, password: string): Promise<SpawnedProcess> {
+  async spawnService(
+    ctx: AdapterLaunchContext,
+    port: number,
+    password: string,
+    compatibility: OpenCodeCompatibility = OPEN_CODE_V1,
+  ): Promise<SpawnedProcess> {
     const { spawnEnv } = await prepareCliTransport(ctx, {
       OPENCODE_SERVER_PASSWORD: password,
+      ...(compatibility.major === 2 ? { OPENCODE_PASSWORD: password } : {}),
     });
     const fields = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig);
     Object.assign(spawnEnv, await legacyOpenCodeApiEnvironment(spawnEnv, fields.model));
     const override = fields.command;
     const args = [
-      "serve",
-      "--pure",
+      ...compatibility.serviceArgs,
       "--hostname",
       "127.0.0.1",
       "--port",
