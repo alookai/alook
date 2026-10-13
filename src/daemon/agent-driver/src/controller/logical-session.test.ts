@@ -415,6 +415,27 @@ describe.each(["claude", "codex", "cursor", "grok", "opencode", "pi"] as const)(
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 
+  it("replays an exact send receipt while rejecting changed input or start/send ownership", async () => {
+    const { session } = makeSession(backend);
+    const first = { id: "first-owned", kind: "user" as const, text: "first", sequence: 1 };
+    const started = await session.start(first);
+    expect(await session.start({ ...first })).toEqual(started);
+    expect(await session.send({ ...first })).toEqual({ status: "rejected", reason: "duplicate_conflict" });
+    const next = { id: "next-owned", kind: "user" as const, text: "[fixed time] next\n\nfooter", sequence: 2 };
+    const sent = await session.send(next);
+    expect(sent.status).not.toBe("rejected");
+    expect(await session.send({ ...next })).toEqual(sent);
+    for (const input of [
+      { ...next, text: "[later time] next\n\nfooter" },
+      { ...next, sequence: 3 },
+      { ...next, kind: "system" as const },
+    ]) {
+      expect(await session.send(input)).toEqual({ status: "rejected", reason: "duplicate_conflict" });
+    }
+    expect(await session.start({ ...next })).toEqual({ status: "rejected", reason: "duplicate_conflict" });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
   it("attaches the iterator before start and loses no normalized event", async () => {
     const { session, driver } = makeSession(backend);
     const iterator = session.events[Symbol.asyncIterator]() as AsyncIterator<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>>;

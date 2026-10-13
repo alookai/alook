@@ -16,6 +16,7 @@ import {
   type SessionFactory,
 } from "./managerRuntime.js";
 import type {
+  AgentMessage,
   AgentEvent,
   AgentSession,
   AgentSessionResult,
@@ -4534,8 +4535,8 @@ function b1GatedDriver(): Driver {
   } as Driver;
 }
 
-function b1Session(order: string[], name = "s", turnId = "test-turn"): FakeSession {
-  const session = fakeSession();
+function b1Session(order: string[], name = "s", turnId = "test-turn", sessionInstanceId = "test-instance"): FakeSession {
+  const session = fakeSession(sessionInstanceId);
   session.start = vi.fn(async (input: { id: string; text: string }) => {
     order.push(`${name}:start:${input.text}`);
     void session.pushAgentEvent({ type: "command_accepted", commandId: input.id, turnId, delivery: "prompt" });
@@ -4566,6 +4567,9 @@ function b1Manager(opts: {
   staleThresholdMs?: number;
   stoppingStuckThresholdMs?: number;
   onRuntimeSpawnFailed?: (runtimeId: string, reason: string) => void;
+  wakePromptFooter?: string;
+  stampWakePromptTime?: boolean;
+  onBotAuditEvent?: (agentId: string, event: unknown) => void;
 } = {}) {
   const sessions = opts.sessions ?? [b1Session([])];
   let index = 0;
@@ -4588,11 +4592,207 @@ function b1Manager(opts: {
       ? { stoppingStuckThresholdMs: opts.stoppingStuckThresholdMs }
       : {}),
     onRuntimeSpawnFailed: opts.onRuntimeSpawnFailed,
+    wakePromptFooter: opts.wakePromptFooter,
+    stampWakePromptTime: opts.stampWakePromptTime,
+    onBotAuditEvent: opts.onBotAuditEvent,
   });
   if (opts.launchId === null) mgr.register("a1");
   else mgr.register("a1", { launchId: opts.launchId ?? "launch-a" });
   return { mgr, sessions };
 }
+
+describe("AgentProcessManager — stopped delivery and original inputs", () => {
+  it("replays the complete decorated input in a new session after failed admission and an old terminal", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-13T07:00:00Z"));
+    const first = b1Session([], "first", "test-turn", "epoch-first");
+    const second = b1Session([], "second", "test-turn", "epoch-second");
+    const originalSnapshot = first.snapshot.bind(first);
+    let stopping = false;
+    first.snapshot = () => ({ ...originalSnapshot(), state: stopping ? "stopping" : "working" });
+    first.stop = vi.fn(async () => {
+      stopping = true;
+      return { status: "accepted" as const, requestId: "stop-first" };
+    });
+    first.send = vi.fn(async (input: AgentMessage) => ({ status: "queued" as const, reason: "runtime_busy" as const, commandId: input.id }));
+    const { mgr } = b1Manager({ sessions: [first, second], stampWakePromptTime: true, wakePromptFooter: "original footer" });
+    try {
+      mgr.deliver("a1", { id: "root", seq: 1, text: "root" });
+      await vi.advanceTimersByTimeAsync(0);
+      await first.fire("runtime_event", { kind: "session_init", sessionId: "first-backend" });
+      mgr.deliver("a1", { id: "retry", seq: 2, text: "retry text" });
+      await vi.advanceTimersByTimeAsync(0);
+      const input = vi.mocked(first.send).mock.calls[0]![0];
+      expect(input).toEqual({ id: "retry", kind: "user", text: expect.stringMatching(/^\[[^\]]+\] retry text\n\noriginal footer$/), sequence: 2 });
+      vi.setSystemTime(new Date("2026-10-13T07:00:30Z"));
+      await first.pushAgentEvent({
+        type: "command_failed", commandId: "retry",
+        error: { category: "process", code: "delivery_failed", message: "failed", retryable: true },
+      });
+      expect(first.stop).toHaveBeenCalledOnce();
+      expect(mgr.snapshot().agents.a1.inbox).toEqual([{ id: "retry", seq: 2, text: "retry text", preparedInput: input }]);
+      await first.fire("runtime_event", { kind: "turn_end" });
+      expect(first.send).toHaveBeenCalledOnce();
+      expect(second.start).not.toHaveBeenCalled();
+      expect(mgr.snapshot().agents.a1.inbox).toEqual([{ id: "retry", seq: 2, text: "retry text", preparedInput: input }]);
+      await first.fire("exit", { reason: "requested" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(second.start).toHaveBeenCalledExactlyOnceWith(input);
+      expect(second.send).not.toHaveBeenCalled();
+      expect(mgr.snapshot().agents.a1).toMatchObject({ status: "running", inbox: [], execution: { sessionInstanceId: "epoch-second" } });
+      await second.fire("exit", { reason: "requested" });
+    } finally {
+      await mgr.stopAll();
+      vi.useRealTimers();
+    }
+  });
+
+  it("retains startup work until actual close when stop wins a late first receipt", async () => {
+    const first = fakeSession("start-old");
+    const second = b1Session([], "replacement", "test-turn", "start-new");
+    first.send = vi.fn(first.send);
+    const { mgr } = b1Manager({ sessions: [first, second] });
+    mgr.deliver("a1", { id: "first", seq: 1, text: "first" });
+    mgr.deliver("a1", { id: "second", seq: 2, text: "second" });
+    mgr.deliver("a1", { id: "third", seq: 3, text: "third" });
+    await mgr.stop("a1");
+    first.startResolver?.();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(first.send).not.toHaveBeenCalled();
+    expect(second.start).not.toHaveBeenCalled();
+    expect(mgr.snapshot().agents.a1).toMatchObject({ status: "starting", inbox: [
+      { id: "second", seq: 2, text: "second" }, { id: "third", seq: 3, text: "third" },
+    ] });
+    await first.fire("exit", { reason: "requested" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(second.start).toHaveBeenCalledExactlyOnceWith({ id: "second", kind: "user", text: "second", sequence: 2 });
+    expect(second.send).toHaveBeenCalledExactlyOnceWith({ id: "third", kind: "user", text: "third", sequence: 3 });
+    expect(mgr.snapshot().agents.a1).toMatchObject({ status: "running", inbox: [], execution: { sessionInstanceId: "start-new" } });
+    await second.fire("exit", { reason: "requested" });
+  });
+
+  it("starts the current reset replacement while resetting is still true and fences the old epoch", async () => {
+    const first = b1Session([], "old", "test-turn", "reset-old");
+    const second = fakeSession("reset-new");
+    second.send = vi.fn(second.send);
+    const { mgr } = b1Manager({ sessions: [first, second] });
+    mgr.deliver("a1", { id: "old-root", text: "old" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await mgr.resetSession("a1", { runtimeConfig: B1_RUNTIME_CONFIG, launchId: "new-launch", rewakePrompt: "new context" });
+    await first.fire("exit", { reason: "requested" });
+    expect(mgr.snapshot().agents.a1).toMatchObject({ status: "starting", resetting: true, execution: { sessionInstanceId: "reset-new" } });
+    expect(second.startResolver).toBeDefined();
+    mgr.deliver("a1", { id: "current-work", text: "new work" });
+    await first.fire("runtime_event", { kind: "turn_end" });
+    expect(second.send).not.toHaveBeenCalled();
+    second.startResolver?.();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(mgr.snapshot().agents.a1).toMatchObject({ status: "running", resetting: false, resettingSince: null, inbox: [], execution: { sessionInstanceId: "reset-new" } });
+    expect(second.send).toHaveBeenCalledExactlyOnceWith({ id: "current-work", kind: "user", text: "new work", sequence: undefined });
+    await second.fire("exit", { reason: "requested" });
+  });
+
+  it("drains all wakes received during the current start once in FIFO order", async () => {
+    const session = fakeSession("fifo-start");
+    session.start = vi.fn(session.start);
+    session.send = vi.fn(session.send);
+    const { mgr } = b1Manager({ sessions: [session] });
+    mgr.deliver("a1", { id: "first", seq: 1, text: "first" });
+    mgr.deliver("a1", { id: "second", seq: 2, text: "second" });
+    mgr.deliver("a1", { id: "third", seq: 3, text: "third" });
+    expect(session.send).not.toHaveBeenCalled();
+    session.startResolver?.();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(session.start).toHaveBeenCalledOnce();
+    expect(vi.mocked(session.send).mock.calls.map(([input]) => input)).toEqual([
+      { id: "second", kind: "user", text: "second", sequence: 2 },
+      { id: "third", kind: "user", text: "third", sequence: 3 },
+    ]);
+    expect(mgr.snapshot().agents.a1.inbox).toEqual([]);
+    await session.fire("exit", { reason: "requested" });
+  });
+
+  it("returns a whole blocked send batch ahead of newer work without reversing it", async () => {
+    const first = fakeSession("blocked-old");
+    const second = b1Session([], "new", "test-turn", "blocked-new");
+    first.send = vi.fn(first.send);
+    const snapshot = first.snapshot.bind(first);
+    let stopping = false;
+    first.snapshot = () => ({ ...snapshot(), state: stopping ? "stopping" : "working" });
+    const { mgr } = b1Manager({ sessions: [first, second], trace: (row) => {
+      if (row.event === "spawned") stopping = true;
+    } });
+    mgr.deliver("a1", { id: "first", text: "first" });
+    mgr.deliver("a1", { id: "second", text: "second" });
+    mgr.deliver("a1", { id: "third", text: "third" });
+    first.startResolver?.();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(first.send).not.toHaveBeenCalled();
+    expect(mgr.snapshot().agents.a1.inbox.map((message) => message.id)).toEqual(["second", "third"]);
+    await first.fire("exit", { reason: "requested" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(second.start).toHaveBeenCalledOnce();
+    expect(vi.mocked(second.start).mock.calls[0]![0].id).toBe("second");
+    expect(vi.mocked(second.send).mock.calls.map(([input]) => input.id)).toEqual(["third"]);
+    await second.fire("exit", { reason: "requested" });
+  });
+
+  it.each([1, 2])("restores only unfinished startup sends when send %i throws, then replays after actual close", async (failingSend) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-13T07:00:00Z"));
+    const first = fakeSession("throw-old");
+    const second = b1Session([], "replacement", "test-turn", "throw-new");
+    first.start = vi.fn(first.start);
+    const send = first.send.bind(first);
+    const snapshot = first.snapshot.bind(first);
+    const error = new Error("original synchronous send failure");
+    const onBotAuditEvent = vi.fn();
+    let attempts = 0;
+    let stopping = false;
+    first.snapshot = () => ({ ...snapshot(), state: stopping ? "stopping" : "working" });
+    first.stop = vi.fn(async () => {
+      stopping = true;
+      return { status: "accepted" as const, requestId: "stop-throw-old" };
+    });
+    first.send = vi.fn((input: AgentMessage) => {
+      if (++attempts === failingSend) throw error;
+      return send(input);
+    });
+    const { mgr } = b1Manager({ sessions: [first, second], stampWakePromptTime: true, wakePromptFooter: "original footer", onBotAuditEvent });
+    try {
+      mgr.deliver("a1", { id: "root", seq: 1, text: "root" });
+      mgr.deliver("a1", { id: "tail-a", seq: 2, text: "tail a" });
+      mgr.deliver("a1", { id: "tail-b", seq: 3, text: "tail b" });
+      first.startResolver?.();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const failedInput = vi.mocked(first.send).mock.calls[failingSend - 1]![0];
+      const pendingIds = ["tail-a", "tail-b"].slice(failingSend - 1);
+      expect(first.start).toHaveBeenCalledOnce();
+      expect(first.send).toHaveBeenCalledTimes(failingSend);
+      expect(mgr.snapshot().agents.a1.inbox.map((message) => message.id)).toEqual(pendingIds);
+      expect(mgr.snapshot().agents.a1.inbox[0]!.preparedInput).toBe(failedInput);
+      expect(onBotAuditEvent).toHaveBeenCalledWith("a1", expect.objectContaining({
+        kind: "error", payload: expect.objectContaining({ scope: "runtime", code: "send_failed", message: String(error) }),
+      }), expect.anything());
+      expect(first.stop).toHaveBeenCalledExactlyOnceWith({ reason: "shutdown", forceAfterMs: 2_000 });
+      mgr.deliver("a1", { id: "newer", seq: 4, text: "newer" });
+      await first.fire("runtime_event", { kind: "turn_end" });
+      expect(first.send).toHaveBeenCalledTimes(failingSend);
+      expect(second.start).not.toHaveBeenCalled();
+      expect(mgr.snapshot().agents.a1.inbox.map((message) => message.id)).toEqual([...pendingIds, "newer"]);
+      vi.setSystemTime(new Date("2026-10-13T07:01:00Z"));
+      await first.fire("exit", { reason: "requested" });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(second.start).toHaveBeenCalledExactlyOnceWith(failedInput);
+      expect(vi.mocked(second.send).mock.calls.map(([input]) => input.id)).toEqual([...pendingIds.slice(1), "newer"]);
+      expect(mgr.snapshot().agents.a1).toMatchObject({ status: "running", inbox: [], execution: { sessionInstanceId: "throw-new" } });
+      await second.fire("exit", { reason: "requested" });
+    } finally {
+      await mgr.stopAll();
+      vi.useRealTimers();
+    }
+  });
+});
 
 function b1SpanRows(rows: B1TraceRow[], event?: "turn_begin" | "turn_end" | "turn_abort"): B1TraceRow[] {
   return rows.filter((row) => row.recordKind === "turn_span" && (event === undefined || row.event === event));
@@ -4999,13 +5199,8 @@ describe("B1 red gate — exact-once terminal matrix", () => {
       error: { category: "process" as const, code: "queued_denied", message: "closed", retryable: true },
     }));
     const { mgr } = b1Manager({ sessions: [session] });
-    const internal = mgr as unknown as {
-      doSpawn(agentId: string, messages: Array<{ id: string; seq: number; text: string }>, resumeSessionId: null): void;
-    };
-    internal.doSpawn("a1", [
-      { id: "first", seq: 1, text: "first" },
-      { id: "queued", seq: 2, text: "queued" },
-    ], null);
+    mgr.deliver("a1", { id: "first", seq: 1, text: "first" });
+    mgr.deliver("a1", { id: "queued", seq: 2, text: "queued" });
     session.startResolver?.();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -5016,13 +5211,8 @@ describe("B1 red gate — exact-once terminal matrix", () => {
     const session = fakeSession();
     session.send = vi.fn(() => Promise.reject(new Error("queued send rejected")));
     const { mgr } = b1Manager({ sessions: [session] });
-    const internal = mgr as unknown as {
-      doSpawn(agentId: string, messages: Array<{ id: string; seq: number; text: string }>, resumeSessionId: null): void;
-    };
-    internal.doSpawn("a1", [
-      { id: "first", seq: 1, text: "first" },
-      { id: "queued", seq: 2, text: "queued" },
-    ], null);
+    mgr.deliver("a1", { id: "first", seq: 1, text: "first" });
+    mgr.deliver("a1", { id: "queued", seq: 2, text: "queued" });
     session.startResolver?.();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -5215,7 +5405,10 @@ describe("B1 red gate — exact-once terminal matrix", () => {
     internal.onAgentEvent("a1", failed as never, "codex", owner);
     internal.onAgentEvent("a1", { ...failed, sequence: 301 } as never, "codex", owner);
 
-    expect(mgr.snapshot().agents.a1.inbox).toEqual([{ id: "later", seq: 2, text: "later" }]);
+    expect(mgr.snapshot().agents.a1.inbox).toEqual([{
+      id: "later", seq: 2, text: "later",
+      preparedInput: { id: "later", kind: "user", text: "later", sequence: 2 },
+    }]);
     expect(session.stop).toHaveBeenCalledTimes(1);
   });
 
@@ -5599,24 +5792,22 @@ describe("AgentProcessManager — defensive owner fences", () => {
     expect(first.superseded).toBe(true);
   });
 
-  it("abandons queued startup delivery when dispatch replaces its owner", async () => {
+  it("abandons queued startup delivery when its owner is replaced before admission effects", async () => {
     const session = fakeSession();
     session.send = vi.fn(session.send);
     const { mgr } = b1Manager({ sessions: [session] });
     const internal = mgr as unknown as {
       doSpawn(agentId: string, messages: Array<{ id: string; seq: number; text: string }>, resumeSessionId: null): void;
-      dispatch(event: { type: string }, owner?: object): void;
+      dispatch(event: { type: string }, owner?: object): unknown[];
       activeSpawnState: Map<string, object>;
     };
     const dispatch = internal.dispatch.bind(mgr);
     vi.spyOn(internal, "dispatch").mockImplementation((event, owner) => {
-      dispatch(event, owner);
       if (event.type === "spawned") internal.activeSpawnState.delete("a1");
+      return dispatch(event, owner);
     });
-    internal.doSpawn("a1", [
-      { id: "first", seq: 1, text: "first" },
-      { id: "queued", seq: 2, text: "queued" },
-    ], null);
+    mgr.deliver("a1", { id: "first", seq: 1, text: "first" });
+    mgr.deliver("a1", { id: "queued", seq: 2, text: "queued" });
     session.startResolver?.();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(session.send).not.toHaveBeenCalled();
@@ -5632,10 +5823,8 @@ describe("AgentProcessManager — defensive owner fences", () => {
       doSpawn(agentId: string, messages: Array<{ id: string; seq: number; text: string }>, resumeSessionId: null): void;
       activeSpawnState: Map<string, { torndown: boolean }>;
     };
-    internal.doSpawn("a1", [
-      { id: "first", seq: 1, text: "first" },
-      { id: "queued", seq: 2, text: "queued" },
-    ], null);
+    mgr.deliver("a1", { id: "first", seq: 1, text: "first" });
+    mgr.deliver("a1", { id: "queued", seq: 2, text: "queued" });
     session.startResolver?.();
     await Promise.resolve();
     await Promise.resolve();
@@ -5662,10 +5851,8 @@ describe("AgentProcessManager — defensive owner fences", () => {
       begin(...args);
     });
     const audit = vi.spyOn(internal, "emitErrorAudit");
-    internal.doSpawn("a1", [
-      { id: "first", seq: 1, text: "first" },
-      { id: "queued", seq: 2, text: "queued" },
-    ], null);
+    mgr.deliver("a1", { id: "first", seq: 1, text: "first" });
+    mgr.deliver("a1", { id: "queued", seq: 2, text: "queued" });
     session.startResolver?.();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(audit).toHaveBeenCalledWith("a1", "runtime", "send_failed", "Error: queued orchestration failed");

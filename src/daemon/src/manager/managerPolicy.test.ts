@@ -241,6 +241,110 @@ describe("reduceManager — steering a running persistent agent", () => {
 });
 
 describe("reduceManager — turn_end behavior", () => {
+  it("retains a failed admission through a stopping terminal and the replacement spawn", () => {
+    let s = register(createInitialManagerState(50), "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { id: "first", text: "first" }, nowMs: 0 }).state;
+    s = spawnRoot(s, 0);
+    const message = {
+      id: "retry", seq: 2, text: "retry",
+      preparedInput: { id: "retry", kind: "user" as const, text: "[original time] retry\n\nfooter", sequence: 2 },
+    };
+    s = reduceManager(s, {
+      type: "admission_started", agentId: "a", sessionInstanceId: SESSION_INSTANCE,
+      commandId: message.id, exactAgentMsg: message, mode: "busy", requeueOnFailure: true, nowMs: 1,
+    }).state;
+    s = reduceManager(s, { type: "tick", nowMs: 100 }).state;
+    expect(s.agents.a.status).toBe("stopping");
+    const failed = reduceManager(s, {
+      type: "admission_settled", agentId: "a", sessionInstanceId: SESSION_INSTANCE,
+      commandId: message.id, outcome: "failed",
+    });
+    expect(failed.effects).toEqual([{ type: "requeue_delivery", agentId: "a", message, mode: "busy" }]);
+    s = reduceManager(failed.state, { type: "delivery_rejected", agentId: "a", message, mode: "busy" }).state;
+    const ended = completeRoot(s, "turn-a", 101);
+    expect(ended.effects).toEqual([]);
+    expect(ended.state.agents.a).toMatchObject({ status: "stopping", inbox: [message], idleSince: null, turnActive: false });
+    const duplicate = completeRoot(ended.state, "turn-a", 102);
+    expect(duplicate.state).toBe(ended.state);
+    expect(duplicate.effects).toEqual([]);
+    s = reduceManager(ended.state, { type: "session_closed", agentId: "a", sessionInstanceId: SESSION_INSTANCE }).state;
+    expect(s.agents.a.inbox).toEqual([message]);
+    const exited = reduceManager(s, { type: "exit", agentId: "a" });
+    expect(exited.effects).toEqual([{ type: "spawn", agentId: "a", messages: [message], resumeSessionId: null }]);
+  });
+
+  it("does not drain a matching terminal during reset or initial startup", () => {
+    for (const status of ["starting", "running"] as const) {
+      let s = register(createInitialManagerState(), "a", PERSISTENT_GATED);
+      s = reduceManager(s, { type: "wake", agentId: "a", message: { id: "first", text: "first" }, nowMs: 0 }).state;
+      s = spawnRoot(s, 0);
+      const message = { id: "next", text: "next" };
+      s = { ...s, agents: { ...s.agents, a: { ...s.agents.a, status, resetting: status === "running", inbox: [message] } } };
+      const ended = completeRoot(s, "turn-a", 1);
+      expect(ended.effects).toEqual([]);
+      expect(ended.state.agents.a.inbox).toEqual([message]);
+      expect(ended.state.agents.a.idleSince).toBeNull();
+    }
+  });
+
+  it("lets a current reset replacement start and drain the common FIFO once", () => {
+    let s = register(createInitialManagerState(), "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "begin_reset", agentId: "a", nowMs: 0 }).state;
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { id: "first", text: "reset" }, nowMs: 1 }).state;
+    const messages = [{ id: "second", text: "second" }, { id: "third", text: "third" }];
+    s = reduceManager(s, { type: "queue_delivery", agentId: "a", messages }).state;
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { id: "fourth", text: "fourth" }, nowMs: 2 }).state;
+    s = reduceManager(s, { type: "attach_session", agentId: "a", sessionInstanceId: SESSION_INSTANCE, nowMs: 3 }).state;
+    s = reduceManager(s, {
+      type: "turn_started", agentId: "a", sessionInstanceId: SESSION_INSTANCE,
+      turnId: "new-root", commandIds: ["first"], nowMs: 3,
+    }).state;
+    expect(s.agents.a.resetting).toBe(true);
+    const started = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 4 });
+    expect(started.state.agents.a).toMatchObject({ status: "running", resetting: false, resettingSince: null, inbox: [] });
+    expect(started.effects).toEqual([...messages, { id: "fourth", text: "fourth" }].map((message) => ({
+      type: "send", agentId: "a", message, mode: "busy",
+    })));
+    const repeated = reduceManager(started.state, { type: "spawned", agentId: "a", nowMs: 5 });
+    expect(repeated.state).toBe(started.state);
+    expect(repeated.effects).toEqual([]);
+  });
+
+  it("does not revive a stopping owner from a late start receipt", () => {
+    let s = register(createInitialManagerState(50), "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { id: "first", text: "first" }, nowMs: 0 }).state;
+    s = spawnRoot(s, 0);
+    s = reduceManager(s, { type: "tick", nowMs: 100 }).state;
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { id: "next", text: "next" }, nowMs: 101 }).state;
+    const late = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 102 });
+    expect(late.state).toBe(s);
+    expect(late.effects).toEqual([]);
+    expect(late.state.agents.a).toMatchObject({ status: "stopping", inbox: [{ id: "next", text: "next" }] });
+  });
+
+  it("preserves a deferred batch's FIFO and deduplicates existing IDs", () => {
+    let s = register(createInitialManagerState(), "a", PERSISTENT_GATED);
+    const later = { id: "later", text: "later" };
+    s = reduceManager(s, { type: "queue_delivery", agentId: "a", messages: [later] }).state;
+    const older = [{ id: "one", text: "one" }, { id: "two", text: "two" }];
+    const queued = reduceManager(s, { type: "queue_delivery", agentId: "a", messages: [...older, older[0]!, later] });
+    expect(queued.effects).toEqual([]);
+    expect(queued.state.agents.a.inbox).toEqual([...older, later]);
+  });
+
+  it("restores a failed batch in order while retaining the already requeued prepared input", () => {
+    let s = register(createInitialManagerState(), "a", PERSISTENT_GATED);
+    const raw = { id: "failed", seq: 2, text: "raw" };
+    const prepared = { ...raw, preparedInput: { id: "failed", kind: "user" as const, text: "original decorated input", sequence: 2 } };
+    const tail = { id: "tail", text: "tail" };
+    const newer = { id: "newer", text: "newer" };
+    s = reduceManager(s, { type: "queue_delivery", agentId: "a", messages: [prepared, newer] }).state;
+    const restored = reduceManager(s, { type: "queue_delivery", agentId: "a", messages: [raw, tail, raw] });
+    expect(restored.effects).toEqual([]);
+    expect(restored.state.agents.a.inbox).toEqual([prepared, tail, newer]);
+    expect(restored.state.agents.a.inbox[0]).toBe(prepared);
+  });
+
   it("persistent with queued messages delivers them as a fresh idle turn", () => {
     let s = createInitialManagerState();
     s = register(s, "a", PERSISTENT_GATED);

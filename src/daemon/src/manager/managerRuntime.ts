@@ -1151,7 +1151,34 @@ export class AgentProcessManager {
         }
       }
     }
-    for (const effect of effects) this.applyEffect(effect);
+    const completed = new Set<ManagerEffect>();
+    const deferSends = (agentId?: string): void => {
+      const remaining = effects.filter((candidate): candidate is Extract<ManagerEffect, { type: "send" }> =>
+        candidate.type === "send" && !completed.has(candidate) && (agentId === undefined || candidate.agentId === agentId));
+      for (const id of new Set(remaining.map((candidate) => candidate.agentId))) {
+        const batch = remaining.filter((candidate) => candidate.agentId === id);
+        batch.forEach((candidate) => completed.add(candidate));
+        this.dispatch({
+          type: "queue_delivery",
+          agentId: id,
+          messages: batch.map((candidate) => candidate.message),
+        });
+      }
+    };
+    try {
+      for (const effect of effects) {
+        if (completed.has(effect)) continue;
+        if (effect.type === "send" && !this.canSend(effect.agentId)) {
+          deferSends(effect.agentId);
+          continue;
+        }
+        this.applyEffect(effect);
+        completed.add(effect);
+      }
+    } catch (error) {
+      deferSends();
+      throw error;
+    }
     return effects;
   }
   private deriveActivitySnapshot(state: ManagerState): Record<string, AgentActivityState> {
@@ -1196,6 +1223,27 @@ export class AgentProcessManager {
   }
   private stampNow(text: string): string {
     return this.opts.stampWakePromptTime ? `[${nowLocalISO()}] ${text}` : text;
+  }
+  private prepareDelivery(message: AgentMsg): AgentMsg & { preparedInput: NonNullable<AgentMsg["preparedInput"]> } {
+    return {
+      ...message,
+      preparedInput: message.preparedInput ?? {
+        id: message.id!,
+        kind: "user",
+        text: this.stampNow(this.withFooter(message.text)),
+        sequence: message.seq,
+      },
+    };
+  }
+  private canSend(agentId: string): boolean {
+    const session = this.sessions.get(agentId);
+    const owner = this.activeSpawnState.get(agentId);
+    const agent = this.state.agents[agentId];
+    if (!session || !owner || owner.session !== session || owner.torndown || owner.superseded
+      || agent?.status !== "running" || agent.resetting
+      || agent.execution.sessionInstanceId !== session.sessionInstanceId) return false;
+    const driverState = session.snapshot().state;
+    return driverState !== "stopping" && driverState !== "closed";
   }
   private beginPendingDelivery(
     owner: ActiveSpawnState,
@@ -1263,13 +1311,10 @@ export class AgentProcessManager {
         break;
       case "send": {
         const session = this.sessions.get(effect.agentId);
-        const input = {
-          id: effect.message.id!,
-          kind: "user" as const,
-          text: this.stampNow(this.withFooter(effect.message.text)),
-          sequence: effect.message.seq,
-        };
-        if (session) {
+        if (session && this.canSend(effect.agentId)) {
+          const message = this.prepareDelivery(effect.message);
+          effect.message = message;
+          const input = message.preparedInput;
           const owner = this.activeSpawnState.get(effect.agentId);
           const exactOwner = owner?.session === session ? owner : undefined;
           const associatedSpan = exactOwner
@@ -1277,7 +1322,7 @@ export class AgentProcessManager {
               ? this.openTurn(exactOwner)
               : exactOwner.activeSpan
             : null;
-          if (exactOwner) this.beginPendingDelivery(exactOwner, input.id, effect.message, effect.mode, associatedSpan);
+          if (exactOwner) this.beginPendingDelivery(exactOwner, input.id, message, effect.mode, associatedSpan);
           let sent: ReturnType<DaemonAgentSession["send"]>;
           try {
             sent = session.send(input);
@@ -1514,8 +1559,10 @@ export class AgentProcessManager {
     this.log.info("agent session ended", { agentId, sessionId, reason });
   }
   private doSpawn(agentId: string, messages: AgentMsg[], resumeSessionId: string | null): void {
-    const [first, ...pending] = messages;
-    if (!first) throw new Error(`AgentProcessManager: spawn for ${agentId} has no command`);
+    const [initial, ...pending] = messages;
+    if (!initial) throw new Error(`AgentProcessManager: spawn for ${agentId} has no command`);
+    this.dispatch({ type: "queue_delivery", agentId, messages: pending });
+    const first = this.prepareDelivery(initial);
     const prompt = this.withFooter(first.text);
     const driver = this.opts.driverFor(agentId, this.runtimeConfigs.get(agentId));
     this.liveBackendIds.set(agentId, driver.id);
@@ -1743,12 +1790,7 @@ export class AgentProcessManager {
       this.beginPendingDelivery(state, commandId, first, "idle", startedSpan, false);
       let startResult: Promise<DeliveryReceipt>;
       try {
-        startResult = session.start({
-          id: commandId,
-          kind: "user",
-          text: this.stampNow(prompt),
-          sequence: first.seq,
-        });
+        startResult = session.start(first.preparedInput);
         this.markPendingDeliveryObserved(state, commandId);
       } catch (error) {
         this.settlePendingDelivery(state, commandId);
@@ -1756,7 +1798,8 @@ export class AgentProcessManager {
         throw error;
       }
       void startResult.then((receipt) => {
-        if (this.sessions.get(agentId) !== session || state.torndown) return;
+        if (this.sessions.get(agentId) !== session || state.torndown || state.superseded
+          || this.activeSpawnState.get(agentId) !== state) return;
         if (receipt?.status === "rejected") {
           this.settlePendingDelivery(state, commandId);
           const reason = receipt.error?.code ?? receipt.reason;
@@ -1764,48 +1807,15 @@ export class AgentProcessManager {
           void session.stop({ reason: "shutdown", forceAfterMs: SESSION_STOP_GRACE_MS });
           return;
         }
-        this.dispatch({ type: "spawned", agentId, nowMs: this.now() }, state);
-        void (async () => {
-          for (const message of pending) {
-            if (state.torndown || this.sessions.get(agentId) !== session || this.activeSpawnState.get(agentId) !== state) {
-              return;
-            }
-            this.beginPendingDelivery(state, message.id!, message, "busy", state.activeSpan);
-            let queuedReceipt: DeliveryReceipt;
-            try {
-              const queuedResult = session.send({
-                id: message.id!,
-                kind: "user",
-                text: this.stampNow(this.withFooter(message.text)),
-                sequence: message.seq,
-              });
-              this.markPendingDeliveryObserved(state, message.id!);
-              queuedReceipt = await queuedResult;
-            } catch (error) {
-              this.settlePendingDelivery(state, message.id!);
-              if (!state.torndown && this.sessions.get(agentId) === session && this.activeSpawnState.get(agentId) === state) {
-                this.emitErrorAudit(agentId, "runtime", "send_failed", String(error));
-                void session.stop({ reason: "shutdown", forceAfterMs: SESSION_STOP_GRACE_MS });
-              }
-              return;
-            }
-            if (state.torndown || this.sessions.get(agentId) !== session || this.activeSpawnState.get(agentId) !== state) {
-              return;
-            }
-            if (queuedReceipt.status === "rejected") {
-              if (!state.pendingDeliverySpans.has(message.id!)) return;
-              this.settlePendingDelivery(state, message.id!);
-              this.emitErrorAudit(
-                agentId,
-                "runtime",
-                queuedReceipt.error?.code ?? queuedReceipt.reason,
-                queuedReceipt.error?.message ?? `Delivery rejected (${queuedReceipt.reason})`,
-              );
-              void session.stop({ reason: "shutdown", forceAfterMs: SESSION_STOP_GRACE_MS });
-              return;
-            }
-          }
-        })().catch((error) => this.emitErrorAudit(agentId, "runtime", "send_failed", String(error)));
+        const driverState = session.snapshot().state;
+        if (this.state.agents[agentId]?.status !== "starting" || driverState === "stopping" || driverState === "closed") return;
+        try {
+          this.dispatch({ type: "spawned", agentId, nowMs: this.now() }, state);
+        } catch (error) {
+          this.emitErrorAudit(agentId, "runtime", "send_failed", String(error));
+          void session.stop({ reason: "shutdown", forceAfterMs: SESSION_STOP_GRACE_MS });
+          return;
+        }
         if (state.hasEstablished || state.hasReportedSpawnFailure) return;
         state.handshakeTimer = setTimeout(() => {
           state.handshakeTimer = null;

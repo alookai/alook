@@ -1,3 +1,4 @@
+import type { AgentMessage } from "@alook/agent-driver";
 
 export type AgentStatus = "idle" | "starting" | "running" | "stopping";
 
@@ -5,6 +6,7 @@ export interface AgentMsg {
   id?: string;
   seq?: number;
   text: string;
+  readonly preparedInput?: AgentMessage;
 }
 
 export interface TurnIdentity {
@@ -117,6 +119,7 @@ export type ManagerEvent =
   | { type: "register"; agentId: string }
   | { type: "wake"; agentId: string; message: AgentMsg; nowMs: number }
   | { type: "spawned"; agentId: string; nowMs: number }
+  | { type: "queue_delivery"; agentId: string; messages: readonly AgentMsg[] }
   | { type: "backend_session"; agentId: string; sessionId: string; stalledBefore?: boolean }
   | {
       type: "attach_session";
@@ -263,10 +266,29 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
     case "wake":
       return onWake(state, event.agentId, event.message);
 
-    case "spawned":
+    case "spawned": {
+      const existing = state.agents[event.agentId];
+      if (!existing || existing.status !== "starting") return { state, effects: [] };
+      const agent = clone(existing);
+      enterStable(agent, "running");
+      syncExecutionProjection(agent);
+      const mode = leaseIsWorking(agent.execution.lease) || agent.pendingAdmissions.length > 0 ? "busy" : "idle";
+      const messages = drainInbox(agent);
+      return commit(state, agent, messages.map((message) => ({ type: "send", agentId: event.agentId, message, mode })));
+    }
+
+    case "queue_delivery":
       return mutate(state, event.agentId, (a) => {
-        enterStable(a, "running");
+        const queuedById = new Map(a.inbox.filter((message) => message.id).map((message) => [message.id, message]));
+        const restoredIds = new Set<string>();
+        const messages = event.messages.filter((message) => {
+          if (message.id && restoredIds.has(message.id)) return false;
+          if (message.id) restoredIds.add(message.id);
+          return true;
+        }).map((message) => message.id ? queuedById.get(message.id) ?? message : message);
+        a.inbox = [...messages, ...a.inbox.filter((message) => !message.id || !restoredIds.has(message.id))];
         syncExecutionProjection(a);
+        a.idleSince = null;
       });
 
     case "backend_session":
@@ -644,7 +666,7 @@ function onTurnCompleted(
   const clearEffects: ManagerEffect[] = clearedStallSessionId === null
     ? []
     : [{ type: "clear_stall_recovery", agentId, sessionId: clearedStallSessionId }];
-  if (agent.inbox.length > 0 && !agent.resetting) {
+  if (agent.status === "running" && agent.inbox.length > 0 && !agent.resetting) {
     const messages = drainInbox(agent);
     return commit(state, agent, [
       ...clearEffects,
@@ -652,7 +674,7 @@ function onTurnCompleted(
     ]);
   }
 
-  agent.idleSince = nowMs;
+  agent.idleSince = agent.status === "running" && !agent.resetting ? nowMs : null;
   return commit(state, agent, clearEffects);
 }
 
