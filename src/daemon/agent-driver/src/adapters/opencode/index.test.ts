@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeLaunchContext, fakePrepared } from "../../testing/adapter-fixture.js";
 import { OpenCodeDriver } from "./index.js";
 import { resolveOpenCodeCompatibility } from "./compatibility.js";
+import * as recentContext from "./recent-context.js";
 import { OpenCodeV2ServiceLane } from "./v2-service-lane.js";
 
 const spawnAgentProcess = vi.hoisted(() => vi.fn());
@@ -27,6 +28,28 @@ describe("OpenCodeDriver persistent v2 service", () => {
   beforeEach(() => {
     spawnAgentProcess.mockClear();
     driver = new OpenCodeDriver(undefined, () => ({ status: "healthy", version: "1.18.35" }));
+  });
+
+  it("keeps empty discovery available when the configured CLI is unavailable", async () => {
+    const version = vi.fn(() => ({ status: "unhealthy" as const, lastError: "not_found" }));
+    const driver = new OpenCodeDriver(undefined, version);
+    await expect(driver.discoverRecentContext({ recentSessionFilesTopK: 2, recentProjectsTopK: 0 })).resolves.toEqual({
+      sessionFiles: { capability: "unavailable", items: [] }, recentProjects: [],
+    });
+    expect(version).not.toHaveBeenCalled();
+    expect(driver.probe()).toMatchObject({ status: "unhealthy", lastError: "not_found" });
+    expect(() => driver.discoverRecentContext({ recentSessionFilesTopK: 0, recentProjectsTopK: 1 })).toThrow("could not report its version");
+    await expect(driver.openLane(fakeLaunchContext("opencode", "/tmp"))).rejects.toThrow("could not report its version");
+  });
+
+  it("dispatches recent projects with the actual override's CLI compatibility", async () => {
+    const discover = vi.spyOn(recentContext, "discoverOpenCodeRecentContext").mockResolvedValue({
+      sessionFiles: { capability: "unavailable", items: [] }, recentProjects: [],
+    });
+    const driver = new OpenCodeDriver(undefined, () => ({ status: "healthy", version: "2.0.28" }));
+    const request = { command: "opencode-custom", recentSessionFilesTopK: 0, recentProjectsTopK: 1 };
+    await driver.discoverRecentContext(request);
+    expect(discover).toHaveBeenCalledWith(request, { compatibility: resolveOpenCodeCompatibility("2.0.28") });
   });
 
   it("uses models --pure output for a non-fatal startup catalog", () => {

@@ -41,3 +41,6 @@ None planned. Native release packages used for private QA are not product depend
 
 ## CI follow-up
 Initial CI found zero-bound discovery unnecessarily probing a missing CLI and an old SDK test treating Node as a supported OpenCode major. Zero-project discovery now returns the existing empty result without a version probe; SDK coverage verifies unsupported Node and a supported CLI shim separately.
+
+## Coverage follow-up
+Added focused tests for empty discovery with an unavailable CLI, actual override discovery dispatch, interrupt receipt versus native interrupted idle, failed native idle followed by session reuse, and transient recovery 503 without losing accepted input ownership. 141 focused tests and typecheck/lint pass. No production-code change in this follow-up.

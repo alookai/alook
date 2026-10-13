@@ -30,6 +30,8 @@ class NativeV2 {
   active = true;
   model: unknown;
   connections = 0;
+  activeFailures = 0;
+  interruptQuery?: string;
   stream?: ReadableStreamDefaultController<Uint8Array>;
   permissionBody?: unknown;
   delayPrompt?: Promise<void>;
@@ -48,6 +50,7 @@ class NativeV2 {
       this.model = JSON.parse(String(init.body)).model;
       return json({ data: { id: this.id, model: this.model } });
     }
+    if (url.pathname === "/api/session/active" && this.activeFailures-- > 0) return new Response(null, { status: 503 });
     if (url.pathname === "/api/session/active") return json({ data: this.active ? { [this.id]: { type: "running" }, ses_child: { type: "running" } } : { ses_child: { type: "running" } } });
     if (url.pathname === "/api/event") {
       this.connections += 1;
@@ -79,7 +82,7 @@ class NativeV2 {
       this.inputs.push(item);
       return json({ data: item });
     }
-    if (url.pathname.endsWith("/interrupt")) return json({ interrupted: true });
+    if (url.pathname.endsWith("/interrupt")) { this.interruptQuery = url.search; return json({ interrupted: true }); }
     throw new Error(`Unexpected v2 route ${url.pathname}`);
   };
 
@@ -205,6 +208,40 @@ describe("OpenCode CLI v2 persisted message authority", () => {
     native.finish();
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(native.ends).toHaveLength(0);
+  });
+
+  it("waits for native interrupted idle instead of treating an interrupt receipt as completion", async () => {
+    const native = new NativeV2(); const lane = native.lane();
+    await lane.start({ text: "one", terminalOwner: "msg_root" });
+    expect(await lane.interrupt({ reason: "user_interrupt" })).toBe(true);
+    expect(native.interruptQuery).toBe("?resume=false");
+    expect(native.ends).toHaveLength(0);
+    native.deliver(); native.finish("msg_interrupted", "interrupted");
+    await vi.waitFor(() => expect(native.ends).toEqual([{ kind: "turn_end", sessionId: native.id, turnOwner: "msg_root" }]));
+    expect(await lane.interrupt({ reason: "user_interrupt" })).toBe(false);
+    expect(native.errors).toHaveLength(0);
+  });
+
+  it("reports a failed native idle for its root and keeps the persistent lane reusable", async () => {
+    const native = new NativeV2(); const lane = native.lane();
+    await lane.start({ text: "one", terminalOwner: "msg_root" }); native.deliver();
+    native.finish("msg_failure", "failed"); native.messages.at(-1)!.error = { message: "provider unavailable" };
+    await vi.waitFor(() => expect(native.ends).toHaveLength(1));
+    expect(native.events.filter(event => event.kind === "error")).toEqual([{ kind: "error", code: "opencode.turn_failed", message: "provider unavailable" }]);
+    expect(native.errors).toHaveLength(0);
+    expect(await lane.send({ mode: "idle", text: "retry", terminalOwner: "msg_retry" })).toMatchObject({ ok: true });
+    native.deliver(); native.finish("msg_retry_idle");
+    await vi.waitFor(() => expect(native.ends).toHaveLength(2));
+    expect(native.ends[1]).toMatchObject({ turnOwner: "msg_retry" });
+  });
+
+  it("keeps accepted inputs owned through a temporary native recovery outage", async () => {
+    const native = new NativeV2(); const lane = native.lane();
+    await lane.start({ text: "one", terminalOwner: "msg_root" }); native.activeFailures = 1;
+    await vi.waitFor(() => expect(native.events.some(event => event.kind === "runtime_diagnostic" && event.message.includes("temporarily unavailable"))).toBe(true));
+    expect(native.ends).toHaveLength(0); expect(native.errors).toHaveLength(0);
+    native.deliver(); native.finish();
+    await vi.waitFor(() => expect(native.ends).toHaveLength(1));
   });
 
   it("fails explicitly if accepted input is absent from both inbox and persisted messages", async () => {
