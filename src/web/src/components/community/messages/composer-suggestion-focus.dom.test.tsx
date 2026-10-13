@@ -99,6 +99,15 @@ async function type(editor: Editor, value: string) {
   })
 }
 
+function dispatchDeletion(editor: Editor, key: "Delete" | "Backspace", options: KeyboardEventInit = {}) {
+  const event = new KeyboardEvent("keydown", {
+    key, code: key, keyCode: key === "Delete" ? 46 : 8,
+    bubbles: true, cancelable: true, ...options,
+  })
+  editor.view.dom.dispatchEvent(event)
+  return event
+}
+
 describe("composer suggestion focus with installed TipTap", () => {
   beforeEach(() => {
     localStorage.clear()
@@ -337,6 +346,314 @@ describe("composer suggestion focus with installed TipTap", () => {
     await type(editor, trigger === "@" ? "a" : "g")
     await waitFor(() => expect(trigger === "@" ? probeRef.current!.mentionPopup.command : probeRef.current!.channelRefPopup.command).toBeTypeOf("function"))
     expect(readComposerDraft("viewer:next")).toEqual(editor.getJSON())
+  })
+
+  it.each([false, true])("clears a restored @ with selectionchange first: %s", async (selectionChangeFirst) => {
+    const probeRef: Probe = { current: null }
+    const draftKey = `native-clear-${selectionChangeFirst}`
+    const draft = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "@" }] }] }
+    writeComposerDraft(`viewer:${draftKey}`, draft)
+    render(<Harness {...props} probeRef={probeRef} draftKey={draftKey} autoFocus />)
+    const editor = await editorOf(probeRef)
+    await waitFor(() => expect(editor.isFocused).toBe(true))
+    expect(editor.getJSON()).toEqual(draft)
+    expect(probeRef.current!.mentionPopup.command).toBeNull()
+
+    let observation: object = {}
+    act(() => {
+      const selection = document.getSelection()!
+      const range = document.createRange()
+      range.selectNodeContents(editor.view.dom)
+      selection.removeAllRanges()
+      selection.addRange(range)
+      const before = {
+        nativeText: selection.toString(), nativeCollapsed: selection.isCollapsed,
+        modelSelection: editor.state.selection.toJSON(),
+        document: editor.getJSON(), domText: editor.view.dom.textContent,
+      }
+      if (selectionChangeFirst) document.dispatchEvent(new Event("selectionchange"))
+      const beforeKeySelection = editor.state.selection.toJSON()
+      const deletion = new KeyboardEvent("keydown", {
+        key: "Delete", code: "Delete", keyCode: 46, bubbles: true, cancelable: true,
+      })
+      editor.view.dom.dispatchEvent(deletion)
+      observation = {
+        selectionChangeFirst, before, beforeKeySelection,
+        after: {
+          modelSelection: editor.state.selection.toJSON(),
+          document: editor.getJSON(), domText: editor.view.dom.textContent,
+          isEmpty: editor.isEmpty, draft: readComposerDraft(`viewer:${draftKey}`),
+          defaultPrevented: deletion.defaultPrevented,
+        },
+      }
+    })
+    expect(observation).toEqual({
+      selectionChangeFirst,
+      before: {
+        nativeText: "@", nativeCollapsed: false,
+        modelSelection: { type: "text", anchor: 2, head: 2 },
+        document: draft, domText: "@",
+      },
+      beforeKeySelection: selectionChangeFirst
+        ? { type: "text", anchor: 1, head: 2 }
+        : { type: "text", anchor: 2, head: 2 },
+      after: {
+        modelSelection: { type: "text", anchor: 1, head: 1 },
+        document: { type: "doc", content: [{ type: "paragraph" }] }, domText: "",
+        isEmpty: true, draft: null, defaultPrevented: true,
+      },
+    })
+    expect(probeRef.current!.mentionPopup.command).toBeNull()
+    await type(editor, "@")
+    await waitFor(() => expect(probeRef.current!.mentionPopup.command).toBeTypeOf("function"))
+    expect(editor.getText()).toBe("@")
+    expect(readComposerDraft(`viewer:${draftKey}`)).toEqual(editor.getJSON())
+  })
+
+  it.each([
+    ["Delete", false], ["Delete", true], ["Backspace", false], ["Backspace", true],
+  ] as const)("deletes only the native partial range with %s, reversed: %s", async (key, reversed) => {
+    const probeRef: Probe = { current: null }
+    render(<Harness {...props} probeRef={probeRef} draftKey="native-partial" />)
+    const editor = await editorOf(probeRef)
+    await type(editor, "left@right")
+    let result: object = {}
+    act(() => {
+      const text = editor.view.dom.querySelector("p")!.firstChild!
+      const selection = document.getSelection()!
+      selection.setBaseAndExtent(text, reversed ? 5 : 4, text, reversed ? 4 : 5)
+      const before = {
+        nativeText: selection.toString(), modelSelection: editor.state.selection.toJSON(),
+      }
+      const deletion = dispatchDeletion(editor, key)
+      result = {
+        before, text: editor.getText(), domText: editor.view.dom.textContent,
+        modelSelection: editor.state.selection.toJSON(),
+        draft: readComposerDraft("viewer:native-partial"), defaultPrevented: deletion.defaultPrevented,
+      }
+    })
+    expect(result).toEqual({
+      before: { nativeText: "@", modelSelection: { type: "text", anchor: 11, head: 11 } },
+      text: "leftright", domText: "leftright", modelSelection: { type: "text", anchor: 5, head: 5 },
+      draft: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "leftright" }] }] },
+      defaultPrevented: true,
+    })
+  })
+
+  it.each(["Delete", "Backspace"] as const)("keeps collapsed %s on the existing native path", async (key) => {
+    const probeRef: Probe = { current: null }
+    const draft = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "@" }] }] }
+    writeComposerDraft("viewer:native-caret", draft)
+    render(<Harness {...props} probeRef={probeRef} draftKey="native-caret" autoFocus />)
+    const editor = await editorOf(probeRef)
+    await waitFor(() => expect(editor.isFocused).toBe(true))
+    let result: object = {}
+    act(() => {
+      const native = document.getSelection()!
+      const text = editor.view.dom.querySelector("p")!.firstChild!
+      native.collapse(text, 1)
+      const deletion = dispatchDeletion(editor, key)
+      result = {
+        nativeCollapsed: native.isCollapsed, modelSelection: editor.state.selection.toJSON(),
+        document: editor.getJSON(), draft: readComposerDraft("viewer:native-caret"),
+        defaultPrevented: deletion.defaultPrevented,
+      }
+    })
+    expect(result).toEqual({
+      nativeCollapsed: true, modelSelection: { type: "text", anchor: 2, head: 2 },
+      document: draft, draft, defaultPrevented: key === "Delete",
+    })
+  })
+
+  it("does not import an external native range into the focused composer", async () => {
+    const probeRef: Probe = { current: null }
+    render(<><div data-testid="native-external-range">external</div><Harness {...props} probeRef={probeRef} draftKey="native-external" /></>)
+    const editor = await editorOf(probeRef)
+    await type(editor, "@")
+    let result: object = {}
+    act(() => {
+      const range = document.createRange()
+      range.selectNodeContents(screen.getByTestId("native-external-range"))
+      const selection = document.getSelection()!
+      selection.removeAllRanges()
+      selection.addRange(range)
+      const focusedBefore = editor.view.hasFocus()
+      dispatchDeletion(editor, "Delete")
+      result = {
+        focusedBefore, nativeText: selection.toString(), text: editor.getText(),
+        modelSelection: editor.state.selection.toJSON(), draft: readComposerDraft("viewer:native-external"),
+      }
+    })
+    expect(result).toEqual({
+      focusedBefore: true, nativeText: "external", text: "@",
+      modelSelection: { type: "text", anchor: 2, head: 2 }, draft: editor.getJSON(),
+    })
+  })
+
+  it.each(["blurred", "readonly"] as const)("does not import a native range into a %s composer", async (kind) => {
+    const probeRef: Probe = { current: null }
+    const draft = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "@" }] }] }
+    writeComposerDraft("viewer:native-ineligible", draft)
+    render(<Harness {...props} probeRef={probeRef} draftKey="native-ineligible" autoFocus />)
+    const editor = await editorOf(probeRef)
+    await waitFor(() => expect(editor.isFocused).toBe(true))
+    let result: object = {}
+    act(() => {
+      if (kind === "blurred") editor.view.dom.blur()
+      else editor.setEditable(false)
+      const range = document.createRange()
+      range.selectNodeContents(editor.view.dom)
+      const native = document.getSelection()!
+      native.removeAllRanges()
+      native.addRange(range)
+      const eligibleBefore = editor.view.hasFocus() && editor.view.editable
+      dispatchDeletion(editor, "Delete")
+      result = {
+        eligibleBefore, nativeText: native.toString(), modelSelection: editor.state.selection.toJSON(),
+        document: editor.getJSON(), draft: readComposerDraft("viewer:native-ineligible"),
+      }
+    })
+    expect(result).toEqual({
+      eligibleBefore: false, nativeText: "@", modelSelection: { type: "text", anchor: 2, head: 2 },
+      document: draft, draft,
+    })
+  })
+
+  it.each([false, true])("does not reconcile native ranges during IME, view composing: %s", async (viewComposing) => {
+    const probeRef: Probe = { current: null }
+    render(<Harness {...props} probeRef={probeRef} draftKey="native-ime" />)
+    const editor = await editorOf(probeRef)
+    await type(editor, "@")
+    let result: object = {}
+    act(() => {
+      if (viewComposing) fireEvent.compositionStart(editor.view.dom)
+      const range = document.createRange()
+      range.selectNodeContents(editor.view.dom)
+      const native = document.getSelection()!
+      native.removeAllRanges()
+      native.addRange(range)
+      const composingBefore = editor.view.composing
+      dispatchDeletion(editor, "Delete", { isComposing: true })
+      result = {
+        composingBefore, nativeText: native.toString(), text: editor.getText(),
+        modelSelection: editor.state.selection.toJSON(), draft: readComposerDraft("viewer:native-ime"),
+      }
+      if (viewComposing) fireEvent.compositionEnd(editor.view.dom)
+    })
+    expect(result).toEqual({
+      composingBefore: viewComposing, nativeText: "@", text: "@",
+      modelSelection: { type: "text", anchor: 2, head: 2 }, draft: editor.getJSON(),
+    })
+  })
+
+  it.each(["node", "all"] as const)("leaves ordinary %s selection deletion with the installed keymap", async (kind) => {
+    const probeRef: Probe = { current: null }
+    render(<Harness {...props} probeRef={probeRef} draftKey="native-framework-selection" />)
+    const editor = await editorOf(probeRef)
+    await act(async () => {
+      editor.view.dom.focus()
+      editor.commands.setContent({ type: "doc", content: [{ type: "paragraph", content: kind === "node"
+        ? [{ type: "mention", attrs: { id: ada.id, label: "Ada#0001" } }]
+        : [{ type: "text", text: "@" }] }] })
+      if (kind === "node") editor.commands.setNodeSelection(1)
+      else editor.commands.selectAll()
+    })
+    let result: object = {}
+    act(() => {
+      const range = document.createRange()
+      range.selectNodeContents(editor.view.dom)
+      const native = document.getSelection()!
+      native.removeAllRanges()
+      native.addRange(range)
+      const selectionTypeBefore = editor.state.selection.toJSON().type
+      const deletion = dispatchDeletion(editor, "Delete")
+      result = {
+        selectionTypeBefore, document: editor.getJSON(), domText: editor.view.dom.textContent,
+        isEmpty: editor.isEmpty, draft: readComposerDraft("viewer:native-framework-selection"),
+        defaultPrevented: deletion.defaultPrevented,
+      }
+    })
+    expect(result).toEqual({
+      selectionTypeBefore: kind, document: { type: "doc", content: [{ type: "paragraph" }] },
+      domText: "", isEmpty: true, draft: null, defaultPrevented: true,
+    })
+  })
+
+  it("clears the selected trigger with the current mention popup open", async () => {
+    const probeRef: Probe = { current: null }
+    render(<Harness {...props} probeRef={probeRef} draftKey="native-popup" />)
+    const editor = await editorOf(probeRef)
+    await type(editor, "@a")
+    await screen.findByTestId("community-mention-option-member-ada")
+    act(() => {
+      const range = document.createRange()
+      range.selectNodeContents(editor.view.dom)
+      const native = document.getSelection()!
+      native.removeAllRanges()
+      native.addRange(range)
+      const deletion = dispatchDeletion(editor, "Delete")
+      expect(deletion.defaultPrevented).toBe(true)
+    })
+    expect(editor.isEmpty).toBe(true)
+    expect(editor.view.dom.textContent).toBe("")
+    expect(readComposerDraft("viewer:native-popup")).toBeNull()
+    expect(probeRef.current!.mentionPopup.command).toBeNull()
+    expect(screen.queryByTestId("community-mention-popup")).toBeNull()
+  })
+
+  it.each(["altKey", "ctrlKey", "metaKey", "shiftKey"] as const)("keeps %s Delete on the original path", async (modifier) => {
+    const probeRef: Probe = { current: null }
+    const draft = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "@" }] }] }
+    writeComposerDraft("viewer:native-modified", draft)
+    render(<Harness {...props} probeRef={probeRef} draftKey="native-modified" autoFocus />)
+    const editor = await editorOf(probeRef)
+    await waitFor(() => expect(editor.isFocused).toBe(true))
+    let result: object = {}
+    act(() => {
+      const range = document.createRange()
+      range.selectNodeContents(editor.view.dom)
+      const native = document.getSelection()!
+      native.removeAllRanges()
+      native.addRange(range)
+      dispatchDeletion(editor, "Delete", { [modifier]: true })
+      result = {
+        nativeText: native.toString(), modelSelection: editor.state.selection.toJSON(),
+        document: editor.getJSON(), draft: readComposerDraft("viewer:native-modified"),
+      }
+    })
+    expect(result).toEqual({
+      nativeText: "@", modelSelection: { type: "text", anchor: 2, head: 2 }, document: draft, draft,
+    })
+  })
+
+  it.each(["RangeError", "TypeError"] as const)("declines invalid mapping but exposes an unexpected %s", async (kind) => {
+    const probeRef: Probe = { current: null }
+    const draft = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "@" }] }] }
+    writeComposerDraft("viewer:native-mapping", draft)
+    render(<Harness {...props} probeRef={probeRef} draftKey="native-mapping" autoFocus />)
+    const editor = await editorOf(probeRef)
+    await waitFor(() => expect(editor.isFocused).toBe(true))
+    const failure = kind === "RangeError" ? new RangeError("invalid native position") : new TypeError("unexpected mapping failure")
+    vi.spyOn(editor.view, "posAtDOM").mockImplementation(() => { throw failure })
+    let reported: unknown
+    const onError = (event: ErrorEvent) => { reported = event.error; event.preventDefault() }
+    window.addEventListener("error", onError)
+    try {
+      act(() => {
+        const range = document.createRange()
+        range.selectNodeContents(editor.view.dom)
+        const native = document.getSelection()!
+        native.removeAllRanges()
+        native.addRange(range)
+        dispatchDeletion(editor, "Delete")
+      })
+      expect(reported).toBe(kind === "RangeError" ? undefined : failure)
+      expect(editor.state.selection.toJSON()).toEqual({ type: "text", anchor: 2, head: 2 })
+      expect(editor.getJSON()).toEqual(draft)
+      expect(readComposerDraft("viewer:native-mapping")).toEqual(draft)
+    } finally {
+      window.removeEventListener("error", onError)
+    }
   })
 
   it("clear then one @ stays one @ and persists current JSON", async () => {
