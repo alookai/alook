@@ -82,8 +82,7 @@ export class OpenCodeV2ServiceLane extends OpenCodeServiceLane {
   protected override async primeHistory(): Promise<void> {}
 
   protected override startStreams(): void {
-    const identity = this.identity;
-    if (!identity || !this.sessionId) throw new Error("OpenCode CLI v2 session was not initialized");
+    const identity = this.identity!;
     this.liveTask = this.runLiveStream(identity).catch((error: unknown) => {
       if (!this.stopping) this.protocolFailure("OpenCode CLI v2 live stream failed", error);
     });
@@ -141,8 +140,9 @@ export class OpenCodeV2ServiceLane extends OpenCodeServiceLane {
       if (this.root) return { ok: false, reason: "runtime_busy" };
       return this.beginRoot(input);
     }
-    if (!this.root) return { ok: false, reason: "not_ready" };
-    return this.admit(input.text, "steer", this.newMessageId());
+    const root = this.root;
+    if (!root) return { ok: false, reason: "not_ready" };
+    return this.admit(input.text, "steer", this.newMessageId(), root);
   }
 
   protected override async beginRoot(input: LaneStartInput): Promise<LaneAdmission> {
@@ -155,13 +155,10 @@ export class OpenCodeV2ServiceLane extends OpenCodeServiceLane {
       inputs: new Set(), generation: 0, pending: 0,
     };
     this.root = root;
-    try { return await this.admit(input.text, "queue", receipt); }
-    catch (error) { if (this.root === root) this.root = null; throw error; }
+    return this.admit(input.text, "queue", receipt, root);
   }
 
-  private admit(text: string, delivery: "queue" | "steer", id: string): Promise<LaneAdmission> {
-    const root = this.root;
-    if (!root) return Promise.resolve({ ok: false, reason: "not_ready" });
+  private admit(text: string, delivery: "queue" | "steer", id: string, root: Root): Promise<LaneAdmission> {
     root.generation += 1;
     root.pending += 1;
     const run = this.v2AdmissionTail.then(async (): Promise<LaneAdmission> => {

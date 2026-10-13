@@ -15,7 +15,7 @@ None planned. Native release packages used for private QA are not product depend
 - [x] Determine the repair: separate CLI-major compatibility profiles and lanes inside the same OpenCode adapter. Preserve v1 native durable protocol. V2 uses its persisted paginated messages/inbox and new idle records, with common authenticated process/start/stop primitives.
 - [x] Modify `src/daemon/agent-driver/src/adapters/opencode/index.ts`, `index.test.ts`, `src/daemon/agent-driver/src/sdk.test.ts`, `recent-context.ts`, `recent-context.test.ts`, and `service-lane.ts`; add `compatibility.ts`, `compatibility.test.ts`, `v2-service-lane.ts`, and `v2-service-lane.test.ts`. Protect existing v1 serve/models arguments; fix v2 readiness, payloads, model variants, pending-input recovery, native tool event/message recovery and terminal correlation. Preserve global recent-project discovery with CLI v2 native `api GET /api/session` rather than its project-scoped `session list`. Update `src/daemon/README.md`, `agent-driver/README.md`, and `agent-driver/RELEASE_NOTES.md` for both major lanes. Do not add a generic event ledger or new dependency.
 - [x] Implement and run scoped tests, lint, typecheck, boundary checks and build.
-- [ ] Commit only after actual affected QA; push one PR and hand exact SHA to Claudette for independent acceptance.
+- [x] Commit only after actual affected QA; push one PR and hand exact SHA to Claudette for independent acceptance.
 - [ ] Track CI/coverage and preserve failed evidence until delivery. No production release without Gus execution-time confirmation.
 
 ### Test cases
@@ -44,3 +44,8 @@ Initial CI found zero-bound discovery unnecessarily probing a missing CLI and an
 
 ## Coverage follow-up
 Added focused tests for empty discovery with an unavailable CLI, actual override discovery dispatch, interrupt receipt versus native interrupted idle, failed native idle followed by session reuse, and transient recovery 503 without losing accepted input ownership. 141 focused tests and typecheck/lint pass. No production-code change in this follow-up.
+
+## Recovery boundary completion
+Complete patch coverage requires malformed native responses and close/admission races. Remove only redundant checks: parent start already verifies physical identity/session before invoking streams; admit owns its own failure cleanup, so beginRoot does not clear a second time. Pass the captured root into admit rather than rereading an impossible missing root. Retain every asynchronous identity/generation fence and durable recovery check. Repeat native QA for this small production simplification.
+
+Final local candidate: 171 focused tests pass with no uncovered statements in the changed OpenCode modules; typecheck/lint/build/boundary/knip pass. After the small simplification, repeat native v1/v2 real-bot journeys, v2 disconnect/busy and interrupt all pass. Final independent QA and CI/Codecov remain merge gates.

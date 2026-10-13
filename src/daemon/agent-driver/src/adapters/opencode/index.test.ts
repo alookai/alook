@@ -13,12 +13,14 @@ const spawnAgentProcess = vi.hoisted(() => vi.fn());
 vi.mock("../../internal/killTree.js", async () => ({
   ...(await vi.importActual<typeof import("../../internal/killTree.js")>("../../internal/killTree.js")),
   spawnAgentProcess,
+  killProcessTree: vi.fn(async () => {}),
 }));
 
 const directories: string[] = [];
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
@@ -97,6 +99,18 @@ describe("OpenCodeDriver persistent v2 service", () => {
     expect(version).toHaveBeenCalledWith("opencode", {}, "opencode-v2-custom");
     expect(lane).toBeInstanceOf(OpenCodeV2ServiceLane);
     expect(spawnAgentProcess).not.toHaveBeenCalled();
+  });
+
+  it("fixes the selected CLI profile for the lane even when a later probe changes", async () => {
+    const version = vi.fn().mockReturnValueOnce({ status: "healthy", version: "2.0.28" }).mockReturnValue({ status: "healthy", version: "1.18.35" });
+    const driver = new OpenCodeDriver(() => ({ ok: false, error: "unavailable" }), version);
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ version: "3.0.0", pid: 42_999 })));
+    const lane = await driver.openLane(fakeLaunchContext("opencode", "/tmp"));
+    driver.probe();
+    spawnAgentProcess.mockReturnValue(Object.assign(new EventEmitter(), { pid: 42_999, stdout: null, stderr: null, stdin: null, exitCode: null, signalCode: null, kill: vi.fn() }));
+    expect(await lane.start({ text: "one", terminalOwner: "msg_root" })).toMatchObject({ ok: false, reason: "incompatible_configuration" });
+    expect(spawnAgentProcess.mock.calls[0]?.[1]).toEqual(expect.arrayContaining(["serve", "--hostname"]));
+    expect(spawnAgentProcess.mock.calls[0]?.[1]).not.toContain("--pure");
   });
 
   it("protects CLI v2 service authentication without passing legacy flags", async () => {

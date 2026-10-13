@@ -36,6 +36,7 @@ class NativeV2 {
   permissionBody?: unknown;
   delayPrompt?: Promise<void>;
   beforeInbox?: () => void;
+  respond?: (url: URL, init?: RequestInit) => Response | undefined | Promise<Response | undefined>;
   readonly child = Object.assign(new EventEmitter(), {
     pid: 42_199, stdout: new PassThrough(), stderr: new PassThrough(), stdin: null,
     exitCode: null as number | null, signalCode: null as string | null, kill: vi.fn(() => true),
@@ -43,6 +44,8 @@ class NativeV2 {
 
   readonly fetch: typeof fetch = async (input, init) => {
     const url = new URL(String(input));
+    const override = await this.respond?.(url, init);
+    if (override) return override;
     const json = (value: unknown) => Response.json(value);
     if (url.pathname === "/api/info") return json({ version: "2.0.28", pid: this.child.pid });
     if (url.pathname === "/openapi.json") return json({ paths: Object.fromEntries(paths.map((path) => [path, {}])) });
@@ -86,10 +89,10 @@ class NativeV2 {
     throw new Error(`Unexpected v2 route ${url.pathname}`);
   };
 
-  lane(model = "opencode/space-bunny-free") {
+  lane(model: string | null = "opencode/space-bunny-free") {
     const lane = new OpenCodeV2ServiceLane(
       { spawnService: async () => ({ process: this.child }) },
-      fakeLaunchContext("opencode", process.cwd(), { config: { runtimeConfig: { model: { kind: "named", name: model } } } }),
+      fakeLaunchContext("opencode", process.cwd(), { config: { runtimeConfig: { model: model === null ? { kind: "default" } : { kind: "named", name: model } } } }),
       { fetch: this.fetch, allocatePort: async () => 43_123, activePollMs: 2, reconnectDelayMs: 2 },
     );
     lane.on("runtime_event", (event) => this.events.push(event));
@@ -115,6 +118,141 @@ class NativeV2 {
 }
 
 describe("OpenCode CLI v2 persisted message authority", () => {
+  it.each([{ pid: 1 }, { version: "2.0.28", pid: 0 }, { version: "3.0.0", pid: 1 }])("rejects incompatible native health before admitting inputs: %j", async health => {
+    const native = new NativeV2(); native.respond = url => url.pathname === "/api/info" ? Response.json(health) : undefined;
+    expect(await native.lane().start({ text: "one", terminalOwner: "msg_root" })).toMatchObject({ ok: false, reason: "incompatible_configuration" });
+    expect(native.inputs).toHaveLength(0);
+  });
+
+  it("keeps default model selection and complete reasoning, compaction and sparse usage semantics", async () => {
+    const native = new NativeV2(); const lane = native.lane(null);
+    expect(await lane.send({ mode: "idle", text: "early" })).toMatchObject({ ok: false, reason: "closed" });
+    await lane.start({ text: "one", terminalOwner: "msg_root" }); expect(native.model).toBeUndefined();
+    expect(await lane.send({ mode: "idle", text: "duplicate" })).toMatchObject({ ok: false, reason: "runtime_busy" });
+    native.emit("session.compaction.started"); native.emit("session.compaction.failed");
+    native.deliver(); native.messages.push({ id: "msg_reason", type: "assistant", time: { completed: 2 }, content: [{ type: "reasoning", text: "settled reasoning" }, { type: "text", text: "" }] }); native.finish();
+    await vi.waitFor(() => expect(native.ends).toHaveLength(1));
+    expect(native.events).toEqual(expect.arrayContaining([{ kind: "assistant_reasoning_completed", text: "settled reasoning" }, { kind: "compaction_started" }, { kind: "compaction_finished" }]));
+    expect(native.events.some(event => event.kind === "telemetry")).toBe(false);
+    expect(await lane.send({ mode: "busy", text: "late" })).toMatchObject({ ok: false, reason: "not_ready" });
+  });
+
+  it.each(["http", "receipt"])("rejects a failed %s prompt admission without a terminal receipt", async kind => {
+    const native = new NativeV2(); native.respond = url => url.pathname.endsWith("/prompt") ? kind === "http" ? new Response(null, { status: 400 }) : Response.json({ data: {} }) : undefined;
+    await expect(native.lane().start({ text: "one", terminalOwner: "msg_root" })).rejects.toThrow(kind === "http" ? "HTTP 400" : "invalid prompt receipt");
+    expect(native.ends).toHaveLength(0); expect(native.inputs).toHaveLength(0);
+  });
+
+  it.each(["page", "cursor", "http"])("rejects invalid initial native message %s", async kind => {
+    const native = new NativeV2(); native.respond = url => url.pathname.endsWith("/message") ? kind === "http" ? new Response(null, { status: 400 }) : Response.json(kind === "page" ? { data: {} } : { data: [], cursor: { next: 42 } }) : undefined;
+    await expect(native.lane().start({ text: "one", terminalOwner: "msg_root" })).rejects.toThrow(kind === "http" ? "HTTP 400" : "invalid message");
+    expect(native.inputs).toHaveLength(0); expect(native.ends).toHaveLength(0);
+  });
+
+  it.each(["boundary", "cursor", "active", "inbox_http", "inbox_shape", "input_http", "input_shape", "idle"])("fails native recovery closed on %s corruption", async kind => {
+    const native = new NativeV2(); const lane = native.lane(); await lane.start({ text: "one", terminalOwner: "msg_root" });
+    native.active = false;
+    if (kind === "boundary") native.messages.splice(0);
+    if (kind.startsWith("input")) native.inputs.splice(0);
+    if (kind === "idle") { native.deliver(); native.finish("msg_invalid_idle", "unknown"); }
+    native.respond = url => {
+      if (kind === "cursor" && url.pathname.endsWith("/message")) return Response.json({ data: [], cursor: { next: "repeated" } });
+      if (kind === "active" && url.pathname === "/api/session/active") return Response.json({ data: null });
+      if (kind.startsWith("inbox") && url.pathname.endsWith("/inbox")) return kind === "inbox_http" ? new Response(null, { status: 400 }) : Response.json({ data: null });
+      if (kind.startsWith("input") && url.pathname.includes("/message/")) return kind === "input_http" ? new Response(null, { status: 400 }) : Response.json({ data: { id: url.pathname.split("/").at(-1), type: "assistant" } });
+    };
+    await vi.waitFor(() => expect(native.errors).toHaveLength(1)); expect(native.ends).toHaveLength(0);
+  });
+
+  it("closes the lane when native interruption fails instead of settling the root", async () => {
+    const native = new NativeV2(); const lane = native.lane(); await lane.start({ text: "one", terminalOwner: "msg_root" });
+    native.respond = url => url.pathname.endsWith("/interrupt") ? new Response(null, { status: 400 }) : undefined;
+    await expect(lane.interrupt({ reason: "user_interrupt" })).rejects.toThrow("HTTP 400");
+    expect(await lane.send({ mode: "idle", text: "late" })).toMatchObject({ ok: false, reason: "closed" }); expect(native.ends).toHaveLength(0);
+  });
+
+  it("fails unexpected stream faults during startup without admitting input", async () => {
+    const native = new NativeV2(); const lane = native.lane();
+    vi.spyOn(lane as unknown as { runLiveStream: () => Promise<void> }, "runLiveStream").mockRejectedValueOnce(new Error("unexpected native stream fault"));
+    await expect(lane.start({ text: "one", terminalOwner: "msg_root" })).rejects.toThrow();
+    expect(native.errors).toHaveLength(1); expect(native.inputs).toHaveLength(0); expect(native.ends).toHaveLength(0);
+  });
+
+  it("closes admission when physical identity is lost during the baseline snapshot", async () => {
+    const native = new NativeV2(); const lane = native.lane(); await lane.start({ text: "one", terminalOwner: "msg_root" }); native.deliver(); native.finish();
+    await vi.waitFor(() => expect(native.ends).toHaveLength(1));
+    native.respond = url => { if (url.pathname.endsWith("/message")) native.child.exitCode = 1; };
+    expect(await lane.send({ mode: "idle", text: "late", terminalOwner: "msg_next" })).toMatchObject({ ok: false, reason: "closed" });
+    expect(native.inputs).toHaveLength(0);
+  });
+
+  it("fences both queued and returned admissions after the service exits", async () => {
+    const native = new NativeV2(); const lane = native.lane(); await lane.start({ text: "one", terminalOwner: "msg_root" });
+    let release!: () => void; native.delayPrompt = new Promise<void>(resolve => { release = resolve; });
+    const first = lane.send({ mode: "busy", text: "first" }); const second = lane.send({ mode: "busy", text: "second" });
+    await new Promise(resolve => setTimeout(resolve, 5)); native.child.exitCode = 1; release();
+    expect(await first).toMatchObject({ ok: false, reason: "closed" }); expect(await second).toMatchObject({ ok: false, reason: "closed" }); expect(native.ends).toHaveLength(0);
+  });
+
+  it.each(["message", "inbox", "input"])("ignores late %s recovery after stop", async phase => {
+    const native = new NativeV2(); const lane = native.lane(); await lane.start({ text: "one", terminalOwner: "msg_root" }); native.active = false;
+    if (phase === "input") native.inputs.splice(0);
+    native.respond = async url => {
+      const target = phase === "message" ? url.pathname.endsWith("/message") : phase === "inbox" ? url.pathname.endsWith("/inbox") : url.pathname.includes("/message/");
+      if (!target) return;
+      void lane.stop({ reason: "shutdown" });
+      if (phase === "message") return Response.json({ data: [], cursor: {} });
+      if (phase === "inbox") return Response.json({ data: [] });
+      return Response.json({ data: { id: "stale", type: "user" } });
+    };
+    await vi.waitFor(() => expect(native.events.some(event => event.kind === "runtime_metric" && event.name === "sse_reconnect")).toBe(false));
+    await new Promise(resolve => setTimeout(resolve, 20)); expect(native.ends).toHaveLength(0); expect(native.errors).toHaveLength(0);
+  });
+
+  it("does not settle stale page results when a new busy input arrives", async () => {
+    const native = new NativeV2(); const lane = native.lane(); await lane.start({ text: "one", terminalOwner: "msg_root" }); native.deliver(); native.finish();
+    let admitted: Promise<unknown> | undefined;
+    native.respond = async url => {
+      if (!url.pathname.endsWith("/message") || admitted) return;
+      admitted = lane.send({ mode: "busy", text: "new input" }); await admitted;
+    };
+    await vi.waitFor(() => expect(admitted).toBeDefined()); expect(native.ends).toHaveLength(0);
+    native.deliver(); native.finish("msg_next_idle"); await vi.waitFor(() => expect(native.ends).toHaveLength(1));
+  });
+
+  it("does not project recovered tools after a root has stopped", async () => {
+    const native = new NativeV2(); const lane = native.lane(); await lane.start({ text: "one", terminalOwner: "msg_root" }); native.deliver();
+    native.messages.push({ id: "msg_tool", type: "assistant", content: [{ type: "tool", id: "call", name: "shell", state: { status: "running", input: {} } }] });
+    native.respond = async url => { if (url.pathname.endsWith("/message")) { void lane.stop({ reason: "shutdown" }); return Response.json({ data: [], cursor: {} }); } };
+    native.stream?.close(); await new Promise(resolve => setTimeout(resolve, 20));
+    expect(native.events.filter(event => event.kind === "tool_call")).toHaveLength(0); expect(native.ends).toHaveLength(0);
+  });
+
+  it("starts a fresh native message history and ignores child, orphan and post-root live signals", async () => {
+    const native = new NativeV2(); native.messages.splice(0); const lane = native.lane();
+    const admitted = await lane.start({ text: "one", terminalOwner: "host-owner" }); expect(admitted).toMatchObject({ ok: true, receipt: expect.stringMatching(/^msg_/) });
+    native.emit("session.step.started"); native.emit("session.step.started", { sessionID: "ses_child" });
+    native.emit("session.tool.success", { assistantMessageID: "msg_unseen", id: "orphan" });
+    await vi.waitFor(() => expect(native.events.filter(event => event.kind === "internal_progress")).toHaveLength(1));
+    native.deliver(); native.finish(); await vi.waitFor(() => expect(native.ends).toHaveLength(1));
+    native.emit("session.step.started"); await new Promise(resolve => setTimeout(resolve, 10));
+    expect(native.events.filter(event => event.kind === "internal_progress")).toHaveLength(1);
+    expect(native.events.filter(event => event.kind === "tool_output")).toHaveLength(0);
+  });
+
+  it("discards inactive results after physical service identity is lost", async () => {
+    const native = new NativeV2(); const lane = native.lane(); await lane.start({ text: "one", terminalOwner: "msg_root" });
+    let observed = false; native.respond = url => { if (url.pathname === "/api/session/active") { observed = true; native.child.exitCode = 1; return Response.json({ data: {} }); } };
+    await vi.waitFor(() => expect(observed).toBe(true)); expect(native.ends).toHaveLength(0); expect(native.errors).toHaveLength(0);
+  });
+
+  it("ignores a malformed late recovery response after shutdown", async () => {
+    const native = new NativeV2(); const lane = native.lane(); await lane.start({ text: "one", terminalOwner: "msg_root" }); native.active = false;
+    let observed = false; native.respond = url => { if (url.pathname.endsWith("/message")) { observed = true; void lane.stop({ reason: "shutdown" }); return Response.json({ data: null }); } };
+    await vi.waitFor(() => expect(observed).toBe(true)); await new Promise(resolve => setTimeout(resolve, 10));
+    expect(native.ends).toHaveLength(0); expect(native.errors).toHaveLength(0);
+  });
+
   it("uses the exact selected model and ignores old idle, child activity and streamed-only output", async () => {
     const native = new NativeV2();
     const lane = native.lane("opencode/space-bunny-free#high");
