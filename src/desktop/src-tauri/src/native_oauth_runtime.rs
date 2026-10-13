@@ -227,7 +227,7 @@ pub fn native_oauth_open_start(
     start_url: String,
 ) -> Result<(), &'static str> {
     guard(&window)?;
-    state.transact(|record| record.open(&attempt_id, &start_url, cfg!(debug_assertions)))?;
+    state.transact(|record| record.open(&attempt_id, &start_url, tauri::is_dev()))?;
     window
         .app_handle()
         .opener()
@@ -376,8 +376,10 @@ mod tests {
             ("https://user@alook.ai", false, false),
         ] {
             let url = url::Url::parse(url).unwrap();
-            assert_eq!(caller_allowed("main", &url, debug), expected);
-            assert!(!caller_allowed("splash", &url, debug));
+            for mobile in [false, true] {
+                assert_eq!(caller_allowed("main", &url, debug, mobile), expected);
+                assert!(!caller_allowed("splash", &url, debug, mobile));
+            }
         }
     }
     #[test]

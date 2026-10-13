@@ -16,6 +16,7 @@ export const POST = withEnv(async (request, ctx) => {
     request,
     ctx.env.BETTER_AUTH_URL,
     nativeOauthProofSchema,
+    ctx.env.NODE_ENV ?? process.env.NODE_ENV,
   );
   if (!parsed.ok) return parsed.response;
 

@@ -17,6 +17,15 @@ export type { NativeOauthPlatform, NativeOauthProvider };
 const MAX_JSON_BODY_BYTES = 4096;
 const NATIVE_OAUTH_RETURN_ORIGIN = "https://auth.alook.ai";
 const NATIVE_OAUTH_RETURN_PATH = "/auth/native/return";
+const NATIVE_DEVELOPMENT_ORIGINS = ["tauri://localhost", "http://tauri.localhost"] as const;
+
+export function nativeDevelopmentOrigins(baseUrl: string, nodeEnv?: string): readonly string[] {
+  return nodeEnv === "development"
+    && (baseUrl === "http://localhost:3000" || baseUrl === "http://localhost:3000/")
+    ? NATIVE_DEVELOPMENT_ORIGINS
+    : [];
+}
+
 export const nativeOauthSecurityHeaders = {
   "Cache-Control": "no-store, max-age=0",
   Pragma: "no-cache",
@@ -118,12 +127,14 @@ export async function parseNativeOauthJson<T>(
   request: Request,
   expectedBaseUrl: string,
   schema: StrictSchema<T>,
+  nodeEnv?: string,
 ): Promise<ParsedJson<T>> {
   const expectedUrl = new URL(expectedBaseUrl);
   const expectedOrigin = expectedUrl.origin;
   if (
     !isNativeOauthRequestTarget(request, expectedBaseUrl) ||
-    request.headers.get("Origin") !== expectedOrigin
+    (request.headers.get("Origin") !== expectedOrigin
+      && !nativeDevelopmentOrigins(expectedBaseUrl, nodeEnv).includes(request.headers.get("Origin") ?? ""))
   ) {
     return {
       ok: false,

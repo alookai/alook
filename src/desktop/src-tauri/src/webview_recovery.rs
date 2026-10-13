@@ -62,13 +62,14 @@ pub fn register_protocol(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<
         .plugin(
             tauri::plugin::Builder::<tauri::Wry>::new("main-navigation-boundary")
                 .on_navigation(|webview, url| {
-                    webview.label() != "main" || navigation_allowed(url, tauri::is_dev())
+                    webview.label() != "main"
+                        || navigation_allowed(url, tauri::is_dev(), cfg!(mobile))
                 })
                 .build(),
         )
 }
 
-fn navigation_allowed(url: &Url, development: bool) -> bool {
+fn navigation_allowed(url: &Url, development: bool, mobile: bool) -> bool {
     if !url.username().is_empty() || url.password().is_some() {
         return false;
     }
@@ -84,12 +85,9 @@ fn navigation_allowed(url: &Url, development: bool) -> bool {
             || (url.scheme() == "http"
                 && url.host_str() == Some(HOST)
                 && url.port_or_known_default() == Some(80)));
-    let local_development = development
-        && url.scheme() == "http"
-        && url.host_str() == Some("localhost")
-        && url.port() == Some(3000);
-
-    production || recovery || local_development
+    production
+        || recovery
+        || crate::native_command_guard::development_origin_allowed(url, development, mobile)
 }
 
 fn response(request: Request<Vec<u8>>) -> Response<Vec<u8>> {
@@ -1116,7 +1114,7 @@ mod tests {
             "http://alook-recovery.localhost/network-error#target=https%3A%2F%2Falook.ai%2Fc",
         ] {
             assert!(
-                navigation_allowed(&Url::parse(target).unwrap(), false),
+                navigation_allowed(&Url::parse(target).unwrap(), false, false),
                 "rejected {target}"
             );
         }
@@ -1135,7 +1133,7 @@ mod tests {
             "http://localhost:3000/c",
         ] {
             assert!(
-                !navigation_allowed(&Url::parse(target).unwrap(), false),
+                !navigation_allowed(&Url::parse(target).unwrap(), false, false),
                 "accepted {target}"
             );
         }
@@ -1143,11 +1141,124 @@ mod tests {
         assert!(navigation_allowed(
             &Url::parse("http://localhost:3000/c").unwrap(),
             true,
+            false,
         ));
         assert!(!navigation_allowed(
             &Url::parse("http://127.0.0.1:3000/c").unwrap(),
             true,
+            false,
         ));
+    }
+
+    #[test]
+    fn native_proxy_navigation_requires_mobile_development() {
+        for target in [
+            "tauri://localhost/c",
+            "tauri://localhost/c?after=1#message-2",
+            "http://tauri.localhost/c",
+            "http://tauri.localhost:80/api/health",
+        ] {
+            for (development, mobile) in
+                [(false, false), (false, true), (true, false), (true, true)]
+            {
+                assert_eq!(
+                    navigation_allowed(&Url::parse(target).unwrap(), development, mobile),
+                    development && mobile,
+                    "unexpected qualification for {target}: dev={development}, mobile={mobile}"
+                );
+            }
+        }
+        for target in [
+            "tauri://user@localhost/c",
+            "tauri://localhost:80/c",
+            "tauri://localhost.evil.test/c",
+            "tauri://other/c",
+            "http://user@tauri.localhost/c",
+            "http://user:password@tauri.localhost/c",
+            "http://tauri.localhost:3000/c",
+            "http://tauri.localhost.evil.test/c",
+            "https://tauri.localhost/c",
+        ] {
+            assert!(
+                !navigation_allowed(&Url::parse(target).unwrap(), true, true),
+                "accepted {target}"
+            );
+        }
+    }
+
+    #[test]
+    fn mobile_dev_merge_keeps_the_route_separate_from_the_upstream_origin() {
+        use tauri::utils::{
+            config::{parse::read_from, Config, WebviewUrl},
+            platform::Target,
+        };
+
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let project = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let (base, _) = read_from(Target::Android, &project).unwrap();
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let fixture = Fixture(
+            std::env::temp_dir().join(format!("alook-config199-{}-{nonce}", std::process::id())),
+        );
+        fs::create_dir(&fixture.0).unwrap();
+        fs::write(
+            fixture.0.join("tauri.conf.json"),
+            serde_json::to_vec(&base).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            fixture.0.join("tauri.android.conf.json"),
+            include_str!("../tauri.dev.conf.json"),
+        )
+        .unwrap();
+        let (merged, _) = read_from(Target::Android, &fixture.0).unwrap();
+        let mut window = merged["app"]["windows"][0].clone();
+        assert_eq!(
+            window.as_object_mut().unwrap().remove("url"),
+            Some(serde_json::json!("c"))
+        );
+        assert_eq!(window, base["app"]["windows"][0]);
+        assert_eq!(merged["identifier"], base["identifier"]);
+        assert_eq!(
+            merged["app"]["security"]["capabilities"],
+            serde_json::from_str::<serde_json::Value>(include_str!("../tauri.dev.conf.json"))
+                .unwrap()["app"]["security"]["capabilities"]
+        );
+        fs::write(
+            fixture.0.join("tauri.conf.json"),
+            serde_json::to_vec(&merged).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            fixture.0.join("tauri.android.conf.json"),
+            r#"{"bundle":{"android":{"debugApplicationIdSuffix":".qa.config199"}}}"#,
+        )
+        .unwrap();
+        let (with_qa, _) = read_from(Target::Android, &fixture.0).unwrap();
+        assert_eq!(with_qa["app"], merged["app"]);
+        assert_eq!(
+            with_qa["bundle"]["android"]["debugApplicationIdSuffix"],
+            ".qa.config199"
+        );
+        let config: Config = serde_json::from_value(with_qa).unwrap();
+        let upstream = config.build.dev_url.unwrap();
+        assert_eq!(upstream.as_str(), "http://localhost:3000/");
+        assert_eq!(config.app.windows.len(), 1);
+        match &config.app.windows[0].url {
+            WebviewUrl::App(path) => assert_eq!(path.to_str(), Some("c")),
+            other => panic!("unexpected main route {other:?}"),
+        }
+        for path in ["c", "_next/static/chunk.js", "api/health"] {
+            assert_eq!(upstream.join(path).unwrap().path(), format!("/{path}"));
+        }
     }
 
     #[test]

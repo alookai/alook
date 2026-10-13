@@ -6,6 +6,7 @@ import {
   nativeOauthJson,
   nativeOauthRegistrationSchema,
   nativeOauthReturnUrl,
+  nativeDevelopmentOrigins,
   parseNativeOauthJson,
   pkceChallenge,
   sanitizeOauthFailure,
@@ -25,6 +26,61 @@ function jsonRequest(body: unknown, origin = "https://alook.ai") {
 }
 
 describe("native OAuth protocol helpers", () => {
+  it("qualifies development proxy origins from the raw root upstream only", () => {
+    for (const base of ["http://localhost:3000", "http://localhost:3000/"]) {
+      expect(nativeDevelopmentOrigins(base, "development")).toEqual(["tauri://localhost", "http://tauri.localhost"]);
+      for (const mode of [undefined, "test", "production", "dev", "Development"]) {
+        expect(nativeDevelopmentOrigins(base, mode)).toEqual([]);
+      }
+    }
+    for (const base of [
+      "http://user@localhost:3000", "http://user:pass@localhost:3000", "http://@localhost:3000",
+      "http://localhost:3000/c", "http://localhost:3000/./", "http://localhost:3000/?", "http://localhost:3000/#",
+      "http://localhost:3000?x=1", "http://localhost:3000#x", "http://localhost:3000//",
+      "http://localhost:3001", "http://127.0.0.1:3000", "http://localhost.evil.test:3000",
+      "https://localhost:3000", "HTTP://localhost:3000", "http://LOCALHOST:3000",
+      " http://localhost:3000", "http://localhost:3000 ", "https://alook.ai", "",
+    ]) expect(nativeDevelopmentOrigins(base, "development")).toEqual([]);
+  });
+
+  it("accepts only qualified proxy JSON while preserving target, schema and body checks", async () => {
+    const body = {
+      attemptId: ATTEMPT, stateHash: "a".repeat(64), codeChallenge: "C".repeat(43),
+      instanceKeyHash: "b".repeat(64), platform: "android", provider: "github", redirectPath: "/c/me",
+    };
+    const request = (origin: string, target = "http://localhost:3000", payload: unknown = body, contentType = "application/json") => new Request(`${target}/api/auth/native/attempt`, {
+      method: "POST", headers: { Origin: origin, "Content-Type": contentType }, body: JSON.stringify(payload),
+    });
+    for (const base of ["http://localhost:3000", "http://localhost:3000/"]) {
+      for (const origin of ["tauri://localhost", "http://tauri.localhost"]) {
+        expect(await parseNativeOauthJson(request(origin), base, nativeOauthRegistrationSchema, "development")).toEqual({ ok: true, data: body });
+        for (const mode of [undefined, "test", "production"]) {
+          const rejected = await parseNativeOauthJson(request(origin), base, nativeOauthRegistrationSchema, mode);
+          expect(rejected.ok).toBe(false);
+          if (!rejected.ok) expect(rejected.response.status).toBe(403);
+        }
+        const production = await parseNativeOauthJson(request(origin, "https://alook.ai"), "https://alook.ai", nativeOauthRegistrationSchema, "development");
+        expect(production.ok).toBe(false);
+        if (!production.ok) expect(production.response.status).toBe(403);
+      }
+    }
+    for (const origin of ["", "null", "http://user@tauri.localhost", "tauri://user@localhost", "tauri://localhost:80", "https://tauri.localhost", "http://tauri.localhost:3000", "http://tauri.localhost.evil.test"]) {
+      const rejected = await parseNativeOauthJson(request(origin), "http://localhost:3000", nativeOauthRegistrationSchema, "development");
+      expect(rejected.ok).toBe(false);
+      if (!rejected.ok) expect(rejected.response.status).toBe(403);
+    }
+    for (const [candidate, status] of [
+      [request("http://tauri.localhost", "http://foreign.test:3000"), 403],
+      [request("http://tauri.localhost", "http://localhost:3000", body, "text/plain"), 415],
+      [request("http://tauri.localhost", "http://localhost:3000", { ...body, extra: true }), 400],
+      [request("http://tauri.localhost", "http://localhost:3000", { padding: "x".repeat(5000) }), 413],
+    ] as const) {
+      const rejected = await parseNativeOauthJson(candidate, "http://localhost:3000", nativeOauthRegistrationSchema, "development");
+      expect(rejected.ok).toBe(false);
+      if (!rejected.ok) expect(rejected.response.status).toBe(status);
+    }
+  });
+
   it("accepts the exact registration shape and rejects unknown fields", () => {
     const value = {
       attemptId: ATTEMPT,
