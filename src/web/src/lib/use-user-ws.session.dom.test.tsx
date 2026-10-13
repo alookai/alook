@@ -225,6 +225,29 @@ describe("real BetterAuth SDK WebSocket ownership", () => {
     expect(sessionRequests).toBe(baseline + 1)
   })
 
+  it("preempts remote-close backoff when the public SDK replaces same-user A1 with A2", async () => {
+    const view = mount()
+    await authenticateInitial()
+    act(() => view.result.current.reconnectNow())
+    await waitFor(() => expect(SessionSocket.instances).toHaveLength(2))
+    const original = SessionSocket.instances[1]!
+    act(() => original.authenticate())
+    expect(authTokens(original)).toEqual(["fixture-sdk-a-1"])
+    vi.spyOn(Math, "random").mockReturnValue(0.9)
+    act(() => original.close(1006, "fixture remote outage"))
+    selected = { userId: "account-a", id: "session-a-2", token: "fixture-sdk-a-2" }
+    await act(async () => { expect((await authClient.signIn.email({ email: "account-a@example.test", password: "fixture-only" })).error).toBeNull() })
+    await waitFor(() => expect(authClient.$store.atoms.session.get().data?.session.id).toBe("session-a-2"))
+    await waitFor(() => expect(SessionSocket.instances).toHaveLength(3))
+    const current = SessionSocket.instances[2]!
+    act(() => current.authenticate())
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 1_100)) })
+    expect(original.readyState).toBe(SessionSocket.CLOSED)
+    expect(SessionSocket.instances).toHaveLength(3)
+    expect(authTokens(current)).toEqual(["fixture-sdk-a-2"])
+    expect(tokenPaths).toEqual(["/api/ws/token"])
+  })
+
   it("unsubscribes the installed SDK and fences old callbacks after a real React unmount", async () => {
     const onMessage = vi.fn()
     const view = mount(onMessage)

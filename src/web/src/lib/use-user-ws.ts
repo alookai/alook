@@ -433,10 +433,6 @@ export function useUserWs(
   const stopCredentialRetry = useCallback(() => {
     const retry = credentialRetryRef.current
     retry.stopped = true
-    if (reconnectTimerRef.current !== null) {
-      clearTimeout(reconnectTimerRef.current)
-      reconnectTimerRef.current = null
-    }
     retireSocket(true, "auth-failure")
     if (viewerUserId === undefined || retry.refetchUsed) return
     retry.refetchUsed = true

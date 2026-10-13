@@ -426,6 +426,19 @@ describe("useUserWs", () => {
     expect(mockFetch.mock.calls.map(([url]) => url)).toEqual(["/api/ws/token", "/api/ws/token?refresh=1", "/api/ws/token?refresh=1"])
   })
 
+  it("handles a public SDK refetch rejection while keeping the credential sequence stopped", async () => {
+    mockSdkSession.set(sdkSession())
+    mockSdkSession.refetch.mockRejectedValueOnce(new Error("fixture SDK refetch exception"))
+    mockFetch.mockResolvedValue({ ok: false, status: 401 })
+    await mountHook(vi.fn(), { viewerUserId: "user-1", requestDaemonStatusOnAuth: false })
+    mockDocument.dispatch("resume")
+    mockWindow.dispatch("focus")
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(mockFetch).toHaveBeenCalledOnce()
+    expect(mockSdkSession.refetch).toHaveBeenCalledExactlyOnceWith({ query: { disableCookieCache: true } })
+    expect(MockWebSocket.instances).toEqual([])
+  })
+
   it("does not repeat an authoritative read after a transient fallback failure", async () => {
     mockSdkSession.set(sdkSession())
     setupTokenFetch()
