@@ -5288,6 +5288,82 @@ describe("AgentProcessManager — terminal usage shutdown contract", () => {
     }
   });
 
+  it("rejects mismatched instances in the public consumer before session or usage side effects", async () => {
+    const session = b1Session([], "current", "test-turn", "current-instance");
+    const events = session.events;
+    Object.defineProperty(session, "events", { value: {
+      maxBufferedBytes: events.maxBufferedBytes,
+      async *[Symbol.asyncIterator]() {
+        for await (const event of events) {
+          const hostile = event.type === "session_started" && event.backendSessionId === "stale-backend"
+            || event.type === "token_usage" && event.source === "stale-usage";
+          yield hostile ? { ...event, sessionInstanceId: "wrong-instance" } : event;
+        }
+      },
+    } });
+    const setSession = vi.fn(() => true);
+    const onAgentSession = vi.fn();
+    const onRuntimeSessionEstablished = vi.fn();
+    const { mgr, onTokenUsage } = managerFor(() => session, {
+      timeline: { ...exactTimelineLifecycleStub(), setSession, resumeSessionId: () => null, forgetSession: () => true },
+      onAgentSession,
+      onRuntimeSessionEstablished,
+    });
+    mgr.deliver("a1", { text: "first" });
+    await session.pushAgentEvent({ type: "session_started", backendSessionId: "stale-backend" });
+    await session.pushAgentEvent({ ...usage, source: "stale-usage" });
+    await drainEventTasks();
+    expect(setSession).not.toHaveBeenCalled();
+    expect(onAgentSession).not.toHaveBeenCalled();
+    expect(onRuntimeSessionEstablished).not.toHaveBeenCalled();
+    expect(onTokenUsage).not.toHaveBeenCalled();
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "current-backend" });
+    await session.pushAgentEvent(usage);
+    await drainEventTasks();
+    expect(setSession).toHaveBeenCalledExactlyOnceWith("a1", "current-backend", "current-instance");
+    expect(onRuntimeSessionEstablished).toHaveBeenCalledOnce();
+    expect(mgr.liveSessionReports()[0]?.sessionId).toBe("current-backend");
+    expect(onTokenUsage).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ usage: usage.usage }));
+    await mgr.stopAll();
+  });
+
+  it("rejects public events from a still-draining old owner after replacement attachment", async () => {
+    const old = b1Session([], "old", "old-turn", "old-instance");
+    const replacement = b1Session([], "new", "new-turn", "new-instance");
+    const held = holdUsage(old);
+    let rejectClosed!: (error: unknown) => void;
+    const closed = new Promise<AgentSessionResult>((_resolve, reject) => { rejectClosed = reject; });
+    Object.defineProperty(old, "closed", { value: closed });
+    const sessions = [old, replacement];
+    const setSession = vi.fn(() => true);
+    const onAgentSession = vi.fn();
+    const { mgr, onTokenUsage } = managerFor(() => sessions.shift()!, {
+      timeline: { ...exactTimelineLifecycleStub(), setSession, resumeSessionId: () => null, forgetSession: () => true },
+      onAgentSession,
+    });
+    mgr.deliver("a1", { text: "first" });
+    await old.fire("runtime_event", { kind: "session_init", sessionId: "old-backend" });
+    await old.pushAgentEvent(usage);
+    await held.reached;
+    mgr.enqueueRewake("a1", { id: "replacement-command", text: "replacement work" });
+    rejectClosed(new Error("old public closed rejected"));
+    await drainEventTasks();
+    await replacement.fire("runtime_event", { kind: "session_init", sessionId: "new-backend" });
+    const before = mgr.snapshot().agents.a1;
+    held.release();
+    await old.pushAgentEvent({ type: "session_started", backendSessionId: "late-old-backend" });
+    await drainEventTasks();
+    expect(setSession.mock.calls.map((call) => call[1])).toEqual(["old-backend", "new-backend"]);
+    expect(onAgentSession.mock.calls.map(([info]) => info.sessionId)).toEqual(["old-backend", "new-backend"]);
+    expect(onTokenUsage).not.toHaveBeenCalled();
+    expect(mgr.snapshot().agents.a1).toEqual(before);
+    expect(mgr.liveSessionReports()[0]?.sessionId).toBe("new-backend");
+    await replacement.pushAgentEvent(usage);
+    await drainEventTasks();
+    expect(onTokenUsage).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ usage: usage.usage }));
+    await expect(mgr.stopAll()).rejects.toThrow("Agent shutdown did not complete cleanly");
+  });
+
   it("retains factory rejection as a failed shutdown", async () => {
     let reject!: (error: unknown) => void;
     const factory = new Promise<FakeSession>((_resolve, fail) => { reject = fail; });

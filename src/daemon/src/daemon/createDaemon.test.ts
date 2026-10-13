@@ -1928,6 +1928,40 @@ describe("createDaemon — terminal usage shutdown contract", () => {
     expect(ctx.logger.calls.warn.filter(([, message]) => message === "daily token usage persistence failed")).toHaveLength(1);
   });
 
+  it("normal resync keeps current idle activity and drops an idle snapshot superseded by public root work", async () => {
+    const resync = vi.spyOn(WsControlChannel.prototype, "onResync");
+    const quotaStarted = gate<void>();
+    const quota = gate<null>();
+    let holdQuota = false;
+    const ctx = await setup({ providerQuotaReader: async (backend) => {
+      if (backend === "antigravity" && holdQuota) { quotaStarted.resolve(); return quota.promise; }
+      return null;
+    } });
+    try {
+      ctx.wake();
+      ctx.wake("bot_2");
+      await vi.waitFor(() => expect(ctx.sessions).toHaveLength(2));
+      await ctx.sessions[0]!.fire("runtime_event", { kind: "turn_end" });
+      await ctx.sessions[1]!.fire("runtime_event", { kind: "turn_end" });
+      await drainEventTasks();
+      holdQuota = true;
+      const activities = resync.mock.calls[0]![0]().activities;
+      await quotaStarted.promise;
+      await ctx.sessions[0]!.fire("agent_event", { type: "internal_progress", turnId: "daemon-test-turn", source: "native", itemType: "root-work" });
+      quota.resolve(null);
+      const snapshot = await activities;
+      expect(snapshot?.map((activity) => ({ agentId: activity.agentId, state: activity.state }))).toEqual([
+        { agentId: "bot_2", state: "idle" },
+      ]);
+      expect(ctx.sockets[0]!.sent.map((frame) => JSON.parse(frame)).some((frame) =>
+        frame.type === "agent_activity" && frame.agentId === "bot_1" && frame.state === "running",
+      )).toBe(true);
+    } finally {
+      quota.resolve(null);
+      await ctx.daemon.stop();
+    }
+  });
+
   it("joins an accepted resync root through its post-stop quota and usage-window reads", async () => {
     const resync = vi.spyOn(WsControlChannel.prototype, "onResync");
     const quotaStarted = gate<void>();
