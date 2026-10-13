@@ -269,10 +269,17 @@ test.describe("actionable Inbox friend requests", () => {
       await bob.page.getByRole("link", { name: "Friends", exact: true }).click()
       const accepted = await bob.page.request.get("/api/community/friends/accepted")
       expect(accepted.ok()).toBe(true)
-      const acceptedBody = await accepted.json() as { friends: Array<{ userId: string; name: string }> }
+      const acceptedBody = await accepted.json() as {
+        friends: Array<{ userId: string; name: string; discriminator: string }>
+      }
       const alice = acceptedBody.friends.find((friend) => friend.userId === userId("alice"))
       expect(alice).toBeDefined()
-      await expect(bob.page.getByText(alice!.name, { exact: true }).first()).toBeVisible()
+      const allFriends = bob.page.getByRole("tabpanel", { name: "All", exact: true })
+        .getByText("All friends — 1", { exact: true }).locator("..")
+      await expect(allFriends).toHaveCount(1)
+      const aliceRow = allFriends.getByRole("button", { name: `${alice!.name}#${alice!.discriminator}`, exact: true })
+      await expect(aliceRow).toHaveCount(1)
+      await expect(aliceRow).toBeVisible()
     } finally {
       releaseFailure()
       await bob.page.unroute(`**/api/community/friends/${firstId}/accept`)
