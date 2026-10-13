@@ -2,7 +2,7 @@
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useEffect } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
-import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual"
+import { defaultRangeExtractor, useVirtualizer, type Range, type VirtualItem } from "@tanstack/react-virtual"
 import { AgentAvatar } from "@/components/avatar"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { useCanonicalCommunityProfile } from "@/lib/community-db/projections"
@@ -24,9 +24,8 @@ import { BotActivityRow } from "./bot-activity-row"
  *   - auto-scrolls to the tail on open and on new live rows (only when the
  *     user was already near the tail — a reader scrolled up to inspect
  *     history is not yanked back);
- *   - a "Load older" button at the top of the log fetches the next (older)
- *     page on click; the scroll offset is preserved across the prepend so
- *     the row under the eye stays fixed.
+ *   - upward reading near the top fetches the next older page; the row under
+ *     the eye stays fixed across the prepend, with explicit retry on failure.
  *
  * Day dividers group rows chronologically without adding per-row chrome.
  */
@@ -50,9 +49,11 @@ export function BotActivityModal({
   const {
     events,
     isLoading,
+    isFetching,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
+    isFetchNextPageError,
     loadedPageCount,
   } = useBotAuditLog(bot?.id ?? null)
 
@@ -71,6 +72,14 @@ export function BotActivityModal({
 
   const rows = useMemo(() => flattenActivityRows(chronological, bot?.id ?? ""), [chronological, bot?.id])
   const [scrollRoot, setScrollRoot] = useAtom(useCreateAtom<HTMLDivElement | null>(null))
+  const setLogBody = useCallback((element: HTMLDivElement | null) => {
+    if (element) {
+      element.tabIndex = 0
+      element.setAttribute("role", "region")
+      element.setAttribute("aria-label", "Activity log")
+    }
+    setScrollRoot(element)
+  }, [setScrollRoot])
   const stickyIndexes = useMemo(() => rows.flatMap((row, index) => row.kind === "date" ? [index] : []), [rows])
   const activeStickyIndexRef = useRef<number | null>(null)
   const [pendingOlderAnchor, setPendingOlderAnchor] = useAtom(useCreateAtom<{
@@ -82,12 +91,19 @@ export function BotActivityModal({
   } | null>(null))
   const scrollPaddingStartRef = useRef(0)
   const ownsIndexRef = useRef(false)
+  const readingInputRef = useRef<{
+    offset: number
+    height: number
+    totalSize: number
+    fold: Pick<VirtualItem, "key" | "start" | "size"> | null
+  } | null>(null)
   const previousTailKeyRef = useRef<string | null>(null)
   const didInitialTailScrollRef = useRef(false)
   useLayoutEffect(() => {
     setPendingOlderAnchor(null)
     scrollPaddingStartRef.current = 0
     ownsIndexRef.current = false
+    readingInputRef.current = null
     previousTailKeyRef.current = null
     didInitialTailScrollRef.current = false
   }, [open, bot?.id, scrollRoot, setPendingOlderAnchor])
@@ -117,7 +133,12 @@ export function BotActivityModal({
     overscan: 8,
     enabled: scrollRoot !== null,
     useFlushSync: false,
+    onChange: (instance) => {
+      if (!instance.isScrolling) readingInputRef.current = null
+    },
   })
+
+  useLayoutEffect(() => () => virtualizer.cancelScroll(), [open, bot?.id, scrollRoot, virtualizer])
 
   useLayoutEffect(() => {
     if (!open || !scrollRoot || chronological.length === 0) return
@@ -145,34 +166,11 @@ export function BotActivityModal({
     }
   })
 
-  useEffect(() => {
-    if (!scrollRoot || !open) return
-    const cancel = () => {
-      setPendingOlderAnchor(null)
-      scrollPaddingStartRef.current = 0
-      if (ownsIndexRef.current) virtualizer.scrollToOffset(scrollRoot.scrollTop)
-      ownsIndexRef.current = false
-      didInitialTailScrollRef.current = true
-    }
-    const wheel = (event: WheelEvent) => { if (event.deltaY !== 0) cancel() }
-    const key = (event: KeyboardEvent) => {
-      if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) cancel()
-    }
-    scrollRoot.addEventListener("wheel", wheel, { passive: true })
-    scrollRoot.addEventListener("touchstart", cancel, { passive: true })
-    scrollRoot.addEventListener("pointerdown", cancel)
-    scrollRoot.addEventListener("keydown", key)
-    return () => {
-      scrollRoot.removeEventListener("wheel", wheel)
-      scrollRoot.removeEventListener("touchstart", cancel)
-      scrollRoot.removeEventListener("pointerdown", cancel)
-      scrollRoot.removeEventListener("keydown", key)
-    }
-  }, [open, scrollRoot, setPendingOlderAnchor, virtualizer])
-
-  const onLoadOlder = () => {
-    if (!hasNextPage || isFetchingNextPage) return
-    const offset = virtualizer.scrollOffset ?? 0
+  const onLoadOlder = useCallback((retry = false) => {
+    if (!open || !bot?.id || !scrollRoot || scrollRoot.clientHeight <= 0
+      || !didInitialTailScrollRef.current || !hasNextPage || isFetching
+      || (!retry && (isFetchNextPageError || ownsIndexRef.current))) return
+    const offset = scrollRoot.scrollTop
     const fold = virtualizer.getVirtualItemForOffset(offset)
     let pending: typeof pendingOlderAnchor = null
     if (fold && rows[fold.index]?.kind !== "event") {
@@ -195,8 +193,134 @@ export function BotActivityModal({
           && result.data?.pages.slice(current.pageCount).some(page => page.events.length > 0)),
       } : current)
     }
-    void fetchNextPage().then(settle, () => settle(null))
-  }
+    void fetchNextPage({ cancelRefetch: false }).then(settle, () => settle(null))
+  }, [open, bot?.id, scrollRoot, hasNextPage, isFetching, isFetchNextPageError, rows, loadedPageCount, fetchNextPage, setPendingOlderAnchor, virtualizer])
+
+  useEffect(() => {
+    if (!scrollRoot || !open) return
+    let previousOffset = scrollRoot.scrollTop
+    let touchY: number | null = null
+    let pointerId: number | null = null
+    const cancel = () => {
+      readingInputRef.current = null
+      setPendingOlderAnchor(null)
+      scrollPaddingStartRef.current = 0
+      virtualizer.cancelScroll()
+      ownsIndexRef.current = false
+      didInitialTailScrollRef.current = true
+    }
+    const qualifyInput = () => {
+      const offset = scrollRoot.scrollTop
+      const fold = virtualizer.getVirtualItemForOffset(offset)
+      readingInputRef.current = {
+        offset,
+        height: scrollRoot.clientHeight,
+        totalSize: virtualizer.getTotalSize(),
+        fold: fold ? { key: fold.key, start: fold.start, size: fold.size } : null,
+      }
+    }
+    const load = () => {
+      readingInputRef.current = null
+      onLoadOlder()
+    }
+    const scroll = () => {
+      const offset = scrollRoot.scrollTop
+      const upwards = offset < previousOffset
+      const downwards = offset > previousOffset
+      previousOffset = offset
+      const input = readingInputRef.current
+      if (!input) return
+      const fold = virtualizer.getVirtualItemForOffset(input.offset)
+      if (downwards || scrollRoot.clientHeight !== input.height || virtualizer.getTotalSize() !== input.totalSize
+        || (fold?.key ?? null) !== (input.fold?.key ?? null)
+        || fold?.start !== input.fold?.start || fold?.size !== input.fold?.size) {
+        readingInputRef.current = null
+        return
+      }
+      if (upwards && offset <= 160) load()
+    }
+    const wheel = (event: WheelEvent) => {
+      if (event.deltaY === 0) return
+      cancel()
+      if (event.deltaY < 0) {
+        qualifyInput()
+        if (scrollRoot.scrollTop <= 0) load()
+      }
+    }
+    const touchStart = (event: TouchEvent) => {
+      pointerId = null
+      touchY = event.touches[0]?.clientY ?? null
+      cancel()
+    }
+    const touchMove = (event: TouchEvent) => {
+      const nextY = event.touches[0]?.clientY ?? null
+      if (touchY !== null && nextY !== null && nextY !== touchY) {
+        if (nextY > touchY) {
+          qualifyInput()
+          if (scrollRoot.scrollTop <= 0) load()
+        } else readingInputRef.current = null
+      }
+      touchY = nextY
+    }
+    const touchEnd = () => { touchY = null }
+    const touchCancel = () => {
+      touchY = null
+      readingInputRef.current = null
+    }
+    const pointerDown = (event: PointerEvent) => {
+      cancel()
+      if (event.button === 0 && event.pointerType !== "touch") {
+        pointerId = event.pointerId
+        qualifyInput()
+      }
+    }
+    const pointerMove = (event: PointerEvent) => {
+      if (pointerId !== null && event.pointerId === pointerId) qualifyInput()
+    }
+    const pointerEnd = (event: PointerEvent) => {
+      if (event.pointerId !== pointerId) return
+      scroll()
+      pointerId = null
+      readingInputRef.current = null
+    }
+    const pointerCancel = (event: PointerEvent) => {
+      if (event.pointerId !== pointerId) return
+      pointerId = null
+      readingInputRef.current = null
+    }
+    const key = (event: KeyboardEvent) => {
+      if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) cancel()
+      if (["ArrowUp", "PageUp", "Home"].includes(event.key) || (event.key === " " && event.shiftKey)) {
+        qualifyInput()
+        if (scrollRoot.scrollTop <= 0) load()
+      }
+    }
+    scrollRoot.addEventListener("scroll", scroll, { passive: true })
+    scrollRoot.addEventListener("wheel", wheel, { passive: true })
+    scrollRoot.addEventListener("touchstart", touchStart, { passive: true })
+    scrollRoot.addEventListener("touchmove", touchMove, { passive: true })
+    scrollRoot.addEventListener("touchend", touchEnd, { passive: true })
+    scrollRoot.addEventListener("touchcancel", touchCancel, { passive: true })
+    scrollRoot.addEventListener("pointerdown", pointerDown)
+    window.addEventListener("pointermove", pointerMove, { passive: true })
+    window.addEventListener("pointerup", pointerEnd, { passive: true })
+    window.addEventListener("pointercancel", pointerCancel, { passive: true })
+    scrollRoot.addEventListener("keydown", key)
+    return () => {
+      readingInputRef.current = null
+      scrollRoot.removeEventListener("scroll", scroll)
+      scrollRoot.removeEventListener("wheel", wheel)
+      scrollRoot.removeEventListener("touchstart", touchStart)
+      scrollRoot.removeEventListener("touchmove", touchMove)
+      scrollRoot.removeEventListener("touchend", touchEnd)
+      scrollRoot.removeEventListener("touchcancel", touchCancel)
+      scrollRoot.removeEventListener("pointerdown", pointerDown)
+      window.removeEventListener("pointermove", pointerMove)
+      window.removeEventListener("pointerup", pointerEnd)
+      window.removeEventListener("pointercancel", pointerCancel)
+      scrollRoot.removeEventListener("keydown", key)
+    }
+  }, [open, scrollRoot, onLoadOlder, setPendingOlderAnchor, virtualizer])
 
   return (
     <CommunitySheet
@@ -224,8 +348,8 @@ export function BotActivityModal({
       desktopWidth={672}
       resizable
       contentTestId={tid.botActivityModal}
-      bodyRef={setScrollRoot}
-      bodyClassName="bg-background p-0"
+      bodyRef={setLogBody}
+      bodyClassName="bg-background p-0 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none"
     >
       {isLoading && chronological.length === 0 ? (
         <SkeletonRows />
@@ -254,14 +378,16 @@ export function BotActivityModal({
               >
                 {row.kind === "event" ? <BotActivityRow event={row.event} /> : row.kind === "date" ? <DayDivider label={row.label} /> : hasNextPage ? (
                   <div className="flex justify-center py-2">
-                    <button
+                    {isFetchNextPageError ? <button
                       type="button"
-                      onClick={onLoadOlder}
-                      disabled={isFetchingNextPage}
+                      onClick={() => onLoadOlder(true)}
+                      disabled={isFetching}
                       className="min-h-11 rounded-md px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-8"
                     >
-                      {isFetchingNextPage ? "Loading older" : "Load older"}
-                    </button>
+                      {isFetchingNextPage ? "Loading older" : "Retry older"}
+                    </button> : <span role="status" className="py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                      {isFetchingNextPage ? "Loading older" : "Scroll up for older"}
+                    </span>}
                   </div>
                 ) : (
                   <div className="py-2 text-center font-mono text-[10px] uppercase tracking-wider text-muted-foreground/40">

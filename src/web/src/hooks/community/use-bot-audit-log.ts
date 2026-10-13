@@ -131,9 +131,11 @@ export function useBotAuditLog(botId: string | null | undefined) {
     error: query.error,
     isError: query.isError,
     isLoading: query.isLoading,
+    isFetching: query.isFetching,
     fetchNextPage: query.fetchNextPage,
     hasNextPage: query.hasNextPage,
     isFetchingNextPage: query.isFetchingNextPage,
+    isFetchNextPageError: query.isFetchNextPageError,
     loadedPageCount: query.data?.pages.length ?? 0,
   }
 }

@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook, waitFor } from "@/test/react-dom-harness"
 import { appendBotAuditEvent, useBotAuditLog, UNOBSERVED_AUDIT_HEAD_LIMIT, type AuditEvent, type AuditLogPage } from "./use-bot-audit-log"
 import { communityKeys } from "@/lib/query-keys"
+import { ApiError } from "@/lib/errors"
 
 const mockApiFetch = vi.fn()
 vi.mock("@/lib/api/client", () => ({
@@ -218,5 +219,71 @@ describe("canonical audit pagination and retention", () => {
     await waitFor(() => expect(mockApiFetch).toHaveBeenCalledOnce())
     await waitFor(() => expect(result.current.events.map((e) => e.id)).toEqual(["live", "head"]))
     expect(result.current.hasNextPage).toBe(true)
+  })
+
+  it("projects a background fetch and reuses it before requesting the full older cursor", async () => {
+    const held = heldPage()
+    mockApiFetch.mockResolvedValueOnce({ events: [auditEvent("head", 1)], nextCursor: cursor })
+      .mockReturnValueOnce(held.promise)
+    const { result, queryClient } = renderAuditLog("b1")
+    await waitFor(() => expect(result.current.events.map(e => e.id)).toEqual(["head"]))
+    let refetching!: Promise<void>
+    act(() => { refetching = queryClient.refetchQueries({ queryKey: communityKeys.botAuditLog("b1"), exact: true }) })
+    await waitFor(() => expect(result.current.isFetching).toBe(true))
+    expect(result.current.isFetchingNextPage).toBe(false)
+    const signal = mockApiFetch.mock.calls[1]![1].signal as AbortSignal
+    expect(signal).toBeDefined()
+    let overlapping!: ReturnType<typeof result.current.fetchNextPage>
+    act(() => { overlapping = result.current.fetchNextPage({ cancelRefetch: false }) })
+    expect(mockApiFetch).toHaveBeenCalledTimes(2)
+    expect(signal.aborted).toBe(false)
+    await act(async () => {
+      held.resolve({ events: [auditEvent("head", 1)], nextCursor: cursor })
+      await Promise.all([refetching, overlapping])
+    })
+    await waitFor(() => expect(result.current.isFetching).toBe(false))
+    expect(result.current.loadedPageCount).toBe(1)
+    const tied = { ...auditEvent("a-before-head", 1), createdAt: cursor.beforeCreatedAt }
+    mockApiFetch.mockResolvedValueOnce({ events: [auditEvent("head", 1), tied, auditEvent("old", 0)], nextCursor: null })
+    await act(async () => { await result.current.fetchNextPage({ cancelRefetch: false }) })
+    await waitFor(() => expect(result.current.events.map(e => e.id)).toEqual(["head", "a-before-head", "old"]))
+    expect(mockApiFetch).toHaveBeenCalledTimes(3)
+    const url = new URL(mockApiFetch.mock.calls[2]![0], "https://alook.invalid")
+    expect(url.pathname).toBe("/api/community/bots/b1/audit-log")
+    expect(Object.fromEntries(url.searchParams)).toEqual({ limit: "50", beforeCreatedAt: cursor.beforeCreatedAt, beforeId: cursor.beforeId })
+    expect(queryClient.getQueryData<InfiniteData<AuditLogPage>>(communityKeys.botAuditLog("b1"))?.pageParams).toEqual([null, cursor])
+    expect(result.current.hasNextPage).toBe(false)
+    expect(signal.aborted).toBe(false)
+  })
+
+  it("keeps native older-page error state and loaded data until an explicit retry succeeds", async () => {
+    const held = heldPage()
+    mockApiFetch.mockResolvedValueOnce({ events: [auditEvent("head", 1)], nextCursor: cursor })
+      .mockRejectedValueOnce(new ApiError("older page not found", 404))
+      .mockReturnValueOnce(held.promise)
+    const { result, queryClient } = renderAuditLog("b1")
+    await waitFor(() => expect(result.current.events).toHaveLength(1))
+    await act(async () => { await result.current.fetchNextPage({ cancelRefetch: false }) })
+    await waitFor(() => expect(result.current.isFetchNextPageError).toBe(true))
+    expect(result.current.isFetching).toBe(false)
+    expect(result.current.events.map(e => e.id)).toEqual(["head"])
+    expect(result.current.loadedPageCount).toBe(1)
+    expect(mockApiFetch).toHaveBeenCalledTimes(2)
+    let retrying!: ReturnType<typeof result.current.fetchNextPage>
+    act(() => { retrying = result.current.fetchNextPage({ cancelRefetch: false }) })
+    await waitFor(() => expect(result.current.isFetchingNextPage).toBe(true))
+    expect(result.current.isFetching).toBe(true)
+    expect(result.current.events.map(e => e.id)).toEqual(["head"])
+    await act(async () => {
+      held.resolve({ events: [auditEvent("old", 0)], nextCursor: null })
+      await retrying
+    })
+    await waitFor(() => expect(result.current.isFetchNextPageError).toBe(false))
+    expect(result.current.isFetching).toBe(false)
+    expect(result.current.events.map(e => e.id)).toEqual(["head", "old"])
+    expect(result.current.loadedPageCount).toBe(2)
+    expect(mockApiFetch).toHaveBeenCalledTimes(3)
+    expect(queryClient.getQueryData<InfiniteData<AuditLogPage>>(communityKeys.botAuditLog("b1"))?.pageParams).toEqual([null, cursor])
+    expect(result.current.hasNextPage).toBe(false)
   })
 })
