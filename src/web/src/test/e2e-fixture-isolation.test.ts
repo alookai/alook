@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { APIResponse, Browser, BrowserContext, Page, TestFixture, TestInfo } from "@playwright/test"
+import type { APIResponse, Browser, BrowserContext, Page, Response as PlaywrightResponse, TestFixture, TestInfo } from "@playwright/test"
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { resolve } from "path"
 import { test as caseTest, type CaseActors, type CaseResources } from "./e2e-ui/_fixtures/case-fixture"
@@ -139,6 +139,8 @@ describe("test-scoped case actors and cleanup", () => {
   let loseServerResponse = false
   let closeError: Error | undefined
   let emptySessionResponse: Response | undefined
+  let missingDeleteStatus: 403 | 404 = 404
+  let serverListFault: "error" | "missing" | "stale" | "truncated" | "malformed" | "empty-id" | undefined
   const closed: Array<{ isClosed: () => boolean }> = []
 
   const info = (testId: string, workerIndex = 0): TestInfo => ({
@@ -183,6 +185,33 @@ describe("test-scoped case actors and cleanup", () => {
     headers: () => ({ location: "/sign-in?redirect=%2Fc" }),
   }) as unknown as APIResponse
 
+  const serverDeleteResponse = (page: Page, serverId: string, cookie: string, options: {
+    status?: number
+    method?: string
+    requestUrl?: string
+    responseUrl?: string
+    requestPage?: Page
+    cookie?: string
+    completion?: null | Error
+    rejectCompletion?: Error
+  } = {}): PlaywrightResponse => {
+    const target = `http://fixture.test/api/community/servers/${serverId}`
+    return {
+      url: () => options.responseUrl ?? target,
+      status: () => options.status ?? 204,
+      request: () => ({
+        url: () => options.requestUrl ?? target,
+        method: () => options.method ?? "DELETE",
+        frame: () => ({ page: () => options.requestPage ?? page }),
+        allHeaders: vi.fn(async () => ({ cookie: options.cookie ?? cookie })),
+      }),
+      finished: vi.fn(async () => {
+        if (options.rejectCompletion) throw options.rejectCompletion
+        return options.completion ?? null
+      }),
+    } as unknown as PlaywrightResponse
+  }
+
   beforeEach(() => {
     vi.resetAllMocks()
     actors.clear()
@@ -196,6 +225,8 @@ describe("test-scoped case actors and cleanup", () => {
     loseServerResponse = false
     closeError = undefined
     emptySessionResponse = undefined
+    missingDeleteStatus = 404
+    serverListFault = undefined
     rmSync(fixture.directory, { force: true, recursive: true })
     mkdirSync(fixture.directory, { recursive: true })
     writeFileSync(resolve(fixture.directory, "manifest.json"), JSON.stringify({ stamp: "case-fixture-run", users: {} }))
@@ -218,7 +249,7 @@ describe("test-scoped case actors and cleanup", () => {
         const found = servers.get(id)
         if (found && found.ownerId !== actor.userId) return new Response("{}", { status: 403 })
         servers.delete(id)
-        return new Response(null, { status: found ? 204 : 404 })
+        return new Response(null, { status: found ? 204 : missingDeleteStatus })
       }
       if (options?.method === "POST") {
         if (path === "/api/community/servers") {
@@ -235,7 +266,14 @@ describe("test-scoped case actors and cleanup", () => {
         return Response.json({})
       }
       if (path.endsWith("/profile")) return Response.json({ id: actor.userId, name: actor.name, aboutMe: baselineFault === "profile" ? "old account profile" : "", avatarVersion: 0, bannerColor: null, statusEmoji: null, statusText: "" })
-      if (path === "/api/community/servers") return Response.json({ servers: [...servers.values()].filter((server) => server.ownerId === actor.userId) })
+      if (path === "/api/community/servers") {
+        if (serverListFault === "error") return Response.json({ error: "Unavailable" }, { status: 503 })
+        if (serverListFault === "missing") return Response.json({})
+        if (serverListFault === "stale" || serverListFault === "truncated") return Response.json({ servers: [], [serverListFault]: true })
+        if (serverListFault === "malformed") return Response.json({ servers: [{ id: "incomplete-server" }] })
+        if (serverListFault === "empty-id") return Response.json({ servers: [{ id: "", ownerId: actor.userId }] })
+        return Response.json({ servers: [...servers.values()].filter((server) => server.ownerId === actor.userId) })
+      }
       if (path.endsWith("/read-state")) return Response.json({ readStates: dmCreated ? [{ channelId: "case-dm", lastReadSeq: dmCursor }] : [] })
       if (path.endsWith("/attention")) {
         if (baselineFault === "error") return Response.json({ error: "Unavailable" }, { status: 503 })
@@ -537,6 +575,163 @@ describe("test-scoped case actors and cleanup", () => {
     const record = JSON.parse(readFileSync(resolve(fixture.directory, "case-cleanup-failure.json"), "utf8"))
     expect(record.unresolvedOperations).toBe(1)
     expect(record.unresolvedServers).toHaveLength(1)
+  })
+
+  it("retires a bound product DELETE without repeating the permission-first 403 and still cleans other roles", async () => {
+    const testInfo = info("product-deleted-server")
+    const ids: { deleted?: string; other?: string } = {}
+    await run(testInfo, async (create) => {
+      const users = await create(["alice", "bob"])
+      ids.deleted = await users.seed.seedServer("alice", "product deletion")
+      ids.other = await users.seed.seedServer("bob", "normal cleanup")
+      const { page } = await users.asUser("alice")
+      servers.delete(ids.deleted)
+      missingDeleteStatus = 403
+      const response = serverDeleteResponse(page, ids.deleted, users.sessionCookie("alice"))
+      await users.recordServerDeletion("alice", ids.deleted, { page, response })
+      await expect(users.recordServerDeletion("alice", ids.deleted, { page, response })).rejects.toThrow("does not belong")
+    })
+    const deletedUrls = vi.mocked(fetch).mock.calls.filter(([, options]) => options?.method === "DELETE").map(([url]) => new URL(String(url)).pathname)
+    expect(deletedUrls).toEqual([`/api/community/servers/${ids.other}`])
+    const cleanup = vi.mocked(testInfo.attach).mock.calls.find(([name]) => name === "case-cleanup")![1]!
+    expect(JSON.parse(String(cleanup.body)).outcomes.servers).toContainEqual(expect.objectContaining({ owner: "alice", id: ids.deleted, retired: true, deletion: expect.objectContaining({ status: 204 }) }))
+    expect(String(cleanup.body)).not.toContain("better-auth.session_token")
+    expect(servers.size).toBe(0)
+    expect(closed.every((page) => page.isClosed())).toBe(true)
+    const next = vi.fn(async () => undefined)
+    await fixture.registration!.caseCleanupGuard[0]({}, next, info("successor-after-product-delete"))
+    expect(next).toHaveBeenCalledOnce()
+  })
+
+  it("rejects server deletion proof with a foreign actor, target, page, request or session", async () => {
+    await run(info("invalid-product-delete-proof"), async (create, resources) => {
+      const users = await create(["alice", "bob"])
+      const serverId = await users.seed.seedServer("alice", "bound target")
+      const alice = await users.asUser("alice")
+      const bob = await users.asUser("bob")
+      const anonymous = await (await resources.newContext()).newPage()
+      const cookie = users.sessionCookie("alice")
+      await expect(users.recordServerDeletion("bob", serverId, { page: alice.page, response: serverDeleteResponse(alice.page, serverId, cookie) })).rejects.toThrow()
+      await expect(users.recordServerDeletion("alice", "foreign-server", { page: alice.page, response: serverDeleteResponse(alice.page, "foreign-server", cookie) })).rejects.toThrow()
+      for (const page of [bob.page, anonymous]) {
+        await expect(users.recordServerDeletion("alice", serverId, { page, response: serverDeleteResponse(page, serverId, cookie) })).rejects.toThrow()
+      }
+      for (const options of [
+        { requestPage: bob.page },
+        { method: "GET" },
+        { requestUrl: `http://other.test/api/community/servers/${serverId}` },
+        { responseUrl: "http://fixture.test/api/community/servers/other-target" },
+        { cookie: users.sessionCookie("bob") },
+        { cookie: "" },
+      ]) {
+        await expect(users.recordServerDeletion("alice", serverId, { page: alice.page, response: serverDeleteResponse(alice.page, serverId, cookie, options) })).rejects.toThrow()
+      }
+    })
+    expect(servers.size).toBe(0)
+    expect(vi.mocked(fetch).mock.calls.filter(([, options]) => options?.method === "DELETE")).toHaveLength(1)
+  })
+
+  it.each([200, 401, 403, 404, 500])("does not treat product DELETE status %s as a retirement proof", async (status) => {
+    await run(info(`delete-status-${status}`), async (create) => {
+      const users = await create(["alice"])
+      const serverId = await users.seed.seedServer("alice", "status proof")
+      const { page } = await users.asUser("alice")
+      const response = serverDeleteResponse(page, serverId, users.sessionCookie("alice"), { status })
+      await expect(users.recordServerDeletion("alice", serverId, { page, response })).rejects.toThrow("successful DELETE")
+    })
+    expect(vi.mocked(fetch).mock.calls.filter(([, options]) => options?.method === "DELETE")).toHaveLength(1)
+  })
+
+  it.each(["returned Error", "rejection"] as const)("retains the original response completion failure on %s", async (kind) => {
+    const original = new Error("DELETE response completion failed")
+    await expect(run(info(`delete-finish-${kind}`), async (create) => {
+      const users = await create(["alice"])
+      const serverId = await users.seed.seedServer("alice", "unfinished response")
+      const { page } = await users.asUser("alice")
+      const options = kind === "returned Error" ? { completion: original } : { rejectCompletion: original }
+      const response = serverDeleteResponse(page, serverId, users.sessionCookie("alice"), options)
+      await users.recordServerDeletion("alice", serverId, { page, response })
+    })).rejects.toBe(original)
+    expect(servers.size).toBe(0)
+    expect(vi.mocked(fetch).mock.calls.filter(([, options]) => options?.method === "DELETE")).toHaveLength(1)
+  })
+
+  it("keeps a product deletion unresolved when the complete owner list still contains the server", async () => {
+    const testInfo = info("product-delete-still-present")
+    const target: { id?: string } = {}
+    await expect(run(testInfo, async (create) => {
+      const users = await create(["alice"])
+      target.id = await users.seed.seedServer("alice", "still present")
+      const { page } = await users.asUser("alice")
+      const response = serverDeleteResponse(page, target.id, users.sessionCookie("alice"))
+      await users.recordServerDeletion("alice", target.id, { page, response })
+    })).rejects.toThrow("Case cleanup failed")
+    expect(servers.has(target.id!)).toBe(true)
+    expect(vi.mocked(fetch).mock.calls.filter(([, options]) => options?.method === "DELETE")).toHaveLength(0)
+    const failure = JSON.parse(readFileSync(resolve(fixture.directory, "case-cleanup-failure.json"), "utf8"))
+    expect(failure.unresolvedServers).toEqual([{ owner: "alice", id: target.id }])
+    const next = vi.fn(async () => undefined)
+    await expect(fixture.registration!.caseCleanupGuard[0]({}, next, info("after-live-delete-proof"))).rejects.toThrow("blocked")
+    expect(next).not.toHaveBeenCalled()
+  })
+
+  it.each(["error", "missing", "stale", "truncated", "malformed", "empty-id"] as const)("cannot retire a product-deleted server when its list is %s", async (fault) => {
+    await expect(run(info(`delete-list-${fault}`), async (create) => {
+      const users = await create(["alice"])
+      const serverId = await users.seed.seedServer("alice", "deleted with unknown list")
+      const { page } = await users.asUser("alice")
+      servers.delete(serverId)
+      missingDeleteStatus = 403
+      await users.recordServerDeletion("alice", serverId, { page, response: serverDeleteResponse(page, serverId, users.sessionCookie("alice")) })
+      serverListFault = fault
+    })).rejects.toThrow("Case cleanup failed")
+    const failure = JSON.parse(readFileSync(resolve(fixture.directory, "case-cleanup-failure.json"), "utf8"))
+    expect(failure.unresolvedServers).toHaveLength(1)
+    expect(vi.mocked(fetch).mock.calls.filter(([, options]) => options?.method === "DELETE")).toHaveLength(0)
+  })
+
+  it("preserves a later UI failure while the proved product deletion exits cleanly", async () => {
+    const original = new Error("original history assertion failed")
+    const testInfo = info("body-failed-after-product-delete")
+    await expect(run(testInfo, async (create) => {
+      const users = await create(["alice"])
+      const serverId = await users.seed.seedServer("alice", "deleted before body failure")
+      const { page } = await users.asUser("alice")
+      servers.delete(serverId)
+      missingDeleteStatus = 403
+      await users.recordServerDeletion("alice", serverId, { page, response: serverDeleteResponse(page, serverId, users.sessionCookie("alice")) })
+      throw original
+    })).rejects.toBe(original)
+    expect(vi.mocked(fetch).mock.calls.filter(([, options]) => options?.method === "DELETE")).toHaveLength(0)
+    const next = vi.fn(async () => undefined)
+    await fixture.registration!.caseCleanupGuard[0]({}, next, info("after-clean-body-failure"))
+    expect(next).toHaveBeenCalledOnce()
+  })
+
+  it("cannot add a product deletion proof after the original case owner has exited", async () => {
+    const completion: { started?: () => void; finish?: () => void } = {}
+    const started = new Promise<void>((resolve) => { completion.started = resolve })
+    const proof: { pending?: Promise<void>; error?: unknown } = {}
+    await expect(run(info("late-product-delete-proof"), async (create) => {
+      const users = await create(["alice"])
+      const serverId = await users.seed.seedServer("alice", "late completion proof")
+      const { page } = await users.asUser("alice")
+      servers.delete(serverId)
+      missingDeleteStatus = 403
+      const response = serverDeleteResponse(page, serverId, users.sessionCookie("alice"))
+      vi.mocked(response.finished).mockImplementation(() => new Promise<null>((resolve) => {
+        completion.finish = () => resolve(null)
+        completion.started!()
+      }))
+      proof.pending = users.recordServerDeletion("alice", serverId, { page, response }).catch((error) => { proof.error = error })
+      await started
+    })).rejects.toThrow("Case cleanup failed")
+    completion.finish!()
+    await proof.pending
+    expect((proof.error as Error).message).toContain("after its case owner started exiting")
+    const failure = JSON.parse(readFileSync(resolve(fixture.directory, "case-cleanup-failure.json"), "utf8"))
+    expect(failure.unresolvedServers).toHaveLength(1)
+    expect(failure.unresolvedContexts).toEqual([])
   })
 
 

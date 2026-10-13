@@ -1,4 +1,4 @@
-import type { APIResponse, BrowserContext, BrowserContextOptions, Page, TestInfo } from "@playwright/test"
+import type { APIResponse, BrowserContext, BrowserContextOptions, Page, Response as PlaywrightResponse, TestInfo } from "@playwright/test"
 import { createHash } from "crypto"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs"
 import { resolve } from "path"
@@ -19,9 +19,11 @@ export type CaseActors = {
   seed: CaseSeed
   onCleanup: (operation: () => Promise<unknown>) => void
   confirmSignedOut: (role: UserKey, evidence: SignedOutEvidence) => Promise<void>
+  recordServerDeletion: (role: UserKey, serverId: string, evidence: ServerDeletionEvidence) => Promise<void>
 }
 
 export type SignedOutEvidence = { context: BrowserContext; page: Page; protectedResponse: APIResponse }
+export type ServerDeletionEvidence = { page: Page; response: PlaywrightResponse }
 export type OwnedCaseResource<T> = { readonly value: T; close: () => Promise<void> }
 export type CaseResources = {
   newContext: (options?: BrowserContextOptions) => Promise<BrowserContext>
@@ -52,6 +54,8 @@ type CleanupFailure = {
 }
 
 type ContextOwner = { role: UserKey | null; kind: "login" | "actor" | "anonymous"; ordinal: number }
+type ServerDeletionProof = { request: string; status: 204; contextOrdinal: number; sessionFingerprint: string }
+type OwnedServer = { owner: UserKey; deletion?: ServerDeletionProof }
 
 const failurePath = resolve(AUTH_DIR, "case-cleanup-failure.json")
 
@@ -91,7 +95,7 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
     const retiredSessions = new Map<UserKey, { fingerprint: string }>()
     const originalSessions = new Map<UserKey, string>()
     const businessRoles = new Set<UserKey>()
-    const owned = new Map<string, UserKey>()
+    const owned = new Map<string, OwnedServer>()
     const resources = new Set<string>()
     let allocated = false
     const identity: CaseIdentity = {
@@ -190,7 +194,7 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
         if (!resources.has(`${kind}:${id}`)) throw new Error(`Foreign case resource: ${kind} ${id}`)
       },
       onResourceCreated: (kind, id) => { resources.add(`${kind}:${id}`) },
-      onServerCreated: (owner, id) => { owned.set(id, owner) },
+      onServerCreated: (owner, id) => { owned.set(id, { owner }) },
       onDmCreated: async (first, second, id) => {
         for (const key of [first, second]) {
           const body = await read(key, "/api/community/users/me/read-state")
@@ -204,8 +208,27 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
       if (typeof args[0] === "string" && USER_KEYS.includes(args[0] as UserKey)) businessRoles.add(args[0] as UserKey)
       return (operation as (...values: unknown[]) => unknown)(...args)
     }])) as CaseSeed
+    const recordServerDeletion = async (role: UserKey, serverId: string, evidence: ServerDeletionEvidence): Promise<void> => {
+      user(role)
+      const registration = owned.get(serverId)
+      const contextOwner = contexts.get(evidence.page.context())
+      if (exiting || !registration || registration.owner !== role || registration.deletion || contextOwner?.role !== role || contextOwner.kind !== "actor") throw new Error("Server deletion proof does not belong to this case actor and resource")
+      const request = evidence.response.request()
+      const target = `${WEB_URL}/api/community/servers/${serverId}`
+      if (request.frame().page() !== evidence.page || request.method() !== "DELETE" || request.url() !== target || evidence.response.url() !== target || evidence.response.status() !== 204) throw new Error("Original server deletion request is not a matching successful DELETE")
+      const headers = await request.allHeaders()
+      const originalCookie = originalSessions.get(role)
+      const sessionTokens = originalCookie?.split(";").map((value) => value.trim()).filter((value) => value.slice(0, value.indexOf("=")).endsWith(".session_token")) ?? []
+      const requestCookies = headers.cookie?.split(";").map((value) => value.trim()) ?? []
+      if (sessionTokens.length === 0 || !sessionTokens.every((token) => requestCookies.includes(token))) throw new Error("Original server deletion session proof is incomplete")
+      const completion = await evidence.response.finished()
+      if (completion !== null) throw completion
+      if (exiting || owned.get(serverId) !== registration) throw new Error("Server deletion proof completed after its case owner started exiting")
+      registration.deletion = { request: target, status: 204, contextOrdinal: contextOwner.ordinal, sessionFingerprint: createHash("sha256").update(sessionTokens.join(";")).digest("hex") }
+    }
     const cleanupOwned = async (excluded: ReadonlySet<UserKey>): Promise<unknown[]> => {
       const errors: unknown[] = []
+      const serverInventories = new Map<UserKey, Set<string>>()
       const creations = await Promise.allSettled([...creatingContexts])
       for (const result of creations) if (result.status === "rejected") errors.push(result.reason)
       for (const operation of [...operations].reverse()) {
@@ -218,20 +241,27 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
         if (excluded.has(key)) continue
         try {
           const listed = await read(key, "/api/community/servers")
-          if (!Array.isArray(listed.servers)) throw new Error(`Case cleanup ${key} has no server list`)
+          if (!Array.isArray(listed.servers) || listed.servers.some((value) => !value || typeof value.id !== "string" || value.id.length === 0 || typeof value.ownerId !== "string" || value.ownerId.length === 0)) throw new Error(`Case cleanup ${key} has no complete server list`)
+          serverInventories.set(key, new Set((listed.servers as Array<{ id: string }>).map((server) => server.id)))
           for (const server of listed.servers as Array<{ id: string; ownerId: string }>) {
             if (server.ownerId === user(key).userId) {
-              owned.set(server.id, key)
+              if (!owned.get(server.id)?.deletion) owned.set(server.id, { owner: key })
               resources.add(`server:${server.id}`)
             }
           }
         } catch (error) { errors.push(error) }
       }
-      for (const [id, owner] of owned) {
+      for (const [id, registration] of owned) {
+        const { owner, deletion } = registration
         try {
-          await originalSeed.retireSeedServers(owner, [id])
+          if (deletion) {
+            const inventory = serverInventories.get(owner)
+            if (!inventory || inventory.has(id)) throw new Error(`Product-deleted fixture server ${id} has no complete absence proof`)
+          } else {
+            await originalSeed.retireSeedServers(owner, [id])
+          }
           owned.delete(id)
-          serverOutcomes.push({ owner, id, retired: true })
+          serverOutcomes.push({ owner, id, retired: true, ...(deletion ? { deletion } : {}) })
         } catch (error) { serverOutcomes.push({ owner, id, retired: false }); errors.push(error) }
       }
       for (const key of Object.keys(users) as UserKey[]) {
@@ -240,7 +270,7 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
       }
       return errors
     }
-    const serverOutcomes: Array<{ owner: UserKey; id: string; retired: boolean }> = []
+    const serverOutcomes: Array<{ owner: UserKey; id: string; retired: boolean; deletion?: ServerDeletionProof }> = []
     const confirmSignedOut = async (role: UserKey, evidence: SignedOutEvidence): Promise<void> => {
       if (role !== "logout" || !testInfo.file.endsWith("10-eject-nav-auth.spec.ts")) throw new Error("Session retirement is restricted to the original logout journey")
       const actor = user(role)
@@ -253,7 +283,7 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
       const redirect = location ? new URL(location, WEB_URL) : undefined
       const pageUrl = new URL(evidence.page.url())
       if (responseUrl.origin !== WEB_URL || responseUrl.pathname !== "/c" || evidence.protectedResponse.status() !== 307 || redirect?.origin !== WEB_URL || redirect.pathname !== "/sign-in" || redirect.searchParams.get("redirect") !== "/c" || pageUrl.origin !== WEB_URL || pageUrl.pathname !== "/sign-in" || (await evidence.context.cookies()).some((value) => value.name.startsWith("better-auth"))) throw new Error("Original cookie and protected redirect sign-out proof is incomplete")
-      if (businessRoles.has(role) || [...owned.values()].includes(role)) throw new Error("Logout role has unresolved or unknown business resources")
+      if (businessRoles.has(role) || [...owned.values()].some((value) => value.owner === role)) throw new Error("Logout role has unresolved or unknown business resources")
       pendingSessionRetirement = true
       exiting = true
       const errors = await cleanupOwned(new Set([role]))
@@ -310,6 +340,7 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
           seed,
           onCleanup: (operation) => { own(operation, async (captured) => { await captured() }) },
           confirmSignedOut,
+          recordServerDeletion,
         }
       }
       await provide({ allocate, resources: caseResources })
@@ -324,7 +355,7 @@ export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseRes
       try {
         await testInfo.attach("case-cleanup", { body: JSON.stringify({ identity, requestedContexts: contextCount, requestedOperations: operationCount, outcomes }), contentType: "application/json" })
       } catch (error) { errors.push(error) }
-      const failure: CleanupFailure = { identity, unresolvedServers: [...owned].map(([id, owner]) => ({ owner, id })), unresolvedContexts: [...contexts.values()], unresolvedOperations: operations.size, pendingSessionRetirement, errorCount: errors.length }
+      const failure: CleanupFailure = { identity, unresolvedServers: [...owned].map(([id, value]) => ({ owner: value.owner, id })), unresolvedContexts: [...contexts.values()], unresolvedOperations: operations.size, pendingSessionRetirement, errorCount: errors.length }
       if (errors.length > 0) {
         try {
           if (!existsSync(failurePath)) writeFileSync(failurePath, JSON.stringify(failure), { flag: "wx", mode: 0o600 })

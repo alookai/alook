@@ -241,6 +241,8 @@ test("deleting the only Server replaces once to Home", async ({ caseActors }) =>
   })
 
   expect((await response).status()).toBe(204)
+  const deleteResponse = await response
+  await actors.recordServerDeletion(key, route.serverId, { page, response: deleteResponse })
   await expect(page).toHaveURL("/c/me")
   await expect(page.getByTestId(tid.serverIcon(route.serverId))).toHaveCount(0)
   await expect(page.getByText("Server deleted", { exact: true })).toBeVisible()
@@ -280,6 +282,8 @@ for (const testCase of [
     deletion.release()
 
     expect((await deletion.response).status()).toBe(204)
+    const deleteResponse = await deletion.response
+    await actors.recordServerDeletion(testCase.key, deleted.serverId, { page, response: deleteResponse })
     await expect(page).toHaveURL(safePathname)
     await expect(page.getByTestId(tid.serverIcon(deleted.serverId))).toHaveCount(0)
     await expect(page.getByText("Server deleted", { exact: true })).toHaveCount(0)
@@ -320,6 +324,8 @@ test("slow target RSC survives delete/list/WS convergence and lands on its remem
   await clickDeleteServer(page, deleted.serverId)
 
   expect((await response).status()).toBe(204)
+  const deleteResponse = await response
+  await actors.recordServerDeletion("carol", deleted.serverId, { page, response: deleteResponse })
   await targetRsc.intercepted
   expect(new URL(page.url()).pathname).not.toBe("/c/me")
   targetRsc.release()
@@ -360,6 +366,8 @@ test("a newer user navigation wins while the delete target RSC is pending", asyn
   await clickDeleteServer(page, deleted.serverId)
 
   expect((await response).status()).toBe(204)
+  const deleteResponse = await response
+  await actors.recordServerDeletion("dave", deleted.serverId, { page, response: deleteResponse })
   await targetRsc.intercepted
   await page.getByTestId(tid.serverIcon(userRoute!.serverId)).click()
   targetRsc.release()
@@ -389,6 +397,8 @@ test("a Back visit after terminal cleanup is an ordinary missing route", async (
 
   deletion.release()
   expect((await deletion.response).status()).toBe(204)
+  const deleteResponse = await deletion.response
+  await actors.recordServerDeletion("alice", deleted.serverId, { page, response: deleteResponse })
   await expect(page).toHaveURL(safePathname)
   await expect(page.getByTestId(tid.serverIcon(deleted.serverId))).toHaveCount(0)
   await expect(page.getByText("Server deleted", { exact: true })).toHaveCount(0)
