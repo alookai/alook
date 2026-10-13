@@ -11,6 +11,7 @@ import { useBreakpoint } from "@/hooks/use-mobile"
 import { useCommunityOnboarding } from "@/lib/community-onboarding"
 import {
   advanceCommunityCommittedFrame,
+  isPublishedNonStructuralCommit,
   normalizeCommunityHref,
   resolveCommunityCheckpointPlan,
   resolveCommunityModulePlan,
@@ -173,7 +174,7 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     extensionState: userBarExtension,
     dispatch: dispatchUserBarExtension,
   })
-  const onUserBarInboxOpenChange = useCallback((open: boolean) => {
+  const applyInboxOpenChange = useCallback((open: boolean) => {
     if (!open) {
       inbox.onOpenChange(false)
       dispatchUserBarExtension({ type: "extension.close", extension: "inbox" })
@@ -186,34 +187,70 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
   }, [daemonUpdate, dispatchUserBarExtension, inbox, profile, userBarExtension.active])
   const [inboxOpenRequest, setInboxOpenRequest] = useAtom(useCreateAtom<{
     viewerId: string
+    href: string
+    currentFrameOnly?: boolean
     isCurrent: () => boolean
   } | null>(null))
-  const openInbox = useCallback(() => {
+  const requestInboxOpen = useCallback((fromUserBar: boolean) => {
     setInboxOpenRequest(null)
-    if (breakpoint !== "mobile" || (committedFrame.surface !== "detail" && checkpoint.surface !== "detail")) {
-      onUserBarInboxOpenChange(true)
+    const published = normalizeCommunityHref(navigation.publishedHref)
+    const currentFrameOnly = navigation.pendingHref === null && published.leafKey !== committedFrame.leafKey
+    const target = normalizeCommunityHref(navigation.pendingHref
+      ?? (currentFrameOnly ? committedFrame.href : navigation.publishedHref))
+    const eligible = breakpoint !== "mobile" || resolveCommunityModulePlan(target.href).surface === "list"
+    const externalDetail = !fromUserBar && breakpoint === "mobile"
+      && (committedFrame.surface === "detail" || checkpoint.surface === "detail")
+    if (eligible && !externalDetail) {
+      if (navigation.pendingHref !== null
+        || !isPublishedNonStructuralCommit(committedFrame, navigation.publishedHref, target.href)) {
+        setInboxOpenRequest({
+          viewerId: currentUser.id,
+          href: target.href,
+          currentFrameOnly,
+          isCurrent: navigation.pendingHref !== null
+            ? navigation.captureIntent({ pendingCommitHref: target.href })
+            : navigation.captureIntent(),
+        })
+        return
+      }
+      applyInboxOpenChange(true)
       return
     }
     const request = {
       viewerId: currentUser.id,
+      href: "/c/me",
       isCurrent: navigation.captureIntent({ nextCommitHref: "/c/me" }),
     }
     navigation.push("/c/me")
     setInboxOpenRequest(request)
-  }, [breakpoint, checkpoint.surface, committedFrame.surface, currentUser.id, navigation, onUserBarInboxOpenChange, setInboxOpenRequest])
+  }, [applyInboxOpenChange, breakpoint, checkpoint.surface, committedFrame, currentUser.id, navigation, setInboxOpenRequest])
+  const openInbox = useCallback(() => requestInboxOpen(false), [requestInboxOpen])
+  const onUserBarInboxOpenChange = useCallback((open: boolean) => {
+    if (open) {
+      requestInboxOpen(true)
+      return
+    }
+    setInboxOpenRequest(null)
+    applyInboxOpenChange(false)
+  }, [applyInboxOpenChange, requestInboxOpen, setInboxOpenRequest])
   useEffect(() => {
     if (!inboxOpenRequest) return
     if (inboxOpenRequest.viewerId !== currentUser.id || !inboxOpenRequest.isCurrent()) {
       setInboxOpenRequest(null)
       return
     }
+    const published = normalizeCommunityHref(navigation.publishedHref)
+    const target = normalizeCommunityHref(inboxOpenRequest.href)
+    const publicationMatches = inboxOpenRequest.currentFrameOnly
+      ? committedFrame.leafKey === target.leafKey && published.leafKey === target.leafKey
+      : isPublishedNonStructuralCommit(committedFrame, navigation.publishedHref, target.href)
     if (navigation.navigationPending || navigation.pendingHref !== null
-      || navigation.publishedHref !== "/c/me" || committedFrame.href !== "/c/me"
-      || checkpoint.surface !== "list") return
+      || !publicationMatches
+      || (breakpoint === "mobile" && checkpoint.surface !== "list")) return
     setInboxOpenRequest(null)
-    onUserBarInboxOpenChange(true)
-  }, [checkpoint.surface, committedFrame.href, currentUser.id, inboxOpenRequest, navigation.navigationPending,
-    navigation.pendingHref, navigation.publishedHref, onUserBarInboxOpenChange, setInboxOpenRequest])
+    applyInboxOpenChange(true)
+  }, [applyInboxOpenChange, breakpoint, checkpoint.surface, committedFrame, currentUser.id, inboxOpenRequest,
+    navigation.navigationPending, navigation.pendingHref, navigation.publishedHref, setInboxOpenRequest])
   useNativeSystemNotifications(currentUser.id, committedFrame, navigation, notificationConsumer)
   const onUserBarOpenProfile = useCallback<ReturnType<typeof useShellProfileController>["openProfile"]>((
     name,
@@ -221,6 +258,7 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     discriminator,
     targetUserId,
   ) => {
+    setInboxOpenRequest(null)
     if (userBarExtension.active === "profile") {
       profile.closeProfile()
       dispatchUserBarExtension({ type: "extension.close", extension: "profile" })
@@ -230,13 +268,15 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     if (userBarExtension.active === "update") daemonUpdate.collapse()
     profile.openProfile(name, event, discriminator, targetUserId)
     dispatchUserBarExtension({ type: "extension.open", extension: "profile" })
-  }, [daemonUpdate, dispatchUserBarExtension, inbox, profile, userBarExtension.active])
+  }, [daemonUpdate, dispatchUserBarExtension, inbox, profile, setInboxOpenRequest, userBarExtension.active])
   const onUserBarOpenUpdate = useCallback(() => {
+    setInboxOpenRequest(null)
     if (userBarExtension.active === "inbox") inbox.onOpenChange(false)
     if (userBarExtension.active === "profile") profile.closeProfile()
     daemonUpdate.open()
-  }, [daemonUpdate, inbox, profile, userBarExtension.active])
+  }, [daemonUpdate, inbox, profile, setInboxOpenRequest, userBarExtension.active])
   const dismissUserBarExtension = useCallback(() => {
+    setInboxOpenRequest(null)
     if (userBarExtension.active === "inbox") inbox.onOpenChange(false)
     if (userBarExtension.active === "profile") profile.closeProfile()
     if (userBarExtension.active === "update") daemonUpdate.collapse()
@@ -244,7 +284,7 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
       type: "extension.close",
       extension: userBarExtension.active,
     })
-  }, [daemonUpdate, dispatchUserBarExtension, inbox, profile, userBarExtension.active])
+  }, [daemonUpdate, dispatchUserBarExtension, inbox, profile, setInboxOpenRequest, userBarExtension.active])
   useEffect(() => {
     if (breakpoint !== "mobile" || checkpoint.surface !== "detail" || userBarExtension.active === "none") return
     dismissUserBarExtension()
@@ -311,6 +351,7 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
       rail={rail}
       profile={profile}
       inbox={inbox}
+      inboxOpening={inboxOpenRequest !== null}
       userBarExtension={userBarExtension}
       daemonUpdate={daemonUpdate}
       onUserBarInboxOpenChange={onUserBarInboxOpenChange}

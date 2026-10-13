@@ -19,6 +19,7 @@ import ServerLayout from "@/app/c/channels/layout"
 
 const mocks = vi.hoisted(() => ({
   pathname: "/c/channels/s1/a",
+  search: "",
   push: vi.fn(),
   replace: vi.fn(),
 }))
@@ -26,7 +27,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({
   usePathname: () => mocks.pathname,
   useSelectedLayoutSegments: () => mocks.pathname.split("/").slice(3),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(mocks.search),
   useRouter: () => ({ push: mocks.push, replace: mocks.replace, prefetch: vi.fn() }),
 }))
 vi.mock("react-resizable-panels", () => ({
@@ -87,6 +88,12 @@ function frame(href: string, revision: number): CommunityCommittedFrame {
   return { ...normalizeCommunityHref(href), revision }
 }
 
+function publishHref(href: string) {
+  const url = new URL(href, "https://alook.test")
+  mocks.pathname = url.pathname
+  mocks.search = url.search
+}
+
 function renderShell(breakpoint: "mobile" | "desktop" = "mobile", queryClient = new QueryClient()) {
   let navigation!: Navigation
   let committedFrame = frame(mocks.pathname, 0)
@@ -101,6 +108,7 @@ function renderShell(breakpoint: "mobile" | "desktop" = "mobile", queryClient = 
     })
     const props = {
       breakpoint,
+      inboxOpening: false,
       checkpoint,
       sidebar: () => createElement("span", null, "Sidebar"),
       rail: { railProps: { onHome: () => navigation.push(nextTarget) } } as never,
@@ -127,12 +135,12 @@ function renderShell(breakpoint: "mobile" | "desktop" = "mobile", queryClient = 
     queryClient,
     get navigation() { return navigation },
     commit(href: string, revision: number, publish = true) {
-      if (publish) mocks.pathname = href
-      committedFrame = frame(href, revision)
+      if (publish) publishHref(href)
+      committedFrame = frame(normalizeCommunityHref(href).pathname, revision)
       renderer.rerender(createElement(QueryClientProvider, { client: queryClient }, createElement(Capture)))
     },
     publish(href: string) {
-      mocks.pathname = href
+      publishHref(href)
       renderer.rerender(createElement(QueryClientProvider, { client: queryClient }, createElement(Capture)))
     },
     unmount: renderer.unmount,
@@ -166,6 +174,7 @@ function expectPendingProof(shell: ReturnType<typeof renderShell>, epoch: number
 
 beforeEach(() => {
   mocks.pathname = "/c/channels/s1/a"
+  mocks.search = ""
   mocks.push.mockReset()
   mocks.replace.mockReset()
   vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })))
@@ -279,6 +288,77 @@ describe("Shell input and explicit navigation ownership", () => {
     expect(proof.signal.aborted).toBe(true)
     expect(mocks.push).toHaveBeenCalledTimes(1)
     expect(mocks.replace).not.toHaveBeenCalled()
+  })
+
+  describe("current pending-commit qualification", () => {
+    it.each(["frame-first", "publication-first"])("retains the structural target with a complete query URL, %s", (order) => {
+      const shell = renderShell("desktop")
+      const href = "/c/channels/s1?from=inbox"
+      act(() => shell.navigation.push(href))
+      const current = shell.navigation.captureIntent({ pendingCommitHref: href })
+      expect(current()).toBe(true)
+      if (order === "frame-first") shell.commit(href, 1, false)
+      else shell.publish(href)
+      expect(current()).toBe(true)
+      shell.commit(href, 1)
+      expect(shell.navigation.pendingHref).toBeNull()
+      expect(shell.navigation.publishedHref).toBe(href)
+      expect(current()).toBe(true)
+      expect(mocks.push).toHaveBeenCalledExactlyOnceWith(href)
+    })
+
+    it("qualifies a query-only commit without inventing a frame revision", () => {
+      const shell = renderShell("desktop")
+      const href = "/c/channels/s1/a?msg=m1"
+      act(() => shell.navigation.push(href))
+      const current = shell.navigation.captureIntent({ pendingCommitHref: href })
+      shell.publish(href)
+      expect(shell.navigation.pendingHref).toBeNull()
+      expect(current()).toBe(true)
+      act(() => shell.navigation.push("/c/channels/s1/a?msg=m2"))
+      shell.publish("/c/channels/s1/a?msg=m2")
+      expect(current()).toBe(false)
+      shell.publish(href)
+      expect(current()).toBe(false)
+    })
+
+    it.each(["push", "pushImmediate", "replace", "resolver", "cancel", "Back"])(
+      "retires on %s and rejects the old same URL", async (entry) => {
+        const shell = renderShell("desktop")
+        act(() => shell.navigation.push(target))
+        const current = shell.navigation.captureIntent({ pendingCommitHref: target })
+        await act(async () => {
+          if (entry === "push") shell.navigation.push(nextTarget)
+          if (entry === "pushImmediate") shell.navigation.pushImmediate(nextTarget)
+          if (entry === "replace") shell.navigation.replace(nextTarget)
+          if (entry === "resolver") await shell.navigation.resolveAndPush(async () => nextTarget)
+          if (entry === "cancel") shell.navigation.cancelPendingNavigation()
+          if (entry === "Back") window.dispatchEvent(new Event("popstate"))
+        })
+        expect(current()).toBe(false)
+        shell.commit(nextTarget, 1)
+        act(() => shell.navigation.push(target))
+        shell.commit(target, 2)
+        expect(current()).toBe(false)
+      },
+    )
+
+    it("retires on an unrelated frame, same-URL no-op and unmount", () => {
+      const shell = renderShell("desktop")
+      act(() => shell.navigation.push(target))
+      const unrelated = shell.navigation.captureIntent({ pendingCommitHref: target })
+      shell.commit(nextTarget, 1)
+      expect(unrelated()).toBe(false)
+      act(() => shell.navigation.push(target))
+      const settled = shell.navigation.captureIntent({ pendingCommitHref: target })
+      shell.commit(target, 2)
+      expect(settled()).toBe(true)
+      act(() => shell.navigation.push(target))
+      expect(settled()).toBe(false)
+      const unmounted = shell.navigation.captureIntent({ pendingCommitHref: target })
+      shell.unmount()
+      expect(unmounted()).toBe(false)
+    })
   })
 
   describe("optional exact next-commit qualification", () => {

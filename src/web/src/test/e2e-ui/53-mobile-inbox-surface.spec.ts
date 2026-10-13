@@ -1,4 +1,4 @@
-import type { Page, Request } from "@playwright/test"
+import type { Page, Request, Route } from "@playwright/test"
 import { expect, test, type CaseActors } from "./_fixtures/case-fixture"
 import { GEOMETRY_EPSILON, composerEditable, gotoAfterUserWsAuth, ignoreNextDevToolsPointerCapture, waitForElementMotion } from "./_fixtures/actions"
 import { communityFrameEvents, proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
@@ -156,6 +156,67 @@ function observeWrites(page: Page) {
 
 test.describe("mobile Inbox interactive user-bar base", () => {
   test.setTimeout(180_000)
+
+  for (const cancelBeforeCommit of [false, true]) {
+    test(`keeps the first pending list Inbox command, cancel before commit=${cancelBeforeCommit}`, async ({ caseActors, caseResources }) => {
+      const actors = await caseActors(["alice", "bob"])
+      const stamp = Date.now()
+      const serverId = await actors.seed.seedServer("alice", `Pending Inbox ${stamp}`)
+      const channelName = `pending-inbox-${stamp}`
+      const channelId = await actors.seed.seedChannel("alice", serverId, channelName)
+      await actors.seed.seedJoinServer("alice", "bob", serverId)
+      const { page } = await actors.asUser("bob", {
+        viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true,
+      })
+      await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
+      await ignoreNextDevToolsPointerCapture(page)
+      await expect(page.getByRole("banner").getByText(channelName, { exact: true })).toBeVisible()
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => { release = resolve })
+      caseResources.own(release, async (captured) => { captured() })
+      let held = 0
+      const root = `/c/channels/${serverId}`
+      const pattern = (url: URL) => url.pathname === root
+      const handler = async (route: Route) => {
+        held += 1
+        await gate
+        await route.continue()
+      }
+      await page.route(pattern, handler)
+      try {
+        await page.getByRole("banner").getByRole("button", { name: "Back" }).tap({ noWaitAfter: true })
+        await expect.poll(() => held).toBeGreaterThan(0)
+        const trigger = page.getByTestId(tid.inboxTrigger)
+        await expect(trigger).toBeVisible()
+        await trigger.tap()
+        await expect(trigger).toHaveAttribute("aria-busy", "true")
+        await expect(trigger).toHaveAttribute("aria-expanded", "false")
+        await expect(page.getByRole("dialog", { name: "Inbox", exact: true })).toHaveCount(0)
+        if (cancelBeforeCommit) {
+          await trigger.tap()
+          await expect(trigger).not.toHaveAttribute("aria-busy")
+        }
+        release()
+        await expect(page).toHaveURL(new RegExp(`${root}$`))
+        await expect(page.getByRole("banner").getByText(channelName, { exact: true })).toHaveCount(0)
+        await expect(trigger).not.toHaveAttribute("aria-busy")
+        if (cancelBeforeCommit) {
+          await expect(trigger).toHaveAttribute("aria-expanded", "false")
+          await expect(page.getByRole("dialog", { name: "Inbox", exact: true })).toHaveCount(0)
+        } else {
+          await expect(trigger).toHaveAttribute("aria-expanded", "true")
+          await expect(page.getByRole("dialog", { name: "Inbox", exact: true })).toBeVisible()
+          await expect(page.getByTestId(tid.userBarExtension)).toHaveCount(1)
+          await trigger.tap()
+          await expect(trigger).toHaveAttribute("aria-expanded", "false")
+          await expect(page.getByRole("dialog", { name: "Inbox", exact: true })).toHaveCount(0)
+        }
+      } finally {
+        release()
+        await page.unroute(pattern, handler)
+      }
+    })
+  }
 
   test("paints the retained Inbox digits after hidden messages and repeated detail returns", async ({ caseActors }, testInfo) => {
     const actors = await caseActors(["alice", "bob"])

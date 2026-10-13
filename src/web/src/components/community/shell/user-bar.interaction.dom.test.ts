@@ -28,6 +28,32 @@ function renderBar() {
 }
 
 describe("UserBar Inbox switching", () => {
+  it.each(["mobile", "desktop"] as const)("cancels the pending %s opening on the second actual trigger click", async (breakpoint) => {
+    const changes = vi.fn()
+    function Harness() {
+      const [opening, setOpening] = useState(false)
+      return createElement(UserBar, {
+        breakpoint,
+        user: { id: "u1", name: "User", avatar: "U" },
+        inbox: createElement("span", null, "Inbox content"),
+        hasUnread: false,
+        inboxOpen: false,
+        inboxOpening: opening,
+        onInboxOpenChange: (open) => { changes(open); setOpening(open) },
+      })
+    }
+    const user = setupUser()
+    render(createElement(Harness))
+    const trigger = screen.getByTestId(tid.inboxTrigger)
+    await user.click(trigger)
+    expect(trigger).toHaveAttribute("aria-busy", "true")
+    expect(trigger).toHaveAttribute("aria-expanded", "false")
+    await user.click(trigger)
+    expect(trigger).not.toHaveAttribute("aria-busy")
+    expect(changes.mock.calls).toEqual([[true], [false]])
+    expect(screen.queryByRole("dialog", { name: "Inbox" })).not.toBeInTheDocument()
+  })
+
   it.each(["mobile", "desktop"] as const)("renders the real %s extension through its intended motion surface", (breakpoint) => {
     const inbox = createElement("button", null, "Inbox item")
     const renderer = render(createElement(UserBar, {

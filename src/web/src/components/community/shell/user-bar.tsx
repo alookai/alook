@@ -39,7 +39,7 @@ type UserBarExtension = {
   onDismiss: () => void
 }
 
-export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnread, unreadCount, unreadCountPartial, inboxOpen, onInboxOpenChange, extension }: {
+export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnread, unreadCount, unreadCountPartial, inboxOpen, inboxOpening = false, onInboxOpenChange, extension }: {
   breakpoint: Breakpoint
   user: { id: string; name: string; avatar: string; presence?: Presence; runningBotCount?: number }
   onOpenProfile?: OpenProfile
@@ -49,6 +49,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
   unreadCount?: number
   unreadCountPartial?: boolean
   inboxOpen?: boolean
+  inboxOpening?: boolean
   onInboxOpenChange?: (open: boolean) => void
   extension?: UserBarExtension
 }) {
@@ -65,7 +66,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
     || Boolean(extension && extension.active !== "none")
   )
   const closeInboxForAction = () => {
-    if (inboxOpen) onInboxOpenChange?.(false)
+    if (inboxOpen || inboxOpening) onInboxOpenChange?.(false)
   }
   const dismissExtensionWithFocus = () => {
     if (!extension || extension.active === "none") return
@@ -141,6 +142,7 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
           unreadCount={unreadCount}
           unreadCountPartial={unreadCountPartial}
           inboxOpen={inboxOpen}
+          inboxOpening={inboxOpening}
           onInboxOpenChange={onInboxOpenChange}
           closeInboxForAction={closeInboxForAction}
           profileTriggerRef={profileTriggerRef}
@@ -177,7 +179,7 @@ export function UserBarSkeleton() {
   )
 }
 
-function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnread, unreadCount, unreadCountPartial, inboxOpen, onInboxOpenChange, closeInboxForAction, profileTriggerRef, profileNameTriggerRef, lastProfileTriggerRef, inboxTriggerRef, updateBadgeRef, onRequestExtensionFocus, extension }: {
+function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnread, unreadCount, unreadCountPartial, inboxOpen, inboxOpening, onInboxOpenChange, closeInboxForAction, profileTriggerRef, profileNameTriggerRef, lastProfileTriggerRef, inboxTriggerRef, updateBadgeRef, onRequestExtensionFocus, extension }: {
   breakpoint: Breakpoint
   user: { id: string; name: string; avatar: string; presence?: Presence; runningBotCount?: number }
   onOpenProfile?: OpenProfile
@@ -187,6 +189,7 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
   unreadCount?: number
   unreadCountPartial?: boolean
   inboxOpen?: boolean
+  inboxOpening: boolean
   onInboxOpenChange?: (open: boolean) => void
   closeInboxForAction: () => void
   profileTriggerRef: RefObject<HTMLButtonElement | null>
@@ -283,14 +286,16 @@ function Inner({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnrea
                 ? "hover:text-foreground active:text-foreground"
                 : "hover:bg-accent hover:text-foreground",
             )}
-            aria-label={mobile ? (inboxOpen ? "Close Inbox" : "Open Inbox") : "Inbox"}
+            aria-label={mobile ? (inboxOpen || inboxOpening ? "Close Inbox" : "Open Inbox") : "Inbox"}
+            aria-busy={inboxOpening || undefined}
             aria-describedby={inboxDescriptionId}
             aria-expanded={inboxOpen}
             aria-pressed={mobile ? inboxOpen : undefined}
             aria-controls={inboxOpen && extension ? "community-user-bar-extension" : undefined}
             onClick={() => {
-              if (!inboxOpen) onRequestExtensionFocus("inbox")
-              onInboxOpenChange?.(!inboxOpen)
+              if (!inboxOpen && !inboxOpening) onRequestExtensionFocus("inbox")
+              if (inboxOpening) onRequestExtensionFocus("none")
+              onInboxOpenChange?.(!inboxOpen && !inboxOpening)
             }}
           >
             <InboxUnreadIndicator
