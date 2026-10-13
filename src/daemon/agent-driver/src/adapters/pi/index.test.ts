@@ -53,12 +53,11 @@ function fakeDeps() {
 describe("PiDriver startup model catalog", () => {
   function loader(getAvailable: () => unknown[] | Promise<unknown[]>): () => Promise<PiSdkModule> {
     return async () => ({
-      AuthStorage: { create: () => ({ setRuntimeApiKey: vi.fn() }) },
-      ModelRegistry: { create: () => ({ find: vi.fn(), getAvailable }) },
+      ModelRuntime: { create: async () => ({ setRuntimeApiKey: vi.fn(), getModel: vi.fn(), getAvailable }) },
     }) as unknown as PiSdkModule;
   }
 
-  it("uses authenticated ModelRegistry.getAvailable and formats provider/id", async () => {
+  it("uses authenticated ModelRuntime.getAvailable and formats provider/id", async () => {
     const getAvailable = vi.fn(() => [
       { provider: "google", id: "gemini-2.5-pro" },
       { provider: "openai", id: "gpt-5" },
@@ -84,6 +83,16 @@ describe("PiDriver startup model catalog", () => {
       async () => { throw new Error("catalog failed"); },
       () => "1.2.3",
     ).probe();
+    expect(result).toEqual({ status: "healthy", version: "1.2.3", reasoning: undefined });
+  });
+
+  it("keeps the existing health policy when native model runtime creation fails", async () => {
+    const create = vi.fn().mockRejectedValue(new Error("runtime creation failed"));
+    const loadSdk = async () => ({ ModelRuntime: { create } }) as unknown as PiSdkModule;
+
+    const result = await new PiDriver(undefined, loadSdk, () => "1.2.3").probe();
+
+    expect(create).toHaveBeenCalledOnce();
     expect(result).toEqual({ status: "healthy", version: "1.2.3", reasoning: undefined });
   });
 

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { createPiSessionDependencies, loadPiSdkModule, type PiSdkModule, type PiSdkLoader } from "./sessionDeps.js";
+import { createPiSessionDependencies, loadPiSdkModule, type PiSdkModule, type PiSdkLoader, type PiModelRuntime } from "./sessionDeps.js";
 import type { AdapterLaunchContext } from "../../internal/adapter.js";
 import type { PiConfig } from "../../contract.js";
 import { fakeLaunchContext, fakePrepared } from "../../testing/adapter-fixture.js";
@@ -45,7 +45,9 @@ function fakeSdk(opts: {
 } = {}): {
   loader: PiSdkLoader;
   setRuntimeApiKey: ReturnType<typeof vi.fn>;
-  findModel: ReturnType<typeof vi.fn>;
+  getModel: ReturnType<typeof vi.fn>;
+  modelRuntime: PiModelRuntime;
+  createModelRuntime: ReturnType<typeof vi.fn>;
   sessionManagerCreate: ReturnType<typeof vi.fn>;
   sessionManagerOpen: ReturnType<typeof vi.fn>;
   sessionManagerContinueRecent: ReturnType<typeof vi.fn>;
@@ -53,8 +55,8 @@ function fakeSdk(opts: {
   createBashToolDefinition: ReturnType<typeof vi.fn>;
   createAgentSession: ReturnType<typeof vi.fn>;
 } {
-  const setRuntimeApiKey = vi.fn();
-  const findModel = vi.fn().mockReturnValue({ provider: "google", id: "gemini-2.5-pro" });
+  const setRuntimeApiKey = vi.fn().mockResolvedValue(undefined);
+  const getModel = vi.fn().mockReturnValue({ provider: "google", id: "gemini-2.5-pro" });
   const sessionManagerCreate = vi.fn().mockReturnValue({ tag: "fresh" });
   const sessionManagerOpen = vi.fn().mockReturnValue({ tag: "opened" });
   const sessionManagerContinueRecent = vi.fn().mockReturnValue({ tag: "continued" });
@@ -68,9 +70,10 @@ function fakeSdk(opts: {
   const createBashToolDefinition = vi.fn().mockReturnValue({ name: "bash" });
   const createAgentSession = vi.fn().mockResolvedValue({ session: { sessionId: "sess-from-sdk" } });
 
+  const modelRuntime: PiModelRuntime = { setRuntimeApiKey, getModel, getAvailable: async () => [] };
+  const createModelRuntime = vi.fn().mockResolvedValue(modelRuntime);
   const sdk: PiSdkModule = {
-    AuthStorage: { create: () => ({ setRuntimeApiKey }) },
-    ModelRegistry: { create: () => ({ find: findModel, getAvailable: () => [] }) },
+    ModelRuntime: { create: createModelRuntime },
     SessionManager: {
       create: sessionManagerCreate,
       open: sessionManagerOpen,
@@ -83,8 +86,10 @@ function fakeSdk(opts: {
   };
   return {
     loader: async () => sdk,
+    modelRuntime,
+    createModelRuntime,
     setRuntimeApiKey,
-    findModel,
+    getModel,
     sessionManagerCreate,
     sessionManagerOpen,
     sessionManagerContinueRecent,
@@ -108,6 +113,99 @@ describe("createPiSessionDependencies — buildSpawnEnv", () => {
 });
 
 describe("createPiSessionDependencies — createAgentSession", () => {
+  it("waits for native runtime creation before credential, model or session access", async () => {
+    const fake = fakeSdk();
+    let release!: (runtime: PiModelRuntime) => void;
+    fake.createModelRuntime.mockReturnValue(new Promise<PiModelRuntime>((resolve) => { release = resolve; }));
+    const ctx = baseCtx({
+      config: { runtimeConfig: piConfig({ provider: { kind: "builtin", providerId: "google", apiKey: "held-key" } }) },
+    });
+    const pending = createPiSessionDependencies(ctx, fake.loader).createAgentSession({
+      cwd: ctx.workingDirectory, model: "google/gemini-2.5-pro", spawnEnv: {},
+    });
+
+    await vi.waitFor(() => expect(fake.createModelRuntime).toHaveBeenCalledOnce());
+    expect(fake.setRuntimeApiKey).not.toHaveBeenCalled();
+    expect(fake.getModel).not.toHaveBeenCalled();
+    expect(fake.createAgentSession).not.toHaveBeenCalled();
+    release(fake.modelRuntime);
+    await pending;
+    expect(fake.createAgentSession).toHaveBeenCalledWith(expect.objectContaining({ modelRuntime: fake.modelRuntime }));
+  });
+
+  it("rejects failed runtime creation without creating an SDK session", async () => {
+    const fake = fakeSdk();
+    const failure = new Error("runtime creation failed");
+    fake.createModelRuntime.mockRejectedValue(failure);
+    const ctx = baseCtx();
+
+    await expect(createPiSessionDependencies(ctx, fake.loader).createAgentSession({
+      cwd: ctx.workingDirectory, model: "google/gemini-2.5-pro", spawnEnv: {},
+    })).rejects.toBe(failure);
+    expect(fake.getModel).not.toHaveBeenCalled();
+    expect(fake.createAgentSession).not.toHaveBeenCalled();
+  });
+
+  it("waits for runtime credential synchronization before selecting a model and creating a session", async () => {
+    const fake = fakeSdk();
+    let release!: () => void;
+    fake.setRuntimeApiKey.mockReturnValue(new Promise<void>((resolve) => { release = resolve; }));
+    const ctx = baseCtx({
+      config: { runtimeConfig: piConfig({ provider: { kind: "builtin", providerId: "google", apiKey: "held-key" } }) },
+    });
+    const pending = createPiSessionDependencies(ctx, fake.loader).createAgentSession({
+      cwd: ctx.workingDirectory, model: "google/gemini-2.5-pro", spawnEnv: {},
+    });
+
+    await vi.waitFor(() => expect(fake.setRuntimeApiKey).toHaveBeenCalledWith("google", "held-key"));
+    expect(fake.getModel).not.toHaveBeenCalled();
+    expect(fake.createAgentSession).not.toHaveBeenCalled();
+    release();
+    await pending;
+    expect(fake.getModel).toHaveBeenCalledWith("google", "gemini-2.5-pro");
+    const options = fake.createAgentSession.mock.calls[0][0];
+    expect(options.modelRuntime).toBe(fake.modelRuntime);
+    expect(options).not.toHaveProperty("authStorage");
+    expect(options).not.toHaveProperty("modelRegistry");
+  });
+
+  it("preserves a credential synchronization failure without creating an SDK session", async () => {
+    const fake = fakeSdk();
+    const failure = new Error("credential synchronization failed");
+    fake.setRuntimeApiKey.mockRejectedValue(failure);
+    const ctx = baseCtx({
+      config: { runtimeConfig: piConfig({ provider: { kind: "builtin", providerId: "google", apiKey: "rejected-key" } }) },
+    });
+
+    await expect(createPiSessionDependencies(ctx, fake.loader).createAgentSession({
+      cwd: ctx.workingDirectory, model: "google/gemini-2.5-pro", spawnEnv: {},
+    })).rejects.toBe(failure);
+    expect(fake.getModel).not.toHaveBeenCalled();
+    expect(fake.createAgentSession).not.toHaveBeenCalled();
+  });
+
+  it("keeps concurrent launch credentials in distinct runtimes from the same SDK module", async () => {
+    const shared = fakeSdk();
+    const first = fakeSdk();
+    const second = fakeSdk();
+    shared.createModelRuntime.mockResolvedValueOnce(first.modelRuntime).mockResolvedValueOnce(second.modelRuntime);
+    const contexts = ["first-key", "second-key"].map((apiKey) => baseCtx({
+      config: { runtimeConfig: piConfig({ provider: { kind: "builtin", providerId: "google", apiKey } }) },
+    }));
+
+    await Promise.all(contexts.map((ctx) => createPiSessionDependencies(ctx, shared.loader).createAgentSession({
+      cwd: ctx.workingDirectory, model: "google/gemini-2.5-pro", spawnEnv: {},
+    })));
+
+    expect(shared.createModelRuntime).toHaveBeenCalledTimes(2);
+    expect(first.setRuntimeApiKey).toHaveBeenCalledExactlyOnceWith("google", "first-key");
+    expect(second.setRuntimeApiKey).toHaveBeenCalledExactlyOnceWith("google", "second-key");
+    for (const [index, runtime] of [first.modelRuntime, second.modelRuntime].entries()) {
+      const call = shared.createAgentSession.mock.calls.find(([options]) => options.cwd === contexts[index]!.workingDirectory);
+      expect(call?.[0].modelRuntime).toBe(runtime);
+    }
+  });
+
   it("sets the runtime API key when the runtime config carries a pi-builtin provider", async () => {
     const fake = fakeSdk();
     const ctx = baseCtx({
@@ -130,16 +228,16 @@ describe("createPiSessionDependencies — createAgentSession", () => {
     expect(fake.setRuntimeApiKey).not.toHaveBeenCalled();
   });
 
-  it("resolves a 'provider/id' model string via modelRegistry.find", async () => {
+  it("resolves a 'provider/id' model string via modelRuntime.getModel", async () => {
     const fake = fakeSdk();
     const ctx = baseCtx();
     const deps = createPiSessionDependencies(ctx, fake.loader);
 
     await deps.createAgentSession({ cwd: ctx.workingDirectory, model: "google/gemini-2.5-pro", spawnEnv: {} });
 
-    expect(fake.findModel).toHaveBeenCalledWith("google", "gemini-2.5-pro");
+    expect(fake.getModel).toHaveBeenCalledWith("google", "gemini-2.5-pro");
     expect(fake.createAgentSession).toHaveBeenCalledWith(
-      expect.objectContaining({ model: { provider: "google", id: "gemini-2.5-pro" } }),
+      expect.objectContaining({ model: { provider: "google", id: "gemini-2.5-pro" }, modelRuntime: fake.modelRuntime }),
     );
   });
 
@@ -150,7 +248,7 @@ describe("createPiSessionDependencies — createAgentSession", () => {
 
     await deps.createAgentSession({ cwd: ctx.workingDirectory, model: "not-a-provider-id-pair", spawnEnv: {} });
 
-    expect(fake.findModel).not.toHaveBeenCalled();
+    expect(fake.getModel).not.toHaveBeenCalled();
     expect(fake.createAgentSession).toHaveBeenCalledWith(expect.objectContaining({ model: undefined }));
   });
 

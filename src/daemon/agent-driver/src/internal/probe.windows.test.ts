@@ -7,6 +7,8 @@ import { createServer } from "node:net";
 import { execFileSync, type ChildProcess } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadPiSdkModule } from "../adapters/pi/sessionDeps.js";
+import { PiDriver } from "../adapters/pi/index.js";
+import { fakeLaunchContext } from "../testing/adapter-fixture.js";
 import { createAgentDriverSdk } from "../index.js";
 import { scrubDriverErrorMessage } from "./errors.js";
 import { isAlive, killProcessTree, spawnAgentProcess } from "./killTree.js";
@@ -318,14 +320,36 @@ describe.skipIf(!nativePrefix)("real npm and native providers from an isolated p
     if (probe.status === "unhealthy") expect(probe.error.code).toBe("grok_acp_authentication_failed");
   });
 
-  it("imports the real Pi SDK and creates/disposes a persistent session without a model request", async () => {
+  it("creates and disposes a real persistent Pi session through the default adapter without a model request", async () => {
     setPrefix(nativePrefix!);
-    const piSdk = await loadPiSdkModule();
-    const sessionManager = piSdk.SessionManager.create(nativePrefix!, join(nativePrefix!, "pi-sessions"));
-    const { session } = await piSdk.createAgentSession({ cwd: nativePrefix!, agentDir: join(nativePrefix!, "pi-home"), sessionManager, tools: [] });
-    const nativeSession = session as { sessionId: string; prompt: unknown; dispose(): void };
-    expect(typeof nativeSession.sessionId).toBe("string");
-    expect(typeof nativeSession.prompt).toBe("function");
-    nativeSession.dispose();
+    vi.stubEnv("PI_OFFLINE", "1");
+    const piSdk = await loadPiSdkModule() as unknown as {
+      AgentSession: { prototype: { prompt(text: string): Promise<void>; dispose(): void } };
+    };
+    const prompt = vi.spyOn(piSdk.AgentSession.prototype, "prompt");
+    const dispose = vi.spyOn(piSdk.AgentSession.prototype, "dispose");
+    let lane: Awaited<ReturnType<PiDriver["openLane"]>> | undefined;
+    try {
+      const started = Date.now();
+      lane = await new PiDriver().openLane(fakeLaunchContext("pi", nativePrefix!));
+      expect(typeof lane.currentSessionId).toBe("string");
+      expect(lane.currentSessionId.length).toBeGreaterThan(0);
+      const sessionId = lane.currentSessionId;
+      expect(prompt).not.toHaveBeenCalled();
+      console.log(JSON.stringify({ backend: "pi", phase: "default-adapter-created", sessionId, elapsedMs: Date.now() - started }));
+      await lane.stop();
+      lane = undefined;
+      expect(dispose).toHaveBeenCalledOnce();
+      expect(dispose.mock.results[0]).toMatchObject({ type: "return" });
+      console.log(JSON.stringify({ backend: "pi", phase: "default-adapter-disposed", sessionId, promptCalls: prompt.mock.calls.length,
+        disposeCalls: dispose.mock.calls.length, elapsedMs: Date.now() - started, node: process.version }));
+    } finally {
+      try {
+        await lane?.stop();
+      } finally {
+        prompt.mockRestore();
+        dispose.mockRestore();
+      }
+    }
   });
 });

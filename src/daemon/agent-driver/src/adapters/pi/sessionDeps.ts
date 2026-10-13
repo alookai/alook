@@ -16,8 +16,7 @@ const PI_SDK_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
 
 /** The slice of the vendor SDK's module exports this file actually calls. */
 export interface PiSdkModule {
-  AuthStorage: { create(authPath?: string): PiAuthStorage };
-  ModelRegistry: { create(authStorage: PiAuthStorage, modelsPath?: string): PiModelRegistry };
+  ModelRuntime: { create(): Promise<PiModelRuntime> };
   SessionManager: {
     create(cwd: string, sessionDir?: string, options?: { id?: string }): unknown;
     open(path: string, sessionDir?: string, cwdOverride?: string): unknown;
@@ -37,12 +36,10 @@ export interface PiSdkModule {
   createBashToolDefinition(cwd: string, options?: PiBashToolOptions): unknown;
   createAgentSession(options: Record<string, unknown>): Promise<{ session: unknown; sessionId?: string }>;
 }
-export interface PiAuthStorage {
-  setRuntimeApiKey(provider: string, apiKey: string): void;
-}
-export interface PiModelRegistry {
-  find(provider: string, modelId: string): unknown | undefined;
-  getAvailable(): unknown[] | Promise<unknown[]>;
+export interface PiModelRuntime {
+  setRuntimeApiKey(provider: string, apiKey: string): Promise<void>;
+  getModel(provider: string, modelId: string): unknown | undefined;
+  getAvailable(): Promise<readonly unknown[]>;
 }
 interface PiBashSpawnContext {
   command: string;
@@ -177,18 +174,17 @@ export function createPiSessionDependencies(
 
     async createAgentSession(opts: Record<string, unknown>): Promise<{ session: unknown; sessionId: string }> {
       const sdk = await loadSdk();
-      const authStorage = sdk.AuthStorage.create();
+      const modelRuntime = await sdk.ModelRuntime.create();
       const runtimeConfig = ctx.config.runtimeConfig;
       const provider = runtimeConfig && "provider" in runtimeConfig
         ? runtimeConfig.provider
         : undefined;
       if (provider?.kind === "builtin") {
-        authStorage.setRuntimeApiKey(provider.providerId, provider.apiKey);
+        await modelRuntime.setRuntimeApiKey(provider.providerId, provider.apiKey);
       }
-      const modelRegistry = sdk.ModelRegistry.create(authStorage);
 
       const parsed = parseModelString(opts.model as string | undefined);
-      const model = parsed ? modelRegistry.find(parsed.provider, parsed.id) : undefined;
+      const model = parsed ? modelRuntime.getModel(parsed.provider, parsed.id) : undefined;
 
       const cwd = opts.cwd as string;
       // Three-branch session acquisition — see the plan's Designs section:
@@ -220,8 +216,7 @@ export function createPiSessionDependencies(
         cwd,
         model,
         thinkingLevel: opts.thinkingLevel,
-        authStorage,
-        modelRegistry,
+        modelRuntime,
         sessionManager,
         customTools: [bashTool],
       });

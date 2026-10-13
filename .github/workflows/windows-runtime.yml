@@ -55,7 +55,7 @@ jobs:
           $qaPrefix = Join-Path $env:RUNNER_TEMP 'Alook npm QA'
           npm install --global --prefix "$qaPrefix" @openai/codex@0.162.0 opencode-ai@1.18.35 @anthropic-ai/claude-code@2.1.295
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm install --global --ignore-scripts --prefix "$qaPrefix" @earendil-works/pi-coding-agent@1.1.0
+          npm install --global --ignore-scripts --prefix "$qaPrefix" @earendil-works/pi-coding-agent@1.2.0
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "ALOOK_NATIVE_NPM_PREFIX=$qaPrefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Install official native Cursor and Grok binaries
@@ -90,4 +90,85 @@ jobs:
           Expand-Archive $agyZip -DestinationPath $env:ALOOK_NATIVE_NPM_PREFIX -Force
           if (-not (Test-Path (Join-Path $env:ALOOK_NATIVE_NPM_PREFIX 'agy_acp_server.exe'))) { throw 'Missing Antigravity ACP entry' }
       - name: Exercise real detection, persistent startup and cleanup
-        run: pnpm --filter @alook/agent-driver exec vitest run src/internal/probe.test.ts src/internal/probe.windows.test.ts src/internal/killTree.windows-errors.test.ts src/adapters/antigravity/index.test.ts --no-file-parallelism
+        shell: pwsh
+        run: |
+          $evidenceDir = Join-Path $env:RUNNER_TEMP 'Alook runtime evidence'
+          New-Item -ItemType Directory -Force $evidenceDir | Out-Null
+          pnpm --filter @alook/agent-driver exec vitest run src/internal/probe.test.ts src/internal/probe.windows.test.ts src/internal/killTree.windows-errors.test.ts src/adapters/antigravity/index.test.ts --no-file-parallelism 2>&1 | Tee-Object -FilePath (Join-Path $evidenceDir 'native-suite.log')
+          $suiteExit = $LASTEXITCODE
+          @{ exitCode = $suiteExit; checkout = $env:GITHUB_SHA; runId = $env:GITHUB_RUN_ID; attempt = $env:GITHUB_RUN_ATTEMPT } | ConvertTo-Json | Set-Content -Path (Join-Path $evidenceDir 'native-suite-terminal.json') -Encoding utf8
+          exit $suiteExit
+      - name: Save the actual installed Pi dependency and public export evidence
+        if: always()
+        shell: pwsh
+        run: |
+          $evidenceDir = Join-Path $env:RUNNER_TEMP 'Alook runtime evidence'
+          New-Item -ItemType Directory -Force $evidenceDir | Out-Null
+          npm ls --global --prefix "$env:ALOOK_NATIVE_NPM_PREFIX" --all --json | Out-File -FilePath (Join-Path $evidenceDir 'native-dependencies.json') -Encoding utf8
+          $dependencyExit = $LASTEXITCODE
+          $piAudit = @'
+          import { createHash } from "node:crypto";
+          import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+          import { findPackageJSON } from "node:module";
+          import { dirname, join } from "node:path";
+          import { pathToFileURL } from "node:url";
+          import { execFileSync } from "node:child_process";
+          const evidence = join(process.env.RUNNER_TEMP, "Alook runtime evidence");
+          const output = join(evidence, "pi-installed-public-api.json");
+          const result = { node: process.version, checkout: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+            tree: execFileSync("git", ["rev-parse", "HEAD^{tree}"], { encoding: "utf8" }).trim(), packages: [], importStatus: "UNRUN" };
+          const sha = bytes => createHash("sha256").update(bytes).digest("hex");
+          const targets = value => typeof value === "string" ? [value] : value && typeof value === "object" ? Object.values(value).flatMap(targets) : [];
+          try {
+            const rootManifest = join(process.env.ALOOK_NATIVE_NPM_PREFIX, "node_modules", "@earendil-works", "pi-coding-agent", "package.json");
+            const root = JSON.parse(readFileSync(rootManifest, "utf8"));
+            const rootEntry = join(dirname(rootManifest), root.exports?.["."]?.import ?? root.main);
+            const consumer = pathToFileURL(rootEntry);
+            for (const name of [root.name, ...Object.keys(root.dependencies).filter(name => name.startsWith("@earendil-works/pi-"))]) {
+              const manifestPath = name === root.name ? rootManifest : findPackageJSON(name, consumer);
+              if (!manifestPath) throw new Error("Missing installed manifest: " + name);
+              const bytes = readFileSync(manifestPath);
+              const pkg = JSON.parse(bytes);
+              const required = name === root.name ? ["dist/index.js", "dist/index.d.ts", "dist/core/model-runtime.js", "dist/core/model-runtime.d.ts", "dist/core/sdk.js", "dist/core/sdk.d.ts", "dist/core/session-manager.js", "dist/core/session-manager.d.ts"] : [];
+              const paths = [...new Set([...targets(pkg.exports), pkg.main, pkg.types, ...required].filter(value => typeof value === "string"))];
+              const files = paths.map(target => {
+                const file = join(dirname(manifestPath), target);
+                if (!existsSync(file)) return { target, missing: true };
+                const bytes = readFileSync(file);
+                return { target, path: realpathSync(file), bytes: bytes.length, sha256: sha(bytes) };
+              });
+              result.packages.push({ name: pkg.name, version: pkg.version, manifestPath: realpathSync(manifestPath),
+                manifestSHA256: sha(bytes), dependencies: pkg.dependencies, exports: pkg.exports, files });
+            }
+            writeFileSync(output, JSON.stringify(result, null, 2) + "\n");
+            if (root.version !== "1.2.0") throw new Error("Unexpected Pi version: " + root.version);
+            const sdk = await import(consumer.href);
+            result.publicExports = Object.keys(sdk).sort();
+            result.requiredFunctions = { createModelRuntime: typeof sdk.ModelRuntime?.create,
+              getModel: typeof sdk.ModelRuntime?.prototype.getModel, setRuntimeApiKey: typeof sdk.ModelRuntime?.prototype.setRuntimeApiKey,
+              getAvailable: typeof sdk.ModelRuntime?.prototype.getAvailable, createAgentSession: typeof sdk.createAgentSession,
+              createBashToolDefinition: typeof sdk.createBashToolDefinition, createSessionManager: typeof sdk.SessionManager?.create,
+              openSessionManager: typeof sdk.SessionManager?.open, prompt: typeof sdk.AgentSession?.prototype.prompt,
+              dispose: typeof sdk.AgentSession?.prototype.dispose };
+            if (Object.values(result.requiredFunctions).some(value => value !== "function")) throw new Error("Pi public API does not match the adapter contract");
+            result.importStatus = "PASS";
+          } catch (error) {
+            result.importStatus = "FAIL";
+            result.error = error instanceof Error ? error.stack : String(error);
+            throw error;
+          } finally {
+            writeFileSync(output, JSON.stringify(result, null, 2) + "\n");
+          }
+          '@
+          $piAudit | node --input-type=module 2>&1 | Tee-Object -FilePath (Join-Path $evidenceDir 'pi-public-api.log')
+          $auditExit = $LASTEXITCODE
+          @{ dependencyExit = $dependencyExit; auditExit = $auditExit } | ConvertTo-Json | Set-Content -Path (Join-Path $evidenceDir 'dependency-audit-terminal.json') -Encoding utf8
+          if ($dependencyExit -ne 0) { exit $dependencyExit }
+          exit $auditExit
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: windows-native-runtime-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/Alook runtime evidence/
+          if-no-files-found: error
+          retention-days: 14
