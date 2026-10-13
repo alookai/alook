@@ -1,8 +1,9 @@
 import type { Page } from "@playwright/test"
-import { test, expect, userId } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable, installInputCapability } from "./_fixtures/actions"
-import { seedChannel, seedDm, seedMessage, seedServer, seedThread } from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
+import type { CaseActors } from "./_fixtures/case-fixture"
 
 const PNG_1X1 = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
@@ -36,25 +37,26 @@ function composerAttachments(page: Page) {
   return page.getByTestId(tid.composerInput).locator("../..")
 }
 
-test.describe.serial("same-tab Community attachment drafts", () => {
-  let serverId: string
-  let channelAId: string
-  let channelBId: string
-  let openerId: string
-  let threadId: string
-  let dmId: string
+test.describe("same-tab Community attachment drafts", () => {
+  async function prepareCase1(actors: CaseActors) {
+    const { userId } = actors
+    const { seedChannel, seedDm, seedMessage, seedServer, seedThread } = actors.seed
+    const serverId: string = await seedServer("alice", `attachment-drafts-${Date.now()}`)
+    const channelAId: string = await seedChannel("alice", serverId, "attachment-draft-a")
+    const channelBId: string = await seedChannel("alice", serverId, "attachment-draft-b")
+    const openerId: string = await seedMessage("alice", channelAId, "attachment draft thread opener")
+    const threadId: string = await seedThread("alice", openerId, "attachment-draft-thread")
+    const dmId: string = await seedDm("alice", userId("bob"))
+    return { serverId, channelAId, channelBId, openerId, threadId, dmId }
+  }
 
-  test.beforeAll(async () => {
-    serverId = await seedServer("alice", `attachment-drafts-${Date.now()}`)
-    channelAId = await seedChannel("alice", serverId, "attachment-draft-a")
-    channelBId = await seedChannel("alice", serverId, "attachment-draft-b")
-    openerId = await seedMessage("alice", channelAId, "attachment draft thread opener")
-    threadId = await seedThread("alice", openerId, "attachment-draft-thread")
-    dmId = await seedDm("alice", userId("bob"))
-  })
-
-  test("desktop restores scoped real image/file drafts, rebuilds URLs, and removal never revives", async ({ asUser }) => {
+  test("desktop restores scoped real image/file drafts, rebuilds URLs, and removal never revives", async ({ caseActors }) => {
     test.setTimeout(120_000)
+
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, channelAId, channelBId, openerId, threadId, dmId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     const channelA = `/c/channels/${serverId}/${channelAId}`
     await page.goto(channelA, { waitUntil: "commit" })
@@ -147,8 +149,13 @@ test.describe.serial("same-tab Community attachment drafts", () => {
     expect(messagePosts).toBe(0)
   })
 
-  test("desktop restored generic file survives upload failure, retries once, and never revives", async ({ asUser }) => {
+  test("desktop restored generic file survives upload failure, retries once, and never revives", async ({ caseActors }) => {
     test.setTimeout(120_000)
+
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, channelAId, channelBId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     const channelA = `/c/channels/${serverId}/${channelAId}`
     await page.goto(channelA, { waitUntil: "commit" })
@@ -210,8 +217,13 @@ test.describe.serial("same-tab Community attachment drafts", () => {
     await expect(composerAttachments(page).getByText("retry-restored.txt", { exact: true })).toHaveCount(0)
   })
 
-  test("mobile restores scoped attachments, sends explicitly once, and reload restores text only", async ({ asUser }) => {
+  test("mobile restores scoped attachments, sends explicitly once, and reload restores text only", async ({ caseActors }) => {
     test.setTimeout(120_000)
+
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, channelAId, channelBId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await installInputCapability(page, false)
     await page.setViewportSize({ width: 390, height: 844 })

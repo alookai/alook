@@ -1,11 +1,13 @@
 import type { Page, Route } from "@playwright/test"
-import { test, expect } from "./_fixtures/community-fixture"
-import { seedChannel, seedServer } from "./_fixtures/seed"
-import { tid } from "./_fixtures/testids"
+import { test, expect } from "./_fixtures/case-fixture"
 
-async function holdRoute(page: Page, pathname: string) {
+import { tid } from "./_fixtures/testids"
+import type { CaseResources } from "./_fixtures/case-fixture"
+
+async function holdRoute(page: Page, pathname: string, caseResources: CaseResources) {
   let releaseGate!: () => void
   const gate = new Promise<void>((resolve) => { releaseGate = resolve })
+  caseResources.own(releaseGate, async (captured) => { captured() })
   let held = 0
   const pattern = `**${pathname}**`
   const handler = async (route: Route) => {
@@ -125,8 +127,13 @@ function expectStationaryFrames(frames: SurfaceFrameRecord[]) {
   }
 }
 
-test("community checkpoint shows target pending for detail and keeps list surfaces stable", async ({ asUser }) => {
+test("community checkpoint shows target pending for detail and keeps list surfaces stable", async ({ caseActors, caseResources }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedServer } = actors.seed
+
   const stamp = Date.now()
   const serverId = await seedServer("alice", `Frame Gate ${stamp}`)
   const channelAName = `frame-a-${stamp}`
@@ -153,7 +160,7 @@ test("community checkpoint shows target pending for detail and keeps list surfac
     ) mutations.push(`${method} ${pathname}`)
   })
 
-  const leafGate = await holdRoute(page, `/c/channels/${serverId}/${channelB}`)
+  const leafGate = await holdRoute(page, `/c/channels/${serverId}/${channelB}`, caseResources)
   await page.getByTestId(tid.channelRow(channelB)).click({ noWaitAfter: true })
   await expect.poll(leafGate.held).toBeGreaterThan(0)
   const pendingMain = page.locator(
@@ -182,7 +189,7 @@ test("community checkpoint shows target pending for detail and keeps list surfac
   await expect(targetReady).toBeVisible()
 
   await page.setViewportSize({ width: 390, height: 844 })
-  const rootGate = await holdRoute(page, `/c/channels/${serverId}`)
+  const rootGate = await holdRoute(page, `/c/channels/${serverId}`, caseResources)
   await page.getByRole("banner").getByRole("button", { name: "Back" }).click({ noWaitAfter: true })
   await expect.poll(rootGate.held).toBeGreaterThan(0)
   await page.setViewportSize({ width: 1280, height: 900 })
@@ -194,7 +201,7 @@ test("community checkpoint shows target pending for detail and keeps list surfac
   await rootGate.release()
   await expect(channelHeader(page, channelBName)).toBeVisible({ timeout: 30_000 })
 
-  const machinesGate = await holdRoute(page, "/c/me/machines")
+  const machinesGate = await holdRoute(page, "/c/me/machines", caseResources)
   await page.goto("/c/me/friends")
   await expect(page.getByPlaceholder("Search friends")).toBeVisible({ timeout: 30_000 })
   await page.getByRole("link", { name: "Machines", exact: true }).click({ noWaitAfter: true })
@@ -210,8 +217,13 @@ test("community checkpoint shows target pending for detail and keeps list surfac
   expect(mutations).toEqual([])
 })
 
-test("mobile route commits stay stationary while sidebar identity survives same-server history", async ({ asUser }) => {
+test("mobile route commits stay stationary while sidebar identity survives same-server history", async ({ caseActors, caseResources }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedServer } = actors.seed
+
   const stamp = Date.now()
   const serverId = await seedServer("alice", `Mobile frame ${stamp}`)
   const fastName = `fast-${stamp}`
@@ -261,7 +273,7 @@ test("mobile route commits stay stationary while sidebar identity survives same-
 
   await clearSurfaceAnimations(page)
   const pendingPath = `/c/channels/${serverId}/${pendingChannel}`
-  const pendingGate = await holdRoute(page, pendingPath)
+  const pendingGate = await holdRoute(page, pendingPath, caseResources)
   await page.getByTestId(tid.channelRow(pendingChannel)).click({ noWaitAfter: true })
   await expect.poll(pendingGate.held).toBeGreaterThan(0)
   const pendingMain = page.locator(

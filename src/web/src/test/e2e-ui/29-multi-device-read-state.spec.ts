@@ -1,16 +1,8 @@
 import type { Route } from "@playwright/test"
-import { test, expect, userId } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { tid } from "./_fixtures/testids"
-import {
-  seedChannel,
-  seedDm,
-  seedDmMessage,
-  seedForumThread,
-  seedJoinServer,
-  seedMessage,
-  seedServer,
-} from "./_fixtures/seed"
+
 import {
   type CapturedCommunityFrame,
   communityFrameEvents,
@@ -87,8 +79,13 @@ function unreadBumpsSince(
     .filter((event) => event.type === "community:unread.bump" && event.channelId === channelId)
 }
 
-test("one human account converges read state across two browser profiles", async ({ asUser }) => {
+test("one human account converges read state across two browser profiles", async ({ caseActors, caseResources }) => {
   test.setTimeout(180_000)
+
+  const actors = await caseActors(["alice", "bob"])
+  const { asUser, userId } = actors
+  const { seedChannel, seedDm, seedDmMessage, seedJoinServer, seedMessage, seedServer } = actors.seed
+
   const stamp = Date.now()
   const serverId = await seedServer("alice", `Multi-device ${stamp}`)
   const channelName = `read-sync-${stamp}`
@@ -252,6 +249,7 @@ test("one human account converges read state across two browser profiles", async
   const readAllRequestGate = new Promise<void>((resolve) => {
     releaseReadAllRequests = resolve
   })
+  caseResources.own(releaseReadAllRequests, async (captured) => { captured() })
   const holdReadAllRequests = async (route: Route) => {
     if (route.request().method() !== "POST") {
       await route.continue()
@@ -333,8 +331,13 @@ test("one human account converges read state across two browser profiles", async
   expect(scoped.every((row) => row.lastReadSeq > 0)).toBe(true)
 })
 
-test("hidden eager channel and DM mounts defer cross-device reads until visible", async ({ asUser }) => {
+test("hidden eager channel and DM mounts defer cross-device reads until visible", async ({ caseActors }) => {
   test.setTimeout(180_000)
+
+  const actors = await caseActors(["alice", "bob"])
+  const { asUser, userId } = actors
+  const { seedChannel, seedDm, seedDmMessage, seedJoinServer, seedMessage, seedServer } = actors.seed
+
   const stamp = Date.now()
   const serverId = await seedServer("alice", `Hidden eager sync ${stamp}`)
   const channelId = await seedChannel("alice", serverId, `hidden-eager-${stamp}`)
@@ -459,8 +462,13 @@ test("hidden eager channel and DM mounts defer cross-device reads until visible"
   deviceA.page.off("response", trackDmReads)
 })
 
-test("a visible live tail clears both devices while an unseen tail stays unread", async ({ asUser }) => {
+test("a visible live tail clears both devices while an unseen tail stays unread", async ({ caseActors }) => {
   test.setTimeout(180_000)
+
+  const actors = await caseActors(["alice", "bob"])
+  const { asUser } = actors
+  const { seedChannel, seedJoinServer, seedMessage, seedServer } = actors.seed
+
   const stamp = Date.now()
   const serverId = await seedServer("alice", `Visible read sync ${stamp}`)
   const channelId = await seedChannel("alice", serverId, `visible-sync-${stamp}`)
@@ -623,8 +631,13 @@ test("a visible live tail clears both devices while an unseen tail stays unread"
   deviceA.page.off("response", trackUnseenReads)
 })
 
-test("forum cards use the ordinary parent cursor while child cursors stay independent", async ({ asUser }) => {
+test("forum cards use the ordinary parent cursor while child cursors stay independent", async ({ caseActors }) => {
   test.setTimeout(180_000)
+
+  const actors = await caseActors(["alice", "bob"])
+  const { asUser } = actors
+  const { seedChannel, seedJoinServer, seedServer } = actors.seed
+
   const stamp = Date.now()
   const serverId = await seedServer("alice", `Unified forum sync ${stamp}`)
   const forumId = await seedChannel("alice", serverId, `unified-forum-${stamp}`, "forum")
@@ -746,8 +759,13 @@ test("forum cards use the ordinary parent cursor while child cursors stay indepe
   deviceA.page.off("response", trackForumResponse)
 })
 
-test("human author-send replaces both profiles while notification policy preserves unread", async ({ asUser }) => {
+test("human author-send replaces both profiles while notification policy preserves unread", async ({ caseActors }) => {
   test.setTimeout(150_000)
+
+  const actors = await caseActors(["alice", "bob"])
+  const { asUser } = actors
+  const { seedChannel, seedJoinServer, seedMessage, seedServer } = actors.seed
+
   const stamp = Date.now()
   const serverId = await seedServer("alice", `Writer sync ${stamp}`)
   const authorChannelId = await seedChannel("alice", serverId, `author-sync-${stamp}`)
@@ -882,8 +900,13 @@ test("human author-send replaces both profiles while notification policy preserv
     .toBe(0)
 })
 
-test("forum delete broadcasts replacement and removal to both active profiles", async ({ asUser }) => {
+test("forum delete broadcasts replacement and removal to both active profiles", async ({ caseActors }) => {
   test.setTimeout(150_000)
+
+  const actors = await caseActors(["alice", "bob"])
+  const { asUser } = actors
+  const { seedChannel, seedForumThread, seedJoinServer, seedServer } = actors.seed
+
   const stamp = Date.now()
   const serverId = await seedServer("alice", `Forum read sync ${stamp}`)
   const forumId = await seedChannel("alice", serverId, `forum-read-sync-${stamp}`, "forum")

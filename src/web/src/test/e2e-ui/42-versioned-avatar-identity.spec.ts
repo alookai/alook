@@ -1,26 +1,23 @@
 import type { Page } from "@playwright/test"
-import {
-  expect,
-  test,
-  userId,
-  userName,
-} from "./_fixtures/community-fixture"
+import { expect, test } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
-import {
-  seedChannel,
-  seedDm,
-  seedDmMessage,
-  seedFriendship,
-  seedJoinServer,
-  seedMessage,
-  seedServer,
-} from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
 import {
   communityFrameEvents,
   proxyCommunityWebSockets,
   type CapturedCommunityFrame,
 } from "./_fixtures/community-ws-proxy"
+import type { CaseActors, CaseResources } from "./_fixtures/case-fixture"
+
+async function prepareCase(actors: CaseActors) {
+  const { userId } = actors
+  function identityEvents(frames: CapturedCommunityFrame[], subjectId: string) {
+    return frames.flatMap(communityFrameEvents).filter((event) => (event.type === "community:identity.update"
+      && event.userId === subjectId))
+  }
+  return { identityEvents }
+}
 
 type AvatarUpload = {
   status: number
@@ -30,17 +27,11 @@ type AvatarUpload = {
 
 const hideDevelopmentOverlays = "nextjs-portal, .tsqd-parent-container { display: none !important; }"
 
-function deferred() {
+function deferred(caseResources: CaseResources) {
   let resolve!: () => void
   const promise = new Promise<void>((done) => { resolve = done })
+  caseResources.own(resolve, async (captured) => { captured() })
   return { promise, resolve }
-}
-
-function identityEvents(frames: CapturedCommunityFrame[], subjectId: string) {
-  return frames.flatMap(communityFrameEvents).filter((event) => (
-    event.type === "community:identity.update"
-    && event.userId === subjectId
-  ))
 }
 
 async function uploadSolidAvatar(page: Page, color: string): Promise<AvatarUpload> {
@@ -83,8 +74,14 @@ async function expectPhoto(locator: ReturnType<Page["locator"]>, url: string) {
   )), { timeout: 20_000 }).toBe(true)
 }
 
-test("versioned avatars converge across live, stale, reconnect, cold, and concurrent clients", async ({ asUser }, testInfo) => {
+test("versioned avatars converge across live, stale, reconnect, cold, and concurrent clients", async ({ caseActors, caseResources }, testInfo) => {
   test.setTimeout(240_000)
+
+  const actors = await caseActors(["alice", "bob", "dave"])
+  const { asUser, userId, userName } = actors
+  const { seedChannel, seedDm, seedDmMessage, seedFriendship, seedJoinServer, seedMessage, seedServer } = actors.seed
+  const { identityEvents } = await prepareCase(actors)
+
   const stamp = Date.now()
   const aliceId = userId("alice")
   const serverId = await seedServer("alice", `Avatar identity ${stamp}`)
@@ -136,8 +133,8 @@ test("versioned avatars converge across live, stale, reconnect, cold, and concur
   const warmImage = await message.locator(`img[src="${warm.url}"]`).first().elementHandle()
   if (!warmImage) throw new Error("Warm identity image is missing")
 
-  const profileGate = deferred()
-  const profileStarted = deferred()
+  const profileGate = deferred(caseResources)
+  const profileStarted = deferred(caseResources)
   const profilePattern = `**/api/community/users/${aliceId}/profile`
   await observer.page.route(profilePattern, async (route) => {
     const staleResponse = await route.fetch()
@@ -154,8 +151,8 @@ test("versioned avatars converge across live, stale, reconnect, cold, and concur
   expect(first.url).toBe(`/api/community/users/${aliceId}/avatar?v=${first.avatarVersion}`)
   await expect.poll(() => observerWs.heldCount(), { timeout: 20_000 }).toBe(1)
 
-  const avatarGate = deferred()
-  const avatarStarted = deferred()
+  const avatarGate = deferred(caseResources)
+  const avatarStarted = deferred(caseResources)
   const avatarPattern = `**/api/community/users/${aliceId}/avatar?v=*`
   await observer.page.route(avatarPattern, async (route) => {
     if (new URL(route.request().url()).searchParams.get("v") !== String(first.avatarVersion + 1)) {

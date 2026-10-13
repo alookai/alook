@@ -1,17 +1,16 @@
-import { test, expect } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable, sendMessage } from "./_fixtures/actions"
-import { seedServer, seedChannel, seedMessage } from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
+import type { CaseActors } from "./_fixtures/case-fixture"
 
 // Journey 9 — threads. Creating a thread from a message surfaces a thread
 // indicator on the parent message (regression ab572e3e).
-test.describe.serial("threads", () => {
-  let serverId: string
-  let channelId: string
-
-  test.beforeAll(async () => {
-    serverId = await seedServer("alice", `Thread ${Date.now()}`)
-    channelId = await seedChannel("alice", serverId, "threads")
+test.describe("threads", () => {
+  async function prepareCase1(actors: CaseActors) {
+    const { seedServer, seedChannel, seedMessage } = actors.seed
+    const serverId: string = await seedServer("alice", `Thread ${Date.now()}`)
+    const channelId: string = await seedChannel("alice", serverId, "threads")
     // Seed the parent message via API so it's already persisted with a real
     // id before the UI opens. Sending the FIRST message through the UI in a
     // cold, directly-navigated channel races the list's initial fetch (the
@@ -19,9 +18,14 @@ test.describe.serial("threads", () => {
     // test-harness timing issue, not a product bug (spec 02/03 cover the send
     // UI). Seeding sidesteps the race so this journey can focus on threads.
     await seedMessage("alice", channelId, `thread parent ${Date.now()}`)
-  })
+    return { serverId, channelId }
+  }
 
-  test("creating a thread from a message shows a thread indicator on the parent", async ({ asUser }) => {
+  test("creating a thread from a message shows a thread indicator on the parent", async ({ caseActors }) => {
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+    const { serverId, channelId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     const requests: string[] = []
     page.on("request", (request) => requests.push(request.url()))

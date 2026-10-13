@@ -1,5 +1,5 @@
 import type { Page, Request } from "@playwright/test"
-import { expect, test, userId } from "./_fixtures/community-fixture"
+import { expect, test } from "./_fixtures/case-fixture"
 import { composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
 import {
   communityFrameEvents,
@@ -7,17 +7,9 @@ import {
   proxyCommunityWebSockets,
   type CapturedCommunityFrame,
 } from "./_fixtures/community-ws-proxy"
-import {
-  memberInfo,
-  seedChannel,
-  seedDm,
-  seedDmMessage,
-  seedForumThread,
-  seedJoinServer,
-  seedMessage,
-  seedServer,
-} from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
+import type { CaseResources } from "./_fixtures/case-fixture"
 
 async function installReadObserverGate(page: Page, initiallyBlocked = false) {
   await page.addInitScript((blockInitially) => {
@@ -131,14 +123,17 @@ async function expectRailReplacementDoesNotBlockMessages({
   latestText: string
   inboxRowTestId: string
   triggerUnread: () => Promise<string>
-}) {
+}, caseResources: CaseResources) {
   const beforeReadSeq = await readSeq(page, channelId)
   let releaseRailGate!: () => void
   const railRelease = new Promise<void>((resolve) => { releaseRailGate = resolve })
+  caseResources.own(releaseRailGate, async (captured) => { captured() })
   let markRailHeld!: () => void
   const railHeld = new Promise<void>((resolve) => { markRailHeld = resolve })
+  caseResources.own(markRailHeld, async (captured) => { captured() })
   let markRailSettled!: () => void
   const railSettled = new Promise<void>((resolve) => { markRailSettled = resolve })
+  caseResources.own(markRailSettled, async (captured) => { captured() })
   let railRequestHeld = false
   const releaseRail = async () => {
     releaseRailGate()
@@ -216,10 +211,14 @@ async function expectRailReplacementDoesNotBlockMessages({
   }
 }
 
-test.describe.serial("account unread projection", () => {
-  test.setTimeout(180_000)
+test.describe("account unread projection", () => {
+test.setTimeout(180_000)
 
-  test("one mention source disappears from Unreads, Mentions, and every dot in the same frame", async ({ asUser }) => {
+  test("one mention source disappears from Unreads, Mentions, and every dot in the same frame", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser, userId } = actors
+    const { memberInfo, seedChannel, seedJoinServer, seedServer } = actors.seed
+
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Projection mention ${stamp}`)
     const channelName = `mention-${stamp}`
@@ -307,7 +306,11 @@ test.describe.serial("account unread projection", () => {
     expect((await readResponse).status()).toBe(200)
   })
 
-  test("one committed bundle projects every surface and only a visible row clears it", async ({ asUser }, testInfo) => {
+  test("one committed bundle projects every surface and only a visible row clears it", async ({ caseActors }, testInfo) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser, userId } = actors
+    const { seedChannel, seedDm, seedDmMessage, seedForumThread, seedJoinServer, seedMessage, seedServer } = actors.seed
+
     const stamp = Date.now()
     const foregroundServer = await seedServer("alice", `Projection foreground ${stamp}`)
     const foregroundChannel = await seedChannel("alice", foregroundServer, `foreground-${stamp}`)
@@ -431,7 +434,11 @@ test.describe.serial("account unread projection", () => {
     expect(cursor(dmId)).toBe(beforeCursor(dmId))
   })
 
-  test("a held rail server-list request does not block channel or child messages", async ({ asUser }) => {
+  test("a held rail server-list request does not block channel or child messages", async ({ caseActors, caseResources }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser, userId } = actors
+    const { memberInfo, seedChannel, seedForumThread, seedJoinServer, seedMessage, seedServer } = actors.seed
+
     const stamp = Date.now()
     const foregroundServer = await seedServer("alice", `Rail foreground ${stamp}`)
     const foregroundChannel = await seedChannel("alice", foregroundServer, `foreground-${stamp}`)
@@ -509,7 +516,7 @@ test.describe.serial("account unread projection", () => {
         await sendRailMention(`channel rail ${stamp}`)
         return seedMessage("alice", channelId, channelText)
       },
-    })
+    }, caseResources)
 
     await gotoAfterUserWsAuth(childPage, "/c/me")
     await expectRailReplacementDoesNotBlockMessages({
@@ -523,11 +530,15 @@ test.describe.serial("account unread projection", () => {
         await sendRailMention(`child rail ${stamp}`)
         return seedMessage("alice", childId, childText)
       },
-    })
+    }, caseResources)
     await childPage.close()
   })
 
-  test("mark all settles three domains and rolls back only the failed domain", async ({ asUser }) => {
+  test("mark all settles three domains and rolls back only the failed domain", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser, userId } = actors
+    const { seedChannel, seedDm, seedDmMessage, seedJoinServer, seedMessage, seedServer } = actors.seed
+
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Projection mark all ${stamp}`)
     const channelId = await seedChannel("alice", serverId, `mark-all-${stamp}`)

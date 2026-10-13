@@ -1,13 +1,8 @@
 import type { Page, Response } from "@playwright/test"
-import { test, expect } from "./_fixtures/community-fixture"
-import {
-  seedChannel,
-  seedForumThread,
-  seedMessage,
-  seedServer,
-  seedThread,
-} from "./_fixtures/seed"
+import { test, expect } from "./_fixtures/case-fixture"
+
 import { tid } from "./_fixtures/testids"
+import type { CaseActors } from "./_fixtures/case-fixture"
 
 test.use({ viewport: { width: 390, height: 844 } })
 
@@ -19,28 +14,26 @@ async function expectMobileBack(page: Page) {
   return control
 }
 
-test.describe.serial("mobile server header direct hierarchy", () => {
-  let serverId: string
-  let textId: string
-  let forumId: string
-  let threadId: string
-  let postId: string
-  let threadName: string
-  let postTitle: string
-
-  test.beforeAll(async () => {
+test.describe("mobile server header direct hierarchy", () => {
+  async function prepareCase1(actors: CaseActors) {
+    const { seedChannel, seedForumThread, seedMessage, seedServer, seedThread } = actors.seed
     const stamp = Date.now()
-    serverId = await seedServer("alice", `header-hierarchy-${stamp}`)
-    textId = await seedChannel("alice", serverId, `text-${stamp}`)
-    forumId = await seedChannel("alice", serverId, `forum-${stamp}`, "forum")
+    const serverId: string = await seedServer("alice", `header-hierarchy-${stamp}`)
+    const textId: string = await seedChannel("alice", serverId, `text-${stamp}`)
+    const forumId: string = await seedChannel("alice", serverId, `forum-${stamp}`, "forum")
     const openerId = await seedMessage("alice", textId, `thread opener ${stamp}`)
-    threadName = `thread-${stamp}`
-    postTitle = `post-${stamp}`
-    threadId = await seedThread("alice", openerId, threadName)
-    postId = await seedForumThread("alice", forumId, postTitle, "post body")
-  })
+    const threadName: string = `thread-${stamp}`
+    const postTitle: string = `post-${stamp}`
+    const threadId: string = await seedThread("alice", openerId, threadName)
+    const postId: string = await seedForumThread("alice", forumId, postTitle, "post body")
+    return { serverId, textId, forumId, threadId, postId, threadName, postTitle }
+  }
 
-  test("top-level text and forum replace directly to the canonical server root", async ({ asUser }) => {
+  test("top-level text and forum replace directly to the canonical server root", async ({ caseActors }) => {
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+    const { serverId, textId, forumId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     for (const channelId of [textId, forumId]) {
       await page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
@@ -52,7 +45,11 @@ test.describe.serial("mobile server header direct hierarchy", () => {
     }
   })
 
-  test("thread and forum post expose direct parent Back and inert current labels", async ({ asUser }) => {
+  test("thread and forum post expose direct parent Back and inert current labels", async ({ caseActors }) => {
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+    const { serverId, textId, forumId, threadId, postId, threadName, postTitle } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     for (const child of [
       { id: threadId, parentId: textId, name: threadName },
@@ -74,7 +71,11 @@ test.describe.serial("mobile server header direct hierarchy", () => {
     }
   })
 
-  test("639↔640 preserves the header and composer owners without resize requests", async ({ asUser }) => {
+  test("639↔640 preserves the header and composer owners without resize requests", async ({ caseActors }) => {
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+    const { serverId, threadId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     const startupAttentionPaths = [
       "/api/community/users/me/attention",

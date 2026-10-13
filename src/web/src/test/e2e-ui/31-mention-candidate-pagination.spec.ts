@@ -1,6 +1,6 @@
-import { test, expect } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable } from "./_fixtures/actions"
-import { seedChannel, seedServer } from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
 
 type Candidate = {
@@ -28,7 +28,11 @@ function candidate(prefix: string, index: number): Candidate {
   }
 }
 
-test("@ candidates page to completion and shared popups stay anchored through viewport resize signals", async ({ asUser }) => {
+test("@ candidates page to completion and shared popups stay anchored through viewport resize signals", async ({ caseActors, caseResources }) => {
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedServer } = actors.seed
+
   const serverId = await seedServer("alice", `Mention pages ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "mention-pages")
   const { page } = await asUser("alice")
@@ -69,10 +73,12 @@ test("@ candidates page to completion and shared popups stay anchored through vi
   const searchTailReleased = new Promise<void>((resolve) => {
     releaseSearchTail = resolve
   })
+  caseResources.own(releaseSearchTail, async (captured) => { captured() })
   let markSearchTailRequested!: () => void
   const searchTailRequested = new Promise<void>((resolve) => {
     markSearchTailRequested = resolve
   })
+  caseResources.own(markSearchTailRequested, async (captured) => { captured() })
 
   await page.route(`**/api/community/servers/${serverId}/members**`, async (route) => {
     const url = new URL(route.request().url())

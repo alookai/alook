@@ -1,10 +1,10 @@
 import type { Page, WebSocketRoute } from "@playwright/test"
-import { test, expect } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import {
   composerEditable,
   gotoAfterUserWsAuth,
 } from "./_fixtures/actions"
-import { seedChannel, seedServer } from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
 import "./community-cache-first-warm-reload.journey"
 
@@ -32,8 +32,13 @@ async function installUserWsAuthConsumedBarrier(page: Page) {
   }, { attribute: USER_WS_AUTH_CONSUMED_ATTRIBUTE })
 }
 
-test("slow auth and an initial retry never block a cold Community page", async ({ asUser }) => {
+test("slow auth and an initial retry never block a cold Community page", async ({ caseActors, caseResources }) => {
   test.setTimeout(90_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedServer } = actors.seed
+
   const serverId = await seedServer("alice", `Reconnect cold start ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "reconnect-cold-start")
   const alice = await asUser("alice")
@@ -43,6 +48,7 @@ test("slow auth and an initial retry never block a cold Community page", async (
   const tokenGate = new Promise<void>((resolve) => {
     releaseTokens = resolve
   })
+  caseResources.own(releaseTokens, async (captured) => { captured() })
   let socketAttempts = 0
 
   await alice.page.route("**/api/ws/token", async (route) => {
@@ -78,8 +84,13 @@ test("slow auth and an initial retry never block a cold Community page", async (
   }
 })
 
-test("a real WebSocket outage keeps cached content interactive and Retry reconnects", async ({ asUser }, testInfo) => {
+test("a real WebSocket outage keeps cached content interactive and Retry reconnects", async ({ caseActors, caseResources }, testInfo) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedServer } = actors.seed
+
   const serverId = await seedServer("alice", `Reconnect status ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "reconnect-status")
   const alice = await asUser("alice")
@@ -161,6 +172,7 @@ test("a real WebSocket outage keeps cached content interactive and Retry reconne
   let holdReconnectTokens = true
   let releaseReconnectTokens!: () => void
   const reconnectTokenGate = new Promise<void>(resolve => { releaseReconnectTokens = resolve })
+  caseResources.own(releaseReconnectTokens, async (captured) => { captured() })
   const gateReconnectToken: Parameters<Page["route"]>[1] = async (route) => {
     if (holdReconnectTokens) await reconnectTokenGate
     await route.continue()
@@ -237,9 +249,9 @@ test("a real WebSocket outage keeps cached content interactive and Retry reconne
   }
 })
 
-test("an active onboarding form keeps focus priority during a reconnect", async ({ browser }) => {
+test("an active onboarding form keeps focus priority during a reconnect", async ({ browser, caseResources }) => {
   test.setTimeout(90_000)
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 } })
+  const context = await caseResources.newContext({ viewport: { width: 390, height: 844 } })
   const page = await context.newPage()
   let userWs: WebSocketRoute | null = null
   let blockUserWs = false
@@ -252,6 +264,8 @@ test("an active onboarding form keeps focus priority during a reconnect", async 
     ws.connectToServer()
   })
 
+  let caseJourneyFailure1: unknown
+let caseJourneyFailure1Present = false
   try {
     await installUserWsAuthConsumedBarrier(page)
     await page.goto("/sign-in")
@@ -288,8 +302,12 @@ test("an active onboarding form keeps focus priority during a reconnect", async 
 
     blockUserWs = false
     await expect(onboarding).toBeVisible()
-  } finally {
-    blockUserWs = false
-    await context.close().catch(() => {})
+  } catch (error) { caseJourneyFailure1 = error; caseJourneyFailure1Present = true; throw error } finally {
+    try {
+
+      blockUserWs = false
+      await caseResources.closeContext(context)
+
+    } catch (cleanupError) { if (caseJourneyFailure1Present) throw new AggregateError([caseJourneyFailure1, cleanupError], "Journey and resource exit both failed"); throw cleanupError }
   }
 })

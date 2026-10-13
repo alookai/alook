@@ -1,13 +1,8 @@
-import { expect, test } from "./_fixtures/community-fixture"
+import { expect, test } from "./_fixtures/case-fixture"
 import { composerEditable } from "./_fixtures/actions"
-import {
-  seedChannel,
-  seedForumThread,
-  seedMessage,
-  seedServer,
-  seedThread,
-} from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
+import type { CaseActors } from "./_fixtures/case-fixture"
 
 const THREAD_PANEL_MIN_WIDTH = 360
 const THREAD_PANEL_MAX_WIDTH = 800
@@ -28,31 +23,27 @@ async function resizeThreadPanel(page: import("@playwright/test").Page, targetWi
   await page.mouse.up()
 }
 
-test.describe.serial("desktop thread split view", () => {
-  let serverId: string
-  let textChannelId: string
-  let threadId: string
-  let forumId: string
-  let forumPostId: string
-  let parentBody: string
-  let threadBody: string
-  let forumTitle: string
-
-  test.beforeAll(async () => {
-    serverId = await seedServer("alice", `Split view ${Date.now()}`)
-    textChannelId = await seedChannel("alice", serverId, "split-parent")
-    parentBody = `parent opener ${Date.now()}`
+test.describe("desktop thread split view", () => {
+  async function prepareCase1(actors: CaseActors) {
+    const { seedChannel, seedForumThread, seedMessage, seedServer, seedThread } = actors.seed
+    const serverId: string = await seedServer("alice", `Split view ${Date.now()}`)
+    const textChannelId: string = await seedChannel("alice", serverId, "split-parent")
+    const parentBody: string = `parent opener ${Date.now()}`
     const openerId = await seedMessage("alice", textChannelId, parentBody)
-    threadId = await seedThread("alice", openerId, "Focused thread")
-    threadBody = `thread reply ${Date.now()}`
+    const threadId: string = await seedThread("alice", openerId, "Focused thread")
+    const threadBody: string = `thread reply ${Date.now()}`
     await seedMessage("alice", threadId, threadBody)
+    const forumId: string = await seedChannel("alice", serverId, "split-forum", "forum")
+    const forumTitle: string = `Forum post ${Date.now()}`
+    const forumPostId: string = await seedForumThread("alice", forumId, forumTitle, "Forum reply")
+    return { serverId, textChannelId, threadId, forumId, forumPostId, parentBody, threadBody, forumTitle }
+  }
 
-    forumId = await seedChannel("alice", serverId, "split-forum", "forum")
-    forumTitle = `Forum post ${Date.now()}`
-    forumPostId = await seedForumThread("alice", forumId, forumTitle, "Forum reply")
-  })
+  test("resizes the thread panel within limits and restores the user layout", async ({ caseActors }) => {
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+    const { serverId, textChannelId, threadId, parentBody, threadBody } = await prepareCase1(actors)
 
-  test("resizes the thread panel within limits and restores the user layout", async ({ asUser }) => {
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 1600, height: 900 })
     await page.goto(`/c/channels/${serverId}/${threadId}`)
@@ -90,8 +81,14 @@ test.describe.serial("desktop thread split view", () => {
       .toBe(savedWidth)
   })
 
-  test("keeps parent and thread live, supports fullscreen/close, and falls back below the width threshold", async ({ asUser }, testInfo) => {
+  test("keeps parent and thread live, supports fullscreen/close, and falls back below the width threshold", async ({ caseActors }, testInfo) => {
     test.setTimeout(120_000)
+
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+    const { seedMessage } = actors.seed
+    const { serverId, textChannelId, threadId, parentBody, threadBody } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 1280, height: 900 })
     await page.goto(`/c/channels/${serverId}/${threadId}`)
@@ -175,13 +172,18 @@ test.describe.serial("desktop thread split view", () => {
     await testInfo.attach("390-dark-full", { path: mobileDark, contentType: "image/png" })
   })
 
-  test("opens forum posts in the same desktop split contract", async ({ asUser }, testInfo) => {
+  test("opens forum posts in the same desktop split contract", async ({ caseActors, caseResources }, testInfo) => {
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+    const { serverId, forumId, forumPostId, forumTitle } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 1280, height: 900 })
     await page.goto(`/c/channels/${serverId}/${forumId}`)
     await expect(page.getByTestId(tid.forumThreadCard(forumPostId))).toBeVisible()
     let releaseMetadata!: () => void
     const metadataGate = new Promise<void>((resolve) => { releaseMetadata = resolve })
+    caseResources.own(releaseMetadata, async (captured) => { captured() })
     const metadataPath = `/api/community/channels/${forumPostId}`
     const metadataUrl = (url: URL) => url.pathname === metadataPath
     const holdMetadata = async (route: import("@playwright/test").Route) => {
@@ -238,11 +240,16 @@ test.describe.serial("desktop thread split view", () => {
     await testInfo.attach("1280-light-forum-split", { path: forumSplit, contentType: "image/png" })
   })
 
-  test("keeps a cold parent placeholder until its own metadata is readable", async ({ asUser }) => {
+  test("keeps a cold parent placeholder until its own metadata is readable", async ({ caseActors, caseResources }) => {
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+    const { serverId, forumId, forumPostId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 1280, height: 900 })
     let releaseMetadata!: () => void
     const metadataGate = new Promise<void>((resolve) => { releaseMetadata = resolve })
+    caseResources.own(releaseMetadata, async (captured) => { captured() })
     const metadataPath = `/api/community/channels/${forumId}`
     const metadataUrl = (url: URL) => url.pathname === metadataPath
     await page.route(metadataUrl, async (route) => {
@@ -267,8 +274,14 @@ test.describe.serial("desktop thread split view", () => {
     }
   })
 
-  test("retains the forum scroll node and resized group across a held post switch", async ({ asUser }) => {
+  test("retains the forum scroll node and resized group across a held post switch", async ({ caseActors, caseResources }) => {
     test.setTimeout(120_000)
+
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+    const { seedForumThread } = actors.seed
+    const { serverId, forumId, forumPostId } = await prepareCase1(actors)
+
     for (let index = 0; index < 12; index++) {
       await seedForumThread("alice", forumId, `Split filler ${index}`, `Filler reply ${index}`)
     }
@@ -293,6 +306,7 @@ test.describe.serial("desktop thread split view", () => {
     if (!group || !listNode) throw new Error("Forum split nodes are unavailable")
     let releaseMetadata!: () => void
     const metadataGate = new Promise<void>((resolve) => { releaseMetadata = resolve })
+    caseResources.own(releaseMetadata, async (captured) => { captured() })
     const metadataPath = `/api/community/channels/${forumPostId}`
     const metadataUrl = (url: URL) => url.pathname === metadataPath
     await page.route(metadataUrl, async (route) => {
@@ -323,8 +337,14 @@ test.describe.serial("desktop thread split view", () => {
     }
   })
 
-  test("retains the text parent draft and scroll while child drafts stay separate", async ({ asUser }) => {
+  test("retains the text parent draft and scroll while child drafts stay separate", async ({ caseActors, caseResources }) => {
     test.setTimeout(120_000)
+
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+    const { seedMessage, seedThread } = actors.seed
+    const { serverId, textChannelId } = await prepareCase1(actors)
+
     for (let index = 0; index < 35; index++) {
       await seedMessage("alice", textChannelId, `Parent scroll row ${index}`)
     }
@@ -358,6 +378,7 @@ test.describe.serial("desktop thread split view", () => {
     if (!group || !scrollNode || !inputNode) throw new Error("Text split nodes are unavailable")
     let releaseMetadata!: () => void
     const metadataGate = new Promise<void>((resolve) => { releaseMetadata = resolve })
+    caseResources.own(releaseMetadata, async (captured) => { captured() })
     const metadataPath = `/api/community/channels/${childB}`
     const metadataUrl = (url: URL) => url.pathname === metadataPath
     await page.route(metadataUrl, async (route) => {

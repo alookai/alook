@@ -1,17 +1,9 @@
 import { type Locator, type Page } from "@playwright/test"
-import { test, expect, userId, userName } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable, ignoreNextDevToolsPointerCapture } from "./_fixtures/actions"
 import { tid } from "./_fixtures/testids"
-import {
-  memberInfo,
-  renameUser,
-  seedChannel,
-  seedDm,
-  seedJoinServer,
-  seedMessage,
-  seedServer,
-  seedThread,
-} from "./_fixtures/seed"
+
+import type { CaseActors } from "./_fixtures/case-fixture"
 
 const VIEWPORT_WIDTHS = [375, 639, 640] as const
 const LONG_ENGLISH = "overflow".repeat(12) + "edge"
@@ -192,49 +184,38 @@ function expectContainedSuggestion(
   }
 }
 
-test.describe.serial("community composer text containment", () => {
-  let serverId: string
-  let longChannelId: string
-  let threadId: string
-  let forumChannelId: string
-  let dmId: string
-  let longMemberId: string
-  let longMemberDiscriminator: string
-  let secondaryServerName: string
-  let secondaryChannelSearchToken: string
-  let secondaryChannelName: string
-  let secondaryChannelId: string
-
-  test.beforeAll(async () => {
-    serverId = await seedServer("alice", `overflow-${Date.now()}`)
-    longChannelId = await seedChannel("alice", serverId, LONG_ENGLISH)
-    forumChannelId = await seedChannel("alice", serverId, `forum-${Date.now()}`, "forum")
+test.describe("community composer text containment", () => {
+  async function prepareCase1(actors: CaseActors) {
+    const { userId, userName } = actors
+    const { memberInfo, renameUser, seedChannel, seedDm, seedJoinServer, seedMessage, seedServer, seedThread } = actors.seed
+    actors.onCleanup(async () => {
+      await renameUser("bob", userName("bob"))
+    })
+    const serverId: string = await seedServer("alice", `overflow-${Date.now()}`)
+    const longChannelId: string = await seedChannel("alice", serverId, LONG_ENGLISH)
+    const forumChannelId: string = await seedChannel("alice", serverId, `forum-${Date.now()}`, "forum")
     const parentMessageId = await seedMessage("alice", longChannelId, "thread opener")
-    threadId = await seedThread("alice", parentMessageId, LONG_CJK)
+    const threadId: string = await seedThread("alice", parentMessageId, LONG_CJK)
     await renameUser("bob", LONG_CJK)
     await seedJoinServer("alice", "bob", serverId)
     const longMember = await memberInfo("alice", serverId, userId("bob"))
-    longMemberId = longMember.id
-    longMemberDiscriminator = longMember.discriminator
-
-    secondaryServerName = `secondary-${"s".repeat(90)}`
-    secondaryChannelSearchToken = `overflow-ref-${Date.now()}`
+    const longMemberId: string = longMember.id
+    const longMemberDiscriminator: string = longMember.discriminator
+    const secondaryServerName: string = `secondary-${"s".repeat(90)}`
+    const secondaryChannelSearchToken: string = `overflow-ref-${Date.now()}`
     await seedChannel("alice", serverId, `${secondaryChannelSearchToken}-anchor`)
-    secondaryChannelName = `${secondaryChannelSearchToken}-${"c".repeat(72)}`
+    const secondaryChannelName: string = `${secondaryChannelSearchToken}-${"c".repeat(72)}`
     const secondaryServerId = await seedServer("alice", secondaryServerName)
-    secondaryChannelId = await seedChannel(
-      "alice",
-      secondaryServerId,
-      secondaryChannelName,
-    )
-    dmId = await seedDm("alice", userId("carol"))
-  })
+    const secondaryChannelId: string = await seedChannel("alice", secondaryServerId, secondaryChannelName)
+    const dmId: string = await seedDm("alice", userId("carol"))
+    return { serverId, longChannelId, threadId, forumChannelId, dmId, longMemberId, longMemberDiscriminator, secondaryServerName, secondaryChannelSearchToken, secondaryChannelName, secondaryChannelId }
+  }
 
-  test.afterAll(async () => {
-    await renameUser("bob", userName("bob"))
-  })
+  test("default channel placeholder stays in the editable width and leaves controls clickable", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, longChannelId } = await prepareCase1(actors)
 
-  test("default channel placeholder stays in the editable width and leaves controls clickable", async ({ asUser }) => {
     const { page } = await asUser("alice")
     let messagePosts = 0
     page.on("request", (request) => {
@@ -298,7 +279,11 @@ test.describe.serial("community composer text containment", () => {
     await page.keyboard.press("Escape")
   })
 
-  test("default CJK thread placeholder stays in the editable width", async ({ asUser }) => {
+  test("default CJK thread placeholder stays in the editable width", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, threadId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${threadId}`)
     await page.waitForURL(new RegExp(threadId), { timeout: 20_000, waitUntil: "commit" })
@@ -309,7 +294,11 @@ test.describe.serial("community composer text containment", () => {
     )
   })
 
-  test("forum custom placeholder uses the same bounded chat-only rule", async ({ asUser }) => {
+  test("forum custom placeholder uses the same bounded chat-only rule", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, forumChannelId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${forumChannelId}`)
     await page.waitForURL(new RegExp(forumChannelId), { timeout: 20_000, waitUntil: "commit" })
@@ -326,7 +315,11 @@ test.describe.serial("community composer text containment", () => {
     }
   })
 
-  test("non-chat TipTap control retains the global placeholder behavior", async ({ asUser }) => {
+  test("non-chat TipTap control retains the global placeholder behavior", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, longChannelId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${longChannelId}`)
     await page.waitForURL(new RegExp(longChannelId), { timeout: 20_000, waitUntil: "commit" })
@@ -355,7 +348,11 @@ test.describe.serial("community composer text containment", () => {
     })
   })
 
-  test("long mention keeps avatar and discriminator visible without horizontal crop", async ({ asUser }) => {
+  test("long mention keeps avatar and discriminator visible without horizontal crop", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, longChannelId, longMemberId, longMemberDiscriminator } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 375, height: 800 })
     await page.goto(`/c/channels/${serverId}/${longChannelId}`)
@@ -377,7 +374,11 @@ test.describe.serial("community composer text containment", () => {
     }
   })
 
-  test("long cross-server channel row truncates within the popup without hard crop", async ({ asUser }) => {
+  test("long cross-server channel row truncates within the popup without hard crop", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { dmId, secondaryServerName, secondaryChannelSearchToken, secondaryChannelName, secondaryChannelId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 375, height: 800 })
     await page.goto(`/c/me/${dmId}`)

@@ -1,19 +1,20 @@
-import { test, expect, userId, userName } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import {
   communityFrameEvents,
   proxyCommunityWebSockets,
 } from "./_fixtures/community-ws-proxy"
-import {
-  seedChannel,
-  seedFriendship,
-  seedServer,
-  createInvite,
-} from "./_fixtures/seed"
-import { tid } from "./_fixtures/testids"
 
-test("an offline friend comes online through reconnect and receives the invite DM", async ({ asUser }) => {
+import { tid } from "./_fixtures/testids"
+import type { CaseActors } from "./_fixtures/case-fixture"
+
+test("an offline friend comes online through reconnect and receives the invite DM", async ({ caseActors }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice", "bob"])
+  const { asUser, userId, userName } = actors
+  const { seedChannel, seedFriendship, seedServer } = actors.seed
+
   const serverId = await seedServer("alice", `Friend invite ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "invite-friend")
   await seedFriendship("alice", "bob", userId("bob"))
@@ -102,16 +103,19 @@ test("an offline friend comes online through reconnect and receives the invite D
 // Journey 7 — invite accept (second identity). Alice creates a server + invite
 // via API, Bob accepts it through the UI, and the new server appears in Bob's
 // rail without a manual reload (regression 1c2e2a05).
-test.describe.serial("invite accept", () => {
-  let serverId: string
-  let inviteToken: string
+test.describe("invite accept", () => {
+  async function prepareCase1(actors: CaseActors) {
+    const { seedServer, createInvite } = actors.seed
+    const serverId: string = await seedServer("alice", `Invite ${Date.now()}`)
+    const inviteToken: string = await createInvite("alice", serverId)
+    return { serverId, inviteToken }
+  }
 
-  test.beforeAll(async () => {
-    serverId = await seedServer("alice", `Invite ${Date.now()}`)
-    inviteToken = await createInvite("alice", serverId)
-  })
+  test("Bob accepts the invite and lands in the server", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, inviteToken } = await prepareCase1(actors)
 
-  test("Bob accepts the invite and lands in the server", async ({ asUser }) => {
     const { page } = await asUser("bob")
     await page.goto(`/c/invite/${inviteToken}`)
     // Accept via the join CTA.

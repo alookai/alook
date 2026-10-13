@@ -1,24 +1,28 @@
-import { test, expect } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 import { sendMessage, expectMessageVisible, composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
-import { seedServer, seedChannel, seedJoinServer } from "./_fixtures/seed"
+
+import type { CaseActors } from "./_fixtures/case-fixture"
 
 // Journey 3 — multi-user realtime. Alice and Bob are both online in the same
 // channel; a message/typing/reaction from one surfaces on the other WITHOUT a
 // reload. Requires ws-do (global-setup fails fast if it's down).
-test.describe.serial("multi-user realtime", () => {
-  let serverId: string
-  let channelId: string
-
-  test.beforeAll(async () => {
+test.describe("multi-user realtime", () => {
+  async function prepareCase1(actors: CaseActors) {
+    const { seedServer, seedChannel, seedJoinServer } = actors.seed
     // Precondition (not the thing under test): Alice owns a server + channel,
     // Bob is a member. Seeded via API so the journey focuses on realtime UI.
-    serverId = await seedServer("alice", `RT ${Date.now()}`)
-    channelId = await seedChannel("alice", serverId, "realtime")
+    const serverId: string = await seedServer("alice", `RT ${Date.now()}`)
+    const channelId: string = await seedChannel("alice", serverId, "realtime")
     await seedJoinServer("alice", "bob", serverId)
-  })
+    return { serverId, channelId }
+  }
 
-  test("Alice's message reaches Bob live", async ({ asUser }) => {
+  test("Alice's message reaches Bob live", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, channelId } = await prepareCase1(actors)
+
     const alice = await asUser("alice")
     const bob = await asUser("bob")
     await alice.page.goto(`/c/channels/${serverId}/${channelId}`)
@@ -50,7 +54,11 @@ test.describe.serial("multi-user realtime", () => {
     await expectMessageVisible(bob.page, body)
   })
 
-  test("Bob sees Alice's typing indicator, which clears after her message", async ({ asUser }) => {
+  test("Bob sees Alice's typing indicator, which clears after her message", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, channelId } = await prepareCase1(actors)
+
     const alice = await asUser("alice")
     const bob = await asUser("bob")
     await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${channelId}`)

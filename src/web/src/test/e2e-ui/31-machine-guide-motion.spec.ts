@@ -1,4 +1,4 @@
-import { test, expect } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 
 test("first-signup mobile skips automatic onboarding and does not backfill it on desktop", async ({ page }) => {

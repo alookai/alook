@@ -1,4 +1,4 @@
-import type { BrowserContext, BrowserContextOptions, Page, TestInfo } from "@playwright/test"
+import type { APIResponse, BrowserContext, BrowserContextOptions, Page, TestInfo } from "@playwright/test"
 import { createHash } from "crypto"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs"
 import { resolve } from "path"
@@ -18,6 +18,19 @@ export type CaseActors = {
   sessionCookie: (key: UserKey) => string
   seed: CaseSeed
   onCleanup: (operation: () => Promise<unknown>) => void
+  confirmSignedOut: (role: UserKey, evidence: SignedOutEvidence) => Promise<void>
+}
+
+export type SignedOutEvidence = { context: BrowserContext; page: Page; protectedResponse: APIResponse }
+export type OwnedCaseResource<T> = { readonly value: T; close: () => Promise<void> }
+export type CaseResources = {
+  newContext: (options?: BrowserContextOptions) => Promise<BrowserContext>
+  closeContext: (context: BrowserContext) => Promise<void>
+  own: <T>(value: T, dispose: (value: T) => Promise<void>) => OwnedCaseResource<T>
+}
+type CaseExitOwner = {
+  allocate: (roles: readonly UserKey[]) => Promise<CaseActors>
+  resources: CaseResources
 }
 
 type CaseIdentity = {
@@ -33,10 +46,12 @@ type CleanupFailure = {
   identity: CaseIdentity
   unresolvedServers: Array<{ owner: UserKey; id: string }>
   unresolvedContexts: ContextOwner[]
+  unresolvedOperations: number
+  pendingSessionRetirement: boolean
   errorCount: number
 }
 
-type ContextOwner = { role: UserKey; kind: "login" | "actor"; ordinal: number }
+type ContextOwner = { role: UserKey | null; kind: "login" | "actor" | "anonymous"; ordinal: number }
 
 const failurePath = resolve(AUTH_DIR, "case-cleanup-failure.json")
 
@@ -48,22 +63,34 @@ async function checkCleanupFailure(testInfo: TestInfo): Promise<void> {
   throw new Error(`Case fixture blocked by unresolved cleanup: ${failure.identity.testId}, worker ${failure.identity.workerIndex}`)
 }
 
-export const test = base.extend<{ caseActors: (roles: readonly UserKey[]) => Promise<CaseActors>; caseCleanupGuard: void }>({
+export const test = base.extend<{ caseActors: CaseExitOwner["allocate"]; caseResources: CaseResources; caseExitOwner: CaseExitOwner; caseCleanupGuard: void }>({
   serviceGuard: async ({ caseCleanupGuard, serviceGuard }, provide) => {
     void caseCleanupGuard
     await provide(serviceGuard)
   },
-  caseCleanupGuard: [async ({}, provide, testInfo) => {
+  caseCleanupGuard: [async ({ }, provide, testInfo) => {
     await checkCleanupFailure(testInfo)
     await provide()
   }, { auto: true }],
-  caseActors: async ({ browser, caseCleanupGuard }, provide, testInfo) => {
+  caseActors: async ({ caseExitOwner }, provide) => { await provide(caseExitOwner.allocate) },
+  caseResources: async ({ caseExitOwner }, provide) => { await provide(caseExitOwner.resources) },
+  caseExitOwner: async ({ browser, caseCleanupGuard }, provide, testInfo) => {
     void caseCleanupGuard
     const users: Partial<Record<UserKey, SeededUser>> = {}
     const contexts = new Map<BrowserContext, ContextOwner>()
     const contextOutcomes: Array<ContextOwner & { closed: boolean }> = []
     let contextCount = 0
-    const cleanup: Array<() => Promise<unknown>> = []
+    const operations = new Set<OwnedCaseResource<unknown>>()
+    let operationCount = 0
+    const operationOutcomes: boolean[] = []
+    const closingContexts = new Map<BrowserContext, Promise<void>>()
+    const creatingContexts = new Set<Promise<BrowserContext>>()
+    const closedContexts = new WeakSet<BrowserContext>()
+    let exiting = false
+    let pendingSessionRetirement = false
+    const retiredSessions = new Map<UserKey, { fingerprint: string }>()
+    const originalSessions = new Map<UserKey, string>()
+    const businessRoles = new Set<UserKey>()
     const owned = new Map<string, UserKey>()
     const resources = new Set<string>()
     let allocated = false
@@ -84,14 +111,61 @@ export const test = base.extend<{ caseActors: (roles: readonly UserKey[]) => Pro
       if (!value) throw new Error(`Undeclared case actor: ${key}`)
       return value
     }
-    const registerContext = (role: UserKey, kind: ContextOwner["kind"], context: BrowserContext) => {
+    const registerContext = (role: UserKey | null, kind: ContextOwner["kind"], context: BrowserContext) => {
       contexts.set(context, { role, kind, ordinal: contextCount++ })
     }
     const retireContext = (context: BrowserContext) => {
       const owner = contexts.get(context)
       if (owner) contextOutcomes.push({ ...owner, closed: true })
       contexts.delete(context)
+      closedContexts.add(context)
     }
+    const closeContext = async (context: BrowserContext): Promise<void> => {
+      if (closedContexts.has(context)) return
+      if (!contexts.has(context)) throw new Error("Context belongs to a different case owner")
+      const pending = closingContexts.get(context)
+      if (pending) return pending
+      const closing = (async () => { await context.close(); retireContext(context) })()
+      closingContexts.set(context, closing)
+      try { await closing } finally { closingContexts.delete(context) }
+    }
+    const newContext = async (options: BrowserContextOptions | undefined, role: UserKey | null): Promise<BrowserContext> => {
+      if (exiting) throw new Error("Case owner is exiting")
+      const creation = (async () => {
+        const context = await browser.newContext(options)
+        registerContext(role, role === null ? "anonymous" : "actor", context)
+        if (exiting) {
+          await closeContext(context)
+          throw new Error("Context creation completed after its case owner started exiting")
+        }
+        return context
+      })()
+      creatingContexts.add(creation)
+      try { return await creation } finally { creatingContexts.delete(creation) }
+    }
+    const own = <T>(value: T, dispose: (value: T) => Promise<void>): OwnedCaseResource<T> => {
+      if (exiting) throw new Error("Case owner is exiting")
+      let closed = false
+      let pending: Promise<void> | undefined
+      const resource: OwnedCaseResource<T> = {
+        value,
+        close: async () => {
+          if (closed) return
+          if (pending) return pending
+          pending = (async () => {
+            await dispose(value)
+            closed = true
+            operations.delete(resource as OwnedCaseResource<unknown>)
+            operationOutcomes.push(true)
+          })()
+          try { await pending } finally { pending = undefined }
+        },
+      }
+      operations.add(resource as OwnedCaseResource<unknown>)
+      operationCount += 1
+      return resource
+    }
+    const caseResources: CaseResources = { newContext: (options) => newContext(options, null), closeContext, own }
     const sessionCookie = (key: UserKey): string => {
       const state = JSON.parse(readFileSync(user(key).storageState, "utf8")) as { cookies: Array<{ name: string; value: string }> }
       return state.cookies.filter((cookie) => cookie.name.startsWith("better-auth")).map((cookie) => `${cookie.name}=${cookie.value}`).join("; ")
@@ -107,7 +181,7 @@ export const test = base.extend<{ caseActors: (roles: readonly UserKey[]) => Pro
       const body = await read(key, path)
       if (!Array.isArray(body[field]) || body[field].length !== 0) throw new Error(`Case baseline ${key} ${field} must be empty`)
     }
-    const seed = createSeed({
+    const originalSeed = createSeed({
       sessionCookie,
       userId: (key) => user(key).userId,
       users: () => users,
@@ -126,10 +200,75 @@ export const test = base.extend<{ caseActors: (roles: readonly UserKey[]) => Pro
         }
       },
     })
+    const seed = Object.fromEntries(Object.entries(originalSeed).map(([name, operation]) => [name, (...args: unknown[]) => {
+      if (typeof args[0] === "string" && USER_KEYS.includes(args[0] as UserKey)) businessRoles.add(args[0] as UserKey)
+      return (operation as (...values: unknown[]) => unknown)(...args)
+    }])) as CaseSeed
+    const cleanupOwned = async (excluded: ReadonlySet<UserKey>): Promise<unknown[]> => {
+      const errors: unknown[] = []
+      const creations = await Promise.allSettled([...creatingContexts])
+      for (const result of creations) if (result.status === "rejected") errors.push(result.reason)
+      for (const operation of [...operations].reverse()) {
+        try { await operation.close() } catch (error) { operationOutcomes.push(false); errors.push(error) }
+      }
+      for (const [context, owner] of contexts) {
+        try { await closeContext(context) } catch (error) { contextOutcomes.push({ ...owner, closed: false }); errors.push(error) }
+      }
+      for (const key of Object.keys(users) as UserKey[]) {
+        if (excluded.has(key)) continue
+        try {
+          const listed = await read(key, "/api/community/servers")
+          if (!Array.isArray(listed.servers)) throw new Error(`Case cleanup ${key} has no server list`)
+          for (const server of listed.servers as Array<{ id: string; ownerId: string }>) {
+            if (server.ownerId === user(key).userId) {
+              owned.set(server.id, key)
+              resources.add(`server:${server.id}`)
+            }
+          }
+        } catch (error) { errors.push(error) }
+      }
+      for (const [id, owner] of owned) {
+        try {
+          await originalSeed.retireSeedServers(owner, [id])
+          owned.delete(id)
+          serverOutcomes.push({ owner, id, retired: true })
+        } catch (error) { serverOutcomes.push({ owner, id, retired: false }); errors.push(error) }
+      }
+      for (const key of Object.keys(users) as UserKey[]) {
+        if (excluded.has(key)) continue
+        try { await assertEmpty(key, "/api/community/servers", "servers") } catch (error) { errors.push(error) }
+      }
+      return errors
+    }
+    const serverOutcomes: Array<{ owner: UserKey; id: string; retired: boolean }> = []
+    const confirmSignedOut = async (role: UserKey, evidence: SignedOutEvidence): Promise<void> => {
+      if (role !== "logout" || !testInfo.file.endsWith("10-eject-nav-auth.spec.ts")) throw new Error("Session retirement is restricted to the original logout journey")
+      const actor = user(role)
+      const cookie = originalSessions.get(role)
+      const contextOwner = contexts.get(evidence.context)
+      if (!cookie || contextOwner?.role !== role || contextOwner.kind !== "actor" || evidence.page.context() !== evidence.context) throw new Error("Sign-out evidence has a different case, role, context or original session")
+      if (retiredSessions.has(role)) throw new Error("Original session retirement was already confirmed")
+      const responseUrl = new URL(evidence.protectedResponse.url())
+      const location = evidence.protectedResponse.headers().location
+      const redirect = location ? new URL(location, WEB_URL) : undefined
+      const pageUrl = new URL(evidence.page.url())
+      if (responseUrl.origin !== WEB_URL || responseUrl.pathname !== "/c" || evidence.protectedResponse.status() !== 307 || redirect?.origin !== WEB_URL || redirect.pathname !== "/sign-in" || redirect.searchParams.get("redirect") !== "/c" || pageUrl.origin !== WEB_URL || pageUrl.pathname !== "/sign-in" || (await evidence.context.cookies()).some((value) => value.name.startsWith("better-auth"))) throw new Error("Original cookie and protected redirect sign-out proof is incomplete")
+      if (businessRoles.has(role) || [...owned.values()].includes(role)) throw new Error("Logout role has unresolved or unknown business resources")
+      pendingSessionRetirement = true
+      exiting = true
+      const errors = await cleanupOwned(new Set([role]))
+      if (errors.length || operations.size || contexts.size || owned.size) throw new AggregateError(errors, "Sign-out cannot retire a session with unresolved case resources")
+      const response = await fetch(`${WEB_URL}/api/ws/token?refresh=1`, { headers: { Cookie: cookie, Origin: WEB_URL } })
+      if (response.status !== 401 || response.headers.get("content-type") !== "text/plain;charset=UTF-8" || await response.text() !== "Unauthorized") throw new Error("Original session did not produce the authoritative normal empty-session response")
+      const fingerprint = createHash("sha256").update(cookie).digest("hex")
+      await testInfo.attach("case-session-retirement", { body: JSON.stringify({ identity, role, userId: actor.userId, fingerprint, request: "/api/ws/token?refresh=1", status: 401, normalEmptySession: true, unresolvedOperations: operations.size, unresolvedContexts: contexts.size, unresolvedServers: owned.size }), contentType: "application/json" })
+      retiredSessions.set(role, { fingerprint })
+      pendingSessionRetirement = false
+    }
     let bodyError: unknown
     let bodyFailed = false
     try {
-      await provide(async (roles) => {
+      const allocate: CaseExitOwner["allocate"] = async (roles) => {
         if (allocated) throw new Error("A test must allocate its case actors once and reuse them for all devices")
         allocated = true
         const state = readLifecycleState(SERVICE_STATE_PATH)
@@ -141,6 +280,7 @@ export const test = base.extend<{ caseActors: (roles: readonly UserKey[]) => Pro
             created: (context) => registerContext(key, "login", context),
             closed: retireContext,
           })
+          originalSessions.set(key, sessionCookie(key))
           const profile = await read(key, "/api/community/users/me/profile")
           if (profile.id !== user(key).userId || profile.name !== user(key).name) throw new Error(`Case baseline ${key} has a different profile identity`)
           if (profile.aboutMe !== "" || profile.avatarVersion !== 0 || profile.bannerColor !== null || profile.statusEmoji !== null || profile.statusText !== "") throw new Error(`Case baseline ${key} has modified profile defaults`)
@@ -160,8 +300,7 @@ export const test = base.extend<{ caseActors: (roles: readonly UserKey[]) => Pro
         await testInfo.attach("case-actor-ownership", { body: JSON.stringify({ identity, actors: roles.map((key) => ({ key, userId: user(key).userId })) }), contentType: "application/json" })
         return {
           asUser: async (key, options) => {
-            const context = await browser.newContext({ ...options, storageState: user(key).storageState })
-            registerContext(key, "actor", context)
+            const context = await newContext({ ...options, storageState: user(key).storageState }, key)
             const page = await context.newPage()
             return { context, page }
           },
@@ -169,47 +308,23 @@ export const test = base.extend<{ caseActors: (roles: readonly UserKey[]) => Pro
           userName: (key) => user(key).name,
           sessionCookie,
           seed,
-          onCleanup: (operation) => { cleanup.push(operation) },
+          onCleanup: (operation) => { own(operation, async (captured) => { await captured() }) },
+          confirmSignedOut,
         }
-      })
+      }
+      await provide({ allocate, resources: caseResources })
     } catch (error) {
       bodyError = error
       bodyFailed = true
     } finally {
-      const errors: unknown[] = []
-      const outcomes = { operations: [] as boolean[], contexts: contextOutcomes, servers: [] as Array<{ owner: UserKey; id: string; retired: boolean }> }
-      for (const operation of cleanup.reverse()) {
-        try { await operation(); outcomes.operations.push(true) } catch (error) { outcomes.operations.push(false); errors.push(error) }
-      }
-      for (const [context, owner] of contexts) {
-        try { await context.close(); retireContext(context) } catch (error) { outcomes.contexts.push({ ...owner, closed: false }); errors.push(error) }
-      }
-      for (const key of Object.keys(users) as UserKey[]) {
-        try {
-          const listed = await read(key, "/api/community/servers")
-          if (!Array.isArray(listed.servers)) throw new Error(`Case cleanup ${key} has no server list`)
-          for (const server of listed.servers as Array<{ id: string; ownerId: string }>) {
-            if (server.ownerId === user(key).userId) {
-              owned.set(server.id, key)
-              resources.add(`server:${server.id}`)
-            }
-          }
-        } catch (error) { errors.push(error) }
-      }
-      for (const [id, owner] of owned) {
-        try {
-          await seed.retireSeedServers(owner, [id])
-          owned.delete(id)
-          outcomes.servers.push({ owner, id, retired: true })
-        } catch (error) { outcomes.servers.push({ owner, id, retired: false }); errors.push(error) }
-      }
-      for (const key of Object.keys(users) as UserKey[]) {
-        try { await assertEmpty(key, "/api/community/servers", "servers") } catch (error) { errors.push(error) }
-      }
+      exiting = true
+      const errors = await cleanupOwned(new Set(retiredSessions.keys()))
+      if (pendingSessionRetirement) errors.push(new Error("Original session retirement remains unresolved"))
+      const outcomes = { operations: operationOutcomes, contexts: contextOutcomes, servers: serverOutcomes }
       try {
-        await testInfo.attach("case-cleanup", { body: JSON.stringify({ identity, requestedContexts: contextCount, requestedOperations: cleanup.length, outcomes }), contentType: "application/json" })
+        await testInfo.attach("case-cleanup", { body: JSON.stringify({ identity, requestedContexts: contextCount, requestedOperations: operationCount, outcomes }), contentType: "application/json" })
       } catch (error) { errors.push(error) }
-      const failure: CleanupFailure = { identity, unresolvedServers: [...owned].map(([id, owner]) => ({ owner, id })), unresolvedContexts: [...contexts.values()], errorCount: errors.length }
+      const failure: CleanupFailure = { identity, unresolvedServers: [...owned].map(([id, owner]) => ({ owner, id })), unresolvedContexts: [...contexts.values()], unresolvedOperations: operations.size, pendingSessionRetirement, errorCount: errors.length }
       if (errors.length > 0) {
         try {
           if (!existsSync(failurePath)) writeFileSync(failurePath, JSON.stringify(failure), { flag: "wx", mode: 0o600 })

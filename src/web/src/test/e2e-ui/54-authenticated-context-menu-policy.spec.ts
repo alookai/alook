@@ -1,7 +1,7 @@
 import type { Locator, Page } from "@playwright/test"
-import { test, expect } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
-import { seedChannel, seedMessage, seedServer } from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
 
 type ContextMenuProbe = {
@@ -92,7 +92,11 @@ async function dismissContextMenu(page: Page) {
   await page.waitForTimeout(150)
 }
 
-test("Community owns ordinary context menus and preserves native exceptions", async ({ asUser }) => {
+test("Community owns ordinary context menus and preserves native exceptions", async ({ caseActors }) => {
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedMessage, seedServer } = actors.seed
+
   const serverId = await seedServer("alice", `Context policy ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "context-policy")
   const messageId = await seedMessage("alice", channelId, `Context policy row ${Date.now()}`)
@@ -155,7 +159,10 @@ test("Community owns ordinary context menus and preserves native exceptions", as
   expect(writes).toEqual([])
 })
 
-test("public, auth, and invite routes remain browser owned", async ({ page, asUser }) => {
+test("public, auth, and invite routes remain browser owned", async ({ page, caseActors }) => {
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+
   const invitePath = "/c/invite/not-a-real-token"
   let inviteDocuments = 0
   page.on("request", request => {

@@ -1,55 +1,82 @@
-import { test, expect, sessionCookie } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { WEB_URL } from "./_setup/paths"
+import type { CaseActors, CaseResources } from "./_fixtures/case-fixture"
+
+async function prepareCase(actors: CaseActors, caseResources: CaseResources) {
+  const { sessionCookie } = actors
+  function aliceHeaders(extra?: Record<string, string>) {
+    return {
+      Cookie: sessionCookie("alice"),
+      Origin: WEB_URL,
+      ...extra,
+    }
+  }
+  async function pairMachine(): Promise<string> {
+    const pair = await fetch(`${WEB_URL}/api/community/machines/pair`, {
+      method: "POST",
+      headers: aliceHeaders(),
+    })
+    expect(pair.status).toBe(200)
+    const { tokenId } = await pair.json() as {
+      tokenId: string
+    }
+    const activationProof: { response?: Response; machineId?: string } = {}
+    const pairingToken = caseResources.own(tokenId, async () => {
+      if (!activationProof.response?.ok || !activationProof.machineId) throw new Error("Pairing token consumption is UNKNOWN; this case must stop")
+    })
+    const activate = await fetch(`${WEB_URL}/api/community/daemon/activate`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${tokenId}`,
+        "Content-Type": "application/json",
+        Origin: WEB_URL,
+      },
+      body: JSON.stringify({
+        hostname: `avatar-e2e-${Date.now()}`,
+        platform: "darwin",
+        arch: "arm64",
+        runtimeReport: [{ id: "codex", status: "healthy" }],
+      }),
+    })
+    expect(activate.status).toBe(200)
+    const body = await activate.json() as {
+      machineId: string
+    }
+    const machineId = body.machineId
+    caseResources.own(machineId, async (id) => {
+      const response = await fetch(`${WEB_URL}/api/community/machines/${id}`, { method: "DELETE", headers: aliceHeaders() })
+      expect([204, 404]).toContain(response.status)
+    })
+    activationProof.response = activate
+    activationProof.machineId = machineId
+    await pairingToken.close()
+    return machineId
+  }
+  async function createBot(machineId: string, name: string): Promise<string> {
+    const response = await fetch(`${WEB_URL}/api/community/bots`, {
+      method: "POST",
+      headers: aliceHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ name, machineId, runtime: "codex" }),
+    })
+    expect(response.status).toBe(201)
+    const body = await response.json() as {
+      bot: {
+        id: string
+      }
+    }
+    const botId = body.bot.id
+    caseResources.own(botId, async (id) => {
+      const response = await fetch(`${WEB_URL}/api/community/bots/${id}`, { method: "DELETE", headers: aliceHeaders() })
+      expect([204, 404]).toContain(response.status)
+    })
+    return botId
+  }
+  return { aliceHeaders, pairMachine, createBot }
+}
 
 const ONE_PIXEL_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nL8AAAAASUVORK5CYII="
-
-function aliceHeaders(extra?: Record<string, string>) {
-  return {
-    Cookie: sessionCookie("alice"),
-    Origin: WEB_URL,
-    ...extra,
-  }
-}
-
-async function pairMachine(): Promise<string> {
-  const pair = await fetch(`${WEB_URL}/api/community/machines/pair`, {
-    method: "POST",
-    headers: aliceHeaders(),
-  })
-  expect(pair.status).toBe(200)
-  const { tokenId } = await pair.json() as { tokenId: string }
-
-  const activate = await fetch(`${WEB_URL}/api/community/daemon/activate`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${tokenId}`,
-      "Content-Type": "application/json",
-      Origin: WEB_URL,
-    },
-    body: JSON.stringify({
-      hostname: `avatar-e2e-${Date.now()}`,
-      platform: "darwin",
-      arch: "arm64",
-      runtimeReport: [{ id: "codex", status: "healthy" }],
-    }),
-  })
-  expect(activate.status).toBe(200)
-  const body = await activate.json() as { machineId: string }
-  return body.machineId
-}
-
-async function createBot(machineId: string, name: string): Promise<string> {
-  const response = await fetch(`${WEB_URL}/api/community/bots`, {
-    method: "POST",
-    headers: aliceHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify({ name, machineId, runtime: "codex" }),
-  })
-  expect(response.status).toBe(201)
-  const body = await response.json() as { bot: { id: string } }
-  return body.bot.id
-}
 
 async function uploadAvatar(
   page: import("@playwright/test").Page,
@@ -73,8 +100,13 @@ async function uploadAvatar(
   }, { id: botId, base64: ONE_PIXEL_PNG_BASE64 })
 }
 
-test("real bot avatars become unreadable after single delete and authenticated machine cascade", async ({ asUser }) => {
+test("real bot avatars become unreadable after single delete and authenticated machine cascade", async ({ caseActors, caseResources }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { aliceHeaders, pairMachine, createBot } = await prepareCase(actors, caseResources)
+
   const machineId = await pairMachine()
   const botName = `Avatar cleanup ${Date.now()}`
   const botId = await createBot(machineId, botName)
@@ -87,6 +119,7 @@ test("real bot avatars become unreadable after single delete and authenticated m
 
   let releaseAvatar!: () => void
   const avatarGate = new Promise<void>((resolve) => { releaseAvatar = resolve })
+  caseResources.own(releaseAvatar, async (captured) => { captured() })
   let failAvatar = true
   let avatarRequests = 0
   await alice.page.route(`**${avatarPath}*`, async (route) => {

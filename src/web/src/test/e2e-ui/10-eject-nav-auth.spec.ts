@@ -1,24 +1,32 @@
-import { test, expect } from "./_fixtures/community-fixture"
-import { seedServer, seedChannel } from "./_fixtures/seed"
+import { test, expect } from "./_fixtures/case-fixture"
+
+import type { CaseActors } from "./_fixtures/case-fixture"
 
 // Journey 10 — eject / navigation / logout safety.
-test.describe.serial("eject, navigation & logout", () => {
-  let serverId: string
-  let channelId: string
+test.describe("eject, navigation & logout", () => {
+  async function prepareCase1(actors: CaseActors) {
+    const { seedServer, seedChannel } = actors.seed
+    const serverId: string = await seedServer("alice", `Eject ${Date.now()}`)
+    const channelId: string = await seedChannel("alice", serverId, "eject-chan")
+    return { serverId, channelId }
+  }
 
-  test.beforeAll(async () => {
-    serverId = await seedServer("alice", `Eject ${Date.now()}`)
-    channelId = await seedChannel("alice", serverId, "eject-chan")
-  })
+  test("direct URL to a server you're not in redirects away", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "carol"])
+    const { asUser } = actors
+    const { serverId, channelId } = await prepareCase1(actors)
 
-  test("direct URL to a server you're not in redirects away", async ({ asUser }) => {
     // Carol is not a member.
     const { page } = await asUser("carol")
     await page.goto(`/c/channels/${serverId}/${channelId}`)
     await expect(page).not.toHaveURL(new RegExp(`/channels/${serverId}/${channelId}$`), { timeout: 20_000 })
   })
 
-  test("clicking a rail server lands on a channel, not the bare server root", async ({ asUser }) => {
+  test("clicking a rail server lands on a channel, not the bare server root", async ({ caseActors }) => {
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+    const { serverId } = await prepareCase1(actors)
+
     // Alice owns the server; navigating via the rail resolves to a channel.
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}`)
@@ -27,7 +35,11 @@ test.describe.serial("eject, navigation & logout", () => {
     expect(page.url()).toMatch(new RegExp(`/channels/${serverId}/[^/]+`))
   })
 
-  test("logout clears the session", async ({ asUser }) => {
+  test("logout clears the session", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "logout"])
+    const { asUser } = actors
+    await prepareCase1(actors)
+
     const { page } = await asUser("logout")
     await page.goto("/c")
     await page.waitForURL(/\/c/, { timeout: 20_000 , waitUntil: "commit" })
@@ -48,5 +60,6 @@ test.describe.serial("eject, navigation & logout", () => {
     expect(redirectUrl.pathname).toBe("/sign-in")
     expect(redirectUrl.searchParams.get("redirect")).toBe("/c")
     await expect(page).toHaveURL(/\/sign-in/)
+    await actors.confirmSignedOut("logout", { context: page.context(), page, protectedResponse })
   })
 })

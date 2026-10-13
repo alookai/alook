@@ -1,15 +1,6 @@
-import { test, expect, userId } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable, expectMessageVisible, gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
-import {
-  memberInfo,
-  seedChannel,
-  seedDm,
-  seedDmMessage,
-  seedForumThread,
-  seedJoinServer,
-  seedMessage,
-  seedServer,
-} from "./_fixtures/seed"
+
 import {
   communityFrameEvents,
   isCommunityBatchFrame,
@@ -25,8 +16,12 @@ function messageFrame(frame: CapturedCommunityFrame, channelId: string, content:
     && event.message?.content?.includes(content))
 }
 
-test.describe.serial("committed message delivery QA", () => {
-  test("Q4: a readable nonparticipant gets child content and parent projection without notifications", async ({ asUser }) => {
+test.describe("committed message delivery QA", () => {
+  test("Q4: a readable nonparticipant gets child content and parent projection without notifications", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser, userId } = actors
+    const { seedChannel, seedForumThread, seedJoinServer, seedServer } = actors.seed
+
     const serverId = await seedServer("alice", `Parent projection ${Date.now()}`)
     const forumId = await seedChannel("alice", serverId, "parent-projection", "forum")
     await seedJoinServer("alice", "bob", serverId)
@@ -65,7 +60,11 @@ test.describe.serial("committed message delivery QA", () => {
     await expect(carol.page.getByText(body, { exact: false })).toHaveCount(0)
   })
 
-  test("Q7 channel: a held mention bundle is repaired before late release", async ({ asUser }) => {
+  test("Q7 channel: a held mention bundle is repaired before late release", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser, userId } = actors
+    const { memberInfo, seedChannel, seedJoinServer, seedMessage, seedServer } = actors.seed
+
     const serverId = await seedServer("alice", `Gap channel ${Date.now()}`)
     const channelId = await seedChannel("alice", serverId, "gap-channel")
     await seedJoinServer("alice", "bob", serverId)
@@ -139,7 +138,11 @@ test.describe.serial("committed message delivery QA", () => {
     }, { timeout: 20_000 }).toBe(true)
   })
 
-  test("Q7 DM: a dropped message frame is repaired when a later seq arrives", async ({ asUser }) => {
+  test("Q7 DM: a dropped message frame is repaired when a later seq arrives", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser, userId } = actors
+    const { seedDm, seedDmMessage } = actors.seed
+
     const dmId = await seedDm("alice", userId("bob"))
     await seedDmMessage("alice", dmId, "dm gap baseline")
     const bob = await asUser("bob")
@@ -180,7 +183,11 @@ test.describe.serial("committed message delivery QA", () => {
     expect(gapRequests.length).toBeGreaterThan(0)
   })
 
-  test("Q8: capable duplicate suppression ends safely at full reload", async ({ asUser }) => {
+  test("Q8: capable duplicate suppression ends safely at full reload", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser, userId } = actors
+    const { memberInfo, seedChannel, seedJoinServer, seedServer } = actors.seed
+
     const serverId = await seedServer("alice", `Atomic batch ${Date.now()}`)
     const channelId = await seedChannel("alice", serverId, "atomic-batch")
     await seedJoinServer("alice", "bob", serverId)
@@ -251,7 +258,11 @@ test.describe.serial("committed message delivery QA", () => {
     await expect(bob.page.getByTestId(tid.message(messageId!))).toHaveCount(1)
   })
 
-  test("Q9: every receiver gets the same batch-only channel and DM delivery", async ({ asUser }) => {
+  test("Q9: every receiver gets the same batch-only channel and DM delivery", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser, userId } = actors
+    const { memberInfo, seedChannel, seedDm, seedJoinServer, seedServer } = actors.seed
+
     const serverId = await seedServer("alice", `Batch receivers ${Date.now()}`)
     const channelId = await seedChannel("alice", serverId, "batch-receivers")
     await seedJoinServer("alice", "bob", serverId)

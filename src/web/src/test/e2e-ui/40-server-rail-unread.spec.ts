@@ -1,7 +1,7 @@
 import type { Locator, Page, Response } from "@playwright/test"
-import { expect, test, userId } from "./_fixtures/community-fixture"
+import { expect, test } from "./_fixtures/case-fixture"
 import { composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
-import { memberInfo, seedChannel, seedJoinServer, seedMessage, seedServer } from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
 
 async function indicatorHeight(indicator: Locator) {
@@ -47,8 +47,13 @@ async function combineServers(page: Page, sourceId: string, targetId: string) {
   }
 }
 
-test("server unread owns exact rail geometry, folder aggregation, read clear, and mobile parity", async ({ asUser }, testInfo) => {
+test("server unread owns exact rail geometry, folder aggregation, read clear, and mobile parity", async ({ caseActors }, testInfo) => {
   test.setTimeout(150_000)
+
+  const actors = await caseActors(["alice", "bob"])
+  const { asUser, userId } = actors
+  const { memberInfo, seedChannel, seedJoinServer, seedMessage, seedServer } = actors.seed
+
   const stamp = Date.now()
   const foregroundServer = await seedServer("alice", `Unread foreground ${stamp}`)
   const backgroundServer = await seedServer("alice", `Unread background ${stamp}`)

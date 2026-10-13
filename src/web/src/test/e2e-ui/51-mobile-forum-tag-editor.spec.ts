@@ -1,8 +1,24 @@
 import type { Page } from "@playwright/test"
-import { test, expect } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
-import { seedChannel, seedForumThread, seedServer } from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
+import type { CaseActors, CaseResources } from "./_fixtures/case-fixture"
+
+async function prepareCase(actors: CaseActors) {
+  const { seedChannel, seedForumThread, seedServer } = actors.seed
+  async function seedForum(label: string) {
+    const serverId = await seedServer("alice", `${label} ${Date.now()}`)
+    const forumId = await seedChannel("alice", serverId, "tag-editor", "forum")
+    const threadId = await seedForumThread("alice", forumId, `Post ${Date.now()}`, "tag editor body")
+    return {
+      route: `/c/channels/${serverId}/${forumId}`,
+      forumId,
+      threadId,
+    }
+  }
+  return { seedForum }
+}
 
 function observeTagPuts(page: Page): string[] {
   const writes: string[] = []
@@ -13,15 +29,17 @@ function observeTagPuts(page: Page): string[] {
   return writes
 }
 
-async function gateNextTagPut(page: Page) {
+async function gateNextTagPut(page: Page, caseResources: CaseResources) {
   let release!: () => void
   let sawRequest!: () => void
   const gate = new Promise<void>((resolve) => {
     release = resolve
   })
+  caseResources.own(release, async (captured) => { captured() })
   const requested = new Promise<void>((resolve) => {
     sawRequest = resolve
   })
+  caseResources.own(sawRequest, async (captured) => { captured() })
   await page.route("**/api/community/messages/*/tags", async (routeRequest) => {
     const response = await routeRequest.fetch()
     sawRequest()
@@ -31,19 +49,22 @@ async function gateNextTagPut(page: Page) {
   return { release, requested }
 }
 
-async function gateNextForumFeedResponse(page: Page) {
+async function gateNextForumFeedResponse(page: Page, caseResources: CaseResources) {
   let release!: () => void
   let sawResponse!: () => void
   let finished!: () => void
   const gate = new Promise<void>((resolve) => {
     release = resolve
   })
+  caseResources.own(release, async (captured) => { captured() })
   const captured = new Promise<void>((resolve) => {
     sawResponse = resolve
   })
+  caseResources.own(sawResponse, async (captured) => { captured() })
   const delivered = new Promise<void>((resolve) => {
     finished = resolve
   })
+  caseResources.own(finished, async (captured) => { captured() })
   await page.route(/\/api\/community\/channels\/[^/]+\/threads\?/, async (routeRequest) => {
     const response = await routeRequest.fetch()
     sawResponse()
@@ -52,17 +73,6 @@ async function gateNextForumFeedResponse(page: Page) {
     finished()
   }, { times: 1 })
   return { release, captured, delivered }
-}
-
-async function seedForum(label: string) {
-  const serverId = await seedServer("alice", `${label} ${Date.now()}`)
-  const forumId = await seedChannel("alice", serverId, "tag-editor", "forum")
-  const threadId = await seedForumThread("alice", forumId, `Post ${Date.now()}`, "tag editor body")
-  return {
-    route: `/c/channels/${serverId}/${forumId}`,
-    forumId,
-    threadId,
-  }
 }
 
 async function openEditor(page: Page, threadId: string) {
@@ -83,8 +93,17 @@ async function addDraft(page: Page, tag: string) {
   )
 }
 
-test.describe.serial("forum tag editor", () => {
-  test("keeps Archived out of the tag editor and toggles it from the row action", async ({ asUser }, testInfo) => {
+test.describe("forum tag editor", () => {
+  async function prepareCase1(actors: CaseActors) {
+    const { seedForum } = await prepareCase(actors)
+    return { seedForum }
+  }
+
+  test("keeps Archived out of the tag editor and toggles it from the row action", async ({ caseActors, caseResources }, testInfo) => {
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+    const { seedForum } = await prepareCase1(actors)
+
     const { route, threadId } = await seedForum("Archived row action")
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 1280, height: 900 })
@@ -116,7 +135,7 @@ test.describe.serial("forum tag editor", () => {
       body: await page.screenshot(),
       contentType: "image/png",
     })
-    const archiveGate = await gateNextTagPut(page)
+    const archiveGate = await gateNextTagPut(page, caseResources)
     const archivedSave = page.waitForResponse((response) => (
       response.request().method() === "PUT"
       && new URL(response.url()).pathname.endsWith("/tags")
@@ -163,7 +182,7 @@ test.describe.serial("forum tag editor", () => {
       contentType: "image/png",
     })
     await page.emulateMedia({ colorScheme: "light" })
-    const unarchiveGate = await gateNextTagPut(page)
+    const unarchiveGate = await gateNextTagPut(page, caseResources)
     const restoredSave = page.waitForResponse((response) => (
       response.request().method() === "PUT"
       && new URL(response.url()).pathname.endsWith("/tags")
@@ -184,7 +203,11 @@ test.describe.serial("forum tag editor", () => {
     expect(writes).toHaveLength(4)
   })
 
-  test("keeps a cancelled stale feed response behind the active archive generation", async ({ asUser }) => {
+  test("keeps a cancelled stale feed response behind the active archive generation", async ({ caseActors, caseResources }) => {
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+    const { seedForum } = await prepareCase1(actors)
+
     const { route, threadId } = await seedForum("Archive stale feed fence")
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 1280, height: 900 })
@@ -192,7 +215,7 @@ test.describe.serial("forum tag editor", () => {
     const card = page.getByTestId(tid.forumThreadCard(threadId))
     await expect(card).toBeVisible()
 
-    const staleFeed = await gateNextForumFeedResponse(page)
+    const staleFeed = await gateNextForumFeedResponse(page, caseResources)
     await openEditor(page, threadId)
     await addDraft(page, "stale-source")
     const ordinarySave = page.waitForResponse((response) => (
@@ -219,7 +242,11 @@ test.describe.serial("forum tag editor", () => {
     await expect(card).toHaveCount(0)
   })
 
-  test("converges Archive and Unarchive across two tabs", async ({ asUser }) => {
+  test("converges Archive and Unarchive across two tabs", async ({ caseActors }) => {
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+    const { seedForum } = await prepareCase1(actors)
+
     const { route, forumId, threadId } = await seedForum("Archive cross tab")
     const tabA = await asUser("alice")
     const tabB = await asUser("alice")
@@ -281,7 +308,11 @@ test.describe.serial("forum tag editor", () => {
     }
   })
 
-  test("discards implicit close and commits only explicit Save", async ({ asUser }) => {
+  test("discards implicit close and commits only explicit Save", async ({ caseActors }) => {
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+    const { seedForum } = await prepareCase1(actors)
+
     const { route, threadId } = await seedForum("Mobile explicit save")
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 390, height: 844 })
@@ -328,7 +359,11 @@ test.describe.serial("forum tag editor", () => {
     expect(writes).toHaveLength(1)
   })
 
-  test("keeps the row archive state after failure and retries once", async ({ asUser }) => {
+  test("keeps the row archive state after failure and retries once", async ({ caseActors, caseResources }) => {
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+    const { seedForum } = await prepareCase1(actors)
+
     const { route, threadId } = await seedForum("Archive action retry")
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 390, height: 844 })
@@ -340,9 +375,11 @@ test.describe.serial("forum tag editor", () => {
     const failureGate = new Promise<void>((resolve) => {
       releaseFailure = resolve
     })
+    caseResources.own(releaseFailure, async (captured) => { captured() })
     const failureRequested = new Promise<void>((resolve) => {
       sawFailureRequest = resolve
     })
+    caseResources.own(sawFailureRequest, async (captured) => { captured() })
     await page.route("**/api/community/messages/*/tags", async (routeRequest) => {
       if (rejectNext) {
         rejectNext = false
@@ -392,7 +429,11 @@ test.describe.serial("forum tag editor", () => {
     expect(writes).toHaveLength(2)
   })
 
-  test("preserves one session across both breakpoint directions without transition writes", async ({ asUser }) => {
+  test("preserves one session across both breakpoint directions without transition writes", async ({ caseActors }) => {
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+    const { seedForum } = await prepareCase1(actors)
+
     const { route, threadId } = await seedForum("Responsive tag session")
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 639, height: 844 })
@@ -456,7 +497,11 @@ test.describe.serial("forum tag editor", () => {
     expect(writes).toHaveLength(1)
   })
 
-  test("retains the draft after a failed Save and retries once", async ({ asUser }) => {
+  test("retains the draft after a failed Save and retries once", async ({ caseActors }) => {
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+    const { seedForum } = await prepareCase1(actors)
+
     const { route, threadId } = await seedForum("Tag save retry")
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 390, height: 844 })

@@ -1,8 +1,8 @@
-import { test, expect, sessionCookie } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
 import { communityFrameEvents, proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { tid } from "./_fixtures/testids"
-import { seedChannel, seedJoinServer, seedMessage, seedServer } from "./_fixtures/seed"
+
 import { WEB_URL } from "./_setup/paths"
 
 type BodySample = {
@@ -10,8 +10,13 @@ type BodySample = {
   bodies: Array<{ id: string; top: number; bottom: number; height: number }>
 }
 
-test("NEW divider does not fight upward scrolling while a peer message arrives", async ({ asUser }) => {
+test("NEW divider does not fight upward scrolling while a peer message arrives", async ({ caseActors }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice", "bob", "carol"])
+  const { asUser, sessionCookie } = actors
+  const { seedChannel, seedJoinServer, seedMessage, seedServer } = actors.seed
+
   const serverId = await seedServer("alice", `NEW scroll ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "new-scroll")
   await seedJoinServer("alice", "bob", serverId)
@@ -135,8 +140,13 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
   expect(upwardProgress).toBeGreaterThan(600)
 })
 
-test("New reading near the tail survives peer and remote-self messages until the current composer submits", async ({ asUser }) => {
+test("New reading near the tail survives peer and remote-self messages until the current composer submits", async ({ caseActors }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice", "bob", "carol"])
+  const { asUser, sessionCookie } = actors
+  const { seedChannel, seedJoinServer, seedMessage, seedServer } = actors.seed
+
   const serverId = await seedServer("alice", `NEW near tail ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "new-near-tail")
   await seedJoinServer("alice", "bob", serverId)

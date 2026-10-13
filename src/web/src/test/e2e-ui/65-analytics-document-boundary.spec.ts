@@ -1,5 +1,5 @@
 import type { APIResponse, Locator, Page, Request, Route } from "@playwright/test"
-import { expect, test } from "./_fixtures/community-fixture"
+import { expect, test } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 
 async function expectDefaultAnalytics(page: Page) {
@@ -125,9 +125,13 @@ test("a saved withdrawal replaces the public document once with the actual denie
 })
 
 for (const signedIn of [false, true]) {
-  test(`Home private entries replace the public document for signed-in=${signedIn}`, async ({ page: guest, asUser }) => {
+  test(`Home private entries replace the public document for signed-in=${signedIn}`, async ({ page: guest, caseActors }) => {
     test.slow()
-    const page = signedIn ? (await asUser("alice")).page : guest
+
+    const actors = signedIn ? await caseActors(["alice"]) : undefined
+    const asUser = actors?.asUser
+
+    const page = signedIn ? (await asUser!("alice")).page : guest
     if (signedIn) {
       await page.goto("/privacy?qa=entry#analytics-choices")
       await savePrivacyChoice(page, "granted", "denied")
@@ -148,9 +152,13 @@ for (const signedIn of [false, true]) {
     }
   })
 
-  test(`Templates and Pricing private entries use document navigation for signed-in=${signedIn}`, async ({ page: guest, asUser }) => {
+  test(`Templates and Pricing private entries use document navigation for signed-in=${signedIn}`, async ({ page: guest, caseActors }) => {
     test.slow()
-    const page = signedIn ? (await asUser("alice")).page : guest
+
+    const actors = signedIn ? await caseActors(["alice"]) : undefined
+    const asUser = actors?.asUser
+
+    const page = signedIn ? (await asUser!("alice")).page : guest
     const destination = signedIn ? "/c/me" : "/sign-in"
     if (signedIn) {
       await page.goto("/privacy?qa=entry#analytics-choices")

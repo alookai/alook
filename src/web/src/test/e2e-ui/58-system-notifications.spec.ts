@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test"
-import { expect, test, userName } from "./_fixtures/community-fixture"
+import { expect, test } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
-import { seedChannel, seedJoinServer, seedMessage, seedServer } from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
 
 type Activation = {
@@ -117,8 +117,12 @@ async function retriedNotifications(page: Page) {
   ).__desktopNotificationTest.retryActivations)
 }
 
-test.describe.serial("desktop system notifications", () => {
-  test("a delivered message+bump bundle invokes the native command with the exact target", async ({ asUser }) => {
+test.describe("desktop system notifications", () => {
+  test("a delivered message+bump bundle invokes the native command with the exact target", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser, userName } = actors
+    const { seedChannel, seedJoinServer, seedMessage, seedServer } = actors.seed
+
     const stamp = Date.now()
     const serverName = `notification-live-${stamp}`
     const channelName = `notification-live-${stamp}`
@@ -147,8 +151,13 @@ test.describe.serial("desktop system notifications", () => {
     ])
   })
 
-  test("a cold activation starts ordinary conversation navigation without a document reload", async ({ asUser }) => {
+  test("a cold activation starts ordinary conversation navigation without a document reload", async ({ caseActors }) => {
     test.setTimeout(90_000)
+
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { seedChannel, seedJoinServer, seedMessage, seedServer } = actors.seed
+
     const stamp = Date.now()
     const serverId = await seedServer("alice", `notification-cold-${stamp}`)
     const channelId = await seedChannel("alice", serverId, `notification-cold-${stamp}`)
@@ -169,7 +178,11 @@ test.describe.serial("desktop system notifications", () => {
     expect(await bob.page.evaluate(() => (window as typeof window & { __desktopNotificationTest: {documentLoads:number} }).__desktopNotificationTest.documentLoads)).toBe(1)
   })
 
-  test("activation starts its target checkpoint before a slow permission response", async ({ asUser }) => {
+  test("activation starts its target checkpoint before a slow permission response", async ({ caseActors, caseResources }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { seedChannel, seedJoinServer, seedMessage, seedServer } = actors.seed
+
     const stamp = Date.now()
     const serverId = await seedServer("alice", `notification-delayed-${stamp}`)
     const channelId = await seedChannel("alice", serverId, `notification-delayed-${stamp}`)
@@ -180,6 +193,7 @@ test.describe.serial("desktop system notifications", () => {
     await gotoAfterUserWsAuth(bob.page, "/c/me/friends")
     let release!: () => void
     const pending = new Promise<void>((resolve) => { release = resolve })
+    caseResources.own(release, async (captured) => { captured() })
     let permissionHeld = false
     await bob.page.route(`**/api/community/channels/${channelId}`, async route => {
       permissionHeld = true

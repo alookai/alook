@@ -1,10 +1,15 @@
-import { test, expect, sessionCookie } from "./_fixtures/community-fixture"
-import { seedChannel, seedJoinServer, seedMessage, seedServer } from "./_fixtures/seed"
+import { test, expect } from "./_fixtures/case-fixture"
+
 import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
 
-test("anchored channel jumps to the newest tail with one request", async ({ asUser }) => {
+test("anchored channel jumps to the newest tail with one request", async ({ caseActors }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice", "bob", "carol"])
+  const { asUser, sessionCookie } = actors
+  const { seedChannel, seedJoinServer, seedMessage, seedServer } = actors.seed
+
   const serverId = await seedServer("alice", `Jump Present ${Date.now()}`)
   await seedJoinServer("alice", "bob", serverId)
   await seedJoinServer("alice", "carol", serverId)

@@ -1,23 +1,27 @@
-import { test, expect, userName } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 import { composerEditable } from "./_fixtures/actions"
-import { seedServer, seedChannel, seedJoinServer } from "./_fixtures/seed"
+
+import type { CaseActors } from "./_fixtures/case-fixture"
 
 // Journey 5 — @-mentions. The mention popup shows SERVER MEMBERS (regression
 // a4672ca2: not the viewer's friends). Bot reply is out of scope (no daemon /
 // queue-worker); we assert the mention UI + that a mention produces an inbox
 // entry for the mentioned user.
-test.describe.serial("mentions", () => {
-  let serverId: string
-  let channelId: string
-
-  test.beforeAll(async () => {
-    serverId = await seedServer("alice", `Mention ${Date.now()}`)
-    channelId = await seedChannel("alice", serverId, "mentions")
+test.describe("mentions", () => {
+  async function prepareCase1(actors: CaseActors) {
+    const { seedServer, seedChannel, seedJoinServer } = actors.seed
+    const serverId: string = await seedServer("alice", `Mention ${Date.now()}`)
+    const channelId: string = await seedChannel("alice", serverId, "mentions")
     await seedJoinServer("alice", "bob", serverId)
-  })
+    return { serverId, channelId }
+  }
 
-  test("the @-mention popup lists server members", async ({ asUser }) => {
+  test("the @-mention popup lists server members", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser, userName } = actors
+    const { serverId, channelId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${channelId}`)
     await page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
@@ -32,7 +36,11 @@ test.describe.serial("mentions", () => {
     ).toBeVisible({ timeout: 15_000 })
   })
 
-  test("@everyone is offered in a channel", async ({ asUser }) => {
+  test("@everyone is offered in a channel", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, channelId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${channelId}`)
     await page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })

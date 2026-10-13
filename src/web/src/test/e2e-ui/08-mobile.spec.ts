@@ -1,14 +1,8 @@
 import type { Page } from "@playwright/test"
-import { test, expect, userId } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
-import {
-  seedServer,
-  seedChannel,
-  seedDm,
-  seedMark,
-  seedMessage,
-  seedThread,
-} from "./_fixtures/seed"
+
+import type { CaseActors } from "./_fixtures/case-fixture"
 
 // Journey 8 — adaptive list/detail routing. At <640px semantic roots render
 // lists and leaf paths render detail. Server and verified-parent header crumbs
@@ -51,23 +45,25 @@ async function expectNoWrongMeConversationLoading(page: Page): Promise<void> {
   ).__wrongMeConversationLoadingSeen)).toBe(false)
 }
 
-test.describe.serial("mobile layout", () => {
-  let serverId: string
-  let channelId: string
-  let childChannelId: string
-  let dmId: string
-
-  test.beforeAll(async () => {
-    serverId = await seedServer("alice", `Mobile ${Date.now()}`)
-    channelId = await seedChannel("alice", serverId, "mobile-chan")
+test.describe("mobile layout", () => {
+  async function prepareCase1(actors: CaseActors) {
+    const { userId } = actors
+    const { seedServer, seedChannel, seedDm, seedMark, seedMessage, seedThread } = actors.seed
+    const serverId: string = await seedServer("alice", `Mobile ${Date.now()}`)
+    const channelId: string = await seedChannel("alice", serverId, "mobile-chan")
     const parentMessageId = await seedMessage("alice", channelId, "mobile seq command target")
-    childChannelId = await seedThread("alice", parentMessageId, "mobile-child")
+    const childChannelId: string = await seedThread("alice", parentMessageId, "mobile-child")
     const childMessageId = await seedMessage("alice", childChannelId, "mobile child seq target")
     await seedMark("alice", childChannelId, childMessageId)
-    dmId = await seedDm("alice", userId("bob"))
-  })
+    const dmId: string = await seedDm("alice", userId("bob"))
+    return { serverId, channelId, childChannelId, dmId }
+  }
 
-  test("whole-page panels fill mobile routes and keep detail identity across 640px", async ({ asUser }) => {
+  test("whole-page panels fill mobile routes and keep detail identity across 640px", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, channelId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
 
     for (const width of [375, 639]) {
@@ -113,7 +109,11 @@ test.describe.serial("mobile layout", () => {
     }
   })
 
-  test("a direct channel opens detail and Back replaces to the server root", async ({ asUser }) => {
+  test("a direct channel opens detail and Back replaces to the server root", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, channelId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${channelId}`)
     await page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
@@ -139,7 +139,11 @@ test.describe.serial("mobile layout", () => {
     await expect(page.getByTestId(tid.composerInput)).toBeHidden()
   })
 
-  test("browser Back and Forward restore list and detail from semantic paths", async ({ asUser }) => {
+  test("browser Back and Forward restore list and detail from semantic paths", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, channelId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}`)
     const channelRow = page.getByTestId(tid.channelRow(channelId))
@@ -159,7 +163,11 @@ test.describe.serial("mobile layout", () => {
     await expect(page.getByTestId(tid.composerInput)).toBeVisible()
   })
 
-  test("Friends, Machines, and Bots deep links all default to content", async ({ asUser }) => {
+  test("Friends, Machines, and Bots deep links all default to content", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await installMeLoadingProbe(page)
 
@@ -177,7 +185,11 @@ test.describe.serial("mobile layout", () => {
     }
   })
 
-  test("detail consumes seq without dropping other URL state", async ({ asUser }) => {
+  test("detail consumes seq without dropping other URL state", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, channelId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${channelId}?seq=1&keep=detail-seq`)
 
@@ -187,7 +199,11 @@ test.describe.serial("mobile layout", () => {
     await expect(page.getByTestId(tid.composerInput)).toBeVisible()
   })
 
-  test("flat child detail consumes seq without dropping route or other URL state", async ({ asUser }) => {
+  test("flat child detail consumes seq without dropping route or other URL state", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, childChannelId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.goto(
       `/c/channels/${serverId}/${childChannelId}?seq=1&keep=child-seq`,
@@ -201,7 +217,11 @@ test.describe.serial("mobile layout", () => {
     await expect(page.getByRole("dialog").getByText("mobile child seq target")).toBeVisible()
   })
 
-  test("a flat child exposes its current identity and direct parent Back control", async ({ asUser }) => {
+  test("a flat child exposes its current identity and direct parent Back control", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, channelId, childChannelId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${childChannelId}`)
     const current = page.getByRole("banner").getByText("mobile-child", { exact: true })
@@ -217,7 +237,11 @@ test.describe.serial("mobile layout", () => {
     expect(await page.evaluate(() => history.length)).toBe(historyLength)
   })
 
-  test("Marked opens a child message on its canonical route without losing context", async ({ asUser }) => {
+  test("Marked opens a child message on its canonical route without losing context", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, childChannelId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.goto("/c/me")
     await page.getByRole("button", { name: "Inbox" }).click()
@@ -231,7 +255,11 @@ test.describe.serial("mobile layout", () => {
     await expect(page.getByRole("dialog").getByText("mobile child seq target")).toBeVisible()
   })
 
-  test("rejects the removed nested route and clears nested last-channel memory", async ({ asUser }) => {
+  test("rejects the removed nested route and clears nested last-channel memory", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, channelId, childChannelId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     const response = await page.goto(
       `/c/channels/${serverId}/${channelId}/${childChannelId}`,
@@ -258,7 +286,11 @@ test.describe.serial("mobile layout", () => {
     )).toBe(selectedChannelId)
   })
 
-  test("server-root modal markers are one-shot on mobile", async ({ asUser }) => {
+  test("server-root modal markers are one-shot on mobile", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId } = await prepareCase1(actors)
+
     for (const marker of ["settings", "invite"]) {
       const { page } = await asUser("alice")
       await page.goto(`/c/channels/${serverId}?${marker}=1&keep=${marker}`)
@@ -293,7 +325,11 @@ test.describe.serial("mobile layout", () => {
     }
   })
 
-  test("a direct DM opens detail and Header Back replaces it with Me root", async ({ asUser }) => {
+  test("a direct DM opens detail and Header Back replaces it with Me root", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { dmId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await installMeLoadingProbe(page)
     await page.goto(`/c/me/${dmId}`)
@@ -307,7 +343,11 @@ test.describe.serial("mobile layout", () => {
     await expect(page.getByTestId(tid.composerInput)).toBeHidden()
   })
 
-  test("cross-layout Back and Forward restore each route-owned surface", async ({ asUser }) => {
+  test("cross-layout Back and Forward restore each route-owned surface", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, channelId, dmId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}`)
     await expect(page.getByTestId(tid.homeButton)).toBeVisible()
@@ -332,7 +372,11 @@ test.describe.serial("mobile layout", () => {
     await expect(page.getByTestId(tid.composerInput)).toBeVisible()
   })
 
-  test("resizing resolves desktop roots to detail without inventing layout URL state", async ({ asUser }) => {
+  test("resizing resolves desktop roots to detail without inventing layout URL state", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, channelId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${channelId}`)
     await expect(page.getByTestId(tid.composerInput)).toBeVisible()

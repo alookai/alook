@@ -3,10 +3,27 @@ import { spawnSync } from "node:child_process"
 import { writeFileSync } from "node:fs"
 import type { Page, TestInfo } from "@playwright/test"
 import { calendarDayKeyDaysAgo, dayKeyInTimeZone } from "@alook/shared"
-import { test, expect, sessionCookie, userId } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { tid } from "./_fixtures/testids"
 import { REPO_ROOT, WEB_URL } from "./_setup/paths"
+import type { CaseActors } from "./_fixtures/case-fixture"
+
+async function prepareCase(actors: CaseActors) {
+  const { sessionCookie } = actors
+  async function postAsAlice(path: string, body?: unknown): Promise<Response> {
+    return fetch(`${WEB_URL}${path}`, {
+      method: "POST",
+      headers: {
+        Cookie: sessionCookie("alice"),
+        "Content-Type": "application/json",
+        Origin: WEB_URL,
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+  }
+  return { postAsAlice }
+}
 
 type D1Result<Row = Record<string, unknown>> = {
   results: Row[]
@@ -31,18 +48,6 @@ function executeLocalD1<Row = Record<string, unknown>>(sql: string): D1Result<Ro
     throw new Error(`local D1 command failed (${result.status}): ${result.stderr}`)
   }
   return JSON.parse(result.stdout) as D1Result<Row>[]
-}
-
-async function postAsAlice(path: string, body?: unknown): Promise<Response> {
-  return fetch(`${WEB_URL}${path}`, {
-    method: "POST",
-    headers: {
-      Cookie: sessionCookie("alice"),
-      "Content-Type": "application/json",
-      Origin: WEB_URL,
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
 }
 
 const dayOverrides: Record<string, { input: number | null; output: number | null; cache: number | null }> = {
@@ -267,7 +272,11 @@ async function expectDarkTheme(page: Page, expected: boolean) {
     .toBe(expected)
 }
 
-test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ asUser }, testInfo) => {
+test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ caseActors }, testInfo) => {
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  await prepareCase(actors)
+
   const { page } = await asUser("alice", { hasTouch: true })
   await page.route("**/api/community/bots", async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(botsResponse) })
@@ -495,10 +504,26 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
   expect(writeRequests).toEqual([])
 })
 
-test("My Bots renders Pi usage through real D1 and the unmocked bots API", async ({ asUser }, testInfo) => {
+test("My Bots renders Pi usage through real D1 and the unmocked bots API", async ({ caseActors, caseResources }, testInfo) => {
+  const actors = await caseActors(["alice"])
+  const { asUser, sessionCookie, userId } = actors
+  const { postAsAlice } = await prepareCase(actors)
+
   const ownerId = userId("alice")
   let machineId: string | undefined
   let botId: string | undefined
+  const ownedD1 = caseResources.own(ownerId, async () => {
+      executeLocalD1([
+        botId ? `DELETE FROM community_bot_daily_token_usage WHERE bot_id = ${sqlLiteral(botId)}` : "",
+        botId ? `DELETE FROM community_bot_binding WHERE user_id = ${sqlLiteral(botId)}` : "",
+        botId ? `DELETE FROM \"user\" WHERE id = ${sqlLiteral(botId)}` : "",
+        machineId ? `DELETE FROM community_machine_credential WHERE machine_id = ${sqlLiteral(machineId)}` : "",
+        `DELETE FROM community_machine_token WHERE user_id = ${sqlLiteral(ownerId)}`,
+        machineId ? `DELETE FROM community_machine WHERE id = ${sqlLiteral(machineId)}` : "",
+      ].filter(Boolean).join(";"))
+  })
+  let caseJourneyFailure1: unknown
+let caseJourneyFailure1Present = false
   try {
     const pairResponse = await postAsAlice("/api/community/machines/pair")
     expect(pairResponse.ok).toBe(true)
@@ -638,16 +663,11 @@ test("My Bots renders Pi usage through real D1 and the unmocked bots API", async
     }, null, 2)}\n`)
     await testInfo.attach("real-pi-browser-observation.json", { path: browserEvidencePath })
     await attachScreenshot(page, testInfo, "real-pi-d1-local-today")
-  } finally {
-    if (botId || machineId) {
-      executeLocalD1([
-        botId ? `DELETE FROM community_bot_daily_token_usage WHERE bot_id = ${sqlLiteral(botId)}` : "",
-        botId ? `DELETE FROM community_bot_binding WHERE user_id = ${sqlLiteral(botId)}` : "",
-        botId ? `DELETE FROM \"user\" WHERE id = ${sqlLiteral(botId)}` : "",
-        machineId ? `DELETE FROM community_machine_credential WHERE machine_id = ${sqlLiteral(machineId)}` : "",
-        `DELETE FROM community_machine_token WHERE user_id = ${sqlLiteral(ownerId)}`,
-        machineId ? `DELETE FROM community_machine WHERE id = ${sqlLiteral(machineId)}` : "",
-      ].filter(Boolean).join(";"))
-    }
+  } catch (error) { caseJourneyFailure1 = error; caseJourneyFailure1Present = true; throw error } finally {
+    try {
+
+      await ownedD1.close()
+
+    } catch (cleanupError) { if (caseJourneyFailure1Present) throw new AggregateError([caseJourneyFailure1, cleanupError], "Journey and resource exit both failed"); throw cleanupError }
   }
 })

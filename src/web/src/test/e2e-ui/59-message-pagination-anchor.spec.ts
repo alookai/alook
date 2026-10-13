@@ -1,8 +1,26 @@
 import type { Page, Route } from "@playwright/test"
-import { test, expect, sessionCookie } from "./_fixtures/community-fixture"
-import { seedChannel, seedJoinServer, seedMessage, seedServer } from "./_fixtures/seed"
+import { test, expect } from "./_fixtures/case-fixture"
+
 import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
+import type { CaseActors, CaseResources } from "./_fixtures/case-fixture"
+
+async function prepareCase(actors: CaseActors) {
+  const { sessionCookie } = actors
+  async function setReadCheckpoint(channelId: string, messageId: string): Promise<void> {
+    const response = await fetch(`${WEB_URL}/api/community/channels/${channelId}/read`, {
+      method: "PUT",
+      headers: {
+        Cookie: sessionCookie("alice"),
+        "Content-Type": "application/json",
+        Origin: WEB_URL,
+      },
+      body: JSON.stringify({ lastReadMessageId: messageId }),
+    })
+    expect(response.ok).toBe(true)
+  }
+  return { setReadCheckpoint }
+}
 
 const VIEWPORT = { width: 1280, height: 800 }
 
@@ -57,25 +75,14 @@ async function readMessageOffset(page: Page, messageId: string): Promise<number 
   }, messageId)
 }
 
-async function setReadCheckpoint(channelId: string, messageId: string): Promise<void> {
-  const response = await fetch(`${WEB_URL}/api/community/channels/${channelId}/read`, {
-    method: "PUT",
-    headers: {
-      Cookie: sessionCookie("alice"),
-      "Content-Type": "application/json",
-      Origin: WEB_URL,
-    },
-    body: JSON.stringify({ lastReadMessageId: messageId }),
-  })
-  expect(response.ok).toBe(true)
-}
-
-async function holdNextPage(page: Page, channelId: string, param: "cursor" | "since") {
+async function holdNextPage(page: Page, channelId: string, param: "cursor" | "since", caseResources: CaseResources) {
   let release!: () => void
   let resolveMatched!: () => void
   let consumed = false
   const gate = new Promise<void>((resolve) => { release = resolve })
+  caseResources.own(release, async (captured) => { captured() })
   const matched = new Promise<void>((resolve) => { resolveMatched = resolve })
+  caseResources.own(resolveMatched, async (captured) => { captured() })
   const pattern = `**/api/community/channels/${channelId}/messages**`
   const handler = async (route: Route) => {
     const url = new URL(route.request().url())
@@ -112,8 +119,14 @@ function expectAnchorPreserved(before: Geometry, retainedOffset: number | null, 
   ).toBeLessThanOrEqual(1)
 }
 
-test("older and newer pages preserve a real-message anchor and do not replay", async ({ asUser }, testInfo) => {
+test("older and newer pages preserve a real-message anchor and do not replay", async ({ caseActors, caseResources }, testInfo) => {
   test.setTimeout(240_000)
+
+  const actors = await caseActors(["alice", "bob"])
+  const { asUser } = actors
+  const { seedChannel, seedJoinServer, seedMessage, seedServer } = actors.seed
+  const { setReadCheckpoint } = await prepareCase(actors)
+
   const stamp = Date.now()
   const serverId = await seedServer("alice", `Pagination anchor ${stamp}`)
   await seedJoinServer("alice", "bob", serverId)
@@ -138,7 +151,7 @@ test("older and newer pages preserve a real-message anchor and do not replay", a
   })
   await olderUser.page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
   await expect(olderUser.page.getByTestId(tid.newDivider)).toBeVisible({ timeout: 30_000 })
-  const olderPage = await holdNextPage(olderUser.page, channelId, "cursor")
+  const olderPage = await holdNextPage(olderUser.page, channelId, "cursor", caseResources)
   await moveToEdge(olderUser.page, "start")
   await olderPage.matched
   const olderBefore = await waitForStableGeometry(olderUser.page)
@@ -160,7 +173,7 @@ test("older and newer pages preserve a real-message anchor and do not replay", a
   })
   await newerUser.page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
   await expect(newerUser.page.getByTestId(tid.newDivider)).toBeVisible({ timeout: 30_000 })
-  const newerPage = await holdNextPage(newerUser.page, channelId, "since")
+  const newerPage = await holdNextPage(newerUser.page, channelId, "since", caseResources)
   await moveToEdge(newerUser.page, "end")
   await newerPage.matched
   const newerBefore = await waitForStableGeometry(newerUser.page)

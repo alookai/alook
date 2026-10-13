@@ -1,21 +1,26 @@
-import { test, expect, userId, userName } from "./_fixtures/community-fixture"
-import { seedChannel, seedFriendship, seedServer } from "./_fixtures/seed"
+import { test, expect } from "./_fixtures/case-fixture"
+
 import { tid } from "./_fixtures/testids"
+import type { CaseActors } from "./_fixtures/case-fixture"
 
 // Journey 12 — friends. A seeded friendship (Alice↔Bob) shows on the friends
 // page; the row opens a DM on click. Friendship handshake uses the two-cookie
 // helper (accept is addressee-only).
-test.describe.serial("friends", () => {
-  let serverId: string
-  let channelId: string
-
-  test.beforeAll(async () => {
+test.describe("friends", () => {
+  async function prepareCase1(actors: CaseActors) {
+    const { userId } = actors
+    const { seedChannel, seedFriendship, seedServer } = actors.seed
     await seedFriendship("alice", "bob", userId("bob"))
-    serverId = await seedServer("alice", `Friends Home ${Date.now()}`)
-    channelId = await seedChannel("alice", serverId, "friends-home")
-  })
+    const serverId: string = await seedServer("alice", `Friends Home ${Date.now()}`)
+    const channelId: string = await seedChannel("alice", serverId, "friends-home")
+    return { serverId, channelId }
+  }
 
-  test("a friend shows in the friends list and opens a DM", async ({ asUser }) => {
+  test("a friend shows in the friends list and opens a DM", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser, userName } = actors
+    const { serverId, channelId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.goto("/c/me")
     await page.waitForURL(/\/c\/me\/friends$/, { timeout: 20_000 , waitUntil: "commit" })

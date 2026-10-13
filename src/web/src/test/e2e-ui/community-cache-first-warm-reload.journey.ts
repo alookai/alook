@@ -1,15 +1,9 @@
 import type { Page } from "@playwright/test"
 import { PERSIST_CACHE_PREFIX } from "@/lib/query-persister"
-import { expect, test, userId, userName } from "./_fixtures/community-fixture"
-import {
-  seedChannel,
-  seedDm,
-  seedDmMessage,
-  seedMessage,
-  seedServer,
-  seedThread,
-} from "./_fixtures/seed"
+import { expect, test } from "./_fixtures/case-fixture"
+
 import { tid } from "./_fixtures/testids"
+import type { CaseResources } from "./_fixtures/case-fixture"
 
 type ReloadCapture = {
   customBootstrapSeen: boolean
@@ -149,7 +143,7 @@ async function expectCacheFirstReload(
   page: Page,
   assertUnqualifiedShell: () => Promise<void>,
   assertCachedContent: () => Promise<void>,
-  assertReconciledContent: () => Promise<void>,
+  assertReconciledContent: () => Promise<void>, caseResources: CaseResources
 ): Promise<ReloadCapture> {
   await page.addInitScript((loadingSelectors) => {
     const state = {
@@ -185,8 +179,10 @@ async function expectCacheFirstReload(
 
   let releaseReads!: () => void
   const readsGate = new Promise<void>((resolve) => { releaseReads = resolve })
+  caseResources.own(releaseReads, async (captured) => { captured() })
   let releaseMessages!: () => void
   const messagesGate = new Promise<void>((resolve) => { releaseMessages = resolve })
+  caseResources.own(releaseMessages, async (captured) => { captured() })
   let heldReads = 0
   let heldMessages = 0
   let forwardedMessages = 0
@@ -204,7 +200,7 @@ async function expectCacheFirstReload(
       heldReads += 1
       await readsGate
     }
-    await route.continue().catch(() => {})
+    await route.continue().catch(() => { })
   })
   let wsAttempts = 0
   await page.routeWebSocket((url) => url.pathname.endsWith("/user"), (socket) => {
@@ -264,8 +260,13 @@ async function expectCacheFirstReload(
   }
 }
 
-test("a warm channel reload qualifies its cached shell before showing persisted messages", async ({ asUser }) => {
+test("a warm channel reload qualifies its cached shell before showing persisted messages", async ({ caseActors, caseResources }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser, userId } = actors
+  const { seedChannel, seedMessage, seedServer } = actors.seed
+
   const suffix = Date.now().toString(36)
   const serverId = await seedServer("alice", `Warm channel ${suffix}`)
   const channelId = await seedChannel("alice", serverId, `warm-${suffix}`)
@@ -297,11 +298,16 @@ test("a warm channel reload qualifies its cached shell before showing persisted 
   }, async () => {
     await expect(page.getByTestId(tid.message(messageId))).toBeVisible()
     await expect(page.getByTestId(tid.composerInput)).toBeVisible()
-  })
+  }, caseResources)
 })
 
-test("a warm DM reload qualifies cached identity and history before showing persisted messages", async ({ asUser }) => {
+test("a warm DM reload qualifies cached identity and history before showing persisted messages", async ({ caseActors, caseResources }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice", "bob"])
+  const { asUser, userId, userName } = actors
+  const { seedDm, seedDmMessage } = actors.seed
+
   const dmId = await seedDm("alice", userId("bob"))
   const body = `cached dm ${Date.now()}`
   const messageId = await seedDmMessage("bob", dmId, body)
@@ -332,11 +338,16 @@ test("a warm DM reload qualifies cached identity and history before showing pers
   }, async () => {
     await expect(page.getByTestId(tid.message(messageId))).toBeVisible()
     await expect(page.getByTestId(tid.composerInput)).toBeVisible()
-  })
+  }, caseResources)
 })
 
-test("a warm desktop thread reload qualifies its type before restoring cached split panes", async ({ asUser }) => {
+test("a warm desktop thread reload qualifies its type before restoring cached split panes", async ({ caseActors, caseResources }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser, userId } = actors
+  const { seedChannel, seedMessage, seedServer, seedThread } = actors.seed
+
   const suffix = Date.now().toString(36)
   const serverId = await seedServer("alice", `Warm split ${suffix}`)
   const channelId = await seedChannel("alice", serverId, `split-${suffix}`)
@@ -387,11 +398,16 @@ test("a warm desktop thread reload qualifies its type before restoring cached sp
       .toBeVisible()
     await expect(page.getByTestId(tid.threadSplitParent).getByTestId(tid.composerInput)).toBeVisible()
     await expect(page.getByTestId(tid.threadSplitPanel).getByTestId(tid.composerInput)).toBeVisible()
-  })
+  }, caseResources)
 })
 
-test("a true-cold channel load reuses localized skeletons without a custom bootstrap", async ({ asUser }) => {
+test("a true-cold channel load reuses localized skeletons without a custom bootstrap", async ({ caseActors, caseResources }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedMessage, seedServer } = actors.seed
+
   const suffix = Date.now().toString(36)
   const serverId = await seedServer("alice", `Cold control ${suffix}`)
   const channelId = await seedChannel("alice", serverId, `cold-${suffix}`)
@@ -437,6 +453,7 @@ test("a true-cold channel load reuses localized skeletons without a custom boots
 
   let releaseReads!: () => void
   const readsGate = new Promise<void>((resolve) => { releaseReads = resolve })
+  caseResources.own(releaseReads, async (captured) => { captured() })
   let heldReads = 0
   await page.route("**/api/community/**", async (route) => {
     if (route.request().method() !== "GET") {

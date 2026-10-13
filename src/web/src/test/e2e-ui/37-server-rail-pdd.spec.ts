@@ -1,6 +1,6 @@
 import { devices, type Locator, type Page } from "@playwright/test"
-import { expect, test, userId } from "./_fixtures/community-fixture"
-import { seedChannel, seedDm, seedJoinServer, seedServer } from "./_fixtures/seed"
+import { expect, test } from "./_fixtures/case-fixture"
+
 import { composerEditable, waitForElementMotion } from "./_fixtures/actions"
 import { tid } from "./_fixtures/testids"
 
@@ -379,8 +379,13 @@ async function expectFirstNativeServerTap(
   expect(railPatches).toHaveLength(patchesBeforeTap)
 }
 
-test("first native Server tap is one root push with a stable handle and zero rail PATCH", async ({ asUser }) => {
+test("first native Server tap is one root push with a stable handle and zero rail PATCH", async ({ caseActors }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice", "bob"])
+  const { asUser, userId } = actors
+  const { seedChannel, seedDm, seedJoinServer, seedServer } = actors.seed
+
   const stamp = Date.now()
   const serverId = await seedServer("alice", `First tap ${stamp}`)
   await seedChannel("alice", serverId, `first-tap-${stamp}`)
@@ -421,8 +426,13 @@ test("first native Server tap is one root push with a stable handle and zero rai
   await expectFirstNativeServerTap(warm.page, serverId, warmPatches)
 })
 
-test("server rail keeps scroll separate from native, touch, and keyboard drag", async ({ asUser }, testInfo) => {
+test("server rail keeps scroll separate from native, touch, and keyboard drag", async ({ caseActors, caseResources }, testInfo) => {
   test.setTimeout(150_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedServer } = actors.seed
+
   const stamp = Date.now()
   const first = await seedServer("alice", `Rail first ${stamp}`)
   const second = await seedServer("alice", `Rail second ${stamp}`)
@@ -694,6 +704,7 @@ test("server rail keeps scroll separate from native, touch, and keyboard drag", 
   await expect(page.locator("html")).not.toHaveClass(/dark/)
   let releaseCommit!: () => void
   const commitGate = new Promise<void>((resolve) => { releaseCommit = resolve })
+  caseResources.own(releaseCommit, async (captured) => { captured() })
   let delayed = false
   await page.route(`**${RAIL_ENDPOINT}`, async (route) => {
     if (route.request().method() === "PATCH" && !delayed) {
@@ -729,7 +740,11 @@ test("server rail keeps scroll separate from native, touch, and keyboard drag", 
   await page.screenshot({ path: testInfo.outputPath("server-rail-keyboard-1280.png") })
 })
 
-test("short server rail keeps Add adjacent and desktop geometry stable", async ({ asUser }) => {
+test("short server rail keeps Add adjacent and desktop geometry stable", async ({ caseActors }) => {
+  const actors = await caseActors(["carol"])
+  const { asUser } = actors
+  const { seedServer } = actors.seed
+
   const stamp = Date.now()
   const serverId = await seedServer("carol", `Rail short ${stamp}`)
   const { page } = await asUser("carol")

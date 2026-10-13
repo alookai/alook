@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test"
-import { test, expect } from "./_fixtures/community-fixture"
-import { seedChannel, seedMessage, seedServer } from "./_fixtures/seed"
+import { test, expect } from "./_fixtures/case-fixture"
+
 import { tid } from "./_fixtures/testids"
 
 type RowRect = { top: number; bottom: number; height: number }
@@ -54,8 +54,13 @@ async function waitForStableScrollerFrames(page: Page, messageId: string): Promi
   ), messageId)
 }
 
-test("long Markdown rows stay measured and separated at iPhone width", async ({ asUser }) => {
+test("long Markdown rows stay measured and separated at iPhone width", async ({ caseActors }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedMessage, seedServer } = actors.seed
+
   const serverId = await seedServer("alice", `Mobile rows ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "mobile-rows")
   const otherChannelId = await seedChannel("alice", serverId, "other-mobile-rows")

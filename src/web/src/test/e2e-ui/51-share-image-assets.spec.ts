@@ -1,9 +1,9 @@
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
-import { expect, test } from "./_fixtures/community-fixture"
+import { expect, test } from "./_fixtures/case-fixture"
 import type { Locator, Page } from "@playwright/test"
 import { composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
-import { createInvite, seedChannel, seedServer } from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
 
 type CaptureKind = "clipboard" | "download"
@@ -383,8 +383,13 @@ function sampleCenter(card: Locator, selector: string): Promise<SamplePoint> {
   }, selector)
 }
 
-test("share image timestamp matches the live row and survives both exports", async ({ asUser }) => {
+test("share image timestamp matches the live row and survives both exports", async ({ caseActors }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedServer } = actors.seed
+
   const serverId = await seedServer("alice", `Share timestamp ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "share-timestamp")
   const { page } = await asUser("alice")
@@ -437,8 +442,13 @@ test("share image timestamp matches the live row and survives both exports", asy
   await composerEditable(page).fill("")
 })
 
-test("mobile routing waits for native copy and save terminal receipts", async ({ asUser }) => {
+test("mobile routing waits for native copy and save terminal receipts", async ({ caseActors }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedServer } = actors.seed
+
   const serverId = await seedServer("alice", `Mobile share receipt ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "mobile-share-receipt")
   const { page } = await asUser("alice")
@@ -474,8 +484,13 @@ test("mobile routing waits for native copy and save terminal receipts", async ({
   ])
 })
 
-test("a loaded two-frame GIF is frozen to a displayed frame and reused by both exports", async ({ asUser }) => {
+test("a loaded two-frame GIF is frozen to a displayed frame and reused by both exports", async ({ caseActors }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedServer } = actors.seed
+
   const serverId = await seedServer("alice", `Animated share ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "animated-share")
   const { page } = await asUser("alice")
@@ -521,8 +536,13 @@ test("a loaded two-frame GIF is frozen to a displayed frame and reused by both e
   expect(assetRequests).toEqual([])
 })
 
-test("loaded avatar and content prepare and export without requesting or decoding source assets again", async ({ asUser }, testInfo) => {
+test("loaded avatar and content prepare and export without requesting or decoding source assets again", async ({ caseActors }, testInfo) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { createInvite, seedChannel, seedServer } = actors.seed
+
   const serverId = await seedServer("alice", `Share byte session ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "share-byte-session")
   const inviteToken = await createInvite("alice", serverId)
@@ -655,8 +675,13 @@ test("loaded avatar and content prepare and export without requesting or decodin
   expect(await frozenCard.innerHTML()).toBe(frozenMarkup)
 })
 
-test("loaded cross-origin pixels without CORS require the explicit fetch fallback", async ({ asUser }) => {
+test("loaded cross-origin pixels without CORS require the explicit fetch fallback", async ({ caseActors, caseResources }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedServer } = actors.seed
+
   const serverId = await seedServer("alice", `Cross-origin share ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "cross-origin-share")
   const { page } = await asUser("alice")
@@ -673,14 +698,20 @@ test("loaded cross-origin pixels without CORS require the explicit fetch fallbac
     })
     response.end(bytes)
   })
+  const ownedOrigin = caseResources.own(origin, async (captured) => {
+    captured.closeAllConnections()
+    await new Promise<void>((resolve, reject) => captured.close((error) => error ? reject(error) : resolve()))
+  })
   await new Promise<void>((resolve) => origin.listen(0, "127.0.0.1", resolve))
+  let caseJourneyFailure1: unknown
+let caseJourneyFailure1Present = false
   try {
     const sourceUrl = `http://127.0.0.1:${(origin.address() as AddressInfo).port}/protected.png`
     const message = await seedMessage(page, channelId, `![Protected cross-origin](${sourceUrl})`)
     const row = page.getByTestId(tid.message(message.id))
     const image = row.locator('img[alt="Protected cross-origin"]')
     await row.hover()
-  await waitForLoadedImages(row)
+    await waitForLoadedImages(row)
     const original = await image.elementHandle()
     expect(original).not.toBeNull()
     const readability = await image.evaluate((source: HTMLImageElement) => {
@@ -718,14 +749,22 @@ test("loaded cross-origin pixels without CORS require the explicit fetch fallbac
     expect(copied.pixel[0]).toBeLessThan(80)
     await page.keyboard.press("Escape")
     expect(await original!.evaluate((source) => source.isConnected && (source as HTMLImageElement).complete)).toBe(true)
-  } finally {
-    origin.closeAllConnections()
-    await new Promise<void>((resolve, reject) => origin.close((error) => error ? reject(error) : resolve()))
+  } catch (error) { caseJourneyFailure1 = error; caseJourneyFailure1Present = true; throw error } finally {
+    try {
+
+      await ownedOrigin.close()
+
+    } catch (cleanupError) { if (caseJourneyFailure1Present) throw new AggregateError([caseJourneyFailure1, cleanupError], "Journey and resource exit both failed"); throw cleanupError }
   }
 })
 
-test("cold preparation disables export until the held avatar bytes are ready", async ({ asUser }) => {
+test("cold preparation disables export until the held avatar bytes are ready", async ({ caseActors, caseResources }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedServer } = actors.seed
+
   const serverId = await seedServer("alice", `Cold share ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "cold-share")
   const { page } = await asUser("alice")
@@ -737,6 +776,7 @@ test("cold preparation disables export until the held avatar bytes are ready", a
 
   let release!: () => void
   const gate = new Promise<void>((resolve) => { release = resolve })
+  caseResources.own(release, async (captured) => { captured() })
   let heldRequests = 0
   await page.route("**/api/community/users/*/avatar*", async (avatarRoute) => {
     if (avatarRoute.request().method() === "GET") {
@@ -766,8 +806,13 @@ test("cold preparation disables export until the held avatar bytes are ready", a
   expect(await captureCounts(page)).toEqual({ clipboard: 1, download: 0 })
 })
 
-test("closing cold preparation suppresses output and reopening starts a fresh session", async ({ asUser }) => {
+test("closing cold preparation suppresses output and reopening starts a fresh session", async ({ caseActors, caseResources }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedServer } = actors.seed
+
   const serverId = await seedServer("alice", `Share close ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "share-close")
   const { page } = await asUser("alice")
@@ -779,6 +824,7 @@ test("closing cold preparation suppresses output and reopening starts a fresh se
 
   let release!: () => void
   const gate = new Promise<void>((resolve) => { release = resolve })
+  caseResources.own(release, async (captured) => { captured() })
   let heldRequests = 0
   const avatarPattern = "**/api/community/users/*/avatar*"
   await page.route(avatarPattern, async (avatarRoute) => {
@@ -809,8 +855,13 @@ test("closing cold preparation suppresses output and reopening starts a fresh se
   await expect.poll(() => captureCounts(page)).toEqual({ clipboard: 1, download: 0 })
 })
 
-test("loaded live avatar stays mounted through share selection and dialog close", async ({ asUser }) => {
+test("loaded live avatar stays mounted through share selection and dialog close", async ({ caseActors }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedServer } = actors.seed
+
   const serverId = await seedServer("alice", `Share avatar identity ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "share-avatar-identity")
   const { page } = await asUser("alice")
@@ -849,8 +900,13 @@ test("loaded live avatar stays mounted through share selection and dialog close"
   await page.keyboard.press("Escape")
 })
 
-test("stalled avatar falls back and a single text message exports", async ({ asUser }) => {
+test("stalled avatar falls back and a single text message exports", async ({ caseActors, caseResources }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedServer } = actors.seed
+
   const serverId = await seedServer("alice", `Share avatar timeout ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "share-timeout")
   const { page } = await asUser("alice")
@@ -860,6 +916,7 @@ test("stalled avatar falls back and a single text message exports", async ({ asU
   await expect(page.getByTestId(tid.message(message.id)).locator('[data-slot="avatar-image"]')).toBeVisible()
   let release!: () => void
   const blocked = new Promise<void>((resolve) => { release = resolve })
+  caseResources.own(release, async (captured) => { captured() })
   const pattern = "**/api/community/users/*/avatar*"
   await page.route(pattern, async (route) => {
     await blocked
@@ -884,8 +941,13 @@ test("stalled avatar falls back and a single text message exports", async ({ asU
   }
 })
 
-test("avatar failure is deterministic while content-image failure is atomic and retryable", async ({ asUser }) => {
+test("avatar failure is deterministic while content-image failure is atomic and retryable", async ({ caseActors }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedServer } = actors.seed
+
   const serverId = await seedServer("alice", `Share failures ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "share-failures")
   const { page } = await asUser("alice")
@@ -935,8 +997,13 @@ test("avatar failure is deterministic while content-image failure is atomic and 
   await expect(card.getByTestId(tid.messageShareImage(contentMessage.id, 0))).toHaveAttribute("src", /^data:image\//)
 })
 
-test("clipboard failure releases retry and Download keeps first-winner ownership", async ({ asUser }) => {
+test("clipboard failure releases retry and Download keeps first-winner ownership", async ({ caseActors }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedServer } = actors.seed
+
   const serverId = await seedServer("alice", `Share retry ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "share-retry")
   const { page } = await asUser("alice")
@@ -968,8 +1035,13 @@ test("clipboard failure releases retry and Download keeps first-winner ownership
   await expect.poll(() => captureCounts(page)).toEqual({ clipboard: 1, download: 1 })
 })
 
-test("light and dark desktop and narrow previews match their frozen full PNG", async ({ asUser }) => {
+test("light and dark desktop and narrow previews match their frozen full PNG", async ({ caseActors }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedServer } = actors.seed
+
   const serverId = await seedServer("alice", `Share matrix ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "share-matrix")
   const { page } = await asUser("alice")

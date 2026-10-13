@@ -1,17 +1,9 @@
 import type { Locator, Page } from "@playwright/test"
-import { expect, test, userId } from "./_fixtures/community-fixture"
+import { expect, test } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
-import {
-  seedChannel,
-  seedDm,
-  seedDmMessage,
-  seedJoinServer,
-  seedMessage,
-  seedReaction,
-  seedServer,
-  seedThread,
-} from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
+import type { CaseActors } from "./_fixtures/case-fixture"
 
 const HOVER_QUERY = "(hover: hover) and (pointer: fine)"
 const OVERFLOW_EMOJIS = ["👍", "🔥", "🎉", "✅", "🚀", "👀", "❤️", "😂", "🤔"] as const
@@ -103,41 +95,39 @@ async function swipeDialogBodyWithoutStartingMessageReply(page: Page, messageId:
   await expect(page.getByTestId(tid.reactionDialog(messageId))).toBeVisible()
 }
 
-test.describe.serial("mobile reaction details", () => {
-  let serverId: string
-  let channelId: string
-  let messageId: string
-  let messageContent: string
-  let emptyMessageId: string
-  let threadId: string
-  let threadOpenerId: string
-  let dmId: string
-  let dmMessageId: string
-
-  test.beforeAll(async () => {
+test.describe("mobile reaction details", () => {
+  async function prepareCase1(actors: CaseActors) {
+    const { userId } = actors
+    const { seedChannel, seedDm, seedDmMessage, seedJoinServer, seedMessage, seedReaction, seedServer, seedThread } = actors.seed
     const stamp = Date.now()
-    serverId = await seedServer("alice", `Reaction details ${stamp}`)
-    channelId = await seedChannel("alice", serverId, `reactions-${stamp}`)
+    const serverId: string = await seedServer("alice", `Reaction details ${stamp}`)
+    const channelId: string = await seedChannel("alice", serverId, `reactions-${stamp}`)
     await seedJoinServer("alice", "bob", serverId)
     await seedJoinServer("alice", "carol", serverId)
-    messageContent = `Hold a reaction ${stamp} — ${"long message preview ".repeat(8).trim()}`
-    messageId = await seedMessage("alice", channelId, messageContent)
+    const messageContent: string = `Hold a reaction ${stamp} — ${"long message preview ".repeat(8).trim()}`
+    const messageId: string = await seedMessage("alice", channelId, messageContent)
     await seedReaction("alice", messageId, "👍")
     await seedReaction("bob", messageId, "👍")
     await seedReaction("bob", messageId, "🔥")
     await seedReaction("carol", messageId, "🎉")
-    for (const emoji of OVERFLOW_EMOJIS.slice(3)) await seedReaction("alice", messageId, emoji)
-    emptyMessageId = await seedMessage("alice", channelId, `Empty reactions ${stamp}`)
+    for (const emoji of OVERFLOW_EMOJIS.slice(3))
+      await seedReaction("alice", messageId, emoji)
+    const emptyMessageId: string = await seedMessage("alice", channelId, `Empty reactions ${stamp}`)
     await seedReaction("alice", emptyMessageId, "✅")
-    threadOpenerId = await seedMessage("alice", channelId, `Thread opener reactions ${stamp}`)
+    const threadOpenerId: string = await seedMessage("alice", channelId, `Thread opener reactions ${stamp}`)
     await seedReaction("bob", threadOpenerId, "👍")
-    threadId = await seedThread("alice", threadOpenerId, `Reaction thread ${stamp}`)
-    dmId = await seedDm("alice", userId("bob"))
-    dmMessageId = await seedDmMessage("alice", dmId, `DM reactions ${stamp}`)
+    const threadId: string = await seedThread("alice", threadOpenerId, `Reaction thread ${stamp}`)
+    const dmId: string = await seedDm("alice", userId("bob"))
+    const dmMessageId: string = await seedDmMessage("alice", dmId, `DM reactions ${stamp}`)
     await seedReaction("bob", dmMessageId, "👍")
-  })
+    return { serverId, channelId, messageId, messageContent, emptyMessageId, threadId, threadOpenerId, dmId, dmMessageId }
+  }
 
-  test("hold opens one authorized batch dialog while tap keeps the canonical toggle", async ({ asUser }, testInfo) => {
+  test("hold opens one authorized batch dialog while tap keeps the canonical toggle", async ({ caseActors }, testInfo) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser, userId } = actors
+    const { serverId, channelId, messageId, messageContent } = await prepareCase1(actors)
+
     const alice = await asUser("alice")
     await alice.page.setViewportSize({ width: 390, height: 844 })
     await alice.page.emulateMedia({ colorScheme: "light" })
@@ -201,7 +191,11 @@ test.describe.serial("mobile reaction details", () => {
     expect(detailsRequests).toHaveLength(1)
   })
 
-  test("coarse input follows the 320, 639, 640, and 1280 cross-capability geometry", async ({ asUser }) => {
+  test("coarse input follows the 320, 639, 640, and 1280 cross-capability geometry", async ({ caseActors, caseResources }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, channelId, messageId } = await prepareCase1(actors)
+
     for (const width of [320, 639, 640, 1280]) {
       const session = await asUser("alice")
       await session.page.setViewportSize({ width, height: width === 320 ? 568 : 844 })
@@ -214,11 +208,15 @@ test.describe.serial("mobile reaction details", () => {
       await expect.poll(async () => Math.min(...await tabs.evaluateAll(
         (items) => items.map((item) => item.getBoundingClientRect().height),
       ))).toBeGreaterThanOrEqual(44)
-      await session.context.close()
+      await caseResources.closeContext(session.context)
     }
   })
 
-  test("the emoji rail switches displayed reactors without mutating reactions", async ({ asUser }, testInfo) => {
+  test("the emoji rail switches displayed reactors without mutating reactions", async ({ caseActors }, testInfo) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser, userId } = actors
+    const { serverId, channelId, messageId } = await prepareCase1(actors)
+
     const alice = await asUser("alice")
     await alice.page.setViewportSize({ width: 320, height: 568 })
     await alice.page.emulateMedia({ colorScheme: "light" })
@@ -325,7 +323,11 @@ test.describe.serial("mobile reaction details", () => {
     })
   })
 
-  test("hover-capable desktop keeps compact click and tooltip behavior", async ({ asUser }, testInfo) => {
+  test("hover-capable desktop keeps compact click and tooltip behavior", async ({ caseActors }, testInfo) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, channelId, messageId } = await prepareCase1(actors)
+
     const alice = await asUser("alice")
     await alice.page.setViewportSize({ width: 1280, height: 900 })
     await installInputCapability(alice.page, true)
@@ -345,7 +347,11 @@ test.describe.serial("mobile reaction details", () => {
     expect(height).toBeLessThan(44)
   })
 
-  test("the shared thread opener opens the same mobile dialog", async ({ asUser }, testInfo) => {
+  test("the shared thread opener opens the same mobile dialog", async ({ caseActors }, testInfo) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, threadId, threadOpenerId } = await prepareCase1(actors)
+
     const alice = await asUser("alice")
     await alice.page.setViewportSize({ width: 390, height: 844 })
     await alice.page.emulateMedia({ colorScheme: "light" })
@@ -362,7 +368,11 @@ test.describe.serial("mobile reaction details", () => {
     })
   })
 
-  test("DM and message-context rows open the same authorized reaction dialog", async ({ asUser }) => {
+  test("DM and message-context rows open the same authorized reaction dialog", async ({ caseActors, caseResources }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser, userId } = actors
+    const { serverId, channelId, messageId, dmId, dmMessageId } = await prepareCase1(actors)
+
     const dm = await asUser("alice")
     await dm.page.setViewportSize({ width: 390, height: 844 })
     await installInputCapability(dm.page, false)
@@ -372,7 +382,7 @@ test.describe.serial("mobile reaction details", () => {
     await clickDialogBodyWithoutOpeningMessageMenu(dm.page, dmMessageId)
     await expect(dm.page.getByTestId(tid.reactionMember(userId("bob")))).toBeVisible()
     await dm.page.getByRole("button", { name: "Close" }).click()
-    await dm.context.close()
+    await caseResources.closeContext(dm.context)
 
     const context = await asUser("alice")
     await context.page.setViewportSize({ width: 390, height: 844 })
@@ -385,7 +395,11 @@ test.describe.serial("mobile reaction details", () => {
     await clickDialogBodyWithoutOpeningMessageMenu(context.page, messageId)
   })
 
-  test("removing the last reaction keeps the dialog open on its empty state", async ({ asUser }, testInfo) => {
+  test("removing the last reaction keeps the dialog open on its empty state", async ({ caseActors }, testInfo) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, channelId, emptyMessageId } = await prepareCase1(actors)
+
     const alice = await asUser("alice")
     await alice.page.setViewportSize({ width: 390, height: 844 })
     await alice.page.emulateMedia({ colorScheme: "light" })

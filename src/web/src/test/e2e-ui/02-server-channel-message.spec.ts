@@ -1,9 +1,13 @@
-import { test, expect } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 import { composerEditable, createServer, sendMessage, expectMessageVisible } from "./_fixtures/actions"
 
-test("server → channel → message", async ({ asUser }) => {
+test("server → channel → message", async ({ caseActors, caseResources }) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+
   const { page } = await asUser("alice")
   await page.goto("/c")
   await page.waitForURL(/\/c/, { timeout: 20_000, waitUntil: "commit" })
@@ -161,6 +165,7 @@ test("server → channel → message", async ({ asUser }) => {
 
   let releaseMessages!: () => void
   const messagesGate = new Promise<void>((resolve) => { releaseMessages = resolve })
+  caseResources.own(releaseMessages, async (captured) => { captured() })
   await page.route("**/api/community/channels/*/messages*", async (route) => {
     if (route.request().method() !== "GET") {
       await route.continue()
@@ -198,6 +203,7 @@ test("server → channel → message", async ({ asUser }) => {
   await page.keyboard.press("Backspace")
   let releasePendingSend!: () => void
   const pendingSendGate = new Promise<void>((resolve) => { releasePendingSend = resolve })
+  caseResources.own(releasePendingSend, async (captured) => { captured() })
   let pendingSendIntercepted = false
   let pendingSendCompleted = false
   let pendingPostCount = 0

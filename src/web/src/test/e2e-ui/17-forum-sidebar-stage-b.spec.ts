@@ -1,16 +1,24 @@
 import type { Page } from "@playwright/test"
-import { test, expect, userId } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { sendMessage } from "./_fixtures/actions"
 import { tid } from "./_fixtures/testids"
-import {
-  seedCategory,
-  seedChannel,
-  seedForumThread,
-  seedJoinServer,
-  seedMessage,
-  seedServer,
-  seedThread,
-} from "./_fixtures/seed"
+
+import type { CaseActors } from "./_fixtures/case-fixture"
+
+async function prepareCase(actors: CaseActors) {
+  const { userId } = actors
+  async function participantUserIds(page: Page, channelId: string): Promise<string[]> {
+    const response = await page.request.get(`/api/community/channels/${channelId}/members`)
+    expect(response.status()).toBe(200)
+    const payload = await response.json() as {
+      members: Array<{
+        userId: string
+      }>
+    }
+    return payload.members.map((member) => member.userId)
+  }
+  return { participantUserIds }
+}
 
 function isSidebarRequest(url: string, serverId: string): boolean {
   const parsed = new URL(url)
@@ -62,13 +70,6 @@ async function routeStability(page: Page) {
 
 function childPanel(page: Page) {
   return page.getByTestId(tid.threadSplitPanel)
-}
-
-async function participantUserIds(page: Page, channelId: string): Promise<string[]> {
-  const response = await page.request.get(`/api/community/channels/${channelId}/members`)
-  expect(response.status()).toBe(200)
-  const payload = await response.json() as { members: Array<{ userId: string }> }
-  return payload.members.map((member) => member.userId)
 }
 
 async function strictSidebar(page: Page, serverId: string, retainId?: string) {
@@ -123,35 +124,35 @@ async function setForumPostArchived(
   await sidebar
 }
 
-test.describe.serial("forum sidebar Stage B request shape", () => {
-  let serverId: string
-  let forumId: string
-  let threadId: string
-  let textAId: string
-  let textBId: string
-  let forumTitle: string
-  let ordinaryThreadId: string
-
-  test.beforeAll(async () => {
-    serverId = await seedServer("alice", `Sidebar ${Date.now()}`)
+test.describe("forum sidebar Stage B request shape", () => {
+  async function prepareCase1(actors: CaseActors) {
+    const { participantUserIds } = await prepareCase(actors)
+    const { seedCategory, seedChannel, seedForumThread, seedJoinServer, seedMessage, seedServer, seedThread } = actors.seed
+    const serverId: string = await seedServer("alice", `Sidebar ${Date.now()}`)
     const categoryId = await seedCategory("alice", serverId, "Grouped")
-    forumId = await seedChannel("alice", serverId, "forum", "forum", categoryId)
-    textAId = await seedChannel("alice", serverId, "text-a", undefined, categoryId)
-    textBId = await seedChannel("alice", serverId, "text-b", undefined, categoryId)
+    const forumId: string = await seedChannel("alice", serverId, "forum", "forum", categoryId)
+    const textAId: string = await seedChannel("alice", serverId, "text-a", undefined, categoryId)
+    const textBId: string = await seedChannel("alice", serverId, "text-b", undefined, categoryId)
     await seedJoinServer("alice", "bob", serverId)
     await seedJoinServer("alice", "carol", serverId)
-    forumTitle = `Retained ${Date.now()}`
-    threadId = await seedForumThread("alice", forumId, forumTitle, "post body")
+    const forumTitle: string = `Retained ${Date.now()}`
+    const threadId: string = await seedForumThread("alice", forumId, forumTitle, "post body")
     const parentMessageId = await seedMessage("alice", textAId, "ordinary thread opener")
-    ordinaryThreadId = await seedThread("alice", parentMessageId, "ordinary thread")
-  })
+    const ordinaryThreadId: string = await seedThread("alice", parentMessageId, "ordinary thread")
+    return { participantUserIds, serverId, forumId, threadId, textAId, textBId, forumTitle, ordinaryThreadId }
+  }
 
-  test("a cold direct child and hard refresh keep exact route metadata bounded", async ({ asUser }) => {
+  test("a cold direct child and hard refresh keep exact route metadata bounded", async ({ caseActors, caseResources }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, threadId, forumTitle } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     const requests: string[] = []
     const successfulResponses: string[] = []
     let releaseFirstAnchor!: () => void
     const firstAnchorGate = new Promise<void>((resolve) => { releaseFirstAnchor = resolve })
+    caseResources.own(releaseFirstAnchor, async (captured) => { captured() })
     let anchorRouteRequests = 0
     await page.route("**/api/community/channels/**/messages**", async (route) => {
       const url = route.request().url()
@@ -258,7 +259,11 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
       .toBe(refreshSuccessfulMessageResponses.length)
   })
 
-  test("a flat child route preserves one settled message load", async ({ asUser }) => {
+  test("a flat child route preserves one settled message load", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, threadId, forumTitle } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     const successfulResponses: string[] = []
     page.on("response", (response) => {
@@ -285,7 +290,11 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
       .toBeLessThanOrEqual(1)
   })
 
-  test("a non-participant keeps a grouped forum route after retained null arrives", async ({ asUser }) => {
+  test("a non-participant keeps a grouped forum route after retained null arrives", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser, userId } = actors
+    const { participantUserIds, serverId, threadId } = await prepareCase1(actors)
+
     const { page } = await asUser("bob")
     await installRouteStabilityProbe(page)
     const successfulResponses: string[] = []
@@ -330,7 +339,11 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     await expect.poll(async () => participantUserIds(page, threadId)).toContain(userId("bob"))
   })
 
-  test("a non-participant warm forum-card click settles one negative retained request", async ({ asUser }) => {
+  test("a non-participant warm forum-card click settles one negative retained request", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser, userId } = actors
+    const { participantUserIds, serverId, forumId, threadId } = await prepareCase1(actors)
+
     const { page } = await asUser("carol")
     await installRouteStabilityProbe(page)
     const successfulResponses: string[] = []
@@ -371,7 +384,11 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     expect(await participantUserIds(page, threadId)).not.toContain(userId("carol"))
   })
 
-  test("a grouped ordinary thread never asks the forum sidebar to retain it", async ({ asUser }) => {
+  test("a grouped ordinary thread never asks the forum sidebar to retain it", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser, userId } = actors
+    const { participantUserIds, serverId, ordinaryThreadId } = await prepareCase1(actors)
+
     const { page } = await asUser("bob")
     await installRouteStabilityProbe(page)
     const successfulResponses: string[] = []
@@ -401,7 +418,11 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     expect(await participantUserIds(page, ordinaryThreadId)).not.toContain(userId("bob"))
   })
 
-  test("sidebar top-level and child navigation reuse the warm flat base", async ({ asUser }, testInfo) => {
+  test("sidebar top-level and child navigation reuse the warm flat base", async ({ caseActors, caseResources }, testInfo) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, threadId, textAId, textBId, forumTitle } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     const requests: string[] = []
     const successfulResponses: string[] = []
@@ -441,7 +462,9 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     let releaseRetained!: () => void
     let retainedStarted!: () => void
     const retainedGate = new Promise<void>((resolve) => { releaseRetained = resolve })
+    caseResources.own(releaseRetained, async (captured) => { captured() })
     const retainedRequestStarted = new Promise<void>((resolve) => { retainedStarted = resolve })
+    caseResources.own(retainedStarted, async (captured) => { captured() })
     await page.route("**/api/community/servers/*/channels?*", async (route) => {
       const url = route.request().url()
       if (
@@ -536,9 +559,20 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
   })
 })
 
-test.describe.serial("forum sidebar archived opener projection", () => {
-  test("local, remote, retained, and hard-refresh paths converge on a filled top five", async ({ asUser }) => {
+test.describe("forum sidebar archived opener projection", () => {
+  async function prepareCase2(actors: CaseActors) {
+    const { participantUserIds } = await prepareCase(actors)
+    return { participantUserIds }
+  }
+
+  test("local, remote, retained, and hard-refresh paths converge on a filled top five", async ({ caseActors }) => {
     test.setTimeout(180_000)
+
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+    const { seedCategory, seedChannel, seedForumThread, seedServer } = actors.seed
+    await prepareCase2(actors)
+
     const serverId = await seedServer("alice", `Archived sidebar ${Date.now()}`)
     const categoryId = await seedCategory("alice", serverId, "Forum group")
     const forumId = await seedChannel("alice", serverId, "archive-ranking", "forum", categoryId)

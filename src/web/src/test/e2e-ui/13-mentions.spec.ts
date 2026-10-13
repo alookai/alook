@@ -1,14 +1,8 @@
-import { test, expect, userId, userName } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 import { composerEditable } from "./_fixtures/actions"
-import {
-  seedServer,
-  seedChannel,
-  seedJoinServer,
-  seedMessage,
-  renameUser,
-  memberInfo,
-} from "./_fixtures/seed"
+
+import type { CaseActors } from "./_fixtures/case-fixture"
 
 // Journey 13 — mandatory mention discriminator. Every member mention serializes
 // as `@Name#dddd`, which lets a name with spaces render as one pill AND makes a
@@ -19,46 +13,52 @@ import {
 // Fixture: Bob and Carol are both renamed "John Doe" (spaced name), each keeping
 // its own auto-assigned discriminator — so the same journey exercises the
 // spaced-name pill and the same-name disambiguation.
-test.describe.serial("mentions — mandatory discriminator", () => {
-  const identityKeys = ["alice", "bob", "carol"] as const
-  let serverId: string
-  let channelId: string
-  let bob: { id: string; discriminator: string }
-  let carol: { id: string; discriminator: string }
-
-  test.beforeAll(async () => {
+test.describe("mentions — mandatory discriminator", () => {
+  async function prepareCase1(actors: CaseActors) {
+    const { userId, userName } = actors
+    const { seedServer, seedChannel, seedJoinServer, renameUser, memberInfo } = actors.seed
+    const cleanupState: { serverId?: string } = {}
+    actors.onCleanup(async () => {
+      const restorations = await Promise.allSettled(identityKeys.map(async (key) => {
+        await renameUser(key, userName(key))
+        return key
+      }))
+      const serverId = cleanupState.serverId!
+      const verifiedMembers = await Promise.allSettled(identityKeys.map(async (key) => {
+        const member = await memberInfo("alice", serverId, userId(key))
+        return { key, name: member.name }
+      }))
+      expect(restorations).toEqual(identityKeys.map((key) => ({
+        status: "fulfilled",
+        value: key,
+      })))
+      expect(verifiedMembers).toEqual(identityKeys.map((key) => ({
+        status: "fulfilled",
+        value: { key, name: userName(key) },
+      })))
+    })
     await renameUser("bob", "John Doe")
     await renameUser("carol", "John Doe")
-    serverId = await seedServer("alice", `Mentions ${Date.now()}`)
-    channelId = await seedChannel("alice", serverId, "mentions")
+    const serverId: string = await seedServer("alice", `Mentions ${Date.now()}`)
+    cleanupState.serverId = serverId
+    const channelId: string = await seedChannel("alice", serverId, "mentions")
     await seedJoinServer("alice", "bob", serverId)
     await seedJoinServer("alice", "carol", serverId)
-    bob = await memberInfo("alice", serverId, userId("bob"))
-    carol = await memberInfo("alice", serverId, userId("carol"))
+    const bob: {
+      id: string
+      discriminator: string
+    } = await memberInfo("alice", serverId, userId("bob"))
+    const carol: {
+      id: string
+      discriminator: string
+    } = await memberInfo("alice", serverId, userId("carol"))
     // Distinct discriminators are what the disambiguation hinges on — if the
     // two happened to collide the journey couldn't prove per-user resolution.
     expect(bob.discriminator).not.toBe(carol.discriminator)
-  })
+    return { serverId, channelId, bob, carol }
+  }
 
-  test.afterAll(async () => {
-    const restorations = await Promise.allSettled(identityKeys.map(async (key) => {
-      await renameUser(key, userName(key))
-      return key
-    }))
-    const verifiedMembers = await Promise.allSettled(identityKeys.map(async (key) => {
-      const member = await memberInfo("alice", serverId, userId(key))
-      return { key, name: member.name }
-    }))
-
-    expect(restorations).toEqual(identityKeys.map((key) => ({
-      status: "fulfilled",
-      value: key,
-    })))
-    expect(verifiedMembers).toEqual(identityKeys.map((key) => ({
-      status: "fulfilled",
-      value: { key, name: userName(key) },
-    })))
-  })
+  const identityKeys = ["alice", "bob", "carol"] as const
 
   // Types `@John`, waits for the popup, and picks the member whose row id is
   // `memberId` (the popup option testid keys off the row id — labels are
@@ -89,7 +89,11 @@ test.describe.serial("mentions — mandatory discriminator", () => {
     await expect(editable).toHaveText("", { timeout: 10_000 })
   }
 
-  test("same-name mentions each resolve to the exact user on pill click (spaced name, no leaked #dddd)", async ({ asUser }) => {
+  test("same-name mentions each resolve to the exact user on pill click (spaced name, no leaked #dddd)", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser, userId } = actors
+    const { serverId, channelId, bob, carol } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${channelId}`)
     await page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
@@ -151,7 +155,11 @@ test.describe.serial("mentions — mandatory discriminator", () => {
     await expect(card).toContainText(`#${carol.discriminator}`)
   })
 
-  test("a hand-typed bare @name (not picked from the popup) is inert — plain text, no pill", async ({ asUser }) => {
+  test("a hand-typed bare @name (not picked from the popup) is inert — plain text, no pill", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, channelId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${channelId}`)
     await page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
@@ -171,7 +179,12 @@ test.describe.serial("mentions — mandatory discriminator", () => {
     await expect(msg.locator("xpath=ancestor-or-self::*[1]").locator("button", { hasText: "@John" })).toHaveCount(0)
   })
 
-  test("@everyone renders with the distinct primary styling (its flag survives sanitize)", async ({ asUser }) => {
+  test("@everyone renders with the distinct primary styling (its flag survives sanitize)", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { seedMessage } = actors.seed
+    const { serverId, channelId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
 
     const marker = `everyoneMsg ${Date.now()}`
@@ -193,7 +206,11 @@ test.describe.serial("mentions — mandatory discriminator", () => {
     await expect(everyonePill).toHaveClass(/text-primary/)
   })
 
-  test("setting a display name with # / @ / newline is rejected (400)", async ({ asUser }) => {
+  test("setting a display name with # / @ / newline is rejected (400)", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     for (const bad of ["Ann#1234", "bad@name", "line\nbreak"]) {
       const res = await page.request.patch("/api/community/users/me/profile", {

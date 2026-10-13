@@ -1,4 +1,4 @@
-import { test, expect } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import {
   test as browserTest,
   expect as browserExpect,
@@ -83,17 +83,20 @@ async function expectCenteredNativeOauthState(
 // Journey 1 — login & first screen. storageState is established in
 // global-setup, so this journey re-verifies the redirect/auth contract with a
 // FRESH context (no saved session) plus an authenticated landing.
-test.describe.serial("auth & first screen", () => {
-  test("unauthenticated /c deep-link redirects to /sign-in with redirect param", async ({ browser }) => {
-    const context = await browser.newContext() // no storageState — anonymous
+test.describe("auth & first screen", () => {
+  test("unauthenticated /c deep-link redirects to /sign-in with redirect param", async ({ browser, caseResources }) => {
+    const context = await caseResources.newContext() // no storageState — anonymous
     const page = await context.newPage()
     await page.goto("/c/channels/does-not-matter/whatever")
     await page.waitForURL(/\/sign-in/, { timeout: 20_000 , waitUntil: "commit" })
     expect(page.url()).toContain("redirect=")
-    await context.close()
+    await caseResources.closeContext(context)
   })
 
-  test("authenticated user reaches the community shell", async ({ asUser }) => {
+  test("authenticated user reaches the community shell", async ({ caseActors }) => {
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+
     const { page } = await asUser("alice")
     await page.goto("/c")
     // Not bounced to sign-in.
@@ -282,6 +285,7 @@ browserTest.describe("native OAuth status actions", () => {
     let releasePrepare!: () => void
     const prepareGate = new Promise<void>((resolve) => { releasePrepare = resolve })
 
+    try {
     await page.exposeFunction("__testNativeOauthInvoke", async (command: string) => {
       if (command === "native_oauth_snapshot") return snapshot
       if (command === "native_oauth_pending_exchange") return null
@@ -389,5 +393,6 @@ browserTest.describe("native OAuth status actions", () => {
       cancel: false,
       retryDisabled: false,
     })
+    } finally { releasePrepare() }
   })
 })

@@ -1,7 +1,7 @@
-import { test, expect } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable, gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
 import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
-import { seedChannel, seedJoinServer, seedServer } from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
 import {
   WS_CONNECTION_VALIDATION_TIMEOUT_MS,
@@ -9,8 +9,13 @@ import {
   WS_FOREGROUND_SUSPENSION_GAP_MS,
 } from "../../lib/use-user-ws"
 
-test("mobile foreground proof is exact, bounded, and recovers through one current generation", async ({ asUser }, testInfo) => {
+test("mobile foreground proof is exact, bounded, and recovers through one current generation", async ({ caseActors }, testInfo) => {
   test.setTimeout(240_000)
+
+  const actors = await caseActors(["alice", "bob"])
+  const { asUser } = actors
+  const { seedChannel, seedJoinServer, seedServer } = actors.seed
+
   const stamp = Date.now()
   const serverId = await seedServer("alice", `Foreground validation ${stamp}`)
   const channelId = await seedChannel("alice", serverId, `foreground-${stamp}`)

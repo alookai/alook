@@ -1,16 +1,28 @@
 import type { Page, WebSocket } from "@playwright/test"
-import { test, expect, sessionCookie, userId } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
-import {
-  seedCategory,
-  seedChannel,
-  seedChannelMember,
-  seedForumThread,
-  seedJoinServer,
-  seedServer,
-} from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
+import type { CaseActors } from "./_fixtures/case-fixture"
+
+async function prepareCase(actors: CaseActors) {
+  const { sessionCookie } = actors
+  async function resolveOpener(forumId: string, childId: string): Promise<string> {
+    const response = await fetch(`${WEB_URL}/api/community/channels/${forumId}/threads?order=createdAt&limit=50`, { headers: { Cookie: sessionCookie("alice"), Origin: WEB_URL } })
+    expect(response.status).toBe(200)
+    const body = await response.json() as {
+      threads: Array<{
+        id: string
+        parentMessageId: string | null
+      }>
+    }
+    const openerId = body.threads.find((thread) => thread.id === childId)?.parentMessageId
+    expect(openerId).toBeTruthy()
+    return openerId!
+  }
+  return { resolveOpener }
+}
 
 type ChannelDeleteFrame = {
   type: "community:channel.delete"
@@ -35,20 +47,6 @@ function captureChannelDeletes(page: Page) {
   return { frames, sockets }
 }
 
-async function resolveOpener(forumId: string, childId: string): Promise<string> {
-  const response = await fetch(
-    `${WEB_URL}/api/community/channels/${forumId}/threads?order=createdAt&limit=50`,
-    { headers: { Cookie: sessionCookie("alice"), Origin: WEB_URL } },
-  )
-  expect(response.status).toBe(200)
-  const body = await response.json() as {
-    threads: Array<{ id: string; parentMessageId: string | null }>
-  }
-  const openerId = body.threads.find((thread) => thread.id === childId)?.parentMessageId
-  expect(openerId).toBeTruthy()
-  return openerId!
-}
-
 async function deletePostThroughUi(page: Page, childId: string, openerId: string) {
   const responsePromise = page.waitForResponse((response) => (
     response.request().method() === "DELETE"
@@ -64,8 +62,14 @@ async function deletePostThroughUi(page: Page, childId: string, openerId: string
   expect(response.status()).toBe(204)
 }
 
-test("canonical forum-post delete converges author, manager, private WS, and active routes", async ({ asUser }) => {
+test("canonical forum-post delete converges author, manager, private WS, and active routes", async ({ caseActors }) => {
   test.setTimeout(150_000)
+
+  const actors = await caseActors(["alice", "bob", "carol"])
+  const { asUser, userId } = actors
+  const { seedCategory, seedChannel, seedChannelMember, seedForumThread, seedJoinServer, seedServer } = actors.seed
+  const { resolveOpener } = await prepareCase(actors)
+
   const serverId = await seedServer("alice", `Canonical delete ${Date.now()}`)
   const categoryId = await seedCategory("alice", serverId, "Private forum", { private: true })
   const forumId = await seedChannel("alice", serverId, "canonical-delete", "forum", categoryId)

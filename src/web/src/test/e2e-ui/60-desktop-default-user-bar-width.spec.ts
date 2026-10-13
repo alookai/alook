@@ -1,18 +1,10 @@
 import type { Page, Request, Route, TestInfo } from "@playwright/test"
-import { expect, test, userId } from "./_fixtures/community-fixture"
+import { expect, test } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth, waitForElementMotion } from "./_fixtures/actions"
 import { COMMUNITY_LAYOUT_STORAGE_KEY } from "@/components/community/shell/shell-frame-geometry"
-import {
-  memberInfo,
-  seedCancelFriendRequest,
-  seedChannel,
-  seedJoinServer,
-  seedMark,
-  seedMessage,
-  seedPendingFriendRequest,
-  seedServer,
-} from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
+import type { CaseActors, CaseResources } from "./_fixtures/case-fixture"
 
 const layoutStorageKey = COMMUNITY_LAYOUT_STORAGE_KEY
 const expectedDefaultSidebarWidth = 317
@@ -137,9 +129,10 @@ async function installLayoutState(
   })
 }
 
-async function holdApplicationScripts(page: Page) {
+async function holdApplicationScripts(page: Page, caseResources: CaseResources) {
   let release!: () => void
   const gate = new Promise<void>((resolve) => { release = resolve })
+  caseResources.own(release, async (captured) => { captured() })
   let hits = 0
   let sessionRequests = 0
   page.on("request", (request) => {
@@ -158,9 +151,10 @@ async function holdApplicationScripts(page: Page) {
   return { hits: () => hits, sessionRequests: () => sessionRequests, release }
 }
 
-async function holdCommunityReads(page: Page) {
+async function holdCommunityReads(page: Page, caseResources: CaseResources) {
   let release!: () => void
   const gate = new Promise<void>((resolve) => { release = resolve })
+  caseResources.own(release, async (captured) => { captured() })
   let hits = 0
   await page.route("**/api/community/**", async (route) => {
     if (route.request().method() !== "GET") {
@@ -379,20 +373,22 @@ async function attachJson(testInfo: TestInfo, name: string, value: unknown) {
   })
 }
 
-test.describe.serial("desktop default User Bar width", () => {
-  let serverId: string
-  let channelId: string
-
-  test.beforeAll(async () => {
+test.describe("desktop default User Bar width", () => {
+  async function prepareCase1(actors: CaseActors) {
+    const { seedChannel, seedServer } = actors.seed
     const stamp = Date.now()
-    serverId = await seedServer("alice", `Desktop width ${stamp}`)
-    channelId = await seedChannel("alice", serverId, `desktop-width-${stamp}`)
-  })
+    const serverId: string = await seedServer("alice", `Desktop width ${stamp}`)
+    const channelId: string = await seedChannel("alice", serverId, `desktop-width-${stamp}`)
+    return { serverId, channelId }
+  }
 
-  test("prepaints saved pending-shell widths and preserves the loaded handoff", async ({
-    asUser,
-  }, testInfo) => {
+  test("prepaints saved pending-shell widths and preserves the loaded handoff", async ({ caseActors, caseResources }, testInfo) => {
     test.setTimeout(240_000)
+
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+    const { serverId, channelId } = await prepareCase1(actors)
+
     const evidence: Array<{
       targetWidth: number
       savedLayout: { sidebar: number; main: number }
@@ -411,8 +407,8 @@ test.describe.serial("desktop default User Bar width", () => {
           : targetWidth / availablePanelWidth * 100
       const savedLayout = { sidebar, main: 100 - sidebar }
       await installLayoutState(page, savedLayout, 2_000)
-      const scripts = await holdApplicationScripts(page)
-      const communityReads = await holdCommunityReads(page)
+      const scripts = await holdApplicationScripts(page, caseResources)
+      const communityReads = await holdCommunityReads(page, caseResources)
 
       await page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
       await expect.poll(scripts.hits).toBeGreaterThan(0)
@@ -433,7 +429,7 @@ test.describe.serial("desktop default User Bar width", () => {
         Reflect.get(window, "__desktopWidthSamples") as LayoutSample[]
       )))
       evidence.push({ targetWidth, savedLayout, sequence })
-      await session.context.close()
+      await caseResources.closeContext(session.context)
     }
 
     await attachJson(testInfo, "saved-pending-shell-frame-sequences", evidence)
@@ -447,10 +443,12 @@ test.describe.serial("desktop default User Bar width", () => {
     }
   })
 
-  test("keeps unsaved, saved, and user-resized layouts pixel-stable", async ({
-    asUser,
-  }, testInfo) => {
+  test("keeps unsaved, saved, and user-resized layouts pixel-stable", async ({ caseActors, caseResources }, testInfo) => {
     test.setTimeout(180_000)
+
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+    const { serverId, channelId } = await prepareCase1(actors)
 
     const fresh = await asUser("alice")
     await fresh.page.setViewportSize({ width: 1280, height: 900 })
@@ -507,7 +505,7 @@ test.describe.serial("desktop default User Bar width", () => {
     await expectDesktopGeometry(fresh.page, expectedDefaultSidebarWidth)
     expect(await fresh.page.evaluate((key) => localStorage.getItem(key), layoutStorageKey))
       .toBeNull()
-    await fresh.context.close()
+    await caseResources.closeContext(fresh.context)
 
     const mobileGeometry: Array<Record<string, unknown>> = []
     for (const viewport of [
@@ -556,7 +554,7 @@ test.describe.serial("desktop default User Bar width", () => {
         layoutStorageKey,
       )).toBeNull()
       mobileGeometry.push({ viewport, ...geometry })
-      await mobile.context.close()
+      await caseResources.closeContext(mobile.context)
     }
 
     const seededLayout = { sidebar: 25, main: 75 }
@@ -659,10 +657,14 @@ test.describe.serial("desktop default User Bar width", () => {
     })
   })
 
-  test("keeps a populated Inbox free of horizontal overflow at the 100px floor", async ({
-    asUser,
-  }, testInfo) => {
+  test("keeps a populated Inbox free of horizontal overflow at the 100px floor", async ({ caseActors }, testInfo) => {
     test.setTimeout(120_000)
+
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser, userId } = actors
+    const { memberInfo, seedCancelFriendRequest, seedChannel, seedJoinServer, seedMark, seedMessage, seedPendingFriendRequest, seedServer } = actors.seed
+    await prepareCase1(actors)
+
     const stamp = Date.now()
     const longServerName = `Inbox width with a deliberately long server title ${stamp}`
     const longChannelName = `inbox-width-with-a-deliberately-long-channel-name-${stamp}`
@@ -785,10 +787,12 @@ test.describe.serial("desktop default User Bar width", () => {
     }
   })
 
-  test("restores fresh and saved mobile-first desktop entries before paint", async ({
-    asUser,
-  }, testInfo) => {
+  test("restores fresh and saved mobile-first desktop entries before paint", async ({ caseActors, caseResources }, testInfo) => {
     test.setTimeout(240_000)
+
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+    const { serverId, channelId } = await prepareCase1(actors)
 
     const runFreshSequence = async (widths: number[]) => {
       const session = await asUser("alice")
@@ -840,7 +844,7 @@ test.describe.serial("desktop default User Bar width", () => {
         previousWidth = width
       }
 
-      await session.context.close()
+      await caseResources.closeContext(session.context)
       return { widths, desktopPoints }
     }
 
@@ -927,13 +931,16 @@ test.describe.serial("desktop default User Bar width", () => {
         storageWrites: savedStorageWrites,
       },
     })
-    await saved.context.close()
+    await caseResources.closeContext(saved.context)
   })
 
-  test("captures closed, Inbox, Profile, update, and cold restore parity", async ({
-    asUser,
-  }, testInfo) => {
+  test("captures closed, Inbox, Profile, update, and cold restore parity", async ({ caseActors, caseResources }, testInfo) => {
     test.setTimeout(240_000)
+
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+    const { serverId } = await prepareCase1(actors)
+
     const focusRecords: Array<Record<string, unknown>> = []
 
     for (const width of [1024, 1280] as const) {
@@ -1043,14 +1050,14 @@ test.describe.serial("desktop default User Bar width", () => {
         })
         expect(writes.writes).toEqual([])
         writes.stop()
-        await authenticated.context.close()
+        await caseResources.closeContext(authenticated.context)
 
         const pending = await asUser("alice")
         await pending.page.setViewportSize({ width, height: width === 1024 ? 768 : 900 })
         await pending.page.emulateMedia({ colorScheme: theme })
         await installLayoutState(pending.page, null)
-        const scripts = await holdApplicationScripts(pending.page)
-        const communityReads = await holdCommunityReads(pending.page)
+        const scripts = await holdApplicationScripts(pending.page, caseResources)
+        const communityReads = await holdCommunityReads(pending.page, caseResources)
         await pending.page.goto(`/c/channels/${serverId}`, { waitUntil: "commit" })
         await expect.poll(scripts.hits).toBeGreaterThan(0)
         expect(scripts.sessionRequests()).toBe(0)
@@ -1083,7 +1090,7 @@ test.describe.serial("desktop default User Bar width", () => {
         expect(await pending.page.evaluate((key) => localStorage.getItem(key), layoutStorageKey))
           .toBeNull()
         communityReads.release()
-        await pending.context.close()
+        await caseResources.closeContext(pending.context)
       }
     }
     await attachJson(testInfo, "user-bar-focus-records", focusRecords)

@@ -1,7 +1,54 @@
 import type { BrowserContext, Page, Route } from "@playwright/test"
-import { test, expect, userId } from "./_fixtures/community-fixture"
-import { seedChannel, seedDm, seedDmMessage, seedMessage, seedServer } from "./_fixtures/seed"
+import { test, expect } from "./_fixtures/case-fixture"
+
 import { tid } from "./_fixtures/testids"
+import type { CaseActors, CaseResources } from "./_fixtures/case-fixture"
+
+async function prepareCase(actors: CaseActors, caseResources: CaseResources) {
+  const { userId } = actors
+  const coldRootStorageKey = `community:lastRoute:${encodeURIComponent(userId("alice"))}`
+  async function installColdRootProbe(page: Page, destination: string | null) {
+    await page.addInitScript(({ storageKey, storedDestination, machinesPendingTestId }) => {
+      const target = window as typeof window & {
+        __communityColdRootProbe?: ColdRootProbe
+      }
+      target.__communityColdRootProbe = { machinesSeen: false }
+      try {
+        if (storedDestination)
+          localStorage.setItem(storageKey, storedDestination)
+        else
+          localStorage.removeItem(storageKey)
+      }
+      catch { }
+      const inspect = () => {
+        const machines = document.querySelector(`[data-community-main-kind="machines"], [data-testid="${machinesPendingTestId}"]`)
+        if (machines)
+          target.__communityColdRootProbe!.machinesSeen = true
+      }
+      const observe = () => {
+        if (!document.documentElement) {
+          globalThis.setTimeout(observe, 0)
+          return
+        }
+        new MutationObserver(inspect).observe(document.documentElement, {
+          childList: true,
+          subtree: true,
+        })
+        inspect()
+      }
+      observe()
+    }, {
+      storageKey: coldRootStorageKey,
+      storedDestination: destination,
+      machinesPendingTestId: tid.pendingMain("machines"),
+    })
+  }
+  async function closeHeldContext(context: BrowserContext, gate: Awaited<ReturnType<typeof holdApplicationScripts>>) {
+    gate.abort()
+    await caseResources.closeContext(context)
+  }
+  return { coldRootStorageKey, installColdRootProbe, closeHeldContext }
+}
 
 type Surface = "list" | "detail" | "neutral"
 type Sidebar = "me" | "server" | "none"
@@ -18,52 +65,17 @@ type ColdRootProbe = {
   machinesSeen: boolean
 }
 
-const coldRootStorageKey = `community:lastRoute:${encodeURIComponent(userId("alice"))}`
-
-async function installColdRootProbe(page: Page, destination: string | null) {
-  await page.addInitScript(({ storageKey, storedDestination, machinesPendingTestId }) => {
-    const target = window as typeof window & { __communityColdRootProbe?: ColdRootProbe }
-    target.__communityColdRootProbe = { machinesSeen: false }
-    try {
-      if (storedDestination) localStorage.setItem(storageKey, storedDestination)
-      else localStorage.removeItem(storageKey)
-    } catch { }
-
-    const inspect = () => {
-      const machines = document.querySelector(
-        `[data-community-main-kind="machines"], [data-testid="${machinesPendingTestId}"]`,
-      )
-      if (machines) target.__communityColdRootProbe!.machinesSeen = true
-    }
-    const observe = () => {
-      if (!document.documentElement) {
-        globalThis.setTimeout(observe, 0)
-        return
-      }
-      new MutationObserver(inspect).observe(document.documentElement, {
-        childList: true,
-        subtree: true,
-      })
-      inspect()
-    }
-    observe()
-  }, {
-    storageKey: coldRootStorageKey,
-    storedDestination: destination,
-    machinesPendingTestId: tid.pendingMain("machines"),
-  })
-}
-
 async function expectNoMachinesDuringColdRootRestore(page: Page) {
   expect(await page.evaluate(() => (
     window as typeof window & { __communityColdRootProbe?: ColdRootProbe }
   ).__communityColdRootProbe)).toEqual({ machinesSeen: false })
 }
 
-async function holdApplicationScripts(page: Page) {
+async function holdApplicationScripts(page: Page, caseResources: CaseResources) {
   let releaseGate!: () => void
   let disposition: "continue" | "abort" = "continue"
   const gate = new Promise<void>((resolve) => { releaseGate = resolve })
+  caseResources.own(releaseGate, async (captured) => { captured() })
   let hits = 0
   let sessionRequests = 0
   page.on("request", (request) => {
@@ -182,37 +194,30 @@ async function expectServerSeededRouteSkeleton(
   for (const value of distinctiveStrings) await expect(frame).not.toContainText(value)
 }
 
-async function closeHeldContext(
-  context: BrowserContext,
-  gate: Awaited<ReturnType<typeof holdApplicationScripts>>,
-) {
-  gate.abort()
-  await context.close()
-}
-
-test.describe.serial("community initial-load module skeletons", () => {
-  let serverId: string
-  let channelId: string
-  let dmId: string
-  let serverName: string
-  let channelName: string
-  let channelMessageId: string
-  let privateMessage: string
-
-  test.beforeAll(async () => {
+test.describe("community initial-load module skeletons", () => {
+  async function prepareCase1(actors: CaseActors, caseResources: CaseResources) {
+    const { coldRootStorageKey, installColdRootProbe, closeHeldContext } = await prepareCase(actors, caseResources)
+    const { userId } = actors
+    const { seedChannel, seedDm, seedDmMessage, seedMessage, seedServer } = actors.seed
     const stamp = Date.now()
-    serverName = `COLD SERVER ${stamp}`
-    channelName = `cold-channel-${stamp}`
-    privateMessage = `PRIVATE COLD MESSAGE ${stamp}`
-    serverId = await seedServer("alice", serverName)
-    channelId = await seedChannel("alice", serverId, channelName)
-    channelMessageId = await seedMessage("alice", channelId, privateMessage)
-    dmId = await seedDm("alice", userId("bob"))
+    const serverName: string = `COLD SERVER ${stamp}`
+    const channelName: string = `cold-channel-${stamp}`
+    const privateMessage: string = `PRIVATE COLD MESSAGE ${stamp}`
+    const serverId: string = await seedServer("alice", serverName)
+    const channelId: string = await seedChannel("alice", serverId, channelName)
+    const channelMessageId: string = await seedMessage("alice", channelId, privateMessage)
+    const dmId: string = await seedDm("alice", userId("bob"))
     await seedDmMessage("alice", dmId, privateMessage)
-  })
+    return { coldRootStorageKey, installColdRootProbe, closeHeldContext, serverId, channelId, dmId, serverName, channelName, channelMessageId, privateMessage }
+  }
 
-  test("cold mobile paths reuse only their URL-owned skeleton modules", async ({ asUser }, testInfo) => {
+  test("cold mobile paths reuse only their URL-owned skeleton modules", async ({ caseActors, caseResources }, testInfo) => {
     test.setTimeout(240_000)
+
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { closeHeldContext, serverId, channelId, dmId, serverName, channelName, privateMessage } = await prepareCase1(actors, caseResources)
+
     const cases: Array<[string, ExpectedFrame]> = [
       ["/c", { route: "community-root-redirect", surface: "neutral", sidebar: "none", main: "route-resolution" }],
       ["/c/me", { route: "me-root", surface: "list", sidebar: "me", main: "me-root" }],
@@ -229,7 +234,7 @@ test.describe.serial("community initial-load module skeletons", () => {
     for (const [pathname, expected] of cases) {
       const { context, page } = await asUser("alice")
       await page.setViewportSize({ width: 390, height: 844 })
-      const gate = await holdApplicationScripts(page)
+      const gate = await holdApplicationScripts(page, caseResources)
       const traffic = captureCommunityTraffic(page)
       await page.goto(pathname, { waitUntil: "commit" })
       await expect.poll(gate.hits).toBeGreaterThan(0)
@@ -247,8 +252,13 @@ test.describe.serial("community initial-load module skeletons", () => {
     }
   })
 
-  test("desktop cold frames retain all route-owned shell columns", async ({ asUser }, testInfo) => {
+  test("desktop cold frames retain all route-owned shell columns", async ({ caseActors, caseResources }, testInfo) => {
     test.setTimeout(120_000)
+
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { closeHeldContext, serverId, channelId, dmId, serverName, channelName, privateMessage } = await prepareCase1(actors, caseResources)
+
     for (const [pathname, expected] of [
       ["/c", { route: "community-root-redirect", surface: "neutral", sidebar: "none", main: "route-resolution" }],
       [`/c/me/${dmId}`, { route: "dm-detail", surface: "detail", sidebar: "me", main: "dm" }],
@@ -257,7 +267,7 @@ test.describe.serial("community initial-load module skeletons", () => {
     ] satisfies Array<[string, ExpectedFrame]>) {
       const { context, page } = await asUser("alice")
       await page.setViewportSize({ width: 1280, height: 900 })
-      const gate = await holdApplicationScripts(page)
+      const gate = await holdApplicationScripts(page, caseResources)
       const traffic = captureCommunityTraffic(page)
       await page.goto(pathname, { waitUntil: "commit" })
       await expect.poll(gate.hits).toBeGreaterThan(0)
@@ -275,8 +285,13 @@ test.describe.serial("community initial-load module skeletons", () => {
     }
   })
 
-  test("Android cold root restores channel, DM, and Bots without any Machines DOM", async ({ asUser }) => {
+  test("Android cold root restores channel, DM, and Bots without any Machines DOM", async ({ caseActors, caseResources }) => {
     test.setTimeout(180_000)
+
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { installColdRootProbe, serverId, channelId, dmId, serverName, channelName, privateMessage } = await prepareCase1(actors, caseResources)
+
     const cases = [
       {
         destination: `/c/channels/${serverId}/${channelId}`,
@@ -296,7 +311,7 @@ test.describe.serial("community initial-load module skeletons", () => {
       const { context, page } = await asUser("alice")
       await page.setViewportSize({ width: 390, height: 844 })
       await installColdRootProbe(page, destination)
-      const gate = await holdApplicationScripts(page)
+      const gate = await holdApplicationScripts(page, caseResources)
       await page.goto("/c", { waitUntil: "commit" })
       await expect.poll(gate.hits).toBeGreaterThan(0)
       expect(gate.sessionRequests()).toBe(0)
@@ -313,15 +328,19 @@ test.describe.serial("community initial-load module skeletons", () => {
       await expect(ready(page)).toBeVisible({ timeout: 30_000 })
       expect(await page.evaluate(() => history.length)).toBe(historyLength)
       await expectNoMachinesDuringColdRootRestore(page)
-      await context.close()
+      await caseResources.closeContext(context)
     }
   })
 
-  test("Android cold root falls back to Machines only without valid account memory", async ({ asUser }) => {
+  test("Android cold root falls back to Machines only without valid account memory", async ({ caseActors, caseResources }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { installColdRootProbe, serverName, channelName, privateMessage } = await prepareCase1(actors, caseResources)
+
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 390, height: 844 })
     await installColdRootProbe(page, null)
-    const gate = await holdApplicationScripts(page)
+    const gate = await holdApplicationScripts(page, caseResources)
     await page.goto("/c", { waitUntil: "commit" })
     await expect.poll(gate.hits).toBeGreaterThan(0)
     expect(gate.sessionRequests()).toBe(0)
@@ -339,12 +358,16 @@ test.describe.serial("community initial-load module skeletons", () => {
     expect(await page.evaluate(() => history.length)).toBe(historyLength)
   })
 
-  test("a stale cold-root DM is replaced by the verified Machines fallback", async ({ asUser }) => {
+  test("a stale cold-root DM is replaced by the verified Machines fallback", async ({ caseActors, caseResources }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { coldRootStorageKey, installColdRootProbe, serverName, channelName, privateMessage } = await prepareCase1(actors, caseResources)
+
     const { page } = await asUser("alice")
     const missingDm = `/c/me/dm_missing_${Date.now()}`
     await page.setViewportSize({ width: 390, height: 844 })
     await installColdRootProbe(page, missingDm)
-    const gate = await holdApplicationScripts(page)
+    const gate = await holdApplicationScripts(page, caseResources)
     await page.goto("/c", { waitUntil: "commit" })
     await expect.poll(gate.hits).toBeGreaterThan(0)
     expect(gate.sessionRequests()).toBe(0)
@@ -365,15 +388,20 @@ test.describe.serial("community initial-load module skeletons", () => {
       .toBe("/c/me/machines")
   })
 
-  test("639↔640 preserves one route-owned skeleton main node with zero request or socket delta", async ({ asUser }) => {
+  test("639↔640 preserves one route-owned skeleton main node with zero request or socket delta", async ({ caseActors, caseResources }) => {
     test.setTimeout(120_000)
+
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { closeHeldContext, serverId, channelId, dmId } = await prepareCase1(actors, caseResources)
+
     for (const [pathname, mainKind] of [
       [`/c/me/${dmId}`, "dm"],
       [`/c/channels/${serverId}/${channelId}`, "server-conversation"],
     ] as const) {
       const { context, page } = await asUser("alice")
       await page.setViewportSize({ width: 639, height: 844 })
-      const gate = await holdApplicationScripts(page)
+      const gate = await holdApplicationScripts(page, caseResources)
       await page.goto(pathname, { waitUntil: "commit" })
       await expect.poll(gate.hits).toBeGreaterThan(0)
       expect(gate.sessionRequests()).toBe(0)
@@ -398,11 +426,16 @@ test.describe.serial("community initial-load module skeletons", () => {
     }
   })
 
-  test("releasing scripts mounts one server-seeded user shell without duplicate route work", async ({ asUser }) => {
+  test("releasing scripts mounts one server-seeded user shell without duplicate route work", async ({ caseActors, caseResources }) => {
     test.setTimeout(120_000)
+
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, channelId, serverName, channelName, channelMessageId, privateMessage } = await prepareCase1(actors, caseResources)
+
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 390, height: 844 })
-    const gate = await holdApplicationScripts(page)
+    const gate = await holdApplicationScripts(page, caseResources)
     const traffic = captureCommunityTraffic(page)
     await page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
     await expect.poll(gate.hits).toBeGreaterThan(0)

@@ -1,7 +1,8 @@
 import type { Page, Request, Response, Route } from "@playwright/test"
-import { test, expect } from "./_fixtures/community-fixture"
-import { seedChannel, seedServer } from "./_fixtures/seed"
+import { test, expect } from "./_fixtures/case-fixture"
+
 import { tid } from "./_fixtures/testids"
+import type { CaseResources } from "./_fixtures/case-fixture"
 
 type HeldServer = {
   heldNavigation: () => number
@@ -153,10 +154,11 @@ function expectAtomicTargetFrames(
 
 async function holdServerTransition(
   page: Page,
-  serverId: string,
+  serverId: string, caseResources: CaseResources
 ): Promise<HeldServer> {
   let releaseGate!: () => void
   const gate = new Promise<void>((resolve) => { releaseGate = resolve })
+  caseResources.own(releaseGate, async (captured) => { captured() })
   let heldNavigation = 0
   const patterns: Array<{ pattern: string; navigation: boolean }> = [
     { pattern: `**/c/channels/${serverId}**`, navigation: true },
@@ -193,7 +195,7 @@ function isTargetRsc(request: Request, serverId: string): boolean {
 function observeTargetRsc(
   page: Page,
   serverId: string,
-  timeoutMs: number,
+  timeoutMs: number, caseResources: CaseResources
 ): {
   finished: Promise<void>
   requests: () => string[]
@@ -242,18 +244,23 @@ function observeTargetRsc(
   const timeout = setTimeout(() => {
     settle(new Error(`Target RSC did not finish within ${timeoutMs}ms for server ${serverId}`))
   }, timeoutMs)
+  const stop = () => {
+    clearTimeout(timeout)
+    page.off("request", onRequest)
+    page.off("requestfailed", onRequestFailed)
+    page.off("response", onResponse)
+  }
+  caseResources.own(stop, async (captured) => {
+    captured()
+    settle()
+  })
   page.on("request", onRequest)
   page.on("requestfailed", onRequestFailed)
   page.on("response", onResponse)
   return {
     finished,
     requests: () => [...requests],
-    stop: () => {
-      clearTimeout(timeout)
-      page.off("request", onRequest)
-      page.off("requestfailed", onRequestFailed)
-      page.off("response", onResponse)
-    },
+    stop,
   }
 }
 
@@ -283,8 +290,13 @@ async function expectActiveServer(page: Page, activeId: string, inactiveId: stri
   await expect(page.getByTestId(tid.serverIcon(inactiveId))).toHaveClass(/cursor-pointer/)
 }
 
-test("server switching exposes one target-scoped cold checkpoint and skips it when warm", async ({ asUser }) => {
+test("server switching exposes one target-scoped cold checkpoint and skips it when warm", async ({ caseActors, caseResources }) => {
   test.setTimeout(180_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedServer } = actors.seed
+
   const stamp = Date.now()
   const serverA = await seedServer("alice", `Checkpoint A ${stamp}`)
   const serverB = await seedServer("alice", `Checkpoint B ${stamp}`)
@@ -332,10 +344,10 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   // the pointer between vertically stacked icons can cross another icon and
   // legitimately trigger its hover prefetch; those targets must stay cold
   // until their explicit phase below.
-  const coldC = await holdServerTransition(page, serverC)
-  const coldD = await holdServerTransition(page, serverD)
-  const coldE = await holdServerTransition(page, serverE)
-  const coldF = await holdServerTransition(page, serverF)
+  const coldC = await holdServerTransition(page, serverC, caseResources)
+  const coldD = await holdServerTransition(page, serverD, caseResources)
+  const coldE = await holdServerTransition(page, serverE, caseResources)
+  const coldF = await holdServerTransition(page, serverF, caseResources)
 
   // Visit B once so both its route and live detail query are deterministically
   // memory-warm, then return to A before sampling the warm switch.
@@ -411,8 +423,8 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   await page.waitForTimeout(1_000)
   await page.reload()
   await expect(page.getByRole("heading", { name: channelAName })).toBeVisible({ timeout: 30_000 })
-  const structuralC = await holdServerTransition(page, serverC)
-  const targetRsc = observeTargetRsc(page, serverC, 30_000)
+  const structuralC = await holdServerTransition(page, serverC, caseResources)
+  const targetRsc = observeTargetRsc(page, serverC, 30_000, caseResources)
   await clearSidebarFrames(page)
   await clearHistoryEvents(page)
   try {

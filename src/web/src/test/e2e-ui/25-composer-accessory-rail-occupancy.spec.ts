@@ -1,19 +1,24 @@
 import type { Page, TestInfo } from "@playwright/test"
-import { test, expect, userName } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable, gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
-import { renameUser, seedChannel, seedJoinServer, seedMessage, seedServer } from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
+import type { CaseActors } from "./_fixtures/case-fixture"
+
+async function prepareCase(actors: CaseActors) {
+  const { userName } = actors
+  const { renameUser } = actors.seed
+  actors.onCleanup(async () => {
+    const restorations = await Promise.allSettled([
+      renameUser("bob", userName("bob")),
+      renameUser("carol", userName("carol")),
+    ])
+    expect(restorations.map((result) => result.status)).toEqual(["fulfilled", "fulfilled"])
+  })
+}
 
 const VIEWPORT_WIDTHS = [320, 390, 639, 640, 1280] as const
 const LONG_TYPING_NAME = `Typing ${"occupancy ".repeat(8)}edge`
-
-test.afterAll(async () => {
-  const restorations = await Promise.allSettled([
-    renameUser("bob", userName("bob")),
-    renameUser("carol", userName("carol")),
-  ])
-  expect(restorations.map((result) => result.status)).toEqual(["fulfilled", "fulfilled"])
-})
 
 async function sendExactMessage(sender: Page, receiver: Page, text: string) {
   const editable = composerEditable(sender)
@@ -383,8 +388,14 @@ async function settleAwayAtTop(page: Page): Promise<void> {
   await expect(page.getByTestId(tid.scrollToPresent)).toBeVisible()
 }
 
-test("composer accessory rail reallocates every occupied slot without overflow", async ({ asUser }, testInfo) => {
+test("composer accessory rail reallocates every occupied slot without overflow", async ({ caseActors }, testInfo) => {
   test.setTimeout(180_000)
+
+  const actors = await caseActors(["alice", "bob", "carol"])
+  const { asUser } = actors
+  const { renameUser, seedChannel, seedJoinServer, seedMessage, seedServer } = actors.seed
+  await prepareCase(actors)
+
   const serverId = await seedServer("alice", `Rail occupancy ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "rail-occupancy")
   await seedJoinServer("alice", "bob", serverId)

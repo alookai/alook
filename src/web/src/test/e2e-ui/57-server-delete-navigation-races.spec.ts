@@ -1,10 +1,37 @@
 import type { Page, WebSocket } from "@playwright/test"
-import { expect, sessionCookie, test, userId } from "./_fixtures/community-fixture"
+import { expect, test } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth, openServer } from "./_fixtures/actions"
-import { seedChannel, seedServer } from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
 import type { UserKey } from "./_setup/users"
+import type { CaseActors, CaseResources } from "./_fixtures/case-fixture"
+
+async function prepareCase(actors: CaseActors) {
+  const { sessionCookie } = actors
+  const { seedChannel, seedServer } = actors.seed
+  async function serverIds(key: UserKey): Promise<string[]> {
+    const response = await fetch(`${WEB_URL}/api/community/servers`, {
+      headers: { Cookie: sessionCookie(key), Origin: WEB_URL },
+    })
+    expect(response.status).toBe(200)
+    const body = await response.json() as {
+      servers: Array<{
+        id: string
+      }>
+    }
+    return body.servers.map((server) => server.id)
+  }
+  async function seedServerRoute(key: UserKey, name: string): Promise<{
+    serverId: string
+    channelId: string
+  }> {
+    const serverId = await seedServer(key, name)
+    const channelId = await seedChannel(key, serverId, `${name} channel`, "text")
+    return { serverId, channelId }
+  }
+  return { serverIds, seedServerRoute }
+}
 
 type Deferred<T> = {
   promise: Promise<T>
@@ -34,15 +61,6 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve }
 }
 
-async function serverIds(key: UserKey): Promise<string[]> {
-  const response = await fetch(`${WEB_URL}/api/community/servers`, {
-    headers: { Cookie: sessionCookie(key), Origin: WEB_URL },
-  })
-  expect(response.status).toBe(200)
-  const body = await response.json() as { servers: Array<{ id: string }> }
-  return body.servers.map((server) => server.id)
-}
-
 async function firstTextChannelId(page: Page, serverId: string): Promise<string> {
   const response = await page.request.get(
     `/api/community/servers/${serverId}/channels`,
@@ -68,15 +86,6 @@ async function openChannelRoute(
   await expect(page).toHaveURL(pathname)
 }
 
-async function seedServerRoute(
-  key: UserKey,
-  name: string,
-): Promise<{ serverId: string; channelId: string }> {
-  const serverId = await seedServer(key, name)
-  const channelId = await seedChannel(key, serverId, `${name} channel`, "text")
-  return { serverId, channelId }
-}
-
 async function clickDeleteServer(
   page: Page,
   serverId: string,
@@ -94,9 +103,11 @@ async function clickDeleteServer(
   }).click()
 }
 
-async function delayDelete(page: Page, serverId: string) {
+async function delayDelete(page: Page, serverId: string, caseResources: CaseResources) {
   const release = deferred<void>()
+  caseResources.own(release, async (captured) => { captured.resolve() })
   const intercepted = deferred<void>()
+  caseResources.own(intercepted, async (captured) => { captured.resolve() })
   const pattern = `**/api/community/servers/${serverId}`
   await page.route(pattern, async (route) => {
     if (route.request().method() !== "DELETE") {
@@ -109,7 +120,7 @@ async function delayDelete(page: Page, serverId: string) {
   })
   const response = page.waitForResponse((candidate) => (
     candidate.request().method() === "DELETE"
-      && new URL(candidate.url()).pathname === `/api/community/servers/${serverId}`
+    && new URL(candidate.url()).pathname === `/api/community/servers/${serverId}`
   ))
   await clickDeleteServer(page, serverId)
   await intercepted.promise
@@ -120,9 +131,11 @@ async function delayDelete(page: Page, serverId: string) {
   }
 }
 
-async function delayServerRsc(page: Page, serverId: string) {
+async function delayServerRsc(page: Page, serverId: string, caseResources: CaseResources) {
   const release = deferred<void>()
+  caseResources.own(release, async (captured) => { captured.resolve() })
   const intercepted = deferred<void>()
+  caseResources.own(intercepted, async (captured) => { captured.resolve() })
   const pattern = "**/c/channels/**"
   await page.route(pattern, async (route) => {
     const url = new URL(route.request().url())
@@ -196,9 +209,13 @@ async function expectServerLeaf(page: Page, serverId: string): Promise<string> {
   return new URL(page.url()).pathname
 }
 
-test.describe.configure({ mode: "serial" })
 
-test("deleting the only Server replaces once to Home", async ({ asUser }) => {
+
+test("deleting the only Server replaces once to Home", async ({ caseActors }) => {
+  const actors = await caseActors(["sole-delete"])
+  const { asUser, userId } = actors
+  const { serverIds, seedServerRoute } = await prepareCase(actors)
+
   const key = "sole-delete"
   expect(await serverIds(key)).toEqual([])
   const route = await seedServerRoute(key, `delete-only-${Date.now()}`)
@@ -235,7 +252,11 @@ for (const testCase of [
   { key: "alice" as const, name: "computed target", chooseUserRoute: (ids: string[]) => ids[0] },
   { key: "bob" as const, name: "different safe route", chooseUserRoute: (ids: string[]) => ids[1] },
 ]) {
-  test(`a committed ${testCase.name} wins before DELETE success with no later history write`, async ({ asUser }) => {
+  test(`a committed ${testCase.name} wins before DELETE success with no later history write`, async ({ caseActors, caseResources }) => {
+    const actors = await caseActors([testCase.key])
+    const { asUser } = actors
+    const { serverIds, seedServerRoute } = await prepareCase(actors)
+
     const stamp = Date.now()
     const survivorA = await seedServerRoute(testCase.key, `survivor-a-${stamp}`)
     const survivorB = await seedServerRoute(testCase.key, `survivor-b-${stamp}`)
@@ -251,7 +272,7 @@ for (const testCase of [
     expect(survivors).toContain(survivorB.serverId)
     const userServerId = testCase.chooseUserRoute(survivors)
     expect(userServerId).toBeTruthy()
-    const deletion = await delayDelete(page, deleted.serverId)
+    const deletion = await delayDelete(page, deleted.serverId, caseResources)
 
     await openServer(page, userServerId)
     const safePathname = await expectServerLeaf(page, userServerId)
@@ -267,7 +288,11 @@ for (const testCase of [
   })
 }
 
-test("slow target RSC survives delete/list/WS convergence and lands on its remembered Channel", async ({ asUser }) => {
+test("slow target RSC survives delete/list/WS convergence and lands on its remembered Channel", async ({ caseActors, caseResources }) => {
+  const actors = await caseActors(["carol"])
+  const { asUser } = actors
+  const { serverIds, seedServerRoute } = await prepareCase(actors)
+
   const stamp = Date.now()
   const ensuredSurvivor = await seedServerRoute("carol", `slow-target-${stamp}`)
   const deleted = await seedServerRoute("carol", `slow-deleted-${stamp}`)
@@ -286,7 +311,7 @@ test("slow target RSC survives delete/list/WS convergence and lands on its remem
   const targetPathname = await expectServerLeaf(page, targetServerId!)
   await expect(page.getByTestId(tid.composerInput)).toBeVisible()
   await openServer(page, deleted.serverId)
-  const targetRsc = await delayServerRsc(page, targetServerId!)
+  const targetRsc = await delayServerRsc(page, targetServerId!, caseResources)
   const response = page.waitForResponse((candidate) => (
     candidate.request().method() === "DELETE"
       && new URL(candidate.url()).pathname === `/api/community/servers/${deleted.serverId}`
@@ -303,7 +328,11 @@ test("slow target RSC survives delete/list/WS convergence and lands on its remem
   await targetRsc.cleanup()
 })
 
-test("a newer user navigation wins while the delete target RSC is pending", async ({ asUser }) => {
+test("a newer user navigation wins while the delete target RSC is pending", async ({ caseActors, caseResources }) => {
+  const actors = await caseActors(["dave"])
+  const { asUser } = actors
+  const { serverIds, seedServerRoute } = await prepareCase(actors)
+
   const stamp = Date.now()
   const candidateA = await seedServerRoute("dave", `queued-target-a-${stamp}`)
   const candidateB = await seedServerRoute("dave", `queued-target-b-${stamp}`)
@@ -322,7 +351,7 @@ test("a newer user navigation wins while the delete target RSC is pending", asyn
   await openServer(page, targetServerId!)
   await expectServerLeaf(page, targetServerId!)
   await openServer(page, deleted.serverId)
-  const targetRsc = await delayServerRsc(page, targetServerId!)
+  const targetRsc = await delayServerRsc(page, targetServerId!, caseResources)
   const response = page.waitForResponse((candidate) => (
     candidate.request().method() === "DELETE"
       && new URL(candidate.url()).pathname === `/api/community/servers/${deleted.serverId}`
@@ -341,7 +370,11 @@ test("a newer user navigation wins while the delete target RSC is pending", asyn
   await targetRsc.cleanup()
 })
 
-test("a Back visit after terminal cleanup is an ordinary missing route", async ({ asUser }) => {
+test("a Back visit after terminal cleanup is an ordinary missing route", async ({ caseActors, caseResources }) => {
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedServerRoute } = await prepareCase(actors)
+
   const stamp = Date.now()
   const survivor = await seedServerRoute("alice", `terminal-survivor-${stamp}`)
   const deleted = await seedServerRoute("alice", `terminal-deleted-${stamp}`)
@@ -350,7 +383,7 @@ test("a Back visit after terminal cleanup is an ordinary missing route", async (
     page,
     `/c/channels/${deleted.serverId}/${deleted.channelId}`,
   )
-  const deletion = await delayDelete(page, deleted.serverId)
+  const deletion = await delayDelete(page, deleted.serverId, caseResources)
   await openServer(page, survivor.serverId)
   const safePathname = await expectServerLeaf(page, survivor.serverId)
 
@@ -366,7 +399,11 @@ test("a Back visit after terminal cleanup is an ordinary missing route", async (
   await deletion.cleanup()
 })
 
-test("a failed DELETE keeps the current route and emits no success frame", async ({ asUser }) => {
+test("a failed DELETE keeps the current route and emits no success frame", async ({ caseActors }) => {
+  const actors = await caseActors(["carol"])
+  const { asUser } = actors
+  const { serverIds, seedServerRoute } = await prepareCase(actors)
+
   const route = await seedServerRoute("carol", `failed-delete-${Date.now()}`)
   const page = (await asUser("carol")).page
   const deletes = captureServerDeletes(page)

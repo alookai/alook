@@ -1,11 +1,109 @@
 import { createRequire } from "module"
 import { resolve } from "path"
 import type { Locator, Page, TestInfo } from "@playwright/test"
-import { test, expect, sessionCookie } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
-import { seedChannel, seedForumThread, seedJoinServer, seedServer } from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
 import { MACHINE_WS_URL, REPO_ROOT, WEB_URL } from "./_setup/paths"
+import type { CaseActors, CaseResources, OwnedCaseResource } from "./_fixtures/case-fixture"
+
+async function prepareCase(actors: CaseActors, caseResources: CaseResources) {
+  const { sessionCookie } = actors
+  const createdBotIds = new Map<string, OwnedCaseResource<string>>()
+  const createdMachineIds = new Map<string, OwnedCaseResource<string>>()
+  async function cleanupCreatedResources(): Promise<void> {
+    const errors: unknown[] = []
+    for (const resource of [...createdBotIds.values(), ...createdMachineIds.values()]) {
+      try {
+        await resource.close()
+      }
+      catch (error) {
+        errors.push(error)
+      }
+    }
+    if (errors.length)
+      throw new AggregateError(errors, "Bot preview resource cleanup failed")
+  }
+  function headersFor(key: UserKey, extra?: Record<string, string>) {
+    return {
+      Cookie: sessionCookie(key),
+      Origin: WEB_URL,
+      ...extra,
+    }
+  }
+  async function jsonRequest<T>(key: UserKey, path: string, init?: RequestInit): Promise<T> {
+    const response = await fetch(`${WEB_URL}${path}`, {
+      ...init,
+      headers: headersFor(key, {
+        ...(init?.body ? { "Content-Type": "application/json" } : {}),
+        ...(init?.headers as Record<string, string> | undefined),
+      }),
+    })
+    expect(response.status, `${init?.method ?? "GET"} ${path}`).toBeLessThan(300)
+    return response.json() as Promise<T>
+  }
+  async function pairMachine(): Promise<{
+    credential: string
+    machineId: string
+  }> {
+    const pair = await jsonRequest<{
+      tokenId: string
+    }>("alice", "/api/community/machines/pair", {
+      method: "POST",
+    })
+    const activationProof: { response?: Response; machineId?: string } = {}
+    const pairingToken = caseResources.own(pair.tokenId, async () => {
+      if (!activationProof.response?.ok || !activationProof.machineId) throw new Error("Pairing token consumption is UNKNOWN; this case must stop")
+    })
+    const response = await fetch(`${WEB_URL}/api/community/daemon/activate`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${pair.tokenId}`,
+        "Content-Type": "application/json",
+        Origin: WEB_URL,
+      },
+      body: JSON.stringify({
+        hostname: `profile-preview-e2e-${Date.now()}`,
+        platform: "darwin",
+        arch: "arm64",
+        runtimeReport: [{ id: "codex", status: "healthy" }],
+      }),
+    })
+    expect(response.status).toBe(200)
+    const data = await response.json() as {
+      credential: string
+      machineId: string
+    }
+    createdMachineIds.set(data.machineId, caseResources.own(data.machineId, async (machineId) => {
+      const response = await fetch(`${WEB_URL}/api/community/machines/${machineId}`, { method: "DELETE", headers: headersFor("alice") })
+      expect(response.status, `delete test machine ${machineId}`).toBe(204)
+      createdMachineIds.delete(machineId)
+    }))
+    activationProof.response = response
+    activationProof.machineId = data.machineId
+    await pairingToken.close()
+    return data
+  }
+  async function createBot(machineId: string, name: string): Promise<string> {
+    const data = await jsonRequest<{
+      bot: {
+        id: string
+      }
+    }>("alice", "/api/community/bots", {
+      method: "POST",
+      body: JSON.stringify({ name, machineId, runtime: "codex" }),
+    })
+    createdBotIds.set(data.bot.id, caseResources.own(data.bot.id, async (botId) => {
+      const response = await fetch(`${WEB_URL}/api/community/bots/${botId}`, { method: "DELETE", headers: headersFor("alice") })
+      expect(response.status, `delete test bot ${botId}`).toBe(204)
+      createdBotIds.delete(botId)
+    }))
+    return data.bot.id
+  }
+  actors.onCleanup(cleanupCreatedResources)
+  return { createdBotIds, createdMachineIds, cleanupCreatedResources, headersFor, jsonRequest, pairMachine, createBot }
+}
 
 type UserKey = "alice" | "bob"
 type Rect = { x: number; y: number; width: number; height: number }
@@ -22,30 +120,6 @@ type PreviewFrameSample = {
   viewportWidth: number
   viewportHeight: number
 }
-
-const createdBotIds: string[] = []
-const createdMachineIds: string[] = []
-
-async function cleanupCreatedResources(): Promise<void> {
-  for (const botId of [...createdBotIds]) {
-    const response = await fetch(`${WEB_URL}/api/community/bots/${botId}`, {
-      method: "DELETE",
-      headers: headersFor("alice"),
-    })
-    expect(response.status, `delete test bot ${botId}`).toBe(204)
-    createdBotIds.splice(createdBotIds.indexOf(botId), 1)
-  }
-  for (const machineId of [...createdMachineIds]) {
-    const response = await fetch(`${WEB_URL}/api/community/machines/${machineId}`, {
-      method: "DELETE",
-      headers: headersFor("alice"),
-    })
-    expect(response.status, `delete test machine ${machineId}`).toBe(204)
-    createdMachineIds.splice(createdMachineIds.indexOf(machineId), 1)
-  }
-}
-
-test.afterEach(cleanupCreatedResources)
 
 async function rect(locator: Locator): Promise<Rect> {
   const value = await locator.boundingBox()
@@ -215,63 +289,6 @@ async function expectFooterGeometry(
     .toBe(width < 640 ? 16 : 24)
 }
 
-function headersFor(key: UserKey, extra?: Record<string, string>) {
-  return {
-    Cookie: sessionCookie(key),
-    Origin: WEB_URL,
-    ...extra,
-  }
-}
-
-async function jsonRequest<T>(
-  key: UserKey,
-  path: string,
-  init?: RequestInit,
-): Promise<T> {
-  const response = await fetch(`${WEB_URL}${path}`, {
-    ...init,
-    headers: headersFor(key, {
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
-      ...(init?.headers as Record<string, string> | undefined),
-    }),
-  })
-  expect(response.status, `${init?.method ?? "GET"} ${path}`).toBeLessThan(300)
-  return response.json() as Promise<T>
-}
-
-async function pairMachine(): Promise<{ credential: string; machineId: string }> {
-  const pair = await jsonRequest<{ tokenId: string }>("alice", "/api/community/machines/pair", {
-    method: "POST",
-  })
-  const response = await fetch(`${WEB_URL}/api/community/daemon/activate`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${pair.tokenId}`,
-      "Content-Type": "application/json",
-      Origin: WEB_URL,
-    },
-    body: JSON.stringify({
-      hostname: `profile-preview-e2e-${Date.now()}`,
-      platform: "darwin",
-      arch: "arm64",
-      runtimeReport: [{ id: "codex", status: "healthy" }],
-    }),
-  })
-  expect(response.status).toBe(200)
-  const data = await response.json() as { credential: string; machineId: string }
-  createdMachineIds.push(data.machineId)
-  return data
-}
-
-async function createBot(machineId: string, name: string): Promise<string> {
-  const data = await jsonRequest<{ bot: { id: string } }>("alice", "/api/community/bots", {
-    method: "POST",
-    body: JSON.stringify({ name, machineId, runtime: "codex" }),
-  })
-  createdBotIds.push(data.bot.id)
-  return data.bot.id
-}
-
 async function enrollBot(credential: string, botId: string): Promise<string> {
   const response = await fetch(`${WEB_URL}/api/community/daemon/enroll-agent`, {
     method: "POST",
@@ -341,6 +358,8 @@ async function setBotMark(
 type MachineSocket = {
   send: (data: string) => void
   close: () => void
+  readonly readyState: number
+  once(event: "close", listener: () => void): void
   once(event: "open", listener: () => void): void
   once(event: "error", listener: (error: Error) => void): void
   once(event: "message", listener: (data: unknown) => void): void
@@ -348,7 +367,7 @@ type MachineSocket = {
   off(event: "message", listener: (data: unknown) => void): void
 }
 
-function connectMachine(credential: string) {
+function connectMachine(credential: string, caseResources: CaseResources) {
   const requireFromDaemon = createRequire(resolve(REPO_ROOT, "src/daemon/package.json"))
   const Ws = requireFromDaemon("ws") as {
     WebSocket: new (url: string, options: { headers: Record<string, string> }) => MachineSocket
@@ -356,8 +375,16 @@ function connectMachine(credential: string) {
   const socket = new Ws.WebSocket(MACHINE_WS_URL.replace(/^http/, "ws"), {
     headers: { Authorization: `Bearer ${credential}` },
   })
+  const ownedSocket = caseResources.own(socket, async (captured) => {
+    await new Promise<void>((resolve) => {
+      if (captured.readyState === 3) { resolve(); return }
+      captured.once("close", resolve)
+      captured.close()
+    })
+  })
   return {
     socket,
+    close: () => ownedSocket.close(),
     opened: new Promise<void>((resolveOpen, reject) => {
       socket.once("open", () => resolveOpen())
       socket.once("error", reject)
@@ -491,16 +518,23 @@ async function probeOwnedBotProfile(
   return samples
 }
 
-test("full audit log reveals a truncated row by hover and touch", async ({ asUser }, testInfo) => {
+test("full audit log reveals a truncated row by hover and touch", async ({ caseActors, caseResources }, testInfo) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { headersFor, pairMachine, createBot } = await prepareCase(actors, caseResources)
+
   const suffix = Date.now().toString(36)
   const longAuditTarget = `/Users/alice/workspace/${"deeply-nested-audit-target/".repeat(5)}result-${suffix}.md`
   const fullAuditText = `read · ${longAuditTarget}`
   const { credential, machineId } = await pairMachine()
   const botId = await createBot(machineId, `Tooltip bot ${suffix}`)
-  const machine = connectMachine(credential)
+  const machine = connectMachine(credential, caseResources)
   await machine.opened
 
+  let caseJourneyFailure1: unknown
+let caseJourneyFailure1Present = false
   try {
     machine.socket.send(JSON.stringify({
       type: "bot_audit_event",
@@ -564,13 +598,23 @@ test("full audit log reveals a truncated row by hover and touch", async ({ asUse
     await attachPageScreenshot(testInfo, "bot-activity-log-tooltip-mobile-dark", page)
     await page.mouse.click(4, 4)
     await expect(tooltip).toBeHidden()
-  } finally {
-    machine.socket.close()
+  } catch (error) { caseJourneyFailure1 = error; caseJourneyFailure1Present = true; throw error } finally {
+    try {
+
+      await machine.close()
+
+    } catch (cleanupError) { if (caseJourneyFailure1Present) throw new AggregateError([caseJourneyFailure1, cleanupError], "Journey and resource exit both failed"); throw cleanupError }
   }
 })
 
-test("owned bot profile preview stays root-bounded from its first visible frame", async ({ asUser }, testInfo) => {
+test("owned bot profile preview stays root-bounded from its first visible frame", async ({ caseActors, caseResources }, testInfo) => {
   test.setTimeout(120_000)
+
+  const actors = await caseActors(["alice", "bob"])
+  const { asUser } = actors
+  const { seedChannel, seedForumThread, seedJoinServer, seedServer } = actors.seed
+  const { jsonRequest, pairMachine, createBot } = await prepareCase(actors, caseResources)
+
   const suffix = Date.now().toString(36)
   const serverId = await seedServer("alice", `preview-overflow-${suffix}`)
   const channelName = `regular-${suffix}`
@@ -667,8 +711,14 @@ test("owned bot profile preview stays root-bounded from its first visible frame"
   await attachPageScreenshot(testInfo, "owned-agent-preview-non-owner", bob.page)
 })
 
-test("owner-only bot mark sticker, Stop lifecycle, owner swap, and URL-owned audit modal", async ({ asUser }, testInfo) => {
+test("owner-only bot mark sticker, Stop lifecycle, owner swap, and URL-owned audit modal", async ({ caseActors, caseResources }, testInfo) => {
   test.setTimeout(180_000)
+
+  const actors = await caseActors(["alice", "bob"])
+  const { asUser } = actors
+  const { seedChannel, seedJoinServer, seedServer } = actors.seed
+  const { headersFor, jsonRequest, pairMachine, createBot } = await prepareCase(actors, caseResources)
+
   const suffix = Date.now().toString(36)
   const serverId = await seedServer("alice", `profile-preview-server-with-a-long-name-${suffix}`)
   const channelName = `bots-with-a-long-channel-name-${suffix}`
@@ -741,8 +791,10 @@ test("owner-only bot mark sticker, Stop lifecycle, owner swap, and URL-owned aud
   )
   expect(removeStaleBot.status).toBe(204)
 
-  const machine = connectMachine(credential)
+  const machine = connectMachine(credential, caseResources)
   await machine.opened
+  let caseJourneyFailure2: unknown
+let caseJourneyFailure2Present = false
   try {
     machine.socket.send(JSON.stringify({ type: "agent_activity", agentId: botId, state: "idle" }))
     for (let index = 0; index < 11; index += 1) {
@@ -979,13 +1031,23 @@ test("owner-only bot mark sticker, Stop lifecycle, owner swap, and URL-owned aud
     await expect(bob.page.getByTestId(tid.botActivityModal)).toHaveCount(0)
     await expect.poll(() => new URL(bob.page.url()).searchParams.has("audit")).toBe(false)
     expect(bobMarkRequests).toEqual([])
-  } finally {
-    machine.socket.close()
+  } catch (error) { caseJourneyFailure2 = error; caseJourneyFailure2Present = true; throw error } finally {
+    try {
+
+      await machine.close()
+
+    } catch (cleanupError) { if (caseJourneyFailure2Present) throw new AggregateError([caseJourneyFailure2, cleanupError], "Journey and resource exit both failed"); throw cleanupError }
   }
 })
 
-test("CommunitySheet footers keep four consumers horizontal and intrinsic at 390/639/640", async ({ asUser }) => {
+test("CommunitySheet footers keep four consumers horizontal and intrinsic at 390/639/640", async ({ caseActors, caseResources }) => {
   test.setTimeout(180_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedServer } = actors.seed
+  const { cleanupCreatedResources, jsonRequest, pairMachine, createBot } = await prepareCase(actors, caseResources)
+
   const { machineId } = await pairMachine()
   const botName = `Footer bot ${Date.now().toString(36)}`
   await createBot(machineId, botName)

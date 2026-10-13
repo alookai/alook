@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test"
-import { test, expect } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 
 const deletedRoutes = ["/w", "/w/sample/home", "/w/sample.name/home", "/w/sample/agents/a/chat/b", "/workspaces", "/studio/new", "/invite/not-a-community-token"]
 
@@ -20,7 +20,10 @@ async function expectDeletedFrontend(page: Page) {
   expect(legacyRequests).toEqual([])
 }
 
-test("authenticated deleted workspace links return ordinary 404s without legacy API calls", async ({ asUser }) => {
+test("authenticated deleted workspace links return ordinary 404s without legacy API calls", async ({ caseActors }) => {
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+
   const { page } = await asUser("alice")
   await expectDeletedFrontend(page)
 })

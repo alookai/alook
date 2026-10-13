@@ -1,21 +1,32 @@
-import { test, expect, sessionCookie, userId } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { captureNotificationRequests, gotoAfterNotificationStartup } from "./_fixtures/community-notification-requests"
-import { seedCategory, seedChannel, seedChannelMember, seedForumThread, seedJoinServer, seedMessage, seedServer, seedThread } from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
+import type { CaseActors } from "./_fixtures/case-fixture"
 
-async function mutate(path: string, method: string, body?: unknown) {
-  return fetch(`${WEB_URL}${path}`, {
-    method,
-    headers: { Cookie: sessionCookie("alice"), Origin: WEB_URL, "Content-Type": "application/json" },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  })
+async function prepareCase(actors: CaseActors) {
+  const { sessionCookie } = actors
+  async function mutate(path: string, method: string, body?: unknown) {
+    return fetch(`${WEB_URL}${path}`, {
+      method,
+      headers: { Cookie: sessionCookie("alice"), Origin: WEB_URL, "Content-Type": "application/json" },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    })
+  }
+  return { mutate }
 }
 
 for (const parentType of ["text", "forum"] as const) {
   for (const privateParent of [false, true]) {
-    test(`${privateParent ? "private" : "public"} ${parentType} child separates readable content from participation`, async ({ asUser }, testInfo) => {
+    test(`${privateParent ? "private" : "public"} ${parentType} child separates readable content from participation`, async ({ caseActors }, testInfo) => {
       test.setTimeout(120_000)
+
+      const actors = await caseActors(["alice", "bob"])
+      const { asUser, userId } = actors
+      const { seedCategory, seedChannel, seedChannelMember, seedForumThread, seedJoinServer, seedMessage, seedServer, seedThread } = actors.seed
+      const { mutate } = await prepareCase(actors)
+
       const serverId = await seedServer("alice", `Realtime ${Date.now()}`)
       const categoryId = privateParent ? await seedCategory("alice", serverId, "Restricted realtime", { private: true }) : undefined
       const parentId = await seedChannel("alice", serverId, "realtime", parentType, categoryId)

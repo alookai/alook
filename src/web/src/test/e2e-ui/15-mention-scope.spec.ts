@@ -1,19 +1,9 @@
 import type { Locator, Page } from "@playwright/test"
-import { test, expect, userId } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 import { composerEditable, openChannel } from "./_fixtures/actions"
-import {
-  seedServer,
-  seedChannel,
-  seedCategory,
-  seedChannelMember,
-  seedJoinServer,
-  seedMessage,
-  seedThread,
-  seedForumThread,
-  seedDm,
-  memberInfo,
-} from "./_fixtures/seed"
+
+import type { CaseActors } from "./_fixtures/case-fixture"
 
 // Journey 15 — @-mention CANDIDATE SCOPE (distinct from journey 13, which pins
 // mention serialization/disambiguation). Scope is a 2-D cross:
@@ -30,67 +20,72 @@ import {
 // Fixture: alice (owner) + bob + carol all join the server. The public channel
 // sees everyone; the private channel's audience is alice+bob ONLY — carol is
 // the negative probe: present in public, absent in private.
-test.describe.serial("mentions — candidate scope", () => {
-  let serverId: string
-  let publicChannelId: string
-  let privateChannelId: string
-  let privateForumId: string
-  let privatePostId: string
-  let threadId: string
-  let alice: { id: string; name: string; discriminator: string }
-  let bob: { id: string; name: string; discriminator: string }
-  let carol: { id: string; name: string; discriminator: string }
-
-  test.beforeAll(async () => {
-    serverId = await seedServer("alice", `Scope ${Date.now()}`)
+test.describe("mentions — candidate scope", () => {
+  async function prepareCase1(actors: CaseActors) {
+    const { userId } = actors
+    const { seedServer, seedChannel, seedCategory, seedChannelMember, seedJoinServer, seedMessage, seedThread, seedForumThread, memberInfo } = actors.seed
+    async function openMentionPopup(page: Page, root: Page | Locator = page) {
+      const editable = composerEditable(page, root)
+      await editable.click()
+      await editable.pressSequentially("@")
+      return {
+        everyone: page.getByTestId(tid.mentionOption("everyone")),
+        here: page.getByTestId(tid.mentionOption("here")),
+        bob: page.getByTestId(tid.mentionOption(bob.id)),
+        carol: page.getByTestId(tid.mentionOption(carol.id)),
+        channelToken: page.getByTestId(tid.mentionOption("channel")),
+      }
+    }
+    const serverId: string = await seedServer("alice", `Scope ${Date.now()}`)
     await seedJoinServer("alice", "bob", serverId)
     await seedJoinServer("alice", "carol", serverId)
-    alice = await memberInfo("alice", serverId, userId("alice"))
-    bob = await memberInfo("alice", serverId, userId("bob"))
-    carol = await memberInfo("alice", serverId, userId("carol"))
-
+    const alice: {
+      id: string
+      name: string
+      discriminator: string
+    } = await memberInfo("alice", serverId, userId("alice"))
+    const bob: {
+      id: string
+      name: string
+      discriminator: string
+    } = await memberInfo("alice", serverId, userId("bob"))
+    const carol: {
+      id: string
+      name: string
+      discriminator: string
+    } = await memberInfo("alice", serverId, userId("carol"))
     // Public/uncategorized text channel — audience is the whole server.
-    publicChannelId = await seedChannel("alice", serverId, "public-scope")
-
+    const publicChannelId: string = await seedChannel("alice", serverId, "public-scope")
     // Private category holding a private text channel (audience alice+bob) and
     // a private forum with one post (audience alice+bob). Carol is excluded from
     // BOTH — she stays a server member but is not in the private units.
     const privateCatId = await seedCategory("alice", serverId, `priv-${Date.now()}`, { private: true })
-    privateChannelId = await seedChannel("alice", serverId, "private-scope", "text", privateCatId)
+    const privateChannelId: string = await seedChannel("alice", serverId, "private-scope", "text", privateCatId)
     await seedChannelMember("alice", privateChannelId, userId("bob"))
-
-    privateForumId = await seedChannel("alice", serverId, "private-forum", "forum", privateCatId)
+    const privateForumId: string = await seedChannel("alice", serverId, "private-forum", "forum", privateCatId)
     // A forum owns its roster; a post inherits it (the notify dimension). Add bob
     // to the FORUM, not the post — posts reject access-member adds and derive
     // their mention pool from the parent forum's audience.
     await seedChannelMember("alice", privateForumId, userId("bob"))
-    privatePostId = await seedForumThread("alice", privateForumId, `Post ${Date.now()}`, "post body")
-
+    const privatePostId: string = await seedForumThread("alice", privateForumId, `Post ${Date.now()}`, "post body")
     // A thread rooted on a message in the private channel — its scope is the
     // PARENT channel's audience (alice+bob), NOT its own participant set.
     const parentMsgId = await seedMessage("alice", privateChannelId, `thread parent ${Date.now()}`)
-    threadId = await seedThread("alice", parentMsgId, `Thread ${Date.now()}`)
-  })
+    const threadId: string = await seedThread("alice", parentMsgId, `Thread ${Date.now()}`)
+    return { serverId, publicChannelId, privateChannelId, privateForumId, privatePostId, threadId, alice, bob, carol, openMentionPopup }
+  }
 
   // Open the @-popup in the current composer and return the option locators. The
   // popup keys each row (members AND @everyone) off its item id — a member
   // row id is the server-member row id (identical in server + channel lists), a
   // virtual row id is the literal "everyone". `here` is exposed here only to
   // assert that the removed @here row stays absent.
-  async function openMentionPopup(page: Page, root: Page | Locator = page) {
-    const editable = composerEditable(page, root)
-    await editable.click()
-    await editable.pressSequentially("@")
-    return {
-      everyone: page.getByTestId(tid.mentionOption("everyone")),
-      here: page.getByTestId(tid.mentionOption("here")),
-      bob: page.getByTestId(tid.mentionOption(bob.id)),
-      carol: page.getByTestId(tid.mentionOption(carol.id)),
-      channelToken: page.getByTestId(tid.mentionOption("channel")),
-    }
-  }
 
-  test("public top-level channel → whole server roster (bob AND carol), backed by servers/:id/members", async ({ asUser }) => {
+  test("public top-level channel → whole server roster (bob AND carol), backed by servers/:id/members", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, publicChannelId, alice, bob, carol, openMentionPopup } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     // The channel-members endpoint must NOT be hit for a public channel — the
     // popup roster comes from the server list. Assert its absence by watching
@@ -121,7 +116,11 @@ test.describe.serial("mentions — candidate scope", () => {
     expect(channelMembersCalls).toHaveLength(0)
   })
 
-  test("private channel → audience only (bob present, carol absent), backed by channels/:id/members", async ({ asUser }) => {
+  test("private channel → audience only (bob present, carol absent), backed by channels/:id/members", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, privateChannelId, bob, carol, openMentionPopup } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     const channelMembersReq = page.waitForRequest(
       (r) => new RegExp(`/api/community/channels/${privateChannelId}/members`).test(r.url()),
@@ -143,7 +142,11 @@ test.describe.serial("mentions — candidate scope", () => {
     await expect(opt.carol).toHaveCount(0)
   })
 
-  test("thread in private channel → PARENT channel audience (bob mentionable though not a participant)", async ({ asUser }) => {
+  test("thread in private channel → PARENT channel audience (bob mentionable though not a participant)", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, threadId, bob, carol, openMentionPopup } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${threadId}`)
     await page.waitForURL(new RegExp(threadId), { timeout: 20_000, waitUntil: "commit" })
@@ -157,7 +160,11 @@ test.describe.serial("mentions — candidate scope", () => {
     await expect(opt.carol).toHaveCount(0)
   })
 
-  test("private local search reports a failed access read and recovers on warm channel re-entry", async ({ asUser }) => {
+  test("private local search reports a failed access read and recovers on warm channel re-entry", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, publicChannelId, privateChannelId, alice, bob, carol, openMentionPopup } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     let failAccess = true
     let accessReads = 0
@@ -196,7 +203,11 @@ test.describe.serial("mentions — candidate scope", () => {
     await expect(page.getByTestId(tid.mentionStatus)).toHaveCount(0)
   })
 
-  test("forum post reply → post audience (bob present, carol absent)", async ({ asUser }) => {
+  test("forum post reply → post audience (bob present, carol absent)", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, privatePostId, bob, carol, openMentionPopup } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${privatePostId}`)
     await page.waitForURL(new RegExp(privatePostId), { timeout: 20_000, waitUntil: "commit" })
@@ -207,7 +218,11 @@ test.describe.serial("mentions — candidate scope", () => {
     await expect(opt.carol).toHaveCount(0)
   })
 
-  test("new forum post composer supports @-mentions like the chat composer", async ({ asUser }) => {
+  test("new forum post composer supports @-mentions like the chat composer", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, privateForumId, bob } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${privateForumId}`)
     await page.waitForURL(new RegExp(privateForumId), { timeout: 20_000, waitUntil: "commit" })
@@ -230,7 +245,12 @@ test.describe.serial("mentions — candidate scope", () => {
     await expect(page.getByTestId(tid.mentionOption(bob.id))).toBeVisible({ timeout: 15_000 })
   })
 
-  test("1:1 DM keeps @abc as plain text, never starts mention suggestions, and sends with Enter", async ({ asUser }) => {
+  test("1:1 DM keeps @abc as plain text, never starts mention suggestions, and sends with Enter", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser, userId } = actors
+    const { seedDm } = actors.seed
+    const { bob } = await prepareCase1(actors)
+
     const dmId = await seedDm("alice", userId("bob"))
     const { page } = await asUser("alice")
     const memberSearchRequests: string[] = []

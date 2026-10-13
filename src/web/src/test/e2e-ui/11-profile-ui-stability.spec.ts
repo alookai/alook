@@ -1,25 +1,30 @@
-import { test, expect, userId } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
-import { seedServer, seedChannel, seedJoinServer, seedFriendship, seedRemoveFriendship } from "./_fixtures/seed"
+
+import type { CaseActors } from "./_fixtures/case-fixture"
 
 // Journey 11 — profile card UI stability. Opening a member's profile shows the
 // card; closing detaches it (regression ab873738 — assert detach, not the
 // transform-origin animation).
-test.describe.serial("profile card stability", () => {
-  let serverId: string
-  let channelId: string
-
-  test.beforeAll(async () => {
-    serverId = await seedServer("alice", `Profile ${Date.now()}`)
-    channelId = await seedChannel("alice", serverId, "profiles")
+test.describe("profile card stability", () => {
+  async function prepareCase1(actors: CaseActors) {
+    const { seedServer, seedChannel, seedJoinServer } = actors.seed
+    const serverId: string = await seedServer("alice", `Profile ${Date.now()}`)
+    const channelId: string = await seedChannel("alice", serverId, "profiles")
     await seedJoinServer("alice", "bob", serverId)
-  })
+    return { serverId, channelId }
+  }
 
   for (const isFriend of [false, true]) {
     const name = isFriend
       ? "opening an accepted friend's profile focuses the textbox; closing detaches it"
       : "opening a member profile shows the card; closing detaches it"
-    test(name, async ({ asUser }) => {
+    test(name, async ({ caseActors }) => {
+      const actors = await caseActors(["alice", "bob"])
+      const { asUser, userId } = actors
+      const { seedFriendship, seedRemoveFriendship } = actors.seed
+      const { serverId, channelId } = await prepareCase1(actors)
+
       const bobId = userId("bob")
       await seedFriendship("alice", "bob", bobId)
       if (!isFriend) await seedRemoveFriendship("alice", bobId)

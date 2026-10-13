@@ -1,16 +1,20 @@
 import type { Frame } from "@playwright/test"
-import { test, expect, userId, userName } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 import { sendMessage } from "./_fixtures/actions"
 import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
-import { seedDm, seedDmMessage } from "./_fixtures/seed"
+
 import { captureNotificationRequests, gotoAfterNotificationStartup, notificationPaths, notificationResponsesFinished } from "./_fixtures/community-notification-requests"
 import { lastMeLocationKey } from "@/lib/community/last-me-location"
 
 // Journey 4 — DMs. human↔human needs only not-blocked (no friendship). Covers
 // the new-conversation-appears-live path and the blocked-composer regression.
-test.describe.serial("direct messages", () => {
-  test("an Inbox first-DM click commits immediately and stays on the conversation", async ({ asUser }, testInfo) => {
+test.describe("direct messages", () => {
+  test("an Inbox first-DM click commits immediately and stays on the conversation", async ({ caseActors }, testInfo) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser, userId, userName } = actors
+    const { seedDm, seedDmMessage } = actors.seed
+
     const bob = await asUser("bob")
     const trace = captureNotificationRequests(bob.page)
     const proxy = await gotoAfterNotificationStartup(bob.page, bob.context, trace)
@@ -79,7 +83,11 @@ test.describe.serial("direct messages", () => {
     }
   })
 
-  test("a canonical DM keeps its title while history permission gates body and composer", async ({ asUser }) => {
+  test("a canonical DM keeps its title while history permission gates body and composer", async ({ caseActors, caseResources }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser, userId, userName } = actors
+    const { seedDm, seedDmMessage } = actors.seed
+
     const dmId = await seedDm("alice", userId("bob"))
     const body = `held DM message ${Date.now()}`
     const messageId = await seedDmMessage("bob", dmId, body)
@@ -103,8 +111,11 @@ test.describe.serial("direct messages", () => {
     let metadataStarted!: () => void
     let metadataFinished!: () => void
     const metadataGate = new Promise<void>(resolve => { releaseMetadata = resolve })
+    caseResources.own(releaseMetadata, async (captured) => { captured() })
     const metadataRequest = new Promise<void>(resolve => { metadataStarted = resolve })
+    caseResources.own(metadataStarted, async (captured) => { captured() })
     const metadataSettled = new Promise<void>(resolve => { metadataFinished = resolve })
+    caseResources.own(metadataFinished, async (captured) => { captured() })
     const metadataPattern = (url: URL) => url.pathname === `/api/community/channels/${dmId}`
     await alice.page.route(metadataPattern, async route => {
       if (route.request().method() !== "GET") { await route.continue(); return }
@@ -121,8 +132,11 @@ test.describe.serial("direct messages", () => {
     let readStarted!: () => void
     let readFinished!: () => void
     const readGate = new Promise<void>((resolve) => { releaseRead = resolve })
+    caseResources.own(releaseRead, async (captured) => { captured() })
     const readRequest = new Promise<void>((resolve) => { readStarted = resolve })
+    caseResources.own(readStarted, async (captured) => { captured() })
     const readSettled = new Promise<void>((resolve) => { readFinished = resolve })
+    caseResources.own(readFinished, async (captured) => { captured() })
     const readPattern = `**/api/community/channels/${dmId}/read-state`
     await alice.page.route(readPattern, async (route) => {
       readStarted()
@@ -140,8 +154,11 @@ test.describe.serial("direct messages", () => {
     let messagesStarted!: () => void
     let messagesFinished!: () => void
     const messagesGate = new Promise<void>((resolve) => { releaseMessages = resolve })
+    caseResources.own(releaseMessages, async (captured) => { captured() })
     const messagesRequest = new Promise<void>((resolve) => { messagesStarted = resolve })
+    caseResources.own(messagesStarted, async (captured) => { captured() })
     const messagesSettled = new Promise<void>((resolve) => { messagesFinished = resolve })
+    caseResources.own(messagesFinished, async (captured) => { captured() })
     let heldMessages = false
     const messagesPattern = `**/api/community/channels/${dmId}/messages*`
     await alice.page.route(messagesPattern, async (route) => {
@@ -216,7 +233,10 @@ test.describe.serial("direct messages", () => {
     }
   })
 
-  test("an absent DM verifies once per attempt and exposes transient Retry locally", async ({ asUser }) => {
+  test("an absent DM verifies once per attempt and exposes transient Retry locally", async ({ caseActors }) => {
+    const actors = await caseActors(["alice"])
+    const { asUser } = actors
+
     const alice = await asUser("alice")
     const wsProxy = await proxyCommunityWebSockets(alice.context, {
       decideConnectionFrame: (frame) => frame.type === "auth.ok" ? "hold" : "forward",
@@ -264,7 +284,11 @@ test.describe.serial("direct messages", () => {
     }
   })
 
-  test("a DM message reaches the peer live and the conversation appears without reload", async ({ asUser }) => {
+  test("a DM message reaches the peer live and the conversation appears without reload", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser, userId } = actors
+    const { seedDm } = actors.seed
+
     // Alice opens a DM to Bob via API (precondition), then both drive the UI.
     const dmId = await seedDm("alice", userId("bob"))
 
@@ -304,7 +328,11 @@ test.describe.serial("direct messages", () => {
     await expect(bob.page.getByTestId(tid.message(payload.message.id))).toHaveCount(1)
   })
 
-  test("blocking replaces the composer with a blocked notice", async ({ asUser }) => {
+  test("blocking replaces the composer with a blocked notice", async ({ caseActors }) => {
+    const actors = await caseActors(["bob", "carol"])
+    const { asUser, userId, userName } = actors
+    const { seedDm, seedDmMessage } = actors.seed
+
     const dmId = await seedDm("carol", userId("bob"))
     const body = `visible before block ${Date.now()}`
     const messageId = await seedDmMessage("carol", dmId, body)

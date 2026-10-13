@@ -1,9 +1,10 @@
 import { devices, type Page } from "@playwright/test"
-import { expect, test, sessionCookie, userId } from "./_fixtures/community-fixture"
+import { expect, test } from "./_fixtures/case-fixture"
 import { composerEditable } from "./_fixtures/actions"
-import { seedCategory, seedChannel, seedChannelMember, seedDm, seedDmMessage, seedFriendship, seedJoinServer, seedMessage, seedServer } from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
+import type { CaseActors } from "./_fixtures/case-fixture"
 
 type Activation = { notificationId: string; messageId: string; targetId: string }
 type Bridge = { pending: Activation | null; listener: unknown; takes: number; dismissed: string[]; visibility: DocumentVisibilityState; documentLoads: number }
@@ -65,64 +66,67 @@ type MessageDoorEvidence = {
   payload: { id?: string; channelId?: string }
 }
 
-async function captureMessageDoor(page: Page, targetId: string, messageId: string) {
-  let capture!: (evidence: MessageDoorEvidence) => void
-  let fail!: (error: unknown) => void
-  const result = new Promise<MessageDoorEvidence>((resolve, reject) => {
-    capture = resolve
-    fail = reject
-  })
-  await page.route((url) => url.pathname === `/api/community/messages/${messageId}`, async (route) => {
-    try {
-      const response = await route.fetch()
-      const payload = await response.json()
-      const evidence = { status: response.status(), payload }
-      if (response.ok()) expect(payload.channelId).toBe(targetId)
-      await route.fulfill({ response })
-      capture(evidence)
-    } catch (error) {
-      fail(error)
-      await route.abort()
-    }
-  })
-  return { result }
-}
-
-async function deleteAsAlice(path: string) {
-  const response = await fetch(`${WEB_URL}${path}`, { method: "DELETE", headers: { Cookie: sessionCookie("alice"), Origin: WEB_URL } })
-  expect(response.ok, `${path}: ${response.status}`).toBeTruthy()
-}
-
-let serverId: string
-let channelId: string
-let channelMessageId: string
-let dmId: string
-let dmMessageId: string
-let dmSeq: number
-let channelSeq: number
-
 test.describe("mobile notification chat routes (native bridge simulation)", () => {
-  test.beforeAll(async () => {
-    test.setTimeout(120_000)
-    serverId = await seedServer("alice", `mobile-route-${Date.now()}`)
-    channelId = await seedChannel("alice", serverId, "notification-chat")
+  async function prepareCase1(actors: CaseActors) {
+    async function deleteAsAlice(path: string) {
+      const response = await fetch(`${WEB_URL}${path}`, { method: "DELETE", headers: { Cookie: sessionCookie("alice"), Origin: WEB_URL } })
+      expect(response.ok, `${path}: ${response.status}`).toBeTruthy()
+    }
+    async function captureMessageDoor(page: Page, targetId: string, messageId: string) {
+      let capture!: (evidence: MessageDoorEvidence) => void
+      let fail!: (error: unknown) => void
+      const result = new Promise<MessageDoorEvidence>((resolve, reject) => {
+        capture = resolve
+        fail = reject
+      })
+      await page.route((url) => url.pathname === `/api/community/messages/${messageId}`, async (route) => {
+        try {
+          const response = await route.fetch()
+          const payload = await response.json()
+          const evidence = { status: response.status(), payload }
+          if (response.ok())
+            expect(payload.channelId).toBe(targetId)
+          await route.fulfill({ response })
+          capture(evidence)
+        }
+        catch (error) {
+          fail(error)
+          await route.abort()
+        }
+      })
+      return { result }
+    }
+    const { sessionCookie, userId } = actors
+    const { seedChannel, seedDm, seedDmMessage, seedFriendship, seedJoinServer, seedMessage, seedServer } = actors.seed
+    const serverId: string = await seedServer("alice", `mobile-route-${Date.now()}`)
+    const channelId: string = await seedChannel("alice", serverId, "notification-chat")
     await seedJoinServer("alice", "bob", serverId)
-    channelMessageId = await seedMessage("alice", channelId, "Channel notification route evidence")
+    const channelMessageId: string = await seedMessage("alice", channelId, "Channel notification route evidence")
     await seedFriendship("alice", "bob", userId("bob"))
-    dmId = await seedDm("alice", userId("bob"))
-    dmMessageId = await seedDmMessage("alice", dmId, "DM notification route evidence")
+    const dmId: string = await seedDm("alice", userId("bob"))
+    const dmMessageId: string = await seedDmMessage("alice", dmId, "DM notification route evidence")
     const seqs = await Promise.all([[dmId, dmMessageId], [channelId, channelMessageId]].map(async ([targetId, messageId]) => {
       const response = await fetch(`${WEB_URL}/api/community/channels/${targetId}/messages?anchor=${messageId}&limit=1`, { headers: { Cookie: sessionCookie("bob") } })
       expect(response.status).toBe(200)
-      const payload = await response.json() as { messages: Array<{ id: string; seq: number }> }
+      const payload = await response.json() as {
+        messages: Array<{
+          id: string
+          seq: number
+        }>
+      }
       return payload.messages.find((message) => message.id === messageId)!.seq
-    }))
-    ;[dmSeq, channelSeq] = seqs
-  })
+    }));
+    const [dmSeq, channelSeq] = seqs
+    return { deleteAsAlice, serverId, channelId, channelMessageId, dmId, dmMessageId, dmSeq, channelSeq, captureMessageDoor }
+  }
 
   for (const mode of ["cold", "resume"] as const) {
     for (const surface of ["dm", "channel"] as const) {
-      test(`${mode} ${surface} opens chat without a context sheet`, async ({ asUser }, testInfo) => {
+      test(`${mode} ${surface} opens chat without a context sheet`, async ({ caseActors }, testInfo) => {
+        const actors = await caseActors(["alice", "bob"])
+        const { asUser } = actors
+        const { serverId, channelId, channelMessageId, dmId, dmMessageId, captureMessageDoor } = await prepareCase1(actors)
+
         const { page } = await asUser("bob", devices["iPhone 13"])
         const targetId = surface === "dm" ? dmId : channelId
         const messageId = surface === "dm" ? dmMessageId : channelMessageId
@@ -151,7 +155,12 @@ test.describe("mobile notification chat routes (native bridge simulation)", () =
   }
 
   for (const kind of ["deleted", "revoked"] as const) {
-    test(`${kind} target shows an unavailable message page with the normal Inbox action`, async ({ asUser }, testInfo) => {
+    test(`${kind} target shows an unavailable message page with the normal Inbox action`, async ({ caseActors }, testInfo) => {
+      const actors = await caseActors(["alice", "bob"])
+      const { asUser, userId } = actors
+      const { seedCategory, seedChannel, seedChannelMember, seedMessage } = actors.seed
+      const { deleteAsAlice, serverId, captureMessageDoor } = await prepareCase1(actors)
+
       const categoryId = kind === "revoked" ? await seedCategory("alice", serverId, `private-${Date.now()}`, { private: true }) : undefined
       const targetId = await seedChannel("alice", serverId, `${kind}-${Date.now()}`, "text", categoryId)
       if (kind === "revoked") await seedChannelMember("alice", targetId, userId("bob"))
@@ -196,7 +205,11 @@ test.describe("mobile notification chat routes (native bridge simulation)", () =
   }
 
   for (const surface of ["dm", "channel"] as const) {
-    test(`ordinary ${surface} seq permalink retains message context`, async ({ asUser }, testInfo) => {
+    test(`ordinary ${surface} seq permalink retains message context`, async ({ caseActors }, testInfo) => {
+      const actors = await caseActors(["alice", "bob"])
+      const { asUser } = actors
+      const { serverId, channelId, channelMessageId, dmId, dmMessageId, dmSeq, channelSeq } = await prepareCase1(actors)
+
       const { page } = await asUser("bob", devices["iPhone 13"])
       const targetId = surface === "dm" ? dmId : channelId
       const messageId = surface === "dm" ? dmMessageId : channelMessageId
@@ -221,7 +234,11 @@ test.describe("mobile notification chat routes (native bridge simulation)", () =
     })
   }
 
-  test("ordinary channel msg permalink retains its message anchor", async ({ asUser }, testInfo) => {
+  test("ordinary channel msg permalink retains its message anchor", async ({ caseActors }, testInfo) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, channelId, channelMessageId } = await prepareCase1(actors)
+
     const { page } = await asUser("bob", devices["iPhone 13"])
     const responsePromise = page.waitForResponse((response) => {
       const url = new URL(response.url())

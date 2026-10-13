@@ -5,7 +5,7 @@ import type {
   Page,
   TestInfo,
 } from "@playwright/test"
-import { test, expect, sessionCookie } from "./community-fixture"
+import { test, expect } from "./community-fixture"
 import {
   COMMUNITY_RAIL_WIDTH,
   COMMUNITY_SEPARATOR_WIDTH,
@@ -14,6 +14,7 @@ import {
   COMMUNITY_SURFACE_BORDER_WIDTH,
 } from "@/components/community/shell/shell-frame-geometry"
 import type { CaseSeed } from "./seed"
+import type { CaseActors, CaseResources } from "./case-fixture"
 import { tid } from "./testids"
 import { WEB_URL } from "../_setup/paths"
 import { ssrGeometryErrors, type SsrLifecycleSample } from "./community-ssr-geometry"
@@ -49,9 +50,10 @@ type MatrixCase = {
   }
 }
 
-async function holdApplicationScripts(page: Page) {
+async function holdApplicationScripts(page: Page, resources?: CaseResources) {
   let release!: () => void
   const gate = new Promise<void>((resolve) => { release = resolve })
+  resources?.own(release, async (captured) => { captured() })
   const blocked: string[] = []
   const received: string[] = []
   let sessionRequests = 0
@@ -72,9 +74,10 @@ async function holdApplicationScripts(page: Page) {
   return { blocked, received, sessionRequests: () => sessionRequests, release }
 }
 
-async function holdCommunityReads(page: Page) {
+async function holdCommunityReads(page: Page, resources?: CaseResources) {
   let release!: () => void
   const gate = new Promise<void>((resolve) => { release = resolve })
+  resources?.own(release, async (captured) => { captured() })
   let hits = 0
   await page.route("**/api/community/**", async (route) => {
     if (route.request().method() !== "GET") {
@@ -133,13 +136,17 @@ async function holdRequest(page: Page, pattern: string) {
   return { hits: () => hits, release }
 }
 
-async function pairMachine() {
+async function pairMachine(actors: CaseActors, resources: CaseResources) {
   const pair = await fetch(`${WEB_URL}/api/community/machines/pair`, {
     method: "POST",
-    headers: { Cookie: sessionCookie("alice"), Origin: WEB_URL },
+    headers: { Cookie: actors.sessionCookie("alice"), Origin: WEB_URL },
   })
   expect(pair.status).toBe(200)
   const { tokenId } = await pair.json() as { tokenId: string }
+  const activationProof: { response?: Response; machineId?: string } = {}
+  const pairingToken = resources.own(tokenId, async () => {
+    if (!activationProof.response?.ok || !activationProof.machineId) throw new Error("Pairing token consumption is UNKNOWN; this case must stop")
+  })
   const activate = await fetch(`${WEB_URL}/api/community/daemon/activate`, {
     method: "POST",
     headers: {
@@ -155,6 +162,14 @@ async function pairMachine() {
     }),
   })
   expect(activate.status).toBe(200)
+  const { machineId } = await activate.json() as { machineId: string }
+  resources.own(machineId, async (id) => {
+    const response = await fetch(`${WEB_URL}/api/community/machines/${id}`, { method: "DELETE", headers: { Cookie: actors.sessionCookie("alice"), Origin: WEB_URL } })
+    expect([204, 404]).toContain(response.status)
+  })
+  activationProof.response = activate
+  activationProof.machineId = machineId
+  await pairingToken.close()
 }
 
 const shellPanel = (page: Page, id: "sidebar" | "main") => (
@@ -514,60 +529,65 @@ export async function seedGeometryRoutes(
   ]
 }
 
-export async function runAndroidLoadingGeometry(asUser: CommunityAsUser, testInfo: TestInfo) {
-    await pairMachine()
-    for (const userAgent of Object.values(ANDROID_USER_AGENTS)) {
-      for (const width of [320, 390, 639] as const) {
-        for (const [pathname, surface] of [
-          ["/c/me", "list"],
-          ["/c/me/machines", "detail"],
-        ] as const) {
-          const { context, page } = await asUser("alice", { userAgent })
-          await page.setViewportSize({ width, height: width === 320 ? 720 : 900 })
-          await installSsrLifecycleProbe(page, surface)
-          const scripts = await holdApplicationScripts(page)
-          const communityReads = await holdCommunityReads(page)
-          let ssrEvidence: unknown
-          try {
-            await page.goto(pathname, { waitUntil: "commit" })
-            await expect.poll(() => scripts.blocked.length).toBeGreaterThan(0)
-            expect(scripts.received).toEqual([])
-            await expectServerSeededRouteFrame(page, width, width === 320 ? 720 : 900)
-            await page.waitForTimeout(250)
-            ssrEvidence = {
-              blockedScripts: [...scripts.blocked],
-              receivedScripts: [...scripts.received],
-              sessionRequests: scripts.sessionRequests(),
-            }
-            expect(scripts.received, "application JS must remain blocked during SSR measurement").toEqual([])
-            expect(
-              scripts.sessionRequests(),
-              "server-seeded identity must not issue a browser session request",
-            ).toBe(0)
-            await page.evaluate(() => Reflect.set(window, "__communityApplicationScriptsReleased", true))
-            scripts.release()
-            await expect.poll(communityReads.hits).toBeGreaterThan(0)
-            await expect(page.locator('[data-slot="community-shell-root"]')).toBeVisible()
-            await page.waitForTimeout(250)
-            const pendingSamples = await ssrLifecycleSamples(page)
-            expectMobileGeometry(pendingSamples, width, surface)
-            const pendingHeading = pathname === "/c/me/machines"
-              ? await expectMachinesHeadingSpacing(page)
-              : null
+export async function runAndroidLoadingGeometry(actors: CaseActors, resources: CaseResources, testInfo: TestInfo) {
+  const { asUser } = actors
+  await pairMachine(actors, resources)
+  for (const userAgent of Object.values(ANDROID_USER_AGENTS)) {
+    for (const width of [320, 390, 639] as const) {
+      for (const [pathname, surface] of [
+        ["/c/me", "list"],
+        ["/c/me/machines", "detail"],
+      ] as const) {
+        const { context, page } = await asUser("alice", { userAgent })
+        await page.setViewportSize({ width, height: width === 320 ? 720 : 900 })
+        await installSsrLifecycleProbe(page, surface)
+        const scripts = await holdApplicationScripts(page, resources)
+        const communityReads = await holdCommunityReads(page, resources)
+        let ssrEvidence: unknown
+        let caseJourneyFailure1: unknown
+        let caseJourneyFailure1Present = false
+        try {
+          await page.goto(pathname, { waitUntil: "commit" })
+          await expect.poll(() => scripts.blocked.length).toBeGreaterThan(0)
+          expect(scripts.received).toEqual([])
+          await expectServerSeededRouteFrame(page, width, width === 320 ? 720 : 900)
+          await page.waitForTimeout(250)
+          ssrEvidence = {
+            blockedScripts: [...scripts.blocked],
+            receivedScripts: [...scripts.received],
+            sessionRequests: scripts.sessionRequests(),
+          }
+          expect(scripts.received, "application JS must remain blocked during SSR measurement").toEqual([])
+          expect(
+            scripts.sessionRequests(),
+            "server-seeded identity must not issue a browser session request",
+          ).toBe(0)
+          await page.evaluate(() => Reflect.set(window, "__communityApplicationScriptsReleased", true))
+          scripts.release()
+          await expect.poll(communityReads.hits).toBeGreaterThan(0)
+          await expect(page.locator('[data-slot="community-shell-root"]')).toBeVisible()
+          await page.waitForTimeout(250)
+          const pendingSamples = await ssrLifecycleSamples(page)
+          expectMobileGeometry(pendingSamples, width, surface)
+          const pendingHeading = pathname === "/c/me/machines"
+            ? await expectMachinesHeadingSpacing(page)
+            : null
 
-            communityReads.release()
-            await expect(
-              pathname === "/c/me"
-                ? page.getByRole("link", { name: "Friends", exact: true })
-                : page.getByTestId(tid.machinePairOpen),
-            ).toBeVisible({ timeout: 30_000 })
-            if (pendingHeading) {
-              const loadedHeading = await expectMachinesHeadingSpacing(page)
-              expectSameGeometry({ heading: pendingHeading }, { heading: loadedHeading })
-            }
-            await page.waitForTimeout(250)
-            expectMobileGeometry(await ssrLifecycleSamples(page), width, surface)
-          } finally {
+          communityReads.release()
+          await expect(
+            pathname === "/c/me"
+              ? page.getByRole("link", { name: "Friends", exact: true })
+              : page.getByTestId(tid.machinePairOpen),
+          ).toBeVisible({ timeout: 30_000 })
+          if (pendingHeading) {
+            const loadedHeading = await expectMachinesHeadingSpacing(page)
+            expectSameGeometry({ heading: pendingHeading }, { heading: loadedHeading })
+          }
+          await page.waitForTimeout(250)
+          expectMobileGeometry(await ssrLifecycleSamples(page), width, surface)
+        } catch (error) { caseJourneyFailure1 = error; caseJourneyFailure1Present = true; throw error } finally {
+          try {
+
             await page.evaluate(() => Reflect.set(window, "__communitySsrProbeStopped", true))
             await testInfo.attach(`ssr-lifecycle-${width}-${surface}-${userAgent.includes("; wv") ? "webview" : "chrome"}`, {
               body: Buffer.from(JSON.stringify({
@@ -580,11 +600,13 @@ export async function runAndroidLoadingGeometry(asUser: CommunityAsUser, testInf
             })
             scripts.release()
             communityReads.release()
-            await context.close()
-          }
+            await resources.closeContext(context)
+
+          } catch (cleanupError) { if (caseJourneyFailure1Present) throw new AggregateError([caseJourneyFailure1, cleanupError], "Journey and resource exit both failed"); throw cleanupError }
         }
       }
     }
+  }
 }
 
 export async function runDesktopPersistedPendingGeometry(
@@ -619,7 +641,7 @@ export async function runDesktopPersistedPendingGeometry(
           await expect.poll(communityReads.hits).toBeGreaterThan(0)
           await expect(page.locator('[data-slot="community-shell-root"]')).toBeVisible()
           await page.waitForTimeout(250)
-    
+
           const samples = await desktopPendingFrameSamples(page)
           await page.evaluate(() => Reflect.set(
             window,
@@ -663,30 +685,31 @@ export async function runDesktopPersistedPendingGeometry(
   for (const result of results) if (result.status === "rejected") throw result.reason
 }
 
-export async function runSkeletonLoadingMotion(asUser: CommunityAsUser) {
-    for (const reducedMotion of ["no-preference", "reduce"] as const) {
-      const { context, page } = await asUser("alice", {
-        userAgent: ANDROID_USER_AGENTS.webview,
-      })
-      await page.setViewportSize({ width: 320, height: 720 })
-      await page.emulateMedia({ reducedMotion })
-      const scripts = await holdApplicationScripts(page)
-      const communityReads = await holdCommunityReads(page)
-      await page.goto("/c/me/machines", { waitUntil: "commit" })
-      await expect.poll(() => scripts.blocked.length).toBeGreaterThan(0)
-      expect(scripts.received).toEqual([])
-      expect(scripts.sessionRequests()).toBe(0)
-      await expectServerSeededRouteFrame(page, 320, 720)
-      scripts.release()
-      await expect.poll(communityReads.hits).toBeGreaterThan(0)
-      await expect(page.locator('[data-slot="skeleton"]:visible').first()).toBeVisible()
+export async function runSkeletonLoadingMotion(actors: CaseActors, resources: CaseResources) {
+  const { asUser } = actors
+  for (const reducedMotion of ["no-preference", "reduce"] as const) {
+    const { context, page } = await asUser("alice", {
+      userAgent: ANDROID_USER_AGENTS.webview,
+    })
+    await page.setViewportSize({ width: 320, height: 720 })
+    await page.emulateMedia({ reducedMotion })
+    const scripts = await holdApplicationScripts(page, resources)
+    const communityReads = await holdCommunityReads(page, resources)
+    await page.goto("/c/me/machines", { waitUntil: "commit" })
+    await expect.poll(() => scripts.blocked.length).toBeGreaterThan(0)
+    expect(scripts.received).toEqual([])
+    expect(scripts.sessionRequests()).toBe(0)
+    await expectServerSeededRouteFrame(page, 320, 720)
+    scripts.release()
+    await expect.poll(communityReads.hits).toBeGreaterThan(0)
+    await expect(page.locator('[data-slot="skeleton"]:visible').first()).toBeVisible()
 
-      const animationProperties = await visibleSkeletonAnimationProperties(page)
-      expect(animationProperties).toEqual(reducedMotion === "reduce" ? [] : ["opacity"])
+    const animationProperties = await visibleSkeletonAnimationProperties(page)
+    expect(animationProperties).toEqual(reducedMotion === "reduce" ? [] : ["opacity"])
 
-      communityReads.release()
-      await context.close()
-    }
+    communityReads.release()
+    await resources.closeContext(context)
+  }
 }
 
 export async function runNeutralRootGeometry(

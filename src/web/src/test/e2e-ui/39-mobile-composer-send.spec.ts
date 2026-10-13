@@ -1,5 +1,5 @@
 import type { Page, TestInfo } from "@playwright/test"
-import { test, expect, userId } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import {
   composerEditable,
   gotoAfterUserWsAuth,
@@ -11,14 +11,9 @@ import {
   proxyCommunityWebSockets,
   type CapturedCommunityFrame,
 } from "./_fixtures/community-ws-proxy"
-import {
-  seedChannel,
-  seedDm,
-  seedMessage,
-  seedServer,
-  seedThread,
-} from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
+import type { CaseActors } from "./_fixtures/case-fixture"
 
 test.use({ viewport: { width: 390, height: 844 } })
 
@@ -237,21 +232,23 @@ async function expectExplicitTouchSend({
   expect(messagePosts).toBe(1)
 }
 
-test.describe.serial("composer send by input capability", () => {
-  let serverId: string
-  let channelId: string
-  let threadId: string
-  let dmId: string
-
-  test.beforeAll(async () => {
-    serverId = await seedServer("alice", `capability-send-${Date.now()}`)
-    channelId = await seedChannel("alice", serverId, "capability-send")
+test.describe("composer send by input capability", () => {
+  async function prepareCase1(actors: CaseActors) {
+    const { userId } = actors
+    const { seedChannel, seedDm, seedMessage, seedServer, seedThread } = actors.seed
+    const serverId: string = await seedServer("alice", `capability-send-${Date.now()}`)
+    const channelId: string = await seedChannel("alice", serverId, "capability-send")
     const openerId = await seedMessage("alice", channelId, "capability send thread opener")
-    threadId = await seedThread("alice", openerId, "capability-send-thread")
-    dmId = await seedDm("alice", userId("bob"))
-  })
+    const threadId: string = await seedThread("alice", openerId, "capability-send-thread")
+    const dmId: string = await seedDm("alice", userId("bob"))
+    return { serverId, channelId, threadId, dmId }
+  }
 
-  test("narrow hover-capable PC keeps Enter send and Shift+Enter newline through resize", async ({ asUser }) => {
+  test("narrow hover-capable PC keeps Enter send and Shift+Enter newline through resize", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, channelId } = await prepareCase1(actors)
+
     const { page, context } = await asUser("alice")
     await installInputCapability(page, true)
     const proxy = await proxyCommunityWebSockets(context)
@@ -263,7 +260,11 @@ test.describe.serial("composer send by input capability", () => {
     })
   })
 
-  test("touch channel keeps multiline Enter and the explicit button sends once", async ({ asUser }, testInfo) => {
+  test("touch channel keeps multiline Enter and the explicit button sends once", async ({ caseActors }, testInfo) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, channelId } = await prepareCase1(actors)
+
     const { page, context } = await asUser("alice", { hasTouch: true })
     await installInputCapability(page, false)
     const proxy = await proxyCommunityWebSockets(context)
@@ -278,7 +279,11 @@ test.describe.serial("composer send by input capability", () => {
     })
   })
 
-  test("touch child thread button targets the child", async ({ asUser }) => {
+  test("touch child thread button targets the child", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, channelId, threadId } = await prepareCase1(actors)
+
     const { page, context } = await asUser("alice", { hasTouch: true })
     await installInputCapability(page, false)
     const proxy = await proxyCommunityWebSockets(context)
@@ -291,7 +296,11 @@ test.describe.serial("composer send by input capability", () => {
     })
   })
 
-  test("touch DM button targets the DM channel", async ({ asUser }) => {
+  test("touch DM button targets the DM channel", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { channelId, dmId } = await prepareCase1(actors)
+
     const { page, context } = await asUser("alice", { hasTouch: true })
     await installInputCapability(page, false)
     const proxy = await proxyCommunityWebSockets(context)

@@ -1,6 +1,6 @@
-import { test, expect } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
-import { seedChannel, seedMessage, seedServer } from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
 
 async function observeNextContextMenu(page: import("@playwright/test").Page) {
@@ -30,7 +30,11 @@ async function contextMenuProbe(page: import("@playwright/test").Page) {
   ).__contextMenuProbe)
 }
 
-test("selected message text keeps the native context menu", async ({ asUser }) => {
+test("selected message text keeps the native context menu", async ({ caseActors }) => {
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+  const { seedChannel, seedMessage, seedServer } = actors.seed
+
   const serverId = await seedServer("alice", `Selection Menu ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "selection-menu")
   const body = `copy only this phrase ${Date.now()}`

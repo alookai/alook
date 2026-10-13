@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs"
 import type { Page, Request } from "@playwright/test"
-import { test, expect } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { tid } from "./_fixtures/testids"
@@ -110,7 +110,10 @@ async function expectUpdateActionGeometry(
     .toBeLessThanOrEqual(1)
 }
 
-test("Update, Inbox, and viewer Profile share one desktop User Bar pop-up", async ({ asUser }) => {
+test("Update, Inbox, and viewer Profile share one desktop User Bar pop-up", async ({ caseActors }) => {
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+
   const { page } = await asUser("alice")
   const requests = await serveMachines(page)
   await page.emulateMedia({ reducedMotion: "reduce" })
@@ -238,7 +241,10 @@ test("Update, Inbox, and viewer Profile share one desktop User Bar pop-up", asyn
   writes.stop()
 })
 
-test("partial dispatch retries only failed eligible Machines and clears from live Machine data", async ({ asUser }) => {
+test("partial dispatch retries only failed eligible Machines and clears from live Machine data", async ({ caseActors }) => {
+  const actors = await caseActors(["bob"])
+  const { asUser } = actors
+
   const { context, page } = await asUser("bob")
   const ws = await proxyCommunityWebSockets(context)
   const secondMachine = {

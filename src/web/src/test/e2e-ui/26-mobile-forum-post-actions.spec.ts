@@ -1,9 +1,37 @@
 import type { Locator, Page, TestInfo } from "@playwright/test"
-import { test, expect, sessionCookie } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
-import { seedChannel, seedForumThread, seedJoinServer, seedMessage, seedServer } from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
+import type { CaseActors } from "./_fixtures/case-fixture"
+
+async function prepareCase(actors: CaseActors) {
+  const { sessionCookie } = actors
+  async function seedTags(forumId: string, threadId: string, tags: string[]): Promise<void> {
+    const listResponse = await fetch(`${WEB_URL}/api/community/channels/${forumId}/threads?order=createdAt&limit=50`, { headers: { Cookie: sessionCookie("bob"), Origin: WEB_URL } })
+    expect(listResponse.ok).toBe(true)
+    const page = await listResponse.json() as {
+      threads: Array<{
+        id: string
+        parentMessageId: string | null
+      }>
+    }
+    const openerMessageId = page.threads.find((thread) => thread.id === threadId)?.parentMessageId
+    expect(openerMessageId).toBeTruthy()
+    const tagResponse = await fetch(`${WEB_URL}/api/community/messages/${openerMessageId}/tags`, {
+      method: "PUT",
+      headers: {
+        Cookie: sessionCookie("bob"),
+        "Content-Type": "application/json",
+        Origin: WEB_URL,
+      },
+      body: JSON.stringify({ tags }),
+    })
+    expect(tagResponse.status).toBe(200)
+  }
+  return { seedTags }
+}
 
 const MOBILE_WIDTHS = [320, 390] as const
 const FILTER_RAIL_WIDTHS = [320, 390, 1280] as const
@@ -439,31 +467,14 @@ async function expectNoOverflowFilterRail(
   }
 }
 
-async function seedTags(forumId: string, threadId: string, tags: string[]): Promise<void> {
-  const listResponse = await fetch(
-    `${WEB_URL}/api/community/channels/${forumId}/threads?order=createdAt&limit=50`,
-    { headers: { Cookie: sessionCookie("bob"), Origin: WEB_URL } },
-  )
-  expect(listResponse.ok).toBe(true)
-  const page = await listResponse.json() as {
-    threads: Array<{ id: string; parentMessageId: string | null }>
-  }
-  const openerMessageId = page.threads.find((thread) => thread.id === threadId)?.parentMessageId
-  expect(openerMessageId).toBeTruthy()
-  const tagResponse = await fetch(`${WEB_URL}/api/community/messages/${openerMessageId}/tags`, {
-    method: "PUT",
-    headers: {
-      Cookie: sessionCookie("bob"),
-      "Content-Type": "application/json",
-      Origin: WEB_URL,
-    },
-    body: JSON.stringify({ tags }),
-  })
-  expect(tagResponse.status).toBe(200)
-}
-
-test("forum post actions stay discoverable on mobile without changing permissions", async ({ asUser }, testInfo) => {
+test("forum post actions stay discoverable on mobile without changing permissions", async ({ caseActors }, testInfo) => {
   test.setTimeout(180_000)
+
+  const actors = await caseActors(["alice", "bob", "carol"])
+  const { asUser } = actors
+  const { seedChannel, seedForumThread, seedJoinServer, seedMessage, seedServer } = actors.seed
+  const { seedTags } = await prepareCase(actors)
+
   const stamp = Date.now().toString().slice(-6)
   const serverId = await seedServer("alice", `Mobile forum actions ${Date.now()}`)
   const forumId = await seedChannel("alice", serverId, "mobile-actions", "forum")

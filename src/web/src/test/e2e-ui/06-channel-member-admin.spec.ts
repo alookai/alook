@@ -1,20 +1,24 @@
-import { test, expect, userId } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
-import { seedServer, seedChannel, seedJoinServer, seedCategory, seedMessage, seedThread, memberInfo } from "./_fixtures/seed"
+
+import type { CaseActors } from "./_fixtures/case-fixture"
 
 // Journey 6 — channel / member administration + the eject branch (needs a
 // second identity). Focuses on member list presence and non-member ejection.
-test.describe.serial("channel & member admin", () => {
-  let serverId: string
-  let channelId: string
-
-  test.beforeAll(async () => {
-    serverId = await seedServer("alice", `Admin ${Date.now()}`)
-    channelId = await seedChannel("alice", serverId, "admin-chan")
+test.describe("channel & member admin", () => {
+  async function prepareCase1(actors: CaseActors) {
+    const { seedServer, seedChannel, seedJoinServer } = actors.seed
+    const serverId: string = await seedServer("alice", `Admin ${Date.now()}`)
+    const channelId: string = await seedChannel("alice", serverId, "admin-chan")
     await seedJoinServer("alice", "bob", serverId)
-  })
+    return { serverId, channelId }
+  }
 
-  test("a non-member is ejected when hitting the server URL directly", async ({ asUser }) => {
+  test("a non-member is ejected when hitting the server URL directly", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { serverId, channelId } = await prepareCase1(actors)
+
     // Carol is not a member of Alice's server.
     const { page } = await asUser("carol")
     await page.goto(`/c/channels/${serverId}/${channelId}`)
@@ -22,7 +26,11 @@ test.describe.serial("channel & member admin", () => {
     await expect(page).not.toHaveURL(new RegExp(`/channels/${serverId}/${channelId}$`), { timeout: 20_000 })
   })
 
-  test("the member list shows server members", async ({ asUser }) => {
+  test("the member list shows server members", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser, userId } = actors
+    const { serverId, channelId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${channelId}`)
     await page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
@@ -31,7 +39,12 @@ test.describe.serial("channel & member admin", () => {
     await expect(page.getByTestId(tid.memberRow(userId("bob")))).toBeVisible({ timeout: 15_000 })
   })
 
-  test("Channels loads only on selection and lists private metadata without granting content access", async ({ asUser }) => {
+  test("Channels loads only on selection and lists private metadata without granting content access", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser, userId } = actors
+    const { seedChannel, seedCategory, seedMessage, seedThread, memberInfo } = actors.seed
+    const { serverId, channelId } = await prepareCase1(actors)
+
     const categoryId = await seedCategory("alice", serverId, `Directory QA ${Date.now()}`, { private: true })
     const privateName = "bob-private-channel-with-a-very-long-name-for-mobile-review"
     const privateId = await seedChannel("bob", serverId, privateName, "forum", categoryId)
@@ -157,7 +170,11 @@ test.describe.serial("channel & member admin", () => {
     await expect(page.getByTestId(tid.channelRow(privateId))).toHaveCount(0)
   })
 
-  test("ordinary members cannot open admin settings or access the admin list", async ({ asUser }) => {
+  test("ordinary members cannot open admin settings or access the admin list", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, channelId } = await prepareCase1(actors)
+
     const { page } = await asUser("bob")
     await page.goto(`/c/channels/${serverId}/${channelId}`)
     await expect(page.getByTestId(tid.composerInput)).toBeVisible()

@@ -1,5 +1,5 @@
 import type { Locator, Page, TestInfo } from "@playwright/test"
-import { test, expect, userId } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import {
   composerEditable,
   gotoAfterUserWsAuth,
@@ -11,14 +11,9 @@ import {
   proxyCommunityWebSockets,
   type CapturedCommunityFrame,
 } from "./_fixtures/community-ws-proxy"
-import {
-  seedChannel,
-  seedDm,
-  seedMessage,
-  seedServer,
-  seedThread,
-} from "./_fixtures/seed"
+
 import { tid } from "./_fixtures/testids"
+import type { CaseActors } from "./_fixtures/case-fixture"
 
 type MessageResponse = {
   message: { id: string; channelId: string; content: string }
@@ -79,25 +74,25 @@ async function typeCanonicalMarker(
   return editable
 }
 
-test.describe.serial("chat composer ordered-list continuation", () => {
-  let serverId: string
-  let channelAId: string
-  let channelBId: string
-  let forumId: string
-  let threadId: string
-  let dmId: string
-
-  test.beforeAll(async () => {
-    serverId = await seedServer("alice", `composer-lists-${Date.now()}`)
-    channelAId = await seedChannel("alice", serverId, "composer-lists-a")
-    channelBId = await seedChannel("alice", serverId, "composer-lists-b")
-    forumId = await seedChannel("alice", serverId, "composer-lists-forum", "forum")
+test.describe("chat composer ordered-list continuation", () => {
+  async function prepareCase1(actors: CaseActors) {
+    const { userId } = actors
+    const { seedChannel, seedDm, seedMessage, seedServer, seedThread } = actors.seed
+    const serverId: string = await seedServer("alice", `composer-lists-${Date.now()}`)
+    const channelAId: string = await seedChannel("alice", serverId, "composer-lists-a")
+    const channelBId: string = await seedChannel("alice", serverId, "composer-lists-b")
+    const forumId: string = await seedChannel("alice", serverId, "composer-lists-forum", "forum")
     const openerId = await seedMessage("alice", channelAId, "ordered-list thread opener")
-    threadId = await seedThread("alice", openerId, "ordered-list-thread")
-    dmId = await seedDm("alice", userId("bob"))
-  })
+    const threadId: string = await seedThread("alice", openerId, "ordered-list-thread")
+    const dmId: string = await seedDm("alice", userId("bob"))
+    return { serverId, channelAId, channelBId, forumId, threadId, dmId }
+  }
 
-  test("desktop nests with official list keys and commits exact numbered text", async ({ asUser }, testInfo: TestInfo) => {
+  test("desktop nests with official list keys and commits exact numbered text", async ({ caseActors }, testInfo: TestInfo) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, channelAId } = await prepareCase1(actors)
+
     const { page, context } = await asUser("alice")
     await installInputCapability(page, true)
     const proxy = await proxyCommunityWebSockets(context)
@@ -145,7 +140,11 @@ test.describe.serial("chat composer ordered-list continuation", () => {
     await expect(page.getByTestId(tid.message(messageId))).toContainText("sibling")
   })
 
-  test("touch Enter continues and exits while only the send button commits", async ({ asUser }, testInfo: TestInfo) => {
+  test("touch Enter continues and exits while only the send button commits", async ({ caseActors }, testInfo: TestInfo) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, channelAId } = await prepareCase1(actors)
+
     const { page, context } = await asUser("alice", { viewport: { width: 390, height: 844 } })
     await installInputCapability(page, false)
     const proxy = await proxyCommunityWebSockets(context)
@@ -186,7 +185,11 @@ test.describe.serial("chat composer ordered-list continuation", () => {
     expect(posts).toBe(1)
   })
 
-  test("child thread and DM commits stay in their exact channel scope", async ({ asUser }) => {
+  test("child thread and DM commits stay in their exact channel scope", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, threadId, dmId } = await prepareCase1(actors)
+
     const { page, context } = await asUser("alice")
     await installInputCapability(page, true)
     const proxy = await proxyCommunityWebSockets(context)
@@ -211,7 +214,11 @@ test.describe.serial("chat composer ordered-list continuation", () => {
     }
   })
 
-  test("draft, undo, IME, plain paste, and forum-body boundaries remain stable", async ({ asUser }) => {
+  test("draft, undo, IME, plain paste, and forum-body boundaries remain stable", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, channelAId, channelBId, forumId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await installInputCapability(page, true)
     let messagePosts = 0

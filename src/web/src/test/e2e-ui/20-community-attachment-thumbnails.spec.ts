@@ -1,5 +1,5 @@
 import type { Locator, Page, TestInfo } from "@playwright/test"
-import { test, expect } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 import { composerEditable, createServer } from "./_fixtures/actions"
 import { solidPngFixture } from "../fixtures/media"
@@ -190,8 +190,12 @@ async function uploadImage(args: {
   }
 }
 
-test("image previews keep one frame through loading, decode, failure, retry, and mobile", async ({ asUser }, testInfo) => {
+test("image previews keep one frame through loading, decode, failure, retry, and mobile", async ({ caseActors, caseResources }, testInfo) => {
   test.setTimeout(180_000)
+
+  const actors = await caseActors(["alice"])
+  const { asUser } = actors
+
   const { page } = await asUser("alice")
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto("/c")
@@ -211,6 +215,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
 
   let releaseColdThumbnail!: () => void
   const coldThumbnailGate = new Promise<void>((resolve) => { releaseColdThumbnail = resolve })
+  caseResources.own(releaseColdThumbnail, async (captured) => { captured() })
   let holdColdThumbnail = true
   let coldThumbnailRequests = 0
   let coldThumbnailPath: string | null = null
@@ -258,6 +263,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
 
   let releaseLandscape!: () => void
   const landscapeGate = new Promise<void>((resolve) => { releaseLandscape = resolve })
+  caseResources.own(releaseLandscape, async (captured) => { captured() })
   await page.route(`**${landscape.originalPath}`, async (route) => {
     if (route.request().method() === "GET" && new URL(route.request().url()).pathname === landscape.originalPath) {
       await landscapeGate
@@ -369,6 +375,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   })
   let releasePortraitFailure!: () => void
   const portraitFailureGate = new Promise<void>((resolve) => { releasePortraitFailure = resolve })
+  caseResources.own(releasePortraitFailure, async (captured) => { captured() })
   await page.route(`**${portrait.originalPath}`, async (route) => {
     if (route.request().method() !== "GET" || new URL(route.request().url()).pathname !== portrait.originalPath) {
       await route.continue()
@@ -450,6 +457,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
 
   let releaseMobileLandscape!: () => void
   const mobileLandscapeGate = new Promise<void>((resolve) => { releaseMobileLandscape = resolve })
+  caseResources.own(releaseMobileLandscape, async (captured) => { captured() })
   let mobileLandscapeRequests = 0
   await mobilePage.route(`**${landscape.originalPath}`, async (route) => {
     if (route.request().method() === "GET" && new URL(route.request().url()).pathname === landscape.originalPath) {
@@ -475,6 +483,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
 
   let releaseMobilePortrait!: () => void
   const mobilePortraitGate = new Promise<void>((resolve) => { releaseMobilePortrait = resolve })
+  caseResources.own(releaseMobilePortrait, async (captured) => { captured() })
   let mobilePortraitRequests = 0
   await mobilePage.route(`**${portrait.originalPath}`, async (route) => {
     if (route.request().method() === "GET" && new URL(route.request().url()).pathname === portrait.originalPath) {

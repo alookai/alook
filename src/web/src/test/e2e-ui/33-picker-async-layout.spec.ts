@@ -1,22 +1,15 @@
 import type { Locator, Page } from "@playwright/test"
-import { expect, test, userId, userName } from "./_fixtures/community-fixture"
+import { expect, test } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
-import {
-  memberInfo,
-  renameUser,
-  seedChannel,
-  seedForumThread,
-  seedFriendship,
-  seedJoinServer,
-  seedMessage,
-  seedServer,
-} from "./_fixtures/seed"
 
-function deferred() {
+import type { CaseActors, CaseResources } from "./_fixtures/case-fixture"
+
+function deferred(caseResources: CaseResources) {
   let resolve!: () => void
   const promise = new Promise<void>((done) => {
     resolve = done
   })
+  caseResources.own(resolve, async (captured) => { captured() })
   return { promise, resolve }
 }
 
@@ -38,78 +31,50 @@ async function openDesktopThreadMemberList(page: Page) {
   await threadPanel.getByRole("button", { name: "Member list" }).click()
 }
 
-test.describe.serial("invite and participant picker async states", () => {
-  test.setTimeout(180_000)
+test.describe("invite and participant picker async states", () => {
+test.setTimeout(180_000)
 
-  let inviteServerId: string
-  let participantServerId: string
-  let parentChannelId: string
-  let failureThreadId: string
-  let parentFailureThreadId: string
-  let emptyThreadId: string
-  let mutationThreadId: string
-  let bobName: string
-  let carolName: string
-
-  test.beforeAll(async () => {
+  async function prepareCase1(actors: CaseActors) {
+    const { userId, userName } = actors
+    const { memberInfo, renameUser, seedChannel, seedForumThread, seedFriendship, seedJoinServer, seedMessage, seedServer } = actors.seed
+    actors.onCleanup(async () => {
+      const restorations = await Promise.allSettled([
+        renameUser("bob", userName("bob")),
+        renameUser("carol", userName("carol")),
+      ])
+      expect(restorations.map((result) => result.status)).toEqual(["fulfilled", "fulfilled"])
+    })
     const userStamp = Date.now().toString().slice(-6)
     await renameUser("bob", `PickerBob${userStamp}`)
     await renameUser("carol", `PickerCarol${userStamp}`)
-    inviteServerId = await seedServer(
-      "alice",
-      `Invite ${Date.now()} ${"unbroken-title-".repeat(5)}`,
-    )
+    const inviteServerId: string = await seedServer("alice", `Invite ${Date.now()} ${"unbroken-title-".repeat(5)}`)
     await seedFriendship("alice", "bob", userId("bob"))
     await seedFriendship("alice", "carol", userId("carol"))
-
-    participantServerId = await seedServer("alice", `Participants ${Date.now()}`)
+    const participantServerId: string = await seedServer("alice", `Participants ${Date.now()}`)
     await seedJoinServer("alice", "bob", participantServerId)
     await seedJoinServer("alice", "carol", participantServerId)
-    parentChannelId = await seedChannel("alice", participantServerId, "picker-parent", "forum")
-    failureThreadId = await seedForumThread(
-      "alice",
-      parentChannelId,
-      `Failure ${"unbroken-thread-title-".repeat(4)}`,
-      "failure state",
-    )
-    parentFailureThreadId = await seedForumThread(
-      "alice",
-      parentChannelId,
-      `Parent failure ${"unbroken-thread-title-".repeat(4)}`,
-      "parent failure state",
-    )
-    emptyThreadId = await seedForumThread(
-      "alice",
-      parentChannelId,
-      `Empty ${Date.now()}`,
-      "resolved empty state",
-    )
-    mutationThreadId = await seedForumThread(
-      "alice",
-      parentChannelId,
-      `Mutation ${"unbroken-thread-title-".repeat(4)}`,
-      "mutation state",
-    )
+    const parentChannelId: string = await seedChannel("alice", participantServerId, "picker-parent", "forum")
+    const failureThreadId: string = await seedForumThread("alice", parentChannelId, `Failure ${"unbroken-thread-title-".repeat(4)}`, "failure state")
+    const parentFailureThreadId: string = await seedForumThread("alice", parentChannelId, `Parent failure ${"unbroken-thread-title-".repeat(4)}`, "parent failure state")
+    const emptyThreadId: string = await seedForumThread("alice", parentChannelId, `Empty ${Date.now()}`, "resolved empty state")
+    const mutationThreadId: string = await seedForumThread("alice", parentChannelId, `Mutation ${"unbroken-thread-title-".repeat(4)}`, "mutation state")
     await seedMessage("bob", failureThreadId, "existing participant")
     await seedMessage("bob", emptyThreadId, "existing participant bob")
     await seedMessage("carol", emptyThreadId, "existing participant carol")
-    bobName = (await memberInfo("alice", participantServerId, userId("bob"))).name
-    carolName = (await memberInfo("alice", participantServerId, userId("carol"))).name
-  })
+    const bobName: string = (await memberInfo("alice", participantServerId, userId("bob"))).name
+    const carolName: string = (await memberInfo("alice", participantServerId, userId("carol"))).name
+    return { inviteServerId, participantServerId, parentChannelId, failureThreadId, parentFailureThreadId, emptyThreadId, mutationThreadId, bobName, carolName }
+  }
 
-  test.afterAll(async () => {
-    const restorations = await Promise.allSettled([
-      renameUser("bob", userName("bob")),
-      renameUser("carol", userName("carol")),
-    ])
-    expect(restorations.map((result) => result.status)).toEqual(["fulfilled", "fulfilled"])
-  })
+  test("Invite friends keeps cold data provisional, search local, row pending, and title clear", async ({ caseActors, caseResources }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { inviteServerId, bobName, carolName } = await prepareCase1(actors)
 
-  test("Invite friends keeps cold data provisional, search local, row pending, and title clear", async ({ asUser }) => {
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 1280, height: 844 })
 
-    const acceptedGate = deferred()
+    const acceptedGate = deferred(caseResources)
     let acceptedGets = 0
     let memberGets = 0
     await page.route("**/api/community/friends/accepted", async (route) => {
@@ -159,7 +124,7 @@ test.describe.serial("invite and participant picker async states", () => {
     await expect(dialog.getByRole("button", { name: "Invite" }).first()).toBeVisible()
     await expect(dialog.getByRole("button", { name: "Copy" })).toBeEnabled({ timeout: 20_000 })
 
-    const dmGate = deferred()
+    const dmGate = deferred(caseResources)
     const writes: string[] = []
     page.on("request", (request) => {
       if (request.method() === "POST") writes.push(new URL(request.url()).pathname)
@@ -184,7 +149,11 @@ test.describe.serial("invite and participant picker async states", () => {
     expect(writes.filter((path) => /\/api\/community\/channels\/[^/]+\/messages$/.test(path))).toHaveLength(1)
   })
 
-  test("Invite friends exposes one recoverable first-load error chain before resolved empty", async ({ asUser }) => {
+  test("Invite friends exposes one recoverable first-load error chain before resolved empty", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { inviteServerId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 390, height: 844 })
 
@@ -217,7 +186,11 @@ test.describe.serial("invite and participant picker async states", () => {
     await expectTitleClearOfClose(dialog, 390)
   })
 
-  test("Add participants composes both sources and recovers without re-offering a participant", async ({ asUser }) => {
+  test("Add participants composes both sources and recovers without re-offering a participant", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { participantServerId, parentChannelId, failureThreadId, bobName, carolName } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 1280, height: 844 })
     let failParticipants = true
@@ -262,10 +235,14 @@ test.describe.serial("invite and participant picker async states", () => {
     expect({ participantGets, parentGets }).toEqual(beforeSearch)
   })
 
-  test("Add participants keeps a slow first load provisional before resolved empty", async ({ asUser }) => {
+  test("Add participants keeps a slow first load provisional before resolved empty", async ({ caseActors, caseResources }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { participantServerId, parentChannelId, emptyThreadId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 1280, height: 844 })
-    const parentGate = deferred()
+    const parentGate = deferred(caseResources)
     let parentGets = 0
     await page.route((url) => url.pathname === `/api/community/channels/${parentChannelId}/members` && url.searchParams.get("relation") === "access", async (route) => {
       if (route.request().method() !== "GET") return route.continue()
@@ -287,7 +264,11 @@ test.describe.serial("invite and participant picker async states", () => {
       .toBeVisible({ timeout: 20_000 })
   })
 
-  test("Add participants retries an unresolved parent without refetching participants", async ({ asUser }) => {
+  test("Add participants retries an unresolved parent without refetching participants", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { participantServerId, parentChannelId, parentFailureThreadId, bobName, carolName } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 1280, height: 844 })
     let failParent = true
@@ -327,7 +308,11 @@ test.describe.serial("invite and participant picker async states", () => {
     expect(parentGets).toBeGreaterThan(failedParentGets)
   })
 
-  test("Add participants keeps mutation pending local to one row", async ({ asUser }) => {
+  test("Add participants keeps mutation pending local to one row", async ({ caseActors, caseResources }) => {
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { asUser } = actors
+    const { participantServerId, mutationThreadId, bobName, carolName } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto(`/c/channels/${participantServerId}/${mutationThreadId}`)
@@ -340,7 +325,7 @@ test.describe.serial("invite and participant picker async states", () => {
     await expect(dialog.getByText(carolName, { exact: true })).toBeVisible()
     await expectTitleClearOfClose(dialog, 390)
 
-    const mutationGate = deferred()
+    const mutationGate = deferred(caseResources)
     let participantPosts = 0
     await page.route(`**/api/community/channels/${mutationThreadId}/participants`, async (route) => {
       if (route.request().method() !== "POST") return route.continue()

@@ -1,16 +1,8 @@
-import { test, expect, userId } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { tid } from "./_fixtures/testids"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
-import {
-  seedServer,
-  seedChannel,
-  seedJoinServer,
-  seedForumThread,
-  seedMessage,
-  seedDm,
-  seedDmMessage,
-  seedRemoveFriendship,
-} from "./_fixtures/seed"
+
+import type { CaseActors } from "./_fixtures/case-fixture"
 
 // Journey 14 — forum-post notify scope, per-post tags, post-card participant
 // avatars, and DM presence stability. Covers the batch that made forum posts
@@ -18,20 +10,22 @@ import {
 // post card, showed participant AvatarGroups, and fixed the DM presence flicker
 // on refresh.
 
-test.describe.serial("forum post tags + participant avatars", () => {
-  let serverId: string
-  let forumId: string
-  let threadId: string
-
-  test.beforeAll(async () => {
-    serverId = await seedServer("alice", `Forum ${Date.now()}`)
-    forumId = await seedChannel("alice", serverId, "ideas", "forum")
+test.describe("forum post tags + participant avatars", () => {
+  async function prepareCase1(actors: CaseActors) {
+    const { seedServer, seedChannel, seedJoinServer, seedForumThread } = actors.seed
+    const serverId: string = await seedServer("alice", `Forum ${Date.now()}`)
+    const forumId: string = await seedChannel("alice", serverId, "ideas", "forum")
     // Bob joins the server so he's a candidate participant / viewer.
     await seedJoinServer("alice", "bob", serverId)
-    threadId = await seedForumThread("alice", forumId, `Bug ${Date.now()}`, "first post body")
-  })
+    const threadId: string = await seedForumThread("alice", forumId, `Bug ${Date.now()}`, "first post body")
+    return { serverId, forumId, threadId }
+  }
 
-  test("creator edits a post's tags from the card; the filter bar derives the union", async ({ asUser }) => {
+  test("creator edits a post's tags from the card; the filter bar derives the union", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, forumId, threadId } = await prepareCase1(actors)
+
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 1280, height: 900 })
     await page.goto(`/c/channels/${serverId}/${forumId}`)
@@ -72,7 +66,11 @@ test.describe.serial("forum post tags + participant avatars", () => {
     await expect(page.getByTestId(tid.forumTagChip("alpha"))).toBeVisible()
   })
 
-  test("a non-creator non-manager sees no tag-edit icon on the post", async ({ asUser }) => {
+  test("a non-creator non-manager sees no tag-edit icon on the post", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { serverId, forumId, threadId } = await prepareCase1(actors)
+
     const { page } = await asUser("bob")
     await page.goto(`/c/channels/${serverId}/${forumId}`)
     await page.waitForURL(new RegExp(forumId), { timeout: 20_000, waitUntil: "commit" })
@@ -84,7 +82,12 @@ test.describe.serial("forum post tags + participant avatars", () => {
     await expect(page.getByTestId(tid.forumThreadTagBtn(threadId))).toHaveCount(0)
   })
 
-  test("post card shows a participant AvatarGroup once a second person joins", async ({ asUser }) => {
+  test("post card shows a participant AvatarGroup once a second person joins", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser } = actors
+    const { seedMessage } = actors.seed
+    const { serverId, forumId, threadId } = await prepareCase1(actors)
+
     // Bob sends a message into the post → enrolled as a participant (source
     // spoke). Seeded via API (a forum post's own channel accepts messages at
     // the channel messages route); the enrollment path is the product code
@@ -104,23 +107,27 @@ test.describe.serial("forum post tags + participant avatars", () => {
 // stay online after the other side refreshes — the friends-presence re-seed
 // used to destructively replace the online set and evict them (online→offline
 // flicker). Alice and Bob share a server (co-members) but are not friends.
-test.describe.serial("DM presence stability on refresh", () => {
-  let serverId: string
-  let dmId: string
-
-  test.beforeAll(async () => {
+test.describe("DM presence stability on refresh", () => {
+  async function prepareCase2(actors: CaseActors) {
+    const { userId } = actors
+    const { seedServer, seedJoinServer, seedDm, seedDmMessage, seedRemoveFriendship } = actors.seed
     // Server + join makes Alice and Bob co-members. Create the DM and its
     // history while accepted, then remove the friendship: co-members but NOT
     // friends is the exact shape that reproduced the flicker.
-    serverId = await seedServer("alice", `Presence ${Date.now()}`)
+    const serverId: string = await seedServer("alice", `Presence ${Date.now()}`)
     await seedJoinServer("alice", "bob", serverId)
-    dmId = await seedDm("alice", userId("bob"))
+    const dmId: string = await seedDm("alice", userId("bob"))
     // A message so the DM row is populated in Bob's sidebar.
     await seedDmMessage("alice", dmId, "hi")
     await seedRemoveFriendship("alice", userId("bob"))
-  })
+    return { serverId, dmId }
+  }
 
-  test("peer stays online after the viewer refreshes the DM view", async ({ asUser }) => {
+  test("peer stays online after the viewer refreshes the DM view", async ({ caseActors }) => {
+    const actors = await caseActors(["alice", "bob"])
+    const { asUser, userId } = actors
+    const { serverId, dmId } = await prepareCase2(actors)
+
     // Alice stays connected (her page holds a live WS connection → she's online).
     const alice = await asUser("alice")
     await gotoAfterUserWsAuth(alice.page, "/c/me")

@@ -1,4 +1,4 @@
-import { test, expect } from "./_fixtures/community-fixture"
+import { test, expect } from "./_fixtures/case-fixture"
 import { expectUniqueSsrInitialFrame } from "./_fixtures/community-ssr-frame"
 import { tid } from "./_fixtures/testids"
 import {
@@ -6,14 +6,19 @@ import {
   runSkeletonLoadingMotion,
 } from "./_fixtures/community-loading-geometry"
 
-test.describe.serial("community Android loading geometry", () => {
-  test("Android Chrome/WebView keep parsed SSR layouts mobile before application JS and through hydration", async ({ asUser }, testInfo) => {
+test.describe("community Android loading geometry", () => {
+  test("Android Chrome/WebView keep parsed SSR layouts mobile before application JS and through hydration", async ({ caseActors, caseResources }, testInfo) => {
     test.setTimeout(240_000)
-    await runAndroidLoadingGeometry(asUser, testInfo)
+
+    const actors = await caseActors(["alice"])
+
+    await runAndroidLoadingGeometry(actors, caseResources, testInfo)
   })
 
-  test("community skeleton pulse changes only opacity and stops for reduced motion", async ({ asUser }) => {
-    await runSkeletonLoadingMotion(asUser)
+  test("community skeleton pulse changes only opacity and stops for reduced motion", async ({ caseActors, caseResources }) => {
+    const actors = await caseActors(["alice"])
+
+    await runSkeletonLoadingMotion(actors, caseResources)
   })
 })
 
