@@ -12,7 +12,6 @@ import { formatRelativeTime } from "@/lib/community/format-time"
 import { tid } from "@/lib/community/testids"
 import { Avatar } from "../avatar"
 import { BotAuditActiveRow } from "./bot-audit-preview"
-import { formatAuditPreviewTime } from "@/lib/community/audit-event-summary"
 import styles from "./bot-mark-sticker.module.css"
 
 const VISIBLE_MARKS = 3
@@ -21,8 +20,8 @@ type StickerView = "thoughts" | "marks"
 function NotebookBinding({ front }: { front: boolean }) {
   return (
     <svg aria-hidden className={styles.binding} viewBox="0 0 30 420" preserveAspectRatio="none">
-      {Array.from({ length: 14 }, (_, index) => (
-        <g key={index} transform={`translate(0 ${39 + index * 28})`}>
+      {Array.from({ length: 9 }, (_, index) => (
+        <g key={index} transform={`translate(0 ${39 + index * 43})`}>
           {front ? <>
             <ellipse cx="23" cy="2.34" rx="2.6" ry="1.75" className={styles.hole} />
             <path d="M23 2.34C24.44-1.75 19.78-6.12 12.6-7.41C5.42-8.7-1.56-6.43-3-2.34" className={styles.wire} />
@@ -145,14 +144,11 @@ export function BotMarkSticker({
             }}
             className={`thin-scrollbar ${styles.scrollbar} min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain`}>
             <div ref={activityBottomAnchorRef} data-testid={tid.botAuditPreviewBottom} className="flex min-h-full flex-col justify-end">
-              {activity.isLoading ? <StickerState label="Loading thoughts" /> : activity.isError ? <StickerState label="Thoughts unavailable" /> : visibleEvents.length === 0 ? <StickerState label="No recent thoughts" /> : visibleEvents.map((event, index) => {
-                const day = new Date(event.createdAt).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })
-                const previousDay = index ? new Date(visibleEvents[index - 1].createdAt).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" }) : null
+              {activity.isLoading ? <StickerState label="Loading thoughts" /> : activity.isError ? <StickerState label="Thoughts unavailable" /> : visibleEvents.length === 0 ? <StickerState label="No recent thoughts" /> : visibleEvents.map((event) => {
                 const parsed = AuditLogTextPayloadSchema.safeParse(event.payload)
                 return <div key={event.id} data-testid={tid.botAuditPreviewRow(event.id)} className={styles.entry}>
-                  {day !== previousDay && <div className={styles.date}>{day}</div>}
                   <div className="mb-2 flex items-center gap-2 text-[10px]" style={{ color: "var(--note-muted)" }}>
-                    <time dateTime={event.createdAt}>{formatAuditPreviewTime(event.createdAt)}</time>
+                    <time dateTime={event.createdAt}>{new Date(event.createdAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time>
                   </div>
                   <button type="button" onClick={onOpenActivity} title="Open full audit log" className={styles.thought}>
                     <p className="whitespace-pre-wrap wrap-break-word">{parsed.success ? parsed.data.text : "Text unavailable"}{parsed.success && parsed.data.truncated && "…"}</p>

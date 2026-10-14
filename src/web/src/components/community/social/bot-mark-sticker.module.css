@@ -43,7 +43,7 @@
   background: var(--note-paper);
 }
 .binding { position: absolute; inset: 0 auto 0 0; width: 30px; height: 100%; pointer-events: none; overflow: visible; }
-.wire { fill: none; stroke: var(--note-wire); stroke-width: 1.25px; }
+.wire { fill: none; stroke: var(--note-wire); stroke-width: 1.75px; }
 .hole { fill: var(--note-hole); }
 .content { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; padding: 16px 18px 8px 42px; }
 .header { margin-bottom: 8px; }
@@ -57,7 +57,6 @@
 .tab:active, .thought:active { background: color-mix(in srgb, var(--note-ink) 8%, transparent); }
 .entry { flex-shrink: 0; padding-bottom: 16px; }
 .entry + .entry { border-top: 1px solid var(--note-rule); padding-top: 16px; }
-.date { margin-bottom: 16px; color: var(--note-muted); font-size: 11px; }
 .thought { display: block; width: 100%; min-height: 44px; border-radius: 4px; text-align: left; font-size: 13px; line-height: 21px; cursor: pointer; user-select: text; }
 .thought p { line-height: inherit; }
 .footer { display: flex; flex-shrink: 0; min-height: 45px; align-items: center; gap: 8px; margin-top: 0; border-top: 1px solid var(--note-rule); padding-top: 0; font-size: 12px; line-height: 16px; }
