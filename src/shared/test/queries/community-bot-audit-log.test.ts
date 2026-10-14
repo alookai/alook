@@ -128,6 +128,50 @@ describe("listOwnedBotActivityEvents", () => {
     expect(rows?.map((row) => row.id)).toEqual(["bae_b", "bae_a"])
   })
 
+  it("filters kind before the page limit and keeps tied text cursors lossless", async () => {
+    const insert = sqlite.prepare(`
+      INSERT INTO community_bot_activity_event
+        (id, bot_id, kind, payload, created_at)
+      VALUES (?, 'bot_1', ?, '{}', ?)
+    `)
+    for (let i = 0; i < 100; i++) {
+      insert.run(`tool_${i}`, "tool_call", "2026-09-01T00:00:00.000Z")
+    }
+    const textIds = Array.from({ length: 12 }, (_, i) => `text_${String(i).padStart(2, "0")}`)
+    for (const id of textIds) insert.run(id, "text", "2026-08-06T00:00:00.000Z")
+
+    const first = await q.listOwnedBotActivityEvents(db, {
+      botId: "bot_1", ownerUserId: "owner_1", kind: "text", limit: 10,
+    })
+    expect(first?.map((row) => row.id)).toEqual(textIds.slice(2).reverse())
+    expect(first?.every((row) => row.kind === "text")).toBe(true)
+
+    const last = first!.at(-1)!
+    const second = await q.listOwnedBotActivityEvents(db, {
+      botId: "bot_1", ownerUserId: "owner_1", kind: "text", limit: 10,
+      beforeCreatedAt: last.createdAt, beforeId: last.id,
+    })
+    expect(second?.map((row) => row.id)).toEqual(textIds.slice(0, 2).reverse())
+    const mixed = await q.listOwnedBotActivityEvents(db, {
+      botId: "bot_1", ownerUserId: "owner_1", limit: 10,
+    })
+    expect(mixed).toHaveLength(10)
+    expect(mixed?.every((row) => row.kind === "tool_call")).toBe(true)
+  })
+
+  it("preserves the owned-bot sentinel when a kind has no matches", async () => {
+    for (const botId of ["bot_1", "empty_bot"]) {
+      await expect(q.listOwnedBotActivityEvents(db, {
+        botId, ownerUserId: "owner_1", kind: "text", limit: 10,
+      })).resolves.toEqual([])
+    }
+    for (const botId of ["foreign_bot", "human_1", "deleted_bot", "missing_bot"]) {
+      await expect(q.listOwnedBotActivityEvents(db, {
+        botId, ownerUserId: "owner_1", kind: "text", limit: 10,
+      })).resolves.toBeNull()
+    }
+  })
+
   it("supports a timestamp-only cursor", async () => {
     const rows = await q.listOwnedBotActivityEvents(db, {
       botId: "bot_1",

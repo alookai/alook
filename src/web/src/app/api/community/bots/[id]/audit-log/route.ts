@@ -27,6 +27,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const url = new URL(req.url)
   const beforeCreatedAt = url.searchParams.get("beforeCreatedAt") ?? undefined
   const beforeId = url.searchParams.get("beforeId") ?? undefined
+  const kind = url.searchParams.get("kind") ?? undefined
   const limitRaw = url.searchParams.get("limit")
   const limit = limitRaw
     ? Math.max(1, Math.min(MAX_LIMIT, Number.parseInt(limitRaw, 10) || DEFAULT_LIMIT))
@@ -37,6 +38,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     ownerUserId: ctx.userId,
     beforeCreatedAt,
     beforeId,
+    ...(kind !== undefined ? { kind } : {}),
     limit,
   })
   if (rows === null) return writeError("bot not found", 404)

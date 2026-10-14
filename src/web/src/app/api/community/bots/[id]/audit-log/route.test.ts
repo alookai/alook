@@ -195,6 +195,17 @@ describe("GET /api/community/bots/[id]/audit-log", () => {
     expect(body.events[0]!.payload).toEqual({ from: "claude-opus-4-6", to: "claude-sonnet-4-6" })
   })
 
+  it("passes kind and the composite cursor into the owner-scoped query", async () => {
+    mockListOwnedBotActivityEvents.mockResolvedValue([])
+    const res = await GET(req("?kind=text&limit=10&beforeCreatedAt=2026-08-03T00:00:00.000Z&beforeId=bae_text"), ctx("b1"))
+    expect(res.status).toBe(200)
+    expect(mockListOwnedBotActivityEvents).toHaveBeenCalledWith(expect.anything(), {
+      botId: "b1", ownerUserId: "u1", kind: "text", limit: 10,
+      beforeCreatedAt: "2026-08-03T00:00:00.000Z", beforeId: "bae_text",
+    })
+    await expect(res.json()).resolves.toEqual({ events: [], nextCursor: null })
+  })
+
   it("caps limit at 100 and floors it at 1 (defends against unbounded page requests)", async () => {
     mockListOwnedBotActivityEvents.mockResolvedValue([])
     await GET(req("?limit=99999"), ctx("b1"))

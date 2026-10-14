@@ -1,4 +1,4 @@
-import { appendBotAuditEvent } from "./use-bot-audit-log"
+import { appendBotAuditEvent, useBotAuditLog } from "./use-bot-audit-log"
 import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClient } from "@tanstack/react-query"
@@ -124,7 +124,7 @@ describe("useBotAuditPreview", () => {
     await waitFor(() => expect(rendered.result.current.isNotFound).toBe(true))
     expect(apiFetch).toHaveBeenCalledOnce()
   })
-  it("filters text before the ten-row cap without another query or cache", async () => {
+  it("requests the latest ten text rows separately from the full audit cache", async () => {
     apiFetch.mockResolvedValueOnce({ events: [
       ...Array.from({ length: 11 }, (_, i) => event(`tool-${i}`, i + 10)),
       { ...event("text-1", 1), kind: "text", payload: { text: "An older thought", chars: 16, truncated: false } },
@@ -132,11 +132,12 @@ describe("useBotAuditPreview", () => {
     const rendered = renderBotAuditPreview("b1", true)
     await waitFor(() => expect(rendered.result.current.events.map((row) => row.id)).toEqual(["text-1"]))
     expect(apiFetch).toHaveBeenCalledOnce()
-    expect(rendered.queryClient.getQueryData(communityKeys.botAuditLog("b1"))).toBeDefined()
-    expect(rendered.queryClient.getQueryData(communityKeys.botAuditPreview("b1"))).toBeUndefined()
+    expect(apiFetch).toHaveBeenCalledWith("/api/community/bots/b1/audit-log?limit=10&kind=text", expect.objectContaining({ assertActive: expect.any(Function) }))
+    expect(rendered.queryClient.getQueryData(communityKeys.botAuditLog("b1"))).toBeUndefined()
+    expect(rendered.queryClient.getQueryData(communityKeys.botAuditPreview("b1"))).toBeDefined()
   })
 
-  it("ignores live commands in Thoughts and accepts live text from the canonical cache", async () => {
+  it("ignores live commands in Thoughts and accepts live text into its filtered cache", async () => {
     apiFetch.mockResolvedValueOnce({ events: [], nextCursor: null })
     const rendered = renderBotAuditPreview("b1", true)
     await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
@@ -144,6 +145,38 @@ describe("useBotAuditPreview", () => {
     expect(rendered.result.current.events).toHaveLength(0)
     act(() => appendBotAuditEvent(rendered.queryClient, "b1", { ...event("text", 2), kind: "text", payload: { text: "New thought", chars: 11, truncated: false } }))
     await waitFor(() => expect(rendered.result.current.events.map((row) => row.id)).toEqual(["text"]))
+  })
+
+  it("keeps full audit and Thoughts independent while one live text updates both", async () => {
+    const text = { ...event("text", 1), kind: "text" as const, payload: { text: "Thought", chars: 7, truncated: false } }
+    apiFetch.mockImplementation(async (path: string) => ({ events: path.includes("kind=text") ? [text] : [event("tool", 2), text], nextCursor: null }))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+    const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client: queryClient }, children)
+    const rendered = renderHook(() => ({ full: useBotAuditLog("b1"), thoughts: useBotAuditPreview("b1", true) }), { wrapper })
+    await waitFor(() => expect(rendered.result.current.full.events).toHaveLength(2))
+    await waitFor(() => expect(rendered.result.current.thoughts.events).toHaveLength(1))
+    act(() => {
+      appendBotAuditEvent(queryClient, "b1", event("new-tool", 3))
+      appendBotAuditEvent(queryClient, "b1", { ...text, id: "new-text", createdAt: event("", 4).createdAt })
+    })
+    await waitFor(() => expect(rendered.result.current.thoughts.events.map((row) => row.id)).toEqual(["new-text", "text"]))
+    expect(rendered.result.current.full.events.map((row) => row.id)).toEqual(["new-text", "new-tool", "tool", "text"])
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it("hides an authoritative text-query 404 even when full audit holds cached text", async () => {
+    apiFetch.mockRejectedValueOnce(new ApiError("not found", 404))
+    const rendered = renderBotAuditPreview("b1", true)
+    rendered.queryClient.setQueryData(communityKeys.botAuditLog("b1"), { pages: [{ events: [{ ...event("private", 1), kind: "text" }], nextCursor: null }], pageParams: [null] })
+    await waitFor(() => expect(rendered.result.current.isNotFound).toBe(true))
+    expect(rendered.result.current.events).toEqual([])
+    expect(apiFetch).toHaveBeenCalledOnce()
+  })
+
+  it("does not request filtered text without an owned bot id", async () => {
+    renderBotAuditPreview(null, true)
+    await flush()
+    expect(apiFetch).not.toHaveBeenCalled()
   })
 
 })

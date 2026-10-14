@@ -110,7 +110,7 @@ const botSurfaceKeys = (id?: string) => [communityKeys.bots(), communityKeys.fri
 const allBotSurfaceKeys = () => botSurfaceKeys()
 const botIdSurfaceKeys = ({ id }: { id: string }) => botSurfaceKeys(id)
 const botAvatarSurfaceKeys = ({ botId }: { botId: string }) => botSurfaceKeys(botId)
-const botAuditKeys = ({ id }: { id: string }) => [communityKeys.botAuditLog(id)]
+const botAuditKeys = ({ id }: { id: string }) => [communityKeys.botAuditLog(id), communityKeys.botAuditPreview(id)]
 const noBotKeys = () => []
 
 function useBotCommand<TInput extends BotViewInput, TResult>(kind: string, execute: (input: TInput, context: BotCommandContext) => Promise<TResult>, keys: (input: TInput) => QueryKey[]) {

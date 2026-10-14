@@ -6,7 +6,7 @@ import { useBotAuditLog } from "./use-bot-audit-log"
 const PREVIEW_LIMIT = 10
 
 export function useBotAuditPreview(botId: string | null | undefined, textOnly = false) {
-  const query = useBotAuditLog(botId)
+  const query = useBotAuditLog(botId, textOnly)
   const events = textOnly ? query.events.filter((event) => event.kind === "text") : query.events
   return {
     events: events.slice(0, PREVIEW_LIMIT),

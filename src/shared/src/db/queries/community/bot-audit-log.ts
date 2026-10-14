@@ -149,11 +149,15 @@ export async function listOwnedBotActivityEvents(
     ownerUserId: string;
     beforeCreatedAt?: string;
     beforeId?: string;
+    kind?: string;
     limit?: number;
   }
 ): Promise<BotActivityEventRow[] | null> {
   const limit = Math.max(1, Math.min(opts.limit ?? DEFAULT_LIMIT, MAX_LIMIT));
   const eventConds = [eq(communityBotActivityEvent.botId, user.id)];
+  if (opts.kind !== undefined) {
+    eventConds.push(eq(communityBotActivityEvent.kind, opts.kind));
+  }
   if (opts.beforeCreatedAt !== undefined && opts.beforeId !== undefined) {
     eventConds.push(
       or(

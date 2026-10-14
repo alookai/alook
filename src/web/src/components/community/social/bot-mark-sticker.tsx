@@ -25,7 +25,7 @@ function NotebookBinding({ front }: { front: boolean }) {
         <pattern id={patternId} x="-6" width="36" height="48" patternUnits="userSpaceOnUse">
           <g transform="translate(6 24)">
             {front ? <>
-              <ellipse cx="23" cy="2.34" rx="2.6" ry="1.75" className={styles.hole} />
+              <ellipse cx="23" cy="2.34" rx="3.5" ry="2.5" className={styles.hole} />
               <path d="M23 2.34C24.44-1.75 19.78-6.12 12.6-7.41C5.42-8.7-1.56-6.43-3-2.34" className={styles.wire} />
             </> : (
               <path d="M-3-2.34C-4.44 1.75 .22 6.12 7.4 7.41C14.58 8.7 21.56 6.43 23 2.34" className={styles.wire} />
@@ -151,7 +151,7 @@ export function BotMarkSticker({
               {activity.isLoading ? <StickerState label="Loading thoughts" /> : activity.isError ? <StickerState label="Thoughts unavailable" /> : visibleEvents.length === 0 ? <StickerState label="No recent thoughts" /> : visibleEvents.map((event) => {
                 const parsed = AuditLogTextPayloadSchema.safeParse(event.payload)
                 return <div key={event.id} data-testid={tid.botAuditPreviewRow(event.id)} className={styles.entry}>
-                  <div className="mb-2 flex items-center gap-2 text-[10px]" style={{ color: "var(--note-muted)" }}>
+                  <div className="mb-1 flex items-center gap-2 px-2 text-[10px]" style={{ color: "var(--note-muted)" }}>
                     <time dateTime={event.createdAt}>{new Date(event.createdAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time>
                   </div>
                   <button type="button" onClick={onOpenActivity} title="Open full audit log" className={styles.thought}>

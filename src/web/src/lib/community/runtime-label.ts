@@ -1,3 +1,3 @@
 export function runtimeLabel(runtime: string): string {
-  return runtime === "agy" ? "Antigravity CLI (agy)" : runtime
+  return runtime === "agy" ? "antigravity cli" : runtime
 }

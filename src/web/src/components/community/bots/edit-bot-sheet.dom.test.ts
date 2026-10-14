@@ -433,7 +433,7 @@ describe("EditBotSheet — provider switch AlertDialog + toast", () => {
         model: null,
       }),
     )
-    expect(toastSuccess).toHaveBeenCalledWith(`Provider switch to ${runtime === "agy" ? "Antigravity CLI (agy)" : runtime} dispatched`)
+    expect(toastSuccess).toHaveBeenCalledWith(`Provider switch to ${runtime === "agy" ? "antigravity cli" : runtime} dispatched`)
     expect(toastSuccess.mock.calls.join(" ")).not.toMatch(/offline|next wake|applies when/i)
   })
 

@@ -8,6 +8,7 @@ useQueryClient,
 replaceEqualDeep,
 type InfiniteData,
 type QueryClient,
+type QueryKey,
 } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
@@ -54,7 +55,12 @@ function reconcileAuditLogPages(previous: unknown, incoming: unknown, unobserved
 }
 
 export function appendBotAuditEvent(queryClient: QueryClient, botId: string, row: AuditEvent) {
-  const key = communityKeys.botAuditLog(botId)
+  appendAuditEventToCache(queryClient, communityKeys.botAuditLog(botId), row)
+  const previewKey = communityKeys.botAuditPreview(botId)
+  if (row.kind === "text" && queryClient.getQueryState(previewKey)) appendAuditEventToCache(queryClient, previewKey, row)
+}
+
+function appendAuditEventToCache(queryClient: QueryClient, key: QueryKey, row: AuditEvent) {
   const query = queryClient.getQueryCache().find({ queryKey: key, exact: true })
   const updatedAt = query?.state.dataUpdatedAt ?? 0
   const unobserved = !query?.getObserversCount()
@@ -78,20 +84,22 @@ export function appendBotAuditEvent(queryClient: QueryClient, botId: string, row
   }
 }
 
-export function useBotAuditLog(botId: string | null | undefined) {
+export function useBotAuditLog(botId: string | null | undefined, textOnly = false) {
   const enabled = Boolean(botId)
   const qc = useQueryClient()
+  const queryKey = botId ? (textOnly ? communityKeys.botAuditPreview(botId) : communityKeys.botAuditLog(botId)) : ["disabled-bot-audit-log"]
 
   const query = useInfiniteQuery<AuditLogPage>({
     enabled,
-    queryKey: botId ? communityKeys.botAuditLog(botId) : ["disabled-bot-audit-log"],
-    structuralSharing: (prev, next) => reconcileAuditLogPages(prev, next, !qc.getQueryCache().find({ queryKey: communityKeys.botAuditLog(botId!), exact: true })?.getObserversCount()),
+    queryKey,
+    structuralSharing: (prev, next) => reconcileAuditLogPages(prev, next, !qc.getQueryCache().find({ queryKey, exact: true })?.getObserversCount()),
     initialPageParam: null as AuditLogPage["nextCursor"],
     queryFn: async ({ pageParam, signal }) => {
       const token = captureCommunityLiveSnapshotToken(qc)
       const cursor = pageParam as AuditLogPage["nextCursor"]
       const search = new URLSearchParams()
-      search.set("limit", String(PAGE_SIZE))
+      search.set("limit", String(textOnly ? 10 : PAGE_SIZE))
+      if (textOnly) search.set("kind", "text")
       if (cursor) {
         search.set("beforeCreatedAt", cursor.beforeCreatedAt)
         search.set("beforeId", cursor.beforeId)
@@ -102,7 +110,7 @@ export function useBotAuditLog(botId: string | null | undefined) {
       )
       if (cursor) return page
       const fetchedIds = new Set(page.events.map((event) => event.id))
-      const current = qc.getQueryData<InfiniteData<AuditLogPage>>(communityKeys.botAuditLog(botId!))?.pages[0]
+      const current = qc.getQueryData<InfiniteData<AuditLogPage>>(queryKey)?.pages[0]
       const liveIds = new Set(current?.liveIds)
       const arrived = current?.events.filter((event) => liveIds.has(event.id) && !fetchedIds.has(event.id)) ?? []
       return arrived.length ? { ...page, events: [...arrived, ...page.events], liveIds: arrived.map((event) => event.id) } : page

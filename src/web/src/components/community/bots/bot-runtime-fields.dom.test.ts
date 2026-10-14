@@ -86,7 +86,7 @@ describe("BotRuntimeFields", () => {
       options: [{ id: "antigravity", unhealthy: false }, { id: "agy", unhealthy: false }],
       runtime: "antigravity",
     })
-    fireEvent.click(renderer.getByRole("radio", { name: "Antigravity CLI (agy)" }))
+    fireEvent.click(renderer.getByRole("radio", { name: "antigravity cli" }))
     expect(onRuntimeChange).toHaveBeenCalledWith("agy")
     expect(onModelChange).toHaveBeenCalledWith(null)
     expect(onReasoningEffortChange).toHaveBeenCalledWith(null)
