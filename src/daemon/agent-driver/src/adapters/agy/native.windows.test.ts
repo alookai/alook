@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { release, tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -32,9 +32,12 @@ describe.skipIf(process.platform !== "win32" || !native)("official Windows agy 1
     vi.stubEnv("GOOGLE_API_KEY", undefined);
     const system = process.env.SystemRoot!;
     vi.stubEnv("PATH", [...(mode === "PATH" ? [dirname(entry)] : []), join(system, "System32"), join(system, "System32", "WindowsPowerShell", "v1.0"), dirname(process.execPath)].join(delimiter));
-    expect(resolveCommandOnPath("agy")).toBe(mode === "PATH" ? entry : null);
+    const found = resolveCommandOnPath("agy");
+    const { dev, ino } = statSync(entry);
+    if (mode === "PATH") expect(statSync(found!)).toMatchObject({ dev, ino });
+    else expect(found).toBeNull();
     const command = mode === "explicit" ? entry : undefined;
-    expect(agySpawnSpec(command).command).toBe(entry);
+    expect(statSync(agySpawnSpec(command).command)).toMatchObject({ dev, ino });
     const sdk = createAgentDriverSdk();
     expect(await sdk.probe({ backend: "agy", ...(command ? { command } : {}) })).toMatchObject({ status: "healthy", version: "1.3.4" });
     console.log(JSON.stringify({ backend: "agy", mode, os: release(), node: process.version,
