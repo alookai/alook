@@ -396,93 +396,17 @@ fn should_close_splash(native_ready: bool, closed: bool) -> bool {
 #[cfg(desktop)]
 pub fn splash_html() -> String {
     let logo = include_str!("../../../../assets/alook.svg");
-    let motion = include_str!("../../../web/src/components/brand/alook-loading/motion.js");
-    let mut html = String::with_capacity(logo.len() + motion.len() + 5_120);
+    let mut html = String::with_capacity(logo.len() + 1_024);
     html.push_str(
-        r#"<!doctype html><html><head><meta charset="utf-8"><style>
+        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:100%;height:100%;overflow:hidden;background:transparent;display:flex;align-items:center;justify-content:center;-webkit-user-select:none;user-select:none}
-#stage{position:relative;width:192px;height:192px;flex:none}
-#canvas{position:absolute;width:1080px;height:1080px;transform:scale(.1777777778);transform-origin:top left}
-#clip{position:absolute;left:210px;top:210px;width:660px;height:660px}
-#orbit,.face,.art{position:absolute;inset:0;width:660px;height:660px}
-.face,.art{transform-origin:center}
-.art svg{display:block;width:660px;height:660px;overflow:visible}
-#source{display:none}
-</style></head><body><div id="stage" role="status" aria-label="Loading"><div id="canvas"><div id="clip"><div id="orbit"></div></div></div></div><template id="source">"#,
+#stage{position:relative;width:192px;height:192px;flex:none;display:grid;place-items:center}
+#stage svg{display:block;width:117.333333px;height:117.333333px}
+</style></head><body><div id="stage" role="status" aria-label="Loading"><div aria-hidden="true">"#,
     );
     html.push_str(logo);
-    html.push_str(r##"</template><script type="module">"##);
-    html.push_str(motion);
-    html.push_str(
-        r##"
-const bots=[
-  {face:"red",x:-100,y:-45,scale:.8,tilt:8},
-  {face:"purple",x:-20,y:-55,scale:.78,tilt:-9},
-  {face:"teal",x:-200,y:20,scale:.76,tilt:-7},
-  {face:"blue",x:-85,y:0,scale:.77,tilt:7},
-  {face:"orange",x:55,y:130,scale:.76,tilt:-5}
-];
-const source=document.querySelector("#source").content;
-const clip=document.querySelector("#clip");
-const orbitElement=document.querySelector("#orbit");
-const namespace="http://www.w3.org/2000/svg";
-const faces=bots.map((bot,index)=>{
-  const wrapper=document.createElement("div");
-  wrapper.className="face";
-  wrapper.style.zIndex=String(index+1);
-  const art=document.createElement("div");
-  art.className="art";
-  const svg=document.createElementNS(namespace,"svg");
-  svg.setAttribute("viewBox","0 0 1024 1024");
-  svg.setAttribute("aria-hidden","true");
-  const group=source.querySelector(`[data-face="${bot.face}"]`).cloneNode(true);
-  const pupils=bot.face==="orange"?[group.children[2],group.children[4]]:[];
-  svg.appendChild(group);
-  art.appendChild(svg);
-  wrapper.appendChild(art);
-  (index<4?orbitElement:clip).appendChild(wrapper);
-  return {wrapper,art,expressions:[...group.querySelectorAll('[data-part="expression"]')],pupils};
-});
-function apply(frame){
-  const {joined,orbit,look}=motionAt(frame);
-  clip.style.clipPath=`inset(${-300*(1-joined)}px round ${152.109375*joined}px)`;
-  orbitElement.style.rotate=`${orbit}deg`;
-  for(let index=0;index<faces.length;index+=1){
-    const bot=bots[index];
-    const face=faces[index];
-    face.wrapper.style.translate=`${bot.x*.96*(1-joined)}px ${bot.y*.96*(1-joined)}px`;
-    face.wrapper.style.scale=String(bot.scale+(1-bot.scale)*joined);
-    face.art.style.rotate=`${look*bot.tilt}deg`;
-    const expressionOpacity=index===4?1:1-smooth((joined-.45)/.55);
-    for(const expression of face.expressions)expression.style.opacity=String(expressionOpacity);
-    for(const pupil of face.pupils)pupil.setAttribute("transform",`translate(${look*23.2} 0)`);
-  }
-}
-const media=window.matchMedia("(prefers-reduced-motion: reduce)");
-let elapsed=0;
-let last;
-let request=0;
-function tick(now){
-  if(last!==undefined)elapsed+=now-last;
-  last=now;
-  apply(Math.floor(elapsed*60/1000)%DURATION);
-  request=requestAnimationFrame(tick);
-}
-function sync(){
-  cancelAnimationFrame(request);
-  last=undefined;
-  if(media.matches)apply(REDUCED_MOTION_FRAME);
-  else{
-    apply(0);
-    if(!document.hidden)request=requestAnimationFrame(tick);
-  }
-}
-media.addEventListener("change",sync);
-document.addEventListener("visibilitychange",sync);
-sync();
-</script></body></html>"##,
-    );
+    html.push_str("</div></div></body></html>");
     html
 }
 
@@ -981,57 +905,30 @@ mod tests {
     }
 
     #[test]
-    fn desktop_splash_matches_the_main_unknown_neutral_motion() {
+    fn desktop_splash_has_static_canonical_artwork_without_script() {
         let html = splash_html();
         let canonical = include_str!("../../../../assets/alook.svg");
-        let web_motion = include_str!("../../../web/src/components/brand/alook-loading/motion.js");
-        let web_frame =
-            include_str!("../../../web/src/components/brand/alook-loading/LoadingFrame.tsx");
 
-        assert!(html.contains(canonical));
-        assert!(html.contains("#stage{position:relative;width:192px;height:192px"));
-        assert!(html.contains("<script type=\"module\">"));
-        assert_eq!(html.match_indices(web_motion).count(), 1);
-        assert_eq!(html.matches("export const DURATION = 540").count(), 1);
-        assert_eq!(html.matches("export const motionAt").count(), 1);
-        assert!(!html.contains("const DURATION=540"));
-        assert!(!html.contains("function motionAt("));
-        assert!(!html.contains("function smooth("));
-        assert!(html.contains("expressionOpacity=index===4?1:1-smooth((joined-.45)/.55)"));
-        assert!(html.contains("apply(REDUCED_MOTION_FRAME)"));
-        assert!(html.contains("prefers-reduced-motion: reduce"));
-        assert!(!html.contains("data:image/png"));
-        assert!(web_motion.contains("export const REDUCED_MOTION_FRAME = 0"));
-        assert!(web_motion.contains("const times = [204, 240, 270, 306, 342, 366]"));
-        assert!(web_motion.contains("const values = [0, -1, -1, 1, 1, 0]"));
-        assert!(web_frame.contains("width: 660"));
-        assert!(web_frame.contains("height: 660"));
-        assert!(web_frame.contains("rotate: `${orbit}deg`"));
+        assert_eq!(html.match_indices(canonical).count(), 1);
+        assert!(html.contains("role=\"status\" aria-label=\"Loading\""));
+        assert!(html.contains("aria-hidden=\"true\""));
+        assert!(!html.contains("<script"));
+        assert!(!html.contains("<template"));
+        assert!(!html.contains("requestAnimationFrame"));
+        assert!(!html.contains("setTimeout"));
+        assert!(!html.contains("<img"));
+        assert!(!html.contains("<link"));
+        assert!(!html.contains("data:image"));
     }
 
     #[test]
-    fn desktop_splash_applies_complete_frame_before_the_first_animation_request() {
+    fn desktop_splash_preserves_the_neutral_artwork_geometry() {
         let html = splash_html();
-        let sync_start = html.find("function sync(){").unwrap();
-        let sync_end = html[sync_start..]
-            .find("media.addEventListener")
-            .map(|offset| sync_start + offset)
-            .unwrap();
-        let sync = &html[sync_start..sync_end];
-        let complete_frame = sync.find("apply(0);").unwrap();
-        let first_request = sync.find("request=requestAnimationFrame(tick);").unwrap();
 
-        assert!(complete_frame < first_request);
-        assert!(html.contains(
-            "clip.style.clipPath=`inset(${-300*(1-joined)}px round ${152.109375*joined}px)`"
-        ));
-        assert!(html.contains(
-            "face.wrapper.style.translate=`${bot.x*.96*(1-joined)}px ${bot.y*.96*(1-joined)}px`"
-        ));
-        assert!(html.contains("face.wrapper.style.scale=String(bot.scale+(1-bot.scale)*joined)"));
-        assert!(html.contains("face.art.style.rotate=`${look*bot.tilt}deg`"));
-        assert!(html.contains("const expressionOpacity=index===4?1:1-smooth((joined-.45)/.55)"));
-        assert!(html.contains("expression.style.opacity=String(expressionOpacity)"));
+        assert!(html.contains("#stage{position:relative;width:192px;height:192px"));
+        assert!(html.contains("width:117.333333px;height:117.333333px"));
+        assert!(html.contains("background:transparent"));
+        assert!(html.contains("display:grid;place-items:center"));
     }
 
     #[test]

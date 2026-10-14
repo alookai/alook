@@ -349,8 +349,9 @@ fn initialization_failure(window: &tauri::WebviewWindow) {
 }
 
 fn bootstrap_html() -> String {
+    let logo = include_str!("../../../../assets/alook.svg");
     format!(
-        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Alook</title><style>:root{{color-scheme:light dark;--background:{light}}}html,body{{width:100%;height:100%;margin:0;overflow:hidden;background:var(--background)}}@media(prefers-color-scheme:dark){{:root{{--background:{dark}}}}}</style></head><body></body></html>"#,
+        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Alook</title><style>:root{{color-scheme:light dark;--background:{light}}}html,body{{width:100%;height:100%;margin:0;overflow:hidden;background:var(--background)}}body{{display:grid;place-items:center}}#logo{{width:106px;height:106px}}#logo svg{{display:block;width:100%;height:100%}}@media(prefers-color-scheme:dark){{:root{{--background:{dark}}}}}</style></head><body><div role="status" aria-label="Loading"><div id="logo" aria-hidden="true">{logo}</div></div></body></html>"#,
         light = SPLASH_BACKGROUND_LIGHT,
         dark = SPLASH_BACKGROUND_DARK,
     )
@@ -1082,12 +1083,20 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_is_theme_background_without_another_startup_logo() {
+    fn bootstrap_shows_static_canonical_logo_in_the_current_theme() {
         let html = bootstrap_html();
+        let canonical = include_str!("../../../../assets/alook.svg");
+
+        assert_eq!(html.match_indices(canonical).count(), 1);
         assert!(html.contains("--background:#fff"));
         assert!(html.contains("--background:#100d0a"));
-        assert!(html.contains("<body></body>"));
+        assert!(html.contains("width:106px;height:106px"));
+        assert!(html.contains("display:grid;place-items:center"));
+        assert!(html.contains("role=\"status\" aria-label=\"Loading\""));
+        assert!(html.contains("aria-hidden=\"true\""));
+        assert!(!html.contains("<script"));
         assert!(!html.contains("<img"));
+        assert!(!html.contains("<link"));
         assert!(!html.contains("data:image"));
         assert!(!html.contains("--alook-mobile-splash-offset-y"));
     }
