@@ -29,6 +29,22 @@ val modernRecoveryDispatch = """
         }
 
 """.trim('\n')
+val originalPageStartedCallback = """
+    override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+        currentUrl = url
+        if (interceptedState[url] == false) {
+            val webView = view as RustWebView
+            for (script in webView.initScripts) {
+                view.evaluateJavascript(script, null)
+            }
+        }
+        return Rust.onPageLoading((view as RustWebView).id, url)
+    }
+""".trim('\n')
+val exclusivePageStartedCallback = originalPageStartedCallback.replace(
+    "if (interceptedState[url] == false)",
+    "if (interceptedState[url] == false && !(view as RustWebView).isDocumentStartScriptEnabled)",
+)
 val pageLoadedCall = "        Rust.onPageLoaded((view as RustWebView).id, url)"
 val legacyAndSslRecoveryDispatch = "\n\n" + """
     @Suppress("DEPRECATION")
@@ -60,6 +76,10 @@ fun wireGeneratedWebViewRecovery(sourceFile: File) {
     if (listOf("handlePageCommitVisible", "handlePageStarted", "handlePageFinished").any(source::contains)) {
         throw GradleException("Stale Wry page-ready callback; regenerate RustWebViewClient")
     }
+    if (source.occurrencesOf(originalPageStartedCallback) + source.occurrencesOf(exclusivePageStartedCallback) != 1) {
+        throw GradleException("Wry RustWebViewClient initialization callback changed")
+    }
+    source = source.replace(originalPageStartedCallback, exclusivePageStartedCallback)
     if (!source.contains(modernRecoveryDispatch)) {
         if (source.occurrencesOf(modernErrorMethod) != 1) {
             throw GradleException("Wry RustWebViewClient modern error callback changed")
@@ -79,6 +99,7 @@ fun wireGeneratedWebViewRecovery(sourceFile: File) {
 fun verifyGeneratedWebViewRecovery(sourceFile: File) {
     val source = sourceFile.readText()
     val required = listOf(
+        "exclusive remote initialization callback" to exclusivePageStartedCallback,
         "modern main-frame recovery dispatch" to
             (modernErrorMethod + "\n" + modernRecoveryDispatch),
         "legacy recovery dispatch" to
