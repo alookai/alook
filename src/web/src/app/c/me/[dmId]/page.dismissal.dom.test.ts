@@ -165,7 +165,6 @@ vi.mock("@/hooks/community/use-notification-settings", () => ({
   useNotificationSettings: () => ({ channel: {} }),
 }))
 vi.mock("@/lib/api/client", () => ({ toastApiError: vi.fn() }))
-vi.mock("@/lib/community/reply-content", () => ({ displayReplyContent: () => "" }))
 vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
   useCanonicalProfilesByUserId: () => new Map(),
 }))

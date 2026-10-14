@@ -160,7 +160,8 @@ export function buildCommunityMentionExtension(opts: {
   const commandFor = (props: SuggestionProps) => {
     const command: NonNullable<MentionPopupState["command"]> = (value) => {
       if (!eligible(props.editor) || popupRef.current.command !== command) return
-      props.command(value)
+      const item = popupRef.current.items.find((candidate) => candidate.id === value.id && candidate.label === value.label)
+      props.command({ ...value, id: item?.kind === "member" ? item.userId : value.id })
     }
     return command
   }

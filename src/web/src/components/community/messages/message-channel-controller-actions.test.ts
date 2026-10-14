@@ -109,7 +109,7 @@ describe("createMessageActions", () => {
   it("routes reply, reactions, marks, previews, retry, and dismiss exactly", async () => {
     const harness = setup()
     harness.actions.onReply("m1")
-    expect(harness.setReplyTo).toHaveBeenCalledWith({ id: "m1", authorName: "Viewer", text: "hello" })
+    expect(harness.setReplyTo).toHaveBeenCalledWith({ id: "m1", authorId: "viewer_1", authorName: "Viewer", text: "hello" })
     harness.actions.onToggleReaction("m1", "👍")
     harness.actions.onReact("m1", "🔥")
     expect(harness.toggleReactionApi).toHaveBeenNthCalledWith(1, {
@@ -345,7 +345,7 @@ describe("createMessageActions", () => {
     })
   })
 
-  it("uses projected reply text for actions and restores one canonical prefix on edit", async () => {
+  it("uses the complete visible reply body for actions and keeps edits exact", async () => {
     const harness = setup()
     harness.messages.setState(() => [{
       ...harness.messages.get()[0],
@@ -356,24 +356,25 @@ describe("createMessageActions", () => {
     harness.actions.onReply("m1")
     expect(harness.setReplyTo).toHaveBeenCalledWith({
       id: "m1",
+      authorId: "viewer_1",
       authorName: "Viewer",
-      text: "> quote\n\nbody",
+      text: "@Alice Smith\n> quote\n\nbody",
     })
 
     await harness.actions.onCopy("m1")
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("> quote\n\nbody")
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("@Alice Smith\n> quote\n\nbody")
 
     await harness.actions.onCreateThread("m1")
-    expect(mocks.deriveThreadName).toHaveBeenCalledWith("> quote\n\nbody", "general")
+    expect(mocks.deriveThreadName).toHaveBeenCalledWith("@Alice Smith\n> quote\n\nbody", "general")
 
     vi.stubGlobal("window", { prompt: vi.fn(() => "edited") })
     harness.actions.onEdit("m1")
-    expect(window.prompt).toHaveBeenCalledWith("Edit message", "> quote\n\nbody")
+    expect(window.prompt).toHaveBeenCalledWith("Edit message", "@Alice Smith\n> quote\n\nbody")
     expect(harness.editMessage).toHaveBeenCalledWith({
       serverId: "server_1",
       channelId: "channel_1",
       messageId: "m1",
-      content: "@Alice Smith\nedited",
+      content: "edited",
       assertActive: expect.any(Function),
     }, expect.objectContaining({ onError: expect.any(Function) }))
   })

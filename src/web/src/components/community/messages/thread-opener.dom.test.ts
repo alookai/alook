@@ -68,7 +68,7 @@ describe("ThreadOpener image attachment layout", () => {
     expect(next).toHaveClass("opacity-0")
   })
 
-  it("renders projected reply content in the opener", () => {
+  it("renders the full visible reply body in the opener", () => {
     useMessageMock.mockReturnValue({
       isLoading: false,
       isError: false,
@@ -96,7 +96,7 @@ describe("ThreadOpener image attachment layout", () => {
     })
 
     const body = renderer!.container.querySelector('[data-community-message-body="true"]')!
-    expect(body.textContent).not.toContain("@Bob Smith")
+    expect(body.textContent).toContain("@Bob Smith")
     expect(body).toHaveTextContent("visible")
   })
 

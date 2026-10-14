@@ -4,7 +4,6 @@ import { toastApiError } from "@/lib/api/client"
 import type { CommunityRuntime } from "@/stores/community/runtime"
 import type { MessageScope } from "./message-stream"
 import type { SendAttachment } from "./models/message"
-import { canonicalizeReplyContent } from "./reply-content"
 import { toOptimisticReplyPreview } from "./reply-preview"
 
 export function messageSendError(error: unknown): Error {
@@ -15,7 +14,7 @@ export function acceptMessageIntent(runtime: CommunityRuntime, scope: MessageSco
   input: Pick<SendMessageArgs, "content" | "author" | "replyTo" | "nonce" | "mentionType"> & { attachments?: SendAttachment[] },
 ): string | undefined {
   if (!input.content && !input.attachments?.length) return undefined
-  const content = canonicalizeReplyContent(input.content, input.replyTo)
+  const content = input.content
   const nonce = input.nonce ?? sendNonce()
   const createdPreviewUrls: string[] = []
   const accepted = runtime.messageStream.actions.accept(scope, {

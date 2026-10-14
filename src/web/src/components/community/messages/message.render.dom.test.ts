@@ -514,8 +514,8 @@ describe("Message memo comparator", () => {
   })
 })
 
-describe("Message reply content projection", () => {
-  it("keeps the reply header and renders only the projected Markdown body", () => {
+describe("Message visible reply body", () => {
+  it("keeps the reply header and renders the full visible Markdown body", () => {
     let renderer: DomRenderer
     act(() => {
       renderer = render(makeTree({
@@ -528,7 +528,7 @@ describe("Message reply content projection", () => {
     })
 
     const body = renderer!.root.findByProps({ "data-community-message-body": true })
-    expect(textContent(body)).not.toContain("@Bob Smith")
+    expect(textContent(body)).toContain("@Bob Smith")
     expect(textContent(body)).toContain("visible")
     expect(renderer!.root.findAllByType("button").some((button) => (
       textContent(button).includes("@Bob Smith")
@@ -536,7 +536,7 @@ describe("Message reply content projection", () => {
     ))).toBe(true)
   })
 
-  it("keeps a different leading mention visible and hides prefix-only reply text", () => {
+  it("keeps both different leading mentions and prefix-only reply text shareable", () => {
     let different: DomRenderer
     act(() => {
       different = render(makeTree({
@@ -553,7 +553,7 @@ describe("Message reply content projection", () => {
     expect(messageCanShare(baseMsg({
       content: "@Bob\n",
       replyTo: { id: "prior", authorName: "Bob", text: "original" },
-    }))).toBe(false)
+    }))).toBe(true)
   })
 })
 

@@ -21,7 +21,6 @@ import { tid } from "@/lib/community/testids"
 import { applyHighlightToRange, clearHighlights, hasHighlights } from "@/lib/community/highlight-range"
 import { formatMessageTime } from "@/lib/community/format-time"
 import type { RenderMsg } from "@/lib/community/models/message"
-import { displayReplyContent } from "@/lib/community/reply-content"
 import { useCanonicalProfilesByUserId } from "@/lib/community-db/projections"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import { AnimatedAlookLogo } from "@/components/community/shell/animated-alook-logo"
@@ -315,7 +314,7 @@ export function MessageShareDialog({ m, open, onClose }: {
                     msg.replyTo.authorId,
                   )
                 : null
-              const visibleContent = displayReplyContent(msg.content ?? "", msg.replyTo)
+              const visibleContent = msg.content ?? ""
               return (
                 <div key={msg.id} className={msg.grouped ? "mt-0.5" : "mt-3 first:mt-0"}>
                 {msg.replyTo && (

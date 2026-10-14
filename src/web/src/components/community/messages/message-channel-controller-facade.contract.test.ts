@@ -14,7 +14,7 @@ import type {
 } from "@/lib/community/models/message"
 import type { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 
-type ExpectedReplyTarget = { id: string; authorName: string; text: string }
+type ExpectedReplyTarget = { id: string; authorId?: string; authorName: string; text: string }
 type ExpectedContextTarget = {
   serverId: string
   channelId: string

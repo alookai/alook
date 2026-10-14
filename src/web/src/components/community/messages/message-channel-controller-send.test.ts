@@ -102,7 +102,7 @@ describe("message channel send helpers", () => {
           authorId: "viewer_1",
           authorName: "Viewer",
           authorAvatar: "V",
-          content: "@Alice\nhello",
+          content: "hello",
           createdAt: "2026-01-02T03:04:05.000Z",
           replyTo: { id: "reply_1", authorName: "Alice", text: "prior" },
         },
@@ -180,7 +180,7 @@ describe("message channel send helpers", () => {
     expect(clearReply).toHaveBeenCalledOnce()
   })
 
-  it("stores the canonical author prefix for an attachment-only reply", () => {
+  it("keeps an attachment-only reply empty after the user removes the mention", () => {
     const file = new File(["abc"], "only.txt", { type: "text/plain" })
     mocks.accept.mockReturnValue(true)
 
@@ -198,7 +198,7 @@ describe("message channel send helpers", () => {
 
     expect(mocks.accept).toHaveBeenCalledWith(scope, expect.objectContaining({
       message: expect.objectContaining({
-        content: "@Alice Smith\n",
+        content: "",
         replyTo: { id: "reply_1", authorName: "Alice Smith", text: "prior" },
       }),
     }))

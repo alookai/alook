@@ -1,6 +1,6 @@
 import { createStore } from "@tanstack/store"
 import type React from "react"
-import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
+import type { FileAttachment, ImagePreview, ReplyTarget } from "@/lib/community/models/message"
 import type { CommunityOnboardingState } from "@/lib/community-onboarding"
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ export type CommunityUiHandlers = {
  * reply lands in the right channel (Gus #449/#452). */
 type PendingReply = {
   channelId: string
-  target: { id: string; authorName: string; text: string }
+  target: ReplyTarget
 }
 
 function samePendingReply(left: PendingReply | null, right: PendingReply | null): boolean {
@@ -68,6 +68,7 @@ function samePendingReply(left: PendingReply | null, right: PendingReply | null)
     right !== null &&
     left.channelId === right.channelId &&
     left.target.id === right.target.id &&
+    left.target.authorId === right.target.authorId &&
     left.target.authorName === right.target.authorName &&
     left.target.text === right.target.text
   )

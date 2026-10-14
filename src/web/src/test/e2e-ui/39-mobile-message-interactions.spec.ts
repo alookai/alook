@@ -472,12 +472,14 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await dispatchSwipe(alice.page, channelBobMessageId, { x: 72, y: 2 })
   const replyPreview = alice.page.locator('[data-slot="composer-reply-preview"]')
   await expect(replyPreview).toHaveText(`Replying to ${bobInfo.name} · channel target ${stamp}`)
+  await expect(composerEditable(alice.page).locator(`[data-type="mention"][data-id="${userId("bob")}"]`)).toHaveCount(1)
   await alice.page.getByRole("button", { name: "Cancel reply" }).click()
   await expect(replyPreview).toHaveCount(0)
   expect(await latestSeq(alice.page, channelId)).toBe(beforeRejectedSwipeSeq)
 
   await dispatchSwipe(alice.page, channelBobSecondMessageId, { x: 72, y: 2 })
   await expect(replyPreview).toHaveText(`Replying to ${bobInfo.name} · channel alternate ${stamp}`)
+  await expect(composerEditable(alice.page).locator(`[data-type="mention"][data-id="${userId("bob")}"]`)).toHaveCount(1)
   const replyBody = `swipe reply ${stamp}`
   const replyResponsePromise = alice.page.waitForResponse((response) => (
     response.request().method() === "POST"
@@ -491,7 +493,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     message: { id: string; content: string; replyToId: string | null }
   }
   expect(replyPayload.message.replyToId).toBe(channelBobSecondMessageId)
-  expect(replyPayload.message.content).toContain(replyBody)
+  expect(replyPayload.message.content).toBe(replyBody)
   await expect.poll(() => bobProxy.frames.some((frame) => (
     frameHasMessage(frame, channelId, replyPayload.message.id)
     && communityFrameEvents(frame).some((event) => (
@@ -547,7 +549,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await expect(editable).toHaveText(`hello @${bobInfo.name} world`)
   const insertedMention = editable.locator(".mention-highlight")
   await expect(insertedMention).toHaveText(`@${bobInfo.name}`)
-  await expect(insertedMention).toHaveAttribute("data-id", bobInfo.id)
+  await expect(insertedMention).toHaveAttribute("data-id", userId("bob"))
   await expect(insertedMention).toHaveAttribute(
     "data-label",
     `${bobInfo.name}#${bobInfo.discriminator}`,
@@ -572,6 +574,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
 
   await dispatchSwipe(alice.page, threadBobMessageId, { x: 72, y: 1 })
   await expect(replyPreview).toHaveText(`Replying to ${bobInfo.name} · thread target ${stamp}`)
+  await expect(composerEditable(alice.page).locator(`[data-type="mention"][data-id="${userId("bob")}"]`)).toHaveCount(1)
   const threadReplyBody = `thread swipe reply ${stamp}`
   const threadReplyResponsePromise = alice.page.waitForResponse((response) => (
     response.request().method() === "POST"
@@ -585,7 +588,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     message: { id: string; content: string; replyToId: string | null }
   }
   expect(threadReplyPayload.message.replyToId).toBe(threadBobMessageId)
-  expect(threadReplyPayload.message.content).toContain(threadReplyBody)
+  expect(threadReplyPayload.message.content).toBe(threadReplyBody)
   await expect.poll(() => bobProxy.frames.some((frame) => (
     frameHasMessage(frame, threadId, threadReplyPayload.message.id)
     && communityFrameEvents(frame).some((event) => (
@@ -788,6 +791,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await expect(dmReplyTarget).toBeVisible()
   await dispatchSwipe(alice.page, dmWsReadyId, { x: 72, y: 1 })
   await expect(replyPreview).toHaveText(`Replying to ${bobInfo.name} · dm reply target ${stamp}`)
+  await expect(composerEditable(alice.page).locator(`[data-type="mention"][data-id="${userId("bob")}"]`)).toHaveCount(1)
   await expect(composerEditable(alice.page)).toBeFocused()
   const dmReplyBody = `dm swipe reply ${stamp}`
   const dmReplyResponsePromise = alice.page.waitForResponse((response) => (
@@ -802,6 +806,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     message: { id: string; content: string; replyToId: string | null }
   }
   expect(dmReplyPayload.message.replyToId).toBe(dmWsReadyId)
+  expect(dmReplyPayload.message.content).toBe(dmReplyBody)
   await expect.poll(() => bobProxy.frames.some((frame) => (
     frameHasMessage(frame, dmId, dmReplyPayload.message.id)
     && communityFrameEvents(frame).some((event) => (

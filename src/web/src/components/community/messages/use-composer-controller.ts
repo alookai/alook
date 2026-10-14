@@ -35,6 +35,7 @@ import type { ComposerHandle, ComposerProps } from "./composer-types"
 import { mentionNodesForCaretInsertion, textNodeForCaretInsertion } from "./caret-text-insertion"
 import type { ComposerViewProps } from "./composer-view"
 import { useComposerSuggestions } from "./use-composer-suggestions"
+import { useComposerReplyMention } from "./use-composer-reply-mention"
 
 export function useComposerController(
   {
@@ -347,14 +348,7 @@ export function useComposerController(
     suppressSuggestions(() => editor.commands.focus("end"))
   }, [autoFocus, editor, channel, isForumThreadBody, suppressSuggestions])
 
-  const previousReplyingToRef = useRef(replyingTo)
-  useEffect(() => {
-    const targetChanged = previousReplyingToRef.current !== replyingTo
-    previousReplyingToRef.current = replyingTo
-    if (targetChanged && replyingTo && editor && !isForumThreadBody) {
-      suppressSuggestions(() => editor.commands.focus("end"))
-    }
-  }, [replyingTo, editor, isForumThreadBody, suppressSuggestions])
+  useComposerReplyMention({ editor, isForumThreadBody, replyingTo, members, suppressSuggestions })
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     handleDropRaw(event)

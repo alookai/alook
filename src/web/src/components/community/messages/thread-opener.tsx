@@ -12,7 +12,6 @@ import { tid } from "@/lib/community/testids"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { AttachmentCard } from "./attachment-card"
-import { displayReplyContent } from "@/lib/community/reply-content"
 import { useMobileAvatarMention } from "./use-mobile-avatar-mention"
 import { useCanonicalCommunityProfile } from "@/lib/community-db/projections"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
@@ -106,7 +105,7 @@ export function ThreadOpener({
   const avatarLabel = msg.authorId
     ? (authorProfile?.avatar ?? avatarInitial(authorName))
     : (msg.authorAvatar ?? avatarInitial(authorName))
-  const visibleContent = displayReplyContent(msg.content ?? "", msg.replyTo)
+  const visibleContent = msg.content ?? ""
 
   return (
     <div data-thread-opener className="group relative flex flex-col gap-2">

@@ -32,7 +32,6 @@ import type { FileAttachment, ImagePreview, RenderMsg } from "@/lib/community/mo
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { attachmentImageFrameStyle } from "./attachment-layout"
 import { AttachmentCard } from "./attachment-card"
-import { displayReplyContent } from "@/lib/community/reply-content"
 import {
   advanceMobileReplyGesture,
   beginMobileReplyGesture,
@@ -58,7 +57,7 @@ export function messageCanShare(m: RenderMsg, compact?: boolean): boolean {
   return !compact
     && !m.approval
     && (
-      !!displayReplyContent(m.content ?? "", m.replyTo)
+      !!(m.content ?? "")
       || !!m.attachments?.some((attachment) => attachment.kind === "image")
     )
 }
@@ -229,7 +228,7 @@ function MessageImpl({
   const replyAuthorName = m.replyTo?.authorId
     ? (replyAuthorProfile?.name ?? "Deleted user")
     : (m.replyTo?.authorName ?? "Deleted user")
-  const visibleContent = displayReplyContent(m.content ?? "", m.replyTo)
+  const visibleContent = m.content ?? ""
   // keep the hover toolbar pinned open while its ⋯ dropdown is open
   const [toolbarOpen, setToolbarOpen] = useAtom(useCreateAtom(false))
   // Right-click context-menu open state — tracked so the Mark/Unmark label's

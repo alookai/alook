@@ -38,7 +38,7 @@ export function useAuthorMentionInsertion({
     return new Map(identities.map((identity) => [
       identity.userId,
       {
-        id: identity.id,
+        id: identity.userId,
         label: formatHandle(identity.name, identity.discriminator),
       } satisfies ComposerMention,
     ]))

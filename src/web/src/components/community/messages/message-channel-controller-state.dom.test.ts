@@ -519,7 +519,7 @@ describe("useMessageChannelController", () => {
   })
 
   it("handles same-channel and pending replies plus loaded/fallback seq jumps", () => {
-    const pendingTarget = { id: "pending", authorName: "Pending", text: "reply" }
+    const pendingTarget = { id: "pending", authorId: "pending-author", authorName: "Pending", text: "reply" }
     mocks.storeState.pendingReply = { channelId: "channel_1", target: pendingTarget }
     let renderer: ReturnType<typeof rtlRender>
     act(() => {
@@ -531,7 +531,7 @@ describe("useMessageChannelController", () => {
     act(() => latest.setContextTarget({
       serverId: "server_1", channelId: "channel_1", label: "general", seq: 1,
     }))
-    const localTarget = { id: "local", authorName: "Local", text: "same" }
+    const localTarget = { id: "local", authorId: "local-author", authorName: "Local", text: "same" }
     act(() => latest.onSheetReply(localTarget))
     expect(latest.replyTo).toEqual(localTarget)
     expect(latest.contextTarget).toBeNull()

@@ -118,20 +118,20 @@ describe("Native DM sender", () => {
     const receipt = owner.accept({ content: "replying", replyTo: { id: "prior", authorName: "Peer", text: "x".repeat(MESSAGE_PREVIEW_LENGTH + 1) } })
     expect(await owner.settle(receipt)).toEqual({ ok: false, error: expect.any(Error) })
     const expected = `${"x".repeat(MESSAGE_PREVIEW_LENGTH - 1)}…`
-    expect(owner.overlay().outboxByNonce.get("fresh_nonce")?.message).toMatchObject({ content: "@Peer\nreplying", replyTo: { text: expected } })
+    expect(owner.overlay().outboxByNonce.get("fresh_nonce")?.message).toMatchObject({ content: "replying", replyTo: { text: expected } })
     expect(await owner.retry()).toEqual({ ok: false, error: expect.any(Error) })
     expect(owner.overlay().outboxByNonce.get("fresh_nonce")?.message.replyTo?.text).toBe(expected)
-    expect(mocks.post.mock.calls.map(([body]) => body)).toEqual(Array(2).fill({ content: "@Peer\nreplying", replyToId: "prior", nonce: "fresh_nonce" }))
+    expect(mocks.post.mock.calls.map(([body]) => body)).toEqual(Array(2).fill({ content: "replying", replyToId: "prior", nonce: "fresh_nonce" }))
   })
 
-  it("sends a canonical prefix for an attachment-only DM reply", async () => {
+  it("sends an exact empty body for an attachment-only reply after mention removal", async () => {
     mocks.upload.mockResolvedValueOnce({ id: "att_x", filename: "x.txt", contentType: "text/plain", size: 1 })
-    mocks.post.mockResolvedValueOnce(posted("server_file", 9, "@Peer Name\n"))
+    mocks.post.mockResolvedValueOnce(posted("server_file", 9, ""))
     const owner = await setup(), file = new File(["x"], "x.txt", { type: "text/plain" })
     const receipt = owner.accept({ content: "", replyTo: { id: "prior", authorName: "Peer Name", text: "quoted" }, attachments: [{ file, previewObjectUrl: "blob:x" }] })
     expect(await owner.settle(receipt)).toMatchObject({ ok: true, message: { id: "server_file", seq: 9 } })
-    expect(materializeMessageStream([], owner.overlay(), canonicalMessageReader(owner.client)).find(({ id }) => id === "server_file")?.content).toBe("@Peer Name\n")
-    expect(mocks.post).toHaveBeenCalledExactlyOnceWith({ content: "@Peer Name\n", replyToId: "prior", attachments: ["att_x"], nonce: "fresh_nonce" })
+    expect(materializeMessageStream([], owner.overlay(), canonicalMessageReader(owner.client)).find(({ id }) => id === "server_file")?.content).toBe("")
+    expect(mocks.post).toHaveBeenCalledExactlyOnceWith({ content: "", replyToId: "prior", attachments: ["att_x"], nonce: "fresh_nonce" })
   })
 
   it("reuses settled remote attachments on retry without a second upload", async () => {

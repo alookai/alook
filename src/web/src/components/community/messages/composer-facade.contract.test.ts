@@ -17,6 +17,7 @@ describe("Composer public facade", () => {
     expectTypeOf<ComponentRef<typeof Composer>>().toEqualTypeOf<ComposerHandle>()
     expectTypeOf<ComposerMention>().toEqualTypeOf<{ id: string; label: string }>()
     expectTypeOf<NonNullable<ComposerProps["replyingTo"]>>().toEqualTypeOf<{
+      authorId?: string
       authorName: string
       text: string
     }>()

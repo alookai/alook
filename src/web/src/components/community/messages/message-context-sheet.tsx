@@ -10,7 +10,6 @@ import { deriveThreadName } from "@alook/shared"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { MessageRow } from "./message-row"
 import { MessageShareDialog } from "./message-share-dialog"
-import { displayReplyContent } from "@/lib/community/reply-content"
 import { ChannelIcon } from "../channels/channel-icon"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiFetch, toastApiError } from "@/lib/api/client"
@@ -277,7 +276,7 @@ export function MessageContextSheet({
 
   const onCopyId = useCallback((id: string) => {
     const m = findMessage(id)
-    const content = m ? displayReplyContent(m.content ?? "", m.replyTo) : ""
+    const content = m ? (m.content ?? "") : ""
     if (content) {
       navigator.clipboard?.writeText(content)
       toast("Copied to clipboard")
@@ -290,8 +289,9 @@ export function MessageContextSheet({
     if (!m) return
     onReply({
       id: m.id,
+      ...(m.authorId ? { authorId: m.authorId } : {}),
       authorName: m.authorName ?? "",
-      text: displayReplyContent(m.content ?? "", m.replyTo),
+      text: m.content ?? "",
     })
   }, [findMessage, onReply])
 
@@ -329,7 +329,7 @@ export function MessageContextSheet({
     const serverId = routeParams?.serverId
     if (!serverId) return
     const m = findMessage(id)
-    const content = m ? displayReplyContent(m.content ?? "", m.replyTo) : undefined
+    const content = m ? (m.content ?? "") : undefined
     const name = deriveThreadName(content, "channel")
     try {
       await createThreadMut.mutateAsync({ serverId, channelId, messageId: id, name })
