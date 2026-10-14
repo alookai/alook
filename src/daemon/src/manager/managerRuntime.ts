@@ -95,6 +95,11 @@ interface ActiveSpawnState {
   timelineTurnOwner: TimelineTurnOwner | null;
   pendingDeliverySpans: Map<string, PendingDeliveryTrace>;
 }
+interface ManagedSessionLifecycle {
+  session: DaemonAgentSession;
+  done: Promise<void>;
+  stopping?: Promise<void>;
+}
 interface TraceRecordBase {
   agentId: string;
   effects: string[];
@@ -460,6 +465,10 @@ export class AgentProcessManager {
   private readonly liveSessions = new Map<string, string>();
   private readonly liveBackendIds = new Map<string, BuiltinBackendId>();
   private readonly activeSpawnState = new Map<string, ActiveSpawnState>();
+  private readonly sessionLifecycles = new Map<DaemonAgentSession, ManagedSessionLifecycle>();
+  private readonly sessionFactories = new Set<Promise<void>>();
+  private shuttingDown = false;
+  private shutdownPromise?: Promise<void>;
   private readonly publishedAgentActivity = new Map<string, AgentActivityState>();
   private readonly traceProcessNonce = randomUUID();
   private nextSpawnOrdinal = 1;
@@ -542,6 +551,7 @@ export class AgentProcessManager {
     launchId?: string;
     applyRuntimeConfig?: boolean;
   }): void {
+    if (this.shuttingDown) throw new Error("Agent manager is shutting down");
     const runtimeConfigAcceptance = launch?.runtimeConfig
       ? this.acceptRuntimeConfig(agentId, launch.runtimeConfig)
       : undefined;
@@ -562,6 +572,7 @@ export class AgentProcessManager {
   }
 
   async updateRuntimeConfig(agentId: string, config: RuntimeConfig): Promise<RuntimeConfigUpdateResult> {
+    if (this.shuttingDown) throw new Error("Agent manager is shutting down");
     const accepted = this.acceptRuntimeConfig(agentId, config);
     if (accepted === "stale" || accepted === "idempotent") return accepted;
     const session = this.sessions.get(agentId);
@@ -630,7 +641,7 @@ export class AgentProcessManager {
     if (!session) return "saved_for_start";
     this.runtimeConfigApplyRunning.add(agentId);
     try {
-      while (this.sessions.get(agentId) === session) {
+      while (!this.shuttingDown && this.sessions.get(agentId) === session) {
         const desired = this.pendingRuntimeConfigUpdates.get(agentId) ?? this.runtimeConfigs.get(agentId);
         if (!desired) return "idempotent";
         const desiredRevision = desired.runtimeConfigRevision ?? 0;
@@ -692,6 +703,7 @@ export class AgentProcessManager {
     await this.stop(agentId);
   }
   deliver(agentId: string, message: AgentMsg): boolean {
+    if (this.shuttingDown) return false;
     const normalized = message.id
       ? message
       : {
@@ -784,6 +796,7 @@ export class AgentProcessManager {
       opName: string;
     },
   ): Promise<void> {
+    if (this.shuttingDown) throw new Error("Agent manager is shutting down");
     if (opts.forgetSession && !this.forgetSession(agentId, opts.barrierType ?? "reset_session")) {
       this.log.error("resume control transition failed; reset aborted", { agentId, barrierType: opts.barrierType });
       this.emitErrorAudit(agentId, "reset", "resume_control_update_failed", "Reset aborted because resume control could not be persisted");
@@ -844,9 +857,18 @@ export class AgentProcessManager {
     });
   }
   start(): void {
+    if (this.shuttingDown) return;
     if (this.tickTimer) return;
     this.tickTimer = setInterval(() => this.dispatch({ type: "tick", nowMs: this.now() }), this.opts.tickIntervalMs);
     this.tickTimer.unref?.();
+  }
+  beginShutdown(): void {
+    // Fence router continuations before WS/proxy cleanup starts awaiting I/O.
+    this.shuttingDown = true;
+    if (this.tickTimer) {
+      clearInterval(this.tickTimer);
+      this.tickTimer = null;
+    }
   }
   async stop(agentId: string): Promise<void> {
     const session = this.sessions.get(agentId);
@@ -875,18 +897,41 @@ export class AgentProcessManager {
       this.log.debug("audit emit failed (turn interrupt)", { agentId, err: String(err) });
     }
   }
-  async stopAll(): Promise<void> {
-    if (this.tickTimer) {
-      clearInterval(this.tickTimer);
-      this.tickTimer = null;
+  stopAll(): Promise<void> {
+    if (this.shutdownPromise) return this.shutdownPromise;
+    this.beginShutdown();
+    this.shutdownPromise = Promise.resolve().then(async () => {
+      const failures: unknown[] = [];
+      for (const agentId of this.activeSpawnState.keys()) {
+        try { this.abortCurrentTurn(agentId, "shutdown"); } catch (error) { failures.push(error); }
+      }
+      for (const lifecycle of this.sessionLifecycles.values()) void this.stopManagedSession(lifecycle);
+      // The synchronous business fence makes this factory set stable. Late
+      // results attach a consumer and stop, without ever starting a prompt.
+      const factories = await Promise.allSettled([...this.sessionFactories]);
+      const lifecycles = [...this.sessionLifecycles.values()];
+      const completed = await Promise.allSettled(lifecycles.flatMap((lifecycle) => [
+        this.stopManagedSession(lifecycle),
+        lifecycle.done,
+      ]));
+      this.sessions.clear();
+      this.sessionLifecycles.clear();
+      failures.push(...[...factories, ...completed]
+        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+        .map((result) => result.reason));
+      if (failures.length) throw new AggregateError(failures, "Agent shutdown did not complete cleanly");
+    });
+    return this.shutdownPromise;
+  }
+  private stopManagedSession(lifecycle: ManagedSessionLifecycle): Promise<void> {
+    if (!lifecycle.stopping) {
+      lifecycle.stopping = Promise.resolve().then(async () => {
+        const receipt = await lifecycle.session.stop({ reason: "shutdown", forceAfterMs: SESSION_STOP_GRACE_MS });
+        if (receipt.status === "failed") throw new Error("Agent session stop failed", { cause: receipt.error });
+      });
+      void lifecycle.stopping.catch(() => {});
     }
-    const entries = [...this.sessions.entries()];
-    for (const [agentId] of entries) this.abortCurrentTurn(agentId, "shutdown");
-    await Promise.all(entries.map(async ([, session]) => {
-      const receipt = await session.stop({ reason: "shutdown", forceAfterMs: SESSION_STOP_GRACE_MS });
-      if (receipt.status === "already_stopping") await session.closed;
-    }));
-    this.sessions.clear();
+    return lifecycle.stopping;
   }
   snapshot(): ManagerState {
     return this.state;
@@ -1305,6 +1350,7 @@ export class AgentProcessManager {
     return pending;
   }
   private applyEffect(effect: ManagerEffect): void {
+    if (this.shuttingDown && (effect.type === "spawn" || effect.type === "send")) return;
     switch (effect.type) {
       case "spawn":
         this.doSpawn(effect.agentId, effect.messages, effect.resumeSessionId);
@@ -1559,6 +1605,7 @@ export class AgentProcessManager {
     this.log.info("agent session ended", { agentId, sessionId, reason });
   }
   private doSpawn(agentId: string, messages: AgentMsg[], resumeSessionId: string | null): void {
+    if (this.shuttingDown) return;
     const [initial, ...pending] = messages;
     if (!initial) throw new Error(`AgentProcessManager: spawn for ${agentId} has no command`);
     this.dispatch({ type: "queue_delivery", agentId, messages: pending });
@@ -1670,6 +1717,7 @@ export class AgentProcessManager {
         abortCause: options?.scope === "handshake_timeout" ? "handshake_timeout" : "spawn_failure",
       });
       this.log.warn("spawn failed", { agentId, runtime: driver.id, reason });
+      if (this.activeSpawnState.get(agentId) !== state) return;
       this.opts.onRuntimeSpawnFailed?.(driver.id, reason);
       this.emitErrorAudit(
         agentId,
@@ -1682,6 +1730,11 @@ export class AgentProcessManager {
       clearHandshakeTimer();
       if (state.torndown) return;
       state.torndown = true;
+      if (this.activeSpawnState.get(agentId) !== state) {
+        if (state.session && this.sessions.get(agentId) === state.session) this.sessions.delete(agentId);
+        this.closeTurn(state, state.activeSpan, { event: "turn_abort", abortCause: "physical_exit" });
+        return;
+      }
       const failedStart = result.outcome === "failed_to_start";
       if (failedStart) reportSpawnFailure(result.error.code || "failed_to_start");
       if (!state.hasEstablished && !failedStart) reportSpawnFailure("pre_handshake_exit");
@@ -1728,6 +1781,11 @@ export class AgentProcessManager {
         this.log.warn("ignored event from discarded backend session owner", { agentId, event: event.type });
         return;
       }
+      if (event.sessionInstanceId !== state.sessionInstanceId
+        || (state.superseded && this.state.agents[agentId]?.execution.sessionInstanceId !== state.sessionInstanceId)) {
+        this.onAgentEvent(agentId, event, driver.id, state);
+        return;
+      }
       if (event.type === "session_failed" && !state.hasEstablished) {
         reportSpawnFailure(event.error.code || "failed_to_start", { message: event.error.message });
       }
@@ -1752,12 +1810,45 @@ export class AgentProcessManager {
       this.onAgentEvent(agentId, event, driver.id, state);
     };
     const attach = (session: DaemonAgentSession) => {
-      if (state.torndown || this.activeSpawnState.get(agentId) !== state) {
-        void session.stop({ reason: "shutdown", forceAfterMs: SESSION_STOP_GRACE_MS });
-        return;
-      }
       state.session = session;
       state.sessionInstanceId = session.sessionInstanceId;
+      const eventsDone = (async () => {
+        try {
+          for await (const event of session.events) onEvent(event as ManagedEvent);
+        } catch (error) {
+          reportSpawnFailure("event_stream_failed", { message: String(error) });
+          throw error;
+        }
+      })();
+      const closed = session.closed.catch((error) => {
+        reportSpawnFailure("session_closed_rejected", { message: String(error) });
+        if (this.activeSpawnState.get(agentId) === state) {
+          this.dispatch({ type: "exit", agentId, spawnFailureReason: state.spawnFailureReason }, state);
+        }
+        throw error;
+      });
+      // closed seals the producer; only the consumer can prove FIFO exhaustion.
+      // Retain this owner until both settle, including explicit failed outcomes.
+      const done = Promise.allSettled([closed, eventsDone]).then(([closedResult, eventsResult]) => {
+        if (closedResult.status === "fulfilled") teardown(closedResult.value);
+        const failures = [closedResult, eventsResult]
+          .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+          .map((result) => result.reason);
+        if (closedResult.status === "fulfilled" && (closedResult.value.cleanup.status === "failed" || closedResult.value.cleanup.status === "timed_out")) {
+          failures.push(closedResult.value.cleanup.error);
+        }
+        if (closedResult.status === "fulfilled" && closedResult.value.outcome === "forced") failures.push(closedResult.value.error);
+        if (failures.length) throw new AggregateError(failures, "Agent session did not finish cleanly");
+      });
+      const lifecycle: ManagedSessionLifecycle = { session, done };
+      this.sessionLifecycles.set(session, lifecycle);
+      void done.then(() => {
+        if (!this.shuttingDown) this.sessionLifecycles.delete(session);
+      }, () => {});
+      if (state.torndown || this.activeSpawnState.get(agentId) !== state || this.shuttingDown) {
+        void this.stopManagedSession(lifecycle);
+        return;
+      }
       this.sessions.set(agentId, session);
       this.appliedRuntimeConfigs.set(agentId, runtimeConfig);
       if (
@@ -1774,17 +1865,6 @@ export class AgentProcessManager {
         turnSilence: session.snapshot().diagnostics?.turnSilence,
       }, state);
       previousOwner?.pendingDeliverySpans.clear();
-      void (async () => {
-        try {
-          for await (const event of session.events) onEvent(event as ManagedEvent);
-        } catch (error) {
-          reportSpawnFailure("event_stream_failed", { message: String(error) });
-        }
-      })();
-      void session.closed.then(teardown, (error) => {
-        reportSpawnFailure("session_closed_rejected", { message: String(error) });
-        this.dispatch({ type: "exit", agentId, spawnFailureReason: state.spawnFailureReason }, state);
-      });
       const startedSpan = this.openTurn(state);
       const commandId = first.id!;
       this.beginPendingDelivery(state, commandId, first, "idle", startedSpan, false);
@@ -1807,6 +1887,7 @@ export class AgentProcessManager {
           void session.stop({ reason: "shutdown", forceAfterMs: SESSION_STOP_GRACE_MS });
           return;
         }
+        if (this.shuttingDown) return;
         const driverState = session.snapshot().state;
         if (this.state.agents[agentId]?.status !== "starting" || driverState === "stopping" || driverState === "closed") return;
         try {
@@ -1839,8 +1920,10 @@ export class AgentProcessManager {
         (error as { code?: string } | undefined)?.code ?? "open_failed",
         { message: String(error) },
       );
-      if (this.activeSpawnState.get(agentId) === state) this.activeSpawnState.delete(agentId);
-      this.dispatch({ type: "exit", agentId, spawnFailureReason: state.spawnFailureReason }, state);
+      if (this.activeSpawnState.get(agentId) === state) {
+        this.activeSpawnState.delete(agentId);
+        this.dispatch({ type: "exit", agentId, spawnFailureReason: state.spawnFailureReason }, state);
+      }
     };
     let created: ReturnType<SessionFactory>;
     try {
@@ -1854,7 +1937,12 @@ export class AgentProcessManager {
       throw error;
     }
     if (created && typeof (created as Promise<DaemonAgentSession>).then === "function") {
-      void Promise.resolve(created).then(attach, failedOpen);
+      const factory = Promise.resolve(created).then(attach).catch((error) => {
+        failedOpen(error);
+        throw error;
+      });
+      this.sessionFactories.add(factory);
+      void factory.then(() => this.sessionFactories.delete(factory), () => {});
     } else {
       try {
         attach(created as DaemonAgentSession);

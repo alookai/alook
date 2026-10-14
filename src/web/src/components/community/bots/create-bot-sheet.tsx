@@ -16,6 +16,7 @@ import {
   type ReasoningEffort,
 } from "@alook/shared"
 import { machineName } from "@/lib/community/machine-name"
+import { runtimeLabel } from "@/lib/community/runtime-label"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -260,7 +261,7 @@ export function CreateBotSheet({
               <ProviderLogo provider={runtime} className="size-5 shrink-0" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">Ready on {selectedMachine ? machineName(selectedMachine) : "your machine"}</p>
-                <p className="text-xs text-muted-foreground">{runtime} · Default model</p>
+                <p className="text-xs text-muted-foreground">{runtimeLabel(runtime)} · Default model</p>
               </div>
               <Button variant="ghost" size="sm" onClick={() => setTechnicalExpanded(true)}>Change</Button>
             </div>

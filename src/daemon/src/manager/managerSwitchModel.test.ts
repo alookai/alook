@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { setImmediate as drainEventTasks } from "node:timers/promises";
 import { AgentProcessManager, type DaemonAgentSession, type SessionFactory, type TimelineRecorder } from "./managerRuntime.js";
 import type { AgentBackend as Driver } from "../drivers/index.js";
 import type { HostLaunchContext as LaunchContext } from "./hostContext.js";
@@ -40,7 +41,9 @@ function fakeSession(): FakeSession {
   type Event = AgentEvent<BuiltinBackendSpecs, "codex">;
   const queued: Event[] = [];
   const waiters: Array<(value: IteratorResult<Event>) => void> = [];
+  let ended = false;
   const publish = (event: Event) => {
+    if (ended) return;
     const waiter = waiters.shift();
     if (waiter) waiter({ done: false, value: event });
     else queued.push(event);
@@ -58,7 +61,9 @@ function fakeSession(): FakeSession {
         return {
           next: () => queued.length > 0
             ? Promise.resolve({ done: false as const, value: queued.shift()! })
-            : new Promise<IteratorResult<Event>>((resolve) => waiters.push(resolve)),
+            : ended
+              ? Promise.resolve({ done: true as const, value: undefined })
+              : new Promise<IteratorResult<Event>>((resolve) => waiters.push(resolve)),
         };
       },
     },
@@ -70,7 +75,10 @@ function fakeSession(): FakeSession {
       return { status: "accepted", delivery: "steer", commandId: message.id, turnId: "test-turn" };
     },
     async interrupt() { return { status: "not_running" }; },
-    async stop() { return { status: "accepted", requestId: "test-stop" }; },
+    async stop(input) {
+      if (input.reason === "shutdown") await s.fire("exit");
+      return { status: "accepted", requestId: "test-stop" };
+    },
     snapshot() {
       return { sessionInstanceId: "switch-model-test", state: "working", queuedCommands: [], lastEventSequence: sequence };
     },
@@ -101,10 +109,16 @@ function fakeSession(): FakeSession {
           signal: null,
           cleanup: { status: "released" },
         };
-        resolveClosed(result);
+        if (!ended) {
+          publish({ type: "session_closed", result, sequence: ++sequence, sessionInstanceId: "switch-model-test", at: Date.now() });
+          ended = true;
+          for (const waiter of waiters.splice(0)) waiter({ done: true, value: undefined });
+          resolveClosed(result);
+        }
       }
       await Promise.resolve();
       await Promise.resolve();
+      if (evt === "exit") await drainEventTasks();
     },
   };
   return s;

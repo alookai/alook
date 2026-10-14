@@ -27,6 +27,7 @@ import { ClaudeDriver } from "../adapters/claude/index.js";
 import { CodexDriver } from "../adapters/codex/index.js";
 import { CursorDriver } from "../adapters/cursor/index.js";
 import { AntigravityAcpLane } from "../adapters/antigravity/acp-lane.js";
+import { AgyDriver } from "../adapters/agy/index.js";
 import { AntigravityDriver } from "../adapters/antigravity/index.js";
 import { GrokDriver } from "../adapters/grok/index.js";
 import { CursorAcpLane } from "../adapters/cursor/acp-lane.js";
@@ -43,6 +44,7 @@ const configs: { [Id in BuiltinBackendId]: ConfigOf<BuiltinBackendSpecs, Id> } =
   claude: { model: { kind: "default" }, provider: { kind: "default" }, mode: "default" },
   codex: { model: { kind: "default" }, mode: "default" },
   cursor: { model: { kind: "default" } },
+  agy: { model: { kind: "default" } },
   antigravity: { model: { kind: "default" } },
   grok: { model: { kind: "default" } },
   opencode: { model: { kind: "default" } },
@@ -171,7 +173,7 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
       return lane;
     });
   } else {
-    const classes = { claude: ClaudeDriver, codex: CodexDriver, cursor: CursorDriver, grok: GrokDriver, antigravity: AntigravityDriver };
+    const classes = { agy: AgyDriver, claude: ClaudeDriver, codex: CodexDriver, cursor: CursorDriver, grok: GrokDriver, antigravity: AntigravityDriver };
     if (backend === "claude") {
       const beginTurn = ClaudeDriver.prototype.beginTurn;
       vi.spyOn(ClaudeDriver.prototype, "beginTurn").mockImplementation(function (this: ClaudeDriver) {
@@ -193,7 +195,7 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
         return encoded;
       });
     }
-    vi.spyOn(classes[backend].prototype, "spawn").mockImplementation(async (ctx) => {
+    vi.spyOn(classes[backend].prototype, "spawn").mockImplementation(async (ctx: AdapterLaunchContext) => {
       contexts.push(ctx as AdapterLaunchContext);
       const process = fakeProcess();
       let stdinBuffer = "";

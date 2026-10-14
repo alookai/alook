@@ -3,6 +3,7 @@ import type { AdapterEvent } from "../internal/adapter.js";
 import { createBuiltinAgentDriverRegistry } from "../registry.js";
 import { mapPiSdkEvent } from "../adapters/pi/index.js";
 import { runAgentBackendAdapterConformance } from "./conformance.js";
+import { AgyDriver } from "../adapters/agy/index.js";
 
 const line = (value: unknown): string => JSON.stringify(value);
 
@@ -14,6 +15,7 @@ describe("builtin adapter protocol conformance", () => {
       claude: ["session", "stdio_stream", "claude.stream-json.v1", "safe_boundary_queue", "vendor_message"],
       codex: ["session", "stdio_rpc", "codex.app-server.v1", "safe_boundary_queue", "transport_request"],
       cursor: ["session", "stdio_rpc", "cursor.acp.v1", "steer", "transport_request"],
+      agy: ["session", "stdio_stream", "agy.stream-json.v1", "next_turn_queue", "vendor_message"],
       antigravity: ["session", "stdio_rpc", "antigravity.acp.v1", "next_turn_queue", "transport_request"],
       grok: ["session", "stdio_rpc", "grok.acp.v1", "safe_boundary_queue", "transport_request"],
       opencode: ["session", "http_sse", "opencode.v2.service", "steer", "transport_request"],
@@ -63,6 +65,24 @@ describe("builtin adapter protocol conformance", () => {
       expectedEventKinds: ["session_init", "assistant_reasoning_completed", "tool_call", "tool_output", "assistant_message_completed", "turn_end"],
     });
     expect(events.at(-1)).toMatchObject({ kind: "turn_end", sessionId: "claude-root", turnOwner: expect.stringMatching(/^claude:/) });
+  });
+
+  it("runs the agy adapter through the shared root, tool, text and terminal contract", () => {
+    runAgentBackendAdapterConformance(registry.get("agy"), {
+      exercise(adapter) {
+        (adapter as AgyDriver).encodeMessage("prompt");
+        const update = (index: number, extra: object) => line({ event: "step_update", step_update: { conversation_id: "root", step_index: index, ...extra } });
+        return [
+          ...adapter.normalizeLine(line({ event: "init", conversation_id: "root" })),
+          ...adapter.normalizeLine(update(0, { step_type: "user_input", state: "DONE" })),
+          ...adapter.normalizeLine(update(1, { step_type: "tool", tool_name: "run_command", state: "ACTIVE", tool_info: { parameters: { command: "test" } } })),
+          ...adapter.normalizeLine(update(1, { step_type: "tool", tool_name: "run_command", state: "DONE" })),
+          ...adapter.normalizeLine(update(2, { step_type: "agent_response", state: "DONE", text_delta: "done" })),
+          ...adapter.normalizeLine(line({ event: "result", result: { conversation_id: "root", num_turns: 1, status: "SUCCESS", response: "done" } })),
+        ];
+      },
+      expectedEventKinds: ["session_init", "turn_owner", "tool_call", "tool_output", "assistant_message_delta", "assistant_message_completed", "turn_end"],
+    });
   });
 
   it("runs the real Codex adapter and rejects child completion/output in the shared contract", () => {

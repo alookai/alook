@@ -4,6 +4,7 @@ import { createStore, useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useQueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import { isAbortError } from "@/lib/errors"
+import { runtimeLabel } from "@/lib/community/runtime-label"
 
 import { useEffect, useMemo } from "react"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
@@ -158,7 +159,7 @@ const [avatarDraft, setAvatarDraft] = useAtom(useCreateAtom<AvatarDraft>(((): Av
         if ((runtimeChanged || modelChanged) && result.application === "saved_not_applied") {
           toast.success("Runtime settings saved for next start.")
         } else if (runtimeChanged) {
-          toast.success(`Provider switch to ${runtime} dispatched`)
+          toast.success(`Provider switch to ${runtimeLabel(runtime)} dispatched`)
         } else if (modelChanged) {
           const label = model ?? "the runtime default"
           toast.success(`Model switch to ${label} dispatched`)
@@ -245,7 +246,7 @@ const [avatarDraft, setAvatarDraft] = useAtom(useCreateAtom<AvatarDraft>(((): Av
           <AlertDialogHeader>
             <AlertDialogTitle>Switch provider and reset this session?</AlertDialogTitle>
             <AlertDialogDescription>
-              Switching from {bot?.runtime} to {runtime} starts a fresh session. The bot cannot resume its current provider session.
+              Switching from {runtimeLabel(bot?.runtime ?? "")} to {runtimeLabel(runtime)} starts a fresh session. The bot cannot resume its current provider session.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -20,7 +20,11 @@ describe("Tauri startup release separation", () => {
     })))
     expect(release.bundle.iOS.infoPlist).toBe("Info.ios.release.plist")
     expect(base.app.windows.every((window: Record<string, unknown>) => !window.limitNavigationsToAppBoundDomains)).toBe(true)
-    expect(development.app.windows).toBeUndefined()
+    expect(development.app.windows).toEqual(base.app.windows.map((window: object) => ({
+      ...window,
+      url: "alook-recovery://localhost/bootstrap",
+    })))
+    expect(development.build).toEqual({ frontendDist: "http://localhost:3000", devUrl: "http://localhost:3000" })
     expect(development.bundle?.iOS?.infoPlist).toBeUndefined()
     expect(existsSync(resolve(tauriRoot, "Info.ios.plist"))).toBe(false)
     const plist = read("Info.ios.release.plist")
