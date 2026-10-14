@@ -463,6 +463,66 @@ describe("locked native adapter and existing message scroll owner", () => {
     h.move(300)
     expect(scrollFixture.latest.readPositionReady).toBe(true)
   })
+  it.each([0, 2, 100, 300])("preserves a retired unconfirmed reader through composer shrink and grow at %ipx", distance => {
+    const h = mount({ initialScrollReady: false, hasMoreNewer: true })
+    act(() => vi.advanceTimersByTime(2000))
+    runFrames()
+    const native = scrollFixture.latest.virtualizer
+    const end = vi.spyOn(native, "scrollToEnd")
+    const index = vi.spyOn(native, "scrollToIndex")
+    act(() => h.root.scrollTo({ top: h.root.scrollHeight - h.root.clientHeight - 8 }))
+    runFrames()
+    act(() => h.root.scrollTo({ top: h.root.scrollHeight - h.root.clientHeight - distance }))
+    runFrames()
+    const before = h.root.scrollTop
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    expect(native.options.followOnAppend).toBe(false)
+    scrollFixture.height += 168
+    resize()
+    if (distance <= 100) expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(distance)
+    else expect(h.root.scrollTop).toBe(before)
+    scrollFixture.height -= 168
+    resize()
+    if (distance <= 100) expect(h.root.scrollHeight - h.root.clientHeight - h.root.scrollTop).toBe(distance)
+    else expect(h.root.scrollTop).toBe(before)
+    const settled = h.root.scrollTop
+    h.update({ items: [...h.input.items, message("late-peer-after-resize")] })
+    expect(h.root.scrollTop).toBe(settled)
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    expect(native.options).toMatchObject({ anchorTo: "start", followOnAppend: false })
+    expect(end).not.toHaveBeenCalled()
+    expect(index).not.toHaveBeenCalled()
+  })
+  it.each(["rectangle", "row"])("rejects an invalid %s during an unconfirmed reader resize", async invalid => {
+    const h = mount({ initialScrollReady: false, hasMoreNewer: true })
+    act(() => vi.advanceTimersByTime(2000))
+    runFrames()
+    act(() => h.root.scrollTo({ top: h.root.scrollHeight - h.root.clientHeight }))
+    runFrames()
+    const native = scrollFixture.latest.virtualizer
+    const offset = vi.spyOn(native, "scrollToOffset")
+    if (invalid === "rectangle") native.scrollRect = { width: 640, height: 500 }
+    else {
+      const bounds = vi.mocked(HTMLElement.prototype.getBoundingClientRect)
+      const original = bounds.getMockImplementation()!
+      bounds.mockImplementation(function (this: HTMLElement) {
+        const rect = original.call(this)
+        return this.matches("[data-index]")
+          ? DOMRect.fromRect({ x: rect.x, y: rect.y + 8, width: rect.width, height: rect.height })
+          : rect
+      })
+    }
+    scrollFixture.height -= 168
+    await act(async () => {
+      h.root.closest('[data-slot="community-conversation-surface"]')!
+        .querySelector('[data-slot="community-conversation-footer"]')!.textContent = "changed draft"
+    })
+    runFrames(1)
+    expect(offset).not.toHaveBeenCalled()
+    expect(scrollFixture.frames.size).toBe(0)
+    expect(scrollFixture.latest.readPositionReady).toBe(false)
+    expect(native.options.followOnAppend).toBe(false)
+  })
   it("preserves and settles a prefix page after deadline retirement without opening read or peer follow", () => {
     const h = mount({ initialScrollReady: false, hasMoreNewer: true })
     expect(scrollFixture.latest.paginationEnabled).toBe(false)
