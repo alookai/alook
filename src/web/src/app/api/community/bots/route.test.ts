@@ -138,6 +138,14 @@ describe("POST /api/community/bots — model", () => {
     )
   })
 
+  it("creates the separately reported agy backend with its own default model", async () => {
+    mockGetMachineForOwner.mockResolvedValue({ id: "mac1", availableRuntimes: [{ id: "agy", status: "healthy" }] })
+    const res = await POST(postReq(base(undefined, "agy")), ctx)
+    expect(res.status).toBe(201)
+    expect(mockCreateBot).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ runtime: "agy", modelName: null }))
+    expect((await res.json()).bot.runtime).toBe("agy")
+  })
+
   it("omitting model leaves modelName null", async () => {
     const res = await POST(postReq(base()), ctx)
     expect(res.status).toBe(201)
@@ -361,6 +369,7 @@ describe("GET /api/community/bots — heatmap activity", () => {
       { id: "bot_codex", runtime: "codex" },
       { id: "bot_cursor", runtime: "cursor" },
       { id: "bot_antigravity", runtime: "antigravity" },
+      { id: "bot_agy", runtime: "agy" },
       { id: "bot_grok", runtime: "grok" },
       { id: "bot_opencode", runtime: "opencode" },
       { id: "bot_pi", runtime: "pi" },
@@ -404,6 +413,7 @@ describe("GET /api/community/bots — heatmap activity", () => {
       bot_codex: "supported",
       bot_cursor: "unsupported",
       bot_antigravity: "supported",
+      bot_agy: "supported",
       bot_grok: "supported",
       bot_opencode: "supported",
       bot_pi: "supported",

@@ -3,6 +3,7 @@
 import { ProviderLogo } from "@/components/provider-logo"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
+import { runtimeLabel } from "@/lib/community/runtime-label"
 import { ModelField } from "./model-field"
 import { ReasoningEffortField } from "./reasoning-effort-field"
 import type {
@@ -103,7 +104,7 @@ export function BotRuntimeFields({
                     className="accent-primary size-3.5"
                   />
                   <ProviderLogo provider={option.id} className="size-4 shrink-0" />
-                  <span className="text-sm">{option.id}</span>
+                  <span className="text-sm">{runtimeLabel(option.id)}</span>
                   {option.unhealthy && (
                     <span className="ml-auto text-xs text-muted-foreground">unavailable</span>
                   )}

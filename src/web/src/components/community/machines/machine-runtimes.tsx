@@ -5,6 +5,7 @@ import { CircleAlert } from "lucide-react"
 import { ProviderLogo } from "@/components/provider-logo"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
+import { runtimeLabel } from "@/lib/community/runtime-label"
 
 const chipBase =
   "inline-flex max-w-[160px] items-center gap-2 rounded-md border border-border bg-card px-2 py-1 text-[11px]"
@@ -46,7 +47,7 @@ function RuntimeChip({ runtime }: { runtime: CommunityMachineRuntime }) {
       ) : (
         <ProviderLogo provider={runtime.id} className="size-3.5 shrink-0" />
       )}
-      <span className="truncate font-medium text-foreground">{runtime.id}</span>
+      <span className="truncate font-medium text-foreground">{runtimeLabel(runtime.id)}</span>
     </>
   )
 
@@ -61,7 +62,7 @@ function RuntimeChip({ runtime }: { runtime: CommunityMachineRuntime }) {
         render={
           <button
             type="button"
-            aria-label={unhealthy ? `${runtime.id} unavailable` : `${runtime.id} ${runtime.version}`}
+            aria-label={unhealthy ? `${runtimeLabel(runtime.id)} unavailable` : `${runtimeLabel(runtime.id)} ${runtime.version}`}
             className={cn(
               chipBase,
               unhealthy && "opacity-40 cursor-not-allowed",

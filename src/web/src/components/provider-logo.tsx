@@ -192,6 +192,7 @@ export function ProviderLogo({
     case "gemini":
       return <GeminiLogo className={className} />;
     case "antigravity":
+    case "agy":
       return <AntigravityLogo className={className} />;
     case "kimi":
       return <KimiLogo className={className} />;

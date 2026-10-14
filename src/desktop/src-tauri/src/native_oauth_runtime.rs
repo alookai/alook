@@ -376,10 +376,8 @@ mod tests {
             ("https://user@alook.ai", false, false),
         ] {
             let url = url::Url::parse(url).unwrap();
-            for mobile in [false, true] {
-                assert_eq!(caller_allowed("main", &url, debug, mobile), expected);
-                assert!(!caller_allowed("splash", &url, debug, mobile));
-            }
+            assert_eq!(caller_allowed("main", &url, debug), expected);
+            assert!(!caller_allowed("splash", &url, debug));
         }
     }
     #[test]

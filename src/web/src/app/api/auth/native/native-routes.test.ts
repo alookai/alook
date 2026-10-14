@@ -26,7 +26,7 @@ const authMocks = {
 };
 const rateLimitMock = vi.fn();
 const db = {};
-const env = { BETTER_AUTH_URL: BASE_URL, NODE_ENV: undefined as string | undefined, DB: {} };
+const env = { BETTER_AUTH_URL: BASE_URL, DB: {} };
 
 const attemptRow = {
   id: ATTEMPT,
@@ -139,59 +139,11 @@ async function expectNativeOauthErrorPage(response: Response, status: number) {
 
 describe("native OAuth routes", () => {
   beforeEach(() => {
-    env.BETTER_AUTH_URL = BASE_URL;
-    env.NODE_ENV = undefined;
     vi.resetModules();
     for (const mock of Object.values(queryMocks)) mock.mockReset();
     for (const mock of Object.values(authMocks)) mock.mockReset();
     rateLimitMock.mockReset();
     rateLimitMock.mockResolvedValue({ allowed: true });
-  });
-
-  it.each([
-    ["attempt", loadAttemptRoute, queryMocks.registerAttempt, 200],
-    ["cancel", loadCancelRoute, queryMocks.cancelAttempt, 200],
-    ["exchange", loadExchangeRoute, queryMocks.claimExchange, 400],
-    ["status", loadStatusRoute, queryMocks.getAttemptStatus, 200],
-  ] as const)("passes development qualification through the real %s parser", async (name, load, mutation, status) => {
-    env.BETTER_AUTH_URL = "http://localhost:3000";
-    env.NODE_ENV = "development";
-    const route = await load();
-    const body = name === "attempt" ? {
-      attemptId: ATTEMPT, stateHash: "a".repeat(64), codeChallenge: "p".repeat(43),
-      instanceKeyHash: "b".repeat(64), platform: "android", provider: "github", redirectPath: "/c/me",
-    } : { ...proof(), ...(name === "exchange" ? { code: CODE } : {}) };
-    for (const origin of ["http://tauri.localhost", "tauri://localhost"]) {
-      const response = await route(new Request(`http://localhost:3000/api/auth/native/${name}`, {
-        method: "POST", headers: { "Content-Type": "application/json", Origin: origin }, body: JSON.stringify(body),
-      }));
-      expect(response.status).toBe(status);
-      expect(mutation).toHaveBeenCalledTimes(origin === "http://tauri.localhost" ? 1 : 2);
-      if (name === "exchange") expect(await response.json()).toEqual({ error: "invalid_handoff" });
-    }
-  });
-
-  it.each([
-    ["attempt", loadAttemptRoute], ["cancel", loadCancelRoute],
-    ["exchange", loadExchangeRoute], ["status", loadStatusRoute],
-  ] as const)("preserves strict defaults and raw upstream rejection in %s", async (name, load) => {
-    const route = await load();
-    for (const [nodeEnv, baseUrl] of [
-      [undefined, "http://localhost:3000"], ["production", "http://localhost:3000"],
-      ["test", "http://localhost:3000"], ["development", "http://@localhost:3000"],
-      ["development", "http://localhost:3000/c"], ["development", "http://localhost:3000/?"],
-      ["development", "http://localhost:3000/#"],
-    ] as const) {
-      env.NODE_ENV = nodeEnv;
-      env.BETTER_AUTH_URL = baseUrl;
-      const response = await route(new Request(`http://localhost:3000/api/auth/native/${name}`, {
-        method: "POST", headers: { "Content-Type": "application/json", Origin: "http://tauri.localhost" }, body: "{}",
-      }));
-      expect(response.status).toBe(403);
-      expect(await response.json()).toEqual({ error: "invalid_request" });
-    }
-    for (const mock of Object.values(queryMocks)) expect(mock).not.toHaveBeenCalled();
-    expect(rateLimitMock).not.toHaveBeenCalled();
   });
 
   it("registers a strict same-origin request and returns only the start URL", async () => {

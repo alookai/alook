@@ -414,10 +414,13 @@ describe("EditBotSheet — provider switch AlertDialog + toast", () => {
     expect(toastSuccess).not.toHaveBeenCalled()
   })
 
-  it("confirm → PATCH with runtime + cleared model, then dispatched toast", async () => {
-    updateMutateAsync.mockResolvedValue({ bot: { ...BOT, runtime: "codex", modelName: null } })
+  it.each(["codex", "agy"])("confirm → PATCH with %s + cleared model, then dispatched toast", async (runtime) => {
+    useMachinesMock.mockReturnValue({ machines: [{
+      id: "mac1", availableRuntimes: [{ id: "claude", status: "healthy" }, { id: runtime, status: "healthy" }],
+    }] })
+    updateMutateAsync.mockResolvedValue({ bot: { ...BOT, runtime, modelName: null } })
     const renderer = renderSheet({ ...BOT, modelName: "claude-sonnet-4-6" })
-    pickRuntime(renderer, "codex")
+    pickRuntime(renderer, runtime)
     act(() => {
       fireEvent.click(saveButton(renderer))
     })
@@ -426,11 +429,11 @@ describe("EditBotSheet — provider switch AlertDialog + toast", () => {
     expect(updateMutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "b1",
-        runtime: "codex",
+        runtime,
         model: null,
       }),
     )
-    expect(toastSuccess).toHaveBeenCalledWith("Provider switch to codex dispatched")
+    expect(toastSuccess).toHaveBeenCalledWith(`Provider switch to ${runtime === "agy" ? "Antigravity CLI (agy)" : runtime} dispatched`)
     expect(toastSuccess.mock.calls.join(" ")).not.toMatch(/offline|next wake|applies when/i)
   })
 

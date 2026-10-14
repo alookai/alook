@@ -2,13 +2,10 @@ import { readFileSync } from "node:fs"
 import path from "node:path"
 import { describe, expect, it, vi } from "vitest"
 import { getImageProps } from "next/image"
-import { PHASE_PRODUCTION_BUILD } from "next/constants"
 
 vi.mock("@opennextjs/cloudflare", () => ({ initOpenNextCloudflareForDev: vi.fn() }))
 
-import resolveConfig from "../next.config"
-
-const config = resolveConfig(PHASE_PRODUCTION_BUILD)
+import config from "../next.config"
 
 const root = path.resolve(import.meta.dirname, "..")
 

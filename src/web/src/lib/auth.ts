@@ -22,7 +22,6 @@ import {
   resolveAppleAuthConfig,
 } from "@/lib/apple-auth"
 import { appleOauthHardeningPlugin } from "@/lib/apple-oauth-hardening"
-import { nativeDevelopmentOrigins } from "@/lib/native-oauth"
 import { getOtpSubject, renderOtpEmail, type OtpType } from "./email-templates"
 
 
@@ -178,10 +177,7 @@ export function createAuth(env: Env) {
         },
       },
     },
-    trustedOrigins: [
-      ...nativeDevelopmentOrigins(env.BETTER_AUTH_URL, env.NODE_ENV ?? process.env.NODE_ENV),
-      ...(appleAuth.enabled ? [APPLE_ISSUER] : []),
-    ],
+    trustedOrigins: appleAuth.enabled ? [APPLE_ISSUER] : [],
     socialProviders: {
       github: {
         clientId: env.GITHUB_CLIENT_ID,

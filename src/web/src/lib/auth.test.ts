@@ -656,31 +656,6 @@ describe("createAuth user fields", () => {
   })
 })
 
-describe("createAuth development proxy origins", () => {
-  it.each(["http://localhost:3000", "http://localhost:3000/"])("trusts the native proxy only with the exact development root %s", async (baseUrl) => {
-    const createAuth = await loadCreateAuth()
-    const opts = (createAuth(makeEnv({ NODE_ENV: "development", BETTER_AUTH_URL: baseUrl }) as never) as { __options: AuthOptions }).__options
-    expect(opts.trustedOrigins).toEqual(["tauri://localhost", "http://tauri.localhost"])
-    expect(opts).not.toHaveProperty("advanced.disableCSRFCheck")
-    expect(opts).not.toHaveProperty("advanced.disableOriginCheck")
-  })
-
-  it("keeps production, test and malformed raw development upstreams strict", async () => {
-    const createAuth = await loadCreateAuth()
-    for (const [nodeEnv, baseUrl] of [
-      ["production", "http://localhost:3000"], ["test", "http://localhost:3000"],
-      ["development", "https://alook.ai"], ["development", "http://user:pass@localhost:3000"],
-      ["development", "http://@localhost:3000"], ["development", "http://localhost:3000/c"],
-      ["development", "http://localhost:3000/./"], ["development", "http://localhost:3000/?"],
-      ["development", "http://localhost:3000/#"], ["development", "http://localhost:3001"],
-      ["development", "http://127.0.0.1:3000"],
-    ]) {
-      const opts = (createAuth(makeEnv({ NODE_ENV: nodeEnv, BETTER_AUTH_URL: baseUrl }) as never) as { __options: AuthOptions }).__options
-      expect(opts.trustedOrigins).toEqual([])
-    }
-  })
-})
-
 describe("createAuth Apple provider", () => {
   it("omits Apple and its trusted origin when all Apple configuration is absent", async () => {
     const createAuth = await loadCreateAuth()
@@ -704,9 +679,7 @@ describe("createAuth Apple provider", () => {
     }) as never) as { __options: AuthOptions }).__options
 
     expect(opts.socialProviders?.apple).toEqual(expect.any(Function))
-    expect(opts.trustedOrigins).toEqual(nodeEnv === "development"
-      ? ["tauri://localhost", "http://tauri.localhost", "https://appleid.apple.com"]
-      : ["https://appleid.apple.com"])
+    expect(opts.trustedOrigins).toEqual(["https://appleid.apple.com"])
     expect(opts.plugins).toContainEqual(expect.objectContaining({ id: "apple-oauth-hardening" }))
 
     const createAppleProvider = opts.socialProviders?.apple as () => Promise<{
