@@ -137,6 +137,7 @@ static void alookLayoutStartupOverlay(UIViewController *viewController, UIView *
 
 static void alookPrepareStartupOverlay(UIViewController *viewController) {
     if (!alookIsTauriRootController(viewController)) return;
+    alookApplyTheme(viewController, alookEffectiveDarkTheme(viewController));
     UIView *overlay = alookInstallStartupOverlay(viewController);
     if (overlay != nil) alookLayoutStartupOverlay(viewController, overlay);
 }
