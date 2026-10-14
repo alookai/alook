@@ -57,6 +57,7 @@
 .entry + .entry { border-top: 1px solid var(--note-rule); padding-top: 16px; }
 .date { margin-bottom: 16px; color: var(--note-muted); font-size: 11px; }
 .thought { display: block; width: 100%; min-height: 44px; border-radius: 4px; text-align: left; font-size: 13px; line-height: 21px; cursor: pointer; user-select: text; }
+.thought p { line-height: inherit; }
 .footer { display: flex; flex-shrink: 0; min-height: 44px; align-items: center; gap: 8px; margin-top: 8px; border-top: 1px solid var(--note-rule); padding-top: 8px; }
 .stop { display: flex; min-width: 58px; min-height: 44px; flex-shrink: 0; align-items: center; justify-content: center; gap: 6px; border-radius: 5px; color: var(--note-stop); font-size: 12px; }
 .stop:hover { background: color-mix(in srgb, var(--note-stop) 6%, transparent); }

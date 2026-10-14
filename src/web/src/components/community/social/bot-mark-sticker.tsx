@@ -55,6 +55,7 @@ export function BotMarkSticker({
   const activityBottomAnchorRef = useRef<HTMLDivElement>(null)
   const latestEventIdRef = useRef<string | undefined>(undefined)
   const didInitialTailScrollRef = useRef(false)
+  const nearTailRef = useRef(true)
   const activity = useBotAuditPreview(botId, true)
   const { marks, isLoading, isError } = useBotMarks(botId)
   const visibleMarks = marks.slice(0, VISIBLE_MARKS)
@@ -88,6 +89,7 @@ export function BotMarkSticker({
         scroller.scrollTop = scroller.scrollHeight
         latestEventIdRef.current = latestVisibleEventId
         didInitialTailScrollRef.current = true
+        nearTailRef.current = true
       })
     })
     return () => {
@@ -104,8 +106,7 @@ export function BotMarkSticker({
     if (!latestVisibleEventId || latestVisibleEventId === previousLatestEventId) return
     const scroller = activityScrollRef.current
     if (!scroller) return
-    const nearTail = scroller.scrollHeight - (scroller.scrollTop + scroller.clientHeight) < 80
-    if (nearTail) scroller.scrollTop = scroller.scrollHeight
+    if (nearTailRef.current) scroller.scrollTop = scroller.scrollHeight
   }, [latestVisibleEventId, view])
 
   if (activity.isNotFound) return null
@@ -139,6 +140,9 @@ export function BotMarkSticker({
       {view === "thoughts" ? (
         <div role="tabpanel" aria-label="Recent thoughts" className="flex min-h-0 flex-1 flex-col pt-2">
           <div ref={activityScrollRef} data-testid={tid.botAuditPreviewScroll}
+            onScroll={({ currentTarget }) => {
+              nearTailRef.current = currentTarget.scrollHeight - (currentTarget.scrollTop + currentTarget.clientHeight) < 80
+            }}
             className={`thin-scrollbar ${styles.scrollbar} min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain`}>
             <div ref={activityBottomAnchorRef} data-testid={tid.botAuditPreviewBottom} className="flex min-h-full flex-col justify-end">
               {activity.isLoading ? <StickerState label="Loading thoughts" /> : activity.isError ? <StickerState label="Thoughts unavailable" /> : visibleEvents.length === 0 ? <StickerState label="No recent thoughts" /> : visibleEvents.map((event, index) => {

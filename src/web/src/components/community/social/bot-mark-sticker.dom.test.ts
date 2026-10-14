@@ -203,7 +203,10 @@ describe("BotMarkSticker", () => {
     expect(mocks.bottomAnchor.scrollIntoView).toHaveBeenCalledWith({ block: "end" })
     expect(mocks.scrollNode.scrollTop).toBe(300)
 
+    const scroller = renderer.container.querySelector('[data-testid="community-bot-audit-preview-scroll"]')!
     mocks.scrollNode.scrollTop = 0
+    fireEvent.scroll(scroller)
+    mocks.scrollNode.scrollHeight = 500
     mocks.activity.events = events(1)
     renderer.rerender(React.createElement(BotMarkSticker, props))
     expect(mocks.scrollNode.scrollTop).toBe(0)
@@ -213,10 +216,12 @@ describe("BotMarkSticker", () => {
       '[data-testid="community-bot-audit-preview-row-event_0"]',
     )).toHaveLength(0)
 
-    mocks.scrollNode.scrollTop = 130
+    mocks.scrollNode.scrollTop = 330
+    fireEvent.scroll(scroller)
+    mocks.scrollNode.scrollHeight = 800
     mocks.activity.events = events(2)
     renderer.rerender(React.createElement(BotMarkSticker, props))
-    expect(mocks.scrollNode.scrollTop).toBe(300)
+    expect(mocks.scrollNode.scrollTop).toBe(800)
   })
 
   it("retries initial tail anchoring when a data update cancels the first frame", () => {
