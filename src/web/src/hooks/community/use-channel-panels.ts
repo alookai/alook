@@ -73,7 +73,7 @@ export function materializeThreadsResponse(data: ThreadsResponse | undefined, me
     const thread = channels.get(window.id), opener = window.openerMessageId ? messages?.get(window.openerMessageId) : undefined
     if (!thread || (window.openerMessageId && !opener) || thread.archived) return []
     const core = projectThread(thread, opener, data.parentType)
-    return [{ ...core, lastMessageAt: thread.lastMessageAt ?? thread.createdAt ?? "", parent: { ...core.parent, text: core.parent.text.slice(0, 100) }, ...(window.openerMessageId ? { openerMessageId: window.openerMessageId } : {}) }]
+    return [{ ...core, lastMessageAt: thread.lastMessageAt ?? thread.createdAt ?? "", parent: data.parentType === "forum" ? core.parent : { ...core.parent, text: core.parent.text.slice(0, 100) }, ...(window.openerMessageId ? { openerMessageId: window.openerMessageId } : {}) }]
   })
 }
 

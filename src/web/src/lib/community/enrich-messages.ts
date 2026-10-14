@@ -95,7 +95,7 @@ export async function enrichMessages(
           lastReplyAt: scope.contract === 3 ? c.lastMessageAt : c.lastMessageAt ?? c.createdAt,
           ...(scope.isForum ? {
             tags: tagsByMessage.get(c.parentMessageId!) ?? [],
-            preview: (first?.content ?? "").slice(0, 100),
+            preview: first?.content ?? "",
             participants: participantsByChannel.get(c.id) ?? [],
             participantCount: participantCountByChannel.get(c.id) ?? 0,
           } : {}),

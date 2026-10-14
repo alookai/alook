@@ -2066,7 +2066,7 @@ export function publishCommunityForumFeed(queryClient: QueryClient, forumChannel
       ...thread, type: "thread", serverId: page.channel.serverId, parentChannelId: forumChannelId,
       pending: false,
       tags: page.included.tags.filter((tag) => tag.messageId === thread.parentMessageId).map((tag) => tag.tag),
-      preview: page.included.previews.find((message) => message.channelId === thread.id)?.content.slice(0, 100) ?? "",
+      preview: page.included.previews.find((message) => message.channelId === thread.id)?.content ?? "",
       participantCount: page.included.participantCounts.find((row) => row.channelId === thread.id)?.count ?? 0,
     }, registry.collections.channels.get(thread.id)))
     upsertRows(registry, "channels", rows)

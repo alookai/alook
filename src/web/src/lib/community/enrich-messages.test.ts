@@ -138,7 +138,8 @@ describe("enrichMessages attachment projection", () => {
     ])
   })
 
-  it("projects canonical versioned avatars for forum thread participants", async () => {
+  it("retains full forum previews and canonical versioned avatars for participants", async () => {
+    const preview = "Opening preview beyond the former character boundary. ".repeat(8)
     mocks.listAttachments.mockResolvedValue([])
     mocks.getReplies.mockResolvedValue([])
     mocks.listForumChildren.mockResolvedValue([{
@@ -151,7 +152,7 @@ describe("enrichMessages attachment projection", () => {
     }])
     mocks.getFirstMessages.mockResolvedValue([{
       channelId: "thread-1",
-      content: "Opening preview",
+      content: preview,
     }])
     mocks.listParticipants.mockResolvedValue([{
       channelId: "thread-1",
@@ -186,6 +187,7 @@ describe("enrichMessages attachment projection", () => {
     expect(result.messages[0]).toMatchObject({
       thread: {
         id: "thread-1",
+        preview,
         participants: [{
           id: "u2",
           avatar: "/api/community/users/u2/avatar?v=4",

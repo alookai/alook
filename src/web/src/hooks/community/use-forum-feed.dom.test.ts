@@ -175,11 +175,12 @@ describe("mapForumFeedPages", () => {
       included: { ...emptyIncluded, parentMessages: [{ id: "opener", channelId: "forum_1", seq: 0, content: "   ", authorId: "u1", authorName: "A", authorImage: null, authorAvatarVersion: 0 }], firstMessages: [{ channelId: "post", content: preview }] },
     }])
     expect(result).toHaveLength(1)
-    expect(result[0]).toMatchObject({ name: "Fallback", messageCount: 0, lastMessageAt: "", parent: { authorId: "u1", authorName: "A", text: preview.slice(0, 100) }, parentSeq: 0, openerMessageId: "opener", preview: preview.slice(0, 100) })
-    patchCanonicalCommunityChannel(client, "post", (row) => ({ ...row, preview, lastMessageAt: null }))
+    expect(result[0]).toMatchObject({ name: "Fallback", messageCount: 0, lastMessageAt: "", parent: { authorId: "u1", authorName: "A", text: preview }, parentSeq: 0, openerMessageId: "opener", preview })
+    const updatedPreview = "updated preview".repeat(30)
+    patchCanonicalCommunityChannel(client, "post", (row) => ({ ...row, preview: updatedPreview, lastMessageAt: null }))
     const registry = getCommunityDbRegistry(client)!
     const projected = mapForumFeedPages([{ serverId: "server_1", parentType: "forum", threads: [{ id: "post", openerMessageId: "opener", participantIds: [] }], hasMore: false }], new Map(getCanonicalCommunityMessages(client).map((row) => [row.id, row])), new Map(getCanonicalCommunityChannels(client).map((row) => [row.id, row])), new Map([...registry.collections.profiles.values()].map((row) => [row.id, row])))
-    expect(projected[0]).toMatchObject({ lastMessageAt: "", parent: { text: preview }, preview, parentSeq: 0 })
+    expect(projected[0]).toMatchObject({ lastMessageAt: "", parent: { text: updatedPreview }, preview: updatedPreview, parentSeq: 0 })
   })
   it("keeps one operation baseline across pages and excludes duplicate profile publications", async () => {
     const registry = getCommunityDbRegistry(client)!

@@ -98,84 +98,27 @@ export function toggleForumArchivedStatus(tags: string[]): string[] {
 }
 
 function ForumPostTitle({ name, postId, seq }: { name: string; postId: string; seq?: number }) {
-  const hostRef = useRef<HTMLHeadingElement>(null)
-  const measureRef = useRef<HTMLSpanElement>(null)
-  const measureNameRef = useRef<HTMLSpanElement>(null)
-const [rendered, setRendered] = useAtom(useCreateAtom({ name, truncated: false }))
-
-  useLayoutEffect(() => {
-    const host = hostRef.current
-    const measure = measureRef.current
-    const measureName = measureNameRef.current
-    if (!host || !measure || !measureName) return
-
-    const characters = Array.from(name)
-    const commit = (nextName: string, truncated: boolean) => {
-      setRendered((current) => current.name === nextName && current.truncated === truncated
-        ? current
-        : { name: nextName, truncated })
-    }
-    const recompute = () => {
-      if (host.clientWidth === 0) return
-      const view = measure.ownerDocument?.defaultView
-      if (!view) return
-      const lineHeight = Number.parseFloat(view.getComputedStyle(measure).lineHeight)
-      if (!Number.isFinite(lineHeight)) return
-      const fits = (count: number, truncated: boolean) => {
-        measureName.textContent = `${characters.slice(0, count).join("")}${truncated ? "…" : ""}`
-        return measure.getBoundingClientRect().height <= lineHeight * 2 + 0.5
-      }
-
-      if (fits(characters.length, false)) {
-        commit(name, false)
-        return
-      }
-
-      let low = 0
-      let high = characters.length
-      while (low < high) {
-        const midpoint = Math.ceil((low + high) / 2)
-        if (fits(midpoint, true)) low = midpoint
-        else high = midpoint - 1
-      }
-      commit(characters.slice(0, low).join(""), true)
-    }
-
-    recompute()
-    if (typeof ResizeObserver === "undefined") return
-    const observer = new ResizeObserver(recompute)
-    observer.observe(host)
-    return () => observer.disconnect()
-  }, [name, seq, setRendered])
-
-  const renderSequence = (measurement = false) => seq === undefined ? null : (
-    <span
-      data-testid={measurement ? undefined : tid.forumThreadSeq(postId)}
-      className="ml-1.5 whitespace-nowrap font-mono text-[13px] font-medium text-muted-foreground"
-    >
-      <span className="opacity-60">#</span>{seq}
-    </span>
-  )
-
   return (
     <h3
-      ref={hostRef}
       data-testid={tid.forumThreadTitle(postId)}
-      data-truncated={rendered.truncated ? "true" : "false"}
-      aria-label={rendered.truncated ? `${name}${seq === undefined ? "" : ` #${seq}`}` : undefined}
-      title={rendered.truncated ? name : undefined}
-      className="relative line-clamp-2 w-full min-w-0 max-w-full wrap-break-word text-[15px] font-semibold leading-tight"
+      aria-label={`${name}${seq === undefined ? "" : ` #${seq}`}`}
+      title={name}
+      className="flex w-full min-w-0 max-w-full items-end gap-1.5 text-[15px] font-semibold leading-tight"
     >
-      <span data-testid={tid.forumThreadTitleText(postId)}>{rendered.name}{rendered.truncated ? "…" : ""}</span>
-      {renderSequence()}
       <span
-        ref={measureRef}
-        aria-hidden
-        className="invisible absolute left-0 top-0 block w-full whitespace-normal wrap-break-word text-[15px] font-semibold leading-tight"
+        data-testid={tid.forumThreadTitleText(postId)}
+        className="line-clamp-2 min-w-0 wrap-break-word"
       >
-        <span ref={measureNameRef}>{name}</span>
-        {renderSequence(true)}
+        {name}
       </span>
+      {seq !== undefined && (
+        <span
+          data-testid={tid.forumThreadSeq(postId)}
+          className="shrink-0 whitespace-nowrap font-mono text-[13px] font-medium text-muted-foreground"
+        >
+          <span className="opacity-60">#</span>{seq}
+        </span>
+      )}
     </h3>
   )
 }
