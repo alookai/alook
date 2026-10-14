@@ -158,11 +158,11 @@ describe("BotMarkSticker", () => {
     mocks.activity.events = [{ id: "text", kind: "text", payload: { text: body, truncated: true, chars: 200 }, createdAt: "2026-09-04T00:00:00.000Z" }]
     const { renderer, props } = render()
     const row = renderer.container.querySelector('[data-testid="community-bot-audit-preview-row-text"]')!
-    expect(row.querySelector("p")?.textContent).toBe(body)
+    expect(row.querySelector("p")?.textContent).toBe(`${body}…`)
     expect(row.querySelector("b")).toBeNull()
-    expect(row.querySelector("button")).toHaveAccessibleName(/^一页正文🙂\s+<b>Literal<\/b>$/u)
+    expect(row.querySelector("button")).toHaveAccessibleName(/^一页正文🙂\s+<b>Literal<\/b>…$/u)
     expect(row.querySelector("button")).toHaveAccessibleDescription("Open full audit log")
-    expect(row.textContent).toContain("Truncated")
+    expect(row.textContent).not.toContain("Truncated")
     expect(row.querySelector("time")?.dateTime).toBe("2026-09-04T00:00:00.000Z")
     fireEvent.click(row.querySelector("button")!)
     expect(props.onOpenActivity).toHaveBeenCalledOnce()

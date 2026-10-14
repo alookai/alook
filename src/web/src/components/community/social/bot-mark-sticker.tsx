@@ -118,7 +118,7 @@ export function BotMarkSticker({
       <div aria-hidden className={styles.paper} />
       <NotebookBinding front />
       <div className={styles.content}>
-      <header className="flex shrink-0 items-center gap-2">
+      <header className={`${styles.header} flex shrink-0 items-center gap-2`}>
         <span className="font-brand text-[34px] font-bold leading-none">Bot log</span>
         <span className="ml-auto flex items-center gap-1 whitespace-nowrap text-[10px]" style={{ color: "var(--note-muted)" }}>
           <Lock className="size-3" aria-hidden />Only you
@@ -153,10 +153,9 @@ export function BotMarkSticker({
                   {day !== previousDay && <div className={styles.date}>{day}</div>}
                   <div className="mb-2 flex items-center gap-2 text-[10px]" style={{ color: "var(--note-muted)" }}>
                     <time dateTime={event.createdAt}>{formatAuditPreviewTime(event.createdAt)}</time>
-                    {parsed.success && parsed.data.truncated && <span>Truncated</span>}
                   </div>
                   <button type="button" onClick={onOpenActivity} title="Open full audit log" className={styles.thought}>
-                    <p className="whitespace-pre-wrap wrap-break-word">{parsed.success ? parsed.data.text : "Text unavailable"}</p>
+                    <p className="whitespace-pre-wrap wrap-break-word">{parsed.success ? parsed.data.text : "Text unavailable"}{parsed.success && parsed.data.truncated && "…"}</p>
                   </button>
                 </div>
               })}
