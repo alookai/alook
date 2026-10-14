@@ -160,6 +160,8 @@ describe("BotMarkSticker", () => {
     const row = renderer.container.querySelector('[data-testid="community-bot-audit-preview-row-text"]')!
     expect(row.querySelector("p")?.textContent).toBe(body)
     expect(row.querySelector("b")).toBeNull()
+    expect(row.querySelector("button")).toHaveAccessibleName(/^一页正文🙂\s+<b>Literal<\/b>$/u)
+    expect(row.querySelector("button")).toHaveAccessibleDescription("Open full audit log")
     expect(row.textContent).toContain("Truncated")
     expect(row.querySelector("time")?.dateTime).toBe("2026-09-04T00:00:00.000Z")
     fireEvent.click(row.querySelector("button")!)
@@ -178,7 +180,7 @@ describe("BotMarkSticker", () => {
     const { renderer, props } = render()
     expect(renderer.container.textContent).toContain("Text unavailable")
     expect(renderer.container.querySelector("script")).toBeNull()
-    fireEvent.click(renderer.container.querySelector('[aria-label="Open full audit log"]')!)
+    fireEvent.click(renderer.container.querySelector('[title="Open full audit log"]')!)
     expect(props.onOpenActivity).toHaveBeenCalledOnce()
   })
 

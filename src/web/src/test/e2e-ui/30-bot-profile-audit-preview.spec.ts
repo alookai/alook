@@ -961,7 +961,7 @@ let caseJourneyFailure2Present = false
       .toHaveCount(3)
     await attachPageScreenshot(testInfo, "bot-mark-sticker-marks-mobile-dark", alice.page)
     await sticker.getByRole("tab", { name: "Thoughts" }).click()
-    await sticker.getByRole("button", { name: "Open full audit log" }).last().click()
+    await sticker.getByRole("button", { name: "Open activity log 11", exact: true }).click()
     await expect(alice.page).toHaveURL(new RegExp(`/c/me/bots\\?audit=${botId}`))
     await gotoAfterUserWsAuth(alice.page, route)
     await openBotProfile(alice.page, botName)
@@ -989,8 +989,9 @@ let caseJourneyFailure2Present = false
       /^(right|left|top|bottom)$/,
     )
     const openActivity = sticker.getByRole("button", {
-      name: "Open full audit log",
-    }).last()
+      name: "Open activity log 11",
+      exact: true,
+    })
     await openActivity.focus()
     await expect(openActivity).toBeFocused()
     await openActivity.press("Enter")

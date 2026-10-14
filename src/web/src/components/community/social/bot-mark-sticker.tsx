@@ -155,7 +155,7 @@ export function BotMarkSticker({
                     <time dateTime={event.createdAt}>{formatAuditPreviewTime(event.createdAt)}</time>
                     {parsed.success && parsed.data.truncated && <span>Truncated</span>}
                   </div>
-                  <button type="button" onClick={onOpenActivity} aria-label="Open full audit log" className={styles.thought}>
+                  <button type="button" onClick={onOpenActivity} title="Open full audit log" className={styles.thought}>
                     <p className="whitespace-pre-wrap wrap-break-word">{parsed.success ? parsed.data.text : "Text unavailable"}</p>
                   </button>
                 </div>
@@ -244,7 +244,7 @@ export function BotMarkSticker({
         {showStop && <button type="button" data-testid={tid.botMarkStickerStop} onClick={onStop} disabled={stopPending}
           aria-label={stopPending ? "Stopping current agent turn" : "Stop current agent turn"} className={styles.stop}>
           {stopPending ? <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> : <CircleStop className="size-3.5" aria-hidden />}
-          {stopPending ? "Stopping…" : "Stop"}
+          <span className={styles.stopLabel}>{stopPending ? "Stopping…" : "Stop"}</span>
         </button>}
       </footer>
       </div>

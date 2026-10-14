@@ -33,7 +33,7 @@
   inset: 8px 0 -2px 12px;
   border-radius: 0 5px 5px 0;
   border-bottom: 1.5px solid var(--note-cover);
-  background: repeating-linear-gradient(to bottom, var(--note-edge) 0 1px, var(--note-rule) 1px 1.5px);
+  background: repeating-linear-gradient(to right, var(--note-edge) 0 1px, var(--note-rule) 1px 1.5px) right top / 3px calc(100% - 10px) no-repeat, repeating-linear-gradient(to bottom, var(--note-edge) 0 1px, var(--note-rule) 1px 1.5px);
   filter: drop-shadow(0 8px 9px rgb(44 40 31 / 12%));
 }
 .paper {
@@ -45,8 +45,8 @@
 .binding { position: absolute; inset: 0 auto 0 0; width: 30px; height: 100%; pointer-events: none; overflow: visible; }
 .wire { fill: none; stroke: var(--note-wire); stroke-width: 1.25px; }
 .hole { fill: var(--note-hole); }
-.content { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; padding: 20px 18px 16px 42px; }
-.tabs { display: flex; flex-shrink: 0; margin-top: 8px; border-bottom: 1px solid var(--note-rule); }
+.content { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; padding: 12px 18px 8px 42px; }
+.tabs { display: flex; flex-shrink: 0; margin-top: 0; border-bottom: 1px solid var(--note-rule); }
 .tab { display: flex; flex: 1; min-width: 44px; min-height: 44px; align-items: center; justify-content: center; gap: 6px; color: var(--note-muted); font-size: 12px; font-weight: 500; }
 .tabLabel { position: relative; display: inline-flex; height: 44px; align-items: center; }
 .tab[aria-selected="true"] { color: var(--note-ink); }
@@ -58,8 +58,10 @@
 .date { margin-bottom: 16px; color: var(--note-muted); font-size: 11px; }
 .thought { display: block; width: 100%; min-height: 44px; border-radius: 4px; text-align: left; font-size: 13px; line-height: 21px; cursor: pointer; user-select: text; }
 .thought p { line-height: inherit; }
-.footer { display: flex; flex-shrink: 0; min-height: 44px; align-items: center; gap: 8px; margin-top: 8px; border-top: 1px solid var(--note-rule); padding-top: 8px; }
-.stop { display: flex; min-width: 58px; min-height: 44px; flex-shrink: 0; align-items: center; justify-content: center; gap: 6px; border-radius: 5px; color: var(--note-stop); font-size: 12px; }
+.footer { display: flex; flex-shrink: 0; min-height: 45px; align-items: center; gap: 8px; margin-top: 0; border-top: 1px solid var(--note-rule); padding-top: 0; font-size: 12px; line-height: 16px; }
+.footer > div { display: flex; align-items: center; }
+.stop { display: flex; min-width: 58px; min-height: 44px; flex-shrink: 0; align-items: center; justify-content: center; gap: 6px; border-radius: 5px; color: var(--note-stop); font-size: 12px; line-height: 16px; }
+.stopLabel { transform: translateY(1px); }
 .stop:hover { background: color-mix(in srgb, var(--note-stop) 6%, transparent); }
 .stop:active { background: color-mix(in srgb, var(--note-stop) 10%, transparent); }
 .stop:disabled { color: var(--note-muted); cursor: wait; }
