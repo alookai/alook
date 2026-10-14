@@ -24,7 +24,7 @@ export const GET = withAuth(async (_req, ctx) => {
       const quota = machine.availableRuntimes.map((runtime) => {
         const capability = runtime.id === "claude" || runtime.id === "codex" || runtime.id === "grok" || runtime.id === "antigravity"
           ? "supported" as const
-          : runtime.id === "cursor" || runtime.id === "opencode" || runtime.id === "pi"
+          : runtime.id === "cursor" || runtime.id === "opencode" || runtime.id === "pi" || runtime.id === "agy"
             ? "unsupported" as const
             : "unknown" as const
         const runtimeState = machine.status === "offline"

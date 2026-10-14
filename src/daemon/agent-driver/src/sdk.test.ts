@@ -58,7 +58,7 @@ function sdkTestLane(receipt = "fresh-receipt") {
 
 describe("createAgentDriverSdk", () => {
   it("exposes the built-ins with default options", () => {
-    expect(createAgentDriverSdk().backendIds).toEqual(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity"]);
+    expect(createAgentDriverSdk().backendIds).toEqual(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity", "agy"]);
     expect(SESSION_FILE_DISCOVERY_CAPABILITIES).toEqual(["supported", "unavailable"]);
   });
 
@@ -112,7 +112,7 @@ describe("createAgentDriverSdk", () => {
   });
 
   it("public SDK factory delegates to the built-in logical SDK", () => {
-    expect(createPublicAgentDriverSdk().backendIds).toEqual(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity"]);
+    expect(createPublicAgentDriverSdk().backendIds).toEqual(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity", "agy"]);
   });
 
   it.each(["claude", "codex", "cursor", "grok", "opencode", "pi"] as const)(

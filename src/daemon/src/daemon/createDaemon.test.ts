@@ -653,7 +653,7 @@ describe("createDaemon", () => {
     }
   });
 
-  it("uploads persisted Pi token usage when the bot becomes idle", async () => {
+  it.each(["pi", "agy"] as const)("uploads persisted %s token usage when the bot becomes idle", async (backendId) => {
     const sockets: FakeSocket[] = [];
     const sessions: DaemonFakeSession[] = [];
     const workingDirectoryBase = mkdtempSync(join(tmpdir(), "daemon-pi-telemetry-"));
@@ -672,8 +672,8 @@ describe("createDaemon", () => {
       serverUrl: "http://server.invalid",
       serverWsUrl: "ws://x",
       webSocketFactory: factory(sockets) as never,
-      runtimeReport: [{ id: "pi" }],
-      driverFor: () => fullFakeDriver("pi"),
+      runtimeReport: [{ id: backendId }],
+      driverFor: () => fullFakeDriver(backendId),
       sessionFactory: () => {
         const session = daemonFakeSession();
         sessions.push(session);
@@ -688,7 +688,7 @@ describe("createDaemon", () => {
       sockets[0]!.emit("message", JSON.stringify({
         type: "agent:wake",
         agentId: "bot_1",
-        config: { version: 1, runtime: "pi", model: { kind: "default" }, mode: { kind: "default" } },
+        config: { version: 1, runtime: backendId, model: { kind: "default" }, mode: { kind: "default" } },
         launchId: "launch_pi",
         unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
       }));
@@ -696,13 +696,15 @@ describe("createDaemon", () => {
       await sessions[0]!.fire("agent_event", {
         type: "token_usage",
         turnId: "daemon-test-turn",
-        source: "pi_message_end",
+        source: `${backendId}_step_usage`,
+        ...(backendId === "agy" ? { identity: { source: "agy:native", index: 2, occurredAt: new Date().toISOString() } } : {}),
         usage: {
           input: 13,
           output: 5,
           cache: 7,
         },
       });
+      if (backendId === "agy") await sessions[0]!.fire("agent_event", { type: "token_usage", source: "replay", usage: { input: 13, output: 5, cache: 7 }, identity: { source: "agy:native", index: 2, occurredAt: new Date().toISOString() } });
       await sessions[0]!.fire("runtime_event", { kind: "turn_end", sessionId: "test-session" });
 
       const frames = () => sockets[0]!.sent.map((frame) => JSON.parse(frame) as any);
@@ -716,6 +718,7 @@ describe("createDaemon", () => {
         && frame.dailyUsage?.[0]?.metrics.output === 5
         && frame.dailyUsage?.[0]?.metrics.cache === 7
       )).toBe(true));
+      expect(frames().filter((frame) => frame.type === "agent_activity" && frame.state === "idle").at(-1)?.quota).toBeUndefined();
       expect(JSON.parse(readFileSync(
         join(workingDirectoryBase, ".telemetry", "daily-token-usage.json"),
         "utf8",

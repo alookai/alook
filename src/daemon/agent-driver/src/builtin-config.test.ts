@@ -32,7 +32,7 @@ describe("builtin config boundary", () => {
     });
   });
 
-  it.each(["codex", "cursor", "grok", "opencode", "pi"])("maps %s without daemon-side switches", (runtime) => {
+  it.each(["codex", "cursor", "grok", "opencode", "pi", "agy"])("maps %s without daemon-side switches", (runtime) => {
     expect(toBuiltinBackendSelection(config(runtime))).toMatchObject({ backend: runtime });
   });
 

@@ -27,6 +27,7 @@ import {
 import { BotMarkSticker } from "./bot-mark-sticker"
 import { ProfileRunningBotsCard } from "./profile-running-bots-card"
 import { useRunningOwnedBots } from "@/hooks/community/use-running-owned-bots"
+import { useBots } from "@/hooks/community/use-bots"
 import {
   resolveAuditPreviewPlacement,
   useProfileSecondaryPosition,
@@ -93,7 +94,16 @@ type ProfileCardProps = {
 
 export function ProfileCard(props: ProfileCardProps) {
   if (props.isSelf && props.data.userId) return <SelfProfileCard {...props} />
+  if (props.data.userId && props.data.identity?.kind === "bot" && props.data.identity.ownedByViewer) {
+    return <OwnedBotProfileCard {...props} />
+  }
   return <ProfileCardContent {...props} hasSelfRunningBots={false} />
+}
+
+function OwnedBotProfileCard(props: ProfileCardProps) {
+  const { bots } = useBots()
+  const bot = bots.find((bot) => bot.id === props.data.userId)
+  return <ProfileCardContent {...props} hasSelfRunningBots={false} canInterrupt={Boolean(bot && bot.runtime !== "agy")} />
 }
 
 function SelfProfileCard(props: ProfileCardProps) {
@@ -104,8 +114,9 @@ function SelfProfileCard(props: ProfileCardProps) {
 // Profile card — popover anchored at the click point on desktop, bottom sheet on mobile.
 // Identity, about, status, and presence are read from the global profile map
 // whenever a userId is present. Static cards use their supplied display data.
-function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = false, isSelf, onUpdateStatus, onOpenOwnerProfile, onOpenBotAudit, initialStatusEmoji, initialStatusText, activityStatusEmoji, activityStatusText, embedded, extension, hasSelfRunningBots }: ProfileCardProps & {
+function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = false, isSelf, onUpdateStatus, onOpenOwnerProfile, onOpenBotAudit, initialStatusEmoji, initialStatusText, activityStatusEmoji, activityStatusText, embedded, extension, hasSelfRunningBots, canInterrupt = false }: ProfileCardProps & {
   hasSelfRunningBots: boolean
+  canInterrupt?: boolean
 }) {
   const registry = useOptionalCommunityDbRegistry()
   const [msg, setMsg] = useAtom(useCreateAtom(""))
@@ -170,7 +181,7 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
     else close()
   }
   const interruptAgent = () => {
-    if (!registry?.runtime.lifecycle.get().active || !data.userId || interruptPending) return
+    if (!canInterrupt || !registry?.runtime.lifecycle.get().active || !data.userId || interruptPending) return
     setInterruptPending(true)
     communityWsInterruptAgent(registry.runtime, data.userId)
   }
@@ -344,8 +355,8 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
     <BotMarkSticker
       botId={data.userId}
       active={isBotActivityActive(activityStatus.emoji, activityStatus.text)}
-      showStop={isBotActivityRunning(activityStatus.emoji, activityStatus.text)
-        || (interruptPending && !activityIdle)}
+      showStop={canInterrupt && (isBotActivityRunning(activityStatus.emoji, activityStatus.text)
+        || (interruptPending && !activityIdle))}
       stopPending={interruptPending}
       onStop={interruptAgent}
       onOpenActivity={() => onOpenBotAudit?.(data.userId!)}

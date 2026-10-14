@@ -81,6 +81,18 @@ describe("BotRuntimeFields", () => {
     expect(onModelChange).not.toHaveBeenCalled()
   })
 
+  it("selects the CLI separately from ACP and clears the prior model and effort", () => {
+    const { renderer, onRuntimeChange, onModelChange, onReasoningEffortChange } = renderFields({
+      options: [{ id: "antigravity", unhealthy: false }, { id: "agy", unhealthy: false }],
+      runtime: "antigravity",
+    })
+    fireEvent.click(renderer.getByRole("radio", { name: "Antigravity CLI (agy)" }))
+    expect(onRuntimeChange).toHaveBeenCalledWith("agy")
+    expect(onModelChange).toHaveBeenCalledWith(null)
+    expect(onReasoningEffortChange).toHaveBeenCalledWith(null)
+    expect(renderer.getByRole("radio", { name: "antigravity", exact: true })).toHaveAttribute("value", "antigravity")
+  })
+
   it("exposes optional motion targets without changing the form contract", () => {
     const { renderer } = renderFields({
       motionTargetPrefix: "runtime",

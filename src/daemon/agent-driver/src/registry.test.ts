@@ -13,6 +13,7 @@ import { ADAPTER_AUTHOR_CONTRACT_VERSION } from "./adapter-author.js";
  * without updating `capabilities`) trips CI.
  */
 const EXPECTED: Record<BuiltinBackendId, BackendCapabilities> = {
+  agy: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "next_turn_queue", interrupt: false },
   antigravity: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "next_turn_queue", interrupt: true },
   claude: { modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: true, disallowedTools: true, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "safe_boundary_queue", interrupt: true },
   codex: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: true, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "safe_boundary_queue", interrupt: true },
@@ -31,6 +32,7 @@ describe("driver.capabilities", () => {
     expect(ADAPTER_AUTHOR_CONTRACT_VERSION).toBe(1);
     const registry = createBuiltinAgentDriverRegistry();
     const expected = {
+      agy: { lifetime: "session", transport: { kind: "stdio_stream", protocol: "agy.stream-json.v1" }, wakeStart: "immediate", terminalOwnership: "vendor_message" },
       antigravity: { lifetime: "session", transport: { kind: "stdio_rpc", protocol: "antigravity.acp.v1" }, wakeStart: "immediate", terminalOwnership: "transport_request" },
       claude: {
         lifetime: "session",
