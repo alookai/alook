@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import ts from "typescript";
 
 const mocks = vi.hoisted(() => ({
   spawnSync: vi.fn(),
@@ -39,7 +40,7 @@ afterEach(() => {
 });
 
 describe("packed artifact verifier", () => {
-  it("copies the Worker runtime into the packaged entry's relative import path", async () => {
+  it("copies the real Worker runtime module closure into the packaged entry's relative paths", async () => {
     const execSync = vi.fn();
     const cpSync = vi.fn();
     const mkdirSync = vi.fn();
@@ -72,20 +73,23 @@ describe("packed artifact verifier", () => {
     const monoRoot = join(appRoot, "..", "..");
     const webDest = join(appRoot, "bundled", "web");
     expect(mkdirSync).toHaveBeenCalledWith(join(webDest, "src", "lib"), { recursive: true });
-    expect(cpSync).toHaveBeenCalledWith(
-      join(monoRoot, "src", "web", "src", "lib", "worker-runtime.ts"),
-      join(webDest, "src", "lib", "worker-runtime.ts"),
-    );
-    expect(cpSync).toHaveBeenCalledWith(
-      join(monoRoot, "src", "web", "src", "lib", "public-worker-response.ts"),
-      join(webDest, "src", "lib", "public-worker-response.ts"),
-    );
     expect(mkdirSync).toHaveBeenCalledWith(join(webDest, "src", "lib", "observability"), { recursive: true });
-    for (const name of ["build.ts", "coverage.ts", "schema.ts"]) {
-      expect(cpSync).toHaveBeenCalledWith(
-        join(monoRoot, "src", "web", "src", "lib", "observability", name),
-        join(webDest, "src", "lib", "observability", name),
-      );
+    const copies = new Map(cpSync.mock.calls.map(([source, destination]) => [source, destination]));
+    const pending = [[join(monoRoot, "src", "web", "src", "lib", "worker-runtime.ts"), join(webDest, "src", "lib", "worker-runtime.ts")]];
+    const visited = new Set<string>();
+    for (const [source, destination] of pending) {
+      if (visited.has(source)) continue;
+      visited.add(source);
+      expect(copies.get(source), `packaged runtime dependency: ${source}`).toBe(destination);
+      const module = ts.createSourceFile(source, readFileSync(source, "utf8"), ts.ScriptTarget.Latest);
+      for (const statement of module.statements) {
+        if ((!ts.isImportDeclaration(statement) && !ts.isExportDeclaration(statement))
+          || (ts.isImportDeclaration(statement) ? statement.importClause?.isTypeOnly : statement.isTypeOnly)) continue;
+        const specifier = statement.moduleSpecifier;
+        if (!specifier || !ts.isStringLiteral(specifier) || !specifier.text.startsWith(".")) continue;
+        const dependency = `${specifier.text}.ts`;
+        pending.push([join(dirname(source), dependency), join(dirname(destination), dependency)]);
+      }
     }
   });
 

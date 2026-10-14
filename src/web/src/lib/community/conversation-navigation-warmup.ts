@@ -1,4 +1,5 @@
 "use client"
+import type { Action } from "@/lib/observability/context"
 import { getCommunityRuntime } from "@/stores/community/runtime"
 
 
@@ -40,6 +41,7 @@ export function startConversationNavigationWarmup(
   target: ConversationNavigationTarget,
   accessEpoch: number,
   recoveryAttempt = 0,
+  action?: Action,
 ) {
   if (getCommunityRuntime(queryClient).ws.actions.isChannelAccessRevoked(target.channelId, target.serverId ?? null)) {
     void startChannelRouteVerification(queryClient, target.serverId ?? null, target.channelId).catch(() => undefined)
@@ -60,12 +62,14 @@ export function startConversationNavigationWarmup(
   const queryFn = target.scopeKind === "dm"
     ? dmMessagesQueryFn(target.channelId, {
         queryClient,
+        observation: { action: recoveryAttempt === 0 ? action : undefined, reason: recoveryAttempt === 0 ? "foreground" : "background" },
         onSurfaceReceipt: (receipt) => {
           recordConversationNavigationReceipt(queryClient, receipt, accessEpoch, epoch)
         },
       })
     : channelMessagesQueryFn(target.channelId, null, {
         queryClient,
+        observation: { action: recoveryAttempt === 0 ? action : undefined, reason: recoveryAttempt === 0 ? "foreground" : "background" },
         onSurfaceReceipt: (receipt) => {
           recordConversationNavigationReceipt(queryClient, receipt, accessEpoch, epoch)
         },

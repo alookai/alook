@@ -1,6 +1,6 @@
 "use client"
 
-import { beginNavigation, navigationNoop } from "@/lib/observability/context"
+import { beginNavigation, navigationNoop, type Action } from "@/lib/observability/context"
 import { prepareNavigationMetadata } from "@/lib/community/navigation-metadata"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
@@ -139,9 +139,10 @@ export function useCommunityNavigationController(
     submitNavigation(() => router.push(...args))
   }, [committedFrame.leafKey, committedFrame.revision, navigationPending, publishedHref, queryClient, router, setNavigationPending, setPendingHref, submitNavigation])
 
-  const pushImmediate = useCallback((href: string) => {
-    if (href === publishedHref && !navigationPending) { settledIntentRef.current = null; navigationNoop(href); return }
-    beginNavigation(href)
+  const pushImmediate = useCallback((href: string, prepare?: (action?: Action) => void) => {
+    if (href === publishedHref && !navigationPending) { settledIntentRef.current = null; navigationNoop(href); prepare?.(); return }
+    const action = beginNavigation(href)
+    prepare?.(action)
     void prepareNavigationMetadata(queryClient, href, "foreground")
     supersedeNavigationIntent(gateRef.current)
     pendingBaselineRevisionRef.current = committedFrame.revision

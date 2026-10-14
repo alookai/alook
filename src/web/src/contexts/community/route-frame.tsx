@@ -1,5 +1,6 @@
 "use client"
 
+import type { Action } from "@/lib/observability/context"
 import { createContext, useContext, type RefObject } from "react"
 import type { useRouter } from "next/navigation"
 import type { Breakpoint } from "@/hooks/use-mobile"
@@ -12,7 +13,7 @@ export type CommunityNavigationController = {
   navigationPending: boolean
   pendingHref: string | null
   push: ReturnType<typeof useRouter>["push"]
-  pushImmediate: (href: string) => void
+  pushImmediate: (href: string, prepare?: (action?: Action) => void) => void
   replace: (href: string) => void
   resolveAndPush: (resolve: () => Promise<string>) => Promise<boolean>
   cancelPendingNavigation: () => void

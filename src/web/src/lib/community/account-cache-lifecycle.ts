@@ -1,4 +1,4 @@
-import { commandObservation } from "@/lib/observability/context"
+import { commandObservation, currentPageObservation } from "@/lib/observability/context"
 import { clearComposerAttachmentSessionsForAccount } from "./composer-attachment-session"
 import { apiFetch, type ApiRequestOptions } from "@/lib/api/client"
 import { getCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
@@ -52,8 +52,9 @@ export function apiFetchCommunity<T>(
   options: ApiRequestOptions | undefined,
   token: CommunityLiveSnapshotToken,
 ): Promise<T> {
+  const observation = options?.observation ?? commandObservation(token) ?? { page: currentPageObservation(), reason: "unknown" }
   return loadCommunityRequest((origin) => apiFetch<T>(path, {
-    ...options, ...origin, signal: options?.signal,
+    ...options, ...origin, observation, signal: options?.signal,
     assertActive: () => { origin.assertActive?.(); options?.assertActive?.() },
   }), token, options?.signal ?? undefined)
 }

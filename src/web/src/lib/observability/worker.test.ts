@@ -42,7 +42,8 @@ it("uses explicit missing build provenance when the caller supplies no profile",
   const handler = createWebWorkerHandler({ fetch })
   const returned = await handler.fetch!(new Request("https://fixture.test/c/me"), {} as CloudflareEnv,
     { tracing: { enterSpan } } as unknown as ExecutionContext)
-  expect(returned).toBe(response)
+  expect(returned.body).toBe(response.body)
+  expect(returned.headers.get("server-timing")).toBe('alook_sampling;desc="unavailable"')
   expect(await returned.text()).toBe("same-body")
   expect(fetch).toHaveBeenCalledOnce()
   expect(Object.fromEntries(setAttribute.mock.calls)).toMatchObject({ release_status: "missing", environment_status: "missing", worker_version_status: "missing" })

@@ -494,7 +494,7 @@ describe("useShellInboxController", () => {
     expect(mocks.warmup).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       href: "/c/channels/s1/c1?seq=7",
       anchorMessageId: "message-7",
-    }), 0)
+    }), 0, 0, undefined)
     expect(mocks.begin).not.toHaveBeenCalled()
   })
 

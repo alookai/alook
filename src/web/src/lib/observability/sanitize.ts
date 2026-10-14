@@ -3,6 +3,9 @@ import { actionNames, routeTemplate } from "./coverage"
 import { cleanAttributes, eventNames } from "./schema"
 import type { FrontendIdentity } from "./runtime"
 import { resolveObservationBuild } from "./build"
+import { documentEventNames } from "./document-timing"
+import { transportClockStart, transportClockEnd, retiredObservationSpan } from "./clock"
+import { networkEventNames } from "./resource"
 
 const actions = new Set<string>(actionNames)
 const events = new Set<string>([...eventNames, "session_start", "session_resume", "session_extend", "faro.user.action", "faro.tracing.fetch", "faro.tracing.xml-http-request", "faro.performance.resource", "faro.performance.navigation"])
@@ -12,8 +15,15 @@ const record = (value: unknown): Record<string, unknown> => value && typeof valu
 const array = (value: unknown): unknown[] => Array.isArray(value) ? value : []
 const hex = (value: unknown, size: number) => typeof value === "string" && new RegExp("^[0-9a-f]{" + size + "}$").test(value) && !/^0+$/.test(value) ? value : undefined
 const nano = (value: unknown) => typeof value === "string" && /^\d{1,22}$/.test(value) ? value : undefined
+const count = (value: unknown) => Number.isInteger(Number(value)) && Number(value) >= 0 && Number(value) <= 0xffffffff ? Number(value) : 0
+const networkEvents = new Set<string>(networkEventNames)
+const documentEvents = new Set<string>([...networkEventNames, ...documentEventNames])
 
-export function sanitizeTrace(input: unknown, sessionId: string, origin: string, identity?: Partial<FrontendIdentity> & { release?: string; environment?: string }, since = 0) {
+function qualifiedMonotonic(fields: Record<string, unknown>, since?: number) {
+  const start = Number(fields[transportClockStart]), end = Number(fields[transportClockEnd])
+  return since !== undefined && Number.isFinite(since) && numeric(start) && numeric(end) && end >= start && start >= since
+}
+export function sanitizeTrace(input: unknown, sessionId: string, origin: string, identity?: Partial<FrontendIdentity> & { release?: string; environment?: string }, since = 0, monotonicSince?: number) {
   const canonical = { ...(identity ? { frontend_surface: identity.frontend_surface, client_platform: identity.client_platform, app_version: identity.app_version } : {}),
     ...resolveObservationBuild({ NEXT_PUBLIC_FARO_RELEASE: identity?.release, NEXT_PUBLIC_FARO_ENVIRONMENT: identity?.environment }) }
   const context = cleanAttributes(canonical)
@@ -24,8 +34,9 @@ export function sanitizeTrace(input: unknown, sessionId: string, origin: string,
         const fields = Object.fromEntries(array(span.attributes).map(rawAttribute => {
           const attribute = record(rawAttribute)
           const value = record(attribute.value)
-          return [String(attribute.key), value.stringValue ?? value.intValue ?? value.doubleValue]
+          return [String(attribute.key), value.stringValue ?? value.intValue ?? value.doubleValue ?? value.boolValue]
         }))
+        if (fields[retiredObservationSpan] === true || fields[retiredObservationSpan] === "true") return []
         if (fields["session.id"] !== sessionId) return []
         const url = String(fields["url.full"] ?? fields["http.url"] ?? "")
         const rawMethod = fields["http.request.method"] ?? fields["http.method"]
@@ -40,24 +51,49 @@ export function sanitizeTrace(input: unknown, sessionId: string, origin: string,
         const traceId = hex(span.traceId, 32), spanId = hex(span.spanId, 16)
         const startTimeUnixNano = nano(span.startTimeUnixNano), endTimeUnixNano = nano(span.endTimeUnixNano)
         if (!traceId || !spanId || !startTimeUnixNano || !endTimeUnixNano) return []
+        const pageOperation = ["ws.connect", "ws.event_applied", "cache.restore", "ui.interaction"].includes(String(span.name)) && attributes.span_role === "page_operation" && attributes.page_id !== undefined
+        const regionSpan = span.name === "region.wait" && attributes.span_role === "region_readiness" && attributes.region !== undefined
         const businessAction = actions.has(String(span.name)) && fields.action_name === span.name && typeof fields.action_id === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(fields.action_id)
-        if (!businessAction && Number(startTimeUnixNano) / 1e6 < since) return []
+        if (!businessAction && !regionSpan && !pageOperation && !qualifiedMonotonic(fields, monotonicSince) && Number(startTimeUnixNano) / 1e6 < since) return []
+        const rawEvents = array(span.events)
+        const safeEvents = rawEvents.flatMap(raw => {
+          const event = record(raw), timeUnixNano = nano(event.timeUnixNano)
+          const qualifiedResource = fields.resource_status === "matched" && fields.network_event_source === "resource_identity" && networkEvents.has(String(event.name))
+          const qualifiedDocument = fields.navigation_kind === "document" && fields.network_event_source === "document_navigation" && ["matched", "partial"].includes(String(fields.document_timing)) && documentEvents.has(String(event.name))
+          return (qualifiedResource || qualifiedDocument) && timeUnixNano
+            ? [{ name: String(event.name), timeUnixNano, attributes: [], droppedAttributesCount: count(event.droppedAttributesCount) + array(event.attributes).length }] : []
+        })
+        const rawLinks = array(span.links)
+        const safeLinks = rawLinks.flatMap(raw => {
+          const link = record(raw), traceId = hex(link.traceId, 32), spanId = hex(link.spanId, 16)
+          if (!traceId || !spanId) return []
+          const linkAttributes = array(link.attributes).flatMap(raw => {
+            const attribute = record(raw), value = record(attribute.value).stringValue
+            return attribute.key === "relationship" && ["prefetch", "server_response", "document_response"].includes(String(value))
+              ? [{ key: "relationship", value: { stringValue: String(value) } }] : []
+          })
+          return [{ traceId, spanId, ...(link.flags !== undefined ? { flags: count(link.flags) } : {}), attributes: linkAttributes, droppedAttributesCount: count(link.droppedAttributesCount) + array(link.attributes).length - linkAttributes.length }]
+        })
+        const removedAttributes = array(span.attributes).filter(raw => !Object.hasOwn(attributes, String(record(raw).key))).length
         return [{
           traceId, spanId, parentSpanId: hex(span.parentSpanId, 16),
-          name: actions.has(String(span.name)) ? String(span.name) : (method ? method + " " : "") + String(template),
+          name: pageOperation ? String(span.name) : regionSpan ? "region.wait" : actions.has(String(span.name)) ? String(span.name) : (method ? method + " " : "") + String(template),
           kind: (Number(span.kind) >= 0 && Number(span.kind) <= 5 ? Number(span.kind) : 0) as 0 | 1 | 2 | 3 | 4 | 5,
           startTimeUnixNano,
           endTimeUnixNano,
           attributes: Object.entries(attributes).map(([key,value]) => ({ key, value: { stringValue: value } })),
-          status: { code: (Number(record(span.status).code) === 2 ? 2 : 0) as 0 | 2 },
-          droppedAttributesCount: 0, droppedEventsCount: 0, droppedLinksCount: 0,
-          events: [], links: array(span.links).flatMap(raw => {
-            const link = record(raw), traceId = hex(link.traceId, 32), spanId = hex(link.spanId, 16)
-            return traceId && spanId ? [{ traceId, spanId, attributes: [], droppedAttributesCount: 0 }] : []
-          }),
+          status: { code: (Number(record(span.status).code) === 1 ? 1 : Number(record(span.status).code) === 2 ? 2 : 0) as 0 | 1 | 2 },
+          ...(span.flags !== undefined ? { flags: count(span.flags) } : {}),
+          droppedAttributesCount: count(span.droppedAttributesCount) + removedAttributes,
+          droppedEventsCount: count(span.droppedEventsCount) + rawEvents.length - safeEvents.length,
+          droppedLinksCount: count(span.droppedLinksCount) + rawLinks.length - safeLinks.length,
+          events: safeEvents, links: safeLinks,
         }]
       })
-      return spans.length ? [{ scope: { name: "alook.frontend" }, spans }] : []
+      const nativeScope = record(record(scope).scope)
+      const scopeName = ["alook.frontend", "@opentelemetry/instrumentation-fetch", "@opentelemetry/instrumentation-xml-http-request"].includes(String(nativeScope.name)) ? String(nativeScope.name) : "alook.frontend"
+      const version = typeof nativeScope.version === "string" && /^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(nativeScope.version) ? nativeScope.version : undefined
+      return spans.length ? [{ scope: { name: scopeName, ...(version ? { version } : {}) }, spans }] : []
     })
     const attributes = { "service.name": "alook-web", ...(context.app_version ? { "service.version": context.app_version } : {}), ...context }
     return scopes.length ? [{ resource: { attributes: Object.entries(attributes).map(([key, value]) => ({ key, value: { stringValue: value } })), droppedAttributesCount: 0 }, scopeSpans: scopes }] : []
@@ -65,7 +101,7 @@ export function sanitizeTrace(input: unknown, sessionId: string, origin: string,
   return resources.length ? { resourceSpans: resources } : null
 }
 
-export function sanitizeItem(item: TransportItem, sessionId: string, origin: string, identity?: Partial<FrontendIdentity>, since = 0, documentVitalsEligible = true, spanSince = since): TransportItem | null {
+export function sanitizeItem(item: TransportItem, sessionId: string, origin: string, identity?: Partial<FrontendIdentity>, since = 0, documentVitalsEligible = true, spanSince = since, monotonicSince?: number): TransportItem | null {
   if (item.meta.session?.id !== sessionId) return null
   const sdk = item.meta.sdk
   if (sdk?.name !== "faro-web" || !/^\d{1,3}\.\d{1,3}\.\d{1,3}(?:-[a-zA-Z0-9.-]{1,32})?$/.test(sdk.version ?? "")) return null
@@ -92,6 +128,8 @@ export function sanitizeItem(item: TransportItem, sessionId: string, origin: str
       const template = routeTemplate(fields.name ?? "", origin)
       attrs.name = template
       Object.assign(attrs, cleanAttributes({ route_template: template, request_kind: payload.name === "faro.performance.navigation" ? "document" : "resource" }))
+      Object.assign(attrs, cleanAttributes({ faroResourceId: fields.faroResourceId, faroNavigationId: fields.faroNavigationId,
+        cache_hit_status: fields.cacheHitStatus, network_protocol: fields.protocol, initiator_type: fields.initiatorType, resource_status: "unavailable", cache_stage: "http" }))
       for (const key of ["duration", "tcpHandshakeTime", "dnsLookupTime", "tlsNegotiationTime", "redirectTime", "requestTime", "responseTime", "fetchTime", "serviceWorkerTime", "decodedBodySize", "encodedBodySize", "ttfb", "transferSize", "pageLoadTime", "documentParsingTime", "domProcessingTime", "domContentLoadHandlerTime", "onLoadTime"]) {
         const value = fields[key]
         if (typeof value === "string" && value.trim() !== "" && numeric(Number(value))) attrs[key] = String(Number(value))
@@ -100,7 +138,8 @@ export function sanitizeItem(item: TransportItem, sessionId: string, origin: str
     }
     if (payload.name.startsWith("faro.tracing.")) {
       const fields = payload.attributes ?? {}
-      if (!(Date.parse(payload.timestamp) - Number(fields.duration_ns) / 1e6 >= spanSince)) return null
+      if (fields[retiredObservationSpan] === "true") return null
+      if (!qualifiedMonotonic(fields, monotonicSince) && !(Date.parse(payload.timestamp) - Number(fields.duration_ns) / 1e6 >= spanSince)) return null
       const url = String(fields["url.full"] ?? fields["http.url"] ?? "")
       let kind = "unknown"
       try { const parsed = new URL(url, origin); kind = parsed.origin !== origin ? "external" : parsed.searchParams.has("_rsc") ? "rsc" : parsed.pathname.startsWith("/api/") ? "api" : "resource" } catch {}
@@ -137,7 +176,7 @@ export function sanitizeItem(item: TransportItem, sessionId: string, origin: str
     return Object.keys(values).length ? { ...item, meta: documentMeta, payload: { type: payload.type, timestamp: payload.timestamp, values } } : null
   }
   if (item.type === "trace") {
-    const payload = sanitizeTrace(item.payload, sessionId, origin, { ...identity, release: item.meta.app?.release, environment: item.meta.app?.environment }, spanSince)
+    const payload = sanitizeTrace(item.payload, sessionId, origin, { ...identity, release: item.meta.app?.release, environment: item.meta.app?.environment }, spanSince, monotonicSince)
     return payload ? { ...item, meta, payload: payload as TraceEvent } : null
   }
   return null

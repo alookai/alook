@@ -1,5 +1,6 @@
 "use client"
 
+import type { Action } from "@/lib/observability/context"
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback, useRef, type ComponentProps } from "react"
 import { channelHref } from "@/lib/community/community-route"
@@ -61,9 +62,9 @@ export function useShellInboxController({
   viewerId,
   accessEpoch,
 }: Options) {
-  const pushInboxHref = useCallback((href: string) => {
-    if (router.pushImmediate) router.pushImmediate(href)
-    else router.push(href)
+  const pushInboxHref = useCallback((href: string, prepare?: (action?: Action) => void) => {
+    if (router.pushImmediate) router.pushImmediate(href, prepare)
+    else { prepare?.(); router.push(href) }
   }, [router])
   const attention = useInboxAttention()
   const unreadFeed = attention.servers
@@ -124,18 +125,18 @@ export function useShellInboxController({
     const epoch = inbox.beginProjection(target, destinationHref)
     cancelPendingNavigation()
     clearThreadOpenerReadHandoff(queryClient)
-    const proofEpoch = startConversationNavigationWarmup(queryClient, {
-      ...warmup,
-      href: destinationHref,
-      viewerId,
-    }, accessEpoch)
+    let proofEpoch: number | undefined
     let pushedHref = destinationHref
     try {
       pushedHref = prepare?.() ?? destinationHref
-      pushInboxHref(pushedHref)
+      pushInboxHref(pushedHref, action => {
+        proofEpoch = startConversationNavigationWarmup(queryClient, {
+          ...warmup, href: destinationHref, viewerId,
+        }, accessEpoch, 0, action)
+      })
       if (inbox.markProjectionSubmitted(epoch)) afterPush?.()
     } catch (error) {
-      cancelConversationNavigationProof(queryClient, proofEpoch)
+      if (proofEpoch !== undefined) cancelConversationNavigationProof(queryClient, proofEpoch)
       const nonce = new URLSearchParams(pushedHref.split("?")[1] ?? "")
         .get("inboxThreadOpener")
       if (nonce) terminateThreadOpenerReservationHandoff(queryClient, nonce)
@@ -160,18 +161,20 @@ export function useShellInboxController({
       const previousOpen = inbox.closeWithoutProjection()
       cancelPendingNavigation()
       clearThreadOpenerReadHandoff(queryClient)
-      const proofEpoch = startConversationNavigationWarmup(queryClient, {
-        href,
-        viewerId,
-        channelId: channel.channelId,
-        serverId: server.serverId,
-        scopeKind: "channel",
-        expectedSurfaceKind: channel.type === "forum" ? "forum" : "channel",
-      }, accessEpoch)
+      let proofEpoch: number | undefined
       try {
-        pushInboxHref(href)
+        pushInboxHref(href, action => {
+          proofEpoch = startConversationNavigationWarmup(queryClient, {
+            href,
+            viewerId,
+            channelId: channel.channelId,
+            serverId: server.serverId,
+            scopeKind: "channel",
+            expectedSurfaceKind: channel.type === "forum" ? "forum" : "channel",
+          }, accessEpoch, 0, action)
+        })
       } catch (error) {
-        cancelConversationNavigationProof(queryClient, proofEpoch)
+        if (proofEpoch !== undefined) cancelConversationNavigationProof(queryClient, proofEpoch)
         cancelPendingNavigation()
         inbox.onOpenChange(previousOpen)
         throw error
@@ -221,19 +224,21 @@ export function useShellInboxController({
     const href = marked.serverId
       ? `${channelHref(marked.serverId, marked.channelId)}${seqQuery}`
       : `/c/me/${marked.channelId}${seqQuery}`
-    const proofEpoch = startConversationNavigationWarmup(queryClient, {
-      href,
-      viewerId,
-      channelId: marked.channelId,
-      ...(marked.serverId ? { serverId: marked.serverId } : {}),
-      scopeKind: marked.serverId ? "channel" : "dm",
-      ...(marked.serverId ? { anchorMessageId: marked.m.id } : {}),
-      ...(!marked.serverId ? { expectedSurfaceKind: "dm" as const } : {}),
-    }, accessEpoch)
+    let proofEpoch: number | undefined
     try {
-      pushInboxHref(href)
+      pushInboxHref(href, action => {
+        proofEpoch = startConversationNavigationWarmup(queryClient, {
+          href,
+          viewerId,
+          channelId: marked.channelId,
+          ...(marked.serverId ? { serverId: marked.serverId } : {}),
+          scopeKind: marked.serverId ? "channel" : "dm",
+          ...(marked.serverId ? { anchorMessageId: marked.m.id } : {}),
+          ...(!marked.serverId ? { expectedSurfaceKind: "dm" as const } : {}),
+        }, accessEpoch, 0, action)
+      })
     } catch (error) {
-      cancelConversationNavigationProof(queryClient, proofEpoch)
+      if (proofEpoch !== undefined) cancelConversationNavigationProof(queryClient, proofEpoch)
       cancelPendingNavigation()
       inbox.onOpenChange(previousOpen)
       throw error

@@ -8,6 +8,23 @@ import { resolveFrontendIdentity } from "./runtime"
 const origin = "https://alook.ai", session = "safe-session"
 const meta = { sdk: { name: "faro-web", version: "2.12.1", integrations: [{ name: "SECRET", version: "SECRET" }] }, session: { id: session }, page: { url: origin + "/c/invite/SECRET?token=SECRET#SECRET" }, user: { email: "private@example.com", fullName: "SECRET" } }
 describe("outbound whitelist", () => {
+  it("retains exact resource events and safe link relationships with honest native and filtered dropped counts", () => {
+    const fields = { "session.id": session, resource_status: "matched", network_event_source: "resource_identity", cache_hit_status: "cache", network_protocol: "h2" }
+    const span = { traceId: "a".repeat(32), spanId: "b".repeat(16), name: "GET", kind: 3, startTimeUnixNano: "1000000000", endTimeUnixNano: "2000000000", droppedAttributesCount: 2, droppedEventsCount: 3, droppedLinksCount: 4,
+      attributes: Object.entries(fields).map(([key, value]) => ({ key, value: { stringValue: value } })),
+      events: [{ name: "requestStart", timeUnixNano: "1100000000", attributes: [{ key: "private", value: { stringValue: "SECRET" } }] }, { name: "SECRET", timeUnixNano: "1200000000" }],
+      links: [{ traceId: "c".repeat(32), spanId: "d".repeat(16), attributes: [{ key: "relationship", value: { stringValue: "server_response" } }], droppedAttributesCount: 1 }], status: { code: 1, message: "SECRET" } }
+    const clean = sanitizeTrace({ resourceSpans: [{ scopeSpans: [{ scope: { name: "@opentelemetry/instrumentation-fetch", version: "0.222.0" }, spans: [span] }] }] }, session, origin)!
+    const scope = clean.resourceSpans[0]!.scopeSpans[0]!, result = scope.spans[0]!
+    expect(scope.scope).toEqual({ name: "@opentelemetry/instrumentation-fetch", version: "0.222.0" })
+    expect(result.events).toEqual([{ name: "requestStart", timeUnixNano: "1100000000", attributes: [], droppedAttributesCount: 1 }])
+    expect(result.droppedEventsCount).toBe(4)
+    expect(result.droppedLinksCount).toBe(4)
+    expect(result.links[0]?.attributes).toEqual([{ key: "relationship", value: { stringValue: "server_response" } }])
+    expect(result.status).toEqual({ code: 1 })
+    expect(JSON.stringify(clean)).not.toContain("SECRET")
+  })
+
   it("templates IDs, never exposes query or external arbitrary URLs", () => {
     for (const path of ["/w/private/agents/a/chat/b?token=SECRET", "/w", "/workspaces", "/studio/new?token=SECRET", "/invite/SECRET"]) {
       expect(routeTemplate(path, origin)).toBe("/unmapped")
@@ -63,7 +80,7 @@ describe("outbound whitelist", () => {
         { traceId: "c".repeat(32), spanId: "0".repeat(16) },
       ] }
     const clean = sanitizeTrace({ resourceSpans: [{ scopeSpans: [{ spans: [span] }] }] }, session, origin)!
-    expect(clean.resourceSpans[0]!.scopeSpans[0]!.spans[0]!.links).toEqual([{ traceId: "c".repeat(32), spanId: "d".repeat(16), attributes: [], droppedAttributesCount: 0 }])
+    expect(clean.resourceSpans[0]!.scopeSpans[0]!.spans[0]!.links).toEqual([{ traceId: "c".repeat(32), spanId: "d".repeat(16), attributes: [], droppedAttributesCount: 1 }])
     expect(JSON.stringify(clean)).not.toContain("SECRET")
   })
   it("omits unknown HTTP methods without changing internal or real HTTP span identity", () => {

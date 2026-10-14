@@ -3,15 +3,18 @@ import type { getDefaultOTELInstrumentations } from "@grafana/faro-web-tracing"
 import { isMobile, isTauri } from "@alook/shared"
 import { ANALYTICS_CONSENT_CHANGE_EVENT, hasAnalyticsConsent } from "../analytics-consent"
 import { capabilityLimits, routeTemplate } from "./coverage"
-import { actionSequence, beginNavigation, clearActions, installActionSpans, telemetryId } from "./context"
+import { ROOT_CONTEXT } from "@opentelemetry/api"
+import { actionSequence, beginNavigation, clearActions, installActionSpans, telemetryId, currentPageObservation, actionAttributes, startPageOperation, finishPageOperation } from "./context"
 import { alignInitialTelemetrySession, configureTelemetry, emitTelemetry, installTelemetrySink, isTelemetryEligible, telemetryGeneration, reportTelemetryDrops, retireTelemetry } from "./telemetry"
+import { cleanAttributes } from "./schema"
 import { sanitizeItem } from "./sanitize"
 import { installLongTaskObserver } from "./browser"
 import { resolveCommunityModulePlan } from "../community/community-route"
 import { observeTransportSpan, finishTransportSpan, installNavigationFetchContext } from "./requests"
 import { resolveFrontendIdentity } from "./runtime"
 import { resolveObservationBuild } from "./build"
-import { observationEpoch, finishTransportClock } from "./clock"
+import { finishTransportClock } from "./clock"
+import { observeResourceResponse } from "./resource"
 
 type BuildProfile = { url?: string; environment?: string; release?: string; release_status: string; environment_status: string }
 function validBuildProfile(profile: BuildProfile) {
@@ -92,7 +95,7 @@ async function activate() {
     let storedScope: string | undefined
     try { storedScope = VolatileSessionsManager.fetchUserSession()?.sessionMeta?.attributes?.alook_account } catch { clearNativeSession() }
     if (!mayResume || storedScope !== accountScope) clearNativeSession()
-    httpInstrumentations = createHttp({ fetchInstrumentationOptions: { requestHook: observeTransportSpan, applyCustomAttributesOnSpan: (span, _request, result) => finishTransportSpan(span, result) }, xhrInstrumentationOptions: { applyCustomAttributesOnSpan: finishTransportClock }, ignoreUrls: [build.url!], propagateTraceHeaderCorsUrls: [new RegExp("^" + window.location.origin.replace(/[.*+?^$(){}|[\]\\]/g, "\\$&") + "/")] })
+    httpInstrumentations = createHttp({ fetchInstrumentationOptions: { ignoreNetworkEvents: false, requestHook: observeTransportSpan, applyCustomAttributesOnSpan: (span, _request, result) => finishTransportSpan(span, result) }, xhrInstrumentationOptions: { ignoreNetworkEvents: false, applyCustomAttributesOnSpan: (span, xhr) => { finishTransportClock(span); observeResourceResponse(span, xhr.getResponseHeader("server-timing") ?? "") } }, ignoreUrls: [build.url!], propagateTraceHeaderCorsUrls: [new RegExp("^" + window.location.origin.replace(/[.*+?^$(){}|[\]\\]/g, "\\$&") + "/")] })
     const defaults = getWebInstrumentations({ captureConsole: false, enableContentSecurityPolicyInstrumentation: false, enablePerformanceInstrumentation: true })
     const initialTransport = transport
     faro = initializeFaro({
@@ -109,7 +112,7 @@ async function activate() {
       ignoreUrls: [build.url!],
       webVitalsInstrumentation: { trackAttributionSources: false },
       batching: { enabled: true, itemLimit: 40, sendTimeout: 1000 },
-      beforeSend: item => hasAnalyticsConsent() && isTelemetryEligible() ? sanitizeItem(item, sessionId, window.location.origin, identity, eligibleTimestamp, documentVitalsEligible, observationEpoch(eligibleSince)) : null,
+      beforeSend: item => hasAnalyticsConsent() && isTelemetryEligible() ? sanitizeItem(item, sessionId, window.location.origin, identity, eligibleTimestamp, documentVitalsEligible, eligibleTimestamp, eligibleSince) : null,
     })
     const initialized = faro?.api.getSession()
     if (!faro || !initialized?.id || !/^[a-zA-Z0-9_-]{1,80}$/.test(initialized.id) || initialized.attributes?.alook_account !== accountScope) { deactivate(); return }
@@ -131,9 +134,10 @@ async function activate() {
     faro.api.setSession({ id: capturedSession, attributes: { isSampled: "true", alook_account: userKey ?? "anon" } })
   }
   if (!faro) { deactivate(); return }
-  installActionSpans((name, attributes, startTime, links) => {
+  installActionSpans((name, attributes, startTime, links, parent) => {
     if (!isTelemetryEligible()) return
-    return faro?.api.getOTEL()?.trace.getTracer("alook.frontend").startSpan(name, { attributes, startTime, links })
+    const otel = faro?.api.getOTEL()
+    return otel?.trace.getTracer("alook.frontend").startSpan(name, { attributes, startTime, links }, parent ? otel.trace.setSpan(otel.context.active(), parent) : ROOT_CONTEXT)
   })
   connectSink()
   stopNavigationFetch = installNavigationFetchContext()
@@ -225,10 +229,12 @@ export function bootstrapObservability(nextSurface: "web" | "blog") {
     if (!control) return
     if (control instanceof HTMLAnchorElement && control.href && control.origin === window.location.origin && !control.download && control.target !== "_blank" && !(event instanceof MouseEvent && (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey)) && routeTemplate(control.href, window.location.origin) !== "/unmapped") beginNavigation(control.href, "gesture")
     else {
-      const before = actionSequence(), generation = telemetryGeneration()
+      const before = actionSequence(), generation = telemetryGeneration(), owner = currentPageObservation(), interactionStart = performance.now()
       queueMicrotask(() => {
         if (!isTelemetryEligible() || generation !== telemetryGeneration() || actionSequence() !== before) return
-        try { if (!faro?.api.getActiveUserAction()) faro?.api.startUserAction("ui_interaction", { session_id: sessionId }) } catch {}
+        const operation = startPageOperation("ui.interaction", { phase: "interaction" }, owner, interactionStart)
+        finishPageOperation(operation, "observed")
+        try { if (!faro?.api.getActiveUserAction()) faro?.api.startUserAction("ui_interaction", cleanAttributes({ ...actionAttributes(owner), session_id: sessionId })) } catch {}
       })
     }
   }, { capture: true, passive: true })

@@ -3,7 +3,7 @@ import { actionNames, apiRoutes, pageRoutes } from "./coverage"
 export const eventNames = [
   "action.start", "action.finish", "navigation.intent", "navigation.commit", "navigation.ready",
   "cache.restore.start", "cache.restore.finish", "query.lifecycle",
-  "region.ready_commit", "request.start", "request.headers",
+  "region.ready_commit", "request.start", "request.trace_bound", "request.headers",
   "request.body_parsed", "request.finish", "data.publish", "data.response_rejected",
   "ws.connect", "ws.ready", "ws.close", "ws.reconnect", "ws.event_applied",
   "main_thread.longtask", "telemetry.coverage", "telemetry.drop", "business.result", "message.milestone",
@@ -19,12 +19,25 @@ const enumValues: Record<string, ReadonlySet<string>> = Object.fromEntries(Objec
   release_status: ["present", "missing"],
   environment_status: ["present", "missing"],
   trace_context: ["received", "missing"],
+  request_identity: ["native_http"],
+  server_sampling: ["selected", "not_selected", "unavailable"],
+  server_identity: ["available", "unavailable"],
+  span_role: ["region_readiness", "page_operation"],
+  document_timing: ["matched", "partial", "missing", "ambiguous", "unavailable"],
+  resource_status: ["matched", "missing", "ambiguous", "unavailable", "unsupported"],
+  network_event_source: ["resource_identity", "document_navigation"],
+  cache_hit_status: ["cache", "conditionalFetch", "fullLoad"],
+  network_protocol: ["http/1.0", "http/1.1", "h2", "h3"],
+  initiator_type: ["fetch", "xmlhttprequest", "script", "css", "img", "link", "iframe", "navigation", "other", "beacon"],
+  clock_source: ["operation_monotonic"],
+  clock_domain: ["browser", "worker"],
+  clock_alignment: ["unverified"],
   auth_instance: ["created", "reused", "request_local"],
   auth_reuse_reason: ["cold", "version_changed", "configuration_changed", "version_missing", "match"],
   frontend_surface: ["web", "blog", "webview"],
   client_platform: ["browser", "desktop", "mobile"],
   navigation_kind: ["document", "route"],
-  phase: ["intent", "headers", "body", "read", "primary", "background", "hydrate", "idb_read", "deserialize", "commit", "frame", "interaction", "optimistic", "ack", "upload", "transport", "auth", "token", "validation"],
+  phase: ["unknown", "intent", "headers", "body", "read", "primary", "background", "hydrate", "idb_read", "deserialize", "commit", "frame", "interaction", "optimistic", "ack", "upload", "transport", "auth", "token", "validation"],
   outcome: ["success", "error", "cancelled", "superseded", "timeout", "noop", "observed", "unknown", "empty", "miss", "hit", "expired", "buster", "rejected", "disabled", "unavailable", "partial"],
   source: ["restored_idb", "network", "ws", "local_mutation", "mixed", "unknown"],
   eligibility: ["eligible", "rejected", "unknown", "denied"],
@@ -37,8 +50,8 @@ const enumValues: Record<string, ReadonlySet<string>> = Object.fromEntries(Objec
   drop_reason: ["early_queue_full", "transport_failure", "withdrawal", "account_switch", "stale_session", "sdk_load", "invalid_config", "unload_unknown"],
   cache_stage: ["idb", "query", "router", "http", "canonical"],
 }).map(([key, values]) => [key, new Set(values)]))
-const numberFields = new Set(["start_ms", "duration_ms", "count", "row_count", "changed_count", "removed_count", "status", "schema_version", "revision", "attempt", "collection_rate", "drop_count", "transfer_bytes", "encoded_bytes", "decoded_bytes"])
-const idFields = new Set(["ws_event_id", "session_id", "page_instance_id", "action_id", "navigation_id", "request_id", "prefetch_action_id", "worker_version", "user_key"])
+const numberFields = new Set(["start_ms", "duration_ms", "clock_skew_ms", "count", "row_count", "changed_count", "removed_count", "status", "schema_version", "revision", "attempt", "collection_rate", "drop_count", "transfer_bytes", "encoded_bytes", "decoded_bytes"])
+const idFields = new Set(["ws_event_id", "session_id", "page_instance_id", "page_id", "action_id", "navigation_id", "request_id", "prefetch_action_id", "worker_version", "user_key", "faroResourceId", "faroNavigationId"])
 
 export function cleanAttributes(input: Record<string, unknown>): Record<string, string> {
   const result: Record<string, string> = {}
@@ -53,8 +66,8 @@ export function cleanAttributes(input: Record<string, unknown>): Record<string, 
     else if (key === "route_template" && routes.has(text)) result[key] = text
     else if (key === "action_name" && names.has(text)) result[key] = text
     else if (key === "cf_ray" && /^[0-9a-f]{16}-[A-Z]{3}$/.test(text)) result[key] = text
-    else if ((key === "trace_id" || key === "upstream_trace_id") && /^[0-9a-f]{32}$/.test(text)) result[key] = text
-    else if ((key === "span_id" || key === "upstream_span_id") && /^[0-9a-f]{16}$/.test(text)) result[key] = text
+    else if ((key === "trace_id" || key === "upstream_trace_id" || key === "server_trace_id") && /^[0-9a-f]{32}$/.test(text) && !/^0+$/.test(text)) result[key] = text
+    else if ((key === "span_id" || key === "upstream_span_id" || key === "server_span_id") && /^[0-9a-f]{16}$/.test(text) && !/^0+$/.test(text)) result[key] = text
     else if (key === "event_type" && /^(community:|connection\.|auth\.)[a-z_.]{1,50}$/.test(text)) result[key] = text
   }
   return result
