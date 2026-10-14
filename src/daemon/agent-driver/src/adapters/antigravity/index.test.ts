@@ -408,3 +408,63 @@ describe("Antigravity Windows cold start budget", () => {
     }
   });
 });
+
+
+describe("Antigravity default session initialization deadlines", () => {
+  it.each(["win32", "darwin", "linux"] as const)("handles a16-second initialize on %s", async (platform) => {
+    const h = setup();
+    const platformSpy = vi.spyOn(process, "platform", "get").mockReturnValue(platform);
+    vi.useFakeTimers();
+    h.proc.stdin.removeAllListeners("data");
+    h.proc.stdin.on("data", chunk => {
+      const request = JSON.parse(String(chunk));
+      h.messages.push(request);
+      if (request.method === "initialize") setTimeout(() => h.emit({ id: request.id, result: {
+        protocolVersion: 1, agentInfo: { name: "antigravity-acp" }, agentCapabilities: { loadSession: true },
+      } }), 16_000);
+      if (request.method === "session/new") h.emit({ id: request.id, result: { sessionId: "native-session" } });
+    });
+    const lane = new AntigravityAcpLane({ spawn: h.spawn }, h.ctx);
+    try {
+      const started = lane.start({ text: "first" });
+      const checked = platform === "win32"
+        ? expect(started).resolves.toMatchObject({ ok: true })
+        : expect(started).rejects.toThrow("initialize timed out");
+      await vi.advanceTimersByTimeAsync(16_100);
+      await checked;
+      expect(h.prompts()).toHaveLength(platform === "win32" ? 1 : 0);
+      await lane.stop();
+      expect(h.proc.kill).toHaveBeenCalledTimes(1);
+    } finally { platformSpy.mockRestore(); vi.useRealTimers(); }
+  });
+
+  it.each(["initialize", "session/load"] as const)("keeps silent Windows %s bounded and fences late replies", async (method) => {
+    const h = setup();
+    const platformSpy = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    vi.useFakeTimers();
+    h.proc.stdin.removeAllListeners("data");
+    h.proc.stdin.on("data", chunk => {
+      const request = JSON.parse(String(chunk));
+      h.messages.push(request);
+      if (method !== "initialize" && request.method === "initialize") h.emit({ id: request.id, result: {
+        protocolVersion: 1, agentInfo: { name: "antigravity-acp" }, agentCapabilities: { loadSession: true },
+      } });
+    });
+    const lane = new AntigravityAcpLane({ spawn: h.spawn }, h.ctx);
+    try {
+      let settled = false;
+      const started = lane.start({ text: "first", ...(method === "session/load" ? { sessionId: "saved" } : {}) });
+      const checked = expect(started.finally(() => { settled = true; })).rejects.toThrow(`${method} timed out`);
+      const deadline = method === "initialize" ? 30_000 : 15_000;
+      await vi.advanceTimersByTimeAsync(deadline - 1);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await checked;
+      const request = h.messages.find(request => request.method === method)!;
+      h.emit({ id: request.id, result: { sessionId: "late-session", protocolVersion: 1 } });
+      expect(h.prompts()).toHaveLength(0);
+      await lane.stop();
+      expect(h.proc.kill).toHaveBeenCalledTimes(1);
+    } finally { platformSpy.mockRestore(); vi.useRealTimers(); }
+  });
+});

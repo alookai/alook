@@ -311,7 +311,11 @@ type MessageViewportGeometry = {
   firstVisibleOffset: number | null
   contentPaddingBottom: number
   railPosition: string | null
-  railRect: { top: number; bottom: number } | null
+  railRect: { top: number; bottom: number; height: number } | null
+  accessoryPosition: string | null
+  accessoryRect: { top: number; bottom: number; height: number } | null
+  railInFooter: boolean
+  railInScroller: boolean
   composerRect: { top: number; bottom: number } | null
   surfaceChannelId: string | null
   scrollerRect: { top: number; bottom: number }
@@ -321,7 +325,6 @@ async function readMessageViewportGeometry(scroller: Locator): Promise<MessageVi
   return scroller.evaluate((element, accessoryRailTestId) => {
     const root = element as HTMLElement
     const rootRect = root.getBoundingClientRect()
-    const boundary = root.closest<HTMLElement>("[data-message-scroller-boundary]")
     const surface = root.closest<HTMLElement>('[data-slot="community-conversation-surface"]')
     const firstVisible = Array.from(root.querySelectorAll<HTMLElement>("[data-msg-id]"))
       .find((row) => {
@@ -330,10 +333,12 @@ async function readMessageViewportGeometry(scroller: Locator): Promise<MessageVi
       }) ?? null
     const firstRect = firstVisible?.getBoundingClientRect() ?? null
     const content = root.querySelector<HTMLElement>("[data-message-list-content]")
-    const rail = boundary?.querySelector<HTMLElement>(`[data-testid="${accessoryRailTestId}"]`)
-    const railRect = rail?.getBoundingClientRect() ?? null
     const composer = surface?.querySelector<HTMLElement>('[data-slot="community-conversation-footer"]')
     const composerRect = composer?.getBoundingClientRect() ?? null
+    const accessory = composer?.querySelector<HTMLElement>('[data-slot="community-composer-accessory-slot"]')
+    const accessoryRect = accessory?.getBoundingClientRect() ?? null
+    const rail = accessory?.querySelector<HTMLElement>(`[data-testid="${accessoryRailTestId}"]`)
+    const railRect = rail?.getBoundingClientRect() ?? null
     return {
       scrollTop: root.scrollTop,
       scrollHeight: root.scrollHeight,
@@ -343,7 +348,11 @@ async function readMessageViewportGeometry(scroller: Locator): Promise<MessageVi
       firstVisibleOffset: firstRect ? firstRect.top - rootRect.top : null,
       contentPaddingBottom: content ? Number.parseFloat(getComputedStyle(content).paddingBottom) : 0,
       railPosition: rail ? getComputedStyle(rail).position : null,
-      railRect: railRect ? { top: railRect.top, bottom: railRect.bottom } : null,
+      railRect: railRect ? { top: railRect.top, bottom: railRect.bottom, height: railRect.height } : null,
+      accessoryPosition: accessory ? getComputedStyle(accessory).position : null,
+      accessoryRect: accessoryRect ? { top: accessoryRect.top, bottom: accessoryRect.bottom, height: accessoryRect.height } : null,
+      railInFooter: !!rail && rail.parentElement === accessory && rail.closest('[data-slot="community-conversation-footer"]') === composer,
+      railInScroller: !!rail && !!rail.closest("[data-message-scroller-boundary]"),
       composerRect: composerRect ? { top: composerRect.top, bottom: composerRect.bottom } : null,
       surfaceChannelId: surface?.dataset.channelId ?? null,
       scrollerRect: { top: rootRect.top, bottom: rootRect.bottom },
@@ -370,7 +379,7 @@ async function waitForCommittedGeometry(scroller: Locator): Promise<MessageViewp
 
 async function expectSkeletonTailGeometry(
   page: Page,
-  width: 390 | 1280,
+  _width: 390 | 1280,
   label: string,
 ): Promise<void> {
   const geometry = await page.locator("[data-message-list-skeleton-tail]").first().evaluate((tail, scrollerTestId) => {
@@ -388,7 +397,7 @@ async function expectSkeletonTailGeometry(
         : null,
     }
   }, tid.messageScroller)
-  const expectedTail = width < 640 ? 40 : 48
+  const expectedTail = 40
   expect(geometry.contentPaddingBottom, `${label}: outer padding`).toBe(0)
   expect(geometry.tailHeight, `${label}: placeholder height`).toBe(expectedTail)
   expect(geometry.scrollerBottom, `${label}: scroller boundary`).not.toBeNull()
@@ -490,7 +499,16 @@ function expectInFlowMessageGeometry(geometry: MessageViewportGeometry, label: s
   expect(geometry.contentPaddingBottom, `${label}: outer tail padding removed`).toBe(0)
   expect(geometry.composerRect, `${label}: scoped composer`).not.toBeNull()
   if (geometry.railRect) {
-    expect(geometry.railPosition, `${label}: rail position`).toBe("absolute")
+    expect(geometry.railPosition, `${label}: rail position`).toBe("static")
+    expect(geometry.railInFooter, `${label}: Footer owns rail`).toBe(true)
+    expect(geometry.railInScroller, `${label}: rail outside scroller`).toBe(false)
+    expect(geometry.accessoryPosition, `${label}: accessory position`).toBe("absolute")
+    expect(geometry.accessoryRect, `${label}: accessory slot`).not.toBeNull()
+    expect(geometry.accessoryRect!.height, `${label}: accessory height`).toBe(40)
+    expect(geometry.railRect.height, `${label}: rail height`).toBe(32)
+    expect(Math.abs(geometry.railRect.top - geometry.accessoryRect!.top - 4), `${label}: upper center gap`).toBeLessThanOrEqual(1)
+    expect(Math.abs(geometry.accessoryRect!.bottom - geometry.railRect.bottom - 4), `${label}: lower center gap`).toBeLessThanOrEqual(1)
+    expect(Math.abs(geometry.accessoryRect!.bottom - geometry.composerRect!.top), `${label}: slot ends at Footer`).toBeLessThanOrEqual(1)
     expect(geometry.railRect.top, `${label}: rail top`).toBeGreaterThanOrEqual(geometry.scrollerRect.top - 1)
     expect(geometry.railRect.bottom, `${label}: rail bottom`).toBeLessThanOrEqual(geometry.scrollerRect.bottom + 1)
     expect(geometry.railRect.bottom, `${label}: rail clears composer`).toBeLessThanOrEqual(
@@ -1176,8 +1194,8 @@ test.describe("message scroll characterization", () => {
       messageId: tid.message(composerDmProfile.ids.at(-1)!),
     })
     expect(tailGeometry.paddingBottom).toBe(0)
-    expect(tailGeometry.tailGap).toBeGreaterThanOrEqual(47)
-    expect(tailGeometry.tailGap).toBeLessThanOrEqual(49)
+    expect(tailGeometry.tailGap).toBeGreaterThanOrEqual(39)
+    expect(tailGeometry.tailGap).toBeLessThanOrEqual(41)
     expect(tailGeometry.scrollerBottom).toBeLessThanOrEqual(tailGeometry.composerTop + 1)
     await startScrollTrace(alice.page, {
       scenario: "dm-composer-clear-viewport",
@@ -1440,6 +1458,7 @@ test.describe("message scroll characterization", () => {
     const typingOpen = await waitForCommittedGeometry(scroller)
     expect(typingOpen.clientHeight).toBe(typingBase.clientHeight)
     expectViewportAnchorPreserved(typingBase, typingOpen, "typing-rail-away")
+    expect(typingOpen.railRect, "typing-rail-away: scoped Footer rail exists").not.toBeNull()
     expectInFlowMessageGeometry(typingOpen, "typing-rail-away")
     await bobEditable.fill("")
     await endScrollTraceAnalysis(alice.page, "typing-rail-away")

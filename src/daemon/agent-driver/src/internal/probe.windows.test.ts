@@ -46,7 +46,7 @@ function launch(binary: string, args: string[]) {
   return child;
 }
 
-function waitForLine(child: ChildProcess, matches: (line: string) => boolean): Promise<string> {
+function waitForLine(child: ChildProcess, matches: (line: string) => boolean, timeoutMs = 20_000): Promise<string> {
   const lines = createInterface({ input: child.stdout! });
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -54,7 +54,7 @@ function waitForLine(child: ChildProcess, matches: (line: string) => boolean): P
       console.log(JSON.stringify({ stage: "readiness-timeout", binary: trace?.binary, pid: child.pid,
         alive: child.pid ? isAlive(child.pid) : false, stdout: scrubDriverErrorMessage(trace?.stdout ?? ""), stderr: scrubDriverErrorMessage(trace?.stderr ?? "") }));
       finish(new Error("runtime output timed out"));
-    }, 20_000);
+    }, timeoutMs);
     const onExit = (code: number | null, signal: string | null) => {
       const trace = diagnostics.get(child);
       finish(new Error(`${trace?.binary} exited before readiness: code=${code}, signal=${signal}, stderr=${scrubDriverErrorMessage(trace?.stderr ?? "")}`));
@@ -280,7 +280,7 @@ describe.skipIf(!nativePrefix)("real npm and native providers from an isolated p
     const child = launch(binary, [...args]);
     const initialized = waitForLine(child, line => {
       try { return JSON.parse(line).id === 1; } catch { return false; }
-    });
+    }, binary === "agy_acp_server.exe" ? 30_000 : 20_000);
     child.stdin!.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {
       protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: "alook-windows-qa", version: "1.0.0" },
     } }) + "\n");

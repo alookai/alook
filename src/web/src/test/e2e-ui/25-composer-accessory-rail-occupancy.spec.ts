@@ -34,6 +34,7 @@ async function sendExactMessage(sender: Page, receiver: Page, text: string) {
   expect(response.status()).toBe(201)
   const payload = await response.json() as { message: { id: string } }
   await expect(receiver.getByTestId(tid.message(payload.message.id))).toBeVisible()
+  return payload.message.id
 }
 
 type Rect = {
@@ -466,7 +467,7 @@ test("composer accessory rail reallocates every occupied slot without overflow",
   await expect(composerEditable(bob.page)).toBeVisible()
   await expect(composerEditable(carol.page)).toBeVisible()
 
-  const finalMessageId = selectableMessageId
+  let finalMessageId = selectableMessageId
   await expect(alice.page.getByTestId(tid.message(finalMessageId))).toBeVisible()
 
   const scrollRoot = alice.page.getByTestId(tid.messageScroller)
@@ -566,7 +567,7 @@ test("composer accessory rail reallocates every occupied slot without overflow",
     expect(leftOnly[width].typing).not.toBeNull()
   }
 
-  await sendExactMessage(
+  finalMessageId = await sendExactMessage(
     bob.page,
     alice.page,
     `long typing clear ${Date.now()}`,
@@ -618,12 +619,12 @@ test("composer accessory rail reallocates every occupied slot without overflow",
     expect(selectionMultiple[width].center!.center).toBe(selectionNone[width].center!.center)
   }
 
-  await sendExactMessage(
+  finalMessageId = await sendExactMessage(
     bob.page,
     alice.page,
     `multiple typing clear ${Date.now()}`,
   )
-  await sendExactMessage(
+  finalMessageId = await sendExactMessage(
     carol.page,
     alice.page,
     `short typing clear ${Date.now()}`,
@@ -648,7 +649,7 @@ test("composer accessory rail reallocates every occupied slot without overflow",
     expect(selectionLong[width].typing).toBeNull()
   }
 
-  await sendExactMessage(
+  finalMessageId = await sendExactMessage(
     bob.page,
     alice.page,
     `theme typing clear ${Date.now()}`,
