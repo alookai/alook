@@ -192,6 +192,7 @@ export class ClaudeEventNormalizer {
       kind: "turn_end",
       sessionId: event.session_id ?? this.currentSession ?? undefined,
       ...(turnOwner ? { turnOwner } : {}),
+      ...(interruptedTerminal ? { outcome: "interrupted" as const } : {}),
     });
   }
 

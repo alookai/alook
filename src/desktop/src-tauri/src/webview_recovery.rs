@@ -1,3 +1,7 @@
+#[cfg(desktop)]
+use base64::{engine::general_purpose::STANDARD, Engine as _};
+#[cfg(desktop)]
+use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::http::{Request, Response, StatusCode};
 use tauri::Manager;
@@ -93,19 +97,18 @@ fn navigation_allowed(url: &Url, development: bool) -> bool {
 
 fn response(request: Request<Vec<u8>>) -> Response<Vec<u8>> {
     let (status, csp, body) = match request.uri().path() {
-        BOOTSTRAP_PATH => (
-            StatusCode::OK,
-            "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
-            bootstrap_html().into_bytes(),
-        ),
+        BOOTSTRAP_PATH => {
+            let (csp, html) = bootstrap_document();
+            (StatusCode::OK, csp, html.into_bytes())
+        },
         RECOVERY_PATH => (
             StatusCode::OK,
-            "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+            "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'".to_owned(),
             recovery_html().as_bytes().to_vec(),
         ),
         _ => (
             StatusCode::NOT_FOUND,
-            "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+            "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'".to_owned(),
             Vec::new(),
         ),
     };
@@ -365,13 +368,37 @@ fn initialization_failure(window: &tauri::WebviewWindow) {
     }
 }
 
-fn bootstrap_html() -> String {
+fn bootstrap_document() -> (String, String) {
+    #[cfg(desktop)]
+    {
+        let logo = crate::commands::desktop_loading_logo();
+        let hash = STANDARD.encode(Sha256::digest(logo.script.as_bytes()));
+        let csp = format!("default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-{hash}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+        let html = format!(
+            r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Alook</title><style>:root{{color-scheme:light dark;--background:{light}}}html,body{{width:100%;height:100%;margin:0;overflow:hidden;background:var(--background)}}body{{display:grid;place-items:center}}@media(prefers-color-scheme:dark){{:root{{--background:{dark}}}}}{styles}</style></head><body>{markup}<script type="module">{script}</script></body></html>"#,
+            light = SPLASH_BACKGROUND_LIGHT,
+            dark = SPLASH_BACKGROUND_DARK,
+            styles = logo.styles,
+            markup = logo.markup,
+            script = logo.script,
+        );
+        (csp, html)
+    }
+    #[cfg(mobile)]
+    {
+        mobile_bootstrap_document()
+    }
+}
+
+#[cfg(any(mobile, test))]
+fn mobile_bootstrap_document() -> (String, String) {
     let logo = include_str!("../../../../assets/alook.svg");
-    format!(
+    let html = format!(
         r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Alook</title><style>:root{{color-scheme:light dark;--background:{light}}}html,body{{width:100%;height:100%;margin:0;overflow:hidden;background:var(--background)}}body{{display:grid;place-items:center}}#logo{{width:106px;height:106px}}#logo svg{{display:block;width:100%;height:100%}}@media(prefers-color-scheme:dark){{:root{{--background:{dark}}}}}</style></head><body><div role="status" aria-label="Loading"><div id="logo" aria-hidden="true">{logo}</div></div></body></html>"#,
         light = SPLASH_BACKGROUND_LIGHT,
         dark = SPLASH_BACKGROUND_DARK,
-    )
+    );
+    ("default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'".to_owned(), html)
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -1067,7 +1094,7 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_is_static_and_unknown_paths_fail_closed() {
+    fn bootstrap_policy_and_unknown_paths_fail_closed() {
         let request = Request::builder()
             .uri("alook-recovery://localhost/bootstrap")
             .body(Vec::new())
@@ -1075,10 +1102,22 @@ mod tests {
         let bootstrap_response = response(request);
         let html = String::from_utf8(bootstrap_response.body().clone()).unwrap();
         assert_eq!(bootstrap_response.status(), 200);
-        assert_eq!(
-            bootstrap_response.headers()["content-security-policy"],
-            "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
-        );
+        let csp = bootstrap_response.headers()["content-security-policy"]
+            .to_str()
+            .unwrap();
+        for directive in [
+            "default-src 'none'",
+            "style-src 'unsafe-inline'",
+            "base-uri 'none'",
+            "form-action 'none'",
+            "frame-ancestors 'none'",
+        ] {
+            assert!(csp.contains(directive));
+        }
+        #[cfg(desktop)]
+        assert_eq!(csp.matches("script-src 'sha256-").count(), 1);
+        #[cfg(mobile)]
+        assert!(!csp.contains("script-src"));
         assert_eq!(
             bootstrap_response.headers()["x-content-type-options"],
             "nosniff"
@@ -1087,6 +1126,7 @@ mod tests {
             bootstrap_response.headers()["referrer-policy"],
             "no-referrer"
         );
+        #[cfg(mobile)]
         assert!(!html.contains("<script"));
         assert!(!html.contains("network-error"));
 
@@ -1100,22 +1140,73 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_shows_static_canonical_logo_in_the_current_theme() {
-        let html = bootstrap_html();
-        let canonical = include_str!("../../../../assets/alook.svg");
-
-        assert_eq!(html.match_indices(canonical).count(), 1);
+    fn bootstrap_shows_canonical_logo_in_the_current_theme() {
+        let (_, html) = bootstrap_document();
         assert!(html.contains("--background:#fff"));
         assert!(html.contains("--background:#100d0a"));
-        assert!(html.contains("width:106px;height:106px"));
-        assert!(html.contains("display:grid;place-items:center"));
+        let canonical = include_str!("../../../../assets/alook.svg");
+        assert_eq!(html.matches(canonical).count(), 1);
         assert!(html.contains("role=\"status\" aria-label=\"Loading\""));
-        assert!(html.contains("aria-hidden=\"true\""));
-        assert!(!html.contains("<script"));
+        assert!(!html.contains("<template"));
         assert!(!html.contains("<img"));
-        assert!(!html.contains("<link"));
         assert!(!html.contains("data:image"));
         assert!(!html.contains("--alook-mobile-splash-offset-y"));
+    }
+
+    #[cfg(desktop)]
+    #[test]
+    fn desktop_bootstrap_hash_matches_its_exact_normalized_inline_module() {
+        let request = Request::builder()
+            .uri("alook-recovery://localhost/bootstrap")
+            .body(Vec::new())
+            .unwrap();
+        let result = response(request);
+        let csp = result.headers()["content-security-policy"]
+            .to_str()
+            .unwrap();
+        let html = String::from_utf8(result.body().clone()).unwrap();
+        assert_eq!(html.matches("<script").count(), 1);
+        let script = html
+            .split("<script type=\"module\">")
+            .nth(1)
+            .unwrap()
+            .split("</script>")
+            .next()
+            .unwrap();
+        assert_eq!(script, crate::commands::desktop_loading_logo().script);
+        assert!(!script.contains('\r'));
+        let hash = STANDARD.encode(Sha256::digest(script.as_bytes()));
+        assert_eq!(csp, format!("default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-{hash}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"));
+        let tampered = format!("{script} ");
+        let altered_hash = STANDARD.encode(Sha256::digest(tampered.as_bytes()));
+        assert_ne!(hash, altered_hash);
+        assert!(!csp.contains(&altered_hash));
+        let windows = script.replace('\n', "\r\n");
+        let legacy = script.replace('\n', "\r");
+        for raw in [windows, legacy] {
+            let parsed = raw.replace("\r\n", "\n").replace('\r', "\n");
+            assert_eq!(STANDARD.encode(Sha256::digest(parsed.as_bytes())), hash);
+            assert_ne!(STANDARD.encode(Sha256::digest(raw.as_bytes())), hash);
+        }
+        let splash = crate::commands::splash_html();
+        assert!(splash.contains(&format!("<script type=\"module\">{script}</script>")));
+    }
+
+    #[test]
+    fn mobile_bootstrap_is_static_with_unchanged_script_restrictions() {
+        let (csp, html) = mobile_bootstrap_document();
+        assert_eq!(csp, "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+        assert!(!html.contains("<script"));
+        assert!(!html.contains("<template"));
+        assert_eq!(
+            html.matches(include_str!("../../../../assets/alook.svg"))
+                .count(),
+            1
+        );
+        assert!(html.contains("#logo{width:106px;height:106px}"));
+        assert!(html.contains("--background:#fff"));
+        assert!(html.contains("--background:#100d0a"));
+        assert!(!html.contains("requestAnimationFrame"));
     }
 
     #[test]

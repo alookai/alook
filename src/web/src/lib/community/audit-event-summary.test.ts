@@ -7,6 +7,7 @@ describe("summarizeAuditEvent", () => {
     const kinds: AuditKind[] = [
       "cli_invocation",
       "tool_call",
+      "text",
       "thinking",
       "turn_interrupt",
       "wake_trigger",
@@ -73,5 +74,11 @@ describe("summarizeAuditEvent", () => {
     }
     expect(summarizeAuditEvent(event)).toBe("Updated its reasoning")
     expect(summarizeAuditEvent(event)).not.toMatch(/secret|private|credential|Users/)
+  })
+  it("keeps completed text and its truncation details out of the preview summary", () => {
+    expect(summarizeAuditEvent({
+      kind: "text",
+      payload: { text: "private body https://private.example", truncated: true, chars: 500 },
+    })).toBe("Completed text output")
   })
 })

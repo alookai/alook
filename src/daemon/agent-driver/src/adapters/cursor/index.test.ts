@@ -322,7 +322,7 @@ describe("CursorDriver persistent ACP transport", () => {
         },
       },
     })}\n`);
-    expect(events).toContainEqual({ kind: "tool_output", name: "Current tool" });
+    expect(events).toContainEqual({ kind: "tool_output", callId: "current-tool", name: "Current tool" });
 
     completePrompt(process, server.prompts[3]!, "cancelled");
     await settle();
@@ -330,6 +330,7 @@ describe("CursorDriver persistent ACP transport", () => {
       kind: "turn_end",
       sessionId: "cursor-acp-session",
       turnOwner: "cursor:acp:4",
+      outcome: "interrupted",
     }]);
 
     completePrompt(process, server.prompts[0]!);
@@ -416,7 +417,7 @@ describe("CursorDriver persistent ACP transport", () => {
         },
       },
     })}\n`);
-    expect(events).toContainEqual({ kind: "tool_output", name: "Root tool" });
+    expect(events).toContainEqual({ kind: "tool_output", callId: "root-tool", name: "Root tool" });
 
     completePrompt(process, server.prompts[0]!);
     await settle();
@@ -1340,8 +1341,8 @@ describe("CursorDriver persistent ACP transport", () => {
 
     expect(events).toContainEqual({ kind: "assistant_message_delta", text: "hello" });
     expect(events).toContainEqual({ kind: "assistant_reasoning_delta", text: "thinking" });
-    expect(events).toContainEqual({ kind: "tool_call", name: "Read", input: { path: "README.md" } });
-    expect(events).toContainEqual({ kind: "tool_output", name: "Read" });
+    expect(events).toContainEqual({ kind: "tool_call", callId: "tool-1", name: "Read", input: { path: "README.md" } });
+    expect(events).toContainEqual({ kind: "tool_output", callId: "tool-1", name: "Read" });
     expect(events).toContainEqual({ kind: "internal_progress", source: "cursor.acp", itemType: "plan" });
     expect(events).toContainEqual(expect.objectContaining({
       kind: "runtime_diagnostic",

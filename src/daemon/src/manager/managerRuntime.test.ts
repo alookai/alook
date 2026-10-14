@@ -9,7 +9,7 @@ import * as path from "node:path";
 import { setImmediate as drainEventTasks } from "node:timers/promises";
 import {
   AgentProcessManager,
-  truncateThinking,
+  truncateAuditText,
   canonicalToolName,
   extractToolAudit,
   isAlookShellInvocation,
@@ -2805,94 +2805,59 @@ describe("AgentProcessManager — onAgentActivity (derived activity reporting)",
   });
 });
 
-describe("truncateThinking", () => {
-  it("returns text unchanged when under the byte budget", async () => {
-    const { text, truncated, chars } = truncateThinking("short");
-    expect(text).toBe("short");
-    expect(truncated).toBe(false);
-    expect(chars).toBe(5);
+describe("truncateAuditText", () => {
+  it("retains exactly 1024 ASCII bytes without a truncation flag", () => {
+    const input = "a".repeat(1024);
+    expect(truncateAuditText(input)).toEqual({ text: input, truncated: false, chars: 1024 });
   });
 
-  it("truncates > 4KB text and reports the original char count", async () => {
-    const long = "a".repeat(5000);
-    const { text, truncated, chars } = truncateThinking(long);
-    expect(truncated).toBe(true);
-    expect(chars).toBe(5000);
-    expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(4096);
-  });
-
-  it("never splits a multi-byte UTF-8 sequence", async () => {
-    // Build a string whose 4096-byte boundary lands inside a 4-byte emoji.
-    // Each 😀 is 4 bytes. 1023 emojis = 4092 bytes; add "a" to get to 4093;
-    // then more emojis to push past 4096 mid-glyph.
-    const emoji = "😀";
-    const prefix = "a".repeat(4093) + emoji + emoji + emoji;
-    const { text } = truncateThinking(prefix);
-    // The returned string must be decodable — i.e. no replacement chars
-    // introduced by a mid-codepoint cut. `Buffer.from(text, "utf8")` and
-    // reading it back should round-trip.
-    expect(text).toBe(Buffer.from(text, "utf8").toString("utf8"));
+  it.each([
+    { input: "a".repeat(1025), expected: "a".repeat(1024), chars: 1025 },
+    { input: "中".repeat(341) + "😀", expected: "中".repeat(341), chars: 342 },
+    { input: "a".repeat(1021) + "😀", expected: "a".repeat(1021), chars: 1022 },
+    { input: "😀".repeat(256) + "x", expected: "😀".repeat(256), chars: 257 },
+  ])("keeps a complete UTF-8 prefix and original code-point count ($chars)", ({ input, expected, chars }) => {
+    const result = truncateAuditText(input);
+    expect(result).toEqual({ text: expected, truncated: true, chars });
+    expect(Buffer.byteLength(result.text, "utf8")).toBeLessThanOrEqual(1024);
+    expect(result.text).not.toContain("\ufffd");
   });
 });
 
 describe("AgentProcessManager — bot audit event emission", () => {
-  it("contains audit observer failures for reasoning and tool-start events", async () => {
+  it("contains audit observer failures for completed text and tool-start events", async () => {
     const logger = stubLogger();
     const onBotAuditEvent = vi.fn(() => { throw new Error("observer failed"); });
     const { mgr, session } = makeManager({ logger, onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
-
-    await expect(session.fire("runtime_event", { kind: "thinking", text: "completed reasoning" }))
-      .resolves.toBeUndefined();
-    await expect(session.fire("runtime_event", { kind: "tool_call", name: "Read", input: { file_path: "/x" } }))
-      .resolves.toBeUndefined();
-
+    await expect(session.fire("runtime_event", { kind: "text", text: "completed text" })).resolves.toBeUndefined();
+    await expect(session.fire("runtime_event", { kind: "tool_call", name: "Read", input: { file_path: "/x" } })).resolves.toBeUndefined();
     expect(logger.calls.debug.map(([message]) => message)).toEqual(expect.arrayContaining([
-      "audit emit failed (thinking)",
-      "audit emit failed (tool_call)",
+      "audit emit failed (text)", "audit emit failed (tool_call)",
     ]));
   });
 
-  it("emits completed reasoning with truncated+chars fields immediately", async () => {
+  it("emits completed text with source truncation metadata", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
-
-    await session.fire("runtime_event", { kind: "thinking", text: "think about it" });
-
-    expect(onBotAuditEvent).toHaveBeenCalledWith(
-      "a1",
-      expect.objectContaining({
-        kind: "thinking",
-        payload: expect.objectContaining({
-          text: "think about it",
-          truncated: false,
-          chars: 14,
-        }),
-      }),
-      expect.objectContaining({ sessionId: null, launchId: null })
-    );
+    await session.pushAgentEvent({ type: "assistant_message_completed", turnId: "test-turn", text: "hello", truncated: true });
+    expect(onBotAuditEvent).toHaveBeenCalledWith("a1", {
+      kind: "text", payload: { text: "hello", truncated: true, chars: 5 },
+    }, expect.objectContaining({ sessionId: null, launchId: null }));
   });
 
-  it("emits one bounded audit row per completed reasoning item and drops empty items", async () => {
+  it("uploads only one bounded row per nonempty completed text and never uploads thinking", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
-
-    await session.fire("runtime_event", { kind: "thinking", text: "" });
-    await session.fire("runtime_event", { kind: "thinking", text: "let me count" });
-    await session.fire("runtime_event", { kind: "thinking", text: "" });
-
-    const thinkingCalls = onBotAuditEvent.mock.calls.filter(
-      ([, ev]) => (ev as { kind?: string })?.kind === "thinking"
-    );
-    expect(thinkingCalls).toHaveLength(1);
-    expect(thinkingCalls[0]![1]).toEqual(
-      expect.objectContaining({
-        kind: "thinking",
-        payload: expect.objectContaining({ text: "let me count", chars: 12 }),
-      })
-    );
+    await session.fire("runtime_event", { kind: "text", text: "" });
+    await session.fire("runtime_event", { kind: "thinking", text: "local reasoning only" });
+    await session.fire("runtime_event", { kind: "text", text: "中".repeat(400) });
+    await session.fire("runtime_event", { kind: "text", text: "" });
+    expect(onBotAuditEvent.mock.calls.map(([, event]) => event)).toEqual([
+      { kind: "text", payload: { text: "中".repeat(341), truncated: true, chars: 400 } },
+    ]);
   });
 
   it("emits `tool_call` with canonical name + resolved target", async () => {
@@ -3029,13 +2994,13 @@ describe("AgentProcessManager — bot audit event emission", () => {
     ]);
   });
 
-  it("does NOT emit for non-audit event kinds (session_init, text, turn_end)", async () => {
+  it("does not upload thinking or lifecycle-only events", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
     await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-    await session.fire("runtime_event", { kind: "text", text: "hi human" });
+    await session.fire("runtime_event", { kind: "thinking", text: "local reasoning" });
     await session.fire("runtime_event", { kind: "turn_end" });
 
     expect(onBotAuditEvent).not.toHaveBeenCalled();

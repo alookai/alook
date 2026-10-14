@@ -577,6 +577,77 @@ function emitStaleTerminal(backend: BuiltinBackendId, harness: VendorHarness): v
   harness.duplicateTurn(1);
 }
 
+describe("native primitive regressions through registered public sessions", () => {
+  it.each(["codex", "cursor", "grok", "antigravity"] as const)("preserves provider-originated %s cancellation and permits the next turn", async (backend) => {
+    const fixture = await openRegisteredHarness(backend, "native-cancel");
+    try {
+      const first = fixture.session.start({ id: "first", kind: "user", text: "first" });
+      await settlePromptAdmission(backend, fixture.harness, 1, first);
+      const cancel = () => {
+        if (backend === "codex") {
+          fixture.harness.emitProvider({ jsonrpc: "2.0", method: "turn/completed", params: {
+            threadId: "codex-resumed", turn: { id: "codex-turn-1", status: "interrupted" },
+          } });
+        } else fixture.harness.duplicateTurn(1, { stopReason: "cancelled" });
+      };
+      cancel();
+      await vi.waitFor(() => expect(fixture.events.filter((event) => event.type === "turn_completed"))
+        .toMatchObject([{ commandIds: ["first"], result: { outcome: "interrupted" } }]));
+      const next = fixture.session.send({ id: "next", kind: "user", text: "next" });
+      await settlePromptAdmission(backend, fixture.harness, 2, next);
+      cancel();
+      expect(fixture.session.snapshot().activeTurn?.commandIds).toEqual(["next"]);
+      fixture.harness.completeTurn(2);
+      await vi.waitFor(() => expect(fixture.events.filter((event) => event.type === "turn_completed"))
+        .toMatchObject([{ result: { outcome: "interrupted" } }, { commandIds: ["next"], result: { outcome: "success" } }]));
+    } finally { await stopRegisteredHarness(backend, fixture); }
+  });
+
+  it.each([
+    { summary: ["first section", "second section"], content: ["raw text"], expected: "first section\n\nsecond section" },
+    { summary: [], content: ["raw first", "raw second"], expected: "raw first\n\nraw second" },
+    { summary: [], content: [], expected: "streamed reasoning" },
+  ])("preserves Codex native reasoning completion without duplicate text ($expected)", async ({ summary, content, expected }) => {
+    const fixture = await openRegisteredHarness("codex", "native-reasoning");
+    try {
+      await settlePromptAdmission("codex", fixture.harness, 1, fixture.session.start({ id: "first", kind: "user", text: "first" }));
+      fixture.harness.emitProvider({ jsonrpc: "2.0", method: "item/reasoning/summaryTextDelta", params: {
+        threadId: "codex-resumed", turnId: "codex-turn-1", itemId: "reason", delta: "streamed reasoning", summaryIndex: 0,
+      } });
+      fixture.harness.emitProvider({ jsonrpc: "2.0", method: "item/completed", params: {
+        threadId: "codex-resumed", turnId: "codex-turn-1", item: { id: "reason", type: "reasoning", summary, content },
+      } });
+      fixture.harness.completeTurn(1);
+      await vi.waitFor(() => expect(fixture.events.filter((event) => event.type === "assistant_reasoning_completed"))
+        .toMatchObject([{ text: expected, truncated: false }]));
+      expect(fixture.events.filter((event) => event.type === "assistant_reasoning_completed")).toHaveLength(1);
+    } finally { await stopRegisteredHarness("codex", fixture); }
+  });
+
+  it("keeps Cursor tool identity through repeated starts and a steer", async () => {
+    const fixture = await openRegisteredHarness("cursor", "native-tools");
+    const update = (value: unknown) => fixture.harness.emitProvider({ jsonrpc: "2.0", method: "session/update", params: {
+      sessionId: "cursor-resumed", update: value,
+    } });
+    try {
+      await fixture.session.start({ id: "root", kind: "user", text: "root" });
+      const start = { sessionUpdate: "tool_call", toolCallId: "call-1", title: "Read", rawInput: { path: "x" } };
+      update(start); update(start);
+      expect(fixture.session.snapshot().diagnostics.metrics.outstandingToolUses).toBe(1);
+      expect(await fixture.session.send({ id: "steer", kind: "user", text: "more" })).toMatchObject({ status: "accepted" });
+      const finish = { sessionUpdate: "tool_call_update", toolCallId: "call-1", status: "completed" };
+      update(finish); update(finish); update(start);
+      update({ sessionUpdate: "tool_call", toolCallId: "call-2", title: "Fast tool", status: "completed" });
+      update({ sessionUpdate: "tool_call_update", toolCallId: "call-2", status: "completed" });
+      expect(fixture.session.snapshot().diagnostics.metrics).toMatchObject({ outstandingToolUses: 0, toolLifecycleMismatchCount: 0 });
+      fixture.harness.completeTurn(2);
+      await vi.waitFor(() => expect(fixture.events.filter((event) => event.type === "turn_completed")).toHaveLength(1));
+      expect(fixture.events.filter((event) => event.type === "tool_started")).toMatchObject([{ callId: "call-1" }, { callId: "call-2" }]);
+      expect(fixture.events.filter((event) => event.type === "tool_finished")).toMatchObject([{ callId: "call-1", name: "Read" }, { callId: "call-2" }]);
+    } finally { await stopRegisteredHarness("cursor", fixture); }
+  });
+});
+
 describe.each(["claude", "codex", "cursor", "grok", "opencode", "pi", "antigravity"] as const)(
   "%s shared persistent stress conformance",
   (backend) => {

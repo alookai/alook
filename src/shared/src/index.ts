@@ -327,6 +327,7 @@ export {
   AuditLogCliInvocationPayloadSchema,
   AuditLogToolCallPayloadSchema,
   AuditLogThinkingPayloadSchema,
+  AuditLogTextPayloadSchema,
   AuditLogTurnInterruptPayloadSchema,
   AuditLogWakeTriggerPayloadSchema,
   AuditLogModelChangedPayloadSchema,
@@ -496,6 +497,7 @@ export type {
 } from "./community-cli-contract";
 export {
   AGENT_EVENT_PROMPT_MAX_LENGTH,
+  BOT_AUDIT_TEXT_MAX_BYTES,
   CONTROL_HEARTBEAT_CAPABILITY,
   AgentInterruptRequestSchema,
   DM_SERVER,

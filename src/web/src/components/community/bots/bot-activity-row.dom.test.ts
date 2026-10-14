@@ -17,6 +17,35 @@ function modelRowText(renderer: ReturnType<typeof renderDom>): string {
   return rowText(renderer, "bot-activity-event-model_changed")
 }
 
+describe("BotActivityRow — text and historical thinking", () => {
+  function textEvent(payload: unknown, kind: "text" | "thinking" = "text"): AuditEvent {
+    return { id: "text-1", kind, payload, sessionId: null, launchId: null, createdAt: "2026-10-14T00:00:00.000Z" }
+  }
+
+  it("renders the retained Unicode body literally without interpreting markup", () => {
+    const text = "正文🙂\n<script>private body</script>"
+    const renderer = render(textEvent({ text, truncated: false, chars: [...text].length }))
+    expect(renderer.getByTestId("bot-activity-event-text").textContent).toBe(text)
+    expect(renderer.container.querySelector("script")).toBeNull()
+    expect(renderer.container).not.toHaveTextContent("Truncated")
+    expect(renderer.container.querySelector('[aria-label="text"]')).not.toBeNull()
+  })
+
+  it("shows retention truncation even when the short retained prefix fits the row", () => {
+    const renderer = render(textEvent({ text: "short prefix", truncated: true, chars: 200 }))
+    expect(renderer.getByTestId("bot-activity-event-text")).toHaveTextContent("short prefix")
+    expect(renderer.getByTestId("bot-activity-event-text").querySelector("button")).toBeDisabled()
+    expect(renderer.container).toHaveTextContent("Truncated")
+  })
+
+  it("keeps historical thinking readable without relabeling it as text", () => {
+    const renderer = render(textEvent({ text: "retained thinking", truncated: false, chars: 17 }, "thinking"))
+    expect(renderer.container).toHaveTextContent("retained thinking")
+    expect(renderer.container.querySelector('[aria-label="think"]')).not.toBeNull()
+    expect(renderer.container.querySelector('[data-testid="bot-activity-event-text"]')).toBeNull()
+  })
+})
+
 describe("BotActivityRow — model_changed", () => {
   it("renders the raw stored ids from → to", () => {
     const renderer = render({

@@ -34,6 +34,7 @@ export class AgyDriver implements BackendAdapter<"agy"> {
   private inputAt = "";
   private usageSource = "";
   private readonly usage = new SettledUsageProjector();
+  private readonly tools = new Map<number, "active" | "done">();
 
   constructor(private readonly launchSpec?: ReturnType<typeof agySpawnSpec>) {}
 
@@ -76,6 +77,7 @@ export class AgyDriver implements BackendAdapter<"agy"> {
     this.pending = true;
     this.inputIndex = undefined;
     this.usage.reset();
+    this.tools.clear();
     return JSON.stringify({ event: "user", message: { content: text } });
   }
 
@@ -111,8 +113,14 @@ export class AgyDriver implements BackendAdapter<"agy"> {
         const tool = asRecord(step.tool_info);
         const name = typeof step.tool_name === "string" ? step.tool_name : "tool";
         const callId = `${this.sessionId}:${index}`;
-        if (step.state === "ACTIVE") result.push({ kind: "tool_call", callId, name, input: tool?.parameters });
-        if (step.state === "DONE") result.push({ kind: "tool_output", callId, name });
+        if ((step.state === "ACTIVE" || step.state === "DONE") && !this.tools.has(index as number)) {
+          this.tools.set(index as number, "active");
+          result.push({ kind: "tool_call", callId, name, input: tool?.parameters });
+        }
+        if (step.state === "DONE" && this.tools.get(index as number) === "active") {
+          this.tools.set(index as number, "done");
+          result.push({ kind: "tool_output", callId, name });
+        }
       }
       const usage = asRecord(step.usage);
       if (step.state === "DONE" && usage) {
@@ -138,11 +146,15 @@ export class AgyDriver implements BackendAdapter<"agy"> {
     this.previousTurns = turns as number;
     this.pending = false;
     const events: AdapterEvent[] = [];
+    const interrupted = result.status === "CANCELLED" || (result.status === "ERROR" && result.error === "interrupted");
     if (result.status === "SUCCESS") {
       if (typeof result.response !== "string") return this.fail("Antigravity CLI result is missing response text");
       events.push({ kind: "assistant_message_completed", text: result.response });
-    } else events.push({ kind: "error", message: typeof result.error === "string" ? result.error : `Antigravity CLI status: ${String(result.status)}` });
-    events.push({ kind: "turn_end", sessionId: this.currentSessionId!, ...(result.status !== "SUCCESS" ? { pendingContent: "discard" as const } : {}) });
+    } else if (!interrupted) events.push({ kind: "error", message: typeof result.error === "string" ? result.error : `Antigravity CLI status: ${String(result.status)}` });
+    events.push({ kind: "turn_end", sessionId: this.currentSessionId!,
+      ...(result.status !== "SUCCESS" ? { pendingContent: "discard" as const } : {}),
+      ...(interrupted ? { outcome: "interrupted" as const } : {}),
+    });
     return events;
   }
 

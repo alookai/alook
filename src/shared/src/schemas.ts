@@ -2,7 +2,7 @@ import { z } from "zod";
 import { IssueStatus, TASK_TYPES } from "./constants";
 import { sanitizeSlug } from "./utils/slug";
 import { DiagnosticReportIdSchema } from "./diagnostics-contract";
-import { AGENT_EVENT_PROMPT_MAX_LENGTH } from "./community-cli-contract";
+import { AGENT_EVENT_PROMPT_MAX_LENGTH, BOT_AUDIT_TEXT_MAX_BYTES } from "./community-cli-contract";
 import {
   DAILY_TOKEN_USAGE_WINDOW_DAYS,
   DailyUsageSnapshotSchema,
@@ -1517,6 +1517,14 @@ export const AuditLogThinkingPayloadSchema = z.object({
   truncated: z.boolean(),
   chars: z.number().int().nonnegative(),
 });
+export const AuditLogTextPayloadSchema = z.object({
+  text: z.string().min(1).max(BOT_AUDIT_TEXT_MAX_BYTES).refine(
+    (text) => new TextEncoder().encode(text).byteLength <= BOT_AUDIT_TEXT_MAX_BYTES,
+    { message: "Text exceeds 1024 UTF-8 bytes" },
+  ),
+  truncated: z.boolean(),
+  chars: z.number().int().nonnegative(),
+});
 export const AuditLogTurnInterruptPayloadSchema = z.object({
   status: z.literal("accepted"),
 });
@@ -1609,6 +1617,7 @@ export const BotAuditEventSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("cli_invocation"), payload: AuditLogCliInvocationPayloadSchema }),
   z.object({ kind: z.literal("tool_call"), payload: AuditLogToolCallPayloadSchema }),
   z.object({ kind: z.literal("thinking"), payload: AuditLogThinkingPayloadSchema }),
+  z.object({ kind: z.literal("text"), payload: AuditLogTextPayloadSchema }),
   z.object({ kind: z.literal("turn_interrupt"), payload: AuditLogTurnInterruptPayloadSchema }),
   z.object({ kind: z.literal("wake_trigger"), payload: AuditLogWakeTriggerPayloadSchema }),
   z.object({ kind: z.literal("session_reset"), payload: AuditLogSessionResetPayloadSchema }),
@@ -1623,6 +1632,7 @@ export const BotAuditEventKindSchema = z.enum([
   "cli_invocation",
   "tool_call",
   "thinking",
+  "text",
   "turn_interrupt",
   "wake_trigger",
   "session_reset",

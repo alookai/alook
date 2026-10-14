@@ -518,7 +518,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
           };
         }
       | { kind: "tool_call"; payload: { name: string; target?: string } }
-      | { kind: "thinking"; payload: { text: string; truncated: boolean; chars: number } }
+      | { kind: "text"; payload: { text: string; truncated: boolean; chars: number } }
       | { kind: "turn_interrupt"; payload: { status: "accepted" } }
       | { kind: "session_reset"; payload: { trigger: "idle_timeout" } }
       | {
@@ -1048,7 +1048,6 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       recordProviderQuota(backendId, quota);
       reportTelemetryForIdleAgent(agentId);
     },
-    // Bot audit log — Producer A (runtime thinking + non-Bash tool_call).
     // Bash suppression + thinking truncation happen inside managerRuntime.
     onBotAuditEvent: (agentId, event, context) => emitBotAuditEvent(agentId, event, context),
     // Idle hibernation / stall-recovery stops the subprocess without a

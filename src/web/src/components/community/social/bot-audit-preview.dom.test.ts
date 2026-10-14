@@ -59,6 +59,17 @@ describe("BotAuditPreview", () => {
     vi.useRealTimers()
   })
 
+  it("shows a fixed text summary without the retained body or its private link", () => {
+    mocks.result.events = [{
+      ...event("e1"), kind: "text",
+      payload: { text: "private body https://private.example", truncated: true, chars: 500 },
+    }]
+    const renderer = render(React.createElement(BotAuditPreview, { botId: "bot-1", active: false, onOpen: () => {} }))
+    expect(renderer.container).toHaveTextContent("Completed text output")
+    expect(renderer.container).not.toHaveTextContent("private body")
+    expect(renderer.container.innerHTML).not.toContain("private.example")
+  })
+
   it("uses exact system status pairs for active state", () => {
     expect(isBotActivityActive("🌀", "Waking up")).toBe(true)
     expect(isBotActivityActive("⚡", "Working on it")).toBe(true)

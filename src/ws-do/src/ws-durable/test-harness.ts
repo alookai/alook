@@ -273,6 +273,8 @@ vi.mock("@alook/shared", async () => {
       let ok = false
       if (kind === "cli_invocation") ok = typeof payload.subcommand === "string"
       else if (kind === "tool_call") ok = typeof payload.name === "string"
+      else if (kind === "text")
+        ok = typeof payload.text === "string" && payload.text.length > 0 && new TextEncoder().encode(payload.text).byteLength <= 1024 && typeof payload.truncated === "boolean" && typeof payload.chars === "number"
       else if (kind === "thinking")
         ok = typeof payload.text === "string" && typeof payload.truncated === "boolean" && typeof payload.chars === "number"
       else if (kind === "turn_interrupt") ok = payload.status === "accepted"

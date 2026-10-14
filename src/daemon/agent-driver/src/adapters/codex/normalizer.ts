@@ -337,7 +337,9 @@ export class CodexEventNormalizer {
             { kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id) },
           ];
         }
-        return [{ kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id) }];
+        return [{ kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id),
+          ...(params.turn.status === "interrupted" ? { outcome: "interrupted" as const } : {}),
+        }];
 
       case "error":
         if (params?.willRetry === true) {
@@ -527,8 +529,12 @@ export class CodexEventNormalizer {
         return [{ kind: "tool_output", ...identity, name: "collab_tool_call" }];
       case "agentMessage":
         return [{ kind: "assistant_message_completed", text: params?.item?.text ?? "" }];
-      case "reasoning":
-        return [{ kind: "assistant_reasoning_completed", text: params?.item?.text ?? "" }];
+      case "reasoning": {
+        const blocks = [params?.item?.summary, params?.item?.content]
+          .find((value) => Array.isArray(value) && value.some((text: unknown) => typeof text === "string" && text.length > 0));
+        const text = blocks?.filter((value: unknown) => typeof value === "string").join("\n\n") ?? "";
+        return text.length > 0 ? [{ kind: "assistant_reasoning_completed", text }] : [];
+      }
       default:
         return [];
     }

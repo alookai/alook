@@ -38,6 +38,18 @@ describe("parseAuditLogPayload", () => {
     )
     expect(p).toEqual({ text: "hmm", truncated: false, chars: 3 })
   })
+  it("parses retained text with its original count and truncation state", () => {
+    const payload = { text: "正文🙂\nnext", truncated: true, chars: 600 }
+    expect(parseAuditLogPayload("text", JSON.stringify(payload))).toEqual(payload)
+  })
+  it("rejects overbyte or malformed text while allowing the exact Unicode byte boundary", () => {
+    const text = "中".repeat(340) + "🙂"
+    expect(new TextEncoder().encode(text)).toHaveLength(1024)
+    const payload = { text, truncated: true, chars: 400 }
+    expect(parseAuditLogPayload("text", JSON.stringify(payload))).toEqual(payload)
+    expect(parseAuditLogPayload("text", JSON.stringify({ ...payload, text: text + "x" }))).toBe(null)
+    expect(parseAuditLogPayload("text", JSON.stringify({ text, truncated: "yes", chars: 400 }))).toBe(null)
+  })
   it("parses only daemon-accepted turn_interrupt payloads", () => {
     expect(parseAuditLogPayload("turn_interrupt", JSON.stringify({ status: "accepted" }))).toEqual({
       status: "accepted",

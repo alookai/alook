@@ -109,7 +109,7 @@ describe("native process snapshot ownership", () => {
 function windowsDescendants(pid: number): WindowsProcessIdentity[] {
   if (process.platform !== "win32") return [];
   const script = `$found = @(Get-CimInstance Win32_Process | Where-Object { $_.CreationDate } | ForEach-Object { @{pid=[int]$_.ProcessId;parent=[int]$_.ParentProcessId;name=$_.Name;created=$_.CreationDate.ToUniversalTime().ToString("o")} }); ConvertTo-Json -InputObject $found -Compress`;
-  const snapshot = JSON.parse(execFileSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", timeout: 10_000 })) as WindowsProcessIdentity[];
+  const snapshot = JSON.parse(execFileSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", timeout: 30_000 })) as WindowsProcessIdentity[];
   return descendantsFromSnapshot(snapshot, pid);
 }
 
@@ -122,7 +122,7 @@ async function stop(child: ChildProcess) {
   const alive = owned.filter(process => isAlive(process.pid));
   if (alive.length) {
     const script = `$found = @(); foreach ($id in @(${alive.map(process => process.pid).join(",")})) { foreach ($process in @(Get-CimInstance Win32_Process -Filter ("ProcessId=" + $id))) { $found += @{pid=$id;name=$process.Name;created=$process.CreationDate.ToString("o")} } }; ConvertTo-Json -InputObject @($found) -Compress`;
-    const current = JSON.parse(execFileSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", timeout: 10_000 }));
+    const current = JSON.parse(execFileSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", timeout: 30_000 }));
     console.log(JSON.stringify({ stage: "owned-descendant-still-alive", binary: diagnostics.get(child)?.binary, captured: alive, current }));
   }
   expect(alive).toEqual([]);

@@ -47,14 +47,14 @@ describe("blogTopics", () => {
     expect(registrySlugs).toEqual(publishedSlugs);
   });
 
-  it("covers all 29 published slugs exactly once", () => {
+  it("covers all 30 published slugs exactly once", () => {
     const orderedSlugs = blogTopics.map((topic) =>
       topic.entries.map((entry) => entry.slug)
     );
     const slugs = orderedSlugs.flat();
 
-    expect(slugs).toHaveLength(29);
-    expect(new Set(slugs).size).toBe(29);
+    expect(slugs).toHaveLength(30);
+    expect(new Set(slugs).size).toBe(30);
     expect(orderedSlugs).toEqual([
       [
         "ai-agent-vs-chatbot",
@@ -85,6 +85,7 @@ describe("blogTopics", () => {
         "alook-vs-buzz",
         "alook-vs-grok-bot",
         "humans-and-ai-agents-in-one-room",
+        "ask-coworker-codex-claude-code",
         "why-we-built-alook",
         "ai-agent-identity",
       ],
@@ -112,6 +113,7 @@ describe("blogTopics", () => {
         )
       )
     ).toEqual({
+      "ask-coworker-codex-claude-code": "Let coworkers talk to the coding agents that did the work",
       "prevent-claude-code-codex-duplicating-work": "Prevent Claude Code and Codex from duplicating work",
       "prevent-codex-opencode-duplicating-work": "Prevent Codex and OpenCode from duplicating work",
       "prevent-claude-code-opencode-duplicating-work": "Prevent Claude Code and OpenCode from duplicating work",

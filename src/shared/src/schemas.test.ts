@@ -11,6 +11,7 @@ import {
   UpdateWorkspaceRequestSchema,
   BotAuditEventSchema,
   BotAuditEventKindSchema,
+  HostBotAuditEventFrameSchema,
   CommunityAgentNapRequestSchema,
   CommunityMachineRuntimeSchema,
   RuntimeReasoningCatalogSchema,
@@ -395,3 +396,25 @@ it("accepts the four supported provider quotas in a ready snapshot and bounds ex
   expect(HostReadyMessageSchema.safeParse({ type: "ready", runtimeReport: [], providerQuotas }).success).toBe(true)
   expect(HostReadyMessageSchema.safeParse({ type: "ready", runtimeReport: [], providerQuotas: [...providerQuotas, providerQuotas[0]] }).success).toBe(false)
 })
+
+
+describe("completed text audit payload", () => {
+  const frame = (text: string) => ({
+    type: "bot_audit_event", agentId: "bot", event: {
+      kind: "text", payload: { text, truncated: false, chars: [...text].length },
+    },
+  });
+
+  it.each(["a".repeat(1024), "中".repeat(341) + "a", "😀".repeat(256)])("accepts a full 1024-byte Unicode prefix", (text) => {
+    expect(HostBotAuditEventFrameSchema.safeParse(frame(text)).success).toBe(true);
+  });
+
+  it.each(["a".repeat(1025), "中".repeat(342), "😀".repeat(256) + "a", ""])("rejects text outside the byte budget before server storage", (text) => {
+    expect(HostBotAuditEventFrameSchema.safeParse(frame(text)).success).toBe(false);
+  });
+
+  it("registers text while preserving legacy thinking rows", () => {
+    expect(BotAuditEventKindSchema.safeParse("text").success).toBe(true);
+    expect(BotAuditEventSchema.safeParse({ kind: "thinking", payload: { text: "legacy", truncated: false, chars: 6 } }).success).toBe(true);
+  });
+});

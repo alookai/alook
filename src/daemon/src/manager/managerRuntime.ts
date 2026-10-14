@@ -1,3 +1,4 @@
+import { BOT_AUDIT_TEXT_MAX_BYTES } from "@alook/shared";
 import { MEMORY_MAINTENANCE_PROMPT } from "./memoryMaintenancePrompt.js";
 import {
   reduceManager,
@@ -245,7 +246,7 @@ export interface ManagerRuntimeOpts {
     agentId: string,
     event:
       | { kind: "tool_call"; payload: { name: string; target?: string } }
-      | { kind: "thinking"; payload: { text: string; truncated: boolean; chars: number } }
+      | { kind: "text"; payload: { text: string; truncated: boolean; chars: number } }
       | { kind: "turn_interrupt"; payload: { status: "accepted" } }
       | { kind: "session_reset"; payload: { trigger: "idle_timeout" } }
       | {
@@ -292,7 +293,6 @@ export interface TimelineRecorder {
     pendingIdleResetEvent?: { eventId: string; occurredAt: string },
   ): boolean;
 }
-const THINKING_MAX_BYTES = 4096;
 const AUDIT_ERROR_MESSAGE_MAX_LEN = 2000;
 const MAX_TARGET_CODE_UNITS = 200;
 export function canonicalToolName(rawName: string): string {
@@ -440,15 +440,15 @@ export function extractToolAudit(
   }
   return { name, target: truncateTargetToCodeUnits(target), suppressed: false };
 }
-export function truncateThinking(
+export function truncateAuditText(
   text: string
 ): { text: string; truncated: boolean; chars: number } {
   const chars = [...text].length;
   const buf = Buffer.from(text, "utf8");
-  if (buf.byteLength <= THINKING_MAX_BYTES) {
+  if (buf.byteLength <= BOT_AUDIT_TEXT_MAX_BYTES) {
     return { text, truncated: false, chars };
   }
-  let end = THINKING_MAX_BYTES;
+  let end = BOT_AUDIT_TEXT_MAX_BYTES;
   while (end > 0 && (buf[end] & 0xc0) === 0x80) end--;
   const truncatedText = buf.subarray(0, end).toString("utf8");
   return { text: truncatedText, truncated: true, chars };
@@ -2022,18 +2022,18 @@ export class AgentProcessManager {
       }
     }
     if (this.opts.onBotAuditEvent) {
-      if (event.type === "assistant_reasoning_completed" && event.text.length > 0) {
-        const { text, truncated, chars } = truncateThinking(event.text);
+      if (event.type === "assistant_message_completed" && event.text.length > 0) {
+        const { text, truncated, chars } = truncateAuditText(event.text);
         try {
           this.opts.onBotAuditEvent(agentId, {
-            kind: "thinking",
+            kind: "text",
             payload: { text, truncated: truncated || event.truncated, chars },
           }, {
             sessionId: this.liveSessions.get(agentId) ?? null,
             launchId: this.launchIds.get(agentId) ?? null,
           });
         } catch (err) {
-          this.log.debug("audit emit failed (thinking)", { agentId, err: String(err) });
+          this.log.debug("audit emit failed (text)", { agentId, err: String(err) });
         }
       }
       if (event.type === "tool_started") {

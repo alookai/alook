@@ -355,7 +355,7 @@ describe("OpenCode CLI v2 persisted message authority", () => {
     expect(native.interruptQuery).toBe("?resume=false");
     expect(native.ends).toHaveLength(0);
     native.deliver(); native.finish("msg_interrupted", "interrupted");
-    await vi.waitFor(() => expect(native.ends).toEqual([{ kind: "turn_end", sessionId: native.id, turnOwner: "msg_root" }]));
+    await vi.waitFor(() => expect(native.ends).toEqual([{ kind: "turn_end", sessionId: native.id, turnOwner: "msg_root", outcome: "interrupted" }]));
     expect(await lane.interrupt({ reason: "user_interrupt" })).toBe(false);
     expect(native.errors).toHaveLength(0);
   });

@@ -941,6 +941,8 @@ export interface HostAgentActivity {
  * through `HostControlChannel.reportBotAuditEvent`; ws-do stamps `createdAt`
  * and appends to `community_bot_activity_event`.
  */
+export const BOT_AUDIT_TEXT_MAX_BYTES = 1024;
+
 export type BotAuditEventPayload =
   | {
       kind: "cli_invocation";
@@ -951,6 +953,7 @@ export type BotAuditEventPayload =
     }
   | { kind: "tool_call"; payload: { name: string; target?: string } }
   | { kind: "thinking"; payload: { text: string; truncated: boolean; chars: number } }
+  | { kind: "text"; payload: { text: string; truncated: boolean; chars: number } }
   | { kind: "turn_interrupt"; payload: { status: "accepted" } }
   | {
       kind: "wake_trigger";

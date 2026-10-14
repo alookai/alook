@@ -908,6 +908,7 @@ implements AgentSession<Specs, Id> {
         return;
       case "turn_end":
         if (!this.activeTurn?.terminalOwner || event.turnOwner !== this.activeTurn.terminalOwner) return;
+        if (event.outcome === "interrupted") this.interruptedTurnId = this.activeTurn.turnId;
         if (event.pendingContent === "discard") {
           this.activeTurn.pendingReasoning = emptySemanticAssembler();
           this.activeTurn.pendingMessage = emptySemanticAssembler();

@@ -100,6 +100,7 @@ export const blogTopics = [
         slug: "humans-and-ai-agents-in-one-room",
         userJob: "Bring multiple people's agents into one shared room",
       },
+      { slug: "ask-coworker-codex-claude-code", userJob: "Let coworkers talk to the coding agents that did the work" },
       { slug: "why-we-built-alook", userJob: "Understand why Alook exists (founder narrative)" },
       {
         slug: "ai-agent-identity",
