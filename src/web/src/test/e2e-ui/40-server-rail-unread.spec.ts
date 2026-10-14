@@ -1,8 +1,10 @@
 import type { Locator, Page, Response } from "@playwright/test"
+import { AccountAttentionSnapshotSchema } from "@alook/shared"
 import { expect, test } from "./_fixtures/case-fixture"
 import { composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
 
 import { tid } from "./_fixtures/testids"
+import { communityFrameEvents, proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 
 async function indicatorHeight(indicator: Locator) {
   return indicator.evaluate((element) => element.getBoundingClientRect().height)
@@ -47,7 +49,7 @@ async function combineServers(page: Page, sourceId: string, targetId: string) {
   }
 }
 
-test("server unread owns exact rail geometry, folder aggregation, read clear, and mobile parity", async ({ caseActors }, testInfo) => {
+test("server unread owns exact rail geometry, folder aggregation, read clear, and mobile parity", async ({ caseActors, caseResources }, testInfo) => {
   test.setTimeout(150_000)
 
   const actors = await caseActors(["alice", "bob"])
@@ -64,7 +66,24 @@ test("server unread owns exact rail geometry, folder aggregation, read clear, an
   await seedJoinServer("alice", "bob", backgroundServer)
   await seedJoinServer("alice", "bob", neutralServer)
   const bobInfo = await memberInfo("alice", backgroundServer, userId("bob"))
-  const { page } = await asUser("bob")
+  const { page, context } = await asUser("bob", {
+    recordVideo: { dir: testInfo.outputPath("server-digits-video"), size: { width: 1280, height: 900 } },
+  })
+  const ws = await proxyCommunityWebSockets(context)
+  const snapshots: Array<Record<string, unknown>> = []
+  const video = page.video()
+  actors.onCleanup(async () => {
+    try {
+      await testInfo.attach("server-digits-stages.json", {
+        body: JSON.stringify({ snapshots, frames: ws.frames }, null, 2), contentType: "application/json",
+      })
+    } finally {
+      await caseResources.closeContext(context)
+      if (video) await testInfo.attach("server-hidden-message-return-video", {
+        path: await video.path(), contentType: "video/webm",
+      })
+    }
+  })
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto(`/c/channels/${foregroundServer}/${foregroundChannel}`)
   await expect(page.getByTestId(tid.serverIcon(backgroundServer))).toBeVisible({ timeout: 30_000 })
@@ -160,13 +179,35 @@ test("server unread owns exact rail geometry, folder aggregation, read clear, an
   await page.getByTestId(tid.serverIcon(foregroundServer)).focus()
   const alice = await asUser("alice")
   await gotoAfterUserWsAuth(alice.page, `/c/channels/${backgroundServer}/${backgroundChannel}`)
-  const secondBody = `mobile background mention ${stamp}`
   const editable = composerEditable(alice.page)
-  await editable.click()
-  await editable.pressSequentially(`@${bobInfo.name.slice(0, 3)}`)
-  await alice.page.getByTestId(tid.mentionOption(bobInfo.id)).click()
-  await editable.pressSequentially(` ${secondBody}`)
-  await alice.page.keyboard.press("Enter")
+  const sendMention = async (content: string) => {
+    const frameStart = ws.frames.length
+    const response = alice.page.waitForResponse((candidate) => (
+      candidate.request().method() === "POST"
+      && new URL(candidate.url()).pathname === `/api/community/channels/${backgroundChannel}/messages`
+    ))
+    void response.catch(() => {})
+    await editable.click()
+    await editable.pressSequentially(`@${bobInfo.name.slice(0, 3)}`)
+    await alice.page.getByTestId(tid.mentionOption(bobInfo.id)).click()
+    await editable.pressSequentially(` ${content}`)
+    await alice.page.keyboard.press("Enter")
+    const result = await response
+    expect(result.status()).toBe(201)
+    const messageId = (await result.json() as { message: { id: string } }).message.id
+    await expect.poll(() => {
+      const events = ws.frames.slice(frameStart).flatMap(communityFrameEvents)
+      return events.some((event) => event.type === "community:message.create" && event.message?.id === messageId)
+        && events.some((event) => event.type === "community:unread.bump"
+          && event.channelId === backgroundChannel && event.serverId === backgroundServer
+          && event.userId === userId("bob") && event.isMention === true)
+    }).toBe(true)
+    snapshots.push({ stage: "mention-receipt", at: Date.now(), content, messageId,
+      status: result.status(), events: ws.frames.slice(frameStart).flatMap(communityFrameEvents) })
+    return messageId
+  }
+  const secondBody = `mobile background mention ${stamp}`
+  await sendMention(secondBody)
   await expectIndicatorHeight(backgroundIndicator, 10)
   await expect(page.getByTestId(tid.railUnreadBadge(backgroundServer))).toBeVisible()
   await page.screenshot({
@@ -178,4 +219,140 @@ test("server unread owns exact rail geometry, folder aggregation, read clear, an
   expect(seed.status()).toBe(200)
   const body = await seed.json() as { servers: Array<{ id: string; unread: boolean }> }
   expect(body.servers.find((server) => server.id === backgroundServer)?.unread).toBe(true)
+
+  const badge = page.getByTestId(tid.railUnreadBadge(backgroundServer))
+  const flow = badge.locator("number-flow-react")
+  const railContainer = backgroundIcon.locator("xpath=ancestor::nav[1]/..")
+  const readDigits = () => flow.evaluate((element) => {
+    const number = element.shadowRoot?.querySelector<HTMLElement>('[part="number"]')
+    const bounds = number?.getBoundingClientRect()
+    const badgeBounds = element.parentElement!.getBoundingClientRect()
+    const characters = [...element.shadowRoot?.querySelectorAll<HTMLElement>(
+      '[part~="integer"] > [part~="digit"]:not([inert]) .digit__num:not([inert])',
+    ) ?? []]
+    return {
+      text: characters.map((character) => character.textContent).join(""),
+      width: bounds?.width ?? 0, height: bounds?.height ?? 0,
+      storedWidth: number?.style.getPropertyValue("--width") ?? "",
+      characters: characters.map((character) => {
+        const rect = character.getBoundingClientRect()
+        const style = getComputedStyle(character)
+        return { text: character.textContent, width: rect.width, height: rect.height,
+          visibility: style.visibility, opacity: style.opacity,
+          intersectsBadge: rect.right > badgeBounds.left && rect.left < badgeBounds.right
+            && rect.bottom > badgeBounds.top && rect.top < badgeBounds.bottom }
+      }),
+      animations: element.shadowRoot?.getAnimations().map((animation) => ({
+        playState: animation.playState, pending: animation.pending, currentTime: animation.currentTime,
+      })) ?? [],
+    }
+  })
+  const expectPrimaryCount = async (stage: string, count: number) => {
+    const response = await page.request.get("/api/community/users/me/attention")
+    expect(response.status()).toBe(200)
+    const raw: unknown = await response.json()
+    expect(raw).not.toHaveProperty("stale", true)
+    const snapshot = AccountAttentionSnapshotSchema.parse(raw)
+    const actualCount = snapshot.scopes.filter((scope) => scope.serverId === backgroundServer)
+      .reduce((total, scope) => total + scope.attentionCount, 0)
+    snapshots.push({ stage: `${stage}-primary`, at: Date.now(), count, actualCount,
+      status: response.status(), snapshot })
+    expect(actualCount).toBe(count)
+  }
+  const capture = async (stage: string, count: number) => {
+    const mounted = await flow.count()
+    snapshots.push({ stage, at: Date.now(), count, mounted, digits: mounted ? await readDigits() : null })
+    await testInfo.attach(`server-digits-${stage}.png`, {
+      body: await page.screenshot(), contentType: "image/png",
+    })
+    if (await badge.isVisible()) await testInfo.attach(`server-digits-${stage}-badge.png`, {
+      body: await badge.screenshot(), contentType: "image/png",
+    })
+  }
+  const expectVisibleDigits = async (stage: string, count: number) => {
+    await expect(badge).toBeVisible()
+    await expect(flow).toHaveCount(1)
+    await expect.poll(async () => (await readDigits()).text).toBe(String(count))
+    await capture(`${stage}-transition`, count)
+    await expect.poll(async () => (await readDigits()).animations.filter((animation) => (
+      animation.playState === "running" || animation.pending
+    )).length).toBe(0)
+    const digits = await readDigits()
+    expect(digits.width).toBeGreaterThan(0)
+    expect(digits.height).toBeGreaterThan(0)
+    expect(digits.characters).toHaveLength(String(count).length)
+    for (const character of digits.characters) {
+      expect(character.width).toBeGreaterThan(0)
+      expect(character.height).toBeGreaterThan(0)
+      expect(character.visibility).toBe("visible")
+      expect(Number(character.opacity)).toBeGreaterThan(0)
+      expect(character.intersectsBadge).toBe(true)
+    }
+    await expectPrimaryCount(stage, count)
+    await capture(stage, count)
+  }
+  await expectVisibleDigits("visible", 1)
+  for (let count = 2; count <= 9; count += 1) {
+    await sendMention(`Server digit precondition ${stamp} ${count}`)
+    await expect.poll(async () => (await readDigits()).text).toBe(String(count))
+  }
+  await expectVisibleDigits("before-detail", 9)
+  const retained = await flow.elementHandle()
+  expect(retained).not.toBeNull()
+  await page.getByTestId(tid.channelRow(foregroundChannel)).click()
+  await expect(page).toHaveURL(`/c/channels/${foregroundServer}/${foregroundChannel}`)
+  await expect(railContainer).toHaveCSS("display", "none")
+  await expect(railContainer).toHaveAttribute("inert", "")
+  let lastMessageId = await sendMention(`Hidden Server digit ${stamp}`)
+  await expect.poll(async () => (await readDigits()).text).toBe("10")
+  await expectPrimaryCount("hidden-update", 10)
+  await capture("hidden-update", 10)
+  await page.getByRole("banner").getByRole("button", { name: "Back", exact: true }).click()
+  await expect(page).toHaveURL(`/c/channels/${foregroundServer}`)
+  expect(await flow.evaluate((element, prior) => element === prior, retained)).toBe(true)
+  await expectVisibleDigits("first-return", 10)
+
+  for (let cycle = 0; cycle < 2; cycle += 1) {
+    await page.getByTestId(tid.channelRow(foregroundChannel)).click()
+    await expect(railContainer).toHaveCSS("display", "none")
+    lastMessageId = await sendMention(`Repeated hidden Server ${stamp} ${cycle}`)
+    const count = 11 + cycle
+    await expect.poll(async () => (await readDigits()).text).toBe(String(count))
+    await expectPrimaryCount(`hidden-repeat-${cycle}`, count)
+    await capture(`hidden-repeat-${cycle}`, count)
+    await page.getByRole("banner").getByRole("button", { name: "Back", exact: true }).click()
+    await expect(page).toHaveURL(`/c/channels/${foregroundServer}`)
+    expect(await flow.evaluate((element, prior) => element === prior, retained)).toBe(true)
+    await expectVisibleDigits(`repeat-return-${cycle}`, count)
+  }
+
+  await backgroundIcon.click()
+  await expect(page).toHaveURL(`/c/channels/${backgroundServer}`)
+  const clearResponse = page.waitForResponse((response) => (
+    response.request().method() === "PUT"
+    && new URL(response.url()).pathname === `/api/community/channels/${backgroundChannel}/read`
+  ))
+  void clearResponse.catch(() => {})
+  await page.getByTestId(tid.channelRow(backgroundChannel)).click()
+  await expect(page.getByTestId(tid.message(lastMessageId))).toBeVisible()
+  expect((await clearResponse).status()).toBe(200)
+  await expect(badge).toHaveCount(0)
+  await expectPrimaryCount("read-clear", 0)
+  await capture("read-clear", 0)
+  await page.getByRole("banner").getByRole("button", { name: "Back", exact: true }).click()
+  await expect(page).toHaveURL(`/c/channels/${backgroundServer}`)
+  await expect(badge).toHaveCount(0)
+  await sendMention(`Server positive again ${stamp}`)
+  await expectVisibleDigits("positive-again", 1)
+  expect(await flow.evaluate((element, prior) => element === prior, retained)).toBe(false)
+  const beforeFolder = await flow.elementHandle()
+  expect(beforeFolder).not.toBeNull()
+  await folder.click()
+  await expect(backgroundIcon).toHaveCount(0)
+  await sendMention(`Server folder update ${stamp}`)
+  await expectPrimaryCount("folder-unmounted", 2)
+  await capture("folder-unmounted", 2)
+  await folder.click()
+  await expectVisibleDigits("folder-remount", 2)
+  expect(await flow.evaluate((element, prior) => element === prior, beforeFolder)).toBe(false)
 })

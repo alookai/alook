@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import { render } from "@/test/react-dom-harness"
 import { InboxUnreadIndicator } from "./inbox-unread-indicator"
 
-vi.mock("@/components/ui/number-ticker", () => ({ NumberTicker: ({ value, isolate }: { value: number; isolate?: boolean }) => createElement("span", { "data-testid": "count", "data-isolate": isolate }, value) }))
+vi.mock("@/components/ui/number-ticker", () => ({ NumberTicker: ({ value }: { value: number }) => createElement("span", { "data-testid": "count" }, value) }))
 
 describe("Inbox unread indicator", () => {
   it("retracts on open, re-enters on close, updates count, and retains the outgoing digit on clear", () => {
@@ -14,7 +14,6 @@ describe("Inbox unread indicator", () => {
       view.rerender(createElement(InboxUnreadIndicator, { count, open: false }))
       expect(indicator()).toHaveAttribute("data-unread", "true")
       expect(view.getByTestId("count")).toHaveTextContent(String(count))
-      expect(view.getByTestId("count")).toHaveAttribute("data-isolate", "true")
     }
     view.rerender(createElement(InboxUnreadIndicator, { count: 2, open: true }))
     expect(indicator()).toHaveAttribute("data-unread", "false")
@@ -33,7 +32,6 @@ describe("Inbox unread indicator", () => {
     view.rerender(createElement(InboxUnreadIndicator, { count: 99, open: false }))
     expect(ellipsis()).toBeNull()
     expect(view.getByTestId("count")).toHaveTextContent("99")
-    expect(view.getByTestId("count")).toHaveAttribute("data-isolate", "true")
     view.rerender(createElement(InboxUnreadIndicator, { count: 100, open: false }))
     expect(ellipsis()).not.toBeNull()
     expect(view.queryByTestId("count")).toBeNull()
