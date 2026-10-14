@@ -1,0 +1,58 @@
+diff --git a/dist/client/asset-prefix.js b/dist/client/asset-prefix.js
+index 2cd612bc013eb69025834535546fe0e3ce7faa56..cb3a69605a0ffc9b5148ce07e89f6a64c001acdf 100644
+--- a/dist/client/asset-prefix.js
++++ b/dist/client/asset-prefix.js
+@@ -14,12 +14,13 @@ function getAssetPrefix() {
+     if (!(currentScript instanceof HTMLScriptElement)) {
+         throw new _invarianterror.InvariantError(`Expected document.currentScript to be a <script> element. Received ${currentScript} instead.`);
+     }
+-    const { pathname } = new URL(currentScript.src);
++    const { origin, pathname, protocol } = new URL(currentScript.src);
+     const nextIndex = pathname.indexOf('/_next/');
+     if (nextIndex === -1) {
+         throw new _invarianterror.InvariantError(`Expected document.currentScript src to contain '/_next/'. Received ${currentScript.src} instead.`);
+     }
+-    return pathname.slice(0, nextIndex);
++    const prefix = pathname.slice(0, nextIndex);
++    return process.env.__NEXT_DEV_SERVER && (protocol === 'http:' || protocol === 'https:') && origin !== window.location.origin ? origin + prefix : prefix;
+ }
+ 
+ if ((typeof exports.default === 'function' || (typeof exports.default === 'object' && exports.default !== null)) && typeof exports.default.__esModule === 'undefined') {
+diff --git a/dist/client/asset-prefix.js.map b/dist/client/asset-prefix.js.map
+index 3475a8dc1fb77a45a6509a389c147999eea747a9..e09bd175a213b91e830e25fe841f9fd262d301b3 100644
+--- a/dist/client/asset-prefix.js.map
++++ b/dist/client/asset-prefix.js.map
+@@ -1 +1 @@
+-{"version":3,"sources":["../../src/client/asset-prefix.ts"],"sourcesContent":["import { InvariantError } from '../shared/lib/invariant-error'\n\nexport function getAssetPrefix() {\n  const currentScript = document.currentScript\n\n  if (!(currentScript instanceof HTMLScriptElement)) {\n    throw new InvariantError(\n      `Expected document.currentScript to be a <script> element. Received ${currentScript} instead.`\n    )\n  }\n\n  const { pathname } = new URL(currentScript.src)\n  const nextIndex = pathname.indexOf('/_next/')\n\n  if (nextIndex === -1) {\n    throw new InvariantError(\n      `Expected document.currentScript src to contain '/_next/'. Received ${currentScript.src} instead.`\n    )\n  }\n\n  return pathname.slice(0, nextIndex)\n}\n"],"names":["getAssetPrefix","currentScript","document","HTMLScriptElement","InvariantError","pathname","URL","src","nextIndex","indexOf","slice"],"mappings":";;;;+BAEgBA;;;eAAAA;;;gCAFe;AAExB,SAASA;IACd,MAAMC,gBAAgBC,SAASD,aAAa;IAE5C,IAAI,CAAEA,CAAAA,yBAAyBE,iBAAgB,GAAI;QACjD,MAAM,IAAIC,8BAAc,CACtB,CAAC,mEAAmE,EAAEH,cAAc,SAAS,CAAC;IAElG;IAEA,MAAM,EAAEI,QAAQ,EAAE,GAAG,IAAIC,IAAIL,cAAcM,GAAG;IAC9C,MAAMC,YAAYH,SAASI,OAAO,CAAC;IAEnC,IAAID,cAAc,CAAC,GAAG;QACpB,MAAM,IAAIJ,8BAAc,CACtB,CAAC,mEAAmE,EAAEH,cAAcM,GAAG,CAAC,SAAS,CAAC;IAEtG;IAEA,OAAOF,SAASK,KAAK,CAAC,GAAGF;AAC3B","ignoreList":[0]}
+\ No newline at end of file
++{"version":3,"sources":["../../src/client/asset-prefix.ts"],"sourcesContent":["import { InvariantError } from '../shared/lib/invariant-error'\n\nexport function getAssetPrefix() {\n  const currentScript = document.currentScript\n\n  if (!(currentScript instanceof HTMLScriptElement)) {\n    throw new InvariantError(\n      `Expected document.currentScript to be a <script> element. Received ${currentScript} instead.`\n    )\n  }\n\n  const { origin, pathname, protocol } = new URL(currentScript.src)\n  const nextIndex = pathname.indexOf('/_next/')\n\n  if (nextIndex === -1) {\n    throw new InvariantError(\n      `Expected document.currentScript src to contain '/_next/'. Received ${currentScript.src} instead.`\n    )\n  }\n\n  const prefix = pathname.slice(0, nextIndex)\n\n  return process.env.__NEXT_DEV_SERVER &&\n    (protocol === 'http:' || protocol === 'https:') &&\n    origin !== window.location.origin\n    ? origin + prefix\n    : prefix\n}\n"],"names":["getAssetPrefix","currentScript","document","HTMLScriptElement","InvariantError","origin","pathname","protocol","URL","src","nextIndex","indexOf","prefix","slice","process","env","__NEXT_DEV_SERVER","window","location"],"mappings":";;;;+BAEgBA;;;eAAAA;;;gCAFe;AAExB,SAASA;IACd,MAAMC,gBAAgBC,SAASD,aAAa;IAE5C,IAAI,CAAEA,CAAAA,yBAAyBE,iBAAgB,GAAI;QACjD,MAAM,IAAIC,8BAAc,CACtB,CAAC,mEAAmE,EAAEH,cAAc,SAAS,CAAC;IAElG;IAEA,MAAM,EAAEI,MAAM,EAAEC,QAAQ,EAAEC,QAAQ,EAAE,GAAG,IAAIC,IAAIP,cAAcQ,GAAG;IAChE,MAAMC,YAAYJ,SAASK,OAAO,CAAC;IAEnC,IAAID,cAAc,CAAC,GAAG;QACpB,MAAM,IAAIN,8BAAc,CACtB,CAAC,mEAAmE,EAAEH,cAAcQ,GAAG,CAAC,SAAS,CAAC;IAEtG;IAEA,MAAMG,SAASN,SAASO,KAAK,CAAC,GAAGH;IAEjC,OAAOI,QAAQC,GAAG,CAACC,iBAAiB,IACjCT,CAAAA,aAAa,WAAWA,aAAa,QAAO,KAC7CF,WAAWY,OAAOC,QAAQ,CAACb,MAAM,GAC/BA,SAASO,SACTA;AACN","ignoreList":[0]}
+\ No newline at end of file
+diff --git a/dist/esm/client/asset-prefix.js b/dist/esm/client/asset-prefix.js
+index 07e19afe0746d5ab8fc419dbf4fdbe974d12f46c..cb8d086d790594fd3330091f96f30ee37c7b8699 100644
+--- a/dist/esm/client/asset-prefix.js
++++ b/dist/esm/client/asset-prefix.js
+@@ -4,12 +4,13 @@ export function getAssetPrefix() {
+     if (!(currentScript instanceof HTMLScriptElement)) {
+         throw new InvariantError(`Expected document.currentScript to be a <script> element. Received ${currentScript} instead.`);
+     }
+-    const { pathname } = new URL(currentScript.src);
++    const { origin, pathname, protocol } = new URL(currentScript.src);
+     const nextIndex = pathname.indexOf('/_next/');
+     if (nextIndex === -1) {
+         throw new InvariantError(`Expected document.currentScript src to contain '/_next/'. Received ${currentScript.src} instead.`);
+     }
+-    return pathname.slice(0, nextIndex);
++    const prefix = pathname.slice(0, nextIndex);
++    return process.env.__NEXT_DEV_SERVER && (protocol === 'http:' || protocol === 'https:') && origin !== window.location.origin ? origin + prefix : prefix;
+ }
+ 
+ //# sourceMappingURL=asset-prefix.js.map
+\ No newline at end of file
+diff --git a/dist/esm/client/asset-prefix.js.map b/dist/esm/client/asset-prefix.js.map
+index 49229ee253c1bac5eee8f2d95cb33c344c8a1787..475f8dd673e368ebdc7555d3029bf158637ec0b4 100644
+--- a/dist/esm/client/asset-prefix.js.map
++++ b/dist/esm/client/asset-prefix.js.map
+@@ -1 +1 @@
+-{"version":3,"sources":["../../../src/client/asset-prefix.ts"],"sourcesContent":["import { InvariantError } from '../shared/lib/invariant-error'\n\nexport function getAssetPrefix() {\n  const currentScript = document.currentScript\n\n  if (!(currentScript instanceof HTMLScriptElement)) {\n    throw new InvariantError(\n      `Expected document.currentScript to be a <script> element. Received ${currentScript} instead.`\n    )\n  }\n\n  const { pathname } = new URL(currentScript.src)\n  const nextIndex = pathname.indexOf('/_next/')\n\n  if (nextIndex === -1) {\n    throw new InvariantError(\n      `Expected document.currentScript src to contain '/_next/'. Received ${currentScript.src} instead.`\n    )\n  }\n\n  return pathname.slice(0, nextIndex)\n}\n"],"names":["InvariantError","getAssetPrefix","currentScript","document","HTMLScriptElement","pathname","URL","src","nextIndex","indexOf","slice"],"mappings":"AAAA,SAASA,cAAc,QAAQ,gCAA+B;AAE9D,OAAO,SAASC;IACd,MAAMC,gBAAgBC,SAASD,aAAa;IAE5C,IAAI,CAAEA,CAAAA,yBAAyBE,iBAAgB,GAAI;QACjD,MAAM,IAAIJ,eACR,CAAC,mEAAmE,EAAEE,cAAc,SAAS,CAAC;IAElG;IAEA,MAAM,EAAEG,QAAQ,EAAE,GAAG,IAAIC,IAAIJ,cAAcK,GAAG;IAC9C,MAAMC,YAAYH,SAASI,OAAO,CAAC;IAEnC,IAAID,cAAc,CAAC,GAAG;QACpB,MAAM,IAAIR,eACR,CAAC,mEAAmE,EAAEE,cAAcK,GAAG,CAAC,SAAS,CAAC;IAEtG;IAEA,OAAOF,SAASK,KAAK,CAAC,GAAGF;AAC3B","ignoreList":[0]}
+\ No newline at end of file
++{"version":3,"sources":["../../../src/client/asset-prefix.ts"],"sourcesContent":["import { InvariantError } from '../shared/lib/invariant-error'\n\nexport function getAssetPrefix() {\n  const currentScript = document.currentScript\n\n  if (!(currentScript instanceof HTMLScriptElement)) {\n    throw new InvariantError(\n      `Expected document.currentScript to be a <script> element. Received ${currentScript} instead.`\n    )\n  }\n\n  const { origin, pathname, protocol } = new URL(currentScript.src)\n  const nextIndex = pathname.indexOf('/_next/')\n\n  if (nextIndex === -1) {\n    throw new InvariantError(\n      `Expected document.currentScript src to contain '/_next/'. Received ${currentScript.src} instead.`\n    )\n  }\n\n  const prefix = pathname.slice(0, nextIndex)\n\n  return process.env.__NEXT_DEV_SERVER &&\n    (protocol === 'http:' || protocol === 'https:') &&\n    origin !== window.location.origin\n    ? origin + prefix\n    : prefix\n}\n"],"names":["InvariantError","getAssetPrefix","currentScript","document","HTMLScriptElement","origin","pathname","protocol","URL","src","nextIndex","indexOf","prefix","slice","process","env","__NEXT_DEV_SERVER","window","location"],"mappings":"AAAA,SAASA,cAAc,QAAQ,gCAA+B;AAE9D,OAAO,SAASC;IACd,MAAMC,gBAAgBC,SAASD,aAAa;IAE5C,IAAI,CAAEA,CAAAA,yBAAyBE,iBAAgB,GAAI;QACjD,MAAM,IAAIJ,eACR,CAAC,mEAAmE,EAAEE,cAAc,SAAS,CAAC;IAElG;IAEA,MAAM,EAAEG,MAAM,EAAEC,QAAQ,EAAEC,QAAQ,EAAE,GAAG,IAAIC,IAAIN,cAAcO,GAAG;IAChE,MAAMC,YAAYJ,SAASK,OAAO,CAAC;IAEnC,IAAID,cAAc,CAAC,GAAG;QACpB,MAAM,IAAIV,eACR,CAAC,mEAAmE,EAAEE,cAAcO,GAAG,CAAC,SAAS,CAAC;IAEtG;IAEA,MAAMG,SAASN,SAASO,KAAK,CAAC,GAAGH;IAEjC,OAAOI,QAAQC,GAAG,CAACC,iBAAiB,IACjCT,CAAAA,aAAa,WAAWA,aAAa,QAAO,KAC7CF,WAAWY,OAAOC,QAAQ,CAACb,MAAM,GAC/BA,SAASO,SACTA;AACN","ignoreList":[0]}

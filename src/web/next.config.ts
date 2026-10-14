@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { PHASE_DEVELOPMENT_SERVER } from "next/constants";
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import { withSerwist } from "@serwist/turbopack";
@@ -25,7 +26,12 @@ const nextConfig: NextConfig = {
 	},
 };
 
-export default withSerwist(nextConfig);
+export default function config(phase: string): NextConfig {
+	return withSerwist({
+		...nextConfig,
+		assetPrefix: phase === PHASE_DEVELOPMENT_SERVER ? "http://localhost:3000" : undefined,
+	});
+}
 
 // Enable calling `getCloudflareContext()` in `next dev`.
 // See https://opennext.js.org/cloudflare/bindings#local-access-to-bindings.

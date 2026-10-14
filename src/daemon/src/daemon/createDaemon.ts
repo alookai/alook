@@ -403,6 +403,15 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   const workingDirectoryBase = opts.workingDirectoryBase ?? fallbackBase;
   const workdirFor = (agentId: string) => `${workingDirectoryBase}/${agentId}`;
   const dailyTokenUsage = new DailyTokenUsageStore(workingDirectoryBase);
+  let stopping = false;
+  let usageSealed = false;
+  let stopPromise: Promise<void> | undefined;
+  const telemetryTasks = new Set<Promise<unknown>>();
+  const trackTelemetry = <T>(task: Promise<T>): Promise<T> => {
+    telemetryTasks.add(task);
+    void task.then(() => telemetryTasks.delete(task), () => telemetryTasks.delete(task));
+    return task;
+  };
   const providerQuotaReader = opts.providerQuotaReader
     ?? (opts.sessionFactory ? async () => null : readBuiltinProviderQuota);
   const providerQuotaByBackend = new Map<ProviderQuotaSnapshot["agentBackendId"], ProviderQuotaSnapshot>();
@@ -486,6 +495,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     void channelRef?.reportAgentActivity?.(info);
   };
   const reportTelemetryForIdleAgent = (agentId: string): void => {
+    if (stopping) return;
     if (managerRef?.agentActivity(agentId) === "idle") {
       reportAgentActivity({ agentId, state: "idle" });
     }
@@ -838,10 +848,13 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   channelRef = channel;
   const activityReportTails = new Map<string, Promise<void>>();
   reportAgentActivity = (info): void => {
+    if (stopping) return;
     const prior = activityReportTails.get(info.agentId) ?? Promise.resolve();
     const next = prior
       .then(async () => {
-        await channel.reportAgentActivity(await activityPayload(info));
+        if (stopping) return;
+        const payload = await activityPayload(info);
+        if (!stopping) await channel.reportAgentActivity(payload);
       })
       .catch(() => {
         log.warn("agent activity telemetry report failed", { agentId: info.agentId, state: info.state });
@@ -1001,6 +1014,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     tickIntervalMs: opts.tickIntervalMs ?? 2000,
     onAgentSession: (info) => { tokenUsageAvailability.delete(info.agentId); void channel.reportAgentSession(info); },
     onAgentActivity: (info) => {
+      if (stopping) return;
       selfSleepScheduler?.observeAgentActivity(info.agentId, info.state === "running");
       reportAgentActivity(info);
       // Bot typing indicator (DM-only) — install / tear down the daemon-metered
@@ -1022,11 +1036,12 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     },
     onTokenUsageStatus: ({ agentId, backendId, status }) => { tokenUsageAvailability.set(agentId, { backendId, status }); reportTelemetryForIdleAgent(agentId); },
     onTokenUsage: ({ agentId, usage, identity }) => {
-      void dailyTokenUsage.record(agentId, usage, identity)
+      if (usageSealed) return;
+      trackTelemetry(dailyTokenUsage.record(agentId, usage, identity)
         .then(() => reportTelemetryForIdleAgent(agentId))
         .catch(() => {
           log.warn("daily token usage persistence failed", { agentId });
-        });
+        }));
     },
     onProviderQuota: ({ agentId, backendId, quota }) => {
       if (backendId !== "claude" && backendId !== "codex" && backendId !== "grok" && backendId !== "antigravity") return;
@@ -1106,16 +1121,22 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     daemonVersion: opts.daemonVersion,
     timeZone: () => dailyTokenUsage.timeZone,
     providerQuotas: providerQuotaSnapshots,
-    resyncActivities: async () => {
-      const activities = await Promise.all(
-        manager.liveAgentActivities().map((info) => activityPayload(info)),
-      );
-      // Telemetry enrichment can await local I/O (and Claude quota refresh).
-      // Do not let an activity snapshot captured at connect overwrite a newer
-      // live state transition that was sent while that work was in flight.
-      return activities.filter(
-        (activity) => manager.agentActivity(activity.agentId) === activity.state,
-      );
+    resyncActivities: () => {
+      if (stopping) return Promise.resolve([]);
+      return trackTelemetry((async () => {
+        const results = await Promise.allSettled(
+          manager.liveAgentActivities().map((info) => activityPayload(info)),
+        );
+        const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+        if (failed) throw failed.reason;
+        const activities = results.map((result) => (result as PromiseFulfilledResult<HostAgentActivity>).value);
+        // Telemetry enrichment can await local I/O (and Claude quota refresh).
+        // Do not let an activity snapshot captured at connect overwrite a newer
+        // live state transition that was sent while that work was in flight.
+        return stopping ? [] : activities.filter(
+          (activity) => manager.agentActivity(activity.agentId) === activity.state,
+        );
+      })());
     },
     typingTracker,
     logger: log.child("router"),
@@ -1141,6 +1162,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     },
   });
   requestReadyQuotaResend = () => {
+    if (stopping) return;
     if (router) channel.sendReady?.(router.buildReady());
   };
 
@@ -1178,6 +1200,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   // after resync completes. Wake-resync runs alongside it so a message
   // dropped while this daemon was offline gets a second chance right away.
   channel.onOpen(() => {
+    if (stopping) return;
     void coldStartWarmup();
     void resyncPendingWakes();
     void resyncPendingDiagnostics();
@@ -1192,7 +1215,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   selfSleepScheduler?.start();
 
   return {
-    isOpen: () => channel.status === "open",
+    isOpen: () => !stopping && channel.status === "open",
     // `channel.connect()` already ran above, so a caller registering here is
     // racing the first open: if the socket won that race the hook would never
     // fire at all. Fire it once immediately in that case (on a microtask, so
@@ -1203,18 +1226,33 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       if (channel.status === "open") queueMicrotask(hook);
     },
     proxyUrl: proxy.url,
-    stop: async () => {
+    stop: () => {
+      if (stopPromise) return stopPromise;
+      stopping = true;
+      const failures: unknown[] = [];
+      stopPromise = Promise.resolve().then(async () => {
+        try {
+          try { await proxy.close(); } catch (error) { failures.push(error); }
+          try { await manager.stopAll(); } catch (error) { failures.push(error); }
+        } finally {
+          // stopAll joins factories, closed results and the unique consumers.
+          // No accepted source can append usage after this sealing point.
+          usageSealed = true;
+          await Promise.allSettled([...telemetryTasks, ...activityReportTails.values()]);
+        }
+        if (failures.length) throw new AggregateError(failures, "Daemon shutdown did not complete cleanly");
+      });
+      manager.beginShutdown();
       selfSleepScheduler?.stop();
       reminderSchedulerRef?.clearAll();
       // Clear all bot-typing heartbeat intervals and emit final stops for
       // any outstanding scopes so no pill is left dangling.
       for (const agentId of [...typingHeartbeats.keys()]) {
-        emitTypingStopsAndClear(agentId);
+        try { emitTypingStopsAndClear(agentId); } catch (error) { failures.push(error); }
       }
       if (statusTimer) clearInterval(statusTimer);
-      channel.close();
-      await proxy.close();
-      await manager.stopAll();
+      try { channel.close(); } catch (error) { failures.push(error); }
+      return stopPromise;
     },
   };
 }

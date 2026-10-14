@@ -6,6 +6,7 @@ import { PassThrough } from "stream";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { setImmediate as drainEventTasks } from "node:timers/promises";
 import {
   AgentProcessManager,
   truncateThinking,
@@ -102,9 +103,11 @@ function fakeSession(sessionInstanceId = "test-instance"): FakeSession {
   const queued: Event[] = [];
   const waiters: Array<(value: IteratorResult<Event>) => void> = [];
   let sequence = 0;
+  let ended = false;
   let resolveClosed!: (result: AgentSessionResult) => void;
   const closed = new Promise<AgentSessionResult>((resolve) => { resolveClosed = resolve; });
   const push = (payload: Omit<Event, "sequence" | "sessionInstanceId" | "at">) => {
+    if (ended) return;
     const event = {
       ...payload,
       sequence: ++sequence,
@@ -125,7 +128,9 @@ function fakeSession(sessionInstanceId = "test-instance"): FakeSession {
         return {
           next: () => queued.length > 0
             ? Promise.resolve({ done: false as const, value: queued.shift()! })
-            : new Promise<IteratorResult<Event>>((resolve) => waiters.push(resolve)),
+            : ended
+              ? Promise.resolve({ done: true as const, value: undefined })
+              : new Promise<IteratorResult<Event>>((resolve) => waiters.push(resolve)),
         };
       },
     },
@@ -156,7 +161,10 @@ function fakeSession(sessionInstanceId = "test-instance"): FakeSession {
       };
     },
     async interrupt() { return { status: "not_running" as const }; },
-    async stop() { return { status: "accepted" as const, requestId: "test-stop" }; },
+    async stop(input) {
+      if (input.reason === "shutdown") await s.fire("exit", { reason: "requested", code: 0 });
+      return { status: "accepted" as const, requestId: "test-stop" };
+    },
     snapshot() {
       return {
         sessionInstanceId,
@@ -206,10 +214,18 @@ function fakeSession(sessionInstanceId = "test-instance"): FakeSession {
           : (info?.code ?? null) === 0 && (info?.signal ?? null) === null
             ? { outcome: "crashed", requested: false, exitCode: 0, signal: null, cleanup: { status: "released" } }
           : { outcome: "crashed", requested: false, exitCode: info?.code ?? null, signal: info?.signal ?? null, cleanup: { status: "released" } };
-        resolveClosed(result);
+        if (!ended) {
+          push({ type: "session_closed", result } as never);
+          ended = true;
+          for (const waiter of waiters.splice(0)) waiter({ done: true, value: undefined });
+          resolveClosed(result);
+        }
       }
       await Promise.resolve();
       await Promise.resolve();
+      // Terminal handling joins producer closure and FIFO exhaustion. Yield the
+      // event-loop phase so fire(exit) includes those consumer continuations.
+      if (evt === "exit") await drainEventTasks();
     },
   } as unknown as FakeSession;
   return s;
@@ -4549,9 +4565,10 @@ function b1Session(order: string[], name = "s", turnId = "test-turn", sessionIns
     void session.pushAgentEvent({ type: "turn_started", turnId, commandIds: [input.id] });
     return { status: "accepted" as const, delivery: "steer" as const, commandId: input.id, turnId };
   });
-  session.stop = vi.fn(async (opts?: { reason?: string }) => {
-    order.push(`${name}:stop:${opts?.reason ?? ""}`);
-    return { status: "accepted" as const, requestId: "test-stop" };
+  const stop = session.stop.bind(session);
+  session.stop = vi.fn(async (opts) => {
+    order.push(`${name}:stop:${opts.reason}`);
+    return stop(opts);
   });
   return session;
 }
@@ -5043,6 +5060,364 @@ describe("B1 red gate — strict read-only trace sink", () => {
   });
 });
 
+describe("AgentProcessManager — terminal usage shutdown contract", () => {
+  function gate<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((finish) => { resolve = finish; });
+    return { promise, resolve };
+  }
+
+  function managerFor(sessionFactory: SessionFactory, extra: Partial<ConstructorParameters<typeof AgentProcessManager>[0]> = {}) {
+    const onTokenUsage = vi.fn();
+    const mgr = new AgentProcessManager({
+      driverFor: () => b1PersistentDriver(),
+      baseContextFor: () => ({
+        workingDirectory: "/tmp",
+        agentId: "a1",
+        standingPrompt: "",
+        config: {} as LaunchContext["config"],
+        credentialProxy: {} as LaunchContext["credentialProxy"],
+      }),
+      sessionFactory,
+      onTokenUsage,
+      ...extra,
+    });
+    mgr.register("a1");
+    return { mgr, onTokenUsage };
+  }
+
+  function holdUsage(session: FakeSession) {
+    const reached = gate<void>();
+    const released = gate<void>();
+    const events = session.events;
+    Object.defineProperty(session, "events", { value: {
+      maxBufferedBytes: events.maxBufferedBytes,
+      [Symbol.asyncIterator]() {
+        const iterator = events[Symbol.asyncIterator]();
+        return {
+          async next() {
+            const item = await iterator.next();
+            if (!item.done && item.value.type === "token_usage") {
+              reached.resolve();
+              await released.promise;
+            }
+            return item;
+          },
+        };
+      },
+    } });
+    return { reached: reached.promise, release: () => released.resolve() };
+  }
+
+  const usage = { type: "token_usage", source: "native:test", usage: { input: 13, output: 5, cache: 2 } } as const;
+
+  it.each(["accepted", "already_stopping", "closed"] as const)("joins buffered usage after closed with a %s stop receipt", async (status) => {
+    const session = b1Session([]);
+    const held = holdUsage(session);
+    const stop = session.stop.bind(session);
+    session.stop = vi.fn(async (input) => {
+      await stop(input);
+      return status === "closed"
+        ? { status, result: await session.closed }
+        : { status, requestId: "terminal-contract" };
+    });
+    const { mgr, onTokenUsage } = managerFor(() => session);
+    mgr.deliver("a1", { id: "first", text: "first" });
+    await session.fire("runtime_event", { kind: "session_init" });
+    await session.pushAgentEvent(usage);
+    await held.reached;
+
+    const shutdown = mgr.stopAll();
+    expect(mgr.stopAll()).toBe(shutdown);
+    let settled = false;
+    void shutdown.then(() => { settled = true; });
+    await session.closed;
+    await drainEventTasks();
+    expect(settled).toBe(false);
+    expect(onTokenUsage).not.toHaveBeenCalled();
+    expect(mgr.deliver("a1", { text: "new work" })).toBe(false);
+    expect(() => mgr.register("new")).toThrow("shutting down");
+    await expect(mgr.resetSession("a1", { runtimeConfig: B1_RUNTIME_CONFIG, launchId: "reset" })).rejects.toThrow("shutting down");
+
+    held.release();
+    await shutdown;
+    expect(onTokenUsage).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ agentId: "a1", usage: usage.usage }));
+    expect(session.stop).toHaveBeenCalledTimes(1);
+    expect(session.send).not.toHaveBeenCalled();
+  });
+
+  it("waits for a late factory and closes its public stream without starting a prompt", async () => {
+    const factory = gate<FakeSession>();
+    const session = b1Session([]);
+    const held = holdUsage(session);
+    const stop = session.stop.bind(session);
+    session.stop = vi.fn(async (input) => {
+      await session.pushAgentEvent(usage);
+      return stop(input);
+    });
+    const { mgr, onTokenUsage } = managerFor(() => factory.promise);
+    mgr.deliver("a1", { text: "queued before shutdown" });
+    const shutdown = mgr.stopAll();
+    let settled = false;
+    void shutdown.then(() => { settled = true; });
+    await drainEventTasks();
+    expect(settled).toBe(false);
+    factory.resolve(session);
+    await held.reached;
+    await session.closed;
+    expect(session.start).not.toHaveBeenCalled();
+    expect(settled).toBe(false);
+    held.release();
+    await shutdown;
+    expect(onTokenUsage).toHaveBeenCalledOnce();
+    expect(session.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not execute queued business from terminal events during shutdown", async () => {
+    const session = b1Session([]);
+    const held = holdUsage(session);
+    const factory = vi.fn(() => session);
+    const { mgr, onTokenUsage } = managerFor(factory);
+    mgr.deliver("a1", { id: "first", text: "first" });
+    await session.pushAgentEvent(usage);
+    await held.reached;
+    mgr.enqueueRewake("a1", { id: "queued", text: "queued work" });
+    await session.pushAgentEvent({ type: "turn_completed", turnId: "test-turn", commandIds: ["first"], result: { outcome: "success", backendSessionId: "test-session" } });
+    await session.pushAgentEvent(usage);
+    const shutdown = mgr.stopAll();
+    await session.closed;
+    held.release();
+    await shutdown;
+    expect(onTokenUsage).toHaveBeenCalledTimes(2);
+    expect(factory).toHaveBeenCalledOnce();
+    expect(session.start).toHaveBeenCalledOnce();
+    expect(session.send).not.toHaveBeenCalled();
+  });
+
+  it("joins a retired owner while its late closure leaves the replacement intact", async () => {
+    vi.useFakeTimers();
+    try {
+      let now = 0;
+      const first = b1Session([], "old", "old-turn", "old-instance");
+      const second = b1Session([], "new", "new-turn", "new-instance");
+      const held = holdUsage(first);
+      const sessions = [first, second];
+      const factory = vi.fn(() => sessions.shift()!);
+      const { mgr, onTokenUsage } = managerFor(factory, {
+        now: () => now, tickIntervalMs: 5, resetStuckThresholdMs: 50, stoppingStuckThresholdMs: 50,
+      });
+      mgr.start();
+      mgr.deliver("a1", { id: "first", text: "first" });
+      await first.fire("runtime_event", { kind: "session_init", sessionId: "old-backend" });
+      await first.pushAgentEvent(usage);
+      await held.reached;
+      await mgr.switchModel("a1", { runtimeConfig: B1_RUNTIME_CONFIG, launchId: "replacement", rewakePrompt: "new work" });
+      now = 100;
+      await vi.advanceTimersByTimeAsync(5);
+      now = 200;
+      await vi.advanceTimersByTimeAsync(5);
+      expect(factory).toHaveBeenCalledTimes(2);
+      await second.fire("runtime_event", { kind: "session_init", sessionId: "new-backend" });
+      await second.pushAgentEvent(usage);
+      expect(onTokenUsage).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ usage: usage.usage }));
+      await first.fire("exit", { reason: "requested" });
+      held.release();
+      await drainEventTasks();
+      expect(mgr.snapshot().agents.a1.execution.sessionInstanceId).toBe("new-instance");
+      expect(mgr.liveSessionReports()[0]?.sessionId).toBe("new-backend");
+      expect(mgr.runningAgentCount()).toBe(1);
+      expect(onTokenUsage).toHaveBeenCalledOnce();
+      await mgr.stopAll();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not rearm handshake work when a pre-stop start receipt resolves during drainage", async () => {
+    vi.useFakeTimers();
+    try {
+      const session = fakeSession();
+      const held = holdUsage(session);
+      const { mgr } = managerFor(() => session);
+      mgr.deliver("a1", { text: "first" });
+      await session.pushAgentEvent(usage);
+      await held.reached;
+      const shutdown = mgr.stopAll();
+      await session.closed;
+      session.startResolver!();
+      await drainEventTasks();
+      expect(vi.getTimerCount()).toBe(0);
+      held.release();
+      await shutdown;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a late old factory rejection cannot exit or audit the replacement owner", async () => {
+    vi.useFakeTimers();
+    try {
+      let now = 0;
+      let reject!: (error: unknown) => void;
+      const old = new Promise<FakeSession>((_resolve, fail) => { reject = fail; });
+      const replacement = b1Session([], "replacement", "new-turn", "new-instance");
+      const factory = vi.fn<SessionFactory>().mockReturnValueOnce(old).mockReturnValue(replacement);
+      const onRuntimeSpawnFailed = vi.fn();
+      const { mgr } = managerFor(factory, {
+        now: () => now, tickIntervalMs: 5, resetStuckThresholdMs: 50, stoppingStuckThresholdMs: 50,
+        onRuntimeSpawnFailed,
+      });
+      mgr.start();
+      mgr.deliver("a1", { text: "old factory" });
+      await mgr.switchModel("a1", { runtimeConfig: B1_RUNTIME_CONFIG, launchId: "replacement", rewakePrompt: "new work" });
+      now = 100;
+      await vi.advanceTimersByTimeAsync(5);
+      now = 200;
+      await vi.advanceTimersByTimeAsync(5);
+      expect(factory).toHaveBeenCalledTimes(2);
+      await replacement.fire("runtime_event", { kind: "session_init", sessionId: "new-backend" });
+      const before = mgr.snapshot().agents.a1;
+      reject(Object.assign(new Error("old factory rejected"), { code: "old_factory_failed" }));
+      await drainEventTasks();
+      expect(mgr.snapshot().agents.a1).toEqual(before);
+      expect(mgr.liveSessionReports()[0]?.sessionId).toBe("new-backend");
+      expect(onRuntimeSpawnFailed).not.toHaveBeenCalledWith("codex", "old_factory_failed");
+      await expect(mgr.stopAll()).rejects.toThrow("Agent shutdown did not complete cleanly");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects mismatched instances in the public consumer before session or usage side effects", async () => {
+    const session = b1Session([], "current", "test-turn", "current-instance");
+    const events = session.events;
+    Object.defineProperty(session, "events", { value: {
+      maxBufferedBytes: events.maxBufferedBytes,
+      async *[Symbol.asyncIterator]() {
+        for await (const event of events) {
+          const hostile = event.type === "session_started" && event.backendSessionId === "stale-backend"
+            || event.type === "token_usage" && event.source === "stale-usage";
+          yield hostile ? { ...event, sessionInstanceId: "wrong-instance" } : event;
+        }
+      },
+    } });
+    const setSession = vi.fn(() => true);
+    const onAgentSession = vi.fn();
+    const onRuntimeSessionEstablished = vi.fn();
+    const { mgr, onTokenUsage } = managerFor(() => session, {
+      timeline: { ...exactTimelineLifecycleStub(), setSession, resumeSessionId: () => null, forgetSession: () => true },
+      onAgentSession,
+      onRuntimeSessionEstablished,
+    });
+    mgr.deliver("a1", { text: "first" });
+    await session.pushAgentEvent({ type: "session_started", backendSessionId: "stale-backend" });
+    await session.pushAgentEvent({ ...usage, source: "stale-usage" });
+    await drainEventTasks();
+    expect(setSession).not.toHaveBeenCalled();
+    expect(onAgentSession).not.toHaveBeenCalled();
+    expect(onRuntimeSessionEstablished).not.toHaveBeenCalled();
+    expect(onTokenUsage).not.toHaveBeenCalled();
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "current-backend" });
+    await session.pushAgentEvent(usage);
+    await drainEventTasks();
+    expect(setSession).toHaveBeenCalledExactlyOnceWith("a1", "current-backend", "current-instance");
+    expect(onRuntimeSessionEstablished).toHaveBeenCalledOnce();
+    expect(mgr.liveSessionReports()[0]?.sessionId).toBe("current-backend");
+    expect(onTokenUsage).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ usage: usage.usage }));
+    await mgr.stopAll();
+  });
+
+  it("rejects public events from a still-draining old owner after replacement attachment", async () => {
+    const old = b1Session([], "old", "old-turn", "old-instance");
+    const replacement = b1Session([], "new", "new-turn", "new-instance");
+    const held = holdUsage(old);
+    let rejectClosed!: (error: unknown) => void;
+    const closed = new Promise<AgentSessionResult>((_resolve, reject) => { rejectClosed = reject; });
+    Object.defineProperty(old, "closed", { value: closed });
+    const sessions = [old, replacement];
+    const setSession = vi.fn(() => true);
+    const onAgentSession = vi.fn();
+    const { mgr, onTokenUsage } = managerFor(() => sessions.shift()!, {
+      timeline: { ...exactTimelineLifecycleStub(), setSession, resumeSessionId: () => null, forgetSession: () => true },
+      onAgentSession,
+    });
+    mgr.deliver("a1", { text: "first" });
+    await old.fire("runtime_event", { kind: "session_init", sessionId: "old-backend" });
+    await old.pushAgentEvent(usage);
+    await held.reached;
+    mgr.enqueueRewake("a1", { id: "replacement-command", text: "replacement work" });
+    rejectClosed(new Error("old public closed rejected"));
+    await drainEventTasks();
+    await replacement.fire("runtime_event", { kind: "session_init", sessionId: "new-backend" });
+    const before = mgr.snapshot().agents.a1;
+    held.release();
+    await old.pushAgentEvent({ type: "session_started", backendSessionId: "late-old-backend" });
+    await drainEventTasks();
+    expect(setSession.mock.calls.map((call) => call[1])).toEqual(["old-backend", "new-backend"]);
+    expect(onAgentSession.mock.calls.map(([info]) => info.sessionId)).toEqual(["old-backend", "new-backend"]);
+    expect(onTokenUsage).not.toHaveBeenCalled();
+    expect(mgr.snapshot().agents.a1).toEqual(before);
+    expect(mgr.liveSessionReports()[0]?.sessionId).toBe("new-backend");
+    await replacement.pushAgentEvent(usage);
+    await drainEventTasks();
+    expect(onTokenUsage).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ usage: usage.usage }));
+    await expect(mgr.stopAll()).rejects.toThrow("Agent shutdown did not complete cleanly");
+  });
+
+  it("retains factory rejection as a failed shutdown", async () => {
+    let reject!: (error: unknown) => void;
+    const factory = new Promise<FakeSession>((_resolve, fail) => { reject = fail; });
+    const { mgr } = managerFor(() => factory);
+    mgr.deliver("a1", { text: "first" });
+    const shutdown = mgr.stopAll();
+    const rejected = expect(shutdown).rejects.toThrow("Agent shutdown did not complete cleanly");
+    reject(new Error("factory rejected"));
+    await rejected;
+  });
+
+  it.each(["event_stream", "closed", "stop", "cleanup", "timed_out", "forced"] as const)("keeps %s failure while another owner consumes valid tail usage", async (failure) => {
+    const failed = b1Session([], "failed", "failed-turn", "failed-instance");
+    if (failure === "event_stream") {
+      Object.defineProperty(failed, "events", { value: {
+        maxBufferedBytes: 4_194_304,
+        [Symbol.asyncIterator]: async function* () { throw new Error("stream rejected"); },
+      } });
+    } else if (failure === "closed") {
+      Object.defineProperty(failed, "closed", { value: Promise.reject(new Error("closed rejected")) });
+    } else if (failure === "stop") {
+      const stop = failed.stop.bind(failed);
+      failed.stop = vi.fn(async (input) => {
+        await stop(input);
+        return { status: "failed", requestId: "failed-stop", error: { category: "process", code: "stop_failed", message: "stop failed", retryable: false } };
+      });
+    } else {
+      const error = { category: "process" as const, code: "cleanup_failed", message: "cleanup failed", retryable: false };
+      const result: AgentSessionResult = failure === "forced"
+        ? { outcome: "forced", requested: true, error, cleanup: { status: "released" } }
+        : { outcome: "stopped", requested: true, exitCode: null, signal: null, cleanup: { status: failure === "timed_out" ? "timed_out" : "failed", error } };
+      Object.defineProperty(failed, "closed", { value: Promise.resolve(result) });
+    }
+    const other = b1Session([], "other", "other-turn", "other-instance");
+    const held = holdUsage(other);
+    const { mgr, onTokenUsage } = managerFor(({ agentId }) => agentId === "a1" ? failed : other);
+    mgr.register("a2");
+    mgr.deliver("a1", { text: "first" });
+    mgr.deliver("a2", { text: "second" });
+    await other.pushAgentEvent(usage);
+    await held.reached;
+    const shutdown = mgr.stopAll();
+    const rejected = expect(shutdown).rejects.toThrow("Agent shutdown did not complete cleanly");
+    let settled = false;
+    void shutdown.catch(() => { settled = true; });
+    await other.closed;
+    await drainEventTasks();
+    expect(settled).toBe(false);
+    held.release();
+    await rejected;
+    expect(onTokenUsage).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ agentId: "a2", usage: usage.usage }));
+  });
+});
+
 describe("B1 red gate — exact-once terminal matrix", () => {
   const requestedCases: Array<{
     name: string;
@@ -5121,6 +5496,7 @@ describe("B1 red gate — exact-once terminal matrix", () => {
     expect(session.stop).toHaveBeenCalledWith({ reason: "shutdown", forceAfterMs: 2_000 });
     expect(shutdownSettled).toBe(false);
 
+    await session.fire("exit", { reason: "requested", code: 0 });
     finishCleanup({
       outcome: "stopped",
       requested: true,

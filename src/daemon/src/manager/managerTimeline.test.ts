@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { setImmediate as drainEventTasks } from "node:timers/promises";
 import { AgentProcessManager, type TimelineRecorder } from "./managerRuntime";
 import type { HostLaunchContext as LaunchContext } from "./hostContext.js";
 import type { AgentEvent, AgentSessionResult, BuiltinBackendSpecs } from "@alook/agent-driver";
@@ -26,7 +27,9 @@ function manager(rec: TimelineRecorder, capture: { ctx?: LaunchContext }) {
   let resolveClosed!: (result: AgentSessionResult) => void;
   const closed = new Promise<AgentSessionResult>((resolve) => { resolveClosed = resolve; });
   let sequence = 0;
+  let ended = false;
   const publish = (event: Event) => {
+    if (ended) return;
     const waiter = waiters.shift();
     if (waiter) waiter({ done: false, value: event });
     else queued.push(event);
@@ -47,7 +50,9 @@ function manager(rec: TimelineRecorder, capture: { ctx?: LaunchContext }) {
             return {
               next: () => queued.length > 0
                 ? Promise.resolve({ done: false as const, value: queued.shift()! })
-                : new Promise<IteratorResult<Event>>((resolve) => waiters.push(resolve)),
+                : ended
+                  ? Promise.resolve({ done: true as const, value: undefined })
+                  : new Promise<IteratorResult<Event>>((resolve) => waiters.push(resolve)),
             };
           },
         },
@@ -67,7 +72,10 @@ function manager(rec: TimelineRecorder, capture: { ctx?: LaunchContext }) {
           return { status: "accepted" as const, delivery: "steer" as const, commandId: message.id, turnId: "test-turn" };
         },
         async interrupt() { return { status: "not_running" as const }; },
-        async stop() { return { status: "accepted" as const, requestId: "test-stop" }; },
+        async stop(input) {
+          if (input.reason === "shutdown") await emit("exit");
+          return { status: "accepted" as const, requestId: "test-stop" };
+        },
         snapshot() {
           return { sessionInstanceId: "timeline-test", state: "working" as const, queuedCommands: [], lastEventSequence: sequence };
         },
@@ -89,10 +97,17 @@ function manager(rec: TimelineRecorder, capture: { ctx?: LaunchContext }) {
         publish({ ...base, type: "assistant_message_completed", turnId: "test-turn", text: event.text ?? "", truncated: false });
       }
     } else if (ev === "exit") {
-      resolveClosed({ outcome: "crashed", requested: false, exitCode: 0, signal: null, cleanup: { status: "released" } });
+      if (!ended) {
+        const result: AgentSessionResult = { outcome: "crashed", requested: false, exitCode: 0, signal: null, cleanup: { status: "released" } };
+        publish({ type: "session_closed", result, sequence: ++sequence, sessionInstanceId: "timeline-test", at: Date.now() });
+        ended = true;
+        for (const waiter of waiters.splice(0)) waiter({ done: true, value: undefined });
+        resolveClosed(result);
+      }
     }
     await Promise.resolve();
     await Promise.resolve();
+    if (ev === "exit") await drainEventTasks();
   };
   return { mgr, emit };
 }
@@ -200,15 +215,19 @@ describe("manager.resetSession", () => {
       sessionFactory: ({ ctx }) => {
         let finish!: (result: AgentSessionResult) => void;
         const closed = new Promise<AgentSessionResult>((resolve) => { finish = resolve; });
+        const sessionInstanceId = `reset-test-${sessionsCreated.length + 1}`;
         const entry: (typeof sessionsCreated)[number] = { ctx, finish: (result) => finish(result), stopCalled: false, sends: [] };
         sessionsCreated.push(entry);
         return {
           backend: "codex" as const,
           capabilities: {} as never,
-          sessionInstanceId: `reset-test-${sessionsCreated.length}`,
+          sessionInstanceId,
           events: {
             maxBufferedBytes: 4_194_304 as const,
-            async *[Symbol.asyncIterator]() { await new Promise(() => {}); },
+            async *[Symbol.asyncIterator]() {
+              const result = await closed;
+              yield { type: "session_closed" as const, result, sequence: 1, sessionInstanceId, at: Date.now() };
+            },
           },
           closed,
           async start(m: { id: string }) {
@@ -264,8 +283,7 @@ describe("manager.resetSession", () => {
 
     // Fire the session exit → onExit drains rewake into a fresh spawn.
     first.finish({ outcome: "stopped", requested: true, exitCode: 0, signal: null, cleanup: { status: "released" } });
-    await Promise.resolve();
-    await Promise.resolve();
+    await drainEventTasks();
 
     expect(sessionsCreated).toHaveLength(2);
     const second = sessionsCreated[1]!;

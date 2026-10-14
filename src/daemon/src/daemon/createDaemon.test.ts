@@ -4,6 +4,8 @@ import { EventEmitter } from "events";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setImmediate as drainEventTasks } from "node:timers/promises";
+import { DailyTokenUsageStore } from "../telemetry/dailyTokenUsage.js";
 import {
   createDaemon,
   createBuiltinDaemonSessionFactory,
@@ -263,6 +265,7 @@ function daemonFakeSession(options: {
   let resolveClosed!: (result: AgentSessionResult) => void;
   const closed = new Promise<AgentSessionResult>((resolve) => { resolveClosed = resolve; });
   const emit = (payload: Omit<Event, "sequence" | "sessionInstanceId" | "at">) => {
+    if (ended) return;
     const event = { ...payload, sequence: ++sequence, sessionInstanceId: "daemon-test", at: Date.now() } as Event;
     const waiter = waiters.shift();
     if (waiter) waiter({ done: false, value: event });
@@ -278,7 +281,9 @@ function daemonFakeSession(options: {
         return {
           next: () => queued.length > 0
             ? Promise.resolve({ done: false as const, value: queued.shift()! })
-            : new Promise<IteratorResult<Event>>((resolve) => waiters.push(resolve)),
+            : ended
+              ? Promise.resolve({ done: true as const, value: undefined })
+              : new Promise<IteratorResult<Event>>((resolve) => waiters.push(resolve)),
         };
       },
     },
@@ -313,8 +318,10 @@ function daemonFakeSession(options: {
     async stop() {
       options.onStop?.();
       if (!ended) {
-        ended = true;
         const result: AgentSessionResult = { outcome: "stopped", requested: true, exitCode: null, signal: null, cleanup: { status: "released" } };
+        emit({ type: "session_closed", result } as never);
+        ended = true;
+        for (const waiter of waiters.splice(0)) waiter({ done: true, value: undefined });
         resolveClosed(result);
       }
       return { status: "accepted", requestId: "daemon-test-stop" };
@@ -339,8 +346,12 @@ function daemonFakeSession(options: {
         emit(args[0] as never);
       } else if (event === "exit") {
         const result: AgentSessionResult = { outcome: "stopped", requested: true, exitCode: null, signal: null, cleanup: { status: "released" } };
-        ended = true;
-        resolveClosed(result);
+        if (!ended) {
+          emit({ type: "session_closed", result } as never);
+          ended = true;
+          for (const waiter of waiters.splice(0)) waiter({ done: true, value: undefined });
+          resolveClosed(result);
+        }
       }
       await Promise.resolve();
       await Promise.resolve();
@@ -1803,6 +1814,256 @@ for await (const line of createInterface({ input: process.stdin })) {
     sockets[0].emit("open");
     expect(sockets[0].sent.map((frame) => JSON.parse(frame)).some((frame) => frame.type === "ready")).toBe(true);
     await daemon.stop();
+  });
+});
+
+describe("createDaemon — terminal usage shutdown contract", () => {
+  function gate<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((finish) => { resolve = finish; });
+    return { promise, resolve };
+  }
+
+  async function setup(extra: Partial<Parameters<typeof createDaemon>[0]> = {}) {
+    const sockets: FakeSocket[] = [];
+    const sessions: DaemonFakeSession[] = [];
+    const logger = stubLogger();
+    const workingDirectoryBase = mkdtempSync(join(tmpdir(), "daemon-terminal-contract-"));
+    startupSweepDirs.push(workingDirectoryBase);
+    mkdirSync(join(workingDirectoryBase, "bot_1"), { recursive: true });
+    mkdirSync(join(workingDirectoryBase, "bot_2"), { recursive: true });
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/enroll-agent")) return Response.json({ runnerKey: "runner_test" });
+      if (url.includes("/daemon/bots")) return Response.json({ bots: [{ id: "bot_1", name: "Bot", discriminator: "0001" }, { id: "bot_2", name: "Bot2", discriminator: "0002" }] });
+      return Response.json({ attempted: 0 });
+    }));
+    const daemon = await createDaemon({
+      machineKey: "cmk_terminal_contract",
+      serverUrl: "http://server.invalid",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as never,
+      runtimeReport: [{ id: "antigravity" }],
+      driverFor: () => fullFakeDriver("antigravity"),
+      sessionFactory: () => {
+        const session = daemonFakeSession();
+        sessions.push(session);
+        return session;
+      },
+      capabilities: [],
+      workingDirectoryBase,
+      logger,
+      ...extra,
+    });
+    sockets[0]!.emit("open");
+    const wake = (agentId = "bot_1") => sockets[0]!.emit("message", JSON.stringify({
+      type: "agent:wake",
+      agentId,
+      config: { version: 1, runtime: "antigravity", model: { kind: "default" }, mode: { kind: "default" } },
+      launchId: "launch_terminal",
+      unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
+    }));
+    return { daemon, sockets, sessions, logger, workingDirectoryBase, wake };
+  }
+
+  it.each([false, true])("closes WS early and settles accepted persistence despite failed stop=%s", async (failedStop) => {
+    const persistenceStarted = gate<void>();
+    const persist = gate<void>();
+    const originalRecord = DailyTokenUsageStore.prototype.record;
+    vi.spyOn(DailyTokenUsageStore.prototype, "record").mockImplementation(async function (...args) {
+      if (args[1].input === 13) {
+        persistenceStarted.resolve();
+        await persist.promise;
+      }
+      return originalRecord.apply(this, args);
+    });
+    const ctx = await setup();
+    ctx.wake();
+    await vi.waitFor(() => expect(ctx.sessions).toHaveLength(1));
+    const session = ctx.sessions[0]!;
+    const stopping = gate<void>();
+    const closeProducer = gate<void>();
+    const stop = session.stop.bind(session);
+    session.stop = vi.fn(async (input) => {
+      stopping.resolve();
+      await closeProducer.promise;
+      const receipt = await stop(input);
+      return failedStop
+        ? { status: "failed" as const, error: { category: "process" as const, code: "stop_failed", message: "stop failed", retryable: false } }
+        : receipt;
+    });
+    const closeWs = vi.spyOn(ctx.sockets[0]!, "close");
+    const shutdown = ctx.daemon.stop();
+    expect(ctx.daemon.stop()).toBe(shutdown);
+    let settled = false;
+    void shutdown.then(() => { settled = true; }, () => { settled = true; });
+    const completed = failedStop
+      ? expect(shutdown).rejects.toThrow("Daemon shutdown did not complete cleanly")
+      : expect(shutdown).resolves.toBeUndefined();
+    await stopping.promise;
+    expect(closeWs).toHaveBeenCalledOnce();
+    expect(ctx.daemon.isOpen()).toBe(false);
+    const framesAtStop = ctx.sockets[0]!.sent.length;
+    const identity = { source: "native:terminal", index: 0, occurredAt: new Date().toISOString() };
+    const sample = { type: "token_usage", source: "native:test", usage: { input: 13, output: 5, cache: 2 }, identity };
+    await session.fire("agent_event", sample);
+    await persistenceStarted.promise;
+    await session.fire("agent_event", sample); // Native replay must stay exactly once.
+    await session.fire("agent_event", { type: "token_usage", source: "invalid", usage: { input: -1, output: 0, cache: 0 } });
+    await session.fire("agent_event", { type: "token_usage", source: "later", usage: { input: 7, output: 3, cache: 1 } });
+    closeProducer.resolve();
+    await session.closed;
+    await drainEventTasks();
+    expect(settled).toBe(false);
+    persist.resolve();
+    await completed;
+    expect(JSON.parse(readFileSync(join(ctx.workingDirectoryBase, ".telemetry", "daily-token-usage.json"), "utf8"))).toMatchObject({
+      bots: { bot_1: [{ metrics: { input: 20, output: 8, cache: 3 } }] },
+    });
+    expect(ctx.logger.calls.warn.filter(([, message]) => message === "daily token usage persistence failed")).toHaveLength(1);
+    expect(ctx.sockets[0]!.sent).toHaveLength(framesAtStop);
+    expect(session.stop).toHaveBeenCalledOnce();
+    rmSync(ctx.workingDirectoryBase, { recursive: true, force: true });
+    await drainEventTasks();
+    expect(ctx.logger.calls.warn.filter(([, message]) => message === "daily token usage persistence failed")).toHaveLength(1);
+  });
+
+  it("normal resync keeps current idle activity and drops an idle snapshot superseded by public root work", async () => {
+    const resync = vi.spyOn(WsControlChannel.prototype, "onResync");
+    const quotaStarted = gate<void>();
+    const quota = gate<null>();
+    let holdQuota = false;
+    const ctx = await setup({ providerQuotaReader: async (backend) => {
+      if (backend === "antigravity" && holdQuota) { quotaStarted.resolve(); return quota.promise; }
+      return null;
+    } });
+    try {
+      ctx.wake();
+      ctx.wake("bot_2");
+      await vi.waitFor(() => expect(ctx.sessions).toHaveLength(2));
+      await ctx.sessions[0]!.fire("runtime_event", { kind: "turn_end" });
+      await ctx.sessions[1]!.fire("runtime_event", { kind: "turn_end" });
+      await drainEventTasks();
+      holdQuota = true;
+      const activities = resync.mock.calls[0]![0]().activities;
+      await quotaStarted.promise;
+      await ctx.sessions[0]!.fire("agent_event", { type: "internal_progress", turnId: "daemon-test-turn", source: "native", itemType: "root-work" });
+      quota.resolve(null);
+      const snapshot = await activities;
+      expect(snapshot?.map((activity) => ({ agentId: activity.agentId, state: activity.state }))).toEqual([
+        { agentId: "bot_2", state: "idle" },
+      ]);
+      expect(ctx.sockets[0]!.sent.map((frame) => JSON.parse(frame)).some((frame) =>
+        frame.type === "agent_activity" && frame.agentId === "bot_1" && frame.state === "running",
+      )).toBe(true);
+    } finally {
+      quota.resolve(null);
+      await ctx.daemon.stop();
+    }
+  });
+
+  it("joins an accepted resync root through its post-stop quota and usage-window reads", async () => {
+    const resync = vi.spyOn(WsControlChannel.prototype, "onResync");
+    const quotaStarted = gate<void>();
+    const quota = gate<null>();
+    let holdQuota = false;
+    const ctx = await setup({ providerQuotaReader: async (backend) => {
+      if (backend === "antigravity" && holdQuota) { quotaStarted.resolve(); return quota.promise; }
+      return null;
+    } });
+    ctx.wake();
+    await vi.waitFor(() => expect(ctx.sessions).toHaveLength(1));
+    await ctx.sessions[0]!.fire("runtime_event", { kind: "turn_end" });
+    await drainEventTasks();
+    const readStarted = gate<void>();
+    const read = gate<void>();
+    const originalWindow = DailyTokenUsageStore.prototype.usageWindow;
+    const windowSpy = vi.spyOn(DailyTokenUsageStore.prototype, "usageWindow").mockImplementation(async function (...args) {
+      readStarted.resolve();
+      await read.promise;
+      return originalWindow.apply(this, args);
+    });
+    holdQuota = true;
+    // A reconnect snapshot owns the whole enrichment root, including a later
+    // usageWindow call after quota resolves. It bypasses activityReportTails.
+    ctx.sockets[0]!.emit("open");
+    await quotaStarted.promise;
+    const shutdown = ctx.daemon.stop();
+    let settled = false;
+    void shutdown.then(() => { settled = true; });
+    await ctx.sessions[0]!.closed;
+    await drainEventTasks();
+    expect(settled).toBe(false);
+    expect(windowSpy).not.toHaveBeenCalled();
+    const framesAtStop = ctx.sockets[0]!.sent.length;
+    quota.resolve(null);
+    await readStarted.promise;
+    expect(settled).toBe(false);
+    read.resolve();
+    await shutdown;
+    const reads = windowSpy.mock.calls.length;
+    await resync.mock.calls[0]![0]().activities;
+    await drainEventTasks();
+    expect(windowSpy).toHaveBeenCalledTimes(reads);
+    // The old snapshot cannot publish late activity after closure.
+    expect(ctx.sockets[0]!.sent).toHaveLength(framesAtStop);
+  });
+
+  it("settles all accepted resync reads when one quota read fails", async () => {
+    const resync = vi.spyOn(WsControlChannel.prototype, "onResync");
+    const started = gate<void>();
+    const quota = gate<null>();
+    let reads = 0;
+    let hold = false;
+    const ctx = await setup({ providerQuotaReader: async (backend) => {
+      if (backend !== "antigravity" || !hold) return null;
+      if (++reads === 1) throw new Error("quota read failed");
+      started.resolve();
+      return quota.promise;
+    } });
+    ctx.wake();
+    ctx.wake("bot_2");
+    await vi.waitFor(() => expect(ctx.sessions).toHaveLength(2));
+    await ctx.sessions[0]!.fire("runtime_event", { kind: "turn_end" });
+    await ctx.sessions[1]!.fire("runtime_event", { kind: "turn_end" });
+    await drainEventTasks();
+    hold = true;
+    const root = resync.mock.calls[0]![0]().activities as Promise<unknown>;
+    const rootFailure = expect(root).rejects.toThrow("quota read failed");
+    await started.promise;
+    const shutdown = ctx.daemon.stop();
+    let settled = false;
+    void shutdown.then(() => { settled = true; });
+    await Promise.all(ctx.sessions.map((session) => session.closed));
+    await drainEventTasks();
+    expect(settled).toBe(false);
+    quota.resolve(null);
+    await rootFailure;
+    await shutdown;
+    expect(reads).toBe(2);
+  });
+
+  it("rejects a router wake that resumes enrollment after shutdown without spawning", async () => {
+    const ctx = await setup();
+    const enrolling = gate<void>();
+    const enroll = gate<void>();
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      if (String(input).includes("/enroll-agent")) {
+        enrolling.resolve();
+        await enroll.promise;
+        return Response.json({ runnerKey: "runner_test" });
+      }
+      return Response.json({ bots: [{ id: "bot_1", name: "Bot", discriminator: "0001" }], attempted: 0 });
+    }));
+    const command = spyOnRouterCommandEntry();
+    ctx.wake();
+    await enrolling.promise;
+    const commandDone = command.mock.results[0]!.value as Promise<void>;
+    await ctx.daemon.stop();
+    enroll.resolve();
+    await commandDone;
+    expect(ctx.sessions).toHaveLength(0);
+    expect(ctx.daemon.isOpen()).toBe(false);
   });
 });
 
