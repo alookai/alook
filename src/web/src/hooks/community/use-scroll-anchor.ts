@@ -2,24 +2,12 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback, useLayoutEffect, useRef } from "react"
 import { measureElement, useVirtualizer, type ReactVirtualizer } from "@tanstack/react-virtual"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "./virtualizer-react-options"
-import { estimateRowHeight, computeBelowCount, MESSAGE_ROW_VERTICAL_PADDING_PX, type FlatItem } from "@/lib/community/message-list-items"
+import { estimateRowHeight, computeBelowCount, type FlatItem } from "@/lib/community/message-list-items"
+import { MESSAGE_RAIL_TAIL_PADDING_END_PX } from "@/lib/community/conversation-layout"
 
 export const INITIAL_POSITION_TIMEOUT_MS = 2_000
 export const MESSAGE_LIST_DISPLAY_END_THRESHOLD_PX = 100
 const VIEWPORT_RESIZE_TAIL_DISTANCE_PX = 100
-export const MESSAGE_RAIL_TAIL_PADDING_END_PX = {
-  mobile: 40 - MESSAGE_ROW_VERTICAL_PADDING_PX,
-  desktop: 48 - MESSAGE_ROW_VERTICAL_PADDING_PX,
-} as const
-
-export function resolveMessageRailTailPaddingEnd(
-  breakpoint: "unknown" | "desktop" | "mobile",
-): number {
-  return breakpoint === "mobile"
-    ? MESSAGE_RAIL_TAIL_PADDING_END_PX.mobile
-    : MESSAGE_RAIL_TAIL_PADDING_END_PX.desktop
-}
-
 type ViewportResizeAnchor = "tail" | "start"
 
 export interface ResolveViewportResizeAnchorInput {
@@ -96,7 +84,7 @@ export function useScrollAnchor({
   isFetchingNewer,
   presentVersion,
   localSubmitVersion,
-  tailPaddingEnd = MESSAGE_RAIL_TAIL_PADDING_END_PX.desktop,
+  tailPaddingEnd = MESSAGE_RAIL_TAIL_PADDING_END_PX,
   onInitialPositionSettled,
 }: {
   items: FlatItem[]

@@ -3,19 +3,19 @@ import {
   findMessageIndex,
   findMountScrollTargetIndex,
   measureMessageRow,
-  MESSAGE_RAIL_TAIL_PADDING_END_PX,
   MESSAGE_LIST_DISPLAY_END_THRESHOLD_PX,
-  resolveMessageRailTailPaddingEnd,
   resolveViewportResizeAnchor,
 } from "./use-scroll-anchor"
-import type { FlatItem } from "@/lib/community/message-list-items"
+import { MESSAGE_ROW_VERTICAL_PADDING_PX, type FlatItem } from "@/lib/community/message-list-items"
+import { COMPOSER_ACCESSORY_ROW_HEIGHT_PX, CONVERSATION_TAIL_SPACE_PX, MESSAGE_RAIL_TAIL_PADDING_END_PX } from "@/lib/community/conversation-layout"
 
 describe("message rail tail geometry", () => {
-  it("counts the final row's 8px once in the 40px mobile and 48px desktop clearance", () => {
-    expect(MESSAGE_RAIL_TAIL_PADDING_END_PX).toEqual({ mobile: 32, desktop: 40 })
-    expect(resolveMessageRailTailPaddingEnd("mobile")).toBe(32)
-    expect(resolveMessageRailTailPaddingEnd("desktop")).toBe(40)
-    expect(resolveMessageRailTailPaddingEnd("unknown")).toBe(40)
+  it("counts the final row's 8px once in the shared 40px clearance", () => {
+    expect(MESSAGE_ROW_VERTICAL_PADDING_PX).toBe(8)
+    expect(MESSAGE_RAIL_TAIL_PADDING_END_PX).toBe(32)
+    expect(MESSAGE_RAIL_TAIL_PADDING_END_PX + MESSAGE_ROW_VERTICAL_PADDING_PX).toBe(CONVERSATION_TAIL_SPACE_PX)
+    expect(CONVERSATION_TAIL_SPACE_PX).toBe(40)
+    expect(COMPOSER_ACCESSORY_ROW_HEIGHT_PX).toBe(32)
   })
 })
 

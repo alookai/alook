@@ -2,10 +2,13 @@
 
 import { useAtom, useCreateAtom, type Atom } from "@tanstack/react-store";
 import { createContext, useCallback, useContext, useMemo, type HTMLAttributes, type ReactNode } from "react"
+import { CONVERSATION_TAIL_SPACE_PX } from "@/lib/community/conversation-layout"
 
 type ConversationFooterSlot = {
   target: HTMLDivElement | null
   setTarget: Atom<HTMLDivElement | null>["set"]
+  accessoryTarget: HTMLDivElement | null
+  setAccessoryTarget: Atom<HTMLDivElement | null>["set"]
   selectionActive: boolean
   setSelectionActive: Atom<boolean>["set"]
 }
@@ -13,14 +16,17 @@ type ConversationFooterSlot = {
 const ConversationFooterSlotContext = createContext<ConversationFooterSlot | null>(null)
 
 export function ConversationFooterSlotProvider({ children }: { children: ReactNode }) {
-const [target, setTarget] = useAtom(useCreateAtom<HTMLDivElement | null>(null))
+  const [target, setTarget] = useAtom(useCreateAtom<HTMLDivElement | null>(null))
+  const [accessoryTarget, setAccessoryTarget] = useAtom(useCreateAtom<HTMLDivElement | null>(null))
   const [selectionActive, setSelectionActive] = useAtom(useCreateAtom(false))
   const value = useMemo(() => ({
     target,
     setTarget,
+    accessoryTarget,
+    setAccessoryTarget,
     selectionActive,
     setSelectionActive,
-  }), [selectionActive, setSelectionActive, setTarget, target])
+  }), [accessoryTarget, selectionActive, setAccessoryTarget, setSelectionActive, setTarget, target])
 
   return (
     <ConversationFooterSlotContext.Provider value={value}>
@@ -50,9 +56,13 @@ export function ConversationFooterShell({
 }) {
   const footerSlot = useConversationFooterSlot()
   const setFooterTarget = footerSlot?.setTarget
+  const setAccessoryTarget = footerSlot?.setAccessoryTarget
   const bindFooterTarget = useCallback((target: HTMLDivElement | null) => {
     setFooterTarget?.(target)
   }, [setFooterTarget])
+  const bindAccessoryTarget = useCallback((target: HTMLDivElement | null) => {
+    setAccessoryTarget?.(target)
+  }, [setAccessoryTarget])
   const selectionActive = footerSlot?.selectionActive ?? false
 
   return (
@@ -62,6 +72,12 @@ export function ConversationFooterShell({
       data-selection-active={selectionActive ? "true" : "false"}
       className={`relative shrink-0${className ? ` ${className}` : ""}`}
     >
+      <div
+        ref={bindAccessoryTarget}
+        data-slot="community-composer-accessory-slot"
+        style={{ height: CONVERSATION_TAIL_SPACE_PX }}
+        className={`pointer-events-none absolute inset-x-0 bottom-full z-20 items-center pl-(--community-composer-inline-start) pr-(--community-composer-inline-end) ${selectionActive ? "hidden" : "flex"}`}
+      />
       <div
         aria-hidden={selectionActive || undefined}
         inert={selectionActive || undefined}

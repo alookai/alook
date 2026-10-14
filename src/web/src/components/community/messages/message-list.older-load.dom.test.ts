@@ -85,7 +85,7 @@ describe("MessageList native range pagination", () => {
   })
   beforeEach(() => { breakpoint.value = "desktop"; installMessageScrollFixture() })
   afterEach(restoreMessageScrollFixture)
-  it.each([["mobile", 40], ["desktop", 48]] as const)("keeps %s body-to-viewport clearance at %ipx with symmetric row padding", (stage, gap) => {
+  it.each([["mobile", 40], ["desktop", 40]] as const)("keeps %s body-to-viewport clearance at %ipx with symmetric row padding", (stage, gap) => {
     breakpoint.value = stage
     const messages = Array.from({ length: 14 }, (_, i) => ({ id: `m${i}`, authorName: "Alice", content: "hi", createdAt: new Date(0).toISOString() }))
     const renderer = render(React.createElement(MessageList, { channel: "general", messages, loading: false, hasMore: false, onOpenThread: vi.fn() }))

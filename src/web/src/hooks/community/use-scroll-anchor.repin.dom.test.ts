@@ -417,10 +417,10 @@ describe("locked native adapter and existing message scroll owner", () => {
     expect(bodyTop(h.root, "m0")).toBeGreaterThanOrEqual(0)
     expect(bodyTop(h.root, "m0")).toBeLessThan(h.root.clientHeight)
   })
-  it("unifies native total and DOM max while keeping 40/48px rail clearance", () => {
+  it("unifies native total and DOM max with the shared 40px rail clearance", () => {
     const h = mount()
     expect(scrollFixture.latest.readPositionReady).toBe(true)
-    expect(scrollFixture.latest.virtualizer.options).toMatchObject({ anchorTo: "end", followOnAppend: "auto", scrollEndThreshold: 1, scrollMargin: 0, paddingEnd: 40 })
+    expect(scrollFixture.latest.virtualizer.options).toMatchObject({ anchorTo: "end", followOnAppend: "auto", scrollEndThreshold: 1, scrollMargin: 0, paddingEnd: 32 })
     expect(h.root.scrollHeight).toBe(scrollFixture.latest.virtualizer.getTotalSize())
     expect(h.root.scrollTop).toBe(h.root.scrollHeight - scrollFixture.height)
     h.update({ tailPaddingEnd: 40 })

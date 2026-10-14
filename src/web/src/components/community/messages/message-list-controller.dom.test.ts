@@ -7,12 +7,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useMessageListController, type MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"
 import { INITIAL_POSITION_CROSSFADE_MS } from "./initial-position-transition"
+import { MESSAGE_RAIL_TAIL_PADDING_END_PX } from "@/lib/community/conversation-layout"
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
 const readWebSource = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
 
 const mocks = vi.hoisted(() => ({
-  breakpoint: "desktop" as "unknown" | "desktop" | "mobile",
   hookOrder: [] as string[],
   scrollInputs: [] as unknown[],
   paginationInputs: [] as unknown[],
@@ -26,13 +26,8 @@ const mocks = vi.hoisted(() => ({
   captureNewerPageAnchor: vi.fn(),
 }))
 
-vi.mock("@/hooks/use-mobile", () => ({
-  useBreakpoint: () => mocks.breakpoint,
-}))
-
 vi.mock("@/hooks/community/use-scroll-anchor", () => ({
-  resolveMessageRailTailPaddingEnd: (breakpoint: string) => breakpoint === "mobile" ? 40 : 48,
-  useScrollAnchor: (input: { scrollToMessageId?: string | null; items: Array<{ kind: string; m?: { id: string } }>; onScrollTargetPositioned: (id: string) => void; onInitialPositionSettled: () => void }) => {
+  useScrollAnchor: (input: { tailPaddingEnd?: number; scrollToMessageId?: string | null; items: Array<{ kind: string; m?: { id: string } }>; onScrollTargetPositioned: (id: string) => void; onInitialPositionSettled: () => void }) => {
     const consumed = React.useRef<string | null>(null)
     const loaded = input.items.some((item) => item.m?.id === input.scrollToMessageId)
     React.useLayoutEffect(() => {
@@ -43,7 +38,7 @@ vi.mock("@/hooks/community/use-scroll-anchor", () => ({
       }
     }, [input, loaded])
     mocks.hookOrder.push("anchor")
-    mocks.scrollInputs.push(input)
+    mocks.scrollInputs.push({ ...input, tailPaddingEnd: input.tailPaddingEnd ?? MESSAGE_RAIL_TAIL_PADDING_END_PX })
     return {
       scrollRef: mocks.scrollRef,
       virtualizer: mocks.virtualizer,
@@ -133,7 +128,6 @@ describe("useMessageListController", () => {
   }
 
   beforeEach(() => {
-    mocks.breakpoint = "desktop"
     currentScrollNode = scrollNode as unknown as HTMLDivElement
     resizeCallback = null
     disconnect.mockClear()
@@ -220,7 +214,7 @@ describe("useMessageListController", () => {
       presentVersion: undefined,
       localSubmitVersion: undefined,
       hasMoreOlder: undefined,
-      tailPaddingEnd: 48,
+      tailPaddingEnd: 32,
       onInitialPositionSettled: expect.any(Function),
       scrollToMessageId: undefined,
       onScrollTargetCancelled: undefined,
@@ -268,13 +262,12 @@ describe("useMessageListController", () => {
     expect(mocks.hookOrder.slice(-3)).toEqual(["anchor", "start", "end"])
   })
 
-  it("passes the breakpoint-owned fixed tail padding to the virtualizer", () => {
-    mocks.breakpoint = "mobile"
+  it("delegates the shared tail padding to the original virtualizer hook", () => {
     act(() => {
       rtlRender(React.createElement(Probe, { value: props() }))
     })
     expect(mocks.scrollInputs.at(-1)).toEqual(expect.objectContaining({
-      tailPaddingEnd: 40,
+      tailPaddingEnd: 32,
     }))
   })
 
@@ -294,7 +287,7 @@ describe("useMessageListController", () => {
     })
     const withTyping = mocks.scrollInputs.at(-1) as { tailPaddingEnd: number }
 
-    expect(withoutTyping.tailPaddingEnd).toBe(48)
+    expect(withoutTyping.tailPaddingEnd).toBe(32)
     expect(withTyping.tailPaddingEnd).toBe(withoutTyping.tailPaddingEnd)
   })
 
@@ -367,7 +360,7 @@ describe("useMessageListController", () => {
       presentVersion: 7,
       localSubmitVersion: undefined,
       hasMoreOlder: true,
-      tailPaddingEnd: 48,
+      tailPaddingEnd: 32,
       onInitialPositionSettled: expect.any(Function),
       scrollToMessageId: undefined,
       onScrollTargetCancelled: undefined,
