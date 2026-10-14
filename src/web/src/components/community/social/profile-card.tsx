@@ -1,7 +1,7 @@
 "use client"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useEffect } from "react"
+import { useEffect, type ComponentProps } from "react"
 import { Bot, MessagesSquare, Shield, UserRound } from "lucide-react"
 import { BOT_ACTIVITY_PRESETS } from "@alook/shared"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
@@ -27,6 +27,7 @@ import {
 import { BotMarkSticker } from "./bot-mark-sticker"
 import { ProfileRunningBotsCard } from "./profile-running-bots-card"
 import { useRunningOwnedBots } from "@/hooks/community/use-running-owned-bots"
+import { useBots } from "@/hooks/community/use-bots"
 import {
   resolveAuditPreviewPlacement,
   useProfileSecondaryPosition,
@@ -94,6 +95,15 @@ type ProfileCardProps = {
 export function ProfileCard(props: ProfileCardProps) {
   if (props.isSelf && props.data.userId) return <SelfProfileCard {...props} />
   return <ProfileCardContent {...props} hasSelfRunningBots={false} />
+}
+
+function OwnedBotMarkSticker(props: ComponentProps<typeof BotMarkSticker>) {
+  const { bots } = useBots()
+  const bot = bots.find((bot) => bot.id === props.botId)
+  const canInterrupt = Boolean(bot && bot.runtime !== "agy")
+  return <BotMarkSticker {...props} showStop={canInterrupt && props.showStop} onStop={() => {
+    if (canInterrupt) props.onStop()
+  }} />
 }
 
 function SelfProfileCard(props: ProfileCardProps) {
@@ -341,7 +351,7 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
       onOpenBotAudit={onOpenBotAudit}
     />
   ) : showOwnedBotCard && data.userId ? (
-    <BotMarkSticker
+    <OwnedBotMarkSticker
       botId={data.userId}
       active={isBotActivityActive(activityStatus.emoji, activityStatus.text)}
       showStop={isBotActivityRunning(activityStatus.emoji, activityStatus.text)

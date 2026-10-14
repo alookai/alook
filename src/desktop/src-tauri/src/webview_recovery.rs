@@ -1,6 +1,5 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::http::{Request, Response, StatusCode};
-#[cfg(desktop)]
 use tauri::Manager;
 use url::Url;
 
@@ -272,8 +271,8 @@ pub fn attach(window: &tauri::WebviewWindow) {
     let error_window = window.clone();
     if let Err(error) = window.with_webview(move |webview| match platform::attach(webview) {
         Ok(()) => {
-            if !tauri::is_dev() && STARTUP.signal_hooks_ready() {
-                replace_window_with_production(&startup_window);
+            if STARTUP.signal_hooks_ready() {
+                replace_window_with_initial_target(&startup_window);
             }
         }
         Err(error) => {
@@ -297,32 +296,50 @@ pub fn on_page_load<R: tauri::Runtime>(
         STARTUP.abandon();
     }
     if webview.label() != "main"
-        || tauri::is_dev()
         || !matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
         || !is_bootstrap_url(payload.url())
     {
         return;
     }
     if STARTUP.signal_bootstrap_finished() {
-        replace_webview_with_production(webview);
+        replace_webview_with_initial_target(webview);
     }
 }
 
-fn production_replace_script() -> String {
-    let target = serde_json::to_string(PRODUCTION_TARGET)
-        .expect("production target must serialize as JavaScript string");
-    format!("location.replace({target})")
+fn initial_replace_script(
+    development: bool,
+    development_url: Option<&Url>,
+) -> Result<String, &'static str> {
+    let target = if development {
+        let root = development_url
+            .filter(|url| url.as_str() == "http://localhost:3000/")
+            .ok_or("untrusted_development_root")?;
+        root.join("c")
+            .expect("validated development root must accept the main route")
+            .to_string()
+    } else {
+        PRODUCTION_TARGET.to_string()
+    };
+    let target =
+        serde_json::to_string(&target).expect("initial target must serialize as JavaScript string");
+    Ok(format!("location.replace({target})"))
 }
 
-fn replace_window_with_production(window: &tauri::WebviewWindow) {
-    if let Err(error) = window.eval(production_replace_script()) {
+fn replace_window_with_initial_target(window: &tauri::WebviewWindow) {
+    let result = initial_replace_script(tauri::is_dev(), window.config().build.dev_url.as_ref())
+        .map_err(str::to_owned)
+        .and_then(|script| window.eval(script).map_err(|error| error.to_string()));
+    if let Err(error) = result {
         eprintln!("webview recovery initial navigation unavailable: {error}");
         initialization_failure(window);
     }
 }
 
-fn replace_webview_with_production<R: tauri::Runtime>(webview: &tauri::Webview<R>) {
-    if let Err(error) = webview.eval(production_replace_script()) {
+fn replace_webview_with_initial_target<R: tauri::Runtime>(webview: &tauri::Webview<R>) {
+    let result = initial_replace_script(tauri::is_dev(), webview.config().build.dev_url.as_ref())
+        .map_err(str::to_owned)
+        .and_then(|script| webview.eval(script).map_err(|error| error.to_string()));
+    if let Err(error) = result {
         eprintln!("webview recovery initial navigation unavailable: {error}");
         if STARTUP.signal_failure() {
             if let Err(error) = webview.navigate(initialization_error_url()) {
@@ -1151,6 +1168,137 @@ mod tests {
     }
 
     #[test]
+    fn initial_navigation_selects_only_the_original_development_root() {
+        let root = Url::parse("http://localhost:3000").unwrap();
+        assert_eq!(
+            initial_replace_script(true, Some(&root)),
+            Ok(r#"location.replace("http://localhost:3000/c")"#.to_string())
+        );
+        assert_eq!(
+            initial_replace_script(false, None),
+            Ok(r#"location.replace("https://alook.ai/c")"#.to_string())
+        );
+        assert_eq!(
+            initial_replace_script(false, Some(&root)),
+            initial_replace_script(false, None)
+        );
+        assert_eq!(
+            initial_replace_script(true, None),
+            Err("untrusted_development_root")
+        );
+        for target in [
+            "http://localhost:3000/c",
+            "http://localhost:3000/?source=other",
+            "http://localhost:3000/#fragment",
+            "http://user@localhost:3000/",
+            "http://user:password@localhost:3000/",
+            "http://localhost:3001/",
+            "http://127.0.0.1:3000/",
+            "http://192.168.1.2:3000/",
+            "https://localhost:3000/",
+            "tauri://localhost/",
+            "http://tauri.localhost/",
+        ] {
+            let target = Url::parse(target).unwrap();
+            assert_eq!(
+                initial_replace_script(true, Some(&target)),
+                Err("untrusted_development_root"),
+                "accepted {target}"
+            );
+            assert_eq!(
+                initial_replace_script(false, Some(&target)),
+                initial_replace_script(false, None)
+            );
+        }
+    }
+
+    #[test]
+    fn development_config_keeps_the_local_bootstrap_and_http_upstream_separate() {
+        use tauri::utils::{
+            config::{parse::read_from, Config, WebviewUrl},
+            platform::Target,
+        };
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let project = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let (base, _) = read_from(Target::Android, &project).unwrap();
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let fixture = Fixture(
+            std::env::temp_dir().join(format!("alook-config199r4-{}-{nonce}", std::process::id())),
+        );
+        fs::create_dir(&fixture.0).unwrap();
+        fs::write(
+            fixture.0.join("tauri.conf.json"),
+            serde_json::to_vec(&base).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            fixture.0.join("tauri.android.conf.json"),
+            include_str!("../tauri.dev.conf.json"),
+        )
+        .unwrap();
+        let (merged, _) = read_from(Target::Android, &fixture.0).unwrap();
+        let mut window = merged["app"]["windows"][0].clone();
+        assert_eq!(
+            window.as_object_mut().unwrap().remove("url"),
+            Some(serde_json::json!("alook-recovery://localhost/bootstrap"))
+        );
+        assert_eq!(window, base["app"]["windows"][0]);
+        assert_eq!(merged["identifier"], base["identifier"]);
+        assert_eq!(
+            merged["app"]["security"]["capabilities"],
+            serde_json::from_str::<serde_json::Value>(include_str!("../tauri.dev.conf.json"))
+                .unwrap()["app"]["security"]["capabilities"]
+        );
+        fs::write(
+            fixture.0.join("tauri.conf.json"),
+            serde_json::to_vec(&merged).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            fixture.0.join("tauri.android.conf.json"),
+            r#"{"bundle":{"android":{"debugApplicationIdSuffix":".qa.config199r4"}}}"#,
+        )
+        .unwrap();
+        let (with_qa, _) = read_from(Target::Android, &fixture.0).unwrap();
+        assert_eq!(with_qa["app"], merged["app"]);
+        assert_eq!(
+            with_qa["bundle"]["android"]["debugApplicationIdSuffix"],
+            ".qa.config199r4"
+        );
+        let config: Config = serde_json::from_value(with_qa).unwrap();
+        let upstream = config.build.dev_url.as_ref().unwrap();
+        assert_eq!(upstream.as_str(), "http://localhost:3000/");
+        assert_eq!(config.app.windows.len(), 1);
+        match &config.app.windows[0].url {
+            WebviewUrl::CustomProtocol(url) => {
+                assert_eq!(url.as_str(), "alook-recovery://localhost/bootstrap")
+            }
+            other => panic!("unexpected main entry {other:?}"),
+        }
+        assert_eq!(
+            initial_replace_script(true, Some(upstream)),
+            Ok(r#"location.replace("http://localhost:3000/c")"#.to_string())
+        );
+        for path in [
+            "c",
+            "_next/static/chunk.js",
+            "api/health",
+            "api/auth/sign-in/email",
+            "api/community/users/me/inbox",
+        ] {
+            assert_eq!(upstream.join(path).unwrap().path(), format!("/{path}"));
+        }
+    }
+
+    #[test]
     fn invalid_fragment_fails_closed() {
         let html = recovery_html();
         assert!(html.contains("if(!target)surface.setAttribute(\"aria-disabled\",\"true\")"));
@@ -1159,7 +1307,7 @@ mod tests {
     }
 
     #[test]
-    fn build_configuration_bootstraps_only_production() {
+    fn build_configuration_preserves_production_bootstrap_and_target() {
         let config = include_str!("../tauri.conf.json");
         assert!(config.contains("\"devUrl\": \"http://localhost:3000/c\""));
         assert!(config.contains("\"frontendDist\": \"alook-recovery://localhost/bootstrap\""));

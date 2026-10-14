@@ -46,11 +46,14 @@ export function useCommunityNavigationController(
     href: string
   } | null>(null)
   const captureIntent = useCallback<CommunityNavigationController["captureIntent"]>((options) => {
-    const revision = gateRef.current.revision + (options ? 1 : 0)
+    const pendingCommit = options !== undefined && "pendingCommitHref" in options
+    const revision = gateRef.current.revision + (options && "nextCommitHref" in options ? 1 : 0)
     const frameRevision = committedFrameRef.current.revision
-    const targetHref = options ? normalizeCommunityHref(options.nextCommitHref).href : null
-    const targetRevision = frameRevision + (targetHref !== null
-      && normalizeCommunityHref(targetHref).leafKey !== committedFrameRef.current.leafKey ? 1 : 0)
+    const target = options ? normalizeCommunityHref("pendingCommitHref" in options
+      ? options.pendingCommitHref : options.nextCommitHref) : null
+    const targetHref = target?.href ?? null
+    const targetRevision = frameRevision + (target !== null
+      && target.leafKey !== committedFrameRef.current.leafKey ? 1 : 0)
     return () => {
       if (!mountedRef.current) return false
       if (revision === gateRef.current.revision && frameRevision === committedFrameRef.current.revision) return true
@@ -59,7 +62,10 @@ export function useCommunityNavigationController(
         && settled.revision === revision && gateRef.current.revision === revision + 1
         && settled.frameRevision === targetRevision
         && settled.frameRevision === committedFrameRef.current.revision
-        && settled.href === targetHref && committedFrameRef.current.href === targetHref
+        && settled.href === targetHref
+        && (pendingCommit
+          ? committedFrameRef.current.leafKey === target?.leafKey
+          : committedFrameRef.current.href === targetHref)
     }
   }, [])
   const pendingBaselineRevisionRef = useRef(committedFrame.revision)

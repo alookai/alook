@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { formatAwakeDuration } from "@/lib/community/format-time"
 import { tid } from "@/lib/community/testids"
+import { runtimeLabel } from "@/lib/community/runtime-label"
 import { MachineQuotaSummary } from "./bot-quota-summary"
 import { BotTokenUsageHeatmap } from "./bot-token-usage-chart"
 import type { BotListController, BotMachineGroup } from "./bot-list-types"
@@ -132,7 +133,7 @@ export function renderBotMachineGroup(
                     <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1.5">
                         <ProviderLogo provider={bot.runtime} className="size-3.5 shrink-0" />
-                        <span>{bot.runtime}</span>
+                        <span>{runtimeLabel(bot.runtime)}</span>
                       </span>
                       <span aria-hidden className="shrink-0">·</span>
                       {formatModelLabel(bot.runtime, bot.modelName) ? (

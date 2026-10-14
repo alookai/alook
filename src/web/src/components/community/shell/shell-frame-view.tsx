@@ -28,6 +28,7 @@ type Props = Pick<ShellFrameProps, "sidebar" | "children" | "extraDialogs"> & {
   rail: ReturnType<typeof useShellRailController>
   profile: ReturnType<typeof useShellProfileController>
   inbox: ReturnType<typeof useShellInboxController>
+  inboxOpening: boolean
   userBarExtension: UserBarExtensionState
   daemonUpdate: ReturnType<typeof useShellDaemonUpdateController>
   onUserBarInboxOpenChange: (open: boolean) => void
@@ -45,6 +46,7 @@ export function ShellFrameView({
   rail,
   profile,
   inbox,
+  inboxOpening,
   userBarExtension,
   daemonUpdate,
   onUserBarInboxOpenChange,
@@ -128,6 +130,7 @@ export function ShellFrameView({
           unreadCount={inbox.unreadCount}
           unreadCountPartial={inbox.unreadCountPartial}
           inboxOpen={userBarExtension.active === "inbox"}
+          inboxOpening={inboxOpening}
           onInboxOpenChange={onUserBarInboxOpenChange}
           extension={{
             active: userBarExtension.active,
