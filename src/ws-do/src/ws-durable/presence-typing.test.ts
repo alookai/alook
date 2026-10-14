@@ -19,6 +19,7 @@ import {
   mockGetDM,
   mockGetDMPeer,
   mockIsBlocked,
+  mockIsThreadParticipant,
   mockAreFriends,
   mockGetFriendUserIds,
   mockGetLatestTokenForUser,
@@ -782,7 +783,8 @@ describe("WebSocketDurableObject", () => {
 
     it("thread: typing reaches readable nonparticipants", async () => {
       const { durable, env } = createDO()
-      mockGetChannelForMember.mockResolvedValueOnce({ id: "t-1", serverId: "server-1" })
+      mockIsThreadParticipant.mockResolvedValue(true)
+      mockGetChannelForMember.mockResolvedValueOnce({ id: "t-1", serverId: "server-1", type: "thread" })
       mockGetChannelType.mockResolvedValueOnce("thread")
       mockResolveScopeMemberUserIds.mockResolvedValueOnce(["sender-1", "reader-1"])
 
@@ -796,10 +798,49 @@ describe("WebSocketDurableObject", () => {
       await flush()
 
       expect(mockListThreadParticipantUserIds).not.toHaveBeenCalled()
+      expect(mockIsThreadParticipant).toHaveBeenCalledWith(expect.anything(), "t-1", "sender-1")
       expect(mockResolveScopeMemberUserIds).toHaveBeenCalled()
       expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:reader-1")
       expect((env.WS_DO as any).idFromName).not.toHaveBeenCalledWith("user:sender-1")
       expect(mockStubFetch).toHaveBeenCalledTimes(1)
+    })
+
+    it("rejects repeated thread starts after leaving while preserving readable stop cleanup and later rejoin", async () => {
+      const { durable } = createDO()
+      mockIsThreadParticipant.mockResolvedValue(true)
+      mockGetChannelForMember.mockResolvedValue({ id: "t-1", serverId: "server-1", type: "thread" })
+      mockResolveChannelRecipientUserIds.mockResolvedValue(["sender-1", "reader-1"])
+      let clock = 10_000
+      const now = vi.spyOn(Date, "now").mockImplementation(() => clock)
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+      const start = JSON.stringify({ type: "community:typing.start", channelId: "t-1" })
+      try {
+        await durable.webSocketMessage(ws as any, start)
+        await flushAsyncWork()
+        expect(mockStubFetch).toHaveBeenCalledTimes(1)
+        mockIsThreadParticipant.mockResolvedValue(false)
+        clock += 10_000
+        await durable.webSocketMessage(ws as any, start)
+        await flushAsyncWork()
+        expect(mockStubFetch).toHaveBeenCalledTimes(1)
+        expect(mockResolveChannelRecipientUserIds).toHaveBeenCalledTimes(1)
+        expect(mockIsThreadParticipant).toHaveBeenCalledTimes(2)
+        await durable.webSocketMessage(ws as any, JSON.stringify({ type: "community:typing.stop", channelId: "t-1" }))
+        await flushAsyncWork()
+        expect(mockStubFetch).toHaveBeenCalledTimes(2)
+        mockIsThreadParticipant.mockResolvedValue(true)
+        clock += 10_000
+        await durable.webSocketMessage(ws as any, start)
+        await flushAsyncWork()
+        expect(mockStubFetch).toHaveBeenCalledTimes(3)
+        expect(mockIsThreadParticipant).toHaveBeenCalledTimes(3)
+        expect(mockD1WithSession).toHaveBeenCalledWith("first-primary")
+        const events = await Promise.all(mockStubFetch.mock.calls.map(async ([request]) => JSON.parse(await (request as Request).text())))
+        expect(events.map((event) => event.type)).toEqual(["community:typing.start", "community:typing.stop", "community:typing.start"])
+      } finally {
+        now.mockRestore()
+      }
     })
 
     it("does not fan out when sender is not a participant of the target DM", async () => {

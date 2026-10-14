@@ -108,6 +108,7 @@ export const mockResolveScopeMemberUserIds = vi.fn<(db: unknown, opts: { scope: 
 // Default: non-thread channel → typing uses the shared resolver path.
 export const mockGetChannelType = vi.fn<(db: unknown, channelId: string) => Promise<string | null>>().mockResolvedValue("text")
 export const mockListThreadParticipantUserIds = vi.fn<(db: unknown, channelId: string) => Promise<string[]>>().mockResolvedValue([])
+export const mockIsThreadParticipant = vi.fn<(db: unknown, channelId: string, userId: string) => Promise<boolean>>().mockResolvedValue(false)
 async function resolveChannelContentRecipientUserIdsMock(db: unknown, channelId: string): Promise<string[]> {
   const type = await mockGetChannelType(db, channelId)
   if (type === "dm") return mockListChannelMemberUserIds(db, channelId)
@@ -467,6 +468,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityThread: {
         listThreadParticipantUserIds: (...a: any[]) => mockListThreadParticipantUserIds(...a),
+        isThreadParticipant: (...a: [unknown, string, string]) => mockIsThreadParticipant(...a),
       },
       communityDm: {
         getDM: (...a: any[]) => mockGetDM(...a),
@@ -553,6 +555,7 @@ export function resetHarness() {
     // thread-typing test overrides this.
     mockGetChannelType.mockResolvedValue("text")
     mockListThreadParticipantUserIds.mockResolvedValue([])
+    mockIsThreadParticipant.mockReset().mockResolvedValue(false)
     mockListChannelMemberUserIds.mockResolvedValue([])
     mockGetDMPeer.mockResolvedValue(null)
     mockIsBlocked.mockResolvedValue(false)

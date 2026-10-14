@@ -537,7 +537,7 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
       userId: "u_me",
     }) })
     expect(hasCanonicalChannelAccess("post_1", "u_me")).toBe(true)
-    expect(hasCanonicalChannelNotify("post_1", "u_me")).toBe(true)
+    expect(hasCanonicalChannelNotify("post_1", "u_me")).toBe(false)
     expect(getCanonicalCommunityChannels(capturedQueryClient)
       .find(({ id }) => id === "post_1")?.unread).toBe(true)
     expect(readCurrentCommunityChannelMeta(capturedQueryClient)?.name).toBe("Private forum title")
@@ -549,6 +549,7 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
       userId: "u_me",
     }) })
     expect(hasCanonicalChannelAccess("post_2", "u_me")).toBe(true)
+    expect(hasCanonicalChannelNotify("post_2", "u_me")).toBe(true)
   })
 
   it("does not touch forum resources for a known ordinary text child", async () => {
@@ -923,7 +924,7 @@ describe("membership metadata and access lifetime", () => {
     expect(metadata.result.current.data).toMatchObject({ id: "child", type: "thread" })
     expect(hasCanonicalChannelAccess("child", "u_me")).toBe(true)
     expect(hasCanonicalChannel("child")).toBe(true)
-    expect(hasCanonicalChannelNotify("child", "u_me")).toBe(true)
+    expect(hasCanonicalChannelNotify("child", "u_me")).toBe(false)
     expect(capturedQueryClient.getQueryData(key)).toEqual(content)
     expect(getCapturedRuntime().ws.actions.isChannelAccessRevoked("child")).toBe(false)
   })
