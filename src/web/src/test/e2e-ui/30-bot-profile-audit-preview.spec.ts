@@ -804,7 +804,7 @@ let caseJourneyFailure2Present = false
         agentId: botId,
         sessionId: `session-${suffix}`,
         launchId: `launch-${suffix}`,
-        event: { kind: "tool_call", payload: { name: `Open activity log ${index}` } },
+        event: { kind: "text", payload: { text: `Open activity log ${index}`, truncated: false, chars: `Open activity log ${index}`.length } },
       }))
     }
 
@@ -847,17 +847,16 @@ let caseJourneyFailure2Present = false
     const sticker = alice.page.getByTestId(tid.botMarkSticker)
     await expect(sticker).toBeVisible()
     await expect(sticker).toHaveAttribute("aria-label", "Bot log")
-    const activityTab = sticker.getByRole("tab", { name: "Recent activity" })
+    const activityTab = sticker.getByRole("tab", { name: "Thoughts" })
     const marksTab = sticker.getByRole("tab", { name: /Marked messages/ })
     const auditRows = alice.page.locator(
       `[data-testid^="${tid.botAuditPreviewRow("")}"]`,
     )
     const activityScroller = sticker
-      .getByRole("tabpanel", { name: "Recent activity log" })
-      .locator(".bot-note-scrollbar")
+      .getByRole("tabpanel", { name: "Recent thoughts" })
+      .getByTestId(tid.botAuditPreviewScroll)
     await expect(activityTab).toHaveAttribute("aria-selected", "true")
     await expect(auditRows).toHaveCount(10)
-    await expect(alice.page.getByTestId(tid.botAuditPreviewEarlier)).toHaveText("…")
     await expect(activityScroller).toHaveCSS("overflow-y", "auto")
     await expect.poll(async () => activityScroller.evaluate((element) =>
       element.scrollTop + element.clientHeight >= element.scrollHeight - 1))
@@ -880,7 +879,7 @@ let caseJourneyFailure2Present = false
         agentId: botId,
         sessionId: `session-${suffix}`,
         launchId: `launch-${suffix}`,
-        event: { kind: "tool_call", payload: { name: "Open activity log 11" } },
+        event: { kind: "text", payload: { text: "Open activity log 11", truncated: false, chars: "Open activity log 11".length } },
       }))
       await expect.poll(() => liveEventAcknowledged, {
         message: `machine receives bot_audit_event_ack for ${liveEventId}`,
@@ -898,8 +897,7 @@ let caseJourneyFailure2Present = false
     await expect.poll(async () => activityScroller.evaluate((element) =>
       element.scrollTop + element.clientHeight >= element.scrollHeight - 1))
       .toBe(true)
-    await expect(sticker.getByRole("button", { name: /Load more activity/ }))
-      .toBeVisible()
+    await expect(sticker.getByRole("button", { name: /Load more activity/ })).toHaveCount(0)
     await marksTab.click()
     await expect(marksTab).toHaveAttribute("aria-selected", "true")
     await expect(alice.page.locator(`[data-testid^="${tid.botMarkStickerRow("")}"]`))
@@ -919,8 +917,7 @@ let caseJourneyFailure2Present = false
     await attachPageScreenshot(testInfo, "bot-work-sticker-marked-running-desktop", alice.page)
     await activityTab.click()
     await expect(activityTab).toHaveAttribute("aria-selected", "true")
-    await expect(sticker.getByRole("button", { name: /Load more activity/ }))
-      .toBeVisible()
+    await expect(sticker.getByRole("button", { name: /Load more activity/ })).toHaveCount(0)
     await expect(stop).toBeVisible()
     await attachPageScreenshot(testInfo, "bot-work-sticker-activity-running-desktop", alice.page)
     await marksTab.click()
@@ -956,13 +953,20 @@ let caseJourneyFailure2Present = false
     }))
     expect(mobileStickerGeometry.scrollWidth).toBeLessThanOrEqual(mobileStickerGeometry.clientWidth)
     expect(mobileStickerGeometry.right).toBeLessThanOrEqual(375)
-    await expect(sticker.getByLabel("Loading recent activity")).toHaveCount(0)
+    await expect(sticker.getByLabel("Loading thoughts")).toHaveCount(0)
     await expect(sticker.getByText("open activity log 11", { exact: true })).toBeVisible()
     await attachPageScreenshot(testInfo, "bot-mark-sticker-activity-mobile-dark", alice.page)
     await sticker.getByRole("tab", { name: "Marked messages" }).click()
     await expect(alice.page.locator(`[data-testid^="${tid.botMarkStickerRow("")}"]`))
       .toHaveCount(3)
     await attachPageScreenshot(testInfo, "bot-mark-sticker-marks-mobile-dark", alice.page)
+    await sticker.getByRole("tab", { name: "Thoughts" }).click()
+    await sticker.getByRole("button", { name: "Open full audit log" }).last().click()
+    await expect(alice.page).toHaveURL(new RegExp(`/c/me/bots\\?audit=${botId}`))
+    await gotoAfterUserWsAuth(alice.page, route)
+    await openBotProfile(alice.page, botName)
+    const footer = sticker.locator("footer")
+    await expect(footer.locator("time")).toHaveCount(0)
     const ownerLink = alice.page.getByTestId(tid.profileOwnerLink)
     await expect(alice.page.getByTestId(tid.profileBotBadge)).toContainText("Bot")
     await expect(ownerLink).toBeVisible()
@@ -984,9 +988,9 @@ let caseJourneyFailure2Present = false
       "data-placement",
       /^(right|left|top|bottom)$/,
     )
-    const openActivity = alice.page.getByRole("button", {
-      name: "Load more activity in the full audit log",
-    })
+    const openActivity = sticker.getByRole("button", {
+      name: "Open full audit log",
+    }).last()
     await openActivity.focus()
     await expect(openActivity).toBeFocused()
     await openActivity.press("Enter")

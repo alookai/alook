@@ -76,7 +76,7 @@ export function BotAuditPreview({
   )
 }
 
-export function BotAuditTimeline({
+function BotAuditTimeline({
   events,
   isLoading,
   isError,
@@ -144,13 +144,16 @@ export function BotAuditTimeline({
 export function BotAuditActiveRow({
   latestEventAt,
   tone = "default",
+  showTime = true,
 }: {
   latestEventAt?: string
   tone?: BotAuditTone
+  showTime?: boolean
 }) {
   const [nowMs, setNowMs] = useMountedClock()
 
   useEffect(() => {
+    if (!showTime) return
     let timer: ReturnType<typeof globalThis.setTimeout>
     const scheduleNextMinute = () => {
       const delay = 60_000 - (Date.now() % 60_000)
@@ -161,7 +164,7 @@ export function BotAuditActiveRow({
     }
     scheduleNextMinute()
     return () => globalThis.clearTimeout(timer)
-  }, [setNowMs])
+  }, [setNowMs, showTime])
 
   const latestEventMs = latestEventAt ? Date.parse(latestEventAt) : Number.NaN
   const displayedAt = new Date(
@@ -171,11 +174,11 @@ export function BotAuditActiveRow({
   return (
     <div
       data-testid={tid.botAuditPreviewActive}
-      className={tone === "note"
+      className={!showTime ? "flex min-w-0 items-center text-xs" : tone === "note"
         ? `${BOT_NOTE_ROW_CLASS} motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-200 motion-reduce:animate-none`
         : "grid h-6 shrink-0 grid-cols-[3.25rem_minmax(0,1fr)] items-center gap-2 px-3 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-200 motion-reduce:animate-none"}
     >
-      <time
+      {showTime && <time
         dateTime={displayedAt}
         suppressHydrationWarning
         className={tone === "note"
@@ -183,14 +186,14 @@ export function BotAuditActiveRow({
           : "font-mono text-[10px] tabular-nums text-muted-foreground/70"}
       >
         {formatAuditPreviewTime(displayedAt)}
-      </time>
+      </time>}
       <span className="flex items-center gap-1" aria-label="Bot activity in progress">
-        <span className={tone === "note" ? "mr-1 text-xs text-black" : "mr-1 text-xs text-primary/70"}>running</span>
+        <span className={!showTime ? "mr-1 text-xs" : tone === "note" ? "mr-1 text-xs text-black" : "mr-1 text-xs text-primary/70"}>running</span>
         {[0, 1, 2].map((index) => (
           <span
             key={index}
             aria-hidden
-            className={tone === "note"
+            className={!showTime ? "size-1.5 rounded-full bg-current motion-safe:animate-pulse motion-reduce:animate-none" : tone === "note"
               ? "size-1.5 rounded-full bg-black motion-safe:animate-pulse motion-reduce:animate-none"
               : "size-1.5 rounded-full bg-primary motion-safe:animate-pulse motion-reduce:animate-none"}
             style={{ animationDelay: `${index * 160}ms` }}

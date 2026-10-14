@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs"
-import { resolve } from "node:path"
 import React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render as renderDom } from "@/test/react-dom-harness"
@@ -44,12 +42,6 @@ vi.mock("lucide-react", () => ({
 }))
 
 import { BotMarkSticker } from "./bot-mark-sticker"
-
-const globalCss = readFileSync(resolve(
-  process.cwd(),
-  process.cwd().endsWith("/src/web") ? "" : "src/web",
-  "src/app/globals.css",
-), "utf8")
 
 const mark = (id: string, content = `Task ${id}`) => ({
   id,
@@ -150,92 +142,58 @@ describe("BotMarkSticker", () => {
     vi.unstubAllGlobals()
   })
 
-  it("defaults to recent activity inside a stable note shell", () => {
+  it("defaults to Thoughts and has no separate Load more control", () => {
     const { renderer, props } = render()
-    expect(renderer.container).not.toBeEmptyDOMElement()
     expect(renderer.container.textContent).toContain("Bot log")
-    expect(renderer.container.textContent).not.toContain("Bot note")
-    const title = [...renderer.container.querySelectorAll("span")]
-      .find((node) => node.textContent === "Bot log")!
-    expect(title.className).toContain("font-bold")
-    expect(title.className).toContain("font-brand")
-    const activityTab = renderer.container.querySelector('[role="tab"][aria-selected="true"]')!
-    const tablist = renderer.container.querySelector('[role="tablist"]')!
-    expect(tablist.className).toContain("h-12")
-    expect(activityTab.className).toContain("h-11")
-    expect(activityTab.querySelector("activity-icon")).not.toBeNull()
-    expect(renderer.container.querySelector('[aria-label="Recent activity log"]')).not.toBeNull()
+    expect(renderer.container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Thoughts")
+    expect(renderer.container.querySelector('[aria-label="Recent thoughts"]')).not.toBeNull()
+    expect(renderer.container.textContent).toContain("No recent thoughts")
     expect(renderer.container.textContent).toContain("Ready when you are")
-    const activityPanel = renderer.container.querySelector('[aria-label="Recent activity log"]')!
-    expect(activityPanel.tagName).toBe("DIV")
-    expect(activityPanel.className).not.toContain("overflow-hidden")
-    expect(activityPanel.className).not.toContain("rounded-xl")
-    expect(activityPanel.className).not.toContain("overflow-y-auto")
-    expect(activityPanel.className).not.toContain("px-1")
-    const activityScroller = activityPanel.querySelector('[class*="bot-note-scrollbar"]')!
-    expect(activityScroller.className).toContain("overflow-x-hidden")
-    expect(activityScroller.className).toContain("overflow-y-auto")
-    const stream = renderer.container.querySelector(
-      '[data-testid="community-bot-audit-preview-bottom"]',
-    )!
-    expect(stream.className).toContain("min-h-full")
-    expect(stream.className).toContain("justify-end")
-    const loadMore = renderer.container.querySelector<HTMLButtonElement>(
-      '[aria-label="Load more activity in the full audit log"]',
-    )!
-    expect(loadMore.tagName).toBe("BUTTON")
-    expect(loadMore.textContent).toContain("Load more")
-    expect(loadMore.className).toContain("min-h-11")
-    expect(loadMore.className).not.toContain("border")
-    expect(loadMore.className).not.toContain("shadow")
-    expect(loadMore.className).toContain("hover:bg-black/10")
-    fireEvent.click(loadMore)
-    expect(props.onOpenActivity).toHaveBeenCalledOnce()
-    expect(globalCss).toContain(".bot-note-scrollbar")
-    expect(globalCss).toContain("scrollbar-color: #8a6116 transparent")
-    expect(globalCss).toMatch(
-      /\.bot-note-scrollbar:hover\s*\{\s*scrollbar-color: #5f410c transparent;/,
-    )
+    expect(renderer.container.textContent).not.toContain("Load more")
+    expect(props.onOpenActivity).not.toHaveBeenCalled()
   })
 
-  it("uses regular black ink for activity log content", () => {
-    mocks.activity.events = [{
-      id: "event_1",
-      kind: "cli_invocation",
-      payload: { subcommand: "inboxPull" },
-      createdAt: "2026-09-04T00:00:00.000Z",
-    }]
-    mocks.activity.hasEarlierEvents = true
+  it("renders literal Unicode/newlines and retention metadata; clicking the body opens the audit", () => {
+    const body = "一页正文🙂\n<b>Literal</b>"
+    mocks.activity.events = [{ id: "text", kind: "text", payload: { text: body, truncated: true, chars: 200 }, createdAt: "2026-09-04T00:00:00.000Z" }]
+    const { renderer, props } = render()
+    const row = renderer.container.querySelector('[data-testid="community-bot-audit-preview-row-text"]')!
+    expect(row.querySelector("p")?.textContent).toBe(body)
+    expect(row.querySelector("b")).toBeNull()
+    expect(row.textContent).toContain("Truncated")
+    expect(row.querySelector("time")?.dateTime).toBe("2026-09-04T00:00:00.000Z")
+    fireEvent.click(row.querySelector("button")!)
+    expect(props.onOpenActivity).toHaveBeenCalledOnce()
+  })
+
+  it("does not expose cached text after an authoritative ownership404", () => {
+    mocks.activity.events = [{ id: "stale", kind: "text", payload: { text: "private cached body", truncated: false, chars: 19 }, createdAt: "2026-09-04T00:00:00.000Z" }]
+    mocks.activity.isNotFound = true
     const { renderer } = render()
-    const row = renderer.container.querySelector(
-      '[data-testid="community-bot-audit-preview-row-event_1"]',
-    )!
-    expect(row.className).toContain("min-h-5")
-    expect(row.className).toContain("grid-cols-[3.25rem_minmax(0,1fr)]")
-    expect(row.className).toContain("leading-5")
-    expect(row.className).toContain("px-[2px]")
-    expect(row.querySelector("time")?.className).toContain("text-[10px]")
-    expect(row.querySelector("time")?.className).toContain("text-black")
-    expect(row.querySelector("time")?.className).toContain("whitespace-nowrap")
-    const content = row.querySelector("span")
-    expect(content?.className).toContain("text-black")
-    expect(content?.className).toContain("font-mono")
-    expect(content?.className).toContain("text-xs")
-    expect(content?.className).not.toContain("font-semibold")
-    const earlier = renderer.container.querySelector(
-      '[data-testid="community-bot-audit-preview-earlier"]',
-    )!
-    expect(earlier.textContent).toBe("…")
-    expect(earlier.className).toContain("min-h-5")
-    expect(earlier.className).toContain("leading-5")
-    expect(earlier.className).toContain("px-[2px]")
+    expect(renderer.container).toBeEmptyDOMElement()
+  })
+
+  it("keeps malformed text inspectable without inserting payload markup", () => {
+    mocks.activity.events = [{ id: "bad", kind: "text", payload: { text: { html: "<script>bad</script>" } }, createdAt: "2026-09-04T00:00:00.000Z" }]
+    const { renderer, props } = render()
+    expect(renderer.container.textContent).toContain("Text unavailable")
+    expect(renderer.container.querySelector("script")).toBeNull()
+    fireEvent.click(renderer.container.querySelector('[aria-label="Open full audit log"]')!)
+    expect(props.onOpenActivity).toHaveBeenCalledOnce()
+  })
+
+  it.each(["isLoading", "isError"] as const)("holds the Thoughts panel during %s", (state) => {
+    mocks.activity[state] = true
+    const { renderer } = render()
+    expect(renderer.container.querySelector('[aria-label="Recent thoughts"]')).not.toBeNull()
+    expect(renderer.container.textContent).toContain(state === "isLoading" ? "Loading thoughts" : "Thoughts unavailable")
   })
 
   it("anchors initial rows at the tail and only follows live rows when already near it", () => {
     const events = (start: number) => Array.from({ length: 10 }, (_, index) => ({
       id: `event_${start + index}`,
-      kind: "tool_call",
-      payload: { name: `Tool ${start + index}` },
+      kind: "text",
+      payload: { text: `Thought ${start + index}`, truncated: false, chars: 10 },
       createdAt: `2026-09-04T00:00:${String(start + index).padStart(2, "0")}.000Z`,
     }))
     mocks.activity.events = events(0)
@@ -273,16 +231,16 @@ describe("BotMarkSticker", () => {
 
     mocks.activity.events = [{
       id: "event_1",
-      kind: "tool_call",
-      payload: { name: "Tool 1" },
+      kind: "text",
+      payload: { text: "Thought 1", truncated: false, chars: 9 },
       createdAt: "2026-09-04T00:00:01.000Z",
     }]
     const { renderer, props } = render()
 
     mocks.activity.events = [{
       id: "event_2",
-      kind: "tool_call",
-      payload: { name: "Tool 2" },
+      kind: "text",
+      payload: { text: "Thought 2", truncated: false, chars: 9 },
       createdAt: "2026-09-04T00:00:02.000Z",
     }]
     renderer.rerender(React.createElement(BotMarkSticker, props))
@@ -380,17 +338,13 @@ describe("BotMarkSticker", () => {
       '[data-testid="community-bot-mark-sticker-stop"]',
     )!
     expect(stop.disabled).toBe(false)
-    expect(stop.className).toContain("bg-[#dc2626]")
-    expect(stop.className).toContain("text-white")
-    expect(stop.className).toContain("min-h-7")
-    const activeRow = renderer.container.querySelector(
-      '[data-testid="community-bot-audit-preview-active"]',
-    )!
-    expect(activeRow.className).toContain("grid-cols-[3.25rem_minmax(0,1fr)]")
-    expect(activeRow.className).toContain("px-[2px]")
-    expect(activeRow.querySelector("time")?.className).toContain("text-black")
-    expect(activeRow.querySelectorAll('[class*="bg-black"]'))
-      .toHaveLength(3)
+    const footer = renderer.container.querySelector("footer")!
+    expect(footer.textContent).toContain("running")
+    expect(footer.querySelector("time")).toBeNull()
+    fireEvent.click(renderer.container.querySelectorAll('[role="tab"]')[1]!)
+    expect(renderer.container.querySelector("footer")).toBe(footer)
+    expect(footer.textContent).toContain("running")
+    expect(footer.querySelector('[data-testid="community-bot-mark-sticker-stop"]')).toBe(stop)
     fireEvent.click(stop)
     expect(onStop).toHaveBeenCalledOnce()
   })
@@ -413,7 +367,7 @@ describe("BotMarkSticker", () => {
 
     mocks.result.isNotFound = true
     const missing = render({ showStop: true }).renderer
-    expect(missing.container.querySelector('[aria-label="Recent activity log"]')).not.toBeNull()
+    expect(missing.container.querySelector('[aria-label="Recent thoughts"]')).not.toBeNull()
     expect(missing.container.querySelector(
       '[data-testid="community-bot-mark-sticker-stop"]',
     )).not.toBeNull()

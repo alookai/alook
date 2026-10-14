@@ -22,7 +22,7 @@ vi.mock("lucide-react", () => ({
   Lock: "lock-icon",
 }))
 
-import { BotAuditPreview } from "./bot-audit-preview"
+import { BotAuditActiveRow, BotAuditPreview } from "./bot-audit-preview"
 import {
   isBotActivityActive,
   isBotActivityRunning,
@@ -248,4 +248,11 @@ describe("BotAuditPreview", () => {
     expect(renderer.container.textContent).toContain("Activity unavailable")
     renderer.unmount()
   })
+  it("can omit the running timestamp for the shared notebook footer", () => {
+    const renderer = render(React.createElement(BotAuditActiveRow, { showTime: false }))
+    expect(renderer.container.textContent).toContain("running")
+    expect(renderer.container.querySelector("time")).toBeNull()
+    expect(renderer.container.querySelectorAll('[class*="rounded-full"]')).toHaveLength(3)
+  })
+
 })

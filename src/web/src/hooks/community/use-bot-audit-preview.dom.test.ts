@@ -13,7 +13,7 @@ vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetch(...args),
 }))
 
-function renderBotAuditPreview(botId: string | null) {
+function renderBotAuditPreview(botId: string | null, textOnly = false) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   })
@@ -23,7 +23,7 @@ function renderBotAuditPreview(botId: string | null) {
     children,
   )
   return {
-    ...renderHook(() => useBotAuditPreview(botId), { wrapper }),
+    ...renderHook(() => useBotAuditPreview(botId, textOnly), { wrapper }),
     queryClient,
   }
 }
@@ -124,4 +124,26 @@ describe("useBotAuditPreview", () => {
     await waitFor(() => expect(rendered.result.current.isNotFound).toBe(true))
     expect(apiFetch).toHaveBeenCalledOnce()
   })
+  it("filters text before the ten-row cap without another query or cache", async () => {
+    apiFetch.mockResolvedValueOnce({ events: [
+      ...Array.from({ length: 11 }, (_, i) => event(`tool-${i}`, i + 10)),
+      { ...event("text-1", 1), kind: "text", payload: { text: "An older thought", chars: 16, truncated: false } },
+    ], nextCursor: null })
+    const rendered = renderBotAuditPreview("b1", true)
+    await waitFor(() => expect(rendered.result.current.events.map((row) => row.id)).toEqual(["text-1"]))
+    expect(apiFetch).toHaveBeenCalledOnce()
+    expect(rendered.queryClient.getQueryData(communityKeys.botAuditLog("b1"))).toBeDefined()
+    expect(rendered.queryClient.getQueryData(communityKeys.botAuditPreview("b1"))).toBeUndefined()
+  })
+
+  it("ignores live commands in Thoughts and accepts live text from the canonical cache", async () => {
+    apiFetch.mockResolvedValueOnce({ events: [], nextCursor: null })
+    const rendered = renderBotAuditPreview("b1", true)
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
+    act(() => appendBotAuditEvent(rendered.queryClient, "b1", event("tool", 1)))
+    expect(rendered.result.current.events).toHaveLength(0)
+    act(() => appendBotAuditEvent(rendered.queryClient, "b1", { ...event("text", 2), kind: "text", payload: { text: "New thought", chars: 11, truncated: false } }))
+    await waitFor(() => expect(rendered.result.current.events.map((row) => row.id)).toEqual(["text"]))
+  })
+
 })
