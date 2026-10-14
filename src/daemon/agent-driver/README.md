@@ -224,7 +224,9 @@ the `antigravity` ACP backend below. Install and sign in with the
 [official CLI instructions](https://antigravity.google/docs/cli/install/).
 Discovery and launch share the same executable lookup: an explicit `command`,
 `agy` on PATH, then `~/.local/bin/agy` on macOS/Linux or
-`%USERPROFILE%/AppData/Local/agy/bin/agy.exe` on Windows.
+`%LOCALAPPDATA%/agy/bin/agy.exe` on Windows (the default user-local directory
+is used only when `LOCALAPPDATA` is absent). Run the selected CLI executable in a terminal and finish
+Google sign-in before starting a bot; ACP authentication is separate.
 
 The CLI must advertise native `--input-format stream-json`,
 `--output-format stream-json` and `--conversation` support. Alook keeps one

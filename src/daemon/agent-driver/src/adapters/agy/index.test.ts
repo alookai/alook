@@ -1,10 +1,13 @@
 import { existsSync, mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { once } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgyDriver } from "./index.js";
 import { createBuiltinAgentDriverSdk, type AgentEvent, type BuiltinBackendSpecs } from "../../host.js";
 import { createFakeAgentDriverHost } from "../../testing/fake-host.js";
+import { fakeLaunchContext } from "../../testing/adapter-fixture.js";
+import { isAlive, killProcessTree } from "../../internal/killTree.js";
 
 const directories: string[] = [];
 afterEach(() => { for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }); });
@@ -51,6 +54,15 @@ describe("agy native stream ownership", () => {
     begin(driver, 12);
     expect(driver.normalizeLine(step(10, { usage }))).toEqual([]);
     expect(driver.normalizeLine(step(13, { usage: { output_tokens: 0 } }))).toMatchObject([{ usage: { input: null, output: 0, cache: null } }]);
+  });
+  it("keeps a tool live until its matching completed step without ending the root turn", () => {
+    const driver = new AgyDriver();
+    driver.normalizeLine(line({ event: "init", conversation_id: "native" }));
+    begin(driver);
+    expect(driver.normalizeLine(step(1, { step_type: "tool", state: "ACTIVE", tool_name: "bash", tool_info: { parameters: "ls" } }))).toEqual([{ kind: "tool_call", callId: "native:1", name: "bash", input: "ls" }]);
+    expect(driver.normalizeLine(step(1, { step_type: "tool", state: "DONE", tool_name: "bash" }, "child"))).toEqual([]);
+    expect(driver.normalizeLine(step(1, { step_type: "tool", tool_name: "bash" }))).toEqual([{ kind: "tool_output", callId: "native:1", name: "bash" }]);
+    expect(driver.normalizeLine(result(1))).toMatchObject([{ kind: "assistant_message_completed" }, { kind: "turn_end" }]);
   });
   it.each(["ERROR", "CANCELLED", "TIMEOUT"])("discards partial content on %s and never treats it as success", (status) => {
     const driver = new AgyDriver();
@@ -109,6 +121,21 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
 }
 
 describe.skipIf(process.platform === "win32")("agy registered SDK with a real fixture process", () => {
+  it("reports a failed initial input write, fences further input and releases its process", async () => {
+    const f = fixture();
+    const driver = new AgyDriver();
+    expect(await driver.probe(f.executable)).toEqual({ status: "healthy", version: "1.3.4" });
+    const ctx = fakeLaunchContext("agy", f.directory);
+    const { process: child } = await driver.spawn({ ...ctx, backend: "agy", config: { ...ctx.config, runtimeConfig: { model: { kind: "default" }, command: f.executable } } });
+    const closed = once(child, "close");
+    const write = vi.spyOn(child.stdin!, "write").mockImplementation(() => { throw new Error("closed input"); });
+    try {
+      expect(driver.normalizeLine(line({ event: "init", conversation_id: "native" }))).toEqual([{ kind: "error", message: "Antigravity CLI input is unavailable" }]);
+      expect(driver.encodeMessage("must not send")).toBeNull();
+      await closed;
+      expect(isAlive(child.pid!)).toBe(false);
+    } finally { write.mockRestore(); if (child.pid && isAlive(child.pid)) await killProcessTree(child.pid, { graceMs: 10 }); }
+  });
   it("drains ten busy inputs exactly once in order through one persistent process", async () => {
     const f = fixture();
     const opened = await createBuiltinAgentDriverSdk({ host: createFakeAgentDriverHost() }).open({ backend: "agy",
@@ -178,6 +205,7 @@ describe.skipIf(process.platform === "win32")("agy registered SDK with a real fi
       } else {
         expect(events.some((event) => event.type === "assistant_message_completed")).toBe(false);
         expect(existsSync(join(f.directory, "inputs.jsonl"))).toBe(false);
+        if (mode === "auth") expect(receipt).toMatchObject({ error: { message: expect.stringContaining("Run the configured Antigravity CLI in a terminal, complete sign-in, then retry") } });
       }
       expect(JSON.parse(readFileSync(join(f.directory, "argv.json"), "utf8"))).toEqual(expect.arrayContaining(["--conversation", "saved-native"]));
     } finally { await session.stop({ reason: "shutdown", forceAfterMs: 10 }); await session.closed; await collecting; }

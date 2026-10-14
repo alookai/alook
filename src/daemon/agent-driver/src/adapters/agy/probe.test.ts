@@ -1,11 +1,11 @@
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { agySpawnSpec, probeAgy } from "./probe.js";
 
 const directories: string[] = [];
-afterEach(() => { for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }); });
+afterEach(() => { vi.unstubAllEnvs(); for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }); });
 function directory() { const path = mkdtempSync(join(tmpdir(), "alook-agy-probe-")); directories.push(path); return path; }
 
 describe("official agy entry", () => {
@@ -15,16 +15,24 @@ describe("official agy entry", () => {
     mkdirSync(bin, { recursive: true });
     writeFileSync(join(bin, "agy"), "installed");
     const deps = { homeDir: home, which: () => "/path/agy" };
-    expect(agySpawnSpec("/custom/cli", deps)).toMatchObject({ command: "/custom/cli", shell: false });
-    expect(agySpawnSpec(undefined, deps)).toMatchObject({ command: "/path/agy" });
-    expect(agySpawnSpec(undefined, { homeDir: home, which: () => null })).toMatchObject({ command: join(bin, "agy") });
+    expect(agySpawnSpec("/custom/cli", deps, "darwin")).toMatchObject({ command: "/custom/cli", shell: false });
+    expect(agySpawnSpec(undefined, deps, "darwin")).toMatchObject({ command: "/path/agy" });
+    expect(agySpawnSpec(undefined, { homeDir: home, which: () => null }, "darwin")).toMatchObject({ command: join(bin, "agy") });
   });
   it("finds the Windows native installation and supports explicit shim paths", () => {
     const home = directory();
     const bin = join(home, "AppData", "Local", "agy", "bin");
     mkdirSync(bin, { recursive: true });
     writeFileSync(join(bin, "agy.exe"), "installed");
+    vi.stubEnv("LOCALAPPDATA", undefined);
     expect(agySpawnSpec(undefined, { homeDir: home, which: () => null }, "win32")).toMatchObject({ command: join(bin, "agy.exe"), shell: false });
+    const redirected = join(directory(), "redirected local data");
+    const entry = join(redirected, "agy", "bin", "agy.exe");
+    mkdirSync(join(redirected, "agy", "bin"), { recursive: true });
+    writeFileSync(entry, "redirected installation");
+    vi.stubEnv("LOCALAPPDATA", redirected);
+    expect(agySpawnSpec(undefined, { homeDir: home, which: () => null }, "win32")).toMatchObject({ command: entry, shell: false });
+    expect(agySpawnSpec(undefined, { homeDir: home, which: () => "C:\\path\\agy.exe" }, "win32")).toMatchObject({ command: "C:\\path\\agy.exe" });
     expect(agySpawnSpec("C:\\custom cli\\agy.cmd", {}, "win32")).toMatchObject({ shell: true });
   });
   it.skipIf(process.platform === "win32")("requires actual stream flags and captures native stderr help", async () => {

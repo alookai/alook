@@ -9,7 +9,7 @@ export function agySpawnSpec(command?: string, deps: ProbeDeps = {}, platform = 
   const explicit = command?.trim();
   if (explicit) return resolveSpawnSpec("agy", [], explicit, deps, platform);
   const home = deps.homeDir ?? homedir();
-  const installed = platform === "win32" ? join(home, "AppData", "Local", "agy", "bin", "agy.exe") : join(home, ".local", "bin", "agy");
+  const installed = platform === "win32" ? join(process.env.LOCALAPPDATA?.trim() || join(home, "AppData", "Local"), "agy", "bin", "agy.exe") : join(home, ".local", "bin", "agy");
   const selected = resolveCommandOnPath("agy", deps) ?? (existsSync(installed) ? installed : "agy");
   return resolveSpawnSpec("agy", [], selected, deps, platform);
 }

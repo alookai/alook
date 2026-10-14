@@ -149,7 +149,9 @@ export class AgyDriver implements BackendAdapter<"agy"> {
   private fail(message: string): AdapterEvent[] {
     this.failed = true;
     if (this.process?.pid) void killProcessTree(this.process.pid, { graceMs: 100 }).catch(() => {});
-    return [{ kind: "error", message }];
+    return [{ kind: "error", message: /authentication (required|failed)/i.test(message)
+      ? "Antigravity CLI authentication is unavailable. Run the configured Antigravity CLI in a terminal, complete sign-in, then retry."
+      : message }];
   }
 
   async interrupt(): Promise<boolean> { return false; }
