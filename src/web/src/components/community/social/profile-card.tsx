@@ -1,7 +1,7 @@
 "use client"
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useEffect } from "react"
+import { useEffect, type ComponentProps } from "react"
 import { Bot, MessagesSquare, Shield, UserRound } from "lucide-react"
 import { BOT_ACTIVITY_PRESETS } from "@alook/shared"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
@@ -94,16 +94,16 @@ type ProfileCardProps = {
 
 export function ProfileCard(props: ProfileCardProps) {
   if (props.isSelf && props.data.userId) return <SelfProfileCard {...props} />
-  if (props.data.userId && props.data.identity?.kind === "bot" && props.data.identity.ownedByViewer) {
-    return <OwnedBotProfileCard {...props} />
-  }
   return <ProfileCardContent {...props} hasSelfRunningBots={false} />
 }
 
-function OwnedBotProfileCard(props: ProfileCardProps) {
+function OwnedBotMarkSticker(props: ComponentProps<typeof BotMarkSticker>) {
   const { bots } = useBots()
-  const bot = bots.find((bot) => bot.id === props.data.userId)
-  return <ProfileCardContent {...props} hasSelfRunningBots={false} canInterrupt={Boolean(bot && bot.runtime !== "agy")} />
+  const bot = bots.find((bot) => bot.id === props.botId)
+  const canInterrupt = Boolean(bot && bot.runtime !== "agy")
+  return <BotMarkSticker {...props} showStop={canInterrupt && props.showStop} onStop={() => {
+    if (canInterrupt) props.onStop()
+  }} />
 }
 
 function SelfProfileCard(props: ProfileCardProps) {
@@ -114,9 +114,8 @@ function SelfProfileCard(props: ProfileCardProps) {
 // Profile card — popover anchored at the click point on desktop, bottom sheet on mobile.
 // Identity, about, status, and presence are read from the global profile map
 // whenever a userId is present. Static cards use their supplied display data.
-function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = false, isSelf, onUpdateStatus, onOpenOwnerProfile, onOpenBotAudit, initialStatusEmoji, initialStatusText, activityStatusEmoji, activityStatusText, embedded, extension, hasSelfRunningBots, canInterrupt = false }: ProfileCardProps & {
+function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = false, isSelf, onUpdateStatus, onOpenOwnerProfile, onOpenBotAudit, initialStatusEmoji, initialStatusText, activityStatusEmoji, activityStatusText, embedded, extension, hasSelfRunningBots }: ProfileCardProps & {
   hasSelfRunningBots: boolean
-  canInterrupt?: boolean
 }) {
   const registry = useOptionalCommunityDbRegistry()
   const [msg, setMsg] = useAtom(useCreateAtom(""))
@@ -181,7 +180,7 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
     else close()
   }
   const interruptAgent = () => {
-    if (!canInterrupt || !registry?.runtime.lifecycle.get().active || !data.userId || interruptPending) return
+    if (!registry?.runtime.lifecycle.get().active || !data.userId || interruptPending) return
     setInterruptPending(true)
     communityWsInterruptAgent(registry.runtime, data.userId)
   }
@@ -352,11 +351,11 @@ function ProfileCardContent({ data, x, y, bp, onClose, onMessage, canMessage = f
       onOpenBotAudit={onOpenBotAudit}
     />
   ) : showOwnedBotCard && data.userId ? (
-    <BotMarkSticker
+    <OwnedBotMarkSticker
       botId={data.userId}
       active={isBotActivityActive(activityStatus.emoji, activityStatus.text)}
-      showStop={canInterrupt && (isBotActivityRunning(activityStatus.emoji, activityStatus.text)
-        || (interruptPending && !activityIdle))}
+      showStop={isBotActivityRunning(activityStatus.emoji, activityStatus.text)
+        || (interruptPending && !activityIdle)}
       stopPending={interruptPending}
       onStop={interruptAgent}
       onOpenActivity={() => onOpenBotAudit?.(data.userId!)}

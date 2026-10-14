@@ -283,6 +283,19 @@ describe("ProfileCard contextual metadata", () => {
     expect(nonowner).not.toContain(">Stop</button>")
   })
 
+  it("keeps an entered message when asynchronous bot ownership arrives", () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const data: Profile = { name: "Ren", userId: "agent_1" }
+    const card = (identity?: Profile["identity"]) => createElement(CommunityTestProvider, { client }, createElement(ProfileCard, {
+      data: { ...data, identity }, embedded: true, canMessage: true, onMessage: vi.fn(),
+      x: 0, y: 0, bp: "desktop", onClose: vi.fn(),
+    }))
+    const renderer = render(card())
+    fireEvent.change(renderer.getByRole("textbox"), { target: { value: "Keep this draft" } })
+    renderer.rerender(card({ kind: "bot", ownerProfile: { id: "owner_1", handle: "Owner#0042" }, ownedByViewer: true }))
+    expect(renderer.getByRole("textbox")).toHaveValue("Keep this draft")
+  })
+
   it.each(["desktop", "mobile"] as const)("waits for owner runtime and omits unsupported agy Stop on %s", async (bp) => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const status = { emoji: "⚡", text: "Working on it" }
