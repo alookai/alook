@@ -53,6 +53,11 @@ describe("official agy entry", () => {
 
 
 describe("AGY on-demand native catalog", () => {
+  it.skipIf(process.platform === "win32")("rejects a successful native command with no usable model rows", async () => {
+    const command = join(directory(), "agy");
+    writeFileSync(command, `#!${process.execPath}\nif(process.argv.includes('--version'))console.log('1.3.5');else if(process.argv.includes('--help'))console.error('--input-format --output-format stream-json --conversation models');else console.log('No available models');\n`, { mode: 0o755 });
+    expect(await createAgentDriverSdk().probe({ backend: "agy", command })).toMatchObject({ status: "unhealthy", error: { code: "agy_model_catalog_invalid" } });
+  });
   it.skipIf(process.platform === "win32")("keeps installation healthy when the native catalog requires authentication", async () => {
     const root = directory();
     const command = join(root, "agy");

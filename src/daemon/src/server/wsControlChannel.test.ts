@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { WS_CONTROL_COMMAND_CONSUMED, WsControlChannel } from "./wsControlChannel";
 import type { WebSocketLike, HostReady, AgentSessionReport, HostCommand } from "./contract";
 import type { Logger } from "../logger";
+import { HostRuntimeModelsFrameSchema } from "@alook/shared";
 
 /**
  * A controllable fake socket: records sent frames, lets the test drive open/close
@@ -302,6 +303,18 @@ describe("WsControlChannel — auth rejection", () => {
 });
 
 describe("WsControlChannel — ready frame", () => {
+  it("round-trips correlated native catalog and error replies over the machine socket", () => {
+    const { ch, sockets } = makeChannel();
+    ch.connect();
+    sockets[0].emit("open");
+    const frames = [
+      { type: "runtime_models" as const, requestId: "catalog", runtimeId: "agy", result: { status: "complete" as const, runtimeReport: [{ id: "agy", status: "healthy" as const, reasoning: { updateMode: "unsupported" as const, models: [{ id: "native", supportedReasoningEfforts: [] }] } }] } },
+      { type: "runtime_models" as const, requestId: "error", runtimeId: "agy", result: { status: "error" as const, code: "agy_model_probe_failed", message: "Could not load models" } },
+    ];
+    for (const frame of frames) ch.reportRuntimeModels(frame);
+    expect(sockets[0].frames().filter((frame) => frame.type === "runtime_models").map((frame) => HostRuntimeModelsFrameSchema.parse(frame))).toEqual(frames);
+    ch.close();
+  });
   it("round-trips runtimeReport on the ready frame", async () => {
     const { ch, sockets } = makeChannel();
     const ready: HostReady = {

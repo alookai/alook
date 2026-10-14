@@ -84,6 +84,29 @@ describe("on-demand runtime models", () => {
     expect(h.result.current.isPending).toBe(true)
   })
 
+  it("opening while disconnected ends loading without dispatching a request", async () => {
+    const h = mount()
+    act(() => getCommunityRuntime(h.queryClient).ws.actions.setConnectionStatus("failed"))
+    act(() => h.result.current.onOpenChange(true))
+    await waitFor(() => expect(h.result.current.error).toBe("Reconnect to load models."))
+    expect(h.result.current.isPending).toBe(false)
+    expect(apiFetch).not.toHaveBeenCalled()
+  })
+
+  it("a late aborted request does not replace the cancelled state with an error", async () => {
+    let rejectRequest!: (error: unknown) => void
+    apiFetch.mockImplementationOnce(() => new Promise((_, reject) => { rejectRequest = reject }))
+    const h = mount()
+    act(() => h.result.current.onOpenChange(true))
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
+    const id = h.request().requestId
+    act(() => h.result.current.onOpenChange(false))
+    await act(async () => { rejectRequest(new DOMException("Request cancelled", "AbortError")) })
+    await waitFor(() => expect(h.result.current.isPending).toBe(false))
+    expect(h.request()).toEqual({ requestId: id, status: "cancelled" })
+    expect(h.result.current.error).toBeNull()
+  })
+
   it("ends loading on disconnect and ignores the late native result", async () => {
     const h = mount()
     act(() => h.result.current.onOpenChange(true))
