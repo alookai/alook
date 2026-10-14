@@ -55,7 +55,8 @@ export function retireTelemetry(reason: "boundary" | "native_session" = "boundar
 export function isNativeSessionContinuation(original: number) { return eligible && nativeContinuationFrom === original }
 export function emitTelemetry(name: TelemetryEvent, attributes: Attributes = {}) {
   if (!eligible) return
-  const event = { name, attributes: cleanAttributes({ ...base, ...attributes, schema_version: 1 }), timestamp: observationEpoch() }
+  const origin = typeof attributes.observation_origin_ms === "number" && Number.isFinite(attributes.observation_origin_ms) ? attributes.observation_origin_ms : undefined
+  const event = { name, attributes: cleanAttributes({ ...base, ...attributes, schema_version: 1 }), timestamp: observationEpoch(performance.now(), origin) }
   if (sink) { try { sink(event) } catch { dropped++ } }
   else if (queue.length < LIMIT) queue.push(event)
   else dropped++

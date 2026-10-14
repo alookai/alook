@@ -49,7 +49,7 @@ describe("original observation ownership", () => {
     expect(Object.values(dmFields)).not.toContain("undefined")
     expect(navigationFields.navigation_id).toBe(navigation.navigationId)
     finishAction(dm, undefined)
-    expect(dm.span!.setAttribute).not.toHaveBeenCalled()
+    expect(dm.span!.setAttribute).not.toHaveBeenCalledWith("outcome", expect.anything())
     finishAction(navigation, "success")
     expect(navigation.span!.setAttribute).toHaveBeenCalledWith("outcome", "success")
   })
@@ -95,7 +95,7 @@ describe("original observation ownership", () => {
     vi.setSystemTime(Date.now() - 86_400_000)
     finishAction(action, "success", { phase: "primary", region: "bots" })
     expect(events.at(-1)?.attributes.duration_ms).toBe("50")
-    expect(end).toHaveBeenCalledWith(observationTime(150))
+    expect(end).toHaveBeenCalledWith(observationTime(150, action.origin))
     const emitted: Array<{ timestamp: number }> = []
     installTelemetrySink(event => emitted.push(event))
     emitTelemetry("business.result", { outcome: "success" })

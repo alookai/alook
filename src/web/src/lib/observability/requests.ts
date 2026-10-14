@@ -1,40 +1,49 @@
-import { actionAttributes, telemetryId, navigationForHref, prefetchForHref, type Action } from "./context"
+import { actionAttributes, telemetryId, navigationForHref, prefetchForHref, currentPageObservation, type Action } from "./context"
 import { routeTemplate } from "./coverage"
 import { emitTelemetry, isTelemetryEligible, telemetryGeneration } from "./telemetry"
 import { cleanAttributes, type Attributes } from "./schema"
 import { context, trace, createContextKey, type Span } from "@opentelemetry/api"
-import { finishTransportClock } from "./clock"
+import { finishTransportClock, observationOrigin, transportClockOrigin, observationOwnerGeneration, retireObservationSpan } from "./clock"
+import { observeResourceResponse } from "./resource"
+import { readTraceResponse } from "./trace-response"
 
-export type RequestObservation = { id: string; start: number; generation: number; fields: Attributes; done: boolean; action?: Action }
+export type RequestObservation = { id: string; start: number; origin: number; generation: number; fields: Attributes; done: boolean; action?: Action }
 const responses = new WeakMap<Response, RequestObservation>()
 const requestContext = createContextKey("alook.request")
 const transportRequests = new WeakMap<Span, RequestObservation>()
-export function startRequest(path: string, options?: { method?: string; kind?: Attributes["request_kind"]; observation?: { action?: Action; reason?: Attributes["request_reason"] } }): RequestObservation | undefined {
+export function startRequest(path: string, options?: { method?: string; kind?: Attributes["request_kind"]; observation?: { action?: Action; page?: Action; reason?: Attributes["request_reason"] } }): RequestObservation | undefined {
   if (!isTelemetryEligible()) return
   const origin = typeof window === "undefined" ? "https://alook.ai" : window.location.origin
-  const fields = { ...actionAttributes(options?.observation?.action), route_template: routeTemplate(path, origin), method: options?.method ?? "GET", request_reason: options?.observation?.reason ?? "unknown", request_kind: options?.kind ?? "api", eligibility: "unknown" }
-  const request = { id: telemetryId(), start: performance.now(), generation: telemetryGeneration(), fields, done: false, action: options?.observation?.action }
+  const explicit = options?.observation
+  const candidate = explicit?.action ?? explicit?.page ?? (explicit === undefined ? currentPageObservation() : undefined)
+  const action = candidate?.generation === telemetryGeneration() && (!candidate.done || candidate.name === "navigation") ? candidate : undefined
+  const clock = action?.origin ?? observationOrigin()
+  const fields = { ...actionAttributes(action), route_template: routeTemplate(path, origin), method: options?.method ?? "GET", request_reason: options?.observation?.reason ?? "unknown", request_kind: options?.kind ?? "api", eligibility: "unknown", observation_origin_ms: clock, clock_source: "operation_monotonic", clock_domain: "browser", clock_alignment: "unverified" }
+  const request = { id: telemetryId(), start: performance.now(), origin: clock, generation: telemetryGeneration(), fields, done: false, action }
   emitTelemetry("request.start", { ...fields, request_id: request.id, start_ms: request.start })
   return request
 }
 export function runObservedFetch<T>(request: RequestObservation | undefined, execute: () => T): T {
   const action = request?.action
   if (!request || request.generation !== telemetryGeneration() || !isTelemetryEligible()) return execute()
-  const original = context.active().setValue(requestContext, request)
+  const original = context.active().setValue(requestContext, request).setValue(observationOwnerGeneration, request.generation)
   return context.with(action?.span && action.generation === request.generation ? trace.setSpan(original, action.span) : original, execute)
 }
 
 export function observeTransportSpan(span: Span) {
   const request = context.active().getValue(requestContext) as RequestObservation | undefined
-  if (!request || request.generation !== telemetryGeneration() || !isTelemetryEligible()) return
+  if (!request || request.generation !== telemetryGeneration() || !isTelemetryEligible()) { if (request) retireObservationSpan(span); return }
   transportRequests.set(span, request)
   const native = span.spanContext()
-  request.fields = { ...request.fields, trace_id: native.traceId, span_id: native.spanId }
+  request.fields = { ...request.fields, trace_id: native.traceId, span_id: native.spanId, request_identity: "native_http" }
+  span.setAttribute(transportClockOrigin, request.origin)
   for (const [key, value] of Object.entries(cleanAttributes({ ...request.fields, request_id: request.id }))) span.setAttribute(key, value)
+  emitTelemetry("request.trace_bound", { ...request.fields, request_id: request.id, phase: "transport" })
 }
 
 export function finishTransportSpan(span: Span, result: unknown) {
   finishTransportClock(span)
+  if (result instanceof Response) observeResourceResponse(span, result.headers.get("server-timing") ?? "")
   const request = transportRequests.get(span)
   transportRequests.delete(span)
   if (request?.fields.request_kind !== "rsc") return
@@ -63,12 +72,13 @@ export function installNavigationFetchContext() {
 }
 function fields(request?: RequestObservation): Attributes {
   const current = request?.action?.generation === telemetryGeneration() ? actionAttributes(request.action) : {}
-  return request ? { ...request.fields, trace_id: request.fields.trace_id ?? current.trace_id, span_id: request.fields.span_id ?? current.span_id, request_id: request.id, start_ms: request.start, duration_ms: performance.now() - request.start } : {}
+  return request ? { ...request.fields, trace_id: request.fields.trace_id ?? current.trace_id, span_id: request.fields.span_id ?? current.span_id, request_id: request.id, start_ms: request.start, duration_ms: performance.now() - request.start, clock_skew_ms: Math.abs(observationOrigin() - request.origin) } : {}
 }
 export function requestHeaders(request: RequestObservation | undefined, response: Response) {
   if (!request || request.generation !== telemetryGeneration()) return
   const ray = response.headers.get("cf-ray") ?? undefined
-  request.fields = { ...request.fields, status: response.status, cf_ray: ray }
+  const relation = request.fields.request_identity === "native_http" ? readTraceResponse(response.headers.get("server-timing") ?? "", { traceId: String(request.fields.trace_id), spanId: String(request.fields.span_id) }) : undefined
+  request.fields = { ...request.fields, status: response.status, cf_ray: ray, server_sampling: relation?.sampling ?? "unavailable", server_identity: relation?.server ? "available" : "unavailable", server_trace_id: relation?.server?.traceId, server_span_id: relation?.server?.spanId }
   responses.set(response, request)
   emitTelemetry("request.headers", { ...fields(request), phase: "headers" })
 }

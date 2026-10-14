@@ -60,7 +60,7 @@ it("observes native RSC headers and streamed completion and links a click to its
   }
   visit(sent)
   const requests = () => events.filter(event => event.attributes.action_id === prefetch.id && event.name.startsWith("request."))
-  expect(requests().map(event => event.name)).toEqual(["request.start", "request.headers"])
+  expect(requests().map(event => event.name)).toEqual(["request.start", "request.trace_bound", "request.headers"])
   const navigation = beginNavigation(href)!
   expect(navigation.prefetch).toBe(prefetch)
   expect(navigation.span!.spanContext().traceId).not.toBe(parent.traceId)
@@ -70,13 +70,13 @@ it("observes native RSC headers and streamed completion and links a click to its
   finishAction(navigation, "success", { phase: "primary", region: "messages" })
   await vi.advanceTimersByTimeAsync(5000)
   events.length = 0; spans.length = 0; visit(sent)
-  expect(requests().map(event => event.name)).toEqual(["request.start", "request.headers", "request.finish"])
+  expect(requests().map(event => event.name)).toEqual(["request.start", "request.trace_bound", "request.headers", "request.finish"])
   expect(requests().at(-1)?.attributes).toMatchObject({ phase: "body", outcome: "observed", request_kind: "rsc" })
   const http = spans.find(span => span.parentSpanId === parent.spanId)!
   expect(http).toMatchObject({ traceId: parent.traceId })
   expect(requests().at(-1)?.attributes.span_id).toBe(http.spanId)
   expect(spans.find(span => span.spanId === navigation.span!.spanContext().spanId)?.links)
-    .toEqual([{ traceId: parent.traceId, spanId: parent.spanId, attributes: [], droppedAttributesCount: 0 }])
+    .toEqual([{ traceId: parent.traceId, spanId: parent.spanId, attributes: [{ key: "relationship", value: { stringValue: "prefetch" } }], droppedAttributesCount: 0, flags: 257 }])
   expect(JSON.stringify(sent)).not.toContain("PRIVATE")
   expect(JSON.stringify(sent)).toContain("a".repeat(40))
   expect(clone).toHaveBeenCalledOnce()
@@ -86,7 +86,7 @@ it("observes native RSC headers and streamed completion and links a click to its
   await vi.advanceTimersByTimeAsync(5000)
   events.length = 0; spans.length = 0; visit(sent)
   const failedRequests = events.filter(event => event.attributes.action_id === failedAction.id && event.name.startsWith("request."))
-  expect(failedRequests.map(event => event.name)).toEqual(["request.start", "request.finish"])
+  expect(failedRequests.map(event => event.name)).toEqual(["request.start", "request.trace_bound", "request.finish"])
   expect(failedRequests.at(-1)?.attributes).toMatchObject({ phase: "headers", outcome: "error", request_kind: "rsc" })
   expect(JSON.stringify(sent)).not.toContain("PRIVATE")
   expect(clone).toHaveBeenCalledOnce()

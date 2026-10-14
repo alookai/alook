@@ -26,6 +26,8 @@ it("retains real ready time before a delayed SDK and records each later route on
   vi.stubEnv("NEXT_PUBLIC_FARO_COLLECTOR_URL", "https://collector.example/collect/public")
   vi.stubEnv("NEXT_PUBLIC_FARO_ENVIRONMENT", undefined); vi.stubEnv("NEXT_PUBLIC_FARO_RELEASE", undefined)
   let now = 240
+  const wallStart = Date.now()
+  vi.spyOn(Date, "now").mockImplementation(() => wallStart + now - 240)
   vi.spyOn(performance, "now").mockImplementation(() => now)
   vi.spyOn(performance, "getEntriesByType").mockReturnValue([])
   type Exported = { name: string; timestamp: string; attributes: Record<string, string> }
@@ -66,7 +68,7 @@ it("retains real ready time before a delayed SDK and records each later route on
   expect(parent).toHaveLength(1)
   expect(metrics()[0]?.attributes).toMatchObject({ trace_id: parent[0]!.traceId, span_id: parent[0]!.spanId })
   expect(Number(BigInt(parent[0]!.endTimeUnixNano) - BigInt(parent[0]!.startTimeUnixNano)) / 1e6).toBeCloseTo(240, 2)
-  expect(Number(BigInt(parent[0]!.startTimeUnixNano)) / 1e6).toBeCloseTo(performance.timeOrigin, 2)
+  expect(Number(BigInt(parent[0]!.startTimeUnixNano)) / 1e6).toBeCloseTo(wallStart - 240, 2)
   expect(exported().filter(event => event.attributes.action_id === metrics()[0]!.attributes.action_id).every(event => event.attributes.trace_id === parent[0]!.traceId && event.attributes.span_id === parent[0]!.spanId)).toBe(true)
   expect(exported().filter(event => event.name === "action.start" && event.attributes.action_name === "navigation")).toHaveLength(1)
   await act(async () => {

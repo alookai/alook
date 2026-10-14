@@ -17,6 +17,10 @@ import {
   type QueryClient,
 } from "@tanstack/react-query"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
+import type { ApiRequestOptions } from "@/lib/api/client"
+import { actionAttributes, navigationForHref, currentPageObservation } from "@/lib/observability/context"
+import { emitTelemetry, telemetryGeneration } from "@/lib/observability/telemetry"
+import { channelHref } from "@/lib/community/community-route"
 import { apiFetchCommunity } from "@/lib/community/account-cache-lifecycle"
 import { captureChannelMetadataToken, isChannelMetadataTokenCurrent } from "@/hooks/community/channel-metadata"
 import { communityKeys } from "@/lib/query-keys"
@@ -109,6 +113,7 @@ type MessagesTransportPage = WireMessagesPage & {
 type MessagesTransportOptions = {
   onSurfaceReceipt?: (receipt: CommunityMessageSurfaceReceipt) => void
   queryClient?: QueryClient
+  observation?: ApiRequestOptions["observation"] | (() => ApiRequestOptions["observation"])
 }
 
 function isMessageSurfaceReceipt(value: unknown): value is CommunityMessageSurfaceReceipt {
@@ -154,7 +159,7 @@ async function fetchMessagesTransport(
 ): Promise<WireMessagesPage> {
   const transport = await withConversationReadDeadline(signal, (readSignal) => apiFetchCommunity<MessagesTransportPage>(
     url,
-    { signal: readSignal }, token,
+    { signal: readSignal, observation: typeof options?.observation === "function" ? options.observation() : options?.observation }, token,
   ))
   const { surfaceReceipt, ...page } = transport
   if (isMessageSurfaceReceipt(surfaceReceipt)) {
@@ -176,19 +181,26 @@ export const channelMessagesQueryFn =
   }): Promise<MessagesPage> => {
     const originalClient = options?.queryClient ?? client
     if (!originalClient) throw new DOMException("Missing message query owner", "AbortError")
+    const captured = typeof options?.observation === "function" ? options.observation() : options?.observation
+    const observation: ApiRequestOptions["observation"] = pageParam.mode === "older" || pageParam.mode === "newer"
+      ? { page: captured?.page ?? captured?.action, reason: "pagination" }
+      : pageParam.mode === "since" ? { page: captured?.page ?? captured?.action, reason: "background" }
+      : captured?.action?.done ? { page: captured.action.name === "navigation" ? captured.action : captured.page, reason: "background" } : captured
+    const generation = telemetryGeneration()
     const publicationToken = captureCommunityLiveSnapshotToken(originalClient, channelId)
     const url = buildMessagesUrl(
       `/api/community/channels/${channelId}/messages`,
       pageParam,
       tag,
     )
-    const page = await fetchMessagesTransport(originalClient, url, signal, options, publicationToken)
+    const page = await fetchMessagesTransport(originalClient, url, signal, { ...options, observation }, publicationToken)
     {
-      publishCommunityMessages(originalClient, {
+      const result = publishCommunityMessages(originalClient, {
         channelId,
         messages: page.messages,
         proof: { token: publicationToken, signal },
       })
+      if (result === "published" && generation === telemetryGeneration()) emitTelemetry("data.publish", { ...actionAttributes(observation?.action ?? observation?.page), source: "network", cache_stage: "canonical", request_reason: observation?.reason ?? "unknown", eligibility: "eligible", outcome: "success" })
     }
     return messageWindowPage(page)
   }
@@ -942,9 +954,15 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | Channe
     return tag ? [...baseKey, "tag", tag] as const : baseKey
   }, [channelId, kind, tag])
   const queryFn = useMemo(() => {
-    const options = { queryClient, onSurfaceReceipt: (receipt: CommunityMessageSurfaceReceipt) => recordConversationNavigationReceipt(queryClient, receipt, accessEpoch) }
+    const options = { queryClient, observation: (): ApiRequestOptions["observation"] => {
+      if (!channelId || typeof window === "undefined") return
+      const expected = serverId === null ? `/c/me/${channelId}` : channelHref(serverId, channelId)
+      if (window.location.pathname !== expected) return
+      const action = navigationForHref(window.location.pathname + window.location.search)
+      return action ? { action, reason: "foreground" } : { page: currentPageObservation(), reason: "background" }
+    }, onSurfaceReceipt: (receipt: CommunityMessageSurfaceReceipt) => recordConversationNavigationReceipt(queryClient, receipt, accessEpoch) }
     return kind === "dm" ? dmMessagesQueryFn(channelId ?? "__none__", options) : channelMessagesQueryFn(channelId ?? "__none__", tag, options)
-  }, [accessEpoch, channelId, kind, queryClient, tag])
+  }, [accessEpoch, channelId, kind, queryClient, serverId, tag])
   const scope = useMemo<MessageScope>(() => serverId === null ? { kind: "dm", id: channelId ?? "__none__" } : { kind: "channel", id: channelId ?? "__none__", serverId }, [channelId, serverId])
   const state = useMessageOverlayIds(scope)
   const base = useMessagesInner(channelId, queryKey, queryFn, opts, state.liveIds)

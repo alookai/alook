@@ -15,6 +15,8 @@ import { channelMetadataOptions, isChannelMetadataTokenCurrent } from "@/hooks/c
 import { startChannelRouteVerification } from "@/hooks/community/channel-route-verification"
 import { useChannelMetadata } from "@/hooks/community/use-channel-metadata"
 import { retireCommunityChannelReading } from "@/lib/community-db/sync"
+import { beginNavigation, clearActions, finishAction } from "@/lib/observability/context"
+import { configureTelemetry, installTelemetrySink, retireTelemetry } from "@/lib/observability/telemetry"
 
 vi.mock("@/lib/api/client", async (load) => {
   const actual = await load<typeof import("@/lib/api/client")>()
@@ -48,6 +50,7 @@ beforeEach(() => {
 })
 afterEach(async () => {
   await act(async () => {
+    retireTelemetry(); clearActions()
     for (const owner of owners.splice(0)) { await owner.cleanup(); owner.queryClient.clear() }
     if (anyDescriptor) Object.defineProperty(AbortSignal, "any", anyDescriptor)
     else Reflect.deleteProperty(AbortSignal, "any")
@@ -71,6 +74,28 @@ function response(status: number) {
 }
 
 describe("warmup original owner and complete intent resources", () => {
+  it("retains the real navigation across original registry readiness and common API merge, then separates pagination and refresh", async () => {
+    const owner = createClient()
+    configureTelemetry({ session_id: "chain-session" }, true)
+    const events: Array<{ name: string; attributes: Record<string, string> }> = []
+    installTelemetrySink(event => events.push(event))
+    const action = beginNavigation(target.href)!
+    const epoch = startConversationNavigationWarmup(owner.client, target, 0, 0, action)
+    await waitFor(() => expect(vi.mocked(apiFetch).mock.calls.some(([path]) => path.includes("/messages"))).toBe(true))
+    const message = vi.mocked(apiFetch).mock.calls.find(([path]) => path.includes("/messages"))!
+    expect(message[1]?.observation).toEqual({ action, reason: "foreground" })
+    await waitFor(() => expect(getConversationNavigationProof(owner.client)).toMatchObject({ epoch, status: "proven" }))
+    expect(events.find(e => e.name === "data.publish")?.attributes).toMatchObject({ action_id: action.id, request_reason: "foreground", source: "network", cache_stage: "canonical" })
+    vi.mocked(apiFetch).mockClear()
+    const read = dmMessagesQueryFn("d1", { queryClient: owner.client, observation: { action, reason: "foreground" } })
+    await read({ pageParam: { mode: "older", cursor: "old" } })
+    expect(vi.mocked(apiFetch).mock.calls[0]?.[1]?.observation).toEqual({ page: action, reason: "pagination" })
+    finishAction(action, "success")
+    vi.mocked(apiFetch).mockClear()
+    await read({ pageParam: { mode: "newest" } })
+    expect(vi.mocked(apiFetch).mock.calls[0]?.[1]?.observation).toEqual({ page: action, reason: "background" })
+  })
+
   it.each(["dm", "thread"] as const)("qualifies a revoked %s before warmup capture and keeps that request through prior-body unmount", async (kind) => {
     const owner = createClient()
     await owner.registry.preload()

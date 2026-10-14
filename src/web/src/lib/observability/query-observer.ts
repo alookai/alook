@@ -19,7 +19,7 @@ export function observeQueryClient(client: QueryClient) {
     const admitted = queries.get(event.query) === telemetryGeneration()
     if (event.action.type !== "fetch") queries.delete(event.query)
     if (!isTelemetryEligible() || !admitted) return
-    emitTelemetry("query.lifecycle", { phase: "background", cache_stage: "query", outcome: event.action.type === "fetch" ? "observed" : event.action.type })
+    emitTelemetry("query.lifecycle", { phase: "unknown", source: "unknown", cache_stage: "query", outcome: event.action.type === "fetch" ? "observed" : event.action.type })
   })
   const stopMutations = client.getMutationCache().subscribe(event => {
     if (event.type !== "updated") return

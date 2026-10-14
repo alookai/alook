@@ -69,28 +69,28 @@ it("normalizes real native HTTP exports and mirrors, retaining missing-hook and 
   const flush = async () => { await vi.advanceTimersByTimeAsync(0); now += 4000; await vi.advanceTimersByTimeAsync(3000) }
   const path = "/api/agents"
   for (const next of ["success", "body", "error", "abort", "http-error"]) {
-    mode = next; const start = now
+    mode = next; const wallStart = Date.now()
     if (next === "error" || next === "abort") await expect(window.fetch(path)).rejects.toThrow()
     else await window.fetch(path)
     await flush()
     const { spans, events } = exported(), span = spans.filter(s => s.name === "GET /api/agents").at(-1)!
-    expect(Number(span.startTimeUnixNano) / 1e6 - performance.timeOrigin).toBeCloseTo(start, 2)
-    expect(Number(span.endTimeUnixNano) / 1e6 - performance.timeOrigin).toBeCloseTo(start + 12, 2)
+    expect(Number(span.startTimeUnixNano) / 1e6).toBeCloseTo(wallStart, 2)
+    expect(Number(span.endTimeUnixNano) / 1e6).toBeCloseTo(wallStart + 12, 2)
     const mirror = events.find(e => e.trace?.span_id === span.spanId)!
     expect(mirror.name).toBe("faro.tracing.fetch")
     expect(Number(mirror.attributes.duration_ms)).toBeCloseTo(12, 2)
     if (next === "http-error") expect(span.status).toEqual({ code: 2 })
   }
   for (const event of ["load", "error", "abort", "timeout"]) {
-    const start = now, xhr = new XMLHttpRequest()
+    const wallStart = Date.now(), xhr = new XMLHttpRequest()
     xhr.open("GET", "/api/workspaces"); xhr.send()
     now += 17; drift *= -1; vi.setSystemTime(performance.timeOrigin + now + drift)
     Object.defineProperty(xhr, "status", { value: event === "load" ? 200 : 0 })
     xhr.dispatchEvent(new Event(event))
     await flush()
     const { spans, events } = exported(), span = spans.filter(s => s.name === "GET /api/workspaces").at(-1)!
-    expect(Number(span.startTimeUnixNano) / 1e6 - performance.timeOrigin).toBeCloseTo(start, 2)
-    expect(Number(span.endTimeUnixNano) / 1e6 - performance.timeOrigin).toBeCloseTo(start + 17, 2)
+    expect(Number(span.startTimeUnixNano) / 1e6).toBeCloseTo(wallStart, 2)
+    expect(Number(span.endTimeUnixNano) / 1e6).toBeCloseTo(wallStart + 17, 2)
     const mirror = events.find(e => e.trace?.span_id === span.spanId)!
     expect(mirror.name).toBe("faro.tracing.xml-http-request")
     expect(Number(mirror.attributes.duration_ms)).toBeCloseTo(17, 2)
@@ -119,9 +119,9 @@ it("normalizes real native HTTP exports and mirrors, retaining missing-hook and 
     expect(exported().spans.some(s => s.name === "GET /api/community/channels/[id]/messages")).toBe(false)
     expect(exported().events.some(e => e.attributes.route_template === "/api/community/channels/[id]/messages")).toBe(false)
   }
-  mode = "success"; const resumedStart = now
+  mode = "success"; const resumedStart = Date.now()
   await window.fetch(path); await flush()
-  expect(Number(exported().spans.filter(s => s.name === "GET /api/agents").at(-1)!.startTimeUnixNano) / 1e6 - performance.timeOrigin).toBeCloseTo(resumedStart, 2)
+  expect(Number(exported().spans.filter(s => s.name === "GET /api/agents").at(-1)!.startTimeUnixNano) / 1e6).toBeCloseTo(resumedStart, 2)
   expect(JSON.stringify(sent)).not.toContain("alook.internal.http")
 })
 
@@ -130,9 +130,11 @@ it("preserves public identity, links and explicit manual/preflight timing withou
   const { SpanKind, SpanStatusCode, ROOT_CONTEXT, trace } = await import("@opentelemetry/api")
   const { WebTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } = await import("@opentelemetry/sdk-trace-web")
   const { ObservationClockProcessor } = await import("./clock-tracing")
-  const { observationTime, finishTransportClock, transportClockStart, transportClockEnd } = await import("./clock")
+  const { observationTime: toTime, observationOrigin, finishTransportClock, transportClockStart, transportClockEnd } = await import("./clock")
   let now = 400
+  vi.spyOn(Date, "now").mockReturnValue(Date.now())
   vi.spyOn(performance, "now").mockImplementation(() => now)
+  const origin = observationOrigin(), observationTime = (value: number) => toTime(value, origin)
   const exporter = new InMemorySpanExporter(), processor = new ObservationClockProcessor(new SimpleSpanProcessor(exporter))
   const provider = new WebTracerProvider({ spanProcessors: [processor] })
   const manual = provider.getTracer("alook.frontend").startSpan("navigation", { startTime: observationTime(300) })
