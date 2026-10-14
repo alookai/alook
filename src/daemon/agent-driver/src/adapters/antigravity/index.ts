@@ -16,8 +16,10 @@ export class AntigravityDriver implements BackendAdapter {
     terminalOwnership: "transport_request",
   } as const;
 
-  probe(command?: string) {
-    return probeAntigravity(command);
+  probe(command?: string, includeModels = true) {
+    return includeModels
+      ? probeAntigravity(command)
+      : probeAntigravity(command, { includeModels: false });
   }
 
   async openLane(ctx: AdapterLaunchContext, options?: RuntimeLaneOpenOptions) {

@@ -62,6 +62,15 @@ describe("createAgentDriverSdk", () => {
     expect(SESSION_FILE_DISCOVERY_CAPABILITIES).toEqual(["supported", "unavailable"]);
   });
 
+  it("passes installation-only intent while preserving the full default probe", async () => {
+    const probe = vi.spyOn(ClaudeDriver.prototype, "probe").mockReturnValue({ status: "healthy", version: "1.2.3" });
+    const sdk = createAgentDriverSdk();
+    await sdk.probe({ backend: "claude", includeModels: false });
+    expect(probe).toHaveBeenLastCalledWith(undefined, false);
+    await sdk.probe({ backend: "claude" });
+    expect(probe).toHaveBeenLastCalledWith(undefined);
+  });
+
   it("maps healthy, unhealthy, and thrown adapter probes", async () => {
     const sdk = createAgentDriverSdk();
     const probe = vi.spyOn(ClaudeDriver.prototype, "probe");

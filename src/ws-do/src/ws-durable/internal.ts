@@ -27,6 +27,7 @@ export type ConnectionState =
     machineId: string
     userId: string
     authenticated: boolean
+    modelDiscovery?: boolean
     controlHeartbeat?: boolean
     lastHeartbeatAckAt?: number
     pendingHeartbeatNonce?: string

@@ -1,6 +1,6 @@
 import { z } from "zod"
 import type { CommunityContract } from "./community-contract"
-import { CommunityMachineSummarySchema } from "./schemas"
+import { CommunityMachineSummarySchema, RuntimeModelDiscoveryResultSchema } from "./schemas"
 import { FriendApprovalPayloadSchema } from "./community-friend-approval"
 import { CommunityChannelResourceSchema, CommunityMessageResourceSchema, CommunityMemberRelationSchema, CommunityResourceProfileSchema } from "./community-resources"
 
@@ -441,6 +441,14 @@ const communityBotAuditEventSchema = z.strictObject({
   createdAt: string,
 }).refine((event) => Object.prototype.hasOwnProperty.call(event, "payload"))
 
+const communityRuntimeModelsSchema = z.strictObject({
+  type: z.literal("community:runtime.models"),
+  machineId: z.string().min(1),
+  requestId: z.string().min(1).max(128),
+  runtimeId: z.string().min(1).max(64),
+  result: RuntimeModelDiscoveryResultSchema,
+})
+
 const commonCommunityEventSchemas = [
   communityMessageUpdatedSchema,
   communityMessageEditedSchema,
@@ -479,6 +487,7 @@ const commonCommunityEventSchemas = [
   communityMachineCreatedSchema,
   communityMachineStatusSchema,
   communityMachineUpdatedSchema,
+  communityRuntimeModelsSchema,
   communityMachineRemovedSchema,
   communityBotAuditEventSchema,
 ] as const
@@ -584,6 +593,7 @@ export type CommunityIdentityUpdate = Extract<CommunityWsEvent, { type: "communi
 export type CommunityProfileUpdate = Extract<CommunityWsEvent, { type: "community:profile.update" }>
 export type CommunityMachineCreated = Extract<CommunityWsEvent, { type: "community:machine.created" }>
 export type CommunityMachineStatus = Extract<CommunityWsEvent, { type: "community:machine.status" }>
+export type CommunityRuntimeModels = Extract<CommunityWsEvent, { type: "community:runtime.models" }>
 export type CommunityMachineUpdated = Extract<CommunityWsEvent, { type: "community:machine.updated" }>
 export type CommunityMachineRemoved = Extract<CommunityWsEvent, { type: "community:machine.removed" }>
 export type CommunityBotAuditEvent = Extract<CommunityWsEvent, { type: "community:bot.audit_event" }>
@@ -656,6 +666,7 @@ export const WS_EVENTS = {
   MACHINE_CREATED: "community:machine.created",
   MACHINE_STATUS: "community:machine.status",
   MACHINE_UPDATED: "community:machine.updated",
+  RUNTIME_MODELS: "community:runtime.models",
   MACHINE_REMOVED: "community:machine.removed",
   BOT_AUDIT_EVENT: "community:bot.audit_event",
 } as const satisfies Record<string, CommunityWsEvent["type"]>

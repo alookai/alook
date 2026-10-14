@@ -13,6 +13,7 @@ export function antigravitySpawnSpec(command?: string, platform = process.platfo
 }
 
 type ProbeOptions = {
+  includeModels?: boolean;
   timeoutMs?: number;
   cacheDirectory?: string;
   spawn?: typeof spawnAgentProcess;
@@ -21,11 +22,14 @@ type ProbeOptions = {
 
 export async function probeAntigravity(command?: string, options: ProbeOptions = {}): Promise<ProbeResult> {
   const spec = antigravitySpawnSpec(command);
+  const includeModels = options.includeModels !== false;
   const identity = createHash("sha256").update(JSON.stringify([spec.command, process.env.GEMINI_HOME ?? ""])).digest("hex").slice(0, 16);
-  const directory = options.cacheDirectory ?? join(homedir(), ".cache", "alook", "antigravity-probe", identity);
+  const directory = options.cacheDirectory ?? (includeModels
+    ? join(homedir(), ".cache", "alook", "antigravity-probe", identity)
+    : homedir());
   const cacheFile = join(directory, "session");
   let cachedSessionId: string | undefined;
-  try {
+  if (includeModels) try {
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     try {
       const value = readFileSync(cacheFile, "utf8");
@@ -136,6 +140,10 @@ export async function probeAntigravity(command?: string, options: ProbeOptions =
           || asRecord(result.agentInfo)?.name !== "antigravity-acp") return fail("antigravity_acp_incompatible");
         const reportedVersion = asRecord(result.agentInfo)?.version;
         version = typeof reportedVersion === "string" ? reportedVersion : undefined;
+        if (!includeModels) {
+          finish({ status: "healthy", ...(version ? { version } : {}) });
+          continue;
+        }
         requestSession(cachedSessionId);
       }
     });

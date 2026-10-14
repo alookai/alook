@@ -57,6 +57,12 @@ describe("PiDriver startup model catalog", () => {
     }) as unknown as PiSdkModule;
   }
 
+  it("checks the SDK version without loading authenticated model state", async () => {
+    const loadSdk = vi.fn();
+    expect(await new PiDriver(undefined, loadSdk, () => "1.2.3").probe(undefined, false)).toEqual({ status: "healthy", version: "1.2.3" });
+    expect(loadSdk).not.toHaveBeenCalled();
+  });
+
   it("uses authenticated ModelRuntime.getAvailable and formats provider/id", async () => {
     const getAvailable = vi.fn(() => [
       { provider: "google", id: "gemini-2.5-pro" },

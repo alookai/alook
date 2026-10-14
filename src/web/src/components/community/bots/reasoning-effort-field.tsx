@@ -46,10 +46,10 @@ export function ReasoningEffortField({
   const hasModelEvidence = runtime?.reasoning?.models.some((model) => model.id === resolution.modelId) ?? false
 
   useEffect(() => {
-    if (hasModelEvidence && !resolution.supported && value !== null) {
+    if (hasModelEvidence && resolution.options.length > 0 && !resolution.supported && value !== null) {
       onChange(null)
     }
-  }, [hasModelEvidence, onChange, resolution.supported, value])
+  }, [hasModelEvidence, onChange, resolution.options.length, resolution.supported, value])
 
   const defaultLabel = "Default"
   const options = value && !resolution.options.some((option) => option.value === value)

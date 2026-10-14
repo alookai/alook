@@ -20,10 +20,13 @@
  */
 import type { HostCommand, HostControlChannel, HostReady, HostReadyRuntime, UnreadNotice, AgentSessionReport, SessionErrorFrame, AgentId, HostAgentActivity } from "../server/contract.js";
 import type { ProviderQuotaSnapshot } from "@alook/shared";
-import { CONTROL_HEARTBEAT_CAPABILITY } from "../server/contract.js";
+import { CONTROL_HEARTBEAT_CAPABILITY, RUNTIME_MODEL_DISCOVERY_CAPABILITY } from "../server/contract.js";
+import { getDriver, type AgentBackend } from "../drivers/index.js";
 import type { AgentProcessManager } from "./managerRuntime.js";
 import type { TypingScopeTracker } from "./typingScopeTracker.js";
 import { createLogger, type Logger } from "../logger.js";
+
+type ModelDiscovery = Awaited<ReturnType<AgentBackend["discoverModels"]>> | null;
 
 const DEFINITIVE_EXECUTABLE_FAILURES = new Set(["ENOENT", "EACCES", "ENOEXEC", "EPERM"]);
 
@@ -79,6 +82,7 @@ export interface AgentRouterOpts {
   channel: HostControlChannel;
   /** Runtime descriptors reported in the ready handshake. Copied into a live mutable map. */
   runtimeReport: HostReadyRuntime[];
+  discoverModels?: (runtimeId: string) => ReturnType<AgentBackend["discoverModels"]>;
   hostname?: string;
   platform?: string;
   arch?: string;
@@ -198,6 +202,7 @@ export class AgentRouter {
    * runtimes deterministically across reports.
    */
   private readonly runtimes = new Map<string, HostReadyRuntime>();
+  private readonly modelDiscoveries = new Map<string, Promise<ModelDiscovery>>();
   /** Coalescer: one microtask-scheduled `sendReady` per burst of mutations. */
   private pendingResend = false;
   private readonly scheduleResend: (fn: () => void) => void;
@@ -246,7 +251,7 @@ export class AgentRouter {
       : this.opts.timeZone;
     return {
       runtimeReport: [...this.runtimes.values()],
-      capabilities: [CONTROL_HEARTBEAT_CAPABILITY],
+      capabilities: [CONTROL_HEARTBEAT_CAPABILITY, ...(this.opts.channel.reportRuntimeModels ? [RUNTIME_MODEL_DISCOVERY_CAPABILITY] : [])],
       runningAgents: [...this.running],
       hostname: this.opts.hostname,
       platform: this.opts.platform,
@@ -461,8 +466,53 @@ export class AgentRouter {
     return pending;
   }
 
+  private discoverRuntimeModels(runtimeId: string): Promise<ModelDiscovery> {
+    const active = this.modelDiscoveries.get(runtimeId);
+    if (active) return active;
+    const pending = this.runModelDiscovery(runtimeId).finally(() => this.modelDiscoveries.delete(runtimeId));
+    this.modelDiscoveries.set(runtimeId, pending);
+    return pending;
+  }
+
+  private async runModelDiscovery(runtimeId: string): Promise<ModelDiscovery> {
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<null>((resolve) => {
+      deadline = setTimeout(() => resolve(null), 40_000);
+    });
+    const probe = await Promise.race([
+      Promise.resolve().then(() => this.opts.discoverModels?.(runtimeId) ?? getDriver(runtimeId).discoverModels()),
+      timeout,
+    ]).finally(() => clearTimeout(deadline));
+    if (probe?.status === "healthy") {
+      this.runtimes.set(runtimeId, { ...this.runtimes.get(runtimeId)!, reasoning: probe.reasoning });
+    }
+    return probe;
+  }
+
   private async onCommand(cmd: HostCommand): Promise<void> {
     switch (cmd.type) {
+      case "runtime:discover_models": {
+        const reply = this.opts.channel.reportRuntimeModels;
+        if (!reply) return;
+        const identity = { type: "runtime_models" as const, requestId: cmd.requestId, runtimeId: cmd.runtimeId };
+        try {
+          const current = this.runtimes.get(cmd.runtimeId);
+          if (!current) throw new UnknownRuntimeError(cmd.runtimeId, [...this.runtimes.keys()]);
+          const probe = await this.discoverRuntimeModels(cmd.runtimeId);
+          if (!probe) {
+            reply.call(this.opts.channel, { ...identity, result: { status: "error", code: "model_discovery_timeout", message: "Model discovery timed out; retry the request" } });
+            return;
+          }
+          if (probe.status !== "healthy") {
+            reply.call(this.opts.channel, { ...identity, result: { status: "error", code: probe.error.code, message: probe.error.message } });
+            return;
+          }
+          reply.call(this.opts.channel, { ...identity, result: { status: "complete", runtimeReport: [...this.runtimes.values()] } });
+        } catch {
+          reply.call(this.opts.channel, { ...identity, result: { status: "error", code: "model_discovery_failed", message: "Could not discover models for this runtime" } });
+        }
+        return;
+      }
       case "agent:wake":
         this.log.info("agent:wake received", {
           agentId: cmd.agentId,

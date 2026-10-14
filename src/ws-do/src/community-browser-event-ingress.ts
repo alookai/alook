@@ -1,3 +1,4 @@
+import { readBoundedJsonRequest as readBoundedHttpJsonRequest } from "@alook/shared"
 import {
   COMMUNITY_BROWSER_EVENT_MAX_BYTES,
   COMMUNITY_CONTRACT_HEADER,
@@ -42,56 +43,9 @@ export type BoundedJsonResult =
   | { ok: true; value: unknown; byteCount: number }
   | CommunityBrowserEventIngressFailure
 
-function oversized(byteCount: number): CommunityBrowserEventIngressFailure {
-  return { ok: false, reason: "oversized", type: "unknown", byteCount }
-}
-
-export async function readBoundedJsonRequest(
-  request: Request,
-  maxBytes: number,
-): Promise<BoundedJsonResult> {
-  const contentLength = request.headers.get("content-length")
-  if (contentLength !== null) {
-    const declared = Number(contentLength)
-    if (Number.isSafeInteger(declared) && declared > maxBytes) return oversized(declared)
-  }
-  const reader = request.body?.getReader()
-  if (!reader) return { ok: false, reason: "invalid-json", type: "unknown", byteCount: 0 }
-  const chunks: Uint8Array[] = []
-  let byteCount = 0
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      byteCount += value.byteLength
-      if (byteCount > maxBytes) {
-        try {
-          await reader.cancel()
-        } catch {}
-        return oversized(byteCount)
-      }
-      chunks.push(value)
-    }
-  } catch {
-    return { ok: false, reason: "invalid-json", type: "unknown", byteCount }
-  }
-  const bytes = new Uint8Array(byteCount)
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  let text: string
-  try {
-    text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes)
-  } catch {
-    return { ok: false, reason: "invalid-json", type: "unknown", byteCount }
-  }
-  try {
-    return { ok: true, value: JSON.parse(text), byteCount }
-  } catch {
-    return { ok: false, reason: "invalid-json", type: "unknown", byteCount }
-  }
+export async function readBoundedJsonRequest(request: Request, maxBytes: number): Promise<BoundedJsonResult> {
+  const parsed = await readBoundedHttpJsonRequest(request, maxBytes)
+  return parsed.ok ? parsed : { ...parsed, type: "unknown" }
 }
 
 export function normalizeCommunityBrowserEvent(

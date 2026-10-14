@@ -1,5 +1,6 @@
 import {
   CONTROL_HEARTBEAT_CAPABILITY,
+  RUNTIME_MODEL_DISCOVERY_CAPABILITY,
   createDb,
   HostReadyMessageSchema,
   ProviderQuotaSnapshotSchema,
@@ -94,6 +95,7 @@ export async function handleReadyFrame(
     ws.serializeAttachment({
       ...state,
       controlHeartbeat,
+      modelDiscovery: ready.capabilities.includes(RUNTIME_MODEL_DISCOVERY_CAPABILITY),
       ...(controlHeartbeat ? { lastHeartbeatAckAt: Date.now() } : {}),
       pendingHeartbeatNonce: undefined,
     })

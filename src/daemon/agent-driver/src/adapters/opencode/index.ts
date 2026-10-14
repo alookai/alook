@@ -58,7 +58,7 @@ export class OpenCodeDriver implements BackendAdapter, OpenCodeServiceProcessFac
     return discoverOpenCodeRecentContext(request, { compatibility: resolveOpenCodeCompatibility(result.version) });
   }
 
-  probe(command?: string) {
+  probe(command?: string, includeModels = true) {
     const result = this.versionProbe("opencode", {}, command);
     if (result.status !== "healthy") return result;
     let compatibility: OpenCodeCompatibility;
@@ -67,6 +67,7 @@ export class OpenCodeDriver implements BackendAdapter, OpenCodeServiceProcessFac
     } catch {
       return { ...result, status: "unhealthy" as const, lastError: "unsupported_opencode_cli_version" };
     }
+    if (!includeModels) return result;
     const spec = resolveSpawnSpec("opencode", [...compatibility.modelArgs], command);
     const output = this.outputProbe(spec.command, spec.args);
     return {

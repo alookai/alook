@@ -9,11 +9,13 @@ import type {
   CommunityMachineSummary,
   CommunityMachineUpdated,
   CommunityPresenceUpdate,
+  CommunityWsEvent,
   CommunityStatusUpdate,
 } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
 
 
+import type { RuntimeModelsState } from "@/hooks/community/use-runtime-models"
 import type { MachinesResponse } from "@/hooks/community/use-machines"
 import type { PresenceMachineEventContext } from "@/hooks/community/community-ws/handler-context"
 
@@ -100,5 +102,24 @@ export function handleMachineRemoved(
     communityKeys.machines(),
     (prev) =>
       prev ? replaceMachines(prev, prev.machines.filter((m) => m.id !== event.machineId)) : prev,
+  )
+}
+
+export function handleRuntimeModels(event: Extract<CommunityWsEvent, { type: "community:runtime.models" }>, { queryClient }: PresenceMachineEventContext) {
+  const key = communityKeys.runtimeModels(event.machineId, event.runtimeId)
+  const pending = queryClient.getQueryData<RuntimeModelsState>(key)
+  if (pending?.status !== "pending" || pending.requestId !== event.requestId) return
+  queryClient.setQueryData<RuntimeModelsState>(key, { requestId: event.requestId, ...event.result })
+  if (event.result.status !== "complete") return
+  const catalog = event.result.catalog
+  queryClient.setQueryData<MachinesResponse>(communityKeys.machines(), (previous) => previous
+    ? replaceMachines(previous, previous.machines.map((machine) => machine.id === event.machineId
+      ? { ...machine, availableRuntimes: machine.availableRuntimes.map((runtime) => {
+          if (typeof runtime === "string" || runtime.id !== event.runtimeId) return runtime
+          const { reasoning: _previousCatalog, ...rest } = runtime
+          return catalog ? { ...rest, reasoning: catalog } : rest
+        }) }
+      : machine))
+    : previous,
   )
 }

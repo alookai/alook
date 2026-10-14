@@ -185,7 +185,18 @@ describe("Antigravity native ACP", () => {
     await expect(h.lane.send({ text: "later", mode: "idle" })).resolves.toMatchObject({ ok: false, reason: "closed" });
   });
 
-  it("probes the native catalog without prompting or launching interactive auth", async () => {
+  it("checks installation with initialize only, even with a cached session", async () => {
+    const h = setup({ authError: true });
+    const cleanup = vi.fn(async () => { h.proc.kill(); });
+    writeFileSync(join(h.directory, "session"), "saved-session");
+    expect(await probeAntigravity("/custom/agy_acp_server.par", {
+      includeModels: false, cacheDirectory: h.directory, spawn: (() => h.proc) as never, cleanup,
+    })).toEqual({ status: "healthy", version: "1.3.0" });
+    expect(h.messages.map((message) => message.method)).toEqual(["initialize"]);
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("requests the native catalog without issuing prompt or authenticate RPCs", async () => {
     const h = setup();
     const cleanup = vi.fn(async () => { h.proc.kill(); });
     expect(await probeAntigravity("/custom/agy_acp_server.par", { cacheDirectory: h.directory, spawn: (() => h.proc) as never, cleanup })).toMatchObject({ status: "healthy", version: "1.3.0", reasoning: { models: [{ id: "test-model" }] } });

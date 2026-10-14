@@ -123,6 +123,19 @@ describe("machine session epoch SQL transaction", () => {
     });
   }
 
+  it("preserves machine identity metadata on a catalog-only ready update", async () => {
+    sqlite.prepare("UPDATE community_machine SET display_name = ? WHERE id = ?").run("My laptop", "cm_machine");
+    const availableRuntimes = [{ id: "codex", reasoning: { updateMode: "unsupported" as const, models: [{ id: "native-model", supportedReasoningEfforts: [] }] } }];
+    const result = await transitionMachineSessionEpoch(db as any, {
+      type: "ready", epoch: { userId: "u_1", machineId: "cm_machine", credentialHash: OLD_HASH }, metadata: { availableRuntimes },
+    });
+    expect(result.type).toBe("transitioned");
+    if (result.type !== "transitioned") throw new Error("epoch not accepted");
+    const stored = sqlite.prepare("SELECT display_name AS displayName, hostname, platform, arch, os_release AS osRelease, daemon_version AS daemonVersion, available_runtimes AS availableRuntimes FROM community_machine WHERE id = ?").get("cm_machine") as Record<string, string>;
+    expect(stored).toMatchObject({ displayName: "My laptop", hostname: "old-host", platform: "darwin", arch: "arm64", osRelease: "23", daemonVersion: "0.1.0" });
+    expect(JSON.parse(stored.availableRuntimes!)).toEqual(availableRuntimes);
+  });
+
   it("commits credential, runner, and offline projection together and fences the old epoch", async () => {
     const result = await rotate();
     const newHash = await hashCredential(result.credential);

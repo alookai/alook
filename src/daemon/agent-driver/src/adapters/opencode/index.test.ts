@@ -54,6 +54,13 @@ describe("OpenCodeDriver persistent v2 service", () => {
     expect(discover).toHaveBeenCalledWith(request, { compatibility: resolveOpenCodeCompatibility("2.0.28") });
   });
 
+  it("checks native compatibility without querying models", () => {
+    const output = vi.fn();
+    expect(new OpenCodeDriver(output, () => ({ status: "healthy", version: "2.0.28" })).probe("native", false)).toMatchObject({ status: "healthy", version: "2.0.28" });
+    expect(output).not.toHaveBeenCalled();
+    expect(new OpenCodeDriver(output, () => ({ status: "healthy", version: "9.0.0" })).probe("native", false)).toMatchObject({ status: "unhealthy", lastError: "unsupported_opencode_cli_version" });
+  });
+
   it("uses models --pure output for a non-fatal startup catalog", () => {
     const outputProbe = vi.fn(() => ({
       ok: true as const,

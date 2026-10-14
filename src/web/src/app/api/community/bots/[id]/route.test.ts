@@ -200,6 +200,19 @@ describe("PATCH /api/community/bots/[id]", () => {
     expect(mockPushAgentProviderSwitchToMachine).not.toHaveBeenCalled()
   })
 
+  it("preserves a saved AGY effort on profile-only edits after catalog discovery", async () => {
+    mockGetBotOwnedBy.mockResolvedValue({ id: "b1", name: "Old", description: "old", ownerUserId: "u1", machineId: "mac1", runtime: "agy", modelName: "gemini-3.8-flash-high", reasoningEffort: "high", runtimeConfigRevision: 3 })
+    mockGetMachineForOwner.mockResolvedValue({ id: "mac1", availableRuntimes: [{ id: "agy", reasoning: { updateMode: "unsupported", models: [{ id: "gemini-3.8-flash-high", supportedReasoningEfforts: [] }] } }] })
+    const response = await PATCH(patchReq({ description: "Updated" }), ctx)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ bot: { reasoningEffort: "high", modelName: "gemini-3.8-flash-high", runtimeConfigRevision: 3 } })
+    expect(mockUpdateBotRuntimeConfig).not.toHaveBeenCalled()
+    expect(mockPushAgentModelSwitchToMachine).not.toHaveBeenCalled()
+    expect(mockPushAgentRuntimeConfigUpdateToMachine).not.toHaveBeenCalled()
+    expect(mockPushBotEventToMachine).toHaveBeenCalledWith(expect.anything(), "mac1", expect.objectContaining({ type: "bot:updated" }))
+    expect(mockPushBotEventToMachine.mock.calls[0]?.[2]).not.toHaveProperty("config")
+  })
+
   it("preserves a named OpenCode model on a profile-only edit without restarting", async () => {
     mockGetBotOwnedBy.mockResolvedValue({ id: "b1", name: "Old", runtime: "opencode", modelName: "provider/custom" })
     const res = await PATCH(patchReq({ description: "Updated" }), ctx)

@@ -1,3 +1,4 @@
+import { RuntimeModelDiscoveryRequestSchema, RuntimeModelDiscoveryErrorSchema } from "./runtime-models-contract";
 import { z } from "zod";
 import { IssueStatus, TASK_TYPES } from "./constants";
 import { sanitizeSlug } from "./utils/slug";
@@ -931,6 +932,19 @@ export const CommunityMachineRuntimeListSchema = z
     }
     return out;
   });
+
+export const RuntimeModelDiscoveryResultSchema = z.discriminatedUnion("status", [
+  z.strictObject({ status: z.literal("complete"), catalog: RuntimeReasoningCatalogSchema.nullable() }),
+  RuntimeModelDiscoveryErrorSchema,
+]);
+
+export const HostRuntimeModelsFrameSchema = RuntimeModelDiscoveryRequestSchema.extend({
+  type: z.literal("runtime_models"),
+  result: z.discriminatedUnion("status", [
+    z.strictObject({ status: z.literal("complete"), runtimeReport: CommunityMachineRuntimeListSchema }),
+    RuntimeModelDiscoveryErrorSchema,
+  ]),
+});
 
 const CommunityRunningAgentListSchema = z.array(z.string()).transform((list) => {
   const seen = new Set<string>();

@@ -133,13 +133,14 @@ export class CodexDriver implements BackendAdapter {
     return this.codexHomeRoot;
   }
 
-  async probe(command?: string) {
+  async probe(command?: string, includeModels = true) {
     // probeCliRuntime spawns `--version` — a missing vendored binary (npm
     // package resolves but the aarch64 blob is absent) fails there even
     // though resolveCommandOnPath returned a JS wrapper; probing the resolved
     // command keeps runtime health tied to what can actually execute.
     const result = await probeCliRuntime("codex", {}, command);
     if (result.status !== "healthy") return result;
+    if (!includeModels) return result;
     return {
       ...result,
       reasoning: await this.probeReasoningCatalog(command),

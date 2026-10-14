@@ -101,7 +101,7 @@ async function transitionLiveLease(
   const values = command.type === "ready"
     ? {
         hostname: command.metadata.hostname ?? prior.hostname,
-        displayName: command.metadata.hostname ?? prior.hostname,
+        displayName: command.metadata.hostname !== undefined ? command.metadata.hostname : prior.displayName,
         platform: command.metadata.platform ?? prior.platform,
         arch: command.metadata.arch ?? prior.arch,
         osRelease: command.metadata.osRelease ?? prior.osRelease,

@@ -34,6 +34,7 @@ import type {
   WebSocketFactory,
   HostAgentActivity,
   HostBotAuditEventFrame,
+  HostRuntimeModelsFrame,
 } from "./contract.js";
 import { HostCommandSchema } from "./contract.js";
 import { createLogger, type Logger } from "../logger.js";
@@ -145,6 +146,7 @@ type OutboundFrame =
   | { type: "machine_heartbeat_ack"; nonce: string }
   | { type: "diagnostics_ack"; reportId: string }
   | HostBotAuditEventFrame
+  | HostRuntimeModelsFrame
   | SessionErrorFrame;
 
 type ResyncProvider = () => {
@@ -340,6 +342,10 @@ export class WsControlChannel implements HostControlChannel {
       this.scheduleAuditRetry();
       return;
     }
+    this.sendFrame(frame);
+  }
+
+  reportRuntimeModels(frame: HostRuntimeModelsFrame): void {
     this.sendFrame(frame);
   }
 

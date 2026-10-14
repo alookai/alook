@@ -194,6 +194,13 @@ afterEach(() => {
 });
 
 describe("CursorDriver persistent ACP transport", () => {
+  it("skips native catalog creation during installation checks", async () => {
+    const catalogProbe = vi.fn();
+    expect(await new CursorDriver(catalogProbe).probe(process.execPath, false)).toMatchObject({ status: "healthy" });
+    expect(catalogProbe).not.toHaveBeenCalled();
+    expect(spawned).toEqual([]);
+  });
+
   it("uses the ACP session/new probe for a non-fatal startup catalog", async () => {
     const catalogProbe = vi.fn(async () => ({
       updateMode: "unsupported" as const,
