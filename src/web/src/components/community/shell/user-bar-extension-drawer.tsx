@@ -2,14 +2,16 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
-import { cloneElement, type ReactElement } from "react"
+import { cloneElement, useLayoutEffect, type ReactElement } from "react"
 import { Collapsible } from "@base-ui/react/collapsible"
 
 type Content = ReactElement<{ interactive?: boolean; animate?: boolean }>
 
 export function UserBarExtensionDrawer({ children }: { children: Content | null }) {
   const [retained, setRetained] = useAtom(useCreateAtom(children))
-  if (children && children !== retained) setRetained(children)
+  useLayoutEffect(() => {
+    if (children) setRetained(children)
+  }, [children, setRetained])
   const open = children !== null
   const content = children ?? retained
 

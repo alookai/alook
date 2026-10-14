@@ -1,7 +1,8 @@
-import { createElement, useState } from "react"
+import { createElement, startTransition, StrictMode, Suspense, useLayoutEffect, useRef, useState } from "react"
 import { describe, expect, it, vi } from "vitest"
-import { render, screen, setupUser } from "@/test/react-dom-harness"
+import { act, render, screen, setupUser } from "@/test/react-dom-harness"
 import { UserBar } from "./user-bar"
+import { UserBarExtensionDrawer } from "./user-bar-extension-drawer"
 import { tid } from "@/lib/community/testids"
 import type { UserBarExtensionKind } from "./user-bar-extension-state"
 
@@ -28,6 +29,99 @@ function renderBar() {
 }
 
 describe("UserBar Inbox switching", () => {
+  it("keeps committed mobile extension switching outside render-phase updates", async () => {
+    const errors = vi.spyOn(console, "error")
+    function Harness() {
+      const [active, setActive] = useState<UserBarExtensionKind>("none")
+      const inbox = createElement("button", null, "Inbox item")
+      return createElement(UserBar, {
+        breakpoint: "mobile",
+        user: { id: "u1", name: "User", avatar: "U" },
+        inbox,
+        hasUnread: false,
+        inboxOpen: active === "inbox",
+        onInboxOpenChange: (open) => setActive(open ? "inbox" : "none"),
+        onOpenProfile: () => setActive(active === "profile" ? "none" : "profile"),
+        extension: {
+          active,
+          inbox,
+          profile: createElement("button", null, "Edit status"),
+          update: null,
+          updateBadgePhase: null,
+          eligibleMachines: [],
+          onOpenUpdate: vi.fn(),
+          onRequestUpdate: vi.fn(),
+          onDismiss: () => setActive("none"),
+        },
+      })
+    }
+    const user = setupUser()
+    render(createElement(StrictMode, null, createElement(Harness)))
+    const trigger = screen.getByTestId(tid.inboxTrigger)
+    await user.click(trigger)
+    expect(trigger).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByRole("dialog", { name: "Inbox" })).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "User", exact: true }))
+    expect(screen.getByRole("dialog", { name: "Your profile" })).toBeVisible()
+    expect(screen.queryByRole("dialog", { name: "Inbox" })).not.toBeInTheDocument()
+    await user.click(trigger)
+    expect(screen.getByRole("dialog", { name: "Inbox" })).toBeVisible()
+    await user.click(trigger)
+    expect(trigger).toHaveAttribute("aria-expanded", "false")
+    expect(screen.queryByRole("dialog", { name: "Inbox" })).not.toBeInTheDocument()
+    expect(errors.mock.calls.filter((args) => args.some((arg) => (
+      typeof arg === "string" && /Cannot update a component|while rendering a different component/.test(arg)
+    )))).toEqual([])
+    errors.mockRestore()
+  })
+
+  it("keeps only committed content when a suspended extension render is abandoned", async () => {
+    const pending = new Promise<void>(() => {})
+    const renders = vi.fn()
+    const commits = vi.fn()
+    function Content({ label, interactive }: { label: string; interactive?: boolean }) {
+      const ref = useRef<HTMLButtonElement>(null)
+      useLayoutEffect(() => {
+        commits(label, interactive, ref.current?.disabled, ref.current?.closest(".community-user-bar-drawer")?.hasAttribute("inert"))
+      }, [label, interactive])
+      renders(label, interactive)
+      if (label === "Uncommitted") throw pending
+      return createElement("button", { ref, disabled: !interactive }, label)
+    }
+    function Harness() {
+      const [label, setLabel] = useState<string | null>("First content")
+      return createElement("div", null,
+        createElement("button", { onClick: () => setLabel("Committed") }, "Use latest content"),
+        createElement("button", {
+          onClick: () => startTransition(() => setLabel("Uncommitted")),
+        }, "Start pending content"),
+        createElement("button", { onClick: () => setLabel(null) }, "Close drawer"),
+        createElement(Suspense, { fallback: createElement("span", null, "Pending") },
+          createElement(UserBarExtensionDrawer, null,
+            label === null ? null : createElement(Content, { label }),
+          ),
+        ),
+      )
+    }
+    const renderer = render(createElement(StrictMode, null, createElement(Harness)))
+    expect(renderer.getByRole("button", { name: "First content" })).toBeEnabled()
+    await act(async () => renderer.getByRole("button", { name: "Use latest content" }).click())
+    expect(renderer.getByRole("button", { name: "Committed" })).toBeEnabled()
+    expect(renderer.queryByRole("button", { name: "First content" })).not.toBeInTheDocument()
+    await act(async () => renderer.getByRole("button", { name: "Start pending content" }).click())
+    expect(renders).toHaveBeenCalledWith("Uncommitted", true)
+    expect(renderer.getByRole("button", { name: "Committed" })).toBeVisible()
+    expect(renderer.queryByText("Pending")).not.toBeInTheDocument()
+    renders.mockClear()
+    await act(async () => renderer.getByRole("button", { name: "Close drawer" }).click())
+    expect(renders).toHaveBeenCalledWith("Committed", false)
+    expect(renders).not.toHaveBeenCalledWith("Uncommitted", false)
+    expect(commits).toHaveBeenCalledWith("Committed", false, true, true)
+    expect(commits.mock.calls.some(([label]) => label === "Uncommitted")).toBe(false)
+    expect(renderer.queryByText("Pending")).not.toBeInTheDocument()
+    expect(renderer.queryByRole("button", { name: "Committed" })).not.toBeInTheDocument()
+  })
+
   it.each(["mobile", "desktop"] as const)("cancels the pending %s opening on the second actual trigger click", async (breakpoint) => {
     const changes = vi.fn()
     function Harness() {
