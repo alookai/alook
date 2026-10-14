@@ -22,6 +22,12 @@ const mocks = vi.hoisted(() => ({
     statusText?: string | null
   } | undefined,
   interruptAgent: vi.fn(),
+  bots: [{ id: "agent_1", runtime: "claude" }, { id: "user_1", runtime: "claude" }],
+  stop: undefined as (() => void) | undefined,
+}))
+
+vi.mock("@/hooks/community/use-bots", () => ({
+  useBots: () => ({ bots: mocks.bots }),
 }))
 
 vi.mock("@/lib/community-db/projections", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/community-db/projections")>(),
@@ -49,7 +55,9 @@ vi.mock("./bot-mark-sticker", () => ({
     showStop: boolean
     stopPending: boolean
     onStop: () => void
-  }) => createElement(
+  }) => {
+    mocks.stop = onStop
+    return createElement(
     "section",
     { "data-testid": "community-bot-mark-sticker" },
     showStop
@@ -62,7 +70,8 @@ vi.mock("./bot-mark-sticker", () => ({
             : "Stop current agent turn",
         }, stopPending ? "Stopping…" : "Stop")
       : null,
-  ),
+    )
+  },
 }))
 
 vi.mock("./profile-running-bots-card", () => ({
@@ -77,6 +86,8 @@ afterEach(() => {
   vi.useRealTimers()
   mocks.interruptAgent.mockReset()
   mocks.profile = undefined
+  mocks.stop = undefined
+  mocks.bots = [{ id: "agent_1", runtime: "claude" }, { id: "user_1", runtime: "claude" }]
 })
 
 function renderProfile(
@@ -117,6 +128,7 @@ function renderProfile(
 function interactiveProfile(
   queryClient: QueryClient,
   activityStatus: { emoji: string; text: string },
+  bp: "mobile" | "desktop" = "desktop",
 ) {
   mocks.profile = {
     statusEmoji: activityStatus.emoji,
@@ -141,7 +153,7 @@ function interactiveProfile(
       },
       x: 0,
       y: 0,
-      bp: "desktop",
+      bp,
       onClose: () => undefined,
     }),
   )
@@ -269,6 +281,41 @@ describe("ProfileCard contextual metadata", () => {
     expect(running).toContain(">Stop</button>")
     expect(starting).not.toContain(">Stop</button>")
     expect(nonowner).not.toContain(">Stop</button>")
+  })
+
+  it("keeps an entered message when asynchronous bot ownership arrives", () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const data: Profile = { name: "Ren", userId: "agent_1" }
+    const card = (identity?: Profile["identity"]) => createElement(CommunityTestProvider, { client }, createElement(ProfileCard, {
+      data: { ...data, identity }, embedded: true, canMessage: true, onMessage: vi.fn(),
+      x: 0, y: 0, bp: "desktop", onClose: vi.fn(),
+    }))
+    const renderer = render(card())
+    fireEvent.change(renderer.getByRole("textbox"), { target: { value: "Keep this draft" } })
+    renderer.rerender(card({ kind: "bot", ownerProfile: { id: "owner_1", handle: "Owner#0042" }, ownedByViewer: true }))
+    expect(renderer.getByRole("textbox")).toHaveValue("Keep this draft")
+  })
+
+  it.each(["desktop", "mobile"] as const)("waits for owner runtime and omits unsupported agy Stop on %s", async (bp) => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const status = { emoji: "⚡", text: "Working on it" }
+    mocks.bots = []
+    const renderer = render(interactiveProfile(queryClient, status, bp))
+    expect(findInterruptButton(renderer.container)).toBeNull()
+    await act(async () => mocks.stop?.())
+    mocks.bots = [{ id: "agent_1", runtime: "agy" }]
+    renderer.rerender(interactiveProfile(queryClient, status, bp))
+    expect(findInterruptButton(renderer.container)).toBeNull()
+    await act(async () => mocks.stop?.())
+    expect(renderer.container.textContent).not.toContain("Stopping…")
+    expect(mocks.interruptAgent).not.toHaveBeenCalled()
+    mocks.bots = [{ id: "agent_1", runtime: "antigravity" }]
+    renderer.rerender(interactiveProfile(queryClient, status, bp))
+    await act(async () => findInterruptButton(renderer.container)?.click())
+    expect(mocks.interruptAgent).toHaveBeenCalledTimes(1)
+    mocks.bots = [{ id: "agent_1", runtime: "agy" }]
+    renderer.rerender(interactiveProfile(queryClient, status, bp))
+    expect(findInterruptButton(renderer.container)).toBeNull()
   })
 
   it("sends once and enters a disabled loading state until exact Idle arrives", async () => {

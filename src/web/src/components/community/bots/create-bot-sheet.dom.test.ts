@@ -408,9 +408,9 @@ describe("CreateBotSheet — auto-select defaults", () => {
     }))
   })
 
-  it("creates Antigravity Default without inventing a catalog or effort override", async () => {
+  it.each(["antigravity", "agy"])("creates %s Default without inventing a catalog or effort override", async (runtime) => {
     useMachinesMock.mockReturnValue({ machines: [machine({
-      id: "mac", availableRuntimes: [{ id: "antigravity", status: "healthy" }],
+      id: "mac", availableRuntimes: [{ id: runtime, status: "healthy" }],
     })] })
     const renderer = render()
     await act(async () => {
@@ -418,7 +418,7 @@ describe("CreateBotSheet — auto-select defaults", () => {
       await Promise.resolve()
     })
     expect(createMutateAsync).toHaveBeenCalledWith(expect.objectContaining({
-      machineId: "mac", runtime: "antigravity", model: null, reasoningEffort: null,
+      machineId: "mac", runtime, model: null, reasoningEffort: null,
     }))
   })
 

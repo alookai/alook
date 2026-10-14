@@ -227,7 +227,7 @@ pub fn native_oauth_open_start(
     start_url: String,
 ) -> Result<(), &'static str> {
     guard(&window)?;
-    state.transact(|record| record.open(&attempt_id, &start_url, cfg!(debug_assertions)))?;
+    state.transact(|record| record.open(&attempt_id, &start_url, tauri::is_dev()))?;
     window
         .app_handle()
         .opener()

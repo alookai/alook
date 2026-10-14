@@ -19,6 +19,7 @@ import {
   SelectSeparator,
 } from "@/components/ui/select"
 import { BotSelectMenuContent, BotSelectMenuItem } from "./bot-select-menu"
+import { runtimeLabel } from "@/lib/community/runtime-label"
 
 /**
  * The picker keeps its OWN Select/custom-text state rather than deriving purely
@@ -70,7 +71,7 @@ export function ModelField({
   }, [seed, runtime, value, localChange, setCustomName, setFilterQuery, setSelectValue])
 
   const isCustom = selectValue === MODEL_SELECT_CUSTOM
-  const defaultLabel = runtime ? `Default (${runtime.id}'s own default)` : "Default"
+  const defaultLabel = runtime ? `Default (${runtimeLabel(runtime.id)}'s own default)` : "Default"
   const placeholder = required ? "Select a model" : defaultLabel
   const normalizedFilter = filterQuery.trim().toLowerCase()
   const filteredModels = normalizedFilter

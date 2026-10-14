@@ -10,6 +10,7 @@ import { useInboxAutoCollapse } from "@/hooks/community/use-inbox-auto-collapse"
 import { CommunityShellLayout } from "./community-shell-layout"
 import { UserBarExtensionSlot } from "./user-bar-extension-slot"
 import { useCommunityRouteFrame } from "./community-route-context"
+import { normalizeCommunityHref } from "@/lib/community/community-route"
 import { tid } from "@/lib/community/testids"
 import type { ShellFrameView } from "./shell-frame-view"
 import type { useShellInboxController } from "./use-shell-inbox-controller"
@@ -175,7 +176,8 @@ vi.mock("./shell-frame-view", () => ({
         createElement("button", {
           "data-testid": tid.inboxTrigger,
           "aria-expanded": view.userBarExtension.active === "inbox",
-          onClick: () => view.onUserBarInboxOpenChange(view.userBarExtension.active !== "inbox"),
+          "aria-busy": view.inboxOpening || undefined,
+          onClick: () => view.onUserBarInboxOpenChange(view.userBarExtension.active !== "inbox" && !view.inboxOpening),
         }, "Inbox trigger"),
       ),
     })
@@ -201,7 +203,7 @@ function renderInboxLifecycle(href = "/c/messages/unavailable", breakpoint = "mo
   mocks.lifecycle = true
   mocks.breakpoint.current = breakpoint
   mocks.currentHref.current = href
-  let frameHref = href
+  let frameHref = normalizeCommunityHref(href).pathname
   let context!: ReturnType<typeof useCommunityRouteFrame>
   function Action() {
     const current = useCommunityRouteFrame()
@@ -508,6 +510,126 @@ describe("ShellFrame orchestration", () => {
     mocks.breakpoint.current = "mobile"
     renderer.rerender(createElement(ShellFrame, baseProps, "mobile"))
     expect(mocks.railOptions).toHaveBeenLastCalledWith(expect.objectContaining({ breakpoint: "mobile" }))
+  })
+
+  describe("user-bar Inbox during list navigation", () => {
+    const destination = "/c/channels/s1?from=inbox"
+
+    it.each(["frame-first", "publication-first"])("opens once after the current complete destination, %s", (order) => {
+      const shell = renderInboxLifecycle("/c/channels/s1/c1")
+      act(() => shell.context.navigation.push(destination))
+      const trigger = screen.getByTestId(tid.inboxTrigger)
+      expect(trigger.closest("[data-slot='community-user-bar-overlay']")).not.toHaveAttribute("inert")
+      fireEvent.click(trigger)
+      expect(trigger).toHaveAttribute("aria-busy", "true")
+      expect(trigger).toHaveAttribute("aria-expanded", "false")
+      expect(mocks.push).toHaveBeenCalledExactlyOnceWith(destination)
+      if (order === "frame-first") shell.update({ frameHref: "/c/channels/s1" })
+      else shell.update({ publishedHref: destination })
+      expect(mocks.openChanges).not.toHaveBeenCalledWith(true)
+      shell.update({ frameHref: "/c/channels/s1", publishedHref: destination })
+      expectVisibleInbox()
+      expect(trigger).not.toHaveAttribute("aria-busy")
+      expect(mocks.openChanges).toHaveBeenCalledExactlyOnceWith(true)
+      shell.update()
+      expect(mocks.openChanges).toHaveBeenCalledTimes(1)
+      fireEvent.click(trigger)
+      expect(trigger).toHaveAttribute("aria-expanded", "false")
+      expect(mocks.openChanges.mock.calls).toEqual([[true], [false]])
+    })
+
+    it("waits for the known full query URL, then keeps normal navigation auto-collapse", () => {
+      const shell = renderInboxLifecycle("/c/channels/s1/c1")
+      act(() => shell.context.navigation.push(destination))
+      fireEvent.click(screen.getByTestId(tid.inboxTrigger))
+      shell.update({ frameHref: "/c/channels/s1", publishedHref: "/c/channels/s1" })
+      expect(mocks.openChanges).not.toHaveBeenCalledWith(true)
+      shell.update({ publishedHref: destination })
+      expectVisibleInbox()
+      shell.update({ publishedHref: "/c/channels/s1?from=other" })
+      expect(screen.getByTestId(tid.inboxTrigger)).toHaveAttribute("aria-expanded", "false")
+    })
+
+    it("opens directly on a settled query list and defers a query-only pending commit", () => {
+      const shell = renderInboxLifecycle(destination)
+      fireEvent.click(screen.getByTestId(tid.inboxTrigger))
+      expectVisibleInbox()
+      fireEvent.click(screen.getByTestId(tid.inboxTrigger))
+      const next = "/c/channels/s1?from=next"
+      act(() => shell.context.navigation.push(next))
+      fireEvent.click(screen.getByTestId(tid.inboxTrigger))
+      expect(screen.getByTestId(tid.inboxTrigger)).toHaveAttribute("aria-busy", "true")
+      shell.update({ publishedHref: next })
+      expectVisibleInbox()
+      expect(mocks.push).toHaveBeenCalledExactlyOnceWith(next)
+    })
+
+    it("waits for publication if the structural frame arrives without a local pending target", () => {
+      const shell = renderInboxLifecycle("/c/channels/s1/c1")
+      shell.update({ frameHref: "/c/channels/s1" })
+      fireEvent.click(screen.getByTestId(tid.inboxTrigger))
+      expect(mocks.openChanges).not.toHaveBeenCalledWith(true)
+      shell.update({ publishedHref: destination })
+      expectVisibleInbox()
+      expect(mocks.push).not.toHaveBeenCalled()
+    })
+
+    it("cancels on the second click without cancelling navigation or reviving at the same URL", () => {
+      const shell = renderInboxLifecycle("/c/channels/s1/c1")
+      act(() => shell.context.navigation.push(destination))
+      fireEvent.click(screen.getByTestId(tid.inboxTrigger))
+      fireEvent.click(screen.getByTestId(tid.inboxTrigger))
+      expect(shell.context.navigation.pendingHref).toBe(destination)
+      shell.update({ frameHref: "/c/channels/s1", publishedHref: destination })
+      shell.update({ frameHref: "/c/me", publishedHref: "/c/me" })
+      shell.update({ frameHref: "/c/channels/s1", publishedHref: destination })
+      expect(mocks.openChanges).not.toHaveBeenCalledWith(true)
+      expect(screen.queryByTestId(tid.userBarExtension)).toBeNull()
+    })
+
+    it.each(["push", "pushImmediate", "replace", "resolver", "cancel", "Back"])(
+      "discards a user-bar request on %s before a later identical destination", async (entry) => {
+        const shell = renderInboxLifecycle("/c/channels/s1/c1")
+        act(() => shell.context.navigation.push(destination))
+        fireEvent.click(screen.getByTestId(tid.inboxTrigger))
+        await act(async () => {
+          const nav = shell.context.navigation
+          if (entry === "push") nav.push("/c/me")
+          if (entry === "pushImmediate") nav.pushImmediate("/c/me")
+          if (entry === "replace") nav.replace("/c/me")
+          if (entry === "resolver") await nav.resolveAndPush(async () => "/c/me")
+          if (entry === "cancel") nav.cancelPendingNavigation()
+          if (entry === "Back") window.dispatchEvent(new Event("popstate"))
+        })
+        shell.update({ frameHref: "/c/me", publishedHref: "/c/me" })
+        shell.update({ frameHref: "/c/channels/s1", publishedHref: destination })
+        expect(mocks.openChanges).not.toHaveBeenCalledWith(true)
+      },
+    )
+
+    it.each(["profile", "update", "dismiss"])("cancels pending opening before the %s extension action", (action) => {
+      const shell = renderInboxLifecycle("/c/channels/s1/c1")
+      act(() => shell.context.navigation.push(destination))
+      fireEvent.click(screen.getByTestId(tid.inboxTrigger))
+      act(() => {
+        const view = mocks.viewProps.current as Parameters<typeof ShellFrameView>[0]
+        if (action === "profile") view.onUserBarOpenProfile("Viewer")
+        if (action === "update") view.onUserBarOpenUpdate()
+        if (action === "dismiss") view.dismissUserBarExtension()
+      })
+      shell.update({ frameHref: "/c/channels/s1", publishedHref: destination })
+      expect(mocks.openChanges).not.toHaveBeenCalledWith(true)
+    })
+
+    it("discards a pending user-bar request on account change", () => {
+      const shell = renderInboxLifecycle("/c/channels/s1/c1")
+      act(() => shell.context.navigation.push(destination))
+      fireEvent.click(screen.getByTestId(tid.inboxTrigger))
+      shell.update({ viewerId: "other" })
+      shell.update({ viewerId: "viewer" })
+      shell.update({ frameHref: "/c/channels/s1", publishedHref: destination })
+      expect(mocks.openChanges).not.toHaveBeenCalledWith(true)
+    })
   })
 
   describe("shared Open Inbox commit handoff", () => {

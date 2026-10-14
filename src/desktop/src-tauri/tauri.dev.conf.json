@@ -93,9 +93,30 @@
           ]
         }
       ]
-    }
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "Alook",
+        "dragDropEnabled": false,
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "center": true,
+        "visible": false,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 16,
+          "y": 21
+        },
+        "url": "alook-recovery://localhost/bootstrap"
+      }
+    ]
   },
   "build": {
-    "frontendDist": "http://localhost:3000/c"
+    "frontendDist": "http://localhost:3000",
+    "devUrl": "http://localhost:3000"
   }
 }

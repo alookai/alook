@@ -25,7 +25,7 @@ describe("RailIndicator", () => {
     expect(html).toContain('data-slot="community-server-rail-indicator"')
     if (!props.active) {
       expect(html).toContain("group-hover:h-5")
-      expect(html).toContain("group-focus-within:h-5")
+      expect(html).toContain("group-has-[:focus-visible]:h-5")
     } else {
       expect(html).not.toContain("group-hover:h-5")
     }
@@ -50,7 +50,7 @@ describe("RailIndicator", () => {
     expect(html).toContain('data-testid="community-server-add"')
     expect(html).toContain("h-0")
     expect(html).toContain("group-hover:h-5")
-    expect(html).toContain("group-focus-within:h-5")
+    expect(html).toContain("group-has-[:focus-visible]:h-5")
     expect(html).not.toContain("h-8")
   })
 })

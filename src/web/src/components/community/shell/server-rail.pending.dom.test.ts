@@ -219,7 +219,7 @@ describe("ServerRail one-in-flight structural guard", () => {
       .previousElementSibling as HTMLElement
 
     expect(homeIndicator()).toHaveAttribute("data-slot", "community-server-rail-indicator")
-    expect(homeIndicator()).toHaveClass("h-0", "group-hover:h-5", "group-focus-within:h-5")
+    expect(homeIndicator()).toHaveClass("h-0", "group-hover:h-5", "group-has-[:focus-visible]:h-5")
 
     renderer.rerender(createElement(ServerRail, {
       servers,
@@ -228,7 +228,7 @@ describe("ServerRail one-in-flight structural guard", () => {
       onHome: vi.fn(),
     }))
     expect(homeIndicator()).toHaveClass("h-8")
-    expect(homeIndicator()).not.toHaveClass("group-hover:h-5", "group-focus-within:h-5")
+    expect(homeIndicator()).not.toHaveClass("group-hover:h-5", "group-has-[:focus-visible]:h-5")
   })
 
   it("does not reconcile again for equivalent canonical projection references", () => {

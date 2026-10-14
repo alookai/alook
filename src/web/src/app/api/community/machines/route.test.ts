@@ -76,6 +76,16 @@ describe("GET /api/community/machines — provider quota", () => {
     expect(JSON.stringify(body)).not.toContain("retryable")
   })
 
+  it("keeps CLI quota unsupported and the existing ACP quota separate", async () => {
+    mockListMachinesForUser.mockResolvedValue([{ id: "machine", status: "online", availableRuntimes: [{ id: "agy", status: "healthy" }, { id: "antigravity", status: "healthy" }] }])
+    mockListMachineBackendQuotasForUser.mockResolvedValue(new Map())
+    const response = await GET(new NextRequest("http://localhost/api/community/machines"))
+    const body = await response.json()
+    expect(body.machines[0].quota.map((entry: any) => ({ backend: entry.scope.agentBackendId, capability: entry.capability }))).toEqual([
+      { backend: "agy", capability: "unsupported" }, { backend: "antigravity", capability: "supported" },
+    ])
+  })
+
   it("keeps same-runtime catalogs isolated between machine rows", async () => {
     const runtime = (modelId: string) => ({
       id: "codex",

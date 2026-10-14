@@ -63,6 +63,10 @@ vi.mock("@/hooks/community/use-running-owned-bots", () => ({
   }),
 }))
 
+vi.mock("@/hooks/community/use-bots", () => ({
+  useBots: () => ({ bots: [{ id: "user_1", runtime: "claude" }] }),
+}))
+
 import { ProfileCard } from "./profile-card"
 
 const ownedBotIdentity: Profile["identity"] = {

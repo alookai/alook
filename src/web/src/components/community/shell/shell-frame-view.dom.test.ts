@@ -207,6 +207,7 @@ const inbox = {
   onOpenChange: vi.fn(),
 } as never
 const extensionProps = {
+  inboxOpening: false,
   userBarExtension: { active: "none", update: null },
   daemonUpdate: { update: null, eligibleMachines: [], request: vi.fn() },
   onUserBarInboxOpenChange: vi.fn(),

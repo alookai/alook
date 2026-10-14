@@ -48,6 +48,8 @@ export function toBuiltinBackendSelection(config: BuiltinRuntimeConfigInput): Bu
         backend: "codex",
         config: { ...base, reasoningEffort: config.reasoningEffort, mode: config.mode.kind },
       };
+    case "agy":
+      return { backend: "agy", config: { ...base, reasoningEffort: config.reasoningEffort } };
     case "antigravity":
       return { backend: "antigravity", config: { ...base, reasoningEffort: config.reasoningEffort } };
     case "cursor":

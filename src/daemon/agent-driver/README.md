@@ -1,7 +1,7 @@
 # @alook/agent-driver
 
 Repository-private logical-session drivers for Claude, Codex, Cursor, Grok,
-OpenCode, Pi, and Antigravity.
+OpenCode, Pi, Antigravity ACP, and Antigravity CLI (`agy`).
 
 The package's exported contract owns backend lifecycle, message admission,
 buffering, queueing, interrupts, stop deadlines, and normalized events. The
@@ -110,6 +110,7 @@ There is no per-turn built-in fallback.
 | Cursor | session | `stdio_rpc` / `cursor.acp.v1` | `steer` | `transport_request` |
 | OpenCode | session | `http_sse` / `opencode.v2.service` | `steer` | `transport_request` |
 | Pi | session | `in_process_sdk` / `pi_sdk` | `steer` | `prompt_invocation` |
+| Antigravity CLI (`agy`) | session | `stdio_stream` / `agy.stream-json.v1` | `next_turn_queue` | `vendor_message` |
 
 For Claude and Codex, `safe_boundary_queue` waits for at most the next valid
 tool-output event. A tool start closes the boundary for messages that arrive
@@ -215,6 +216,39 @@ it must not ship, retain, or automatically select the restored one-shot path.
 Do not fall back to `cursor-agent --print` or `opencode run`. Verify the
 unaffected backends and the capability probe before resuming rollout.
 
+
+## Antigravity CLI (`agy`)
+
+The `agy` backend supports Google's official Antigravity CLI, independently of
+the `antigravity` ACP backend below. Install and sign in with the
+[official CLI instructions](https://antigravity.google/docs/cli/install/).
+Discovery and launch share the same executable lookup: an explicit `command`,
+`agy` on PATH, then `~/.local/bin/agy` on macOS/Linux or
+`%LOCALAPPDATA%/agy/bin/agy.exe` on Windows (the default user-local directory
+is used only when `LOCALAPPDATA` is absent). Run the selected CLI executable in a terminal and finish
+Google sign-in before starting a bot; ACP authentication is separate.
+
+The CLI must advertise native `--input-format stream-json`,
+`--output-format stream-json` and `--conversation` support. Alook keeps one
+process across turns and queues busy input until the current result completes.
+It passes selected model and effort through `--model` and `--effort`, delivers
+standing instructions with the first input, and uses the injected Alook CLI
+through the existing host environment. Sign-in is local to the native CLI;
+discovery compatibility does not prove an authenticated model request.
+
+Resume passes the exact saved conversation ID to `--conversation`. A missing
+or substituted ID fails; no new conversation is silently accepted. The CLI
+does not support ACP or Claude control messages. This backend declares
+`interrupt: false`; stop and reset retain the existing process cleanup boundary.
+
+Token usage comes from live completed step events, deduplicated with native
+conversation/step identity. Cumulative result usage is not added again. Unknown
+counts remain unknown. Provider quota is unsupported until a CLI-specific
+source is established; ACP credentials and quota are not reused.
+
+Version 1.3.4 was checked for executable discovery, advertised protocol and
+unauthenticated startup cleanup. Authenticated multi-turn and resume acceptance
+are separate checks and must not be inferred from protocol fixtures.
 
 ## Antigravity (native ACP)
 

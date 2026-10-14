@@ -6,7 +6,7 @@ export const SESSION_FILE_DISCOVERY_CAPABILITIES = sessionFileDiscoveryCapabilit
 export type {
   JsonPrimitive, JsonValue, JsonObject, BuiltinBackendId, ReasoningEffort, RuntimeReasoningCatalog,
   RuntimeSettingsUpdate, RuntimeSettingsUpdateResult, ModelSelection, DefaultProvider,
-  AntigravityConfig, AntigravityCapabilities, ClaudeProvider, PiProvider, BaseBackendConfig, ClaudeConfig, CodexConfig, ModelBackendConfig, CursorConfig,
+  AntigravityConfig, AntigravityCapabilities, AgyConfig, AgyCapabilities, ClaudeProvider, PiProvider, BaseBackendConfig, ClaudeConfig, CodexConfig, ModelBackendConfig, CursorConfig,
   GrokConfig, OpenCodeConfig, PiConfig, BackendCapabilities, ClaudeCapabilities, CodexCapabilities, CursorCapabilities,
   GrokCapabilities, OpenCodeCapabilities, PiCapabilities, BackendExtensionSpec, BackendTypeSpec, BuiltinBackendSpecs, BackendId,
   FixedCapabilities, ConfigOf, CapabilitiesOf, ExtensionsOf, ExtraEventOf, AgentInstructions, AgentLaunchContext, AgentMessage,
