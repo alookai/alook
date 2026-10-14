@@ -954,7 +954,7 @@ let caseJourneyFailure2Present = false
     expect(mobileStickerGeometry.scrollWidth).toBeLessThanOrEqual(mobileStickerGeometry.clientWidth)
     expect(mobileStickerGeometry.right).toBeLessThanOrEqual(375)
     await expect(sticker.getByLabel("Loading thoughts")).toHaveCount(0)
-    await expect(sticker.getByText("open activity log 11", { exact: true })).toBeVisible()
+    await expect(sticker.getByText("Open activity log 11", { exact: true })).toBeVisible()
     await attachPageScreenshot(testInfo, "bot-mark-sticker-activity-mobile-dark", alice.page)
     await sticker.getByRole("tab", { name: "Marked messages" }).click()
     await expect(alice.page.locator(`[data-testid^="${tid.botMarkStickerRow("")}"]`))
