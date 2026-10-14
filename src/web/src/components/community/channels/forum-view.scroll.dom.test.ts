@@ -1,7 +1,8 @@
 import { createElement } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, render } from "@/test/react-dom-harness"
+import { act, fireEvent, render } from "@/test/react-dom-harness"
 import type { ForumThread } from "@/lib/community/models/message"
+import { tid } from "@/lib/community/testids"
 
 const scrollToIndex = vi.fn()
 let requestOlder: (() => void) | undefined
@@ -105,5 +106,35 @@ describe("ForumView scroll anchoring", () => {
     root.scrollHeight = 500
     view.rerender(createElement(ForumView, { ...props([post("p3"), post("p2"), post("p1")]), onLoadMore }))
     expect(root.scrollTop).toBe(20)
+  })
+
+  it("updates the full title and sequence without a measured duplicate and keeps row activation", () => {
+    const onOpenPost = vi.fn()
+    const initial: ForumThread = { ...post("p1"), name: "Short title", parentSeq: 205 }
+    const view = render(createElement(ForumView, { ...props([initial]), onOpenPost }))
+    const heading = view.getByTestId(tid.forumThreadTitle("p1"))
+    const title = view.getByTestId(tid.forumThreadTitleText("p1"))
+    const sequence = view.getByTestId(tid.forumThreadSeq("p1"))
+    expect(heading.textContent).toBe("Short title#205")
+    expect(heading.getAttribute("aria-label")).toBe("Short title #205")
+    expect(title.contains(sequence)).toBe(false)
+
+    const name = "移动端论坛标题需要独立截断".repeat(8)
+    view.rerender(createElement(ForumView, {
+      ...props([{ ...initial, name, parentSeq: 987654321012345 }]), onOpenPost,
+    }))
+    expect(title.textContent).toBe(name)
+    expect(sequence.textContent).toBe("#987654321012345")
+    expect(heading.textContent).toBe(`${name}#987654321012345`)
+    expect(heading.getAttribute("aria-label")).toBe(`${name} #987654321012345`)
+    expect(heading.getAttribute("title")).toBe(name)
+    fireEvent.click(title)
+    fireEvent.keyDown(view.getByTestId(tid.forumThreadCard("p1")), { key: "Enter" })
+    expect(onOpenPost.mock.calls).toEqual([["p1"], ["p1"]])
+
+    view.rerender(createElement(ForumView, { ...props([{ ...initial, name, parentSeq: undefined }]), onOpenPost }))
+    expect(view.queryByTestId(tid.forumThreadSeq("p1"))).toBeNull()
+    expect(heading.textContent).toBe(name)
+    expect(heading.getAttribute("aria-label")).toBe(name)
   })
 })

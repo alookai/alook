@@ -176,6 +176,7 @@ async function expectMobileGeometry(
   card: Locator,
   postId: string,
   visibleTags: string[],
+  expectedTitle: string,
   titleState: "single" | "double" | "truncated",
   role: "author" | "manager",
   width: (typeof MOBILE_WIDTHS)[number],
@@ -189,7 +190,11 @@ async function expectMobileGeometry(
   const title = page.getByTestId(tid.forumThreadTitle(postId))
   const titleText = page.getByTestId(tid.forumThreadTitleText(postId))
   const sequence = page.getByTestId(tid.forumThreadSeq(postId))
-  await expect(title).toHaveAttribute("data-truncated", titleState === "truncated" ? "true" : "false")
+  await expect(titleText).toHaveText(expectedTitle)
+  await expect(title).toHaveAttribute("title", expectedTitle)
+  await expect(sequence).toHaveText(/^#\d+$/)
+  const fullSequence = await sequence.innerText()
+  await expect(title).toHaveAccessibleName(`${expectedTitle} ${fullSequence}`)
   await expect(sequence).toBeVisible()
   const [listRect, cardRect, titleRect, tagRect, deleteRect, sequenceRect] = await Promise.all([
     rect(page.getByTestId(tid.forumPostList)),
@@ -205,32 +210,36 @@ async function expectMobileGeometry(
   expect(Math.abs(cardRect!.left - listRect!.left), `${role}/${postId}@${width}: edge-to-edge left`).toBeLessThanOrEqual(0.5)
   expect(Math.abs(cardRect!.right - listRect!.right), `${role}/${postId}@${width}: edge-to-edge right`).toBeLessThanOrEqual(0.5)
   expect(titleRect!.left - cardRect!.left, `${role}/${postId}@${width}: internal title inset`).toBeGreaterThanOrEqual(16)
-  const titleMetrics = await title.evaluate((element) => {
+  const titleMetrics = await titleText.evaluate((element) => {
+    const bounds = element.getBoundingClientRect()
     const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight)
-    return { height: element.getBoundingClientRect().height, lineHeight }
-  })
-  const textFragments = await titleText.evaluate((element) => Array.from(element.getClientRects())
-    .filter((fragment) => fragment.width > 0 && fragment.height > 0)
-    .map((fragment) => ({ left: fragment.left, right: fragment.right, top: fragment.top, bottom: fragment.bottom })))
-  const textLines = textFragments.reduce<typeof textFragments>((lines, fragment) => {
-    const line = lines.find((candidate) => Math.abs(candidate.top - fragment.top) <= 1)
-    if (line) {
-      line.left = Math.min(line.left, fragment.left)
-      line.right = Math.max(line.right, fragment.right)
-      line.bottom = Math.max(line.bottom, fragment.bottom)
-    } else {
-      lines.push({ ...fragment })
+    return {
+      top: bounds.top, bottom: bounds.bottom, right: bounds.right,
+      height: bounds.height, lineHeight,
+      scrollHeight: element.scrollHeight, clientHeight: element.clientHeight,
     }
-    return lines
-  }, [])
+  })
   const expectedLines = titleState === "single" ? 1 : 2
-  expect(textLines, `${role}/${postId}@${width}: visible title lines`).toHaveLength(expectedLines)
+  expect(Math.abs(titleMetrics.height - titleMetrics.lineHeight * expectedLines), `${role}/${postId}@${width}: visible title lines`).toBeLessThanOrEqual(0.5)
   expect(titleMetrics.height, `${role}/${postId}@${width}: two-line clamp`).toBeLessThanOrEqual(titleMetrics.lineHeight * 2 + 0.5)
-  const lastTextLine = textLines.at(-1)!
-  expect(Math.abs(sequenceRect!.top - lastTextLine.top), `${role}/${postId}@${width}: seq line`).toBeLessThanOrEqual(3)
-  expect(Math.abs(sequenceRect!.bottom - lastTextLine.bottom), `${role}/${postId}@${width}: seq baseline`).toBeLessThanOrEqual(3)
-  expect(sequenceRect!.left - lastTextLine.right, `${role}/${postId}@${width}: seq gap`).toBeGreaterThanOrEqual(4)
-  expect(sequenceRect!.left - lastTextLine.right, `${role}/${postId}@${width}: seq gap`).toBeLessThanOrEqual(8)
+  if (titleState === "truncated") {
+    expect(titleMetrics.scrollHeight, `${role}/${postId}@${width}: native title overflow`).toBeGreaterThan(titleMetrics.clientHeight)
+  } else {
+    expect(Math.abs(titleMetrics.scrollHeight - titleMetrics.clientHeight), `${role}/${postId}@${width}: title fits`).toBeLessThanOrEqual(1)
+  }
+  const sequenceMetrics = await sequence.evaluate((element, titleId) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    separateFromTitle: element.parentElement?.querySelector(`[data-testid="${titleId}"]`)?.contains(element) === false,
+  }), tid.forumThreadTitleText(postId))
+  expect(sequenceMetrics.separateFromTitle, `${role}/${postId}@${width}: sequence outside title clamp`).toBe(true)
+  expect(sequenceMetrics.scrollWidth, `${role}/${postId}@${width}: complete sequence width`).toBeLessThanOrEqual(sequenceMetrics.clientWidth)
+  const lastLineTop = titleMetrics.top + titleMetrics.lineHeight * (expectedLines - 1)
+  expect(Math.abs(sequenceRect!.top - lastLineTop), `${role}/${postId}@${width}: seq line`).toBeLessThanOrEqual(3)
+  expect(Math.abs(sequenceRect!.bottom - titleMetrics.bottom), `${role}/${postId}@${width}: seq baseline`).toBeLessThanOrEqual(3)
+  expect(sequenceRect!.left - titleMetrics.right, `${role}/${postId}@${width}: seq block gap`).toBeGreaterThanOrEqual(4)
+  expect(sequenceRect!.left - titleMetrics.right, `${role}/${postId}@${width}: seq block gap`).toBeLessThanOrEqual(8)
+  expect(sequenceRect!.right, `${role}/${postId}@${width}: sequence containment`).toBeLessThanOrEqual(titleRect!.right + 0.5)
   const controls = [tagRect!, deleteRect!]
   for (const controlRect of controls) {
     expect(controlRect.width, `${role}/${postId}@${width}: touch width`).toBe(32)
@@ -481,22 +490,25 @@ test("forum post actions stay discoverable on mobile without changing permission
   const compactForumId = await seedChannel("alice", serverId, "compact-tags", "forum")
   await seedJoinServer("alice", "bob", serverId)
   await seedJoinServer("alice", "carol", serverId)
+  const primaryTitle = `UnbrokenForumTitle${Date.now()}${"abcdefghij".repeat(12)}`
+  const cjkTitle = `移动端论坛标题必须换到第二行展示${stamp}`
+  const noTagTitle = `One line ${stamp}`
   const primaryPostId = await seedForumThread(
     "bob",
     forumId,
-    `UnbrokenForumTitle${Date.now()}${"abcdefghij".repeat(12)}`,
+    primaryTitle,
     "mobile action geometry",
   )
   const cjkPostId = await seedForumThread(
     "bob",
     forumId,
-    `移动端论坛标题必须换到第二行展示${stamp}`,
+    cjkTitle,
     "two tag geometry",
   )
   const noTagPostId = await seedForumThread(
     "bob",
     forumId,
-    `One line ${stamp}`,
+    noTagTitle,
     "zero tag geometry",
   )
   const compactPostId = await seedForumThread(
@@ -510,9 +522,9 @@ test("forum post actions stay discoverable on mobile without changing permission
   await seedTags(forumId, cjkPostId, [...DESKTOP_OVERFLOW_TAGS])
   await seedTags(compactForumId, compactPostId, ["solo"])
   const postCases = [
-    { id: primaryPostId, tags: TAGS.slice(0, 2), titleState: "truncated" as const },
-    { id: cjkPostId, tags: [], titleState: "double" as const },
-    { id: noTagPostId, tags: [], titleState: "single" as const },
+    { id: primaryPostId, title: primaryTitle, tags: TAGS.slice(0, 2), titleState: "truncated" as const },
+    { id: cjkPostId, title: cjkTitle, tags: [], titleState: "double" as const },
+    { id: noTagPostId, title: noTagTitle, tags: [], titleState: "single" as const },
   ]
   const route = `/c/channels/${serverId}/${forumId}`
   const compactRoute = `/c/channels/${serverId}/${compactForumId}`
@@ -537,6 +549,7 @@ test("forum post actions stay discoverable on mobile without changing permission
         author.page.getByTestId(tid.forumThreadCard(post.id)),
         post.id,
         post.tags,
+        post.title,
         post.titleState,
         "author",
         width,
@@ -583,6 +596,7 @@ test("forum post actions stay discoverable on mobile without changing permission
         manager.page.getByTestId(tid.forumThreadCard(post.id)),
         post.id,
         post.tags,
+        post.title,
         post.titleState,
         "manager",
         width,

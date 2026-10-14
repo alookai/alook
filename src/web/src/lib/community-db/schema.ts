@@ -42,6 +42,7 @@ export const channelLocalSchema = z.object({
   openerSeq: z.number().int().nonnegative().optional(),
   openerUnread: z.boolean().optional(),
   preview: z.string().optional(),
+  firstMessageId: z.string().min(1).nullable().optional(),
   lastUnreadSeq: z.number().int().nonnegative().optional(),
   participantCount: z.number().int().nonnegative().optional(),
 })

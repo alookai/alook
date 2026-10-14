@@ -2062,13 +2062,17 @@ export function publishCommunityMessageReaction(queryClient: QueryClient, messag
 
 export function publishCommunityForumFeed(queryClient: QueryClient, forumChannelId: string, page: CommunityThreadResources, proof: CommunityFreshQueryProof) {
   return withCommunityQueryProof(queryClient, proof, (registry) => notifyManager.batch(() => {
-    const rows = page.threads.map((thread) => canonicalChannelRow({
-      ...thread, type: "thread", serverId: page.channel.serverId, parentChannelId: forumChannelId,
-      pending: false,
-      tags: page.included.tags.filter((tag) => tag.messageId === thread.parentMessageId).map((tag) => tag.tag),
-      preview: page.included.previews.find((message) => message.channelId === thread.id)?.content.slice(0, 100) ?? "",
-      participantCount: page.included.participantCounts.find((row) => row.channelId === thread.id)?.count ?? 0,
-    }, registry.collections.channels.get(thread.id)))
+    const rows = page.threads.map((thread) => {
+      const first = page.included.previews.find((message) => message.channelId === thread.id)
+      return canonicalChannelRow({
+        ...thread, type: "thread", serverId: page.channel.serverId, parentChannelId: forumChannelId,
+        pending: false,
+        tags: page.included.tags.filter((tag) => tag.messageId === thread.parentMessageId).map((tag) => tag.tag),
+        preview: first?.content ?? "",
+        firstMessageId: page.channel.type === "forum" ? first?.id || null : null,
+        participantCount: page.included.participantCounts.find((row) => row.channelId === thread.id)?.count ?? 0,
+      }, registry.collections.channels.get(thread.id))
+    })
     upsertRows(registry, "channels", rows)
     ingestResourceProfiles(registry, page.included.profiles, proof)
     publishCommunityEmbeddedMessages(queryClient, { entries: page.included.messages.map((message) => ({ channelId: message.channelId, message })), proof })
@@ -2512,7 +2516,7 @@ export function projectCommunityWsEventToDb(
       }
       return projected
     }
-    case "community:message.edited":
+    case "community:message.edited": {
       patchRows(
         registry,
         "messages",
@@ -2521,7 +2525,16 @@ export function projectCommunityWsEventToDb(
         [event.messageId],
         ["content"],
       )
+      const thread = registry.collections.channels.get(event.channelId)
+      if (thread?.type === "thread" && thread.firstMessageId === event.messageId) {
+        const ownsPreview = (row: ChannelRow) => row.id === event.channelId
+          && row.type === "thread" && row.firstMessageId === event.messageId
+        patchRows(registry, "channels",
+          (row) => ownsPreview(row) ? { ...row, preview: event.content } : row,
+          ownsPreview, [event.channelId], ["preview"])
+      }
       return
+    }
     case "community:message.updated":
       patchRows(
         registry,

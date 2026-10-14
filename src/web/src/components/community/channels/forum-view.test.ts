@@ -133,9 +133,13 @@ describe("ForumView post card header", () => {
   })
 
   it("renders the title and opener seq before the creator metadata", () => {
-    const html = render([makePost({ parentSeq: 42 })])
+    const preview = "Complete forum preview ".repeat(12)
+    const html = render([makePost({ parentSeq: 42, preview })])
     expect(html.indexOf("A post title")).toBeLessThan(html.indexOf(">Alice<"))
     expect(html).toContain('<span class="opacity-60">#</span>42')
+    const paragraph = html.match(/<p[^>]*class="([^"]+)"[^>]*>([^<]*)<\/p>/)
+    expect(paragraph?.[1]?.split(" ")).toContain("line-clamp-2")
+    expect(paragraph?.[2]).toBe(preview)
   })
 
   it("uses a flat hairline row instead of the old bordered card", () => {
@@ -283,7 +287,7 @@ describe("ForumView responsive post actions", () => {
     expect(archiveButton).toContain("disabled:opacity-50")
     expect(deleteButton).toContain("disabled:opacity-50")
     expect(html).toContain("min-h-8 pr-28 sm:min-h-0 sm:pr-22")
-    expect(html).toContain("relative line-clamp-2 w-full min-w-0 max-w-full wrap-break-word")
+    expect(html).toContain("flex w-full min-w-0 max-w-full items-end gap-1.5")
     expect(html).toContain(tid.forumThreadTitle("p1"))
     expect(html).toContain(tid.forumThreadTitleText("p1"))
     expect(html).toContain(tid.forumThreadSeq("p1"))

@@ -35,7 +35,7 @@ export type ForumFeedTransportPage = Pick<CommunityThreadsRead["page"], "hasMore
 export type CommunityThreadResources = {
   channel: Pick<CommunityChannelResource, "id" | "serverId" | "type">
   threads: Array<Pick<CommunityChannelResource, "id"> & Partial<Omit<CommunityChannelResource, "id">> & { resourceComplete?: boolean }>
-  included: Omit<CommunityThreadsRead["included"], "messages" | "profiles"> & { profiles: Array<Pick<CommunityResourceProfile, "id"> & Partial<Omit<CommunityResourceProfile, "id">>>; messages: Array<MessageInput & { channelId: string }>; previews: Array<Pick<CommunityMessageResource, "channelId" | "content">> }
+  included: Omit<CommunityThreadsRead["included"], "messages" | "profiles"> & { profiles: Array<Pick<CommunityResourceProfile, "id"> & Partial<Omit<CommunityResourceProfile, "id">>>; messages: Array<MessageInput & { channelId: string }>; previews: Array<Pick<CommunityMessageResource, "channelId" | "content"> & Partial<Pick<CommunityMessageResource, "id">>> }
   page: CommunityThreadsRead["page"]
 }
 

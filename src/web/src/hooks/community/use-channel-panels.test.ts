@@ -146,7 +146,7 @@ describe("usePins / pinsQueryFn", () => {
 })
 
 describe("materializeThreadsResponse", () => {
-  it("retains panel preview limits, created-time fallback and optional opener fields", () => {
+  it("retains full forum previews, text-panel limits, created-time fallback and optional opener fields", () => {
     const preview = "preview".repeat(30), content = "content".repeat(30)
     const base = { type: "thread", position: 0, archived: false, muted: false, unread: false, pending: false, tags: [] }
     const channels = new Map([
@@ -158,8 +158,8 @@ describe("materializeThreadsResponse", () => {
     const messages = new Map([["opener", { id: "opener", type: "chat" as const, content: "   ", authorId: "u1", authorName: "A", seq: 0 }]])
     const forum = materializeThreadsResponse(data, messages, channels)
     expect(forum).toHaveLength(2)
-    expect(forum[0]).toEqual({ id: "post", name: "Fallback", messageCount: 0, lastMessageAt: "created", parent: { authorId: "u1", authorName: "A", text: preview.slice(0, 100) }, parentSeq: 0, openerMessageId: "opener" })
-    expect(forum[1]).toMatchObject({ name: "Post", lastMessageAt: "created", parent: { authorName: "", text: preview.slice(0, 100) } })
+    expect(forum[0]).toEqual({ id: "post", name: "Fallback", messageCount: 0, lastMessageAt: "created", parent: { authorId: "u1", authorName: "A", text: preview }, parentSeq: 0, openerMessageId: "opener" })
+    expect(forum[1]).toMatchObject({ name: "Post", lastMessageAt: "created", parent: { authorName: "", text: preview } })
     expect(forum[1]).not.toHaveProperty("parentSeq")
     expect(forum[1]).not.toHaveProperty("openerMessageId")
     messages.set("opener", { ...messages.get("opener")!, content })
