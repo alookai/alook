@@ -8,6 +8,7 @@
 
 # Session signing secret (generate with: openssl rand -base64 32)
 BETTER_AUTH_SECRET=
+RESEND_API_KEY=
 BETTER_AUTH_URL=http://localhost:3000
 
 # Encryption key for credentials and device tokens (generate with: openssl rand -base64 32)

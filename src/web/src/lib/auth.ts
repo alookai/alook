@@ -23,6 +23,7 @@ import {
 } from "@/lib/apple-auth"
 import { appleOauthHardeningPlugin } from "@/lib/apple-oauth-hardening"
 import { getOtpSubject, renderOtpEmail, type OtpType } from "./email-templates"
+import { syncResendSignupContact } from "./resend-contacts"
 
 
 const log = createLogger({ service: "auth" })
@@ -248,6 +249,14 @@ export function createAuth(env: Env) {
             return { data: { ...user, id, name, discriminator } }
           },
           after: async (user, ctx) => {
+            if (env.RESEND_API_KEY) {
+              const contactSync = syncResendSignupContact(env, user)
+              try {
+                getCloudflareContext().ctx.waitUntil(contactSync)
+              } catch {
+                await contactSync
+              }
+            }
             if (!ctx) return
             const path = ctx.request?.url ? new URL(ctx.request.url).pathname : ""
             let method = "unknown"
@@ -426,6 +435,7 @@ function authConfiguration(env: Env): readonly (string | undefined)[] {
     env.DEV_AUTH_OTP,
     env.AUTH_OTP_RATE_LIMIT_MAX,
     env.AUTH_OTP_RATE_LIMIT_WINDOW_SEC,
+    env.RESEND_API_KEY,
   ]
 }
 

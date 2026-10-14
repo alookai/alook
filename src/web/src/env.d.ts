@@ -4,6 +4,7 @@ interface RuntimeEnv {
   STRIPE_PORTAL_CONFIGURATION_ID?: string
   STRIPE_RETURN_ORIGIN?: string
   GA4_API_SECRET?: string
+  RESEND_API_KEY?: string
   ENCRYPTION_KEY: string
   APP_REVIEW_EMAIL?: string
   APP_REVIEW_OTP?: string

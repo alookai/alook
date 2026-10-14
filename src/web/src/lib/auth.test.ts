@@ -8,6 +8,8 @@ const authLogMocks = vi.hoisted(() => ({
   warn: vi.fn(),
   error: vi.fn(),
 }))
+const contactMocks = vi.hoisted(() => ({ signup: vi.fn(async () => {}) }))
+vi.mock("./resend-contacts", () => ({ syncResendSignupContact: contactMocks.signup }))
 const cloudflareMocks = vi.hoisted(() => {
   const waitUntil = vi.fn<(promise: Promise<unknown>) => void>()
   return {
@@ -244,6 +246,16 @@ describe("getAuth lifecycle", () => {
     const second = secondModule.getAuth(env as never)
 
     expect(second).not.toBe(first)
+  })
+
+  it("rebuilds when optional contact configuration changes", async () => {
+    const { getAuth } = await loadAuthModule()
+    const absent = getAuth(makeEnv() as never)
+    const configured = getAuth(makeEnv({ RESEND_API_KEY: "mock-key-a" }) as never)
+    const changed = getAuth(makeEnv({ RESEND_API_KEY: "mock-key-b" }) as never)
+    expect(configured).not.toBe(absent)
+    expect(changed).not.toBe(configured)
+    expect(getAuth(makeEnv({ RESEND_API_KEY: "mock-key-b" }) as never)).toBe(changed)
   })
 })
 
@@ -765,7 +777,10 @@ describe("createAuth device authorization plugin", () => {
 })
 
 describe("createAuth databaseHooks — user.create.after", () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    contactMocks.signup.mockReset().mockResolvedValue(undefined)
+  })
 
   function makeCtx(url: string) {
     const cookies: Record<string, { value: string; opts: unknown }> = {}
@@ -829,6 +844,63 @@ describe("createAuth databaseHooks — user.create.after", () => {
     const afterHook = opts.databaseHooks!.user!.create!.after!
     await expect(afterHook({ id: "u5" }, null)).resolves.toBeUndefined()
   })
+
+  it("skips contact dispatch with no Key while preserving the signup cookie", async () => {
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv() as never) as { __options: AuthOptions }).__options
+    const ctx = makeCtx("http://localhost:3000/api/auth/sign-in/email-otp")
+    await opts.databaseHooks!.user!.create!.after!({ email: "qa@example.test", name: "QA" }, ctx)
+    expect(contactMocks.signup).not.toHaveBeenCalled()
+    expect(cloudflareMocks.waitUntil).not.toHaveBeenCalled()
+    expect(ctx.setCookie).toHaveBeenCalledWith("is_new_signup", "email", expect.anything())
+  })
+
+  it("owns pending signup sync in the current Worker invocation without waiting for provider completion", async () => {
+    let finish: (() => void) | undefined
+    const pending = new Promise<void>((resolve) => { finish = resolve })
+    contactMocks.signup.mockReturnValueOnce(pending)
+    const createAuth = await loadCreateAuth()
+    const env = makeEnv({ RESEND_API_KEY: "mock-key" })
+    const opts = (createAuth(env as never) as { __options: AuthOptions }).__options
+    const ctx = makeCtx("http://localhost:3000/api/auth/callback/google")
+    const user = { email: "qa@example.test", name: "QA" }
+    await opts.databaseHooks!.user!.create!.after!(user, ctx)
+    expect(contactMocks.signup).toHaveBeenCalledWith(env, user)
+    expect(cloudflareMocks.waitUntil).toHaveBeenCalledWith(pending)
+    expect(ctx.setCookie).toHaveBeenCalledWith("is_new_signup", "google", expect.anything())
+    finish?.()
+    await pending
+  })
+
+  it("resolves the current background owner separately for each created user", async () => {
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv({ RESEND_API_KEY: "mock-key" }) as never) as { __options: AuthOptions }).__options
+    const firstOwner = { waitUntil: vi.fn(function (this: unknown) { expect(this).toBe(firstOwner) }) }
+    const secondOwner = { waitUntil: vi.fn(function (this: unknown) { expect(this).toBe(secondOwner) }) }
+    cloudflareMocks.getCloudflareContext.mockReturnValueOnce({ ctx: firstOwner }).mockReturnValueOnce({ ctx: secondOwner })
+    const after = opts.databaseHooks!.user!.create!.after!
+    await after({ email: "one@example.test", name: "One" }, null)
+    await after({ email: "two@example.test", name: "Two" }, null)
+    expect(firstOwner.waitUntil).toHaveBeenCalledOnce()
+    expect(secondOwner.waitUntil).toHaveBeenCalledOnce()
+  })
+
+  it("awaits a captured signup operation if Worker scheduling is unavailable", async () => {
+    cloudflareMocks.getCloudflareContext.mockImplementationOnce(() => { throw new Error("no Worker context") })
+    let finish: (() => void) | undefined
+    contactMocks.signup.mockReturnValueOnce(new Promise<void>((resolve) => { finish = resolve }))
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv({ RESEND_API_KEY: "mock-key" }) as never) as { __options: AuthOptions }).__options
+    let settled = false
+    const work = opts.databaseHooks!.user!.create!.after!({ email: "qa@example.test", name: "QA" }, null)
+      .then(() => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    expect(cloudflareMocks.waitUntil).not.toHaveBeenCalled()
+    finish?.()
+    await work
+    expect(settled).toBe(true)
+  })
 })
 
 describe("createAuth databaseHooks — session.create.after", () => {
@@ -836,7 +908,7 @@ describe("createAuth databaseHooks — session.create.after", () => {
 
   it("sets is_sign_in cookie with method=apple for an Apple callback", async () => {
     const createAuth = await loadCreateAuth()
-    const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as {
+    const opts = (createAuth(makeEnv({ NODE_ENV: "production", RESEND_API_KEY: "mock-key" }) as never) as {
       __options: AuthOptions
     }).__options
     const afterHook = opts.databaseHooks!.session!.create!.after!
@@ -847,6 +919,8 @@ describe("createAuth databaseHooks — session.create.after", () => {
     }
 
     await afterHook({ id: "session-apple", userId: "u-apple" }, ctx)
+
+    expect(contactMocks.signup).not.toHaveBeenCalled()
 
     expect(ctx.setCookie).toHaveBeenCalledWith(
       "is_sign_in",
@@ -860,6 +934,16 @@ describe("createAuth databaseHooks — user.create.before", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     selectResponses = []
+  })
+
+  it("rejects a bot-domain signup before any contact work", async () => {
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv({ RESEND_API_KEY: "mock-key" }) as never) as { __options: AuthOptions }).__options
+    const { COMMUNITY_BOT_EMAIL_DOMAIN } = await import("@alook/shared")
+    await expect(opts.databaseHooks!.user!.create!.before!({ email: `bot@${COMMUNITY_BOT_EMAIL_DOMAIN}`, name: "Bot" }))
+      .resolves.toBe(false)
+    expect(contactMocks.signup).not.toHaveBeenCalled()
+    expect(cloudflareMocks.waitUntil).not.toHaveBeenCalled()
   })
 
   it("coalesces empty name to email prefix", async () => {

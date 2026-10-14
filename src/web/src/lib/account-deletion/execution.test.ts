@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   revokeProvider: vi.fn(),
   invalidateMany: vi.fn(),
   warn: vi.fn(),
+  unsubscribe: vi.fn(),
 }))
 
 vi.mock("@alook/shared", () => ({
@@ -30,6 +31,7 @@ vi.mock("@alook/shared", () => ({
   },
 }))
 vi.mock("@/lib/db", () => ({ getPrimaryDb: () => ({ primary: true }) }))
+vi.mock("@/lib/resend-contacts", () => ({ unsubscribeResendContact: mocks.unsubscribe }))
 vi.mock("@/lib/cache", () => ({
   cacheKeys: { machineToken: (token: string) => `mt:${token.slice(0, 20)}` },
   invalidateMany: mocks.invalidateMany,
@@ -87,6 +89,7 @@ describe("account deletion execution", () => {
       mocks.broadcastUser,
       mocks.revokeProvider,
       mocks.invalidateMany,
+      mocks.unsubscribe,
     ]) effect.mockResolvedValue(undefined)
   })
 
@@ -114,6 +117,8 @@ describe("account deletion execution", () => {
       "mt:al_final_token",
     ])
     expect(waitUntil).toHaveBeenCalledOnce()
+    expect(mocks.unsubscribe).toHaveBeenCalledWith(expect.anything(), final.identity.email)
+    expect(mocks.unsubscribe.mock.invocationCallOrder[0]).toBeGreaterThan(mocks.deleteRows.mock.invocationCallOrder[0])
   })
 
   it("invalidates the initial machine tokens when another request already removed the user", async () => {
@@ -129,6 +134,7 @@ describe("account deletion execution", () => {
 
     expect(mocks.invalidateMany).toHaveBeenCalledWith(["mt:al_initial_token"])
     expect(mocks.deleteRows).not.toHaveBeenCalled()
+    expect(mocks.unsubscribe).not.toHaveBeenCalled()
   })
 
   it("does not run the D1 batch after synchronous storage cleanup fails", async () => {
@@ -143,6 +149,7 @@ describe("account deletion execution", () => {
     )).resolves.toEqual({ kind: "failed" })
     expect(mocks.getSnapshot).toHaveBeenCalledTimes(2)
     expect(mocks.deleteRows).not.toHaveBeenCalled()
+    expect(mocks.unsubscribe).not.toHaveBeenCalled()
   })
 
   it("treats an ambiguous D1 error as success only when a new primary no longer finds the user", async () => {
@@ -157,6 +164,9 @@ describe("account deletion execution", () => {
       "user-1",
     )).resolves.toEqual({ kind: "deleted" })
 
+    expect(mocks.unsubscribe).toHaveBeenCalledOnce()
+    mocks.unsubscribe.mockClear()
+
     mocks.getUser.mockResolvedValue({ id: "user-1" })
     await expect(executeAccountDeletion(
       {} as never,
@@ -164,6 +174,7 @@ describe("account deletion execution", () => {
       { waitUntil: vi.fn() },
       "user-1",
     )).resolves.toEqual({ kind: "failed" })
+    expect(mocks.unsubscribe).not.toHaveBeenCalled()
   })
 
   it("keeps committed deletion successful when post-commit effects reject", async () => {
@@ -258,6 +269,7 @@ describe("account deletion execution", () => {
     expect(mocks.deleteStorage).not.toHaveBeenCalled()
     expect(mocks.deleteRows).not.toHaveBeenCalled()
     expect(mocks.invalidateMany).not.toHaveBeenCalled()
+    expect(mocks.unsubscribe).not.toHaveBeenCalled()
   })
 
   it("keeps a committed deletion successful when machine-token invalidation fails", async () => {
@@ -288,6 +300,7 @@ describe("account deletion execution", () => {
       { waitUntil: vi.fn() },
       "user-1",
     )).resolves.toEqual({ kind: "failed" })
+    expect(mocks.unsubscribe).not.toHaveBeenCalled()
   })
 
   it("keeps a committed deletion successful when waitUntil is unavailable", async () => {
@@ -301,5 +314,52 @@ describe("account deletion execution", () => {
       "user-1",
     )).resolves.toEqual({ kind: "deleted" })
     expect(mocks.warn).toHaveBeenCalledWith("account_deletion_wait_until_unavailable")
+  })
+
+  it("owns pending unsubscribe in the original single background group after confirmed deletion", async () => {
+    mocks.getSnapshot.mockResolvedValue(snapshot("current"))
+    mocks.deleteRows.mockResolvedValue({ deleted: true, readStateRevisions: [] })
+    let finish: (() => void) | undefined
+    mocks.unsubscribe.mockReturnValueOnce(new Promise<void>((resolve) => { finish = resolve }))
+    const owner = { waitUntil: vi.fn(function (this: unknown, _promise: Promise<unknown>) { expect(this).toBe(owner) }) }
+    const env = { RESEND_API_KEY: "mock-key" }
+    await expect(executeAccountDeletion({} as never, env as never, owner, "user-1"))
+      .resolves.toEqual({ kind: "deleted" })
+    expect(owner.waitUntil).toHaveBeenCalledOnce()
+    expect(mocks.unsubscribe).toHaveBeenCalledWith(env, "owner@example.com")
+    finish?.()
+    await owner.waitUntil.mock.calls[0]?.[0]
+  })
+
+  it("keeps committed deletion successful when the contact effect rejects", async () => {
+    mocks.getSnapshot.mockResolvedValue(snapshot("current"))
+    mocks.deleteRows.mockResolvedValue({ deleted: true, readStateRevisions: [] })
+    mocks.unsubscribe.mockRejectedValueOnce(new Error("contact provider unavailable"))
+    const waitUntil = vi.fn()
+    await expect(executeAccountDeletion({} as never, {} as never, { waitUntil }, "user-1"))
+      .resolves.toEqual({ kind: "deleted" })
+    await expect(waitUntil.mock.calls[0]?.[0]).resolves.toBeUndefined()
+    expect(mocks.warn).toHaveBeenCalledWith("account_deletion_post_commit_effects_failed", { failures: 1 })
+  })
+
+  it("does not invent an unsubscribe for an initially missing account", async () => {
+    mocks.getSnapshot.mockResolvedValueOnce(null)
+    const waitUntil = vi.fn()
+    await expect(executeAccountDeletion({} as never, {} as never, { waitUntil }, "user-1"))
+      .resolves.toEqual({ kind: "missing" })
+    expect(mocks.unsubscribe).not.toHaveBeenCalled()
+    expect(waitUntil).not.toHaveBeenCalled()
+  })
+
+  it("unsubscribes when a no-op delete batch is confirmed absent on a fresh primary", async () => {
+    mocks.getSnapshot.mockResolvedValue(snapshot("current"))
+    mocks.deleteRows.mockResolvedValue({ deleted: false, readStateRevisions: [] })
+    mocks.getUser.mockResolvedValueOnce(null)
+    const waitUntil = vi.fn()
+    await expect(executeAccountDeletion({} as never, {} as never, { waitUntil }, "user-1"))
+      .resolves.toEqual({ kind: "deleted" })
+    expect(mocks.unsubscribe).toHaveBeenCalledOnce()
+    expect(mocks.unsubscribe.mock.invocationCallOrder[0]).toBeGreaterThan(mocks.getUser.mock.invocationCallOrder[0])
+    expect(waitUntil).toHaveBeenCalledOnce()
   })
 })

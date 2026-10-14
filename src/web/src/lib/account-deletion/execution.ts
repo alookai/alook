@@ -7,6 +7,7 @@ import { fanOutToUsers, broadcastToUserSafe } from "@/lib/community/fanout"
 import { forceCloseCommunityMachinesByDoNames } from "@/lib/community/machine-disconnect"
 import { deleteAccountStorage } from "./storage"
 import { revokeProviderAccount } from "./provider-revocation"
+import { unsubscribeResendContact } from "@/lib/resend-contacts"
 
 const log = createLogger({ service: "account-deletion" })
 
@@ -26,6 +27,7 @@ function scheduleAfterCommit(
   readStateRevisions: Array<{ userId: string; revision: number }>,
 ): void {
   const work = Promise.allSettled([
+    unsubscribeResendContact(env, snapshot.identity.email),
     forceCloseCommunityMachinesByDoNames(env, snapshot.machineDoNames),
     ...snapshot.botBindings.map((binding) => pushBotEventToMachine(env, binding.machineId, {
       type: "bot:removed",
