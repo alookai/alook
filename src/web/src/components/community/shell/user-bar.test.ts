@@ -60,7 +60,7 @@ describe("UserBar", () => {
     expect(html).toContain("pr-[max(0.75rem,var(--app-safe-area-right))]")
     expect(html).toContain("pb-[calc(0.75rem+var(--app-safe-area-bottom))]")
     expect(html).toContain("sm:px-2 sm:pb-3")
-    expect(html).toContain("flex h-12 items-center gap-3 border border-border/40 bg-muted px-4")
+    expect(html).toContain("flex h-12 items-center gap-3 border border-border/40 bg-muted px-2")
     expect(html).not.toContain("ring-1 ring-border/40")
     expect(html).toContain('class="flex min-w-0 flex-1 items-center justify-between gap-2 sm:@max-[224px]/user-bar:gap-1"')
     expect(html).toContain('data-testid="community-user-bar-name"')
@@ -97,7 +97,7 @@ describe("UserBar", () => {
     expect(html).toContain("pb-[calc(0.75rem+var(--app-safe-area-bottom))]")
     expect(html).toContain("sm:px-2 sm:pb-3")
     expect(html).toContain(
-      "flex h-12 items-center gap-3 rounded-xl border border-border/40 bg-muted px-4 sm:@max-[224px]/user-bar:px-2",
+      "flex h-12 items-center gap-3 rounded-xl border border-border/40 bg-muted px-2",
     )
     expect(html).not.toContain("ring-1 ring-border/40")
     expect(html).not.toContain("<button")
@@ -111,7 +111,7 @@ describe("UserBar", () => {
       inboxOpen: true,
     }))
     expect(openHtml).toContain(
-      'class="flex h-12 items-center gap-3 border border-border/40 bg-muted px-4 sm:@max-[224px]/user-bar:px-2 rounded-b-xl"',
+      'class="flex h-12 items-center gap-3 border border-border/40 bg-muted px-2 rounded-b-xl"',
     )
 
     const closedHtml = renderToStaticMarkup(createElement(UserBar, {
@@ -120,7 +120,7 @@ describe("UserBar", () => {
       inboxOpen: false,
     }))
     expect(closedHtml).toContain(
-      'class="flex h-12 items-center gap-3 border border-border/40 bg-muted px-4 sm:@max-[224px]/user-bar:px-2 rounded-xl"',
+      'class="flex h-12 items-center gap-3 border border-border/40 bg-muted px-2 rounded-xl"',
     )
 
     const profileHtml = renderToStaticMarkup(createElement(UserBar, {
@@ -139,7 +139,7 @@ describe("UserBar", () => {
       },
     }))
     expect(profileHtml).toContain(
-      'class="flex h-12 items-center gap-3 border border-border/40 bg-muted px-4 sm:@max-[224px]/user-bar:px-2 rounded-b-xl"',
+      'class="flex h-12 items-center gap-3 border border-border/40 bg-muted px-2 rounded-b-xl"',
     )
   })
 
