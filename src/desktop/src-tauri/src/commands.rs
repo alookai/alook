@@ -1003,6 +1003,33 @@ mod tests {
     }
 
     #[test]
+    fn desktop_startup_uses_the_native_theme_before_inset_and_first_show() {
+        let app_source = include_str!("lib.rs");
+        let setup = app_source
+            .rsplit("builder.setup(|app| {")
+            .next()
+            .unwrap()
+            .split("builder = builder.on_page_load")
+            .next()
+            .unwrap();
+        let read_theme = setup.find("match window.theme()").unwrap();
+        let set_background = setup
+            .find("commands::set_window_theme(window.clone(), theme == tauri::Theme::Dark)")
+            .unwrap();
+        let inset = setup
+            .find("macos_window::setup_inset_webview(&window)")
+            .unwrap();
+        let handoff = setup
+            .find("webview_recovery::finish_native_creation(&window)")
+            .unwrap();
+        assert!(read_theme < set_background && set_background < inset && inset < handoff);
+        assert!(!setup.contains("set_window_theme(window.clone(), false)"));
+        assert!(setup
+            .contains("Err(error) => eprintln!(\"startup window theme unavailable: {error}\")"));
+        assert!(app_source.contains("#[cfg(target_os = \"macos\")]"));
+    }
+
+    #[test]
     fn splash_closes_only_after_native_readiness_and_only_once() {
         assert!(!should_close_splash(false, false));
         assert!(should_close_splash(true, false));

@@ -201,7 +201,12 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
         #[cfg(target_os = "macos")]
         {
             if let Some(window) = app.get_webview_window("main") {
-                commands::set_window_theme(window.clone(), false);
+                match window.theme() {
+                    Ok(theme) => {
+                        commands::set_window_theme(window.clone(), theme == tauri::Theme::Dark);
+                    }
+                    Err(error) => eprintln!("startup window theme unavailable: {error}"),
+                }
                 macos_window::setup_inset_webview(&window);
             }
         }

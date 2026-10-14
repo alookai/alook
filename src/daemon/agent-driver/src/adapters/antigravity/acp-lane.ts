@@ -440,7 +440,8 @@ export class AntigravityAcpLane implements RuntimeLane {
   }
 
   private call(method: string, params: JsonRecord): Promise<unknown> {
-    return this.request(method, params, this.options.handshakeTimeoutMs ?? HANDSHAKE_TIMEOUT_MS).promise;
+    const timeoutMs = this.options.handshakeTimeoutMs ?? (method === "initialize" && process.platform === "win32" ? 30_000 : HANDSHAKE_TIMEOUT_MS);
+    return this.request(method, params, timeoutMs).promise;
   }
 
   private request(method: string, params: JsonRecord, timeoutMs?: number): RpcRequest {
