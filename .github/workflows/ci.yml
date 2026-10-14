@@ -267,7 +267,7 @@ jobs:
     needs: scope
     if: needs.scope.outputs.run_linux == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     env:
       RUN_COVERAGE: ${{ github.event_name != 'push' || startsWith(github.event.head_commit.message, 'release:') }}
     steps:
