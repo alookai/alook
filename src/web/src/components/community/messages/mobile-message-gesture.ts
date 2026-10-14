@@ -1,4 +1,4 @@
-const MOBILE_REPLY_EDGE_GUARD_PX = 24
+import { MOBILE_BACK_EDGE_PX } from "@/hooks/community/use-native-mobile-back"
 const MOBILE_REPLY_INTENT_PX = 8
 const MOBILE_REPLY_THRESHOLD_PX = 64
 export const MOBILE_REPLY_MAX_OFFSET_PX = 88
@@ -17,7 +17,7 @@ export function beginMobileReplyGesture(
   clientX: number,
   clientY: number,
 ): MobileReplyGesture | null {
-  if (clientX <= MOBILE_REPLY_EDGE_GUARD_PX) return null
+  if (clientX <= MOBILE_BACK_EDGE_PX) return null
   return {
     startX: clientX,
     startY: clientY,

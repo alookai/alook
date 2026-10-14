@@ -452,6 +452,36 @@ describe("ShellFrame orchestration", () => {
     expect(mocks.replace).toHaveBeenCalledWith("/c/me")
   })
 
+  it.each([
+    ["/c/channels/s1/thread1", { id: "thread1", serverId: "s1", parentChannelId: "parent1" }, "/c/channels/s1/parent1"],
+    ["/c/channels/s1/c1", { id: "c1", serverId: "s1", parentChannelId: null }, "/c/channels/s1"],
+    ["/c/channels/s1/c1", { id: "c1", serverId: "s2", parentChannelId: "wrong" }, "/c/channels/s1"],
+    ["/c/channels/s1", undefined, null],
+    ["/c/me/dm1", undefined, "/c/me"],
+    ["/c/me", undefined, null],
+  ])("returns to the structural parent from %s and stops at list roots", (href, channel, expected) => {
+    mocks.breakpoint.current = "mobile"
+    mocks.currentHref.current = href
+    mocks.projectedChannel.current = channel
+    const renderer = render(createElement(ShellFrame, { ...baseProps, frameHref: href }))
+    const event = new Event("alook:native-back", { cancelable: true })
+    act(() => { window.dispatchEvent(event) })
+    expect(event.defaultPrevented).toBe(true)
+    if (expected) expect(mocks.replace).toHaveBeenCalledExactlyOnceWith(expected)
+    else expect(mocks.replace).not.toHaveBeenCalled()
+    renderer.unmount()
+  })
+
+  it("supersedes an in-flight navigation with the committed page before returning further", () => {
+    mocks.breakpoint.current = "mobile"
+    mocks.navigationPending.current = true
+    mocks.pendingHref.current = "/c/channels/s1/c2"
+    const renderer = render(createElement(ShellFrame, { ...baseProps, frameHref: "/c/channels/s1" }))
+    act(() => { window.dispatchEvent(new Event("alook:native-back", { cancelable: true })) })
+    expect(mocks.replace).toHaveBeenCalledExactlyOnceWith("/c/channels/s1")
+    renderer.unmount()
+  })
+
   it("keeps mobile server onboarding stable on an existing list surface", () => {
     mocks.breakpoint.current = "mobile"
     mocks.currentHref.current = "/c/me"

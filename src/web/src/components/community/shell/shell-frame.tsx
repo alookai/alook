@@ -11,6 +11,7 @@ import { useBreakpoint } from "@/hooks/use-mobile"
 import { useCommunityOnboarding } from "@/lib/community-onboarding"
 import {
   advanceCommunityCommittedFrame,
+  channelHref,
   isPublishedNonStructuralCommit,
   normalizeCommunityHref,
   resolveCommunityCheckpointPlan,
@@ -95,6 +96,16 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
   const navigation = useCommunityNavigationController(committedFrame)
   const replacePath = navigation.replace
   const route = resolveCommunityRoute(committedFrame.pathname)
+  const committedModule = resolveCommunityModulePlan(committedFrame.pathname)
+  const committedChannelId = committedModule.main.kind === "server-conversation"
+    ? committedModule.main.leafId : null
+  const committedChannel = useRouteChannelProjection(committedChannelId)
+  const mobileParentPath = committedModule.sidebar.kind === "server"
+    && committedChannel?.id === committedChannelId
+    && committedChannel.serverId === committedModule.sidebar.serverId
+    && committedChannel.parentChannelId
+    ? channelHref(committedModule.sidebar.serverId, committedChannel.parentChannelId)
+    : route.parentPath
   const target = navigation.pendingHref
     ? normalizeCommunityHref(navigation.pendingHref)
     : null
@@ -290,18 +301,24 @@ const [committedFrame, setCommittedFrame] = useAtom(useCreateAtom(initialCommitt
     dismissUserBarExtension()
   }, [breakpoint, checkpoint.surface, dismissUserBarExtension, userBarExtension.active])
   const dismissNativeBackShellOverlay = useCallback(() => {
+    if (navigation.navigationPending) {
+      replacePath(committedFrame.href)
+      return true
+    }
     if (breakpoint === "mobile" && checkpoint.surface === "detail") return false
     if (userBarExtension.active === "none") return false
     dismissUserBarExtension()
     return true
-  }, [breakpoint, checkpoint.surface, dismissUserBarExtension, userBarExtension.active])
+  }, [breakpoint, checkpoint.surface, committedFrame.href, dismissUserBarExtension, navigation.navigationPending, replacePath, userBarExtension.active])
   const goBackMobile = useCallback(() => {
     if (route.parentPath) navigation.replace(route.parentPath)
   }, [navigation, route.parentPath])
 
   useNativeMobileBack({
+    mobile: breakpoint === "mobile",
+    gestureKey: committedFrame.href,
     dismissShellOverlay: dismissNativeBackShellOverlay,
-    parentPath: route.parentPath,
+    parentPath: mobileParentPath,
     replacePath,
   })
 
