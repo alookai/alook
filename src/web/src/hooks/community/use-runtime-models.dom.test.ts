@@ -84,6 +84,35 @@ describe("on-demand runtime models", () => {
     expect(h.result.current.isPending).toBe(true)
   })
 
+  it.each([
+    { scenario: "generic fallback", error: "invalid error response", expected: "Could not load models." },
+    { scenario: "daemon upgrade instruction", error: new Error("UPGRADE_REQUIRED"), expected: "Update this machine’s daemon to load models." },
+    { scenario: "native error message", error: new Error("Native model query failed."), expected: "Native model query failed." },
+  ])("shows the $scenario after request failure", async ({ error, expected }) => {
+    apiFetch.mockRejectedValueOnce(error)
+    const h = mount()
+    act(() => h.result.current.onOpenChange(true))
+    await waitFor(() => expect(h.result.current.error).toBe(expected))
+    expect(h.result.current.isPending).toBe(false)
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it("a late failed request does not recreate a removed cache or affect the new machine", async () => {
+    let rejectRequest!: (error: unknown) => void
+    apiFetch.mockImplementationOnce(() => new Promise((_, reject) => { rejectRequest = reject }))
+    const h = mount()
+    act(() => h.result.current.onOpenChange(true))
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
+    h.rerender({ machine: "m2", runtime: "agy" })
+    act(() => h.queryClient.removeQueries({ queryKey: communityKeys.runtimeModels("m1", "codex"), exact: true }))
+    await act(async () => { rejectRequest(new Error("Late native failure.")) })
+    expect(h.queryClient.getQueryData(communityKeys.runtimeModels("m1", "codex"))).toBeUndefined()
+    expect(h.queryClient.getQueryData(communityKeys.runtimeModels("m2", "agy"))).toBeUndefined()
+    expect(h.result.current.error).toBeNull()
+    expect(h.result.current.isPending).toBe(false)
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+  })
+
   it("opening while disconnected ends loading without dispatching a request", async () => {
     const h = mount()
     act(() => getCommunityRuntime(h.queryClient).ws.actions.setConnectionStatus("failed"))
