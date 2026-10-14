@@ -1,7 +1,9 @@
 "use client"
 
-import { useAtom, useCreateAtom } from "@tanstack/react-store";
-import { useId, useLayoutEffect, useRef, type ReactNode } from "react"
+import type { ReactNode } from "react"
+import { useIsMobile } from "@/hooks/use-mobile"
+import { tid } from "@/lib/community/testids"
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import {
   Tooltip,
   TooltipContent,
@@ -13,20 +15,6 @@ import {
   formatAuditToolName,
 } from "@/lib/community/audit-event-summary"
 
-/**
- * One audit-log entry. Rendered as a 3-column strip:
- *
- *   [ HH:MM:SS ]  [ kind glyph ]  [ body … ]
- *
- * The kind glyph is a two-letter tag in muted mono (`>_`, `Tl`, `~~`) rather
- * than a lucide icon — icons at row scale compete with the body text and
- * make each row feel like a card. A tag is quieter and reads like a log
- * severity column.
- *
- * Every body stays on one line so live appends never shift already-visible
- * rows. Truncated bodies reveal the complete retained log in a tooltip:
- * hover/focus on desktop, tap on mobile.
- */
 export function BotActivityRow({ event }: { event: AuditEvent }) {
   return (
     <div
@@ -248,47 +236,14 @@ function TruncatedAuditLog({
   className?: string
   "data-testid"?: string
 }) {
-  const triggerId = useId()
-  const textRef = useRef<HTMLSpanElement | null>(null)
-  const pointerTypeRef = useRef<string | null>(null)
-  const [isTruncated, setIsTruncated] = useAtom(useCreateAtom(false))
-  const [open, setOpen] = useAtom(useCreateAtom(false))
-
-  useLayoutEffect(() => {
-    const element = textRef.current
-    if (!element) return
-    const measure = () => {
-      const nextIsTruncated = element.scrollWidth > element.clientWidth + 1
-      setIsTruncated(nextIsTruncated)
-      if (!nextIsTruncated) setOpen(false)
-    }
-    measure()
-    if (typeof ResizeObserver === "undefined") return
-    const observer = new ResizeObserver(measure)
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [fullText, setIsTruncated, setOpen])
-
+  const mobile = useIsMobile()
   const trigger = (
     <button
       type="button"
-      disabled={!isTruncated}
-      data-activity-tooltip-trigger={isTruncated || undefined}
-      onPointerDown={(event) => {
-        pointerTypeRef.current = event.pointerType
-      }}
-      onClick={() => {
-        if (
-          isTruncated
-          && (pointerTypeRef.current === "touch" || pointerTypeRef.current === "pen")
-        ) {
-          setOpen(true)
-        }
-      }}
+      data-activity-tooltip-trigger
       className="block min-h-11 w-full min-w-0 cursor-default rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 sm:min-h-0"
     >
       <span
-        ref={textRef}
         className={`block truncate font-mono text-[13px] text-foreground ${className}`}
         {...props}
       >
@@ -296,20 +251,20 @@ function TruncatedAuditLog({
       </span>
     </button>
   )
-
+  if (mobile) return (
+    <Dialog>
+      <DialogTrigger render={trigger} />
+      <DialogContent>
+        <DialogTitle className="pr-11">Activity details</DialogTitle>
+        <div data-testid={tid.botActivityDetail} className="thin-scrollbar max-h-[calc(100dvh-8rem)] overflow-y-auto whitespace-pre-wrap wrap-break-word font-mono text-xs leading-relaxed">
+          {fullText}
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
   return (
-    <Tooltip
-      disabled={!isTruncated}
-      open={open && isTruncated}
-      triggerId={triggerId}
-      onOpenChange={setOpen}
-    >
-      <TooltipTrigger
-        id={triggerId}
-        disabled={!isTruncated}
-        closeOnClick={false}
-        render={trigger}
-      />
+    <Tooltip>
+      <TooltipTrigger closeOnClick={false} render={trigger} />
       <TooltipContent
         role="tooltip"
         side="bottom"
