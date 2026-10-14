@@ -284,7 +284,9 @@ export class PiDriver implements BackendAdapter {
     try {
       const reasoning = await Promise.race([
         this.loadSdk().then(async (sdk) => {
-          const modelRuntime = await sdk.ModelRuntime.create();
+          const modelRuntime = sdk.ModelRegistry && sdk.AuthStorage
+            ? sdk.ModelRegistry.create(sdk.AuthStorage.create())
+            : await sdk.ModelRuntime.create();
           return parsePiModelCatalog(await modelRuntime.getAvailable());
         }),
         new Promise<undefined>((resolve) => {
