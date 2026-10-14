@@ -8,6 +8,7 @@
   --note-wire: #3b403a;
   --note-hole: #171815;
   --note-stop: #a54d3d;
+  container: notebook / size;
   position: relative;
   display: flex;
   width: 100%;
@@ -30,8 +31,8 @@
 }
 .stack {
   position: absolute;
-  inset: 8px 0 -2px 12px;
-  border-radius: 0 5px 5px 0;
+  inset: 12px 0 -2px 12px;
+  border-radius: 5px;
   border-bottom: 1.5px solid var(--note-cover);
   background: repeating-linear-gradient(to right, var(--note-edge) 0 1px, var(--note-rule) 1px 2px) right top / 3px calc(100% - 10px) no-repeat, repeating-linear-gradient(to bottom, var(--note-edge) 0 1px, var(--note-rule) 1px 2px);
   filter: drop-shadow(0 8px 9px rgb(44 40 31 / 12%));
@@ -39,11 +40,17 @@
 .paper {
   position: absolute;
   inset: 8px 3px 8px 10px;
-  border-radius: 0 4px 4px 0;
+  border-radius: 4px;
   background: var(--note-paper);
 }
-.binding { position: absolute; inset: 0 auto 0 0; width: 30px; height: 100%; pointer-events: none; overflow: visible; }
-.wire { fill: none; stroke: var(--note-wire); stroke-width: 1.75px; }
+.binding { position: absolute; top: 50%; left: 0; width: 30px; height: 192px; transform: translateY(-50%); pointer-events: none; overflow: visible; }
+@container notebook (min-height: 320px) {
+  .binding { height: 288px; }
+}
+@container notebook (min-height: 400px) {
+  .binding { height: 384px; }
+}
+.wire { fill: none; stroke: var(--note-wire); stroke-width: 2.25px; }
 .hole { fill: var(--note-hole); }
 .content { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; padding: 16px 18px 8px 42px; }
 .header { margin-bottom: 8px; }

@@ -5,7 +5,7 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 
 import { AuditLogTextPayloadSchema, stripInlineMarkup } from "@alook/shared"
 import { CircleStop, LoaderCircle, Lock, Square } from "lucide-react"
-import { useEffect, useLayoutEffect, useRef } from "react"
+import { useEffect, useId, useLayoutEffect, useRef } from "react"
 import { useBotAuditPreview } from "@/hooks/community/use-bot-audit-preview"
 import { useBotMarks } from "@/hooks/community/use-bot-marks"
 import { formatRelativeTime } from "@/lib/community/format-time"
@@ -18,18 +18,22 @@ const VISIBLE_MARKS = 3
 type StickerView = "thoughts" | "marks"
 
 function NotebookBinding({ front }: { front: boolean }) {
+  const patternId = useId()
   return (
-    <svg aria-hidden className={styles.binding} viewBox="0 0 30 420" preserveAspectRatio="none">
-      {Array.from({ length: 9 }, (_, index) => (
-        <g key={index} transform={`translate(0 ${39 + index * 43})`}>
-          {front ? <>
-            <ellipse cx="23" cy="2.34" rx="2.6" ry="1.75" className={styles.hole} />
-            <path d="M23 2.34C24.44-1.75 19.78-6.12 12.6-7.41C5.42-8.7-1.56-6.43-3-2.34" className={styles.wire} />
-          </> : (
-            <path d="M-3-2.34C-4.44 1.75 .22 6.12 7.4 7.41C14.58 8.7 21.56 6.43 23 2.34" className={styles.wire} />
-          )}
-        </g>
-      ))}
+    <svg aria-hidden className={styles.binding}>
+      <defs>
+        <pattern id={patternId} x="-6" width="36" height="48" patternUnits="userSpaceOnUse">
+          <g transform="translate(6 24)">
+            {front ? <>
+              <ellipse cx="23" cy="2.34" rx="2.6" ry="1.75" className={styles.hole} />
+              <path d="M23 2.34C24.44-1.75 19.78-6.12 12.6-7.41C5.42-8.7-1.56-6.43-3-2.34" className={styles.wire} />
+            </> : (
+              <path d="M-3-2.34C-4.44 1.75 .22 6.12 7.4 7.41C14.58 8.7 21.56 6.43 23 2.34" className={styles.wire} />
+            )}
+          </g>
+        </pattern>
+      </defs>
+      <rect x="-6" width="36" height="100%" fill={`url(#${patternId})`} />
     </svg>
   )
 }
