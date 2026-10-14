@@ -408,10 +408,6 @@ export class AntigravityAcpLane implements RuntimeLane {
       );
       return;
     }
-    if (result.stopReason === "cancelled") {
-      this.failPrompt(prompt, new Error("Antigravity ACP prompt was cancelled"), "antigravity.cancelled");
-      return;
-    }
     const terminalOwner = this.terminalOwner ?? prompt.receipt;
     this.currentPromptRequestId = null;
     this.terminalOwner = null;
@@ -420,6 +416,7 @@ export class AntigravityAcpLane implements RuntimeLane {
       kind: "turn_end",
       sessionId: this.sessionId ?? undefined,
       turnOwner: terminalOwner,
+      ...(result.stopReason === "cancelled" ? { outcome: "interrupted" as const, pendingContent: "discard" as const } : {}),
     } satisfies AdapterEvent);
   }
 

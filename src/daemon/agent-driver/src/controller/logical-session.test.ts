@@ -529,7 +529,7 @@ describe("root-turn text assembly", () => {
     await session.start({ id: "one", kind: "user", text: "start" });
     lane.emit({ kind: "assistant_message_delta", text: "still " });
     lane.emit({ kind: "assistant_reasoning_delta", text: "thinking " });
-    lane.emit({ kind: "turn_end", turnOwner: "stale-owner", pendingContent });
+    lane.emit({ kind: "turn_end", turnOwner: "stale-owner", pendingContent, outcome: "interrupted" });
     lane.emit({ kind: "assistant_message_delta", text: "working" });
     lane.emit({ kind: "assistant_reasoning_delta", text: "now" });
     lane.emit({ kind: "turn_end", turnOwner: "claude:test:1" });
@@ -540,6 +540,31 @@ describe("root-turn text assembly", () => {
     expect(observed.filter((event) => event.type === "assistant_reasoning_completed"))
       .toMatchObject([{ text: "thinking now" }]);
     expect(observed.filter((event) => event.type === "turn_completed")).toHaveLength(1);
+    expect(observed.filter((event) => event.type === "turn_completed"))
+      .toMatchObject([{ result: { outcome: "success" } }]);
+  });
+
+  it("preserves an owned native interruption and drains the next queued command", async () => {
+    const lane = new ControlledRuntimeLane();
+    const { session } = makeSession("claude", { lane });
+    const observed: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];
+    const collecting = (async () => { for await (const event of session.events) observed.push(event); })();
+    await session.start({ id: "one", kind: "user", text: "start" });
+    lane.emit({ kind: "tool_call", callId: "running", name: "Read", input: {} });
+    expect(await session.send({ id: "two", kind: "user", text: "next" })).toMatchObject({ status: "queued" });
+    lane.emit({ kind: "turn_end", turnOwner: "claude:test:1", outcome: "interrupted" });
+    await vi.waitFor(() => expect(session.snapshot().activeTurn?.commandIds).toEqual(["two"]));
+    lane.emit({ kind: "assistant_message_delta", text: "new text" });
+    lane.emit({ kind: "assistant_reasoning_delta", text: "new reasoning" });
+    lane.emit({ kind: "turn_end", turnOwner: "claude:test:1", outcome: "interrupted", pendingContent: "discard" });
+    expect(session.snapshot().activeTurn?.commandIds).toEqual(["two"]);
+    lane.emit({ kind: "turn_end", turnOwner: "claude:test:2" });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    await collecting;
+    expect(observed.filter((event) => event.type === "turn_completed"))
+      .toMatchObject([{ commandIds: ["one"], result: { outcome: "interrupted" } }, { commandIds: ["two"], result: { outcome: "success" } }]);
+    expect(observed.filter((event) => event.type === "assistant_message_completed")).toMatchObject([{ text: "new text" }]);
+    expect(observed.filter((event) => event.type === "assistant_reasoning_completed")).toMatchObject([{ text: "new reasoning" }]);
   });
 
   it("drops an unfinished delta buffer when the runtime crashes before a boundary", async () => {

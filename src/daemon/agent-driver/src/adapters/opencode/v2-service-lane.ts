@@ -298,6 +298,7 @@ export class OpenCodeV2ServiceLane extends OpenCodeServiceLane {
       }
       this.events.emit("runtime_event", {
         kind: "turn_end", sessionId: this.sessionId!, turnOwner: root.receipt,
+        ...(idle.outcome === "interrupted" ? { outcome: "interrupted" as const } : {}),
       } satisfies AdapterEvent);
     } catch (error) {
       if (!current() || this.stopping) return;

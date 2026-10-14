@@ -70,7 +70,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         expect(events.filter((event) => event.type === "assistant_reasoning_completed").map((event) => event.text))
           .toEqual(successful ? ["first reasoning", "next reasoning"] : ["next reasoning"]);
         expect(events.filter((event) => event.type === "turn_completed")).toMatchObject([
-          { commandIds: ["first"], result: { outcome: terminal === "interrupt" ? "interrupted" : successful ? "success" : "failed" } },
+          { commandIds: ["first"], result: { outcome: terminal === "interrupt" || terminal === "cancelled" ? "interrupted" : successful ? "success" : "failed" } },
           { commandIds: ["second"], result: { outcome: "success" } },
         ]);
         expect(events.filter((event) => event.type === "command_accepted").map((event) => event.commandId)).toEqual(["first", "second"]);

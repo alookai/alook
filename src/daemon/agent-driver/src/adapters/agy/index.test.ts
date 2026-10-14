@@ -64,15 +64,43 @@ describe("agy native stream ownership", () => {
     expect(driver.normalizeLine(step(1, { step_type: "tool", tool_name: "bash" }))).toEqual([{ kind: "tool_output", callId: "native:1", name: "bash" }]);
     expect(driver.normalizeLine(result(1))).toMatchObject([{ kind: "assistant_message_completed" }, { kind: "turn_end" }]);
   });
-  it.each(["ERROR", "CANCELLED", "TIMEOUT"])("discards partial content on %s and never treats it as success", (status) => {
+  it.each([
+    { status: "ERROR", error: "native failure" },
+    { status: "ERROR", error: "network interrupted unexpectedly" },
+    { status: "TIMEOUT", error: "interrupted" },
+  ])("discards partial content on $status/$error without misclassifying failure", ({ status, error }) => {
     const driver = new AgyDriver();
     driver.normalizeLine(line({ event: "init", conversation_id: "native" }));
     begin(driver);
     driver.normalizeLine(step(1, { text_delta: "partial" }));
-    expect(driver.normalizeLine(result(1, { status, error: "native failure" }))).toEqual([
-      { kind: "error", message: "native failure" }, { kind: "turn_end", sessionId: "native", pendingContent: "discard" },
+    expect(driver.normalizeLine(result(1, { status, error }))).toEqual([
+      { kind: "error", message: error }, { kind: "turn_end", sessionId: "native", pendingContent: "discard" },
     ]);
   });
+  it.each([{ status: "CANCELLED" }, { status: "ERROR", error: "interrupted" }])("keeps native $status cancellation distinct from failure and discards unfinished content", (terminal) => {
+    const driver = new AgyDriver();
+    driver.normalizeLine(line({ event: "init", conversation_id: "native" }));
+    begin(driver);
+    driver.normalizeLine(step(1, { text_delta: "partial" }));
+    expect(driver.normalizeLine(result(1, terminal))).toEqual([
+      { kind: "turn_end", sessionId: "native", pendingContent: "discard", outcome: "interrupted" },
+    ]);
+  });
+  it.each([true, false])("pairs a completed tool exactly once (ACTIVE first: %s)", (activeFirst) => {
+    const driver = new AgyDriver();
+    driver.normalizeLine(line({ event: "init", conversation_id: "native" }));
+    begin(driver);
+    const tool = { step_type: "tool", tool_name: "run_command", tool_info: { parameters: { CommandLine: "echo audit" } } };
+    const events = activeFirst ? driver.normalizeLine(step(1, { ...tool, state: "ACTIVE" })) : [];
+    if (activeFirst) expect(driver.normalizeLine(step(1, { ...tool, state: "ACTIVE" }))).toEqual([]);
+    events.push(...driver.normalizeLine(step(1, tool)));
+    expect(events).toEqual([
+      { kind: "tool_call", callId: "native:1", name: "run_command", input: { CommandLine: "echo audit" } },
+      { kind: "tool_output", callId: "native:1", name: "run_command" },
+    ]);
+    expect(driver.normalizeLine(step(1, tool))).toEqual([]);
+  });
+
   it("rejects malformed streams, invalid input identity and unowned results", async () => {
     const invalid = new AgyDriver();
     expect(invalid.normalizeLine("broken")).toMatchObject([{ kind: "error" }]);
@@ -99,6 +127,7 @@ if(process.argv.includes('--version')){console.log('1.3.4');process.exit(0)}
 if(process.argv.includes('--help')){console.error('--input-format --output-format stream-json --conversation');process.exit(0)}
 fs.writeFileSync('argv.json',JSON.stringify(process.argv.slice(2)));
 const emit=x=>console.log(JSON.stringify(x));
+const mode=${JSON.stringify(mode)};
 const requested=process.argv[process.argv.indexOf('--conversation')+1];
 const resumed=process.argv.includes('--conversation');
 const id=${JSON.stringify(mode)}==='mismatch'?'substitute':resumed?requested:'native';
@@ -109,9 +138,15 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
  const input=JSON.parse(line);fs.appendFileSync('inputs.jsonl',JSON.stringify(input)+'\\n');turn++;
  emit({event:'step_update',step_update:{conversation_id:id,step_index:index,state:'DONE',step_type:'user_input'}});
  const done=()=>{
-  const update={event:'step_update',step_update:{conversation_id:id,step_index:index+1,state:'DONE',step_type:'agent_response',text_delta:'reply '+turn,usage:{input_tokens:7,output_tokens:4,cache_read_tokens:10}}};
+  if(mode==='tools'){
+   const tool={conversation_id:id,step_index:index+1,step_type:'tool',tool_name:'run_command',tool_info:{parameters:{CommandLine:'echo fixture'}}};
+   if(turn>1){emit({event:'step_update',step_update:{...tool,state:'ACTIVE'}});emit({event:'step_update',step_update:{...tool,state:'ACTIVE'}})}
+   emit({event:'step_update',step_update:{...tool,state:'DONE'}});emit({event:'step_update',step_update:{...tool,state:'DONE'}});
+  }
+  const update={event:'step_update',step_update:{conversation_id:id,step_index:index+(mode==='tools'?2:1),state:'DONE',step_type:'agent_response',text_delta:'reply '+turn,usage:{input_tokens:7,output_tokens:4,cache_read_tokens:10}}};
   emit(update);emit(update);
-  const result={event:'result',result:{conversation_id:id,status:'SUCCESS',response:'reply '+turn,num_turns:turn,usage:{input_tokens:99999}}};
+  const terminal=turn===1?{'native-interrupted':{status:'ERROR',error:'interrupted',response:''},'native-cancelled':{status:'CANCELLED',response:''},'native-error':{status:'ERROR',error:'network interrupted unexpectedly',response:''}}[mode]:undefined;
+  const result={event:'result',result:{conversation_id:id,status:'SUCCESS',response:'reply '+turn,num_turns:turn,usage:{input_tokens:99999},...terminal}};
   emit(result);emit(result);index+=3;
  };
  if(!resumed&&turn===1){const timer=setInterval(()=>{if(fs.existsSync('release')){clearInterval(timer);done()}},5)}else done();
@@ -121,6 +156,58 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
 }
 
 describe.skipIf(process.platform === "win32")("agy registered SDK with a real fixture process", () => {
+  it.each([
+    { mode: "native-interrupted", outcome: "interrupted" },
+    { mode: "native-cancelled", outcome: "interrupted" },
+    { mode: "native-error", outcome: "failed" },
+  ])("projects $mode through public turns and preserves next-turn progress", async ({ mode, outcome }) => {
+    const f = fixture(mode);
+    const opened = await createBuiltinAgentDriverSdk({ host: createFakeAgentDriverHost() }).open({ backend: "agy",
+      config: { model: { kind: "default" }, command: f.executable },
+      launch: { workingDirectory: f.directory, instructions: { format: "markdown", content: "" }, launchId: mode },
+    });
+    if (!opened.ok) throw new Error(opened.error.message);
+    const session = opened.session;
+    const events: AgentEvent<BuiltinBackendSpecs, "agy">[] = [];
+    const collecting = (async () => { for await (const event of session.events) events.push(event); })();
+    try {
+      expect(await session.start({ id: "first", kind: "user", text: "first" })).toMatchObject({ status: "accepted" });
+      expect(await session.send({ id: "next", kind: "user", text: "next" })).toMatchObject({ status: "queued" });
+      writeFileSync(join(f.directory, "release"), "go");
+      await vi.waitFor(() => expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(2));
+      expect(events.filter((event) => event.type === "turn_completed")).toMatchObject([
+        { commandIds: ["first"], result: { outcome } },
+        { commandIds: ["next"], result: { outcome: "success" } },
+      ]);
+      expect(events.filter((event) => event.type === "assistant_message_completed").map((event) => event.text)).toEqual(["reply 2"]);
+      expect(session.snapshot().diagnostics.metrics.physicalOpenCount).toBe(1);
+    } finally { await session.stop({ reason: "shutdown", forceAfterMs: 10 }); await session.closed; await collecting; }
+  });
+  it("publishes DONE-only and normal tool lifecycles once across persistent turns", async () => {
+    const f = fixture("tools");
+    const opened = await createBuiltinAgentDriverSdk({ host: createFakeAgentDriverHost() }).open({ backend: "agy",
+      config: { model: { kind: "default" }, command: f.executable },
+      launch: { workingDirectory: f.directory, instructions: { format: "markdown", content: "" }, launchId: "agy-tools" },
+    });
+    if (!opened.ok) throw new Error(opened.error.message);
+    const session = opened.session;
+    const events: AgentEvent<BuiltinBackendSpecs, "agy">[] = [];
+    const collecting = (async () => { for await (const event of session.events) events.push(event); })();
+    try {
+      await session.start({ id: "first", kind: "user", text: "first" });
+      await session.send({ id: "next", kind: "user", text: "next" });
+      writeFileSync(join(f.directory, "release"), "go");
+      await vi.waitFor(() => expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(2));
+      expect(events.filter((event) => event.type === "tool_started")).toMatchObject([
+        { callId: "native:1", name: "run_command", input: { CommandLine: "echo fixture" } },
+        { callId: "native:4", name: "run_command", input: { CommandLine: "echo fixture" } },
+      ]);
+      expect(events.filter((event) => event.type === "tool_finished")).toMatchObject([
+        { callId: "native:1", name: "run_command" }, { callId: "native:4", name: "run_command" },
+      ]);
+      expect(session.snapshot().diagnostics.metrics).toMatchObject({ outstandingToolUses: 0, toolLifecycleMismatchCount: 0 });
+    } finally { await session.stop({ reason: "shutdown", forceAfterMs: 10 }); await session.closed; await collecting; }
+  });
   it("reports a failed initial input write, fences further input and releases its process", async () => {
     const f = fixture();
     const driver = new AgyDriver();

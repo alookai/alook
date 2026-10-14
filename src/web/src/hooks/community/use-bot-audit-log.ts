@@ -14,7 +14,7 @@ import { communityKeys } from "@/lib/query-keys"
 import { captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 import { ApiError } from "@/lib/errors"
 
-export type AuditKind = "cli_invocation" | "tool_call" | "thinking" | "turn_interrupt" | "wake_trigger" | "session_reset" | "nap" | "model_changed" | "provider_changed" | "error"
+export type AuditKind = "cli_invocation" | "tool_call" | "text" | "thinking" | "turn_interrupt" | "wake_trigger" | "session_reset" | "nap" | "model_changed" | "provider_changed" | "error"
 
 export type AuditEvent = {
   id: string

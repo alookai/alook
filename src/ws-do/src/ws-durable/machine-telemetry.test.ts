@@ -910,6 +910,27 @@ describe("WebSocketDurableObject", () => {
         mockStubFetch.mockClear()
       })
 
+      it("persists completed text and notifies only the bound bot owner", async () => {
+        const { durable, store, env } = createDO()
+        store.set("community-machine-identity", { userId: "u_1", machineId: "cm_1", credentialHash: "0".repeat(64) })
+        mockGetBotBindingWithOwner.mockResolvedValue({ machineId: "cm_1", ownerUserId: "owner_1", runtime: "agy", name: "Bot", discriminator: "0007" })
+        mockInsertBotActivityEventAndPrune.mockResolvedValue({ id: "bae_text", createdAt: "2026-10-14T05:00:00.000Z" })
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({ type: "community-machine", machineId: "cm_1", userId: "u_1", authenticated: true })
+        const payload = { text: "😀".repeat(256), truncated: true, chars: 300 }
+        await durable.webSocketMessage(ws as any, JSON.stringify({
+          type: "bot_audit_event", agentId: "bot_1", sessionId: "native", launchId: "launch",
+          event: { kind: "text", payload },
+        }))
+        expect(mockInsertBotActivityEventAndPrune).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+          botId: "bot_1", sessionId: "native", launchId: "launch", kind: "text", payload: JSON.stringify(payload),
+        }), [])
+        expect(env.WS_DO.idFromName).toHaveBeenCalledExactlyOnceWith("user:owner_1")
+        const notified = mockStubFetch.mock.calls.map((call: any[]) => call[0] as Request).filter((request) => request.url.endsWith("/community-broadcast"))
+        expect(notified).toHaveLength(1)
+        expect(await notified[0]!.clone().json()).toMatchObject({ type: "community:bot.audit_event", botId: "bot_1", kind: "text", payload })
+      })
+
       it("persists a daemon-accepted turn interrupt", async () => {
         const { durable, store } = createDO()
         store.set("community-machine-identity", {

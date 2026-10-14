@@ -253,6 +253,7 @@ describe("ClaudeDriver", () => {
       kind: "turn_end",
       sessionId: undefined,
       turnOwner: receipt,
+      outcome: "interrupted",
     }]);
     expect(driver.normalizeLine(terminal)).toEqual([]);
     expect(process.kill).not.toHaveBeenCalled();
@@ -291,6 +292,7 @@ describe("ClaudeDriver", () => {
       kind: "turn_end",
       sessionId: undefined,
       turnOwner: receipt,
+      outcome: "interrupted",
     }]);
     expect(driver.normalizeLine(terminal)).toEqual([]);
     expect(process.kill).not.toHaveBeenCalled();

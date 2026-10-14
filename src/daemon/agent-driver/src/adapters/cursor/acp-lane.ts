@@ -107,7 +107,7 @@ function isMissingSessionError(error: unknown): boolean {
 export class CursorAcpLane implements RuntimeLane {
   private readonly events = new EventEmitter();
   private readonly pending = new Map<number, PendingRequest>();
-  private readonly openToolCalls = new Set<string>();
+  private readonly toolCalls = new Map<string, string | null>();
   private process: SpawnedProcessHandle | null = null;
   private stdoutBuffer = "";
   private requestSequence = 0;
@@ -217,7 +217,7 @@ export class CursorAcpLane implements RuntimeLane {
     this.ready = false;
     this.currentPromptRequestId = null;
     this.terminalOwner = null;
-    this.openToolCalls.clear();
+    this.toolCalls.clear();
     this.rejectAllPending(new Error("Cursor ACP lane stopped"));
     this.stopPromise ??= this.stopPhysicalOnce(input);
     return this.stopPromise;
@@ -336,10 +336,12 @@ export class CursorAcpLane implements RuntimeLane {
     };
     const previousPromptRequestId = this.currentPromptRequestId;
     const previousTerminalOwner = this.terminalOwner;
-    const previousOpenToolCalls = new Set(this.openToolCalls);
+    const previousToolCalls = new Map(this.toolCalls);
     if (delivery === "prompt") this.terminalOwner = prompt.receipt;
     this.currentPromptRequestId = requestId;
-    this.openToolCalls.clear();
+    if (delivery === "prompt") {
+      this.toolCalls.clear();
+    }
     this.pending.set(requestId, { kind: "prompt", method: "session/prompt", prompt });
     try {
       this.write({
@@ -356,8 +358,8 @@ export class CursorAcpLane implements RuntimeLane {
       if (this.currentPromptRequestId === requestId) {
         this.currentPromptRequestId = previousPromptRequestId;
         this.terminalOwner = previousTerminalOwner;
-        this.openToolCalls.clear();
-        for (const toolCallId of previousOpenToolCalls) this.openToolCalls.add(toolCallId);
+        this.toolCalls.clear();
+        for (const [toolCallId, name] of previousToolCalls) this.toolCalls.set(toolCallId, name);
       }
       throw error;
     }
@@ -378,11 +380,12 @@ export class CursorAcpLane implements RuntimeLane {
     const terminalOwner = this.terminalOwner ?? prompt.receipt;
     this.currentPromptRequestId = null;
     this.terminalOwner = null;
-    this.openToolCalls.clear();
+    this.toolCalls.clear();
     this.events.emit("runtime_event", {
       kind: "turn_end",
       sessionId: this.sessionId ?? undefined,
       turnOwner: terminalOwner,
+      ...(result.stopReason === "cancelled" ? { outcome: "interrupted" as const } : {}),
     } satisfies AdapterEvent);
   }
 
@@ -391,7 +394,7 @@ export class CursorAcpLane implements RuntimeLane {
     const terminalOwner = this.terminalOwner ?? prompt.receipt;
     this.currentPromptRequestId = null;
     this.terminalOwner = null;
-    this.openToolCalls.clear();
+    this.toolCalls.clear();
     this.events.emit("runtime_event", {
       kind: "error",
       code,
@@ -486,7 +489,7 @@ export class CursorAcpLane implements RuntimeLane {
       this.ready = false;
       this.currentPromptRequestId = null;
       this.terminalOwner = null;
-      this.openToolCalls.clear();
+      this.toolCalls.clear();
       this.stopPromise ??= this.stopPhysicalOnce({ reason: "runtime_error", forceAfterMs: 0 });
       void this.stopPromise.catch(() => {});
       this.events.emit("error", normalized);
@@ -503,7 +506,7 @@ export class CursorAcpLane implements RuntimeLane {
       this.ready = false;
       this.currentPromptRequestId = null;
       this.terminalOwner = null;
-      this.openToolCalls.clear();
+      this.toolCalls.clear();
       this.rejectAllPending(new Error("Cursor ACP process exited"));
       if (this.suppressExit || !this.processActivated) return;
       this.events.emit("exit", {
@@ -661,23 +664,32 @@ export class CursorAcpLane implements RuntimeLane {
           this.diagnostic("warning", "Cursor ACP emitted a malformed tool_call update");
           return;
         }
-        this.openToolCalls.add(update.toolCallId);
-        this.events.emit("runtime_event", {
-          kind: "tool_call",
-          name: update.title,
-          input: update.rawInput,
-        } satisfies AdapterEvent);
+        if (!this.toolCalls.has(update.toolCallId)) {
+          this.toolCalls.set(update.toolCallId, update.title);
+          this.events.emit("runtime_event", {
+            kind: "tool_call", callId: update.toolCallId, name: update.title, input: update.rawInput,
+          } satisfies AdapterEvent);
+        }
+        if ((update.status === "completed" || update.status === "failed") && this.toolCalls.get(update.toolCallId) !== null) {
+          this.toolCalls.set(update.toolCallId, null);
+          this.events.emit("runtime_event", {
+            kind: "tool_output", callId: update.toolCallId, name: update.title,
+          } satisfies AdapterEvent);
+        }
         return;
       }
       case "tool_call_update": {
         if (
           typeof update.toolCallId === "string"
           && (update.status === "completed" || update.status === "failed")
-          && this.openToolCalls.delete(update.toolCallId)
         ) {
+          const name = this.toolCalls.get(update.toolCallId);
+          if (name === undefined || name === null) return;
+          this.toolCalls.set(update.toolCallId, null);
           this.events.emit("runtime_event", {
             kind: "tool_output",
-            name: typeof update.title === "string" ? update.title : "Cursor tool",
+            callId: update.toolCallId,
+            name: typeof update.title === "string" ? update.title : name,
           } satisfies AdapterEvent);
         }
         return;

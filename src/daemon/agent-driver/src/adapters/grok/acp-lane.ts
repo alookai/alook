@@ -451,6 +451,7 @@ export class GrokAcpLane implements RuntimeLane {
       kind: "turn_end",
       sessionId: this.sessionId ?? undefined,
       turnOwner: terminalOwner,
+      ...(result.stopReason === "cancelled" ? { outcome: "interrupted" as const } : {}),
     } satisfies AdapterEvent);
     void this.refreshBilling();
   }

@@ -63,6 +63,7 @@ function KindTag({ kind }: { kind: AuditKind }) {
 function kindMeta(kind: AuditKind): { label: string; tone: string } {
   if (kind === "cli_invocation") return { label: "daemon", tone: "text-foreground/70" }
   if (kind === "tool_call") return { label: "tool", tone: "text-muted-foreground" }
+  if (kind === "text") return { label: "text", tone: "text-foreground/70" }
   if (kind === "turn_interrupt") return { label: "stop", tone: "text-foreground/70" }
   if (kind === "wake_trigger") return { label: "wake", tone: "text-foreground/70" }
   if (kind === "session_reset") return { label: "reset", tone: "text-foreground/70" }
@@ -218,6 +219,14 @@ function RowBody({ event }: { event: AuditEvent }) {
   const fullText = omittedChars > 0
     ? `${text}\n… ${omittedChars} character${omittedChars === 1 ? "" : "s"} not retained in the audit log`
     : text
+  if (event.kind === "text") {
+    return (
+      <div className="flex min-w-0 items-center gap-2" data-testid="bot-activity-event-text">
+        <TruncatedAuditLog fullText={fullText}>{text || "Text unavailable"}</TruncatedAuditLog>
+        {truncated && <span className="shrink-0 text-[11px] text-muted-foreground">Truncated</span>}
+      </div>
+    )
+  }
   return (
     <TruncatedAuditLog
       fullText={fullText}

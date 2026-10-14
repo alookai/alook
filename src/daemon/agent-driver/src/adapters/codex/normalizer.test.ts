@@ -526,12 +526,12 @@ describe("CodexEventNormalizer — complete owned event family", () => {
     expect(n.normalizeLine(notify("item/completed", { threadId: "root", turnId: "turn", item: { type: "contextCompaction" } }))).toEqual([{ kind: "compaction_finished" }]);
     expect(n.normalizeLine(notify("item/completed", { threadId: "root", turnId: "turn", item: { type: "exitedReviewMode" } }))).toEqual([{ kind: "review_finished" }]);
     expect(n.normalizeLine(notify("item/completed", { threadId: "root", turnId: "turn", item: { type: "agentMessage", text: "final" } }))).toEqual([{ kind: "assistant_message_completed", text: "final" }]);
-    expect(n.normalizeLine(notify("item/completed", { threadId: "root", turnId: "turn", item: { type: "reasoning", text: "thought" } }))).toEqual([{ kind: "assistant_reasoning_completed", text: "thought" }]);
+    expect(n.normalizeLine(notify("item/completed", { threadId: "root", turnId: "turn", item: { type: "reasoning", summary: ["thought"], content: [] } }))).toEqual([{ kind: "assistant_reasoning_completed", text: "thought" }]);
     expect(n.normalizeLine(notify("item/completed", { threadId: "root", turnId: "turn", item: { type: "unknown" } }))).toEqual([]);
     expect(n.normalizeLine(notify("thread/tokenUsage/updated", { threadId: "root", tokenUsage: {} }))).toEqual([]);
     expect(n.normalizeLine(notify("account/rateLimits/updated", { threadId: "root", rateLimits: {} }))).toEqual([]);
     expect(n.normalizeLine(notify("turn/completed", { threadId: "root", turn: { id: "turn", status: "interrupted" } }))).toEqual([
-      { kind: "turn_end", sessionId: "root", turnOwner: "codex:root:turn" },
+      { kind: "turn_end", sessionId: "root", turnOwner: "codex:root:turn", outcome: "interrupted" },
     ]);
   });
 

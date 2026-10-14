@@ -2,6 +2,7 @@ import {
   AuditLogCliInvocationPayloadSchema,
   AuditLogToolCallPayloadSchema,
   AuditLogThinkingPayloadSchema,
+  AuditLogTextPayloadSchema,
   AuditLogTurnInterruptPayloadSchema,
   AuditLogWakeTriggerPayloadSchema,
   AuditLogModelChangedPayloadSchema,
@@ -34,6 +35,10 @@ export function parseAuditLogPayload(
     }
     case "tool_call": {
       const r = AuditLogToolCallPayloadSchema.safeParse(json)
+      return r.success ? r.data : null
+    }
+    case "text": {
+      const r = AuditLogTextPayloadSchema.safeParse(json)
       return r.success ? r.data : null
     }
     case "thinking": {
