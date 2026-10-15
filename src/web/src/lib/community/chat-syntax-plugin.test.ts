@@ -40,6 +40,13 @@ describe("CLI prompt ref examples — tokenizer contract", () => {
 })
 
 describe("chatSyntaxPlugin — mention", () => {
+  it.each(["\uD800", "\uD800!tail"])("preserves a mention and unpaired high-surrogate suffix %j", (suffix) => {
+    expect(paragraphChildren(parse(`@Alice#0001${suffix}`))).toEqual([
+      expect.objectContaining({ type: "mention", value: "@Alice", discriminator: "0001" }),
+      expect.objectContaining({ type: "text", value: suffix }),
+    ])
+  })
+
   it.each(["x", "é", "𠮷", "𠀀", "𝟙", "_", "-"])("keeps a handle with identifier suffix %s intact", (suffix) => {
     expect(paragraphChildren(parse(`@Alice#0001${suffix}`))).toEqual([
       expect.objectContaining({ type: "text", value: `@Alice#0001${suffix}` }),

@@ -103,24 +103,36 @@ async function expectServerSeededRouteFrame(
   await expect(frame.locator(
     '[data-slot="skeleton"], [data-community-unresolved-main]',
   )).not.toHaveCount(0)
-  const geometry = await frame.evaluate((root) => {
-    const rect = (element: Element) => {
+  const geometry = await page.evaluate((testId) => {
+    const nodes = Array.from(document.querySelectorAll(`[data-testid="${CSS.escape(testId)}"]`)).map((element) => {
       const box = element.getBoundingClientRect()
+      const style = getComputedStyle(element)
+      const stream = element.parentElement?.closest('[hidden][id^="S:"]')
       return {
-        display: getComputedStyle(element).display,
+        visible: box.width > 0 && box.height > 0
+          && style.visibility !== "hidden" && style.visibility !== "collapse",
+        streamId: stream?.id ?? null,
+        streamDisplay: stream ? getComputedStyle(stream).display : null,
+        display: style.display,
         x: box.x,
         y: box.y,
         width: box.width,
         height: box.height,
       }
-    }
+    })
     return {
-      root: rect(root),
+      nodes,
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     }
-  })
+  }, tid.initialFrame)
+  const visibleFrames = geometry.nodes.filter((node) => node.visible)
+  expect(visibleFrames, "SSR must have exactly one visible initial frame").toHaveLength(1)
+  expect(
+    geometry.nodes.filter((node) => !node.visible && (node.streamId === null || node.streamDisplay !== "none")),
+    `Unexpected hidden SSR initial frame: ${JSON.stringify(geometry)}`,
+  ).toEqual([])
   expect(geometry.overflow).toBe(0)
-  expect(geometry.root).toMatchObject({ x: 0, y: 0, width, height })
+  expect(visibleFrames[0]).toMatchObject({ x: 0, y: 0, width, height })
   return frame
 }
 

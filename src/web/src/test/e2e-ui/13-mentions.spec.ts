@@ -68,6 +68,9 @@ test.describe("mentions — mandatory discriminator", () => {
     const threadId = await actors.seed.seedThread("alice", opener, "native mention protection")
     const { page } = await actors.asUser("alice")
     await page.goto(`/c/channels/${serverId}/${threadId}`)
+    const threadSurface = page.getByTestId(tid.threadSplitPanel)
+    await expect(threadSurface).toHaveCount(1)
+    await expect(threadSurface).toBeVisible()
     const handle = `@John Doe#${bob.discriminator}`
     const sent: Array<{ id: string; content: string; mentionType?: string }> = []
 
@@ -95,12 +98,14 @@ test.describe("mentions — mandatory discriminator", () => {
     }
 
     async function send(content: string, mentionType?: "everyone") {
-      const editable = composerEditable(page)
+      const editable = composerEditable(page, threadSurface)
+      await expect(editable).toHaveCount(1)
       await editable.fill(content)
-      const confirmation = page.waitForResponse((response) => response.request().method() === "POST"
-        && new URL(response.url()).pathname === `/api/community/channels/${threadId}/messages`)
-      await editable.press("Enter")
-      const response = await confirmation
+      const [response] = await Promise.all([
+        page.waitForResponse((response) => response.request().method() === "POST"
+          && new URL(response.url()).pathname === `/api/community/channels/${threadId}/messages`),
+        editable.press("Enter"),
+      ])
       expect(response.status()).toBe(201)
       const outgoing = response.request().postDataJSON() as { content: string; mentionType?: string }
       expect(outgoing.content).toBe(content)
@@ -110,7 +115,7 @@ test.describe("mentions — mandatory discriminator", () => {
       const persisted = await page.request.get(`/api/community/messages/${created.message.id}`)
       expect(persisted.status()).toBe(200)
       expect(await persisted.json()).toMatchObject({ id: created.message.id, content, channelId: threadId })
-      const body = page.getByTestId(tid.message(created.message.id)).locator("[data-community-message-body]")
+      const body = threadSurface.getByTestId(tid.message(created.message.id)).locator("[data-community-message-body]")
       await expect(body).toBeVisible()
       await expect(editable).toHaveText("")
       sent.push({ id: created.message.id, content, mentionType: outgoing.mentionType })
