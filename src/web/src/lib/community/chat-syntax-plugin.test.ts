@@ -40,6 +40,19 @@ describe("CLI prompt ref examples — tokenizer contract", () => {
 })
 
 describe("chatSyntaxPlugin — mention", () => {
+  it.each(["x", "é", "𠮷", "𠀀", "𝟙", "_", "-"])("keeps a handle with identifier suffix %s intact", (suffix) => {
+    expect(paragraphChildren(parse(`@Alice#0001${suffix}`))).toEqual([
+      expect.objectContaining({ type: "text", value: `@Alice#0001${suffix}` }),
+    ])
+  })
+
+  it.each(["@Alice#0001", "@everyone", "/Alook#1234/general", "/Alook#1234/general#8", "/Alook#1234/general/#8", "/Alook#1234/general/#8#2", "/.dm/Alice#0001", "/Alook#1234"])("preserves literal syntax origin for %s", (syntax) => {
+    for (const source of [`\\${syntax}`, `${syntax.startsWith("@") ? "&#64;" : "&#47;"}${syntax.slice(1)}`]) {
+      const children = paragraphChildren(parse(source))
+      expect(children.every((node) => node.type === "text")).toBe(true)
+      expect(children.map((node) => "value" in node ? node.value : "").join("")).toBe(syntax)
+    }
+  })
   it("keeps a bare at-sign in prose from swallowing a following channel ref", () => {
     const children = paragraphChildren(parse("DM回复取消自动@已交 /Alook#5620/fix/#213"))
     expect(children.some((child) => child.type === "mention")).toBe(false)

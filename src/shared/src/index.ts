@@ -822,7 +822,7 @@ export {
 export type { FriendshipStatus } from "./utils/friendship";
 export { isPublic, isPrivate } from "./utils/visibility";
 export type { AgentVisibility } from "./utils/visibility";
-export { extractMentionedUserIds, MENTION_TYPES, isMentionType, MENTION_IDENTIFIER_CHARACTERS, isMentionStartBoundary } from "./utils/community-mentions";
+export { extractMentionedUserIds, MENTION_TYPES, isMentionType, MENTION_IDENTIFIER_CHARACTERS, isMentionStartBoundary, isMentionEndBoundary } from "./utils/community-mentions";
 export type { MentionCandidate, MentionType } from "./utils/community-mentions";
 export { parseReleaseVersion, releaseVersionGte, semverGte } from "./semver";
 export type { ReleaseVersion } from "./semver";

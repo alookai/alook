@@ -676,6 +676,15 @@ describe("buildCommunityMentionExtension — suggestion.render callbacks", () =>
 })
 
 describe("detectMentionType", () => {
+  it.each([
+    "𠮷@everyone", "𠀀@everyone", "𝟙@everyone", "@everyone𠮷", "@everyone𠀀", "@everyone𝟙",
+    "\\@everyone", "&#64;everyone", "`@everyone`", "```\n@everyone\n```",
+    "[@everyone](https://example.com)", "[label](https://example.com/@everyone)",
+  ])("does not classify protected/literal input as a broadcast: %s", (text) => {
+    expect(detectMentionType(text)).toBeUndefined()
+    expect(detectMentionType(`${text}\n\n@everyone`)).toBe("everyone")
+  })
+
   it("finds @everyone as a standalone token", () => {
     expect(detectMentionType("hi @everyone")).toBe("everyone")
   })

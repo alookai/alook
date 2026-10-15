@@ -1,3 +1,4 @@
+import { detectChatMentionType } from "./chat-markdown"
 import Mention from "@tiptap/extension-mention"
 import type { Editor } from "@tiptap/react"
 import { PluginKey } from "@tiptap/pm/state"
@@ -267,30 +268,7 @@ export function buildCommunityMentionExtension(opts: {
 }
 
 /**
- * Standalone-token scan for `@everyone`. Used at send time to set
- * `mentionType` on the outgoing POST body so the server fans out to all
- * members. Iterates `MENTION_TYPES`, now just `everyone`; `@here` was removed.
+ * Automatic broadcasts use only genuine whole-body Markdown mention nodes.
+ * Explicit API mentionType requests keep their separate broadcast contract.
  */
-export function detectMentionType(text: string): MentionType | undefined {
-  if (!text) return undefined
-  // Unicode-aware (`\p{L}\p{N}_-`) — must agree with the display-side regex
-  // in `chat-syntax-plugin.ts` and the server-side boundary check in
-  // `community-mentions.ts`'s `ID_CHAR_RE`, or a name like `@everyoneäx` would
-  // disagree across surfaces on whether the literal `@everyone` token is a
-  // genuine standalone mention vs. part of a longer word.
-  const ID = /[\p{L}\p{N}_-]/u
-  for (const name of MENTION_TYPES) {
-    let i = 0
-    while (i < text.length) {
-      const at = text.indexOf("@" + name, i)
-      if (at === -1) break
-      const before = at > 0 ? text[at - 1] : undefined
-      const after = text[at + 1 + name.length]
-      const beforeOk = before === undefined || !ID.test(before)
-      const afterOk = after === undefined || !ID.test(after)
-      if (beforeOk && afterOk) return name
-      i = at + 1
-    }
-  }
-  return undefined
-}
+export const detectMentionType = detectChatMentionType

@@ -1,4 +1,4 @@
-import type { Root, PhrasingContent } from "mdast"
+import type { Root, PhrasingContent, Text } from "mdast"
 import { findAndReplace } from "mdast-util-find-and-replace"
 import type { CompileContext, Extension as FromMarkdownExtension, Handle as FromMarkdownHandle } from "mdast-util-from-markdown"
 import type { Handler, Handlers } from "mdast-util-to-hast"
@@ -6,7 +6,7 @@ import type { Element } from "hast"
 import { codes } from "micromark-util-symbol"
 import type { Construct, Effects, Extension, State, TokenizeContext } from "micromark-util-types"
 import type { Plugin } from "unified"
-import { MENTION_IDENTIFIER_CHARACTERS, isMentionStartBoundary } from "@alook/shared"
+import { MENTION_IDENTIFIER_CHARACTERS, isMentionStartBoundary, isMentionEndBoundary } from "@alook/shared"
 import { spoilerSyntax, spoilerFromMarkdown } from "./spoiler-syntax"
 import type { SpoilerNode } from "./spoiler-syntax"
 
@@ -127,7 +127,7 @@ const SERVER_REF_RE = new RegExp(`(?<=^|\\s)/${HANDLE_SEG}(?=\\s|$|[${REF_TERM}]
 //     tag matches in full. A hand-typed bare `@Alice` (no tag) is intentionally
 //     NOT a mention — it stays text.
 const MENTION_RE = new RegExp(
-  String.raw`(?<!/|${MENTION_IDENTIFIER_CHARACTERS})(?:@everyone(?!${MENTION_IDENTIFIER_CHARACTERS})|@[^@#\n\r]*[^@#\n\r\s]#\d{4,})`,
+  String.raw`(?<!/|${MENTION_IDENTIFIER_CHARACTERS})(?:@everyone(?!${MENTION_IDENTIFIER_CHARACTERS})|@[^@#\n\r]*[^@#\n\r\s]#\d{4,}(?!${MENTION_IDENTIFIER_CHARACTERS}))`,
   "gu",
 )
 
@@ -155,11 +155,13 @@ export interface ServerRefNode {
 
 declare module "mdast" {
   interface RootContentMap {
+    chatLiteral: ChatLiteralNode
     mention: MentionNode
     channelRef: ChannelRefNode
     serverRef: ServerRefNode
   }
   interface PhrasingContentMap {
+    chatLiteral: ChatLiteralNode
     mention: MentionNode
     channelRef: ChannelRefNode
     serverRef: ServerRefNode
@@ -169,6 +171,7 @@ declare module "mdast" {
 declare module "micromark-util-types" {
   interface TokenTypeMap {
     memberMention: "memberMention"
+    memberMentionBoundary: "memberMentionBoundary"
   }
 }
 
@@ -231,8 +234,77 @@ function tokenizeMemberMention(this: TokenizeContext, effects: Effects, ok: Stat
       return discriminator
     }
     if (discriminatorSize < 4) return nok(code)
+    return effects.check(memberMentionEndBoundary, finish, nok)(code)
+  }
+
+  function finish(code: Parameters<State>[0]): State | undefined {
     effects.exit("memberMention")
     return ok(code)
+  }
+}
+
+const memberMentionEndBoundary: Construct = {
+  tokenize(effects, ok, nok) {
+    let high = ""
+    return start
+
+    function start(code: Parameters<State>[0]): State | undefined {
+      if (code === null || code < 0) return ok(code)
+      if (code >= 0xD800 && code <= 0xDBFF) {
+        high = String.fromCharCode(code)
+        effects.enter("memberMentionBoundary")
+        effects.consume(code)
+        return afterHigh
+      }
+      return isMentionEndBoundary(String.fromCodePoint(code)) ? ok(code) : nok(code)
+    }
+
+    function afterHigh(code: Parameters<State>[0]): State | undefined {
+      effects.exit("memberMentionBoundary")
+      const suffix = code !== null && code >= 0xDC00 && code <= 0xDFFF
+        ? high + String.fromCharCode(code)
+        : high
+      return isMentionEndBoundary(suffix) ? ok(code) : nok(code)
+    }
+  },
+}
+
+interface ChatLiteralNode extends Omit<Text, "type"> {
+  type: "chatLiteral"
+}
+
+function literalFromMarkdown(): FromMarkdownExtension {
+  return {
+    enter: {
+      characterEscape: enterLiteral,
+      characterReference: enterLiteral,
+    },
+    exit: {
+      characterEscapeValue: appendEscapeValue,
+      characterEscape: exitLiteral,
+      characterReference: exitLiteral,
+    },
+  }
+}
+
+const enterLiteral: FromMarkdownHandle = function (token) {
+  this.enter({ type: "chatLiteral", value: "" }, token)
+}
+
+const appendEscapeValue: FromMarkdownHandle = function (token) {
+  const node = this.stack.at(-1) as ChatLiteralNode
+  node.value += this.sliceSerialize(token)
+}
+
+const exitLiteral: FromMarkdownHandle = function (token) {
+  this.exit(token)
+}
+
+function restoreLiteralNodes(node: TraversableSyntaxNode): void {
+  if (!node.children) return
+  for (const child of node.children) {
+    if (child.type === "chatLiteral") child.type = "text"
+    restoreLiteralNodes(child)
   }
 }
 
@@ -327,7 +399,7 @@ export const chatSyntaxPlugin: Plugin<[], Root> = function chatSyntaxPlugin(this
   const micromarkExtensions = (settings.micromarkExtensions ??= [])
   const fromMarkdownExtensions = (settings.fromMarkdownExtensions ??= [])
   micromarkExtensions.push(memberMentionSyntax())
-  fromMarkdownExtensions.push(memberMentionFromMarkdown())
+  fromMarkdownExtensions.push(memberMentionFromMarkdown(), literalFromMarkdown())
   micromarkExtensions.push(spoilerSyntax())
   fromMarkdownExtensions.push(spoilerFromMarkdown())
 
@@ -346,6 +418,7 @@ export const chatSyntaxPlugin: Plugin<[], Root> = function chatSyntaxPlugin(this
       ],
       { ignore: IGNORE_NODE_TYPES },
     )
+    restoreLiteralNodes(tree)
   }
 }
 

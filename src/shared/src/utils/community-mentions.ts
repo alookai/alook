@@ -41,10 +41,20 @@ export function isMentionType(value: unknown): value is MentionType {
 
 export const MENTION_IDENTIFIER_CHARACTERS = /[\p{L}\p{N}_-]/u.source;
 const ID_CHAR_RE = new RegExp(MENTION_IDENTIFIER_CHARACTERS, "u");
-const MENTION_START_RE = new RegExp(`${MENTION_IDENTIFIER_CHARACTERS}$`, "u");
 
 export function isMentionStartBoundary(prefix: string): boolean {
-  return !MENTION_START_RE.test(prefix);
+  const previous = [...prefix.slice(-2)].at(-1);
+  return isBoundaryChar(previous);
+}
+
+export function isMentionEndBoundary(suffix: string): boolean {
+  return isBoundaryChar(suffix[Symbol.iterator]().next().value);
+}
+
+function isEscapedStart(content: string, at: number): boolean {
+  let start = at;
+  while (start > 0 && content[start - 1] === "\\") start--;
+  return (at - start) % 2 === 1;
 }
 
 function isBoundaryChar(ch: string | undefined): boolean {
@@ -79,7 +89,7 @@ export function extractMentionedUserIds(
     const at = content.indexOf("@", i);
     if (at === -1) break;
     // The character before "@" must be a boundary (or start of string).
-    if (!isMentionStartBoundary(content.slice(0, at))) {
+    if (!isMentionStartBoundary(content.slice(0, at)) || isEscapedStart(content, at)) {
       i = at + 1;
       continue;
     }
@@ -88,8 +98,7 @@ export function extractMentionedUserIds(
     for (const { candidate, handle } of handled) {
       const slice = lower.slice(at + 1, at + 1 + handle.length);
       if (slice !== handle) continue;
-      const after = content[at + 1 + handle.length];
-      if (!isBoundaryChar(after)) continue;
+      if (!isMentionEndBoundary(content.slice(at + 1 + handle.length))) continue;
       matched = candidate;
       matchedLen = handle.length;
       break;

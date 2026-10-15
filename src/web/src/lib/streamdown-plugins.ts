@@ -1,6 +1,5 @@
 import { createMermaidPlugin } from "@streamdown/mermaid";
-import { createMathPlugin } from "@streamdown/math";
-export { cjk } from "@streamdown/cjk";
+export { cjk, math } from "./streamdown-remark-plugins";
 
 export const mermaid = createMermaidPlugin({
   config: {
@@ -25,8 +24,4 @@ export const mermaid = createMermaidPlugin({
     },
     fontFamily: "ui-sans-serif, system-ui, sans-serif",
   },
-});
-
-export const math = createMathPlugin({
-  singleDollarTextMath: true,
 });

@@ -451,6 +451,23 @@ describe("createCommunityMessage — @Name#0042 mention disambiguation", () => {
     ])
   })
 
+  it.each([
+    "𠮷@Alex#0001", "@Alex#0001𠀀", "\\@Alex#0001", "&#64;Alex#0001",
+    "`@Alex#0001`", "```\n@Alex#0001\n```", "```\n@Alex#0001",
+    "[@Alex#0001](https://example.com)", "[label](https://example.com/@Alex#0001)",
+  ])("excludes protected/literal member tokens from committed targets: %s", async (content) => {
+    mockGetMessage.mockResolvedValue(messageRow({ content }))
+    await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content },
+    })
+    const committed = mockCreateMessage.mock.calls.at(-1)?.[1]
+    expect(committed.content).toBe(content)
+    expect(committed.mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual([])
+  })
+
   it("disambiguates two same-named members via the @Name#0042 handle in the message body", async () => {
     mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Alex#0002, over here" }))
 
@@ -492,6 +509,33 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     mockIsChannelPrivate.mockResolvedValue(true)
     // Audience = author + Cara. Bob is a server member but NOT in the channel.
     mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["author_1", "cara_1"])
+  })
+
+  it("does not enroll a protected mention, but a genuine sibling still enrolls", async () => {
+    const content = "`@Bob#0001` [@Cara#0002](https://example.com) \\@Cara#0002 @Cara#0002"
+    mockGetMessage.mockResolvedValue(messageRow({ content, channelId: "t1" }))
+    await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "thread", channelId: "t1", parentChannelId: "c1", serverId: "srv_1" },
+      body: { content },
+    })
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].participants).toEqual([
+      { userId: "author_1", source: "spoke" }, { userId: "cara_1", source: "mention" },
+    ])
+  })
+
+  it("preserves an explicit API broadcast without a body token and clamps its audience", async () => {
+    mockGetMessage.mockResolvedValue(messageRow({ content: "API broadcast", mentionType: "everyone" }))
+    await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content: "API broadcast", mentionType: "everyone" },
+    })
+    expect(mockCreateMessage.mock.calls.at(-1)?.[1].mentions.filter((row: { kind: string }) => row.kind === "mention")).toEqual([
+      { userId: "cara_1", kind: "mention" },
+    ])
   })
 
   it("drops an @mention of a non-member: no auto-add, no CHANNEL_MEMBER_ADD, no mention row", async () => {

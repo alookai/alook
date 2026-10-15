@@ -60,6 +60,113 @@ test.describe("mentions — mandatory discriminator", () => {
 
   const identityKeys = ["alice", "bob", "carol"] as const
 
+  test("whole-body Markdown keeps literal mentions inert through composer, display and consumption", async ({ caseActors }, testInfo) => {
+    test.setTimeout(120_000)
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { serverId, channelId, bob } = await prepareCase1(actors)
+    const opener = await actors.seed.seedMessage("alice", channelId, "native mention protection")
+    const threadId = await actors.seed.seedThread("alice", opener, "native mention protection")
+    const { page } = await actors.asUser("alice")
+    await page.goto(`/c/channels/${serverId}/${threadId}`)
+    const handle = `@John Doe#${bob.discriminator}`
+    const sent: Array<{ id: string; content: string; mentionType?: string }> = []
+
+    async function participants(): Promise<string[]> {
+      const response = await page.request.get(`/api/community/channels/${threadId}/members`)
+      expect(response.status()).toBe(200)
+      const payload = await response.json() as { members: Array<{ userId: string }> }
+      return payload.members.map((member) => member.userId).sort()
+    }
+
+    async function attention(role: "bob" | "carol") {
+      const response = await fetch(new URL("/api/community/users/me/attention?limit=200", page.url()), {
+        headers: { Cookie: actors.sessionCookie(role) },
+      })
+      expect(response.status).toBe(200)
+      const payload = await response.json() as {
+        stale?: boolean
+        truncated: boolean
+        items: Array<{ kind: string; messageId?: string; scopeId?: string }>
+      }
+      expect(payload.stale).not.toBe(true)
+      expect(payload.truncated).toBe(false)
+      return payload.items.filter((item) => item.kind === "mention" && item.scopeId === threadId)
+        .map((item) => item.messageId)
+    }
+
+    async function send(content: string, mentionType?: "everyone") {
+      const editable = composerEditable(page)
+      await editable.fill(content)
+      const confirmation = page.waitForResponse((response) => response.request().method() === "POST"
+        && new URL(response.url()).pathname === `/api/community/channels/${threadId}/messages`)
+      await editable.press("Enter")
+      const response = await confirmation
+      expect(response.status()).toBe(201)
+      const outgoing = response.request().postDataJSON() as { content: string; mentionType?: string }
+      expect(outgoing.content).toBe(content)
+      expect(outgoing.mentionType).toBe(mentionType)
+      const created = await response.json() as { message: { id: string; content: string } }
+      expect(created.message.content).toBe(content)
+      const persisted = await page.request.get(`/api/community/messages/${created.message.id}`)
+      expect(persisted.status()).toBe(200)
+      expect(await persisted.json()).toMatchObject({ id: created.message.id, content, channelId: threadId })
+      const body = page.getByTestId(tid.message(created.message.id)).locator("[data-community-message-body]")
+      await expect(body).toBeVisible()
+      await expect(editable).toHaveText("")
+      sent.push({ id: created.message.id, content, mentionType: outgoing.mentionType })
+      return { id: created.message.id, body }
+    }
+
+    expect(await attention("bob")).toEqual([])
+    expect(await attention("carol")).toEqual([])
+    const negativeBodies = [
+      `𠮷${handle} 𠀀${handle} 𝟙${handle} ${handle}𠮷 ${handle}𝟙`,
+      `\\${handle} \\@everyone &#64;John Doe#${bob.discriminator} &#64;everyone`,
+      `\`${handle} @everyone\``,
+      `\`\`\`txt\n${handle} @everyone\n\`\`\``,
+      `[${handle} @everyone][protected]\n\n[protected]: https://example.com/@everyone`,
+      "[label](https://example.com/@everyone)",
+    ]
+    for (const content of negativeBodies) {
+      const { body } = await send(content)
+      await expect(body.locator('[title="@John Doe"], [title="@everyone"]')).toHaveCount(0)
+      if (content === negativeBodies[0]) await expect(body).toHaveText(content)
+    }
+    expect(await participants()).toEqual([actors.userId("alice")])
+    expect(await attention("bob")).toEqual([])
+    expect(await attention("carol")).toEqual([])
+
+    const positive = await send(`🎉${handle}`)
+    await expect(positive.body.getByRole("button", { name: "@John Doe", exact: true })).toHaveCount(1)
+    expect(await participants()).toEqual([actors.userId("alice"), actors.userId("bob")].sort())
+    expect(await attention("bob")).toEqual([positive.id])
+    expect(await attention("carol")).toEqual([])
+
+    const broadcast = await send("@everyone", "everyone")
+    await expect(broadcast.body.locator('[title="@everyone"]')).toHaveCount(1)
+    expect(await attention("bob")).toEqual(expect.arrayContaining([positive.id, broadcast.id]))
+    expect(await attention("carol")).toEqual([broadcast.id])
+    expect(await participants()).toEqual([actors.userId("alice"), actors.userId("bob")].sort())
+
+    const explicit = await page.request.post(`/api/community/channels/${threadId}/messages`, {
+      data: { content: "explicit API broadcast without body token", mentionType: "everyone" },
+    })
+    expect(explicit.status()).toBe(201)
+    const explicitBody = await explicit.json() as { message: { id: string } }
+    expect(await attention("carol")).toEqual(expect.arrayContaining([broadcast.id, explicitBody.message.id]))
+    expect(await participants()).toEqual([actors.userId("alice"), actors.userId("bob")].sort())
+    const negativeIds = sent.slice(0, negativeBodies.length).map((message) => message.id)
+    for (const role of ["bob", "carol"] as const) {
+      const delivered = await attention(role)
+      expect(delivered.filter((id) => negativeIds.includes(id!))).toEqual([])
+    }
+    await testInfo.attach("native-markdown-consumption.json", {
+      body: JSON.stringify({ serverId, threadId, sent, explicitMessageId: explicitBody.message.id,
+        participants: await participants(), bobMentions: await attention("bob"), carolMentions: await attention("carol") }, null, 2),
+      contentType: "application/json",
+    })
+  })
+
   // Types `@John`, waits for the popup, and picks the member whose row id is
   // `memberId` (the popup option testid keys off the row id — labels are
   // identical for two "John Doe"s, so text can't disambiguate). Verifies the

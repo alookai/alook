@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractMentionedUserIds } from "../../src/utils/community-mentions";
+import { extractMentionedUserIds, isMentionStartBoundary, isMentionEndBoundary } from "../../src/utils/community-mentions";
 
 // Every mention now resolves ONLY via a fully-tagged `@Name#dddd` handle — a
 // hand-typed bare `@Alice` is not a mention. Rosters carry a discriminator.
@@ -11,7 +11,40 @@ const ROSTER = [
   { userId: "u5", name: "李雷", discriminator: "0005" },
 ];
 
+describe("isMentionStartBoundary — complete Unicode prefix", () => {
+  it.each(["mail", "回复", "é", "𠮷", "𠀀", "𝟙", "_", "-", "9"])("rejects the final identifier code point in %s", (identifier) => {
+    expect(isMentionStartBoundary(identifier)).toBe(false);
+    expect(isMentionStartBoundary(`earlier text ${identifier}`)).toBe(false);
+  });
+
+  it.each(["", " ", "\n", "（", ".", "🎉", "\u0301", "\uD842", "\uDFB7"])("accepts a non-identifier final code point: %j", (boundary) => {
+    expect(isMentionStartBoundary(boundary)).toBe(true);
+    if (boundary) expect(isMentionStartBoundary(`𠮷𝟙${boundary}`)).toBe(true);
+  });
+
+  it("uses only the final code point after a supplementary pair or a lone surrogate", () => {
+    expect(isMentionStartBoundary("𠮷a")).toBe(false);
+    expect(isMentionStartBoundary("𠮷.")).toBe(true);
+    expect(isMentionStartBoundary("\uD842a")).toBe(false);
+    expect(isMentionStartBoundary("\uDFB7 ")).toBe(true);
+    expect(isMentionStartBoundary("x".repeat(20_000) + "🎉")).toBe(true);
+  });
+});
+
 describe("extractMentionedUserIds", () => {
+  it.each(["x", "é", "𠮷", "𠀀", "𝟙", "_", "-"])("rejects the complete suffix identifier %s", (suffix) => {
+    expect(isMentionEndBoundary(suffix)).toBe(false);
+    expect(extractMentionedUserIds(`@Alice#0001${suffix} @Bob#0002`, ROSTER)).toEqual(["u2"]);
+  });
+
+  it.each(["", "🎉", "。", " ", "\uD842", "\uDFB7"])("accepts the complete suffix boundary %j", (suffix) => {
+    expect(isMentionEndBoundary(suffix)).toBe(true);
+    expect(extractMentionedUserIds(`@Alice#0001${suffix}`, ROSTER)).toEqual(["u1"]);
+  });
+
+  it.each([1, 2, 3, 4])("uses raw backslash parity for a run of %s", (count) => {
+    expect(extractMentionedUserIds("\\".repeat(count) + "@Alice#0001", ROSTER)).toEqual(count % 2 ? [] : ["u1"]);
+  });
   it("returns empty when content is empty", () => {
     expect(extractMentionedUserIds("", ROSTER)).toEqual([]);
   });
@@ -50,8 +83,13 @@ describe("extractMentionedUserIds", () => {
     expect(extractMentionedUserIds("contact me@Alice#0001.com", ROSTER)).toEqual([]);
   });
 
-  it.each(["mail", "回复", "é", "𠮷", "_", "-", "9"])("rejects an identifier prefix before a tagged mention: %s", (prefix) => {
+  it.each(["mail", "回复", "é", "𠮷", "𠀀", "𝟙", "_", "-", "9"])("rejects an identifier prefix before a tagged mention: %s", (prefix) => {
     expect(extractMentionedUserIds(`${prefix}@Alice#0001`, ROSTER)).toEqual([]);
+    expect(extractMentionedUserIds(`earlier text ${prefix}@Alice#0001 then @Bob#0002`, ROSTER)).toEqual(["u2"]);
+  });
+
+  it.each([" ", "（", ".", "🎉", "\u0301", "\uD842", "\uDFB7"])("keeps an exact handle after the final boundary: %j", (boundary) => {
+    expect(extractMentionedUserIds(`𠮷${boundary}@Alice#0001`, ROSTER)).toEqual(["u1"]);
   });
 
   it("handles unicode names via handle", () => {

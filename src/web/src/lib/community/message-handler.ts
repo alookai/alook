@@ -1,6 +1,5 @@
 import {
   queries,
-  extractMentionedUserIds,
   isMentionType,
   MAX_MESSAGE_CONTENT_LENGTH,
   MAX_ATTACHMENTS_PER_MESSAGE,
@@ -22,6 +21,7 @@ import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
 import { broadcastToUserSafe, fanOutToChannel } from "./fanout"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { communityProducerContract } from "./producer-contract"
+import { extractChatMentionedUserIds } from "./chat-markdown"
 
 const log = createLogger({ service: "community-message-handler" })
 
@@ -411,7 +411,7 @@ export async function createCommunityMessage(params: {
         const candidates = members
           .filter((m) => m.userId !== authorId && m.userName)
           .map((m) => ({ userId: m.userId, name: m.userName as string, discriminator: m.discriminator }))
-        for (const id of extractMentionedUserIds(content, candidates)) {
+        for (const id of extractChatMentionedUserIds(content, candidates)) {
           mentionTargets.add(id)
           explicitMentionTargets.add(id)
         }

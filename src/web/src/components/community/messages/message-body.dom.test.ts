@@ -136,6 +136,45 @@ describe("MessageBody — spoiler nested formatting (full Streamdown pipeline)",
 // sanitize pipeline — the mdast-only unit tests in message-markdown.test.ts
 // pass kebab props directly and can't catch this.
 describe("MessageBody — mention pill survives sanitize (full pipeline)", () => {
+  it("updates the same body through partial supplementary-prefixed input and a genuine mention", () => {
+    const onOpenProfile = vi.fn()
+    const text = "𠮷@Alice#0001"
+    let renderer: ReturnType<typeof render>
+    act(() => { renderer = render(React.createElement(MessageBody, { text: "", onOpenProfile })) })
+    for (let end = 1; end <= text.length; end++) {
+      act(() => { renderer!.rerender(React.createElement(MessageBody, { text: text.slice(0, end), onOpenProfile })) })
+      const body = renderer!.container.querySelector("[data-community-message-body]")!
+      expect(body.textContent).toBe(text.slice(0, end))
+      expect(body.querySelectorAll('[title="@Alice"]')).toHaveLength(0)
+    }
+    act(() => { renderer!.rerender(React.createElement(MessageBody, { text: "🎉@Alice#0001", onOpenProfile })) })
+    fireEvent.click(renderer!.getByRole("button", { name: "@Alice" }))
+    expect(onOpenProfile).toHaveBeenCalledWith("Alice", expect.anything(), "0001")
+    act(() => { renderer!.rerender(React.createElement(MessageBody, { text, onOpenProfile })) })
+    expect(renderer!.container.querySelectorAll('[title="@Alice"]')).toHaveLength(0)
+    expect(renderer!.container.querySelector("[data-community-message-body]")!.textContent).toBe(text)
+  })
+
+  it.each([
+    ["𠮷@Alice#0001", "𠮷@Alice#0001"],
+    ["@Alice#0001𠀀", "@Alice#0001𠀀"],
+    ["\\@Alice#0001", "@Alice#0001"],
+    ["&#64;Alice#0001", "@Alice#0001"],
+    ["\\@everyone", "@everyone"],
+    ["&commat;everyone", "@everyone"],
+    ["`@Alice#0001 @everyone`", "@Alice#0001 @everyone"],
+    ["[@Alice#0001 @everyone](https://example.com)", "@Alice#0001 @everyone"],
+    ["[@Alice#0001 @everyone][target]\n\n[target]: https://example.com", "@Alice#0001 @everyone"],
+  ])("keeps protected/literal text through the actual pipeline: %s", (text, visible) => {
+    let renderer: ReturnType<typeof render>
+    act(() => {
+      renderer = render(React.createElement(MessageBody, { text, onOpenProfile: vi.fn() }))
+    })
+    const body = renderer!.container.querySelector("[data-community-message-body]")!
+    expect(body).toHaveTextContent(visible)
+    expect(body.querySelectorAll('[title="@Alice"], [title="@everyone"]')).toHaveLength(0)
+  })
+
   it("renders an HTML-looking member name as one literal pill and opens the tagged profile", () => {
     const onOpenProfile = vi.fn()
     let renderer: ReturnType<typeof render>
