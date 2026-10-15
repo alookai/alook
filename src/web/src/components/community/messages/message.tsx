@@ -895,31 +895,48 @@ function MessageImpl({
 
   if (!interactive) return row
 
-  // Coarse/touch input: tap opens the existing dropdown menu. Deliberately do
-  // not mount ContextMenuTrigger here — its long-press gesture competes with
-  // native message-text selection on iOS/Android.
-  if (touchFallbackActive || touchMenuOpen) {
-    return (
-      <DropdownMenu
-        open={touchMenuOpen && !selectMode}
-        onOpenChange={(open) => {
-          setTouchMenuOpen(open && !selectMode)
-          if (!open) setLinkTarget(null)
-        }}
-      >
-        <div className="relative">
-          {swipeReplyEnabled && (
-            <div
-              aria-hidden
-              data-mobile-reply-affordance
-              data-threshold-crossed={swipeVisual.crossed || undefined}
-              className="absolute inset-y-0 left-0 z-0 flex w-14 items-center justify-center text-muted-foreground"
-              style={{ opacity: Math.min(1, swipeVisual.offset / 48) }}
-            >
-              <Reply className="size-5" />
-            </div>
+  const touchMenuActive = touchFallbackActive || touchMenuOpen
+  const contextMenuEnabled = activated && !selectMode && !touchMenuActive
+  return (
+    <DropdownMenu
+      open={touchMenuOpen && !selectMode}
+      onOpenChange={(open) => {
+        setTouchMenuOpen(open && !selectMode)
+        if (!open) setLinkTarget(null)
+      }}
+    >
+      <div className="relative">
+        {swipeReplyEnabled && (
+          <div
+            aria-hidden
+            data-mobile-reply-affordance
+            data-threshold-crossed={swipeVisual.crossed || undefined}
+            className="absolute inset-y-0 left-0 z-0 flex w-14 items-center justify-center text-muted-foreground"
+            style={{ opacity: Math.min(1, swipeVisual.offset / 48) }}
+          >
+            <Reply className="size-5" />
+          </div>
+        )}
+        <ContextMenu
+          disabled={!contextMenuEnabled}
+          open={contextOpen && contextMenuEnabled}
+          onOpenChange={(open) => {
+            setContextOpen(open && contextMenuEnabled)
+            if (!open) setLinkTarget(null)
+          }}
+        >
+          <ContextMenuTrigger
+            className="select-text"
+            style={{ WebkitTouchCallout: "default" }}
+            render={row}
+          />
+          {activated && !touchMenuActive && (
+            <ContextMenuContent className="w-48">
+              <MessageContextItems {...menuHandlers} {...linkMenuHandlers} />
+            </ContextMenuContent>
           )}
-          {row}
+        </ContextMenu>
+        {touchMenuActive && (
           <DropdownMenuTrigger
             disabled={selectMode}
             render={(
@@ -931,7 +948,9 @@ function MessageImpl({
               />
             )}
           />
-        </div>
+        )}
+      </div>
+      {touchMenuActive && (
         <DropdownMenuContent
           anchor={touchMenuAnchor ?? undefined}
           positionMethod="fixed"
@@ -943,25 +962,8 @@ function MessageImpl({
         >
           <MessageDropdownItems {...menuHandlers} {...linkMenuHandlers} touch />
         </DropdownMenuContent>
-      </DropdownMenu>
-    )
-  }
-
-  if (!activated) return row
-  return (
-    <ContextMenu
-      disabled={selectMode}
-      open={contextOpen && !selectMode}
-      onOpenChange={(open) => {
-        setContextOpen(open && !selectMode)
-        if (!open) setLinkTarget(null)
-      }}
-    >
-      <ContextMenuTrigger className="select-text" render={row} />
-      <ContextMenuContent className="w-48">
-        <MessageContextItems {...menuHandlers} {...linkMenuHandlers} />
-      </ContextMenuContent>
-    </ContextMenu>
+      )}
+    </DropdownMenu>
   )
 }
 

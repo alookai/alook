@@ -205,7 +205,7 @@ async function expectTouchActionMenu(
   }).toEqual({
     menuVisible: true,
     touchTriggerCount: 1,
-    contextTriggerCount: 0,
+    contextTriggerCount: 1,
   })
   return action
 }
@@ -359,6 +359,8 @@ test("same message row recovers its action menu from mouse to touch", async ({ c
   const message = alice.page.getByTestId(tid.message(messageId))
   const body = message.getByText(`pointer modality ${stamp}`, { exact: true })
   await expect(body).toBeVisible()
+  const originalBody = await body.elementHandle()
+  expect(originalBody).not.toBeNull()
   const beforeSeq = await latestSeq(alice.page, channelId)
   const messageCreatesBefore = aliceProxy.frames.filter((frame) => (
     communityFrameEvents(frame).some((event) => event.type === "community:message.create")
@@ -366,10 +368,13 @@ test("same message row recovers its action menu from mouse to touch", async ({ c
 
   await body.click()
   await expect(alice.page.getByRole("menuitem")).toHaveCount(0, { timeout: 3_000 })
+  expect(await body.evaluate((element, original) => element === original, originalBody)).toBe(true)
   await body.tap()
   const copyAction = await expectTouchActionMenu(alice.page, message, "Copy")
+  expect(await body.evaluate((element, original) => element === original, originalBody)).toBe(true)
   await alice.page.keyboard.press("Escape")
   await expect(copyAction).toBeHidden({ timeout: 3_000 })
+  expect(await body.evaluate((element, original) => element === original, originalBody)).toBe(true)
 
   expect(await latestSeq(alice.page, channelId)).toBe(beforeSeq)
   expect(aliceProxy.frames.filter((frame) => (

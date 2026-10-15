@@ -88,6 +88,7 @@ vi.mock("@/components/ui/context-menu", async () => {
     }) => ReactModule.cloneElement(render, {
       ...props,
       className: [render.props.className, props.className].filter(Boolean).join(" "),
+      style: { ...props.style, ...render.props.style },
       "data-slot": "context-menu-trigger",
     } as React.HTMLAttributes<HTMLElement>),
     ContextMenuContent: ({ children }: { children: React.ReactNode }) =>
@@ -384,11 +385,13 @@ describe("Message memo comparator", () => {
     expect(view.container.querySelector("[data-avatar-kind]")).toBe(avatar)
   })
 
-  it("keeps an inactive desktop row bare while selecting and restores ordinary activation afterward", () => {
+  it("keeps an inactive desktop row stable with disabled menus while selecting", () => {
     const props = { m: baseMsg(), onOpenThread: vi.fn(), onEnterSelect: vi.fn(), hoverCapable: true }
     const view = rtlRender(makeTree(props))
     const avatar = view.container.querySelector("[data-avatar-kind]")
-    expect(view.container.querySelector("mock-context-menu")).toBeNull()
+    const menu = view.container.querySelector("mock-context-menu")!
+    expect(menu).toHaveAttribute("disabled")
+    expect(view.container.querySelector("mock-context-menu-content")).toBeNull()
     view.rerender(makeTree({ ...props, selectMode: true }))
     const row = view.container.querySelector(".group.relative")!
     fireEvent.pointerEnter(row, { pointerType: "mouse" })
@@ -396,11 +399,15 @@ describe("Message memo comparator", () => {
     fireEvent.focus(row)
     fireEvent.keyDown(row, { key: "F10", shiftKey: true })
     expect(view.container.querySelector("[data-avatar-kind]")).toBe(avatar)
-    expect(view.container.querySelector("mock-context-menu")).toBeNull()
+    expect(view.container.querySelector("mock-context-menu")).toBe(menu)
+    expect(menu).toHaveAttribute("disabled")
+    expect(view.container.querySelector("mock-context-menu-content")).toBeNull()
     view.rerender(makeTree(props))
     expect(view.container.querySelector("[data-avatar-kind]")).toBe(avatar)
     fireEvent.pointerEnter(view.container.querySelector(".group.relative")!, { pointerType: "mouse" })
-    expect(view.container.querySelector("mock-context-menu")).not.toBeNull()
+    expect(view.container.querySelector("mock-context-menu")).toBe(menu)
+    expect(menu).not.toHaveAttribute("disabled")
+    expect(view.container.querySelector("mock-context-menu-content")).not.toBeNull()
   })
 
   it("keeps selection controls out of the message row layout", () => {
@@ -1225,7 +1232,7 @@ describe("Message touch action menu", () => {
       currentTarget,
       nativeEvent: { type: "click" },
     }))
-    expect(findControlledTouchMenu(renderer!)).toBeUndefined()
+    expect(findControlledTouchMenu(renderer!)?.props.open).toBe(false)
 
     row = findMenuRow(renderer!)
     act(() => row.props.onPointerDownCapture({
@@ -1235,12 +1242,14 @@ describe("Message touch action menu", () => {
       nativeEvent: { type: "pointerdown", pointerType: "touch" },
     }))
     row = findMenuRow(renderer!)
-    expect(row.props["data-slot"]).toBeUndefined()
+    expect(row.props["data-slot"]).toBe("context-menu-trigger")
     expect(row.props.onClick).toBeTypeOf("function")
     expect(renderer!.root.findAllByProps({ "data-slot": "dropdown-menu-trigger" })
       .filter((node) => node.props["aria-hidden"] === true)).toHaveLength(1)
     expect(renderer!.root.findAllByProps({ "data-slot": "context-menu-trigger" }))
-      .toHaveLength(0)
+      .toHaveLength(1)
+    expect(renderer!.root.findByType("mock-context-menu").props.disabled).toBe(true)
+    expect(row.props.style.WebkitTouchCallout).toBe("default")
 
     act(() => row.props.onTouchStart({ target: ownedTarget, currentTarget }))
     act(() => row.props.onTouchEnd({ target: ownedTarget, currentTarget }))
@@ -1350,7 +1359,7 @@ describe("Message touch action menu", () => {
     expect(onReply).toHaveBeenCalledOnce()
     expect(vibrate).toHaveBeenCalledOnce()
     expect(currentTarget.setPointerCapture).toHaveBeenCalledWith(1)
-    expect(row.props.style).toBeUndefined()
+    expect(row.props.style.transform).toBeUndefined()
   })
 
   it("rejects vertical movement without replying or vibrating", async () => {
@@ -1528,7 +1537,8 @@ describe("Message touch action menu", () => {
     expect(trigger?.findAll((node) => node.type === "svg")).toHaveLength(0)
     expect(renderer!.root.findAll(
       (node) => node.props["data-slot"] === "context-menu-trigger",
-    )).toHaveLength(0)
+    )).toHaveLength(1)
+    expect(renderer!.root.findByType("mock-context-menu").props.disabled).toBe(true)
 
     const row = renderer!.root.find(
       (node) => typeof node.props.className === "string"
@@ -1702,6 +1712,79 @@ describe("Message desktop text selection", () => {
 })
 
 describe("Message image attachment layout", () => {
+  it.each([
+    { name: "attachment", fields: { attachments: [{ kind: "image" as const, name: "same.png", url: "/same.png" }] } },
+    { name: "embed", fields: { embeds: [{ image: { url: "/same.png", width: 320, height: 200 } }] } },
+    { name: "Markdown", fields: { content: "![Image](/same.png)" } },
+  ])("retains a loaded $name image through activation, input menus and selection", async ({ fields }) => {
+    const onImageLoad = vi.fn()
+    const props = {
+      m: baseMsg(fields),
+      onOpenThread: vi.fn(),
+      onCopy: vi.fn(),
+      onImageLoad,
+      onReply: vi.fn(),
+    }
+    const renderer = render(makeTree(props))
+    const image = renderer.root.element.querySelector<HTMLImageElement>('[data-remote-image-kind="content"]')!
+    Object.defineProperties(image, {
+      decode: { configurable: true, value: () => Promise.resolve() },
+      naturalWidth: { configurable: true, value: 320 },
+      naturalHeight: { configurable: true, value: 200 },
+    })
+    fireEvent.load(image)
+    await act(async () => { await Promise.resolve() })
+    expect(image).toHaveAttribute("data-remote-image-state", "ready")
+    const row = () => renderer.root.find((node) => node.type === "div" && typeof node.props.onPointerEnter === "function")
+    const originalRow = row().element
+    const target = { closest: () => null }
+    const assertRetained = () => {
+      expect(row().element).toBe(originalRow)
+      expect(renderer.root.element.querySelector('[data-remote-image-kind="content"]')).toBe(image)
+      expect(image.isConnected).toBe(true)
+      expect(image).toHaveAttribute("src", "/same.png")
+      expect(image).toHaveAttribute("data-remote-image-state", "ready")
+      expect(image).toHaveClass("opacity-100")
+      expect(onImageLoad).toHaveBeenCalledTimes("content" in fields ? 0 : 1)
+    }
+    for (let cycle = 0; cycle < 3; cycle++) {
+      act(() => row().props.onPointerEnter({
+        target,
+        nativeEvent: { type: "pointerenter", pointerType: "mouse" },
+      }))
+      assertRetained()
+    }
+    act(() => renderer.root.findByType("mock-context-menu").props.onOpenChange(true))
+    assertRetained()
+    act(() => renderer.root.findByType("mock-context-menu").props.onOpenChange(false))
+    act(() => row().props.onPointerDownCapture({
+      target,
+      button: 0,
+      nativeEvent: { type: "pointerdown", pointerType: "touch" },
+    }))
+    assertRetained()
+    const touchMenu = () => renderer.root.findAllByType("mock-dropdown-menu")
+      .find((node) => typeof node.props.open === "boolean")!
+    act(() => touchMenu().props.onOpenChange(true))
+    expect(renderer.root.findByType("mock-context-menu").props.disabled).toBe(true)
+    assertRetained()
+    act(() => touchMenu().props.onOpenChange(false))
+    act(() => row().props.onPointerEnter({
+      target,
+      nativeEvent: { type: "pointerenter", pointerType: "mouse" },
+    }))
+    assertRetained()
+    renderer.rerender(makeTree({ ...props, selectMode: true }))
+    expect(renderer.root.findByType("mock-context-menu").props.disabled).toBe(true)
+    expect(renderer.root.element.querySelector('[data-remote-image-kind="content"]')).toBe(image)
+    renderer.rerender(makeTree(props))
+    assertRetained()
+    renderer.rerender(makeTree({ ...props, hoverCapable: false }))
+    assertRetained()
+    renderer.rerender(makeTree(props))
+    assertRetained()
+  })
+
   it.each([
     { name: "attachment", fields: { attachments: [{ kind: "image" as const, name: "same.png", url: "/same.png" }] } },
     { name: "embed", fields: { embeds: [{ image: { url: "/same.png", width: 320, height: 200 } }] } },
@@ -1929,7 +2012,8 @@ describe("Message lazy overlays", () => {
     const target = { closest: () => authorButton }
 
     act(() => row.props.onPointerEnter({ target }))
-    expect(renderer!.root.findAllByType("mock-context-menu")).toHaveLength(0)
+    expect(renderer!.root.findByType("mock-context-menu").props.disabled).toBe(true)
+    expect(renderer!.root.findAllByType("mock-context-menu-content")).toHaveLength(0)
 
     const event = { clientX: 10, clientY: 20 }
     act(() => authorButton!.props.onClick(event))
@@ -1937,7 +2021,7 @@ describe("Message lazy overlays", () => {
     expect(onOpenProfile).toHaveBeenCalledWith("Alice", event, undefined, "u1")
   })
 
-  it("keeps the context-menu root and toolbar lazy until activation", () => {
+  it("keeps menu contents and toolbar lazy with a stable disabled root until activation", () => {
     const onOpenThread = vi.fn()
     let renderer: DomRenderer
     act(() => {
@@ -1949,7 +2033,8 @@ describe("Message lazy overlays", () => {
     })
     const json = renderer!.toJSON()
     const tree = JSON.stringify(json)
-    expect(tree).not.toContain("mock-context-menu")
+    expect(renderer!.root.findByType("mock-context-menu").props.disabled).toBe(true)
+    expect(tree).not.toContain("mock-context-menu-content")
     expect(tree).not.toContain("reaction-add")
   })
 

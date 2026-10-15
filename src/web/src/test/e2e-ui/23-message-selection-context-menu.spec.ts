@@ -46,8 +46,6 @@ test("selected message text keeps the native context menu", async ({ caseActors 
   const messageBody = row.locator("[data-community-message-body]")
   await expect(messageBody).toContainText(body)
 
-  // Message action overlays (including Base UI's context-menu trigger) mount
-  // lazily after hover. Reproduce the real pointer path before selecting text.
   await row.hover()
   const trigger = row.locator('[data-slot="context-menu-trigger"]')
   await expect(trigger).toHaveCount(1)
