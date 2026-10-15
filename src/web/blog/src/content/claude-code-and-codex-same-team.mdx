@@ -166,12 +166,29 @@ Closing a terminal is different from starting with no history: [Claude Code can 
 
 Pick a setup based on who needs to participate and how often the work changes hands. You can combine the options below, including the plugin for calling one tool from the other.
 
-| Situation | Start with | What it handles | Main limitation |
-| --- | --- | --- | --- |
-| One small or experimental task | Manual handoff | Full human control with almost no setup | You carry every update between sessions |
-| Code moving between implementer and reviewer | Git branches, commits, and pull requests | Diffs, code history, and review | Git does not assign the next owner or preserve every decision |
-| The whole job stays inside one product | Claude Code subagents or Codex threads | Parallel work inside one runtime | It does not connect independent Claude Code and Codex sessions |
-| The same workflow repeats across both tools | A shared workspace such as Alook | Teammates work directly with each other's bots, with persistent identities and saved context | Bots need their connected computers online; setup may be unnecessary for one-off work |
+**One small or experimental task**
+
+- **Start with:** Manual handoff
+- **What it handles:** Full human control with almost no setup
+- **Main limitation:** You carry every update between sessions
+
+**Code moving between implementer and reviewer**
+
+- **Start with:** Git branches, commits, and pull requests
+- **What it handles:** Diffs, code history, and review
+- **Main limitation:** Git does not assign the next owner or preserve every decision
+
+**The whole job stays inside one product**
+
+- **Start with:** Claude Code subagents or Codex threads
+- **What it handles:** Parallel work inside one runtime
+- **Main limitation:** It does not connect independent Claude Code and Codex sessions
+
+**The same workflow repeats across both tools**
+
+- **Start with:** A shared workspace such as Alook
+- **What it handles:** Teammates work directly with each other's bots, with persistent identities and saved context
+- **Main limitation:** Bots need their connected computers online; setup may be unnecessary for one-off work
 
 [Claude Code subagents](https://docs.anthropic.com/en/docs/claude-code/sub-agents) can work in separate context windows and report back to a main Claude Code session. The [Codex app](https://openai.com/index/introducing-the-codex-app/) supports multiple agents in parallel, with separate threads and isolated copies of a repository. These features work well when every agent is inside the same product. They do not make the other product share its private session.
 
