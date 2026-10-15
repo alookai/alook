@@ -1,3 +1,5 @@
+import { conversationEntryFromChannel } from "@/test/conversation-entry-fixtures"
+import { conversationEntryOptions } from "@/lib/community/conversation-entry"
 import "fake-indexeddb/auto"
 import { createElement, type PropsWithChildren } from "react"
 import { dehydrate, hydrate, CancelledError, QueryClient, QueryClientProvider } from "@tanstack/react-query"
@@ -41,7 +43,7 @@ import {
   useForumSidebarThreads,
   type SidebarThreadEnvelope,
 } from "./use-forum-sidebar-threads"
-import {
+import { readCommunityRestoredCollections,
   clearPersistedCache,
   createIdbPersister,
   PERSIST_BUSTER,
@@ -206,7 +208,7 @@ describe("forum sidebar canonical projection", () => {
       retainedDisposition: "opener-archived",
     }
     if (order === "metadata-first") {
-      await act(async () => { resolveMetadata(metadata) })
+      await act(async () => { resolveMetadata(conversationEntryFromChannel(metadata)) })
       await waitFor(() => expect(rendered.result.current.metadata.isVerified).toBe(true))
       await act(async () => { resolveSidebar(negative) })
     } else {
@@ -216,7 +218,7 @@ describe("forum sidebar canonical projection", () => {
         pending: true, tags: ["archived"], parentMessageId: null,
       })
       expect(registry.collections.channelMemberships.get("post-1:viewer:access")).toBeUndefined()
-      await act(async () => { resolveMetadata(metadata) })
+      await act(async () => { resolveMetadata(conversationEntryFromChannel(metadata)) })
     }
     await waitFor(() => expect(rendered.result.current.metadata.isVerified).toBe(true))
     await waitFor(() => expect(rendered.result.current.sidebar.isSuccess).toBe(true))
@@ -368,7 +370,7 @@ describe("forum sidebar canonical projection", () => {
     await waitFor(() => expect(sidebar.result.current.threads[0]?.title).toBe("Canonical title"))
     let releaseRetained!: (value: SidebarThreadEnvelope) => void
     const retained = new Promise<SidebarThreadEnvelope>((resolve) => { releaseRetained = resolve })
-    apiFetchMock.mockImplementation((url) => url === "/api/community/channels/post-1" ? Promise.resolve({ categoryId: null, topic: "", position: 0, messageCount: 0, parentChannelId: null, parentMessageId: null, creatorId: null, lastMessageAt: null, ...envelope().channels[0], id: "post-1", serverId: "server-1", type: "thread", name: "Canonical title", archived: false, createdAt: new Date().toISOString() }) : retained)
+    apiFetchMock.mockImplementation((url) => url === "/api/community/channels/post-1/messages?entry=1" ? Promise.resolve(conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0, parentChannelId: "forum-1", parentMessageId: "opener-1", creatorId: null, lastMessageAt: null, ...envelope().channels[0], id: "post-1", serverId: "server-1", type: "thread", name: "Canonical title", archived: false, createdAt: new Date().toISOString() })) : retained)
     retainId = "post-1"
     sidebar.rerender()
     const route = renderHook(() => {
@@ -377,13 +379,13 @@ describe("forum sidebar canonical projection", () => {
       return { metadata, opener }
     }, { wrapper })
     try {
-      expect(route.result.current.metadata.identityKnown).toBe(true)
+      expect(route.result.current.metadata.identityKnown).toBe(false)
       expect(route.result.current.metadata.canRead).toBe(false)
       await waitFor(() => expect(route.result.current.metadata.canRead).toBe(true))
       expect(route.result.current.opener.data?.content).toBe("Canonical title")
       await waitFor(() => expect(apiFetchMock.mock.calls.some(([url]) => new URL(url, "http://localhost").searchParams.get("retainId") === "post-1")).toBe(true))
-      expect(apiFetchMock.mock.calls.filter(([url]) => url === "/api/community/channels/post-1")).toHaveLength(1)
-      expect(isChannelMetadataTokenCurrent(queryClient.getQueryData<{ identityProof: Parameters<typeof isChannelMetadataTokenCurrent>[0] }>(communityKeys.channelMeta("server-1", "post-1"))!.identityProof)).toBe(true)
+      expect(apiFetchMock.mock.calls.filter(([url]) => url === "/api/community/channels/post-1/messages?entry=1")).toHaveLength(1)
+      expect(isChannelMetadataTokenCurrent(queryClient.getQueryData(conversationEntryOptions(queryClient, { serverId: "server-1", channelId: "post-1" }).queryKey)!.proof)).toBe(true)
     } finally {
       route.unmount()
       sidebar.unmount()
@@ -1159,7 +1161,7 @@ describe("forum sidebar canonical projection", () => {
     const restoredClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     hydrate(restoredClient, restored!.clientState)
     const restoredRegistry = createCommunityDbRegistry(restoredClient, "viewer")
-    restoredRegistry.captureRestoredCollections()
+    restoredRegistry.captureRestoredCollections(readCommunityRestoredCollections(restored, "viewer"))
     await restoredRegistry.preload()
     const unregister = registerCommunityDbRegistry(restoredRegistry)
     cleanups.push(

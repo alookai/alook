@@ -1,5 +1,5 @@
 "use client"
-import { useCallback, useEffect, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react"
 import { createStore, useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useInfiniteQuery, useIsMutating, useQueryClient, type Query } from "@tanstack/react-query"
 import { compareAsciiSqliteBinary, DEFAULT_MESSAGE_PAGE_SIZE, type CommunityLegacyThreadsRead, type CommunityThreadsRead } from "@alook/shared"
@@ -16,6 +16,7 @@ import type { ForumThread, Msg } from "@/lib/community/models/message"
 import type { ChannelRow } from "@/lib/community-db/schema"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import { useForumTags } from "./use-channel-panels"
+import { useConversationResource } from "./use-conversation-entry"
 import { forumFeedMatchesTags, forumFeedWindow, normalizeThreadResources, projectThread, type ForumFeedPage, type ForumFeedTransportPage } from "./forum-feed-window"
 
 export { removeForumPostFromFeed } from "./forum-feed-window"
@@ -89,8 +90,10 @@ export function mapForumFeedPages(pages: ForumFeedPage[], messages: ReadonlyMap<
 export function useForumFeed(serverId: string, channelId: string) {
   const queryClient = useQueryClient(), channels = useCanonicalChannelsById(), profiles = useCanonicalProfilesByUserId()
   const readTag = () => { try { return readForumTagSelection(window.localStorage, channelId) } catch { return "All" } }
-  const [selection, setSelection] = useAtom(useCreateAtom({ channelId, tag: readTag() }))
-  const tag = selection.channelId === channelId ? selection.tag : readTag()
+  const subscribeTag = useCallback((notify: () => void) => { window.addEventListener("storage", notify); return () => window.removeEventListener("storage", notify) }, [])
+  const persistedTag = useSyncExternalStore(subscribeTag, readTag, () => "All")
+  const [selection, setSelection] = useAtom(useCreateAtom({ channelId: null as string | null, tag: "All" }))
+  const tag = selection.channelId === channelId ? selection.tag : persistedTag
   const selectTag = useCallback((next: string) => { setSelection({ channelId, tag: next }); try { writeForumTagSelection(window.localStorage, channelId, next) } catch {} }, [channelId, setSelection])
   const tagsQuery = useForumTags(channelId, true)
   const pendingTagCommands = useIsMutating({ mutationKey: ["community", "forum-tag-command"], exact: true, predicate: (mutation) => {
@@ -99,11 +102,13 @@ export function useForumFeed(serverId: string, channelId: string) {
   } })
   useEffect(() => { if (!pendingTagCommands && tagsQuery.isSuccess && tag !== "All" && validateForumTagSelection(tag, tagsQuery.data.tags) === "All") selectTag("All") }, [pendingTagCommands, tag, tagsQuery.isSuccess, tagsQuery.data, selectTag])
   const selectedTag = tag === "All" ? null : tag
-  const queryKey = communityKeys.forumFeed(channelId, selectedTag)
+  const entry = useConversationResource({ channelId, serverId })
+  const queryKey = communityKeys.forumFeed(entry.canRead ? channelId : "__none__", selectedTag)
   const query = useInfiniteQuery({ queryKey, queryFn: forumFeedPageQueryFn(channelId, selectedTag, queryClient), initialPageParam: null as string | null, getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.nextCursor : undefined,
+    enabled: entry.canRead, subscribed: entry.canRead, staleTime: 5_000,
     retry: conversationReadRetryPolicy(queryClient.defaultQueryOptions({ queryKey }).retry), networkMode: "always" })
   const messageIds = useMemo(() => [...new Set(query.data?.pages.flatMap((page) => page.threads.flatMap((thread) => thread.openerMessageId ? [thread.openerMessageId] : [])) ?? [])], [query.data?.pages])
   const messages = useCanonicalMessagesById(messageIds)
   const posts = useMemo(() => mapForumFeedPages(query.data?.pages ?? [], messages ?? new Map(), channels, profiles, selectedTag), [query.data?.pages, messages, channels, profiles, selectedTag])
-  return { ...query, posts, tag, selectTag, availableTags: tagsQuery.data?.tags ?? [], hasMoreOlder: query.hasNextPage, isFetchingOlder: query.isFetchingNextPage, fetchOlder: () => { void query.fetchNextPage() } }
+  return { ...query, observation: { snapshot_source: entry.resource?.source ?? "unknown" as const, target_coverage: query.data ? "covered" as const : "uncovered" as const, wait_reason: !entry.canRead ? "entry" as const : query.data ? "none" as const : "window" as const }, posts, tag, selectTag, availableTags: tagsQuery.data?.tags ?? [], hasMoreOlder: query.hasNextPage, isFetchingOlder: query.isFetchingNextPage, fetchOlder: () => { void query.fetchNextPage() } }
 }

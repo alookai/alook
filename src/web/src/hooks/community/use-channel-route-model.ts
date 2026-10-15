@@ -6,7 +6,9 @@ import { useCommunityRuntime } from "@/stores/community/runtime"
 import { useEffect, useMemo, useRef } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
-import { isForum as isForumType } from "@alook/shared"
+import { isForum as isForumType, type CommunityChannelResource } from "@alook/shared"
+import type { Channel } from "@/lib/community/models/navigation"
+import type { ChannelRow } from "@/lib/community-db/schema"
 import { useServer } from "./use-servers"
 
 import { toastApiError } from "@/lib/api/client"
@@ -21,7 +23,6 @@ import { useRouteChannelProjection } from "@/lib/community-db/projections"
 import { useChannelMetadata } from "./use-channel-metadata"
 import type { ChildChannelMeta } from "./use-forum-sidebar-threads"
 
-import { useConversationReadRetry } from "./use-conversation-read-retry"
 
 type Server = ReturnType<typeof useServer>["server"]
 type ChannelMeta = ChildChannelMeta | null
@@ -31,31 +32,27 @@ export function buildChannelRouteModel(
   currentChannelMeta: ChannelMeta,
   channelId: string,
   metaState: { channelId: string; settled: boolean } | null = null,
+  identity?: CommunityChannelResource,
+  canonicalParent?: ChannelRow,
 ) {
   const channels = server?.categories?.flatMap((category) => category.channels) ?? []
-  const channel = channels.find((candidate) => candidate.id === channelId) ?? null
-  const isChild = !channel && !!server?.categories
-  const metaSettled = !isChild || (metaState?.channelId === channelId && metaState.settled)
-  const currentMetaMatches = !currentChannelMeta
-    || !("id" in currentChannelMeta)
-    || currentChannelMeta.id === channelId
-  const channelMeta = !isChild || (metaSettled && currentMetaMatches)
-    ? currentChannelMeta
-    : null
-  const parent = channelMeta?.parentChannelId
-    ? channels.find((candidate) => candidate.id === channelMeta.parentChannelId) ?? null
-    : null
+  const target = identity?.id === channelId ? identity : undefined
+  const directoryChannel = channels.find((candidate) => candidate.id === channelId) ?? null
+  const isChild = target ? target.type === "thread" : !directoryChannel && !!server?.categories
+  const metaSettled = !isChild || metaState?.channelId === channelId && metaState.settled
+  const currentMetaMatches = !currentChannelMeta || !("id" in currentChannelMeta) || currentChannelMeta.id === channelId
+  const channelMeta = metaSettled && currentMetaMatches ? currentChannelMeta : null
+  const channel: Channel | null = target && (target.type === "text" || target.type === "forum") ? { ...target, type: target.type, name: target.name ?? "", active: false, unread: false }
+    : directoryChannel
+  const parentId = channelMeta?.parentChannelId
+  const parent: Channel | null = parentId && canonicalParent?.id === parentId && !canonicalParent.pending && (canonicalParent.type === "text" || canonicalParent.type === "forum")
+    ? { ...canonicalParent, type: canonicalParent.type, name: canonicalParent.name ?? "", active: false, unread: false }
+    : channels.find((candidate) => candidate.id === parentId) ?? null
   return {
-    server,
-    channel,
-    parent,
-    currentChannelMeta: channelMeta,
-    isForum: isForumType(channel?.type),
-    isChild,
-    isForumPostChild: isChild && isForumType(parent?.type),
-    isNotifyUnit: isChild,
-    metaSettled,
-    routeHydrated: !!server?.categories && metaSettled && (!isChild || channelMeta !== null),
+    server, channel, parent, currentChannelMeta: channelMeta,
+    isForum: isForumType(channel?.type), isChild,
+    isForumPostChild: isChild && isForumType(parent?.type), isNotifyUnit: isChild,
+    metaSettled, routeHydrated: isChild ? metaSettled && channelMeta !== null : channel !== null,
   }
 }
 
@@ -64,29 +61,24 @@ export function useChannelRouteModel(
   serverParam: string,
   channelId: string,
   accountId: string,
+  anchorMessageId?: string | null,
 ) {
   const router = useRouter()
   const pathname = usePathname()
   const queryClient = useQueryClient()
   const runtime = useCommunityRuntime()
-  const serverQuery = useServer(serverId)
-  const { server } = serverQuery
-  const topLevelChannel = server?.categories
-    ?.flatMap((category) => category.channels)
-    .some((candidate) => candidate.id === channelId)
-  const isChild = !!server?.categories && !topLevelChannel
-  const metaQuery = useChannelMetadata(serverId, channelId)
-  const renderableChannelMeta: ChannelMeta = useMemo(() => isChild && metaQuery.canRead
-    && metaQuery.data?.serverId === serverId && metaQuery.data.parentChannelId && metaQuery.data.parentMessageId
-    ? { ...metaQuery.data, serverId,
-        parentChannelId: metaQuery.data.parentChannelId,
-        parentMessageId: metaQuery.data.parentMessageId,
-        activityAt: metaQuery.data.lastMessageAt ?? metaQuery.data.createdAt }
-    : null, [isChild, metaQuery.data, metaQuery.canRead, serverId])
-  const serverRetry = useConversationReadRetry(serverQuery, queryClient, [accountId, serverId])
-  const serverError = !server?.categories && serverRetry.failed
-  const retryingServer = serverRetry.retrying
-  const retryServer = serverRetry.retry
+  const { server } = useServer(serverId)
+  const metaQuery = useChannelMetadata(serverId, channelId, { anchorMessageId })
+  const identity = metaQuery.canRead && metaQuery.data?.id === channelId && metaQuery.data.serverId === serverId ? metaQuery.data : undefined
+  const isChild = identity?.type === "thread"
+  const renderableChannelMeta: ChannelMeta = useMemo(() => isChild && identity?.parentChannelId && identity.parentMessageId
+    ? { ...identity, serverId, parentChannelId: identity.parentChannelId, parentMessageId: identity.parentMessageId,
+        activityAt: identity.lastMessageAt ?? identity.createdAt }
+    : null, [isChild, identity, serverId])
+  const structuralChannel = metaQuery.canonical?.id === channelId
+    && metaQuery.canonical.serverId === serverId && !metaQuery.canonical.pending ? metaQuery.canonical : undefined
+  const structuralParentId = identity?.parentChannelId ?? (structuralChannel?.type === "thread" ? structuralChannel.parentChannelId ?? null : null)
+  const canonicalParent = useRouteChannelProjection(structuralParentId)
   const metadataExit = metaQuery.denied || metaQuery.isArchived
     || metaQuery.error instanceof ApiError && metaQuery.error.status === 401
   const metadataError = !metadataExit && metaQuery.status === "retryable-error"
@@ -94,46 +86,15 @@ export function useChannelRouteModel(
   const retryMetadata = () => metadataError ? metaQuery.retry() : Promise.resolve()
   const exitScope = JSON.stringify([accountId, serverId, channelId])
   const exited = useRef<{ client: typeof queryClient; scope: string } | null>(null)
-  const model = useMemo(
-    () => buildChannelRouteModel(
-      server,
-      renderableChannelMeta,
-      channelId,
-      isChild
-        ? { channelId, settled: metaQuery.canRead }
-        : { channelId, settled: true },
-    ),
-    [channelId, isChild, metaQuery.canRead, renderableChannelMeta, server],
-  )
-  const routeLifecycle = !server?.categories
-    ? serverError ? "terminal-error" as const : "pending" as const
-    : !isChild && metaQuery.canRead && !metadataExit
-      ? "ready" as const
-      : metadataExit || (metaQuery.isError && !metaQuery.canRead)
-        ? "terminal-error" as const
-        : model.routeHydrated && metaQuery.canRead && !metadataExit
-          ? "ready" as const
-          : "pending" as const
-  const structuralChannel = metaQuery.canonical?.id === channelId
-    && metaQuery.canonical.serverId === serverId && !metaQuery.canonical.pending
-    ? metaQuery.canonical : undefined
+  const model = useMemo(() => buildChannelRouteModel(server, renderableChannelMeta, channelId,
+    { channelId, settled: metaQuery.canRead }, identity, canonicalParent),
+  [server, renderableChannelMeta, channelId, metaQuery.canRead, identity, canonicalParent])
+  const routeLifecycle = metaQuery.canRead && !metadataExit ? "ready" as const
+    : metadataExit || metadataError ? "terminal-error" as const : "pending" as const
   const skeletonSubtype = routeLifecycle === "ready"
-    ? model.isChild
-      ? "thread" as const
-      : model.isForum
-        ? "forum" as const
-        : "text" as const
-    : structuralChannel?.type === "forum"
-      ? "forum" as const
-      : structuralChannel?.type === "text"
-        ? "text" as const
-        : structuralChannel?.type === "thread"
-          ? "thread" as const
-          : "unknown" as const
-  const structuralParentId = skeletonSubtype === "thread"
-    ? model.currentChannelMeta?.parentChannelId ?? structuralChannel?.parentChannelId ?? null
-    : null
-  const canonicalParent = useRouteChannelProjection(structuralParentId)
+    ? model.isChild ? "thread" as const : model.isForum ? "forum" as const : "text" as const
+    : structuralChannel?.type === "forum" ? "forum" as const : structuralChannel?.type === "text" ? "text" as const
+    : structuralChannel?.type === "thread" ? "thread" as const : "unknown" as const
   const serverParent = server?.id === serverId
     ? server.categories.flatMap((category) => category.channels)
       .find((candidate) => candidate.id === structuralParentId && !candidate.pending)
@@ -178,9 +139,6 @@ export function useChannelRouteModel(
     skeletonSubtype,
     layoutHint,
     metadataError,
-    serverError,
-    retryingServer,
-    retryServer,
     retryingMetadata,
     retryMetadata,
   }

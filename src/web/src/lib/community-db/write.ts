@@ -14,6 +14,7 @@ export function writeCommunityCollectionRows<T extends object>(
   name: keyof CommunityDbRegistry["collections"],
   rows: T[],
   getKey: (row: T) => string,
+  options?: { updatedAt: number },
 ) {
   const collection = registry.collections[name] as unknown as {
     status: string
@@ -21,7 +22,7 @@ export function writeCommunityCollectionRows<T extends object>(
     getKeyFromItem: (row: T) => string
     get: (key: string) => T | undefined
     utils: {
-      writeBatch: (callback: () => void) => void
+      writeBatch: (callback: () => void) => Promise<void>
       writeDelete: (keys: string[]) => void
       writeUpsert: (rows: T[]) => void
     }
@@ -33,6 +34,7 @@ export function writeCommunityCollectionRows<T extends object>(
     registry.queryClient.setQueryData(
       communityKeys.communityDbCollection(registry.scopeId, name),
       next,
+      options,
     )
     return
   }
@@ -48,7 +50,7 @@ export function writeCommunityCollectionRows<T extends object>(
   if (removed.length === 0 && changed.length === 0) {
     return
   }
-  collection.utils.writeBatch(() => {
+  return collection.utils.writeBatch(() => {
     if (removed.length > 0) collection.utils.writeDelete(removed)
     if (changed.length > 0) collection.utils.writeUpsert(changed)
   })

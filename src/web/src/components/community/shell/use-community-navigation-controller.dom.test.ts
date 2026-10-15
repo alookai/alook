@@ -12,7 +12,6 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   replace: vi.fn(),
   prefetch: vi.fn(),
-  cancelProof: vi.fn(),
   queryClient: {},
   frame: {
     current: null as CommunityCommittedFrame | null,
@@ -22,9 +21,6 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@tanstack/react-query", async (importOriginal) => ({
   ...await importOriginal<typeof import("@tanstack/react-query")>(),
   useQueryClient: () => mocks.queryClient,
-}))
-vi.mock("@/lib/community/conversation-navigation-proof", () => ({
-  cancelActiveConversationNavigationProof: (...args: unknown[]) => mocks.cancelProof(...args),
 }))
 
 vi.mock("next/navigation", () => ({
@@ -68,7 +64,6 @@ describe("useCommunityNavigationController", () => {
     mocks.push.mockReset()
     mocks.replace.mockReset()
     mocks.prefetch.mockReset()
-    mocks.cancelProof.mockReset()
     mocks.frame.current = { ...normalizeCommunityHref("/c/me"), revision: 0 }
     const windowTarget = new EventTarget() as EventTarget & { navigation: EventTarget }
     windowTarget.navigation = new EventTarget()
@@ -86,7 +81,6 @@ describe("useCommunityNavigationController", () => {
     expect(mocks.push).toHaveBeenCalledWith("/c/me/friends")
     expect(hook.current.navigationPending).toBe(true)
     expect(hook.current.pendingHref).toBe("/c/me/friends")
-    expect(mocks.cancelProof).toHaveBeenCalledWith(mocks.queryClient)
 
     mocks.pathname.current = "/c/me/friends"
     await hook.rerender()
@@ -130,7 +124,6 @@ describe("useCommunityNavigationController", () => {
     expect(mocks.replace).toHaveBeenCalledWith("/c/channels/s1")
     expect(mocks.push).not.toHaveBeenCalled()
     expect(hook.current.pendingHref).toBe("/c/channels/s1")
-    expect(mocks.cancelProof).toHaveBeenCalledWith(mocks.queryClient)
   })
 
   it("forwards scroll:false without changing target publication or cancellation", async () => {
@@ -182,7 +175,6 @@ describe("useCommunityNavigationController", () => {
     expect(hook.current.pendingHref).toBeNull()
     expect(mocks.replace).not.toHaveBeenCalled()
     expect(mocks.push).toHaveBeenCalledTimes(1)
-    expect(mocks.cancelProof).toHaveBeenCalledTimes(2)
     await hook.unmount()
   })
 
@@ -208,7 +200,6 @@ describe("useCommunityNavigationController", () => {
     expect(mocks.push).toHaveBeenCalledTimes(1)
     expect(mocks.push).toHaveBeenCalledWith("/c/channels/s2/c2")
     expect(hook.current.pendingHref).toBe("/c/channels/s2/c2")
-    expect(mocks.cancelProof).toHaveBeenCalledTimes(2)
   })
 
   it("settles an async resolver that returns the published destination", async () => {
@@ -245,7 +236,6 @@ describe("useCommunityNavigationController", () => {
     expect(mocks.push).not.toHaveBeenCalled()
     expect(hook.current.navigationPending).toBe(false)
     expect(hook.current.pendingHref).toBeNull()
-    expect(mocks.cancelProof).not.toHaveBeenCalled()
   })
 
   it.each(["push", "replace"] as const)("lets %s to the published route supersede a pending resolver", async (method) => {
@@ -276,14 +266,12 @@ describe("useCommunityNavigationController", () => {
       "/c/me",
     ])
     expect(hook.current.navigationPending).toBe(false)
-    expect(mocks.cancelProof).toHaveBeenCalledTimes(2)
   })
 
-  it("preserves the proof begun by an Inbox child handler", async () => {
+  it("submits the Inbox child target immediately", async () => {
     const hook = await renderController()
     await act(async () => hook.current.pushImmediate("/c/channels/s1/c1"))
     expect(mocks.push).toHaveBeenCalledWith("/c/channels/s1/c1")
-    expect(mocks.cancelProof).not.toHaveBeenCalled()
   })
 
   it("prepares Inbox transport with its actual navigation before router submission", async () => {

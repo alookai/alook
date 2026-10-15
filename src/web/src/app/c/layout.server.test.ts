@@ -7,10 +7,20 @@ import type { CurrentUser } from "@/contexts/community/current-user"
 const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   pathname: "/c",
+  documentHref: "/c/channels/server-a/channel-a",
+  db: vi.fn(() => ({})),
+  primaryDb: vi.fn(() => ({})),
   client: vi.fn(),
+  self: vi.fn(),
+  seed: vi.fn(),
 }))
 
 vi.mock("@/lib/session", () => ({ getSession: mocks.getSession }))
+vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: async () => ({ env: { DB: {} } }) }))
+vi.mock("@/lib/db", () => ({ getDb: mocks.db, getPrimaryDb: mocks.primaryDb }))
+vi.mock("next/headers", () => ({ headers: async () => new Headers({ "x-alook-community-document-route": mocks.documentHref }) }))
+vi.mock("@/lib/community/self-profile.server", () => ({ readCommunitySelfProfile: mocks.self }))
+vi.mock("@/lib/community/document-seed.server", () => ({ readCommunityDocumentSeed: mocks.seed }))
 vi.mock("next/navigation", () => ({ usePathname: () => mocks.pathname }))
 vi.mock("@/components/community/billing/billing-plan.module.css", () => ({
   default: new Proxy({}, { get: (_target, key) => String(key) }),
@@ -34,6 +44,9 @@ const sidebar = createElement("aside", { "data-testid": "private-sidebar" }, "pr
 const session = {
   user: { id: "account-a", name: "Ada", email: "ada@example.com", image: "avatar-a" },
 }
+const profile = { id: "account-a", name: "Canonical Ada", discriminator: "0042", avatar: "canonical-avatar", avatarVersion: 9, aboutMe: "About Ada", bannerColor: null, statusEmoji: null, statusText: "" }
+const seed = { viewerId: "account-a", selfProfile: profile, entries: [], db: { collections: [] } }
+const currentUser = { ...profile, email: "ada@example.com" }
 
 function renderLayout() {
   const output = new PassThrough()
@@ -63,6 +76,18 @@ describe("CommunityLayout server session streaming", () => {
     mocks.getSession.mockReset()
     mocks.client.mockClear()
     mocks.pathname = "/c"
+    mocks.documentHref = "/c/channels/server-a/channel-a"
+    mocks.db.mockClear(); mocks.primaryDb.mockClear()
+    mocks.self.mockReset().mockResolvedValue({ viewer: { ...session.user, image: "canonical-avatar", avatarVersion: 9 }, profile })
+    mocks.seed.mockReset().mockResolvedValue(seed)
+  })
+
+  it("uses the same primary D1 session as the machines HTTP list", async () => {
+    mocks.documentHref = "/c/me/machines"
+    mocks.getSession.mockResolvedValue(session)
+    await renderLayout().finished
+    expect(mocks.primaryDb).toHaveBeenCalledOnce()
+    expect(mocks.db).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -95,7 +120,8 @@ describe("CommunityLayout server session streaming", () => {
       expect(complete).toContain("private-sidebar")
       expect(mocks.client).toHaveBeenCalledTimes(1)
       expect(mocks.client).toHaveBeenCalledWith({
-        currentUser: { id: "account-a", name: "Ada", email: "ada@example.com", avatar: "avatar-a", avatarVersion: 0 },
+        currentUser,
+        initialSeed: seed,
         children,
         sidebar,
       })
@@ -109,12 +135,13 @@ describe("CommunityLayout server session streaming", () => {
     ["avatar-a", "avatar-a"],
     ["", "A"],
     [null, "A"],
-  ])("preserves server user mapping for image %s", async (image, avatar) => {
+  ])("uses the canonical profile even when the session image is %s", async (image) => {
     mocks.getSession.mockResolvedValue({ user: { ...session.user, image } })
     const rendering = renderLayout()
     await rendering.finished
     expect(mocks.client).toHaveBeenCalledWith({
-      currentUser: { id: "account-a", name: "Ada", email: "ada@example.com", avatar, avatarVersion: 0 },
+      currentUser,
+      initialSeed: seed,
       children,
       sidebar,
     })
@@ -125,8 +152,35 @@ describe("CommunityLayout server session streaming", () => {
     mocks.getSession.mockResolvedValue(null)
     const rendering = renderLayout()
     await rendering.finished
-    expect(mocks.client).toHaveBeenCalledWith({ currentUser: null, children, sidebar })
+    expect(mocks.client).toHaveBeenCalledWith({ currentUser: null, initialSeed: undefined, children, sidebar })
     expect(rendering.errors).toEqual([])
+  })
+
+  it("keeps streaming the public skeleton while authenticated document data is held", async () => {
+    mocks.getSession.mockResolvedValue(session)
+    let release!: (value: typeof seed) => void
+    mocks.seed.mockReturnValue(new Promise(resolve => { release = resolve }))
+    const rendering = renderLayout()
+    try {
+      const first = await rendering.publicFrame
+      expect(first).toContain("community-initial-frame")
+      expect(first).not.toContain("Canonical Ada")
+      expect(first).not.toContain("private-child")
+      expect(mocks.client).not.toHaveBeenCalled()
+      release(seed)
+      await rendering.finished
+      expect(mocks.client).toHaveBeenCalledWith(expect.objectContaining({ currentUser, initialSeed: seed }))
+      expect(rendering.errors).toEqual([])
+    } finally { rendering.abort() }
+  })
+
+  it("does not serialize private data for a session whose user was deleted", async () => {
+    mocks.getSession.mockResolvedValue(session)
+    mocks.self.mockResolvedValue({ viewer: null, profile })
+    const rendering = renderLayout()
+    await rendering.finished
+    expect(mocks.seed).not.toHaveBeenCalled()
+    expect(mocks.client).toHaveBeenCalledWith(expect.objectContaining({ currentUser: null, initialSeed: undefined }))
   })
 
   it("reports a rejected session without invoking an anonymous client branch", async () => {

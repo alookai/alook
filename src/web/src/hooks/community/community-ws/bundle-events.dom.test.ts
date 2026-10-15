@@ -1,3 +1,4 @@
+import { conversationEntryFromChannel, seedConversationEntry } from "@/test/conversation-entry-fixtures"
 import { act } from "@/test/react-dom-harness"
 import { getCapturedRuntime, seedCanonicalStream, canonicalMessage } from "./test-harness"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -729,7 +730,7 @@ describe("useCommunityWs — operation bundles", () => {
     })
     const { captureChannelMetadataToken } = await import("@/hooks/community/channel-metadata")
     const verification = captureChannelMetadataToken(capturedQueryClient, "ch-1")
-    capturedQueryClient.setQueryData(communityKeys.channelMeta("s1", "ch-1"), { id: "ch-1", serverId: "s1", identityProof: verification, readProof: verification })
+    await act(async () => { await seedConversationEntry(capturedQueryClient, conversationEntryFromChannel({ id: "ch-1", serverId: "s1", type: "thread", name: "thread", parentChannelId: "forum_1", parentMessageId: "opener-1", creatorId: "viewer-1", archived: false, createdAt: "2026-08-20T00:00:00.000Z" }, verification.viewerId!)) })
     vi.spyOn(capturedQueryClient, "invalidateQueries")
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     const originalPublish = canonicalSync.projectCommunityWsEventToDb
@@ -862,7 +863,7 @@ describe("useCommunityWs — operation bundles", () => {
           .mockImplementationOnce(() => { throw new Error("later child fault") })
         const { captureChannelMetadataToken } = await import("@/hooks/community/channel-metadata")
     const verification = captureChannelMetadataToken(capturedQueryClient, "ch-1")
-    capturedQueryClient.setQueryData(communityKeys.channelMeta("s1", "ch-1"), { id: "ch-1", serverId: "s1", identityProof: verification, readProof: verification })
+    await act(async () => { await seedConversationEntry(capturedQueryClient, conversationEntryFromChannel({ id: "ch-1", serverId: "s1", type: "thread", name: "thread", parentChannelId: "forum_1", parentMessageId: "opener-1", creatorId: "viewer-1", archived: false, createdAt: "2026-08-20T00:00:00.000Z" }, verification.viewerId!)) })
     vi.spyOn(capturedQueryClient, "invalidateQueries")
         const messageId = `retry-${retryTiming}`
         const frame = await batchFor(messageId, [

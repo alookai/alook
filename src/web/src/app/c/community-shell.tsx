@@ -1,7 +1,6 @@
 "use client"
 import { getCommunityDbRegistry } from "@/lib/community-db/collections"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { communityKeys } from "@/lib/query-keys"
 
 import { useCommunityRuntime } from "@/stores/community/runtime"
@@ -26,6 +25,7 @@ import { useCommunityWsStore } from "@/stores/community/ws"
 import { OwnerServerDeleteRouteGuard } from "@/components/community/shell/owner-server-delete-route-guard"
 import { CommunityRestoreBoundary } from "@/components/community/shell/community-restore-bootstrap"
 import { CommunitySessionPendingFrame } from "@/components/community/shell/community-session-pending-frame"
+import type { CommunityDocumentSeed } from "@/lib/community/document-seed"
 
 /**
  * Client wrapper that provides the QueryClient, CurrentUser, and the
@@ -43,12 +43,14 @@ import { CommunitySessionPendingFrame } from "@/components/community/shell/commu
 export function CommunityShell({
   currentUser,
   children,
+  initialSeed,
 }: {
   currentUser: CurrentUser
   children: ReactNode
+  initialSeed?: CommunityDocumentSeed
 }) {
   return (
-    <QueryProvider userId={currentUser.id} initialUser={currentUser}>
+    <QueryProvider userId={currentUser.id} initialUser={currentUser} initialSeed={initialSeed}>
       <CommunityRestoreBoundary>
         <ProfileAccountBoundary viewerId={currentUser.id}>
           <CurrentUserProvider initialUser={currentUser}>
@@ -68,16 +70,14 @@ function ProfileAccountBoundary({
   viewerId: string
 }) {
   const communityRuntime = useCommunityRuntime()
-  const [hydrated, setHydrated] = useAtom(useCreateAtom(false))
   const activeViewerId = useCommunityWsStore((state) => state.profileViewerId)
   const pathname = usePathname()
   useLayoutEffect(() => {
     if (activeViewerId !== viewerId) {
       communityRuntime.ws.actions.activateProfileAccount(viewerId)
     }
-    setHydrated(true)
-  }, [activeViewerId, communityRuntime.ws.actions, setHydrated, viewerId])
-  return hydrated && activeViewerId === viewerId
+  }, [activeViewerId, communityRuntime.ws.actions, viewerId])
+  return activeViewerId === viewerId
     ? children
     : <CommunitySessionPendingFrame pathname={pathname} />
 }

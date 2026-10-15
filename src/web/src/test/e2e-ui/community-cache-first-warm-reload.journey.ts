@@ -1,4 +1,11 @@
-import type { Page } from "@playwright/test"
+import { createRequire } from "node:module"
+import { resolve } from "node:path"
+import { readFileSync } from "node:fs"
+import { CONTROL_HEARTBEAT_CAPABILITY, DEV_PASSWORD, HostReadyMessageSchema } from "@alook/shared"
+import { HostCommandSchema } from "@alook/shared/community-cli-contract"
+import { MACHINE_WS_URL, REPO_ROOT, WEB_URL } from "./_setup/paths"
+import type { APIResponse, Page, Request } from "@playwright/test"
+import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { PERSIST_CACHE_PREFIX } from "@/lib/query-persister"
 import { expect, test } from "./_fixtures/case-fixture"
 
@@ -95,13 +102,12 @@ async function expectPersistedClosure(
       }
       return []
     })
-    const rawMessageQuery = queries.find(({ queryKey }) => (
-      queryKey[0] === "community"
-      && (queryKey[1] === "channel" || queryKey[1] === "dm")
-      && queryKey[3] === "messages"
-    ))
-    if (rawMessageQuery) {
-      failures.push(`unexpected raw message key ${JSON.stringify(rawMessageQuery.queryKey)}`)
+    const windows = queries.filter(({ queryKey }) => queryKey[0] === "community"
+      && (queryKey[1] === "channel" || queryKey[1] === "dm") && queryKey[3] === "messages")
+    for (const window of windows) {
+      const value = window.data as { pages?: Array<{ messages?: Array<Record<string, unknown>> }>; pageParams?: unknown[] }
+      if (!Array.isArray(value?.pages) || !value.pages.length || !Array.isArray(value.pageParams) || value.pages.length !== value.pageParams.length
+        || value.pages.some(page => !Array.isArray(page.messages) || page.messages.some(message => typeof message.id !== "string" || Object.keys(message).some(key => key !== "id" && key !== "seq")))) failures.push(`invalid window or copied body ${JSON.stringify(window.queryKey)}`)
     }
     return failures
   }
@@ -141,7 +147,7 @@ async function clearQueryPersistence(page: Page) {
 
 async function expectCacheFirstReload(
   page: Page,
-  assertUnqualifiedShell: () => Promise<void>,
+  assertRscContent: () => Promise<void>,
   assertCachedContent: () => Promise<void>,
   assertReconciledContent: () => Promise<void>, caseResources: CaseResources
 ): Promise<ReloadCapture> {
@@ -184,7 +190,6 @@ async function expectCacheFirstReload(
   const messagesGate = new Promise<void>((resolve) => { releaseMessages = resolve })
   caseResources.own(releaseMessages, async (captured) => { captured() })
   let heldReads = 0
-  let heldMessages = 0
   let forwardedMessages = 0
   await page.route("**/api/community/**", async (route) => {
     if (route.request().method() !== "GET") {
@@ -193,7 +198,6 @@ async function expectCacheFirstReload(
     }
     const path = new URL(route.request().url()).pathname
     if (/\/(messages|pins|threads)(\/|$)/.test(path)) {
-      heldMessages += 1
       await messagesGate
       forwardedMessages += 1
     } else {
@@ -210,7 +214,7 @@ async function expectCacheFirstReload(
 
   try {
     await page.reload({ waitUntil: "commit" })
-    await assertUnqualifiedShell()
+    await assertRscContent()
     await expect.poll(() => heldReads).toBeGreaterThan(0)
     await expect.poll(() => wsAttempts).toBeGreaterThan(0)
     const readCapture = () => page.evaluate((): ReloadCapture | null => {
@@ -248,7 +252,6 @@ async function expectCacheFirstReload(
     expect(capture.marks.stable).toBeGreaterThanOrEqual(capture.marks.cached)
     releaseReads()
     await assertCachedContent()
-    await expect.poll(() => heldMessages).toBeGreaterThan(0)
     expect(forwardedMessages).toBe(0)
     releaseMessages()
     await assertReconciledContent()
@@ -260,7 +263,7 @@ async function expectCacheFirstReload(
   }
 }
 
-test("a warm channel reload qualifies its cached shell before showing persisted messages", async ({ caseActors, caseResources }) => {
+test("a warm channel reload shows qualified RSC content while browser reads remain held", async ({ caseActors, caseResources }) => {
   test.setTimeout(120_000)
 
   const actors = await caseActors(["alice"])
@@ -285,13 +288,9 @@ test("a warm channel reload qualifies its cached shell before showing persisted 
   await expectCacheFirstReload(page, async () => {
     await expect(page.getByTestId(tid.serverIcon(serverId))).toBeVisible({ timeout: 10_000 })
     await expect(page.getByTestId(tid.channelRow(channelId))).toBeVisible()
-    const main = page.locator(
-      `[data-community-target-href="/c/channels/${serverId}/${channelId}"]`,
-    ).locator('main[aria-label="Loading conversation"][aria-busy="true"][data-community-conversation-subtype="text"]')
-    await expect(main).toBeVisible()
-    await expect(main.locator("[data-message-list-skeleton]")).toBeVisible()
-    await expect(page.getByTestId(tid.composerInput)).toHaveCount(0)
-    await expect(page.getByTestId(tid.message(messageId))).toHaveCount(0)
+    await expect(page.getByTestId(tid.message(messageId))).toBeVisible()
+    await expect(page.getByTestId(tid.message(messageId)).getByText(body, { exact: false })).toBeVisible()
+    await expect(page.getByTestId(tid.composerInput)).toBeVisible()
   }, async () => {
     await expect(page.getByTestId(tid.message(messageId))).toBeVisible({ timeout: 20_000 })
     await expect(page.getByTestId(tid.message(messageId)).getByText(body, { exact: false })).toBeVisible()
@@ -301,7 +300,7 @@ test("a warm channel reload qualifies its cached shell before showing persisted 
   }, caseResources)
 })
 
-test("a warm DM reload qualifies cached identity and history before showing persisted messages", async ({ caseActors, caseResources }) => {
+test("a warm DM reload shows qualified RSC identity and history before browser reads", async ({ caseActors, caseResources }) => {
   test.setTimeout(120_000)
 
   const actors = await caseActors(["alice", "bob"])
@@ -328,9 +327,9 @@ test("a warm DM reload qualifies cached identity and history before showing pers
     await expect(page.getByTestId(tid.dmHeader)).toBeVisible()
     await expect(page.getByTestId(tid.dmHeader)).toContainText(userName("bob"))
     await expect(page.locator(`main[data-slot="community-conversation-surface"][data-channel-id="${dmId}"]`)).toBeVisible()
-    await expect(page.getByTestId(tid.messageScroller).locator('[data-slot="skeleton"]').first()).toBeVisible()
-    await expect(page.getByTestId(tid.composerInput)).toHaveCount(0)
-    await expect(page.getByTestId(tid.message(messageId))).toHaveCount(0)
+    await expect(page.getByTestId(tid.message(messageId))).toBeVisible()
+    await expect(page.getByTestId(tid.message(messageId)).getByText(body, { exact: false })).toBeVisible()
+    await expect(page.getByTestId(tid.composerInput)).toBeVisible()
   }, async () => {
     await expect(page.getByTestId(tid.dmHeader)).toBeVisible({ timeout: 20_000 })
     await expect(page.getByTestId(tid.message(messageId))).toBeVisible()
@@ -341,7 +340,7 @@ test("a warm DM reload qualifies cached identity and history before showing pers
   }, caseResources)
 })
 
-test("a warm desktop thread reload qualifies its type before restoring cached split panes", async ({ caseActors, caseResources }) => {
+test("a warm desktop thread reload keeps RSC child and independently restores its parent", async ({ caseActors, caseResources }) => {
   test.setTimeout(120_000)
 
   const actors = await caseActors(["alice"])
@@ -374,10 +373,11 @@ test("a warm desktop thread reload qualifies its type before restoring cached sp
     await expect(page.getByTestId(tid.serverIcon(serverId))).toBeVisible({ timeout: 10_000 })
     await expect(page.getByTestId(tid.channelRow(channelId))).toBeVisible()
     await expect(page.getByTestId(tid.threadSplit)).toHaveAttribute("data-community-conversation-subtype", "thread")
-    await expect(page.getByTestId(tid.threadSplitPanel).locator("[data-message-list-skeleton]")).toBeVisible()
-    await expect(page.getByTestId(tid.composerInput)).toHaveCount(0)
-    await expect(page.getByTestId(tid.message(openerId))).toHaveCount(0)
-    await expect(page.getByTestId(tid.message(threadMessageId))).toHaveCount(0)
+    await expect(page.getByTestId(tid.threadSplitPanel).getByTestId(tid.message(threadMessageId))).toBeVisible()
+    await expect(page.getByTestId(tid.threadSplitPanel).getByTestId(tid.composerInput)).toBeVisible()
+    await expect(page.getByTestId(tid.threadSplitPanel).getByTestId(tid.message(threadMessageId))).toBeVisible()
+    await expect(page.getByTestId(tid.threadSplitPanel).getByText(threadBody, { exact: false })).toBeVisible()
+    await expect(page.getByTestId(tid.threadSplitParent).getByTestId(tid.message(openerId))).toHaveCount(0)
   }, async () => {
     await expect(page.getByTestId(tid.threadSplit)).toHaveAttribute("data-layout", "split", {
       timeout: 10_000,
@@ -484,9 +484,473 @@ test("a true-cold channel load reuses localized skeletons without a custom boots
     expect(await page.evaluate(() => (
       performance.getEntriesByName("alook:restore:first-cached-paint", "mark").length
     ))).toBe(0)
+    await expect(page.getByText(body, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByTestId(tid.composerInput)).toBeVisible()
   } finally {
     releaseReads()
     await page.unroute("**/api/community/**")
   }
   await expect(page.getByText(body, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
 })
+
+async function holdOriginalPersistedRead(page: Page, viewerId: string, oldId: string, newId: string) {
+  await page.addInitScript(({ key, accountKey, channelsKey, oldId, newId }) => {
+    const original = IDBObjectStore.prototype.get
+    const pending: Array<() => void> = []
+    let reads = 0
+    type RetirementCheck = { complete: boolean; accountChanged: boolean; scopeChanged: boolean; channelsReset: boolean }
+    let expectedAccount: unknown
+    let expectedScope: unknown
+    const checks = new WeakMap<IDBTransaction, { account?: unknown; scope?: unknown; channels?: unknown }>()
+    const state = { held: 0, oldPresent: false, newPresent: false, released: false,
+      retirementCheck: null as RetirementCheck | null,
+      release: () => { state.released = true; for (const complete of pending.splice(0)) complete() } }
+    Reflect.set(window, "__217DiskRead", state)
+    IDBObjectStore.prototype.get = function (query) {
+      const request = original.call(this, query)
+      const ownedStore = this.transaction.db.name === "keyval-store" && this.name === "keyval"
+      if (ownedStore && (query === accountKey || query === `${key}:epoch` || query === channelsKey)) {
+        const transaction = this.transaction
+        const afterRelease = state.released && transaction.mode === "readonly"
+        request.addEventListener("success", () => {
+          const value: unknown = request.result
+          if (!state.released && transaction.mode === "readwrite") {
+            if (query === accountKey && expectedAccount === undefined) expectedAccount = value
+            if (query === `${key}:epoch` && expectedScope === undefined) expectedScope = value
+          }
+          if (!afterRelease || state.retirementCheck) return
+          let check = checks.get(transaction)
+          if (!check) {
+            check = {}
+            checks.set(transaction, check)
+            transaction.addEventListener("complete", () => {
+              const completed = checks.get(transaction)!
+              if (state.retirementCheck || !("account" in completed) || !("scope" in completed) || !("channels" in completed)) return
+              state.retirementCheck = {
+                complete: true,
+                accountChanged: typeof expectedAccount === "string" && completed.account !== expectedAccount,
+                scopeChanged: expectedScope !== undefined && JSON.stringify(completed.scope) !== JSON.stringify(expectedScope),
+                channelsReset: completed.channels instanceof Map && completed.channels.size === 0,
+              }
+            }, { once: true })
+          }
+          if (query === accountKey) check.account = value
+          if (query === `${key}:epoch`) check.scope = value
+          if (query === channelsKey) check.channels = value
+        }, { once: true })
+      }
+      if (ownedStore && query === key && ++reads === 2) {
+        request.addEventListener("success", event => {
+          if (state.released) return
+          event.stopImmediatePropagation()
+          state.held += 1
+          const value = typeof request.result === "string" ? request.result : ""
+          state.oldPresent = value.includes(oldId)
+          state.newPresent = value.includes(newId)
+          pending.push(() => { request.dispatchEvent(event) })
+        }, { once: true })
+      }
+      return request
+    }
+  }, { key: `${PERSIST_CACHE_PREFIX}:${viewerId}:client`, accountKey: `${PERSIST_CACHE_PREFIX}:${viewerId}:account-epoch`, channelsKey: `${PERSIST_CACHE_PREFIX}:${viewerId}:account-epoch:channels`, oldId, newId })
+}
+
+async function releaseOriginalPersistedRead(page: Page) {
+  if (!page.isClosed()) await page.evaluate(() => {
+    (Reflect.get(window, "__217DiskRead") as { release?: () => void } | undefined)?.release?.()
+  })
+}
+
+async function retiredAccountDiskState(page: Page, viewerId: string, channelId: string) {
+  return page.evaluate(({ prefix, viewerId, channelId }) => new Promise<{ payloadAbsent: boolean; applicationPayloadAbsent: boolean; accountEpochPresent: boolean; scopeEpochPresent: boolean; channelsReset: boolean; oldChannelFenceAbsent: boolean }>((resolveState, reject) => {
+    const open = indexedDB.open("keyval-store")
+    open.onerror = () => reject(open.error ?? new Error("failed to inspect retired account"))
+    open.onsuccess = () => {
+      const db = open.result
+      const transaction = db.transaction("keyval", "readonly")
+      const store = transaction.objectStore("keyval")
+      const namespace = `${prefix}:${viewerId}`
+      const payload = store.get(`${namespace}:client`)
+      const application = store.get(`${namespace}:application:client`)
+      const account = store.get(`${namespace}:account-epoch`)
+      const scope = store.get(`${namespace}:client:epoch`)
+      const channels = store.get(`${namespace}:account-epoch:channels`)
+      transaction.onabort = transaction.onerror = () => { db.close(); reject(transaction.error ?? new Error("retired account inspection failed")) }
+      transaction.oncomplete = () => {
+        const fences: unknown = channels.result
+        const result = { payloadAbsent: payload.result === undefined, applicationPayloadAbsent: application.result === undefined, accountEpochPresent: typeof account.result === "string", scopeEpochPresent: typeof scope.result === "string", channelsReset: fences instanceof Map && fences.size === 0, oldChannelFenceAbsent: fences instanceof Map && !fences.has(channelId) }
+        db.close()
+        resolveState(result)
+      }
+    }
+  }), { prefix: PERSIST_CACHE_PREFIX, viewerId, channelId })
+}
+
+test("late original IDB cannot replace RSC messages or revive a DM after a real WS block", async ({ caseActors, caseResources }, testInfo) => {
+  test.setTimeout(120_000)
+  const actors = await caseActors(["alice", "bob"])
+  const { asUser, userId } = actors
+  const { seedDm, seedDmMessage } = actors.seed
+  const dmId = await seedDm("alice", userId("bob"))
+  const oldId = await seedDmMessage("bob", dmId, `old persisted DM ${Date.now()}`)
+  const alice = await asUser("alice")
+  const bob = await asUser("bob")
+  await alice.page.goto(`/c/me/${dmId}`)
+  await expect(alice.page.getByTestId(tid.message(oldId))).toBeVisible()
+  await expectPersistedClosure(alice.page, userId("alice"), [
+    { key: ["community", "db", userId("alice"), "messages"], containsId: oldId },
+  ])
+  await alice.page.goto("/")
+  const newBody = `new RSC DM ${Date.now()}`
+  const newId = await seedDmMessage("bob", dmId, newBody)
+  await holdOriginalPersistedRead(alice.page, userId("alice"), oldId, newId)
+  caseResources.own(alice.page, releaseOriginalPersistedRead)
+  const proxy = await proxyCommunityWebSockets(alice.context)
+  const targetGets: string[] = []
+  const pattern = (url: URL) => url.pathname === `/api/community/channels/${dmId}/messages`
+  let releaseNetwork!: () => void
+  const networkGate = new Promise<void>(resolve => { releaseNetwork = resolve })
+  caseResources.own(releaseNetwork, async captured => { captured() })
+  await alice.page.route(pattern, async route => { targetGets.push(route.request().url()); await networkGate; await route.continue() })
+  try {
+    const response = await alice.page.goto(`/c/me/${dmId}`, { waitUntil: "commit" })
+    expect(response?.status()).toBe(200)
+    const originalHtml = await response!.text()
+    expect(originalHtml).toContain(newId)
+    await expect.poll(() => alice.page.evaluate(() => {
+      const state = Reflect.get(window, "__217DiskRead") as { held: number; oldPresent: boolean; newPresent: boolean }
+      return { held: state.held, oldPresent: state.oldPresent, newPresent: state.newPresent }
+    })).toEqual({ held: 1, oldPresent: true, newPresent: false })
+    await expect(alice.page.getByTestId(tid.message(newId))).toBeVisible()
+    await expect(alice.page.getByTestId(tid.message(newId)).getByText(newBody, { exact: true })).toBeVisible()
+    await expect(alice.page.getByTestId(tid.composerInput)).toBeVisible()
+    expect(targetGets).toEqual([])
+    await expect.poll(() => proxy.connectionFrames.some(frame => frame.type === "auth.ok")).toBe(true)
+    const blocked = await bob.page.request.post(`/api/community/users/${userId("alice")}/block`)
+    expect(blocked.status()).toBe(200)
+    await expect.poll(() => proxy.frames.some(frame => frame.type === "community:friend.block" && frame.userId === userId("bob"))).toBe(true)
+    const denied = await alice.page.request.get(`/api/community/channels/${dmId}/messages?entry=1`, { headers: { "x-alook-community-contract": "3" } })
+    expect(denied.status()).toBe(403)
+    await expect(alice.page.getByTestId(tid.message(oldId))).toHaveCount(0)
+    await expect(alice.page.getByTestId(tid.message(newId))).toHaveCount(0)
+    await expect(alice.page.getByTestId(tid.composerInput)).toHaveCount(0)
+    await releaseOriginalPersistedRead(alice.page)
+    await expect.poll(() => alice.page.evaluate(() => performance.getEntriesByName("alook:restore:complete", "mark").length)).toBe(1)
+    await expect(alice.page.getByRole("alert").filter({ hasText: "You can no longer read this conversation." })).toBeVisible()
+    await expect(alice.page).toHaveURL(new RegExp(`/c/me/${dmId}$`))
+    await expect(alice.page.getByTestId(tid.message(oldId))).toHaveCount(0)
+    await expect(alice.page.getByTestId(tid.message(newId))).toHaveCount(0)
+    await expect(alice.page.getByTestId(tid.composerInput)).toHaveCount(0)
+    await testInfo.attach("late-idb-rsc-ws-boundaries", { body: JSON.stringify({ dmId, oldId, newId, originalHtmlContainsNewId: originalHtml.includes(newId), denied: denied.status(), wsBlock: proxy.frames.filter(frame => frame.type === "community:friend.block").map(frame => ({ type: frame.type, userId: frame.userId })) }), contentType: "application/json" })
+  } finally {
+    await releaseOriginalPersistedRead(alice.page)
+    releaseNetwork()
+    await alice.page.unroute(pattern)
+  }
+})
+
+test("a real empty machine list is usable before optional observations or bots return", async ({ caseActors, caseResources }, testInfo) => {
+  const actors = await caseActors(["alice"])
+  const { page } = await actors.asUser("alice", { viewport: { width: 1280, height: 900 } })
+  let releaseOptional!: () => void
+  const optionalGate = new Promise<void>(resolve => { releaseOptional = resolve })
+  caseResources.own(releaseOptional, async captured => { captured() })
+  const optional = (url: URL) => url.pathname === "/api/community/machines" && url.searchParams.get("view") === "observations"
+  const bots = (url: URL) => url.pathname === "/api/community/bots"
+  const statuses: number[] = []
+  await page.route(optional, async route => { const response = await route.fetch(); statuses.push(response.status()); await optionalGate; await route.fulfill({ response }) })
+  await page.route(bots, async route => { await optionalGate; await route.continue() })
+  try {
+    const requested = page.waitForRequest(request => optional(new URL(request.url())))
+    const listResponse = page.waitForResponse(response => new URL(response.url()).pathname === "/api/community/machines" && new URL(response.url()).searchParams.get("view") === "list")
+    await page.goto("/c/me/friends")
+    await expect(page.getByRole("link", { name: "Machines", exact: true })).toBeVisible()
+    await page.getByRole("link", { name: "Machines", exact: true }).click()
+    await requested
+    const list = await listResponse
+    expect(list.status()).toBe(200)
+    expect(await list.json()).toMatchObject({ machines: [] })
+    await expect(page.getByRole("heading", { name: "No machines yet", exact: true })).toBeVisible()
+    await expect(page.getByTestId(tid.machinePairOpen)).toBeVisible()
+    await expect(page.getByTestId(tid.pendingMain("machines"))).toHaveCount(0)
+    const delivered = page.waitForResponse(response => optional(new URL(response.url())))
+    releaseOptional()
+    const actualOptional = await delivered
+    expect(actualOptional.status()).toBe(200)
+    expect(await actualOptional.json()).toMatchObject({ machineCapacity: { ownedCount: 0 } })
+    await expect.poll(() => statuses.length).toBeGreaterThan(0)
+    expect(statuses.every(status => status === 200)).toBe(true)
+    await expect(page.getByRole("heading", { name: "No machines yet", exact: true })).toBeVisible()
+    await testInfo.attach("machine-empty-primary", { body: JSON.stringify({ listStatus: list.status(), machines: [], optionalStatuses: statuses }), contentType: "application/json" })
+  } finally {
+    releaseOptional()
+    await page.unroute(optional)
+    await page.unroute(bots)
+  }
+})
+
+async function activateRealMachine(page: Page, caseResources: CaseResources) {
+  const paired = await page.request.post("/api/community/machines/pair")
+  expect(paired.status()).toBe(200)
+  const { tokenId } = await paired.json() as { tokenId: string }
+  const activationProof: { response?: APIResponse; machineId?: string } = {}
+  const pairingToken = caseResources.own(tokenId, async () => {
+    if (!activationProof.response?.ok() || !activationProof.machineId) throw new Error("Pairing token consumption is UNKNOWN; this case must stop")
+  })
+  const hostname = `native-loading-${Date.now()}`
+  const activated = await page.request.post("/api/community/daemon/activate", {
+    headers: { Authorization: `Bearer ${tokenId}` },
+    data: { hostname, platform: "linux", arch: "x64", osRelease: "e2e", daemonVersion: (JSON.parse(readFileSync(resolve(REPO_ROOT, "src/daemon/package.json"), "utf8")) as { version: string }).version, runtimeReport: [{ id: "pi", status: "healthy" }] },
+  })
+  expect(activated.status()).toBe(200)
+  const { machineId, credential } = await activated.json() as { machineId: string; credential: string }
+  caseResources.own(machineId, async id => { const removed = await page.request.delete(`/api/community/machines/${id}`); expect([204, 404]).toContain(removed.status()) })
+  activationProof.response = activated
+  activationProof.machineId = machineId
+  await pairingToken.close()
+  return { machineId, credential, hostname }
+}
+
+test("restored real machines stay unknown when observations beat the current list", async ({ caseActors, caseResources }, testInfo) => {
+  test.setTimeout(120_000)
+  const actors = await caseActors(["alice"])
+  const { page } = await actors.asUser("alice", { viewport: { width: 1280, height: 900 } })
+  const { machineId, hostname } = await activateRealMachine(page, caseResources)
+  await page.goto("/c/me/machines")
+  await expect(page.getByText(hostname, { exact: true })).toBeVisible()
+  await expectPersistedClosure(page, actors.userId("alice"), [{ key: ["community", "machines"], containsId: machineId }])
+  const stored = (await persistedQueries(page, actors.userId("alice"))).find(query => JSON.stringify(query.queryKey) === JSON.stringify(["community", "machines"]))?.data as { machines: Array<Record<string, unknown>> }
+  expect(stored.machines.find(machine => machine.id === machineId)).not.toHaveProperty("status")
+  expect(stored).not.toHaveProperty("machineCapacity")
+  await page.goto("/")
+  let releaseList!: () => void
+  const listGate = new Promise<void>(resolve => { releaseList = resolve })
+  caseResources.own(releaseList, async captured => { captured() })
+  const listPattern = (url: URL) => url.pathname === "/api/community/machines" && url.searchParams.get("view") === "list"
+  const observationPattern = (url: URL) => url.pathname === "/api/community/machines" && url.searchParams.get("view") === "observations"
+  let observed: { machineCapacity: { onlineCount: number }; quotas: unknown[] } | undefined
+  await page.route(listPattern, async route => { await listGate; await route.continue() })
+  page.on("response", async response => { if (observationPattern(new URL(response.url())) && response.ok()) observed = await response.json() })
+  try {
+    const requested = page.waitForRequest(request => listPattern(new URL(request.url())))
+    await page.goto("/c/me/friends")
+    await expect.poll(() => page.evaluate(() => performance.getEntriesByName("alook:restore:complete", "mark").length)).toBe(1)
+    await page.getByRole("link", { name: "Machines", exact: true }).click()
+    await requested
+    await expect.poll(() => observed !== undefined).toBe(true)
+    const card = page.locator('[data-slot="card"]').filter({ has: page.getByText(hostname, { exact: true }) })
+    await expect(card).toHaveCount(1)
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    await expect(card.getByText("Status unknown", { exact: true })).toBeVisible()
+    await expect(card.getByText("Last seen unknown", { exact: true })).toBeVisible()
+    await expect(card.getByText("Offline", { exact: true })).toHaveCount(0)
+    await expect(page.getByRole("button", { name: "Machine usage loading", exact: true })).toBeDisabled()
+    await expect(page.getByRole("button", { name: "Machine usage loading", exact: true })).toHaveAttribute("aria-label", "Machine usage loading")
+    const returned = page.waitForResponse(response => listPattern(new URL(response.url())) && response.ok())
+    releaseList()
+    const response = await returned
+    const body = await response.json() as { machines: Array<{ id: string; status: string }> }
+    const actual = body.machines.find(machine => machine.id === machineId)
+    expect(actual).toBeDefined()
+    await expect(card.getByText(actual!.status === "online" ? "Online" : "Offline", { exact: true })).toBeVisible()
+    await expect(card.getByText("Status unknown", { exact: true })).toHaveCount(0)
+    await expect(page.getByRole("button", { name: /^Online machines: / })).toBeEnabled()
+    await testInfo.attach("machines-observations-before-primary", { body: JSON.stringify({ machineId, actualStatus: actual!.status, observationOnlineCount: observed!.machineCapacity.onlineCount, persistedStatusAbsent: true }), contentType: "application/json" })
+  } finally {
+    releaseList()
+    await page.unroute(listPattern)
+  }
+})
+
+async function holdFirstRealRead(page: Page, match: (url: URL) => boolean, resources: CaseResources) {
+  let release!: () => void
+  let settled!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const finished = new Promise<void>(resolve => { settled = resolve })
+  let original: Request | undefined
+  let captured: { status: number; body: unknown } | undefined
+  let failure: unknown
+  let aborted = false
+  page.on("requestfailed", request => {
+    if (request === original && request.failure()?.errorText.includes("ERR_ABORTED")) aborted = true
+  })
+  await page.route(match, async route => {
+    if (original || route.request().method() !== "GET") { await route.continue(); return }
+    original = route.request()
+    try {
+      const response = await route.fetch()
+      captured = { status: response.status(), body: await response.json() }
+      await gate
+      await route.fulfill({ response })
+    } catch (error) { failure = error }
+    finally { settled() }
+  })
+  const owned = resources.own(match, async pattern => {
+    release()
+    if (original) await finished
+    await page.unroute(pattern)
+    if (failure && !aborted) throw failure
+  })
+  return { captured: () => captured, release, close: () => owned.close(), aborted: () => aborted }
+}
+
+type NativeMachineSocket = {
+  readonly readyState: number
+  send: (body: string) => void
+  close: () => void
+  once(event: "open" | "close", listener: () => void): void
+  once(event: "error", listener: (error: Error) => void): void
+  on(event: "message", listener: (body: { toString(): string }) => void): void
+  off(event: "message", listener: (body: { toString(): string }) => void): void
+}
+
+function connectRealMachine(credential: string, resources: CaseResources) {
+  const requireFromDaemon = createRequire(resolve(REPO_ROOT, "src/daemon/package.json"))
+  const Ws = requireFromDaemon("ws") as { WebSocket: new (url: string, options: { headers: Record<string, string> }) => NativeMachineSocket }
+  const socket = new Ws.WebSocket(MACHINE_WS_URL.replace(/^http/, "ws"), { headers: { Authorization: `Bearer ${credential}` } })
+  let heartbeatAcks = 0
+  let protocolFailure: Error | undefined
+  const onMessage = (body: { toString(): string }) => {
+    try {
+      const parsed = HostCommandSchema.safeParse(JSON.parse(body.toString()))
+      if (parsed.success && parsed.data.type === "machine:heartbeat") {
+        socket.send(JSON.stringify({ type: "machine_heartbeat_ack", nonce: parsed.data.nonce }))
+        heartbeatAcks += 1
+      }
+    } catch { protocolFailure = new Error("Machine socket control response failed") }
+  }
+  socket.on("message", onMessage)
+  const owned = resources.own(socket, async captured => {
+    captured.off("message", onMessage)
+    await new Promise<void>(resolveClose => {
+      if (captured.readyState === 3) { resolveClose(); return }
+      captured.once("close", resolveClose)
+      captured.close()
+    })
+    if (protocolFailure) throw protocolFailure
+  })
+  const opened = new Promise<void>((resolveOpen, reject) => { socket.once("open", resolveOpen); socket.once("error", reject) })
+  return { socket, opened, close: () => owned.close(), heartbeatAcks: () => heartbeatAcks }
+}
+
+test("real machine status, removal and creation retire an older list response", async ({ caseActors, caseResources }, testInfo) => {
+  test.setTimeout(120_000)
+  const actors = await caseActors(["alice"])
+  const { page, context } = await actors.asUser("alice", { viewport: { width: 1280, height: 900 } })
+  const first = await activateRealMachine(page, caseResources)
+  const held = await holdFirstRealRead(page, url => url.pathname === "/api/community/machines" && url.searchParams.get("view") === "list", caseResources)
+  const proxy = await proxyCommunityWebSockets(context)
+  try {
+    await page.goto("/c/me/friends")
+    await expect.poll(() => held.captured() !== undefined).toBe(true)
+    expect(held.captured()?.status).toBe(200)
+    const original = held.captured()!.body as { machines: Array<{ id: string; status: string }> }
+    expect(original.machines.map(machine => machine.id)).toEqual([first.machineId])
+    expect(original.machines[0].status).toBe("offline")
+    await expect.poll(() => proxy.connectionFrames.some(frame => frame.type === "auth.ok")).toBe(true)
+    const connection = connectRealMachine(first.credential, caseResources)
+    await connection.opened
+    connection.socket.send(JSON.stringify(HostReadyMessageSchema.parse({ type: "ready", runtimeReport: [{ id: "pi", status: "healthy" }], capabilities: [CONTROL_HEARTBEAT_CAPABILITY], runningAgents: [], hostname: first.hostname, platform: "linux", arch: "x64", daemonVersion: (JSON.parse(readFileSync(resolve(REPO_ROOT, "src/daemon/package.json"), "utf8")) as { version: string }).version })))
+    await expect.poll(() => proxy.frames.some(frame => frame.type === "community:machine.status" && frame.machineId === first.machineId && frame.status === "online")).toBe(true)
+    const online = await page.request.get("/api/community/machines?view=list")
+    expect(online.status()).toBe(200)
+    expect((await online.json()).machines).toEqual(expect.arrayContaining([expect.objectContaining({ id: first.machineId, status: "online" })]))
+    await connection.close()
+    await expect.poll(() => proxy.frames.some(frame => frame.type === "community:machine.status" && frame.machineId === first.machineId && frame.status === "offline")).toBe(true)
+    const removed = await page.request.delete(`/api/community/machines/${first.machineId}`)
+    expect(removed.status()).toBe(204)
+    await expect.poll(() => proxy.frames.some(frame => frame.type === "community:machine.removed" && frame.machineId === first.machineId)).toBe(true)
+    const second = await activateRealMachine(page, caseResources)
+    await expect.poll(() => proxy.frames.some(frame => frame.type === "community:machine.created" && (frame.machine as { id?: string } | undefined)?.id === second.machineId)).toBe(true)
+    await page.getByRole("link", { name: "Machines", exact: true }).click()
+    await expect(page.getByText(second.hostname, { exact: true })).toBeVisible()
+    const current = await page.request.get("/api/community/machines?view=list")
+    expect(current.status()).toBe(200)
+    expect((await current.json()).machines.map((machine: { id: string }) => machine.id)).toEqual([second.machineId])
+    held.release()
+    await held.close()
+    await expect(page.getByText(second.hostname, { exact: true })).toHaveCount(1)
+    await expect(page.getByText(first.hostname, { exact: true })).toHaveCount(0)
+    await expect(page.getByRole("heading", { name: "No machines yet", exact: true })).toHaveCount(0)
+    await testInfo.attach("real-machine-ws-before-old-list", { body: JSON.stringify({ originalIds: original.machines.map(machine => machine.id), currentIds: [second.machineId], originalRequestAborted: held.aborted(), heartbeatAcks: connection.heartbeatAcks(), events: proxy.frames.filter(frame => frame.type.startsWith("community:machine.")).map(frame => ({ type: frame.type, machineId: frame.machineId ?? (frame.machine as { id?: string } | undefined)?.id, status: frame.status })) }), contentType: "application/json" })
+  } finally { await held.close() }
+})
+
+for (const lateSource of ["query", "idb"] as const) {
+  test(`a real account replacement in the same document rejects old-account ${lateSource} completion`, async ({ caseActors, caseResources }, testInfo) => {
+    test.setTimeout(120_000)
+    const actors = await caseActors(["alice", "bob", "carol"])
+    const { seedDm, seedDmMessage } = actors.seed
+    const aliceDm = await seedDm("alice", actors.userId("carol"))
+    const aliceMessage = await seedDmMessage("carol", aliceDm, `Alice private ${Date.now()}`)
+    const bobDm = await seedDm("bob", actors.userId("carol"))
+    const bobBody = `Bob private ${Date.now()}`
+    const bobMessage = await seedDmMessage("carol", bobDm, bobBody)
+    const { page, context } = await actors.asUser("alice", { viewport: { width: 1280, height: 900 } })
+    await page.goto(`/c/me/${aliceDm}`)
+    await expect(page.getByTestId(tid.message(aliceMessage))).toBeVisible()
+    await expectPersistedClosure(page, actors.userId("alice"), [{ key: ["community", "db", actors.userId("alice"), "messages"], containsId: aliceMessage }])
+    await page.goto("/")
+    const held = lateSource === "query" ? await holdFirstRealRead(page, url => url.pathname === "/api/community/users/me/dms", caseResources) : undefined
+    if (lateSource === "idb") {
+      await holdOriginalPersistedRead(page, actors.userId("alice"), aliceMessage, bobMessage)
+      caseResources.own(page, releaseOriginalPersistedRead)
+    }
+    try {
+      await page.goto(`/c/me/${aliceDm}`, { waitUntil: "commit" })
+      const documentId = await page.evaluate(() => { const id = crypto.randomUUID(); Reflect.set(window, "__217OriginalDocument", id); return id })
+      await expect(page.getByTestId(tid.message(aliceMessage))).toBeVisible()
+      if (held) {
+        await expect.poll(() => held.captured() !== undefined).toBe(true)
+        expect(held.captured()?.status).toBe(200)
+        expect(containsPersistedId(held.captured()?.body, aliceDm)).toBe(true)
+      } else await expect.poll(() => page.evaluate(() => {
+        const state = Reflect.get(window, "__217DiskRead") as { held: number; oldPresent: boolean; newPresent: boolean }
+        return { held: state.held, oldPresent: state.oldPresent, newPresent: state.newPresent }
+      })).toEqual({ held: 1, oldPresent: true, newPresent: false })
+      const bobSession = await fetch(`${WEB_URL}/api/auth/get-session`, { headers: { Cookie: actors.sessionCookie("bob"), Origin: WEB_URL } })
+      expect(bobSession.status).toBe(200)
+      const bobIdentity = await bobSession.json() as { user: { id: string; email: string } }
+      expect(bobIdentity.user.id).toBe(actors.userId("bob"))
+      const login = await page.request.post("/api/auth/sign-in/email", { headers: { Origin: WEB_URL }, data: { email: bobIdentity.user.email, password: DEV_PASSWORD } })
+      expect(login.status()).toBe(200)
+      expect((await login.json()).user.id).toBe(actors.userId("bob"))
+      const away = await context.newPage()
+      const ownedAway = caseResources.own(away, async captured => { await captured.close() })
+      await away.bringToFront()
+      await page.waitForTimeout(5_100)
+      const refreshedSession = page.waitForResponse(response => new URL(response.url()).pathname === "/api/auth/get-session" && response.ok())
+      await page.bringToFront()
+      expect((await (await refreshedSession).json()).user.id).toBe(actors.userId("bob"))
+      await expect(page.getByTestId(tid.userBarName)).toHaveText(actors.userName("bob"))
+      expect(await page.evaluate(() => Reflect.get(window, "__217OriginalDocument"))).toBe(documentId)
+      await expect(page.getByTestId(tid.dmRow(bobDm))).toBeVisible()
+      await page.getByTestId(tid.dmRow(bobDm)).click()
+      await expect(page.getByTestId(tid.message(bobMessage)).getByText(bobBody, { exact: true })).toBeVisible()
+      let diskRetirement: Awaited<ReturnType<typeof retiredAccountDiskState>> | undefined
+      let originalRestoreRetirement: unknown
+      if (held) { held.release(); await held.close() }
+      else {
+        await releaseOriginalPersistedRead(page)
+        await expect.poll(() => page.evaluate(() => (Reflect.get(window, "__217DiskRead") as { retirementCheck: unknown }).retirementCheck)).toEqual({ complete: true, accountChanged: true, scopeChanged: true, channelsReset: true })
+        originalRestoreRetirement = await page.evaluate(() => (Reflect.get(window, "__217DiskRead") as { retirementCheck: unknown }).retirementCheck)
+        diskRetirement = await retiredAccountDiskState(page, actors.userId("alice"), aliceDm)
+        expect(diskRetirement).toEqual({ payloadAbsent: true, applicationPayloadAbsent: true, accountEpochPresent: true, scopeEpochPresent: true, channelsReset: true, oldChannelFenceAbsent: true })
+        await expectPersistedClosure(page, actors.userId("bob"), [{ key: ["community", "db", actors.userId("bob"), "messages"], containsId: bobMessage }])
+        const bobStored = await persistedQueries(page, actors.userId("bob"))
+        expect(containsPersistedId(bobStored, aliceMessage)).toBe(false)
+      }
+      await expect(page.getByTestId(tid.userBarName)).toHaveText(actors.userName("bob"))
+      await expect(page.getByTestId(tid.message(bobMessage))).toHaveCount(1)
+      await expect(page.getByTestId(tid.message(aliceMessage))).toHaveCount(0)
+      await expect(page.getByTestId(tid.dmRow(aliceDm))).toHaveCount(0)
+      await expect(page).toHaveURL(new RegExp(`/c/me/${bobDm}$`))
+      expect(await page.evaluate(() => Reflect.get(window, "__217OriginalDocument"))).toBe(documentId)
+      await ownedAway.close()
+      await testInfo.attach(`account-replaced-before-${lateSource}`, { body: JSON.stringify({ oldViewerId: actors.userId("alice"), currentViewerId: actors.userId("bob"), lateSource, documentPreserved: true, currentMessageId: bobMessage, retiredMessageId: aliceMessage, queryAborted: held?.aborted(), originalRestoreRetirement, diskRetirement }), contentType: "application/json" })
+    } finally {
+      if (held) await held.close()
+      else await releaseOriginalPersistedRead(page)
+    }
+  })
+}

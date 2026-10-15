@@ -132,7 +132,7 @@ export function ForumView({
   forumChannelId,
   members,
   mentionCandidates,
-  posts, loading, tag, availableTags = [], onTagChange, onOpenPost, onCreatePost, onEditPostTags, canEditPostTags, savingTagsFor,
+  posts, loading, observation, tag, availableTags = [], onTagChange, onOpenPost, onCreatePost, onEditPostTags, canEditPostTags, savingTagsFor,
   hasMore, loadingMore, isFetching, isError, onLoadMore,
   onDeletePost, canDeletePost, deletingPost,
   onScrollRoot,
@@ -140,6 +140,7 @@ export function ForumView({
   forumChannelId: string
   members: Member[]
   mentionCandidates?: ComposerProps["mentionCandidates"]
+  observation?: import("@/lib/observability/regions").ResourceObservation
   posts: ForumThread[]
   loading?: boolean
   tag: string
@@ -194,7 +195,7 @@ export function ForumView({
     initialRect: { width: 0, height: 800 },
   })
   const observedPosts = visibleVirtualItems(virtualizer).flatMap(item => posts[item.index] ? [posts[item.index]] : [])
-  useObservedRegion("forum", (!loading || posts.length > 0) && (!posts.length || observedPosts.length > 0), observedPosts.length)
+  useObservedRegion("forum", (!loading || posts.length > 0) && (!posts.length || observedPosts.length > 0), observedPosts.length, observation)
   const filterTags = availableTags.length > 0
     ? availableTags
     : [...new Set(posts.flatMap((post) => post.tags))]

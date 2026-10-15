@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, type ReactNode, Suspense, useEffect, useRef, useSyncExternalStore } from "react"
+import { createContext, useContext, type ReactNode, Suspense, useEffect, useEffectEvent, useRef, useSyncExternalStore } from "react"
 import { usePathname, useSearchParams } from "next/navigation"
 import { commitNavigation, committedNavigationPathname, currentRoute, navigationForHref, finishAction, actionAttributes, startRegionObservation, finishRegionObservation, type Action, type PageOperation } from "./context"
 import { emitTelemetry, isTelemetryEligible, telemetryGeneration, subscribeObservation, observationSnapshot } from "./telemetry"
@@ -12,15 +12,19 @@ export function ObservedRegionVisibility({ visible, children }: { visible: boole
   return <visibility.Provider value={parent && visible}>{children}</visibility.Provider>
 }
 
-export function useObservedRegion(region: Attributes["region"], ready: boolean, count?: number) {
+export type ResourceObservation = { snapshot_source?: "rsc" | "network" | "restored_idb" | "unknown"; target_coverage?: "covered" | "uncovered" | "unknown"; wait_reason?: "none" | "entry" | "window" | "projection" | "identity" | "restore" | "position" | "unknown" }
+
+export function useObservedRegion(region: Attributes["region"], ready: boolean, count?: number, evidence?: ResourceObservation) {
   const visible = useContext(visibility)
+  const captureEvidence = useEffectEvent(() => evidence)
+  const snapshotSource = evidence?.snapshot_source, targetCoverage = evidence?.target_coverage
   useSyncExternalStore(subscribeObservation, observationSnapshot, () => 0)
   const href = typeof window === "undefined" ? "/" : window.location.pathname + window.location.search
   const pathname = committedNavigationPathname(), route = currentRoute(), navigation = navigationForHref(href), generation = telemetryGeneration(), eligible = isTelemetryEligible()
   const waiting = useRef<{ span?: PageOperation; action: Action; region: Attributes["region"] } | undefined>(undefined)
   useEffect(() => {
     if (!visible || !eligible || generation !== telemetryGeneration() || !navigation || navigation.done) return
-    waiting.current = { span: startRegionObservation(navigation, region), action: navigation, region }
+    waiting.current = { span: startRegionObservation(navigation, region, captureEvidence()), action: navigation, region }
     return () => {
       if (waiting.current && waiting.current.action === navigation && waiting.current.region === region) {
         finishRegionObservation(waiting.current.span, navigation, "cancelled")
@@ -47,10 +51,10 @@ export function useObservedRegion(region: Attributes["region"], ready: boolean, 
     const identity = baseIdentity + (action?.id ?? "")
     if (identity === emitted.current || (!action && emitted.current.startsWith(baseIdentity))) return
     emitted.current = identity
-    const fields = { ...actionAttributes(action), region, route_template: route, row_count: count, eligibility: "eligible", outcome: count === 0 ? "empty" : "success", phase: "primary" }
+    const fields = { ...actionAttributes(action), snapshot_source: snapshotSource, target_coverage: targetCoverage, wait_reason: "none", region, route_template: route, row_count: count, eligibility: "eligible", outcome: count === 0 ? "empty" : "success", phase: "primary" }
     emitTelemetry("region.ready_commit", fields)
     finishAction(action, "success", { region, phase: "primary" })
-  }, [visible, ready, region, count, pathname, route, navigation, generation, eligible, href])
+  }, [visible, ready, region, count, pathname, route, navigation, generation, eligible, href, snapshotSource, targetCoverage])
 }
 function RouteCommit() {
   const pathname = usePathname(), search = useSearchParams().toString()

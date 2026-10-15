@@ -53,6 +53,9 @@ function controller(overrides: Partial<BotListController> = {}): BotListControll
     isCreateDisabled: false,
     pendingActiveBotIds: new Set(),
     setBotActive: noop,
+    initialError: false,
+    retryInitialLoad: noop,
+    retryingInitialLoad: false,
     isLoading: false,
     machines: [],
     machinesLoading: false,
@@ -113,8 +116,16 @@ function withClassFragment(container: HTMLElement, className: string): HTMLEleme
 describe("renderBotListView", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("keeps the loaded header, group, and scroll geometry for either loading source", () => {
-    for (const loading of [{ isLoading: true }, { machinesLoading: true }]) {
+  it("shows Retry for an unconfirmed cold failure without claiming an empty bots list", () => {
+    const retry = vi.fn()
+    const view = render(renderBotListView({}, controller({ initialError: true, retryInitialLoad: retry })))
+    expect(view.container.textContent).not.toContain("No bots yet")
+    fireEvent.click(view.getByRole("button", { name: "Retry" }))
+    expect(retry).toHaveBeenCalledOnce()
+  })
+
+  it("keeps the loaded header, group, and scroll geometry while the bots list is unknown", () => {
+    for (const loading of [{ isLoading: true }, { isLoading: true, machinesLoading: true }]) {
       const renderer = render(renderBotListView({}, controller(loading)))
       const cards = withClassFragment(renderer.container, "flex flex-col gap-3 p-4")
       expect(cards).toHaveLength(3)
@@ -141,6 +152,14 @@ describe("renderBotListView", () => {
       expect(mocks.createSheet).not.toHaveBeenCalled()
       renderer.unmount()
     }
+  })
+
+  it("renders confirmed empty bots while only the machine action waits", () => {
+    const renderer = render(renderBotListView({}, controller({ bots: [], isLoading: false, machinesLoading: true, machines: [] })))
+    expect(renderer.getByText("No bots yet")).toBeTruthy()
+    expect(renderer.queryByText("Connect a machine first")).toBeNull()
+    expect(renderer.getByRole("button", { name: "Checking machines…" })).toBeDisabled()
+    expect(withClassFragment(renderer.container, "h-6 w-40 max-w-full rounded")).toHaveLength(0)
   })
 
   it("bypasses loading for warm bots and renders the populated branch", () => {

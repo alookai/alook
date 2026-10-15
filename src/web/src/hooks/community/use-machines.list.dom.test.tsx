@@ -1,0 +1,66 @@
+import { createElement, type PropsWithChildren } from "react"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { act, renderHook, waitFor } from "@/test/react-dom-harness"
+import { CommunityTestProvider } from "@/test/community-owner-fixture"
+import { createCommunityQueryOwner } from "@/test/community-query-owner"
+import { communityKeys } from "@/lib/query-keys"
+import { captureMachinesPublication, publishMachines } from "@/lib/community/machines"
+import { useMachines, type MachinesResponse } from "./use-machines"
+
+const load = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/api/client", () => ({ apiFetch: (...args: unknown[]) => load(...args) }))
+beforeEach(() => { load.mockReset() })
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (error: Error) => void
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
+}
+
+describe("machine list primary readiness", () => {
+  it.each([false, true])("keeps restored capacity unknown until the live list arrives (empty=%s)", async (empty) => {
+    const { client } = await createCommunityQueryOwner()
+    const primary = deferred<MachinesResponse>()
+    const machine = { id: "m1", hostname: "host" }
+    const machineCapacity = { plan: { id: "free", displayName: "Free" }, isFounder: false, limit: 1, ownedCount: 1, onlineCount: 1 }
+    client.setQueryData(communityKeys.machines(), { machines: empty ? [] : [machine], observed: false, source: "restored_idb" })
+    load.mockImplementation((url: string) => url.endsWith("view=list") ? primary.promise : Promise.resolve({ quotas: [], machineCapacity }))
+    const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client }, children)
+    const hook = renderHook(() => useMachines(), { wrapper })
+    await waitFor(() => expect(client.getQueryData([...communityKeys.machines(), "observations"])).toMatchObject({ machineCapacity }))
+    expect(hook.result.current.isLoading).toBe(false)
+    expect(hook.result.current.data?.machineCapacity).toBeUndefined()
+    await act(async () => primary.resolve({ machines: [{ ...machine, status: "online" }] } as MachinesResponse))
+    await waitFor(() => expect(hook.result.current.data?.machineCapacity).toMatchObject({ onlineCount: 1, ownedCount: 1 }))
+    hook.unmount()
+  })
+
+  it("renders the actual list while optional observations wait or fail, and never recreates a removed machine", async () => {
+    const { client } = await createCommunityQueryOwner()
+    const optional = deferred<{ quotas: Array<{ machineId: string; quota: [] }> }>()
+    load.mockImplementation((url: string) => url.endsWith("view=list") ? Promise.resolve({ machines: [{ id: "m1", hostname: "host", status: "online" }] }) : optional.promise)
+    const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client }, children)
+    const hook = renderHook(() => useMachines(), { wrapper })
+    await waitFor(() => expect(hook.result.current.machines.map(row => row.id)).toEqual(["m1"]))
+    expect(hook.result.current.isLoading).toBe(false)
+    expect(hook.result.current.data?.machineCapacity).toBeUndefined()
+    expect(client.getQueryData(communityKeys.machines())).not.toHaveProperty("quotas")
+    await act(async () => { await publishMachines(client, captureMachinesPublication(client), current => ({ ...current, machines: [] })) })
+    await act(async () => optional.resolve({ quotas: [{ machineId: "m1", quota: [] }] }))
+    await waitFor(() => expect(hook.result.current.machines).toEqual([]))
+    expect(client.getQueryData(communityKeys.machines())).toMatchObject({ machines: [] })
+    hook.unmount()
+  })
+
+  it("retains a confirmed empty list when only quota fails", async () => {
+    const { client } = await createCommunityQueryOwner()
+    load.mockImplementation((url: string) => url.endsWith("view=list") ? Promise.resolve({ machines: [] }) : Promise.reject(new Error("quota unavailable")))
+    const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client }, children)
+    const hook = renderHook(() => useMachines(), { wrapper })
+    await waitFor(() => expect(hook.result.current.isSuccess).toBe(true))
+    expect(hook.result.current.isError).toBe(false)
+    expect(hook.result.current.machines).toEqual([])
+    expect(load.mock.calls.map(([url]) => url)).toEqual(["/api/community/machines?view=list", "/api/community/machines?view=observations"])
+    hook.unmount()
+  })
+})

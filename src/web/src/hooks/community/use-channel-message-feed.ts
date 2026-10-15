@@ -3,7 +3,6 @@
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useMemo } from "react"
 import { isConversationAccessError } from "@/lib/community/conversation-read"
-import { useChannelReadStateSnapshot } from "./use-channel-read-state"
 import { useChannelWatermark } from "./use-channel-watermark"
 import { useMessages } from "./use-messages"
 import { usePins, useThreads } from "./use-channel-panels"
@@ -22,24 +21,12 @@ export function useChannelMessageFeed({
   isChildChannel: boolean
   anchorMessageId: string | null
 }) {
-  const readState = useChannelReadStateSnapshot(channelId)
-  const readSnapshot = readState.snapshot
   const messagesQuery = useMessages(channelId, {
     serverId,
-    lastReadMessageId: readState.isFetching
-      ? undefined
-      : (readSnapshot?.lastReadMessageId ?? null),
     anchorMessageId,
-    // Ordinary direct/sidebar mounts keep the established anchor-first
-    // contract. Inbox clicks get their independent newest/read/detail
-    // concurrency from startConversationNavigationWarmup before this route
-    // mounts; widening the route hook itself to newest-first changes every
-    // navigation source and can replace the read-centered window.
-    waitForAnchor: true,
-    reconcileLateAnchor: true,
-    revalidateOnMount: true,
     viewerUserId,
   })
+  const readSnapshot = messagesQuery.readSnapshot
   const { newDividerBefore, anchorFound } = useMemo(() => {
     if (!readSnapshot) return { newDividerBefore: undefined, anchorFound: false }
     return resolveMessageReadProjection({
@@ -55,9 +42,9 @@ export function useChannelMessageFeed({
     channelId,
     messages: messagesQuery.messages,
     scrollRootEl,
-    snapshotStatus: isConversationAccessError(readState.error)
+    snapshotStatus: messagesQuery.entryDenied || isConversationAccessError(messagesQuery.initialLoadError)
       ? "error"
-      : readState.isFetching
+      : messagesQuery.readSnapshotFetching
       ? "pending"
       : readSnapshot
         ? "ready"
@@ -77,21 +64,11 @@ export function useChannelMessageFeed({
   }, [messagesQuery.latestSeq, readSnapshot])
   const threadsQuery = useThreads(channelId)
   const pinsQuery = usePins(channelId)
-  const initialLoadError = isConversationAccessError(messagesQuery.error)
-    ? messagesQuery.error : readState.error ?? messagesQuery.error
-
   return {
     ...messagesQuery,
     readSnapshot,
-    readSnapshotFetching: readState.isFetching,
-    initialLoadError,
-    retryingInitialLoad: readState.retrying || messagesQuery.isFetching,
-    retryInitialLoad: () => {
-      if (initialLoadError && initialLoadError === messagesQuery.error) void messagesQuery.refetch({ cancelRefetch: false })
-      else readState.retry()
-    },
     newDividerBefore,
-    anchorInCache: anchorFound,
+    anchorInCache: anchorFound || messagesQuery.initialPositionKnown,
     unreadCount,
     scrollRootEl,
     setScrollRootEl,

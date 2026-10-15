@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
   fetchLatestDaemonVersion: vi.fn(),
   machinesLoading: { current: false },
+  machinesError: { current: false },
+  retryMachines: vi.fn(),
   capacity: { current: { plan: { id: "free", displayName: "Free" }, isFounder: false, limit: 1, ownedCount: 0, onlineCount: 0 } },
   machines: { current: [] as unknown[] },
   onboardingState: { current: "done" as unknown },
@@ -82,7 +84,7 @@ vi.mock("./pair-machine-sheet", () => ({ PairMachineSheet: ({ open, onLimitReach
 vi.mock("@/components/community/onboarding-tiles/connect-tile", () => ({ ConnectTile: () => null }))
 vi.mock("@/hooks/community/use-machines", async (importOriginal) => ({ ...await importOriginal<typeof import("@/hooks/community/use-machines")>(),
   machinesQueryFn: mocks.query,
-  useMachines: () => ({ machines: mocks.machines.current, isLoading: mocks.machinesLoading.current, data: { machineCapacity: mocks.capacity.current } }),
+  useMachines: () => ({ machines: mocks.machines.current, isLoading: mocks.machinesLoading.current, isError: mocks.machinesError.current, isFetching: false, refetch: mocks.retryMachines, data: mocks.machinesError.current ? undefined : { machineCapacity: mocks.capacity.current } }),
 }))
 vi.mock("@/hooks/community/use-bots", () => ({ useBots: () => ({ bots: [] }) }))
 vi.mock("@/stores/community", async (importOriginal) => ({ ...await importOriginal<typeof import("@/stores/community")>(),
@@ -141,8 +143,17 @@ describe("machine daemon update UI", () => {
       package: "@alook/daemon",
     })
     mocks.machinesLoading.current = false
+    mocks.machinesError.current = false
     mocks.machines.current = []
     mocks.onboardingState.current = "done"
+  })
+
+  it("shows Retry when the list is unknown rather than claiming no machines exist", () => {
+    mocks.machinesError.current = true
+    const view = render(React.createElement(MachineList))
+    expect(view.container.textContent).not.toContain("No machines yet")
+    fireEvent.click(view.getByRole("button", { name: "Retry" }))
+    expect(mocks.retryMachines).toHaveBeenCalledOnce()
   })
 
   it("blocks adding at the owned cap even when every machine is offline", async () => {

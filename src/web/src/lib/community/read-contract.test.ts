@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { COMMUNITY_CONTRACT_HEADER } from "@alook/shared"
-import { writeCommunityChannelRead, writeCommunityMessagesRead, writeCommunityReadState } from "./read-contract"
+import { COMMUNITY_CONTRACT_HEADER, normalizeCommunityChannelResource, type CommunityConversationEntryRead } from "@alook/shared"
+import { writeCommunityChannelRead, writeCommunityMessagesRead, writeCommunityReadState, writeCommunityConversationEntryRead } from "./read-contract"
 import { decodeCommunityReadResponse } from "./read-response"
 import { parseCommunityMessageWindow } from "./messages"
 import { mapMessageForWs } from "./message-payload"
@@ -69,5 +69,47 @@ describe("explicit resource 3 ingress", () => {
     const missing = { ...body, messages: [{ ...full, attachments: undefined }] }
     expect(() => decodeCommunityReadResponse("/api/community/channels/channel/messages", "GET", response, missing, 3)).toThrow()
     expect(() => projectCommunityMessageCreate({ ...full, channelId: "foreign" }, "channel", 3)).toThrow("scope mismatch")
+  })
+})
+
+describe("opt-in conversation entry ingress", () => {
+  const entry = (): CommunityConversationEntryRead => ({
+    contractVersion: 3, channelId: "channel", viewerId: "viewer", peer: { id: "peer", name: "Peer", discriminator: "0042", avatar: null, avatarVersion: 0 },
+    channel: normalizeCommunityChannelResource(channel),
+    access: { channelId: "channel", canRead: true, canSend: false, canCreateDiscussion: false },
+    readState: { channelId: "channel", lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 },
+    readStateRevision: 0, selection: { reason: "tail", anchorMessageId: null },
+    surfaceReceipt: { channelId: "channel", surfaceKind: "dm" }, messages: [],
+    page: { olderCursor: null, newerCursor: null, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 0 },
+  })
+
+  it("decodes an explicit entry without changing the ordinary message contract", async () => {
+    const value = entry()
+    const response = writeCommunityConversationEntryRead(value)
+    expect(response.headers.get(COMMUNITY_CONTRACT_HEADER)).toBe("3")
+    const body = await response.json()
+    expect(decodeCommunityReadResponse("/api/community/channels/channel/messages?entry=1", "GET", response, body, 3)).toEqual(value)
+    expect(() => decodeCommunityReadResponse("/api/community/channels/channel/messages", "GET", response, body, 3)).toThrow()
+    expect(() => decodeCommunityReadResponse("/api/community/channels/foreign/messages?entry=1", "GET", response, body, 3)).toThrow("scope mismatch")
+  })
+
+  it("rejects a legacy response, wrong contract or unsupported opt-in value", async () => {
+    const value = entry()
+    const response = writeCommunityConversationEntryRead(value)
+    for (const [path, version] of [
+      ["/api/community/channels/channel/messages?entry=1", 2],
+      ["/api/community/channels/channel/messages?entry=0", 3],
+      ["/api/community/channels/channel/messages?entry=", 3],
+    ] as const) expect(() => decodeCommunityReadResponse(path, "GET", response, value, version)).toThrow("confirmation mismatch")
+    expect(() => decodeCommunityReadResponse("/api/community/channels/channel/messages?entry=1", "GET", new Response(), value, 3)).toThrow("confirmation mismatch")
+  })
+
+  it("qualifies complete message rows only after entry scope validation", () => {
+    const value = entry()
+    const message = { id: "m1", channelId: "channel", seq: 1, authorId: "peer", createdAt: "now", type: "chat", content: "body", clientNonce: null, replyToId: null, attachments: [] }
+    const body = { ...value, messages: [message] }
+    const response = new Response(null, { headers: { [COMMUNITY_CONTRACT_HEADER]: "3" } })
+    expect(decodeCommunityReadResponse("/api/community/channels/channel/messages?entry=1", "GET", response, body, 3)).toMatchObject({ messages: [{ ...message, resourceComplete: true }] })
+    expect(() => decodeCommunityReadResponse("/api/community/channels/channel/messages?entry=1", "GET", response, { ...body, messages: [{ ...message, channelId: "foreign" }] }, 3)).toThrow("scope mismatch")
   })
 })

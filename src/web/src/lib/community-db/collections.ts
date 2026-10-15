@@ -1,6 +1,6 @@
 import type { z } from "zod"
 import { AttentionScopeSchema, AttentionItemSchema } from "@alook/shared"
-import { clearPersistedCache, type QualifiedPersister } from "@/lib/query-persister"
+import { clearPersistedCache, type QualifiedPersister, type CommunityRestoredCollections } from "@/lib/query-persister"
 import { disposeQueryDiagnostics } from "@/lib/observability/query-observer"
 import {
   DbClient,
@@ -15,7 +15,6 @@ import { createCommunityStore } from "@/stores/community/ui-store"
 import { createCommunityWsStore } from "@/stores/community/ws-store"
 import { createMessageStreamStore } from "@/stores/community/message-stream-store"
 import { createOwnerServerDeleteStore, emptyOwnerServerDeleteState } from "@/lib/community/eject-server"
-import { cancelActiveConversationNavigationProof } from "@/lib/community/conversation-navigation-proof"
 import type { CanonicalMessage } from "@/lib/community/message-stream"
 import { communityKeys } from "@/lib/query-keys"
 import {
@@ -32,7 +31,6 @@ import {
   readStateSchema,
   serverMembershipSchema,
   serverSchema,
-  type ServerRow,
 } from "./schema"
 
 const QUERY_CACHE_GC_TIME = 24 * 60 * 60 * 1000
@@ -47,17 +45,6 @@ function restoredRows<T extends object>(
   name: string,
 ) {
   return queryClient.getQueryData<T[]>(collectionQueryKey(accountId, name)) ?? []
-}
-
-function migrateLegacyServerPositions(queryClient: QueryClient, accountId: string) {
-  const key = collectionQueryKey(accountId, "servers")
-  const rows = queryClient.getQueryData<ServerRow[]>(key)
-  if (!rows?.some((row) => row.position === undefined)) return
-  const updatedAt = queryClient.getQueryState(key)!.dataUpdatedAt
-  queryClient.setQueryData(key, rows.map((row, position) => ({
-    ...row,
-    position: row.position ?? position,
-  })), { updatedAt })
 }
 
 function buildCommunityDbRegistry(
@@ -82,7 +69,7 @@ function buildCommunityDbRegistry(
       ...queryCollectionOptions<S, unknown, ReturnType<typeof collectionQueryKey>, string>({
         id, queryClient, schema, getKey,
         queryKey: collectionQueryKey(scopeId, name), queryFn: queryFnFor<InferSchemaOutput<S>>(name),
-        staleTime: Infinity, gcTime: QUERY_CACHE_GC_TIME, persistedGcTime: QUERY_CACHE_GC_TIME,
+        staleTime: Infinity, gcTime: typeof window === "undefined" ? Infinity : QUERY_CACHE_GC_TIME, persistedGcTime: QUERY_CACHE_GC_TIME,
       }),
       gcTime: 0,
     }))
@@ -148,17 +135,15 @@ function buildCommunityDbRegistry(
     serverListAuthority: createStore<{
       viewerId: string | null; accountEpoch: number; accessEpoch: number; ownerGeneration: number; serverIdsSignature: string
     } | null>(null),
-    captureRestoredCollections: () => {
+    captureRestoredCollections: (input: CommunityRestoredCollections) => {
       if (restoration.get().captured) return
       const names = new Set<string>()
       let hasData = false
-      migrateLegacyServerPositions(queryClient, scopeId)
       for (const name of Object.keys(collections) as CollectionName[]) {
-        const snapshot = queryClient.getQueryState(collectionQueryKey(scopeId, name))
-        const data = snapshot?.data
-        if (snapshot && data !== undefined && snapshot.dataUpdatedAt > 0) {
+        const restored = input[name]
+        if (restored) {
           names.add(name)
-          if (Array.isArray(data) && data.length > 0) hasData = true
+          if (restored.rows.length > 0) hasData = true
         }
       }
       restoration.setState(() => ({ captured: true, names, hasData }))
@@ -168,7 +153,6 @@ function buildCommunityDbRegistry(
     preload: () => Promise.all(Object.values(collections).map((collection) => collection.preload())),
     cleanup: () => {
       disposeQueryDiagnostics(queryClient)
-      cancelActiveConversationNavigationProof(queryClient)
       if (registryByQueryClient.get(queryClient) === registry) registryByQueryClient.delete(queryClient)
       runtime.lifecycle.setState((state) => ({ active: false, generation: state.generation + 1 }))
       runtime.transport.send = null
@@ -206,7 +190,6 @@ export function registerCommunityDbRegistry(registry: CommunityDbRegistry) {
   registryByQueryClient.set(registry.queryClient, registry)
   registry.runtime.lifecycle.setState((state) => ({ ...state, active: true }))
   return () => {
-    cancelActiveConversationNavigationProof(registry.queryClient)
     registry.runtime.lifecycle.setState((state) => ({ active: false, generation: state.generation + 1 }))
   }
 }

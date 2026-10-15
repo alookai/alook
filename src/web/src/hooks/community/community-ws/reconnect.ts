@@ -74,7 +74,12 @@ function isRecognizedServerQueryKey(key: QueryKey): key is ServerQueryKey {
 }
 
 function metadataServerId(queryClient: QueryClient, key: QueryKey) {
-  if (key.length !== 4 || key[0] !== "community" || key[1] !== "channel" || typeof key[2] !== "string" || key[3] !== "metadata") return undefined
+  if (key[0] !== "community" || key[1] !== "channel" || typeof key[2] !== "string") return undefined
+  if (key[3] === "entry" && key.length === 6 && key[4] && typeof key[4] === "object" && "serverId" in key[4]) {
+    const serverId = key[4].serverId
+    return typeof serverId === "string" || serverId === null ? serverId : undefined
+  }
+  if (key.length !== 4 || key[3] !== "metadata") return undefined
   return queryClient.getQueryData<{ serverId?: string | null }>(key)?.serverId
     ?? getCommunityRuntime(queryClient).ws.get().channelAccessScopes.get(key[2])?.serverId
 }

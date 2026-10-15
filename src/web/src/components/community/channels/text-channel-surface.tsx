@@ -141,6 +141,7 @@ export function TextChannelSurface({
                   messages={feed.messages}
                   loading={feed.isLoading}
                   initialLoadError={feed.initialLoadError}
+                  observation={feed.observation}
                   retryingInitialLoad={feed.retryingInitialLoad}
                   onRetryInitialLoad={feed.retryInitialLoad}
                   pinnedIds={controller.pinnedIds}

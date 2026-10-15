@@ -10,6 +10,9 @@ import { getCanonicalCommunityMessages, getCanonicalCommunityChannels, patchCano
 import { forumFeedWindow, normalizeThreadResources, type ForumFeedTransportPage } from "./forum-feed-window"
 import { CONVERSATION_READ_TIMEOUT_MS } from "@/lib/community/conversation-read"
 import { communityKeys } from "@/lib/query-keys"
+import { forumConversationEntryFixture } from "@/test/conversation-entry-fixtures"
+import { conversationEntryOptions, publishConversationEntry } from "@/lib/community/conversation-entry"
+import { captureCommunityLiveSnapshotToken } from "@/lib/community-db/sync"
 
 const apiFetchMock = vi.fn()
 const useForumTagsMock = vi.fn(() => ({
@@ -448,6 +451,8 @@ describe("useForumFeed", () => {
       }],
       pageParams: [null],
     })
+    const target = { channelId: "forum_one", serverId: "server_one" }
+    queryClient.setQueryData(conversationEntryOptions(queryClient, target).queryKey, publishConversationEntry(queryClient, target, forumConversationEntryFixture("forum_one", "server_one", true), { token: captureCommunityLiveSnapshotToken(queryClient, "forum_one") }))
     function QueryWrapper({ children }: PropsWithChildren) {
       return createElement(QueryClientProvider, { client: queryClient }, children)
     }

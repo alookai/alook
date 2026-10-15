@@ -1,3 +1,5 @@
+import { conversationEntryFromChannel } from "@/test/conversation-entry-fixtures"
+import { channelMetadataOptions } from "./channel-metadata"
 import { CommunityTestProvider as QueryClientProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { createCommunityDbRegistry } from "@/lib/community-db/collections"
@@ -32,7 +34,7 @@ async function fixture() {
 
 beforeEach(() => {
   apiFetchMock.mockReset()
-  apiFetchMock.mockResolvedValue({ categoryId: null, topic: "", position: 0, messageCount: 0,
+  apiFetchMock.mockResolvedValue(conversationEntryFromChannel({ categoryId: null, topic: "", position: 0, messageCount: 0,
     id: "post-1",
     serverId: "server-1",
     name: "post",
@@ -43,7 +45,7 @@ beforeEach(() => {
     archived: false,
     lastMessageAt: "2026-08-09T00:00:00.000Z",
     createdAt: "2026-08-08T00:00:00.000Z",
-  })
+  }))
 
 })
 
@@ -54,8 +56,8 @@ describe("child channel metadata stale rendering", () => {
     const changed = { name: "updated", parentChannelId: "forum-2", parentMessageId: "opener-2",
       creatorId: "user-2", lastMessageAt: "2026-08-10T00:00:00.000Z" }
     const response = await apiFetchMock.mock.results[0].value
-    apiFetchMock.mockResolvedValue({ ...response, ...changed })
-    await act(async () => client.refetchQueries({ queryKey: communityKeys.channelMeta("server-1", "post-1"), exact: true }))
+    apiFetchMock.mockResolvedValue({ ...response, channel: { ...response.channel, ...changed } })
+    await act(async () => client.refetchQueries({ queryKey: channelMetadataOptions(client, "server-1", "post-1").queryKey, exact: true }))
     await waitFor(() => expect(rendered.result.current.data).toMatchObject(changed))
     expect(rendered.result.current.canRead).toBe(true)
     expect(rendered.result.current.data).toMatchObject({ id: "post-1", serverId: "server-1", type: "thread", archived: false })
@@ -75,24 +77,24 @@ describe("child channel metadata stale rendering", () => {
 
   it("does not publish an old first response that was never qualified", async () => {
     let resolve!: (value: unknown) => void
-    apiFetchMock.mockReturnValue(new Promise((done) => { resolve = done }))
+    apiFetchMock.mockReturnValueOnce(new Promise((done) => { resolve = done })).mockImplementation(() => new Promise(() => {}))
     const { client, registry, rendered } = await fixture()
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
     act(() => registry.runtime.ws.setState((state) => ({ ...state, accessEpoch: state.accessEpoch + 1 })))
-    await act(async () => resolve(meta()))
-    await waitFor(() => expect(rendered.result.current.error).toMatchObject({ name: "AbortError" }))
+    await act(async () => resolve(conversationEntryFromChannel(meta())))
+    await act(async () => { await Promise.resolve() })
     expect(rendered.result.current.data).toBeUndefined()
     expect(rendered.result.current.canRead).toBe(false)
     expect(registry.collections.channels.get("post-1")).toBeUndefined()
-    expect(client.getQueryData(communityKeys.channelMeta("server-1", "post-1"))).toBeUndefined()
+    expect(client.getQueryData(channelMetadataOptions(client, "server-1", "post-1").queryKey)).toBeUndefined()
     rendered.unmount()
   })
 
   it("authoritative archive retires a previously qualified child snapshot", async () => {
     const { client, registry, rendered } = await fixture()
     await waitFor(() => expect(rendered.result.current.canRead).toBe(true))
-    apiFetchMock.mockResolvedValue({ ...meta(), archived: true })
-    await act(async () => client.refetchQueries({ queryKey: communityKeys.channelMeta("server-1", "post-1"), exact: true }))
+    apiFetchMock.mockRejectedValue(new ApiError("archived", 403))
+    await act(async () => client.refetchQueries({ queryKey: channelMetadataOptions(client, "server-1", "post-1").queryKey, exact: true }))
     await waitFor(() => expect(rendered.result.current.denied).toBe(true))
     expect(rendered.result.current.data).toBeUndefined()
     expect(rendered.result.current.canRead).toBe(false)
@@ -111,12 +113,12 @@ describe("child channel metadata stale rendering", () => {
 
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/community/channels/post-1",
+      "/api/community/channels/post-1/messages?entry=1",
       expect.objectContaining({ authenticationAccount: "viewer", signal: expect.any(AbortSignal) }),
     )
     expect(queryClient.getQueryData(
-      communityKeys.channelMeta("server-1", "post-1"),
-    )).toMatchObject({ id: "post-1" })
+      channelMetadataOptions(queryClient, "server-1", "post-1").queryKey,
+    )).toMatchObject({ channelId: "post-1" })
     expect(createCommunityDbRegistry(queryClient, "viewer").collections.channels.get("post-1"))
       .toMatchObject({ parentChannelId: "forum-1" })
   })
@@ -140,7 +142,8 @@ describe("child channel metadata stale rendering", () => {
     )
 
     expect(rendered.result.current).toMatchObject({
-      data: { id: cached.id, parentChannelId: cached.parentChannelId },
+      data: undefined,
+      canonical: { id: cached.id, parentChannelId: cached.parentChannelId },
       isVerified: false,
       isPlaceholderData: false,
     })
@@ -175,7 +178,8 @@ describe("child channel metadata stale rendering", () => {
     )
 
     expect(rendered.result.current).toMatchObject({
-      data: { creatorId: null, lastMessageAt: null },
+      data: undefined,
+      canonical: { creatorId: null },
       isVerified: false,
       isPlaceholderData: false,
     })
@@ -197,7 +201,7 @@ describe("child channel metadata stale rendering", () => {
       { wrapper },
     )
 
-    await waitFor(() => expect(rendered.result.current.isError).toBe(true))
+    await waitFor(() => expect(rendered.result.current.denied).toBe(true))
     expect(apiFetchMock).toHaveBeenCalledOnce()
   })
 
@@ -233,16 +237,16 @@ describe("child channel metadata stale rendering", () => {
     )
     await waitFor(() => expect(rendered.result.current.isVerified).toBe(true))
     const trusted = rendered.result.current.data
-    const resource = queryClient.getQueryCache().find({ queryKey: communityKeys.channelMeta("server-1", "post-1"), exact: true })
+    const resource = queryClient.getQueryCache().find({ queryKey: channelMetadataOptions(queryClient, "server-1", "post-1").queryKey, exact: true })
 
     await queryClient.refetchQueries({
-      queryKey: communityKeys.channelMeta("server-1", "post-1"),
+      queryKey: channelMetadataOptions(queryClient, "server-1", "post-1").queryKey,
       exact: true,
     })
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(2))
     expect({ ...rendered.result.current.data, identityProof: undefined, readProof: undefined })
       .toStrictEqual({ ...trusted, identityProof: undefined, readProof: undefined })
     expect(rendered.result.current.canRead).toBe(true)
-    expect(queryClient.getQueryCache().find({ queryKey: communityKeys.channelMeta("server-1", "post-1"), exact: true })).toBe(resource)
+    expect(queryClient.getQueryCache().find({ queryKey: channelMetadataOptions(queryClient, "server-1", "post-1").queryKey, exact: true })).toBe(resource)
   })
 })

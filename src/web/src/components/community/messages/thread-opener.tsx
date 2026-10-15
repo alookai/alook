@@ -27,11 +27,6 @@ import { RemoteContentImage } from "@/components/remote-image/remote-image"
 // plain caption above it is enough to mark it as context, not part of the
 // thread's own reply timeline.
 //
-// The parent lives in the OUTER channel — since server membership grants
-// channel access, any thread viewer can fetch it via the shared endpoint.
-// Fetching client-side (rather than embedding in the channels/[id] response)
-// keeps the parent live: an edit or reaction on the source message would
-// reflect here without a page reload once the mutation invalidates this key.
 export function ThreadOpener({
   parentMessageId,
   parentChannelId,

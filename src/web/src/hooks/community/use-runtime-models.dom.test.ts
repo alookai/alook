@@ -45,10 +45,10 @@ describe("on-demand runtime models", () => {
     const machine = { id: "m1", availableRuntimes: [{ id: "codex", status: "healthy", reasoning: { updateMode: "unsupported", models: [] } }], quota: [{ keep: true }] }
     h.queryClient.setQueryData(communityKeys.machines(), { machines: [machine], extra: "keep" })
     act(() => h.result.current.onOpenChange(true))
-    h.complete("older")
-    h.complete(h.request().requestId, "other")
+    await h.complete("older")
+    await h.complete(h.request().requestId, "other")
     expect(h.request().status).toBe("pending")
-    h.complete(h.request().requestId)
+    await h.complete(h.request().requestId)
     await waitFor(() => expect(h.result.current.isPending).toBe(false))
     const cached = h.queryClient.getQueryData<MachinesResponse>(communityKeys.machines())!
     expect(cached.machines[0].availableRuntimes).toEqual([{ id: "codex", status: "healthy" }])
@@ -61,13 +61,13 @@ describe("on-demand runtime models", () => {
     act(() => h.result.current.onOpenChange(true))
     const first = h.request().requestId
     act(() => h.result.current.onOpenChange(false))
-    h.complete(first)
+    await h.complete(first)
     expect(h.request().status).toBe("cancelled")
     act(() => h.result.current.onOpenChange(true))
     const second = h.request().requestId
     expect(second).not.toBe(first)
     h.rerender({ machine: "m2", runtime: "agy" })
-    h.complete(second)
+    await h.complete(second)
     expect(h.request().status).toBe("cancelled")
     expect(h.queryClient.getQueryData(communityKeys.runtimeModels("m2", "agy"))).toBeUndefined()
   })
@@ -142,7 +142,7 @@ describe("on-demand runtime models", () => {
     const id = h.request().requestId
     act(() => getCommunityRuntime(h.queryClient).ws.actions.setConnectionStatus("reconnecting"))
     await waitFor(() => expect(h.result.current.error).toBe("Connection lost. Retry to load models."))
-    h.complete(id)
+    await h.complete(id)
     expect(h.request().status).toBe("error")
   })
 
@@ -156,7 +156,7 @@ describe("on-demand runtime models", () => {
     expect(callback).toBeTypeOf("function")
     act(() => { if (typeof callback === "function") callback() })
     await waitFor(() => expect(h.result.current.error).toBe("Model discovery timed out. Retry to load models."))
-    h.complete(id)
+    await h.complete(id)
     expect(h.request().status).toBe("error")
     timeout.mockRestore()
   })
@@ -166,12 +166,12 @@ describe("on-demand runtime models", () => {
     h.queryClient.setQueryData(communityKeys.machines(), { machines: [{ id: "m1", availableRuntimes: [{ id: "codex" }] }] })
     act(() => h.result.current.onOpenChange(true))
     const catalog = { updateMode: "live_next_turn" as const, models: [{ id: "native-model", supportedReasoningEfforts: [] }] }
-    act(() => handleRuntimeModels({ type: "community:runtime.models", machineId: "m1", runtimeId: "codex", requestId: h.request().requestId, result: { status: "complete", catalog } }, { queryClient: h.queryClient }))
-    expect(h.queryClient.getQueryData<MachinesResponse>(communityKeys.machines())!.machines[0].availableRuntimes[0].reasoning).toEqual(catalog)
+    await act(async () => handleRuntimeModels({ type: "community:runtime.models", machineId: "m1", runtimeId: "codex", requestId: h.request().requestId, result: { status: "complete", catalog } }, { queryClient: h.queryClient }))
+    expect(h.queryClient.getQueryData<MachinesResponse>(communityKeys.machines())!.machines[0].availableRuntimes?.[0].reasoning).toEqual(catalog)
     act(() => h.result.current.retry())
-    act(() => handleRuntimeModels({ type: "community:runtime.models", machineId: "m1", runtimeId: "codex", requestId: h.request().requestId, result: { status: "error", code: "model_discovery_timeout", message: "Model query timed out." } }, { queryClient: h.queryClient }))
+    await act(async () => handleRuntimeModels({ type: "community:runtime.models", machineId: "m1", runtimeId: "codex", requestId: h.request().requestId, result: { status: "error", code: "model_discovery_timeout", message: "Model query timed out." } }, { queryClient: h.queryClient }))
     await waitFor(() => expect(h.result.current.error).toBe("Model query timed out."))
-    expect(h.queryClient.getQueryData<MachinesResponse>(communityKeys.machines())!.machines[0].availableRuntimes[0].reasoning).toEqual(catalog)
+    expect(h.queryClient.getQueryData<MachinesResponse>(communityKeys.machines())!.machines[0].availableRuntimes?.[0].reasoning).toEqual(catalog)
   })
 
 })

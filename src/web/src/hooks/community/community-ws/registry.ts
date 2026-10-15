@@ -61,7 +61,7 @@ import { scheduleAccountAttentionReconcile } from "@/hooks/community/use-account
 type CommunityEventType = CommunityWsEvent["type"]
 type CommunityEventFor<T extends CommunityEventType> = Extract<CommunityWsEvent, { type: T }>
 type RegistryEntry<T extends CommunityEventType> = {
-  handler: (event: CommunityEventFor<T>, context: CommunityWsHandlerContext) => void
+  handler: (event: CommunityEventFor<T>, context: CommunityWsHandlerContext) => void | Promise<void>
   reconnectPolicies: readonly [CommunityWsReconcilePolicy, ...CommunityWsReconcilePolicy[]]
 }
 type CommunityWsRegistry = { [T in CommunityEventType]: RegistryEntry<T> }
@@ -120,7 +120,7 @@ export function dispatchCommunityWsEvent(
   event: CommunityWsEvent,
   context: CommunityWsDispatchContext,
 ) {
-  dispatchCommunityWsEvents([event], context)
+  return dispatchCommunityWsEvents([event], context)
 }
 
 export function dispatchCommunityWsEvents(
@@ -169,6 +169,7 @@ export function dispatchCommunityWsEvents(
     })
   }
   const receipts: Array<{ id: string; start: number; type: CommunityEventType; operation?: PageOperation }> = []
+  const publications: Promise<void>[] = []
   try { runCommunityWsProjectionTransaction(context.queryClient, (projection) => {
     const handlerContext: CommunityWsHandlerContext = {
       ...context,
@@ -190,7 +191,8 @@ export function dispatchCommunityWsEvents(
       const entry = communityWsRegistry[event.type] as RegistryEntry<typeof event.type>
       const receipt = { id: telemetryId(), start: performance.now(), type: event.type, operation: startPageOperation("ws.event_applied", { phase: "commit", source: "ws", event_type: event.type }, currentPageObservation()) }
       receipts.push(receipt)
-      entry.handler(event, handlerContext)
+      const publication = entry.handler(event, handlerContext)
+      if (publication) publications.push(publication)
       if (event.type !== "community:message.create") projectCommunityWsEventToDb(context.queryClient, event, context.contract)
       if ([
         "community:server.delete",
@@ -202,16 +204,21 @@ export function dispatchCommunityWsEvents(
       }
     }
   }) } catch (error) {
+    void Promise.allSettled(publications)
     for (const receipt of receipts) {
       finishPageOperation(receipt.operation, "partial")
       emitTelemetry("ws.event_applied", { ...pageOperationAttributes(receipt.operation), ws_event_id: receipt.id, event_type: receipt.type, duration_ms: performance.now() - receipt.start, source: "ws", outcome: "partial", eligibility: "unknown" })
     }
     throw error
   }
-  for (const receipt of receipts) {
-    finishPageOperation(receipt.operation, "success")
-    emitTelemetry("ws.event_applied", { ...pageOperationAttributes(receipt.operation), ws_event_id: receipt.id, event_type: receipt.type, duration_ms: performance.now() - receipt.start, source: "ws", outcome: "success", eligibility: "eligible" })
+  const finish = (outcome: "success" | "partial") => {
+    for (const receipt of receipts) {
+      finishPageOperation(receipt.operation, outcome)
+      emitTelemetry("ws.event_applied", { ...pageOperationAttributes(receipt.operation), ws_event_id: receipt.id, event_type: receipt.type, duration_ms: performance.now() - receipt.start, source: "ws", outcome, eligibility: outcome === "success" ? "eligible" : "unknown" })
+    }
   }
+  if (publications.length) return Promise.all(publications).then(() => { finish("success") }, (error: unknown) => { finish("partial"); throw error })
+  finish("success")
 }
 
 export const communityWsReconnectPolicies = Array.from(new Set(

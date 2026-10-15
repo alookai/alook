@@ -2,7 +2,7 @@
 
 import { createContext, createElement, useContext, useMemo, type Context, type ReactNode } from "react"
 import { ApplicationOwnerProvider, createApplicationOwner } from "@/lib/application-owner"
-import { DbProvider, collectionOptions, getLiveQueryHash, liveQueryCollectionOptions, prepareLiveQueryValue, and, eq, inArray, useLiveQuery as useNativeLiveQuery, type Context as QueryContext, type LiveQueryCollectionConfig, type WhereCallback, type ContextFromSource } from "@tanstack/react-db"
+import { DbProvider, and, eq, inArray, useLiveQuery as useNativeLiveQuery, type WhereCallback, type ContextFromSource } from "@tanstack/react-db"
 import { createStore, useSelector } from "@tanstack/react-store"
 import { CommunityRuntimeProvider } from "@/stores/community/runtime"
 import { notifLevelDisplay } from "@alook/shared"
@@ -18,6 +18,8 @@ import { presentCanonicalMessage } from "@/lib/community/message-wire"
 import type { CommunityMessagePreview } from "@alook/shared"
 import type { ChannelRefDirectory } from "@/lib/community/channel-ref"
 import type { CommunityDbRegistry } from "./collections"
+import { communityCollectionQuery, communityJoinedMessagesQuery } from "./queries"
+import { communityProjection } from "./live-query"
 import { useCommunityPreviewProfiles } from "@/stores/community/profile-preview"
 import { MAX_PERSISTED_MESSAGES_PER_SCOPE } from "@/lib/query-persister"
 
@@ -51,14 +53,12 @@ export function useOptionalCommunityDbRegistry() {
   return useContext(getCommunityDbContext())
 }
 
+
 const useLiveQuery = ((options: unknown) => {
   const registry = useOptionalCommunityDbRegistry()
-  const prepared = prepareLiveQueryValue(options, registry?.dbClient, new Set())
-  const identity = getLiveQueryHash(prepared)
-  const collection = useMemo(() => registry && prepared
-    ? registry.dbClient.collection(collectionOptions(`community-live:${identity}`, () => liveQueryCollectionOptions({ ...(prepared as LiveQueryCollectionConfig<QueryContext, Record<string, unknown>>), id: `community-live:${identity}` })))
-    : undefined, [registry, prepared, identity])
-  return useNativeLiveQuery(() => collection)
+  const view = communityProjection(registry, options)
+  const useOwnedCollection = useNativeLiveQuery as (value: NonNullable<ReturnType<typeof communityProjection>>["collection"] | (() => undefined)) => ReturnType<typeof useNativeLiveQuery>
+  return useOwnedCollection(view?.collection ?? (() => undefined))
 }) as typeof useNativeLiveQuery
 
 const absentPresence = createStore({ presenceByUserId: new Map<string, "online" | "offline">() })
@@ -99,13 +99,7 @@ type CollectionWhere<N extends CommunityCollectionName> = WhereCallback<ContextF
 
 function useCollectionQuery<N extends CommunityCollectionName>(name: N, where?: CollectionWhere<N>, enabled = true) {
   const registry = useOptionalCommunityDbRegistry()
-  const result = useLiveQuery({
-    query: (q) => {
-      if (!registry || !enabled) return undefined
-      const query = q.from({ row: registry.collections[name] })
-      return where ? query.where(where) : query
-    },
-  })
+  const result = useLiveQuery(communityCollectionQuery(registry, name, where, enabled))
   return { ...result, registry, data: result.data as CommunityCollectionRows[N][] | undefined }
 }
 
@@ -315,14 +309,7 @@ export function useRouteChannelProjection(channelId: string | null) {
 
 function useJoinedMessageQuery(channelId: string | null | undefined, ids?: readonly string[]) {
   const registry = useOptionalCommunityDbRegistry()
-  const result = useLiveQuery({
-    query: (q) => registry && (channelId === undefined || !!channelId)
-      ? q.from({ message: registry.collections.messages }).where(({ message }) => channelId === undefined ? eq(1, 1) : eq(message.channelId, channelId))
-        .where(({ message }) => ids === undefined ? eq(1, 1) : inArray(message.id, [...ids]))
-        .leftJoin({ child: registry.collections.channels }, ({ message, child }) => eq(message.id, child.parentMessageId))
-        .select(({ message, child }) => ({ message, child }))
-      : undefined,
-  })
+  const result = useLiveQuery(communityJoinedMessagesQuery(registry, channelId, ids))
   return { registry, data: result.data as Array<{ message: MessageRow; child?: ChannelRow }> | undefined }
 }
 

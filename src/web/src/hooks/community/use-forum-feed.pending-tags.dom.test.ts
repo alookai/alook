@@ -7,6 +7,7 @@ import { communityKeys } from "@/lib/query-keys"
 import { useForumFeed } from "./use-forum-feed"
 import { useUpdatePostTags } from "./mutations/forum"
 import type { ForumFeedTransportPage } from "./forum-feed-window"
+import { forumConversationEntryFixture } from "@/test/conversation-entry-fixtures"
 
 const api = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", () => ({ apiFetch: api, toastApiError: vi.fn() }))
@@ -23,6 +24,7 @@ async function setup(selected = "archived") {
     included: { parentMessages: [{ id: "opener", channelId: "forum_1", seq: 1, content: "Post", authorId: "author", authorName: "Author", authorImage: null, authorAvatarVersion: 0 }], firstMessages: [], participants: [], tags: backendTags.map((tag) => ({ messageId: "opener", tag })) },
   })
   api.mockImplementation((path: string, options?: { method?: string }) => {
+    if (path.includes("/messages?entry=1")) return Promise.resolve(forumConversationEntryFixture("forum_1", "server_1", true))
     if (options?.method === "PUT") return held
     if (path.endsWith("/messages/tags")) return Promise.resolve({ tags: [...backendTags] })
     if (path.includes("/threads?")) return Promise.resolve(page())

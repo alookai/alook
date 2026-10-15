@@ -35,7 +35,7 @@ vi.mock("./e2e-ui/_fixtures/community-fixture", async () => {
   }
 })
 vi.mock("./e2e-ui/_fixtures/community-ssr-frame", () => ({
-  expectUniqueSsrInitialFrame: async (page: Page) => page.getByTestId("fixture-frame"),
+  expectUniqueSsrCommunityFrame: async (page: Page) => page.getByTestId("fixture-frame"),
 }))
 
 type Visit = {
@@ -49,7 +49,7 @@ type Visit = {
 }
 type RequestRoute = { request: () => { url: () => string; method: () => string }; continue: () => Promise<void> }
 
-function fixtureRun(failure?: "navigation" | "overflow" | "empty" | "ssr-duplicate" | "ssr-hidden" | "ssr-size" | "ssr-overflow") {
+function fixtureRun(failure?: "navigation" | "overflow" | "empty" | "ssr-duplicate" | "ssr-hidden" | "ssr-size" | "ssr-overflow", stage: "initial" | "seeded" = "initial") {
   const visits: Visit[] = [], active = new Set<string>()
   const originalFailure = new Error("original navigation failure")
   const asUser: Parameters<typeof runDesktopPersistedPendingGeometry>[1] = async (account, options) => {
@@ -95,8 +95,8 @@ function fixtureRun(failure?: "navigation" | "overflow" | "empty" | "ssr-duplica
       locator: (selector: string) => locator(selector.includes("restore-bootstrap") ? 0 : 1),
       waitForTimeout: async (time: number) => { visit.waits.push(time); visit.events.push("sample.wait") },
       evaluate: async (callback: () => unknown, input?: unknown) => {
-        if (input === tid.initialFrame) {
-          const root = { visible: true, streamId: null, streamDisplay: null, display: "block", x: 0, y: 0, width: visit.width, height: 900 }
+        if (input && typeof input === "object" && "initialId" in input && input.initialId === tid.initialFrame) {
+          const root = { initial: stage === "initial", busy: "true", label: "Loading community", slot: "community-shell-root", placeholders: 1, visible: true, streamId: null, streamDisplay: null, display: "block", x: 0, y: 0, width: visit.width, height: 900 }
           const nodes = [root, { ...root, visible: false, streamId: "S:0", streamDisplay: "none", width: 0, height: 0 }]
           if (visits[0] === visit) {
             if (failure === "ssr-duplicate") nodes.push({ ...root })
@@ -138,13 +138,21 @@ describe("geometry fixture account lanes and resource release", () => {
     expect(fixture.active.size).toBe(0)
   })
 
+  it("keeps the same geometry and resource contract for an already resolved RSC shell", async () => {
+    const fixture = fixtureRun(undefined, "seeded")
+    await fixture.run()
+    expect(fixture.visits).toHaveLength(48)
+    expect(fixture.visits.every(visit => visit.closed && visit.waits.length === 1 && visit.waits[0] === 250)).toBe(true)
+    expect(fixture.active.size).toBe(0)
+  })
+
   it.each(["navigation", "overflow", "empty", "ssr-duplicate", "ssr-hidden", "ssr-size", "ssr-overflow"] as const)("releases gates and awaits the other lane before propagating %s failure", async failure => {
     const fixture = fixtureRun(failure)
     const error = await fixture.run().catch((error: unknown) => error)
     if (failure === "navigation") expect(error).toBe(fixture.originalFailure)
     else expect(error).toBeInstanceOf(Error)
-    if (failure === "ssr-duplicate") expect(error.message).toContain("SSR must have exactly one visible initial frame")
-    if (failure === "ssr-hidden") expect(error.message).toContain("Unexpected hidden SSR initial frame")
+    if (failure === "ssr-duplicate") expect(error.message).toContain("SSR must have exactly one visible SSR frame")
+    if (failure === "ssr-hidden") expect(error.message).toContain("Unexpected hidden SSR frame")
     if (failure === "ssr-size") expect(error.message).toContain("width")
     expect(fixture.visits.filter(v => v.account === "geometry")).toHaveLength(24)
     expect(fixture.visits.filter(v => v.account === "dave")).toHaveLength(1)

@@ -369,13 +369,18 @@ describe("requireMessageSurfaceAccess — id-in-path trunk dispatch (surface axi
   })
 
   it("DM id → routes to requireDMAccess (block check runs — closes the P0), ok when a participant & not blocked", async () => {
-    getChannel.mockResolvedValue({ id: "d1", type: "dm" })
+    const channel = { id: "d1", type: "dm" }
+    getChannel.mockResolvedValue(channel)
     getDM.mockResolvedValue({ id: "d1", lastMessageAt: null, createdAt: "2026-06-30" })
     getDMPeer.mockResolvedValue({ otherUserId: "u2" })
     isBlocked.mockResolvedValue(false)
     const res = await requireMessageSurfaceAccess(db, "d1", "u1")
     expect(res.ok).toBe(true)
-    if (res.ok) expect(res.value.surface).toBe("dm")
+    if (res.ok) {
+      expect(res.value.surface).toBe("dm")
+      expect(res.value.channel).toBe(channel)
+    }
+    expect(getChannel).toHaveBeenCalledTimes(1)
     // The block check that the plain-channel path never ran — now on the DM arm.
     expect(isBlocked).toHaveBeenCalledWith(db, "u1", "u2")
   })

@@ -68,7 +68,8 @@ describe("resolveMessageTarget — single mask output + surface→target (Aignei
     // The id did NOT skip the mask — the gate was invoked with it.
     expect(mockRequireMessageSurfaceAccess).toHaveBeenCalledWith(db, "c1", "u1")
     expect(mockResolveTargetForMember).not.toHaveBeenCalled()
-    expect(res).toEqual({ ok: true, value: { target: { kind: "channel", channelId: "c1", serverId: "s1" }, isDm: false } })
+    expect(res).toEqual({ ok: true, value: { target: { kind: "channel", channelId: "c1", serverId: "s1" }, isDm: false,
+      access: { surface: "channel", channel: { id: "c1", type: "text", serverId: "s1", parentChannelId: null } } } })
   })
 
   it("ref arm: resolves then passes the resolved id through the SAME mask", async () => {
@@ -119,7 +120,8 @@ describe("resolveMessageTarget — single mask output + surface→target (Aignei
       value: { surface: "dm", dm: { id: "d1", otherUserId: "u2" } },
     })
     const res = await resolveMessageTarget(db, "u1", { id: "d1" }, "human")
-    expect(res).toEqual({ ok: true, value: { target: { kind: "dm", channelId: "d1", otherUserId: "u2" }, isDm: true } })
+    expect(res).toEqual({ ok: true, value: { target: { kind: "dm", channelId: "d1", otherUserId: "u2" }, isDm: true,
+      access: { surface: "dm", dm: { id: "d1", otherUserId: "u2" } } } })
     // No bearing guard on the DM arm (a DM is a valid target).
     expect(mockRequireMessageBearingSurface).not.toHaveBeenCalled()
   })

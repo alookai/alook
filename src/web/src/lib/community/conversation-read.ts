@@ -1,3 +1,5 @@
+import { COMMUNITY_CONVERSATION_ANCHOR_MISSING } from "@alook/shared"
+
 export const CONVERSATION_READ_TIMEOUT_MS = 15_000
 
 export class ConversationReadTimeoutError extends Error {
@@ -9,13 +11,20 @@ export class ConversationReadTimeoutError extends Error {
 
 export function isConversationAccessError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "status" in error
+    && !isConversationAnchorMissingError(error)
     && [401, 403, 404].includes(Number(error.status))
+}
+
+export function isConversationAnchorMissingError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "status" in error && Number(error.status) === 404
+    && "details" in error && Array.isArray(error.details) && error.details.includes(COMMUNITY_CONVERSATION_ANCHOR_MISSING)
 }
 
 export function retryConversationRead(failureCount: number, error: Error): boolean {
   return !(error instanceof ConversationReadTimeoutError)
     && error.name !== "AbortError"
     && !isConversationAccessError(error)
+    && !isConversationAnchorMissingError(error)
     && failureCount < 1
 }
 
@@ -51,7 +60,7 @@ export function conversationReadRetryPolicy(
   policy: boolean | number | ((failureCount: number, error: Error) => boolean) = 3,
 ) {
   return (failureCount: number, error: Error): boolean => {
-    if (error instanceof ConversationReadTimeoutError || error.name === "AbortError" || isConversationAccessError(error)) return false
+    if (error instanceof ConversationReadTimeoutError || error.name === "AbortError" || isConversationAccessError(error) || isConversationAnchorMissingError(error)) return false
     if (typeof policy === "function") return policy(failureCount, error)
     return policy === true || (policy !== false && failureCount < policy)
   }

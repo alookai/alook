@@ -86,6 +86,7 @@ type ServerRow,
 } from "./schema"
 import type { z } from "zod"
 import { writeCommunityCollectionRows } from "./write"
+import type { CommunityRestoredCollections } from "@/lib/query-persister"
 import type { CommunityThreadResources } from "@/hooks/community/forum-feed-window"
 
 type CollectionName = keyof CommunityDbRegistry["collections"]
@@ -96,6 +97,7 @@ type CanonicalRevisionState = {
   entityRevisions: Map<string, number>
   fieldRevisions: Map<string, Map<string, number>>
   pendingOperations: Map<string, CanonicalPendingOperation[]>
+  restoreReplacements: Array<{ name: CollectionName; owns: (row: object) => boolean }>
 }
 
 type CanonicalPendingOperation =
@@ -117,7 +119,7 @@ function writeCanonicalProfilePatches(registry: CommunityDbRegistry, patches: re
 function canonicalRevisionStore(queryClient: QueryClient) {
   let state = canonicalRevisionStates.get(queryClient)
   if (!state) {
-    state = createStore<CanonicalRevisionState>({ revision: 0, entityRevisions: new Map(), fieldRevisions: new Map(), pendingOperations: new Map() })
+    state = createStore<CanonicalRevisionState>({ revision: 0, entityRevisions: new Map(), fieldRevisions: new Map(), pendingOperations: new Map(), restoreReplacements: [] })
     canonicalRevisionStates.set(queryClient, state)
   }
   return state
@@ -357,6 +359,11 @@ function replaceRows<N extends CollectionName>(
   incoming: CommunityCollectionRows[N][],
   owns: (row: CommunityCollectionRows[N]) => boolean,
 ) {
+  if (!registry.restoration.get().captured && canonicalWriteContexts.get(registry.queryClient)?.kind === "query") {
+    updateCanonicalRevisions(registry.queryClient, (state) => {
+      state.restoreReplacements = [...state.restoreReplacements, { name, owns: owns as (row: object) => boolean }]
+    })
+  }
   const schema = collectionSchema(name)
   const getKey = collectionKey(registry, name)
   const parsedIncoming = incoming.map((row) => schema.parse(row))
@@ -397,6 +404,67 @@ function upsertRows<N extends CollectionName>(
   incoming: CommunityCollectionRows[N][],
 ) {
   replaceRows(registry, name, incoming, () => false)
+}
+
+export function discardCommunityRestoreReplacements(registry: CommunityDbRegistry) {
+  updateCanonicalRevisions(registry.queryClient, (state) => { state.restoreReplacements = [] })
+}
+
+export async function restoreCommunityCollections(registry: CommunityDbRegistry, input: CommunityRestoredCollections) {
+  const client = registry.queryClient
+  const token = captureCommunityLiveSnapshotToken(client)
+  assertCommunityLiveSnapshotTokenCurrent(client, token, undefined)
+  const replacements = canonicalRevisionState(client).restoreReplacements
+  const excluded = (name: CollectionName, row: object) => replacements.some((replacement) => replacement.name === name && replacement.owns(row))
+  const currentServers = new Set(collectionRows(registry, "servers").map((row) => row.id))
+  const currentChannels = new Map(collectionRows(registry, "channels").map((row) => [row.id, row]))
+  const blockedServers = new Set((input.servers?.rows ?? []).filter((row) => !currentServers.has(row.id) && excluded("servers", row)).map((row) => row.id))
+  const blockedChannels = new Set((input.channels?.rows ?? []).filter((row) => !currentChannels.has(row.id) && (excluded("channels", row) || !!row.serverId && blockedServers.has(row.serverId))).map((row) => row.id))
+  const channels = new Map([...(input.channels?.rows ?? []).map((row) => [row.id, row] as const), ...currentChannels])
+  const isRetiredChannel = (id: string) => {
+    const channel = channels.get(id)
+    return blockedChannels.has(id)
+      || !!channel?.parentChannelId && blockedChannels.has(channel.parentChannelId)
+      || registry.runtime.ws.actions.isChannelAccessRevoked(id, channel?.serverId, channel?.parentChannelId ?? undefined)
+  }
+  const eligible = (name: CollectionName, row: object) => {
+    const fields = row as Record<string, unknown>
+    if (typeof fields.serverId === "string" && (blockedServers.has(fields.serverId) || registry.runtime.ws.get().revokedServerIds.has(fields.serverId))) return false
+    const channelIds = name === "channels" ? [fields.id] : [fields.channelId, fields.scopeId, fields.childChannelId,
+      fields.readTarget && typeof fields.readTarget === "object" ? (fields.readTarget as { channelId?: unknown }).channelId : undefined]
+    return !channelIds.some((id) => typeof id === "string" && isRetiredChannel(id))
+  }
+  const completions: Array<Promise<void> | undefined> = []
+  const merge = <N extends CollectionName>(name: N) => {
+    const restored = input[name]
+    if (!restored) return
+    const key = communityKeys.communityDbCollection(registry.scopeId, name)
+    const state = client.getQueryState(key)
+    const schema = collectionSchema(name)
+    const getKey = collectionKey(registry, name)
+    const next = new Map(collectionRows(registry, name).map((row) => [getKey(row), row]))
+    for (const disk of restored.rows) {
+      const row = disk as CommunityCollectionRows[N]
+      const id = getKey(row)
+      const current = next.get(id)
+      if (!eligible(name, row)) continue
+      if (current) {
+        const present = Object.fromEntries(Object.entries(current).filter(([, value]) => value !== undefined))
+        next.set(id, schema.parse(state && state.dataUpdatedAt > 0 ? { ...row, ...present } : { ...present, ...row }))
+      } else if (!excluded(name, row)) {
+        const merged = withCanonicalWriteContext(client, { kind: "query", requestRevision: 0, profileSnapshot: token.profileSnapshot }, () => (
+          isProtectedFromQueryWrite(registry, name, id) ? mergePendingOperationsIntoQueryRow(registry, name, id, schema, row) : row
+        ))
+        if (merged) next.set(id, merged)
+      }
+    }
+    completions.push(writeCommunityCollectionRows(registry, name, [...next.values()], getKey, { updatedAt: state && state.dataUpdatedAt > 0 ? state.dataUpdatedAt : restored.updatedAt }))
+  }
+  notifyManager.batch(() => {
+    for (const name of Object.keys(input) as CollectionName[]) merge(name)
+  })
+  await Promise.all(completions)
+  assertCommunityLiveSnapshotTokenCurrent(client, token, undefined)
 }
 
 function promoteServerDetailComplete(
@@ -1033,12 +1101,33 @@ export function ingestReadStateSnapshot(
   const currentRevision = collectionRows(registry, "readStateClock")
     .find((row) => row.id === "account")?.revision ?? -1
   if (snapshot.revision <= currentRevision) return
-  const readStates: ReadStateRow[] = snapshot.readStates.map((row) => ({ ...row }))
+  const newer = collectionRows(registry, "readStates").filter((row) => (row.observedRevision ?? -1) > snapshot.revision)
+  const newerIds = new Set(newer.map((row) => row.channelId))
+  const readStates: ReadStateRow[] = [
+    ...snapshot.readStates.filter((row) => !newerIds.has(row.channelId)).map((row) => ({ ...row, observedRevision: snapshot.revision })),
+    ...newer,
+  ]
   const clock: ReadStateClockRow = { id: "account", revision: snapshot.revision }
   notifyManager.batch(() => {
     replaceRows(registry, "readStates", readStates, () => true)
     replaceRows(registry, "readStateClock", [clock], () => true)
     projectConfirmedAttention(registry)
+  })
+}
+
+export function publishCommunityConversationReadState(
+  queryClient: QueryClient,
+  readState: ReadStateRow,
+  revision: number,
+  proof: CommunityFreshQueryProof,
+) {
+  return withCommunityQueryProof(queryClient, proof, (registry) => {
+    const clock = collectionRows(registry, "readStateClock").find((row) => row.id === "account")?.revision ?? -1
+    const current = collectionRows(registry, "readStates").find((row) => row.channelId === readState.channelId)
+    if (clock > revision || (current?.observedRevision ?? -1) >= revision) return "superseded" as const
+    upsertRows(registry, "readStates", [{ ...readState, observedRevision: revision }])
+    projectConfirmedAttention(registry)
+    return "published" as const
   })
 }
 
@@ -1752,15 +1841,12 @@ export function publishCommunityLiveSnapshot(
         break
       case "server-detail":
         ingestServerDetail(registry, snapshot.data)
-        qualifyCanonicalChannelMetadata(registry,
-          snapshot.data.categories.flatMap((category) => category.channels.map((channel) => channel.id)), proof.token)
         break
       case "folders":
         ingestFolders(registry, snapshot.data)
         break
       case "dms":
         ingestDms(registry, snapshot.data)
-        qualifyCanonicalChannelMetadata(registry, snapshot.data.conversations.map((dm) => dm.id), proof.token)
         break
       case "read-state":
         ingestReadStateSnapshot(registry, snapshot.data)
@@ -1823,19 +1909,24 @@ export function publishCommunityEmbeddedMessages(
   })
 }
 
-function qualifyCanonicalChannelMetadata(registry: CommunityDbRegistry, channelIds: readonly string[], token: CommunityLiveSnapshotToken) {
-  if (!registry.accountId) return
-  for (const channelId of channelIds) {
-    const channel = registry.collections.channels.get(channelId)
-    const membership = registry.collections.channelMemberships.get(channelMembershipKey(channelId, registry.accountId, "access"))
-    if (!channel || channel.pending || channel.archived || !membership) continue
-    registry.queryClient.setQueryData(communityKeys.channelMeta(channel.serverId ?? null, channelId), (previous: { readProof?: unknown } | undefined) => ({
-      id: channel.id,
-      serverId: channel.serverId ?? null,
-      identityProof: { ...token, channelId },
-      readProof: previous?.readProof,
-    }))
-  }
+export function confirmCommunityConversationPresence(queryClient: QueryClient, channelId: string, proof: CommunityFreshQueryProof) {
+  assertCommunityLiveSnapshotTokenCurrent(queryClient, proof.token, proof.signal)
+  const registry = proof.token.registry!
+  const channel = collectionRows(registry, "channels").find(row => row.id === channelId)
+  if (!channel || channel.archived || channel.pending) return
+  withCanonicalWriteContext(queryClient, { kind: "event" }, () => {
+    recordEventPatches(registry, "channels", [channelId], row => row, new Set([channelId]), [])
+    const memberships = collectionRows(registry, "channelMemberships").filter(row => row.channelId === channelId && row.relation === "access")
+    const keys = memberships.map(row => row.id)
+    recordEventPatches(registry, "channelMemberships", keys, row => row, new Set(keys), [])
+    if (channel.serverId && registry.accountId) {
+      recordEventPatches(registry, "servers", [channel.serverId], row => row,
+        new Set(collectionRows(registry, "servers").map(row => row.id)), [])
+      const key = serverMembershipKey(channel.serverId, registry.accountId)
+      recordEventPatches(registry, "serverMemberships", [key], row => row,
+        new Set(collectionRows(registry, "serverMemberships").map(row => row.id)), [])
+    }
+  })
 }
 
 /** Publish one verified channel metadata response and its viewer access fact. */
@@ -2017,7 +2108,6 @@ export function publishCommunityForumSidebar(
         )
       }
     }
-    qualifyCanonicalChannelMetadata(registry, channels.map((channel) => channel.id), publication.proof.token)
   })
     return "published" as const
   })
@@ -2432,11 +2522,8 @@ export function collectChannelScopeIds(
   for (const [id, scope] of getCommunityRuntime(queryClient).ws.get().channelAccessScopes) {
     if (scope.serverId === serverId && (!channelId || scope.parentChannelId === channelId)) ids.add(id)
   }
-  for (const [, meta] of queryClient.getQueriesData<{ id: string; parentChannelId?: string }>(
-    { queryKey: ["community", "channel"], predicate: (query) => query.queryKey[3] === "metadata" },
-  )) {
-    if (meta && ("serverId" in meta ? meta.serverId : getCommunityDbRegistry(queryClient)?.collections.channels.get(meta.id)?.serverId) === serverId
-      && (!channelId || meta.parentChannelId === channelId)) ids.add(meta.id)
+  for (const row of getCanonicalCommunityChannels(queryClient)) {
+    if (row.serverId === serverId && (!channelId || row.parentChannelId === channelId)) ids.add(row.id)
   }
   for (const { scope } of getCommunityRuntime(queryClient).messageStream.get().entries.values()) {
     if (!channelId && scope.kind === "channel" && scope.serverId === serverId) ids.add(scope.id)

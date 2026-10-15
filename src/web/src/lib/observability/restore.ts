@@ -37,7 +37,7 @@ export function observeRestoreDecode(persister: object, decode: () => PersistedC
     finishPageOperation(operation, outcome)
     if (eligible && generation === telemetryGeneration()) {
       emitTelemetry("cache.restore.finish", { ...pageOperationAttributes(operation), request_id: id, phase: "deserialize", outcome, duration_ms: performance.now() - start, count: snapshot.clientState.queries.length })
-      if (outcome === "hit") restored.set(persister, { count: snapshot.clientState.queries.length, start: performance.now(), id: telemetryId(), generation, operation: startPageOperation("cache.restore", { phase: "hydrate", cache_stage: "query" }, operation?.page) })
+      if (outcome === "hit") restored.set(persister, { count: snapshot.clientState.queries.length, start: performance.now(), id: telemetryId(), generation, operation: startPageOperation("cache.restore", { phase: "restore_apply", cache_stage: "query" }, operation?.page) })
     }
     return snapshot
   } catch (error) {
@@ -51,7 +51,7 @@ export function observeHydration(persister: object) {
   restored.delete(persister)
   if (!evidence || !isTelemetryEligible() || evidence.generation !== telemetryGeneration()) return
   finishPageOperation(evidence.operation, "success")
-  emitTelemetry("cache.restore.start", { ...pageOperationAttributes(evidence.operation), request_id: evidence.id, start_ms: evidence.start, phase: "hydrate" })
-  emitTelemetry("cache.restore.finish", { ...pageOperationAttributes(evidence.operation), request_id: evidence.id, phase: "hydrate", outcome: "success", count: evidence.count, duration_ms: performance.now() - evidence.start })
+  emitTelemetry("cache.restore.start", { ...pageOperationAttributes(evidence.operation), request_id: evidence.id, start_ms: evidence.start, phase: "restore_apply" })
+  emitTelemetry("cache.restore.finish", { ...pageOperationAttributes(evidence.operation), request_id: evidence.id, phase: "restore_apply", outcome: "success", count: evidence.count, duration_ms: performance.now() - evidence.start })
 }
 export function discardHydration(persister: object) { restored.delete(persister); reads.delete(persister) }

@@ -84,6 +84,7 @@ export function renderBotMachineGroup(
           const online = bot.isActive
             && controller.profilesByUserId.get(bot.id)?.presence === "online"
           const activePending = controller.pendingActiveBotIds.has(bot.id)
+          const statusKnown = bot.isActive === false || bot.isActive !== undefined && controller.profilesByUserId.get(bot.id)?.presence !== undefined
           return (
             <Card key={bot.id} className="flex flex-col gap-3 p-4">
               <div className="flex items-start justify-between gap-3">
@@ -108,9 +109,9 @@ export function renderBotMachineGroup(
                             online ? "bg-status-online" : "bg-muted-foreground",
                           ].join(" ")}
                         />
-                        {online ? "Online" : "Offline"}
+                        {!statusKnown ? "Status unknown" : online ? "Online" : "Offline"}
                       </span>
-                      {(!bot.isActive || (!online && machine)) && (
+                      {statusKnown && (!bot.isActive || (!online && machine?.status !== undefined)) && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -212,11 +213,11 @@ export function renderBotMachineGroup(
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       data-testid={tid.botActive(bot.id)}
-                      disabled={activePending}
+                      disabled={activePending || bot.isActive === undefined}
                       aria-busy={activePending || undefined}
                       onClick={() => { void controller.setBotActive(bot, !bot.isActive) }}
                     >
-                      <span className="size-4" aria-hidden /> {bot.isActive ? "Deactivate" : "Activate"}
+                      <span className="size-4" aria-hidden /> {bot.isActive === undefined ? "Activation unknown" : bot.isActive ? "Deactivate" : "Activate"}
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       variant="destructive"

@@ -10,6 +10,19 @@ const secret = "fixture-only-navigation-session-secret-163"
 afterEach(() => vi.restoreAllMocks())
 
 describe("same-request signed session refresh", () => {
+  it.each([false, true])("preserves the selected document route and session refresh=%s together", refresh => {
+    const request = new NextRequest("https://fixture.test/c/me/bots", { headers: { Cookie: "session=old", "x-alook-community-document-route": "spoof" } })
+    const forwarded = new Headers(request.headers)
+    forwarded.set("x-alook-community-document-route", "/c/me/bots")
+    const result = new Headers()
+    if (refresh) result.append("Set-Cookie", "session=new; Path=/; Max-Age=300")
+    const response = authResponseCookies(request, result, forwarded)
+    expect(response.headers.get("x-middleware-request-x-alook-community-document-route")).toBe("/c/me/bots")
+    expect(response.headers.get("x-middleware-request-cookie")).toBe(refresh ? "session=new" : "session=old")
+    expect(response.headers.getSetCookie()).toEqual(result.getSetCookie())
+    expect(request.bodyUsed).toBe(false)
+  })
+
   it("leaves requests without a refresh on the original Next pass-through path", () => {
     const response = authResponseCookies(new NextRequest("https://fixture.test/c", { headers: { Cookie: "session=signed" } }), new Headers())
     expect(response.headers.get("x-middleware-next")).toBe("1")
