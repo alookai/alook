@@ -852,17 +852,31 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     }
   }
   await expect(dmReplyTarget).toBeVisible()
+  const dmEditable = composerEditable(alice.page)
+  const manualDmDraft = `before @${bobInfo.name}#${bobInfo.discriminator} after`
+  await dmEditable.fill(manualDmDraft)
   await dispatchSwipe(alice.page, dmWsReadyId, { x: 72, y: 1 })
   await expect(replyPreview).toHaveText(`Replying to ${bobInfo.name} · dm reply target ${stamp}`)
-  await expect(composerEditable(alice.page).locator(`[data-type="mention"][data-id="${userId("bob")}"]`)).toHaveCount(1)
-  await expect(composerEditable(alice.page)).toBeFocused()
+  await expect(dmEditable).toHaveText(manualDmDraft)
+  await expect(dmEditable.locator('[data-type="mention"]')).toHaveCount(0)
+  await alice.page.getByRole("button", { name: "Cancel reply", exact: true }).click()
+  await expect(replyPreview).toHaveCount(0)
+  await expect(dmEditable).toHaveText(manualDmDraft)
+  await dmEditable.fill("")
+  await dispatchSwipe(alice.page, dmWsReadyId, { x: 72, y: 1 })
+  await expect(replyPreview).toHaveText(`Replying to ${bobInfo.name} · dm reply target ${stamp}`)
+  await expect(dmEditable).toHaveText("")
+  await expect(dmEditable.locator('[data-type="mention"]')).toHaveCount(0)
+  await expect(dmEditable).toBeFocused()
   const dmReplyBody = `dm swipe reply ${stamp}`
-  const dmReplyContent = `${replyAuthorMention} ${dmReplyBody}`
+  const dmReplyContent = dmReplyBody
   const dmReplyResponsePromise = alice.page.waitForResponse((response) => (
     response.request().method() === "POST"
     && new URL(response.url()).pathname === `/api/community/channels/${dmId}/messages`
   ))
-  await typeReplyAfterAuthorMention(alice.page, userId("bob"), bobInfo, dmReplyBody)
+  await dmEditable.pressSequentially(dmReplyBody)
+  await expect(dmEditable).toHaveText(dmReplyBody)
+  await expect(dmEditable.locator('[data-type="mention"]')).toHaveCount(0)
   await alice.page.getByTestId(tid.composerSend).click()
   const dmReplyResponse = await dmReplyResponsePromise
   expect(dmReplyResponse.status()).toBe(201)
@@ -882,7 +896,6 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   )), { timeout: 20_000 }).toBe(true)
   const receivedDmReply = bob.page.getByTestId(tid.message(dmReplyPayload.message.id))
   await expect(receivedDmReply).toContainText(dmReplyBody)
-  await expect(receivedDmReply).toContainText(`@${bobInfo.name}`)
   const beforeDmTypingSeq = await latestSeq(alice.page, dmId)
   const dmScrollerBeforeTyping = await settledScrollerGeometry(alice.page)
   const bobDmEditable = composerEditable(bob.page)

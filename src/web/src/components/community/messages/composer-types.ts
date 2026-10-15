@@ -1,4 +1,4 @@
-import type { MentionType } from "@alook/shared"
+import type { CommunityChannelResource, MentionType } from "@alook/shared"
 import type { ChannelRefCandidate } from "@/lib/community/channel-ref-extension"
 import type { MentionContext } from "@/lib/community/mention-extension"
 import type { SendAttachment } from "@/lib/community/models/message"
@@ -51,6 +51,7 @@ export type ComposerHandle = {
 
 type ComposerBaseProps = {
   channel: string
+  channelType?: CommunityChannelResource["type"]
   context: MentionContext
   members: Member[]
   mentionCandidates?: MentionCandidateSource

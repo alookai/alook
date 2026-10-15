@@ -534,6 +534,7 @@ export function DmView({ dmId }: { dmId: string }) {
               <Composer
                 sendContract="accepted"
                 channel={dm.name}
+                channelType={metadata.data?.type}
                 context="dm"
                 // DM context short-circuits `rankMentionItems` to `[]` — no popup,
                 // no candidate pool needed. Passing [] keeps the Member[] typing

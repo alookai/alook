@@ -127,10 +127,75 @@ const Harness = forwardRef<ComposerHandle, ComposerProps>(function Harness(props
 })
 const reply = { authorId: "author", authorName: "Same", text: "original" }
 function props(onAcceptSend = vi.fn(() => true)): ComposerProps {
-  return { channel: "dm", context: "dm", members: [], sendContract: "accepted", onAcceptSend, draftKey: "dm-reply" }
+  return { channel: "general", channelType: "text", context: "channel", members: [], sendContract: "accepted", onAcceptSend, draftKey: "dm-reply" }
 }
 
 describe("real common composer reply lifecycle", () => {
+  it.each(["text", "forum", "thread", undefined] as const)("keeps automatic mentions for actual type %s even with DM mention context", async (channelType) => {
+    await act(async () => { render(createElement(Harness, { ...props(), channelType, context: "dm", replyingTo: reply })) })
+    expect(mentionIds(view.editor!)).toEqual(["author"])
+    expect(serializeComposerDocument(view.editor!)).toBe("@Same#1234 ")
+  })
+
+  it.each(["dm", "channel"] as const)("keeps an actual DM reply empty with %s mention context and a late profile", async (context) => {
+    profiles.value = new Map()
+    const base = { ...props(), channelType: "dm" as const, context }
+    let renderer!: ReturnType<typeof render>
+    await act(async () => { renderer = render(createElement(Harness, { ...base, replyingTo: reply })) })
+    const before = view.editor!.getJSON()
+    expect(view.editor!.isEmpty).toBe(true)
+    expect(mentionIds(view.editor!)).toEqual([])
+    expect(view.replyingTo).toBe(reply)
+    profiles.value = new Map([["author", { id: "author", name: "Same", discriminator: "1234" }]])
+    await act(async () => { renderer.rerender(createElement(Harness, { ...base, replyingTo: reply })) })
+    expect(view.editor!.getJSON()).toEqual(before)
+    expect(readComposerDraft("viewer:dm-reply")).toBeNull()
+    expect(view.replyingTo).toBe(reply)
+  })
+
+  it.each(["author", "member-author"])("keeps the restored manual %s atom in place across DM reply changes", async (id) => {
+    const saved = makeEditor(doc(
+      paragraph(text("before  "), mentionNode(id), text(" after @Same#1234")),
+      { type: "orderedList", attrs: { start: 3 }, content: [{ type: "listItem", content: [paragraph(text("item"))] }] },
+    )).getJSON()
+    writeComposerDraft("viewer:dm-reply", saved)
+    const base = { ...props(), channelType: "dm" as const, context: "dm" as const }
+    let renderer!: ReturnType<typeof render>
+    await act(async () => { renderer = render(createElement(Harness, { ...base, replyingTo: reply })) })
+    expect(view.editor!.getJSON()).toEqual(saved)
+    await act(async () => { renderer.rerender(createElement(Harness, base)) })
+    expect(view.editor!.getJSON()).toEqual(saved)
+    await act(async () => { renderer.rerender(createElement(Harness, { ...base, replyingTo: reply })) })
+    expect(view.editor!.getJSON()).toEqual(saved)
+    const otherReply = { authorId: "other", authorName: "Other", text: "another target" }
+    profiles.value = new Map([...profiles.value, ["other", { id: "other", name: "Other", discriminator: "5678" }]])
+    await act(async () => { renderer.rerender(createElement(Harness, { ...base, replyingTo: otherReply })) })
+    expect(view.replyingTo).toBe(otherReply)
+    expect(view.editor!.getJSON()).toEqual(saved)
+    expect(mentionIds(view.editor!)).toEqual([id])
+    expect(readComposerDraft("viewer:dm-reply")).toEqual(saved)
+  })
+
+  it.each([false, true])("preserves the exact manual DM body through rejected send and retry, atom=%s", async (atom) => {
+    const saved = makeEditor(doc(paragraph(text("before "), atom ? mentionNode() : text("@Same#1234"), text(" after")))).getJSON()
+    writeComposerDraft("viewer:dm-reply", saved)
+    const accept = vi.fn(() => false)
+    const base = { ...props(accept), channelType: "dm" as const, context: "dm" as const }
+    const handle = createRef<ComposerHandle>()
+    await act(async () => { render(createElement(Harness, { ...base, replyingTo: reply, ref: handle })) })
+    expect(view.editor!.getJSON()).toEqual(saved)
+    await act(async () => { handle.current!.submitNow() })
+    expect(accept).toHaveBeenCalledWith("before @Same#1234 after", undefined, undefined)
+    expect(view.replyingTo).toBe(reply)
+    expect(view.editor!.getJSON()).toEqual(saved)
+    expect(readComposerDraft("viewer:dm-reply")).toEqual(saved)
+    accept.mockReturnValue(true)
+    await act(async () => { handle.current!.submitNow() })
+    expect(accept.mock.calls[1]).toEqual(accept.mock.calls[0])
+    expect(view.editor!.isEmpty).toBe(true)
+    expect(readComposerDraft("viewer:dm-reply")).toBeNull()
+  })
+
   it.each(["canonical user", "membership"])("does not reuse a restored conflicting %s identity", async (identity) => {
     profiles.value.set("other", { id: "other", name: "Other", discriminator: "5678" })
     const id = identity === "canonical user" ? "other" : "member-other"

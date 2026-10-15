@@ -40,6 +40,7 @@ import { useComposerReplyMention } from "./use-composer-reply-mention"
 export function useComposerController(
   {
     channel,
+    channelType,
     context,
     members,
     mentionCandidates,
@@ -348,7 +349,7 @@ export function useComposerController(
     suppressSuggestions(() => editor.commands.focus("end"))
   }, [autoFocus, editor, channel, isForumThreadBody, suppressSuggestions])
 
-  useComposerReplyMention({ editor, isForumThreadBody, replyingTo, members, suppressSuggestions })
+  useComposerReplyMention({ editor, channelType, isForumThreadBody, replyingTo, members, suppressSuggestions })
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     handleDropRaw(event)
