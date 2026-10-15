@@ -14,6 +14,7 @@ import {
   dismissDesktopSystemNotificationConversation,
   listenDesktopSystemNotificationActivations,
   takeDesktopSystemNotificationActivation,
+  traceNotificationDiagnostic,
 } from "@/lib/community/desktop-system-notification"
 import {
   systemNotificationHref,
@@ -99,12 +100,19 @@ function drainNativeSystemNotificationConversationDismissals(
 ) {
   for (const { target, revision } of queue.pending(platform, viewerUserId)) {
     const key = ["community", "native-conversation-dismiss", platform, viewerUserId, conversationKey(target)]
-    if (client.getMutationCache().findAll({ mutationKey: key, status: "pending" }).length) continue
+    const pendingMutations = client.getMutationCache().findAll({ mutationKey: key, status: "pending" }).length
+    traceNotificationDiagnostic("queue.drain", { platform, viewerUserId, target, revision, pendingMutations })
+    if (pendingMutations) continue
     void nativeCommand(client, key, original, async () => {
       await dismissNativeSystemNotificationConversation(platform, viewerUserId, target)
       original()
-      queue.complete(platform, viewerUserId, target, revision)
-    }).catch(() => undefined).finally(() => {
+      const completed = queue.complete(platform, viewerUserId, target, revision)
+      traceNotificationDiagnostic("queue.complete", { platform, viewerUserId, target, revision, completed })
+    }).catch((error: unknown) => {
+      traceNotificationDiagnostic("queue.retained", { platform, viewerUserId, target, revision,
+        sourceRetired: original.signal.aborted, errorType: typeof error,
+        nativeError: typeof error === "string" ? error : null })
+    }).finally(() => {
       try { original() } catch { return }
       if (queue.pending(platform, viewerUserId).some((entry) => conversationKey(entry.target) === conversationKey(target) && entry.revision !== revision)) {
         drainNativeSystemNotificationConversationDismissals(platform, viewerUserId, queue, client, original)
@@ -128,6 +136,9 @@ export function useNativeSystemNotificationConversationDismissal(
   const channelId = target.channelId
   const serverId = target.kind === "server" ? target.serverId : undefined
   useEffect(() => {
+    traceNotificationDiagnostic("ready.effect", { viewerUserId, kind, serverId, channelId, ready,
+      frame: current.current.frame, publishedHref: current.current.navigation.publishedHref,
+      navigationPending: current.current.navigation.navigationPending, visibility: document.visibilityState })
     if (!ready || (!isDesktop() && !isMobile())) return
     const platform = isDesktop() ? "desktop" : "mobile"
     const dismissalTarget: NativeSystemNotificationConversation = kind === "server"
@@ -141,16 +152,26 @@ export function useNativeSystemNotificationConversationDismissal(
     const intent = captureIntent()
     const consumer: NativeNotificationConversationConsumer = {
       matches: (viewer, targetId) => {
-        try { original() } catch { return false }
+        try { original() } catch {
+          traceNotificationDiagnostic("ready.retired", { viewerUserId, dismissalTarget })
+          return false
+        }
         const route = current.current
-        return viewer === viewerUserId && targetId === channelId && intent()
+        let intentCurrent: boolean | undefined
+        const matches = viewer === viewerUserId && targetId === channelId && (intentCurrent = intent())
           && document.visibilityState === "visible" && !route.navigation.navigationPending
           && route.frame.pathname === systemNotificationHref(dismissalTarget)
           && normalizeCommunityHref(route.navigation.publishedHref).pathname === route.frame.pathname
+        traceNotificationDiagnostic("ready.matches", { viewerUserId, viewer, targetId, dismissalTarget,
+          sourceCurrent: true, intentCurrent: intentCurrent ?? null, matches,
+          frame: route.frame, publishedHref: route.navigation.publishedHref,
+          navigationPending: route.navigation.navigationPending, visibility: document.visibilityState })
+        return matches
       },
       requestDismiss: () => {
         if (!consumer.matches(viewerUserId, channelId)) return
-        queue.queue(platform, viewerUserId, dismissalTarget)
+        const queued = queue.queue(platform, viewerUserId, dismissalTarget)
+        traceNotificationDiagnostic("queue.write", { platform, viewerUserId, dismissalTarget, queued })
         drainNativeSystemNotificationConversationDismissals(platform, viewerUserId, queue, client, original)
       },
     }

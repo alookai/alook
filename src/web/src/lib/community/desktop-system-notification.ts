@@ -18,6 +18,12 @@ import {
 
 type CommunityUnreadBump = Extract<CommunityWsEvent, { type: "community:unread.bump" }>
 
+export function traceNotificationDiagnostic(stage: string, data: Record<string, unknown>) {
+  if (process.env.NODE_ENV !== "development"
+    || process.env.NEXT_PUBLIC_ALOOK_NOTIFICATION_DIAGNOSTICS !== "208" || !isDesktop()) return
+  try { console.info("ALOOK208", JSON.stringify({ stage, timeMs: Date.now(), data })) } catch {}
+}
+
 export type DesktopSystemNotificationCandidate = {
   viewerUserId: string
   title: string
@@ -166,12 +172,28 @@ export async function takeDesktopSystemNotificationActivation(): Promise<Desktop
 }
 
 export async function dismissDesktopSystemNotification(notificationId: string): Promise<void> {
-  await tauriInvoke("desktop_system_notification_dismiss", { notificationId })
+  traceNotificationDiagnostic("invoke.id.start", { notificationId })
+  try {
+    await tauriInvoke("desktop_system_notification_dismiss", { notificationId })
+    traceNotificationDiagnostic("invoke.id.ok", { notificationId })
+  } catch (error) {
+    traceNotificationDiagnostic("invoke.id.error", { notificationId, errorType: typeof error,
+      nativeError: typeof error === "string" ? error : null })
+    throw error
+  }
 }
 
 export async function dismissDesktopSystemNotificationConversation(
   viewerUserId: string,
   target: { kind: "server"; serverId: string; channelId: string } | { kind: "dm"; channelId: string },
 ): Promise<void> {
-  await tauriInvoke("desktop_system_notification_dismiss_conversation", { viewerUserId, target })
+  traceNotificationDiagnostic("invoke.conversation.start", { viewerUserId, target })
+  try {
+    await tauriInvoke("desktop_system_notification_dismiss_conversation", { viewerUserId, target })
+    traceNotificationDiagnostic("invoke.conversation.ok", { viewerUserId, target })
+  } catch (error) {
+    traceNotificationDiagnostic("invoke.conversation.error", { viewerUserId, target, errorType: typeof error,
+      nativeError: typeof error === "string" ? error : null })
+    throw error
+  }
 }

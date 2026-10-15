@@ -11,6 +11,7 @@ import {
   resolveDesktopSystemNotificationCandidate,
   showDesktopSystemNotification,
   takeDesktopSystemNotificationActivation,
+  traceNotificationDiagnostic,
 } from "./desktop-system-notification"
 
 const invoke = vi.hoisted(() => vi.fn())
@@ -112,7 +113,66 @@ afterEach(async () => {
   for (const owner of owners.splice(0)) { await owner.cleanup(); owner.queryClient.clear() }
   desktopMode.value = true
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
+  vi.restoreAllMocks()
   vi.clearAllMocks()
+})
+
+describe("isolated notification diagnostics", () => {
+  it.each([
+    ["test", undefined], ["development", undefined],
+    ["production", "208"], ["development", "other"],
+  ] as const)("does not emit with mode %s and switch %s", async (mode, enabled) => {
+    vi.stubEnv("NODE_ENV", mode)
+    vi.stubEnv("NEXT_PUBLIC_ALOOK_NOTIFICATION_DIAGNOSTICS", enabled)
+    const log = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    invoke.mockResolvedValueOnce(undefined)
+    await dismissDesktopSystemNotificationConversation("viewer_1", { kind: "dm", channelId: "dm_1" })
+    expect(invoke).toHaveBeenCalledExactlyOnceWith("desktop_system_notification_dismiss_conversation",
+      { viewerUserId: "viewer_1", target: { kind: "dm", channelId: "dm_1" } })
+    expect(log).not.toHaveBeenCalled()
+  })
+
+  it("preserves one invocation and the original rejection object while omitting its contents", async () => {
+    vi.stubEnv("NODE_ENV", "development")
+    vi.stubEnv("NEXT_PUBLIC_ALOOK_NOTIFICATION_DIAGNOSTICS", "208")
+    const log = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const failure = new Error("private error payload")
+    invoke.mockRejectedValueOnce(failure)
+    await expect(dismissDesktopSystemNotification("notification_fixture")).rejects.toBe(failure)
+    expect(invoke).toHaveBeenCalledExactlyOnceWith("desktop_system_notification_dismiss",
+      { notificationId: "notification_fixture" })
+    const events = log.mock.calls.map(([, raw]) => JSON.parse(raw as string))
+    expect(events.map(event => event.stage)).toEqual(["invoke.id.start", "invoke.id.error"])
+    expect(events[1].data).toEqual({ notificationId: "notification_fixture", errorType: "object", nativeError: null })
+    expect(JSON.stringify(events)).not.toContain("private error payload")
+  })
+
+  it("records the native error string and keeps its original rejection", async () => {
+    vi.stubEnv("NODE_ENV", "development")
+    vi.stubEnv("NEXT_PUBLIC_ALOOK_NOTIFICATION_DIAGNOSTICS", "208")
+    const log = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    invoke.mockRejectedValueOnce("notification_unavailable")
+    const target = { kind: "dm" as const, channelId: "dm_1" }
+    await expect(dismissDesktopSystemNotificationConversation("viewer_1", target)).rejects.toBe("notification_unavailable")
+    expect(invoke).toHaveBeenCalledExactlyOnceWith("desktop_system_notification_dismiss_conversation", { viewerUserId: "viewer_1", target })
+    expect(JSON.parse(log.mock.calls[1]![1] as string).data.nativeError).toBe("notification_unavailable")
+  })
+
+  it("keeps success and failure when local logging throws, and emits nothing for mobile", async () => {
+    vi.stubEnv("NODE_ENV", "development")
+    vi.stubEnv("NEXT_PUBLIC_ALOOK_NOTIFICATION_DIAGNOSTICS", "208")
+    const log = vi.spyOn(console, "info").mockImplementation(() => { throw new Error("closed logger") })
+    const target = { kind: "dm" as const, channelId: "dm_1" }
+    invoke.mockResolvedValueOnce(undefined).mockRejectedValueOnce("untrusted_caller")
+    await expect(dismissDesktopSystemNotificationConversation("viewer_1", target)).resolves.toBeUndefined()
+    await expect(dismissDesktopSystemNotificationConversation("viewer_1", target)).rejects.toBe("untrusted_caller")
+    expect(invoke).toHaveBeenCalledTimes(2)
+    log.mockClear()
+    desktopMode.value = false
+    traceNotificationDiagnostic("fixture", { viewerUserId: "viewer_1" })
+    expect(log).not.toHaveBeenCalled()
+  })
 })
 
 describe("desktop system notification candidates", () => {
