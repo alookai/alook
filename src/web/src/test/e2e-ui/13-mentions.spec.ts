@@ -125,6 +125,14 @@ test.describe("mentions — mandatory discriminator", () => {
       } else {
         await editable.fill(content)
       }
+      if (content === "@everyone") {
+        const popup = page.getByTestId(tid.mentionPopup)
+        await expect(popup).toBeVisible()
+        await editable.press("Escape")
+        await expect(popup).toBeHidden()
+        await expect(editable).toHaveText(content)
+        await expect(editable.locator('[data-type="mention"]')).toHaveCount(0)
+      }
       const [response] = await Promise.all([
         page.waitForResponse((response) => response.request().method() === "POST"
           && new URL(response.url()).pathname === `/api/community/channels/${threadId}/messages`),
