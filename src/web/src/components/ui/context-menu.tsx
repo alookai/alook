@@ -7,6 +7,7 @@ import { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu
 import { cn } from "@/lib/utils"
 import { ChevronRightIcon, CheckIcon } from "lucide-react"
 import { useAuthenticatedContextMenuPolicy } from "@/components/authenticated-context-menu-boundary"
+import { NativeBackRoot, useNativeBackPopupRender, useNativeBackRoot } from "./native-back-layer"
 
 type NativeContextGesture = {
   token: number
@@ -53,6 +54,7 @@ export function nativeContextGestureMatches(
 }
 
 function ContextMenu({ disabled, ...props }: ContextMenuPrimitive.Root.Props) {
+  const back = useNativeBackRoot(props.onOpenChangeComplete)
   const policy = useAuthenticatedContextMenuPolicy()
   const nextTokenRef = React.useRef(0)
   const gestureRef = React.useRef<NativeContextGesture | null>(null)
@@ -111,13 +113,14 @@ function ContextMenu({ disabled, ...props }: ContextMenuPrimitive.Root.Props) {
   }), [arm, clear])
 
   return (
-    <NativeContextGestureContext.Provider value={controller}>
+    <NativeBackRoot value={back.owner}><NativeContextGestureContext.Provider value={controller}>
       <ContextMenuPrimitive.Root
         data-slot="context-menu"
         disabled={disabled || gesture !== null}
         {...props}
+        onOpenChangeComplete={back.complete}
       />
-    </NativeContextGestureContext.Provider>
+    </NativeContextGestureContext.Provider></NativeBackRoot>
   )
 }
 
@@ -184,6 +187,7 @@ function ContextMenuTrigger({
 
 function ContextMenuContent({
   className,
+  render,
   align = "start",
   alignOffset = 4,
   side = "right",
@@ -194,6 +198,7 @@ function ContextMenuContent({
     ContextMenuPrimitive.Positioner.Props,
     "align" | "alignOffset" | "side" | "sideOffset"
   >) {
+  const renderPopup = useNativeBackPopupRender<ContextMenuPrimitive.Popup.State>(render)
   return (
     <ContextMenuPrimitive.Portal>
       <ContextMenuPrimitive.Positioner
@@ -207,6 +212,7 @@ function ContextMenuContent({
           data-slot="context-menu-content"
           className={cn("z-50 max-h-(--available-height) min-w-36 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-lg bg-popover p-2 text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-100 outline-none data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95", className )}
           {...props}
+          render={renderPopup}
         />
       </ContextMenuPrimitive.Positioner>
     </ContextMenuPrimitive.Portal>
@@ -263,8 +269,9 @@ function ContextMenuItem({
 }
 
 function ContextMenuSub({ ...props }: ContextMenuPrimitive.SubmenuRoot.Props) {
+  const back = useNativeBackRoot(props.onOpenChangeComplete)
   return (
-    <ContextMenuPrimitive.SubmenuRoot data-slot="context-menu-sub" {...props} />
+    <NativeBackRoot value={back.owner}><ContextMenuPrimitive.SubmenuRoot data-slot="context-menu-sub" {...props} onOpenChangeComplete={back.complete} /></NativeBackRoot>
   )
 }
 

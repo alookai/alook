@@ -6,6 +6,7 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { XIcon } from "lucide-react"
+import { NativeBackRoot, useNativeBackPopupRender, useNativeBackRoot } from "./native-back-layer"
 
 function stopPropagationAfter<Event extends React.SyntheticEvent>(
   handler: ((event: Event) => void) | undefined,
@@ -17,7 +18,8 @@ function stopPropagationAfter<Event extends React.SyntheticEvent>(
 }
 
 function Dialog({ ...props }: DialogPrimitive.Root.Props) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />
+  const back = useNativeBackRoot(props.onOpenChangeComplete)
+  return <NativeBackRoot value={back.owner}><DialogPrimitive.Root data-slot="dialog" {...props} onOpenChangeComplete={back.complete} /></NativeBackRoot>
 }
 
 function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
@@ -63,11 +65,13 @@ function DialogContent({
   onTouchEnd,
   onTouchMove,
   onTouchStart,
+  render,
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
   overlayClassName?: string
 }) {
+  const renderPopup = useNativeBackPopupRender<DialogPrimitive.Popup.State>(render)
   return (
     <DialogPortal>
       <DialogOverlay className={overlayClassName} forceRender />
@@ -78,6 +82,7 @@ function DialogContent({
           className
         )}
         {...props}
+        render={renderPopup}
         onClick={stopPropagationAfter(onClick)}
         onContextMenu={stopPropagationAfter(onContextMenu)}
         onPointerCancel={stopPropagationAfter(onPointerCancel)}

@@ -22,8 +22,8 @@ describe("useNativeMobileBack", () => {
     document.querySelectorAll('[data-native-back-test-layer]').forEach((node) => node.remove())
   })
 
-  it("dismisses the top document layer before shell or route navigation", () => {
-    const dismissShellOverlay = vi.fn(() => true)
+  it("does not treat arbitrary dialog-slot markup as a Back owner", () => {
+    const dismissShellOverlay = vi.fn(() => false)
     const replacePath = vi.fn()
     const keydown = vi.fn()
     document.addEventListener("keydown", keydown, { once: true })
@@ -40,9 +40,10 @@ describe("useNativeMobileBack", () => {
     const event = dispatchBack()
 
     expect(event.defaultPrevented).toBe(true)
-    expect(keydown).toHaveBeenCalledWith(expect.objectContaining({ key: "Escape" }))
-    expect(dismissShellOverlay).not.toHaveBeenCalled()
-    expect(replacePath).not.toHaveBeenCalled()
+    expect(keydown).not.toHaveBeenCalled()
+    expect(dismissShellOverlay).toHaveBeenCalledOnce()
+    expect(replacePath).toHaveBeenCalledExactlyOnceWith("/c/me")
+    document.removeEventListener("keydown", keydown)
     renderer.unmount()
   })
 

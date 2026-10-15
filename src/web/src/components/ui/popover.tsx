@@ -4,9 +4,11 @@ import * as React from "react"
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover"
 
 import { cn } from "@/lib/utils"
+import { NativeBackRoot, useNativeBackPopupRender, useNativeBackRoot } from "./native-back-layer"
 
 function Popover({ ...props }: PopoverPrimitive.Root.Props) {
-  return <PopoverPrimitive.Root data-slot="popover" {...props} />
+  const back = useNativeBackRoot(props.onOpenChangeComplete)
+  return <NativeBackRoot value={back.owner}><PopoverPrimitive.Root data-slot="popover" {...props} onOpenChangeComplete={back.complete} /></NativeBackRoot>
 }
 
 function PopoverTrigger({ ...props }: PopoverPrimitive.Trigger.Props) {
@@ -56,8 +58,10 @@ function PopoverPositioner({
 
 function PopoverPopup({
   className,
+  render,
   ...props
 }: PopoverPrimitive.Popup.Props) {
+  const renderPopup = useNativeBackPopupRender<PopoverPrimitive.Popup.State>(render)
   return (
     <PopoverPrimitive.Popup
       data-slot="popover-content"
@@ -68,6 +72,7 @@ function PopoverPopup({
         className,
       )}
       {...props}
+      render={renderPopup}
     />
   )
 }
@@ -95,12 +100,14 @@ function PopoverContent({
   side,
   sideOffset = 6,
   align = "start",
+  render,
   ...props
 }: PopoverPrimitive.Popup.Props & {
   side?: "top" | "bottom" | "left" | "right" | "inline-end" | "inline-start"
   sideOffset?: number
   align?: "start" | "center" | "end"
 }) {
+  const renderPopup = useNativeBackPopupRender<PopoverPrimitive.Popup.State>(render)
   // Always portal to document.body so popovers escape parent portals
   // (e.g. Sheet/Dialog). Without this, base-ui's FloatingPortal falls back to
   // the nearest parentPortalNode, which inherits the Sheet's width constraint
@@ -124,6 +131,7 @@ function PopoverContent({
             className
           )}
           {...props}
+          render={renderPopup}
         >
           {children}
         </PopoverPrimitive.Popup>

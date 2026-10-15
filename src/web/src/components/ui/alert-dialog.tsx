@@ -5,9 +5,11 @@ import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { NativeBackRoot, useNativeBackPopupRender, useNativeBackRoot } from "./native-back-layer"
 
 function AlertDialog({ ...props }: AlertDialogPrimitive.Root.Props) {
-  return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />
+  const back = useNativeBackRoot(props.onOpenChangeComplete)
+  return <NativeBackRoot value={back.owner}><AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} onOpenChangeComplete={back.complete} /></NativeBackRoot>
 }
 
 function AlertDialogTrigger({ ...props }: AlertDialogPrimitive.Trigger.Props) {
@@ -41,10 +43,12 @@ function AlertDialogOverlay({
 function AlertDialogContent({
   className,
   size = "default",
+  render,
   ...props
 }: AlertDialogPrimitive.Popup.Props & {
   size?: "default" | "sm"
 }) {
+  const renderPopup = useNativeBackPopupRender<AlertDialogPrimitive.Popup.State>(render)
   return (
     <AlertDialogPortal>
       <AlertDialogOverlay />
@@ -56,6 +60,7 @@ function AlertDialogContent({
           className
         )}
         {...props}
+        render={renderPopup}
       />
     </AlertDialogPortal>
   )

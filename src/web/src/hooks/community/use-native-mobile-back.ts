@@ -1,26 +1,9 @@
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
+import { requestNativeBack } from "@/components/ui/native-back-layer"
 
 export const MOBILE_BACK_EDGE_PX = 24
 
 export const NATIVE_MOBILE_BACK_EVENT = "alook:native-back"
-
-const dismissibleLayerSelector = [
-  '[data-slot="dialog-content"]',
-  '[data-slot="alert-dialog-content"]',
-  '[data-slot="sheet-content"]',
-].join(",")
-
-function dismissTopDocumentLayer(): boolean {
-  const layers = document.querySelectorAll(dismissibleLayerSelector)
-  if (layers.length === 0) return false
-  document.dispatchEvent(new KeyboardEvent("keydown", {
-    key: "Escape",
-    code: "Escape",
-    bubbles: true,
-    cancelable: true,
-  }))
-  return true
-}
 
 export function useNativeMobileBack({
   mobile = false,
@@ -35,11 +18,26 @@ export function useNativeMobileBack({
   parentPath: string | null
   replacePath: (href: string) => void
 }) {
+  const composing = useRef<EventTarget | null>(null)
+  useEffect(() => {
+    const start = (event: CompositionEvent) => { composing.current = event.target }
+    const end = () => { composing.current = null }
+    document.addEventListener("compositionstart", start)
+    document.addEventListener("compositionend", end)
+    document.addEventListener("focusout", end)
+    return () => {
+      end()
+      document.removeEventListener("compositionstart", start)
+      document.removeEventListener("compositionend", end)
+      document.removeEventListener("focusout", end)
+    }
+  }, [])
   useEffect(() => {
     const handleBack = (event: Event) => {
       if (!event.cancelable) return
       event.preventDefault()
-      if (dismissTopDocumentLayer() || dismissShellOverlay()) return
+      if (composing.current === document.activeElement) return
+      if (requestNativeBack(document) !== "none" || dismissShellOverlay()) return
       if (parentPath) replacePath(parentPath)
     }
 

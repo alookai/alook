@@ -185,7 +185,8 @@ describe("ProfileCard surface contracts", () => {
 
     expect(root.open).toBe(true)
     expect(root.modal).toBe(true)
-    expect(close).toHaveClass("sr-only")
+    expect(close).not.toHaveClass("sr-only")
+    expect(close).toHaveAttribute("aria-label", "Close profile")
     expect(close).toHaveTextContent("Close profile")
     expect(content.side).toBe("bottom")
     expect(content.showOverlay).toBe(true)

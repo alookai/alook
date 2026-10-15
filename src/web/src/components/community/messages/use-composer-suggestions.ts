@@ -2,6 +2,7 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { Editor } from "@tiptap/react"
 import { exitSuggestion } from "@tiptap/suggestion"
+import { useNativeBackOwner } from "@/components/ui/native-back-layer"
 import {
   buildCommunityMentionExtension,
   EMPTY_MENTION_STATE,
@@ -196,6 +197,69 @@ export function useComposerSuggestions({
     exitSuggestion(editor.view, mentionExtension.options.suggestion.pluginKey)
     exitSuggestion(editor.view, channelRefExtension.options.suggestion.pluginKey)
   }, [editorRef, mentionExtension, channelRefExtension, publishMention, publishChannelRef])
+
+  const composingEditor = useRef<Editor | null>(null)
+  const retiredBackEditor = useRef<Editor | null>(null)
+  const readBackEditor = useCallback(() => {
+    const editor = editorRef.current
+    if (!editor || retiredBackEditor.current === editor || editor.isDestroyed || !eligible(editor) || !editor.view.hasFocus()) return null
+    return mentionPopupRef.current.command || channelRefPopupRef.current.command
+      || composingEditor.current === editor || editor.view.composing ? editor : null
+  }, [editorRef, eligible])
+  const backElement = useCallback(() => readBackEditor()?.view.dom ?? null, [readBackEditor])
+  const requestBack = useCallback(() => {
+    const editor = readBackEditor()
+    if (!editor) return "none"
+    if (composingEditor.current === editor || editor.view.composing) return "blocked"
+    resetPopups(editor)
+    return "requested"
+  }, [readBackEditor, resetPopups])
+  const refreshBackOwner = useNativeBackOwner(backElement, requestBack)
+  useEffect(() => {
+    const editor = editorRef.current
+    refreshBackOwner()
+    if (!editor || editor.isDestroyed) return
+    const retire = () => {
+      if (composingEditor.current === editor) composingEditor.current = null
+      refreshBackOwner()
+    }
+    const destroy = () => {
+      retiredBackEditor.current = editor
+      retire()
+    }
+    editor.on("destroy", destroy)
+    editor.on("blur", retire)
+    return () => {
+      editor.off("destroy", destroy)
+      editor.off("blur", retire)
+    }
+  })
+  useLayoutEffect(() => {
+    composingEditor.current = null
+    refreshBackOwner()
+  }, [scope, refreshBackOwner])
+  useEffect(() => {
+    const start = (event: CompositionEvent) => {
+      const editor = editorRef.current
+      if (!editor || editor.isDestroyed || event.target !== editor.view.dom) return
+      composingEditor.current = editor
+      refreshBackOwner()
+    }
+    const end = (event: Event) => {
+      const editor = composingEditor.current
+      if (!editor || editor.isDestroyed || event.target !== editor.view.dom) return
+      composingEditor.current = null
+      refreshBackOwner()
+    }
+    document.addEventListener("compositionstart", start)
+    document.addEventListener("compositionend", end)
+    document.addEventListener("focusout", end)
+    return () => {
+      document.removeEventListener("compositionstart", start)
+      document.removeEventListener("compositionend", end)
+      document.removeEventListener("focusout", end)
+    }
+  }, [editorRef, refreshBackOwner])
   useLayoutEffect(() => { resetPopups() }, [scope, resetPopups])
   useLayoutEffect(() => {
     contextRef.current = context
