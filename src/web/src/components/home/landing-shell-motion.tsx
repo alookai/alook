@@ -11,7 +11,7 @@ import {
   type RefObject,
 } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { createCommunityDbRegistry } from "@/lib/community-db/collections"
+import { createCommunityDbRegistry, type CommunityDbRegistry } from "@/lib/community-db/collections"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import {
   Activity,
@@ -632,6 +632,22 @@ function useVisualFocus(scene: LandingScene, focus: string | null) {
   return visualFocus
 }
 
+function usePreviewDbLifetime(registry: CommunityDbRegistry, queryClient: QueryClient) {
+  const disposeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (disposeTimer.current !== null) {
+      clearTimeout(disposeTimer.current)
+      disposeTimer.current = null
+    }
+    return () => {
+      disposeTimer.current = setTimeout(() => {
+        disposeTimer.current = null
+        void registry.cleanup().finally(() => queryClient.clear())
+      }, 0)
+    }
+  }, [registry, queryClient])
+}
+
 export function LandingShellMotion({
   scene,
   machineIntroDescription,
@@ -657,7 +673,7 @@ export function LandingShellMotion({
     () => new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } }),
   )
   const [registry] = useState(() => createCommunityDbRegistry(queryClient, null))
-  useEffect(() => () => { void registry.cleanup().finally(() => queryClient.clear()) }, [registry, queryClient])
+  usePreviewDbLifetime(registry, queryClient)
   const maxBeat = SCENE_MAX_BEAT[scene]
   const beat = controlledBeat ?? localBeat
 
@@ -769,7 +785,7 @@ export function LandingMobileChatMotion({ beat }: { beat: number }) {
     () => new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } }),
   )
   const [registry] = useState(() => createCommunityDbRegistry(queryClient, null))
-  useEffect(() => () => { void registry.cleanup().finally(() => queryClient.clear()) }, [registry, queryClient])
+  usePreviewDbLifetime(registry, queryClient)
 
   useEffect(() => {
     const stage = stageRef.current

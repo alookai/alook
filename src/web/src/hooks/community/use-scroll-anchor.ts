@@ -2,24 +2,12 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback, useLayoutEffect, useRef } from "react"
 import { measureElement, useVirtualizer, type ReactVirtualizer } from "@tanstack/react-virtual"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "./virtualizer-react-options"
-import { estimateRowHeight, computeBelowCount, MESSAGE_ROW_VERTICAL_PADDING_PX, type FlatItem } from "@/lib/community/message-list-items"
+import { estimateRowHeight, computeBelowCount, type FlatItem } from "@/lib/community/message-list-items"
+import { MESSAGE_RAIL_TAIL_PADDING_END_PX } from "@/lib/community/conversation-layout"
 
 export const INITIAL_POSITION_TIMEOUT_MS = 2_000
 export const MESSAGE_LIST_DISPLAY_END_THRESHOLD_PX = 100
 const VIEWPORT_RESIZE_TAIL_DISTANCE_PX = 100
-export const MESSAGE_RAIL_TAIL_PADDING_END_PX = {
-  mobile: 40 - MESSAGE_ROW_VERTICAL_PADDING_PX,
-  desktop: 48 - MESSAGE_ROW_VERTICAL_PADDING_PX,
-} as const
-
-export function resolveMessageRailTailPaddingEnd(
-  breakpoint: "unknown" | "desktop" | "mobile",
-): number {
-  return breakpoint === "mobile"
-    ? MESSAGE_RAIL_TAIL_PADDING_END_PX.mobile
-    : MESSAGE_RAIL_TAIL_PADDING_END_PX.desktop
-}
-
 type ViewportResizeAnchor = "tail" | "start"
 
 export interface ResolveViewportResizeAnchorInput {
@@ -96,7 +84,7 @@ export function useScrollAnchor({
   isFetchingNewer,
   presentVersion,
   localSubmitVersion,
-  tailPaddingEnd = MESSAGE_RAIL_TAIL_PADDING_END_PX.desktop,
+  tailPaddingEnd = MESSAGE_RAIL_TAIL_PADDING_END_PX,
   onInitialPositionSettled,
 }: {
   items: FlatItem[]
@@ -560,7 +548,7 @@ export function useScrollAnchor({
       && (previous.clientHeight !== next.clientHeight || previous.paddingEnd !== next.paddingEnd)
       && previous.scrollTop <= Math.max(0, next.scrollHeight - next.clientHeight) + 1
       && previous.scrollTop !== next.scrollTop
-    if (positionKind.get() === "idle" && readReady.get()
+    if (positionKind.get() === "idle"
       && (!previous || scrolledAfterResize || (previous.epoch === next.epoch
         && previous.clientHeight === next.clientHeight && previous.clientWidth === next.clientWidth
         && previous.paddingEnd === next.paddingEnd
@@ -575,14 +563,14 @@ export function useScrollAnchor({
       }
       holdNativeOrigin(next.scrollTop <= 1 && !next.pinEligible ? currentItemsRef.current[0]?.key ?? null : null)
     }
-  }, [holdNativeOrigin, positionKind, readReady])
+  }, [holdNativeOrigin, positionKind])
 
   const reconcileGeometry = useCallback((viewportOnly = false) => {
     const root = scrollRef.current
     const native = virtualizerRef.current
     const owner = positionOwnerRef.current
     if (!owner.active || !root || !native) return false
-    if (viewportOnly && (positionKind.get() !== "idle" || !readReady.get()
+    if (viewportOnly && (positionKind.get() !== "idle"
       || acceptedGeometryRef.current?.epoch !== owner.epoch
       || (acceptedGeometryRef.current.clientHeight === root.clientHeight
         && acceptedGeometryRef.current.clientWidth === root.clientWidth
@@ -593,7 +581,7 @@ export function useScrollAnchor({
       setShortGap(gap)
       return true
     }
-    if (positionKind.get() !== "idle" || (!readReady.get() && !userInputRef.current.handover && !paginationRef.current)) return false
+    if (positionKind.get() !== "idle") return false
     const next = readGeometry(viewportOnly)
     const input = userInputRef.current
     const max = Math.max(0, root.scrollHeight - root.clientHeight)
@@ -607,6 +595,8 @@ export function useScrollAnchor({
     }
     const clampedByResize = viewportResized && !previous.isScrolling && previous.scrollTop > max
       && Math.abs(root.scrollTop - max) <= 1
+    if (!readReady.get() && !input.handover && !paginationRef.current
+      && (!next || (native.isScrolling && !clampedByResize))) return false
     if (input.touch || input.pointers.size > 0 || (native.isScrolling && !clampedByResize)
       || root.scrollTop < 0 || root.scrollTop > max + 1
       ) return true
@@ -625,7 +615,7 @@ export function useScrollAnchor({
     if (!viewportResized && paginationRef.current?.phase === "settling" && geometrySampleRef.current.frames < 2) return true
     let offset = root.scrollTop
     let originHeld = false
-    if (viewportResized && previous?.epoch === owner.epoch && readReady.get()) {
+    if (viewportResized && previous?.epoch === owner.epoch) {
       originHeld = !previous.pinEligible && previous.scrollTop <= 1
         && previous.key === currentItemsRef.current[0]?.key && previous.itemStart <= 1
       if (originHeld) offset = previous.scrollTop

@@ -142,6 +142,16 @@ describe("ForumView post card header", () => {
     expect(paragraph?.[2]).toBe(preview)
   })
 
+  it("keeps the full title and complete sequence accessible in the server-rendered fallback", () => {
+    const name = "完整标题👩‍👩‍👧‍👦 é ".repeat(12)
+    const html = render([makePost({ name, parentSeq: 9007199254740991 })])
+    expect(html).toContain(`aria-label="${name} #9007199254740991"`)
+    expect(html).toContain(`title="${name}"`)
+    expect(html).toContain(`<span class="opacity-60">#</span>9007199254740991`)
+    expect(html).toContain(name)
+    expect(html).toContain("-webkit-line-clamp:2")
+  })
+
   it("uses a flat hairline row instead of the old bordered card", () => {
     const html = render([makePost()])
     const testIdIndex = html.indexOf(tid.forumThreadCard("p1"))
@@ -287,7 +297,7 @@ describe("ForumView responsive post actions", () => {
     expect(archiveButton).toContain("disabled:opacity-50")
     expect(deleteButton).toContain("disabled:opacity-50")
     expect(html).toContain("min-h-8 pr-28 sm:min-h-0 sm:pr-22")
-    expect(html).toContain("flex w-full min-w-0 max-w-full items-end gap-1.5")
+    expect(html).toContain("w-full min-w-0 max-w-full text-[15px] font-semibold leading-tight")
     expect(html).toContain(tid.forumThreadTitle("p1"))
     expect(html).toContain(tid.forumThreadTitleText("p1"))
     expect(html).toContain(tid.forumThreadSeq("p1"))

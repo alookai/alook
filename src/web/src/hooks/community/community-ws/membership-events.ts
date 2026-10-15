@@ -41,6 +41,7 @@ import { getAccountUnreadProjection } from "@/hooks/community/account-unread-pro
 import {
   getCanonicalCommunityChannels,
   retireCommunityChannelReading,
+  setCanonicalCommunityChannelMember,
 } from "@/lib/community-db/sync"
 
 type ChannelMemberEvent = Extract<
@@ -72,6 +73,7 @@ function refreshChannelAccess(event: { serverId: string | null; channelId: strin
 
 export function handleChannelMembershipChange(event: CommunityChannelMembershipChange, context: MembershipEventContext) {
   const { queryClient, projection, viewerUserIdRef } = context
+  setCanonicalCommunityChannelMember(queryClient, event.channelId, event.userId, event.relation, event.present, { event: true })
   if (event.serverId) invalidateServerDetail(projection, event.serverId)
   invalidateChannelRefDirectory(projection)
   projection.fence("channel-roster", { queryKey: communityKeys.channelMembers(event.channelId, event.relation) })

@@ -36,7 +36,7 @@ export const MessageEmbedSchema = z.object({
 type Embed = z.infer<typeof MessageEmbedSchema>
 
 export type Reaction = NonNullable<CommunityMessageResource["reactions"]>[number]
-export type ReplyTarget = Pick<NonNullable<CommunityMessageResource["replyTo"]>, "id" | "authorName" | "text">
+export type ReplyTarget = Pick<NonNullable<CommunityMessageResource["replyTo"]>, "id" | "authorId" | "authorName" | "text">
 
 export type Msg = Pick<CommunityMessageResource, "id" | "type"> & Partial<Omit<CommunityMessageResource,
   "id" | "type" | "channelId" | "replyToId" | "clientNonce" | "attachments" | "embeds" | "authorAvatar" | "thread"

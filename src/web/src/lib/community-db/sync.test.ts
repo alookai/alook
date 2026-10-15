@@ -25,6 +25,10 @@ import {
   ingestServers,
   installCommunityDbSync,
   captureCommunityLiveSnapshotToken,
+  getCanonicalCommunityTypingMembership,
+  publishCommunityMembersSnapshot,
+  publishCommunityChannelMembersSnapshot,
+  setCanonicalCommunityChannelMember,
   clearAttentionOptimistically,
   clearAttentionScopeOptimistically,
   commitAttentionOptimisticSnapshot,
@@ -52,6 +56,7 @@ import { writeCommunityProfilePatches } from "@/lib/community/profile-seed"
 import { decodeCommunityReadResponse } from "@/lib/community/read-response"
 import type { MessageInput } from "@/lib/community/models/message"
 import { writeCommunityCollectionRows } from "./write"
+import { applyTypingIndicator } from "@/hooks/community/community-ws/typing"
 
 const pendingApproval = { friendshipId: "friendship", status: "pending" as const, waitingOn: null, otherProfile: { id: "approval", name: "Approval", discriminator: "0004", image: null, avatarVersion: 1 }, botProfile: { id: "bot", name: "Bot", discriminator: "0005", image: null, avatarVersion: 1 } }
 
@@ -118,6 +123,97 @@ afterEach(async () => {
 })
 
 describe("community DB sync", () => {
+  it("keeps unloaded and partial member data unknown but prunes a fresh complete roster without requiring profiles", async () => {
+    const db = await registry()
+    publishCommunityChannelMetadata(db.queryClient, {
+      metadata: { id: "c1", serverId: "s1", type: "text", name: "Channel", parentChannelId: null, parentMessageId: null, creatorId: "viewer", archived: false, lastMessageAt: null },
+      proof: { token: captureCommunityLiveSnapshotToken(db.queryClient) },
+    })
+    expect(getCanonicalCommunityTypingMembership(db.queryClient, "c1", "unknown")).toBeUndefined()
+    applyTypingIndicator(db.queryClient, "ch:c1", "unknown", null)
+    applyTypingIndicator(db.queryClient, "ch:c1", "kept", null)
+    publishCommunityMembersSnapshot(db.queryClient, "s1", [{ id: "mv", userId: "viewer", role: "member" }], { token: captureCommunityLiveSnapshotToken(db.queryClient) })
+    projectCommunityWsEventToDb(db.queryClient, { type: "community:member.update", serverId: "s1", memberId: "mu", userId: "unknown", changes: { role: "admin" } })
+    expect(getCanonicalCommunityTypingMembership(db.queryClient, "c1", "unknown")).toBeUndefined()
+    expect(db.runtime.ui.get().typingByScope.get("ch:c1")).toEqual(new Map([["unknown", null], ["kept", null]]))
+    const members = [{ channelId: "c1", userId: "kept", relation: "access" as const, source: "explicit", isCreator: false, role: null, memberId: null }]
+    publishCommunityChannelMembersSnapshot(db.queryClient, "s1", "c1", "access", members, { token: captureCommunityLiveSnapshotToken(db.queryClient) })
+    db.queryClient.setQueryData(communityKeys.channelMembers("c1", "access"), { serverId: "s1", relation: "access", members })
+    expect(db.runtime.ui.get().typingByScope.get("ch:c1")).toEqual(new Map([["kept", null]]))
+    expect(db.runtime.ui.get().typingTimers.has("ch:c1|unknown")).toBe(false)
+    expect(db.collections.profiles.has("kept")).toBe(false)
+    expect(getCanonicalCommunityTypingMembership(db.queryClient, "c1", "kept")).not.toBe(false)
+    expect(getCanonicalCommunityTypingMembership(db.queryClient, "c1", "unknown")).toBe(false)
+  })
+
+  it("does not let a roster response begun before leave restore typing membership and permits a later canonical join", async () => {
+    const db = await registry()
+    setCanonicalCommunityChannelMember(db.queryClient, "thread", "peer", "notify", true, { event: true })
+    const token = captureCommunityLiveSnapshotToken(db.queryClient)
+    applyTypingIndicator(db.queryClient, "ch:thread", "peer", "Peer")
+    setCanonicalCommunityChannelMember(db.queryClient, "thread", "peer", "notify", false, { event: true })
+    const members = [{ channelId: "thread", userId: "peer", relation: "notify" as const, source: "spoke", isCreator: false, role: null, memberId: null }]
+    publishCommunityChannelMembersSnapshot(db.queryClient, "s1", "thread", "notify", members, { token })
+    db.queryClient.setQueryData(communityKeys.channelMembers("thread", "notify"), { serverId: "s1", relation: "notify", members })
+    expect(db.collections.channelMemberships.has("thread:peer:notify")).toBe(false)
+    expect(getCanonicalCommunityTypingMembership(db.queryClient, "thread", "peer")).toBe(false)
+    expect(db.runtime.ui.get().typingByScope.has("ch:thread")).toBe(false)
+    expect(db.runtime.ui.get().typingTimers.has("ch:thread|peer")).toBe(false)
+    db.queryClient.setQueryData(communityKeys.channelMembers("thread", "notify"), { serverId: "s1", relation: "notify", members: [] })
+    setCanonicalCommunityChannelMember(db.queryClient, "thread", "peer", "notify", true, { event: true })
+    expect(getCanonicalCommunityTypingMembership(db.queryClient, "thread", "peer")).not.toBe(false)
+  })
+
+  it("prunes only the departed server's typing even with unloaded server members and restores qualification on join", async () => {
+    const db = await registry()
+    ingestServerDetail(db, { id: "s1", name: "Server", discriminator: "0001", description: "", icon: null, ownerId: "viewer",
+      categories: [{ id: "public-category", name: "Public", private: false, channels: [{ id: "c1", name: "Forum", type: "forum", active: false, unread: false }] }] })
+    for (const [id, serverId, type] of [["c1", "s1", "forum"], ["c2", "s2", "text"], ["dm1", null, "dm"]] as const) {
+      publishCommunityChannelMetadata(db.queryClient, {
+        metadata: { id, serverId, type, name: id, parentChannelId: null, parentMessageId: null, creatorId: "viewer", archived: false, lastMessageAt: null },
+        proof: { token: captureCommunityLiveSnapshotToken(db.queryClient) },
+      })
+      applyTypingIndicator(db.queryClient, `${type === "dm" ? "dm" : "ch"}:${id}`, "peer", null)
+    }
+    publishCommunityChannelMetadata(db.queryClient, {
+      metadata: { id: "child", serverId: "s1", type: "thread", name: "Child", parentChannelId: "c1", parentMessageId: "opener", creatorId: "viewer", archived: false, lastMessageAt: null },
+      proof: { token: captureCommunityLiveSnapshotToken(db.queryClient) },
+    })
+    setCanonicalCommunityChannelMember(db.queryClient, "child", "peer", "notify", true, { event: true })
+    applyTypingIndicator(db.queryClient, "ch:child", "peer", null)
+    const beforeLeave = captureCommunityLiveSnapshotToken(db.queryClient)
+    projectCommunityWsEventToDb(db.queryClient, { type: "community:member.leave", serverId: "s1", userId: "peer" })
+    publishCommunityMembersSnapshot(db.queryClient, "s1", [{ id: "mp", userId: "peer", role: "member" }], { token: beforeLeave })
+    expect(db.runtime.ui.get().typingByScope.has("ch:c1")).toBe(false)
+    expect(db.runtime.ui.get().typingTimers.has("ch:c1|peer")).toBe(false)
+    expect(db.runtime.ui.get().typingByScope.has("ch:child")).toBe(false)
+    expect(db.collections.channelMemberships.has("child:peer:notify")).toBe(false)
+    expect(db.runtime.ui.get().typingByScope.get("ch:c2")?.get("peer")).toBeNull()
+    expect(db.runtime.ui.get().typingByScope.get("dm:dm1")?.get("peer")).toBeNull()
+    expect(getCanonicalCommunityTypingMembership(db.queryClient, "c1", "peer")).toBe(false)
+    db.queryClient.setQueryData(communityKeys.channelMembers("c1", "access"), { serverId: "s1", relation: "access", members: [] })
+    projectCommunityWsEventToDb(db.queryClient, { type: "community:member.join", serverId: "s1", member: { id: "mp-new", userId: "peer", name: "Peer", discriminator: "0001", avatarVersion: 0, role: "member", joinedAt: "2026-10-01T00:00:00.000Z" } })
+    expect(getCanonicalCommunityTypingMembership(db.queryClient, "c1", "peer")).toBe(true)
+    expect(getCanonicalCommunityTypingMembership(db.queryClient, "child", "peer")).toBe(false)
+    setCanonicalCommunityChannelMember(db.queryClient, "child", "peer", "notify", true, { event: true })
+    expect(getCanonicalCommunityTypingMembership(db.queryClient, "child", "peer")).toBe(true)
+  })
+
+  it.each(["private", "unknown"])("does not grant %s channel typing from a server join against its access roster", async (visibility) => {
+    const db = await registry()
+    if (visibility === "private") ingestServerDetail(db, { id: "s1", name: "Server", discriminator: "0001", description: "", icon: null, ownerId: "viewer",
+      categories: [{ id: "private-category", name: "Private", private: true, channels: [{ id: "c1", name: "Channel", type: "text", active: false, unread: false }] }] })
+    else publishCommunityChannelMetadata(db.queryClient, {
+      metadata: { id: "c1", serverId: "s1", type: "text", name: "Channel", parentChannelId: null, parentMessageId: null, creatorId: "viewer", archived: false, lastMessageAt: null },
+      proof: { token: captureCommunityLiveSnapshotToken(db.queryClient) },
+    })
+    db.queryClient.setQueryData(communityKeys.channelMembers("c1", "access"), { serverId: "s1", relation: "access", members: [] })
+    projectCommunityWsEventToDb(db.queryClient, { type: "community:member.join", serverId: "s1", member: { id: "mp", userId: "peer", name: "Peer", discriminator: "0001", avatarVersion: 0, role: "member", joinedAt: "2026-10-01T00:00:00.000Z" } })
+    expect(getCanonicalCommunityTypingMembership(db.queryClient, "c1", "peer")).toBe(false)
+    setCanonicalCommunityChannelMember(db.queryClient, "c1", "peer", "access", true, { event: true })
+    expect(getCanonicalCommunityTypingMembership(db.queryClient, "c1", "peer")).toBe(true)
+  })
+
   it.each(["newer-ws", "original"])("preserves the named WS write %s while confirming independent server fields and rejecting the older whole snapshot", async (name) => {
     const db = await registry()
     const original = { id: "s1", name: "original", description: "before", initial: "O", active: false, unread: false, mentions: 0, ownerId: "viewer" }

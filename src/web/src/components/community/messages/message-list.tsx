@@ -40,5 +40,5 @@ export function MessageList({
       virtualizer={controller.virtualizer}
       renderItem={(item, index) => renderMessageListRow(item, resolvedProps, controller, index)}
     />
-  ), footerSlot?.target ?? null)
+  ), footerSlot?.target ?? null, footerSlot?.accessoryTarget ?? null)
 }

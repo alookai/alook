@@ -204,12 +204,69 @@ fn windows_recovers(error_code: i32) -> bool {
 pub fn finish_native_creation(window: &tauri::WebviewWindow) {
     let ready_window = window.clone();
     let error_window = window.clone();
-    if let Err(error) = window.with_webview(move |platform| {
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    let (diagnostic_sender, diagnostic_receiver) =
+        if crate::system_notifications::notification_diagnostics_enabled(window.app_handle()) {
+            let (sender, receiver) = std::sync::mpsc::channel();
+            (Some((sender, std::thread::current().id())), Some(receiver))
+        } else {
+            (None, None)
+        };
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    crate::system_notifications::diagnose_qa_startup(
+        window.app_handle(),
+        "handoff_call",
+        window.label(),
+        serde_json::json!({ "status": "call" }),
+    );
+    let dispatched = window.with_webview(move |platform| {
         #[cfg(desktop)]
         {
             let _ = platform;
-            if !crate::commands::finish_native_startup(ready_window.app_handle()) {
+            #[cfg(all(target_os = "macos", debug_assertions))]
+            if let Some((_, calling_thread)) = &diagnostic_sender {
+                let callback_thread = std::thread::current().id();
+                crate::system_notifications::diagnose_qa_startup(
+                    ready_window.app_handle(),
+                    "callback_enter",
+                    ready_window.label(),
+                    serde_json::json!({
+                        "status": "entered",
+                        "callingThread": format!("{calling_thread:?}"),
+                        "callbackThread": format!("{callback_thread:?}"),
+                        "dispatchMode": if *calling_thread == callback_thread { "inline" } else { "queued" },
+                    }),
+                );
+            }
+            let mut shown_main = None;
+            let capture = crate::system_notifications::notification_diagnostics_enabled(
+                ready_window.app_handle(),
+            )
+            .then_some(&mut shown_main);
+            let completed =
+                crate::commands::finish_native_startup(ready_window.app_handle(), capture);
+            #[cfg(all(target_os = "macos", debug_assertions))]
+            crate::system_notifications::diagnose_qa_startup(
+                ready_window.app_handle(),
+                "handoff_return",
+                ready_window.label(),
+                serde_json::json!({ "completed": completed, "snapshot": if completed && shown_main.is_some() { "eligible" } else { "not_run" } }),
+            );
+            if !completed {
                 eprintln!("native WebView startup handoff unavailable");
+            }
+            #[cfg(all(target_os = "macos", debug_assertions))]
+            if let Some((sender, _)) = diagnostic_sender {
+                let sent = sender.send((completed, shown_main));
+                crate::system_notifications::diagnose_qa_startup(
+                    ready_window.app_handle(),
+                    "handoff_result_send_return",
+                    ready_window.label(),
+                    serde_json::json!({
+                        "status": if sent.is_ok() { "sent" } else { "receiver_dropped" },
+                        "callbackCompletion": "not_inferred",
+                    }),
+                );
             }
         }
         #[cfg(target_os = "ios")]
@@ -234,7 +291,36 @@ pub fn finish_native_creation(window: &tauri::WebviewWindow) {
                 show_native_creation_error();
             }
         }
-    }) {
+    });
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    crate::system_notifications::diagnose_qa_startup(
+        window.app_handle(),
+        "handoff_dispatch_return",
+        window.label(),
+        serde_json::json!({ "status": if dispatched.is_ok() { "ok" } else { "error" }, "error": dispatched.as_ref().err().map(ToString::to_string), "callbackCompletion": "not_inferred" }),
+    );
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    if let Some(receiver) = diagnostic_receiver {
+        let snapshot = qa_startup_snapshot_candidate(dispatched.is_ok(), receiver.try_recv());
+        match snapshot {
+            Ok(main) => {
+                crate::system_notifications::diagnose_qa_startup(
+                    window.app_handle(),
+                    "main_snapshot_begin",
+                    main.label(),
+                    serde_json::json!({ "handoffResult": "completed_with_shown_main", "callbackCompletion": "not_inferred" }),
+                );
+                crate::system_notifications::diagnose_qa_main_snapshot(&main);
+            }
+            Err(reason) => crate::system_notifications::diagnose_qa_startup(
+                window.app_handle(),
+                "main_snapshot_not_run",
+                window.label(),
+                serde_json::json!({ "reason": reason, "callbackCompletion": "not_inferred" }),
+            ),
+        }
+    }
+    if let Err(error) = dispatched {
         eprintln!("native WebView startup callback unavailable: {error}");
         #[cfg(target_os = "macos")]
         crate::commands::show_startup_initialization_error(error_window.app_handle());
@@ -244,6 +330,22 @@ pub fn finish_native_creation(window: &tauri::WebviewWindow) {
         }
         #[cfg(not(any(target_os = "macos", target_os = "ios")))]
         let _ = error_window;
+    }
+}
+
+#[cfg(all(target_os = "macos", debug_assertions))]
+fn qa_startup_snapshot_candidate<T>(
+    dispatched: bool,
+    received: Result<(bool, Option<T>), std::sync::mpsc::TryRecvError>,
+) -> Result<T, &'static str> {
+    if !dispatched {
+        return Err("dispatch_error");
+    }
+    match received {
+        Ok((true, Some(main))) => Ok(main),
+        Ok(_) => Err("handoff_not_eligible"),
+        Err(std::sync::mpsc::TryRecvError::Empty) => Err("handoff_result_pending"),
+        Err(std::sync::mpsc::TryRecvError::Disconnected) => Err("handoff_result_unavailable"),
     }
 }
 
@@ -907,6 +1009,58 @@ mod tests {
 
     use super::*;
 
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    #[test]
+    fn qa_snapshot_requires_successful_dispatch_and_completed_shown_main() {
+        assert_eq!(
+            qa_startup_snapshot_candidate(true, Ok((true, Some(7)))),
+            Ok(7)
+        );
+        for result in [Ok((false, Some(7))), Ok((true, None)), Ok((false, None))] {
+            assert_eq!(
+                qa_startup_snapshot_candidate(true, result),
+                Err("handoff_not_eligible")
+            );
+        }
+        for result in [
+            Ok((true, Some(7))),
+            Err(std::sync::mpsc::TryRecvError::Empty),
+            Err(std::sync::mpsc::TryRecvError::Disconnected),
+        ] {
+            assert_eq!(
+                qa_startup_snapshot_candidate(false, result),
+                Err("dispatch_error")
+            );
+        }
+    }
+
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    #[test]
+    fn qa_snapshot_pending_and_disconnected_results_are_explicitly_not_run() {
+        let (sender, receiver) = std::sync::mpsc::channel::<(bool, Option<u8>)>();
+        assert_eq!(
+            qa_startup_snapshot_candidate(true, receiver.try_recv()),
+            Err("handoff_result_pending")
+        );
+        drop(sender);
+        assert_eq!(
+            qa_startup_snapshot_candidate(true, receiver.try_recv()),
+            Err("handoff_result_unavailable")
+        );
+    }
+
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    #[test]
+    fn qa_snapshot_accepts_available_result_without_requiring_sender_completion() {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        sender.send((true, Some(7))).unwrap();
+        assert_eq!(
+            qa_startup_snapshot_candidate(true, receiver.try_recv()),
+            Ok(7)
+        );
+        sender.send((false, None)).unwrap();
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn apple_class_method_finds_registered_class_selector() {
@@ -1458,8 +1612,8 @@ mod tests {
         assert_order(
             commands,
             &[
-                "if let Err(error) = main.show()",
-                "if let Err(error) = splash.close()",
+                "let shown = main.show()",
+                "let closed = splash.close()",
                 "SPLASH_CLOSED.store(true",
             ],
         );

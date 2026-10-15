@@ -11,6 +11,161 @@ const MAX_RECENT: usize = 256;
 const ACTIVATION_SCHEME: &str = "ai.alook.desktop";
 const ACTIVATION_HOST: &str = "notification";
 const ACTIVATION_PATH: &str = "/open";
+
+pub(crate) fn notification_diagnostics_enabled(app: &AppHandle) -> bool {
+    cfg!(all(target_os = "macos", debug_assertions))
+        && notification_diagnostic_identity_allowed(
+            &app.config().identifier,
+            std::env::var("ALOOK_NOTIFICATION_DIAGNOSTICS")
+                .ok()
+                .as_deref(),
+        )
+}
+
+fn notification_diagnostic_identity_allowed(identifier: &str, switch: Option<&str>) -> bool {
+    identifier == "ai.alook.desktop.qa.madox.notification208" && switch == Some("208")
+}
+
+macro_rules! notification_diagnostic {
+    ($enabled:expr, $stage:expr, $data:expr) => {
+        if $enabled {
+            use std::io::Write;
+            let time = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()
+                .map(|value| value.as_millis());
+            let _ = writeln!(std::io::stderr().lock(), "ALOOK208 {}",
+                serde_json::json!({ "stage": $stage, "timeMs": time, "data": $data }));
+        }
+    };
+}
+
+#[cfg(all(target_os = "macos", debug_assertions))]
+pub(crate) fn diagnose_qa_startup(
+    app: &AppHandle,
+    phase: &str,
+    window: &str,
+    result: serde_json::Value,
+) {
+    notification_diagnostic!(
+        notification_diagnostics_enabled(app),
+        "native_startup",
+        serde_json::json!({
+            "phase": phase,
+            "window": window,
+            "pid": std::process::id(),
+            "result": result,
+        })
+    );
+}
+
+#[cfg(any(test, all(target_os = "macos", debug_assertions)))]
+fn sanitized_startup_url(mut url: url::Url) -> Result<String, &'static str> {
+    url.set_query(None);
+    url.set_fragment(None);
+    if url.password().is_some() {
+        url.set_password(None)
+            .map_err(|_| "password_sanitization_failed")?;
+    }
+    if !url.username().is_empty() {
+        url.set_username("")
+            .map_err(|_| "username_sanitization_failed")?;
+    }
+    Ok(url.to_string())
+}
+
+#[cfg(all(target_os = "macos", debug_assertions))]
+pub(crate) fn diagnose_qa_main_snapshot(window: &WebviewWindow) {
+    if !notification_diagnostics_enabled(window.app_handle()) {
+        return;
+    }
+    let visible = window.is_visible();
+    diagnose_qa_startup(
+        window.app_handle(),
+        "main_visible_return",
+        window.label(),
+        match visible {
+            Ok(value) => serde_json::json!({ "status": "ok", "visible": value }),
+            Err(error) => serde_json::json!({ "status": "error", "error": error.to_string() }),
+        },
+    );
+    let url = window.url();
+    diagnose_qa_startup(
+        window.app_handle(),
+        "main_url_return",
+        window.label(),
+        match url {
+            Ok(value) => match sanitized_startup_url(value) {
+                Ok(value) => serde_json::json!({ "status": "ok", "url": value }),
+                Err(error) => serde_json::json!({ "status": "sanitization_error", "error": error }),
+            },
+            Err(error) => serde_json::json!({ "status": "error", "error": error.to_string() }),
+        },
+    );
+}
+
+#[cfg(all(target_os = "macos", debug_assertions))]
+fn log_qa_store_identity(
+    window: &str,
+    identifier: Option<String>,
+    read_time_ms: Option<u128>,
+    error: Option<String>,
+) {
+    notification_diagnostic!(
+        true,
+        "native_store_identity",
+        serde_json::json!({
+            "window": window,
+            "pid": std::process::id(),
+            "identifier": identifier,
+            "readTimeMs": read_time_ms,
+            "error": error,
+        })
+    );
+}
+
+#[cfg(all(target_os = "macos", debug_assertions))]
+pub(crate) fn diagnose_qa_store(window: &WebviewWindow) {
+    use objc2::MainThreadMarker;
+    use objc2_web_kit::WKWebView;
+
+    if !notification_diagnostics_enabled(window.app_handle()) {
+        return;
+    }
+    let label = window.label().to_owned();
+    if !objc2::available!(macos = 14.0) {
+        log_qa_store_identity(&label, None, None, Some("macos_14_required".into()));
+        return;
+    }
+    let callback_label = label.clone();
+    if let Err(error) = window.with_webview(move |platform| {
+        if MainThreadMarker::new().is_none() {
+            log_qa_store_identity(&callback_label, None, None, Some("not_main_thread".into()));
+            return;
+        }
+        let Some(webview) = (unsafe { platform.inner().cast::<WKWebView>().as_ref() }) else {
+            log_qa_store_identity(
+                &callback_label,
+                None,
+                None,
+                Some("webview_unavailable".into()),
+            );
+            return;
+        };
+        let identifier = unsafe { webview.configuration().websiteDataStore().identifier() }
+            .map(|value| value.UUIDString().to_string());
+        let read_time_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .map(|value| value.as_millis());
+        let error = read_time_ms
+            .is_none()
+            .then(|| "read_clock_unavailable".into());
+        log_qa_store_identity(&callback_label, identifier, read_time_ms, error);
+    }) {
+        log_qa_store_identity(&label, None, None, Some(error.to_string()));
+    }
+}
 #[cfg(windows)]
 const WINDOWS_APP_ID: &str = "ai.alook.desktop";
 #[cfg(windows)]
@@ -503,26 +658,61 @@ pub async fn desktop_system_notification_show(
     state: tauri::State<'_, DesktopSystemNotificationState>,
     candidate: NotificationCandidate,
 ) -> Result<(), &'static str> {
-    guard(&window)?;
-    if !candidate.valid() {
+    let diagnostics = notification_diagnostics_enabled(window.app_handle());
+    let guarded = guard(&window);
+    notification_diagnostic!(
+        diagnostics,
+        "native.show.guard",
+        serde_json::json!({"result": guarded})
+    );
+    guarded?;
+    let valid = candidate.valid();
+    notification_diagnostic!(
+        diagnostics,
+        "native.show.payload",
+        serde_json::json!({"valid": valid})
+    );
+    if !valid {
         return Err("notification_invalid");
     }
-    let Some(notification_id) = state.transact(|record| Ok(record.claim(&candidate)))? else {
+    let claimed = state.transact(|record| Ok(record.claim(&candidate)));
+    notification_diagnostic!(
+        diagnostics,
+        "native.show.claim",
+        serde_json::json!({
+            "viewerUserId": candidate.viewer_user_id, "target": candidate.target, "result": claimed
+        })
+    );
+    let Some(notification_id) = claimed? else {
         return Ok(());
     };
-    if display_notification(
+    let displayed = display_notification(
         window.app_handle(),
         &notification_id,
         &candidate.title,
         &candidate.body,
     )
-    .await
-    .is_err()
-    {
-        state.transact(|record| {
+    .await;
+    notification_diagnostic!(
+        diagnostics,
+        "native.show.return",
+        serde_json::json!({
+            "notificationId": notification_id, "result": displayed
+        })
+    );
+    if displayed.is_err() {
+        let rolled_back = state.transact(|record| {
             record.rollback(&notification_id);
             Ok(())
-        })?;
+        });
+        notification_diagnostic!(
+            diagnostics,
+            "native.show.rollback",
+            serde_json::json!({
+                "notificationId": notification_id, "result": rolled_back
+            })
+        );
+        rolled_back?;
         return Err("notification_unavailable");
     }
     #[cfg(any(windows, target_os = "linux"))]
@@ -601,17 +791,38 @@ pub async fn desktop_system_notification_dismiss(
     state: tauri::State<'_, DesktopSystemNotificationState>,
     notification_id: String,
 ) -> Result<(), &'static str> {
-    guard(&window)?;
-    if !valid_notification_id(&notification_id) {
+    let diagnostics = notification_diagnostics_enabled(window.app_handle());
+    let guarded = guard(&window);
+    notification_diagnostic!(
+        diagnostics,
+        "native.id.guard",
+        serde_json::json!({
+            "notificationId": notification_id, "result": guarded
+        })
+    );
+    guarded?;
+    let valid = valid_notification_id(&notification_id);
+    notification_diagnostic!(
+        diagnostics,
+        "native.id.payload",
+        serde_json::json!({"valid": valid})
+    );
+    if !valid {
         return Err("notification_invalid");
     }
-    dismiss_notifications_confirmed(&[notification_id.clone()])
+    dismiss_notifications_confirmed(&[notification_id.clone()], diagnostics)
         .await
         .map_err(|_| "notification_unavailable")?;
-    state.transact(|record| {
+    let completed = state.transact(|record| {
         record.complete_dismissals(&[notification_id]);
         Ok(())
-    })
+    });
+    notification_diagnostic!(
+        diagnostics,
+        "native.id.transact",
+        serde_json::json!({"result": completed})
+    );
+    completed
 }
 
 #[tauri::command]
@@ -621,34 +832,132 @@ pub async fn desktop_system_notification_dismiss_conversation(
     viewer_user_id: String,
     target: NotificationConversation,
 ) -> Result<(), &'static str> {
-    guard(&window)?;
-    if !valid_id(&viewer_user_id) || !target.valid() {
+    let diagnostics = notification_diagnostics_enabled(window.app_handle());
+    let guarded = guard(&window);
+    notification_diagnostic!(
+        diagnostics,
+        "native.conversation.guard",
+        serde_json::json!({
+            "viewerUserId": viewer_user_id, "target": target, "result": guarded
+        })
+    );
+    guarded?;
+    let valid = valid_id(&viewer_user_id) && target.valid();
+    notification_diagnostic!(
+        diagnostics,
+        "native.conversation.payload",
+        serde_json::json!({"valid": valid})
+    );
+    if !valid {
         return Err("notification_invalid");
     }
-    let notification_ids = state
-        .record
-        .lock()
-        .map_err(|_| "store_unavailable")?
-        .notification_ids(&viewer_user_id, &target);
+    let notification_ids = {
+        let record = state.record.lock().map_err(|_| "store_unavailable")?;
+        let ids = record.notification_ids(&viewer_user_id, &target);
+        notification_diagnostic!(
+            diagnostics,
+            "native.conversation.mapping",
+            serde_json::json!({
+                "matchingRecords": record.recent.iter().filter(|item| item.viewer_user_id == viewer_user_id
+                    && target.matches(&item.target)).collect::<Vec<_>>()
+            })
+        );
+        ids
+    };
+    notification_diagnostic!(
+        diagnostics,
+        "native.conversation.select",
+        serde_json::json!({
+            "viewerUserId": viewer_user_id, "target": target, "notificationIds": notification_ids
+        })
+    );
     if notification_ids.is_empty() {
         return Ok(());
     }
-    dismiss_notifications_confirmed(&notification_ids)
+    dismiss_notifications_confirmed(&notification_ids, diagnostics)
         .await
         .map_err(|_| "notification_unavailable")?;
-    state.transact(|record| {
+    let completed = state.transact(|record| {
         record.complete_dismissals(&notification_ids);
         Ok(())
-    })
+    });
+    notification_diagnostic!(
+        diagnostics,
+        "native.conversation.transact",
+        serde_json::json!({
+            "notificationIds": notification_ids, "result": completed
+        })
+    );
+    completed
 }
 
 #[cfg(target_os = "macos")]
-async fn dismiss_notifications_confirmed(notification_ids: &[String]) -> Result<(), ()> {
+async fn notification_diagnostic_pending(stage: &'static str) {
+    use block2::RcBlock;
+    use objc2_foundation::NSArray;
+    use objc2_user_notifications::{UNNotificationRequest, UNUserNotificationCenter};
+    use std::ptr::NonNull;
+
+    let receiver = {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let completion = RcBlock::new(move |requests: NonNull<NSArray<UNNotificationRequest>>| {
+            let ids = unsafe { requests.as_ref() }
+                .iter()
+                .map(|request| request.identifier().to_string())
+                .collect::<Vec<_>>();
+            notification_diagnostic!(true, stage, serde_json::json!({"pendingIds": ids}));
+            let _ = sender.send(Ok(()));
+        });
+        UNUserNotificationCenter::currentNotificationCenter()
+            .getPendingNotificationRequestsWithCompletionHandler(&completion);
+        receiver
+    };
+    let result = wait_for_macos_completion(receiver).await;
+    notification_diagnostic!(
+        true,
+        "os.pending.wait",
+        serde_json::json!({"stage": stage, "result": result})
+    );
+}
+
+#[cfg(target_os = "macos")]
+async fn dismiss_notifications_confirmed(
+    notification_ids: &[String],
+    diagnostics: bool,
+) -> Result<(), ()> {
     use block2::RcBlock;
     use objc2_foundation::{NSArray, NSString};
     use objc2_user_notifications::{UNNotification, UNUserNotificationCenter};
     use std::ptr::NonNull;
 
+    if diagnostics {
+        notification_diagnostic_pending("os.pending.before").await;
+        let receiver = {
+            let (sender, receiver) = std::sync::mpsc::channel();
+            let completion =
+                RcBlock::new(move |notifications: NonNull<NSArray<UNNotification>>| {
+                    let ids = unsafe { notifications.as_ref() }
+                        .iter()
+                        .map(|notification| notification.request().identifier().to_string())
+                        .collect::<Vec<_>>();
+                    notification_diagnostic!(
+                        true,
+                        "os.delivered.before",
+                        serde_json::json!({"deliveredIds": ids})
+                    );
+                    let _ = sender.send(Ok(()));
+                });
+            UNUserNotificationCenter::currentNotificationCenter()
+                .getDeliveredNotificationsWithCompletionHandler(&completion);
+            receiver
+        };
+        let result = wait_for_macos_completion(receiver).await;
+        notification_diagnostic!(
+            true,
+            "os.delivered.before.wait",
+            serde_json::json!({"result": result})
+        );
+    }
     let receiver = {
         let identifiers = notification_ids
             .iter()
@@ -656,6 +965,11 @@ async fn dismiss_notifications_confirmed(notification_ids: &[String]) -> Result<
             .collect::<Vec<_>>();
         let identifier_refs = identifiers.iter().map(|value| &**value).collect::<Vec<_>>();
         let center = UNUserNotificationCenter::currentNotificationCenter();
+        notification_diagnostic!(
+            diagnostics,
+            "os.removeDelivered.call",
+            serde_json::json!({"notificationIds": notification_ids})
+        );
         center.removeDeliveredNotificationsWithIdentifiers(&NSArray::from_slice(&identifier_refs));
         let requested = notification_ids.to_vec();
         let (sender, receiver) = std::sync::mpsc::channel();
@@ -664,16 +978,36 @@ async fn dismiss_notifications_confirmed(notification_ids: &[String]) -> Result<
             let remains = notifications.iter().any(|notification| {
                 requested.contains(&notification.request().identifier().to_string())
             });
+            notification_diagnostic!(
+                diagnostics,
+                "os.delivered.originalCallback",
+                serde_json::json!({
+                    "requestedIds": requested, "remains": remains,
+                    "deliveredIds": notifications.iter().map(|notification| notification.request().identifier().to_string()).collect::<Vec<_>>()
+                })
+            );
             let _ = sender.send(if remains { Err(()) } else { Ok(()) });
         });
         center.getDeliveredNotificationsWithCompletionHandler(&completion);
         receiver
     };
-    wait_for_macos_completion(receiver).await
+    let result = wait_for_macos_completion(receiver).await;
+    notification_diagnostic!(
+        diagnostics,
+        "native.dismiss.originalResult",
+        serde_json::json!({"notificationIds": notification_ids, "result": result})
+    );
+    if diagnostics {
+        notification_diagnostic_pending("os.pending.after").await;
+    }
+    result
 }
 
 #[cfg(windows)]
-async fn dismiss_notifications_confirmed(notification_ids: &[String]) -> Result<(), ()> {
+async fn dismiss_notifications_confirmed(
+    notification_ids: &[String],
+    _diagnostics: bool,
+) -> Result<(), ()> {
     use windows::core::HSTRING;
     use windows::UI::Notifications::ToastNotificationManager;
 
@@ -702,13 +1036,16 @@ async fn dismiss_notifications_confirmed(notification_ids: &[String]) -> Result<
 }
 
 #[cfg(target_os = "linux")]
-async fn dismiss_notifications_confirmed(_notification_ids: &[String]) -> Result<(), ()> {
+async fn dismiss_notifications_confirmed(
+    _notification_ids: &[String],
+    _diagnostics: bool,
+) -> Result<(), ()> {
     Err(())
 }
 
 #[cfg(target_os = "macos")]
 async fn display_notification(
-    _app: &AppHandle,
+    app: &AppHandle,
     notification_id: &str,
     title: &str,
     body: &str,
@@ -736,7 +1073,14 @@ async fn display_notification(
             );
         receiver
     };
-    wait_for_macos_completion(authorization).await?;
+    let authorized = wait_for_macos_completion(authorization).await;
+    let diagnostics = notification_diagnostics_enabled(app);
+    notification_diagnostic!(
+        diagnostics,
+        "os.add.authorization",
+        serde_json::json!({"notificationId": notification_id, "result": authorized})
+    );
+    authorized?;
 
     let scheduled = {
         let center = UNUserNotificationCenter::currentNotificationCenter();
@@ -750,7 +1094,13 @@ async fn display_notification(
             None,
         );
         let (sender, receiver) = std::sync::mpsc::channel();
+        let id = notification_id.to_string();
         let completion = RcBlock::new(move |error: *mut NSError| {
+            notification_diagnostic!(
+                diagnostics,
+                "os.add.originalCallback",
+                serde_json::json!({"notificationId": id, "hasError": !error.is_null()})
+            );
             let _ = sender.send(macos_add_result(!error.is_null()));
         });
         center.addNotificationRequest_withCompletionHandler(&request, Some(&completion));
@@ -1087,6 +1437,63 @@ async fn display_notification(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_url_removes_credentials_query_and_fragment() {
+        for input in [
+            "https://user:secret@example.com:8443/c/invite?token=secret#private",
+            "https://user@example.com:8443/c/invite?token=secret#private",
+            "https://:secret@example.com:8443/c/invite?token=secret#private",
+        ] {
+            assert_eq!(
+                sanitized_startup_url(url::Url::parse(input).unwrap()),
+                Ok("https://example.com:8443/c/invite".into())
+            );
+        }
+    }
+
+    #[test]
+    fn startup_url_preserves_actual_origin_port_and_path() {
+        for (input, expected) in [
+            (
+                "alook-recovery://localhost/bootstrap?private=value#fragment",
+                "alook-recovery://localhost/bootstrap",
+            ),
+            (
+                "http://localhost:5173/sign-in?redirect=%2Fc#fragment",
+                "http://localhost:5173/sign-in",
+            ),
+            ("about:blank?private=value#fragment", "about:blank"),
+            (
+                "file:///actual/bootstrap.html",
+                "file:///actual/bootstrap.html",
+            ),
+        ] {
+            assert_eq!(
+                sanitized_startup_url(url::Url::parse(input).unwrap()),
+                Ok(expected.into())
+            );
+        }
+    }
+
+    #[test]
+    fn notification_diagnostics_require_the_exact_qa_identity_and_switch() {
+        let qa = "ai.alook.desktop.qa.madox.notification208";
+        assert!(notification_diagnostic_identity_allowed(qa, Some("208")));
+        for switch in [Some("208 "), Some("0208"), Some("1"), Some(""), None] {
+            assert!(!notification_diagnostic_identity_allowed(qa, switch));
+        }
+        for identifier in [
+            "ai.alook.desktop",
+            "ai.alook.desktop.qa.madox.notification208.extra",
+            "",
+        ] {
+            assert!(!notification_diagnostic_identity_allowed(
+                identifier,
+                Some("208")
+            ));
+        }
+    }
 
     fn target(message_id: &str) -> NotificationTarget {
         NotificationTarget::Server {

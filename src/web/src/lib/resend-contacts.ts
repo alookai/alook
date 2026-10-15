@@ -5,7 +5,7 @@ const log = createLogger({ service: "resend-contacts" })
 const NEW_SIGNUPS_SEGMENT_ID = "6701946e-a7e2-442b-8fa5-aba379a81248"
 
 type ContactAction = "signup" | "account-deletion"
-type ContactStage = "lookup" | "create" | "update" | "segment"
+type ContactStage = "lookup" | "create" | "update" | "segment" | "event"
 
 function logProviderFailure(
   action: ContactAction,
@@ -31,6 +31,7 @@ export async function syncResendSignupContact(
   try {
     const resend = new Resend(env.RESEND_API_KEY)
     const contact = await resend.contacts.get({ email: user.email })
+    let contactId: string
     if (contact.error) {
       if (contact.error.name !== "not_found" || contact.error.statusCode !== 404) {
         logProviderFailure("signup", stage, contact.error.statusCode)
@@ -42,22 +43,34 @@ export async function syncResendSignupContact(
         firstName: user.name,
         segments: [{ id: NEW_SIGNUPS_SEGMENT_ID }],
       })
-      if (created.error) logProviderFailure("signup", stage, created.error.statusCode)
-      return
+      if (created.error) {
+        logProviderFailure("signup", stage, created.error.statusCode)
+        return
+      }
+      contactId = created.data.id
+    } else {
+      stage = "update"
+      const updated = await resend.contacts.update({ id: contact.data.id, firstName: user.name })
+      if (updated.error) {
+        logProviderFailure("signup", stage, updated.error.statusCode)
+        return
+      }
+      stage = "segment"
+      const added = await resend.contacts.segments.add({
+        contactId: contact.data.id,
+        segmentId: NEW_SIGNUPS_SEGMENT_ID,
+      })
+      if (added.error) {
+        logProviderFailure("signup", stage, added.error.statusCode)
+        return
+      }
+      if (contact.data.unsubscribed) return
+      contactId = contact.data.id
     }
 
-    stage = "update"
-    const updated = await resend.contacts.update({ id: contact.data.id, firstName: user.name })
-    if (updated.error) {
-      logProviderFailure("signup", stage, updated.error.statusCode)
-      return
-    }
-    stage = "segment"
-    const added = await resend.contacts.segments.add({
-      contactId: contact.data.id,
-      segmentId: NEW_SIGNUPS_SEGMENT_ID,
-    })
-    if (added.error) logProviderFailure("signup", stage, added.error.statusCode)
+    stage = "event"
+    const sent = await resend.events.send({ event: "new_signup", contactId })
+    if (sent.error) logProviderFailure("signup", stage, sent.error.statusCode)
   } catch {
     log.warn("resend_contact_sync_failed", { action: "signup", stage, errorCategory: "exception" })
   }

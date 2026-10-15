@@ -4,11 +4,7 @@ import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useCallback, useEffect, useMemo, useRef } from "react"
 import type { RenderMsg } from "@/lib/community/models/message"
 import { flattenMessageItems } from "@/lib/community/message-list-items"
-import {
-  resolveMessageRailTailPaddingEnd,
-  useScrollAnchor,
-} from "@/hooks/community/use-scroll-anchor"
-import { useBreakpoint } from "@/hooks/use-mobile"
+import { useScrollAnchor } from "@/hooks/community/use-scroll-anchor"
 import { useVirtualCursorPagination } from "@/hooks/community/use-virtual-cursor-pagination"
 import { useInitialPositionTransition } from "./initial-position-transition"
 import type { ResolvedMessageListProps } from "./message-list-types"
@@ -34,8 +30,6 @@ export function useMessageListController({
   onScrollRoot,
   onScrollTargetConsumed,
 }: ResolvedMessageListProps) {
-  const breakpoint = useBreakpoint()
-  const tailPaddingEnd = resolveMessageRailTailPaddingEnd(breakpoint)
   const [jumpRevision, setJumpRevision] = useAtom(useCreateAtom(0))
   const [jumped, setJumped] = useAtom(useCreateAtom<string | null>(null))
   const [anchorPositionSettled, setAnchorPositionSettled] = useAtom(useCreateAtom(false))
@@ -115,7 +109,6 @@ export function useMessageListController({
     presentVersion,
     localSubmitVersion,
     hasMoreOlder: hasMore,
-    tailPaddingEnd,
     onInitialPositionSettled: settleAnchorPosition,
   })
   const initialPosition = useInitialPositionTransition({

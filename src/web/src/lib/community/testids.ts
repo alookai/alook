@@ -79,6 +79,7 @@ export const tid = {
   botAuditPreviewScroll: "community-bot-audit-preview-scroll",
   botAuditPreviewBottom: "community-bot-audit-preview-bottom",
   botActivityModal: "bot-activity-modal",
+  botActivityDetail: "bot-activity-detail",
   botAuditPreviewRow: (id: string) => `community-bot-audit-preview-row-${id}`,
   botMarkSticker: "community-bot-mark-sticker",
   botMarkStickerRow: (id: string) => `community-bot-mark-sticker-row-${id}`,

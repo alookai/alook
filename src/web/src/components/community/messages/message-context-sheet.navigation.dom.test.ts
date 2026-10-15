@@ -4,6 +4,7 @@ import { act } from "@/test/react-dom-harness"
 import { renderCommunity as render } from "@/test/community-owner-harness"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { beginCommunityProfileSeed } from "@/lib/community/profile-seed"
+import type { MessageInput } from "@/lib/community/models/message"
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
@@ -11,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   close: vi.fn(),
   openThread: undefined as undefined | ((threadId: string) => void),
   pin: undefined as undefined | ((messageId: string) => void),
+  reply: undefined as undefined | ((messageId: string) => void),
   toggleReaction: undefined as undefined | ((messageId: string, emoji: string) => void),
   addReaction: undefined as undefined | ((messageId: string, emoji: string) => void),
   toggleReactionApi: vi.fn(),
@@ -21,7 +23,7 @@ const mocks = vi.hoisted(() => ({
   toastApiError: vi.fn(),
   apiFetch: vi.fn(),
   noData: false,
-  canonicalMessages: vi.fn<(_ids?: readonly string[]) => undefined>(() => undefined),
+  canonicalMessages: vi.fn<(_ids?: readonly string[]) => ReadonlyMap<string, MessageInput> | undefined>(() => undefined),
 }))
 
 vi.mock("next/navigation", () => ({
@@ -77,16 +79,19 @@ vi.mock("./message-row", () => ({
   MessageRow: ({
     onOpenThread,
     onPinId,
+    onReplyId,
     onToggleReactionId,
     onReactId,
   }: {
     onOpenThread: (threadId: string) => void
     onPinId?: (messageId: string) => void
+    onReplyId?: (messageId: string) => void
     onToggleReactionId?: (messageId: string, emoji: string) => void
     onReactId?: (messageId: string, emoji: string) => void
   }) => {
     mocks.openThread = onOpenThread
     mocks.pin = onPinId
+    mocks.reply = onReplyId
     mocks.toggleReaction = onToggleReactionId
     mocks.addReaction = onReactId
     return null
@@ -182,9 +187,26 @@ describe("MessageContextSheet thread navigation", () => {
     vi.clearAllMocks()
     mocks.openThread = undefined
     mocks.pin = undefined
+    mocks.reply = undefined
+    mocks.canonicalMessages.mockReturnValue(undefined)
     mocks.toggleReaction = undefined
     mocks.addReaction = undefined
     mocks.noData = false
+  })
+
+  it("carries the source author ID and complete visible body into a sheet reply", () => {
+    mocks.canonicalMessages.mockReturnValue(new Map([["message_1", {
+      id: "message_1", type: "chat", authorId: "author_1", authorName: "Author",
+      content: "@Author#1234 body", replyTo: { id: "prior", authorName: "Author", text: "old" },
+    }]]))
+    const onReply = vi.fn()
+    render(React.createElement(MessageContextSheet, {
+      open: true, onOpenChange: mocks.close, channelId: "parent_1", targetSeq: 1, onReply,
+    }))
+    act(() => mocks.reply?.("message_1"))
+    expect(onReply).toHaveBeenCalledExactlyOnceWith({
+      id: "message_1", authorId: "author_1", authorName: "Author", text: "@Author#1234 body",
+    })
   })
 
   it("selects only context window IDs and no canonical rows without query data", () => {

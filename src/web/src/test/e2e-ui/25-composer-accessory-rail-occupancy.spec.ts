@@ -34,6 +34,7 @@ async function sendExactMessage(sender: Page, receiver: Page, text: string) {
   expect(response.status()).toBe(201)
   const payload = await response.json() as { message: { id: string } }
   await expect(receiver.getByTestId(tid.message(payload.message.id))).toBeVisible()
+  return payload.message.id
 }
 
 type Rect = {
@@ -57,6 +58,14 @@ type RailMetrics = {
     firstVisibleOffset: number | null
   }
   composer: Rect
+  footer: Rect
+  accessorySlot: Rect
+  railInFooter: boolean
+  railInScroller: boolean
+  contentPaddingLeft: number
+  contentPaddingRight: number
+  composerPaddingLeft: number
+  composerPaddingRight: number
   typing: Rect | null
   center: Rect | null
   finalMessage: Rect | null
@@ -84,6 +93,13 @@ async function railMetrics(page: Page, finalMessageId?: string): Promise<RailMet
     const firstVisible = Array.from(scroller.querySelectorAll<HTMLElement>("[data-msg-id]"))
       .find((row) => row.getBoundingClientRect().bottom > scrollerRect.top)
     const content = document.querySelector<HTMLElement>("[data-message-list-content]")!
+    const composer = find(ids.composer)!
+    const footer = composer.closest<HTMLElement>('[data-slot="community-conversation-footer"]')!
+    const accessorySlot = footer.querySelector<HTMLElement>('[data-slot="community-composer-accessory-slot"]')!
+    const contentStyle = getComputedStyle(content)
+    const composerContent = composer.querySelector<HTMLElement>('[contenteditable="true"]')!
+      .closest<HTMLElement>('[class*="--community-composer-inline-start"]')!
+    const composerStyle = getComputedStyle(composerContent)
     const finalMessage = ids.finalMessage ? find(ids.finalMessage) : null
     const typingText = typing?.querySelector<HTMLElement>("span.min-w-0.truncate") ?? null
     const style = typingText ? getComputedStyle(typingText) : null
@@ -111,11 +127,19 @@ async function railMetrics(page: Page, finalMessageId?: string): Promise<RailMet
           ? firstVisible.getBoundingClientRect().top - scrollerRect.top
           : null,
       },
-      composer: toRect(find(ids.composer)!.getBoundingClientRect()),
+      composer: toRect(composer.getBoundingClientRect()),
+      footer: toRect(footer.getBoundingClientRect()),
+      accessorySlot: toRect(accessorySlot.getBoundingClientRect()),
+      railInFooter: !!rail && rail.parentElement === accessorySlot && rail.closest('[data-slot="community-conversation-footer"]') === footer,
+      railInScroller: !!rail && !!rail.closest("[data-message-scroller-boundary]"),
+      contentPaddingLeft: Number.parseFloat(contentStyle.paddingLeft),
+      contentPaddingRight: Number.parseFloat(contentStyle.paddingRight),
+      composerPaddingLeft: Number.parseFloat(composerStyle.paddingLeft),
+      composerPaddingRight: Number.parseFloat(composerStyle.paddingRight),
       typing: typingVisible ? toRect(typing.getBoundingClientRect()) : null,
       center: center ? toRect(center.getBoundingClientRect()) : null,
       finalMessage: finalMessage ? toRect(finalMessage.getBoundingClientRect()) : null,
-      contentPaddingBottom: Number.parseFloat(getComputedStyle(content).paddingBottom),
+      contentPaddingBottom: Number.parseFloat(contentStyle.paddingBottom),
       documentClientWidth: document.documentElement.clientWidth,
       documentScrollWidth: document.documentElement.scrollWidth,
       typingText: typingText && style
@@ -212,10 +236,24 @@ function expectCheckpoint(
   selection: boolean,
 ): void {
   const evidence = `${state}@${width}: ${JSON.stringify(metrics)}`
-  const expectedGap = width < 640 ? 8 : 16
-  const expectedTailGap = width < 640 ? 40 : 48
+  const expectedGap = 4
+  const expectedTailGap = 40
   expect(metrics.contentPaddingBottom, evidence).toBe(0)
+  expect(metrics.contentPaddingLeft, evidence).toBe(metrics.composerPaddingLeft)
+  expect(metrics.contentPaddingRight, evidence).toBe(metrics.composerPaddingRight)
   expect(metrics.scroller.bottom, evidence).toBeLessThanOrEqual(metrics.composer.top + 1)
+  expect(Math.abs(metrics.scroller.bottom - metrics.footer.top), evidence).toBeLessThanOrEqual(1)
+  if (metrics.rail) {
+    expect(metrics.railInFooter, evidence).toBe(true)
+    expect(metrics.railInScroller, evidence).toBe(false)
+    expect(metrics.accessorySlot.height, evidence).toBe(40)
+    expect(metrics.rail.height, evidence).toBe(32)
+    expect(Math.abs(metrics.rail.top - metrics.accessorySlot.top - expectedGap), evidence).toBeLessThanOrEqual(1)
+    expect(Math.abs(metrics.accessorySlot.bottom - metrics.rail.bottom - expectedGap), evidence).toBeLessThanOrEqual(1)
+    expect(Math.abs(metrics.accessorySlot.bottom - metrics.footer.top), evidence).toBeLessThanOrEqual(1)
+    expect(Math.abs(metrics.rail.left - metrics.composer.left - metrics.composerPaddingLeft), evidence).toBeLessThanOrEqual(1)
+    expect(Math.abs(metrics.composer.right - metrics.composerPaddingRight - metrics.rail.right), evidence).toBeLessThanOrEqual(1)
+  }
   if (metrics.typing?.width) {
     expect(metrics.typing.height, `typing ${evidence}`).toBe(32)
     expect(Math.abs(metrics.scroller.bottom - metrics.typing.bottom - expectedGap), evidence)
@@ -358,10 +396,14 @@ async function captureEmptyState(
     expect(metrics.scroller.scrollHeight - metrics.scroller.clientHeight - metrics.scroller.scrollTop)
       .toBeLessThanOrEqual(1)
     await expect(page.getByTestId(tid.scrollToPresent)).toHaveCount(0)
-    const expectedTailGap = width < 640 ? 40 : 48
+    const expectedTailGap = 40
     expect(metrics.contentPaddingBottom).toBe(0)
+    expect(metrics.contentPaddingLeft).toBe(metrics.composerPaddingLeft)
+    expect(metrics.contentPaddingRight).toBe(metrics.composerPaddingRight)
     expect(metrics.scroller.bottom - metrics.finalMessage!.bottom)
       .toBeGreaterThanOrEqual(expectedTailGap - 1)
+    expect(Math.abs(metrics.scroller.bottom - metrics.finalMessage!.bottom - expectedTailGap))
+      .toBeLessThanOrEqual(1)
     expect(metrics.scroller.bottom).toBeLessThanOrEqual(metrics.composer.top + 1)
     const documentWidths = await page.evaluate(() => ({
       client: document.documentElement.clientWidth,
@@ -425,7 +467,7 @@ test("composer accessory rail reallocates every occupied slot without overflow",
   await expect(composerEditable(bob.page)).toBeVisible()
   await expect(composerEditable(carol.page)).toBeVisible()
 
-  const finalMessageId = selectableMessageId
+  let finalMessageId = selectableMessageId
   await expect(alice.page.getByTestId(tid.message(finalMessageId))).toBeVisible()
 
   const scrollRoot = alice.page.getByTestId(tid.messageScroller)
@@ -525,7 +567,7 @@ test("composer accessory rail reallocates every occupied slot without overflow",
     expect(leftOnly[width].typing).not.toBeNull()
   }
 
-  await sendExactMessage(
+  finalMessageId = await sendExactMessage(
     bob.page,
     alice.page,
     `long typing clear ${Date.now()}`,
@@ -577,12 +619,12 @@ test("composer accessory rail reallocates every occupied slot without overflow",
     expect(selectionMultiple[width].center!.center).toBe(selectionNone[width].center!.center)
   }
 
-  await sendExactMessage(
+  finalMessageId = await sendExactMessage(
     bob.page,
     alice.page,
     `multiple typing clear ${Date.now()}`,
   )
-  await sendExactMessage(
+  finalMessageId = await sendExactMessage(
     carol.page,
     alice.page,
     `short typing clear ${Date.now()}`,
@@ -607,7 +649,7 @@ test("composer accessory rail reallocates every occupied slot without overflow",
     expect(selectionLong[width].typing).toBeNull()
   }
 
-  await sendExactMessage(
+  finalMessageId = await sendExactMessage(
     bob.page,
     alice.page,
     `theme typing clear ${Date.now()}`,

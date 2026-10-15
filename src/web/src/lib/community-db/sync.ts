@@ -139,6 +139,66 @@ function canonicalEntityKey(name: CollectionName, key: string) {
   return `${name}:${key}`
 }
 
+type CompleteChannelRoster = { channelId: string; relation: "access" | "notify" }
+
+function canonicalMembershipPresence(
+  registry: CommunityDbRegistry,
+  name: "channelMemberships" | "serverMemberships",
+  key: string,
+) {
+  if (collectionRows(registry, name).some((row) => row.id === key)) return true
+  if (canonicalRevisionState(registry.queryClient).pendingOperations.get(canonicalEntityKey(name, key))?.some((operation) => operation.kind === "delete")) return false
+  return undefined
+}
+
+export function getCanonicalCommunityTypingMembership(
+  queryClient: QueryClient,
+  channelId: string,
+  userId: string,
+  completeRoster?: CompleteChannelRoster,
+): boolean | undefined {
+  const registry = getCommunityDbRegistry(queryClient)
+  if (!registry?.runtime.lifecycle.get().active) return undefined
+  const channels = collectionRows(registry, "channels")
+  const channel = channels.find((row) => row.id === channelId)
+  const accessScope = registry.runtime.ws.get().channelAccessScopes.get(channelId)
+  const serverId = channel?.serverId ?? accessScope?.serverId
+  const parentChannelId = channel?.parentChannelId ?? accessScope?.parentChannelId
+  const relationPresence = (id: string, relation: "access" | "notify") => {
+    const presence = canonicalMembershipPresence(registry, "channelMemberships", channelMembershipKey(id, userId, relation))
+    if (presence !== undefined) return presence
+    if (completeRoster?.channelId === id && completeRoster.relation === relation) return false
+    const roster = queryClient.getQueryData<{ serverId: string | null; relation: "access" | "notify"; members: readonly { userId: string }[] }>(communityKeys.channelMembers(id, relation))
+    const rosterChannel = channels.find((row) => row.id === id)
+    if (roster?.relation === relation && (!rosterChannel || roster.serverId === rosterChannel.serverId)
+      && !roster.members.some((member) => member.userId === userId)) return false
+    return undefined
+  }
+  const serverPresence = serverId ? canonicalMembershipPresence(registry, "serverMemberships", serverMembershipKey(serverId, userId)) : undefined
+  const anchor = parentChannelId ? channels.find((row) => row.id === parentChannelId) : channel
+  const category = anchor?.categoryId ? collectionRows(registry, "categories").find((row) => row.id === anchor.categoryId && row.serverId === serverId) : undefined
+  const publicAnchor = !!serverId && !!anchor && ((anchor.resourceComplete && anchor.categoryId === null) || category?.private === false)
+  const accessPresence = publicAnchor && serverPresence !== undefined ? serverPresence
+    : parentChannelId ? relationPresence(parentChannelId, "access") : relationPresence(channelId, "access")
+  const membership = channel?.type === "thread" || parentChannelId
+    ? [relationPresence(channelId, "notify"), accessPresence]
+    : [accessPresence, channel ? true : relationPresence(channelId, "notify")]
+  if (serverId) membership.push(serverPresence)
+  return membership.includes(false) ? false : membership.every((present) => present === true) ? true : undefined
+}
+
+function pruneCanonicalTypingMembership(registry: CommunityDbRegistry, completeRoster?: CompleteChannelRoster) {
+  if (getCommunityDbRegistry(registry.queryClient) !== registry || !registry.runtime.lifecycle.get().active) return
+  for (const [scopeKey, users] of registry.runtime.ui.get().typingByScope) {
+    if (!scopeKey.startsWith("ch:") && !scopeKey.startsWith("dm:")) continue
+    for (const userId of users.keys()) {
+      if (getCanonicalCommunityTypingMembership(registry.queryClient, scopeKey.slice(3), userId, completeRoster) === false) {
+        clearTypingIndicator(registry.queryClient, scopeKey, userId)
+      }
+    }
+  }
+}
+
 function isProtectedFromQueryWrite(
   registry: CommunityDbRegistry,
   name: CollectionName,
@@ -328,6 +388,7 @@ function replaceRows<N extends CollectionName>(
     ...current.filter(owns).map(getKey),
     ...parsedIncoming.map(getKey),
   ])
+  if (name === "channelMemberships" || name === "serverMemberships") pruneCanonicalTypingMembership(registry)
 }
 
 function upsertRows<N extends CollectionName>(
@@ -405,6 +466,7 @@ function deleteRows<N extends CollectionName>(
   if (name === "attentionScopes" || name === "attentionItems") rebaseAttentionTransactions(registry)
   if (eventKeys) recordEventDeletes(registry, name, eventKeys)
   else recordEventWrites(registry, name, removedKeys)
+  if (name === "channelMemberships" || name === "serverMemberships") pruneCanonicalTypingMembership(registry)
 }
 
 function referencedProfileIds(registry: CommunityDbRegistry) {
@@ -1589,6 +1651,7 @@ export function publishCommunityChannelMembersSnapshot(queryClient: QueryClient,
   return withCommunityQueryProof(queryClient, proof, (registry) => {
     ingestResourceProfiles(registry, profiles, proof, options)
     replaceRows(registry, "channelMemberships", members.map((member) => channelMembershipSchema.parse({ ...member, id: channelMembershipKey(channelId, member.userId, relation), memberId: member.memberId ?? undefined })), (row) => row.channelId === channelId && row.relation === relation)
+    pruneCanonicalTypingMembership(registry, { channelId, relation })
   })
 }
 
@@ -2654,9 +2717,6 @@ export function projectCommunityWsEventToDb(
     case "community:channel.membership.change":
     case "community:channel.member_add":
     case "community:channel.member_remove":
-      // Relation ownership depends on resolved channel type. The membership
-      // handler publishes this only after canonical metadata proves whether
-      // the event changes thread notify or top-level access.
       return
     case "community:category.create":
       upsertRows(registry, "categories", [{
@@ -2715,16 +2775,30 @@ export function projectCommunityWsEventToDb(
         avatarVersion: event.member.avatarVersion,
       })], registry, { event: true })
       return
-    case "community:member.leave":
+    case "community:member.leave": {
       if (event.userId !== registry.accountId) {
+        const channels = collectionRows(registry, "channels").filter((row) => row.serverId === event.serverId)
+        const scopes = registry.runtime.ws.get().channelAccessScopes
+        const channelIds = collectChannelScopeIds(queryClient, event.serverId)
+        const notifyKeys = new Set(collectionRows(registry, "channelMemberships").filter((row) => channelIds.has(row.channelId) && row.userId === event.userId && row.relation === "notify").map((row) => row.id))
+        for (const [scopeKey, users] of registry.runtime.ui.get().typingByScope) {
+          const id = scopeKey.startsWith("ch:") ? scopeKey.slice(3) : null
+          if (id && channelIds.has(id) && users.has(event.userId)
+            && (channels.some((row) => row.id === id && row.type === "thread") || scopes.get(id)?.parentChannelId)) {
+            notifyKeys.add(channelMembershipKey(id, event.userId, "notify"))
+          }
+        }
         deleteRows(
           registry,
           "serverMemberships",
           (row) => row.serverId === event.serverId && row.userId === event.userId,
           [serverMembershipKey(event.serverId, event.userId)],
         )
+        deleteRows(registry, "channelMemberships", (row) => channelIds.has(row.channelId) && row.userId === event.userId && row.relation === "notify", notifyKeys)
+        deleteRows(registry, "channelMemberships", (row) => channelIds.has(row.channelId) && row.userId === event.userId && row.relation === "access")
       }
       return
+    }
     case "community:member.update":
       patchRows(
         registry,

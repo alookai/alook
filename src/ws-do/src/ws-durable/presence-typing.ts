@@ -208,6 +208,10 @@ export async function fanOutTyping(
     context.log.warn("fanOutTyping: sender not a channel member", { senderUserId, channelId })
     return
   }
+  if (membership.type === "thread" && !await withD1Retry(
+    () => queries.communityThread.isThreadParticipant(db, channelId, senderUserId),
+    { route: "ws-do:agent-typing-participation" },
+  )) return
   const mayCommunicate = await withD1Retry(
     () => canCommunicateInTypingScope(db, membership.type, channelId, senderUserId),
     { route: "ws-do:agent-typing-communication" },

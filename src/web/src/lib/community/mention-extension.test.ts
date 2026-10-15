@@ -454,6 +454,17 @@ describe("buildCommunityMentionExtension — suggestion.render callbacks", () =>
     "ad",
   )
 
+  it("inserts the existing user's ID while preserving the membership picker ID", () => {
+    const harness = setup(), raw = vi.fn()
+    const ranked = rankMentionItems([{
+      ...member("membership", "Ada", "0001"), userId: "user-ada",
+    }], "channel", "ad")
+    expect(ranked[0].id).toBe("membership")
+    harness.callbacks.onStart({ items: ranked, query: "ad", command: raw })
+    harness.popup().command!({ id: "membership", label: "Ada#0001" })
+    expect(raw).toHaveBeenCalledExactlyOnceWith({ id: "user-ada", label: "Ada#0001" })
+  })
+
   it("rejects unfocused publication and late updates; a retired command cannot insert", () => {
     const harness = setup(), raw = vi.fn()
     editor.isFocused = false

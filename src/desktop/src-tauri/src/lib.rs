@@ -180,6 +180,8 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
 
     // System tray + window setup (desktop only)
     builder = builder.setup(|app| {
+        #[cfg(all(target_os = "macos", debug_assertions))]
+        commands::create_qa_main_window(app)?;
         commands::create_splash_window(app)?;
         if file_save_runtime::setup(app.handle()).is_err() {
             eprintln!("file save storage unavailable");
@@ -210,7 +212,15 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
                 macos_window::setup_inset_webview(&window);
             }
         }
-        if let Some(window) = app.get_webview_window("main") {
+        let main = app.get_webview_window("main");
+        #[cfg(all(target_os = "macos", debug_assertions))]
+        system_notifications::diagnose_qa_startup(
+            app.handle(),
+            "setup_tail",
+            "main",
+            serde_json::json!({ "window": if main.is_some() { "present" } else { "absent" } }),
+        );
+        if let Some(window) = main {
             webview_recovery::finish_native_creation(&window);
         }
 
@@ -257,6 +267,24 @@ fn run_desktop(mut builder: tauri::Builder<tauri::Wry>) {
 }
 
 fn run_app(builder: tauri::Builder<tauri::Wry>) {
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    let app = {
+        let mut context = tauri::generate_context!();
+        if context.config().identifier == "ai.alook.desktop.qa.madox.notification208" {
+            let main = context
+                .config_mut()
+                .app
+                .windows
+                .iter_mut()
+                .find(|window| window.label == "main")
+                .expect("qa_main_unavailable");
+            main.create = false;
+            main.data_store_identifier = Some(commands::QA_NOTIFICATION_STORE_ID);
+        }
+        builder.build(context)
+    }
+    .expect("error while building tauri application");
+    #[cfg(not(all(target_os = "macos", debug_assertions)))]
     let app = builder
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

@@ -190,7 +190,15 @@ async function expectMobileGeometry(
   const title = page.getByTestId(tid.forumThreadTitle(postId))
   const titleText = page.getByTestId(tid.forumThreadTitleText(postId))
   const sequence = page.getByTestId(tid.forumThreadSeq(postId))
-  await expect(titleText).toHaveText(expectedTitle)
+  await expect(title.locator("[data-clamped]")).toHaveAttribute("data-clamped", String(titleState === "truncated"))
+  if (titleState === "truncated") {
+    await expect(titleText).toHaveText(/…$/)
+    const visible = await titleText.innerText()
+    expect(expectedTitle.startsWith(visible.slice(0, -1))).toBe(true)
+    expect(visible.length).toBeLessThan(expectedTitle.length)
+  } else {
+    await expect(titleText).toHaveText(expectedTitle)
+  }
   await expect(title).toHaveAttribute("title", expectedTitle)
   await expect(sequence).toHaveText(/^#\d+$/)
   const fullSequence = await sequence.innerText()
@@ -211,34 +219,38 @@ async function expectMobileGeometry(
   expect(Math.abs(cardRect!.right - listRect!.right), `${role}/${postId}@${width}: edge-to-edge right`).toBeLessThanOrEqual(0.5)
   expect(titleRect!.left - cardRect!.left, `${role}/${postId}@${width}: internal title inset`).toBeGreaterThanOrEqual(16)
   const titleMetrics = await titleText.evaluate((element) => {
-    const bounds = element.getBoundingClientRect()
-    const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight)
-    return {
-      top: bounds.top, bottom: bounds.bottom, right: bounds.right,
-      height: bounds.height, lineHeight,
-      scrollHeight: element.scrollHeight, clientHeight: element.clientHeight,
+    const range = document.createRange()
+    range.selectNodeContents(element)
+    const fragments = [...range.getClientRects()].filter((fragment) => fragment.width > 0 && fragment.height > 0)
+    const last = fragments.at(-1)!
+    const content = element.closest('[data-slot="line-clamp-content"]')!
+    const lineTops: number[] = []
+    for (const fragment of content.getClientRects()) {
+      if (!lineTops.some((top) => Math.abs(top - fragment.top) < 1)) lineTops.push(fragment.top)
     }
+    return { lines: lineTops.length, last: { top: last.top, bottom: last.bottom, right: last.right } }
   })
   const expectedLines = titleState === "single" ? 1 : 2
-  expect(Math.abs(titleMetrics.height - titleMetrics.lineHeight * expectedLines), `${role}/${postId}@${width}: visible title lines`).toBeLessThanOrEqual(0.5)
-  expect(titleMetrics.height, `${role}/${postId}@${width}: two-line clamp`).toBeLessThanOrEqual(titleMetrics.lineHeight * 2 + 0.5)
-  if (titleState === "truncated") {
-    expect(titleMetrics.scrollHeight, `${role}/${postId}@${width}: native title overflow`).toBeGreaterThan(titleMetrics.clientHeight)
+  expect(titleMetrics.lines, `${role}/${postId}@${width}: actual inline lines`).toBe(expectedLines)
+  const sequenceMetrics = await sequence.evaluate((element, titleId) => {
+    const bounds = element.getBoundingClientRect()
+    return {
+      width: bounds.width,
+      scrollWidth: element.scrollWidth,
+      insideTitleText: document.querySelector(`[data-testid="${titleId}"]`)?.contains(element),
+    }
+  }, tid.forumThreadTitleText(postId))
+  expect(sequenceMetrics.insideTitleText, `${role}/${postId}@${width}: complete sequence outside cut text`).toBe(false)
+  expect(sequenceMetrics.scrollWidth, `${role}/${postId}@${width}: complete sequence width`).toBeLessThanOrEqual(sequenceMetrics.width + 1)
+  const sameLine = Math.abs(sequenceRect!.bottom - titleMetrics.last.bottom) <= 3
+  if (sameLine) {
+    const gap = sequenceRect!.left - titleMetrics.last.right
+    expect(gap, `${role}/${postId}@${width}: last visible character to seq gap`).toBeGreaterThanOrEqual(4)
+    expect(gap, `${role}/${postId}@${width}: last visible character to seq gap`).toBeLessThanOrEqual(8)
   } else {
-    expect(Math.abs(titleMetrics.scrollHeight - titleMetrics.clientHeight), `${role}/${postId}@${width}: title fits`).toBeLessThanOrEqual(1)
+    expect(sequenceRect!.top, `${role}/${postId}@${width}: whole sequence naturally wraps`).toBeGreaterThan(titleMetrics.last.top)
+    expect(sequenceRect!.left - titleRect!.left, `${role}/${postId}@${width}: wrapped sequence starts at inline inset`).toBeLessThanOrEqual(8)
   }
-  const sequenceMetrics = await sequence.evaluate((element, titleId) => ({
-    clientWidth: element.clientWidth,
-    scrollWidth: element.scrollWidth,
-    separateFromTitle: element.parentElement?.querySelector(`[data-testid="${titleId}"]`)?.contains(element) === false,
-  }), tid.forumThreadTitleText(postId))
-  expect(sequenceMetrics.separateFromTitle, `${role}/${postId}@${width}: sequence outside title clamp`).toBe(true)
-  expect(sequenceMetrics.scrollWidth, `${role}/${postId}@${width}: complete sequence width`).toBeLessThanOrEqual(sequenceMetrics.clientWidth)
-  const lastLineTop = titleMetrics.top + titleMetrics.lineHeight * (expectedLines - 1)
-  expect(Math.abs(sequenceRect!.top - lastLineTop), `${role}/${postId}@${width}: seq line`).toBeLessThanOrEqual(3)
-  expect(Math.abs(sequenceRect!.bottom - titleMetrics.bottom), `${role}/${postId}@${width}: seq baseline`).toBeLessThanOrEqual(3)
-  expect(sequenceRect!.left - titleMetrics.right, `${role}/${postId}@${width}: seq block gap`).toBeGreaterThanOrEqual(4)
-  expect(sequenceRect!.left - titleMetrics.right, `${role}/${postId}@${width}: seq block gap`).toBeLessThanOrEqual(8)
   expect(sequenceRect!.right, `${role}/${postId}@${width}: sequence containment`).toBeLessThanOrEqual(titleRect!.right + 0.5)
   const controls = [tagRect!, deleteRect!]
   for (const controlRect of controls) {

@@ -4,7 +4,6 @@ import { toastApiError } from "@/lib/api/client"
 import type { FileAttachment, ImagePreview, Msg } from "@/lib/community/models/message"
 import type { CommunityRuntime } from "@/stores/community/runtime"
 import { isAbortError } from "@/lib/errors"
-import { canonicalizeReplyContent, displayReplyContent } from "@/lib/community/reply-content"
 import type {
   MessageActions,
   MessageUiHandlers,
@@ -109,8 +108,9 @@ export function createMessageActions({
       if (message) {
         setReplyTo({
           id: message.id,
+          ...(message.authorId ? { authorId: message.authorId } : {}),
           authorName: message.authorName ?? "",
-          text: displayReplyContent(message.content ?? "", message.replyTo),
+          text: message.content ?? "",
         })
       }
     },
@@ -139,7 +139,7 @@ export function createMessageActions({
       original()
       const message = getMessage(id)
       const content = message
-        ? displayReplyContent(message.content ?? "", message.replyTo)
+        ? (message.content ?? "")
         : undefined
       const name = deriveThreadName(content, context.channelName)
       try {
@@ -155,7 +155,7 @@ export function createMessageActions({
       original()
       const message = getMessage(id)
       if (!message) return
-      const content = displayReplyContent(message.content ?? "", message.replyTo)
+      const content = message.content ?? ""
       if (!content) return
       if (!navigator.clipboard) return
       try { await navigator.clipboard.writeText(content); original(); toast("Copied to clipboard") }
@@ -166,11 +166,11 @@ export function createMessageActions({
       original()
       const message = getMessage(id)
       if (!message || message.authorId !== viewerUserId || message.seq === undefined) return
-      const visibleContent = displayReplyContent(message.content ?? "", message.replyTo)
+      const visibleContent = message.content ?? ""
       if (!visibleContent) return
       const editedContent = window.prompt("Edit message", visibleContent)
       if (!editedContent || editedContent === visibleContent) return
-      const content = canonicalizeReplyContent(editedContent, message.replyTo)
+      const content = editedContent
       original()
       editMessage({ serverId, channelId, messageId: id, content, assertActive: original }, {
         onError: (error) => toastApiError(error, "Failed to edit message", original),

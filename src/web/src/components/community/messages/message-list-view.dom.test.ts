@@ -1,7 +1,7 @@
 import React from "react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { fireEvent, render } from "@/test/react-dom-harness"
-import { MessageListSkeleton, renderMessageListView } from "./message-list-view"
+import { MessageListSkeleton, renderMessageListView as renderView } from "./message-list-view"
 import { ComposerAccessoryRail } from "./composer-accessory-rail"
 import { MessageShareDialog } from "./message-share-dialog"
 import type { MessageListController } from "./message-list-controller"
@@ -92,7 +92,16 @@ function controller(overrides: Partial<MessageListController> = {}): MessageList
 }
 
 describe("renderMessageListView", () => {
-  beforeEach(() => vi.clearAllMocks())
+  let accessoryFooterSlot: HTMLDivElement
+  function renderMessageListView(...args: Parameters<typeof renderView>) {
+    return renderView(args[0], args[1], args[2], args[3], accessoryFooterSlot)
+  }
+  beforeEach(() => {
+    vi.clearAllMocks()
+    accessoryFooterSlot = document.createElement("div")
+    document.body.appendChild(accessoryFooterSlot)
+  })
+  afterEach(() => accessoryFooterSlot.remove())
 
   it("keeps warm non-empty loading data on the loaded DOM with typing and the away pill", () => {
     const listProps = props()
@@ -105,11 +114,23 @@ describe("renderMessageListView", () => {
     }), undefined)
     expect(mockedRail.mock.calls.at(-1)?.[0]).not.toHaveProperty("composerOverlap")
     const scrollerBoundary = renderer.container.querySelector("[data-message-scroller-boundary]")!
-    expect(scrollerBoundary.querySelectorAll("accessory-rail")).toHaveLength(1)
+    expect(renderer.container.querySelector("[data-message-list-content]")).toHaveClass(
+      "pl-(--community-composer-inline-start)", "pr-(--community-composer-inline-end)",
+    )
+    expect(scrollerBoundary.querySelectorAll("accessory-rail")).toHaveLength(0)
+    expect(accessoryFooterSlot.querySelectorAll("accessory-rail")).toHaveLength(1)
     expect(renderer.container.querySelectorAll("[data-message-typing-space]")).toHaveLength(0)
     expect(renderRows).toHaveBeenCalledOnce()
     expect(renderer.container.querySelectorAll("virtual-rows")).toHaveLength(1)
     expect(renderer.container.querySelectorAll(".mb-6")).toHaveLength(0)
+  })
+
+
+  it("does not restore an accessory overlay inside the list while its Footer target is absent", () => {
+    const renderer = render(renderView(props(), controller(), () => React.createElement("virtual-rows")))
+    expect(mockedRail).not.toHaveBeenCalled()
+    expect(renderer.container.querySelector("accessory-rail")).toBeNull()
+    expect(renderer.getByTestId("community-message-scroller")).toBeInTheDocument()
   })
 
   it("keeps the same wrappers while true empty loading omits the interactive accessory rail", () => {
@@ -136,9 +157,8 @@ describe("renderMessageListView", () => {
     const content = renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
     expect(content).toHaveClass("opacity-100")
     expect(content).not.toHaveClass("transition-opacity", "duration-300")
-    expect(content.querySelector("[data-message-list-skeleton-tail]")).toHaveClass(
-      "h-10", "sm:h-12", "shrink-0",
-    )
+    expect(content.querySelector("[data-message-list-skeleton-tail]")).toHaveClass("shrink-0")
+    expect(content.querySelector("[data-message-list-skeleton-tail]")).toHaveStyle({ height: "40px" })
   })
 
   it("keeps positioned rows measurable but inert and hidden until reveal starts", () => {
@@ -168,19 +188,20 @@ describe("renderMessageListView", () => {
       "absolute", "inset-0", "z-20", "pointer-events-none", "opacity-100",
     )
     expect(skeleton.querySelector('[data-slot="skeleton"]')).toBeInTheDocument()
-    expect(skeleton.querySelector("[data-message-list-skeleton-tail]")).toHaveClass(
-      "h-10", "sm:h-12", "shrink-0",
-    )
+    expect(skeleton.querySelector("[data-message-list-skeleton-tail]")).toHaveClass("shrink-0")
+    expect(skeleton.querySelector("[data-message-list-skeleton-tail]")).toHaveStyle({ height: "40px" })
   })
 
-  it("reserves the responsive rail tail in the standalone skeleton", () => {
+  it("reserves the shared 40px rail tail in the standalone skeleton", () => {
     const renderer = render(React.createElement(MessageListSkeleton))
     const content = renderer.container.querySelector<HTMLElement>("[data-message-list-content]")!
     const tail = content.querySelector("[data-message-list-skeleton-tail]")
 
     expect(content).not.toHaveClass("pb-4", "sm:pb-6", "pb-14", "sm:pb-18")
     expect(tail).toHaveAttribute("aria-hidden", "true")
-    expect(tail).toHaveClass("h-10", "sm:h-12", "shrink-0")
+    expect(tail).toHaveClass("shrink-0")
+    expect(tail).toHaveStyle({ height: "40px" })
+    expect(content).toHaveClass("pl-(--community-composer-inline-start)", "pr-(--community-composer-inline-end)")
   })
 
   it("keeps the typed positioning skeleton through a timeout until settlement", () => {

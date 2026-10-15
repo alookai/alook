@@ -234,7 +234,7 @@ describe("composer suggestion focus with installed TipTap", () => {
     await act(async () => { fireEvent.mouseDown(screen.getByTestId(rowId)) })
     const nodeType = trigger === "@" ? "mention" : "channelRef"
     expect(editor.getJSON().content?.[0].content?.filter((node) => node.type === nodeType)).toEqual([
-      expect.objectContaining({ attrs: expect.objectContaining({ id: trigger === "@" ? ada.id : general.id }) }),
+      expect.objectContaining({ attrs: expect.objectContaining({ id: trigger === "@" ? ada.userId : general.id }) }),
     ])
     expect(screen.queryByTestId(rowId)).toBeNull()
     expect(readComposerDraft("viewer:autofocus-boundary")).toEqual(editor.getJSON())
@@ -267,7 +267,7 @@ describe("composer suggestion focus with installed TipTap", () => {
     await act(async () => { fireEvent.mouseDown(row) })
     expect(editor.isFocused).toBe(true)
     expect(editor.getJSON().content?.[0].content?.filter((node) => node.type === "mention")).toEqual([
-      expect.objectContaining({ attrs: expect.objectContaining({ id: ada.id, label: "Ada#0001" }) }),
+      expect.objectContaining({ attrs: expect.objectContaining({ id: ada.userId, label: "Ada#0001" }) }),
     ])
     expect(probeRef.current!.mentionPopup.command).toBeNull()
     expect(readComposerDraft("viewer:clicked")).toEqual(editor.getJSON())

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { createElement, type PropsWithChildren } from "react"
+import { createElement, useLayoutEffect, type PropsWithChildren } from "react"
 import { act, waitFor, renderHook as renderOwnedHook } from "@/test/react-dom-harness"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { CommunityTestProvider } from "@/test/community-owner-fixture"
@@ -115,7 +115,7 @@ beforeEach(()=>{
   hookMocks.mobileDismissConversation.mockResolvedValue(undefined)
   vi.spyOn(document,"visibilityState","get").mockReturnValue("visible")
 })
-afterEach(()=>{window.localStorage.clear();window.sessionStorage.clear();vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllGlobals()})
+afterEach(()=>{window.localStorage.clear();window.sessionStorage.clear();vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllGlobals();vi.unstubAllEnvs()})
 describe("notification activation",()=>{
   it("queues and navigates immediately without starting a HTTP precheck",async()=>{
     const fetch=vi.fn(()=>new Promise<Response>(()=>undefined));vi.stubGlobal("fetch",fetch)
@@ -229,13 +229,24 @@ describe("current native conversation",()=>{
     await waitFor(()=>expect(window.localStorage.length).toBe(0));rendered.unmount()
   })
   it("keeps a failed revision until a new wake and has no retry timer",async()=>{
+    vi.stubEnv("NODE_ENV", "development");vi.stubEnv("NEXT_PUBLIC_ALOOK_NOTIFICATION_DIAGNOSTICS", "208")
+    const log=vi.spyOn(console,"info").mockImplementation(()=>undefined)
     let wake!:()=>void;hookMocks.listen.mockImplementation(async cb=>{wake=cb;return()=>undefined})
     hookMocks.dismissConversation.mockRejectedValueOnce(new Error("native unavailable"))
     const rendered=renderHook(()=>useCurrent(),{wrapper})
     await waitFor(()=>expect(hookMocks.dismissConversation).toHaveBeenCalledOnce())
     await act(async()=>{await Promise.resolve()});expect(window.localStorage.length).toBe(1)
+    const events=()=>log.mock.calls.map(([,raw])=>JSON.parse(raw as string))
+    const retained=events().find(event=>event.stage==="queue.retained")
+    expect(retained.data).toMatchObject({viewerUserId:"viewer",target,sourceRetired:false})
+    const pending=JSON.parse(window.localStorage.getItem("alook:native-system-notification:conversation-dismissals")!)
+    expect(retained.data.revision).toBe(pending[0].revision)
+    expect(events().find(event=>event.stage==="ready.matches").data).toMatchObject({matches:true,intentCurrent:true,navigationPending:false,visibility:"visible"})
     act(()=>wake());await waitFor(()=>expect(hookMocks.dismissConversation).toHaveBeenCalledTimes(2))
-    await waitFor(()=>expect(window.localStorage.length).toBe(0));rendered.unmount()
+    await waitFor(()=>expect(window.localStorage.length).toBe(0))
+    expect(events().filter(event=>event.stage==="queue.complete")).toHaveLength(1)
+    expect(events().find(event=>event.stage==="queue.complete").data.completed).toBe(true)
+    rendered.unmount()
   })
   it("authorizes presentation synchronously without queue or native side effects",async()=>{
     const rendered=renderHook(()=>useCurrent(),{wrapper})
@@ -251,7 +262,52 @@ describe("current native conversation",()=>{
     expect(presentation({viewerUserId:"viewer",targetId:"channel_1"})).toBe(false)
     rendered.unmount();expect(presentation({viewerUserId:"viewer",targetId:"channel_1"})).toBeUndefined()
   })
+  it("rejects presentation after readiness retires and before passive consumer cleanup", async () => {
+    vi.stubEnv("NODE_ENV", "development")
+    vi.stubEnv("NEXT_PUBLIC_ALOOK_NOTIFICATION_DIAGNOSTICS", "208")
+    const log = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const identity = { viewerUserId: "viewer", targetId: "channel_1" }
+    const probes: { consumerPresent: boolean; authorized: boolean | undefined }[] = []
+    const nativeCalls = () => ({
+      take: hookMocks.take.mock.calls.length,
+      dismiss: hookMocks.dismiss.mock.calls.length,
+      conversation: hookMocks.dismissConversation.mock.calls.length,
+    })
+    const rendered = renderHook(({ ready }) => {
+      useCurrent(ready)
+      useLayoutEffect(() => {
+        if (!ready) {
+          probes.push({
+            consumerPresent: consumer.current !== null,
+            authorized: presentation(identity),
+          })
+        }
+      }, [ready])
+    }, { wrapper, initialProps: { ready: true } })
+    await waitFor(() => expect(hookMocks.dismissConversation).toHaveBeenCalledOnce())
+    await waitFor(() => expect(window.localStorage.length).toBe(0))
+    expect(presentation(identity)).toBe(true)
+    const before = nativeCalls()
+
+    rendered.rerender({ ready: false })
+
+    expect(probes).toEqual([{ consumerPresent: true, authorized: false }])
+    const retired = log.mock.calls
+      .filter(([prefix]) => prefix === "ALOOK208")
+      .map(([, raw]) => JSON.parse(raw as string))
+      .filter((event) => event.stage === "ready.retired")
+    expect(retired).toHaveLength(1)
+    expect(retired[0].data).toEqual({ viewerUserId: "viewer", dismissalTarget: target })
+    expect(nativeCalls()).toEqual(before)
+    expect(window.localStorage.length).toBe(0)
+    expect(consumer.current).toBeNull()
+    expect(presentation(identity)).toBe(false)
+    rendered.unmount()
+    expect(presentation(identity)).toBeUndefined()
+  })
   it.each(["not ready","hidden","pending elsewhere","parent split"])("does not consume %s",async state=>{
+    vi.stubEnv("NODE_ENV", "development");vi.stubEnv("NEXT_PUBLIC_ALOOK_NOTIFICATION_DIAGNOSTICS", "208")
+    vi.spyOn(console,"info").mockImplementation(()=>undefined)
     if(state==="hidden") vi.spyOn(document,"visibilityState","get").mockReturnValue("hidden")
     if(state==="pending elsewhere") setRoute("/c/channels/server_1/channel_1",true)
     if(state==="parent split") setRoute("/c/channels/server_1/channel_2")

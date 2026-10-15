@@ -6,6 +6,7 @@ import { NumberTicker } from "@/components/ui/number-ticker"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { tid } from "@/lib/community/testids"
 import { cn } from "@/lib/utils"
+import { COMPOSER_ACCESSORY_ROW_HEIGHT_PX } from "@/lib/community/conversation-layout"
 import { allocateComposerAccessoryRail } from "./composer-accessory-rail-layout"
 import { TypingIndicator } from "./typing-indicator"
 
@@ -34,22 +35,23 @@ export function ComposerAccessoryRail({
     <div
       data-testid={tid.composerAccessoryRail}
       data-layout={layout}
-      className="pointer-events-none absolute inset-x-0 bottom-2 z-20 pl-(--community-composer-inline-start) pr-(--community-composer-inline-end) sm:bottom-4"
+      className="pointer-events-none w-full"
+      style={{ height: COMPOSER_ACCESSORY_ROW_HEIGHT_PX }}
     >
       <div
         className={cn(
-          "grid w-full items-end gap-1 sm:gap-2",
+          "grid h-full w-full items-center gap-1 sm:gap-2",
           layout === "centered" && "grid-cols-[minmax(0,1fr)_minmax(0,max-content)_minmax(0,1fr)]",
           layout === "left-only" && "grid-cols-[minmax(0,1fr)]",
         )}
       >
         {hasTyping && (
-          <div className="col-start-1 min-w-0 max-w-full">
-            <TypingIndicator names={typingNames} className="w-fit max-w-full" />
+          <div className="col-start-1 h-full min-w-0 max-w-full">
+            <TypingIndicator names={typingNames} className="h-full w-fit max-w-full" />
           </div>
         )}
         {hasScroll && (
-          <div className="col-start-2 min-w-0 max-w-full justify-self-center">
+          <div className="col-start-2 h-full min-w-0 max-w-full justify-self-center">
             <ScrollControl count={scrollCount} mode={scrollMode} onClick={onScroll} />
           </div>
         )}
@@ -144,7 +146,7 @@ function ScrollControl({
       data-testid={tid.scrollToPresent}
       onClick={onClick}
       aria-label={aria}
-      className="pointer-events-auto flex h-8 items-center gap-1.5 justify-self-center rounded-full border border-border bg-background/90 pl-2 pr-3 text-xs font-medium text-foreground shadow-(--e1) backdrop-blur-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+      className="pointer-events-auto flex h-full items-center gap-1.5 justify-self-center rounded-full border border-border bg-background/90 pl-2 pr-3 text-xs font-medium text-foreground shadow-(--e1) backdrop-blur-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
     >
       <ArrowDown className="size-3.5 text-muted-foreground" />
       <NumberTicker value={count} />

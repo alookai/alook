@@ -3,6 +3,7 @@ import { createPortal } from "react-dom"
 import { ConversationResolutionErrorFrame } from "../channels/conversation-resolution-error-frame"
 import { Skeleton } from "@/components/ui/skeleton"
 import { tid } from "@/lib/community/testids"
+import { CONVERSATION_TAIL_SPACE_PX } from "@/lib/community/conversation-layout"
 import { renderMessageListHero } from "./message-list-row"
 import { ComposerAccessoryRail, MessageSelectionFooter } from "./composer-accessory-rail"
 import { MessageShareDialog } from "./message-share-dialog"
@@ -14,6 +15,7 @@ export function renderMessageListView(
   controller: MessageListController,
   renderRows: () => ReactNode,
   footerSlot: HTMLDivElement | null = null,
+  accessoryFooterSlot: HTMLDivElement | null = null,
 ) {
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
@@ -25,6 +27,15 @@ export function renderMessageListView(
         />,
         footerSlot,
       )}
+      {controller.initialPosition.contentInteractive && !controller.selectMode && accessoryFooterSlot && createPortal(
+        <ComposerAccessoryRail
+          typingNames={props.typingUsers ?? []}
+          scrollCount={controller.pillCount}
+          scrollMode={controller.pillMode}
+          onScroll={controller.pillOnClick}
+        />,
+        accessoryFooterSlot,
+      )}
       {controller.shareOpen && controller.selectedMessages.length > 0 && (
         <MessageShareDialog
           m={controller.selectedMessages}
@@ -33,14 +44,6 @@ export function renderMessageListView(
         />
       )}
       <div data-message-scroller-boundary className="relative isolate min-h-0 flex-1">
-        {controller.initialPosition.contentInteractive && !controller.selectMode && (
-          <ComposerAccessoryRail
-            typingNames={props.typingUsers ?? []}
-            scrollCount={controller.pillCount}
-            scrollMode={controller.pillMode}
-            onScroll={controller.pillOnClick}
-          />
-        )}
         <div
           ref={controller.scrollRef}
           data-testid={tid.messageScroller}
@@ -52,7 +55,7 @@ export function renderMessageListView(
             data-read-position-ready={controller.readPositionReady ? "true" : "false"}
             aria-hidden={!controller.initialPosition.showSkeleton && !controller.initialPosition.contentVisible}
             inert={!controller.initialPosition.showSkeleton && !controller.initialPosition.contentInteractive}
-            className={`${props.messages.length === 0 ? "flex min-h-full flex-col justify-end pt-8" : ""} px-4 ${
+            className={`${props.messages.length === 0 ? "flex min-h-full flex-col justify-end pt-8" : ""} pl-(--community-composer-inline-start) pr-(--community-composer-inline-end) ${
               controller.initialPosition.phase === "revealing" && controller.initialPosition.contentVisible
                 ? "opacity-100 transition-opacity duration-300 ease-linear motion-reduce:transition-opacity"
                 : controller.initialPosition.showSkeleton || controller.initialPosition.contentVisible
@@ -70,7 +73,7 @@ export function renderMessageListView(
               {props.messages.length === 0
                 ? <>
                     <div className="mb-6">{renderMessageListHero(props)}</div>
-                    <div aria-hidden="true" data-message-empty-tail className="h-10 shrink-0 sm:h-12" />
+                    <div aria-hidden="true" data-message-empty-tail className="shrink-0" style={{ height: CONVERSATION_TAIL_SPACE_PX }} />
                   </>
                 : renderRows()}
             </>
@@ -89,7 +92,7 @@ export function renderMessageListView(
                 : "opacity-100"
             }`}
           >
-            <div className="flex min-h-full flex-col justify-end px-4 pt-8">
+            <div className="flex min-h-full flex-col justify-end pl-(--community-composer-inline-start) pr-(--community-composer-inline-end) pt-8">
               <MessageListSkeletonContent variant={props.variant} />
             </div>
           </div>
@@ -113,7 +116,7 @@ export function MessageListSkeleton({ variant = "channel" }: { variant?: "channe
         >
           <div
             data-message-list-content
-            className="flex min-h-full flex-col justify-end px-4 pt-8"
+            className="flex min-h-full flex-col justify-end pl-(--community-composer-inline-start) pr-(--community-composer-inline-end) pt-8"
           >
             <MessageListSkeletonContent variant={variant} />
           </div>
@@ -167,7 +170,8 @@ function MessageListSkeletonContent({ variant }: { variant: "channel" | "dm" }) 
       <div
         aria-hidden="true"
         data-message-list-skeleton-tail
-        className="h-10 shrink-0 sm:h-12"
+        className="shrink-0"
+        style={{ height: CONVERSATION_TAIL_SPACE_PX }}
       />
     </>
   )

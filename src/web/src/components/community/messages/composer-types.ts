@@ -7,6 +7,7 @@ import type { Member } from "@/lib/community/models/people"
 type ComposerMode = "chat" | "forumThreadBody"
 
 export type ComposerReplyTarget = {
+  authorId?: string
   authorName: string
   text: string
 }

@@ -242,7 +242,7 @@ describe("MessageShareDialog session lifecycle", () => {
     expect(preview.querySelector("[data-share-timestamp]")?.textContent).toBe(formatMessageTime(createdAt))
     expect(preview.querySelector('[data-testid="message-share-reply-m1"]')?.textContent)
       .toContain("Original body")
-    expect(preview.querySelector("[data-mock-message-body]")?.textContent).toBe("**visible** body")
+    expect(preview.querySelector("[data-mock-message-body]")?.textContent).toBe("@Bob\n**visible** body")
     expect(preview.querySelector('[data-testid="message-share-image-m1-0"]')).not.toBeNull()
     expect(preview.textContent).not.toContain("notes.txt")
     expect(preview.querySelector("[data-share-identity-id=u1]")).not.toBeNull()
@@ -355,7 +355,7 @@ describe("MessageShareDialog message projection", () => {
     ])
   })
 
-  it("keeps the reply header while sharing only projected message content", async () => {
+  it("keeps the reply header while sharing the full visible body", async () => {
     const renderer = await renderReady(message({
       content: "@Bob Smith\n**visible** body",
       replyTo: {
@@ -366,7 +366,7 @@ describe("MessageShareDialog message projection", () => {
     }))
 
     expect(componentMocks.bodyProps).toHaveBeenCalledWith(expect.objectContaining({
-      text: "**visible** body",
+      text: "@Bob Smith\n**visible** body",
     }))
     const reply = renderer.container.querySelector('[data-testid="message-share-reply-m1"]')!
     expect([...reply.querySelectorAll("span")].map((span) => span.textContent)).toEqual([
@@ -375,14 +375,14 @@ describe("MessageShareDialog message projection", () => {
     ])
   })
 
-  it("omits a standalone body for an attachment-only canonical reply", async () => {
+  it("retains a visible mention-only body beside an attachment", async () => {
     const renderer = await renderReady(message({
       content: "@Bob\n",
       replyTo: { id: "original", authorName: "Bob", text: "Original body" },
       attachments: [{ kind: "image", name: "photo.png", url: "/photo.png" }],
     }))
 
-    expect(renderer.container.querySelectorAll("[data-mock-message-body]")).toHaveLength(0)
+    expect(renderer.container.querySelectorAll("[data-mock-message-body]")).toHaveLength(1)
     expect(renderer.container.querySelector(`[data-testid="${tid.messageShareImage("m1", 0)}"]`))
       .not.toBeNull()
   })

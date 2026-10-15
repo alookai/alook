@@ -41,7 +41,7 @@ describe("author mention insertion", () => {
 
     expect(insertMentionAtCaret).toHaveBeenCalledOnce()
     expect(insertMentionAtCaret).toHaveBeenCalledWith({
-      id: "member_1",
+      id: "alice_1",
       label: "Alice Smith#0042",
     })
   })

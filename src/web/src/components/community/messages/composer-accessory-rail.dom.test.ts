@@ -72,8 +72,9 @@ describe("ComposerAccessoryRail", () => {
   it("centers the scroll control without owning composer geometry", () => {
     const renderer = renderRail()
     const rail = renderer.getByTestId(tid.composerAccessoryRail)
-    expect(rail).toHaveClass("absolute", "bottom-2", "sm:bottom-4")
-    expect(rail).not.toHaveAttribute("style")
+    expect(rail).not.toHaveClass("absolute", "bottom-2", "sm:bottom-4")
+    expect(rail).toHaveStyle({ height: "32px" })
+    expect(rail.firstElementChild).toHaveClass("h-full", "items-center")
     const scroll = renderer.getByTestId(tid.scrollToPresent)
     expect(scroll).toHaveAttribute("aria-label", "Jump to present, 4 unread below")
     fireEvent.click(scroll)

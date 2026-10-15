@@ -56,7 +56,6 @@ import { notifLevelDisplay, type NotifLevel } from "@alook/shared"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { useSetChannelNotif } from "@/hooks/community/mutations"
 import { toastApiError } from "@/lib/api/client"
-import { displayReplyContent } from "@/lib/community/reply-content"
 import {
   useCanonicalProfilesByUserId,
 } from "@/lib/community-db/projections"
@@ -353,14 +352,15 @@ export function DmView({ dmId }: { dmId: string }) {
       if (m) {
         setReplyTo({
           id: m.id,
+          ...(m.authorId ? { authorId: m.authorId } : {}),
           authorName: m.authorName ?? "",
-          text: displayReplyContent(m.content ?? "", m.replyTo),
+          text: m.content ?? "",
         })
       }
     },
     onCopy: (id: string) => {
       const m = messages.find((x) => x.id === id)
-      const content = m ? displayReplyContent(m.content ?? "", m.replyTo) : ""
+      const content = m ? (m.content ?? "") : ""
       if (content) { navigator.clipboard?.writeText(content); toast("Copied to clipboard") }
     },
     // A DM is a channel (type='dm'), so its id IS the mark route's channelId.

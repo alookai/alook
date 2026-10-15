@@ -5,6 +5,7 @@ import {
   typingScopeKey,
 } from "@/hooks/community/community-ws/typing"
 import type { TypingEventContext } from "@/hooks/community/community-ws/handler-context"
+import { getCanonicalCommunityTypingMembership } from "@/lib/community-db/sync"
 
 type CommunityTypingStop = Extract<
   CommunityWsEvent,
@@ -20,6 +21,7 @@ export function handleTypingStart(
   if (viewerId && userId === viewerId) return
   // Focus check: only surface typing for the currently-viewed target.
   if (!matchesFocus(event)) return
+  if (getCanonicalCommunityTypingMembership(queryClient, event.channelId, userId) === false) return
   applyTypingIndicator(queryClient, typingScopeKey(event, sub), userId, event.name ?? null)
 }
 

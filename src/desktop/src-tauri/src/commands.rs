@@ -516,33 +516,97 @@ html,body{{width:100%;height:100%;overflow:hidden;background:transparent;display
     )
 }
 
+#[cfg(all(target_os = "macos", debug_assertions))]
+pub(crate) const QA_NOTIFICATION_STORE_ID: [u8; 16] = [
+    158, 83, 199, 44, 135, 159, 85, 131, 171, 124, 5, 37, 18, 176, 5, 21,
+];
+
+#[cfg(all(target_os = "macos", debug_assertions))]
+fn qa_main_window_config(
+    config: &tauri::utils::config::Config,
+) -> Result<Option<(tauri::utils::config::WindowConfig, [u8; 16])>, &'static str> {
+    if config.identifier != "ai.alook.desktop.qa.madox.notification208" {
+        return Ok(None);
+    }
+    let window = config
+        .app
+        .windows
+        .iter()
+        .find(|window| window.label == "main")
+        .cloned()
+        .ok_or("qa_main_unavailable")?;
+    if window.create {
+        return Err("qa_auto_main_enabled");
+    }
+    let store = window
+        .data_store_identifier
+        .filter(|store| *store == QA_NOTIFICATION_STORE_ID)
+        .ok_or("qa_store_unavailable")?;
+    Ok(Some((window, store)))
+}
+
+#[cfg(all(target_os = "macos", debug_assertions))]
+pub fn create_qa_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let Some((config, store)) = qa_main_window_config(app.config())? else {
+        return Ok(());
+    };
+    if app.get_webview_window("main").is_some() {
+        return Err("qa_auto_main_present".into());
+    }
+    let window = tauri::WebviewWindowBuilder::from_config(app, &config)?
+        .data_store_identifier(store)
+        .build()?;
+    crate::system_notifications::diagnose_qa_store(&window);
+    Ok(())
+}
+
 #[cfg(desktop)]
 pub fn create_splash_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::{WebviewUrl, WebviewWindowBuilder};
 
-    WebviewWindowBuilder::new(
+    let builder = WebviewWindowBuilder::new(
         app,
         "splash",
         WebviewUrl::CustomProtocol("splash://index".parse()?),
-    )
-    .title("Alook")
-    .inner_size(240.0, 240.0)
-    .center()
-    .decorations(false)
-    .resizable(false)
-    .transparent(true)
-    .shadow(false)
-    .always_on_top(true)
-    .skip_taskbar(true)
-    .build()?;
+    );
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    let builder = if app.config().identifier == "ai.alook.desktop.qa.madox.notification208" {
+        let store = app
+            .config()
+            .app
+            .windows
+            .iter()
+            .find(|window| window.label == "main")
+            .and_then(|window| window.data_store_identifier)
+            .ok_or("qa_store_unavailable")?;
+        builder.data_store_identifier(store)
+    } else {
+        builder
+    };
+    let _window = builder
+        .title("Alook")
+        .inner_size(240.0, 240.0)
+        .center()
+        .decorations(false)
+        .resizable(false)
+        .transparent(true)
+        .shadow(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .build()?;
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    crate::system_notifications::diagnose_qa_store(&_window);
 
     Ok(())
 }
 
 #[cfg(desktop)]
-pub fn finish_native_startup(handle: &AppHandle) -> bool {
+pub fn finish_native_startup(
+    handle: &AppHandle,
+    diagnostic_main: Option<&mut Option<tauri::WebviewWindow>>,
+) -> bool {
     SPLASH_NATIVE_READY.store(true, Ordering::SeqCst);
-    try_close_splashscreen(handle)
+    try_close_splashscreen(handle, diagnostic_main)
 }
 
 #[cfg(target_os = "macos")]
@@ -563,25 +627,104 @@ pub fn show_startup_initialization_error<R: tauri::Runtime>(handle: &AppHandle<R
 }
 
 #[cfg(desktop)]
-fn try_close_splashscreen(handle: &AppHandle) -> bool {
+fn try_close_splashscreen(
+    handle: &AppHandle,
+    diagnostic_main: Option<&mut Option<tauri::WebviewWindow>>,
+) -> bool {
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    let mut diagnostic_main = diagnostic_main
+        .filter(|_| crate::system_notifications::notification_diagnostics_enabled(handle));
+    #[cfg(not(all(target_os = "macos", debug_assertions)))]
+    let _ = diagnostic_main;
     if SPLASH_CLOSED.load(Ordering::SeqCst) {
+        #[cfg(all(target_os = "macos", debug_assertions))]
+        if diagnostic_main.is_some() {
+            crate::system_notifications::diagnose_qa_startup(
+                handle,
+                "already_closed_flag",
+                "main",
+                serde_json::json!({ "completed": true }),
+            );
+        }
         return true;
     }
     if !should_close_splash(SPLASH_NATIVE_READY.load(Ordering::SeqCst), false) {
+        #[cfg(all(target_os = "macos", debug_assertions))]
+        if diagnostic_main.is_some() {
+            crate::system_notifications::diagnose_qa_startup(
+                handle,
+                "native_not_ready",
+                "main",
+                serde_json::json!({ "completed": false }),
+            );
+        }
         return false;
     }
     let Some(main) = handle.get_webview_window("main") else {
+        #[cfg(all(target_os = "macos", debug_assertions))]
+        if diagnostic_main.is_some() {
+            crate::system_notifications::diagnose_qa_startup(
+                handle,
+                "main_absent",
+                "main",
+                serde_json::json!({ "completed": false }),
+            );
+        }
         return false;
     };
-    if let Err(error) = main.show() {
+    let shown = main.show();
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    if diagnostic_main.is_some() {
+        crate::system_notifications::diagnose_qa_startup(
+            handle,
+            "show_return",
+            main.label(),
+            serde_json::json!({ "status": if shown.is_ok() { "ok" } else { "error" }, "error": shown.as_ref().err().map(ToString::to_string) }),
+        );
+    }
+    if let Err(error) = shown {
         eprintln!("startup main window unavailable: {error}");
         return false;
     }
-    let _ = main.set_focus();
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    if let Some(captured) = diagnostic_main.as_deref_mut() {
+        *captured = Some(main.clone());
+    }
+    let focused = main.set_focus();
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    if diagnostic_main.is_some() {
+        crate::system_notifications::diagnose_qa_startup(
+            handle,
+            "focus_return",
+            main.label(),
+            serde_json::json!({ "status": if focused.is_ok() { "ok" } else { "error" }, "error": focused.as_ref().err().map(ToString::to_string) }),
+        );
+    }
+    let _ = focused;
     if let Some(splash) = handle.get_webview_window("splash") {
-        if let Err(error) = splash.close() {
+        let closed = splash.close();
+        #[cfg(all(target_os = "macos", debug_assertions))]
+        if diagnostic_main.is_some() {
+            crate::system_notifications::diagnose_qa_startup(
+                handle,
+                "close_request_return",
+                splash.label(),
+                serde_json::json!({ "status": if closed.is_ok() { "request_queued" } else { "error" }, "error": closed.as_ref().err().map(ToString::to_string) }),
+            );
+        }
+        if let Err(error) = closed {
             eprintln!("startup splash close unavailable: {error}");
             return false;
+        }
+    } else {
+        #[cfg(all(target_os = "macos", debug_assertions))]
+        if diagnostic_main.is_some() {
+            crate::system_notifications::diagnose_qa_startup(
+                handle,
+                "close_request_return",
+                "splash",
+                serde_json::json!({ "status": "absent" }),
+            );
         }
     }
     SPLASH_CLOSED.store(true, Ordering::SeqCst);
@@ -593,7 +736,7 @@ fn try_close_splashscreen(handle: &AppHandle) -> bool {
 pub fn close_splashscreen(app: AppHandle) {
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
-        try_close_splashscreen(&handle);
+        try_close_splashscreen(&handle, None);
     });
 }
 
@@ -766,6 +909,68 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    fn qa_window_config_fixture() -> tauri::utils::config::Config {
+        let mut config = tauri::utils::config::Config::default();
+        config.identifier = "ai.alook.desktop.qa.madox.notification208".into();
+        config.app.windows = vec![serde_json::from_value(serde_json::json!({
+            "label": "main", "title": "QA original", "url": "alook-recovery://localhost/bootstrap",
+            "width": 1173, "height": 719, "visible": false, "create": false,
+            "dataStoreIdentifier": QA_NOTIFICATION_STORE_ID,
+        }))
+        .unwrap()];
+        config
+    }
+
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    #[test]
+    fn qa_main_preparation_keeps_the_complete_original_window_configuration() {
+        let config = qa_window_config_fixture();
+        let original = serde_json::to_value(&config.app.windows[0]).unwrap();
+        let (window, store) = qa_main_window_config(&config).unwrap().unwrap();
+        assert_eq!(serde_json::to_value(window).unwrap(), original);
+        assert_eq!(store, QA_NOTIFICATION_STORE_ID);
+    }
+
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    #[test]
+    fn qa_main_preparation_does_not_apply_to_another_bundle() {
+        let mut config = qa_window_config_fixture();
+        config.identifier = "ai.alook.desktop".into();
+        config.app.windows[0].create = true;
+        config.app.windows[0].data_store_identifier = None;
+        let original = serde_json::to_value(&config).unwrap();
+        assert!(qa_main_window_config(&config).unwrap().is_none());
+        assert_eq!(serde_json::to_value(config).unwrap(), original);
+    }
+
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    #[test]
+    fn qa_main_preparation_rejects_missing_store_and_automatic_creation() {
+        let mut config = qa_window_config_fixture();
+        config.app.windows[0].create = true;
+        assert_eq!(
+            qa_main_window_config(&config).err(),
+            Some("qa_auto_main_enabled")
+        );
+        config.app.windows[0].create = false;
+        config.app.windows[0].data_store_identifier = None;
+        assert_eq!(
+            qa_main_window_config(&config).err(),
+            Some("qa_store_unavailable")
+        );
+        config.app.windows[0].data_store_identifier = Some([0; 16]);
+        assert_eq!(
+            qa_main_window_config(&config).err(),
+            Some("qa_store_unavailable")
+        );
+        config.app.windows.clear();
+        assert_eq!(
+            qa_main_window_config(&config).err(),
+            Some("qa_main_unavailable")
+        );
+    }
 
     #[test]
     fn runtime_capability_requires_node_and_npm() {
