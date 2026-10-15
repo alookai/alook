@@ -1,9 +1,17 @@
 import { useEffect, useRef } from "react"
+import { isMobile } from "@alook/shared"
 import { requestNativeBack } from "@/components/ui/native-back-layer"
 
 export const MOBILE_BACK_EDGE_PX = 24
 
 export const NATIVE_MOBILE_BACK_EVENT = "alook:native-back"
+
+type NativeBackListener = { unregister: () => Promise<void> }
+type TauriBackWindow = Window & {
+  __TAURI__?: {
+    app?: { onBackButtonPress?: (callback: () => void) => Promise<NativeBackListener> }
+  }
+}
 
 export function useNativeMobileBack({
   mobile = false,
@@ -19,6 +27,42 @@ export function useNativeMobileBack({
   replacePath: (href: string) => void
 }) {
   const composing = useRef<EventTarget | null>(null)
+  useEffect(() => {
+    if (!isMobile() || !/android/i.test(navigator.userAgent)) return
+    const app = (window as TauriBackWindow).__TAURI__?.app
+    if (!app?.onBackButtonPress) return
+    const register = app.onBackButtonPress.bind(app)
+    const report = (error: unknown) => { console.error("Native Back listener failed", error) }
+    const subscribe = () => {
+      let active = true
+      let listener: NativeBackListener | undefined
+      void register(() => {
+        if (active) window.dispatchEvent(new Event(NATIVE_MOBILE_BACK_EVENT, { cancelable: true }))
+      }).then((registered) => {
+        if (active) listener = registered
+        else void registered.unregister().catch(report)
+      }).catch(report)
+      return () => {
+        if (!active) return
+        active = false
+        if (listener) void listener.unregister().catch(report)
+      }
+    }
+    let stop = subscribe()
+    const hide = () => { stop() }
+    const show = (event: PageTransitionEvent) => {
+      if (!event.persisted) return
+      stop()
+      stop = subscribe()
+    }
+    window.addEventListener("pagehide", hide)
+    window.addEventListener("pageshow", show)
+    return () => {
+      window.removeEventListener("pagehide", hide)
+      window.removeEventListener("pageshow", show)
+      stop()
+    }
+  }, [])
   useEffect(() => {
     const start = (event: CompositionEvent) => { composing.current = event.target }
     const end = () => { composing.current = null }

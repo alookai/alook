@@ -72,6 +72,21 @@
             "mobile-system-notification"
           ]
         },
+        {
+          "$schema": "../gen/schemas/desktop-schema.json",
+          "identifier": "native-back-dev",
+          "description": "Android Back listener for the trusted development WebView",
+          "windows": ["main"],
+          "platforms": ["android"],
+          "local": true,
+          "remote": {
+            "urls": ["http://localhost:3000"]
+          },
+          "permissions": [
+            "core:app:allow-register-listener",
+            "core:app:allow-remove-listener"
+          ]
+        },
         "file-save",
         {
           "identifier": "file-save-dev",

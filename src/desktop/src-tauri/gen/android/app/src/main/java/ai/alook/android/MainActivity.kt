@@ -6,7 +6,6 @@ import android.os.Bundle
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
-import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.core.graphics.Insets
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -23,8 +22,6 @@ class MainActivity : TauriActivity() {
     private var isReady = false
     private var mainWebView: WebView? = null
     private var startupAttachListener: View.OnAttachStateChangeListener? = null
-    private lateinit var nativeBackCallback: OnBackPressedCallback
-    private lateinit var nativeBackDispatcher: NativeBackDispatcher
     private val mobileShareImageDocumentOwner = MobileShareImageDocumentOwner(this)
 
     companion object {
@@ -53,20 +50,6 @@ class MainActivity : TauriActivity() {
         val splashScreen = installSplashScreen()
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        nativeBackCallback = object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                val webView = mainWebView
-                if (webView == null) {
-                    delegateBackToSystem()
-                    return
-                }
-                nativeBackDispatcher.dispatch { script, complete ->
-                    webView.evaluateJavascript(script, complete)
-                }
-            }
-        }
-        nativeBackDispatcher = NativeBackDispatcher(::delegateBackToSystem)
-        onBackPressedDispatcher.addCallback(this, nativeBackCallback)
         mobileShareImageDocumentOwner.attach(savedInstanceState)
 
         splashScreen.setKeepOnScreenCondition { !isReady }
@@ -100,7 +83,6 @@ class MainActivity : TauriActivity() {
     }
 
     override fun onDestroy() {
-        nativeBackDispatcher.close()
         clearStartupAttachListener()
         mainWebView = null
         mobileShareImageDocumentOwner.detach()
@@ -134,15 +116,6 @@ class MainActivity : TauriActivity() {
     private fun clearStartupAttachListener() {
         startupAttachListener?.let { mainWebView?.removeOnAttachStateChangeListener(it) }
         startupAttachListener = null
-    }
-
-    private fun delegateBackToSystem() {
-        nativeBackCallback.isEnabled = false
-        try {
-            onBackPressedDispatcher.onBackPressed()
-        } finally {
-            nativeBackCallback.isEnabled = true
-        }
     }
 
     private fun applyWindowTheme(dark: Boolean) {
