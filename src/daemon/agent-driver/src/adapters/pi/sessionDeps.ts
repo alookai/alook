@@ -17,6 +17,8 @@ const PI_SDK_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
 /** The slice of the vendor SDK's module exports this file actually calls. */
 export interface PiSdkModule {
   ModelRuntime: { create(): Promise<PiModelRuntime> };
+  AuthStorage?: { create(): unknown };
+  ModelRegistry?: { create(authStorage: unknown): { getAvailable(): readonly unknown[] | Promise<readonly unknown[]> } };
   SessionManager: {
     create(cwd: string, sessionDir?: string, options?: { id?: string }): unknown;
     open(path: string, sessionDir?: string, cwdOverride?: string): unknown;

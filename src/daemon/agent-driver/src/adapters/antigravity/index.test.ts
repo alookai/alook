@@ -1,7 +1,8 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
+import * as os from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AdapterEvent, SpawnedProcessHandle } from "../../internal/adapter.js";
@@ -10,6 +11,11 @@ import * as probeModule from "./probe.js";
 import { AntigravityDriver } from "./index.js";
 import { AntigravityAcpLane } from "./acp-lane.js";
 import { antigravitySpawnSpec, probeAntigravity } from "./probe.js";
+
+vi.mock("node:os", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:os")>();
+  return { ...actual, homedir: vi.fn(actual.homedir) };
+});
 
 type Message = { id: number; method?: string; params?: Record<string, unknown>; result?: unknown; error?: unknown };
 const dirs: string[] = [];
@@ -61,6 +67,35 @@ function setup(options: { authError?: boolean; loadId?: string; loadError?: bool
 }
 
 describe("Antigravity native ACP", () => {
+  it("keeps the public driver's default native catalog and isolates installation probes from cache state", async () => {
+    const nativeProbe = probeModule.probeAntigravity;
+    for (const includeModels of [false, true]) {
+      const h = setup();
+      const home = vi.mocked(os.homedir);
+      const previousHome = home.getMockImplementation()!;
+      home.mockReturnValue(h.directory);
+      const probe = vi.spyOn(probeModule, "probeAntigravity").mockImplementation((command, options = {}) => nativeProbe(command, {
+        ...options, spawn: (() => h.proc) as never, cleanup: async () => { h.proc.kill(); },
+      }));
+      try {
+        const driver = new AntigravityDriver();
+        const result = includeModels ? await driver.probe("/custom/agy_acp_server.par") : await driver.probe("/custom/agy_acp_server.par", false);
+        expect(result).toMatchObject({ status: "healthy", version: "1.3.0" });
+        expect(h.messages.map((message) => message.method)).toEqual(includeModels ? ["initialize", "session/new"] : ["initialize"]);
+        expect(result.reasoning?.models.map((model) => model.id)).toEqual(includeModels ? ["test-model"] : undefined);
+        expect(existsSync(join(h.directory, ".cache", "alook", "antigravity-probe"))).toBe(includeModels);
+      } finally { probe.mockRestore(); home.mockImplementation(previousHome); }
+    }
+  });
+
+  it("accepts an identified compatible startup handshake without an optional version", async () => {
+    const h = setup();
+    h.proc.stdin.removeAllListeners("data");
+    h.proc.stdin.on("data", () => h.emit({ id: 1, result: { protocolVersion: 1, agentInfo: { name: "antigravity-acp" }, agentCapabilities: { loadSession: true } } }));
+    expect(await probeAntigravity("/custom/agy_acp_server.par", {
+      includeModels: false, cacheDirectory: h.directory, spawn: (() => h.proc) as never, cleanup: async () => { h.proc.kill(); },
+    })).toEqual({ status: "healthy" });
+  });
   it("reuses one process and exact session across prompts, delivering current instructions once", async () => {
     const h = setup();
     await expect(h.lane.start({ text: "first" })).resolves.toMatchObject({ ok: true, acceptedAs: "prompt" });
@@ -185,7 +220,18 @@ describe("Antigravity native ACP", () => {
     await expect(h.lane.send({ text: "later", mode: "idle" })).resolves.toMatchObject({ ok: false, reason: "closed" });
   });
 
-  it("probes the native catalog without prompting or launching interactive auth", async () => {
+  it("checks installation with initialize only, even with a cached session", async () => {
+    const h = setup({ authError: true });
+    const cleanup = vi.fn(async () => { h.proc.kill(); });
+    writeFileSync(join(h.directory, "session"), "saved-session");
+    expect(await probeAntigravity("/custom/agy_acp_server.par", {
+      includeModels: false, cacheDirectory: h.directory, spawn: (() => h.proc) as never, cleanup,
+    })).toEqual({ status: "healthy", version: "1.3.0" });
+    expect(h.messages.map((message) => message.method)).toEqual(["initialize"]);
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("requests the native catalog without issuing prompt or authenticate RPCs", async () => {
     const h = setup();
     const cleanup = vi.fn(async () => { h.proc.kill(); });
     expect(await probeAntigravity("/custom/agy_acp_server.par", { cacheDirectory: h.directory, spawn: (() => h.proc) as never, cleanup })).toMatchObject({ status: "healthy", version: "1.3.0", reasoning: { models: [{ id: "test-model" }] } });

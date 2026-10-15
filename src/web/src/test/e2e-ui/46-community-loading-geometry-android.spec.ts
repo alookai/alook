@@ -52,6 +52,29 @@ for (const streamFirst of [false, true]) {
   })
 }
 
+test("SSR fixture classifies a stream promoted between visibility reads", async ({ page }) => {
+  await page.setContent(frameHtml("fallback") + `<div hidden id="S:0">${frameHtml("stream")}</div>`)
+  await page.evaluate(() => {
+    const streamed = document.querySelector<HTMLElement>('[data-owner="stream"]')!
+    const getStyle = window.getComputedStyle.bind(window)
+    window.getComputedStyle = (element, pseudo) => {
+      const style = getStyle(element, pseudo)
+      if (element === streamed) {
+        window.getComputedStyle = getStyle
+        queueMicrotask(() => {
+          document.querySelector('[data-owner="fallback"]')!.remove()
+          const segment = document.getElementById("S:0")!
+          segment.replaceWith(...segment.childNodes)
+        })
+      }
+      return style
+    }
+  })
+  const frame = await expectUniqueSsrInitialFrame(page)
+  await expect(frame).toHaveAttribute("data-owner", "stream")
+  await expect(page.getByTestId(tid.initialFrame)).toHaveCount(1)
+})
+
 test("SSR fixture rejects two visible frames without waiting for retirement", async ({ page }) => {
   await page.setContent(frameHtml("fallback") + frameHtml("duplicate"))
   await expect(expectUniqueSsrInitialFrame(page)).rejects.toThrow(

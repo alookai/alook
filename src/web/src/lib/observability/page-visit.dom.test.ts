@@ -2,7 +2,7 @@ import { ROOT_CONTEXT, SpanKind, context, trace } from "@opentelemetry/api"
 import { InMemorySpanExporter, SimpleSpanProcessor, WebTracerProvider } from "@opentelemetry/sdk-trace-web"
 import { afterEach, expect, it, vi } from "vitest"
 import { act } from "@/test/react-dom-harness"
-import { beginNavigation, clearActions, commitNavigation, currentPageObservation, finishAction, installActionSpans, startAction, startPageOperation, finishPageOperation, startRegionObservation, finishRegionObservation } from "./context"
+import { beginNavigation, clearActions, commitNavigation, currentPageObservation, finishAction, installActionSpans, startAction, startPageOperation, finishPageOperation, startRegionObservation, finishRegionObservation, runPageOperation } from "./context"
 import { configureTelemetry, retireTelemetry } from "./telemetry"
 import { startRequest, runObservedFetch } from "./requests"
 import { recordDocumentTiming } from "./document-timing"
@@ -27,6 +27,21 @@ function committedVisit(href: string) {
 }
 
 afterEach(async () => { await act(async () => { retireTelemetry(); clearActions(); installActionSpans(undefined) }); await Promise.all(nativeProviders.splice(0).map(provider => provider.shutdown())); context.disable(); trace.disable(); vi.restoreAllMocks(); window.history.replaceState(null, "", "/") })
+
+it("runs business work on its captured page when operation tracing throws", () => {
+  nativeObservation()
+  const owner = committedVisit("/c/me/bots")
+  installActionSpans(() => { throw new Error("tracer unavailable") })
+  const operation = startPageOperation("cache.restore", { phase: "idb_read" }, owner)!
+  const execute = vi.fn(() => "restored")
+  expect(operation.span).toBeUndefined()
+  expect(operation.page).toBe(owner)
+  expect(runPageOperation(operation, execute)).toBe("restored")
+  finishPageOperation(operation, "hit")
+  expect(execute).toHaveBeenCalledOnce()
+  expect(operation.done).toBe(true)
+  expect(operation.outcome).toBe("hit")
+})
 
 it.each(["ws.connect", "cache.restore", "ui.interaction"] as const)("keeps a captured absent owner absent across a later visit for %s", async name => {
   const exporter = nativeObservation()

@@ -1025,7 +1025,7 @@ describe("Turbo CI execution", () => {
 
   it("keeps package builds away from dist consumers and uploads one merged Istanbul report", () => {
     const linux = ciJob("test-linux")
-    expect(linux).toContain("timeout-minutes: 25")
+    expect(linux).toContain("timeout-minutes: 45")
     expect(linux).toContain(
       "RUN_COVERAGE: ${{ github.event_name != 'push' || startsWith(github.event.head_commit.message, 'release:') }}",
     )

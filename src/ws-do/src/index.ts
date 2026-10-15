@@ -1,3 +1,4 @@
+import { handleMachineModels } from "./routes/community-machine-models"
 import { handleAuditBroadcast } from "./routes/audit-broadcast"
 import {
   handleCommunityUserBroadcast,
@@ -65,6 +66,8 @@ export default {
     response = await handleBatchPresence(context)
     if (response) return response
     response = await handleSinglePresence(context)
+    if (response) return response
+    response = await handleMachineModels(context)
     if (response) return response
     response = await handleMachinePush(context)
     if (response) return response

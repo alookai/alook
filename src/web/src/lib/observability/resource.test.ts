@@ -7,6 +7,25 @@ import { observeResourceResponse } from "./resource"
 import { traceResponse } from "./trace-response"
 
 afterEach(() => { vi.restoreAllMocks() })
+it.each([true, false])("links the exact response server identity without replacing the browser parent when sampled=%s", async sampled => {
+  const exporter = new InMemorySpanExporter()
+  const provider = new WebTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] })
+  const tracer = provider.getTracer("alook.frontend")
+  const root = tracer.startSpan("navigation")
+  const span = tracer.startSpan("GET", { kind: SpanKind.CLIENT }, trace.setSpan(ROOT_CONTEXT, root))
+  const client = span.spanContext()
+  const server = { traceId: "a".repeat(32), spanId: "b".repeat(16), traceFlags: sampled ? 1 : 0 }
+  const response = traceResponse(new Response(), new Request("https://alook.ai/api/agents", { headers: { traceparent: `00-${client.traceId}-${client.spanId}-01` } }), { isTraced: sampled, spanContext: () => server })
+  observeResourceResponse(span, response.headers.get("server-timing")!)
+  span.end()
+  const recorded = exporter.getFinishedSpans()[0]!
+  expect(recorded.attributes).toMatchObject({ server_identity: "available", server_sampling: sampled ? "selected" : "not_selected", server_trace_id: server.traceId, server_span_id: server.spanId })
+  expect(recorded.links).toEqual([{ context: server, attributes: { relationship: "server_response" } }])
+  expect(recorded.parentSpanContext).toEqual(root.spanContext())
+  root.end()
+  await provider.shutdown()
+})
+
 it("projects exact native resources for reversed same-URL requests and retains original parents, links and clocks", async () => {
   vi.spyOn(Date, "now").mockReturnValue(100_000)
   let now = 100

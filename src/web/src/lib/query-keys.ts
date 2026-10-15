@@ -148,6 +148,8 @@ export const communityKeys = {
 
   // ── Machines / daemons ──────────────────────────────────────────────────
   machines: () => [...communityKeys.all, "machines"] as const,
+  runtimeModels: (machineId: string, runtimeId: string) =>
+    [...communityKeys.machines(), machineId, "runtime-models", runtimeId] as const,
 
   // ── Bots ────────────────────────────────────────────────────────────────
   bots: () => [...communityKeys.all, "bots"] as const,

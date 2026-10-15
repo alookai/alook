@@ -13,6 +13,7 @@ export interface AgentBackend {
   readonly id: RuntimeId;
   readonly capabilities: BackendCapabilities;
   probe(): Promise<BackendProbe<BackendCapabilities>>;
+  discoverModels(): Promise<BackendProbe<BackendCapabilities>>;
 }
 
 export function getDriver(runtimeId: string): AgentBackend {
@@ -23,7 +24,8 @@ export function getDriver(runtimeId: string): AgentBackend {
   return {
     id,
     capabilities: getBuiltinBackendCapabilities(id),
-    probe: () => createAgentDriverSdk().probe({ backend: id }),
+    probe: () => createAgentDriverSdk().probe({ backend: id, includeModels: false }),
+    discoverModels: () => createAgentDriverSdk().probe({ backend: id }),
   };
 }
 

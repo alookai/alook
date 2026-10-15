@@ -139,6 +139,34 @@ describe("useCommunityWs — machines", () => {
   }
   const readCache = () => capturedQueryClient.getQueryData<MachinesResponse>(communityKeys.machines())
 
+  it("runtime catalog results preserve unrelated machines and legacy or other runtimes", async () => {
+    await mountHook()
+    const original = {
+      ...machine("m1"), availableRuntimes: ["legacy", { id: "agy", status: "healthy" }, { id: "codex", status: "healthy" }],
+    }
+    const other = machine("m2")
+    const originalCapacity = { ...capacity, ownedCount: 2 }
+    capturedQueryClient.setQueryData(communityKeys.machines(), { machines: [original, other], machineCapacity: originalCapacity })
+    const key = communityKeys.runtimeModels("m1", "codex")
+    capturedQueryClient.setQueryData(key, { requestId: "current", status: "pending" })
+    const catalog = { updateMode: "live_next_turn", models: [{ id: "native-model", supportedReasoningEfforts: [] }] }
+    capturedOnMessage!({ type: "community:runtime.models", machineId: "m1", runtimeId: "codex", requestId: "current", result: { status: "complete", catalog } })
+    expect(capturedQueryClient.getQueryData(key)).toEqual({ requestId: "current", status: "complete", catalog })
+    expect(readCache()).toEqual({
+      machines: [{ ...original, availableRuntimes: ["legacy", { id: "agy", status: "healthy" }, { id: "codex", status: "healthy", reasoning: catalog }] }, other],
+      machineCapacity: originalCapacity,
+    })
+  })
+
+  it("runtime catalog results complete the request without inventing a missing machine snapshot", async () => {
+    await mountHook()
+    const key = communityKeys.runtimeModels("m1", "codex")
+    capturedQueryClient.setQueryData(key, { requestId: "current", status: "pending" })
+    capturedOnMessage!({ type: "community:runtime.models", machineId: "m1", runtimeId: "codex", requestId: "current", result: { status: "complete", catalog: null } })
+    expect(capturedQueryClient.getQueryData(key)).toEqual({ requestId: "current", status: "complete", catalog: null })
+    expect(readCache()).toBeUndefined()
+  })
+
   it.each(["created", "updated"] as const)("machine.%s upserts without double-counting and preserves the allowance", async (kind) => {
     await mountHook()
     const original = machine("existing")

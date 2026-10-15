@@ -1,8 +1,9 @@
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { agySpawnSpec, probeAgy } from "./probe.js";
+import { agySpawnSpec, probeAgy, parseAgyModelCatalog } from "./probe.js";
+import { createAgentDriverSdk } from "../../index.js";
 
 const directories: string[] = [];
 afterEach(() => { vi.unstubAllEnvs(); for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }); });
@@ -49,3 +50,42 @@ describe("official agy entry", () => {
     expect(await probeAgy(join(directory(), "missing"))).toMatchObject({ status: "unhealthy" });
   });
 });
+
+
+describe("AGY on-demand native catalog", () => {
+  it.skipIf(process.platform === "win32")("rejects a successful native command with no usable model rows", async () => {
+    const command = join(directory(), "agy");
+    writeFileSync(command, `#!${process.execPath}\nif(process.argv.includes('--version'))console.log('1.3.5');else if(process.argv.includes('--help'))console.error('--input-format --output-format stream-json --conversation models');else console.log('No available models');\n`, { mode: 0o755 });
+    expect(await createAgentDriverSdk().probe({ backend: "agy", command })).toMatchObject({ status: "unhealthy", error: { code: "agy_model_catalog_invalid" } });
+  });
+  it.skipIf(process.platform === "win32")("keeps installation healthy when the native catalog requires authentication", async () => {
+    const root = directory();
+    const command = join(root, "agy");
+    const calls = join(root, "calls");
+    writeFileSync(command, `#!${process.execPath}\nconst fs=require('node:fs');fs.appendFileSync(${JSON.stringify(calls)},process.argv[2]+String.fromCharCode(10));if(process.argv.includes('--version'))console.log('1.3.4');else if(process.argv.includes('--help'))console.error('--input-format --output-format stream-json --conversation models');else{console.error('Please sign in to view available models');process.exit(1);}\n`, { mode: 0o755 });
+    const sdk = createAgentDriverSdk();
+    expect(await sdk.probe({ backend: "agy", command, includeModels: false })).toMatchObject({ status: "healthy", version: "1.3.4" });
+    expect(readFileSync(calls, "utf8")).toBe("--version\n--help\n");
+    expect(await sdk.probe({ backend: "agy", command })).toMatchObject({ status: "unhealthy", error: { code: "agy_model_probe_failed" } });
+    expect(readFileSync(calls, "utf8")).toBe("--version\n--help\n--version\n--help\nmodels\n");
+    expect(await sdk.probe({ backend: "agy", command, includeModels: false })).toMatchObject({ status: "healthy", version: "1.3.4" });
+  });
+  it("reads TSV output, rejects diagnostics, deduplicates and bounds models", () => {
+    expect(parseAgyModelCatalog("Fetching models...\nmodel-high\tNative high\nmodel-high\tDuplicate\nmodel-low\tNative low\n")).toEqual({ updateMode: "unsupported", models: [
+      { id: "model-high", displayName: "Native high", supportedReasoningEfforts: [] },
+      { id: "model-low", displayName: "Native low", supportedReasoningEfforts: [] },
+    ] });
+    expect(parseAgyModelCatalog(Array.from({ length: 1025 }, (_, index) => `model-${index}\tNative ${index}`).join("\n"))?.models).toHaveLength(1024);
+    expect(parseAgyModelCatalog("Sign in first")).toBeUndefined();
+  });
+  it.skipIf(process.platform === "win32")("runs models only for an explicit catalog probe", async () => {
+    const root = directory();
+    const file = join(root, "agy");
+    const calls = join(root, "calls");
+    writeFileSync(file, `#!${process.execPath}\nconst fs=require('node:fs');fs.appendFileSync(${JSON.stringify(calls)},process.argv[2]+String.fromCharCode(10));if(process.argv.includes('--version'))console.log('1.3.5');else if(process.argv.includes('--help'))console.error('--input-format --output-format stream-json --conversation models');else if(process.argv.includes('models')){console.error('Fetching models...');console.log('native-model\tNative Model');}\n`, { mode: 0o755 });
+    expect(await probeAgy(file, false)).toEqual({ status: "healthy", version: "1.3.5" });
+    expect(readFileSync(calls, "utf8")).toBe("--version\n--help\n");
+    expect(await probeAgy(file, true)).toMatchObject({ status: "healthy", reasoning: { models: [{ id: "native-model", displayName: "Native Model" }] } });
+    expect(readFileSync(calls, "utf8")).toBe("--version\n--help\n--version\n--help\nmodels\n");
+  });
+})

@@ -56,7 +56,7 @@ export class ClaudeDriver implements BackendAdapter {
     return receipt;
   }
 
-  probe(command?: string): ProbeResult {
+  probe(command?: string, includeModels = true): ProbeResult {
     const explicit = command?.trim();
     const base: ProbeResult = explicit
       ? (() => {
@@ -66,7 +66,7 @@ export class ClaudeDriver implements BackendAdapter {
             : { status: "unhealthy", lastError: result.error };
         })()
       : probeClaude();
-    return base.status === "healthy"
+    return base.status === "healthy" && includeModels
       ? { ...base, reasoning: CLAUDE_MODEL_CATALOG }
       : base;
   }

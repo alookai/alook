@@ -111,6 +111,18 @@ describe("Grok ACP model catalog", () => {
     });
   });
 
+  it("validates protocol without authenticating or reading an advertised catalog at startup", async () => {
+    const methods: string[] = [];
+    const cleanup = vi.fn(async () => {});
+    const process = fakeProcess((proc, message) => {
+      methods.push(message.method as string);
+      respond(proc, message, { protocolVersion: 1, agentCapabilities: { loadSession: true }, authMethods: [{ id: "cached_token" }], _meta: { modelState } });
+    });
+    expect(await probeGrokAcpCatalog(undefined, { includeModels: false, spawn: () => process, cleanup })).toEqual({ status: "compatible" });
+    expect(methods).toEqual(["initialize"]);
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
   it("uses only initialize/authenticate, never creates a session, and cleans exactly once", async () => {
     const messages: Record<string, unknown>[] = [];
     const cleanup = vi.fn(async () => {});
@@ -390,6 +402,12 @@ describe("GrokDriver launch boundary", () => {
       shell: false,
       env: expect.objectContaining({ GROK_DISABLE_AUTOUPDATER: "1", USER_VALUE: "kept" }),
     }));
+  });
+
+  it("asks for protocol-only probing during installation discovery", async () => {
+    const catalogProbe = vi.fn(async () => ({ status: "compatible" as const }));
+    expect(await new GrokDriver(catalogProbe).probe(process.execPath, false)).toMatchObject({ status: "healthy", reasoning: undefined });
+    expect(catalogProbe).toHaveBeenCalledExactlyOnceWith(process.execPath, { includeModels: false });
   });
 
   it("requires an authenticated compatible ACP probe before reporting healthy", async () => {

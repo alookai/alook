@@ -35,16 +35,18 @@ export class GrokDriver implements BackendAdapter, GrokAcpProcessFactory {
   }
 
   constructor(
-    private readonly catalogProbe: (command?: string) => Promise<GrokAcpProbeResult> = probeGrokAcpCatalog,
+    private readonly catalogProbe: (command?: string, options?: { includeModels?: boolean }) => Promise<GrokAcpProbeResult> = probeGrokAcpCatalog,
     private readonly spawnProcess: GrokSpawn = spawnAgentProcess,
   ) {}
 
-  async probe(command?: string) {
+  async probe(command?: string, includeModels = true) {
     const result = probeCliRuntime("grok", {}, command);
     if (result.status !== "healthy") return result;
     let acpProbe: GrokAcpProbeResult;
     try {
-      acpProbe = await this.catalogProbe(command);
+      acpProbe = includeModels
+        ? await this.catalogProbe(command)
+        : await this.catalogProbe(command, { includeModels: false });
     } catch {
       acpProbe = { status: "unhealthy", lastError: "grok_acp_probe_failed" };
     }

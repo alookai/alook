@@ -1298,3 +1298,133 @@ describe("AgentRouter — bot typing indicator", () => {
     expect(tracker.hasAny("bot_1")).toBe(false);
   });
 });
+
+
+describe("AgentRouter model discovery", () => {
+  it("queries only the selected runtime, updates ready catalog and never wakes a bot", async () => {
+    const { mgr, delivers, registers } = fakeManager();
+    const { ch, fire, readys } = fakeChannel();
+    const report = vi.fn();
+    ch.reportRuntimeModels = report;
+    const reasoning = { updateMode: "unsupported" as const, models: [{ id: "native-model", supportedReasoningEfforts: [] }] };
+    const discoverModels = vi.fn().mockResolvedValue({ status: "healthy", version: "2", reasoning });
+    const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "codex", version: "1" }, { id: "claude" }], discoverModels });
+    await router.start();
+    expect(readys[0]?.capabilities).toContain("runtime-model-discovery-v1");
+    await fire({ type: "runtime:discover_models", runtimeId: "codex", requestId: "request-1" });
+    expect(discoverModels).toHaveBeenCalledExactlyOnceWith("codex");
+    expect(report).toHaveBeenCalledWith(expect.objectContaining({ type: "runtime_models", runtimeId: "codex", requestId: "request-1", result: { status: "complete", runtimeReport: [expect.objectContaining({ id: "codex", version: "1", reasoning }), expect.objectContaining({ id: "claude" })] } }));
+    expect(delivers).toEqual([]);
+    expect(registers).toEqual([]);
+    expect(router.buildReady().runtimeReport[0]?.reasoning).toEqual(reasoning);
+  });
+  it("keeps runtime health on catalog failure and correlates unknown-runtime errors", async () => {
+    const { mgr } = fakeManager();
+    const { ch, fire } = fakeChannel();
+    const report = vi.fn();
+    ch.reportRuntimeModels = report;
+    const discoverModels = vi.fn().mockResolvedValue({ status: "unhealthy", error: { code: "auth_required", message: "Sign in to the native runtime" } });
+    const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "codex", status: "healthy" }], discoverModels });
+    await router.start();
+    await fire({ type: "runtime:discover_models", runtimeId: "codex", requestId: "request-2" });
+    expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ requestId: "request-2", result: { status: "error", code: "auth_required", message: "Sign in to the native runtime" } }));
+    expect(router.buildReady().runtimeReport).toEqual([expect.objectContaining({ id: "codex", status: "healthy" })]);
+    await fire({ type: "runtime:discover_models", runtimeId: "missing", requestId: "request-3" });
+    expect(discoverModels).toHaveBeenCalledTimes(1);
+    expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ requestId: "request-3", result: expect.objectContaining({ status: "error" }) }));
+  });
+});
+
+
+describe("model discovery deadline", () => {
+  it("ends loading at 40 seconds and ignores a late catalog", async () => {
+    vi.useFakeTimers();
+    try {
+      const { mgr } = fakeManager();
+      const { ch, fire } = fakeChannel();
+      const report = vi.fn();
+      ch.reportRuntimeModels = report;
+      let complete!: (value: unknown) => void;
+      const discoverModels = vi.fn(() => new Promise<any>((resolve) => { complete = resolve; }));
+      const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "codex" }], discoverModels });
+      await router.start();
+      const request = fire({ type: "runtime:discover_models", runtimeId: "codex", requestId: "deadline" });
+      await vi.advanceTimersByTimeAsync(40_000);
+      await request;
+      expect(report).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ requestId: "deadline", result: expect.objectContaining({ status: "error", code: "model_discovery_timeout" }) }));
+      complete({ status: "healthy", reasoning: { updateMode: "unsupported", models: [{ id: "late", supportedReasoningEfforts: [] }] } });
+      await Promise.resolve();
+      expect(report).toHaveBeenCalledTimes(1);
+      expect(router.buildReady().runtimeReport[0].reasoning).toBeUndefined();
+    } finally { vi.useRealTimers(); }
+  });
+})
+
+
+describe("runtime model query ownership", () => {
+  it("reuses one native query for overlapping requests and replies to each request ID", async () => {
+    const { mgr } = fakeManager();
+    const { ch, fire } = fakeChannel();
+    const report = vi.fn();
+    ch.reportRuntimeModels = report;
+    let finish!: (value: unknown) => void;
+    const discoverModels = vi.fn(() => new Promise<any>((resolve) => { finish = resolve; }));
+    const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "codex" }], discoverModels });
+    await router.start();
+    const first = fire({ type: "runtime:discover_models", runtimeId: "codex", requestId: "A" });
+    const reopened = fire({ type: "runtime:discover_models", runtimeId: "codex", requestId: "B" });
+    await Promise.resolve();
+    expect(discoverModels).toHaveBeenCalledExactlyOnceWith("codex");
+    const reasoning = { updateMode: "unsupported", models: [{ id: "fresh", supportedReasoningEfforts: [] }] };
+    finish({ status: "healthy", reasoning });
+    await Promise.all([first, reopened]);
+    expect(report.mock.calls.map(([frame]) => frame.requestId)).toEqual(["A", "B"]);
+    const [a, b] = report.mock.calls.map(([frame]) => frame.result.runtimeReport);
+    expect(a).toEqual(b);
+    expect(a[0].reasoning).toEqual(reasoning);
+    await fire({ type: "runtime:discover_models", runtimeId: "missing", requestId: "unknown" });
+    expect(discoverModels).toHaveBeenCalledTimes(1);
+  });
+  it("releases a timed-out shared query, retries, and never commits the late old result", async () => {
+    vi.useFakeTimers();
+    try {
+      const { mgr } = fakeManager();
+      const { ch, fire } = fakeChannel();
+      const report = vi.fn();
+      ch.reportRuntimeModels = report;
+      let oldFinish!: (value: unknown) => void;
+      const fresh = { updateMode: "unsupported", models: [{ id: "fresh", supportedReasoningEfforts: [] }] };
+      const discoverModels = vi.fn()
+        .mockImplementationOnce(() => new Promise<any>((resolve) => { oldFinish = resolve; }))
+        .mockResolvedValue({ status: "healthy", reasoning: fresh });
+      const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "codex" }], discoverModels });
+      await router.start();
+      const a = fire({ type: "runtime:discover_models", runtimeId: "codex", requestId: "A" });
+      const b = fire({ type: "runtime:discover_models", runtimeId: "codex", requestId: "B" });
+      await vi.advanceTimersByTimeAsync(40_000);
+      await Promise.all([a, b]);
+      expect(discoverModels).toHaveBeenCalledTimes(1);
+      expect(report.mock.calls.map(([frame]) => frame.result.code)).toEqual(["model_discovery_timeout", "model_discovery_timeout"]);
+      await fire({ type: "runtime:discover_models", runtimeId: "codex", requestId: "retry" });
+      expect(discoverModels).toHaveBeenCalledTimes(2);
+      oldFinish({ status: "healthy", reasoning: { ...fresh, models: [{ id: "stale", supportedReasoningEfforts: [] }] } });
+      await Promise.resolve();
+      expect(report).toHaveBeenCalledTimes(3);
+      expect(router.buildReady().runtimeReport[0].reasoning).toEqual(fresh);
+      expect(report.mock.calls[2][0].result.runtimeReport[0].reasoning).toEqual(fresh);
+    } finally { vi.useRealTimers(); }
+  });
+  it("releases a failed query so an explicit retry can succeed", async () => {
+    const { mgr } = fakeManager();
+    const { ch, fire } = fakeChannel();
+    const report = vi.fn();
+    ch.reportRuntimeModels = report;
+    const discoverModels = vi.fn().mockRejectedValueOnce(new Error("native failure")).mockResolvedValue({ status: "healthy" });
+    const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "codex" }], discoverModels });
+    await router.start();
+    await fire({ type: "runtime:discover_models", runtimeId: "codex", requestId: "failure" });
+    await fire({ type: "runtime:discover_models", runtimeId: "codex", requestId: "retry" });
+    expect(discoverModels).toHaveBeenCalledTimes(2);
+    expect(report.mock.calls.map(([frame]) => frame.result.status)).toEqual(["error", "complete"]);
+  });
+})

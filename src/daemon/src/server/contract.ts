@@ -78,6 +78,7 @@ export type {
   AgentActivityState,
   HostAgentActivity,
   HostBotAuditEventFrame,
+  HostRuntimeModelsFrame,
   BotAuditEventPayload,
   WebSocketLike,
   WebSocketFactory,
@@ -86,6 +87,8 @@ export type {
   ServerApiError,
   ParsedRef,
 } from "@alook/shared/community-cli-contract";
+
+export { RUNTIME_MODEL_DISCOVERY_CAPABILITY } from "@alook/shared/community-cli-contract";
 
 export {
   CONTROL_HEARTBEAT_CAPABILITY,

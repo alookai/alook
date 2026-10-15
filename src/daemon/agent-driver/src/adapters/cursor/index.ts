@@ -44,9 +44,10 @@ export class CursorDriver implements BackendAdapter, CursorAcpProcessFactory {
     private readonly catalogProbe: (command?: string) => Promise<RuntimeReasoningCatalog | undefined> = probeCursorAcpCatalog,
   ) {}
 
-  async probe(command?: string) {
+  async probe(command?: string, includeModels = true) {
     const result = probeCliRuntime("cursor-agent", {}, command);
     if (result.status !== "healthy") return result;
+    if (!includeModels) return result;
     let reasoning: RuntimeReasoningCatalog | undefined;
     try {
       reasoning = await this.catalogProbe(command);

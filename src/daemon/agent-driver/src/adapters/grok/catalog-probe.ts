@@ -21,6 +21,7 @@ type ProbeSpawn = (
 ) => SpawnedProcessHandle;
 
 interface GrokAcpCatalogProbeOptions {
+  readonly includeModels?: boolean;
   readonly cwd?: string;
   readonly timeoutMs?: number;
   readonly outputMaxBytes?: number;
@@ -211,6 +212,7 @@ export async function probeGrokAcpCatalog(
           }
           return finish({ status: "unhealthy", lastError: "grok_acp_cached_auth_unsupported" });
         }
+        if (options.includeModels === false) return finish({ status: "compatible" });
         catalog = catalogFromInitialize(result) ?? catalog;
         expectedId = 2;
         write("authenticate", { methodId: AUTH_METHOD_ID }, expectedId);

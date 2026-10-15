@@ -228,6 +228,8 @@ Discovery and launch share the same executable lookup: an explicit `command`,
 is used only when `LOCALAPPDATA` is absent). Run the selected CLI executable in a terminal and finish
 Google sign-in before starting a bot; ACP authentication is separate.
 
+Opening the model list runs the native `agy models` command and preserves its returned slugs and labels. Installation checks and Bot launch do not run that command. The model list does not establish an authenticated model request or infer per-model effort support.
+
 The CLI must advertise native `--input-format stream-json`,
 `--output-format stream-json` and `--conversation` support. Alook keeps one
 process across turns and queues busy input until the current result completes.
@@ -278,19 +280,9 @@ Authentication is local to Google's ACP server. Complete Google sign-in using an
 ACP client's `authenticate` request with `methodId: "oauth-personal"` before
 launching an agent. The provider's settings live under
 `~/.gemini/antigravity-acp/`; leave credentials there and never put them in agent
-instructions. Runtime detection initializes the protocol and requests a session catalog without
-authenticating or sending a prompt. Healthy means the native binary is compatible,
-not that an account is signed in; unauthenticated discovery has no model catalog.
-The catalog probe can create an empty provider session. The adapter does not
-send an `authenticate` request during discovery or launch. It reports explicit
-provider authentication errors when returned. In native 1.3.0 testing, unreadable
-Keychain credentials with no valid file fallback left `session/load` waiting for
-login and discovery ended with `antigravity_acp_timeout` at the existing 10-second
-deadline. A separate 30-second diagnostic on the same credential condition was
-correlated with an opened Google sign-in page by its OAuth callback port. The
-native server can therefore start its own browser login flow during discovery,
-even though the adapter does not send `authenticate`. Complete native sign-in
-before running the daemon; a timeout does not establish that credentials are valid.
+instructions. Runtime detection initializes the protocol and exits; it does not authenticate or create/load a session. Healthy means the native binary is compatible, not that an account is signed in.
+
+Opening the model list requests a session catalog, reusing the discovery session when available. This can create an empty provider session. The adapter does not send `authenticate` during discovery or launch, but native 1.3.0 can start its own browser login when a session request needs credentials. Complete native sign-in before discovering its models or running a Bot. A catalog timeout does not establish that credentials are valid; it leaves the installed runtime health unchanged.
 
 Standing instructions accompany the first prompt of every physical session,
 including resumed sessions. Later prompts reuse its context. Tools use ACP
@@ -329,3 +321,9 @@ Keychain store remained unreadable on the tested machine and had no file fallbac
 that condition reports retryable unavailable before HTTP, not an authentication
 refusal. These results supersede the earlier Google location-eligibility block
 and do not establish default Keychain access or acceptance on other platforms.
+
+### Model discovery
+
+`probe({ backend, includeModels: false })` checks installation and native protocol compatibility without discovering model catalogs. The daemon uses this mode at machine startup. Antigravity ACP initializes and exits without authenticating or creating/loading a catalog session; Grok also stops after its compatibility handshake.
+
+Opening a model list requests the selected machine and backend through the owner-scoped API and machine control WebSocket. The default SDK probe retains each backend's native catalog discovery. The result is correlated by request ID and saved in the existing machine runtime report. Backends without a native catalog return no catalog; their custom model entry remains available. Discovery does not wake or reset a Bot, and catalog errors do not change installed runtime health. Native catalog discovery may require the user's existing vendor login.

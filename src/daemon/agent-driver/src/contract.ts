@@ -575,6 +575,7 @@ export interface AgentSession<Specs, Id extends BackendId<Specs>> {
 export interface ProbeInput<Specs, Id extends BackendId<Specs>> {
   readonly backend: Id;
   readonly command?: string;
+  readonly includeModels?: boolean;
 }
 
 export interface DiscoveredSessionFile {

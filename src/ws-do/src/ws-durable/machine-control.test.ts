@@ -483,3 +483,31 @@ describe("WebSocketDurableObject", () => {
       })
     })
 })
+
+
+describe("on-demand model discovery dispatch", () => {
+  beforeEach(() => resetHarness())
+  afterEach(() => cleanupHarness())
+  it("sends only to authenticated capable daemon sockets", async () => {
+    const { durable, getWebSockets } = createDO()
+    const sockets = [true, false, true].map((modelDiscovery, index) => {
+      const socket = createMockWebSocket()
+      socket.serializeAttachment({ type: "community-machine", authenticated: index !== 2, machineId: "machine", userId: "owner", modelDiscovery })
+      return socket
+    })
+    getWebSockets.mockReturnValue(sockets)
+    const response = await durable.fetch(new Request("http://internal/discover-models", { method: "POST", body: JSON.stringify({ type: "runtime:discover_models", runtimeId: "codex", requestId: "request" }) }))
+    expect(await response.json()).toEqual({ sent: 1, unsupported: 1 })
+    expect(JSON.parse(sockets[0].send.mock.calls[0][0])).toEqual({ type: "runtime:discover_models", runtimeId: "codex", requestId: "request" })
+    expect(sockets[1].send).not.toHaveBeenCalled()
+    expect(sockets[2].send).not.toHaveBeenCalled()
+  })
+  it("rejects extra command fields without socket delivery", async () => {
+    const { durable, getWebSockets } = createDO()
+    const socket = createMockWebSocket()
+    getWebSockets.mockReturnValue([socket])
+    const response = await durable.fetch(new Request("http://internal/discover-models", { method: "POST", body: JSON.stringify({ type: "runtime:discover_models", runtimeId: "codex", requestId: "request", agentId: "bot" }) }))
+    expect(response.status).toBe(400)
+    expect(socket.send).not.toHaveBeenCalled()
+  })
+})

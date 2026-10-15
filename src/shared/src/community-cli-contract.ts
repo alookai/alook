@@ -29,6 +29,9 @@ import { CHANNEL_TRAITS } from "./utils/community-roles";
 import { parseNameAndTag } from "./lib/discriminator";
 import { DiagnosticCollectCommandSchema } from "./diagnostics-contract";
 import type { DiagnosticCollectCommand } from "./diagnostics-contract";
+import { RuntimeModelDiscoveryCommandSchema } from "./runtime-models-contract";
+import type { RuntimeModelDiscoveryCommand, RuntimeModelDiscoveryError } from "./runtime-models-contract";
+export { RUNTIME_MODEL_DISCOVERY_CAPABILITY } from "./runtime-models-contract";
 import type {
   DailyUsageSnapshot,
   ProviderQuotaSnapshot,
@@ -773,6 +776,7 @@ export type AgentInterruptRequest = z.infer<typeof AgentInterruptRequestSchema>;
  */
 export type HostCommand =
   | { type: "machine:heartbeat"; nonce: string }
+  | RuntimeModelDiscoveryCommand
   | AgentInterruptRequest
   | {
     type: "agent:wake";
@@ -996,6 +1000,13 @@ export interface HostBotAuditEventFrame {
   event: BotAuditEventPayload;
 }
 
+export type HostRuntimeModelsFrame = {
+  type: "runtime_models";
+  requestId: string;
+  runtimeId: string;
+  result: { status: "complete"; runtimeReport: HostReadyRuntime[] } | RuntimeModelDiscoveryError;
+};
+
 /**
  * `session.error` frame — daemon → server. Currently used by the daemon's
  * agent router when a runtime isn't available on the host.
@@ -1018,6 +1029,7 @@ export interface HostControlChannel {
   onCommand(cb: (cmd: HostCommand) => void | Promise<void>): void;
   /** Announce this host + its agents to the server (on connect AND on reconnect). */
   reportReady(ready: HostReady): Promise<void>;
+  reportRuntimeModels?(frame: HostRuntimeModelsFrame): void;
   /**
    * On-demand resend of the current `ready` snapshot. Used by AgentRouter's
    * runtime-health mutations to push an updated report without waiting for a
@@ -1475,6 +1487,7 @@ export function formatSeq(seq: Seq): string {
 // downstream with its own defaulting, so deep-validating it here would only turn
 // a forward-compatible server field into a hard drop on an older daemon.
 export const HostCommandSchema = z.discriminatedUnion("type", [
+  RuntimeModelDiscoveryCommandSchema,
   z.strictObject({
     type: z.literal("machine:heartbeat"),
     nonce: z.string().min(1).max(128),

@@ -957,7 +957,7 @@ function useMessageSurface(channelId: string | null, opts: MessagesOpts | Channe
     const options = { queryClient, observation: (): ApiRequestOptions["observation"] => {
       if (!channelId || typeof window === "undefined") return
       const expected = serverId === null ? `/c/me/${channelId}` : channelHref(serverId, channelId)
-      if (window.location.pathname !== expected) return
+      if (window.location.pathname !== expected) return { page: undefined, reason: "unknown" }
       const action = navigationForHref(window.location.pathname + window.location.search)
       return action ? { action, reason: "foreground" } : { page: currentPageObservation(), reason: "background" }
     }, onSurfaceReceipt: (receipt: CommunityMessageSurfaceReceipt) => recordConversationNavigationReceipt(queryClient, receipt, accessEpoch) }

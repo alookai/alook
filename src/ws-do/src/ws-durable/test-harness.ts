@@ -316,6 +316,7 @@ vi.mock("@alook/shared", async () => {
       TYPING_STOP: "community:typing.stop",
       MACHINE_STATUS: "community:machine.status",
       MACHINE_UPDATED: "community:machine.updated",
+      RUNTIME_MODELS: "community:runtime.models",
       STATUS_UPDATE: "community:status.update",
       BOT_AUDIT_EVENT: "community:bot.audit_event",
       PRESENCE_UPDATE: "community:presence.update",

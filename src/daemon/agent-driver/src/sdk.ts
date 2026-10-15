@@ -110,7 +110,9 @@ export function createAgentDriverSdkWithRegistry<Specs>(
         const command = (capabilities as { readonly commandOverride: boolean }).commandOverride
           ? input.command
           : undefined;
-        const result = await adapter.probe(command);
+        const result = input.includeModels === false
+          ? await adapter.probe(command, false)
+          : await adapter.probe(command);
         if (result.status === "healthy") {
           return {
             status: "healthy",

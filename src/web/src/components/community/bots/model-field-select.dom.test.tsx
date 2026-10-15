@@ -16,6 +16,37 @@ const runtime = {
 }
 
 describe("ModelField with the real Select", () => {
+  it("notifies discovery only when the actual model popup opens", async () => {
+    const onOpenChange = vi.fn()
+    render(<ModelField runtime={runtime} value={null} onChange={vi.fn()}
+      discovery={{ isPending: false, error: null, onOpenChange, retry: vi.fn() }} />)
+    expect(onOpenChange).not.toHaveBeenCalled()
+    await act(async () => { fireEvent.click(screen.getByTestId("bot-model-select")) })
+    expect(onOpenChange).toHaveBeenCalledWith(true)
+  })
+
+  it("shows model discovery loading without clearing the stored selection or Default", async () => {
+    const onChange = vi.fn()
+    render(<ModelField runtime={runtime} value="gemini-3.1-pro-high" onChange={onChange}
+      discovery={{ isPending: true, error: null, onOpenChange: vi.fn(), retry: vi.fn() }} />)
+    await act(async () => { fireEvent.click(screen.getByTestId("bot-model-select")) })
+    expect(screen.getByRole("status")).toHaveTextContent("Loading models…")
+    expect(screen.getByTestId("bot-model-select")).toHaveTextContent("gemini-3.1-pro-high")
+    expect(screen.getByRole("option", { name: "Default (antigravity's own default)" })).toBeInTheDocument()
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it("retries a model discovery failure without selecting or submitting a model", async () => {
+    const retry = vi.fn(), onChange = vi.fn()
+    render(<ModelField runtime={runtime} value="gemini-3.1-pro-high" onChange={onChange}
+      discovery={{ isPending: false, error: "Could not load models", onOpenChange: vi.fn(), retry }} />)
+    await act(async () => { fireEvent.click(screen.getByTestId("bot-model-select")) })
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not load models")
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Retry" })) })
+    expect(retry).toHaveBeenCalledOnce()
+    expect(onChange).not.toHaveBeenCalled()
+    expect(screen.getByTestId("bot-model-select")).toHaveTextContent("gemini-3.1-pro-high")
+  })
   it.each([true, false])("requires OpenCode selection with a catalog=%s and keeps empty Custom editable", async (catalog) => {
     const selectedRuntime = { ...runtime, id: "opencode", reasoning: catalog ? runtime.reasoning : undefined }
     function Controlled() {

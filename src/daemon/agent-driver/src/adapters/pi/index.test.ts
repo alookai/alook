@@ -57,6 +57,12 @@ describe("PiDriver startup model catalog", () => {
     }) as unknown as PiSdkModule;
   }
 
+  it("checks the SDK version without loading authenticated model state", async () => {
+    const loadSdk = vi.fn();
+    expect(await new PiDriver(undefined, loadSdk, () => "1.2.3").probe(undefined, false)).toEqual({ status: "healthy", version: "1.2.3" });
+    expect(loadSdk).not.toHaveBeenCalled();
+  });
+
   it("uses authenticated ModelRuntime.getAvailable and formats provider/id", async () => {
     const getAvailable = vi.fn(() => [
       { provider: "google", id: "gemini-2.5-pro" },
@@ -75,6 +81,50 @@ describe("PiDriver startup model catalog", () => {
         ],
       },
     });
+  });
+
+  it("uses current native registry exports without requiring ModelRuntime", async () => {
+    const authStorage = {};
+    const createAuth = vi.fn(() => authStorage);
+    const getAvailable = vi.fn(() => [{ provider: "openai", id: "gpt-5" }]);
+    const createRegistry = vi.fn(() => ({ getAvailable }));
+    const loadSdk = async () => ({
+      AuthStorage: { create: createAuth },
+      ModelRegistry: { create: createRegistry },
+    }) as unknown as PiSdkModule;
+
+    expect(await new PiDriver(undefined, loadSdk, () => "0.80.3").probe()).toEqual({
+      status: "healthy",
+      version: "0.80.3",
+      reasoning: { updateMode: "unsupported", models: [{ id: "openai/gpt-5", supportedReasoningEfforts: [] }] },
+    });
+    expect(createAuth).toHaveBeenCalledOnce();
+    expect(createRegistry).toHaveBeenCalledExactlyOnceWith(authStorage);
+    expect(getAvailable).toHaveBeenCalledOnce();
+  });
+
+  it("retains the legacy path when registry auth exports are incomplete", async () => {
+    const createRegistry = vi.fn();
+    const getAvailable = vi.fn(() => [{ provider: "google", id: "gemini-2.5-pro" }]);
+    const loadSdk = async () => ({
+      ...await loader(getAvailable)(),
+      ModelRegistry: { create: createRegistry },
+    });
+
+    expect((await new PiDriver(undefined, loadSdk, () => "1.2.3").probe()).reasoning?.models)
+      .toEqual([{ id: "google/gemini-2.5-pro", supportedReasoningEfforts: [] }]);
+    expect(getAvailable).toHaveBeenCalledOnce();
+    expect(createRegistry).not.toHaveBeenCalled();
+  });
+
+  it("keeps the health policy when current registry creation fails", async () => {
+    const loadSdk = async () => ({
+      AuthStorage: { create: vi.fn() },
+      ModelRegistry: { create: () => { throw new Error("registry failed"); } },
+    }) as unknown as PiSdkModule;
+
+    expect(await new PiDriver(undefined, loadSdk, () => "0.80.3").probe())
+      .toEqual({ status: "healthy", version: "0.80.3", reasoning: undefined });
   });
 
   it("keeps runtime health healthy when SDK catalog discovery fails", async () => {

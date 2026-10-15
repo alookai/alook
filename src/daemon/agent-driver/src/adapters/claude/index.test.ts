@@ -34,6 +34,13 @@ describe("ClaudeDriver", () => {
     });
   });
 
+  it("does not publish model aliases during installation-only probing", () => {
+    probeClaude.mockReturnValue({ status: "healthy", version: "1.2.3" });
+    expect(new ClaudeDriver().probe(undefined, false)).toMatchObject({ status: "healthy", version: "1.2.3" });
+    expect(new ClaudeDriver().probe(undefined, false).reasoning).toBeUndefined();
+    expect(spawnAgentProcess).not.toHaveBeenCalled();
+  });
+
   it("reports only the three stable Claude aliases after a healthy probe", () => {
     probeClaude.mockReturnValue({ status: "healthy", version: "1.2.3" });
 

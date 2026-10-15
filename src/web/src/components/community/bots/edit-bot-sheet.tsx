@@ -230,6 +230,7 @@ const [avatarDraft, setAvatarDraft] = useAtom(useCreateAtom<AvatarDraft>(((): Av
           />
           {bot && (
             <BotRuntimeFields
+              machineId={selectedMachine?.id}
               options={runtimeOptions}
               runtime={runtime}
               model={model}

@@ -38,7 +38,7 @@ export class AgyDriver implements BackendAdapter<"agy"> {
 
   constructor(private readonly launchSpec?: ReturnType<typeof agySpawnSpec>) {}
 
-  probe(command?: string) { return probeAgy(command); }
+  probe(command?: string, includeModels = true) { return probeAgy(command, includeModels); }
 
   async openLane(ctx: AdapterLaunchContext<"agy">, options?: { onRawStdoutLine?: (line: string) => void }) {
     const spec = agySpawnSpec(resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig).command);

@@ -1,3 +1,4 @@
+import { handleRuntimeModelsFrame } from "./machine-models"
 import { IDENTITY_KEY } from "./internal"
 import type { CommunityMachineIdentity, WsDurableContext } from "./internal"
 import { handleReadyFrame } from "./machine-ready"
@@ -76,6 +77,7 @@ export async function handleCommunityMachineMessage(
     parsed,
     identity,
   )) return
+  if (await handleRuntimeModelsFrame(context, parsed, identity)) return
   await handleReadyFrame(
     context,
     parsed,

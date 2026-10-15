@@ -80,6 +80,12 @@ function probingProcess(
 }
 
 describe("CodexDriver reasoning catalog probe", () => {
+  it("checks installation without starting the catalog app-server", async () => {
+    runtimeMocks.probeCliRuntime.mockResolvedValueOnce({ status: "healthy", version: "1.2.3" });
+    expect(await new CodexDriver().probe(undefined, false)).toEqual({ status: "healthy", version: "1.2.3" });
+    expect(runtimeMocks.spawnAgentProcess).not.toHaveBeenCalled();
+  });
+
   it("keeps an unhealthy CLI result unchanged without starting app-server", async () => {
     runtimeMocks.probeCliRuntime.mockResolvedValueOnce({
       status: "unhealthy",

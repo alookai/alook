@@ -1,5 +1,7 @@
 "use client"
 
+import type { ComponentProps } from "react"
+import { useRuntimeModels } from "@/hooks/community/use-runtime-models"
 import { ProviderLogo } from "@/components/provider-logo"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
@@ -22,6 +24,7 @@ export function BotRuntimeFields({
   runtime,
   model,
   daemonVersion,
+  machineId,
   reasoningEffort = null,
   onRuntimeChange,
   onModelChange,
@@ -39,6 +42,7 @@ export function BotRuntimeFields({
   runtime: string
   model: string | null
   daemonVersion?: string
+  machineId?: string
   reasoningEffort?: ReasoningEffort | null
   onRuntimeChange: (runtime: string) => void
   onModelChange: (model: string | null) => void
@@ -117,7 +121,11 @@ export function BotRuntimeFields({
       </div>
       {runtime ? (
         <div data-motion-target={modelMotionTarget} className={cn("flex flex-col gap-4", modelClassName)}>
-          <ModelField runtime={selectedRuntime} value={model} onChange={onModelChange} error={modelError} />
+          {machineId ? (
+            <MachineModelField key={`${machineId}:${runtime}`} machineId={machineId} runtime={selectedRuntime} value={model} onChange={onModelChange} error={modelError} />
+          ) : (
+            <ModelField runtime={selectedRuntime} value={model} onChange={onModelChange} error={modelError} />
+          )}
           <ReasoningEffortField
             runtime={selectedRuntime}
             model={model}
@@ -129,4 +137,9 @@ export function BotRuntimeFields({
       ) : null}
     </>
   )
+}
+
+function MachineModelField({ machineId, ...props }: ComponentProps<typeof ModelField> & { machineId: string }) {
+  const discovery = useRuntimeModels(machineId, props.runtime?.id ?? "")
+  return <ModelField {...props} discovery={discovery} />
 }

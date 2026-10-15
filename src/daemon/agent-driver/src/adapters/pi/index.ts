@@ -271,7 +271,7 @@ export class PiDriver implements BackendAdapter {
     private readonly readVersion: () => string | undefined = readPiSdkVersion,
   ) {}
 
-  async probe() {
+  async probe(_command?: string, includeModels = true) {
     const version = this.readVersion();
     if (!version) {
       // The Pi SDK is a native runtime — no CLI to spawn. If the npm module
@@ -279,11 +279,14 @@ export class PiDriver implements BackendAdapter {
       // reflects reality and the bot picker filters it out.
       return { status: "unhealthy" as const, lastError: "sdk_not_installed" };
     }
+    if (!includeModels) return { status: "healthy" as const, version };
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const reasoning = await Promise.race([
         this.loadSdk().then(async (sdk) => {
-          const modelRuntime = await sdk.ModelRuntime.create();
+          const modelRuntime = sdk.ModelRegistry && sdk.AuthStorage
+            ? sdk.ModelRegistry.create(sdk.AuthStorage.create())
+            : await sdk.ModelRuntime.create();
           return parsePiModelCatalog(await modelRuntime.getAvailable());
         }),
         new Promise<undefined>((resolve) => {

@@ -329,6 +329,7 @@ export function CreateBotSheet({
           {selectedMachine && (
             <div className="flex flex-col gap-2">
               <BotRuntimeFields
+                machineId={selectedMachine.id}
                 options={runtimeOptions}
                 runtime={runtime}
                 model={model}

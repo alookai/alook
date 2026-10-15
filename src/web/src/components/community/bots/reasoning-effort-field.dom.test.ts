@@ -121,7 +121,7 @@ describe("ReasoningEffortField", () => {
     expect(onChange).toHaveBeenCalledWith(null)
   })
 
-  it("clears an override when the reported model has no effort options", () => {
+  it("preserves an override when the reported model has no effort metadata", () => {
     const { renderer, onChange } = renderField({
       runtime: { reasoning: { updateMode: "live_next_turn", models: [
         { id: "claude-sonnet-4-6", supportedReasoningEfforts: [] },
@@ -130,7 +130,9 @@ describe("ReasoningEffortField", () => {
       value: "high",
     })
     expect(renderer.container.querySelector("select")).toBeDisabled()
-    expect(onChange).toHaveBeenCalledWith(null)
+    expect(JSON.parse(renderer.container.querySelector("select")!.dataset.items!))
+      .toContainEqual({ value: "high", label: "High" })
+    expect(onChange).not.toHaveBeenCalled()
   })
 
   it("preserves an override for a custom model absent from the catalog", () => {
@@ -161,4 +163,20 @@ describe("ReasoningEffortField", () => {
     act(() => selectOnChange?.("__default__"))
     expect(onChange).toHaveBeenLastCalledWith(null)
   })
+
+  it("preserves stored effort when an on-demand catalog arrives without effort metadata", () => {
+    const { renderer, onChange } = renderField({ runtime: { reasoning: undefined }, model: "native-id", value: "high" })
+    expect(onChange).not.toHaveBeenCalled()
+    renderer.rerender(React.createElement(ReasoningEffortField, {
+      runtime: { reasoning: { updateMode: "context_preserving_restart", models: [
+        { id: "native-id", supportedReasoningEfforts: [] },
+      ] } },
+      model: "native-id", daemonVersion: "0.1.52", value: "high", onChange,
+    }))
+    expect(renderer.container.querySelector("select")).toBeDisabled()
+    expect(JSON.parse(renderer.container.querySelector("select")!.dataset.items!))
+      .toContainEqual({ value: "high", label: "High" })
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
 })

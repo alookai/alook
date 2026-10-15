@@ -281,6 +281,7 @@ export const communityWsEventFixtures = {
     lastSeenAt: "2026-01-01T00:00:00.000Z",
   },
   "community:machine.updated": { type: "community:machine.updated", machine },
+  "community:runtime.models": { type: "community:runtime.models", machineId: "machine-1", requestId: "request-1", runtimeId: "codex", result: { status: "complete", catalog: null } },
   "community:machine.removed": { type: "community:machine.removed", machineId: "machine-1" },
   "community:bot.audit_event": {
     type: "community:bot.audit_event",
@@ -339,6 +340,7 @@ export const requiredFixturePaths = {
   "community:machine.created": ["machine"],
   "community:machine.status": ["lastSeenAt"],
   "community:machine.updated": ["machine"],
+  "community:runtime.models": ["requestId"],
   "community:machine.removed": ["machineId"],
   "community:bot.audit_event": ["payload"],
 } satisfies Record<CommunityWsEvent["type"], readonly [string, ...string[]]>

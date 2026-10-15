@@ -2,6 +2,7 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store";
 import { useEffect, useId, useMemo } from "react"
+import { LoaderCircle } from "lucide-react"
 import {
   modelSelectState,
   modelNameFromSelect,
@@ -12,6 +13,7 @@ import {
 import type { CommunityMachineRuntime } from "@alook/shared"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
 import {
   Select,
   SelectTrigger,
@@ -36,12 +38,19 @@ export function ModelField({
   onChange,
   disabled,
   error,
+  discovery,
 }: {
   runtime: Pick<CommunityMachineRuntime, "id" | "reasoning"> | null
   value: string | null
   onChange: (v: string | null) => void
   disabled?: boolean
   error?: string
+  discovery?: {
+    isPending: boolean
+    error: string | null
+    onOpenChange: (open: boolean) => void
+    retry: () => void
+  }
 }) {
   const hintId = useId()
   const required = requiresExplicitModel(runtime?.id)
@@ -115,6 +124,7 @@ export function ModelField({
           onChange(nextModel)
         }}
         onOpenChange={(open) => {
+          discovery?.onOpenChange(open)
           if (!open) setFilterQuery("")
         }}
         disabled={disabled}
@@ -125,11 +135,30 @@ export function ModelField({
           aria-required={required}
           aria-describedby={required || error ? hintId : undefined}
           aria-invalid={Boolean(error)}
+          aria-busy={discovery?.isPending || undefined}
           className="w-full data-[size=default]:h-11 sm:data-[size=default]:h-8"
         >
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
-        <BotSelectMenuContent className="overflow-y-hidden">
+        <BotSelectMenuContent
+          alignItemWithTrigger={false}
+          className="flex flex-col overflow-y-hidden [&>[role=listbox]]:flex [&>[role=listbox]]:min-h-0 [&>[role=listbox]]:flex-col"
+        >
+          {discovery?.isPending && (
+            <p role="status" className="flex shrink-0 items-center gap-2 px-2 py-2 text-xs text-muted-foreground">
+              <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden />
+              Loading models…
+            </p>
+          )}
+          {discovery?.error && (
+            <div className="flex shrink-0 items-center gap-2 px-2 py-2">
+              <p role="alert" className="min-w-0 flex-1 text-xs text-destructive">{discovery.error}</p>
+              <Button type="button" variant="ghost" size="sm" className="h-11 shrink-0 sm:h-8"
+                onClick={(event) => { event.stopPropagation(); discovery.retry() }}>
+                Retry
+              </Button>
+            </div>
+          )}
           {modelIds.length === 0 ? (
             <>
               {!required && <BotSelectMenuItem value={MODEL_SELECT_DEFAULT}>{defaultLabel}</BotSelectMenuItem>}
@@ -171,7 +200,7 @@ export function ModelField({
               </div>
               <div
                 data-testid="bot-model-probe-results"
-                className="thin-scrollbar max-h-[min(18rem,50dvh)] overflow-y-auto"
+                className="thin-scrollbar min-h-0 max-h-[min(18rem,50dvh)] overflow-y-auto"
               >
                 {filteredModels.map((model) => (
                   <BotSelectMenuItem key={model.id} value={model.id}>

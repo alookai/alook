@@ -1152,7 +1152,8 @@ test.describe("message scroll characterization", () => {
     const actors = await caseActors(["alice", "bob", "carol"])
     const asUser = tracedAsUser(actors)
     const { userId } = actors
-    const { composerDmId, composerDmProfile } = await seedScrollCase(actors)
+    const composerDmId = await actors.seed.seedDm("alice", userId("bob"))
+    const composerDmProfile = await seedDmProfile(actors, composerDmId, 36)
 
     const alice = await asUser("alice")
     await alice.page.setViewportSize(VIEWPORT)

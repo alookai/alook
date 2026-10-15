@@ -48,6 +48,7 @@ import {
   handleMachineStatus,
   handleMachineUpdated,
   handlePresenceUpdate,
+  handleRuntimeModels,
   handleStatusUpdate,
 } from "@/hooks/community/community-ws/presence-machine-events"
 import {
@@ -111,6 +112,7 @@ export const communityWsRegistry = {
   "community:machine.status": { handler: handleMachineStatus, reconnectPolicies: ["machines"] },
   "community:machine.updated": { handler: handleMachineUpdated, reconnectPolicies: ["machines"] },
   "community:machine.removed": { handler: handleMachineRemoved, reconnectPolicies: ["machines"] },
+  "community:runtime.models": { handler: handleRuntimeModels, reconnectPolicies: ["machines"] },
   "community:bot.audit_event": { handler: handleBotAuditEvent, reconnectPolicies: ["bot-audits"] },
 } satisfies CommunityWsRegistry
 

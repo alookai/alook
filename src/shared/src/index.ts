@@ -286,6 +286,8 @@ export {
   CommunityDaemonEnrollAgentRequestSchema,
   CommunityDaemonEnrollAgentResponseSchema,
   HostReadyMessageSchema,
+  HostRuntimeModelsFrameSchema,
+  RuntimeModelDiscoveryResultSchema,
   SessionErrorFrameSchema,
   AgentActivityMessageSchema,
   AgentTypingMessageSchema,
@@ -828,3 +830,6 @@ export { resolveMode, cliCommand, cliPackageName, updateCommand, daemonCommand, 
 export type { AlookMode, ModeSignals, BaseUrlSignals } from "./mode";
 export { COMMUNITY_CONTRACT_HEADER, COMMUNITY_CONTRACT_VERSION, COMMUNITY_RESOURCE_CONTRACT_VERSION, requestedCommunityContract, requestsCommunityContract, type CommunityContract } from "./community-contract";
 export * from "./community-resources";
+export * from "./runtime-models-contract";
+
+export { readBoundedJsonRequest } from "./http-json";

@@ -1,4 +1,5 @@
-import { createDb, DiagnosticCollectCommandSchema, queries } from "@alook/shared"
+import { readBoundedJsonRequest } from "../community-browser-event-ingress"
+import { createDb, DiagnosticCollectCommandSchema, RuntimeModelDiscoveryCommandSchema, queries } from "@alook/shared"
 import {
   HANDLE_KEY,
   IDENTITY_KEY,
@@ -33,9 +34,17 @@ export async function handleMachineControlFetch(
     })
   }
 
+  if (url.pathname === "/discover-models" && request.method === "POST") {
+    const input = await readBoundedJsonRequest(request, 4096)
+    const command = RuntimeModelDiscoveryCommandSchema.safeParse(input.ok ? input.value : null)
+    if (!command.success) return new Response(JSON.stringify({ error: "invalid request" }), { status: 400, headers: { "Content-Type": "application/json" } })
+    const { sent, unsupported } = forwardToCommunityMachine(context, JSON.stringify(command.data), true)
+    return new Response(JSON.stringify({ sent, unsupported }), { headers: { "Content-Type": "application/json" } })
+  }
+
   if (url.pathname === "/push" && request.method === "POST") {
     const body = await request.text()
-    const sent = forwardToCommunityMachine(context, body)
+    const sent = forwardToCommunityMachine(context, body).sent
     if (sent > 0) await hooks.recordPendingRestarts(body)
     return new Response(JSON.stringify({ sent }), {
       headers: { "Content-Type": "application/json" },
@@ -78,7 +87,7 @@ export async function handleMachineControlFetch(
       config,
       launchId,
     })
-    const sent = forwardToCommunityMachine(context, frame)
+    const sent = forwardToCommunityMachine(context, frame).sent
     if (sent > 0) {
       const attribution: RestartAttribution = providerSwitch
         ? { kind: "provider_switch", from: from as string, to: to as string }
@@ -112,7 +121,7 @@ export async function handleMachineControlFetch(
       type: "agent:runtime_config_update",
       agentId: raw.agentId,
       config: raw.config,
-    }))
+    })).sent
     return new Response(JSON.stringify({ sent }), {
       headers: { "Content-Type": "application/json" },
     })
@@ -120,7 +129,7 @@ export async function handleMachineControlFetch(
 
   if (url.pathname === "/forward-agent-wake" && request.method === "POST") {
     const body = await request.text()
-    const attempted = forwardToCommunityMachine(context, body)
+    const attempted = forwardToCommunityMachine(context, body).sent
     await hooks.clearRuntimeErrorOverlay().catch(() => { })
     return new Response(JSON.stringify({ attempted, sent: attempted }), {
       headers: { "Content-Type": "application/json" },
@@ -162,7 +171,7 @@ export async function handleMachineControlFetch(
     if (!command.success) {
       return new Response(JSON.stringify({ attempted: 0 }), { status: 400 })
     }
-    const attempted = forwardToCommunityMachine(context, JSON.stringify(command.data))
+    const attempted = forwardToCommunityMachine(context, JSON.stringify(command.data)).sent
     return new Response(JSON.stringify({ attempted, sent: attempted }), {
       headers: { "Content-Type": "application/json" },
     })
@@ -263,16 +272,18 @@ function rejectCommunityMachine(ws: WebSocket, reason: string): void {
   try { ws.close(1008, "Unauthorized") } catch { /* ok */ }
 }
 
-function forwardToCommunityMachine(context: WsDurableContext, message: string): number {
+function forwardToCommunityMachine(context: WsDurableContext, message: string, requireModelDiscovery = false): { sent: number; unsupported: number } {
   let sent = 0
+  let unsupported = 0
   for (const ws of context.ctx.getWebSockets()) {
     const state = ws.deserializeAttachment() as ConnectionState
     if (state?.type === "community-machine" && state.authenticated) {
+      if (requireModelDiscovery && !state.modelDiscovery) { unsupported++; continue }
       try {
         ws.send(message)
         sent++
       } catch { /* ok */ }
     }
   }
-  return sent
+  return { sent, unsupported }
 }
