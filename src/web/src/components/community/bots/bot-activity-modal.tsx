@@ -1,19 +1,18 @@
 "use client"
 
-import { useCallback, useLayoutEffect, useMemo, useRef } from "react"
+import { useCallback, useLayoutEffect, useMemo } from "react"
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
-import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual"
+import { useVirtualizer } from "@tanstack/react-virtual"
 import { useVirtualCursorPagination } from "@/hooks/community/use-virtual-cursor-pagination"
 import { AgentAvatar } from "@/components/avatar"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { useCanonicalCommunityProfile } from "@/lib/community-db/projections"
-import {
-  useBotAuditLog,
-  type AuditEvent,
-} from "@/hooks/community/use-bot-audit-log"
+import { useBotAuditLog } from "@/hooks/community/use-bot-audit-log"
 import type { BotSummary } from "@/hooks/community/use-bots"
 import { tid } from "@/lib/community/testids"
 import { BotActivityRow } from "./bot-activity-row"
+
+const DAY_DIVIDER_HEIGHT = 33
 
 export function BotActivityModal({
   bot,
@@ -55,7 +54,10 @@ export function BotActivityModal({
     })
   }, [events])
 
-  const rows = useMemo(() => flattenActivityRows(chronological, bot?.id ?? ""), [chronological, bot?.id])
+  const dateAfter = useMemo(() => chronological.map((event, index) => {
+    const next = chronological[index + 1]
+    return next && dayKey(next.createdAt) !== dayKey(event.createdAt) ? next.createdAt : null
+  }), [chronological])
   const [scrollRoot, setScrollRoot] = useAtom(useCreateAtom<HTMLDivElement | null>(null))
   const [initialized, setInitialized] = useAtom(useCreateAtom(false))
   const setLogBody = useCallback((element: HTMLDivElement | null) => {
@@ -66,29 +68,19 @@ export function BotActivityModal({
     }
     setScrollRoot(element)
   }, [setScrollRoot])
-  const stickyIndexes = useMemo(() => rows.flatMap((row, index) => row.kind === "date" ? [index] : []), [rows])
-  const activeStickyIndexRef = useRef<number | null>(null)
-  const getItemKey = useCallback((index: number) => rows[index].key, [rows])
-  const estimateSize = useCallback((index: number) => rows[index].kind === "date" ? 24 : 44, [rows])
-  const rangeExtractor = useCallback((range: Range) => {
-    const active = [...stickyIndexes].reverse().find((index) => index <= range.startIndex) ?? null
-    activeStickyIndexRef.current = active
-    return [...new Set([
-      ...(active === null ? [] : [active]),
-      ...defaultRangeExtractor(range),
-    ])].sort((a, b) => a - b)
-  }, [stickyIndexes])
+  const getItemKey = useCallback((index: number) => `${bot?.id ?? ""}:event:${chronological[index].id}`, [chronological, bot?.id])
+  const estimateSize = useCallback((index: number) => 44 + (dateAfter[index] ? DAY_DIVIDER_HEIGHT : 0), [dateAfter])
   // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
   const virtualizer = useVirtualizer({
     useFlushSync: false,
-    count: rows.length,
+    count: chronological.length,
     getScrollElement: () => scrollRoot,
     getItemKey,
     estimateSize,
-    rangeExtractor,
     anchorTo: "end",
     followOnAppend: initialized,
     scrollEndThreshold: 80,
+    paddingStart: DAY_DIVIDER_HEIGHT,
     paddingEnd: 12,
     overscan: 8,
     enabled: scrollRoot !== null,
@@ -104,19 +96,16 @@ export function BotActivityModal({
     setInitialized(true)
   })
   const virtualItems = virtualizer.getVirtualItems()
-  const range = virtualizer.range
-  const paginationItems = useMemo(() => {
-    if (!range) return []
-    const indexes = new Set(defaultRangeExtractor({ ...range, count: rows.length, overscan: virtualizer.options.overscan }))
-    return virtualItems.filter(item => indexes.has(item.index))
-  }, [range, rows.length, virtualItems, virtualizer])
-  const paginationVirtualizer = useMemo(() => ({ getVirtualItems: () => paginationItems }), [paginationItems])
+  const visibleOffset = (virtualizer.scrollOffset ?? 0) + DAY_DIVIDER_HEIGHT
+  const visibleItem = virtualItems.find(item => item.end - (dateAfter[item.index] ? DAY_DIVIDER_HEIGHT : 0) > visibleOffset)
+    ?? virtualItems.at(-1)
+  const visibleEvent = chronological[visibleItem?.index ?? 0]
   const loadOlder = useCallback(() => {
     void fetchNextPage({ cancelRefetch: false })
   }, [fetchNextPage])
   useVirtualCursorPagination({
-    virtualizer: paginationVirtualizer,
-    count: rows.length,
+    virtualizer,
+    count: chronological.length,
     enabled: open && initialized && Boolean(scrollRoot?.clientHeight),
     hasMore: hasNextPage,
     isFetching: isFetching || isFetchingNextPage,
@@ -170,26 +159,29 @@ export function BotActivityModal({
         <EmptyState />
       ) : (
         <div style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
-          {virtualizer.getVirtualItems().map((virtualRow) => {
-            const row = rows[virtualRow.index]
-            const sticky = row.kind === "date" && virtualRow.index === activeStickyIndexRef.current
+          <div className="sticky top-0 z-10" data-activity-sticky-date={dayKey(visibleEvent.createdAt)}>
+            <DayDivider date={visibleEvent.createdAt} />
+          </div>
+          {virtualItems.map((virtualRow) => {
+            const event = chronological[virtualRow.index]
+            const nextDate = dateAfter[virtualRow.index]
             return (
               <div
                 key={virtualRow.key}
                 ref={virtualizer.measureElement}
                 data-index={virtualRow.index}
-                data-activity-row-key={row.key}
-                data-activity-event-id={row.kind === "event" ? row.event.id : undefined}
+                data-activity-row-key={virtualRow.key}
+                data-activity-event-id={event.id}
                 style={{
-                  position: sticky ? "sticky" : "absolute",
+                  position: "absolute",
                   top: 0,
                   left: 0,
                   width: "100%",
-                  zIndex: row.kind === "date" ? 10 : undefined,
-                  transform: sticky ? undefined : `translateY(${virtualRow.start}px)`,
+                  transform: `translateY(${virtualRow.start}px)`,
                 }}
               >
-                {row.kind === "event" ? <BotActivityRow event={row.event} /> : <DayDivider label={row.label} />}
+                <BotActivityRow event={event} />
+                {nextDate && <DayDivider date={nextDate} />}
               </div>
             )
           })}
@@ -199,11 +191,15 @@ export function BotActivityModal({
   )
 }
 
-function DayDivider({ label }: { label: string }) {
+function DayDivider({ date }: { date: string }) {
   return (
-    <div className="border-b border-border/40 bg-background/95 px-4 py-1 backdrop-blur supports-backdrop-filter:bg-background/80">
+    <div
+      data-activity-date={dayKey(date)}
+      className="border-b border-border/40 bg-background/95 px-4 py-1 backdrop-blur supports-backdrop-filter:bg-background/80"
+      style={{ height: DAY_DIVIDER_HEIGHT }}
+    >
       <span className="font-mono text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-        {label}
+        {formatDayLabel(date)}
       </span>
     </div>
   )
@@ -235,25 +231,6 @@ function EmptyState() {
       </p>
     </div>
   )
-}
-
-type ActivityRow =
-  | { kind: "date"; key: string; label: string }
-  | { kind: "event"; key: string; event: AuditEvent }
-
-function flattenActivityRows(events: AuditEvent[], botId: string): ActivityRow[] {
-  if (events.length === 0) return []
-  const rows: ActivityRow[] = []
-  let previousDay: string | undefined
-  for (const event of events) {
-    const key = dayKey(event.createdAt)
-    if (key !== previousDay) {
-      rows.push({ kind: "date", key: `${botId}:date:${key}`, label: formatDayLabel(event.createdAt) })
-      previousDay = key
-    }
-    rows.push({ kind: "event", key: `${botId}:event:${event.id}`, event })
-  }
-  return rows
 }
 
 function dayKey(iso: string): string {
