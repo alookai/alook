@@ -15,6 +15,18 @@ beforeEach(() => { load.mockReset() })
 import { conversationEntryFixture as entry, conversationEntryTarget as target, dmConversationEntryFixture, forumConversationEntryFixture } from "@/test/conversation-entry-fixtures"
 
 describe("conversation entry canonical publication", () => {
+  it("keeps one failed DM verification attempt local until an explicit retry", async () => {
+    const { client } = await createCommunityQueryOwner()
+    const temporary = new ApiError("temporary", 503)
+    const missing = new ApiError("missing", 404)
+    load.mockRejectedValueOnce(temporary).mockRejectedValueOnce(missing)
+    const options = conversationEntryOptions(client, { channelId: "missing-dm", serverId: null })
+    await expect(client.query({ ...options, select: undefined })).rejects.toBe(temporary)
+    expect(load).toHaveBeenCalledOnce()
+    await expect(client.query({ ...options, select: undefined })).rejects.toBe(missing)
+    expect(load).toHaveBeenCalledTimes(2)
+  })
+
   it("publishes and reuses the actual forum window without a second messages or threads body cache", async () => {
     const { client, registry } = await createCommunityQueryOwner()
     load.mockResolvedValue(forumConversationEntryFixture())

@@ -217,7 +217,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   const queryClient = useQueryClient()
   const origin = useCommunityMutationOrigin()
   const source = useCommunityViewSource("machine-list")
-  const { machines, data: machinesData, isLoading: queryLoading, isError: queryError, isFetching: retryingMachines, refetch: retryMachines } = useMachines()
+  const { machines, capacityPending, data: machinesData, isLoading: queryLoading, isError: queryError, isFetching: retryingMachines, refetch: retryMachines } = useMachines()
   const machinesLoading = queryLoading || machinesData?.complete === false && machines.length === 0
   useObservedRegion("machines", machinesData !== undefined && machinesData.complete !== false, machines.length, { snapshot_source: machinesData?.source ?? "unknown", target_coverage: machinesData ? "covered" : "uncovered", wait_reason: machinesLoading ? "entry" : "none" })
   const capacity = machinesData?.machineCapacity ?? null
@@ -423,6 +423,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
               data-onboarding-target="connect-machine"
               data-testid={tid.machinePairOpen}
               onClick={openPair}
+              disabled={capacityPending}
             >
               Connect a machine
             </Button>
@@ -482,6 +483,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
                 data-testid={tid.machinePairOpen}
                 className="min-h-11 w-full sm:min-h-9 sm:w-auto"
                 onClick={openPair}
+              disabled={capacityPending}
               >
                 Connect a machine
               </Button>

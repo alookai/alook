@@ -195,7 +195,7 @@ test.describe("desktop system notifications", () => {
     const pending = new Promise<void>((resolve) => { release = resolve })
     caseResources.own(release, async (captured) => { captured() })
     let permissionHeld = false
-    await bob.page.route(`**/api/community/channels/${channelId}`, async route => {
+    await bob.page.route(url => url.pathname === `/api/community/channels/${channelId}/messages` && url.searchParams.get("entry") === "1", async route => {
       permissionHeld = true
       await pending
       permissionHeld = false

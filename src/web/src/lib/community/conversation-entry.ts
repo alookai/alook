@@ -191,7 +191,7 @@ export function conversationEntryOptions(client: QueryClient, target: Conversati
       return findConversationEntryWindow(client, target, resource, pointer) ? Infinity : 0
     },
     gcTime: typeof window === "undefined" ? Infinity : 5 * 60 * 1000,
-    retry: retryConversationRead,
+    retry: target.serverId === null ? false : retryConversationRead,
     retryOnMount: false,
     networkMode: "always",
   })

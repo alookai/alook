@@ -47,7 +47,7 @@ type RouteTarget = {
   channelId: string
   searchParams: URLSearchParams
   routeCommitted: boolean
-  entryIntent?: { href: string } | null
+  anchorMessageId: string | null
   routeModel: ReturnType<typeof useChannelRouteModel>
   currentUser: ReturnType<typeof useCurrentUser>
 }
@@ -65,12 +65,22 @@ export function ChannelRoute({ serverParam, channelId, targetHref, routeCommitte
   const currentUser = useCurrentUser()
   const { navigation } = useCommunityRouteFrame()
   const entryIntent = navigation.entryIntent && normalizeCommunityHref(navigation.entryIntent.href).pathname === channelHref(serverParam, channelId) ? navigation.entryIntent : null
-  const anchorMessageId = entryIntent ? new URLSearchParams(normalizeCommunityHref(entryIntent.href).search).get("msg") : searchParams.get("msg")
+  const routeAnchorMessageId = searchParams.get("msg")
+  const intentAnchorMessageId = entryIntent ? new URLSearchParams(normalizeCommunityHref(entryIntent.href).search).get("msg") : undefined
+  const scope = JSON.stringify([currentUser.id, serverId, channelId])
+  const [captured, setCaptured] = useAtom(useCreateAtom({ scope, anchorMessageId: routeAnchorMessageId }))
+  const anchorMessageId = intentAnchorMessageId !== undefined ? intentAnchorMessageId
+    : routeAnchorMessageId ?? (captured.scope === scope ? captured.anchorMessageId : null)
+  useLayoutEffect(() => {
+    if (!entryIntent && routeAnchorMessageId === null && routeCommitted && captured.scope === scope) return
+    const next = intentAnchorMessageId !== undefined ? intentAnchorMessageId : routeAnchorMessageId
+    setCaptured(current => current.scope === scope && current.anchorMessageId === next ? current : { scope, anchorMessageId: next })
+  }, [scope, captured.scope, entryIntent, intentAnchorMessageId, routeAnchorMessageId, routeCommitted, setCaptured])
   const routeModel = useChannelRouteModel(serverId, serverParam, channelId, currentUser.id, anchorMessageId)
   return <ChannelRouteFrame key={JSON.stringify([currentUser.id, serverId])}
     serverId={serverId} serverParam={serverParam} channelId={channelId}
     searchParams={searchParams} routeCommitted={routeCommitted}
-    routeModel={routeModel} entryIntent={entryIntent} currentUser={currentUser} />
+    routeModel={routeModel} anchorMessageId={anchorMessageId} currentUser={currentUser} />
 }
 
 function ChannelRouteFrame(target: RouteTarget) {
@@ -94,7 +104,8 @@ function ChannelRouteFrame(target: RouteTarget) {
   const onParentIdentity = useCallback((id: string, confirmed: boolean) => {
     setParentIdentity((current) => current?.id === id && current.confirmed === confirmed ? current : { id, confirmed })
   }, [setParentIdentity])
-  const resolvingParent = split && (!parent || parentIdentity?.id !== parent.id || !parentIdentity.confirmed)
+  const resolvingParent = split && routeModel.routeLifecycle !== "ready" &&
+    (!parent || parentIdentity?.id !== parent.id || !parentIdentity.confirmed)
   const channelRefCandidates = useMemo(() => server?.categories
     .flatMap((category) => category.channels)
     .map((channel) => toChannelRefCandidate(server, channel)) ?? [], [server])
@@ -138,21 +149,14 @@ function QualifiedThreadSurface({ routeLifecycle, ...props }: ComponentProps<typ
 }
 
 function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, routeCommitted,
-  routeModel, entryIntent, currentUser, split, resolvingParent, onOpenChild }: RouteTarget & {
+  routeModel, anchorMessageId, currentUser, split, resolvingParent, onOpenChild }: RouteTarget & {
   split: boolean
   resolvingParent: boolean
   onOpenChild: (id: string) => void
 }) {
   const router = useRouter()
-  const [jumpTargetId, setJumpTargetId] = useAtom(useCreateAtom<string | null>((() => searchParams.get("msg"))()))
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
-  const routeAnchorMessageId = searchParams.get("msg")
-  const intentAnchorMessageId = entryIntent ? new URLSearchParams(normalizeCommunityHref(entryIntent.href).search).get("msg") : undefined
-  const currentAnchorMessageId = intentAnchorMessageId !== undefined ? intentAnchorMessageId : routeAnchorMessageId ?? jumpTargetId
-  useLayoutEffect(() => {
-    if (entryIntent) setJumpTargetId(intentAnchorMessageId ?? null)
-    else if (routeAnchorMessageId !== null || !routeCommitted) setJumpTargetId(routeAnchorMessageId)
-  }, [entryIntent, intentAnchorMessageId, routeAnchorMessageId, routeCommitted, setJumpTargetId])
+  const currentAnchorMessageId = anchorMessageId
   const uiHandlers = useUiHandlers()
   const currentChannelId = useCurrentChannelId()
   const {
@@ -244,7 +248,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
   }, [channelId, setChannelNotif])
 
   useEffect(() => {
-    if (!routeCommitted || !jumpTargetId || !searchParams.has("msg") || searchParams.has(THREAD_OPENER_HANDOFF_PARAM)) return
+    if (!routeCommitted || !anchorMessageId || !searchParams.has("msg") || searchParams.has(THREAD_OPENER_HANDOFF_PARAM)) return
     const search = searchParams.toString()
     const routePath = channelHref(serverParam, channelId)
     const href = `${routePath}${search ? `?${search}` : ""}`
@@ -252,7 +256,7 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
       removeCommunityParam(href, "msg"),
       { scroll: false },
     )
-  }, [channelId, jumpTargetId, routeCommitted, router, searchParams, serverParam])
+  }, [channelId, anchorMessageId, routeCommitted, router, searchParams, serverParam])
   const openThreadFullscreen = useCallback(() => {
     uiHandlers.cancelPendingNavigation?.()
     const params = new URLSearchParams(searchParams.toString())
@@ -266,23 +270,22 @@ function ChannelTargetPane({ serverId, serverParam, channelId, searchParams, rou
 
   const channelReadReady =
     routeModel.routeLifecycle === "ready" &&
-    currentChannelId === channelId &&
-    routeModel.routeHydrated &&
     routeModel.routeHydrated
   const channelHydrated = !resolvingParent && routeCommitted && channelReadReady &&
     (!isForumPostChild || (!forumPostOpener.isLoading && !openerError))
+  const clientReady = channelHydrated && currentChannelId === channelId
   useNativeSystemNotificationConversationDismissal(currentUser.id, {
     kind: "server",
     serverId,
     channelId,
-  }, channelHydrated)
+  }, clientReady)
   // Route memory is an access-bearing navigation decision. Structural hints
   // can choose the skeleton, but only live data plus the current access gate
   // may commit the destination for a later cold entry.
   useEffect(() => {
-    if (!channelHydrated) return
+    if (!clientReady) return
     commitCommunityChannelRoute(currentUser.id, serverId, channelId)
-  }, [channelHydrated, channelId, currentUser.id, serverId])
+  }, [clientReady, channelId, currentUser.id, serverId])
   const subtype = resolveConversationSubtype({
     routeLifecycle: routeModel.routeLifecycle,
     accessAllowed: routeModel.routeHydrated,

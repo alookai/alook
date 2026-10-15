@@ -20,6 +20,7 @@ import {
   type ChannelRefPopupState,
 } from "@/lib/community/channel-ref-extension"
 import type { Member } from "@/lib/community/models/people"
+import { isAbortError } from "@/lib/errors"
 import type {
   ChannelRefCandidateSource,
   MentionCandidateSource,
@@ -189,7 +190,9 @@ export function useComposerSuggestions({
 
   const resetPopups = useCallback((editor = editorRef.current, exit = true) => {
     if (editor && editorRef.current !== editor) return
-    if (mentionQueryRef.current || mentionPopupRef.current.command) onSearchMembersRef.current?.("")
+    if (mentionQueryRef.current || mentionPopupRef.current.command) {
+      try { onSearchMembersRef.current?.("") } catch (error) { if (!isAbortError(error)) throw error }
+    }
     publishMention(EMPTY_MENTION_STATE)
     publishChannelRef(EMPTY_CHANNEL_REF_STATE)
     if (!exit || !editor || editor.isDestroyed) return
@@ -208,6 +211,9 @@ export function useComposerSuggestions({
     if (!current.command) return
     const query = mentionQueryRef.current
     const remoteSearchReady = !query || !mentionCandidates?.search || mentionCandidates.searchQuery === query
+    if (!remoteSearchReady) {
+      try { mentionCandidates?.search?.(query) } catch (error) { if (!isAbortError(error)) throw error }
+    }
     const items = rankMentionItems(
       remoteSearchReady ? members : [],
       context,

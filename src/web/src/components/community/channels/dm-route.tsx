@@ -6,6 +6,7 @@ import { DmView } from "./dm-view"
 import { DmRouteErrorFrame } from "./dm-route-error-frame"
 import { DmLoadingFrame } from "./dm-loading-frame"
 import { useChannelMetadata } from "@/hooks/community/use-channel-metadata"
+import { useDmProjection } from "@/lib/community-db/projections"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { useCommunityRuntime } from "@/stores/community/runtime"
@@ -23,9 +24,10 @@ export function DmRoute({ dmId }: { dmId: string }) {
   const currentUser = useCurrentUser()
   const breakpoint = useBreakpoint()
   const verification = useChannelMetadata(null, dmId)
+  const knownDm = useDmProjection()?.some(dm => dm.id === dmId) === true
   const exitedTarget = useRef<string | null>(null)
   useEffect(() => {
-    if (verification.status !== "denied" || verification.identityKnown) return
+    if (verification.status !== "denied" || verification.identityKnown || knownDm) return
     const target = JSON.stringify([currentUser.id, dmId])
     if (exitedTarget.current === target) return
     exitedTarget.current = target
@@ -36,13 +38,13 @@ export function DmRoute({ dmId }: { dmId: string }) {
     if (getLastMeLeaf() === dmId) clearLastMeLocation()
     runtime.ui.get().uiHandlers.cancelPendingNavigation?.()
     router.replace(destination)
-  }, [currentUser.id, dmId, router, runtime, verification.status, verification.identityKnown])
+  }, [currentUser.id, dmId, router, runtime, verification.status, verification.identityKnown, knownDm])
 
-  if (verification.status === "retryable-error" && !verification.identityKnown) {
+  if (verification.status === "retryable-error" && !verification.identityKnown && !knownDm) {
     return <DmRouteErrorFrame onRetry={verification.retry} retrying={verification.retrying}
       reserveBackSlot={breakpoint === "mobile"} />
   }
-  if (!verification.identityKnown && verification.status !== "readable") {
+  if (!verification.identityKnown && !knownDm && verification.status !== "readable") {
     return <DmLoadingFrame reserveBackSlot={breakpoint === "mobile"} />
   }
   return <DmView dmId={dmId} />

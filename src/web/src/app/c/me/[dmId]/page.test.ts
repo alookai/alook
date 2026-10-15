@@ -10,7 +10,7 @@ describe("DM page loading ownership", () => {
     expect(source).not.toContain("currentChannelMatches")
     expect(source).not.toContain("readSnapshotFetching ||\n      messagesLoading")
     expect(source).toContain("useDmMessages(dmId")
-    expect(source).toContain("if (!metadata.revoked && !metadata.denied && !dmBlocked && navigationBlocked && !initialLoadError")
+    expect(source).toContain("if (!dm && !metadata.revoked && !metadata.denied && !dmBlocked && navigationBlocked && !initialLoadError")
     expect(source).toContain('metadata.status === "retryable-error"')
     expect(source).toContain("if (loadingOwnership.fullFramePending)")
     expect(source).toContain("<DmHeader\n")

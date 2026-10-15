@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { createElement, type PropsWithChildren } from "react"
 import { QueryClientProvider } from "@tanstack/react-query"
-import { act, renderHook, waitFor } from "@/test/react-dom-harness"
+import { act, render, renderHook, waitFor } from "@/test/react-dom-harness"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
-import { conversationEntryFixture as fixture, conversationEntryTarget as target } from "@/test/conversation-entry-fixtures"
+import { conversationEntryFixture as fixture, dmConversationEntryFixture, conversationEntryTarget as target } from "@/test/conversation-entry-fixtures"
 import { CommunityDbProvider } from "@/lib/community-db/projections"
 import { captureCommunityLiveSnapshotToken, ingestReadStateSnapshot } from "@/lib/community-db/sync"
 import { conversationEntryOptions, publishConversationEntry } from "@/lib/community/conversation-entry"
@@ -11,6 +11,8 @@ import { communityKeys } from "@/lib/query-keys"
 import { ConversationReadTimeoutError } from "@/lib/community/conversation-read"
 import { CommunityRouteContext } from "@/contexts/community/route-frame"
 import { useConversationEntry } from "./use-conversation-entry"
+import { useChannelMetadata } from "./use-channel-metadata"
+import { useDmMessages } from "./use-messages"
 
 const load = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/api/client", async (original) => ({ ...await original<typeof import("@/lib/api/client")>(), apiFetch: (...args: unknown[]) => load(...args) }))
@@ -36,6 +38,32 @@ async function setup() {
 }
 
 describe("conversation entry selection", () => {
+  it("shares one returned-DM read between metadata and the subsequently mounted body", async () => {
+    const { wrapper: Owner, registry, client } = await setup()
+    const dmTarget = { channelId: "c1", serverId: null }
+    const old = dmConversationEntryFixture()
+    const oldResource = publishConversationEntry(client, dmTarget, old, { token: captureCommunityLiveSnapshotToken(client, "c1") })
+    client.setQueryData(conversationEntryOptions(client, dmTarget).queryKey, oldResource)
+    ingestReadStateSnapshot(registry, { revision: 6, readStates: [{ channelId: "c1", lastReadMessageId: "m2", lastReadSeq: 2, lastReadAt: "later" }] })
+    const next = dmConversationEntryFixture()
+    next.readState = { ...next.readState, lastReadMessageId: "m2", lastReadSeq: 2 }
+    next.readStateRevision = 6
+    next.selection = { reason: "read_pointer", anchorMessageId: "m2" }
+    next.messages = [{ ...next.messages[0], id: "m2", seq: 2 }]
+    load.mockResolvedValue(next)
+    const navigation = { entryIntent: { href: "/c/me/c1" } }
+    let body!: ReturnType<typeof useDmMessages>
+    function Body() { body = useDmMessages("c1"); return null }
+    function Route() {
+      const metadata = useChannelMetadata(null, "c1")
+      return metadata.canRead ? createElement(Body) : null
+    }
+    const view = render(createElement(Owner, null, createElement(CommunityRouteContext, { value: { navigation } as never }, createElement(Route))))
+    await waitFor(() => expect(body?.messages.map(message => message.id)).toContain("m2"))
+    expect(load).toHaveBeenCalledOnce()
+    view.unmount()
+  })
+
   it("resolves a cold main window and freezes NEW from the single entry GET", async () => {
     const { wrapper } = await setup()
     const transport = deferred<ReturnType<typeof fixture>>()

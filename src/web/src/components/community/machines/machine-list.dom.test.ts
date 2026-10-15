@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
   fetchLatestDaemonVersion: vi.fn(),
   machinesLoading: { current: false },
+  capacityPending: { current: false },
   machinesError: { current: false },
   retryMachines: vi.fn(),
   capacity: { current: { plan: { id: "free", displayName: "Free" }, isFounder: false, limit: 1, ownedCount: 0, onlineCount: 0 } },
@@ -84,7 +85,7 @@ vi.mock("./pair-machine-sheet", () => ({ PairMachineSheet: ({ open, onLimitReach
 vi.mock("@/components/community/onboarding-tiles/connect-tile", () => ({ ConnectTile: () => null }))
 vi.mock("@/hooks/community/use-machines", async (importOriginal) => ({ ...await importOriginal<typeof import("@/hooks/community/use-machines")>(),
   machinesQueryFn: mocks.query,
-  useMachines: () => ({ machines: mocks.machines.current, isLoading: mocks.machinesLoading.current, isError: mocks.machinesError.current, isFetching: false, refetch: mocks.retryMachines, data: mocks.machinesError.current ? undefined : { machineCapacity: mocks.capacity.current } }),
+  useMachines: () => ({ machines: mocks.machines.current, isLoading: mocks.machinesLoading.current, isError: mocks.machinesError.current, isFetching: false, capacityPending: mocks.capacityPending.current, refetch: mocks.retryMachines, data: mocks.machinesError.current ? undefined : { machineCapacity: mocks.capacityPending.current ? undefined : mocks.capacity.current } }),
 }))
 vi.mock("@/hooks/community/use-bots", () => ({ useBots: () => ({ bots: [] }) }))
 vi.mock("@/stores/community", async (importOriginal) => ({ ...await importOriginal<typeof import("@/stores/community")>(),
@@ -142,6 +143,7 @@ describe("machine daemon update UI", () => {
       version: "0.1.8",
       package: "@alook/daemon",
     })
+    mocks.capacityPending.current = false
     mocks.machinesLoading.current = false
     mocks.machinesError.current = false
     mocks.machines.current = []
@@ -167,6 +169,21 @@ describe("machine daemon update UI", () => {
     window.history.replaceState(null, "", "/c/me/machines?keep=1")
     fireEvent.click(view.getByRole("button", { name: "View plan" }))
     expect(window.location.search).toBe("?keep=1&settings=billing")
+  })
+
+  it("waits for the initial allowance before the Connect action becomes available", () => {
+    mocks.capacityPending.current = true
+    const view = render(React.createElement(MachineList))
+    const action = view.getByRole("button", { name: "Connect a machine" })
+    expect(action).toBeDisabled()
+    fireEvent.click(action)
+    expect(mocks.toastError).not.toHaveBeenCalled()
+    expect(view.queryByTestId("test-pair-sheet")).not.toBeInTheDocument()
+    mocks.capacityPending.current = false
+    view.rerender(React.createElement(MachineList))
+    expect(action).toBeEnabled()
+    fireEvent.click(action)
+    expect(view.getByTestId("test-pair-sheet")).toBeInTheDocument()
   })
 
   it("opens pairing when there is room", () => {

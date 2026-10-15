@@ -105,7 +105,7 @@ function scrubDehydratedClient(
   for (const q of client.clientState.queries) {
     if (userId) {
       const data = persistentCommunityListResource(q.queryKey, q.state.data)
-      if (data) queries.push({ ...q, state: { ...q.state, data, dataUpdatedAt: 0 } })
+      if (data) queries.push({ ...q, state: { ...q.state, data } })
     }
     if (isCommunityDbCollectionKey(q.queryKey)) {
       if (!userId || q.queryKey[2] !== userId) continue

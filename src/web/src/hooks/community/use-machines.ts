@@ -24,6 +24,7 @@ export const machinesQueryFn = machinesOptions().queryFn!
 
 export function useMachines(options?: Pick<UseQueryOptions<MachinesResponse>, "subscribed" | "refetchInterval"> & { enabled?: boolean }): UseQueryResult<MachinesResponse> & {
   machines: MachineSummary[]
+  capacityPending: boolean
 } {
   const query = useQuery({
     ...machinesOptions(),
@@ -38,5 +39,5 @@ export function useMachines(options?: Pick<UseQueryOptions<MachinesResponse>, "s
     ? observations.data?.machineCapacity
     : undefined
   const data = useMemo(() => query.data ? { ...query.data, machines, ...(capacity ? { machineCapacity: { ...capacity, ownedCount: machines.length, onlineCount: machines.filter(machine => isPresenceOnline(machine.status)).length } } : {}) } : undefined, [query.data, machines, capacity])
-  return { ...query, data, machines } as UseQueryResult<MachinesResponse> & { machines: MachineSummary[] }
+  return { ...query, data, machines, capacityPending: !capacity && observations.isPending && !observations.isError } as UseQueryResult<MachinesResponse> & { machines: MachineSummary[]; capacityPending: boolean }
 }

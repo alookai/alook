@@ -412,7 +412,7 @@ export function DmView({ dmId }: { dmId: string }) {
     channelId: dmId,
   }, routeReady)
 
-  if (!metadata.revoked && !metadata.denied && !dmBlocked && navigationBlocked && !initialLoadError && metadata.status !== "retryable-error") {
+  if (!dm && !metadata.revoked && !metadata.denied && !dmBlocked && navigationBlocked && !initialLoadError && metadata.status !== "retryable-error") {
     return <DmLoadingFrame reserveBackSlot={bp === "mobile"} />
   }
 

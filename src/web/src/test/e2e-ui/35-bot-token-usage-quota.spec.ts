@@ -335,6 +335,8 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
   const quota = page.getByTestId(tid.machineQuota(machine.id))
   const updateExtension = page.getByTestId(tid.userBarExtension)
   await expect(quota).toHaveCount(1)
+  await page.keyboard.press("Escape")
+  await page.getByTestId(tid.daemonUpdateBadge).click()
   await expect(updateExtension).toHaveAttribute("data-extension", "update")
   await expect(quota).toHaveAttribute(
     "aria-label",

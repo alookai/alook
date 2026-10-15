@@ -13,7 +13,7 @@ export function FriendsPageSkeleton({
     >
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-4">
         {reserveBackSlot && (
-          <Skeleton data-slot="loading-back-placeholder" aria-hidden className="size-8 shrink-0 rounded-md" />
+          <Skeleton data-slot="loading-back-placeholder" aria-hidden className="size-7 shrink-0 rounded-md sm:hidden" />
         )}
         <div aria-hidden className="inline-flex h-8 items-center gap-1 p-0.75 text-muted-foreground">
           <span className="inline-flex h-[calc(100%-1px)] items-center px-2 py-1 text-sm font-medium">All</span>

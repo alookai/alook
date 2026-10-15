@@ -16,10 +16,12 @@ export function useInitialPositionTransition({
   firstWindowReady,
   authoritativeEmpty,
   positionSettled,
+  documentWindowReady = false,
 }: {
   firstWindowReady: boolean
   authoritativeEmpty: boolean
   positionSettled: boolean
+  documentWindowReady?: boolean
 }) {
   const initiallyRevealed = firstWindowReady && (authoritativeEmpty || positionSettled)
   const [phase, setPhase] = useAtom(useCreateAtom<InitialPositionPhase>(useMemo<InitialPositionPhase>(() => (
@@ -69,7 +71,7 @@ export function useInitialPositionTransition({
   return {
     phase: renderedPhase,
     showSkeleton: renderedPhase === "skeleton",
-    contentVisible: (authoritativeEmpty || positionSettled)
+    contentVisible: firstWindowReady && documentWindowReady || (authoritativeEmpty || positionSettled)
       && (renderedPhase === "revealing" || renderedPhase === "revealed"),
     contentInteractive: (authoritativeEmpty || positionSettled)
       && (renderedPhase === "revealing" || renderedPhase === "revealed"),

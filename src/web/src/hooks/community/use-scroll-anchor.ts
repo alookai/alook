@@ -302,6 +302,8 @@ export function useScrollAnchor({
   // eslint-disable-next-line react-hooks/incompatible-library -- supported TanStack Virtual imperative adapter
   const virtualizer = useVirtualizer({
     ...COMMUNITY_VIRTUALIZER_REACT_OPTIONS,
+    directDomUpdates: false,
+    initialRect: { width: 0, height: items.reduce((size, item) => size + estimateRowHeight(item, !!hasMoreOlder), shortGap + tailPaddingEnd) },
     count: items.length,
     getScrollElement: () => scrollRef.current,
     estimateSize,
@@ -324,6 +326,7 @@ export function useScrollAnchor({
     onChange: () => { refreshPendingPageAnchor(); reconcileViewportRef.current(); scheduleGeometryRef.current() },
   })
   virtualizerRef.current = virtualizer
+  useLayoutEffect(() => { refreshPendingPageAnchor() })
   useLayoutEffect(() => { hadMessagesRef.current = hasMessages }, [hasMessages])
   useLayoutEffect(() => {
     const anchor = olderMeasurementAnchorRef.current

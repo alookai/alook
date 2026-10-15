@@ -22,6 +22,7 @@ import {
 } from "./_fixtures/scroll-trace"
 import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
+import { readCommunityDocumentSeedFromHtml } from "./_fixtures/community-ssr-frame"
 
 const VIEWPORT = { width: 1280, height: 800 }
 
@@ -596,7 +597,8 @@ test.describe("message scroll characterization", () => {
       "**/icon-512.png?scroll-trace=1",
       () => true,
     )
-    await alice.page.goto(`/c/channels/${serverId}/${coldChannelId}`, { waitUntil: "commit" })
+    await alice.page.goto(`/c/channels/${serverId}`, { waitUntil: "commit" })
+    await alice.page.getByTestId(tid.channelRow(coldChannelId)).click()
     const initialUrl = await initialMessages.matched
     expect(initialUrl.searchParams.has("anchor")).toBe(false)
     const scroller = alice.page.getByTestId(tid.messageScroller)
@@ -642,7 +644,8 @@ test.describe("message scroll characterization", () => {
       `**/api/community/channels/${coldChannelId}/messages**`,
       () => true,
     )
-    await mobile.page.goto(`/c/channels/${serverId}/${coldChannelId}`, { waitUntil: "commit" })
+    await mobile.page.goto(`/c/channels/${serverId}`, { waitUntil: "commit" })
+    await mobile.page.getByTestId(tid.channelRow(coldChannelId)).click()
     await mobileInitialMessages.matched
     await expect(mobile.page.getByTestId(tid.messageScroller)
       .locator('[data-slot="skeleton"]').first()).toBeVisible({ timeout: 20_000 })
@@ -817,16 +820,16 @@ test.describe("message scroll characterization", () => {
     alice.page.on("request", request => {
       if (request.method() === "POST" && new URL(request.url()).pathname === `/api/community/channels/${channelId}/messages`) composerPosts += 1
     })
-    const anchorResponse = alice.page.waitForResponse(response => response.request().method() === "GET"
-      && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`
-      && new URL(response.url()).searchParams.has("anchor"))
+    const anchorResponse = alice.page.waitForResponse(response => response.request().isNavigationRequest()
+      && new URL(response.url()).pathname === `/c/channels/${serverId}/${channelId}`)
     await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${channelId}`)
     const scroller = alice.page.getByTestId(tid.messageScroller)
     await expect(scroller.locator('[data-message-list-content]')).toHaveAttribute("data-read-position-ready", "true")
     const anchored = await anchorResponse
     expect(anchored.status()).toBe(200)
-    const anchorPage = await anchored.json() as { page: { hasMoreNewer: boolean } }
-    expect(anchorPage.page.hasMoreNewer).toBe(true)
+    const anchorPage = readCommunityDocumentSeedFromHtml(await anchored.text()).entries.find(entry => entry.target.channelId === channelId)
+    expect(anchorPage?.data.selection.reason).toBe("read_pointer")
+    expect(anchorPage?.data.page.hasMoreNewer).toBe(true)
     let newestGets = 0
     alice.page.on("request", request => {
       const url = new URL(request.url())

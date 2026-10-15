@@ -5,6 +5,7 @@ import { CommunityTestProvider } from "@/test/community-owner-fixture"
 import { createCommunityQueryOwner } from "@/test/community-query-owner"
 import { communityKeys } from "@/lib/query-keys"
 import { captureMachinesPublication, publishMachines } from "@/lib/community/machines"
+import { handleMachineUpdated } from "./community-ws/presence-machine-events"
 import { useMachines, type MachinesResponse } from "./use-machines"
 
 const load = vi.hoisted(() => vi.fn())
@@ -18,6 +19,20 @@ function deferred<T>() {
 }
 
 describe("machine list primary readiness", () => {
+  it("keeps a complete machine update instead of replacing it with an automatic old list read", async () => {
+    const { client } = await createCommunityQueryOwner()
+    const original = { id: "m1", hostname: "host", displayName: "Host", platform: "darwin", arch: "arm64", osRelease: "24", daemonVersion: "0.1.7", lastSeenAt: null, status: "online" as const, availableRuntimes: [], createdAt: "created", updatedAt: "updated" }
+    load.mockImplementation((url: string) => Promise.resolve(url.endsWith("view=list") ? { machines: [original] } : { quotas: [] }))
+    const wrapper = ({ children }: PropsWithChildren) => createElement(CommunityTestProvider, { client }, children)
+    const hook = renderHook(() => useMachines(), { wrapper })
+    await waitFor(() => expect(hook.result.current.machines[0]?.daemonVersion).toBe("0.1.7"))
+    await act(async () => handleMachineUpdated({ type: "community:machine.updated", machine: { ...original, daemonVersion: "0.1.53" } }, { queryClient: client }))
+    await waitFor(() => expect(hook.result.current.isFetching).toBe(false))
+    expect(hook.result.current.machines[0].daemonVersion).toBe("0.1.53")
+    expect(load.mock.calls.filter(([url]) => url.endsWith("view=list"))).toHaveLength(1)
+    hook.unmount()
+  })
+
   it.each([false, true])("keeps restored capacity unknown until the live list arrives (empty=%s)", async (empty) => {
     const { client } = await createCommunityQueryOwner()
     const primary = deferred<MachinesResponse>()
@@ -44,6 +59,7 @@ describe("machine list primary readiness", () => {
     await waitFor(() => expect(hook.result.current.machines.map(row => row.id)).toEqual(["m1"]))
     expect(hook.result.current.isLoading).toBe(false)
     expect(hook.result.current.data?.machineCapacity).toBeUndefined()
+    expect(hook.result.current.capacityPending).toBe(true)
     expect(client.getQueryData(communityKeys.machines())).not.toHaveProperty("quotas")
     await act(async () => { await publishMachines(client, captureMachinesPublication(client), current => ({ ...current, machines: [] })) })
     await act(async () => optional.resolve({ quotas: [{ machineId: "m1", quota: [] }] }))

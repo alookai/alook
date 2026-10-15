@@ -36,7 +36,7 @@ describe("native list resource persistence", () => {
     const restored = await persister.restoreClient()
     const queries = restored!.clientState.queries
     expect(queries.find(query => query.queryKey[1] === "machines")?.state.data).toEqual(persistentCommunityListResource(communityKeys.machines(), liveMachines))
-    expect(queries.find(query => query.queryKey[1] === "machines")?.state.dataUpdatedAt).toBe(0)
+    expect(queries.find(query => query.queryKey[1] === "machines")?.state.dataUpdatedAt).toBe(client.getQueryState(communityKeys.machines())!.dataUpdatedAt)
     expect(queries.find(query => query.queryKey[3] === "profiles")?.state.data).toEqual([expect.objectContaining({ id: "bot", name: "Canonical bot" })])
     expect(client.getQueryData(communityKeys.machines())).toBe(liveMachines)
     expect(JSON.stringify(restored)).not.toContain("private observation")

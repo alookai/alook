@@ -36,6 +36,7 @@ export function MessageList({
   }, [controller.selectMode, setSelectionActive])
   return renderMessageListView(resolvedProps, controller, () => (
     <VirtualRows
+      reactLayout
       items={controller.items}
       virtualizer={controller.virtualizer}
       renderItem={(item, index) => renderMessageListRow(item, resolvedProps, controller, index)}

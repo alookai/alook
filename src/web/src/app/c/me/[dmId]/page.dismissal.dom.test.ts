@@ -66,7 +66,7 @@ vi.mock("@/hooks/community/use-channel-metadata", () => ({
 vi.mock("@/hooks/community/channel-metadata", () => ({ isChannelMetadataTokenCurrent: () => true }))
 vi.mock("@/lib/community/last-community-route", () => ({ commitCommunityChannelRoute: mockCommitRoute }))
 vi.mock("@/components/community/avatar", () => ({ Avatar: () => null }))
-vi.mock("@/components/community/messages/message-list", () => ({ MessageList: () => React.createElement("div", { "data-testid": "history-body" }) }))
+vi.mock("@/components/community/messages/message-list", () => ({ MessageList: ({ loading }: { loading: boolean }) => React.createElement("div", { "data-testid": loading ? "history-pending" : "history-body" }) }))
 vi.mock("@/components/community/messages/message-context-sheet", () => ({
   MessageContextSheet: () => null,
 }))
@@ -306,8 +306,12 @@ describe("DM notification dismissal readiness", () => {
     const view = render(React.createElement(DmView, { dmId: "dm_1" }))
     expect(view.container.querySelector('[data-testid="history-body"]')).toBeNull()
     expect(view.container.querySelector('[data-testid="composer"]')).toBeNull()
-    if (state === "pending") expect(view.container.querySelector('[data-testid="dm-loading"]')).not.toBeNull()
-    else {
+    expect(view.container.querySelector('[data-testid="dm-header"]')?.textContent).toBe("Peer")
+    expect(view.container.querySelector('[data-testid="dm-loading"]')).toBeNull()
+    if (state === "pending") {
+      expect(view.container.querySelector('[data-testid="history-pending"]')).not.toBeNull()
+      expect(view.container.querySelector('[data-testid="composer-pending"]')).not.toBeNull()
+    } else {
       expect(view.container.querySelector('[data-testid="dm-header"]')?.textContent).toBe("Peer")
       view.container.querySelector<HTMLButtonElement>('[data-testid="history-error"]')!.click()
       expect(mockHistory.retryMetadata).toHaveBeenCalledOnce()

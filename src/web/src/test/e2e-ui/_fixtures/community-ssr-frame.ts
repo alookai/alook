@@ -1,5 +1,28 @@
 import { expect, type Page } from "@playwright/test"
+import type { CommunityDocumentSeed } from "@/lib/community/document-seed"
 import { tid } from "./testids"
+
+export function readCommunityDocumentSeedFromHtml(html: string): CommunityDocumentSeed {
+  const flight = [...html.matchAll(/self\.__next_f\.push\(\[1,("(?:\\.|[^"\\])*")\]\)/g)]
+    .map(match => JSON.parse(match[1]) as string).join("")
+  const seedKey = '"initialSeed":'
+  const seedKeyIndex = flight.indexOf(`${seedKey}{`)
+  expect(seedKeyIndex).toBeGreaterThanOrEqual(0)
+  const seedStart = seedKeyIndex + seedKey.length
+  let depth = 0
+  let quoted = false
+  let escaped = false
+  let seedEnd = seedStart
+  for (; seedEnd < flight.length; seedEnd += 1) {
+    const char = flight[seedEnd]
+    if (escaped) { escaped = false; continue }
+    if (quoted && char === "\\") { escaped = true; continue }
+    if (char === '"') { quoted = !quoted; continue }
+    if (!quoted && char === "{") depth += 1
+    if (!quoted && char === "}" && --depth === 0) { seedEnd += 1; break }
+  }
+  return JSON.parse(flight.slice(seedStart, seedEnd)) as CommunityDocumentSeed
+}
 
 export async function expectUniqueSsrInitialFrame(page: Page) {
   return expectUniqueSsrFrame(page, `[data-testid="${tid.initialFrame}"]`, "initial")

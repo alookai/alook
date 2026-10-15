@@ -61,7 +61,8 @@ export async function handleMachineCreated(
   assertCommunityLiveSnapshotTokenCurrent(queryClient, original.token, undefined)
   if (queryClient.getQueryCache().get(original.query.queryHash) !== original.query) return
   getCommunityRuntime(queryClient).ui.actions.setPendingMachineTokenId(event.tokenId)
-  void queryClient.invalidateQueries({ queryKey: communityKeys.machines(), exact: true })
+  const current = queryClient.getQueryData<MachinesResponse>(original.query.queryKey)
+  if (current?.complete === false || current?.observed === false) void queryClient.invalidateQueries({ queryKey: communityKeys.machines(), exact: true })
 }
 
 export async function handleMachineStatus(
@@ -97,7 +98,9 @@ export async function handleMachineUpdated(
   )
   if (!published) return
   assertCommunityLiveSnapshotTokenCurrent(queryClient, original.token, undefined)
-  if (queryClient.getQueryCache().get(original.query.queryHash) === original.query) void queryClient.invalidateQueries({ queryKey: communityKeys.machines(), exact: true })
+  if (queryClient.getQueryCache().get(original.query.queryHash) !== original.query) return
+  const current = queryClient.getQueryData<MachinesResponse>(original.query.queryKey)
+  if (current?.complete === false || current?.observed === false) void queryClient.invalidateQueries({ queryKey: communityKeys.machines(), exact: true })
 }
 
 export async function handleMachineRemoved(
