@@ -370,7 +370,7 @@ describe("ImageLightbox", () => {
   it.each([
     { name: "extreme landscape", width: 4000, height: 100 },
     { name: "extreme portrait", width: 100, height: 4000 },
-  ])("keeps the error controls outside the clipped image frame for $name", ({ width, height }) => {
+  ])("keeps controls above the transparent, overflowing image layer for $name", ({ width, height }) => {
     const { renderer } = renderLightbox({ originalUrl: "/original", name: "extreme", width, height })
     fireEvent.error(image(renderer, tid.imageLightboxOriginal))
     const frame = renderer.getByTestId(tid.imageLightbox)
@@ -382,6 +382,9 @@ describe("ImageLightbox", () => {
     const toolbar = renderer.getByRole("toolbar", { name: "Image controls" })
     expect(toolbar.parentElement).toBe(frame.parentElement)
     expect(toolbar.nextElementSibling).toBe(frame)
+    expect(toolbar).toHaveClass("relative", "z-20")
+    expect(frame).toHaveClass("z-0", "overflow-visible")
+    expect(frame).not.toHaveClass("overflow-hidden", "bg-background")
     expect(error).toHaveClass("w-max")
     expect(retry).toHaveClass("h-12", "min-w-12")
   })
@@ -422,7 +425,7 @@ describe("ImageLightbox", () => {
     expect(frame.style.touchAction).toBe("none")
   })
 
-  it("clamps mouse dragging to the enlarged image and ignores a right-button drag", async () => {
+  it("allows dragging beyond the image region and ignores a right-button drag", async () => {
     const { frame, original, renderer } = await readyPreview()
     const captures = new Set<number>()
     const release = vi.fn((id: number) => captures.delete(id))
@@ -434,12 +437,12 @@ describe("ImageLightbox", () => {
     fireEvent.doubleClick(frame, { clientX: 300, clientY: 250 })
     pointer(frame, "pointerdown", 1, 300, 250)
     pointer(frame, "pointermove", 1, 2000, 1800)
-    expect(original.style.transform).toBe("translate(200px, 150px) scale(2)")
+    expect(original.style.transform).toBe("translate(1700px, 1550px) scale(2)")
     pointer(frame, "pointerup", 1, 2000, 1800)
     expect(release).toHaveBeenCalledWith(1)
     expect(captures.size).toBe(0)
     pointer(frame, "pointermove", 1, 100, 100)
-    expect(original.style.transform).toBe("translate(200px, 150px) scale(2)")
+    expect(original.style.transform).toBe("translate(1700px, 1550px) scale(2)")
     fireEvent.click(renderer.getByRole("button", { name: "Fit image" }))
     pointer(frame, "pointerdown", 2, 300, 250, 2)
     pointer(frame, "pointermove", 2, 500, 400, 2)
@@ -447,18 +450,18 @@ describe("ImageLightbox", () => {
   })
 
   it.each([
-    { name: "portrait", width: 100, height: 400, x: 0, y: 150 },
-    { name: "landscape", width: 400, height: 100, x: 200, y: 0 },
-    { name: "small image", width: 80, height: 40, x: 0, y: 0 },
-    { name: "legacy portrait", width: 100, height: 400, legacy: true, x: 0, y: 150 },
-  ])("clamps pan to the fitted bitmap for a $name", async ({ width, height, legacy, x, y }) => {
+    { name: "portrait", width: 100, height: 400 },
+    { name: "landscape", width: 400, height: 100 },
+    { name: "small image", width: 80, height: 40 },
+    { name: "legacy portrait", width: 100, height: 400, legacy: true },
+  ])("freely pans a $name without fitted-bitmap bounds", async ({ width, height, legacy }) => {
     const { frame, original } = await readyPreview(width, height, legacy)
     fireEvent.doubleClick(frame, { clientX: 300, clientY: 250 })
     pointer(frame, "pointerdown", 1, 300, 250)
     pointer(frame, "pointermove", 1, 2000, 1800)
-    expect(original.style.transform).toBe(`translate(${x}px, ${y}px) scale(2)`)
+    expect(original.style.transform).toBe("translate(1700px, 1550px) scale(2)")
     pointer(frame, "pointermove", 1, -2000, -1800)
-    expect(original.style.transform).toBe(`translate(${-x}px, ${-y}px) scale(2)`)
+    expect(original.style.transform).toBe("translate(-2300px, -2050px) scale(2)")
   })
 
   it("pinches with two pointers, continues panning with one, and stops on cancellation", async () => {
@@ -477,21 +480,45 @@ describe("ImageLightbox", () => {
     expect(original.style.transform).toBe("translate(50px, 30px) scale(2)")
   })
 
-  it("bounds wheel and trackpad zoom and keeps fit and close accessible", async () => {
+  it("shrinks below fit and zooms beyond eight while keeping fit and close accessible", async () => {
     const { frame, renderer, onClose } = await readyPreview()
-    fireEvent.wheel(frame, { cancelable: true, deltaY: -100000, ctrlKey: true })
-    expect(frame.dataset.zoomScale).toBe("8")
-    expect(renderer.getByRole("button", { name: "Zoom in" })).toBeDisabled()
+    fireEvent.wheel(frame, { cancelable: true, clientX: 300, clientY: 250, deltaY: -Math.log(16) / 0.005, ctrlKey: true })
+    expect(Number(frame.dataset.zoomScale)).toBeCloseTo(16)
+    expect(renderer.getByRole("button", { name: "Zoom in" })).toBeEnabled()
+    fireEvent.wheel(frame, { cancelable: true, clientX: 300, clientY: 250, deltaY: Math.log(64) / 0.005, ctrlKey: true })
+    expect(Number(frame.dataset.zoomScale)).toBeCloseTo(0.25)
     expect(renderer.getByRole("button", { name: "Zoom out" })).toBeEnabled()
     fireEvent.click(renderer.getByRole("button", { name: "Fit image" }))
     expect(frame.dataset.zoomScale).toBe("1")
-    expect(renderer.getByRole("button", { name: "Zoom out" })).toBeDisabled()
-    fireEvent.click(renderer.getByRole("button", { name: "Zoom in" }))
-    expect(frame.dataset.zoomScale).toBe("1.5")
+    expect(renderer.getByRole("button", { name: "Zoom out" })).toBeEnabled()
     fireEvent.click(renderer.getByRole("button", { name: "Zoom out" }))
+    expect(Number(frame.dataset.zoomScale)).toBeCloseTo(2 / 3)
+    fireEvent.click(renderer.getByRole("button", { name: "Zoom in" }))
     expect(frame.dataset.zoomScale).toBe("1")
+    for (let step = 0; step < 6; step++) fireEvent.click(renderer.getByRole("button", { name: "Zoom in" }))
+    expect(Number(frame.dataset.zoomScale)).toBeGreaterThan(8)
     fireEvent.click(renderer.getByRole("button", { name: "Close image preview" }))
     expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it("recovers a freely translated fit and ignores nonrepresentable zoom transforms", async () => {
+    const { frame, original, renderer } = await readyPreview()
+    pointer(frame, "pointerdown", 1, 300, 250)
+    pointer(frame, "pointermove", 1, 800, 750)
+    pointer(frame, "pointerup", 1, 800, 750)
+    expect(original.style.transform).toBe("translate(500px, 500px) scale(1)")
+    expect(renderer.getByRole("button", { name: "Fit image" })).toBeEnabled()
+    fireEvent.click(renderer.getByRole("button", { name: "Fit image" }))
+    expect(original.style.transform).toBe("translate(0px, 0px) scale(1)")
+    expect(renderer.getByRole("button", { name: "Fit image" })).toBeDisabled()
+    for (const deltaY of [-1e10, 1e10]) {
+      fireEvent.wheel(frame, { cancelable: true, deltaY, ctrlKey: true })
+      expect(original.style.transform).toBe("translate(0px, 0px) scale(1)")
+    }
+    fireEvent.keyDown(frame, { key: "-" })
+    expect(Number(frame.dataset.zoomScale)).toBeCloseTo(2 / 3)
+    fireEvent.doubleClick(frame)
+    expect(original.style.transform).toBe("translate(0px, 0px) scale(1)")
   })
 
   it("supports keyboard zoom and pan, double-click reset, and a fresh view for a new image", async () => {
@@ -527,7 +554,7 @@ describe("ImageLightbox", () => {
   })
 
 
-  it("reclamps a panned image on resize, cancels its drag, and disconnects on close", async () => {
+  it("preserves free pan on resize, cancels its drag, and disconnects on close", async () => {
     let resize!: ResizeObserverCallback
     const disconnect = vi.fn()
     vi.stubGlobal("ResizeObserver", class {
@@ -541,9 +568,9 @@ describe("ImageLightbox", () => {
     pointer(frame, "pointermove", 1, 1000, 1000)
     mockElementGeometry(frame, { left: 100, top: 100, width: 200, height: 150 })
     act(() => resize([], {} as ResizeObserver))
-    expect(original.style.transform).toBe("translate(100px, 75px) scale(2)")
+    expect(original.style.transform).toBe("translate(700px, 750px) scale(2)")
     pointer(frame, "pointermove", 1, 1200, 1200)
-    expect(original.style.transform).toBe("translate(100px, 75px) scale(2)")
+    expect(original.style.transform).toBe("translate(700px, 750px) scale(2)")
     renderer.unmount()
     expect(disconnect).toHaveBeenCalledOnce()
     const wheel = new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -100 })
@@ -551,7 +578,7 @@ describe("ImageLightbox", () => {
     expect(wheel.defaultPrevented).toBe(false)
   })
 
-  it("reclamps portrait letterboxing after an orientation change without reloading the image", async () => {
+  it("preserves portrait pan after an orientation change without reloading the image", async () => {
     let resize!: ResizeObserverCallback
     vi.stubGlobal("ResizeObserver", class {
       constructor(callback: ResizeObserverCallback) { resize = callback }
@@ -562,15 +589,15 @@ describe("ImageLightbox", () => {
     fireEvent.doubleClick(frame, { clientX: 300, clientY: 250 })
     pointer(frame, "pointerdown", 1, 300, 250)
     pointer(frame, "pointermove", 1, 1000, 1000)
-    expect(original.style.transform).toBe("translate(0px, 150px) scale(2)")
+    expect(original.style.transform).toBe("translate(700px, 750px) scale(2)")
     mockElementGeometry(frame, { left: 100, top: 100, width: 600, height: 200 })
     act(() => resize([], {} as ResizeObserver))
-    expect(original.style.transform).toBe("translate(0px, 100px) scale(2)")
+    expect(original.style.transform).toBe("translate(700px, 750px) scale(2)")
     expect(image(renderer, tid.imageLightboxOriginal)).toBe(original)
     expect(original).toHaveAttribute("data-remote-image-state", "ready")
     expect(original).toHaveAttribute("src", "/zoom-original")
     pointer(frame, "pointermove", 1, -2000, -1800)
-    expect(original.style.transform).toBe("translate(0px, 100px) scale(2)")
+    expect(original.style.transform).toBe("translate(700px, 750px) scale(2)")
     fireEvent.click(renderer.getByRole("button", { name: "Fit image" }))
     expect(original.style.transform).toBe("translate(0px, 0px) scale(1)")
   })

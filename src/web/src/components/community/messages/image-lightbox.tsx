@@ -41,7 +41,7 @@ function PreviewFrame({ image, onClose }: { image: ImagePreview; onClose: () => 
 
   const thumbnailReady = !!image.thumbnailUrl && thumbnailStatus === "ready"
   const originalReady = originalStatus === "ready"
-  const { frameRef, view, reset, zoomIn, zoomOut, handlers } = useImageLightboxZoom(originalReady, dimensions)
+  const { frameRef, view, reset, zoomIn, zoomOut, handlers } = useImageLightboxZoom(originalReady)
   const imageStyle = {
     maxWidth: dimensions?.width,
     maxHeight: dimensions?.height,
@@ -59,11 +59,11 @@ function PreviewFrame({ image, onClose }: { image: ImagePreview; onClose: () => 
       <div
         role="toolbar"
         aria-label="Image controls"
-        className="z-20 flex shrink-0 items-center gap-1 self-center rounded-lg border border-border bg-background p-1"
+        className="relative z-20 flex shrink-0 items-center gap-1 self-center rounded-lg border border-border bg-background p-1"
       >
-        <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="Zoom out" title="Zoom out" disabled={!originalReady || view.scale <= 1} onClick={zoomOut}><MinusIcon /></Button>
-        <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="Fit image" title="Fit image" disabled={!originalReady || view.scale === 1} onClick={reset}><RotateCcwIcon /></Button>
-        <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="Zoom in" title="Zoom in" disabled={!originalReady || view.scale >= 8} onClick={zoomIn}><PlusIcon /></Button>
+        <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="Zoom out" title="Zoom out" disabled={!originalReady} onClick={zoomOut}><MinusIcon /></Button>
+        <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="Fit image" title="Fit image" disabled={!originalReady || (view.scale === 1 && view.x === 0 && view.y === 0)} onClick={reset}><RotateCcwIcon /></Button>
+        <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="Zoom in" title="Zoom in" disabled={!originalReady} onClick={zoomIn}><PlusIcon /></Button>
         <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="Close image preview" title="Close" onClick={onClose}><XIcon /></Button>
       </div>
       <div
@@ -74,7 +74,7 @@ function PreviewFrame({ image, onClose }: { image: ImagePreview; onClose: () => 
         role="region"
         aria-label="Image preview. Use plus and minus to zoom, arrow keys to pan, and zero to fit."
         tabIndex={originalReady ? 0 : -1}
-        className={`relative min-h-0 w-full flex-1 select-none overflow-hidden rounded-lg bg-background ${view.scale > 1 ? "cursor-grab active:cursor-grabbing" : "cursor-default"}`}
+        className={`relative z-0 min-h-0 w-full flex-1 select-none overflow-visible ${originalReady ? "cursor-grab active:cursor-grabbing" : "cursor-default"}`}
         style={{ touchAction: originalReady ? "none" : undefined }}
         {...handlers}
       >
@@ -98,7 +98,7 @@ function PreviewFrame({ image, onClose }: { image: ImagePreview; onClose: () => 
           <div
             data-testid={tid.imageLightboxLoading}
             role="status"
-            className="absolute inset-0 flex animate-pulse items-center justify-center bg-muted/70 px-4 text-sm text-muted-foreground motion-reduce:animate-none"
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-pulse rounded-md bg-background px-3 py-2 text-sm text-muted-foreground motion-reduce:animate-none"
           >
             Loading original image
           </div>
@@ -146,7 +146,7 @@ export function ImageLightbox({ image, onClose }: { image: ImagePreview; onClose
     <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent
         aria-label={image.name}
-        className="top-[max(1rem,env(safe-area-inset-top))] right-[max(1rem,env(safe-area-inset-right))] left-[max(1rem,env(safe-area-inset-left))] flex h-[calc(100dvh_-_max(1rem,env(safe-area-inset-top))_-_max(1rem,env(safe-area-inset-bottom)))] w-auto max-w-none translate-x-0 translate-y-0 border-none bg-transparent p-0 shadow-none sm:max-w-none"
+        className="top-[max(1rem,env(safe-area-inset-top))] right-[max(1rem,env(safe-area-inset-right))] left-[max(1rem,env(safe-area-inset-left))] flex h-[calc(100dvh_-_max(1rem,env(safe-area-inset-top))_-_max(1rem,env(safe-area-inset-bottom)))] w-auto max-w-none translate-x-0 translate-y-0 overflow-visible border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-none"
         showCloseButton={false}
       >
         <PreviewFrame

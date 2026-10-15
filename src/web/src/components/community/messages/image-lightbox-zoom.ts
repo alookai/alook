@@ -2,34 +2,19 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useCallback, useEffect, useRef, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react"
-import { fitImageToViewport, type ImageDimensions } from "./image-lightbox-layout"
 
 export type ImageView = { scale: number; x: number; y: number }
 type Point = { x: number; y: number }
-type Bounds = { width: number; height: number }
 const FIT_VIEW: ImageView = { scale: 1, x: 0, y: 0 }
-const MAX_ZOOM = 8
 
-function constrain(view: ImageView, bounds: Bounds, dimensions?: ImageDimensions): ImageView {
-  const scale = Math.max(1, Math.min(MAX_ZOOM, view.scale))
-  const fitted = dimensions ? fitImageToViewport(dimensions, bounds) : bounds
-  const maxX = Math.max(0, (fitted.width * scale - bounds.width) / 2)
-  const maxY = Math.max(0, (fitted.height * scale - bounds.height) / 2)
+function zoomAt(view: ImageView, scale: number, point: Point): ImageView {
+  if (!Number.isFinite(scale) || scale <= 0) return view
+  const ratio = scale / view.scale
   return {
     scale,
-    x: Math.max(-maxX, Math.min(maxX, view.x)),
-    y: Math.max(-maxY, Math.min(maxY, view.y)),
-  }
-}
-
-function zoomAt(view: ImageView, scale: number, point: Point, bounds: Bounds, dimensions?: ImageDimensions): ImageView {
-  const nextScale = Math.max(1, Math.min(MAX_ZOOM, scale))
-  const ratio = nextScale / view.scale
-  return constrain({
-    scale: nextScale,
     x: point.x - (point.x - view.x) * ratio,
     y: point.y - (point.y - view.y) * ratio,
-  }, bounds, dimensions)
+  }
 }
 
 function midpoint(points: Point[]): Point {
@@ -43,18 +28,17 @@ function distance(points: Point[]): number {
   return Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y)
 }
 
-export function useImageLightboxZoom(enabled: boolean, dimensions?: ImageDimensions) {
+export function useImageLightboxZoom(enabled: boolean) {
   const frameRef = useRef<HTMLDivElement>(null)
   const pointers = useRef(new Map<number, Point>())
   const [view, setView] = useAtom(useCreateAtom<ImageView>(FIT_VIEW))
   const currentView = useRef(FIT_VIEW)
 
   const apply = useCallback((next: ImageView) => {
-    const bounds = frameRef.current?.getBoundingClientRect()
-    const constrained = bounds ? constrain(next, bounds, dimensions) : FIT_VIEW
-    currentView.current = constrained
-    setView(constrained)
-  }, [dimensions, setView])
+    if (!Number.isFinite(next.scale) || next.scale <= 0 || !Number.isFinite(next.x) || !Number.isFinite(next.y)) return
+    currentView.current = next
+    setView(next)
+  }, [setView])
 
   const reset = useCallback(() => {
     pointers.current.clear()
@@ -68,8 +52,8 @@ export function useImageLightboxZoom(enabled: boolean, dimensions?: ImageDimensi
       x: point.x - bounds.left - bounds.width / 2,
       y: point.y - bounds.top - bounds.height / 2,
     } : { x: 0, y: 0 }
-    apply(zoomAt(currentView.current, scale, anchor, bounds, dimensions))
-  }, [apply, dimensions])
+    apply(zoomAt(currentView.current, scale, anchor))
+  }, [apply])
 
   useEffect(() => {
     if (!enabled) {
@@ -90,7 +74,6 @@ export function useImageLightboxZoom(enabled: boolean, dimensions?: ImageDimensi
     frame.addEventListener("wheel", wheel, { passive: false })
     const observer = typeof ResizeObserver === "function" ? new ResizeObserver(() => {
       pointers.current.clear()
-      apply(currentView.current)
     }) : undefined
     observer?.observe(frame)
     return () => {
@@ -98,7 +81,7 @@ export function useImageLightboxZoom(enabled: boolean, dimensions?: ImageDimensi
       observer?.disconnect()
       activePointers.clear()
     }
-  }, [apply, enabled, reset, zoomTo])
+  }, [enabled, reset, zoomTo])
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (!enabled || event.button !== 0 || pointers.current.size >= 2) return
@@ -119,7 +102,7 @@ export function useImageLightboxZoom(enabled: boolean, dimensions?: ImageDimensi
       y: oldMidpoint.y - bounds.top - bounds.height / 2,
     }
     const ratio = before.length === 2 ? distance(after) / Math.max(1, distance(before)) : 1
-    const next = zoomAt(currentView.current, currentView.current.scale * ratio, anchor, bounds, dimensions)
+    const next = zoomAt(currentView.current, currentView.current.scale * ratio, anchor)
     apply({ ...next, x: next.x + newMidpoint.x - oldMidpoint.x, y: next.y + newMidpoint.y - oldMidpoint.y })
   }
 
@@ -160,7 +143,9 @@ export function useImageLightboxZoom(enabled: boolean, dimensions?: ImageDimensi
       onLostPointerCapture: onPointerEnd,
       onKeyDown,
       onDoubleClick: (event: MouseEvent<HTMLDivElement>) => {
-        if (enabled) zoomTo(currentView.current.scale > 1 ? 1 : 2, { x: event.clientX, y: event.clientY })
+        if (!enabled) return
+        if (currentView.current.scale !== 1) reset()
+        else zoomTo(2, { x: event.clientX, y: event.clientY })
       },
     },
   }

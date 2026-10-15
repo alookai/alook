@@ -118,6 +118,20 @@ async function previewLayout(page: Page) {
   expect(container.x).toBeCloseTo(dialog.x, 1)
   expect(container.width).toBeCloseTo(dialog.width, 1)
   expect(container.y + container.height).toBeCloseTo(dialog.y + dialog.height, 1)
+  const surfaces = await page.getByTestId(tid.imageLightbox).evaluate((element) => {
+    const result = []
+    for (let node: Element | null = element; node; node = node.parentElement) {
+      const style = getComputedStyle(node)
+      result.push({ background: style.backgroundColor, overflowX: style.overflowX, overflowY: style.overflowY })
+      if (node.getAttribute("data-slot") === "dialog-content") break
+    }
+    return result
+  })
+  for (const surface of surfaces) {
+    expect(surface.background).toBe("rgba(0, 0, 0, 0)")
+    expect(surface.overflowX).toBe("visible")
+    expect(surface.overflowY).toBe("visible")
+  }
   return { container, controls, dialog, viewport }
 }
 
@@ -126,6 +140,7 @@ async function previewImageGeometry(locator: Locator) {
     const rect = element.getBoundingClientRect()
     const box = { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
     const style = getComputedStyle(element)
+    const transform = new DOMMatrixReadOnly(style.transform)
     const ratio = Math.min(rect.width / element.naturalWidth, rect.height / element.naturalHeight)
     const width = element.naturalWidth * ratio
     const height = element.naturalHeight * ratio
@@ -139,6 +154,8 @@ async function previewImageGeometry(locator: Locator) {
       } : null,
       naturalWidth: element.naturalWidth,
       naturalHeight: element.naturalHeight,
+      translation: { x: transform.m41, y: transform.m42 },
+      scale: transform.a,
       objectFit: style.objectFit,
       objectPosition: style.objectPosition,
       state: element.getAttribute("data-remote-image-state"),
@@ -184,20 +201,32 @@ async function previewRects(page: Page, dimensions: { width: number; height: num
 async function expectZoomedImage(page: Page, dimensions: { width: number; height: number }) {
   const layout = await previewLayout(page)
   const scale = Number(await page.getByTestId(tid.imageLightbox).getAttribute("data-zoom-scale"))
-  const { painted } = await previewImageGeometry(page.getByTestId(tid.imageLightboxOriginal))
+  const { painted, translation, scale: renderedScale } = await previewImageGeometry(page.getByTestId(tid.imageLightboxOriginal))
   expect(painted).not.toBeNull()
+  expect(renderedScale).toBeCloseTo(scale, 4)
   const fit = Math.min(1, layout.container.width / dimensions.width, layout.container.height / dimensions.height)
-  expect(painted!.width).toBeCloseTo(dimensions.width * fit * scale, 1)
-  expect(painted!.height).toBeCloseTo(dimensions.height * fit * scale, 1)
-  for (const [start, length] of [["x", "width"], ["y", "height"]] as const) {
-    if (painted![length] <= layout.container[length]) {
-      expect(painted![start] + painted![length] / 2).toBeCloseTo(layout.container[start] + layout.container[length] / 2, 1)
-    } else {
-      expect(painted![start]).toBeLessThanOrEqual(layout.container[start] + 0.5)
-      expect(painted![start] + painted![length]).toBeGreaterThanOrEqual(layout.container[start] + layout.container[length] - 0.5)
-    }
+  const width = dimensions.width * fit * scale
+  const height = dimensions.height * fit * scale
+  expectSameRect(painted!, {
+    x: layout.container.x + layout.container.width / 2 + translation.x - width / 2,
+    y: layout.container.y + layout.container.height / 2 + translation.y - height / 2,
+    width,
+    height,
+  })
+  return { ...layout, painted: painted!, scale, translation }
+}
+
+async function expectToolbarAboveImage(page: Page, painted: Rect) {
+  for (const name of ["Zoom out", "Fit image", "Zoom in", "Close image preview"]) {
+    const button = page.getByRole("button", { name, exact: true })
+    const rect = await boundingRect(button)
+    const point = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
+    expect(point.x).toBeGreaterThan(painted.x)
+    expect(point.x).toBeLessThan(painted.x + painted.width)
+    expect(point.y).toBeGreaterThan(painted.y)
+    expect(point.y).toBeLessThan(painted.y + painted.height)
+    expect(await button.evaluate((element, target) => element.contains(document.elementFromPoint(target.x, target.y)), point)).toBe(true)
   }
-  return { ...layout, painted, scale }
 }
 
 async function previewNodes(page: Page) {
@@ -479,6 +508,31 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   await attachScreenshot(testInfo, "desktop-original-zoomed", page)
   await page.getByRole("button", { name: "Fit image", exact: true }).click()
   await expect(desktopZoomFrame).toHaveAttribute("data-zoom-scale", "1")
+  await page.getByRole("button", { name: "Zoom out", exact: true }).click()
+  const shrunken = await expectZoomedImage(page, { width: 800, height: 450 })
+  expect(shrunken.scale).toBeCloseTo(2 / 3, 4)
+  await page.mouse.move(desktopCenter.x, desktopCenter.y)
+  await page.mouse.down()
+  const outsidePoint = { x: desktopLandscapeLoaded.container.x / 2, y: desktopCenter.y }
+  await page.mouse.move(outsidePoint.x, outsidePoint.y, { steps: 5 })
+  await page.mouse.up()
+  const freelyPanned = await expectZoomedImage(page, { width: 800, height: 450 })
+  expect(freelyPanned.translation.x).toBeCloseTo(outsidePoint.x - desktopCenter.x, 1)
+  expect(outsidePoint.x).toBeLessThan(freelyPanned.container.x)
+  expect(outsidePoint.x).toBeGreaterThan(freelyPanned.painted.x)
+  expect(outsidePoint.x).toBeLessThan(freelyPanned.painted.x + freelyPanned.painted.width)
+  expect(await landscapeOriginal.evaluate((element, point) => document.elementFromPoint(point.x, point.y) === element, outsidePoint)).toBe(true)
+  await attachScreenshot(testInfo, "desktop-whole-image-outside-region", page)
+  await page.getByRole("button", { name: "Fit image", exact: true }).click()
+  for (let step = 0; step < 6; step++) await page.getByRole("button", { name: "Zoom in", exact: true }).click()
+  const beyondEight = await expectZoomedImage(page, { width: 800, height: 450 })
+  expect(beyondEight.scale).toBeGreaterThan(8)
+  await expectToolbarAboveImage(page, beyondEight.painted)
+  await attachScreenshot(testInfo, "desktop-toolbar-above-enlarged-image", page)
+  await page.getByRole("button", { name: "Zoom out", exact: true }).click()
+  expect(Number(await desktopZoomFrame.getAttribute("data-zoom-scale"))).toBeCloseTo(beyondEight.scale / 1.5, 4)
+  await page.getByRole("button", { name: "Fit image", exact: true }).click()
+  await previewRects(page, { width: 800, height: 450 })
   await desktopZoomFrame.dblclick()
   await expect(desktopZoomFrame).toHaveAttribute("data-zoom-scale", "2")
   await desktopZoomFrame.dblclick()
@@ -494,6 +548,8 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   await expectZoomedImage(page, { width: 800, height: 450 })
   await desktopZoomFrame.press("0")
   await expect(desktopZoomFrame).toHaveAttribute("data-zoom-scale", "1")
+  for (let step = 0; step < 6; step++) await desktopZoomFrame.press("Equal")
+  await expectToolbarAboveImage(page, (await expectZoomedImage(page, { width: 800, height: 450 })).painted)
   await page.getByRole("button", { name: "Close image preview", exact: true }).click()
   await expect(desktopZoomFrame).toHaveCount(0)
   await landscapeButton.click()
@@ -710,16 +766,21 @@ test("image previews keep one frame through loading, decode, failure, retry, and
     await touchSession.detach()
   }
   expectSameRect(await boundingRect(mobileZoomFrame), mobilePortraitLoaded.container)
-  await expectZoomedImage(mobilePage, { width: 450, height: 800 })
+  const mobilePortraitZoomed = await expectZoomedImage(mobilePage, { width: 450, height: 800 })
+  await expectToolbarAboveImage(mobilePage, mobilePortraitZoomed.painted)
   await mobilePage.setViewportSize({ width: 390, height: 644 })
   const mobilePortraitZoomedHeight = await expectZoomedImage(mobilePage, { width: 450, height: 800 })
   expect(mobilePortraitZoomedHeight.scale).toBeCloseTo(2, 1)
+  expect(mobilePortraitZoomedHeight.translation).toEqual(mobilePortraitZoomed.translation)
   await mobilePage.setViewportSize({ width: 844, height: 390 })
   const mobilePortraitZoomedRotated = await expectZoomedImage(mobilePage, { width: 450, height: 800 })
   expect(mobilePortraitZoomedRotated.scale).toBeCloseTo(2, 1)
+  expect(mobilePortraitZoomedRotated.translation).toEqual(mobilePortraitZoomed.translation)
   await mobilePage.setViewportSize({ width: 390, height: 844 })
   const mobilePortraitZoomedRestored = await expectZoomedImage(mobilePage, { width: 450, height: 800 })
   expect(mobilePortraitZoomedRestored.scale).toBeCloseTo(2, 1)
+  expect(mobilePortraitZoomedRestored.translation).toEqual(mobilePortraitZoomed.translation)
+  await expectToolbarAboveImage(mobilePage, mobilePortraitZoomedRestored.painted)
   expectSameRect(mobilePortraitZoomedRestored.container, mobilePortraitLoaded.container)
   await expectSamePreviewNodes(mobilePage, mobileNodes)
   await expect(mobileOriginal).toHaveClass(/opacity-100/)
