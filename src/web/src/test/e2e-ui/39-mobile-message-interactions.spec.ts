@@ -210,6 +210,24 @@ async function expectTouchActionMenu(
   return action
 }
 
+async function typeReplyAfterAuthorMention(
+  page: Page,
+  authorId: string,
+  author: { name: string; discriminator: string },
+  body: string,
+) {
+  const editable = composerEditable(page)
+  const mention = editable.locator(`[data-type="mention"][data-id="${authorId}"]`)
+  await expect(mention).toHaveCount(1)
+  await expect(mention).toHaveAttribute("data-label", `${author.name}#${author.discriminator}`)
+  await expect(editable).toHaveText(`@${author.name}`)
+  await expect(editable).toBeFocused()
+  await editable.press("End")
+  await editable.pressSequentially(body)
+  await expect(mention).toHaveCount(1)
+  await expect(editable).toHaveText(`@${author.name} ${body}`)
+}
+
 async function latestSeq(page: Page, channelId: string): Promise<number> {
   const response = await page.request.get(`/api/community/channels/${channelId}/messages`)
   expect(response.ok()).toBe(true)
@@ -492,7 +510,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     response.request().method() === "POST"
     && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`
   ))
-  await composerEditable(alice.page).fill(replyBody)
+  await typeReplyAfterAuthorMention(alice.page, userId("bob"), bobInfo, replyBody)
   await alice.page.getByTestId(tid.composerSend).click()
   const replyResponse = await replyResponsePromise
   expect(replyResponse.status()).toBe(201)
@@ -592,7 +610,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     response.request().method() === "POST"
     && new URL(response.url()).pathname === `/api/community/channels/${threadId}/messages`
   ))
-  await composerEditable(alice.page).fill(threadReplyBody)
+  await typeReplyAfterAuthorMention(alice.page, userId("bob"), bobInfo, threadReplyBody)
   await alice.page.getByTestId(tid.composerSend).click()
   const threadReplyResponse = await threadReplyResponsePromise
   expect(threadReplyResponse.status()).toBe(201)
@@ -817,7 +835,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     response.request().method() === "POST"
     && new URL(response.url()).pathname === `/api/community/channels/${dmId}/messages`
   ))
-  await composerEditable(alice.page).fill(dmReplyBody)
+  await typeReplyAfterAuthorMention(alice.page, userId("bob"), bobInfo, dmReplyBody)
   await alice.page.getByTestId(tid.composerSend).click()
   const dmReplyResponse = await dmReplyResponsePromise
   expect(dmReplyResponse.status()).toBe(201)
