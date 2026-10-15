@@ -1138,6 +1138,36 @@ async function activityAnchorSnapshot(scroller: Locator) {
   })
 }
 
+async function settleActivityPosition(scroller: Locator, target: number) {
+  return scroller.evaluate(async (element, target) => {
+    const samples: Array<{ scrollTop: number; scrollHeight: number; clientHeight: number; events: Array<{ id: string; top: number; bottom: number }> }> = []
+    let previous = ""
+    let stableFrames = 0
+    for (let frame = 0; frame < 120; frame += 1) {
+      await new Promise<void>(resolveFrame => requestAnimationFrame(() => resolveFrame()))
+      if (!element.isConnected) return { settled: false, samples }
+      const root = element.getBoundingClientRect()
+      const sample = {
+        scrollTop: element.scrollTop,
+        scrollHeight: element.scrollHeight,
+        clientHeight: element.clientHeight,
+        events: [...element.querySelectorAll<HTMLElement>("[data-activity-event-id]")].flatMap(wrapper => {
+          const body = wrapper.firstElementChild
+          if (!(body instanceof HTMLElement)) return []
+          const rect = body.getBoundingClientRect()
+          return [{ id: wrapper.dataset.activityEventId!, top: rect.top - root.top, bottom: rect.bottom - root.top }]
+        }),
+      }
+      samples.push(sample)
+      const signature = JSON.stringify(sample)
+      stableFrames = Math.abs(sample.scrollTop - target) <= 1 && sample.events.length > 0 && signature === previous ? stableFrames + 1 : 0
+      if (stableFrames === 2) return { settled: true, samples }
+      previous = signature
+    }
+    return { settled: false, samples }
+  }, target)
+}
+
 async function gateOlderActivityPages(page: Page, botId: string, caseResources: CaseResources) {
   const entries: Array<{ url: string; release: (status?: 503) => void }> = []
   const running = new Set<Promise<void>>()
@@ -1304,6 +1334,7 @@ for (const scenario of ["same-day", "cross-day"] as const) {
       let gate: Awaited<ReturnType<typeof gateOlderActivityPages>> | undefined
       let journeyFailure: unknown
       let journeyFailurePresent = false
+      const positioning: Array<{ page: number; target: number; deltaY: number; olderRequests: string[] } & Awaited<ReturnType<typeof settleActivityPosition>>> = []
       try {
         const history = await seedActivityHistory({ machine, botId, suffix, scenario, caseResources, jsonRequest, testInfo })
         const { page } = await actors.asUser("alice", { viewport: { width, height: 900 }, colorScheme: width === 390 ? "dark" : "light" })
@@ -1316,7 +1347,16 @@ for (const scenario of ["same-day", "cross-day"] as const) {
         await expect.poll(() => scroller.evaluate(element => element.scrollTop + element.clientHeight >= element.scrollHeight - 1)).toBe(true)
         for (const [index, target] of [0, 80].entries()) {
           await scroller.hover()
-          await page.mouse.wheel(0, target - await scroller.evaluate(element => element.scrollTop))
+          await page.mouse.wheel(0, -1_000_000)
+          const zeroPosition = await settleActivityPosition(scroller, 0)
+          positioning.push({ page: index + 1, target: 0, deltaY: -1_000_000, olderRequests: gate.entries.map(entry => entry.url), ...zeroPosition })
+          expect(zeroPosition.settled, "physical zero and rendered geometry settle before choosing the reading position").toBe(true)
+          if (target > 0) {
+            await page.mouse.wheel(0, target)
+            const nearTopPosition = await settleActivityPosition(scroller, target)
+            positioning.push({ page: index + 1, target, deltaY: target, olderRequests: gate.entries.map(entry => entry.url), ...nearTopPosition })
+            expect(nearTopPosition.settled, "physical near-top target and rendered geometry settle without another wheel").toBe(true)
+          }
           await expect.poll(async () => Math.abs(await scroller.evaluate(element => element.scrollTop) - target)).toBeLessThanOrEqual(1)
           await expect.poll(() => gate!.entries.length).toBe(index + 1)
           const pending = gate.entries[index]
@@ -1366,10 +1406,16 @@ for (const scenario of ["same-day", "cross-day"] as const) {
           }
         }
       } catch (error) { journeyFailure = error; journeyFailurePresent = true; throw error } finally {
+        const exitErrors: unknown[] = []
+        try { await gate?.close() } catch (error) { exitErrors.push(error) }
+        try { await machine.close() } catch (error) { exitErrors.push(error) }
         try {
-          await gate?.close()
-          await machine.close()
-        } catch (cleanupError) { if (journeyFailurePresent) throw new AggregateError([journeyFailure, cleanupError], "Journey and resource exit both failed"); throw cleanupError }
+          await testInfo.attach(`activity-anchor-${scenario}-${width}-positioning`, {
+            body: JSON.stringify({ responseReleaseTargets: [0, 80], requestStartPosition: "not asserted; the gate can hold a request during the zero-position step", positioning }),
+            contentType: "application/json",
+          })
+        } catch (error) { exitErrors.push(error) }
+        if (exitErrors.length) throw new AggregateError(journeyFailurePresent ? [journeyFailure, ...exitErrors] : exitErrors, "Activity journey, cleanup or evidence retention failed")
       }
     })
   }
