@@ -100,7 +100,31 @@ test.describe("mentions — mandatory discriminator", () => {
     async function send(content: string, mentionType?: "everyone") {
       const editable = composerEditable(page, threadSurface)
       await expect(editable).toHaveCount(1)
-      await editable.fill(content)
+      if (content.includes("\n")) {
+        await editable.click()
+        await editable.press("ControlOrMeta+A")
+        await editable.press("Backspace")
+        await editable.evaluate((element, text) => {
+          const transfer = new DataTransfer()
+          transfer.setData("text/plain", text)
+          element.dispatchEvent(new ClipboardEvent("paste", {
+            bubbles: true,
+            cancelable: true,
+            clipboardData: transfer,
+          }))
+        }, content)
+        expect(await editable.evaluate((element) => Array.from(element.children).map((block) => ({
+          tag: block.tagName,
+          text: block.textContent,
+          breaks: block.querySelectorAll("br").length,
+        })))).toEqual(content.split("\n\n").map((block) => ({
+          tag: "P",
+          text: block.replaceAll("\n", ""),
+          breaks: block.split("\n").length - 1,
+        })))
+      } else {
+        await editable.fill(content)
+      }
       const [response] = await Promise.all([
         page.waitForResponse((response) => response.request().method() === "POST"
           && new URL(response.url()).pathname === `/api/community/channels/${threadId}/messages`),
