@@ -22,7 +22,6 @@ vi.mock("@/components/ui/dialog", () => ({
 }))
 
 import { ImageLightbox } from "./image-lightbox"
-import { previewFrameStyle } from "./image-lightbox-layout"
 
 function renderLightbox(image: React.ComponentProps<typeof ImageLightbox>["image"], onClose = vi.fn()) {
   return { renderer: render(React.createElement(ImageLightbox, { image, onClose })), onClose }
@@ -93,7 +92,7 @@ describe("ImageLightbox", () => {
         expect(image(renderer, tid.imageLightboxOriginal)).not.toHaveClass("transition-opacity")
         expect(image(renderer, tid.imageLightboxThumbnail)).toHaveClass("opacity-0")
         expect(renderer.queryByTestId(tid.imageLightboxLoading)).not.toBeInTheDocument()
-        expect(renderer.getByTestId(tid.imageLightbox).style.aspectRatio).toBe("1000 / 500")
+        expect(image(renderer, tid.imageLightboxOriginal)).toHaveStyle({ maxWidth: "1000px", maxHeight: "500px" })
         expect(renderer.getByRole("button", { name: "Zoom in" })).toBeEnabled()
         renderer.unmount()
       }
@@ -134,7 +133,7 @@ describe("ImageLightbox", () => {
     expect(image(renderer, tid.imageLightboxOriginal)).toBe(retried)
   })
 
-  it("reserves the known frame and reveals the original only after decode", async () => {
+  it("keeps one image region and the same fit for both layers through decode", async () => {
     let resolveDecode!: () => void
     const decodePromise = new Promise<void>((resolve) => { resolveDecode = resolve })
     const { renderer } = renderLightbox({
@@ -148,11 +147,10 @@ describe("ImageLightbox", () => {
     const thumbnail = image(renderer, tid.imageLightboxThumbnail)
     const original = image(renderer, tid.imageLightboxOriginal)
 
-    expect(previewFrameStyle({ width: 800, height: 450 })).toEqual({
-      width: "min(800px, 90vw, 151.111111vh, calc(max(1px, calc(100vh - 144px)) * 1.777778))",
-      aspectRatio: "800 / 450",
-    })
-    expect(frame.style.aspectRatio).toBe("800 / 450")
+    expect(frame.style.width).toBe("")
+    expect(frame.style.aspectRatio).toBe("")
+    expect(thumbnail).toHaveStyle({ maxWidth: "800px", maxHeight: "450px" })
+    expect(original).toHaveStyle({ maxWidth: "800px", maxHeight: "450px" })
     expect(frame).toHaveAttribute("data-native-context-menu", "true")
     expect(thumbnail).toHaveClass("absolute", "inset-0", "size-full")
     expect(thumbnail).toHaveClass("pointer-events-none")
@@ -167,7 +165,7 @@ describe("ImageLightbox", () => {
     expect(renderer.getByTestId(tid.imageLightboxLoading))
       .toHaveTextContent("Loading original image")
 
-    await loadThumbnail(renderer, 800, 450)
+    await loadThumbnail(renderer, 200, 112)
     expect(renderer.getByTestId(tid.imageLightbox).parentElement).not.toHaveClass("invisible")
     expect(image(renderer, tid.imageLightboxThumbnail)).toHaveClass("pointer-events-auto")
 
@@ -187,10 +185,11 @@ describe("ImageLightbox", () => {
       "pointer-events-none",
       "opacity-0",
     )
-    expect(previewFrameStyle({ width: 800, height: 450 })).toEqual({
-      width: "min(800px, 90vw, 151.111111vh, calc(max(1px, calc(100vh - 144px)) * 1.777778))",
-      aspectRatio: "800 / 450",
-    })
+    expect(renderer.getByTestId(tid.imageLightbox)).toBe(frame)
+    expect(frame.style.width).toBe("")
+    expect(frame.style.aspectRatio).toBe("")
+    expect(thumbnail).toHaveStyle({ maxWidth: "800px", maxHeight: "450px" })
+    expect(original).toHaveStyle({ maxWidth: "800px", maxHeight: "450px" })
   })
 
   it("keeps the thumbnail and retries only the failed original", async () => {
@@ -220,7 +219,7 @@ describe("ImageLightbox", () => {
     expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass("opacity-100")
   })
 
-  it("keeps the safe legacy frame until the decoded original commits once", async () => {
+  it("learns legacy image dimensions after decode without resizing or replacing the region", async () => {
     let resolveDecode!: () => void
     const decodePromise = new Promise<void>((resolve) => { resolveDecode = resolve })
     const { renderer } = renderLightbox({
@@ -228,28 +227,27 @@ describe("ImageLightbox", () => {
       thumbnailUrl: "/legacy-thumbnail",
       name: "legacy",
     })
-    const frame = () => renderer.getByTestId(tid.imageLightbox)
+    const frame = renderer.getByTestId(tid.imageLightbox)
 
-    expect(previewFrameStyle(undefined)).toEqual({ width: "min(200px, 90vw, 85vh, max(1px, calc(100vh - 144px)))", aspectRatio: "1 / 1" })
-    expect(frame().style.aspectRatio).toBe("1 / 1")
+    expect(frame.style.aspectRatio).toBe("")
     await loadThumbnail(renderer, 200, 100)
-    expect(frame().style.aspectRatio).toBe("1 / 1")
+    expect(renderer.getByTestId(tid.imageLightbox)).toBe(frame)
 
     const original = image(renderer, tid.imageLightboxOriginal)
     prepareImage(original, 1000, 500, () => decodePromise)
     fireEvent.load(original)
-    expect(frame().style.aspectRatio).toBe("1 / 1")
+    expect(original.style.maxWidth).toBe("")
     expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass("opacity-0")
 
     await act(async () => {
       resolveDecode()
       await decodePromise
     })
-    expect(previewFrameStyle({ width: 1000, height: 500 })).toEqual({
-      width: "min(1000px, 90vw, 170vh, calc(max(1px, calc(100vh - 144px)) * 2))",
-      aspectRatio: "1000 / 500",
-    })
-    expect(frame().style.aspectRatio).toBe("1000 / 500")
+    expect(renderer.getByTestId(tid.imageLightbox)).toBe(frame)
+    expect(frame.style.width).toBe("")
+    expect(frame.style.aspectRatio).toBe("")
+    expect(original).toHaveStyle({ maxWidth: "1000px", maxHeight: "500px" })
+    expect(image(renderer, tid.imageLightboxThumbnail)).toHaveStyle({ maxWidth: "1000px", maxHeight: "500px" })
     expect(image(renderer, tid.imageLightboxOriginal)).toHaveClass("opacity-100")
   })
 
@@ -307,11 +305,7 @@ describe("ImageLightbox", () => {
     const { renderer } = renderLightbox({ originalUrl: "/original", name: "legacy" })
     expect(renderer.getByTestId(tid.imageLightboxLoading))
       .toHaveTextContent("Loading original image")
-    expect(previewFrameStyle(undefined)).toEqual({
-      width: "min(200px, 90vw, 85vh, max(1px, calc(100vh - 144px)))",
-      aspectRatio: "1 / 1",
-    })
-    expect(renderer.getByTestId(tid.imageLightbox).style.aspectRatio).toBe("1 / 1")
+    expect(renderer.getByTestId(tid.imageLightbox).style.aspectRatio).toBe("")
   })
 
   it("keeps a slow original pending and displays its success beyond five seconds", async () => {
@@ -385,6 +379,9 @@ describe("ImageLightbox", () => {
 
     expect(frame.querySelectorAll(`[data-testid="${tid.imageLightboxError}"]`)).toHaveLength(0)
     expect(error.parentElement).toBe(frame.parentElement)
+    const toolbar = renderer.getByRole("toolbar", { name: "Image controls" })
+    expect(toolbar.parentElement).toBe(frame.parentElement)
+    expect(toolbar.nextElementSibling).toBe(frame)
     expect(error).toHaveClass("w-max")
     expect(retry).toHaveClass("h-12", "min-w-12")
   })
@@ -397,11 +394,11 @@ describe("ImageLightbox", () => {
     expect(onClose).toHaveBeenCalledOnce()
   })
 
-  async function readyPreview() {
-    const result = renderLightbox({ originalUrl: "/zoom-original", thumbnailUrl: "/zoom-thumbnail", name: "detail", width: 800, height: 600 })
+  async function readyPreview(width = 800, height = 600, legacy = false) {
+    const result = renderLightbox({ originalUrl: "/zoom-original", thumbnailUrl: "/zoom-thumbnail", name: "detail", ...(legacy ? {} : { width, height }) })
     const frame = result.renderer.getByTestId(tid.imageLightbox)
     mockElementGeometry(frame, { left: 100, top: 100, width: 400, height: 300, clientWidth: 400, clientHeight: 300 })
-    await loadImage(image(result.renderer, tid.imageLightboxOriginal), 800, 600, () => Promise.resolve())
+    await loadImage(image(result.renderer, tid.imageLightboxOriginal), width, height, () => Promise.resolve())
     return { ...result, frame, original: image(result.renderer, tid.imageLightboxOriginal) }
   }
 
@@ -447,6 +444,21 @@ describe("ImageLightbox", () => {
     pointer(frame, "pointerdown", 2, 300, 250, 2)
     pointer(frame, "pointermove", 2, 500, 400, 2)
     expect(original.style.transform).toBe("translate(0px, 0px) scale(1)")
+  })
+
+  it.each([
+    { name: "portrait", width: 100, height: 400, x: 0, y: 150 },
+    { name: "landscape", width: 400, height: 100, x: 200, y: 0 },
+    { name: "small image", width: 80, height: 40, x: 0, y: 0 },
+    { name: "legacy portrait", width: 100, height: 400, legacy: true, x: 0, y: 150 },
+  ])("clamps pan to the fitted bitmap for a $name", async ({ width, height, legacy, x, y }) => {
+    const { frame, original } = await readyPreview(width, height, legacy)
+    fireEvent.doubleClick(frame, { clientX: 300, clientY: 250 })
+    pointer(frame, "pointerdown", 1, 300, 250)
+    pointer(frame, "pointermove", 1, 2000, 1800)
+    expect(original.style.transform).toBe(`translate(${x}px, ${y}px) scale(2)`)
+    pointer(frame, "pointermove", 1, -2000, -1800)
+    expect(original.style.transform).toBe(`translate(${-x}px, ${-y}px) scale(2)`)
   })
 
   it("pinches with two pointers, continues panning with one, and stops on cancellation", async () => {
@@ -537,6 +549,30 @@ describe("ImageLightbox", () => {
     const wheel = new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -100 })
     fireEvent(frame, wheel)
     expect(wheel.defaultPrevented).toBe(false)
+  })
+
+  it("reclamps portrait letterboxing after an orientation change without reloading the image", async () => {
+    let resize!: ResizeObserverCallback
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: ResizeObserverCallback) { resize = callback }
+      observe = vi.fn()
+      disconnect = vi.fn()
+    })
+    const { frame, original, renderer } = await readyPreview(100, 400)
+    fireEvent.doubleClick(frame, { clientX: 300, clientY: 250 })
+    pointer(frame, "pointerdown", 1, 300, 250)
+    pointer(frame, "pointermove", 1, 1000, 1000)
+    expect(original.style.transform).toBe("translate(0px, 150px) scale(2)")
+    mockElementGeometry(frame, { left: 100, top: 100, width: 600, height: 200 })
+    act(() => resize([], {} as ResizeObserver))
+    expect(original.style.transform).toBe("translate(0px, 100px) scale(2)")
+    expect(image(renderer, tid.imageLightboxOriginal)).toBe(original)
+    expect(original).toHaveAttribute("data-remote-image-state", "ready")
+    expect(original).toHaveAttribute("src", "/zoom-original")
+    pointer(frame, "pointermove", 1, -2000, -1800)
+    expect(original.style.transform).toBe("translate(0px, 100px) scale(2)")
+    fireEvent.click(renderer.getByRole("button", { name: "Fit image" }))
+    expect(original.style.transform).toBe("translate(0px, 0px) scale(1)")
   })
 
 })

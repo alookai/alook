@@ -73,18 +73,148 @@ function expectSameRect(actual: Rect, expected: Rect) {
   expect(actual.height).toBeCloseTo(expected.height, 1)
 }
 
-function expectWithinPreviewViewport(rect: Rect, viewport: { width: number; height: number }) {
-  expect(rect.width).toBeLessThanOrEqual(viewport.width * 0.9 + 0.5)
-  expect(rect.height).toBeLessThanOrEqual(viewport.height * 0.85 + 0.5)
+function expectWithinRect(rect: Rect, outer: Rect) {
+  expect(rect.width).toBeGreaterThan(0)
+  expect(rect.height).toBeGreaterThan(0)
+  expect(rect.x).toBeGreaterThanOrEqual(outer.x - 0.5)
+  expect(rect.y).toBeGreaterThanOrEqual(outer.y - 0.5)
+  expect(rect.x + rect.width).toBeLessThanOrEqual(outer.x + outer.width + 0.5)
+  expect(rect.y + rect.height).toBeLessThanOrEqual(outer.y + outer.height + 0.5)
 }
 
-async function previewRects(page: Page) {
+async function previewLayout(page: Page) {
+  await waitForDialogEntrance(page)
   const container = await boundingRect(page.getByTestId(tid.imageLightbox))
-  const thumbnail = await boundingRect(page.getByTestId(tid.imageLightboxThumbnail))
-  const original = await boundingRect(page.getByTestId(tid.imageLightboxOriginal))
-  expectSameRect(thumbnail, container)
-  expectSameRect(original, container)
-  return { container, thumbnail, original }
+  const controls = await boundingRect(page.getByRole("toolbar", { name: "Image controls" }))
+  const dialog = await boundingRect(page.locator("[data-slot='dialog-content']").filter({ has: page.getByTestId(tid.imageLightbox) }))
+  const { viewport, inset } = await page.evaluate(() => {
+    const probe = document.createElement("div")
+    probe.style.cssText = "position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)"
+    document.body.appendChild(probe)
+    const style = getComputedStyle(probe)
+    const gutter = Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
+    const inset = {
+      top: Math.max(gutter, Number.parseFloat(style.paddingTop)),
+      right: Math.max(gutter, Number.parseFloat(style.paddingRight)),
+      bottom: Math.max(gutter, Number.parseFloat(style.paddingBottom)),
+      left: Math.max(gutter, Number.parseFloat(style.paddingLeft)),
+    }
+    probe.remove()
+    const visible = window.visualViewport
+    return {
+      viewport: { x: visible?.offsetLeft ?? 0, y: visible?.offsetTop ?? 0, width: visible?.width ?? innerWidth, height: visible?.height ?? innerHeight },
+      inset,
+    }
+  })
+  expectSameRect(dialog, {
+    x: viewport.x + inset.left,
+    y: viewport.y + inset.top,
+    width: viewport.width - inset.left - inset.right,
+    height: viewport.height - inset.top - inset.bottom,
+  })
+  for (const rect of [dialog, controls, container]) expectWithinRect(rect, viewport)
+  expect(controls.y).toBeCloseTo(dialog.y, 1)
+  expect(controls.y + controls.height).toBeLessThan(container.y)
+  expect(container.x).toBeCloseTo(dialog.x, 1)
+  expect(container.width).toBeCloseTo(dialog.width, 1)
+  expect(container.y + container.height).toBeCloseTo(dialog.y + dialog.height, 1)
+  return { container, controls, dialog, viewport }
+}
+
+async function previewImageGeometry(locator: Locator) {
+  const geometry = await locator.evaluate((element: HTMLImageElement) => {
+    const rect = element.getBoundingClientRect()
+    const box = { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+    const style = getComputedStyle(element)
+    const ratio = Math.min(rect.width / element.naturalWidth, rect.height / element.naturalHeight)
+    const width = element.naturalWidth * ratio
+    const height = element.naturalHeight * ratio
+    return {
+      box,
+      painted: element.naturalWidth > 0 && element.naturalHeight > 0 ? {
+        x: rect.x + (rect.width - width) / 2,
+        y: rect.y + (rect.height - height) / 2,
+        width,
+        height,
+      } : null,
+      naturalWidth: element.naturalWidth,
+      naturalHeight: element.naturalHeight,
+      objectFit: style.objectFit,
+      objectPosition: style.objectPosition,
+      state: element.getAttribute("data-remote-image-state"),
+    }
+  })
+  expect(geometry.objectFit).toBe("contain")
+  expect(geometry.objectPosition).toBe("50% 50%")
+  if (geometry.state === "ready") expect(geometry.painted).not.toBeNull()
+  return geometry
+}
+
+function expectFittedImage(painted: Rect | null, container: Rect, dimensions: { width: number; height: number }) {
+  if (!painted) return
+  const ratio = Math.min(1, container.width / dimensions.width, container.height / dimensions.height)
+  const width = dimensions.width * ratio
+  const height = dimensions.height * ratio
+  expectSameRect(painted, {
+    x: container.x + (container.width - width) / 2,
+    y: container.y + (container.height - height) / 2,
+    width,
+    height,
+  })
+  expectWithinRect(painted, container)
+  expect(painted.width / painted.height).toBeCloseTo(dimensions.width / dimensions.height, 2)
+}
+
+async function previewRects(page: Page, dimensions: { width: number; height: number }) {
+  const layout = await previewLayout(page)
+  const thumbnail = await previewImageGeometry(page.getByTestId(tid.imageLightboxThumbnail))
+  const original = await previewImageGeometry(page.getByTestId(tid.imageLightboxOriginal))
+  expectSameRect(thumbnail.box, original.box)
+  for (const layer of [thumbnail, original]) {
+    expectWithinRect(layer.box, layout.container)
+    expectFittedImage(layer.painted, layout.container, dimensions)
+  }
+  if (original.painted) {
+    expect(original.naturalWidth).toBe(dimensions.width)
+    expect(original.naturalHeight).toBe(dimensions.height)
+  }
+  return { ...layout, thumbnail: thumbnail.box, original: original.box, thumbnailPainted: thumbnail.painted, originalPainted: original.painted }
+}
+
+async function expectZoomedImage(page: Page, dimensions: { width: number; height: number }) {
+  const layout = await previewLayout(page)
+  const scale = Number(await page.getByTestId(tid.imageLightbox).getAttribute("data-zoom-scale"))
+  const { painted } = await previewImageGeometry(page.getByTestId(tid.imageLightboxOriginal))
+  expect(painted).not.toBeNull()
+  const fit = Math.min(1, layout.container.width / dimensions.width, layout.container.height / dimensions.height)
+  expect(painted!.width).toBeCloseTo(dimensions.width * fit * scale, 1)
+  expect(painted!.height).toBeCloseTo(dimensions.height * fit * scale, 1)
+  for (const [start, length] of [["x", "width"], ["y", "height"]] as const) {
+    if (painted![length] <= layout.container[length]) {
+      expect(painted![start] + painted![length] / 2).toBeCloseTo(layout.container[start] + layout.container[length] / 2, 1)
+    } else {
+      expect(painted![start]).toBeLessThanOrEqual(layout.container[start] + 0.5)
+      expect(painted![start] + painted![length]).toBeGreaterThanOrEqual(layout.container[start] + layout.container[length] - 0.5)
+    }
+  }
+  return { ...layout, painted, scale }
+}
+
+async function previewNodes(page: Page) {
+  return Promise.all([tid.imageLightbox, tid.imageLightboxThumbnail, tid.imageLightboxOriginal].map(async (id) => {
+    const locator = page.getByTestId(id)
+    const node = await locator.elementHandle()
+    expect(node).not.toBeNull()
+    return { id, node, src: await locator.getAttribute("src") }
+  }))
+}
+
+async function expectSamePreviewNodes(page: Page, nodes: Awaited<ReturnType<typeof previewNodes>>) {
+  for (const { id, node, src } of nodes) {
+    const locator = page.getByTestId(id)
+    expect(await locator.evaluate((element, captured) => element === captured, node)).toBe(true)
+    expect(await locator.getAttribute("src")).toBe(src)
+  }
 }
 
 async function waitForDialogEntrance(page: Page) {
@@ -280,7 +410,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   await expect(page.getByTestId(tid.imageLightboxLoading)).toBeVisible()
   await expect(page.getByTestId(tid.imageLightboxThumbnail)).toHaveAttribute("src", landscape.thumbnailPath)
   await waitForDialogEntrance(page)
-  const coldPendingRect = await previewRects(page)
+  const coldPendingRect = await previewRects(page, { width: 800, height: 450 })
   expect(await page.getByTestId(tid.imageLightboxThumbnail).evaluate((element: HTMLImageElement) => ({
     complete: element.complete,
     naturalWidth: element.naturalWidth,
@@ -291,7 +421,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   await expect(landscapeListFrame).toHaveAttribute("data-remote-image-state", "ready")
   expectSameRect(await boundingRect(landscapeListFrame), pendingListRect)
   await expect(page.getByTestId(tid.imageLightbox)).toBeVisible()
-  expectSameRect(await previewRects(page).then((rects) => rects.container), coldPendingRect.container)
+  expectSameRect(await previewRects(page, { width: 800, height: 450 }).then((rects) => rects.container), coldPendingRect.container)
   await expect(page.getByTestId(tid.imageLightboxThumbnail)).toHaveClass(/opacity-100/)
   const coldThumbnailReady = await page.getByTestId(tid.imageLightboxThumbnail).evaluate((element: HTMLImageElement) => ({
     complete: element.complete,
@@ -302,17 +432,18 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   await attachScreenshot(testInfo, "desktop-landscape-first-visible", page)
   await page.unroute(thumbnailPattern)
 
-  const desktopLandscapeLoading = await previewRects(page)
-  expectWithinPreviewViewport(desktopLandscapeLoading.container, { width: 1280, height: 900 })
+  const desktopLandscapeLoading = await previewRects(page, { width: 800, height: 450 })
+  const desktopNodes = await previewNodes(page)
+  caseResources.own(desktopNodes, async (captured) => { await Promise.all(captured.map(({ node }) => node?.dispose())) })
+  const desktopImageGets = observedGetPaths.filter((path) => path === landscape.originalPath || path === landscape.thumbnailPath)
   await attachScreenshot(testInfo, "desktop-landscape-loading", page)
 
   await page.setViewportSize({ width: 700, height: 600 })
-  const desktopLandscapeResized = await previewRects(page)
-  expectWithinPreviewViewport(desktopLandscapeResized.container, { width: 700, height: 600 })
+  const desktopLandscapeResized = await previewRects(page, { width: 800, height: 450 })
   expect(desktopLandscapeResized.container.width).toBeLessThan(desktopLandscapeLoading.container.width)
   await attachScreenshot(testInfo, "desktop-landscape-resized-loading", page)
   await page.setViewportSize({ width: 1280, height: 900 })
-  const desktopLandscapeRestored = await previewRects(page)
+  const desktopLandscapeRestored = await previewRects(page, { width: 800, height: 450 })
   expectSameRect(desktopLandscapeRestored.container, desktopLandscapeLoading.container)
 
   releaseLandscape()
@@ -322,8 +453,10 @@ test("image previews keep one frame through loading, decode, failure, retry, and
     src: landscape.originalPath,
     testId: tid.imageLightboxOriginal,
   })
-  const desktopLandscapeLoaded = await previewRects(page)
+  const desktopLandscapeLoaded = await previewRects(page, { width: 800, height: 450 })
   expectSameRect(desktopLandscapeLoaded.container, desktopLandscapeRestored.container)
+  await expectSamePreviewNodes(page, desktopNodes)
+  expect(observedGetPaths.filter((path) => path === landscape.originalPath || path === landscape.thumbnailPath)).toEqual(desktopImageGets)
   await attachScreenshot(testInfo, "desktop-landscape-loaded", page)
   const desktopZoomFrame = page.getByTestId(tid.imageLightbox)
   await desktopZoomFrame.hover()
@@ -342,12 +475,24 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   await page.mouse.move(desktopCenter.x + 70, desktopCenter.y + 40, { steps: 5 })
   await page.mouse.up()
   await expect.poll(() => landscapeOriginal.evaluate((element) => element.style.transform)).not.toBe(beforeDrag)
+  await expectZoomedImage(page, { width: 800, height: 450 })
   await attachScreenshot(testInfo, "desktop-original-zoomed", page)
   await page.getByRole("button", { name: "Fit image", exact: true }).click()
   await expect(desktopZoomFrame).toHaveAttribute("data-zoom-scale", "1")
   await desktopZoomFrame.dblclick()
   await expect(desktopZoomFrame).toHaveAttribute("data-zoom-scale", "2")
   await desktopZoomFrame.dblclick()
+  await expect(desktopZoomFrame).toHaveAttribute("data-zoom-scale", "1")
+  await desktopZoomFrame.focus()
+  await desktopZoomFrame.press("Equal")
+  await expect(desktopZoomFrame).toHaveAttribute("data-zoom-scale", "1.5")
+  await desktopZoomFrame.press("Equal")
+  await expect(desktopZoomFrame).toHaveAttribute("data-zoom-scale", "2.25")
+  const beforeKeyboardPan = await landscapeOriginal.evaluate((element) => element.style.transform)
+  await desktopZoomFrame.press("ArrowRight")
+  await expect.poll(() => landscapeOriginal.evaluate((element) => element.style.transform)).not.toBe(beforeKeyboardPan)
+  await expectZoomedImage(page, { width: 800, height: 450 })
+  await desktopZoomFrame.press("0")
   await expect(desktopZoomFrame).toHaveAttribute("data-zoom-scale", "1")
   await page.getByRole("button", { name: "Close image preview", exact: true }).click()
   await expect(desktopZoomFrame).toHaveCount(0)
@@ -356,6 +501,11 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   await expect(landscapeOriginal).toHaveClass(/opacity-100/)
   await page.keyboard.press("Escape")
   await expect(page.getByTestId(tid.imageLightbox)).toHaveCount(0)
+  await landscapeButton.click()
+  await expect(landscapeOriginal).toHaveClass(/opacity-100/)
+  await waitForDialogEntrance(page)
+  await page.mouse.click(1, 1)
+  await expect(desktopZoomFrame).toHaveCount(0)
   await page.unroute(`**${landscape.originalPath}`)
 
   const portrait = await uploadImage({
@@ -395,7 +545,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   await expect.poll(() => portraitOriginalRequests.length).toBe(1)
   await expect(page.getByTestId(tid.imageLightboxOriginal)).toHaveClass(/opacity-0/)
   await waitForDialogEntrance(page)
-  const desktopPortraitLoading = await previewRects(page)
+  const desktopPortraitLoading = await previewRects(page, { width: 450, height: 800 })
   await attachScreenshot(testInfo, "desktop-portrait-loading", page)
   releasePortraitFailure()
   await expect(page.getByTestId(tid.imageLightboxError)).toContainText("Failed to load original image")
@@ -411,14 +561,16 @@ test("image previews keep one frame through loading, decode, failure, retry, and
     container: await boundingRect(page.getByTestId(tid.imageLightbox)),
     thumbnail: await boundingRect(page.getByTestId(tid.imageLightboxThumbnail)),
   }
-  expectSameRect(desktopPortraitFailed.thumbnail, desktopPortraitFailed.container)
+  expectSameRect(desktopPortraitFailed.thumbnail, desktopPortraitLoading.thumbnail)
+  const failedThumbnailGeometry = await previewImageGeometry(portraitThumbnail)
+  expectFittedImage(failedThumbnailGeometry.painted, desktopPortraitFailed.container, { width: 450, height: 800 })
   expectSameRect(desktopPortraitFailed.container, desktopPortraitLoading.container)
   await attachScreenshot(testInfo, "desktop-portrait-failed", page)
 
   await page.getByTestId(tid.imageLightboxRetry).click()
   await expect.poll(() => portraitOriginalRequests.length).toBe(2)
   await expect(page.getByTestId(tid.imageLightboxOriginal)).toHaveClass(/opacity-100/)
-  const desktopPortraitRetried = await previewRects(page)
+  const desktopPortraitRetried = await previewRects(page, { width: 450, height: 800 })
   expectSameRect(desktopPortraitRetried.container, desktopPortraitFailed.container)
   await attachScreenshot(testInfo, "desktop-portrait-retried", page)
   expect(messagePostCount).toBe(2)
@@ -444,6 +596,13 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   expect(messagePostCount).toBe(4)
 
   const { page: mobilePage } = await asUser("alice", { hasTouch: true })
+  const mobilePortraitGetPaths: string[] = []
+  mobilePage.on("request", (request) => {
+    const pathname = new URL(request.url()).pathname
+    if (request.method() === "GET" && (pathname === portrait.originalPath || pathname === portrait.thumbnailPath)) {
+      mobilePortraitGetPaths.push(pathname)
+    }
+  })
   await mobilePage.setViewportSize({ width: 390, height: 844 })
   await mobilePage.goto(channelUrl)
   await mobilePage.waitForURL(new RegExp(`/c/channels/[^/]+/${channelId}$`), { waitUntil: "commit" })
@@ -470,12 +629,11 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   await expect.poll(() => mobileLandscapeRequests).toBe(1)
   await expect(mobilePage.getByTestId(tid.imageLightboxOriginal)).toHaveClass(/opacity-0/)
   await waitForDialogEntrance(mobilePage)
-  const mobileLandscapeLoading = await previewRects(mobilePage)
-  expectWithinPreviewViewport(mobileLandscapeLoading.container, { width: 390, height: 844 })
+  const mobileLandscapeLoading = await previewRects(mobilePage, { width: 800, height: 450 })
   await attachScreenshot(testInfo, "mobile-landscape-loading", mobilePage)
   releaseMobileLandscape()
   await expect(mobilePage.getByTestId(tid.imageLightboxOriginal)).toHaveClass(/opacity-100/)
-  const mobileLandscapeLoaded = await previewRects(mobilePage)
+  const mobileLandscapeLoaded = await previewRects(mobilePage, { width: 800, height: 450 })
   expectSameRect(mobileLandscapeLoaded.container, mobileLandscapeLoading.container)
   await attachScreenshot(testInfo, "mobile-landscape-loaded", mobilePage)
   await mobilePage.keyboard.press("Escape")
@@ -496,25 +654,37 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   await expect.poll(() => mobilePortraitRequests).toBe(1)
   await expect(mobilePage.getByTestId(tid.imageLightboxOriginal)).toHaveClass(/opacity-0/)
   await waitForDialogEntrance(mobilePage)
-  const mobilePortraitLoading = await previewRects(mobilePage)
-  expectWithinPreviewViewport(mobilePortraitLoading.container, { width: 390, height: 844 })
+  const mobilePortraitLoading = await previewRects(mobilePage, { width: 450, height: 800 })
+  await expect(mobilePage.getByTestId(tid.imageLightboxThumbnail)).toHaveClass(/opacity-100/)
+  const mobileNodes = await previewNodes(mobilePage)
+  caseResources.own(mobileNodes, async (captured) => { await Promise.all(captured.map(({ node }) => node?.dispose())) })
+  const pendingMobileGets = [...mobilePortraitGetPaths]
   await attachScreenshot(testInfo, "mobile-portrait-loading", mobilePage)
 
   await mobilePage.setViewportSize({ width: 844, height: 390 })
-  const mobilePortraitLandscapeOrientation = await previewRects(mobilePage)
-  expectWithinPreviewViewport(mobilePortraitLandscapeOrientation.container, { width: 844, height: 390 })
+  const mobilePortraitLandscapeOrientation = await previewRects(mobilePage, { width: 450, height: 800 })
   expect(mobilePortraitLandscapeOrientation.container.height).toBeLessThan(mobilePortraitLoading.container.height)
   const rotatedControls = await boundingRect(mobilePage.getByRole("toolbar", { name: "Image controls" }))
   expect(rotatedControls.y + rotatedControls.height).toBeLessThan(mobilePortraitLandscapeOrientation.container.y)
   await attachScreenshot(testInfo, "mobile-portrait-landscape-orientation-loading", mobilePage)
   await mobilePage.setViewportSize({ width: 390, height: 844 })
-  const mobilePortraitRestored = await previewRects(mobilePage)
+  const mobilePortraitRestored = await previewRects(mobilePage, { width: 450, height: 800 })
   expectSameRect(mobilePortraitRestored.container, mobilePortraitLoading.container)
+  await expectSamePreviewNodes(mobilePage, mobileNodes)
+  expect(mobilePortraitGetPaths).toEqual(pendingMobileGets)
 
   releaseMobilePortrait()
   await expect(mobilePage.getByTestId(tid.imageLightboxOriginal)).toHaveClass(/opacity-100/)
-  const mobilePortraitLoaded = await previewRects(mobilePage)
+  const mobilePortraitLoaded = await previewRects(mobilePage, { width: 450, height: 800 })
   expectSameRect(mobilePortraitLoaded.container, mobilePortraitRestored.container)
+  const loadedMobileGets = [...mobilePortraitGetPaths]
+  await mobilePage.setViewportSize({ width: 390, height: 700 })
+  const mobilePortraitLoadedHeight = await previewRects(mobilePage, { width: 450, height: 800 })
+  expect(mobilePortraitLoadedHeight.container.height).toBeLessThan(mobilePortraitLoaded.container.height)
+  await expectSamePreviewNodes(mobilePage, mobileNodes)
+  expect(mobilePortraitGetPaths).toEqual(loadedMobileGets)
+  await mobilePage.setViewportSize({ width: 390, height: 844 })
+  expectSameRect((await previewRects(mobilePage, { width: 450, height: 800 })).container, mobilePortraitLoaded.container)
   await attachScreenshot(testInfo, "mobile-portrait-loaded", mobilePage)
   const mobileZoomFrame = mobilePage.getByTestId(tid.imageLightbox)
   const mobileOriginal = mobilePage.getByTestId(tid.imageLightboxOriginal)
@@ -540,6 +710,20 @@ test("image previews keep one frame through loading, decode, failure, retry, and
     await touchSession.detach()
   }
   expectSameRect(await boundingRect(mobileZoomFrame), mobilePortraitLoaded.container)
+  await expectZoomedImage(mobilePage, { width: 450, height: 800 })
+  await mobilePage.setViewportSize({ width: 390, height: 644 })
+  const mobilePortraitZoomedHeight = await expectZoomedImage(mobilePage, { width: 450, height: 800 })
+  expect(mobilePortraitZoomedHeight.scale).toBeCloseTo(2, 1)
+  await mobilePage.setViewportSize({ width: 844, height: 390 })
+  const mobilePortraitZoomedRotated = await expectZoomedImage(mobilePage, { width: 450, height: 800 })
+  expect(mobilePortraitZoomedRotated.scale).toBeCloseTo(2, 1)
+  await mobilePage.setViewportSize({ width: 390, height: 844 })
+  const mobilePortraitZoomedRestored = await expectZoomedImage(mobilePage, { width: 450, height: 800 })
+  expect(mobilePortraitZoomedRestored.scale).toBeCloseTo(2, 1)
+  expectSameRect(mobilePortraitZoomedRestored.container, mobilePortraitLoaded.container)
+  await expectSamePreviewNodes(mobilePage, mobileNodes)
+  await expect(mobileOriginal).toHaveClass(/opacity-100/)
+  expect(mobilePortraitGetPaths).toEqual(loadedMobileGets)
   await attachScreenshot(testInfo, "mobile-original-pinched", mobilePage)
   for (const name of ["Zoom out", "Fit image", "Zoom in", "Close image preview"]) {
     const control = await boundingRect(mobilePage.getByRole("button", { name, exact: true }))
@@ -615,6 +799,10 @@ test("image previews keep one frame through loading, decode, failure, retry, and
       mobilePortraitLandscapeOrientation,
       mobilePortraitRestored,
       mobilePortraitLoaded,
+      mobilePortraitLoadedHeight,
+      mobilePortraitZoomedHeight,
+      mobilePortraitZoomedRotated,
+      mobilePortraitZoomedRestored,
       mobileExtremeLandscapeFailed,
       mobileExtremePortraitFailed,
     }, null, 2)),

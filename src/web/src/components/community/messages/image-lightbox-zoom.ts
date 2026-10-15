@@ -2,6 +2,7 @@
 
 import { useAtom, useCreateAtom } from "@tanstack/react-store"
 import { useCallback, useEffect, useRef, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react"
+import { fitImageToViewport, type ImageDimensions } from "./image-lightbox-layout"
 
 export type ImageView = { scale: number; x: number; y: number }
 type Point = { x: number; y: number }
@@ -9,10 +10,11 @@ type Bounds = { width: number; height: number }
 const FIT_VIEW: ImageView = { scale: 1, x: 0, y: 0 }
 const MAX_ZOOM = 8
 
-function constrain(view: ImageView, bounds: Bounds): ImageView {
+function constrain(view: ImageView, bounds: Bounds, dimensions?: ImageDimensions): ImageView {
   const scale = Math.max(1, Math.min(MAX_ZOOM, view.scale))
-  const maxX = bounds.width * (scale - 1) / 2
-  const maxY = bounds.height * (scale - 1) / 2
+  const fitted = dimensions ? fitImageToViewport(dimensions, bounds) : bounds
+  const maxX = Math.max(0, (fitted.width * scale - bounds.width) / 2)
+  const maxY = Math.max(0, (fitted.height * scale - bounds.height) / 2)
   return {
     scale,
     x: Math.max(-maxX, Math.min(maxX, view.x)),
@@ -20,14 +22,14 @@ function constrain(view: ImageView, bounds: Bounds): ImageView {
   }
 }
 
-function zoomAt(view: ImageView, scale: number, point: Point, bounds: Bounds): ImageView {
+function zoomAt(view: ImageView, scale: number, point: Point, bounds: Bounds, dimensions?: ImageDimensions): ImageView {
   const nextScale = Math.max(1, Math.min(MAX_ZOOM, scale))
   const ratio = nextScale / view.scale
   return constrain({
     scale: nextScale,
     x: point.x - (point.x - view.x) * ratio,
     y: point.y - (point.y - view.y) * ratio,
-  }, bounds)
+  }, bounds, dimensions)
 }
 
 function midpoint(points: Point[]): Point {
@@ -41,7 +43,7 @@ function distance(points: Point[]): number {
   return Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y)
 }
 
-export function useImageLightboxZoom(enabled: boolean) {
+export function useImageLightboxZoom(enabled: boolean, dimensions?: ImageDimensions) {
   const frameRef = useRef<HTMLDivElement>(null)
   const pointers = useRef(new Map<number, Point>())
   const [view, setView] = useAtom(useCreateAtom<ImageView>(FIT_VIEW))
@@ -49,10 +51,10 @@ export function useImageLightboxZoom(enabled: boolean) {
 
   const apply = useCallback((next: ImageView) => {
     const bounds = frameRef.current?.getBoundingClientRect()
-    const constrained = bounds ? constrain(next, bounds) : FIT_VIEW
+    const constrained = bounds ? constrain(next, bounds, dimensions) : FIT_VIEW
     currentView.current = constrained
     setView(constrained)
-  }, [setView])
+  }, [dimensions, setView])
 
   const reset = useCallback(() => {
     pointers.current.clear()
@@ -66,8 +68,8 @@ export function useImageLightboxZoom(enabled: boolean) {
       x: point.x - bounds.left - bounds.width / 2,
       y: point.y - bounds.top - bounds.height / 2,
     } : { x: 0, y: 0 }
-    apply(zoomAt(currentView.current, scale, anchor, bounds))
-  }, [apply])
+    apply(zoomAt(currentView.current, scale, anchor, bounds, dimensions))
+  }, [apply, dimensions])
 
   useEffect(() => {
     if (!enabled) {
@@ -117,7 +119,7 @@ export function useImageLightboxZoom(enabled: boolean) {
       y: oldMidpoint.y - bounds.top - bounds.height / 2,
     }
     const ratio = before.length === 2 ? distance(after) / Math.max(1, distance(before)) : 1
-    const next = zoomAt(currentView.current, currentView.current.scale * ratio, anchor, bounds)
+    const next = zoomAt(currentView.current, currentView.current.scale * ratio, anchor, bounds, dimensions)
     apply({ ...next, x: next.x + newMidpoint.x - oldMidpoint.x, y: next.y + newMidpoint.y - oldMidpoint.y })
   }
 

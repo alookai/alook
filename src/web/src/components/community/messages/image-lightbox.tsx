@@ -9,7 +9,6 @@ import { MinusIcon, PlusIcon, RotateCcwIcon, XIcon } from "lucide-react"
 import type { ImagePreview } from "@/lib/community/models/message"
 import { tid } from "@/lib/community/testids"
 import {
-  previewFrameStyle,
   type ImageDimensions,
   validImageDimensions,
 } from "./image-lightbox-layout"
@@ -40,11 +39,14 @@ function PreviewFrame({ image, onClose }: { image: ImagePreview; onClose: () => 
     retryOriginal,
   ] = useRemoteImageAttempt({ source: image.originalUrl })
 
-  const frameStyle = previewFrameStyle(dimensions)
   const thumbnailReady = !!image.thumbnailUrl && thumbnailStatus === "ready"
   const originalReady = originalStatus === "ready"
-  const { frameRef, view, reset, zoomIn, zoomOut, handlers } = useImageLightboxZoom(originalReady)
-  const imageTransform = { transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }
+  const { frameRef, view, reset, zoomIn, zoomOut, handlers } = useImageLightboxZoom(originalReady, dimensions)
+  const imageStyle = {
+    maxWidth: dimensions?.width,
+    maxHeight: dimensions?.height,
+    transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
+  }
 
   useLayoutEffect(() => {
     if (originalStatus !== "ready" || !originalImage) return
@@ -53,7 +55,17 @@ function PreviewFrame({ image, onClose }: { image: ImagePreview; onClose: () => 
   }, [knownDimensions, originalImage, originalStatus, setDimensions])
 
   return (
-    <div className="relative w-fit">
+    <div className="relative flex size-full min-h-0 flex-col gap-2">
+      <div
+        role="toolbar"
+        aria-label="Image controls"
+        className="z-20 flex shrink-0 items-center gap-1 self-center rounded-lg border border-border bg-background p-1"
+      >
+        <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="Zoom out" title="Zoom out" disabled={!originalReady || view.scale <= 1} onClick={zoomOut}><MinusIcon /></Button>
+        <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="Fit image" title="Fit image" disabled={!originalReady || view.scale === 1} onClick={reset}><RotateCcwIcon /></Button>
+        <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="Zoom in" title="Zoom in" disabled={!originalReady || view.scale >= 8} onClick={zoomIn}><PlusIcon /></Button>
+        <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="Close image preview" title="Close" onClick={onClose}><XIcon /></Button>
+      </div>
       <div
         ref={frameRef}
         data-testid={tid.imageLightbox}
@@ -62,8 +74,8 @@ function PreviewFrame({ image, onClose }: { image: ImagePreview; onClose: () => 
         role="region"
         aria-label="Image preview. Use plus and minus to zoom, arrow keys to pan, and zero to fit."
         tabIndex={originalReady ? 0 : -1}
-        className={`relative select-none overflow-hidden rounded-lg bg-background ${view.scale > 1 ? "cursor-grab active:cursor-grabbing" : "cursor-default"}`}
-        style={{ ...frameStyle, touchAction: originalReady ? "none" : undefined }}
+        className={`relative min-h-0 w-full flex-1 select-none overflow-hidden rounded-lg bg-background ${view.scale > 1 ? "cursor-grab active:cursor-grabbing" : "cursor-default"}`}
+        style={{ touchAction: originalReady ? "none" : undefined }}
         {...handlers}
       >
         {image.thumbnailUrl && (
@@ -76,10 +88,10 @@ function PreviewFrame({ image, onClose }: { image: ImagePreview; onClose: () => 
             src={image.thumbnailUrl}
             alt={image.name}
             draggable={false}
-            style={imageTransform}
+            style={imageStyle}
             onLoad={onThumbnailLoad}
             onError={onThumbnailError}
-            className={`absolute inset-0 size-full rounded-lg object-contain ${thumbnailReady && !originalReady ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
+            className={`absolute inset-0 m-auto size-full rounded-lg object-contain ${thumbnailReady && !originalReady ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
           />
         )}
         {!thumbnailReady && !originalReady && originalStatus === "pending" && (
@@ -101,29 +113,18 @@ function PreviewFrame({ image, onClose }: { image: ImagePreview; onClose: () => 
             src={image.originalUrl}
             alt={image.name}
             draggable={false}
-            style={imageTransform}
+            style={imageStyle}
             onLoad={onOriginalLoad}
             onError={onOriginalError}
-            className={`absolute inset-0 size-full rounded-lg object-contain ${originalReady ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
+            className={`absolute inset-0 m-auto size-full rounded-lg object-contain ${originalReady ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
           />
         )}
-      </div>
-      <div
-        role="toolbar"
-        aria-label="Image controls"
-        className="absolute left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-lg border border-border bg-background p-1"
-        style={{ top: "calc(50% - 50vh + 12px)" }}
-      >
-        <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="Zoom out" title="Zoom out" disabled={!originalReady || view.scale <= 1} onClick={zoomOut}><MinusIcon /></Button>
-        <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="Fit image" title="Fit image" disabled={!originalReady || view.scale === 1} onClick={reset}><RotateCcwIcon /></Button>
-        <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="Zoom in" title="Zoom in" disabled={!originalReady || view.scale >= 8} onClick={zoomIn}><PlusIcon /></Button>
-        <Button variant="ghost" size="icon" className="size-11 sm:size-9" aria-label="Close image preview" title="Close" onClick={onClose}><XIcon /></Button>
       </div>
       {originalStatus === "error" && (
         <div
           data-testid={tid.imageLightboxError}
           role="status"
-          className="absolute bottom-3 left-1/2 z-10 flex min-h-11 w-max max-w-[min(90vw,24rem)] -translate-x-1/2 items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm shadow-sm"
+          className="absolute bottom-3 left-1/2 z-10 flex min-h-11 w-max max-w-full -translate-x-1/2 items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm shadow-sm"
         >
           <span>Failed to load original image</span>
           <button
@@ -145,7 +146,7 @@ export function ImageLightbox({ image, onClose }: { image: ImagePreview; onClose
     <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent
         aria-label={image.name}
-        className="flex max-h-[90vh] w-auto items-center justify-center border-none bg-transparent p-0 shadow-none sm:max-w-none"
+        className="top-[max(1rem,env(safe-area-inset-top))] right-[max(1rem,env(safe-area-inset-right))] left-[max(1rem,env(safe-area-inset-left))] flex h-[calc(100dvh_-_max(1rem,env(safe-area-inset-top))_-_max(1rem,env(safe-area-inset-bottom)))] w-auto max-w-none translate-x-0 translate-y-0 border-none bg-transparent p-0 shadow-none sm:max-w-none"
         showCloseButton={false}
       >
         <PreviewFrame
