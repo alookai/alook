@@ -557,12 +557,17 @@ describe("BotActivityModal CommunitySheet contract", () => {
   })
 
   it.each([
-    { crossDay: false, offset: 0 },
-    { crossDay: false, offset: 80 },
-    { crossDay: true, offset: 0 },
-    { crossDay: true, offset: 80 },
-  ])("keeps actual event content through two older pages at $offset, cross-day $crossDay", async ({ crossDay, offset }) => {
+    { crossDay: false, offset: 0, measuredHeight: 44 },
+    { crossDay: false, offset: 80, measuredHeight: 44 },
+    { crossDay: true, offset: 0, measuredHeight: 44 },
+    { crossDay: true, offset: 80, measuredHeight: 44 },
+    { crossDay: false, offset: 0, measuredHeight: 33 },
+    { crossDay: false, offset: 80, measuredHeight: 33 },
+    { crossDay: true, offset: 0, measuredHeight: 33 },
+    { crossDay: true, offset: 80, measuredHeight: 33 },
+  ])("keeps actual event content through two older pages at $offset, cross-day $crossDay, measured $measuredHeight", async ({ crossDay, offset, measuredHeight }) => {
     auditState.events = events(50)
+    for (const item of auditState.events) rowHeights.set(item.id, measuredHeight)
     auditState.hasNextPage = true
     const { renderer } = renderModal()
     for (const [index, target] of [offset, 80].entries()) {
@@ -580,6 +585,7 @@ describe("BotActivityModal CommunitySheet contract", () => {
       updateModal(renderer)
       const start = Date.parse(crossDay ? `2026-08-${26 - index}T12:00:00.000Z` : `2026-08-27T${11 - index}:00:00.000Z`)
       const page = Array.from({ length: 50 }, (_, ordinal) => event(`older-${index}-${ordinal}`, new Date(start + ordinal * 60_000).toISOString()))
+      for (const item of page) rowHeights.set(item.id, measuredHeight)
       auditState.events = [...auditState.events, ...page]
       auditState.isFetchingNextPage = false
       updateModal(renderer)

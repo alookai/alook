@@ -906,8 +906,10 @@ let caseJourneyFailure2Present = false
     await expect(sticker).toContainText(`Long marked task ${suffix}`)
     await expect(sticker).not.toContainText("**Long marked task")
     await expect(sticker.locator("time")).toHaveCount(3)
-    await expect(sticker.locator("p").filter({ hasText: `Long marked task ${suffix}` }))
-      .toHaveCSS("-webkit-line-clamp", "2")
+    const markedMessageBody = sticker.locator("p").filter({ hasText: `Long marked task ${suffix}` })
+    await expect(markedMessageBody).toHaveText(`Long marked task ${suffix} ${"with enough detail to require a second line ".repeat(5).trim()}`)
+    await expect(markedMessageBody.locator("strong")).toHaveText(`Long marked task ${suffix}`)
+    await expect(markedMessageBody).toHaveCSS("-webkit-line-clamp", "none")
     expect(ownerMarkRequests.length).toBeGreaterThan(0)
     machine.socket.send(JSON.stringify({ type: "agent_activity", agentId: botId, state: "running" }))
     const stop = alice.page.getByTestId(tid.botMarkStickerStop)
@@ -959,7 +961,7 @@ let caseJourneyFailure2Present = false
       .toHaveCount(3)
     await attachPageScreenshot(testInfo, "bot-mark-sticker-marks-mobile-dark", alice.page)
     await sticker.getByRole("tab", { name: "Thoughts" }).click()
-    await sticker.getByRole("button", { name: "Open activity log 11", exact: true }).click()
+    await sticker.getByText("Open activity log 11", { exact: true }).click()
     await expect(alice.page).toHaveURL(new RegExp(`/c/me/bots\\?audit=${botId}`))
     await gotoAfterUserWsAuth(alice.page, route)
     await openBotProfile(alice.page, botName)
@@ -986,10 +988,7 @@ let caseJourneyFailure2Present = false
       "data-placement",
       /^(right|left|top|bottom)$/,
     )
-    const openActivity = sticker.getByRole("button", {
-      name: "Open activity log 11",
-      exact: true,
-    })
+    const openActivity = auditRows.filter({ hasText: "Open activity log 11" }).getByTitle("Open full audit log")
     await openActivity.focus()
     await expect(openActivity).toBeFocused()
     await openActivity.press("Enter")
@@ -1128,11 +1127,12 @@ async function activityAnchorSnapshot(scroller: Locator) {
       scrollTop: element.scrollTop,
       scrollHeight: element.scrollHeight,
       clientHeight: element.clientHeight,
+      overflowAnchor: getComputedStyle(element).overflowAnchor,
       events: [...element.querySelectorAll<HTMLElement>("[data-activity-event-id]")].flatMap(wrapper => {
         const body = wrapper.firstElementChild
         if (!(body instanceof HTMLElement)) return []
         const rect = body.getBoundingClientRect()
-        return [{ id: wrapper.dataset.activityEventId!, top: rect.top - root.top, bottom: rect.bottom - root.top }]
+        return [{ id: wrapper.dataset.activityEventId!, top: rect.top - root.top, bottom: rect.bottom - root.top, height: rect.height }]
       }),
     }
   })
@@ -1326,6 +1326,7 @@ for (const scenario of ["same-day", "cross-day"] as const) {
           expect(url.searchParams.get("beforeId")).toBe(cursor.id)
           expect(url.searchParams.get("beforeCreatedAt")).toBe(cursor.createdAt)
           const before = await activityAnchorSnapshot(scroller)
+          expect(before.overflowAnchor).toBe("none")
           const anchor = before.events.find(event => event.top >= 32 && event.bottom <= before.clientHeight)
           expect(anchor).toBeDefined()
           await attachPageScreenshot(testInfo, `activity-anchor-${scenario}-${width}-before-page-${index + 1}`, page)
@@ -1391,6 +1392,7 @@ for (const width of [1280, 390] as const) {
       const sheet = page.getByTestId(tid.botActivityModal)
       await settleSheet(sheet)
       const scroller = sheet.getByRole("region", { name: "Activity log", exact: true })
+      await expect(scroller).toHaveCSS("overflow-anchor", "none")
       const record = async (phase: string) => {
         steps.push({ phase, snapshot: await activityAnchorSnapshot(scroller), olderRequests: gate!.entries.map(entry => entry.url) })
         await attachPageScreenshot(testInfo, `activity-recovery-${width}-${phase}`, page)
@@ -1474,6 +1476,8 @@ for (const width of [1280, 390] as const) {
       await expect.poll(() => scroller.evaluate(element => element.scrollTop + element.clientHeight >= element.scrollHeight - 1)).toBe(true)
       await expect(scroller.locator("[data-activity-date]").filter({ hasText: /^Today$/ }).last()).toBeVisible()
       await record("tail-follow")
+      await gate.close()
+      steps.push({ phase: "older-control-retired-before-navigation", requests: gate.entries.map(entry => entry.url) })
       await sheet.getByRole("button", { name: "Close", exact: true }).click()
       await expect(sheet).toHaveCount(0)
       await expect(page).toHaveURL("/c/me/bots")
@@ -1490,14 +1494,23 @@ for (const width of [1280, 390] as const) {
       await expect(scroller.locator(`[data-activity-event-id="${otherId}"]`)).toBeVisible()
       await expect(scroller.locator(`[data-activity-event-id="${tailId}"]`)).toHaveCount(0)
       await record("other-bot")
+      gate = await gateOlderActivityPages(page, botId, caseResources)
+      steps.push({ phase: "pending-control-installed-before-return" })
       await gotoAfterUserWsAuth(page, `/c/me/bots?audit=${botId}`)
       await settleSheet(sheet)
       await expect(scroller.locator(`[data-activity-event-id="${tailId}"]`)).toBeVisible()
-      const requestCount = gate.entries.length
+      const requestsBeforeWheel = gate.entries.length
       await scroller.hover()
       await page.mouse.wheel(0, -1_000_000)
-      await expect.poll(() => gate!.entries.length).toBe(requestCount + 1)
-      const pendingUrl = gate.entries[requestCount].url
+      await expect.poll(() => gate!.entries.length).toBe(1)
+      const pendingUrl = gate.entries[0].url
+      const pendingSearch = new URL(pendingUrl).searchParams
+      const pendingCursor = history.find(event => event.id === pendingSearch.get("beforeId"))
+      expect(pendingCursor).toBeDefined()
+      expect(pendingSearch.get("beforeCreatedAt")).toBe(pendingCursor!.createdAt)
+      expect(pendingSearch.get("limit")).toBe("50")
+      await expect(sheet).toBeVisible()
+      steps.push({ phase: "owned-pending-route-ready", requestsBeforeWheel, url: pendingUrl, cursor: pendingCursor, snapshot: await activityAnchorSnapshot(scroller) })
       const failed = page.waitForEvent("requestfailed", { predicate: request => request.url() === pendingUrl })
       await gate.close()
       const aborted = await failed
