@@ -1,4 +1,5 @@
 import type { Locator, Page, Request, Route } from "@playwright/test"
+import type { TiptapEditorHTMLElement } from "@tiptap/react"
 import { test, expect } from "./_fixtures/case-fixture"
 import {
   composerEditable,
@@ -222,21 +223,34 @@ async function typeReplyAfterAuthorMention(
   await expect(mention).toHaveAttribute("data-label", `${author.name}#${author.discriminator}`)
   await expect(editable).toHaveText(`@${author.name}`)
   await expect(editable).toBeFocused()
-  await editable.press("ControlOrMeta+A")
-  await editable.press("ArrowRight")
+  const box = await editable.boundingBox()
+  if (!box) throw new Error("reply editor has no box")
+  await editable.tap({ position: { x: box.width - 1, y: box.height - 1 } })
   await expect.poll(() => editable.evaluate((element) => {
+    const editor = (element as TiptapEditorHTMLElement).editor
     const selection = element.ownerDocument.getSelection()
     if (
-      !selection?.isCollapsed
+      !editor
+      || !selection?.isCollapsed
       || !selection.focusNode
       || !element.contains(selection.focusNode)
-    ) return false
+    ) return null
     const remaining = element.ownerDocument.createRange()
     remaining.selectNodeContents(element)
     remaining.setStart(selection.focusNode, selection.focusOffset)
-    return remaining.toString() === ""
-  }), { message: "reply typing starts after the existing author mention" }).toBe(true)
-  await editable.pressSequentially(body)
+    const nativePosition = editor.view.posAtDOM(selection.focusNode, selection.focusOffset, 1)
+    const model = editor.state.selection
+    return {
+      ownsFocus: editor.view.dom === element && editor.view.hasFocus(),
+      modelCollapsed: model.empty,
+      nativePosition,
+      modelPosition: model.head,
+      positionsMatch: nativePosition === model.head,
+      atEnd: remaining.toString() === "" && nativePosition === editor.state.doc.content.size - 1,
+    }
+  }), { message: "reply typing starts with native and editor carets after the author mention" })
+    .toMatchObject({ ownsFocus: true, modelCollapsed: true, positionsMatch: true, atEnd: true })
+  await page.keyboard.type(body)
   await expect(mention).toHaveCount(1)
   await expect(editable).toHaveText(`@${author.name} ${body}`)
 }
