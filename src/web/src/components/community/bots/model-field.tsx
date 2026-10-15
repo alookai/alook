@@ -140,7 +140,10 @@ export function ModelField({
         >
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
-        <BotSelectMenuContent className="overflow-y-hidden">
+        <BotSelectMenuContent
+          alignItemWithTrigger={false}
+          className="flex flex-col overflow-y-hidden [&>[role=listbox]]:flex [&>[role=listbox]]:min-h-0 [&>[role=listbox]]:flex-col"
+        >
           {discovery?.isPending && (
             <p role="status" className="flex shrink-0 items-center gap-2 px-2 py-2 text-xs text-muted-foreground">
               <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden />
@@ -197,7 +200,7 @@ export function ModelField({
               </div>
               <div
                 data-testid="bot-model-probe-results"
-                className="thin-scrollbar max-h-[min(18rem,50dvh)] overflow-y-auto"
+                className="thin-scrollbar min-h-0 max-h-[min(18rem,50dvh)] overflow-y-auto"
               >
                 {filteredModels.map((model) => (
                   <BotSelectMenuItem key={model.id} value={model.id}>
