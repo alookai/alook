@@ -23,6 +23,13 @@ function member(overrides: Partial<Member>): Member {
 }
 
 describe("resolveProfileTarget", () => {
+  it("does not replace an unknown tag with a same-name member", () => {
+    expect(resolveProfileTarget([member({ name: "Gus", discriminator: "0042" })], [], { name: "Gus", discriminator: "0099" })).toBeUndefined()
+  })
+
+  it("does not replace an explicit user id with a same-name member", () => {
+    expect(resolveProfileTarget([member({ name: "Gus", userId: "other" })], [], { name: "Gus", userId: "missing" })).toBeUndefined()
+  })
   it("resolves the exact member by userId when two members share a name — regression for the bug where profile cards collapsed to the first name match", () => {
     const a = member({ id: "mem_a", userId: "user_a", name: "435669237", discriminator: "7892" })
     const b = member({ id: "mem_b", userId: "user_b", name: "435669237", discriminator: "3759" })

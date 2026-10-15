@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   currentUser: {
     id: "self",
     name: "Self",
+    discriminator: "0001",
     email: "self@example.com",
     avatar: "S",
     avatarVersion: 0,
@@ -42,7 +43,7 @@ vi.mock("sonner", () => ({ toast: mocks.toast }))
 vi.mock("@/lib/api/client", () => ({
   ACCOUNT_DELETED_SIGN_IN_PATH: "/sign-in?account_deleted=1",
   toastApiError: mocks.toastApiError,
-  apiFetch: (path: string, options: { method?: string; body?: string }) => Promise.resolve(options?.method === "PATCH" ? mocks.updateProfile(JSON.parse(options.body!)) : mocks.query(path, options)).then((data) => ({ id: path.split("/").at(-2), name: "Remote", discriminator: "0001", image: null, avatarVersion: 0, bannerColor: null, aboutMe: "", mutualServers: 0, statusEmoji: null, statusText: null, kind: "human", ...data })),
+  apiFetch: (path: string, options: { method?: string; body?: string }) => Promise.resolve(options?.method === "PATCH" ? mocks.updateProfile(JSON.parse(options.body!)) : mocks.query(path, options)).then((data) => path.startsWith("/api/community/users/search?") ? { users: [], ...data } : ({ id: path.split("/").at(-2), name: "Remote", discriminator: "0001", image: null, avatarVersion: 0, bannerColor: null, aboutMe: "", mutualServers: 0, statusEmoji: null, statusText: null, kind: "human", ...data })),
 }))
 vi.mock("@/lib/community/image-crop", () => ({ validateIconSourceFile: mocks.validate }))
 vi.mock("@/contexts/community/current-user", () => ({
@@ -68,10 +69,10 @@ vi.mock("@/stores/community/message-stream", async (importOriginal) => ({ ...awa
   }),
 }))
 vi.mock("@/hooks/community/use-friends", () => ({
-  useFriends: () => ({ data: { ids: ["remote"] }, friends: [{ id: "remote", userId: "remote", name: "Remote", avatar: "R", sub: "seed" }], pending: [], blocked: [] }),
+  useFriends: () => ({ data: { ids: ["remote"] }, friends: [{ id: "remote", userId: "remote", name: "Remote", discriminator: "0001", avatar: "R", sub: "seed" }], pending: [], blocked: [] }),
 }))
 vi.mock("@/hooks/community/use-server-members", () => ({
-  useServerMembers: () => ({ members: [{ id: "remote", userId: "remote", name: "Remote", avatar: "R", sub: "seed" }] }),
+  useServerMembers: () => ({ members: [{ id: "remote", userId: "remote", name: "Remote", discriminator: "0001", avatar: "R", sub: "seed" }] }),
 }))
 vi.mock("@/hooks/community/mutations", async () => ({
   ...await vi.importActual<typeof import("@/hooks/community/mutations")>("@/hooks/community/mutations"),
@@ -81,21 +82,9 @@ vi.mock("@/hooks/community/mutations", async () => ({
 vi.mock("@/hooks/community/use-dm-message-sender", () => ({
   useDmMessageSender: () => ({ accept: mocks.acceptDm }),
 }))
-vi.mock("@/components/community/social/profile-lookup", () => ({
-  resolveProfileServerId: (_view: string, id?: string) => id,
+vi.mock("@/components/community/social/profile-lookup", async (original) => ({
+  ...await original<typeof import("@/components/community/social/profile-lookup")>(),
   resolveProfileContextLabel: () => "Server member",
-  resolveProfileTarget: (members: Array<{ userId: string; name: string }>, _friends: unknown, target: { name: string; userId?: string }) =>
-    members.find((member) => member.userId === target.userId || member.name === target.name),
-  resolveProfileUserId: (member?: { userId: string }, target?: string) => member?.userId ?? target,
-  buildSelfProfile: (user: { id: string; name: string; avatar: string }) => ({
-    name: user.name,
-    userId: user.id,
-    avatar: user.avatar,
-    about: "About",
-    mutual: 0,
-    presence: "online",
-    identity: { kind: "human" },
-  }),
 }))
 vi.mock("@/lib/query-persister", () => ({ clearPersistedCache: mocks.clearCache }))
 vi.mock("@/hooks/community/community-ws/read-state-reconciliation", () => ({
@@ -241,17 +230,70 @@ describe("useShellProfileController", () => {
     expect(mocks.query).not.toHaveBeenCalled()
   })
 
-  it("does not infer self from matching name or discriminator", async () => {
+  it("does not infer self from a matching name with a different discriminator", async () => {
     const hook = await renderController()
     await act(async () => hook.current.openProfile(
       "Self",
       { clientX: 6, clientY: 7 } as never,
-      "0001",
+      "9999",
     ))
 
-    expect(hook.current.profile?.data.name).toBe("Self")
-    expect(hook.current.profile?.data.userId).toBeUndefined()
+    expect(hook.current.profile).toBeNull()
+    expect(mocks.query).toHaveBeenCalledWith("/api/community/users/search?q=Self%239999", expect.anything())
+  })
+
+  it("resolves the authenticated complete self handle without using the viewer-excluding search", async () => {
+    const hook = await renderController()
+    await act(async () => hook.current.openProfile("Self", { clientX: 2, clientY: 3 } as never, "0001"))
+    expect(hook.current.profile?.data.userId).toBe("self")
     expect(mocks.query).not.toHaveBeenCalled()
+  })
+
+  it("does not create a literal card for an unresolved tagged target", async () => {
+    mocks.query.mockResolvedValue({ users: [] })
+    const hook = await renderController()
+    await act(async () => hook.current.openProfile("已交 /Alook", { clientX: 2, clientY: 3 } as never, "5620"))
+    await waitFor(() => expect(hook.queryClient.getQueryState(["community", "user-search", "已交 /Alook#5620"])?.status).toBe("success"))
+    expect(hook.current.profile).toBeNull()
+    expect(mocks.query).toHaveBeenCalledWith(`/api/community/users/search?q=${encodeURIComponent("已交 /Alook#5620")}`, expect.anything())
+    expect(mocks.query.mock.calls.some(([path]) => path.endsWith("/profile"))).toBe(false)
+  })
+
+  it("opens a real uncached handle only after lookup and then hydrates by its canonical id", async () => {
+    const lookup = deferred<{ users: Array<{ id: string; name: string; discriminator: string; image: null; avatarVersion: number }> }>()
+    mocks.query.mockImplementation((path: string) => path.includes("/search?") ? lookup.promise : Promise.resolve({ name: "John Doe", discriminator: "0042" }))
+    const hook = await renderController()
+    await act(async () => hook.current.openProfile("John Doe", { clientX: 2, clientY: 3 } as never, "0042"))
+    expect(hook.current.profile).toBeNull()
+    expect(mocks.query).toHaveBeenCalledWith("/api/community/users/search?q=John%20Doe%230042", expect.anything())
+    await act(async () => { lookup.resolve({ users: [{ id: "outside", name: "John Doe", discriminator: "0042", image: null, avatarVersion: 0 }] }) })
+    await waitFor(() => expect(hook.current.profile?.data.userId).toBe("outside"))
+    await waitFor(() => expect(mocks.query).toHaveBeenCalledWith("/api/community/users/outside/profile", expect.anything()))
+    expect(hook.current.profile?.data).not.toHaveProperty("name")
+    expect(hook.registry.collections.profiles.get("outside")?.name).toBe("John Doe")
+  })
+
+  it("queries a mismatched local tag instead of opening another same-name account", async () => {
+    mocks.query.mockImplementation((path: string) => Promise.resolve(path.includes("/search?")
+      ? { users: [{ id: "other", name: "Remote", discriminator: "9999", image: null, avatarVersion: 0 }] }
+      : { name: "Remote", discriminator: "9999" }))
+    const hook = await renderController()
+    await act(async () => hook.current.openProfile("Remote", { clientX: 2, clientY: 3 } as never, "9999"))
+    await waitFor(() => expect(hook.current.profile?.data.userId).toBe("other"))
+    expect(mocks.query.mock.calls.some(([path]) => path === "/api/community/users/remote/profile")).toBe(false)
+  })
+
+  it.each(["close", "another target"])("keeps a late handle response from reopening or replacing %s", async (action) => {
+    const lookup = deferred<{ users: Array<{ id: string; name: string; discriminator: string; image: null; avatarVersion: number }> }>()
+    mocks.query.mockImplementation((path: string) => path.includes("/search?") ? lookup.promise : Promise.resolve({}))
+    const hook = await renderController()
+    await act(async () => hook.current.openProfile("Outside", { clientX: 2, clientY: 3 } as never, "0042"))
+    expect(hook.current.profile).toBeNull()
+    await act(async () => action === "close"
+      ? hook.current.closeProfile()
+      : hook.current.openProfile("Remote", { clientX: 4, clientY: 5 } as never, undefined, "remote"))
+    await act(async () => { lookup.resolve({ users: [{ id: "outside", name: "Outside", discriminator: "0042", image: null, avatarVersion: 0 }] }); await lookup.promise })
+    expect(hook.current.profile?.data.userId ?? null).toBe(action === "close" ? null : "remote")
   })
 
   it("opens a remote seed before fetch and hydrates only card state", async () => {

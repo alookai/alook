@@ -6,6 +6,7 @@ import type { Element } from "hast"
 import { codes } from "micromark-util-symbol"
 import type { Construct, Effects, Extension, State, TokenizeContext } from "micromark-util-types"
 import type { Plugin } from "unified"
+import { MENTION_IDENTIFIER_CHARACTERS, isMentionStartBoundary } from "@alook/shared"
 import { spoilerSyntax, spoilerFromMarkdown } from "./spoiler-syntax"
 import type { SpoilerNode } from "./spoiler-syntax"
 
@@ -125,8 +126,10 @@ const SERVER_REF_RE = new RegExp(`(?<=^|\\s)/${HANDLE_SEG}(?=\\s|$|[${REF_TERM}]
 //     digits (variable-width disc); the digit run is greedy so a widened 5+-digit
 //     tag matches in full. A hand-typed bare `@Alice` (no tag) is intentionally
 //     NOT a mention — it stays text.
-const MENTION_RE =
-  /(?<!\/)(?:@everyone(?![\p{L}\p{N}_-])|@[^@#\n\r]*[^@#\n\r\s]#\d{4,})/gu
+const MENTION_RE = new RegExp(
+  String.raw`(?<!/|${MENTION_IDENTIFIER_CHARACTERS})(?:@everyone(?!${MENTION_IDENTIFIER_CHARACTERS})|@[^@#\n\r]*[^@#\n\r\s]#\d{4,})`,
+  "gu",
+)
 
 /** mdast node produced by `@name`/`@name#0042`/`@everyone`. */
 export interface MentionNode {
@@ -172,7 +175,16 @@ declare module "micromark-util-types" {
 function memberMentionSyntax(): Extension {
   const construct: Construct = {
     name: "memberMention",
-    previous: (code) => code !== codes.slash,
+    previous(code) {
+      if (code === codes.slash) return false
+      if (code === null || code < 0) return true
+      let previous = String.fromCodePoint(code)
+      if (code >= 0xDC00 && code <= 0xDFFF) {
+        const tail = this.events.at(-1)?.[1]
+        if (tail) previous = this.sliceSerialize({ start: tail.start, end: this.now() })
+      }
+      return isMentionStartBoundary(previous)
+    },
     tokenize: tokenizeMemberMention,
   }
   return { text: { [codes.atSign]: construct } }

@@ -74,14 +74,10 @@ export function resolveProfileTarget(
   target: { name: string; discriminator?: string; userId?: string },
 ): Member | Friend | undefined {
   const { name, discriminator, userId } = target
-  return (userId
-    ? (members ?? []).find((m) => m.userId === userId)
+  if (userId) return (members ?? []).find((m) => m.userId === userId)
     ?? (friends ?? []).find((f) => f.userId === userId)
-    : undefined)
-    ?? (discriminator
-      ? (members ?? []).find((m) => m.name === name && m.discriminator === discriminator)
-      ?? (friends ?? []).find((f) => f.name === name && f.discriminator === discriminator)
-      : undefined)
-    ?? (members ?? []).find((m) => m.name === name)
+  if (discriminator) return (members ?? []).find((m) => m.name === name && m.discriminator === discriminator)
+    ?? (friends ?? []).find((f) => f.name === name && f.discriminator === discriminator)
+  return (members ?? []).find((m) => m.name === name)
     ?? (friends ?? []).find((f) => f.name === name)
 }

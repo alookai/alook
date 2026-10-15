@@ -50,6 +50,10 @@ describe("extractMentionedUserIds", () => {
     expect(extractMentionedUserIds("contact me@Alice#0001.com", ROSTER)).toEqual([]);
   });
 
+  it.each(["mail", "回复", "é", "𠮷", "_", "-", "9"])("rejects an identifier prefix before a tagged mention: %s", (prefix) => {
+    expect(extractMentionedUserIds(`${prefix}@Alice#0001`, ROSTER)).toEqual([]);
+  });
+
   it("handles unicode names via handle", () => {
     expect(extractMentionedUserIds("早 @李雷#0005 好", ROSTER)).toEqual(["u5"]);
   });

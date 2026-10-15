@@ -39,7 +39,13 @@ export function isMentionType(value: unknown): value is MentionType {
   return value === "everyone";
 }
 
-const ID_CHAR_RE = /[\p{L}\p{N}_-]/u;
+export const MENTION_IDENTIFIER_CHARACTERS = /[\p{L}\p{N}_-]/u.source;
+const ID_CHAR_RE = new RegExp(MENTION_IDENTIFIER_CHARACTERS, "u");
+const MENTION_START_RE = new RegExp(`${MENTION_IDENTIFIER_CHARACTERS}$`, "u");
+
+export function isMentionStartBoundary(prefix: string): boolean {
+  return !MENTION_START_RE.test(prefix);
+}
 
 function isBoundaryChar(ch: string | undefined): boolean {
   if (ch === undefined) return true;
@@ -73,7 +79,7 @@ export function extractMentionedUserIds(
     const at = content.indexOf("@", i);
     if (at === -1) break;
     // The character before "@" must be a boundary (or start of string).
-    if (at > 0 && !isBoundaryChar(content[at - 1])) {
+    if (!isMentionStartBoundary(content.slice(0, at))) {
       i = at + 1;
       continue;
     }

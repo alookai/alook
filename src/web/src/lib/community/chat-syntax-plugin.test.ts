@@ -40,6 +40,21 @@ describe("CLI prompt ref examples — tokenizer contract", () => {
 })
 
 describe("chatSyntaxPlugin — mention", () => {
+  it("keeps a bare at-sign in prose from swallowing a following channel ref", () => {
+    const children = paragraphChildren(parse("DM回复取消自动@已交 /Alook#5620/fix/#213"))
+    expect(children.some((child) => child.type === "mention")).toBe(false)
+    expect(children.find((child) => child.type === "channelRef")).toMatchObject({ value: "/Alook#5620/fix/#213" })
+  })
+
+  it.each(["mail", "回复", "é", "𠮷", "_", "-", "9"])("rejects an identifier prefix before a tagged mention: %s", (prefix) => {
+    expect(paragraphChildren(parse(`${prefix}@Alice#0001`)).some((child) => child.type === "mention")).toBe(false)
+  })
+
+  it.each(["John Doe", "李雷", "𠮷🎉", "*[Alice](https://example.com)*"])("retains a legal name after a boundary: %s", (name) => {
+    expect(paragraphChildren(parse(`（@${name}#0042）`)).find((child) => child.type === "mention"))
+      .toMatchObject({ value: `@${name}`, discriminator: "0042" })
+  })
+
   it("recognizes a canonical handle before HTML-looking name text is split into sibling nodes", () => {
     const children = paragraphChildren(parse("hi @<b>Alice</b>#0042 there"))
     expect(children.map((child) => child.type)).toEqual(["text", "mention", "text"])

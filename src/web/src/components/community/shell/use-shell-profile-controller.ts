@@ -10,11 +10,14 @@ import { useCanonicalCommunityProfile } from "@/lib/community-db/projections"
 import { useCommunityViewSource } from "@/hooks/community/use-community-view-source"
 import { usePathname, useSearchParams } from "next/navigation"
 import { readBillingReturn } from "@/hooks/community/use-billing"
-import { parseNameAndTag } from "@alook/shared"
+import { formatHandle, parseNameAndTag } from "@alook/shared"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { userProfileQueryFn, PROFILE_STALE_TIME_MS } from "@/hooks/community/use-user-profile"
+import { apiFetchProfiles } from "@/lib/community/profile-seed"
+import { getCommunityDbRegistry } from "@/lib/community-db/collections"
+import { avatarInitial } from "@/lib/community/avatar"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type {
@@ -117,7 +120,25 @@ export function useShellProfileController({
       task.release()
     }
   }, [finishAvatarCrop, pendingAvatarCrop])
-  const profileUserId = profileTarget?.data.userId
+  const lookupHandle = !profileTarget?.data.userId && profileTarget?.data.name && profileTarget.data.discriminator
+    ? formatHandle(profileTarget.data.name, profileTarget.data.discriminator)
+    : ""
+  const lookup = useQuery({
+    queryKey: ["community", "user-search", lookupHandle],
+    enabled: !!lookupHandle,
+    retry: false,
+    queryFn: async ({ signal, client }) => {
+      const data = await apiFetchProfiles<{
+        users: Array<{ id: string; name: string; discriminator: string; image: string | null; avatarVersion: number }>
+      }>(`/api/community/users/search?q=${encodeURIComponent(lookupHandle)}`, (response) => response.users.map((user) => ({
+        id: user.id,
+        identityAbout: { name: user.name, discriminator: user.discriminator },
+        avatar: { avatar: user.image ?? avatarInitial(user.name), avatarVersion: user.avatarVersion },
+      })), { signal }, getCommunityDbRegistry(client))
+      return data.users.map((user) => user.id)
+    },
+  })
+  const profileUserId = profileTarget?.data.userId ?? (lookupHandle ? lookup.data?.[0] : undefined)
   const canMessage = !!profileUserId && profileUserId !== currentUser.id
     && friendsQuery.data !== undefined
     && !blocked.some((user) => user.userId === profileUserId)
@@ -125,10 +146,10 @@ export function useShellProfileController({
   const canonicalProfile = useCanonicalCommunityProfile(profileUserId)
   useQuery({ queryKey: communityKeys.profile(profileUserId ?? "__none__"), enabled: !!profileUserId && profileUserId !== currentUser.id,
     queryFn: userProfileQueryFn(profileUserId ?? ""), staleTime: PROFILE_STALE_TIME_MS })
-  const profile = useMemo<ShellProfileState | null>(() => profileTarget ? {
+  const profile = useMemo<ShellProfileState | null>(() => profileTarget && profileUserId ? {
     ...profileTarget,
     data: {
-      ...profileTarget.data,
+      userId: profileUserId,
       contextLabel: resolveProfileContextLabel(profileServerId, members.find((member) => member.userId === profileUserId)),
       mutual: canonicalProfile?.mutualServers ?? 0,
       identity: canonicalProfile?.kind === "bot" && canonicalProfile.ownerUserId && canonicalProfile.ownerHandle
@@ -144,7 +165,9 @@ export function useShellProfileController({
     discriminator?: string,
     targetUserId?: string,
   ) => {
-    const isSelf = !!targetUserId && targetUserId === currentUser.id
+    const isSelf = targetUserId
+      ? targetUserId === currentUser.id
+      : !!discriminator && name === currentUser.name && discriminator === currentUser.discriminator
     if (isSelf) {
       const selfMember = profileServerId
         ? members.find((member) => member.userId === currentUser.id)
@@ -177,7 +200,7 @@ export function useShellProfileController({
       x,
       y,
     })
-  }, [currentUser.id, friends, members, profileServerId, setProfile])
+  }, [currentUser.discriminator, currentUser.id, currentUser.name, friends, members, profileServerId, setProfile])
 
   const openProfile = useCallback((
     name: string,
