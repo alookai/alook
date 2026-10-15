@@ -906,8 +906,11 @@ let caseJourneyFailure2Present = false
     await expect(sticker).toContainText(`Long marked task ${suffix}`)
     await expect(sticker).not.toContainText("**Long marked task")
     await expect(sticker.locator("time")).toHaveCount(3)
-    await expect(sticker.locator("p").filter({ hasText: `Long marked task ${suffix}` }))
-      .toHaveCSS("-webkit-line-clamp", "2")
+    const markedBody = sticker.locator("[data-community-message-body]").filter({ hasText: `Long marked task ${suffix}` })
+    await expect(markedBody).toHaveCount(1)
+    await expect(markedBody.locator('[data-streamdown="strong"]')).toHaveText(`Long marked task ${suffix}`)
+    await expect(markedBody).toHaveText(`Long marked task ${suffix} ${"with enough detail to require a second line ".repeat(5)}`.trim())
+    await expect(markedBody.locator("p")).toHaveCSS("-webkit-line-clamp", "none")
     expect(ownerMarkRequests.length).toBeGreaterThan(0)
     machine.socket.send(JSON.stringify({ type: "agent_activity", agentId: botId, state: "running" }))
     const stop = alice.page.getByTestId(tid.botMarkStickerStop)
@@ -959,7 +962,8 @@ let caseJourneyFailure2Present = false
       .toHaveCount(3)
     await attachPageScreenshot(testInfo, "bot-mark-sticker-marks-mobile-dark", alice.page)
     await sticker.getByRole("tab", { name: "Thoughts" }).click()
-    await sticker.getByRole("button", { name: "Open activity log 11", exact: true }).click()
+    await sticker.getByTestId(tid.botAuditPreviewRow(liveEventId))
+      .getByText("Open activity log 11", { exact: true }).click()
     await expect(alice.page).toHaveURL(new RegExp(`/c/me/bots\\?audit=${botId}`))
     await gotoAfterUserWsAuth(alice.page, route)
     await openBotProfile(alice.page, botName)
@@ -986,10 +990,9 @@ let caseJourneyFailure2Present = false
       "data-placement",
       /^(right|left|top|bottom)$/,
     )
-    const openActivity = sticker.getByRole("button", {
-      name: "Open activity log 11",
-      exact: true,
-    })
+    const openActivity = sticker.getByTestId(tid.botAuditPreviewRow(liveEventId))
+      .getByTitle("Open full audit log", { exact: true })
+    await expect(openActivity.locator("time")).toHaveCount(1)
     await openActivity.focus()
     await expect(openActivity).toBeFocused()
     await openActivity.press("Enter")

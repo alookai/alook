@@ -288,7 +288,9 @@ async function installSsrLifecycleProbe(page: Page, surface: "list" | "detail") 
 
     const rect = (selector: string) => {
       const element = document.querySelector<HTMLElement>(selector)
-      if (!element || getComputedStyle(element).display === "none") return null
+      if (!element) return null
+      const style = getComputedStyle(element)
+      if (style.display === "none" || style.visibility !== "visible") return null
       const box = element.getBoundingClientRect()
       if (box.width === 0 || box.height === 0) return null
       return { x: box.x, y: box.y, width: box.width, height: box.height }
@@ -306,6 +308,21 @@ async function installSsrLifecycleProbe(page: Page, surface: "list" | "detail") 
           main: rect(expectedSurface === "detail" ? activePanel : hiddenPanel),
           userBar: rect('[data-slot="community-user-bar-overlay"]'),
         }).filter((entry): entry is [string, NonNullable<typeof entry[1]>] => entry[1] !== null))
+        const retainedBackground = expectedSurface === "detail"
+          ? Object.entries({
+              rail: ['[data-mobile-back-rail]', '[data-mobile-back-rail]'],
+              sidebar: [hiddenPanel, '[data-slot="community-sidebar-panel-content"]'],
+              userBar: ['[data-slot="community-user-bar-overlay"]', '[data-slot="community-user-bar-overlay"]'],
+            }).flatMap(([module, [selector, guardSelector]]) => {
+              const element = document.querySelector<HTMLElement>(selector)
+              if (!element || getComputedStyle(element).display === "none") return []
+              const box = element.getBoundingClientRect()
+              if (!box.width || !box.height) return []
+              const guard = document.querySelector<HTMLElement>(guardSelector)
+              return [{ module, visibility: getComputedStyle(element).visibility,
+                inert: guard?.inert === true, ariaHidden: guard?.getAttribute("aria-hidden") === "true" }]
+            })
+          : []
         samples.push({
           timestamp: performance.now(),
           phase: !parsed ? "parsing"
@@ -315,6 +332,7 @@ async function installSsrLifecycleProbe(page: Page, surface: "list" | "detail") 
           incompleteShellHtml: geometry.surface ? undefined : shell.outerHTML,
           overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
           geometry,
+          retainedBackground,
         })
       }
       if (!Reflect.get(window, "__communitySsrProbeStopped")) requestAnimationFrame(sample)
@@ -501,6 +519,8 @@ export async function seedGeometryRoutes(
     const main = (page: Page) => shellPanel(page, "main")
     const messageReady = (content: string) => (page: Page) =>
       main(page).getByText(content, { exact: true }).first()
+    const threadMessageReady = (content: string) => (page: Page) => page
+      .getByTestId(tid.threadSplitPanel).getByText(content, { exact: true }).first()
     const threadComposerReady = (page: Page) => page
       .getByTestId(tid.threadSplitPanel)
       .getByTestId(tid.composerInput)
@@ -523,7 +543,7 @@ export async function seedGeometryRoutes(
       {
         name: "thread",
         pathname: `/c/channels/${serverId}/${threadId}`,
-        ready: messageReady(threadMessage),
+        ready: threadMessageReady(threadMessage),
         intermediate: {
           requestPattern: `**/api/community/channels/${threadId}/messages**`,
           ready: threadComposerReady,
@@ -532,7 +552,7 @@ export async function seedGeometryRoutes(
       {
         name: "forum-post",
         pathname: `/c/channels/${serverId}/${forumPostId}`,
-        ready: messageReady(forumMessage),
+        ready: threadMessageReady(forumMessage),
         intermediate: {
           requestPattern: `**/api/community/channels/${forumPostId}/messages**`,
           ready: threadComposerReady,

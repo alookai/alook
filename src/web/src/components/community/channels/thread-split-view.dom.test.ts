@@ -67,6 +67,12 @@ describe("ThreadSplitView", () => {
     expect(draft.closest("section")).toHaveAttribute("aria-hidden", "true")
     expect(screen.getByTestId("panel-group")).toHaveAttribute("data-persists-layout", "false")
     renderer.rerender(createElement(ThreadSplitView, {
+      split: false, preserveParent: true, parent, thread: createElement("span", null, "Child"),
+    }))
+    expect(screen.getByTestId("back-parent-draft")).toBe(draft)
+    expect(draft.closest("section")).toHaveAttribute("inert")
+    expect(draft.closest("section")).toHaveAttribute("aria-hidden", "true")
+    renderer.rerender(createElement(ThreadSplitView, {
       split: true, parent, thread: createElement("span", null, "Child"),
     }))
     expect(screen.getByTestId("back-parent-draft")).toBe(draft)

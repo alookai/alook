@@ -27,6 +27,7 @@ const threadSplitLayoutStorage = {
 export function ThreadSplitView({
   split,
   mobileBack = false,
+  preserveParent = false,
   parent,
   thread,
   conversationSubtype = "thread",
@@ -34,6 +35,7 @@ export function ThreadSplitView({
 }: {
   split: boolean
   mobileBack?: boolean
+  preserveParent?: boolean
   parent: ReactNode
   thread: ReactNode
   conversationSubtype?: "unknown" | "text" | "forum" | "thread"
@@ -81,11 +83,11 @@ export function ThreadSplitView({
           data-layout-hidden={!split || undefined}
           className="flex min-h-0 min-w-0 flex-col"
         >
-          {(split || mobileBack) && <section
+          {(split || mobileBack || preserveParent) && <section
             data-testid={tid.threadSplitParent}
             data-mobile-back-parent
-            inert={mobileBack}
-            aria-hidden={mobileBack || undefined}
+            inert={!split}
+            aria-hidden={!split || undefined}
             aria-label="Parent conversation"
             className="flex min-h-0 min-w-0 flex-1 flex-col"
           >

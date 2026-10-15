@@ -91,10 +91,15 @@ function ChannelRouteFrame(target: RouteTarget) {
   })
   const uiHandlers = useUiHandlers()
   const split = isThread && mode === "split"
-  const [parentIdentity, setParentIdentity] = useAtom(useCreateAtom<{ id: string; confirmed: boolean } | null>(null))
+  const [parentIdentity, setParentIdentity] = useAtom(useCreateAtom<{ id: string; confirmed: boolean; keepMounted: boolean } | null>(null))
   const onParentIdentity = useCallback((id: string, confirmed: boolean) => {
-    setParentIdentity((current) => current?.id === id && current.confirmed === confirmed ? current : { id, confirmed })
-  }, [setParentIdentity])
+    setParentIdentity((current) => {
+      const keepMounted = breakpoint === "mobile" || current?.id === id && current.keepMounted
+      return current?.id === id && current.confirmed === confirmed && current.keepMounted === keepMounted
+        ? current : { id, confirmed, keepMounted }
+    })
+  }, [breakpoint, setParentIdentity])
+  const preserveParent = isThread && !!parent && parentIdentity?.id === parent.id && parentIdentity.keepMounted
   const resolvingParent = split && (!parent || parentIdentity?.id !== parent.id || !parentIdentity.confirmed)
   const channelRefCandidates = useMemo(() => server?.categories
     .flatMap((category) => category.channels)
@@ -114,8 +119,8 @@ function ChannelRouteFrame(target: RouteTarget) {
   const targetHref = `${channelHref(serverParam, channelId)}${searchParams.size ? `?${searchParams}` : ""}`
   return <div ref={containerRef} data-community-target-href={targetHref} className="flex min-h-0 min-w-0 flex-1 flex-col">
     <ThreadSplitView
-      split={split} mobileBack={breakpoint === "mobile" && isThread && !!parent} resolvingParent={resolvingParent} conversationSubtype={isThread ? "thread" : routeModel.skeletonSubtype}
-      parent={(split || breakpoint === "mobile" && isThread) && server && parent ? <ThreadSplitParentSurface
+      split={split} mobileBack={breakpoint === "mobile" && isThread && !!parent} preserveParent={preserveParent} resolvingParent={resolvingParent} conversationSubtype={isThread ? "thread" : routeModel.skeletonSubtype}
+      parent={(split || breakpoint === "mobile" && isThread || preserveParent) && server && parent ? <ThreadSplitParentSurface
         key={JSON.stringify([currentUser.id, serverId, parent.id])}
         serverId={serverId} serverParam={serverParam} server={server} channel={parent}
         viewer={currentUser} onNavigateParent={navigateServerRoot}

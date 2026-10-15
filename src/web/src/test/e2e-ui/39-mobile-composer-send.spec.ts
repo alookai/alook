@@ -1,4 +1,4 @@
-import type { Page, TestInfo } from "@playwright/test"
+import type { Locator, Page, TestInfo } from "@playwright/test"
 import { test, expect } from "./_fixtures/case-fixture"
 import {
   composerEditable,
@@ -103,6 +103,7 @@ async function expectHoverKeyboardSend({
 
 async function expectExplicitTouchSend({
   page,
+  root = page,
   route,
   channelId,
   label,
@@ -111,6 +112,7 @@ async function expectExplicitTouchSend({
   testInfo,
 }: {
   page: Page
+  root?: Page | Locator
   route: string
   channelId: string
   label: string
@@ -128,8 +130,8 @@ async function expectExplicitTouchSend({
   await gotoAfterUserWsAuth(page, route)
   await ignoreNextDevToolsPointerCapture(page)
 
-  const editable = composerEditable(page)
-  const send = page.getByTestId(tid.composerSend)
+  const editable = composerEditable(page, root)
+  const send = root.getByTestId(tid.composerSend)
   await expect(editable).toBeVisible({ timeout: 20_000 })
   await expect(editable).toHaveAttribute("enterkeyhint", "enter")
   await expect(send).toBeVisible()
@@ -140,7 +142,7 @@ async function expectExplicitTouchSend({
     const size = button.getBoundingClientRect()
     return Number.parseFloat(getComputedStyle(button).borderRadius) >= size.width / 2
   })).toBe(true)
-  const composer = page.getByTestId(tid.composerInput).locator("..")
+  const composer = root.getByTestId(tid.composerInput).locator("..")
   await expect(composer).toHaveCSS("border-radius", "24px")
   await expect(composer.getByRole("button", { name: "Emoji picker" })).toHaveCount(0)
   const singleLineHeight = await composer.evaluate((element) => element.getBoundingClientRect().height)
@@ -227,7 +229,7 @@ async function expectExplicitTouchSend({
   await expect.poll(() => hasMessageFrame(frames, channelId, payload.message.id)).toBe(true)
 
   await page.reload({ waitUntil: "commit" })
-  await expect(composerEditable(page)).toBeVisible({ timeout: 20_000 })
+  await expect(composerEditable(page, root)).toBeVisible({ timeout: 20_000 })
   await expect(page.getByTestId(tid.message(payload.message.id))).toContainText(firstLine)
   expect(messagePosts).toBe(1)
 }
@@ -289,6 +291,7 @@ test.describe("composer send by input capability", () => {
     const proxy = await proxyCommunityWebSockets(context)
     await expectExplicitTouchSend({
       page,
+      root: page.getByTestId(tid.threadSplitPanel),
       route: `/c/channels/${serverId}/${threadId}`,
       channelId: threadId,
       label: "thread",

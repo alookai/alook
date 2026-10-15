@@ -63,6 +63,19 @@ describe("SSR lifecycle geometry boundary", () => {
     ])
   })
 
+  it("accepts retained detail underlays only when hidden, inert and aria-hidden", () => {
+    const retainedBackground = ["rail", "sidebar", "userBar"].map((module) => ({
+      module, visibility: "hidden", inert: true, ariaHidden: true,
+    }))
+    expect(ssrGeometryErrors([sample({ retainedBackground })], 390, "detail")).toEqual([])
+    for (const unsafe of [
+      { visibility: "visible" }, { inert: false }, { ariaHidden: false },
+    ]) {
+      expect(ssrGeometryErrors([sample({ retainedBackground: [{ ...retainedBackground[0], ...unsafe }] })], 390, "detail"))
+        .toContain("sample 0 (ssr): unsafe retained module rail")
+    }
+  })
+
   it("rejects an empty recording", () => {
     expect(ssrGeometryErrors([], 390, "detail")).toEqual([
       "no lifecycle samples", "no complete parsed-document sample",

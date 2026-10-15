@@ -216,8 +216,9 @@ async function typeReplyAfterAuthorMention(
   authorId: string,
   author: { name: string; discriminator: string },
   body: string,
+  root: Page | Locator = page,
 ) {
-  const editable = composerEditable(page)
+  const editable = composerEditable(page, root)
   const mention = editable.locator(`[data-type="mention"][data-id="${authorId}"]`)
   await expect(mention).toHaveCount(1)
   await expect(mention).toHaveAttribute("data-label", `${author.name}#${author.discriminator}`)
@@ -562,13 +563,15 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await bob.page.goto(`/c/channels/${serverId}/${threadId}`, { waitUntil: "commit" })
   await ignoreNextDevToolsPointerCapture(alice.page)
   await ignoreNextDevToolsPointerCapture(bob.page)
-  await expect(composerEditable(alice.page)).toBeVisible()
-  await expect(composerEditable(bob.page)).toBeVisible()
+  const aliceThread = alice.page.getByTestId(tid.threadSplitPanel)
+  const bobThread = bob.page.getByTestId(tid.threadSplitPanel)
+  await expect(composerEditable(alice.page, aliceThread)).toBeVisible()
+  await expect(composerEditable(bob.page, bobThread)).toBeVisible()
   const threadTarget = alice.page.getByTestId(tid.message(threadBobMessageId))
   await expect(threadTarget).toBeVisible()
   const restingThreadGap = await alice.page.evaluate(({ targetId, composerId }) => {
-    const target = document.querySelector(`[data-testid="${targetId}"]`)?.getBoundingClientRect()
-    const composer = document.querySelector(`[data-testid="${composerId}"]`)?.getBoundingClientRect()
+    const target = document.querySelector('[data-testid="community-thread-split-panel"]')?.querySelector(`[data-testid="${targetId}"]`)?.getBoundingClientRect()
+    const composer = document.querySelector('[data-testid="community-thread-split-panel"]')?.querySelector(`[data-testid="${composerId}"]`)?.getBoundingClientRect()
     return target && composer ? composer.top - target.bottom : null
   }, {
     targetId: tid.message(threadBobMessageId),
@@ -581,7 +584,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await expect.poll(() => bobProxy.frames.some((frame) => (
     frameHasMessage(frame, threadId, threadWsReadyId)
   )), { timeout: 20_000 }).toBe(true)
-  const editable = composerEditable(alice.page)
+  const editable = composerEditable(alice.page, aliceThread)
   await editable.fill("openerhere")
   await editable.click()
   for (let index = 0; index < 4; index += 1) await alice.page.keyboard.press("ArrowLeft")
@@ -615,7 +618,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     response.request().method() === "POST"
     && new URL(response.url()).pathname === `/api/community/channels/${threadId}/messages`
   ))
-  await alice.page.getByTestId(tid.composerSend).click()
+  await aliceThread.getByTestId(tid.composerSend).click()
   const mentionResponse = await mentionResponsePromise
   expect(mentionResponse.status()).toBe(201)
   const mentionPayload = await mentionResponse.json() as {
@@ -630,15 +633,15 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
 
   await dispatchSwipe(alice.page, threadBobMessageId, { x: 72, y: 1 })
   await expect(replyPreview).toHaveText(`Replying to ${bobInfo.name} · thread target ${stamp}`)
-  await expect(composerEditable(alice.page).locator(`[data-type="mention"][data-id="${userId("bob")}"]`)).toHaveCount(1)
+  await expect(composerEditable(alice.page, aliceThread).locator(`[data-type="mention"][data-id="${userId("bob")}"]`)).toHaveCount(1)
   const threadReplyBody = `thread swipe reply ${stamp}`
   const threadReplyContent = `${replyAuthorMention} ${threadReplyBody}`
   const threadReplyResponsePromise = alice.page.waitForResponse((response) => (
     response.request().method() === "POST"
     && new URL(response.url()).pathname === `/api/community/channels/${threadId}/messages`
   ))
-  await typeReplyAfterAuthorMention(alice.page, userId("bob"), bobInfo, threadReplyBody)
-  await alice.page.getByTestId(tid.composerSend).click()
+  await typeReplyAfterAuthorMention(alice.page, userId("bob"), bobInfo, threadReplyBody, aliceThread)
+  await aliceThread.getByTestId(tid.composerSend).click()
   const threadReplyResponse = await threadReplyResponsePromise
   expect(threadReplyResponse.status()).toBe(201)
   const threadReplyPayload = await threadReplyResponse.json() as {
@@ -1076,7 +1079,7 @@ test("mobile thread return uses server read state instead of tab-local pixel mem
   await threadIndicator.click()
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}/${threadId}`)
   await expect(alice.page.getByTestId(tid.message(threadReplyId))).toBeVisible()
-  const threadScroller = alice.page.getByTestId(tid.messageScroller)
+  const threadScroller = alice.page.getByTestId(tid.threadSplitPanel).getByTestId(tid.messageScroller)
   await expect.poll(() => threadScroller.evaluate((element) => (
     element.scrollHeight - element.clientHeight
   ))).toBeGreaterThan(1600)

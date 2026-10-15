@@ -8,6 +8,7 @@ export type SsrLifecycleSample = {
   incompleteShellHtml?: string
   overflow: number
   geometry: SsrGeometry
+  retainedBackground?: { module: string; visibility: string; inert: boolean; ariaHidden: boolean }[]
 }
 
 export function ssrGeometryErrors(
@@ -24,6 +25,14 @@ export function ssrGeometryErrors(
   if (samples.length === 0) errors.push("no lifecycle samples")
   for (const [index, sample] of samples.entries()) {
     const label = `sample ${index} (${sample.phase})`
+    for (const retained of sample.retainedBackground ?? []) {
+      if (surface !== "detail" || !["rail", "sidebar", "userBar"].includes(retained.module)) {
+        errors.push(`${label}: unexpected retained module ${retained.module}`)
+      }
+      if (retained.visibility !== "hidden" || !retained.inert || !retained.ariaHidden) {
+        errors.push(`${label}: unsafe retained module ${retained.module}`)
+      }
+    }
     if (sample.overflow !== 0) errors.push(`${label}: horizontal overflow ${sample.overflow}`)
     for (const [name, rect] of Object.entries(sample.geometry)) {
       if (!(name in widths)) errors.push(`${label}: unexpected module ${name}`)

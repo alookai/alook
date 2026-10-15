@@ -243,6 +243,7 @@ vi.mock("@/components/community/channels/thread-split-view", () => ({
   ThreadSplitView: ({
     split,
     mobileBack = false,
+    preserveParent = false,
     parent,
     thread,
     conversationSubtype,
@@ -250,6 +251,7 @@ vi.mock("@/components/community/channels/thread-split-view", () => ({
   }: {
     split: boolean
     mobileBack?: boolean
+    preserveParent?: boolean
     parent: React.ReactNode
     thread: React.ReactNode
     conversationSubtype?: string
@@ -263,9 +265,9 @@ vi.mock("@/components/community/channels/thread-split-view", () => ({
       "data-community-conversation-subtype": conversationSubtype === "unknown" ? undefined : conversationSubtype,
     },
     resolvingParent && React.createElement("main", { "aria-label": "Resolving conversation", "data-community-conversation-subtype": "unknown" }),
-    (split || mobileBack) && React.createElement(
+    (split || mobileBack || preserveParent) && React.createElement(
       "section",
-      { "data-testid": "community-thread-split-parent", "data-mobile-back-parent": "", inert: mobileBack },
+      { "data-testid": "community-thread-split-parent", "data-mobile-back-parent": "", inert: !split },
       parent,
     ),
     React.createElement(
@@ -828,6 +830,31 @@ describe("ChannelRoute message surface ownership", () => {
     expect(mockClaimSecondary).toHaveBeenCalledWith(expect.anything(), expect.anything(), "parent_1")
     renderer.unmount()
     expect(mockReleaseSecondary).toHaveBeenCalled()
+  })
+
+  it("retains the mobile parent owner through a narrow desktop round trip", async () => {
+    await observeSecondary()
+    const { ThreadSplitParentSurface } = await vi.importActual<typeof import("./thread-split-parent-surface")>("./thread-split-parent-surface")
+    mockSplitParentSurface.mockImplementation((props) => React.createElement(ThreadSplitParentSurface, props as never))
+    configureThreadRoute()
+    mockBreakpoint.value = "mobile"
+    mockSplitMode.value = "full"
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+    const node = () => React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" })
+    const renderer = render(node())
+    const parent = screen.getByTestId("community-thread-split-parent")
+    const [, owner] = mockClaimSecondary.mock.calls.at(-1)!
+    for (const breakpoint of ["desktop", "mobile"] as const) {
+      mockBreakpoint.value = breakpoint
+      renderer.rerender(node())
+      expect(screen.getByTestId("community-thread-split-parent")).toBe(parent)
+      expect(parent).toHaveAttribute("inert")
+      expect(mockClaimSecondary).toHaveBeenCalledOnce()
+      expect(mockClaimSecondary.mock.lastCall?.[1]).toBe(owner)
+      expect(mockReleaseSecondary).not.toHaveBeenCalled()
+    }
+    renderer.unmount()
+    expect(mockReleaseSecondary).toHaveBeenCalledOnce()
   })
 
   it.each(["full", "non-thread"] as const)("starts no parent resources for a ready %s target", (kind) => {
