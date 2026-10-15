@@ -908,7 +908,7 @@ let caseJourneyFailure2Present = false
     await expect(sticker.locator("time")).toHaveCount(3)
     const markedMessageBody = sticker.locator("p").filter({ hasText: `Long marked task ${suffix}` })
     await expect(markedMessageBody).toHaveText(`Long marked task ${suffix} ${"with enough detail to require a second line ".repeat(5).trim()}`)
-    await expect(markedMessageBody.locator("strong")).toHaveText(`Long marked task ${suffix}`)
+    await expect(markedMessageBody.locator('[data-streamdown="strong"]')).toHaveText(`Long marked task ${suffix}`)
     await expect(markedMessageBody).toHaveCSS("-webkit-line-clamp", "none")
     expect(ownerMarkRequests.length).toBeGreaterThan(0)
     machine.socket.send(JSON.stringify({ type: "agent_activity", agentId: botId, state: "running" }))
@@ -1326,10 +1326,16 @@ for (const scenario of ["same-day", "cross-day"] as const) {
           expect(url.searchParams.get("beforeId")).toBe(cursor.id)
           expect(url.searchParams.get("beforeCreatedAt")).toBe(cursor.createdAt)
           const before = await activityAnchorSnapshot(scroller)
+          expect(Math.abs(before.scrollTop - target), "physical target at retained snapshot").toBeLessThanOrEqual(1)
           expect(before.overflowAnchor).toBe("none")
           const anchor = before.events.find(event => event.top >= 32 && event.bottom <= before.clientHeight)
           expect(anchor).toBeDefined()
           await attachPageScreenshot(testInfo, `activity-anchor-${scenario}-${width}-before-page-${index + 1}`, page)
+          const atRelease = await activityAnchorSnapshot(scroller)
+          expect(Math.abs(atRelease.scrollTop - target), "physical target at response release").toBeLessThanOrEqual(1)
+          const releaseAnchor = atRelease.events.find(event => event.id === anchor!.id)
+          expect(releaseAnchor).toBeDefined()
+          expect(Math.abs(releaseAnchor!.top - anchor!.top), "named event at response release").toBeLessThanOrEqual(1)
           const [response] = await Promise.all([
             page.waitForResponse(value => value.url() === pending.url && value.request().method() === "GET"),
             Promise.resolve().then(() => pending.release()),
@@ -1353,7 +1359,7 @@ for (const scenario of ["same-day", "cross-day"] as const) {
             expect(gate.entries).toHaveLength(index + 1)
           } finally {
             await testInfo.attach(`activity-anchor-${scenario}-${width}-page-${index + 1}`, {
-              body: JSON.stringify({ scenario, width, target, anchor, request: pending.url, returnedIds: body.events.map(event => event.id), before, after: await activityAnchorSnapshot(scroller), olderRequestCount: gate.entries.length }),
+              body: JSON.stringify({ scenario, width, target, anchor, request: pending.url, returnedIds: body.events.map(event => event.id), before, atRelease, after: await activityAnchorSnapshot(scroller), olderRequestCount: gate.entries.length }),
               contentType: "application/json",
             })
             await attachPageScreenshot(testInfo, `activity-anchor-${scenario}-${width}-page-${index + 1}`, page)
@@ -1411,6 +1417,12 @@ for (const width of [1280, 390] as const) {
         const url = new URL(pending.url)
         expect(url.searchParams.get("beforeId")).toBe(cursor.id)
         expect(url.searchParams.get("beforeCreatedAt")).toBe(cursor.createdAt)
+        const atRelease = await activityAnchorSnapshot(scroller)
+        steps.push({ phase: `before-error-release-${index + 1}`, snapshot: atRelease })
+        expect(atRelease.scrollTop, "physical target before injected error").toBe(0)
+        const releaseAnchor = atRelease.events.find(event => event.id === anchor.id)
+        expect(releaseAnchor).toBeDefined()
+        expect(Math.abs(releaseAnchor!.top - anchor.top)).toBeLessThanOrEqual(1)
         const [response] = await Promise.all([
           page.waitForResponse(value => value.url() === pending.url),
           Promise.resolve().then(() => pending.release(503)),
@@ -1430,6 +1442,11 @@ for (const width of [1280, 390] as const) {
       await expect.poll(() => gate!.entries.length).toBe(3)
       expect(gate.entries[2].url).toBe(gate.entries[0].url)
       const beforeRecovery = await activityAnchorSnapshot(scroller)
+      steps.push({ phase: "before-recovery-release", snapshot: beforeRecovery })
+      expect(beforeRecovery.scrollTop, "physical target before recovery").toBe(0)
+      const recoveryAnchor = beforeRecovery.events.find(event => event.id === anchor.id)
+      expect(recoveryAnchor).toBeDefined()
+      expect(Math.abs(recoveryAnchor!.top - anchor.top)).toBeLessThanOrEqual(1)
       const [recovered] = await Promise.all([
         page.waitForResponse(value => value.url() === gate!.entries[2].url && value.status() === 200),
         Promise.resolve().then(() => gate!.entries[2].release()),
